@@ -392,7 +392,7 @@ for both CPU and GPU execution.
 
 A conceptual diagram of the architecture is as follows:
 
-```null
+```text
 +--------------------------------+
 
 | Application / User |
@@ -569,40 +569,38 @@ stable, language-agnostic contract.
    operations a data source must provide. It also includes versioning and
    capability fields to ensure compatibility and enable feature discovery.
 
-C
+    ```c
+    // In a shared C header or Rust module
+    #[repr(C)]
+    pub struct chutoro_v1 {
+        pub abi_version: u32, // e.g., 1
+        pub caps: u32,        // Bitflags: HAS_BATCH, HAS_DEVICE_VIEW, etc.
+        pub state: *mut std::ffi::c_void, // Opaque pointer to plugin's internal state
+    
+        // Function pointers for the data source API
+        pub len: unsafe extern "C" fn(state: *const std::ffi::c_void) -> usize,
+        pub name: unsafe extern "C" fn(state: *const std::ffi::c_void) -> *const std::os::raw::c_char,
+        pub distance: unsafe extern "C" fn(state: *const std::ffi::c_void, idx1: usize, idx2: usize) -> f32,
+    
+        // Optional, for high-performance providers
+        pub distance_batch: Option<unsafe extern "C" fn(
+            state: *const std::ffi::c_void,
+            pairs: *const (usize, usize),
+            out: *mut f32,
+            n: usize,
+        )>,
+    }
+    
+    ```
 
-```null
-// In a shared C header or Rust module
-#[repr(C)]
-pub struct chutoro_v1 {
-    pub abi_version: u32, // e.g., 1
-    pub caps: u32,        // Bitflags: HAS_BATCH, HAS_DEVICE_VIEW, etc.
-    pub state: *mut std::ffi::c_void, // Opaque pointer to plugin's internal state
-
-    // Function pointers for the data source API
-    pub len: unsafe extern "C" fn(state: *const std::ffi::c_void) -> usize,
-    pub name: unsafe extern "C" fn(state: *const std::ffi::c_void) -> *const std::os::raw::c_char,
-    pub distance: unsafe extern "C" fn(state: *const std::ffi::c_void, idx1: usize, idx2: usize) -> f32,
-
-    // Optional, for high-performance providers
-    pub distance_batch: Option<unsafe extern "C" fn(
-        state: *const std::ffi::c_void,
-        pairs: *const (usize, usize),
-        out: *mut f32,
-        n: usize,
-    )>,
-}
-
-```
-
-1. **The Plugin Implementation:** A plugin author implements their data source
+2. **The Plugin Implementation:** A plugin author implements their data source
    logic in a standard Rust struct. They then expose a single, C-compatible
    function (e.g., `_plugin_create`) with a known name. This function allocates
    the plugin's state struct on the heap, populates an instance of the
    `chutoro_v1` v-table with pointers to C-compatible wrapper functions, and
    returns the v-table struct to the host. The `state` field will hold the
    pointer to the plugin's Rust object.
-2. **The Host Loading Mechanism:** The main application's Plugin Manager uses
+3. **The Host Loading Mechanism:** The main application's Plugin Manager uses
    `libloading` to load a dynamic library and resolve the `_plugin_create`
    symbol.33 It calls this function to get the
 
@@ -703,6 +701,40 @@ lock, improving concurrency.
   the parallel MST construction is complete. The required data structures, such
   as a disjoint-set for condensing the tree, are readily available in the Rust
   ecosystem.
+
+#### 6.3. SIMD utilisation
+
+- **Distance kernels (biggest win):** Add a CPU backend that takes contiguous
+  structure-of-arrays views of point data and computes distances with
+  `std::simd`. Provide `#[target_feature]` specialisations for AVX2 and AVX-512
+  on x86, falling back to scalar per pair where metrics are not vectorisable.
+  Make `distance_batch` the default path for HNSW candidate scoring on CPU:
+  collect candidate pairs in chunks sized to the SIMD width, evaluate with
+  fused multiply-adds and vector reductions, and exploit the plugin v-table’s
+  `distance_batch` hook in the core.
+- **HNSW search/insert heuristics:** When evaluating neighbours at a level,
+  operate on packed indices and a structure-of-arrays layout of coordinates.
+  Prefetch upcoming blocks to hide latency. Compute scores in SIMD blocks
+  outside the write lock while keeping graph topology updates under the lock.
+- **Parallel Kruskal phase:** Keep the global sort in Rayon, but vectorise the
+  edge-weight transform and scan or filter candidate edges before the
+  union-find stage. Union-find itself remains branchy; focus SIMD effort on the
+  pre-filter and maintain cache-friendly structure-of-arrays parent and rank
+  arrays.
+- **Data layout preconditions:** Introduce an internal `DensePointView<'a>` for
+  providers advertising dense numeric data. Guarantee 32- or 64-byte alignment,
+  stride-1 access, and structure-of-arrays packing to enable predictable vector
+  loads. Retain a scalar fallback via the existing trait.
+- **Compile-time feature flags and dispatch:** Add `simd_avx2`, `simd_avx512`,
+  and `simd_neon` features. Use CPUID-gated function pointers for one-time
+  runtime dispatch to avoid monomorph blow-ups while keeping hot loops
+  specialised.
+- **Testing and performance hygiene:** Ship microbenchmarks for Euclidean and
+  cosine kernels (scalar, auto-vectorised, portable-simd, AVX2/512),
+  neighbour-set scoring at varying candidate sizes, and batched
+  `distance_batch` versus scalar `distance`. Validate that SIMD wins persist
+  under realistic HNSW candidate distributions by bucketing and padding to lane
+  multiples.
 
 ## Part III: GPU Acceleration Strategy
 
@@ -939,9 +971,7 @@ the internal complexity of the CPU/GPU execution paths from the end-user.
 
 A builder pattern will be used to configure the clustering algorithm.
 
-Rust
-
-```null
+```rust
 use crate::datasource::DataSource;
 use crate::result::ClusteringResult;
 
@@ -996,9 +1026,7 @@ impl Chutoro {
 This is the public trait that all data provider plugins must implement. It is
 designed to be forward-compatible to support high-throughput GPU operations.
 
-Rust
-
-```null
+```rust
 /// A trait for providing data to the clustering algorithm.
 pub trait DataSource {
     /// Returns the total number of items in the data source.
@@ -1032,9 +1060,7 @@ Plugins will be defined using the stable C-ABI v-table approach described in
 Section 5.3. A plugin author will implement the `DataSource` trait and then
 expose a C function that provides the host with a populated v-table struct.
 
-Rust
-
-```null
+```rust
 // In the plugin author's crate (e.g., my_csv_plugin/src/lib.rs)
 
 // 1. Define the struct and implement the DataSource trait.

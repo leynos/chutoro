@@ -59,8 +59,20 @@ ______________________________________________________________________
   record footprints vs `M∈{8,12,16,24}`. (See §1.3)
 - [ ] Implement memory guards (`--max-bytes`) and clear failure messages. (See
   §5)
-- [ ] Optimise hot loops (SIMD, cache of norms, small‑vecs) guided by profiles.
-  (See §6.1)
+- [ ] Add CPU distance kernels using `std::simd` with AVX2/AVX-512
+  specialisations; make `distance_batch` the default HNSW scoring path. (See
+  §6.3)
+- [ ] Restructure HNSW neighbour evaluation to use packed indices and an SoA
+  layout, prefetching blocks and scoring outside the write lock. (See §6.3)
+- [ ] Vectorise edge-weight transforms and candidate filtering before
+  union-find in parallel Kruskal; keep union-find cache-friendly. (See §6.3)
+- [ ] Introduce `DensePointView<'a>` for aligned SoA access with a scalar
+  fallback. (See §6.3)
+- [ ] Gate SIMD backends behind `simd_avx2`, `simd_avx512`, and `simd_neon`
+  features with CPUID runtime dispatch. (See §6.3)
+- [ ] Benchmark Euclidean/cosine kernels, neighbour scoring, and batched
+  `distance_batch` versus scalar `distance`; bucket candidate sizes to confirm
+  SIMD gains. (See §6.3, §11)
 
 **Exit criteria:** stable baseline numbers to compare against GPU phases;
 documented CPU hot spots.
@@ -169,8 +181,6 @@ ______________________________________________________________________
 
 ## Phase 9 — Hardening & Nice‑to‑Haves (Post‑v0.1)
 
-- [ ] Add SIMD/AVX distance kernels on CPU and optional SoA transpose on device
-  for coalesced loads. (See §9.1)
 - [ ] Parallelise parts of hierarchy extraction if profiling justifies. (See
   §8.3)
 - [ ] Add metrics/telemetry hooks (timings, memory) behind a feature flag. (See
@@ -180,3 +190,43 @@ ______________________________________________________________________
 
 **Exit criteria:** measurable incremental gains; stable ABI story; clean
 telemetry for future tuning.
+
+______________________________________________________________________
+______________________________________________________________________
+
+## Benchmark dataset suite
+
+| Scale          | Dataset                  | Size / Dim.                                 | Labels / “clusters”                    | Why it’s useful                                                                                                         |
+| -------------- | ------------------------ | ------------------------------------------: | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Toy–Small      | `make_blobs` (synthetic) | configurable                                | exact cluster IDs                      | Sanity-check end-to-end behaviour; control separation, anisotropy, imbalance, and noise.                                |
+| Small          | MNIST digits             | 70k × 784                                   | 10 classes                             | Easy, well-behaved baseline for Euclidean space; also available prepackaged for ANN-Benchmarks.                         |
+| Small          | Fashion-MNIST            | 70k × 784                                   | 10 classes                             | Slightly harder clusters than MNIST; drop-in replacement; HDF5 splits exist in ANN-Benchmarks.                          |
+| Small–Medium   | CIFAR-10 / CIFAR-100     | 60k × 3×32×32                               | 10 / 100 classes                       | Labels let you test both “coarse” and “fine” cluster granularity; embed with a fixed CNN to get vectors.                |
+| Medium         | 20 Newsgroups            | 18,846 docs                                 | 20 topics                              | Text with clear topic labels; create vectors (e.g., TF-IDF, SBERT) then test cluster recovery.                          |
+| Medium–Large   | RCV1-v2                  | 804,414 docs, 103 topics                    | multilabel topics                      | Large, messy, real text; multilabel lets you probe overlapping clusters; scikit-learn fetcher provides canonical split. |
+| Medium         | SNAP com-Amazon          | 334,863 nodes                               | product categories = communities       | Real graph with ground-truth communities for community/cluster evaluation after k-NN graph build.                       |
+| Medium         | SNAP com-DBLP            | 317,080 nodes                               | venue-based communities                | Overlapping scientific communities; good stress for cluster quality on graph structures.                                |
+| Medium (bio)   | PBMC 68k (10x Genomics)  | ~68k cells, ≫10k genes → 50d (PCA)          | cell-type labels                       | Classic scRNA-seq clustering benchmark with annotated cell types; strong test for high-dimensional distances.           |
+| Large (ANN)    | GloVe word vectors       | 1.18M × {25,50,100,200}                     | none (but lexical categories possible) | Covers angular distance regimes; turnkey HDF5 in ANN-Benchmarks.                                                        |
+| Large (ANN)    | SIFT1M                   | 1,000,000 × 128                             | nn ground truth (no classes)           | De-facto Euclidean ANN baseline with exact k-NN ground truth; great for graph/MST quality via k-NN recall.              |
+| Large (ANN)    | GIST1M                   | 1,000,000 × 960                             | nn ground truth                        | Very high-dimensional Euclidean stress test; in ANN-Benchmarks.                                                         |
+| XL–Billion     | DEEP1B / BigANN          | up to 1B × 96 (Deep1B) / 128 (SIFT BigANN)  | nn ground truth                        | For scale limits, memory pressure, sharding; official subsets (1M/10M/100M) and GT available.                           |
+
+### How to use them (minimal ceremony)
+
+- **With labels (MNIST/Fashion-MNIST/CIFAR/20NG/RCV1/SNAP/PBMC):** build your
+  k-NN/HNSW, run your MST/clusterer, and score with NMI/ARI vs. labels; also
+  report k-NN recall@k vs. exact neighbours to measure graph fidelity.
+- **Without labels (SIFT/GIST/GloVe/DEEP1B):** rely on provided **exact
+  neighbour ground truth** for recall@{1,10,100} and report graph metrics
+  (conductance, connected-component purity) as proxies for cluster “shape.”
+  ANN-Benchmarks HDF5 packs standardise splits and GT.
+
+### Practical picks by “benchmark tier”
+
+- **Smoke tests (minutes):** `make_blobs` (varied separation),
+  MNIST/Fashion-MNIST.
+- **Serious CPU micro/macro (hours):** 20 Newsgroups, RCV1-v2,
+  SNAP com-Amazon/com-DBLP, SIFT1M.
+- **Scale & memory (days):** GIST1M, GloVe-200d, DEEP10M/100M, and—if you want
+  pain—DEEP1B/BigANN.
