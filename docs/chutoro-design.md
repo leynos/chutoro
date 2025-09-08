@@ -570,28 +570,36 @@ stable, language-agnostic contract.
    operations a data source must provide. It also includes versioning and
    capability fields to ensure compatibility and enable feature discovery.
 
-    ```c
-    // In a shared C header or Rust module
+    ```rust
+    // In a shared Rust module (repr C v-table shared with plugins)
     #[repr(C)]
     pub struct chutoro_v1 {
         pub abi_version: u32, // e.g., 1
         pub caps: u32,        // Bitflags: HAS_DISTANCE_BATCH, HAS_DEVICE_VIEW, HAS_NATIVE_KERNELS
         pub state: *mut std::ffi::c_void, // Opaque pointer to plugin's internal state
-    
+
         // Function pointers for the data source API
         pub len: unsafe extern "C" fn(state: *const std::ffi::c_void) -> usize,
         pub name: unsafe extern "C" fn(state: *const std::ffi::c_void) -> *const std::os::raw::c_char,
         pub distance: unsafe extern "C" fn(state: *const std::ffi::c_void, idx1: usize, idx2: usize) -> f32,
-    
+
         // Optional, for high-performance providers
         pub distance_batch: Option<unsafe extern "C" fn(
             state: *const std::ffi::c_void,
-            pairs: *const (usize, usize),
+            pairs: *const Pair,
             out: *mut f32,
             n: usize,
         )>,
+        // Required: plugin-controlled teardown of `state`
+        pub destroy: unsafe extern "C" fn(state: *mut std::ffi::c_void),
     }
-    
+
+    #[repr(C)]
+    pub struct Pair {
+        pub i: usize,
+        pub j: usize,
+    }
+
     ```
 
 2. **The Plugin Implementation:** A plugin author implements their data source
@@ -605,14 +613,17 @@ stable, language-agnostic contract.
    `libloading` to load a dynamic library and resolve the `_plugin_create`
    symbol.[^33] It calls this function to get the
 
-`chutoro_v1` struct. The host checks the `abi_version` to ensure compatibility.
+`chutoro_v1` struct. The host checks the `abi_version` to ensure compatibility
+and, on teardown, must call `vtable.destroy(vtable.state)` exactly once to
+release plugin state.
 
 1. **Safe Abstraction in the Host:** After receiving the v-table, the host
    wraps it in a safe Rust struct that implements the internal `DataSource`
    trait. Calls to the trait methods on this wrapper will internally delegate
    to the function pointers in the C struct, passing the opaque `state` pointer
-   as the first argument. This design confines all `unsafe` FFI calls to this
-   single wrapper, providing a safe and ergonomic interface to the rest of the
+   as the first argument. On `Drop`, it invokes `destroy(vtable.state)` to free
+   plugin resources. This design confines all `unsafe` FFI calls to this single
+   wrapper, providing a safe and ergonomic interface to the rest of the
    application while completely avoiding any reliance on Rust's unstable trait
    object layout across the FFI boundary. Crucially, once this small, `unsafe`
    boundary is crossed and safely encapsulated, all subsequent interactions
@@ -706,15 +717,13 @@ lock, improving concurrency.
 #### 6.3. SIMD utilization
 
 - **Distance kernels (biggest win):** Add a CPU backend that takes contiguous
-  structure-of-arrays views of point data aligned to 64-byte boundaries and
-  padded to SIMD-lane multiples with zero-filled tails. Compute distances with
-  `std::simd`, replacing NaNs and other non-finite values with `f32::INFINITY`
-  before fused multiply-adds and reductions. Provide `#[target_feature]`
-  specializations for AVX2 and AVX-512 on x86, falling back to scalar per pair
-  where metrics are not vectorizable. Make `distance_batch` the default path
-  for HNSW candidate scoring on CPU: collect candidate pairs in chunks sized to
-  the SIMD width, evaluate with fused multiply-adds and vector reductions, and
-  exploit the plugin v-table’s `distance_batch` hook in the core.
+structure-of-arrays views of point data and computes distances with `std::simd`
+across lanes. Provide `#[target_feature]` specializations for AVX2 and AVX-512
+on x86, falling back to scalar per pair where metrics are not vectorizable.
+Make `distance_batch` the default path for HNSW candidate scoring on CPU:
+collect candidate pairs in chunks sized to the SIMD width and evaluate with
+fused multiply-adds and vector reductions, exploiting the plugin v-table’s
+`distance_batch` hook in the core.
 - **HNSW search/insert heuristics:** When evaluating neighbours at a level,
   operate on packed indices and a structure-of-arrays layout of coordinates.
   Prefetch upcoming blocks to hide latency. Compute scores in SIMD blocks
@@ -725,10 +734,15 @@ lock, improving concurrency.
   pre-filter and maintain cache-friendly structure-of-arrays parent and rank
   arrays.
 - **Data layout preconditions:** Introduce an internal `DensePointView<'a>` for
-  providers advertising dense numeric data. Guarantee 64-byte alignment,
-  stride-1 access, structure-of-arrays packing, and padding to SIMD-lane
-  multiples with zeroed tails to enable predictable vector loads. Retain a
-  scalar fallback via the existing trait.
+providers advertising dense numeric data. Guarantee 64-byte alignment, stride-1
+access, structure-of-arrays packing, and dimensions padded to SIMD-lane
+multiples to enable predictable vector loads. Retain a scalar fallback via the
+existing trait.
+- **Tail-lane handling:** Zero-pad or mask incomplete lanes; forbid reading
+past bounds. Providers must expose padded dimensions or supply per-kernel masks
+to guarantee deterministic reductions.
+- **NaN and non-finite semantics:** Replace any NaN or ±∞ inputs with
+`f32::INFINITY` before reductions to keep CPU and GPU paths consistent.
 - **Compile-time feature flags and dispatch:** Add `simd_avx2`,
   `simd_avx512`, and `simd_neon` features. Detect CPU capabilities once using
   `is_x86_feature_detected!` or platform equivalents and patch function
@@ -760,6 +774,8 @@ sequenceDiagram
   end
   DS-->>HNSW: distances[]
   HNSW->>HNSW: neighbour evaluation + filtering (SoA layout)
+  %% Note: CPUID/feature detection and function-pointer dispatch occur once during
+  %% initialization; kernel call-sites remain branch-free.
 ```
 
 _Figure 1: SIMD-backed candidate scoring with scalar fallback._
@@ -1171,6 +1187,7 @@ expose a C function that provides the host with a populated v-table struct.
 
 ```rust
 // In the plugin author's crate (e.g., my_csv_plugin/src/lib.rs)
+use std::ffi::{c_void, CString};
 
 // 1. Define the struct and implement the DataSource trait.
 struct MyCsvDataSource { /*... */ }
@@ -1185,9 +1202,10 @@ unsafe extern "C" fn csv_len(state: *const c_void) -> usize {
     let source = &*(state as *const MyCsvDataSource);
     source.len()
 }
-unsafe extern "C" fn csv_name(state: *const c_void) -> *const std::os::raw::c_char {
-    let source = &*(state as *const MyCsvDataSource);
-    source.name_c_str_ptr() // ensure a stable C string lifetime
+unsafe extern "C" fn csv_name(_state: *const c_void) -> *const std::os::raw::c_char {
+    // Return pointer stable for the plugin's lifetime (store CString in state in real code).
+    static NAME: &str = "my_csv";
+    CString::new(NAME).unwrap().into_raw()
 }
 unsafe extern "C" fn csv_destroy(state: *mut c_void) {
     if !state.is_null() {
