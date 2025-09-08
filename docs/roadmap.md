@@ -196,26 +196,36 @@ ______________________________________________________________________
 
 ## Benchmark dataset suite
 
-| Scale          | Dataset                  | Size / Dim.                                 | Labels / “clusters”                    | Why it’s useful                                                                                                         |
-| -------------- | ------------------------ | ------------------------------------------: | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Toy–Small      | `make_blobs` (synthetic) | configurable                                | exact cluster IDs                      | Sanity-check end-to-end behaviour; control separation, anisotropy, imbalance, and noise.                                |
-| Small          | MNIST digits             | 70k × 784                                   | 10 classes                             | Easy, well-behaved baseline for Euclidean space; also available prepackaged for ANN-Benchmarks.                         |
-| Small          | Fashion-MNIST            | 70k × 784                                   | 10 classes                             | Slightly harder clusters than MNIST; drop-in replacement; HDF5 splits exist in ANN-Benchmarks.                          |
-| Small–Medium   | CIFAR-10 / CIFAR-100     | 60k × 3×32×32                               | 10 / 100 classes                       | Labels let you test both “coarse” and “fine” cluster granularity; embed with a fixed CNN to get vectors.                |
-| Medium         | 20 Newsgroups            | 18,846 docs                                 | 20 topics                              | Text with clear topic labels; create vectors (e.g., TF-IDF, SBERT) then test cluster recovery.                          |
-| Medium–Large   | RCV1-v2                  | 804,414 docs, 103 topics                    | multilabel topics                      | Large, messy, real text; multilabel lets you probe overlapping clusters; scikit-learn fetcher provides canonical split. |
-| Medium         | SNAP com-Amazon          | 334,863 nodes                               | product categories = communities       | Real graph with ground-truth communities for community/cluster evaluation after k-NN graph build.                       |
-| Medium         | SNAP com-DBLP            | 317,080 nodes                               | venue-based communities                | Overlapping scientific communities; good stress for cluster quality on graph structures.                                |
-| Medium (bio)   | PBMC 68k (10x Genomics)  | ~68k cells, ≫10k genes → 50d (PCA)          | cell-type labels                       | Classic scRNA-seq clustering benchmark with annotated cell types; strong test for high-dimensional distances.           |
-| Large (ANN)    | GloVe word vectors       | 1.18M × {25,50,100,200}                     | none (but lexical categories possible) | Covers angular distance regimes; turnkey HDF5 in ANN-Benchmarks.                                                        |
-| Large (ANN)    | SIFT1M                   | 1,000,000 × 128                             | nn ground truth (no classes)           | De-facto Euclidean ANN baseline with exact k-NN ground truth; great for graph/MST quality via k-NN recall.              |
-| Large (ANN)    | GIST1M                   | 1,000,000 × 960                             | nn ground truth                        | Very high-dimensional Euclidean stress test; in ANN-Benchmarks.                                                         |
-| XL–Billion     | DEEP1B / BigANN          | up to 1B × 96 (Deep1B) / 128 (SIFT BigANN)  | nn ground truth                        | For scale limits, memory pressure, sharding; official subsets (1M/10M/100M) and GT available.                           |
+| Scale          | Dataset                  | Size / Dim.                                 | Labels / “clusters”                    | Why it’s useful                                                                                                          |
+| -------------- | ------------------------ | ------------------------------------------: | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Toy–Small      | `make_blobs` (synthetic) | configurable                                | exact cluster IDs                      | Sanity-check end-to-end behaviour; control separation, anisotropy, imbalance, and noise.                                 |
+| Small          | MNIST digits             | 70k × 784                                   | 10 classes                             | Easy, well-behaved baseline for Euclidean space; also available prepackaged for ANN-Benchmarks.                          |
+| Small          | Fashion-MNIST            | 70k × 784                                   | 10 classes                             | Slightly harder clusters than MNIST; drop-in replacement; HDF5 splits exist in ANN-Benchmarks.                           |
+| Small–Medium   | CIFAR-10 / CIFAR-100     | 60k × 3×32×32                               | 10 / 100 classes                       | Labels enable testing both “coarse” and “fine” cluster granularity; embedding via a fixed CNN yields vectors.            |
+| Medium–Large   | RCV1-v2                  | 804,414 docs, 103 topics                    | multilabel topics                      | Large, messy, real text; multilabel enables probing overlapping clusters; scikit-learn fetcher provides canonical split. |
+| Medium (bio)   | PBMC 68k (10x Genomics)  | ~68k cells, ≫10k genes → 50d (PCA)          | cell-type labels                       | Classic scRNA-seq clustering benchmark with annotated cell types; strong test for high-dimensional distances.            |
+| Large (ANN)    | GloVe word vectors       | 1.18M × {25,50,100,200}                     | none (but lexical categories possible) | Covers angular distance regimes; turnkey HDF5 in ANN-Benchmarks.                                                         |
+| Large (ANN)    | SIFT1M                   | 1,000,000 × 128                             | nn ground truth (no classes)           | De-facto Euclidean ANN baseline with exact k-NN ground truth; great for graph/MST quality via k-NN recall.               |
+| Large (ANN)    | GIST1M                   | 1,000,000 × 960                             | nn ground truth                        | Very high-dimensional Euclidean stress test; in ANN-Benchmarks.                                                          |
+| XL–Billion     | DEEP1B / BigANN          | up to 1B × 96 (Deep1B) / 128 (SIFT BigANN)  | nn ground truth                        | For scale limits, memory pressure, sharding; official subsets (1M/10M/100M) and GT available.                            |
+
+Provenance notes:
+
+- `make_blobs`: BSD-3 via scikit-learn.[^blob]
+- MNIST digits: Yann LeCun; permissive distribution.[^mnist]
+- Fashion-MNIST: MIT licence from Zalando.[^fashion]
+- CIFAR-10/100: MIT licence; provided by Krizhevsky et al.[^cifar]
+- 20 Newsgroups: by Ken Lang; available via scikit-learn fetcher.[^20ng]
+- RCV1-v2: Reuters licence; fetched with scikit-learn.[^rcv1]
+- SNAP com-Amazon/com-DBLP: Stanford SNAP datasets under CC BY-SA.[^snap]
+- PBMC 68k: 10x Genomics, CC BY 4.0.[^pbmc]
+- GloVe word vectors: Stanford NLP, public domain.[^glove]
+- SIFT1M, GIST1M, DEEP1B/BigANN: ANN-Benchmarks HDF5 packages.[^ann]
 
 ### How to use them (minimal ceremony)
 
-- **With labels (MNIST/Fashion-MNIST/CIFAR/20NG/RCV1/SNAP/PBMC):** build your
-  k-NN/HNSW, run your MST/clusterer, and score with NMI/ARI vs. labels; also
+- **With labels (MNIST/Fashion-MNIST/CIFAR/20NG/RCV1/SNAP/PBMC):** build
+  k-NN/HNSW, run the MST/clusterer, and score with NMI/ARI vs. labels; also
   report k-NN recall@k vs. exact neighbours to measure graph fidelity.
 - **Without labels (SIFT/GIST/GloVe/DEEP1B):** rely on provided **exact
   neighbour ground truth** for recall@{1,10,100} and report graph metrics
@@ -228,5 +238,19 @@ ______________________________________________________________________
   MNIST/Fashion-MNIST.
 - **Serious CPU micro/macro (hours):** 20 Newsgroups, RCV1-v2,
   SNAP com-Amazon/com-DBLP, SIFT1M.
-- **Scale & memory (days):** GIST1M, GloVe-200d, DEEP10M/100M, and—if you want
-  pain—DEEP1B/BigANN.
+- **Scale & memory (days):** GIST1M, GloVe-200d, DEEP10M/100M, and
+  DEEP1B/BigANN for the most demanding scale.
+
+[^blob]: scikit-learn — make_blobs —
+         <https://scikit-learn.org/stable/modules/generated/sklearn.datasets.make_blobs.html>
+[^mnist]: MNIST database — <http://yann.lecun.com/exdb/mnist/>
+[^fashion]: Fashion-MNIST — <https://github.com/zalandoresearch/fashion-mnist>
+[^cifar]: CIFAR-10/100 — <https://www.cs.toronto.edu/~kriz/cifar.html>
+[^20ng]: 20 Newsgroups —
+         <https://scikit-learn.org/stable/datasets/real_world.html#newsgroups-dataset>
+[^rcv1]: RCV1-v2 — <https://scikit-learn.org/stable/datasets/rcv1.html>
+[^snap]: SNAP datasets — <https://snap.stanford.edu/data/>
+[^pbmc]: PBMC 68k —
+         <https://support.10xgenomics.com/single-cell-gene-expression/datasets>
+[^glove]: GloVe vectors — <https://nlp.stanford.edu/projects/glove/>
+[^ann]: ANN-Benchmarks datasets — <https://github.com/erikbern/ann-benchmarks>

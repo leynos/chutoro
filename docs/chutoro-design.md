@@ -32,46 +32,46 @@ The evolution of density-based clustering algorithms reveals a clear trajectory
 toward greater flexibility and scalability. The journey begins with DBSCAN
 (Density-Based Spatial Clustering of Applications with Noise), a seminal
 algorithm that introduced the powerful concept of identifying clusters as dense
-regions of points separated by sparser regions.1 Its primary strengths are its
-ability to discover clusters of arbitrary shape and its inherent notion of
-noise, allowing it to robustly handle outliers.3 However, DBSCAN's
+regions of points separated by sparser regions.[^1] Its primary strengths are
+its ability to discover clusters of arbitrary shape and its inherent notion of
+noise, allowing it to robustly handle outliers.[^3] However, DBSCAN's
 effectiveness is critically dependent on two user-defined parameters:
 
-`eps`, the neighborhood radius, and `minPts`, the minimum number of points
+`eps`, the neighbourhood radius, and `minPts`, the minimum number of points
 required to form a dense region. The `eps` parameter is particularly
 problematic, as a single global value is often insufficient to capture clusters
-of varying densities within the same dataset.5
+of varying densities within the same dataset.[^5]
 
 HDBSCAN (Hierarchical Density-Based Spatial Clustering of Applications with
-Noise) was developed to address this fundamental limitation.6 By transforming
-the space based on density and building a hierarchy of clusters, HDBSCAN
-effectively converts the
+Noise) was developed to address this fundamental limitation.[^6] By
+transforming the space based on density and building a hierarchy of clusters,
+HDBSCAN effectively converts the
 
 `eps` parameter from a fixed distance threshold into a range of distances,
-allowing it to identify clusters with varying densities simultaneously.6 The
+allowing it to identify clusters with varying densities simultaneously.[^6] The
 algorithm constructs a minimum spanning tree (MST) of the data points and
 derives a rich cluster hierarchy from it. A stability measure is then applied
 to this hierarchy to extract a flat, optimal clustering without requiring the
-user to specify the number of clusters or a distance scale.5 The most robust
+user to specify the number of clusters or a distance scale.[^5] The most robust
 variant, HDBSCAN*, operates on the mutual reachability graph, but this comes at
 a significant computational cost. For arbitrary data types and distance
 functions where no specialized indexing structures exist (e.g., k-d trees for
 Euclidean distance), HDBSCAN* has a computational complexity of
 
 O(n2), stemming from the need to compute a large number of pairwise distances
-to build its core data structures.5 This quadratic complexity renders it
+to build its core data structures.[^5] This quadratic complexity renders it
 impractical for large-scale datasets.
 
 This is the precise problem that FISHDBC (Flexible, Incremental, Scalable,
-Hierarchical Density-Based Clustering) was designed to solve.8 FISHDBC is
+Hierarchical Density-Based Clustering) was designed to solve.[^8] FISHDBC is
 explicitly positioned as a scalable
 
-_approximation_ of HDBSCAN*.7 The core philosophy of FISHDBC is to accept a
+_approximation_ of HDBSCAN*.[^7] The core philosophy of FISHDBC is to accept a
 minor, controlled loss of accuracy in exchange for a massive gain in
 performance and scalability. It achieves this by fundamentally altering how the
 underlying graph structure is built, thereby avoiding the
 
-O(n2) bottleneck that plagues its predecessors in non-metric spaces.8 This
+O(n2) bottleneck that plagues its predecessors in non-metric spaces.[^8] This
 makes FISHDBC a powerful tool for modern data science, where datasets are often
 too large for traditional methods.
 
@@ -81,12 +81,12 @@ the quadratic complexity of HDBSCAN* originates from the need for an all-pairs
 (or near all-pairs) distance computation to construct the exact mutual
 reachability graph and, subsequently, the exact minimum spanning tree. FISHDBC
 replaces this computationally intractable step with a highly efficient
-approximate nearest neighbor (ANN) search. This is a deliberate and
+approximate nearest neighbour (ANN) search. This is a deliberate and
 well-reasoned engineering trade-off. By using an ANN method to find candidate
 edges for the MST, FISHDBC forgoes the guarantee of finding the mathematically
 perfect single-linkage hierarchy. In return, it achieves a complexity class
 (often near O(nlogn)) that makes density-based clustering feasible on a scale
-that was previously impossible for arbitrary distance metrics.8 This
+that was previously impossible for arbitrary distance metrics.[^8] This
 substitution demonstrates the crucial insight that an
 
 _approximate_ single-linkage hierarchy is often sufficient to produce
@@ -101,34 +101,34 @@ constructing a graph that approximates the single-linkage hierarchy of the
 data, while the final stage extracts clusters from this graph.
 
 1. **Pillar 1: Approximate Nearest Neighbor Search via HNSW:** The first and
-   most critical stage is the construction of an approximate nearest neighbor
-   graph using the Hierarchical Navigable Small World (HNSW) algorithm.12 HNSW
-   is a graph-based data structure that allows for extremely fast ANN queries.
-   Instead of computing all
+   most critical stage is the construction of an approximate nearest neighbour
+   graph using the Hierarchical Navigable Small World (HNSW) algorithm.[^12]
+   HNSW is a graph-based data structure that allows for extremely fast ANN
+   queries. Instead of computing all
 
 O(n2) pairwise distances, FISHDBC incrementally builds an HNSW graph. As each
 point is added to the HNSW structure, the algorithm performs a search to find
-its nearest neighbors. The distances computed during these limited searches are
-the only ones the algorithm considers.13 This process effectively generates a
-sparse set of candidate edges and their weights (distances) that are likely to
-be part of the true minimum spanning tree, while avoiding the vast majority of
-unnecessary distance calculations. This is the primary source of the
-algorithm's scalability and its approximative nature.12
+its nearest neighbours. The distances computed during these limited searches
+are the only ones the algorithm considers.[^13] This process effectively
+generates a sparse set of candidate edges and their weights (distances) that
+are likely to be part of the true minimum spanning tree, while avoiding the
+vast majority of unnecessary distance calculations. This is the primary source
+of the algorithm's scalability and its approximative nature.[^12]
 
 1. **Pillar 2: Minimum Spanning Tree (MST) Construction:** The candidate edges
    and distances discovered during the HNSW construction phase are used to
-   build a Minimum Spanning Tree (MST) over the entire dataset.8 An MST is a
+   build a Minimum Spanning Tree (MST) over the entire dataset.[^8] An MST is a
    subgraph that connects all vertices together with the minimum possible total
-   edge weight.13 In the context of clustering, the MST is a powerful structure
-   because it is equivalent to the dendrogram produced by single-linkage
-   hierarchical clustering. It represents the underlying connectivity and
-   density structure of the data in a compact and efficient format. By building
-   an MST from the sparse set of edges generated by HNSW, FISHDBC creates an
-   approximation of the true single-linkage hierarchy without the quadratic
-   cost.
+   edge weight.[^13] In the context of clustering, the MST is a powerful
+   structure because it is equivalent to the dendrogram produced by
+   single-linkage hierarchical clustering. It represents the underlying
+   connectivity and density structure of the data in a compact and efficient
+   format. By building an MST from the sparse set of edges generated by HNSW,
+   FISHDBC creates an approximation of the true single-linkage hierarchy
+   without the quadratic cost.
 2. **Pillar 3: Hierarchical Cluster Extraction:** The final stage of FISHDBC
-   mirrors the process used by HDBSCAN to extract clusters from the MST.6 The
-   edges of the MST are sorted in order of decreasing weight. The algorithm
+   mirrors the process used by HDBSCAN to extract clusters from the MST.[^6]
+   The edges of the MST are sorted in order of decreasing weight. The algorithm
    then conceptually removes edges one by one, from longest to shortest. Each
    edge removal has the potential to split a connected component into two,
    thereby creating a hierarchy of nested clusters. This process generates a
@@ -137,7 +137,7 @@ algorithm's scalability and its approximative nature.12
    persistence of clusters as the distance threshold (represented by the edge
    weights) changes. Clusters that exist over a wide range of distances are
    considered more "stable" and are selected for the final output, while
-   short-lived clusters are discarded.6 This allows the algorithm to
+   short-lived clusters are discarded.[^6] This allows the algorithm to
    automatically determine the best clusters without requiring user-defined
    thresholds.
 
@@ -148,37 +148,37 @@ properties that make it exceptionally well-suited for a wide range of
 real-world clustering tasks.
 
 - **Flexibility:** A standout feature of FISHDBC is its ability to work with
-  arbitrary data types and user-defined distance functions.8 Traditional
+  arbitrary data types and user-defined distance functions.[^8] Traditional
   clustering algorithms often require data to be represented as numerical
   feature vectors in a metric space. This forces domain experts to engage in a
   potentially lossy feature extraction process. FISHDBC bypasses this
   requirement. A user can provide a dataset of, for example, protein sequences
-  and a function that computes the Levenshtein distance between them.13 The
+  and a function that computes the Levenshtein distance between them.[^13] The
   algorithm will operate directly on this data, allowing domain knowledge to be
   encoded in the distance metric itself. This flexibility is significantly
   enhanced by Rust's powerful type system and compile-time safety guarantees.
   Unlike Python environments which often rely on C++ wrappers and can introduce
   runtime errors at the boundary, Rust allows for the creation of highly
   performant, user-defined distance functions that are verified by the
-  compiler, ensuring both safety and speed without compromise.8
+  compiler, ensuring both safety and speed without compromise.[^8]
 - **Incrementality:** The data structures at the core of FISHDBC—the HNSW graph
   and the MST—are amenable to efficient updates. When new data points arrive,
   they can be added to the existing HNSW graph and the MST can be updated with
   lightweight computations, rather than re-running the entire clustering
-  process from scratch.8 This makes FISHDBC an excellent candidate for
+  process from scratch.[^8] This makes FISHDBC an excellent candidate for
   streaming data applications, where clustering needs to be updated dynamically
   as new information becomes available.
 - **Scalability:** As previously discussed, scalability is the primary
   motivation behind FISHDBC. By leveraging HNSW to avoid the computation of a
   full distance matrix, the algorithm circumvents the O(n2) complexity that
-  limits other density-based methods in non-metric spaces.8 Experimental
+  limits other density-based methods in non-metric spaces.[^8] Experimental
   evidence shows that it can scale to millions of data items, making it a
-  viable tool for big data analytics.8
+  viable tool for big data analytics.[^8]
 
 ### 2. Survey of Parallel Clustering Techniques
 
 To design a high-performance implementation of FISHDBC, it is crucial to learn
-from existing parallelization efforts in the field of clustering. The
+from existing parallelisation efforts in the field of clustering. The
 literature provides valuable precedents for both multi-core CPU and many-core
 GPU architectures. A recurring theme is the decomposition of the problem into
 smaller, independently solvable parts, followed by a merge or reduction step.
@@ -187,14 +187,15 @@ smaller, independently solvable parts, followed by a merge or reduction step.
 
 A master's thesis by Edoardo Pastore presents a detailed parallel
 implementation of FISHDBC using Python's `multiprocessing` module, designed for
-shared-memory multi-core systems.13 This implementation serves as an invaluable
-case study, as it directly addresses the specific bottlenecks of the FISHDBC
-algorithm.
+shared-memory multi-core systems.[^13] This implementation serves as an
+invaluable case study, as it directly addresses the specific bottlenecks of the
+FISHDBC algorithm.
 
 Profiling of the sequential FISHDBC algorithm reveals two primary performance
 bottlenecks: the creation of the HNSW graph (specifically, the `add()`
 function, which is called for every point) and the subsequent computation of
-the MST.13 The parallel implementation focuses on accelerating these two stages.
+the MST.[^13] The parallel implementation focuses on accelerating these two
+stages.
 
 The architecture employs a multi-process model to circumvent Python's Global
 Interpreter Lock (GIL), which would otherwise prevent true parallelism in a
@@ -203,9 +204,9 @@ of mechanisms. Read-only data, such as the input dataset and the distance
 function, is shared efficiently using the `fork` system call's copy-on-write
 semantics. The HNSW graph, which must be read from and written to by all
 processes, is stored in shared memory buffers managed by
-`multiprocessing.shared_memory` and exposed as NumPy arrays.13
+`multiprocessing.shared_memory` and exposed as NumPy arrays.[^13]
 
-The parallelization strategy for HNSW involves partitioning the input data and
+The parallelisation strategy for HNSW involves partitioning the input data and
 assigning each partition to a worker process. These processes then concurrently
 call the `add()` function to insert their assigned points into the single,
 shared HNSW graph structure. A key design choice is the use of a **lock-free**
@@ -213,7 +214,7 @@ strategy for updating the shared arrays that represent the graph's adjacency
 lists and weights. This is justified by the inherently approximate nature of
 FISHDBC; the potential for rare race conditions is accepted as a trade-off for
 eliminating lock contention, with minimal observed impact on final clustering
-accuracy.13
+accuracy.[^13]
 
 For MST computation, the implementation adopts a "local-then-global" approach.
 Instead of having one process build the MST from the complete, globally
@@ -222,7 +223,7 @@ only the candidate edges it discovered while adding its partition of points.
 These smaller, local MSTs are then returned to the main process, which performs
 a final merge step using Kruskal's algorithm on the union of all edges from the
 local trees. This significantly reduces the workload of the final MST
-computation stage.13
+computation stage.[^13]
 
 #### 2.2. GPU Acceleration Strategies for Density-Based Clustering
 
@@ -231,43 +232,43 @@ them an ideal platform for accelerating clustering algorithms, which are often
 dominated by distance calculations and graph operations.
 
 Implementations of GPU-accelerated DBSCAN, such as G-DBSCAN, demonstrate the
-core principle: parallelize the neighborhood search (range query) step.15 This
-is typically achieved by having thousands of GPU threads concurrently compute
-distances. One common approach is to first construct a graph on the GPU where
-edges connect all points within the
+core principle: parallelise the neighbourhood search (range query) step.[^15]
+This is typically achieved by having thousands of GPU threads concurrently
+compute distances. One common approach is to first construct a graph on the GPU
+where edges connect all points within the
 
 `eps` radius. This graph construction is itself a parallel process where each
 pair of points can be evaluated independently. Once the graph is built, the
 connected components (which correspond to the clusters) can be found using
-parallel graph traversal algorithms like Breadth-First Search (BFS).17 The
-RAPIDS cuML library provides a highly optimized DBSCAN implementation that
-leverages this approach for significant speedups over CPU-based versions.18
+parallel graph traversal algorithms like Breadth-First Search (BFS).[^17] The
+RAPIDS cuML library provides a highly optimised DBSCAN implementation that
+leverages this approach for significant speedups over CPU-based versions.[^18]
 
 More advanced algorithms like HDBSCAN and OPTICS have also been successfully
-ported to GPUs. G-OPTICS, for instance, parallelizes the iterative computations
+ported to GPUs. G-OPTICS, for instance, parallelises the iterative computations
 required to build the reachability plot, achieving speedups of over 100x
-compared to optimized CPU versions.19 The RAPIDS cuML library also includes a
-GPU-accelerated HDBSCAN, which can perform the entire pipeline—from MST
-construction to hierarchy extraction—on the GPU.20 These examples confirm that
-the entire FISHDBC workflow is amenable to GPU acceleration, not just isolated
-components. The common thread is the exploitation of data parallelism: the
-ability to perform the same operation (like a distance calculation or a
-neighbor check) on many different data elements simultaneously, which is the
-architectural strength of the GPU.17
+compared to optimised CPU versions.[^19] The RAPIDS cuML library also includes
+a GPU-accelerated HDBSCAN, which can perform the entire pipeline—from MST
+construction to hierarchy extraction—on the GPU.[^20] These examples confirm
+that the entire FISHDBC workflow is amenable to GPU acceleration, not just
+isolated components. The common thread is the exploitation of data parallelism:
+the ability to perform the same operation (like a distance calculation or a
+neighbour check) on many different data elements simultaneously, which is the
+architectural strength of the GPU.[^17]
 
 The "local-then-global" pattern observed in the multi-process Python
 implementation of FISHDBC is not merely an artifact of that specific
 architecture; it is a manifestation of a more general and powerful parallel
 algorithmic paradigm. This divide-and-conquer strategy is fundamental to
 scaling graph algorithms where maintaining a consistent global state is
-computationally expensive or creates a synchronization bottleneck. Parallel
+computationally expensive or creates a synchronisation bottleneck. Parallel
 DBSCAN implementations on distributed clusters exhibit a similar pattern: data
 is partitioned across nodes, local clustering is performed independently on
 each node, and a final step merges the clusters across the partition
-boundaries.22 At a finer grain, many parallel MST algorithms, such as
+boundaries.[^22] At a finer grain, many parallel MST algorithms, such as
 Borůvka's, operate on the same principle. They begin with trivial local
 components (each vertex is its own MST) and iteratively merge them in parallel
-rounds.23 This recurring pattern—decompose the problem, solve subproblems in
+rounds.[^23] This recurring pattern—decompose the problem, solve subproblems in
 parallel with minimal communication, and perform a final merge or reduction—is
 a cornerstone of parallel algorithm design. This principle can be directly
 applied to a GPU implementation of FISHDBC. The dataset can be partitioned
@@ -289,65 +290,65 @@ The performance of the entire FISHDBC algorithm is heavily dependent on the
 efficiency of the HNSW implementation.
 
 - **CPU Implementations:** The canonical and most widely used implementation is
-  `hnswlib`, a highly optimized C++ library with Python bindings created by the
-  algorithm's author, Yury Malkov.25 It serves as the de facto performance
+  `hnswlib`, a highly optimised C++ library with Python bindings created by the
+  algorithm's author, Yury Malkov.[^25] It serves as the de facto performance
   benchmark for any new CPU-based implementation. Its design emphasizes speed
-  and efficient memory usage, making it the standard against which our Rust CPU
+  and efficient memory usage, making it the standard against which the Rust CPU
   module will be measured.
 - **GPU Implementations:** The `cuhnsw` library provides a direct CUDA
   implementation of HNSW, demonstrating the feasibility and benefits of porting
-  the algorithm to the GPU.26 The project's performance analysis yields
-  critical findings for our design. First, it confirms that building the HNSW
-  index on the GPU can be significantly faster (reportedly 8-9 times) than a
-  multi-threaded CPU implementation using
+  the algorithm to the GPU.[^26] The project's performance analysis yields
+  critical findings for the design. index on the GPU can be significantly
+  faster (reportedly 8-9 times) than a multi-threaded CPU implementation using
 
 `hnswlib`. Second, it highlights that GPU acceleration for the search phase is
 most effective when performed in batches (i.e., searching for the nearest
-neighbors of many query points simultaneously). This is because batching
-maximizes the parallelism and amortizes the overhead of kernel launches and
-memory transfers.26 This strongly validates the decision to develop a GPU path
-for the index-building phase of chutoro, as it is equivalent to a large batch
-insertion process.
+neighbours of many query points simultaneously). This is because batching
+maximises the parallelism and amortises the overhead of kernel launches and
+memory transfers.[^26] This strongly validates the decision to develop a GPU
+path for the index-building phase of chutoro, as it is equivalent to a large
+batch insertion process.
 
 #### 3.2. Minimum Spanning Tree Construction
 
 The choice of MST algorithm is critical, especially for a parallel
 implementation. The three classical algorithms—Prim's, Kruskal's, and
-Borůvka's—have vastly different characteristics when parallelized.
+Borůvka's—have vastly different characteristics when parallelised.
 
 - **Prim's Algorithm:** This algorithm is inherently sequential. It grows the
   MST one edge at a time from an arbitrary starting vertex, always adding the
   cheapest edge that connects a vertex in the tree to a vertex outside the
-  tree.23 This greedy, step-by-step growth makes it difficult to parallelize
+  tree.[^23] This greedy, step-by-step growth makes it difficult to parallelise
   effectively on a massive scale, as the choice of which edge to add next
   depends on all previous choices. While some of its sub-operations (like
-  finding the minimum-weight edge from the current tree) can be parallelized,
-  the core logic remains a serial bottleneck.27
+  finding the minimum-weight edge from the current tree) can be parallelised,
+  the core logic remains a serial bottleneck.[^27]
 - **Kruskal's Algorithm:** This algorithm's strategy is to first sort all edges
   in the graph by weight, from least to greatest. It then iterates through the
   sorted list, adding an edge to the MST if and only if it does not form a
-  cycle with the edges already added.23 The main challenge for parallelization
-  is the global sort, which can be a bottleneck, though parallel sorting is a
-  well-studied problem. The subsequent edge addition phase can be parallelized
-  using a concurrent union-find data structure to detect cycles efficiently.
+  cycle with the edges already added.[^23] The main challenge for
+  parallelisation is the global sort, which can be a bottleneck, though
+  parallel sorting is a well-studied problem. The subsequent edge addition
+  phase can be parallelised using a concurrent union-find data structure to
+  detect cycles efficiently.
 - **Borůvka's Algorithm:** This algorithm is consistently cited as the most
   suitable for parallel implementation, particularly on many-core architectures
-  like GPUs.23 It operates in a series of rounds. In each round, every
+  like GPUs.[^23] It operates in a series of rounds. In each round, every
   component (which is initially just a single vertex) finds its cheapest
   outgoing edge to another component, and all such edges are added to the MST
   simultaneously. This merges components together. Because the number of
   components decreases by at least a factor of two in each round, the algorithm
   terminates in a logarithmic number of rounds. The key advantage for
   parallelism is that the search for the cheapest edge for each component can
-  be performed completely independently and concurrently.23 This structure maps
-  perfectly to the Single Instruction, Multiple Data (SIMD) execution model of
-  GPUs.
+  be performed completely independently and concurrently.[^23] This structure
+  maps perfectly to the Single Instruction, Multiple Data (SIMD) execution
+  model of GPUs.
 
 | Algorithm      | Core Idea                                                             | Parallelism Characteristics                                                                                                             | Suitability for GPU                                                                                                                                  |
 | -------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Prim's**     | Grow the tree one edge at a time from a single component.             | Inherently sequential due to its greedy, step-by-step nature. Limited parallelism in sub-tasks.                                         | **Poor.** The serial dependency chain makes it a bad fit for massively parallel hardware.                                                            |
-| **Kruskal's**  | Sort all edges globally, then add non-cycle-forming edges.            | Parallelism is limited by the global sort. Edge addition can be parallelized with a concurrent union-find.                              | **Moderate.** Parallel sorting is feasible but can involve significant communication. Less ideal than algorithms with more independent work.         |
-| **Borůvka's**  | In parallel, each component finds its cheapest outgoing edge. Repeat. | Highly parallel. The core step (finding minimum edges) is an embarrassingly parallel problem. Logarithmic number of synchronous rounds. | **Excellent.** The structure aligns perfectly with the GPU's SIMD execution model, minimizing thread divergence and maximizing hardware utilization. |
+| **Kruskal's**  | Sort all edges globally, then add non-cycle-forming edges.            | Parallelism is limited by the global sort. Edge addition can be parallelised with a concurrent union-find.                              | **Moderate.** Parallel sorting is feasible but can involve significant communication. Less ideal than algorithms with more independent work.         |
+| **Borůvka's**  | In parallel, each component finds its cheapest outgoing edge. Repeat. | Highly parallel. The core step (finding minimum edges) is an embarrassingly parallel problem. Logarithmic number of synchronous rounds. | **Excellent.** The structure aligns perfectly with the GPU's SIMD execution model, minimising thread divergence and maximising hardware utilisation. |
 
 The selection of Borůvka's algorithm for the GPU-based MST computation is not
 merely a matter of choosing the fastest option; it represents a decision based
@@ -360,7 +361,7 @@ kernel with one thread or thread block assigned to each component, and every
 thread will execute an identical search-and-reduce operation on its local set
 of edges with minimal need for inter-thread communication within this phase.
 The second phase—merging the components based on the selected edges—can be
-implemented as a subsequent kernel launch, acting as a global synchronization
+implemented as a subsequent kernel launch, acting as a global synchronisation
 point. This structure contrasts sharply with Prim's algorithm, where the
 single-threaded growth would leave the vast majority of the GPU's cores idle,
 and with Kruskal's algorithm, where the required global sort involves complex
@@ -467,7 +468,7 @@ The core components are:
   work to either the CPU or GPU module based on configuration.
 - **CPU Module:** This module contains a high-performance, multi-threaded
   implementation of the entire FISHDBC pipeline (HNSW, MST, cluster extraction)
-  written in pure Rust and parallelized using the `rayon` crate.
+  written in pure Rust and parallelised using the `rayon` crate.
 - **GPU Offload Module:** This module is responsible for all interactions with
   the GPU. It manages memory transfers between the host (CPU) and the device
   (GPU), launches the CUDA kernels for the computationally intensive steps, and
@@ -494,10 +495,10 @@ specifying details like calling conventions, data type layout, and name
 mangling. Most compiled languages, like C and C++, have a stable ABI, which
 means that a library compiled with one version of the compiler can be linked
 against and used by an application compiled with a different version. Rust, by
-contrast, does not currently offer a stable ABI.28 The internal representation
-of types and the way functions are called can change between compiler versions
-to allow for ongoing layout optimizations. This means that a dynamic library
-(e.g., a
+contrast, does not currently offer a stable ABI.[^28] The internal
+representation of types and the way functions are called can change between
+compiler versions to allow for ongoing layout optimisations. This means that a
+dynamic library (e.g., a
 
 `.so` or `.dll` file) compiled with one version of `rustc` is not guaranteed to
 be compatible with an executable compiled with another. This makes the
@@ -514,14 +515,14 @@ different set of trade-offs regarding safety, performance, and complexity.
   `csv-provider`, which would statically compile the CSV data source code into
   their final application. This is extremely safe and performant but is not
   truly "pluggable" at runtime, as it requires recompilation to add or change
-  data sources.30 It serves as a good baseline but does not meet the
+  data sources.[^30] It serves as a good baseline but does not meet the
   requirement for runtime extensibility.
 - **Approach 2: Inter-Process Communication (IPC) / WebAssembly (WASM):** This
   approach runs plugins in separate processes or in a sandboxed WASM runtime.
   Communication occurs via IPC mechanisms (like pipes or shared memory) or a
   well-defined WASM host interface. This is the safest option, as a crash in a
-  plugin cannot take down the host application.30 It is also language-agnostic.
-  However, it introduces significant overhead due to data
+  plugin cannot take down the host application.[^30] It is also
+  language-agnostic. However, it introduces significant overhead due to data
   serialization/deserialization and the context switching required for
   communication, making it unsuitable for a high-performance system where the
 
@@ -530,7 +531,7 @@ different set of trade-offs regarding safety, performance, and complexity.
 - **Approach 3: ABI Stabilization Crates:** Crates such as `abi_stable` and
   `stabby` aim to solve the ABI problem by providing a set of ABI-safe data
   structures and tools to create a stable interface between dynamically linked
-  Rust modules.28 This is a powerful and promising approach that maintains
+  Rust modules.[^28] This is a powerful and promising approach that maintains
   Rust's safety guarantees. However, it can be complex to use and requires both
   the host and the plugin to be built with and adhere to the specific
   conventions and types provided by the crate.
@@ -538,12 +539,12 @@ different set of trade-offs regarding safety, performance, and complexity.
   and battle-tested approach for dynamic loading in systems languages. The
   plugin is compiled as a C-compatible dynamic library, exposing its
   functionality through `extern "C"` functions that use only C-compatible types
-  (like raw pointers and primitive integers) in their signatures.29 The host
+  (like raw pointers and primitive integers) in their signatures.[^29] The host
   application then uses a library like
 
 `libloading` to load the library at runtime, look up the function symbols by
-name, and call them.33 This approach is language-agnostic and provides maximum
-flexibility, but it requires careful handling of
+name, and call them.[^33] This approach is language-agnostic and provides
+maximum flexibility, but it requires careful handling of
 
 `unsafe` code at the boundary.
 
@@ -602,7 +603,7 @@ stable, language-agnostic contract.
    pointer to the plugin's Rust object.
 3. **The Host Loading Mechanism:** The main application's Plugin Manager uses
    `libloading` to load a dynamic library and resolve the `_plugin_create`
-   symbol.33 It calls this function to get the
+   symbol.[^33] It calls this function to get the
 
 `chutoro_v1` struct. The host checks the `abi_version` to ensure compatibility.
 
@@ -633,50 +634,50 @@ modern Rust.
 - **Parallelism via **`rayon`**:** Instead of using manual process management
   as in the Python example, the implementation will leverage the `rayon` crate
   for high-level data parallelism. `rayon` provides parallel iterators
-  (`par_iter()`) that can automatically parallelize loops over data slices
+  (`par_iter()`) that can automatically parallelise loops over data slices
   across a thread pool, simplifying the code and often leading to better
-  performance and load balancing.13
+  performance and load balancing.[^13]
 - **Shared HNSW Graph:** The central HNSW graph structure, which must be
   accessed and modified by multiple threads concurrently, will be wrapped in
   `Arc<RwLock<HnswGraph>>`. `Arc` (Atomically Referenced Counter) allows for
   shared ownership of the graph across threads. `RwLock` (Read-Write Lock)
-  provides the necessary synchronization. It allows any number of threads to
+  provides the necessary synchronisation. It allows any number of threads to
   acquire a read lock simultaneously (for searching the graph), but ensures
   that only one thread at a time can acquire a write lock (for inserting a new
   point and its edges). This robust concurrency model, enforced by Rust's type
   system at compile time, provides strong guarantees against common data races.
   This is a critical advantage over other systems languages where such errors
   might only manifest at runtime, leading to hard-to-debug issues, particularly
-  in high-performance, multi-threaded scenarios.13
+  in high-performance, multi-threaded scenarios.[^13]
 - **Distance Cache:** To avoid redundant distance calculations, which can be
   expensive for complex user-defined metrics, a concurrent cache will be
   employed. A crate like `dashmap`, which provides a highly concurrent hash
   map, is an excellent choice. Each thread can query the map before computing a
   distance, and if the value is not present, it can compute it and insert it
   into the map for other threads to use. This mirrors the functionality of the
-  `decorated_d()` caching decorator in the Python model.13
+  `decorated_d()` caching decorator in the Python model.[^13]
 
 #### 6.2. Algorithmic Implementation Sketch
 
 The implementation will follow the three-pillar structure of FISHDBC, with the
-first two stages heavily parallelized.
+first two stages heavily parallelised.
 
 - **HNSW Construction:** The primary loop for adding points to the graph will
-  be parallelized using `rayon`. The input data (represented as a slice of
+  be parallelised using `rayon`. The input data (represented as a slice of
   indices `0..n`) will be converted into a parallel iterator:
   `(0..data.len()).par_iter().for_each(|&i| {... })`. Inside the closure for
   each point `i`, the thread will:
 
 1. Acquire a read lock on the shared HNSW graph to perform the search for the
-   insertion point and candidate neighbors.
+   insertion point and candidate neighbours.
 2. Drop the read lock and acquire a write lock to update the graph structure
    with the new point and its connections.
 
-This two-phase locking strategy minimizes the duration of the exclusive write
+This two-phase locking strategy minimises the duration of the exclusive write
 lock, improving concurrency.
 
 - **MST Construction:** The "local-then-global" strategy from the Python
-  implementation will be adapted for the `rayon` execution model.13
+  implementation will be adapted for the `rayon` execution model.[^13]
 
 1. During the HNSW construction phase, the `for_each` closure will be modified
    to not only insert the point into the graph but also to return the set of
@@ -690,7 +691,7 @@ lock, improving concurrency.
    be performed on this global list of candidate edges to produce the final
    MST. While Borůvka's algorithm shines on GPUs, Kruskal's provides a robust
    and efficient path for the CPU-only backend. Paired with `rayon`'s highly
-   optimized parallel sort and a concurrent union-find data structure for cycle
+   optimised parallel sort and a concurrent union-find data structure for cycle
    detection, it offers a strong balance of implementation complexity and
    performance within the multi-threaded CPU context.
 
@@ -776,10 +777,10 @@ primary candidates, each with distinct philosophies and trade-offs.
 
 - **Option A: **`wgpu`** - The Portable Abstraction:** `wgpu` is a pure-Rust
   library that provides a modern, safe API for GPU programming based on the
-  WebGPU standard.35 Its major advantage is portability; code written with
+  WebGPU standard.[^35] Its major advantage is portability; code written with
 
 `wgpu` can run on multiple graphics backends, including Vulkan (Linux, Windows,
-Android), Metal (macOS, iOS), and DirectX 12 (Windows).35 It is actively
+Android), Metal (macOS, iOS), and DirectX 12 (Windows).[^35] It is actively
 developed and is becoming the standard for graphics programming in Rust.
 However,
 
@@ -787,32 +788,32 @@ However,
 pipelines (shaders, buffers, bind groups). While it is capable of
 general-purpose compute, it may not expose the low-level, fine-grained control
 over thread execution (e.g., warp-level intrinsics), explicit shared memory
-management, and advanced synchronization primitives that are often necessary to
+management, and advanced synchronisation primitives that are often necessary to
 extract maximum performance from complex, non-graphical algorithms like those
-used in FISHDBC.36
+used in FISHDBC.[^36]
 
 - **Option B: **`rust-cuda`** - The High-Performance Specialist:** The
   `rust-cuda` project is a suite of tools that allows developers to write GPU
   kernels directly in Rust, which are then compiled to NVIDIA's PTX assembly
-  language and executed via the CUDA driver API.38 This approach provides
+  language and executed via the CUDA driver API.[^38] This approach provides
   direct, low-level access to the full feature set of the CUDA platform,
   including explicit control over thread blocks, shared memory, and warp-level
-  intrinsics.37 This level of control is precisely what is needed to implement
-  highly optimized parallel graph algorithms. The main drawbacks are that it is
-  vendor-specific (NVIDIA-only) and requires the developer to have the CUDA
-  toolkit installed and to work with specific nightly versions of the Rust
-  compiler.38
+  intrinsics.[^37] This level of control is precisely what is needed to
+  implement highly optimised parallel graph algorithms. The main drawbacks are
+  that it is vendor-specific (NVIDIA-only) and requires the developer to have
+  the CUDA toolkit installed and to work with specific nightly versions of the
+  Rust compiler.[^38]
 
 | Framework   | Pros                                                                                                                                               | Cons                                                                                                                                                 | Recommendation for chutoro                                                                                                                                                                                                                     |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wgpu`      | Cross-platform (Vulkan, Metal, DX12). Safe, idiomatic Rust API. Strong community support.                                                          | Higher-level abstraction. Limited access to low-level GPU features (shared memory, warp intrinsics). May not be optimal for complex compute kernels. | **Not Recommended.** The lack of fine-grained control over memory and execution is a significant impediment to optimizing the required graph algorithms.                                                                                       |
-| `rust-cuda` | Direct, low-level access to all CUDA features. Enables writing highly optimized kernels in Rust. Maximum performance potential on NVIDIA hardware. | NVIDIA-only. Requires CUDA toolkit and specific nightly Rust compiler. More complex development experience.                                          | **Recommended.** The performance of HNSW and Borůvka's MST is critically dependent on explicit management of shared memory and thread synchronization. `rust-cuda` provides the necessary control to build a state-of-the-art implementation.  |
+| `wgpu`      | Cross-platform (Vulkan, Metal, DX12). Safe, idiomatic Rust API. Strong community support.                                                          | Higher-level abstraction. Limited access to low-level GPU features (shared memory, warp intrinsics). May not be optimal for complex compute kernels. | **Not Recommended.** The lack of fine-grained control over memory and execution is a significant impediment to optimising the required graph algorithms.                                                                                       |
+| `rust-cuda` | Direct, low-level access to all CUDA features. Enables writing highly optimised kernels in Rust. Maximum performance potential on NVIDIA hardware. | NVIDIA-only. Requires CUDA toolkit and specific nightly Rust compiler. More complex development experience.                                          | **Recommended.** The performance of HNSW and Borůvka's MST is critically dependent on explicit management of shared memory and thread synchronisation. `rust-cuda` provides the necessary control to build a state-of-the-art implementation.  |
 
 For a library where maximum performance is a primary design goal, the
 recommendation is to use `rust-cuda`. The ability to explicitly manage fast
-on-chip shared memory and to orchestrate fine-grained synchronization between
-threads within a block is not a minor optimization; it is fundamental to
-achieving high performance in parallel graph algorithms.17 The performance
+on-chip shared memory and to orchestrate fine-grained synchronisation between
+threads within a block is not a minor optimisation; it is fundamental to
+achieving high performance in parallel graph algorithms.[^17] The performance
 gains from leveraging these features will far outweigh the loss of portability
 for a library targeting high-performance computing scenarios.
 
@@ -826,13 +827,13 @@ Rust using the `rust-cuda` toolchain, for each major stage of the algorithm.
 Parallelizing the _construction_ of an HNSW graph is notoriously difficult.
 While a fully parallel GPU construction is theoretically appealing, it is
 severely limited by irregular memory access patterns and the extreme
-synchronization overhead required to manage concurrent updates to the graph's
+synchronisation overhead required to manage concurrent updates to the graph's
 layered structure, making it impractical for this implementation. The process
 is inherently sequential: the insertion of each new point involves a traversal
 through the graph structure created by all previous points. A fully parallel
 construction would lead to massive contention and race conditions. Therefore,
 this design adopts a hybrid CPU-GPU strategy. This approach is not a compromise
-but a strategic trade-off, representing an optimized solution given the current
+but a strategic trade-off, representing an optimised solution given the current
 state-of-the-art in parallel HNSW research and practice.
 
 1. **CPU-driven Traversal:** The high-level logic of the HNSW insertion
@@ -840,31 +841,31 @@ state-of-the-art in parallel HNSW research and practice.
    graph—will remain on the CPU. The CPU will be responsible for maintaining
    the graph's data structure in host memory.
 2. **GPU-accelerated Distance Calculations:** At each level of the graph during
-   an insertion, the CPU identifies a set of candidate neighbors that must be
+   an insertion, the CPU identifies a set of candidate neighbours that must be
    evaluated. Instead of calculating these distances sequentially, the CPU will
    offload this task to the GPU.
 3. **Distance Kernel:** A GPU kernel will be launched. The coordinates of the
-   new point and the set of candidate neighbors will be passed to it. The
-   kernel will launch one thread for each candidate neighbor, and each thread
+   new point and the set of candidate neighbours will be passed to it. The
+   kernel will launch one thread for each candidate neighbour, and each thread
    will compute the distance between the new point and its assigned candidate
    in parallel.
 4. **Results Return:** The resulting array of distances will be copied back to
    the CPU. The CPU can then quickly scan this array to find the best
-   neighbors, select them using the required heuristics, and update the HNSW
+   neighbours, select them using the required heuristics, and update the HNSW
    graph structure in host memory.
 
 This hybrid approach localizes the GPU's contribution to the most
 arithmetic-intensive part of the problem, which is where it excels. This
 strategy is inspired by the findings from `cuhnsw`, which demonstrated that
-GPUs are most effective at batch _searches_.26 Our approach effectively
+GPUs are most effective at batch _searches_.[^26] Our approach effectively
 reframes the core of the HNSW insertion process as a series of small, ad-hoc
-batch searches, allowing us to accelerate construction.
+batch searches, enabling accelerated construction.
 
 #### 8.2. MST on the GPU: Parallel Borůvka's Algorithm
 
 As established, Borůvka's algorithm is the ideal choice for MST construction on
-the GPU.23 The implementation will consist of a host-side loop that repeatedly
-launches two main kernels until the MST is complete.
+the GPU.[^23] The implementation will consist of a host-side loop that
+repeatedly launches two main kernels until the MST is complete.
 
 - **Data Representation on GPU:** The primary data structures will reside in
   the GPU's global memory to avoid costly transfers. This includes the graph's
@@ -915,7 +916,7 @@ the final cluster extraction steps can also be accelerated.
   large arrays.
 - **Hierarchy Condensation and Cluster Selection:** This final step, which
   involves calculating cluster stability by processing the sorted edge list, is
-  more complex to parallelize efficiently. It can be framed as a parallel tree
+  more complex to parallelise efficiently. It can be framed as a parallel tree
   traversal or a series of parallel prefix scans (scans) and reductions.
   However, the data dependencies are more intricate than in the graph
   construction phases. For an initial implementation, a pragmatic approach
@@ -930,11 +931,11 @@ A naive implementation that performs each step synchronously
 (`copy data to GPU -> launch kernel -> wait -> copy results to CPU`) will
 suffer from severe performance degradation, as the GPU will remain idle during
 all data transfers. An expert-level design must use asynchronous operations to
-create a true execution pipeline that maximizes hardware utilization.
+create a true execution pipeline that maximises hardware utilisation.
 
 #### 9.1. Memory Management Strategy
 
-The core principle is to minimize data movement between the host and device.
+The core principle is to minimise data movement between the host and device.
 
 1. The initial, complete dataset is copied from host memory to device global
    memory exactly once at the beginning of the process.
@@ -948,7 +949,7 @@ The core principle is to minimize data movement between the host and device.
 #### 9.2. Asynchronous Execution with CUDA Streams
 
 CUDA streams are the primary mechanism for achieving asynchronous execution and
-overlapping operations.37 A stream is a sequence of commands that execute in
+overlapping operations.[^37] A stream is a sequence of commands that execute in
 order on the GPU. Commands in different streams can be executed concurrently or
 out of order by the GPU hardware.
 
@@ -1062,13 +1063,16 @@ pub trait DataSource {
     /// identified by their zero-based indices.
     fn distance(&self, index1: usize, index2: usize) -> f32;
 
-    /// Calculates the distance for a batch of index pairs.
+    /// Calculates distances for a batch of index pairs.
     ///
-    /// This method is critical for high-throughput GPU-orchestrated batches.
-    /// A default implementation is provided that calls the scalar `distance`
-    /// method in a loop, allowing simple providers to be created without
-    /// needing to implement a custom batch version.
+    /// Contract:
+    /// - `out.len() == pairs.len()`.
+    /// - Indices must be in-range for this source.
+    /// - `out` must not alias provider-internal storage.
+    /// Error handling: implementations should document behaviour on invalid indices
+    /// (panic vs error) and treatment of NaNs for non-metric inputs.
     fn distance_batch(&self, pairs: &[(usize, usize)], out: &mut [f32]) {
+        debug_assert_eq!(pairs.len(), out.len(), "pairs/out length mismatch");
         for (k, &(i, j)) in pairs.iter().enumerate() {
             out[k] = self.distance(i, j);
         }
@@ -1095,7 +1099,19 @@ unsafe extern "C" fn csv_distance(state: *const c_void, i: usize, j: usize) -> f
     let source = &*(state as *const MyCsvDataSource);
     source.distance(i, j)
 }
-//... other wrapper functions for len, name, etc.
+unsafe extern "C" fn csv_len(state: *const c_void) -> usize {
+    let source = &*(state as *const MyCsvDataSource);
+    source.len()
+}
+unsafe extern "C" fn csv_name(state: *const c_void) -> *const std::os::raw::c_char {
+    let source = &*(state as *const MyCsvDataSource);
+    source.name_c_str_ptr() // ensure a stable C string lifetime
+}
+unsafe extern "C" fn csv_destroy(state: *mut c_void) {
+    if !state.is_null() {
+        drop(Box::from_raw(state as *mut MyCsvDataSource));
+    }
+}
 
 // 3. Implement the creation function that returns the v-table.
 #[no_mangle]
@@ -1111,6 +1127,7 @@ pub extern "C" fn _plugin_create() -> *mut chutoro_v1 {
         name: csv_name,
         distance: csv_distance,
         distance_batch: None, // Use default scalar fallback
+        destroy: csv_destroy,
     });
 
     Box::into_raw(vtable)
@@ -1193,7 +1210,7 @@ and allow for iterative testing and validation:
   the hybrid CPU-GPU strategy for HNSW construction and integrating all
   components into a fully asynchronous, stream-based pipeline. This includes
   managing all memory on the device and orchestrating kernel launches and data
-  transfers to maximize overlap and throughput.
+  transfers to maximise overlap and throughput.
 - **Phase 4: Enable Dynamic Plugin Loading.** Once the core CPU and GPU
   execution paths are stable and well-tested, the final step is to implement
   the dynamic loading functionality in the Plugin Manager using `libloading`.
@@ -1210,122 +1227,112 @@ programming in Rust.
 
 #### **Works cited**
 
-1. 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September 6,
-   2025,
-   [https://scikit-learn.org/stable/modules/clustering.html](https://scikit-learn.org/stable/modules/clustering.html)
-2. DBSCAN - Wikipedia, accessed on September 6, 2025,
-   [https://en.wikipedia.org/wiki/DBSCAN](https://en.wikipedia.org/wiki/DBSCAN)
-3. dbscan: Fast Density-based Clustering with R - The Comprehensive R Archive
-   Network, accessed on September 6, 2025,
-   [https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf](https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf)
-4. dbscan: Fast Density-Based Clustering with R - Journal of Statistical
-   Software, accessed on September 6, 2025,
-   [https://www.jstatsoft.org/article/view/v091i01/1318](https://www.jstatsoft.org/article/view/v091i01/1318)
-5. An Implementation of the HDBSCAN* Clustering Algorithm - MDPI, accessed on
-   September 6, 2025,
-   [https://www.mdpi.com/2076-3417/12/5/2405](https://www.mdpi.com/2076-3417/12/5/2405)
-6. How HDBSCAN Works — hdbscan 0.8.1 documentation, accessed on September 6,
-   2025,
-   [https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html](https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html)
-7. [PDF] hdbscan: Hierarchical density based clustering - Semantic Scholar,
-   accessed on September 6, 2025,
-   [https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93](https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93)
-8. FISHDBC: Flexible, Incremental, Scalable, Hierarchical … - arXiv, accessed
-   on September 6, 2025,
-   [https://arxiv.org/pdf/1910.07283](https://arxiv.org/pdf/1910.07283)
-9. Figure 6 from Accelerated Hierarchical Density Based Clustering | Semantic
-   Scholar, accessed on September 6, 2025,
-   [https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5](https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5)
-10. Merging two connected components (a, c, d, e) and (f, b) of primitive… -
-    ResearchGate, accessed on September 6, 2025,
-    [https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908](https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908)
-11. FISHDBC: Flexible, Incremental, Scalable, Hierarchical Density-Based
-    Clustering for Arbitrary Data and Distance | DeepAI, accessed on September
-    6, 2025,
-    [https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance](https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance)
-12. Sonic: Fast and Transferable Data Poisoning on Clustering Algorithms -
-    arXiv, accessed on September 6, 2025,
-    [https://arxiv.org/html/2408.07558v1](https://arxiv.org/html/2408.07558v1)
-13. Parallel Flexible Clustering Edoardo Pastorino - UniRe - UniGe, accessed on
-    September 6, 2025,
-    [https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1](https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1)
-14. Flexible Clustering Parallelo - UniRe - UniGe, accessed on September 6,
-    2025,
-    [https://unire.unige.it/handle/123456789/7200](https://unire.unige.it/handle/123456789/7200)
-15. Fast (Correct) Clustering in Time and Space using the GPU - Pure, accessed
-    on September 6, 2025,
-    [https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf](https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf)
-16. (PDF) G-DBSCAN: A GPU accelerated algorithm for density-based clustering,
-    accessed on September 6, 2025,
-    [https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering](https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering)
-17. An Experimental Comparison of GPU Techniques for DBSCAN Clustering - OU
-    School of Computer Science, accessed on September 6, 2025,
-    [https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf](https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf)
-18. Here's how you can accelerate your Data Science on GPU | by Practicus AI -
-    Medium, accessed on September 6, 2025,
-    [https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430](https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430)
-19. G-OPTICS: Fast ordering density-based cluster objects using graphics
-    processing units | Request PDF - ResearchGate, accessed on September 6,
-    2025,
-    [https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units](https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units)
-20. Faster HDBSCAN Soft Clustering with RAPIDS cuML | NVIDIA Technical Blog,
-    accessed on September 6, 2025,
-    [https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/](https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/)
-21. parallel implementation of dbscan algorithm using multiple graphics
-    accelerators, accessed on September 6, 2025,
-    [https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS](https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS)
-22. Research on the Parallelization of the DBSCAN Clustering Algorithm for
-    Spatial Data Mining Based on the Spark Platform - MDPI, accessed on
-    September 6, 2025,
-    [https://www.mdpi.com/2072-4292/9/12/1301](https://www.mdpi.com/2072-4292/9/12/1301)
-23. A High-Performance MST Implementation for GPUs - Computer Science : Texas
-    State University, accessed on September 6, 2025,
-    [https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf](https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf)
-24. Parallelizing Minimum Spanning Tree Using Borůvka's Algorithm in Parlaylib
-    and CUDA | 15618-Final - GitHub Pages, accessed on September 6, 2025,
-    [https://jzaia18.github.io/15618-Final/](https://jzaia18.github.io/15618-Final/)
-25. nmslib/hnswlib: Header-only C++/python library for fast approximate nearest
-    neighbors - GitHub, accessed on September 6, 2025,
-    [https://github.com/nmslib/hnswlib](https://github.com/nmslib/hnswlib)
-26. js1010/cuhnsw: CUDA implementation of Hierarchical Navigable Small World
-    Graph algorithm - GitHub, accessed on September 6, 2025,
-    [https://github.com/js1010/cuhnsw](https://github.com/js1010/cuhnsw)
-27. Parallel Privacy-preserving Computation of Minimum Spanning Trees -
-    SciTePress, accessed on September 6, 2025,
-    [https://www.scitepress.org/Papers/2021/102557/102557.pdf](https://www.scitepress.org/Papers/2021/102557/102557.pdf)
-28. bevy_dynamic_plugin - Rust - [Docs.rs](http://Docs.rs), accessed on
-    September 6, 2025,
-    [https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/](https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/)
-29. Dynamic loading of plugins : r/rust - Reddit, accessed on September 6,
-    2025,
-    [https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/](https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/)
-30. Designing a Rust -> Rust plugin system : r/rust - Reddit, accessed on
-    September 6, 2025,
-    [https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/](https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/)
-31. A plugin system for business applications - Rust Internals, accessed on
-    September 6, 2025,
-    [https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313](https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313)
-32. Writing a Plugin System in Rust - help - The Rust Programming Language
-    Forum, accessed on September 6, 2025,
-    [https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980](https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980)
-33. dynamic-plugin - [crates.io](http://crates.io): Rust Package Registry,
-    accessed on September 6, 2025,
-    [https://crates.io/crates/dynamic-plugin](https://crates.io/crates/dynamic-plugin)
-34. Dynamic Library Loading in Rust and Plugin Management - Mayer - Medium,
-    accessed on September 6, 2025,
-    [https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad](https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad)
-35. gfx-rs/wgpu: A cross-platform, safe, pure-Rust graphics API. - GitHub,
-    accessed on September 6, 2025,
-    [https://github.com/gfx-rs/wgpu](https://github.com/gfx-rs/wgpu)
-36. Rust running on every GPU, accessed on September 6, 2025,
-    [https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/](https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/)
-37. Frequently Asked Questions - GPU Computing with Rust using CUDA, accessed
-    on September 6, 2025,
-    [https://rust-gpu.github.io/Rust-CUDA/faq.html](https://rust-gpu.github.io/Rust-CUDA/faq.html)
-38. Getting Started - GPU Computing with Rust using CUDA, accessed on September
-    6, 2025,
-    [https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html](https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html)
-39. Rust-GPU/Rust-CUDA: Ecosystem of libraries and tools for writing and
-    executing fast GPU code fully in Rust. - GitHub, accessed on September 6,
-    2025,
-    [https://github.com/Rust-GPU/Rust-CUDA](https://github.com/Rust-GPU/Rust-CUDA)
+[^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September
+      6, 2025,
+      [https://scikit-learn.org/stable/modules/clustering.html](https://scikit-learn.org/stable/modules/clustering.html)
+      [https://en.wikipedia.org/wiki/DBSCAN](https://en.wikipedia.org/wiki/DBSCAN)
+[^3]: dbscan: Fast Density-based Clustering with R - The Comprehensive R
+      Archive Network, accessed on September 6, 2025,
+      [https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf](https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf)
+      Software, accessed on September 6, 2025,
+      [https://www.jstatsoft.org/article/view/v091i01/1318](https://www.jstatsoft.org/article/view/v091i01/1318)
+[^5]: An Implementation of the HDBSCAN* Clustering Algorithm - MDPI, accessed
+      on September 6, 2025,
+      [https://www.mdpi.com/2076-3417/12/5/2405](https://www.mdpi.com/2076-3417/12/5/2405)
+[^6]: How HDBSCAN Works — hdbscan 0.8.1 documentation, accessed on September 6,
+      2025,
+      [https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html](https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html)
+[^7]: [PDF] hdbscan: Hierarchical density based clustering - Semantic Scholar,
+      accessed on September 6, 2025,
+      [https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93](https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93)
+[^8]: FISHDBC: Flexible, Incremental, Scalable, Hierarchical … - arXiv,
+      accessed on September 6, 2025,
+      [https://arxiv.org/pdf/1910.07283](https://arxiv.org/pdf/1910.07283)
+      Semantic Scholar, accessed on September 6, 2025,
+      [https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5](https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5)
+       ResearchGate, accessed on September 6, 2025,
+       [https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908](https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908)
+       Clustering for Arbitrary Data and Distance | DeepAI, accessed on
+       September 6, 2025,
+       [https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance](https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance)
+[^12]: Sonic: Fast and Transferable Data Poisoning on Clustering Algorithms -
+       arXiv, accessed on September 6, 2025,
+       [https://arxiv.org/html/2408.07558v1](https://arxiv.org/html/2408.07558v1)
+[^13]: Parallel Flexible Clustering Edoardo Pastorino - UniRe - UniGe, accessed
+       on September 6, 2025,
+       [https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1](https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1)
+       2025,
+       [https://unire.unige.it/handle/123456789/7200](https://unire.unige.it/handle/123456789/7200)
+[^15]: Fast (Correct) Clustering in Time and Space using the GPU - Pure,
+       accessed on September 6, 2025,
+       [https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf](https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf)
+       clustering, accessed on September 6, 2025,
+       [https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering](https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering)
+[^17]: An Experimental Comparison of GPU Techniques for DBSCAN Clustering - OU
+       School of Computer Science, accessed on September 6, 2025,
+       [https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf](https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf)
+[^18]: Here's how you can accelerate your Data Science on GPU | by Practicus AI
+
+- Medium, accessed on September 6, 2025,
+       [https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430](https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430)
+
+[^19]: G-OPTICS: Fast ordering density-based cluster objects using graphics
+       processing units | Request PDF - ResearchGate, accessed on September 6,
+       2025,
+       [https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units](https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units)
+[^20]: Faster HDBSCAN Soft Clustering with RAPIDS cuML | NVIDIA Technical Blog,
+       accessed on September 6, 2025,
+       [https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/](https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/)
+       accelerators, accessed on September 6, 2025,
+       [https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS](https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS)
+[^22]: Research on the Parallelization of the DBSCAN Clustering Algorithm for
+       Spatial Data Mining Based on the Spark Platform - MDPI, accessed on
+       September 6, 2025,
+       [https://www.mdpi.com/2072-4292/9/12/1301](https://www.mdpi.com/2072-4292/9/12/1301)
+[^23]: A High-Performance MST Implementation for GPUs - Computer Science :
+       Texas State University, accessed on September 6, 2025,
+       [https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf](https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf)
+       Parlaylib and CUDA | 15618-Final - GitHub Pages, accessed on September
+       6, 2025,
+       [https://jzaia18.github.io/15618-Final/](https://jzaia18.github.io/15618-Final/)
+[^25]: nmslib/hnswlib: Header-only C++/python library for fast approximate
+       nearest neighbors - GitHub, accessed on September 6, 2025,
+       [https://github.com/nmslib/hnswlib](https://github.com/nmslib/hnswlib)
+[^26]: js1010/cuhnsw: CUDA implementation of Hierarchical Navigable Small World
+       Graph algorithm - GitHub, accessed on September 6, 2025,
+       [https://github.com/js1010/cuhnsw](https://github.com/js1010/cuhnsw)
+[^27]: Parallel Privacy-preserving Computation of Minimum Spanning Trees -
+       SciTePress, accessed on September 6, 2025,
+       [https://www.scitepress.org/Papers/2021/102557/102557.pdf](https://www.scitepress.org/Papers/2021/102557/102557.pdf)
+[^28]: bevy_dynamic_plugin - Rust - [Docs.rs](http://Docs.rs), accessed on
+       September 6, 2025,
+       [https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/](https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/)
+[^29]: Dynamic loading of plugins : r/rust - Reddit, accessed on September 6,
+       2025,
+       [https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/](https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/)
+[^30]: Designing a Rust -> Rust plugin system : r/rust - Reddit, accessed on
+       September 6, 2025,
+       [https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/](https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/)
+       September 6, 2025,
+       [https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313](https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313)
+       Forum, accessed on September 6, 2025,
+       [https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980](https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980)
+[^33]: dynamic-plugin - [crates.io](http://crates.io): Rust Package Registry,
+       accessed on September 6, 2025,
+       [https://crates.io/crates/dynamic-plugin](https://crates.io/crates/dynamic-plugin)
+       accessed on September 6, 2025,
+       [https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad](https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad)
+[^35]: gfx-rs/wgpu: A cross-platform, safe, pure-Rust graphics API. - GitHub,
+       accessed on September 6, 2025,
+       [https://github.com/gfx-rs/wgpu](https://github.com/gfx-rs/wgpu)
+[^36]: Rust running on every GPU, accessed on September 6, 2025,
+       [https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/](https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/)
+[^37]: Frequently Asked Questions - GPU Computing with Rust using CUDA,
+       accessed on September 6, 2025,
+       [https://rust-gpu.github.io/Rust-CUDA/faq.html](https://rust-gpu.github.io/Rust-CUDA/faq.html)
+[^38]: Getting Started - GPU Computing with Rust using CUDA, accessed on
+       September 6, 2025,
+       [https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html](https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html)
+       executing fast GPU code fully in Rust. - GitHub, accessed on September
+       6, 2025,
+       [https://github.com/Rust-GPU/Rust-CUDA](https://github.com/Rust-GPU/Rust-CUDA)
