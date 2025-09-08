@@ -264,7 +264,9 @@ engineering principles from the outset.
 
 6. **Return Early / Guard Clauses:** To avoid deep nesting for validation or
    pre-condition checks, process exceptional cases first and return early.8
-   This approach flattens the main logic path and reduces nesting. For example, instead of:
+   This approach flattens the main logic path and reduces nesting. For example,
+   instead of:
+
    ```cpp
    void process(Data d) {
        if (d.isValid()) { // +1 (if)
