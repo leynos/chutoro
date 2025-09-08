@@ -736,6 +736,29 @@ lock, improving concurrency.
   under realistic HNSW candidate distributions by bucketing and padding to lane
   multiples.
 
+The candidate scoring flow within HNSW search is shown in Figure 1.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant HNSW as HNSW Search
+  participant DS as DataSource
+  participant Kern as SIMD Kernels
+
+  Note over HNSW: Candidate scoring phase
+  HNSW->>DS: distance_batch(pairs, out)
+  alt SIMD available
+    DS->>Kern: run std::simd kernel (AVX2/AVX-512/Neon)
+    Kern-->>DS: distances[]
+  else Scalar fallback
+    DS-->>DS: for each (i,j): distance(i,j)
+  end
+  DS-->>HNSW: distances[]
+  HNSW->>HNSW: neighbour evaluation + filtering (SoA layout)
+```
+
+_Figure 1: SIMD-backed candidate scoring with scalar fallback._
+
 ## Part III: GPU Acceleration Strategy
 
 To achieve the highest possible performance on large datasets, the design
