@@ -60,16 +60,22 @@ ______________________________________________________________________
 - [ ] Implement memory guards (`--max-bytes`) and clear failure messages. (See
   §5)
 - [ ] Add CPU distance kernels using `std::simd` with AVX2/AVX-512
-  specialisations; make `distance_batch` the default HNSW scoring path. (See
+  specializations; make `distance_batch` the default HNSW scoring path. (See
   §6.3)
 - [ ] Restructure HNSW neighbour evaluation to use packed indices and an SoA
   layout, prefetching blocks and scoring outside the write lock. (See §6.3)
-- [ ] Vectorise edge-weight transforms and candidate filtering before
+- [ ] Vectorize edge-weight transforms and candidate filtering before
   union-find in parallel Kruskal; keep union-find cache-friendly. (See §6.3)
 - [ ] Introduce `DensePointView<'a>` for aligned SoA access with a scalar
   fallback. (See §6.3)
 - [ ] Gate SIMD backends behind `simd_avx2`, `simd_avx512`, and `simd_neon`
   features with CPUID runtime dispatch. (See §6.3)
+  - Use `is_x86_feature_detected!`/platform equivalents and one-time
+    function-pointer patching to avoid hot-path branching.
+  - Define NaN and other non-finite treatment for reductions to ensure
+    CPU/GPU parity.
+  - Guarantee 64-byte alignment and lane-multiple padding for
+    `DensePointView<'a>`; zero-pad tails.
 - [ ] Benchmark Euclidean/cosine kernels, neighbour scoring, and batched
   `distance_batch` versus scalar `distance`; bucket candidate sizes to confirm
   SIMD gains. (See §6.3, §11)
@@ -195,7 +201,6 @@ ______________________________________________________________________
 telemetry for future tuning.
 
 ______________________________________________________________________
-______________________________________________________________________
 
 ## Benchmark dataset suite
 
@@ -235,11 +240,15 @@ Provenance notes:
 
 - **With labels (MNIST/Fashion-MNIST/CIFAR/20NG/RCV1/SNAP/PBMC):** build
   k-NN/HNSW, run the MST/clusterer, and score with NMI/ARI vs. labels; also
-  report k-NN recall@k vs. exact neighbours to measure graph fidelity.
+  report k-NN recall@k vs. exact neighbours to measure graph fidelity. Recall@k
+  is |P ∩ G_k|/k where G_k is the exact neighbour list (including ties)
+  supplied with the dataset.
 - **Without labels (SIFT/GIST/GloVe/DEEP1B):** rely on provided **exact
   neighbour ground truth** for recall@{1,10,100} and report graph metrics
   (conductance, connected-component purity) as proxies for cluster “shape.”
-  ANN-Benchmarks HDF5 packs standardise splits and GT.
+  Conductance = cut(S, V−S)/min(vol(S), vol(V−S)) and connected-component
+  purity is the dominant label count divided by the component size.
+  ANN-Benchmarks HDF5 packs standardise splits and ground truth.
 
 ### Practical picks by “benchmark tier”
 

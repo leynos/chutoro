@@ -58,7 +58,7 @@ a significant computational cost. For arbitrary data types and distance
 functions where no specialized indexing structures exist (e.g., k-d trees for
 Euclidean distance), HDBSCAN* has a computational complexity of
 
-O(n2), stemming from the need to compute a large number of pairwise distances
+O(n^2), stemming from the need to compute a large number of pairwise distances
 to build its core data structures.[^5] This quadratic complexity renders it
 impractical for large-scale datasets.
 
@@ -71,7 +71,7 @@ minor, controlled loss of accuracy in exchange for a massive gain in
 performance and scalability. It achieves this by fundamentally altering how the
 underlying graph structure is built, thereby avoiding the
 
-O(n2) bottleneck that plagues its predecessors in non-metric spaces.[^8] This
+O(n^2) bottleneck that plagues its predecessors in non-metric spaces.[^8] This
 makes FISHDBC a powerful tool for modern data science, where datasets are often
 too large for traditional methods.
 
@@ -106,7 +106,7 @@ data, while the final stage extracts clusters from this graph.
    HNSW is a graph-based data structure that allows for extremely fast ANN
    queries. Instead of computing all
 
-O(n2) pairwise distances, FISHDBC incrementally builds an HNSW graph. As each
+O(n^2) pairwise distances, FISHDBC incrementally builds an HNSW graph. As each
 point is added to the HNSW structure, the algorithm performs a search to find
 its nearest neighbours. The distances computed during these limited searches
 are the only ones the algorithm considers.[^13] This process effectively
@@ -170,7 +170,7 @@ real-world clustering tasks.
   as new information becomes available.
 - **Scalability:** As previously discussed, scalability is the primary
   motivation behind FISHDBC. By leveraging HNSW to avoid the computation of a
-  full distance matrix, the algorithm circumvents the O(n2) complexity that
+  full distance matrix, the algorithm circumvents the O(n^2) complexity that
   limits other density-based methods in non-metric spaces.[^8] Experimental
   evidence shows that it can scale to millions of data items, making it a
   viable tool for big data analytics.[^8]
@@ -304,7 +304,7 @@ efficiency of the HNSW implementation.
 `hnswlib`. Second, it highlights that GPU acceleration for the search phase is
 most effective when performed in batches (i.e., searching for the nearest
 neighbours of many query points simultaneously). This is because batching
-maximises the parallelism and amortises the overhead of kernel launches and
+maximizes the parallelism and amortizes the overhead of kernel launches and
 memory transfers.[^26] This strongly validates the decision to develop a GPU
 path for the index-building phase of chutoro, as it is equivalent to a large
 batch insertion process.
@@ -348,7 +348,7 @@ Borůvka's—have vastly different characteristics when parallelised.
 | -------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Prim's**     | Grow the tree one edge at a time from a single component.             | Inherently sequential due to its greedy, step-by-step nature. Limited parallelism in sub-tasks.                                         | **Poor.** The serial dependency chain makes it a bad fit for massively parallel hardware.                                                            |
 | **Kruskal's**  | Sort all edges globally, then add non-cycle-forming edges.            | Parallelism is limited by the global sort. Edge addition can be parallelised with a concurrent union-find.                              | **Moderate.** Parallel sorting is feasible but can involve significant communication. Less ideal than algorithms with more independent work.         |
-| **Borůvka's**  | In parallel, each component finds its cheapest outgoing edge. Repeat. | Highly parallel. The core step (finding minimum edges) is an embarrassingly parallel problem. Logarithmic number of synchronous rounds. | **Excellent.** The structure aligns perfectly with the GPU's SIMD execution model, minimising thread divergence and maximising hardware utilisation. |
+| **Borůvka's**  | In parallel, each component finds its cheapest outgoing edge. Repeat. | Highly parallel. The core step (finding minimum edges) is an embarrassingly parallel problem. Logarithmic number of synchronous rounds. | **Excellent.** The structure aligns perfectly with the GPU's SIMD execution model, minimizing thread divergence and maximizing hardware utilization. |
 
 The selection of Borůvka's algorithm for the GPU-based MST computation is not
 merely a matter of choosing the fastest option; it represents a decision based
@@ -673,7 +673,7 @@ first two stages heavily parallelised.
 2. Drop the read lock and acquire a write lock to update the graph structure
    with the new point and its connections.
 
-This two-phase locking strategy minimises the duration of the exclusive write
+This two-phase locking strategy minimizes the duration of the exclusive write
 lock, improving concurrency.
 
 - **MST Construction:** The "local-then-global" strategy from the Python
@@ -703,35 +703,39 @@ lock, improving concurrency.
   as a disjoint-set for condensing the tree, are readily available in the Rust
   ecosystem.
 
-#### 6.3. SIMD utilisation
+#### 6.3. SIMD utilization
 
 - **Distance kernels (biggest win):** Add a CPU backend that takes contiguous
-  structure-of-arrays views of point data and computes distances with
-  `std::simd`. Provide `#[target_feature]` specialisations for AVX2 and AVX-512
-  on x86, falling back to scalar per pair where metrics are not vectorisable.
-  Make `distance_batch` the default path for HNSW candidate scoring on CPU:
-  collect candidate pairs in chunks sized to the SIMD width, evaluate with
-  fused multiply-adds and vector reductions, and exploit the plugin v-table’s
-  `distance_batch` hook in the core.
+  structure-of-arrays views of point data aligned to 64-byte boundaries and
+  padded to SIMD-lane multiples with zero-filled tails. Compute distances with
+  `std::simd`, replacing NaNs and other non-finite values with `f32::INFINITY`
+  before fused multiply-adds and reductions. Provide `#[target_feature]`
+  specializations for AVX2 and AVX-512 on x86, falling back to scalar per pair
+  where metrics are not vectorizable. Make `distance_batch` the default path
+  for HNSW candidate scoring on CPU: collect candidate pairs in chunks sized to
+  the SIMD width, evaluate with fused multiply-adds and vector reductions, and
+  exploit the plugin v-table’s `distance_batch` hook in the core.
 - **HNSW search/insert heuristics:** When evaluating neighbours at a level,
   operate on packed indices and a structure-of-arrays layout of coordinates.
   Prefetch upcoming blocks to hide latency. Compute scores in SIMD blocks
   outside the write lock while keeping graph topology updates under the lock.
-- **Parallel Kruskal phase:** Keep the global sort in Rayon, but vectorise the
+- **Parallel Kruskal phase:** Keep the global sort in Rayon, but vectorize the
   edge-weight transform and scan or filter candidate edges before the
   union-find stage. Union-find itself remains branchy; focus SIMD effort on the
   pre-filter and maintain cache-friendly structure-of-arrays parent and rank
   arrays.
 - **Data layout preconditions:** Introduce an internal `DensePointView<'a>` for
-  providers advertising dense numeric data. Guarantee 32- or 64-byte alignment,
-  stride-1 access, and structure-of-arrays packing to enable predictable vector
-  loads. Retain a scalar fallback via the existing trait.
-- **Compile-time feature flags and dispatch:** Add `simd_avx2`, `simd_avx512`,
-  and `simd_neon` features. Use CPUID-gated function pointers for one-time
-  runtime dispatch to avoid monomorph blow-ups while keeping hot loops
-  specialised.
+  providers advertising dense numeric data. Guarantee 64-byte alignment,
+  stride-1 access, structure-of-arrays packing, and padding to SIMD-lane
+  multiples with zeroed tails to enable predictable vector loads. Retain a
+  scalar fallback via the existing trait.
+- **Compile-time feature flags and dispatch:** Add `simd_avx2`,
+  `simd_avx512`, and `simd_neon` features. Detect CPU capabilities once using
+  `is_x86_feature_detected!` or platform equivalents and patch function
+  pointers to avoid hot-path branching. This one-time dispatch prevents
+  monomorph blow-ups while keeping hot loops specialized.
 - **Testing and performance hygiene:** Ship microbenchmarks for Euclidean and
-  cosine kernels (scalar, auto-vectorised, portable-simd, AVX2/512),
+  cosine kernels (scalar, auto-vectorized, portable-simd, AVX2/512),
   neighbour-set scoring at varying candidate sizes, and batched
   `distance_batch` versus scalar `distance`. Validate that SIMD wins persist
   under realistic HNSW candidate distributions by bucketing and padding to lane
@@ -875,7 +879,7 @@ Three backends sit behind the HAL:
 The HAL composes with the existing plugin system. Capability bits allow a
 `DataSource` plugin to advertise GPU-friendly features:
 
-- `HAS_DISTANCE_BATCH` – provider supplies a vectorised batch distance.
+- `HAS_DISTANCE_BATCH` – provider supplies a vectorized batch distance.
 - `HAS_DEVICE_VIEW` – provider can expose device-resident buffers.
 - `HAS_NATIVE_KERNELS` – provider ships its own device kernels.
 
@@ -1009,11 +1013,11 @@ A naive implementation that performs each step synchronously
 (`copy data to GPU -> launch kernel -> wait -> copy results to CPU`) will
 suffer from severe performance degradation, as the GPU will remain idle during
 all data transfers. An expert-level design must use asynchronous operations to
-create a true execution pipeline that maximises hardware utilisation.
+create a true execution pipeline that maximizes hardware utilization.
 
 #### 9.1. Memory Management Strategy
 
-The core principle is to minimise data movement between the host and device.
+The core principle is to minimize data movement between the host and device.
 
 1. The initial, complete dataset is copied from host memory to device global
    memory exactly once at the beginning of the process.
@@ -1288,7 +1292,7 @@ and allow for iterative testing and validation:
   the hybrid CPU-GPU strategy for HNSW construction and integrating all
   components into a fully asynchronous, stream-based pipeline. This includes
   managing all memory on the device and orchestrating kernel launches and data
-  transfers to maximise overlap and throughput.
+  transfers to maximize overlap and throughput.
 - **Phase 4: Enable Dynamic Plugin Loading.** Once the core CPU and GPU
   execution paths are stable and well-tested, the final step is to implement
   the dynamic loading functionality in the Plugin Manager using `libloading`.
