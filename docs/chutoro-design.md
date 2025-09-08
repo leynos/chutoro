@@ -615,7 +615,9 @@ stable, language-agnostic contract.
 
 `chutoro_v1` struct. The host checks the `abi_version` to ensure compatibility
 and, on teardown, must call `vtable.destroy(vtable.state)` exactly once to
-release plugin state.
+release plugin state. Safety contract: the host never calls `destroy` more than
+once; plugins must treat `destroy` as idempotent with internal guards to avoid
+double-free if probed repeatedly.
 
 1. **Safe Abstraction in the Host:** After receiving the v-table, the host
    wraps it in a safe Rust struct that implements the internal `DataSource`
@@ -738,9 +740,9 @@ providers advertising dense numeric data. Guarantee 64-byte alignment, stride-1
 access, structure-of-arrays packing, and dimensions padded to SIMD-lane
 multiples to enable predictable vector loads. Retain a scalar fallback via the
 existing trait.
-- **Tail-lane handling:** Zero-pad or mask incomplete lanes; forbid reading
-past bounds. Providers must expose padded dimensions or supply per-kernel masks
-to guarantee deterministic reductions.
+- **Tail-lane handling:** use portable-simd `Mask` to guard tail lanes;
+  forbid reading past bounds. `DensePointView<'a>` documents `align_to`
+  guarantees for 64-byte alignment to enable predictable vector loads.
 - **NaN and non-finite semantics:** Replace any NaN or ±∞ inputs with
 `f32::INFINITY` before reductions to keep CPU and GPU paths consistent.
 - **Compile-time feature flags and dispatch:** Add `simd_avx2`,
@@ -871,7 +873,7 @@ pub trait GpuBackend {
     ) -> Result<()>;
 
     fn stream(&self) -> Result<Self::Stream>;
-    fn synchronise(&self) -> Result<()>;
+    fn synchronize(&self) -> Result<()>;
 }
 ```
 
@@ -900,8 +902,9 @@ The HAL composes with the existing plugin system. Capability bits allow a
 - `HAS_NATIVE_KERNELS` – provider ships its own device kernels.
 
 At runtime the core negotiates with both the HAL and plugins to pick the most
-efficient path: zero-copy device views when available, otherwise falling back
-to host-managed buffers.
+efficient path. If `HAS_DISTANCE_BATCH` is absent, the host invokes the scalar
+`distance` path. If `HAS_DEVICE_VIEW` is absent, the host uses host-managed
+buffers.
 
 Crate organisation mirrors this split:
 
@@ -1187,7 +1190,8 @@ expose a C function that provides the host with a populated v-table struct.
 
 ```rust
 // In the plugin author's crate (e.g., my_csv_plugin/src/lib.rs)
-use std::ffi::{c_void, CString};
+use std::ffi::c_void;
+use std::os::raw::c_char;
 
 // 1. Define the struct and implement the DataSource trait.
 struct MyCsvDataSource { /*... */ }
@@ -1202,10 +1206,10 @@ unsafe extern "C" fn csv_len(state: *const c_void) -> usize {
     let source = &*(state as *const MyCsvDataSource);
     source.len()
 }
-unsafe extern "C" fn csv_name(_state: *const c_void) -> *const std::os::raw::c_char {
-    // Return pointer stable for the plugin's lifetime (store CString in state in real code).
-    static NAME: &str = "my_csv";
-    CString::new(NAME).unwrap().into_raw()
+unsafe extern "C" fn csv_name(_state: *const c_void) -> *const c_char {
+    // Stable for entire process lifetime; no free required.
+    static NAME: &[u8] = b"my_csv\0";
+    NAME.as_ptr() as *const c_char
 }
 unsafe extern "C" fn csv_destroy(state: *mut c_void) {
     if !state.is_null() {
