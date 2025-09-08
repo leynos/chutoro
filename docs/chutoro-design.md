@@ -590,8 +590,8 @@ stable, language-agnostic contract.
             out: *mut f32,
             n: usize,
         )>,
-        // Required: plugin-controlled teardown of `state`
-        pub destroy: unsafe extern "C" fn(state: *mut std::ffi::c_void),
+        // Optional: plugin-controlled teardown of `state`
+        pub destroy: Option<unsafe extern "C" fn(state: *mut std::ffi::c_void)>,
     }
 
     #[repr(C)]
@@ -614,25 +614,27 @@ stable, language-agnostic contract.
    symbol.[^33] It calls this function to get the
 
 `chutoro_v1` struct. The host checks the `abi_version` to ensure compatibility
-and, on teardown, must call `vtable.destroy(vtable.state)` exactly once to
-release plugin state. Safety contract: the host never calls `destroy` more than
-once; plugins must treat `destroy` as idempotent with internal guards to avoid
-double-free if probed repeatedly.
+and, on teardown, must call `destroy(vtable.state)` exactly once if the field
+is `Some` to release plugin state. Safety contract: the host never calls
+`destroy` more than once; plugins must treat `destroy` as idempotent with
+internal guards to avoid double-free if probed repeatedly.
 
 1. **Safe Abstraction in the Host:** After receiving the v-table, the host
    wraps it in a safe Rust struct that implements the internal `DataSource`
    trait. Calls to the trait methods on this wrapper will internally delegate
    to the function pointers in the C struct, passing the opaque `state` pointer
-   as the first argument. On `Drop`, it invokes `destroy(vtable.state)` to free
-   plugin resources. This design confines all `unsafe` FFI calls to this single
-   wrapper, providing a safe and ergonomic interface to the rest of the
-   application while completely avoiding any reliance on Rust's unstable trait
-   object layout across the FFI boundary. Crucially, once this small, `unsafe`
-   boundary is crossed and safely encapsulated, all subsequent interactions
-   with the plugin are fully memory-safe and managed by the Rust compiler. This
-   provides an unparalleled level of confidence and maintainability that is not
-   easily matched in traditional C or C++ FFI scenarios, where the burden of
-   safety remains entirely on the developer.
+   as the first argument. On `Drop`, it invokes the `destroy` callback if
+   present to free plugin resources. This design confines all `unsafe` FFI
+   calls to this single wrapper, providing a safe and ergonomic interface to
+   the rest of the application while completely avoiding any reliance on Rust's
+   unstable trait object layout across the FFI boundary. Crucially, once this
+   small, `unsafe` boundary is crossed and safely encapsulated, all subsequent
+   interactions with the plugin are fully memory-safe and managed by the Rust
+   compiler. This provides an unparalleled level of confidence and
+   maintainability that is not easily matched in traditional C or C++ FFI
+   scenarios, where the burden of safety remains entirely on the developer. If
+   `HAS_DISTANCE_BATCH` is absent, the wrapper routes calls to the scalar
+   `distance`. If `HAS_DEVICE_VIEW` is missing, host-managed buffers are used.
 
 ### 6. Core Clustering Engine: A Multi-threaded CPU Implementation
 
@@ -1190,8 +1192,8 @@ expose a C function that provides the host with a populated v-table struct.
 
 ```rust
 // In the plugin author's crate (e.g., my_csv_plugin/src/lib.rs)
-use std::ffi::c_void;
 use std::os::raw::c_char;
+use std::ffi::c_void;
 
 // 1. Define the struct and implement the DataSource trait.
 struct MyCsvDataSource { /*... */ }
@@ -1231,7 +1233,7 @@ pub extern "C" fn _plugin_create() -> *mut chutoro_v1 {
         name: csv_name,
         distance: csv_distance,
         distance_batch: None, // Use default scalar fallback
-        destroy: csv_destroy,
+        destroy: Some(csv_destroy),
     });
 
     Box::into_raw(vtable)
