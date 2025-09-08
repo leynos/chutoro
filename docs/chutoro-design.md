@@ -614,8 +614,8 @@ stable, language-agnostic contract.
    symbol.[^33] It calls this function to get the
 
 `chutoro_v1` struct. The host checks the `abi_version` to ensure compatibility
-and, on teardown, must call `destroy(vtable.state)` exactly once if the field
-is `Some` to release plugin state. Safety contract: the host never calls
+and, on teardown, must call `vtable.destroy(vtable.state)` exactly once if the
+field is `Some` to release plugin state. Safety contract: the host never calls
 `destroy` more than once; plugins must treat `destroy` as idempotent with
 internal guards to avoid double-free if probed repeatedly.
 
