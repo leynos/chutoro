@@ -79,10 +79,13 @@ documented CPU hot spots.
 
 ______________________________________________________________________
 
-## Phase 3 — GPU MST Offload (Borůvka on CUDA via rust‑cuda)
+## Phase 3 — GPU MST Offload (Borůvka via rust‑cuda HAL)
 
-- [ ] Introduce `chutoro-gpu` crate with `cust`, `cuda_std`,
-  `rustc_codegen_nvvm`, `cuda_builder`. (See §7)
+- [ ] Add GPU HAL to `chutoro-core` with an execution‑path selector. (See §7.1)
+- [ ] Implement `chutoro-backend-cuda` using `cust`/`cudarc`, `cuda_std`,
+  `rustc_codegen_nvvm`, `cuda_builder`; gate behind `backend-cuda`. (See §7.1)
+- [ ] Stub `chutoro-backend-cubecl` and optional `chutoro-backend-sycl` crates
+  with features `backend-portable` and `backend-sycl`. (See §7.1)
 - [ ] Define device data structures: global edge list, DSU parent array, MST
   output buffer. (See §8.2)
 - [ ] Implement Kernel 1: per‑component (or per‑vertex) min outgoing edge
@@ -91,8 +94,8 @@ ______________________________________________________________________
   host loop rounds until one component remains. (See §8.2)
 - [ ] Add host‑side adapter: copy candidate edges once to device, run Borůvka,
   copy MST back. (See §9.1)
-- [ ] Gate behind `--features gpu`; fall back cleanly to CPU when unavailable.
-  (See §7, §11)
+- [ ] Gate backends behind features (`backend-cuda`, `backend-portable`,
+  `backend-sycl`); fall back cleanly to CPU when unavailable. (See §7.1, §11)
 - [ ] Verify correctness vs CPU Kruskal on random graphs; benchmark speedup.
   (See §11)
 
@@ -141,8 +144,8 @@ ______________________________________________________________________
   validate `abi_version`, wrap as safe `DataSource`. (See §5.2, §5.3)
 - [ ] Ship example plugin `chutoro-plugin-csv` and `chutoro-plugin-parquet`;
   document build and loading. (See §5)
-- [ ] Add capability flags (`HAS_BATCH`, `HAS_DEVICE_VIEW`) for future
-  GPU‑aware providers. (See §5.3)
+- [ ] Add capability flags (`HAS_DISTANCE_BATCH`, `HAS_DEVICE_VIEW`,
+  `HAS_NATIVE_KERNELS`) for GPU‑aware providers. (See §5.3, §7.1)
 - [ ] Fuzz and harden FFI boundaries (lengths, nulls, lifetime ownership);
   ensure host remains robust on plugin failure. (See §5.1)
 

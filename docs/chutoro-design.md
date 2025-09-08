@@ -575,7 +575,7 @@ stable, language-agnostic contract.
     #[repr(C)]
     pub struct chutoro_v1 {
         pub abi_version: u32, // e.g., 1
-        pub caps: u32,        // Bitflags: HAS_BATCH, HAS_DEVICE_VIEW, etc.
+        pub caps: u32,        // Bitflags: HAS_DISTANCE_BATCH, HAS_DEVICE_VIEW, HAS_NATIVE_KERNELS
         pub state: *mut std::ffi::c_void, // Opaque pointer to plugin's internal state
     
         // Function pointers for the data source API
@@ -816,6 +816,84 @@ threads within a block is not a minor optimisation; it is fundamental to
 achieving high performance in parallel graph algorithms.[^17] The performance
 gains from leveraging these features will far outweigh the loss of portability
 for a library targeting high-performance computing scenarios.
+
+#### 7.1. GPU Hardware Abstraction Layer and Backends
+
+Directly wiring the algorithm to CUDA would make future portability painful.
+Instead, a minimal GPU hardware abstraction layer (HAL) defines the contract
+that all device backends must satisfy. Algorithm code invokes only this trait
+family; each backend implements it using its native toolchain.
+
+```rust
+pub trait GpuBackend {
+    type Device;
+    type Stream;
+    type Module;
+    type Kernel;
+    type Buffer<T>;
+
+    fn alloc<T: bytemuck::Pod>(&self, n: usize) -> Result<Self::Buffer<T>>;
+    fn upload<T: bytemuck::Pod>(&self, host: &[T]) -> Result<Self::Buffer<T>>;
+    fn download<T: bytemuck::Pod>(
+        &self,
+        buf: &Self::Buffer<T>,
+        out: &mut [T],
+    ) -> Result<()>;
+
+    fn load_module(&self, image: &[u8]) -> Result<Self::Module>;
+    fn get_kernel(&self, m: &Self::Module, name: &str) -> Result<Self::Kernel>;
+    fn launch(
+        &self,
+        k: &Self::Kernel,
+        grid: [u32; 3],
+        block: [u32; 3],
+        args: &mut KernelArgs,
+    ) -> Result<()>;
+
+    fn stream(&self) -> Result<Self::Stream>;
+    fn synchronise(&self) -> Result<()>;
+}
+```
+
+On top of this HAL, a small set of graph primitives is defined: segmented
+min‑reduce, stream compaction, union‑find, and batched distance kernels. The
+core HNSW and MST algorithms depend only on these primitives, keeping the
+implementation free from backend-specific details.
+
+Three backends sit behind the HAL:
+
+1. **CUDA specialist:** implemented with `cust`[^39] or `cudarc`[^40] plus
+   `rust-cuda` kernels. This path provides maximum performance and remains the
+   default for NVIDIA hardware.
+2. **Portable path:** CubeCL[^41] kernels compile once and dispatch to CUDA,
+   ROCm, or WGPU (Vulkan/Metal/DX12). Performance is lower but it covers a
+   broad range of devices.
+3. **SYCL/oneAPI shim:** SYCL kernels compiled with DPC++ are exposed through a
+   thin C layer targeting the Level Zero runtime[^42]; Codeplay's plugins
+   enable the same binaries on NVIDIA and AMD GPUs[^43].
+
+The HAL composes with the existing plugin system. Capability bits allow a
+`DataSource` plugin to advertise GPU-friendly features:
+
+- `HAS_DISTANCE_BATCH` – provider supplies a vectorised batch distance.
+- `HAS_DEVICE_VIEW` – provider can expose device-resident buffers.
+- `HAS_NATIVE_KERNELS` – provider ships its own device kernels.
+
+At runtime the core negotiates with both the HAL and plugins to pick the most
+efficient path: zero-copy device views when available, otherwise falling back
+to host-managed buffers.
+
+Crate organisation mirrors this split:
+
+- `chutoro-core` – algorithms, HAL, and CPU path.
+- `chutoro-backend-cuda` – CUDA implementation, feature `backend-cuda`.
+- `chutoro-backend-cubecl` – portable CubeCL backend, feature
+  `backend-portable`.
+- `chutoro-backend-sycl` – optional SYCL shim, feature `backend-sycl`.
+
+An execution-path selector first chooses CPU or GPU. When the GPU path is
+selected, a backend dispatcher initialises the first enabled backend and binds
+function pointers to the appropriate kernel implementations.
 
 ### 8. Design of GPU-Accelerated Components
 
@@ -1234,7 +1312,7 @@ programming in Rust.
 [^3]: dbscan: Fast Density-based Clustering with R - The Comprehensive R
       Archive Network, accessed on September 6, 2025,
       [https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf](https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf)
-      Software, accessed on September 6, 2025,
+       Software, accessed on September 6, 2025,
       [https://www.jstatsoft.org/article/view/v091i01/1318](https://www.jstatsoft.org/article/view/v091i01/1318)
 [^5]: An Implementation of the HDBSCAN* Clustering Algorithm - MDPI, accessed
       on September 6, 2025,
@@ -1251,22 +1329,22 @@ programming in Rust.
       Semantic Scholar, accessed on September 6, 2025,
       [https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5](https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5)
        ResearchGate, accessed on September 6, 2025,
-       [https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908](https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908)
+      [https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908](https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908)
        Clustering for Arbitrary Data and Distance | DeepAI, accessed on
-       September 6, 2025,
-       [https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance](https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance)
+      September 6, 2025,
+      [https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance](https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance)
 [^12]: Sonic: Fast and Transferable Data Poisoning on Clustering Algorithms -
        arXiv, accessed on September 6, 2025,
        [https://arxiv.org/html/2408.07558v1](https://arxiv.org/html/2408.07558v1)
 [^13]: Parallel Flexible Clustering Edoardo Pastorino - UniRe - UniGe, accessed
        on September 6, 2025,
        [https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1](https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1)
-       2025,
+        2025,
        [https://unire.unige.it/handle/123456789/7200](https://unire.unige.it/handle/123456789/7200)
 [^15]: Fast (Correct) Clustering in Time and Space using the GPU - Pure,
        accessed on September 6, 2025,
        [https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf](https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf)
-       clustering, accessed on September 6, 2025,
+        clustering, accessed on September 6, 2025,
        [https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering](https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering)
 [^17]: An Experimental Comparison of GPU Techniques for DBSCAN Clustering - OU
        School of Computer Science, accessed on September 6, 2025,
@@ -1283,7 +1361,7 @@ programming in Rust.
 [^20]: Faster HDBSCAN Soft Clustering with RAPIDS cuML | NVIDIA Technical Blog,
        accessed on September 6, 2025,
        [https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/](https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/)
-       accelerators, accessed on September 6, 2025,
+        accelerators, accessed on September 6, 2025,
        [https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS](https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS)
 [^22]: Research on the Parallelization of the DBSCAN Clustering Algorithm for
        Spatial Data Mining Based on the Spark Platform - MDPI, accessed on
@@ -1292,7 +1370,7 @@ programming in Rust.
 [^23]: A High-Performance MST Implementation for GPUs - Computer Science :
        Texas State University, accessed on September 6, 2025,
        [https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf](https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf)
-       Parlaylib and CUDA | 15618-Final - GitHub Pages, accessed on September
+        Parlaylib and CUDA | 15618-Final - GitHub Pages, accessed on September
        6, 2025,
        [https://jzaia18.github.io/15618-Final/](https://jzaia18.github.io/15618-Final/)
 [^25]: nmslib/hnswlib: Header-only C++/python library for fast approximate
@@ -1313,14 +1391,14 @@ programming in Rust.
 [^30]: Designing a Rust -> Rust plugin system : r/rust - Reddit, accessed on
        September 6, 2025,
        [https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/](https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/)
-       September 6, 2025,
+        September 6, 2025,
        [https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313](https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313)
-       Forum, accessed on September 6, 2025,
+        Forum, accessed on September 6, 2025,
        [https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980](https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980)
 [^33]: dynamic-plugin - [crates.io](http://crates.io): Rust Package Registry,
        accessed on September 6, 2025,
        [https://crates.io/crates/dynamic-plugin](https://crates.io/crates/dynamic-plugin)
-       accessed on September 6, 2025,
+        accessed on September 6, 2025,
        [https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad](https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad)
 [^35]: gfx-rs/wgpu: A cross-platform, safe, pure-Rust graphics API. - GitHub,
        accessed on September 6, 2025,
@@ -1333,6 +1411,20 @@ programming in Rust.
 [^38]: Getting Started - GPU Computing with Rust using CUDA, accessed on
        September 6, 2025,
        [https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html](https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html)
-       executing fast GPU code fully in Rust. - GitHub, accessed on September
+        executing fast GPU code fully in Rust. - GitHub, accessed on September
        6, 2025,
        [https://github.com/Rust-GPU/Rust-CUDA](https://github.com/Rust-GPU/Rust-CUDA)
+[^39]: ``cust`` crate - Safe CUDA driver bindings for Rust, accessed on
+       September 6, 2025,
+       [https://github.com/denzp/rust-cuda](https://github.com/denzp/rust-cuda)
+[^40]: ``cudarc`` crate - Ergonomic CUDA runtime for Rust, accessed on
+       September 6, 2025,
+       [https://github.com/coreylowman/cudarc](https://github.com/coreylowman/cudarc)
+[^41]: CubeCL - Multi-backend GPU kernel DSL for Rust, accessed on
+       September 6, 2025,
+       [https://github.com/tracel-ai/cubecl](https://github.com/tracel-ai/cubecl)
+[^42]: oneAPI Level Zero Specification, accessed on September 6, 2025,
+       [https://spec.oneapi.com/level-zero/latest/](https://spec.oneapi.com/level-zero/latest/)
+[^43]: Codeplay oneAPI plugins for NVIDIA and AMD GPUs, accessed on
+       September 6, 2025,
+       [https://github.com/codeplaysoftware/oneapi-construction-kit](https://github.com/codeplaysoftware/oneapi-construction-kit)
