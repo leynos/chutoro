@@ -23,6 +23,10 @@ ______________________________________________________________________
   with optional precomputed norms for cosine. (See §3.1)
 - [ ] Ship a minimal CLI: `chutoro run parquet <path> --column features ...`
   and `chutoro run text <path> --metric levenshtein`. (See §10)
+- [ ] Add logging via the `log` facade with `env_logger`; replace manual
+  prints and initialise logging in the CLI. (See §10.4)
+- [ ] Adopt `thiserror` for ergonomic error types and return
+  `Result<…, ChutoroError>` from public APIs. (See §10.4)
 - [ ] Establish CI (fmt, clippy, test), feature gates (`cpu`, `gpu` off by
   default), and reproducible toolchain (`rust-toolchain.toml`). (See §11)
 
@@ -35,6 +39,8 @@ ______________________________________________________________________
 
 - [ ] Implement CPU HNSW insertion/search with Rayon; two‑phase locking (`read`
   for search → `write` for insert) on a shared graph. (See §6.1, §6.2)
+- [ ] Introduce a `DistanceCache` backed by `dashmap` to avoid recomputing
+  distances across threads during HNSW insertion. (See §6.2, §10.4)
 - [ ] During insertion, capture candidate edges `(u,v,w)` discovered by HNSW;
   accumulate via Rayon `map` → `reduce` into a global edge list. (See §6.2)
 - [ ] Implement parallel Kruskal: parallel sort of edges, concurrent union‑find
@@ -146,6 +152,8 @@ ______________________________________________________________________
 
 - [ ] Freeze `chutoro_v1` #[repr(C)] v‑table with `abi_version`, `caps`,
   `state`, and function pointers; include optional `distance_batch`. (See §5.3)
+- [ ] Add mandatory `destroy` callback to the v-table and ensure the
+  `PluginManager` calls it when unloading plugins. (See §5.3)
 - [ ] Implement `PluginManager` using `libloading` to locate `_plugin_create`,
   validate `abi_version`, wrap as safe `DataSource`. (See §5.2, §5.3)
 - [ ] Ship example plugin `chutoro-plugin-csv` and `chutoro-plugin-parquet`;
