@@ -248,7 +248,7 @@ Provenance notes:
   (conductance, connected-component purity) as proxies for cluster “shape.”
   Conductance = cut(S, V−S)/min(vol(S), vol(V−S)) and connected-component
   purity is the dominant label count divided by the component size.
-  ANN-Benchmarks HDF5 packs standardise splits and ground truth.
+  ANN-Benchmarks HDF5 packs standardize splits and ground truth.
 
 ### Practical picks by “benchmark tier”
 
