@@ -266,7 +266,8 @@ Provenance notes:
 [^4]: CIFAR-10/100 — <https://www.cs.toronto.edu/~kriz/cifar.html>
 [^5]: 20 Newsgroups —
          <https://scikit-learn.org/stable/datasets/real_world.html#newsgroups-dataset>
-[^6]: RCV1-v2 — <https://scikit-learn.org/stable/datasets/rcv1.html>
+[^6]: RCV1-v2 —
+      <https://scikit-learn.org/stable/modules/generated/sklearn.datasets.fetch_rcv1.html>
 [^7]: SNAP datasets — <https://snap.stanford.edu/data/>
 [^8]: PBMC 68k —
          <https://support.10xgenomics.com/single-cell-gene-expression/datasets>
