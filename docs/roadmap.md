@@ -59,18 +59,39 @@ ______________________________________________________________________
   record footprints vs `M∈{8,12,16,24}`. (See §1.3)
 - [ ] Implement memory guards (`--max-bytes`) and clear failure messages. (See
   §5)
-- [ ] Optimise hot loops (SIMD, cache of norms, small‑vecs) guided by profiles.
-  (See §6.1)
+- [ ] Add CPU distance kernels using `std::simd` with AVX2/AVX-512
+  specializations; make `distance_batch` the default HNSW scoring path. (See
+  §6.3)
+- [ ] Restructure HNSW neighbour evaluation to use packed indices and an SoA
+  layout, prefetching blocks and scoring outside the write lock. (See §6.3)
+- [ ] Vectorize edge-weight transforms and candidate filtering before
+  union-find in parallel Kruskal; keep union-find cache-friendly. (See §6.3)
+- [ ] Introduce `DensePointView<'a>` for aligned SoA access with a scalar
+  fallback. (See §6.3)
+- [ ] Gate SIMD backends behind `simd_avx2`, `simd_avx512`, and `simd_neon`
+  features with CPUID runtime dispatch. (See §6.3)
+  - Use `is_x86_feature_detected!`/platform equivalents and one-time
+    function-pointer patching to avoid hot-path branching.
+  - Define NaN and other non-finite treatment for reductions to ensure
+    CPU/GPU parity.
+  - Guarantee 64-byte alignment and lane-multiple padding for
+    `DensePointView<'a>`; zero-pad tails.
+- [ ] Benchmark Euclidean/cosine kernels, neighbour scoring, and batched
+  `distance_batch` versus scalar `distance`; bucket candidate sizes to confirm
+  SIMD gains. (See §6.3, §11)
 
 **Exit criteria:** stable baseline numbers to compare against GPU phases;
 documented CPU hot spots.
 
 ______________________________________________________________________
 
-## Phase 3 — GPU MST Offload (Borůvka on CUDA via rust‑cuda)
+## Phase 3 — GPU MST Offload (Borůvka via rust‑cuda HAL)
 
-- [ ] Introduce `chutoro-gpu` crate with `cust`, `cuda_std`,
-  `rustc_codegen_nvvm`, `cuda_builder`. (See §7)
+- [ ] Add GPU HAL to `chutoro-core` with an execution‑path selector. (See §7.1)
+- [ ] Implement `chutoro-backend-cuda` using `cust`/`cudarc`, `cuda_std`,
+  `rustc_codegen_nvvm`, `cuda_builder`; gate behind `backend-cuda`. (See §7.1)
+- [ ] Stub `chutoro-backend-cubecl` and optional `chutoro-backend-sycl` crates
+  with features `backend-portable` and `backend-sycl`. (See §7.1)
 - [ ] Define device data structures: global edge list, DSU parent array, MST
   output buffer. (See §8.2)
 - [ ] Implement Kernel 1: per‑component (or per‑vertex) min outgoing edge
@@ -79,8 +100,8 @@ ______________________________________________________________________
   host loop rounds until one component remains. (See §8.2)
 - [ ] Add host‑side adapter: copy candidate edges once to device, run Borůvka,
   copy MST back. (See §9.1)
-- [ ] Gate behind `--features gpu`; fall back cleanly to CPU when unavailable.
-  (See §7, §11)
+- [ ] Gate backends behind features (`backend-cuda`, `backend-portable`,
+  `backend-sycl`); fall back cleanly to CPU when unavailable. (See §7.1, §11)
 - [ ] Verify correctness vs CPU Kruskal on random graphs; benchmark speedup.
   (See §11)
 
@@ -129,8 +150,8 @@ ______________________________________________________________________
   validate `abi_version`, wrap as safe `DataSource`. (See §5.2, §5.3)
 - [ ] Ship example plugin `chutoro-plugin-csv` and `chutoro-plugin-parquet`;
   document build and loading. (See §5)
-- [ ] Add capability flags (`HAS_BATCH`, `HAS_DEVICE_VIEW`) for future
-  GPU‑aware providers. (See §5.3)
+- [ ] Add capability flags (`HAS_DISTANCE_BATCH`, `HAS_DEVICE_VIEW`,
+  `HAS_NATIVE_KERNELS`) for GPU‑aware providers. (See §5.3, §7.1)
 - [ ] Fuzz and harden FFI boundaries (lengths, nulls, lifetime ownership);
   ensure host remains robust on plugin failure. (See §5.1)
 
@@ -169,8 +190,6 @@ ______________________________________________________________________
 
 ## Phase 9 — Hardening & Nice‑to‑Haves (Post‑v0.1)
 
-- [ ] Add SIMD/AVX distance kernels on CPU and optional SoA transpose on device
-  for coalesced loads. (See §9.1)
 - [ ] Parallelise parts of hierarchy extraction if profiling justifies. (See
   §8.3)
 - [ ] Add metrics/telemetry hooks (timings, memory) behind a feature flag. (See
@@ -180,3 +199,77 @@ ______________________________________________________________________
 
 **Exit criteria:** measurable incremental gains; stable ABI story; clean
 telemetry for future tuning.
+
+______________________________________________________________________
+
+## Benchmark dataset suite
+
+| Scale          | Dataset                      | Size / Dim.                                 | Labels / “clusters”                    | Why it’s useful                                                                                                          |
+| -------------- | ---------------------------- | ------------------------------------------: | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Toy–Small      | `make_blobs` (synthetic)[^1] | configurable                                | exact cluster IDs                      | Sanity-check end-to-end behaviour; control separation, anisotropy, imbalance, and noise.                                 |
+| Small          | MNIST digits[^2]             | 70k × 784                                   | 10 classes                             | Easy, well-behaved baseline for Euclidean space; also available prepackaged for ANN-Benchmarks.                          |
+| Small          | Fashion-MNIST[^3]            | 70k × 784                                   | 10 classes                             | Slightly harder clusters than MNIST; drop-in replacement; HDF5 splits exist in ANN-Benchmarks.                           |
+| Small–Medium   | CIFAR-10 / CIFAR-100[^4]     | 60k × 3×32×32                               | 10 / 100 classes                       | Labels enable testing both “coarse” and “fine” cluster granularity; embedding via a fixed CNN yields vectors.            |
+| Medium         | 20 Newsgroups[^5]            | 18,846 docs                                 | 20 topics                              | Text with clear topic labels; create vectors (e.g., TF-IDF, SBERT) then test cluster recovery.                           |
+| Medium–Large   | RCV1-v2[^6]                  | 804,414 docs, 103 topics                    | multilabel topics                      | Large, messy, real text; multilabel enables probing overlapping clusters; scikit-learn fetcher provides canonical split. |
+| Medium         | SNAP com-Amazon[^7]          | 334,863 nodes                               | product categories = communities       | Real graph with ground-truth communities for community/cluster evaluation after k-NN graph build.                        |
+| Medium         | SNAP com-DBLP[^7]            | 317,080 nodes                               | venue-based communities                | Overlapping scientific communities; good stress for cluster quality on graph structures.                                 |
+| Medium (bio)   | PBMC 68k (10x Genomics)[^8]  | ~68k cells, ≫10k genes → 50d (PCA)          | cell-type labels                       | Classic scRNA-seq clustering benchmark with annotated cell types; strong test for high-dimensional distances.            |
+| Large (ANN)    | GloVe word vectors[^9]       | 1.18M × {25,50,100,200}                     | none (but lexical categories possible) | Covers angular distance regimes; turnkey HDF5 in ANN-Benchmarks.                                                         |
+| Large (ANN)    | SIFT1M[^10]                  | 1,000,000 × 128                             | nn ground truth (no classes)           | De-facto Euclidean ANN baseline with exact k-NN ground truth; great for graph/MST quality via k-NN recall.               |
+| Large (ANN)    | GIST1M[^10]                  | 1,000,000 × 960                             | nn ground truth                        | Very high-dimensional Euclidean stress test; in ANN-Benchmarks.                                                          |
+| XL–Billion     | DEEP1B / BigANN[^10]         | up to 1B × 96 (Deep1B) / 128 (SIFT BigANN)  | nn ground truth                        | For scale limits, memory pressure, sharding; official subsets (1M/10M/100M) and GT available.                            |
+
+Provenance notes:
+
+- `make_blobs`: BSD-3 via scikit-learn.[^1]
+- MNIST digits: Yann LeCun; permissive distribution.[^2]
+- Fashion-MNIST: MIT licence from Zalando.[^3]
+- CIFAR-10/100: MIT licence; provided by Krizhevsky et al.[^4]
+- 20 Newsgroups: by Ken Lang; available via scikit-learn fetcher.[^5]
+- RCV1-v2: Reuters licence; fetched with scikit-learn.[^6]
+- SNAP com-Amazon: Stanford SNAP dataset under CC BY-SA.[^7]
+- SNAP com-DBLP: Stanford SNAP dataset under CC BY-SA.[^7]
+- PBMC 68k: 10x Genomics, CC BY 4.0.[^8]
+- GloVe word vectors: Stanford NLP, public domain.[^9]
+- SIFT1M: ANN-Benchmarks HDF5 package.[^10]
+- GIST1M: ANN-Benchmarks HDF5 package.[^10]
+- DEEP1B/BigANN: ANN-Benchmarks HDF5 package.[^10]
+
+### How to use them (minimal ceremony)
+
+- **With labels (MNIST/Fashion-MNIST/CIFAR/20NG/RCV1/SNAP/PBMC):** build
+  k-NN/HNSW, run the MST/clusterer, and score with NMI/ARI vs. labels; also
+  report k-NN recall@k vs. exact neighbours to measure graph fidelity. Recall@k
+  is |P ∩ G_k|/k where G_k is the exact neighbour list (including ties)
+  supplied with the dataset.
+- **Without labels (SIFT/GIST/GloVe/DEEP1B):** rely on provided **exact
+  neighbour ground truth** for recall@{1,10,100} and report graph metrics
+  (conductance, connected-component purity) as proxies for cluster “shape.”
+  Conductance = cut(S, V−S)/min(vol(S), vol(V−S)) and connected-component
+  purity is the dominant label count divided by the component size.
+  ANN-Benchmarks HDF5 packs standardize splits and ground truth.
+
+### Practical picks by “benchmark tier”
+
+- **Smoke tests (minutes):** `make_blobs` (varied separation),
+  MNIST/Fashion-MNIST.
+- **Serious CPU micro/macro (hours):** 20 Newsgroups, RCV1-v2,
+  SNAP com-Amazon/com-DBLP, SIFT1M.
+- **Scale & memory (days):** GIST1M, GloVe-200d, DEEP10M/100M, and
+  DEEP1B/BigANN for the most demanding scale.
+
+[^1]: scikit-learn — make_blobs —
+         <https://scikit-learn.org/stable/modules/generated/sklearn.datasets.make_blobs.html>
+[^2]: MNIST database — <http://yann.lecun.com/exdb/mnist/>
+[^3]: Fashion-MNIST — <https://github.com/zalandoresearch/fashion-mnist>
+[^4]: CIFAR-10/100 — <https://www.cs.toronto.edu/~kriz/cifar.html>
+[^5]: 20 Newsgroups —
+         <https://scikit-learn.org/stable/datasets/real_world.html#newsgroups-dataset>
+[^6]: RCV1-v2 —
+      <https://scikit-learn.org/stable/modules/generated/sklearn.datasets.fetch_rcv1.html>
+[^7]: SNAP datasets — <https://snap.stanford.edu/data/>
+[^8]: PBMC 68k —
+         <https://support.10xgenomics.com/single-cell-gene-expression/datasets>
+[^9]: GloVe vectors — <https://nlp.stanford.edu/projects/glove/>
+[^10]: ANN-Benchmarks datasets — <https://github.com/erikbern/ann-benchmarks>
