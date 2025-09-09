@@ -23,10 +23,13 @@ ______________________________________________________________________
   with optional precomputed norms for cosine. (See §3.1)
 - [ ] Ship a minimal CLI: `chutoro run parquet <path> --column features ...`
   and `chutoro run text <path> --metric levenshtein`. (See §10)
-- [ ] Add logging via the `log` facade with `env_logger`; replace manual
-  prints and initialise logging in the CLI. (See §10.4)
-- [ ] Adopt `thiserror` for ergonomic error types and return
-  `Result<…, ChutoroError>` from public APIs. (See §10.4)
+- [ ] Add structured logging via `tracing` + `tracing-subscriber`; replace
+  manual
+  prints and initialise logging in the CLI (env filter via `RUST_LOG`, human
+  and JSON formats, span IDs). (See §10.4)
+- [ ] Define error taxonomy; adopt `thiserror` for a unified `ChutoroError` in
+  public APIs and use `anyhow` in binaries; return `Result` with stable,
+  documented error codes. (See §10.4)
 - [ ] Establish CI (fmt, clippy, test), feature gates (`cpu`, `gpu` off by
   default), and reproducible toolchain (`rust-toolchain.toml`). (See §11)
 
@@ -41,6 +44,14 @@ ______________________________________________________________________
   for search → `write` for insert) on a shared graph. (See §6.1, §6.2)
 - [ ] Introduce a `DistanceCache` backed by `dashmap` to avoid recomputing
   distances across threads during HNSW insertion. (See §6.2, §10.4)
+  - Key: normalise to `(min(i,j), max(i,j))`; encode metric.
+  - Value: distance as `f32`; define NaN policy.
+  - Bounds: enforce a size cap with eviction (LRU/TTL); add hit/miss/eviction
+     metrics and a feature flag to disable the cache.
+  - Concurrency: require `Send + Sync`; forbid iteration on hot paths; avoid
+     holding HNSW write locks while updating the cache.
+  - Determinism: ensure caching does not alter neighbour selection under fixed
+     seeds; test with parallel insertion.
 - [ ] During insertion, capture candidate edges `(u,v,w)` discovered by HNSW;
   accumulate via Rayon `map` → `reduce` into a global edge list. (See §6.2)
 - [ ] Implement parallel Kruskal: parallel sort of edges, concurrent union‑find
@@ -152,8 +163,18 @@ ______________________________________________________________________
 
 - [ ] Freeze `chutoro_v1` #[repr(C)] v‑table with `abi_version`, `caps`,
   `state`, and function pointers; include optional `distance_batch`. (See §5.3)
-- [ ] Add mandatory `destroy` callback to the v-table and ensure the
+- [ ] Add mandatory `destroy` callback to the v‑table and ensure the
   `PluginManager` calls it when unloading plugins. (See §5.3)
+  - ABI: `extern "C" fn destroy(state: *mut c_void)`; no panics across FFI.
+  - Ordering: drop all host‑side wrappers/handles; then call `destroy`; then
+     unload the dynamic library.
+  - Idempotency: require `destroy` to be safe if called once; document
+     behaviour
+     if the plugin reports errors.
+  - Safety: forbid re-entry into plugin code after unload; add logs at INFO
+     with
+     plugin name and timing.
+  - Tests: load→use→destroy→unload cycle under leak detectors and ASAN/UBSAN.
 - [ ] Implement `PluginManager` using `libloading` to locate `_plugin_create`,
   validate `abi_version`, wrap as safe `DataSource`. (See §5.2, §5.3)
 - [ ] Ship example plugin `chutoro-plugin-csv` and `chutoro-plugin-parquet`;
