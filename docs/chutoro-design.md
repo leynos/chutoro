@@ -394,6 +394,7 @@ for both CPU and GPU execution.
 A conceptual diagram of the architecture is as follows:
 
 ```text
+                                
 +--------------------------------+
 | Application / User             |
 +--------------------------------+
@@ -887,7 +888,7 @@ efficient path. If `HAS_DISTANCE_BATCH` is absent, the host invokes the scalar
 `distance` path. If `HAS_DEVICE_VIEW` is absent, the host uses host-managed
 buffers.
 
-Crate organisation mirrors this split:
+Crate organization mirrors this split:
 
 - `chutoro-core` – algorithms, HAL, and CPU path.
 - `chutoro-backend-cuda` – CUDA implementation, feature `backend-cuda`.
@@ -896,7 +897,7 @@ Crate organisation mirrors this split:
 - `chutoro-backend-sycl` – optional SYCL shim, feature `backend-sycl`.
 
 An execution-path selector first chooses CPU or GPU. When the GPU path is
-selected, a backend dispatcher initialises the first enabled backend and binds
+selected, a backend dispatcher initializes the first enabled backend and binds
 function pointers to the appropriate kernel implementations.
 
 ### 8. Design of GPU-Accelerated Components
