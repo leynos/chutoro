@@ -23,8 +23,10 @@ ______________________________________________________________________
   with optional precomputed norms for cosine. (See §3.1)
 - [ ] Ship a minimal CLI: `chutoro run parquet <path> --column features ...`
   and `chutoro run text <path> --metric levenshtein`. (See §10)
-- [ ] Add structured logging via `tracing` + `tracing-subscriber`; replace
-  manual prints and initialise logging in the CLI (env filter via `RUST_LOG`,
+- [ ] Add structured logging via `tracing` + `tracing-subscriber`; bridge the
+  `log` crate via `tracing-log`; replace manual prints and initialise logging
+  in the CLI (e.g.,
+  `tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env())`,
   human and JSON formats, span IDs). (See §10.4)
 - [ ] Define error taxonomy; adopt `thiserror` for a unified `ChutoroError` in
   public APIs and use `anyhow` in binaries; return `Result` with stable,
@@ -43,14 +45,19 @@ ______________________________________________________________________
   for search → `write` for insert) on a shared graph. (See §6.1, §6.2)
 - [ ] Introduce a `DistanceCache` backed by `dashmap` to avoid recomputing
   distances across threads during HNSW insertion. (See §6.2, §10.4)
-  - Key: normalise to `(min(i,j), max(i,j))`; encode metric.
-  - Value: distance as `f32`; define NaN policy.
-  - Bounds: enforce a size cap with eviction (LRU/TTL); add hit/miss/eviction
-     metrics and a feature flag to disable the cache.
+  - Key: normalise to `(min(i,j), max(i,j))`; encode metric and its parameters
+    (e.g., cosine with/without pre-norms) in the key.
+  - Value: `f32` distance; NaN policy: do not cache NaN; propagate an error and
+    log at WARN.
+  - Bounds: enforce `max_entries` via LRU eviction (optional TTL); document
+    defaults and configuration knobs.
+  - Metrics: expose hits, misses, evictions, and lookup latency via the
+    `metrics` crate and emit `tracing` spans for hot paths; feature-flag the
+    cache.
   - Concurrency: require `Send + Sync`; forbid iteration on hot paths; avoid
-     holding HNSW write locks while updating the cache.
-  - Determinism: ensure caching does not alter neighbour selection under fixed
-     seeds; test with parallel insertion.
+    holding HNSW write locks while updating the cache.
+  - Determinism: ensure neighbour selection is unchanged under fixed seeds;
+    disallow time-dependent eviction effects in tests; specify tie-break rules.
 - [ ] During insertion, capture candidate edges `(u,v,w)` discovered by HNSW;
   accumulate via Rayon `map` → `reduce` into a global edge list. (See §6.2)
 - [ ] Implement parallel Kruskal: parallel sort of edges, concurrent union‑find
@@ -166,11 +173,14 @@ ______________________________________________________________________
   `PluginManager` calls it when unloading plugins. (See §5.3)
   - ABI: `extern "C" fn destroy(state: *mut c_void)`; no panics across FFI.
   - Ordering: drop all host‑side wrappers/handles; call `destroy`, wait for it
-     to return; then unload the dynamic library.
-  - Idempotency: require `destroy` to be safe if called once; document
-     behaviour if the plugin reports errors.
-  - Safety: forbid re-entry into plugin code after unload; add logs at INFO
-     with plugin name and timing.
+    to return; then unload the dynamic library.
+  - Idempotency: `destroy` must be safe if called multiple times (idempotent);
+    the host calls it at most once in normal operation. Document behaviour if
+    the plugin reports errors.
+  - Quiescence: ensure all in-flight callbacks complete and any plugin-spawned
+    threads are joined/cancelled before calling `destroy`; forbid re-entry
+    after unload.
+  - Safety: add logs at INFO with plugin name and timing.
   - Tests: load→use→destroy→unload cycle under leak detectors and ASAN/UBSAN.
 - [ ] Implement `PluginManager` using `libloading` to locate `_plugin_create`,
   validate `abi_version`, wrap as safe `DataSource`. (See §5.2, §5.3)
