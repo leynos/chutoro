@@ -24,9 +24,8 @@ ______________________________________________________________________
 - [ ] Ship a minimal CLI: `chutoro run parquet <path> --column features ...`
   and `chutoro run text <path> --metric levenshtein`. (See §10)
 - [ ] Add structured logging via `tracing` + `tracing-subscriber`; replace
-  manual
-  prints and initialise logging in the CLI (env filter via `RUST_LOG`, human
-  and JSON formats, span IDs). (See §10.4)
+  manual prints and initialise logging in the CLI (env filter via `RUST_LOG`,
+  human and JSON formats, span IDs). (See §10.4)
 - [ ] Define error taxonomy; adopt `thiserror` for a unified `ChutoroError` in
   public APIs and use `anyhow` in binaries; return `Result` with stable,
   documented error codes. (See §10.4)
@@ -166,14 +165,12 @@ ______________________________________________________________________
 - [ ] Add mandatory `destroy` callback to the v‑table and ensure the
   `PluginManager` calls it when unloading plugins. (See §5.3)
   - ABI: `extern "C" fn destroy(state: *mut c_void)`; no panics across FFI.
-  - Ordering: drop all host‑side wrappers/handles; then call `destroy`; then
-     unload the dynamic library.
+  - Ordering: drop all host‑side wrappers/handles; call `destroy`, wait for it
+     to return; then unload the dynamic library.
   - Idempotency: require `destroy` to be safe if called once; document
-     behaviour
-     if the plugin reports errors.
+     behaviour if the plugin reports errors.
   - Safety: forbid re-entry into plugin code after unload; add logs at INFO
-     with
-     plugin name and timing.
+     with plugin name and timing.
   - Tests: load→use→destroy→unload cycle under leak detectors and ASAN/UBSAN.
 - [ ] Implement `PluginManager` using `libloading` to locate `_plugin_create`,
   validate `abi_version`, wrap as safe `DataSource`. (See §5.2, §5.3)
