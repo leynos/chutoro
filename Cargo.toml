@@ -1,14 +1,18 @@
-[package]
-name = "chutoro"
+[workspace]
+resolver = "3"
+members = [
+    "chutoro-core",
+    "chutoro-cli",
+    "chutoro-providers/dense",
+    "chutoro-providers/text",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-
-[lints.clippy]
+[workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
-
-# 1. hygiene
 allow_attributes                    = "deny"
 allow_attributes_without_reason     = "deny"
 blanket_clippy_restriction_lints    = "deny"
