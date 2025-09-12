@@ -51,13 +51,19 @@ ______________________________________________________________________
     log at WARN.
   - Bounds: enforce `max_entries` via LRU eviction (optional TTL); document
     defaults and configuration knobs.
-  - Metrics: expose hits, misses, evictions, and lookup latency via the
-    `metrics` crate and emit `tracing` spans for hot paths; feature-flag the
-    cache.
+  - Metrics: expose `distance_cache_hits`, `distance_cache_misses`,
+    `distance_cache_evictions`, and `distance_cache_lookup_latency_histogram`
+    via the `metrics` crate. The first three are monotonic counters; lookup
+    latency is a histogram of seconds. These metrics are emitted only when the
+    `metrics` feature flag is enabled and are documented for external
+    consumption; emit `tracing` spans for hot paths.
   - Concurrency: require `Send + Sync`; forbid iteration on hot paths; avoid
     holding HNSW write locks while updating the cache.
-  - Determinism: ensure neighbour selection is unchanged under fixed seeds;
-    disallow time-dependent eviction effects in tests; specify tie-break rules.
+  - Determinism: ensure neighbour selection is unchanged under fixed seeds by
+    using a deterministic tie-break: on equal distances prefer the lower item
+    id; when ids match fall back to the insertion sequence number. Eviction
+    must be time-independent in tests. This rule is used in all builds and
+    tests to guarantee stable outputs under fixed seeds.
 - [ ] During insertion, capture candidate edges `(u,v,w)` discovered by HNSW;
   accumulate via Rayon `map` → `reduce` into a global edge list. (See §6.2)
 - [ ] Implement parallel Kruskal: parallel sort of edges, concurrent union‑find
