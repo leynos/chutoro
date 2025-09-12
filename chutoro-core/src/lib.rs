@@ -2,18 +2,6 @@
 
 use thiserror::Error;
 
-/// Returns a warm greeting.
-///
-/// # Examples
-/// ```
-/// use chutoro_core::greet;
-/// assert_eq!(greet(), "Hello from Chutoro!");
-/// ```
-#[must_use]
-pub fn greet() -> &'static str {
-    "Hello from Chutoro!"
-}
-
 /// An error produced by [`DataSource`] operations.
 #[derive(Debug, Error)]
 pub enum DataSourceError {
