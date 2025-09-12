@@ -23,6 +23,14 @@ ______________________________________________________________________
   with optional precomputed norms for cosine. (See §3.1)
 - [ ] Ship a minimal CLI: `chutoro run parquet <path> --column features ...`
   and `chutoro run text <path> --metric levenshtein`. (See §10)
+- [ ] Add structured logging via `tracing` + `tracing-subscriber`; bridge the
+  `log` crate via `tracing-log`; replace manual prints and initialise logging
+  in the CLI (e.g.,
+  `tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env())`,
+  human and JSON formats, and span IDs). (See §10.4)
+- [ ] Define error taxonomy; adopt `thiserror` for a unified `ChutoroError` in
+  public APIs and use `anyhow` in binaries; return `Result<T, ChutoroError>`
+  with stable, documented error codes. (See §10.4)
 - [ ] Establish CI (fmt, clippy, test), feature gates (`cpu`, `gpu` off by
   default), and reproducible toolchain (`rust-toolchain.toml`). (See §11)
 
@@ -35,6 +43,27 @@ ______________________________________________________________________
 
 - [ ] Implement CPU HNSW insertion/search with Rayon; two‑phase locking (`read`
   for search → `write` for insert) on a shared graph. (See §6.1, §6.2)
+- [ ] Introduce a `DistanceCache` backed by `dashmap` to avoid recomputing
+  distances across threads during HNSW insertion. (See §6.2, §10.4)
+  - Key: normalise to `(min(i,j), max(i,j))`; encode metric and its parameters
+    (e.g., cosine with/without pre-norms) in the key.
+  - Value: `f32` distance; NaN policy: do not cache NaN; propagate an error and
+    log at WARN.
+  - Bounds: enforce `max_entries` via LRU eviction (optional TTL); document
+    defaults and configuration knobs.
+  - Metrics: expose `distance_cache_hits`, `distance_cache_misses`,
+    `distance_cache_evictions`, and `distance_cache_lookup_latency_histogram`
+    via the `metrics` crate. The first three are monotonic counters; lookup
+    latency is a histogram of seconds. These metrics are emitted only when the
+    `metrics` feature flag is enabled and are documented for external
+    consumption; emit `tracing` spans for hot paths.
+  - Concurrency: require `Send + Sync`; forbid iteration on hot paths; avoid
+    holding HNSW write locks while updating the cache.
+  - Determinism: ensure neighbour selection is unchanged under fixed seeds by
+    using a deterministic tie-break: on equal distances prefer the lower item
+    id; when ids match fall back to the insertion sequence number. Eviction
+    must be time-independent in tests. This rule is used in all builds and
+    tests to guarantee stable outputs under fixed seeds.
 - [ ] During insertion, capture candidate edges `(u,v,w)` discovered by HNSW;
   accumulate via Rayon `map` → `reduce` into a global edge list. (See §6.2)
 - [ ] Implement parallel Kruskal: parallel sort of edges, concurrent union‑find
@@ -146,6 +175,22 @@ ______________________________________________________________________
 
 - [ ] Freeze `chutoro_v1` #[repr(C)] v‑table with `abi_version`, `caps`,
   `state`, and function pointers; include optional `distance_batch`. (See §5.3)
+- [ ] Add mandatory `destroy` callback to the v‑table and ensure the
+  `PluginManager` calls it when unloading plugins. (See §5.3)
+  - ABI: `extern "C" fn destroy(state: *mut c_void)`; no panics across FFI.
+  - Ordering: drop all host‑side wrappers/handles; call `destroy`, wait for it
+    to return; then unload the dynamic library.
+  - Idempotency: `destroy` must be safe if called multiple times (idempotent);
+    the host calls it at most once in normal operation. Document behaviour if
+    the plugin reports errors.
+  - Quiescence: ensure all in-flight callbacks complete and any plugin-spawned
+    threads are joined/cancelled before calling `destroy`; forbid re-entry
+    after unload.
+  - Timeouts: enforce a configurable quiescence timeout (e.g., 30s) and log at
+    WARN on expiry before proceeding to unload.
+  - Safety: add logs at INFO with plugin name and timing.
+  - Tests: load→use→quiesce→destroy→unload cycle under leak detectors and
+    ASAN/UBSAN.
 - [ ] Implement `PluginManager` using `libloading` to locate `_plugin_create`,
   validate `abi_version`, wrap as safe `DataSource`. (See §5.2, §5.3)
 - [ ] Ship example plugin `chutoro-plugin-csv` and `chutoro-plugin-parquet`;
