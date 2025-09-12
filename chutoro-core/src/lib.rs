@@ -1,5 +1,7 @@
 //! Chutoro core library.
 
+#![cfg_attr(not(any(test, doctest)), forbid(clippy::expect_used))]
+
 use thiserror::Error;
 
 /// An error produced by [`DataSource`] operations.

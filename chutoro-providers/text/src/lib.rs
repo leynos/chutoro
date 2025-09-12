@@ -1,3 +1,4 @@
+#![cfg_attr(not(any(test, doctest)), forbid(clippy::expect_used))]
 use chutoro_core::{DataSource, DataSourceError};
 
 /// UTF-8 text line data source.
