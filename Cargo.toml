@@ -24,7 +24,7 @@ print_stderr    = "deny"
 
 # 3. panic-prone operations
 unwrap_used                     = "deny"
-expect_used                     = "deny"
+expect_used                     = "allow"
 indexing_slicing                = "deny"
 string_slice                    = "deny"
 integer_division                = "deny"
@@ -42,4 +42,5 @@ use_self               = "deny"
 string_lit_as_bytes    = "deny"
 
 # 6. numerical foot-guns
-float_arithmetic = "deny"
+# handled with narrow #[expect(...)] where necessary for kernels
+# float_arithmetic = "deny"

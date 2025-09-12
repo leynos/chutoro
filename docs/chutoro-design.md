@@ -1,4 +1,7 @@
-# **Chutoro: A High-Performance, Extensible FISHDBC Implementation in Rust—Architectural Design and Literature Survey**
+# **Chutoro: a high-performance, extensible FISHDBC implementation in Rust**
+
+This document presents the architectural design and literature survey for
+`chutoro`.
 
 ## Part I: Foundational Analysis and State of the Art
 
@@ -100,7 +103,7 @@ stage building upon the last. The first two stages are focused on efficiently
 constructing a graph that approximates the single-linkage hierarchy of the
 data, while the final stage extracts clusters from this graph.
 
-1. **Pillar 1: Approximate Nearest Neighbor Search via HNSW:** The first and
+1. **Pillar 1: Approximate nearest neighbour search via HNSW:** The first and
    most critical stage is the construction of an approximate nearest neighbour
    graph using the Hierarchical Navigable Small World (HNSW) algorithm.[^7]
    HNSW is a graph-based data structure that allows for extremely fast ANN
@@ -284,7 +287,7 @@ implementations of its constituent parts. This section surveys the state of the
 art for each component, informing the technology choices for both the CPU and
 GPU execution paths.
 
-#### 3.1. Approximate Nearest Neighbor Search: HNSW
+#### 3.1. Approximate nearest neighbour search: HNSW
 
 The performance of the entire FISHDBC algorithm is heavily dependent on the
 efficiency of the HNSW implementation.
@@ -393,7 +396,7 @@ for both CPU and GPU execution.
 
 A conceptual diagram of the architecture is as follows:
 
-```text
+```plaintext
                                 
 +--------------------------------+
 | Application / User             |
