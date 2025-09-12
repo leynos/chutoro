@@ -7,9 +7,9 @@ ______________________________________________________________________
 
 ## Phase 0 — Walking Skeleton (CPU-only, no dynamic plugins)
 
-- [ ] Create Cargo workspace with crates: `chutoro-core`, `chutoro-cli`,
+- [x] Create Cargo workspace with crates: `chutoro-core`, `chutoro-cli`,
   `chutoro-providers/dense`, `chutoro-providers/text`. (See §4)
-- [ ] Define public `DataSource` trait with `len()`, `name()`, `distance(i,j)`,
+- [x] Define public `DataSource` trait with `len()`, `name()`, `distance(i,j)`,
   and a defaulted `distance_batch(pairs, out)` for forward-compatibility. (See
   §10.2)
 - [ ] Implement `ChutoroBuilder` and `Chutoro::run<D: DataSource>`
