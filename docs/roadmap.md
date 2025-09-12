@@ -27,10 +27,10 @@ ______________________________________________________________________
   `log` crate via `tracing-log`; replace manual prints and initialise logging
   in the CLI (e.g.,
   `tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env())`,
-  human and JSON formats, span IDs). (See §10.4)
+  human and JSON formats, and span IDs). (See §10.4)
 - [ ] Define error taxonomy; adopt `thiserror` for a unified `ChutoroError` in
-  public APIs and use `anyhow` in binaries; return `Result` with stable,
-  documented error codes. (See §10.4)
+  public APIs and use `anyhow` in binaries; return `Result<T, ChutoroError>`
+  with stable, documented error codes. (See §10.4)
 - [ ] Establish CI (fmt, clippy, test), feature gates (`cpu`, `gpu` off by
   default), and reproducible toolchain (`rust-toolchain.toml`). (See §11)
 
@@ -186,8 +186,11 @@ ______________________________________________________________________
   - Quiescence: ensure all in-flight callbacks complete and any plugin-spawned
     threads are joined/cancelled before calling `destroy`; forbid re-entry
     after unload.
+  - Timeouts: enforce a configurable quiescence timeout (e.g., 30s) and log at
+    WARN on expiry before proceeding to unload.
   - Safety: add logs at INFO with plugin name and timing.
-  - Tests: load→use→destroy→unload cycle under leak detectors and ASAN/UBSAN.
+  - Tests: load→use→quiesce→destroy→unload cycle under leak detectors and
+    ASAN/UBSAN.
 - [ ] Implement `PluginManager` using `libloading` to locate `_plugin_create`,
   validate `abi_version`, wrap as safe `DataSource`. (See §5.2, §5.3)
 - [ ] Ship example plugin `chutoro-plugin-csv` and `chutoro-plugin-parquet`;
