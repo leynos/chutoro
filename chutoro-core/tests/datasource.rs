@@ -47,3 +47,29 @@ fn distance_out_of_bounds() {
     let err = src.distance(0, 2).unwrap_err();
     assert!(matches!(err, DataSourceError::OutOfBounds { index: 2 }));
 }
+
+#[rstest]
+fn distance_batch_empty_ok() {
+    let src = Dummy(vec![]);
+    let pairs: [(usize, usize); 0] = [];
+    let mut out: [f32; 0] = [];
+    assert!(src.distance_batch(&pairs, &mut out).is_ok());
+}
+
+#[rstest]
+fn distance_batch_empty_pairs_error() {
+    let src = Dummy(vec![1.0]);
+    let pairs: [(usize, usize); 0] = [];
+    let mut out = [0.0];
+    let err = src.distance_batch(&pairs, &mut out).unwrap_err();
+    assert!(matches!(err, DataSourceError::OutputLengthMismatch { .. }));
+}
+
+#[rstest]
+fn distance_batch_empty_output_error() {
+    let src = Dummy(vec![1.0, 2.0]);
+    let pairs = [(0, 1)];
+    let mut out: [f32; 0] = [];
+    let err = src.distance_batch(&pairs, &mut out).unwrap_err();
+    assert!(matches!(err, DataSourceError::OutputLengthMismatch { .. }));
+}

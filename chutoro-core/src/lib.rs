@@ -13,6 +13,9 @@ pub enum DataSourceError {
     /// Provided output buffer length did not match number of pairs.
     #[error("output buffer has length {out} but {expected} pairs were given")]
     OutputLengthMismatch { out: usize, expected: usize },
+    /// Compared vectors had different dimensions.
+    #[error("dimension mismatch: left {left} right {right}")]
+    DimensionMismatch { left: usize, right: usize },
 }
 
 /// Abstraction over a collection of items that can yield pairwise distances.

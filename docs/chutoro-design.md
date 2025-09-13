@@ -1181,7 +1181,10 @@ pub trait DataSource {
 
 The default `distance_batch` iterates over each pair and validates the output
 buffer length, returning `DataSourceError::OutputLengthMismatch` on mismatch.
-Distances return `Result` to surface invalid indices without panicking.
+Distances return `Result` to surface invalid indices without panicking. An
+additional `DimensionMismatch` variant reports attempts to compare vectors of
+differing lengths; providers like `DenseSource::try_new` validate row
+dimensions up front to avoid this at runtime.
 
 #### 10.3. Plugin Definition and Handshake
 
