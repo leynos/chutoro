@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@v1.1.0
+        uses: leynos/shared-actions/.github/actions/setup-rust@v1.2.1
       - name: Format
         run: make check-fmt
       - name: Lint
@@ -30,7 +30,7 @@ jobs:
         run: cargo tarpaulin --out lcov
       - name: Upload coverage data to CodeScene
         if: ${{ secrets.CS_ACCESS_TOKEN }}
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@v1.1.0
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@v1.2.1
         with:
           format: lcov
           access-token: ${{ secrets.CS_ACCESS_TOKEN }}
