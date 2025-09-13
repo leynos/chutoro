@@ -22,6 +22,18 @@ impl DenseSource {
         Self::try_new(name, data).unwrap_or_else(|err| panic!("{err}"))
     }
 
+    /// Creates a dense source after validating uniform dimensions.
+    ///
+    /// # Errors
+    /// Returns `DataSourceError::DimensionMismatch` if row lengths differ.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_providers_dense::DenseSource;
+    /// use chutoro_core::DataSourceError;
+    /// let err = DenseSource::try_new("demo", vec![vec![0.0], vec![1.0, 2.0]]);
+    /// assert!(matches!(err, Err(DataSourceError::DimensionMismatch { .. })));
+    /// ```
     pub fn try_new(name: impl Into<String>, data: Vec<Vec<f32>>) -> Result<Self, DataSourceError> {
         if let Some((first, rest)) = data.split_first() {
             let dim = first.len();
