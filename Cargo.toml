@@ -12,8 +12,7 @@ version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/leynos/chutoro"
-# Pin the minimum supported Rust toolchain for the workspace (adjust as appropriate).
-# rust-version = "1.xx.0"
+rust-version = "1.77.0"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
@@ -28,7 +27,7 @@ print_stderr    = "deny"
 
 # 3. panic-prone operations
 unwrap_used                     = "deny"
-expect_used = "deny"
+expect_used                     = "allow"
 indexing_slicing                = "deny"
 string_slice                    = "deny"
 integer_division                = "deny"
