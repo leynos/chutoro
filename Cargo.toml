@@ -45,5 +45,4 @@ use_self               = "deny"
 string_lit_as_bytes    = "deny"
 
 # 6. numerical foot-guns
-# handled with narrow #[expect(...)] where necessary for kernels
-# float_arithmetic = "deny"
+float_arithmetic = "deny"
