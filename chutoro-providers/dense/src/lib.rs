@@ -10,15 +10,19 @@ pub struct DenseSource {
 impl DenseSource {
     /// Creates a new dense source.
     ///
+    /// # Panics
+    /// Panics if row lengths differ; use [`try_new`] for fallible construction.
+    ///
     /// # Examples
     /// ```
     /// use chutoro_providers_dense::DenseSource;
     /// let ds = DenseSource::new("demo", vec![vec![0.0], vec![1.0]]);
     /// assert_eq!(ds.len(), 2);
     /// ```
+    #[track_caller]
     #[must_use]
     pub fn new(name: impl Into<String>, data: Vec<Vec<f32>>) -> Self {
-        Self::try_new(name, data).unwrap_or_else(|err| panic!("{err}"))
+        Self::try_new(name, data).expect("rows must have equal length")
     }
 
     /// Creates a dense source after validating uniform dimensions.

@@ -94,9 +94,10 @@ pub trait DataSource {
                 expected: pairs.len(),
             });
         }
-        let mut tmp = Vec::with_capacity(pairs.len());
-        for (i, j) in pairs {
-            tmp.push(self.distance(*i, *j)?);
+        // Compute into a temp buffer to keep `out` unchanged on error.
+        let mut tmp = vec![0.0_f32; pairs.len()];
+        for (idx, (i, j)) in pairs.iter().enumerate() {
+            tmp[idx] = self.distance(*i, *j)?;
         }
         out.copy_from_slice(&tmp);
         Ok(())
