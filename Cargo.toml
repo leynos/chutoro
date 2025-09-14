@@ -27,7 +27,7 @@ print_stderr    = "deny"
 
 # 3. panic-prone operations
 unwrap_used                     = "deny"
-expect_used                     = "allow"
+expect_used                     = "deny"
 indexing_slicing                = "deny"
 string_slice                    = "deny"
 integer_division                = "deny"
