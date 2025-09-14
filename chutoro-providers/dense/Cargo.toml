@@ -1,0 +1,10 @@
+[package]
+name = "chutoro-providers-dense"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+chutoro-core = { version = "0.1.0", path = "../../chutoro-core" }
+
+[dev-dependencies]
+rstest = "0.23"

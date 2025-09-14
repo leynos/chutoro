@@ -1,0 +1,140 @@
+//! Dense provider for in-memory f32 vectors implementing DataSource.
+use chutoro_core::{DataSource, DataSourceError};
+
+/// In-memory dense vector data source.
+pub struct DenseSource {
+    data: Vec<Vec<f32>>,
+    name: String,
+}
+
+impl DenseSource {
+    /// Creates a new dense source.
+    ///
+    /// # Panics
+    /// Panics if row lengths differ; use [`try_new`] for fallible construction.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_providers_dense::DenseSource;
+    /// let ds = DenseSource::new("demo", vec![vec![0.0], vec![1.0]]);
+    /// assert_eq!(ds.len(), 2);
+    /// ```
+    #[track_caller]
+    #[must_use]
+    pub fn new(name: impl Into<String>, data: Vec<Vec<f32>>) -> Self {
+        #[expect(
+            clippy::expect_used,
+            reason = "constructor panics on inconsistent row lengths"
+        )]
+        Self::try_new(name, data).expect("rows must have equal length")
+    }
+
+    /// Creates a dense source after validating uniform dimensions.
+    ///
+    /// # Errors
+    /// Returns `DataSourceError::DimensionMismatch` if row lengths differ.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_providers_dense::DenseSource;
+    /// use chutoro_core::DataSourceError;
+    /// let err = DenseSource::try_new("demo", vec![vec![0.0], vec![1.0, 2.0]]);
+    /// assert!(matches!(err, Err(DataSourceError::DimensionMismatch { .. })));
+    /// ```
+    pub fn try_new(name: impl Into<String>, data: Vec<Vec<f32>>) -> Result<Self, DataSourceError> {
+        if let Some((first, rest)) = data.split_first() {
+            let dim = first.len();
+            for row in rest {
+                if row.len() != dim {
+                    return Err(DataSourceError::DimensionMismatch {
+                        left: dim,
+                        right: row.len(),
+                    });
+                }
+            }
+        }
+        Ok(Self {
+            data,
+            name: name.into(),
+        })
+    }
+}
+
+impl DataSource for DenseSource {
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    #[expect(clippy::float_arithmetic, reason = "vector arithmetic")]
+    fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+        let a = self
+            .data
+            .get(i)
+            .ok_or(DataSourceError::OutOfBounds { index: i })?;
+        let b = self
+            .data
+            .get(j)
+            .ok_or(DataSourceError::OutOfBounds { index: j })?;
+        if a.len() != b.len() {
+            return Err(DataSourceError::DimensionMismatch {
+                left: a.len(),
+                right: b.len(),
+            });
+        }
+        let sum = a
+            .iter()
+            .zip(b.iter())
+            .map(|(x, y)| {
+                let d = x - y;
+                d * d
+            })
+            .sum::<f32>();
+        Ok(sum.sqrt())
+    }
+}
+
+#[cfg(test)]
+#[expect(clippy::expect_used, reason = "tests require contextual panics")]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    fn distance_dimension_mismatch() {
+        let ds = DenseSource {
+            data: vec![vec![0.0], vec![1.0, 2.0]],
+            name: "d".into(),
+        };
+        let err = ds
+            .distance(0, 1)
+            .expect_err("distance must validate dimensions");
+        assert!(matches!(err, DataSourceError::DimensionMismatch { .. }));
+    }
+
+    #[rstest]
+    fn try_new_rejects_mismatched_rows() {
+        let err = DenseSource::try_new("d", vec![vec![0.0], vec![1.0, 2.0]]);
+        assert!(matches!(
+            err,
+            Err(DataSourceError::DimensionMismatch { .. })
+        ));
+    }
+    #[rstest]
+    fn distance_out_of_bounds() {
+        let ds = DenseSource::try_new("d", vec![vec![0.0], vec![1.0]]).expect("rows must match");
+        let err = ds
+            .distance(0, 99)
+            .expect_err("distance must report out-of-bounds");
+        assert!(matches!(err, DataSourceError::OutOfBounds { index: 99 }));
+    }
+
+    #[rstest]
+    fn distance_ok() {
+        let ds = DenseSource::try_new("d", vec![vec![0.0, 0.0], vec![3.0, 4.0]])
+            .expect("valid uniform rows");
+        let d = ds.distance(0, 1).expect("distance must succeed");
+        assert!((d - 5.0).abs() < 1e-6);
+    }
+}
