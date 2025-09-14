@@ -82,7 +82,10 @@ impl DataSource for DenseSource {
         let sum = a
             .iter()
             .zip(b.iter())
-            .map(|(x, y)| (x - y).powi(2))
+            .map(|(x, y)| {
+                let d = x - y;
+                d * d
+            })
             .sum::<f32>();
         Ok(sum.sqrt())
     }
@@ -99,7 +102,9 @@ mod tests {
             data: vec![vec![0.0], vec![1.0, 2.0]],
             name: "d".into(),
         };
-        let err = ds.distance(0, 1).unwrap_err();
+        let err = ds
+            .distance(0, 1)
+            .expect_err("distance must validate dimensions");
         assert!(matches!(err, DataSourceError::DimensionMismatch { .. }));
     }
 
@@ -113,15 +118,18 @@ mod tests {
     }
     #[rstest]
     fn distance_out_of_bounds() {
-        let ds = DenseSource::try_new("d", vec![vec![0.0], vec![1.0]]).unwrap();
-        let err = ds.distance(0, 99).unwrap_err();
+        let ds = DenseSource::try_new("d", vec![vec![0.0], vec![1.0]]).expect("rows must match");
+        let err = ds
+            .distance(0, 99)
+            .expect_err("distance must report out-of-bounds");
         assert!(matches!(err, DataSourceError::OutOfBounds { index: 99 }));
     }
 
     #[rstest]
     fn distance_ok() {
-        let ds = DenseSource::try_new("d", vec![vec![0.0, 0.0], vec![3.0, 4.0]]).unwrap();
-        let d = ds.distance(0, 1).unwrap();
+        let ds = DenseSource::try_new("d", vec![vec![0.0, 0.0], vec![3.0, 4.0]])
+            .expect("valid uniform rows");
+        let d = ds.distance(0, 1).expect("distance must succeed");
         assert!((d - 5.0).abs() < 1e-6);
     }
 }

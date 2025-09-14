@@ -13,7 +13,7 @@ pub enum DataSourceError {
     #[error("output buffer has length {out} but {expected} pairs were given")]
     OutputLengthMismatch { out: usize, expected: usize },
     /// Compared vectors had different dimensions.
-    #[error("dimension mismatch: left {left} right {right}")]
+    #[error("dimension mismatch: left={left}, right={right}")]
     DimensionMismatch { left: usize, right: usize },
 }
 
