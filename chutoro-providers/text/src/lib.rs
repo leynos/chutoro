@@ -4,6 +4,7 @@ use chutoro_core::{DataSource, DataSourceError};
 /// UTF-8 text line data source.
 pub struct TextSource {
     data: Vec<String>,
+    lengths: Vec<usize>, // cached character counts
     name: String,
 }
 
@@ -18,8 +19,11 @@ impl TextSource {
     /// ```
     #[must_use]
     pub fn new(name: impl Into<String>, data: Vec<String>) -> Self {
+        let lengths = data.iter().map(|s| s.chars().count()).collect();
+        // Cache character counts to avoid repeated iteration in `distance`.
         Self {
             data,
+            lengths,
             name: name.into(),
         }
     }
@@ -33,16 +37,14 @@ impl DataSource for TextSource {
         &self.name
     }
     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-        let a = self
-            .data
+        let da = *self
+            .lengths
             .get(i)
             .ok_or(DataSourceError::OutOfBounds { index: i })?;
-        let b = self
-            .data
+        let db = *self
+            .lengths
             .get(j)
             .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        let da = a.chars().count();
-        let db = b.chars().count();
         Ok(da.abs_diff(db) as f32)
     }
 }

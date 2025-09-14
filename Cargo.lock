@@ -45,6 +45,7 @@ name = "chutoro-providers-text"
 version = "0.1.0"
 dependencies = [
  "chutoro-core",
+ "rstest",
 ]
 
 [[package]]

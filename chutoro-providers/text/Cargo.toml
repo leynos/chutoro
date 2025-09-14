@@ -5,3 +5,6 @@ edition.workspace = true
 
 [dependencies]
 chutoro-core = { version = "0.1.0", path = "../../chutoro-core" }
+
+[dev-dependencies]
+rstest = "0.23"
