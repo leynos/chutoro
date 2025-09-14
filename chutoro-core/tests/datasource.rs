@@ -1,7 +1,13 @@
+//! Integration tests for the DataSource trait behaviour.
 use chutoro_core::{DataSource, DataSourceError};
-use rstest::rstest;
+use rstest::{fixture, rstest};
 
 struct Dummy(Vec<f32>);
+
+#[fixture]
+fn dummy(#[default(vec![1.0, 2.0])] data: Vec<f32>) -> Dummy {
+    Dummy(data)
+}
 
 impl DataSource for Dummy {
     fn len(&self) -> usize {
@@ -23,53 +29,61 @@ impl DataSource for Dummy {
     }
 }
 
-#[rstest]
-fn distance_batch_returns_distances() {
-    let src = Dummy(vec![1.0, 3.0, 6.0]);
+#[rstest(dummy(vec![1.0, 3.0, 6.0]))]
+fn distance_batch_returns_distances(dummy: Dummy) {
     let pairs = [(0, 1), (1, 2)];
     let mut out = [0.0; 2];
-    src.distance_batch(&pairs, &mut out).unwrap();
+    dummy
+        .distance_batch(&pairs, &mut out)
+        .expect("distance_batch must succeed");
     assert_eq!(out, [2.0, 3.0]);
 }
 
 #[rstest]
 #[case::short_output(vec![(0, 1)], vec![])]
 #[case::long_output(vec![(0, 1)], vec![0.0, 0.0])]
-fn distance_batch_length_mismatch(#[case] pairs: Vec<(usize, usize)>, #[case] mut out: Vec<f32>) {
-    let src = Dummy(vec![1.0, 2.0]);
-    let err = src.distance_batch(&pairs, &mut out).unwrap_err();
+fn distance_batch_length_mismatch(
+    dummy: Dummy,
+    #[case] pairs: Vec<(usize, usize)>,
+    #[case] mut out: Vec<f32>,
+) {
+    let err = dummy
+        .distance_batch(&pairs, &mut out)
+        .expect_err("distance_batch must report length mismatch");
     assert!(matches!(err, DataSourceError::OutputLengthMismatch { .. }));
 }
 
 #[rstest]
-fn distance_out_of_bounds() {
-    let src = Dummy(vec![1.0, 2.0]);
-    let err = src.distance(0, 2).unwrap_err();
+fn distance_out_of_bounds(dummy: Dummy) {
+    let err = dummy
+        .distance(0, 2)
+        .expect_err("distance must check bounds");
     assert!(matches!(err, DataSourceError::OutOfBounds { index: 2 }));
 }
 
-#[rstest]
-fn distance_batch_empty_ok() {
-    let src = Dummy(vec![]);
+#[rstest(dummy(vec![]))]
+fn distance_batch_empty_ok(dummy: Dummy) {
     let pairs: [(usize, usize); 0] = [];
     let mut out: [f32; 0] = [];
-    assert!(src.distance_batch(&pairs, &mut out).is_ok());
+    assert!(dummy.distance_batch(&pairs, &mut out).is_ok());
 }
 
-#[rstest]
-fn distance_batch_empty_pairs_error() {
-    let src = Dummy(vec![1.0]);
+#[rstest(dummy(vec![1.0]))]
+fn distance_batch_empty_pairs_error(dummy: Dummy) {
     let pairs: [(usize, usize); 0] = [];
     let mut out = [0.0];
-    let err = src.distance_batch(&pairs, &mut out).unwrap_err();
+    let err = dummy
+        .distance_batch(&pairs, &mut out)
+        .expect_err("distance_batch must report length mismatch");
     assert!(matches!(err, DataSourceError::OutputLengthMismatch { .. }));
 }
 
 #[rstest]
-fn distance_batch_empty_output_error() {
-    let src = Dummy(vec![1.0, 2.0]);
+fn distance_batch_empty_output_error(dummy: Dummy) {
     let pairs = [(0, 1)];
     let mut out: [f32; 0] = [];
-    let err = src.distance_batch(&pairs, &mut out).unwrap_err();
+    let err = dummy
+        .distance_batch(&pairs, &mut out)
+        .expect_err("distance_batch must report length mismatch");
     assert!(matches!(err, DataSourceError::OutputLengthMismatch { .. }));
 }
