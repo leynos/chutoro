@@ -1,4 +1,4 @@
-# **Chutoro: a high-performance, extensible FISHDBC implementation in Rust—architectural design and literature survey**
+# Chutoro: a high-performance, extensible FISHDBC implementation in Rust — architectural design and literature survey
 
 ## Part I: Foundational Analysis and State of the Art
 
@@ -532,7 +532,7 @@ maximum flexibility, but it requires careful handling of
 | Approach                    | Pros                        | Cons                          | Suitability |
 | --------------------------- | --------------------------- | ----------------------------- | ----------- |
 | **Static link (features)**  | Safe, fast, easy.           | Needs rebuild; not pluggable. | **Low**     |
-| **IPC / WASM**              | Safe and cross-language.    | Serialisation overhead.       | **Low**     |
+| **IPC / WASM**              | Safe and cross-language.    | Serialization overhead.       | **Low**     |
 | **ABI crates**              | Keeps FFI safe.             | Adds complexity; evolving.    | **Medium**  |
 | **Dynamic loading (C ABI)** | Flexible, widely supported. | Requires `unsafe`; ABI risk.  | **High**    |
 
