@@ -1,5 +1,4 @@
 //! Text provider for line-based UTF-8 sources implementing DataSource.
-#![cfg_attr(not(any(test, doctest)), forbid(clippy::expect_used))]
 use chutoro_core::{DataSource, DataSourceError};
 
 /// UTF-8 text line data source.
@@ -42,6 +41,8 @@ impl DataSource for TextSource {
             .data
             .get(j)
             .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((a.chars().count() as i32 - b.chars().count() as i32).abs() as f32)
+        let da = a.chars().count();
+        let db = b.chars().count();
+        Ok(da.abs_diff(db) as f32)
     }
 }

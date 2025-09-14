@@ -1,5 +1,4 @@
 //! Dense provider for in-memory f32 vectors implementing DataSource.
-#![cfg_attr(not(any(test, doctest)), forbid(clippy::expect_used))]
 use chutoro_core::{DataSource, DataSourceError};
 
 /// In-memory dense vector data source.
@@ -107,5 +106,18 @@ mod tests {
             err,
             Err(DataSourceError::DimensionMismatch { .. })
         ));
+    }
+    #[rstest]
+    fn distance_out_of_bounds() {
+        let ds = DenseSource::try_new("d", vec![vec![0.0], vec![1.0]]).unwrap();
+        let err = ds.distance(0, 99).unwrap_err();
+        assert!(matches!(err, DataSourceError::OutOfBounds { index: 99 }));
+    }
+
+    #[rstest]
+    fn distance_ok() {
+        let ds = DenseSource::try_new("d", vec![vec![0.0, 0.0], vec![3.0, 4.0]]).unwrap();
+        let d = ds.distance(0, 1).unwrap();
+        assert!((d - 5.0).abs() < 1e-6);
     }
 }

@@ -61,6 +61,17 @@ fn distance_out_of_bounds(dummy: Dummy) {
     assert!(matches!(err, DataSourceError::OutOfBounds { index: 2 }));
 }
 
+#[rstest]
+fn distance_batch_preserves_out_on_error(dummy: Dummy) {
+    let pairs = [(0, 1), (0, 99)];
+    let mut out = [1.0_f32, 1.0];
+    let err = dummy
+        .distance_batch(&pairs, &mut out)
+        .expect_err("distance_batch must propagate inner errors");
+    assert!(matches!(err, DataSourceError::OutOfBounds { index: 99 }));
+    assert_eq!(out, [1.0, 1.0]);
+}
+
 #[rstest(dummy(vec![]))]
 fn distance_batch_empty_ok(dummy: Dummy) {
     let pairs: [(usize, usize); 0] = [];

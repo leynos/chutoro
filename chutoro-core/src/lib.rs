@@ -1,10 +1,9 @@
 //! Chutoro core library.
 
-#![cfg_attr(not(any(test, doctest)), forbid(clippy::expect_used))]
-
 use thiserror::Error;
 
 /// An error produced by [`DataSource`] operations.
+#[non_exhaustive]
 #[derive(Debug, Error)]
 pub enum DataSourceError {
     /// Requested index was outside the source's bounds.
@@ -82,6 +81,8 @@ pub trait DataSource {
     ///
     /// # Errors
     /// Returns `DataSourceError::OutputLengthMismatch` if `pairs.len() != out.len()`.
+    ///
+    /// If any pair fails, `out` is left unmodified.
     fn distance_batch(
         &self,
         pairs: &[(usize, usize)],
@@ -93,9 +94,11 @@ pub trait DataSource {
                 expected: pairs.len(),
             });
         }
-        for (idx, (i, j)) in pairs.iter().enumerate() {
-            out[idx] = self.distance(*i, *j)?;
+        let mut tmp = Vec::with_capacity(pairs.len());
+        for (i, j) in pairs {
+            tmp.push(self.distance(*i, *j)?);
         }
+        out.copy_from_slice(&tmp);
         Ok(())
     }
 }
