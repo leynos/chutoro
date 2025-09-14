@@ -22,6 +22,10 @@ impl DenseSource {
     #[track_caller]
     #[must_use]
     pub fn new(name: impl Into<String>, data: Vec<Vec<f32>>) -> Self {
+        #[expect(
+            clippy::expect_used,
+            reason = "constructor panics on inconsistent row lengths"
+        )]
         Self::try_new(name, data).expect("rows must have equal length")
     }
 
@@ -92,6 +96,7 @@ impl DataSource for DenseSource {
 }
 
 #[cfg(test)]
+#[expect(clippy::expect_used, reason = "tests require contextual panics")]
 mod tests {
     use super::*;
     use rstest::rstest;

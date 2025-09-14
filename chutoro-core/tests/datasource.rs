@@ -1,3 +1,4 @@
+#![expect(clippy::expect_used, reason = "tests require contextual panics")]
 //! Integration tests for the DataSource trait behaviour.
 use chutoro_core::{DataSource, DataSourceError};
 use rstest::{fixture, rstest};
