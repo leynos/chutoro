@@ -7,4 +7,4 @@ edition = "2024"
 chutoro-core = { version = "0.1.0", path = "../../chutoro-core" }
 
 [dev-dependencies]
-rstest = "0.23"
+rstest = "0.26"
