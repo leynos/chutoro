@@ -1,4 +1,7 @@
-# Chutoro: a high-performance, extensible FISHDBC implementation in Rust — architectural design and literature survey
+# Chutoro: a high-performance, extensible FISHDBC implementation in Rust
+
+This document presents the architectural design and literature survey for
+`chutoro`.
 
 ## Part I: Foundational Analysis and State of the Art
 
@@ -1146,13 +1149,16 @@ designed to be forward-compatible to support high-throughput GPU operations.
 pub trait DataSource {
     /// Returns the total number of items in the data source.
     fn len(&self) -> usize;
+    /// Returns whether the data source is empty.
+    #[must_use]
+    fn is_empty(&self) -> bool { self.len() == 0 }
 
     /// Returns a descriptive name for the data source.
     fn name(&self) -> &str;
 
     /// Calculates the distance (or dissimilarity) between two items,
     /// identified by their zero-based indices.
-    fn distance(&self, index1: usize, index2: usize) -> f32;
+    fn distance(&self, index1: usize, index2: usize) -> Result<f32, DataSourceError>;
 
     /// Calculates distances for a batch of index pairs.
     ///
@@ -1160,17 +1166,33 @@ pub trait DataSource {
     /// - `out.len() == pairs.len()`.
     /// - Indices must be in-range for this source.
     /// - `out` must not alias provider-internal storage.
-    /// Error handling: implementations should document behaviour on invalid indices
-    /// (panic vs error) and treatment of NaNs for non-metric inputs.
-    fn distance_batch(&self, pairs: &[(usize, usize)], out: &mut [f32]) {
-        debug_assert_eq!(pairs.len(), out.len(), "pairs/out length mismatch");
-        for (k, &(i, j)) in pairs.iter().enumerate() {
-            out[k] = self.distance(i, j);
+    /// Error handling: implementations should document behaviour on invalid
+    /// indices and treatment of NaNs for non-metric inputs.
+    fn distance_batch(
+        &self,
+        pairs: &[(usize, usize)],
+        out: &mut [f32],
+    ) -> Result<(), DataSourceError> {
+        if pairs.len() != out.len() {
+            return Err(DataSourceError::OutputLengthMismatch {
+                out: out.len(),
+                expected: pairs.len(),
+            });
         }
+        for (k, &(i, j)) in pairs.iter().enumerate() {
+            out[k] = self.distance(i, j)?;
+        }
+        Ok(())
     }
 }
-
 ```
+
+The default `distance_batch` iterates over each pair and validates the output
+buffer length, returning `DataSourceError::OutputLengthMismatch` on mismatch.
+Distances return `Result` to surface invalid indices without panicking. An
+additional `DimensionMismatch` variant reports attempts to compare vectors of
+differing lengths; providers like `DenseSource::try_new` validate row
+dimensions up front to avoid this at runtime.
 
 #### 10.3. Plugin Definition and Handshake
 
