@@ -1,4 +1,4 @@
-# **Chutoro: a high-performance, extensible FISHDBC implementation in Rust**
+# Chutoro: a high-performance, extensible FISHDBC implementation in Rust
 
 This document presents the architectural design and literature survey for
 `chutoro`.
@@ -164,13 +164,13 @@ real-world clustering tasks.
   runtime errors at the boundary, Rust allows for the creation of highly
   performant, user-defined distance functions that are verified by the
   compiler, ensuring both safety and speed without compromise.[^5]
-- **Incrementality:** The data structures at the core of FISHDBC—the HNSW graph
-  and the MST—are amenable to efficient updates. When new data points arrive,
-  they can be added to the existing HNSW graph and the MST can be updated with
-  lightweight computations, rather than re-running the entire clustering
-  process from scratch.[^5] This makes FISHDBC an excellent candidate for
-  streaming data applications, where clustering needs to be updated dynamically
-  as new information becomes available.
+- **Incrementality:** The data structures at the core of FISHDBC—the
+  HNSW graph and the MST—are amenable to efficient updates. When new data
+  points arrive, they can be added to the existing HNSW graph and the MST can
+  be updated with lightweight computations, rather than re-running the entire
+  clustering process from scratch.[^5] This makes FISHDBC an excellent
+  candidate for streaming data applications, where clustering needs to be
+  updated dynamically as new information becomes available.
 - **Scalability:** As previously discussed, scalability is the primary
   motivation behind FISHDBC. By leveraging HNSW to avoid the computation of a
   full distance matrix, the algorithm circumvents the O(n^2) complexity that
@@ -347,11 +347,11 @@ Borůvka's—have vastly different characteristics when parallelized.
   maps perfectly to the Single Instruction, Multiple Data (SIMD) execution
   model of GPUs.
 
-| Algorithm      | Core Idea                                                             | Parallelism Characteristics                                                                                                             | Suitability for GPU                                                                                                                                  |
-| -------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Prim's**     | Grow the tree one edge at a time from a single component.             | Inherently sequential due to its greedy, step-by-step nature. Limited parallelism in sub-tasks.                                         | **Poor.** The serial dependency chain makes it a bad fit for massively parallel hardware.                                                            |
-| **Kruskal's**  | Sort all edges globally, then add non-cycle-forming edges.            | Parallelism is limited by the global sort. Edge addition can be parallelized with a concurrent union-find.                              | **Moderate.** Parallel sorting is feasible but can involve significant communication. Less ideal than algorithms with more independent work.         |
-| **Borůvka's**  | In parallel, each component finds its cheapest outgoing edge. Repeat. | Highly parallel. The core step (finding minimum edges) is an embarrassingly parallel problem. Logarithmic number of synchronous rounds. | **Excellent.** The structure aligns perfectly with the GPU's SIMD execution model, minimizing thread divergence and maximizing hardware utilization. |
+| Algorithm      | Core idea                      | Parallelism characteristics  | Suitability for GPU |
+| -------------- | ------------------------------ | ---------------------------- | ------------------- |
+| **Prim's**     | Grow tree from one component.  | Little parallel work.        | **Poor**            |
+| **Kruskal's**  | Sort edges, add safe edges.    | Sort limits parallelism.     | **Moderate**        |
+| **Borůvka's**  | Components pick cheapest edge. | Highly parallel; log rounds. | **Excellent**       |
 
 The selection of Borůvka's algorithm for the GPU-based MST computation is not
 merely a matter of choosing the fastest option; it represents a decision based
@@ -466,7 +466,7 @@ The core components are:
 
 A key requirement of the design is a pluggable architecture for data sources.
 This allows the core clustering logic to remain agnostic to the origin and
-format of the data, enabling users to easily integrate new data sources—such as
+format of the data, enabling users to integrate new data sources—such as
 different file formats, database connections, or network streams—without
 modifying or recompiling the main library. Implementing such a system in Rust
 presents a unique set of challenges due to the language's design principles,
@@ -532,12 +532,12 @@ maximum flexibility, but it requires careful handling of
 
 `unsafe` code at the boundary.
 
-| Approach                            | Pros                                                               | Cons                                                                                           | Suitability for chutoro                                                                                    |
-| ----------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| **Static Linking (Cargo Features)** | Safest, most performant, simple to implement.                      | Not truly pluggable; requires recompilation of the host application.                           | **Low.** Fails the core requirement of runtime extensibility.                                              |
-| **IPC / WASM**                      | Extremely safe (sandboxed), language-agnostic.                     | High performance overhead from serialization and context switching.                            | **Low.** The performance penalty on the frequently-called distance function is unacceptable.               |
-| **ABI Stabilization Crates**        | Maintains Rust safety and ergonomics across FFI boundary.          | Adds complexity and dependency on a specific framework; still an evolving area.                | **Medium.** A viable but potentially complex alternative. Could be considered for a future version.        |
-| **Dynamic Loading (C ABI)**         | Maximum runtime flexibility, language-agnostic, industry standard. | Requires `unsafe` code at the boundary; potential for ABI mismatches if not managed carefully. | **High.** Offers the required runtime flexibility with manageable safety concerns, making it the best fit. |
+| Approach                    | Pros                        | Cons                          | Suitability |
+| --------------------------- | --------------------------- | ----------------------------- | ----------- |
+| **Static link (features)**  | Safe, fast, easy.           | Needs rebuild; not pluggable. | **Low**     |
+| **IPC / WASM**              | Safe and cross-language.    | Serialization overhead.       | **Low**     |
+| **ABI crates**              | Keeps FFI safe.             | Adds complexity; evolving.    | **Medium**  |
+| **Dynamic loading (C ABI)** | Flexible, widely supported. | Requires `unsafe`; ABI risk.  | **High**    |
 
 #### 5.3. Proposed Design: A Versioned C-ABI V-Table Handshake
 
@@ -559,13 +559,21 @@ stable, language-agnostic contract.
     #[repr(C)]
     pub struct chutoro_v1 {
         pub abi_version: u32, // e.g., 1
-        pub caps: u32,        // Bitflags: HAS_DISTANCE_BATCH, HAS_DEVICE_VIEW, HAS_NATIVE_KERNELS
+        pub caps: u32,        // Bitflags:
+                              // HAS_DISTANCE_BATCH, HAS_DEVICE_VIEW,
+                              // HAS_NATIVE_KERNELS
         pub state: *mut std::ffi::c_void, // Opaque pointer to plugin's internal state
 
         // Function pointers for the data source API
         pub len: unsafe extern "C" fn(state: *const std::ffi::c_void) -> usize,
-        pub name: unsafe extern "C" fn(state: *const std::ffi::c_void) -> *const std::os::raw::c_char,
-        pub distance: unsafe extern "C" fn(state: *const std::ffi::c_void, idx1: usize, idx2: usize) -> f32,
+        pub name: unsafe extern "C" fn(
+            state: *const std::ffi::c_void,
+        ) -> *const std::os::raw::c_char,
+        pub distance: unsafe extern "C" fn(
+            state: *const std::ffi::c_void,
+            idx1: usize,
+            idx2: usize,
+        ) -> f32,
 
         // Optional, for high-performance providers
         pub distance_batch: Option<unsafe extern "C" fn(
