@@ -12,7 +12,7 @@ ______________________________________________________________________
 - [x] Define public `DataSource` trait with `len()`, `name()`, `distance(i,j)`,
   and a defaulted `distance_batch(pairs, out)` for forward-compatibility. (See
   §10.2)
-- [ ] Implement `ChutoroBuilder` and `Chutoro::run<D: DataSource>`
+- [x] Implement `ChutoroBuilder` and `Chutoro::run<D: DataSource>`
   orchestration API. (See §10.1)
 - [ ] Implement `DenseMatrixProvider` that packs Parquet/Arrow
   `FixedSizeList<Float32,D>` into a contiguous row‑major `Vec<f32>`; reject
