@@ -1137,6 +1137,15 @@ impl Chutoro {
     }
 }
 
+The walking skeleton validates builder parameters up-front. `ChutoroBuilder::build`
+returns a `Result` so that zero-sized clusters are rejected immediately, avoiding
+surprise panics at runtime. The resulting `Chutoro` stores a validated
+configuration, and `run` now fails fast when a data source is empty, when it
+contains fewer items than `min_cluster_size`, or when a GPU execution strategy is
+requested in the CPU-only build. Until the full CPU pipeline lands, the CPU path
+emits a single cluster covering the dataset to exercise the orchestration flow
+end-to-end.
+
 ```
 
 #### 10.2. The DataSource plugin trait
