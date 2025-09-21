@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use thiserror::Error;
 
 /// Represents the output of a [`Chutoro::run`] invocation.
 ///
@@ -16,8 +17,25 @@ pub struct ClusteringResult {
     cluster_count: usize,
 }
 
+/// Error returned when cluster identifiers are not contiguous starting at zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum NonContiguousClusterIds {
+    /// The assignments do not include cluster `0`.
+    #[error("cluster identifiers must include 0")]
+    MissingZero,
+    /// The assignments skip identifiers or contain duplicates that create gaps.
+    #[error("cluster identifiers must be contiguous without gaps")]
+    Gap,
+    /// The assignments require identifiers beyond the host pointer width.
+    #[error("cluster identifiers overflow the host pointer width")]
+    Overflow,
+}
+
 impl ClusteringResult {
     /// Builds a result from explicit cluster assignments.
+    ///
+    /// Cluster identifiers must start at zero and be contiguous. Use
+    /// [`Self::try_from_assignments`] to handle arbitrary identifiers.
     ///
     /// # Examples
     /// ```
@@ -28,15 +46,64 @@ impl ClusteringResult {
     /// ```
     #[must_use]
     pub fn from_assignments(assignments: Vec<ClusterId>) -> Self {
-        let cluster_count = assignments
-            .iter()
-            .map(|id| id.get())
-            .collect::<HashSet<_>>()
-            .len();
-        Self {
+        Self::try_from_assignments(assignments)
+            .expect("cluster identifiers must start at zero and be contiguous")
+    }
+
+    /// Attempts to build a result from cluster assignments.
+    ///
+    /// The assignments must be contiguous starting at zero. This helper allows
+    /// callers to surface meaningful errors instead of panicking when the
+    /// invariant is violated.
+    ///
+    /// # Errors
+    /// Returns [`NonContiguousClusterIds::MissingZero`] when the assignments omit
+    /// cluster `0`, [`NonContiguousClusterIds::Gap`] when identifiers skip values,
+    /// and [`NonContiguousClusterIds::Overflow`] when identifiers exceed the host
+    /// pointer width.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_core::{ClusteringResult, ClusterId};
+    ///
+    /// let result = ClusteringResult::try_from_assignments(vec![ClusterId::new(0)])
+    ///     .expect("assignments are contiguous");
+    /// assert_eq!(result.cluster_count(), 1);
+    /// ```
+    pub fn try_from_assignments(
+        assignments: Vec<ClusterId>,
+    ) -> Result<Self, NonContiguousClusterIds> {
+        let mut unique = HashSet::new();
+        let mut max_id: Option<u64> = None;
+
+        for id in &assignments {
+            let value = id.get();
+            unique.insert(value);
+            max_id = Some(max_id.map_or(value, |current| current.max(value)));
+        }
+
+        if let Some(max_value) = max_id {
+            let expected_len = max_value
+                .checked_add(1)
+                .ok_or(NonContiguousClusterIds::Overflow)?;
+            if expected_len > usize::MAX as u64 {
+                return Err(NonContiguousClusterIds::Overflow);
+            }
+            let expected_len = expected_len as usize;
+            if !unique.contains(&0) {
+                return Err(NonContiguousClusterIds::MissingZero);
+            }
+            if unique.len() != expected_len {
+                return Err(NonContiguousClusterIds::Gap);
+            }
+        }
+
+        let cluster_count = unique.len();
+
+        Ok(Self {
             assignments,
             cluster_count,
-        }
+        })
     }
 
     /// Returns the assignments in insertion order.

@@ -1,9 +1,9 @@
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, sync::Arc};
 
 use crate::{
     builder::ExecutionStrategy,
     datasource::DataSource,
-    error::ChutoroError,
+    error::{ChutoroError, DataSourceError},
     result::{ClusterId, ClusteringResult},
 };
 
@@ -125,19 +125,24 @@ impl Chutoro {
         let len = source.len();
         if len == 0 {
             return Err(ChutoroError::EmptySource {
-                data_source: source.name().to_owned(),
+                data_source: Arc::from(source.name()),
             });
         }
         if len < self.min_cluster_size.get() {
             return Err(ChutoroError::InsufficientItems {
-                data_source: source.name().to_owned(),
+                data_source: Arc::from(source.name()),
                 items: len,
                 min_cluster_size: self.min_cluster_size,
             });
         }
 
         match self.execution_strategy {
-            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => self.run_cpu(source, len),
+            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => {
+                self.wrap_datasource_error(source, self.run_cpu(source, len))
+            }
+            #[cfg(feature = "gpu")]
+            ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+            #[cfg(not(feature = "gpu"))]
             ExecutionStrategy::GpuPreferred => Err(ChutoroError::BackendUnavailable {
                 requested: ExecutionStrategy::GpuPreferred,
             }),
@@ -148,7 +153,7 @@ impl Chutoro {
         &self,
         _source: &D,
         items: usize,
-    ) -> Result<ClusteringResult, ChutoroError> {
+    ) -> Result<ClusteringResult, DataSourceError> {
         // FIXME: This is a walking skeleton implementation that partitions items into
         // fixed-size buckets based on min_cluster_size. Replace with HNSW + MST +
         // hierarchy extraction as per the FISHDBC algorithm design.
@@ -157,5 +162,27 @@ impl Chutoro {
             .map(|idx| ClusterId::new((idx / cluster_span) as u64))
             .collect();
         Ok(ClusteringResult::from_assignments(assignments))
+    }
+
+    #[cfg(feature = "gpu")]
+    fn run_gpu<D: DataSource>(
+        &self,
+        source: &D,
+        items: usize,
+    ) -> Result<ClusteringResult, ChutoroError> {
+        // TODO: Replace with the real GPU backend once implemented. Until then we
+        // reuse the CPU walking skeleton to exercise the orchestration path.
+        self.wrap_datasource_error(source, self.run_cpu(source, items))
+    }
+
+    fn wrap_datasource_error<D: DataSource>(
+        &self,
+        source: &D,
+        result: Result<ClusteringResult, DataSourceError>,
+    ) -> Result<ClusteringResult, ChutoroError> {
+        result.map_err(|error| ChutoroError::DataSource {
+            data_source: Arc::from(source.name()),
+            error,
+        })
     }
 }

@@ -11,5 +11,5 @@ pub use crate::{
     chutoro::Chutoro,
     datasource::DataSource,
     error::{ChutoroError, DataSourceError},
-    result::{ClusterId, ClusteringResult},
+    result::{ClusterId, ClusteringResult, NonContiguousClusterIds},
 };

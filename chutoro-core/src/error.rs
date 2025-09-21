@@ -1,4 +1,4 @@
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, sync::Arc};
 
 use thiserror::Error;
 
@@ -28,14 +28,14 @@ pub enum ChutoroError {
     InvalidMinClusterSize { got: usize },
     /// The supplied [`DataSource`] contained no items.
     #[error("data source `{data_source}` contains no items")]
-    EmptySource { data_source: String },
+    EmptySource { data_source: Arc<str> },
     /// The [`DataSource`] did not contain enough items for the configured
     /// `min_cluster_size`.
     #[error(
         "data source `{data_source}` has {items} items but min_cluster_size requires {min_cluster_size}"
     )]
     InsufficientItems {
-        data_source: String,
+        data_source: Arc<str>,
         items: usize,
         min_cluster_size: NonZeroUsize,
     },
@@ -45,7 +45,7 @@ pub enum ChutoroError {
     /// A [`DataSource`] operation failed while running the algorithm.
     #[error("data source `{data_source}` failed: {error}")]
     DataSource {
-        data_source: String,
+        data_source: Arc<str>,
         #[source]
         error: DataSourceError,
     },

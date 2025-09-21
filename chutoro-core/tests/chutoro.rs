@@ -4,6 +4,7 @@ mod common;
 
 use chutoro_core::{
     ChutoroBuilder, ChutoroError, ClusterId, ClusteringResult, DataSource, ExecutionStrategy,
+    NonContiguousClusterIds,
 };
 use common::Dummy;
 use rstest::{fixture, rstest};
@@ -23,6 +24,10 @@ fn builder_defaults() {
     let builder = ChutoroBuilder::new();
     assert_eq!(builder.min_cluster_size(), 5);
     assert_eq!(builder.execution_strategy(), ExecutionStrategy::Auto);
+
+    let chutoro = builder.clone().build().expect("defaults valid");
+    assert_eq!(chutoro.min_cluster_size().get(), 5);
+    assert_eq!(chutoro.execution_strategy(), ExecutionStrategy::Auto);
 }
 
 #[rstest]
@@ -97,6 +102,7 @@ fn run_insufficient_items_errors(small_dummy: Dummy) {
     ));
 }
 
+#[cfg(not(feature = "gpu"))]
 #[rstest]
 fn run_rejects_gpu_preferred(dummy: Dummy) {
     let chutoro = ChutoroBuilder::new()
@@ -115,6 +121,17 @@ fn run_rejects_gpu_preferred(dummy: Dummy) {
     ));
 }
 
+#[cfg(feature = "gpu")]
+#[rstest]
+fn run_gpu_preferred_succeeds_when_enabled(dummy: Dummy) {
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(dummy.len())
+        .with_execution_strategy(ExecutionStrategy::GpuPreferred)
+        .build()
+        .expect("builder must allow runtime GPU preference");
+    let _ = chutoro.run(&dummy).expect("gpu run must succeed");
+}
+
 #[rstest]
 #[case::single(vec![ClusterId::new(0)], 1)]
 #[case::two_clusters(vec![ClusterId::new(0), ClusterId::new(1)], 2)]
@@ -124,4 +141,25 @@ fn cluster_count_matches_unique_assignments(
 ) {
     let result = ClusteringResult::from_assignments(assignments);
     assert_eq!(result.cluster_count(), expected);
+}
+
+#[rstest]
+fn try_from_assignments_rejects_missing_zero() {
+    let err = ClusteringResult::try_from_assignments(vec![ClusterId::new(1)])
+        .expect_err("assignments must start at zero");
+    assert_eq!(err, NonContiguousClusterIds::MissingZero);
+}
+
+#[rstest]
+fn try_from_assignments_rejects_gap() {
+    let err = ClusteringResult::try_from_assignments(vec![ClusterId::new(0), ClusterId::new(2)])
+        .expect_err("assignments must be contiguous");
+    assert_eq!(err, NonContiguousClusterIds::Gap);
+}
+
+#[rstest]
+fn try_from_assignments_rejects_overflow() {
+    let err = ClusteringResult::try_from_assignments(vec![ClusterId::new(u64::MAX)])
+        .expect_err("assignments must stay within usize range");
+    assert_eq!(err, NonContiguousClusterIds::Overflow);
 }
