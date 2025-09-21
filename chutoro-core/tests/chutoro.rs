@@ -98,11 +98,15 @@ fn run_insufficient_items_errors(small_dummy: Dummy) {
 }
 
 #[rstest]
-fn builder_rejects_gpu_preferred() {
-    let err = ChutoroBuilder::new()
+fn run_rejects_gpu_preferred(dummy: Dummy) {
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(dummy.len())
         .with_execution_strategy(ExecutionStrategy::GpuPreferred)
         .build()
-        .expect_err("builder must reject GPU preference");
+        .expect("builder must allow runtime GPU preference");
+    let err = chutoro
+        .run(&dummy)
+        .expect_err("run must reject unavailable GPU backend");
     assert!(matches!(
         err,
         ChutoroError::BackendUnavailable {

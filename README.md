@@ -4,8 +4,8 @@ This is a generated project using [Copier](https://copier.readthedocs.io/).
 
 > **Walking skeleton:** The CPU-only build currently partitions inputs into
 > placeholder buckets sized by `min_cluster_size`. This stub proves the
-> orchestration wiring and will be replaced by the HNSW + MST + hierarchy
-> extraction pipeline described in
+> orchestration wiring and will be replaced by the HNSW + MST +
+> hierarchy extraction pipeline described in
 > [`docs/chutoro-design.md`](docs/chutoro-design.md).
 
 ## Distance cache determinism and metrics

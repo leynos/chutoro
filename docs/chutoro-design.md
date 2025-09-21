@@ -1117,12 +1117,6 @@ impl ChutoroBuilder {
         let min_cluster_size = NonZeroUsize::new(self.min_cluster_size)
             .ok_or(ChutoroError::InvalidMinClusterSize { got: self.min_cluster_size })?;
 
-        if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred) {
-            return Err(ChutoroError::BackendUnavailable {
-                requested: ExecutionStrategy::GpuPreferred,
-            });
-        }
-
         Ok(Chutoro {
             min_cluster_size,
             execution_strategy: self.execution_strategy,
@@ -1156,10 +1150,25 @@ impl Chutoro {
             });
         }
 
-        let cluster_span = self.min_cluster_size.get();
+        match self.execution_strategy {
+            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => {
+                self.run_cpu(source, len)
+            }
+            ExecutionStrategy::GpuPreferred => Err(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::GpuPreferred,
+            }),
+        }
+    }
+
+    fn run_cpu<D: DataSource>(
+        &self,
+        _source: &D,
+        items: usize,
+    ) -> Result<ClusteringResult, ChutoroError> {
         // Walking skeleton placeholder: group items by `min_cluster_size` until the
         // FISHDBC pipeline replaces this stub.
-        let assignments = (0..len)
+        let cluster_span = self.min_cluster_size.get();
+        let assignments = (0..items)
             .map(|idx| ClusterId::new((idx / cluster_span) as u64))
             .collect();
         Ok(ClusteringResult::from_assignments(assignments))
@@ -1167,12 +1176,13 @@ impl Chutoro {
 }
 
 The walking skeleton validates builder parameters up-front. `ChutoroBuilder::build`
-rejects zero-sized clusters and fails fast when GPU execution is requested in
-the CPU-only build so invalid configurations never reach [`Chutoro::run`].
+rejects zero-sized clusters while deferring backend availability to runtime so
+GPU-preferred configurations can be constructed ahead of accelerated support.
 The struct stores the validated `min_cluster_size` and `execution_strategy`,
-and `run` continues to fail fast on empty or undersized sources before
-dispatching. In the interim CPU-only implementation we partition the input
-into contiguous buckets the size of `min_cluster_size` to exercise
+and [`Chutoro::run`] fails fast on empty or undersized sources before either
+delegating to the CPU placeholder or returning `BackendUnavailable` when the
+binary lacks GPU support. In the interim CPU-only implementation we partition
+the input into contiguous buckets the size of `min_cluster_size` to exercise
 multi-cluster flows while explicitly labelling the placeholder logic for the
 future FISHDBC pipeline.
 

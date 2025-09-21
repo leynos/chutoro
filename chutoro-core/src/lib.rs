@@ -277,12 +277,6 @@ impl ChutoroBuilder {
             },
         )?;
 
-        if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred) {
-            return Err(ChutoroError::BackendUnavailable {
-                requested: self.execution_strategy,
-            });
-        }
-
         Ok(Chutoro {
             min_cluster_size,
             execution_strategy: self.execution_strategy,
@@ -310,8 +304,11 @@ impl ChutoroBuilder {
 ///
 /// let chutoro = ChutoroBuilder::new()
 ///     .with_min_cluster_size(3)
-///     .build()?;
-/// let result = chutoro.run(&Dummy(vec![1.0, 2.0, 4.0]))?;
+///     .build()
+///     .expect("builder must succeed");
+/// let result = chutoro
+///     .run(&Dummy(vec![1.0, 2.0, 4.0]))
+///     .expect("run must succeed");
 /// assert_eq!(result.assignments().len(), 3);
 /// assert_eq!(result.cluster_count(), 1);
 /// # Ok::<(), Box<dyn std::error::Error>>(())
@@ -329,7 +326,10 @@ impl Chutoro {
     /// ```
     /// use chutoro_core::ChutoroBuilder;
     ///
-    /// let chutoro = ChutoroBuilder::new().with_min_cluster_size(9).build().unwrap();
+    /// let chutoro = ChutoroBuilder::new()
+    ///     .with_min_cluster_size(9)
+    ///     .build()
+    ///     .expect("builder must accept non-zero min_cluster_size");
     /// assert_eq!(chutoro.min_cluster_size().get(), 9);
     /// ```
     #[must_use]
@@ -346,7 +346,7 @@ impl Chutoro {
     /// let chutoro = ChutoroBuilder::new()
     ///     .with_execution_strategy(ExecutionStrategy::CpuOnly)
     ///     .build()
-    ///     .unwrap();
+    ///     .expect("builder must apply execution strategy");
     /// assert_eq!(chutoro.execution_strategy(), ExecutionStrategy::CpuOnly);
     /// ```
     #[must_use]
@@ -381,8 +381,10 @@ impl Chutoro {
     /// let chutoro = ChutoroBuilder::new()
     ///     .with_min_cluster_size(3)
     ///     .build()
-    ///     .unwrap();
-    /// let result = chutoro.run(&Dummy(vec![1.0, 2.0, 4.0])).unwrap();
+    ///     .expect("builder must succeed");
+    /// let result = chutoro
+    ///     .run(&Dummy(vec![1.0, 2.0, 4.0]))
+    ///     .expect("run must succeed");
     /// assert_eq!(result.assignments().len(), 3);
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
