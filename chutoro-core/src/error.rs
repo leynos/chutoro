@@ -1,0 +1,52 @@
+use std::num::NonZeroUsize;
+
+use thiserror::Error;
+
+use crate::builder::ExecutionStrategy;
+
+/// An error produced by [`DataSource`] operations.
+#[non_exhaustive]
+#[derive(Debug, Error)]
+pub enum DataSourceError {
+    /// Requested index was outside the source's bounds.
+    #[error("index {index} is out of bounds")]
+    OutOfBounds { index: usize },
+    /// Provided output buffer length did not match number of pairs.
+    #[error("output buffer has length {out} but {expected} pairs were given")]
+    OutputLengthMismatch { out: usize, expected: usize },
+    /// Compared vectors had different dimensions.
+    #[error("dimension mismatch: left={left}, right={right}")]
+    DimensionMismatch { left: usize, right: usize },
+}
+
+/// Error type produced when constructing or running [`Chutoro`].
+#[non_exhaustive]
+#[derive(Debug, Error)]
+pub enum ChutoroError {
+    /// Minimum cluster size must be greater than zero.
+    #[error("min_cluster_size must be at least 1 (got {got})")]
+    InvalidMinClusterSize { got: usize },
+    /// The supplied [`DataSource`] contained no items.
+    #[error("data source `{data_source}` contains no items")]
+    EmptySource { data_source: String },
+    /// The [`DataSource`] did not contain enough items for the configured
+    /// `min_cluster_size`.
+    #[error(
+        "data source `{data_source}` has {items} items but min_cluster_size requires {min_cluster_size}"
+    )]
+    InsufficientItems {
+        data_source: String,
+        items: usize,
+        min_cluster_size: NonZeroUsize,
+    },
+    /// The requested execution strategy is unavailable in the current build.
+    #[error("the requested execution strategy {requested:?} is not available in this build")]
+    BackendUnavailable { requested: ExecutionStrategy },
+    /// A [`DataSource`] operation failed while running the algorithm.
+    #[error("data source `{data_source}` failed: {error}")]
+    DataSource {
+        data_source: String,
+        #[source]
+        error: DataSourceError,
+    },
+}
