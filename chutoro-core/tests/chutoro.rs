@@ -1,45 +1,21 @@
-#![expect(clippy::expect_used, reason = "tests require contextual panics")]
 //! Tests for the `Chutoro` orchestration API.
 
-use chutoro_core::{
-    ChutoroBuilder, ChutoroError, ClusterId, ClusteringResult, DataSource, DataSourceError,
-    ExecutionStrategy,
-};
-use rstest::{fixture, rstest};
+mod common;
 
-#[derive(Clone)]
-struct Dummy(Vec<f32>);
+use chutoro_core::{
+    ChutoroBuilder, ChutoroError, ClusterId, ClusteringResult, DataSource, ExecutionStrategy,
+};
+use common::Dummy;
+use rstest::{fixture, rstest};
 
 #[fixture]
 fn dummy() -> Dummy {
-    Dummy(vec![1.0, 3.0, 6.0])
+    Dummy::new(vec![1.0, 3.0, 6.0])
 }
 
 #[fixture]
 fn small_dummy() -> Dummy {
-    Dummy(vec![2.0, 5.0])
-}
-
-impl DataSource for Dummy {
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    fn name(&self) -> &str {
-        "dummy"
-    }
-
-    fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-        let a = self
-            .0
-            .get(i)
-            .ok_or(DataSourceError::OutOfBounds { index: i })?;
-        let b = self
-            .0
-            .get(j)
-            .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((a - b).abs())
-    }
+    Dummy::new(vec![2.0, 5.0])
 }
 
 #[rstest]
@@ -79,7 +55,7 @@ fn run_cpu_single_cluster(#[case] strategy: ExecutionStrategy, dummy: Dummy) {
 
 #[rstest]
 fn run_cpu_partitions_by_min_cluster_size() {
-    let source = Dummy(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+    let source = Dummy::new(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(2)
         .build()
@@ -95,7 +71,7 @@ fn run_empty_source_errors() {
     let chutoro = ChutoroBuilder::new()
         .build()
         .expect("configuration must be valid");
-    let empty = Dummy(vec![]);
+    let empty = Dummy::new(vec![]);
     let err = chutoro
         .run(&empty)
         .expect_err("run must reject empty data sources");
@@ -122,17 +98,17 @@ fn run_insufficient_items_errors(small_dummy: Dummy) {
 }
 
 #[rstest]
-fn run_gpu_preferred_errors(dummy: Dummy) {
-    let len = dummy.len();
-    let chutoro = ChutoroBuilder::new()
-        .with_min_cluster_size(len)
+fn builder_rejects_gpu_preferred() {
+    let err = ChutoroBuilder::new()
         .with_execution_strategy(ExecutionStrategy::GpuPreferred)
         .build()
-        .expect("builder must allow GPU preference");
-    let err = chutoro
-        .run(&dummy)
-        .expect_err("GPU runs must fail without a backend");
-    assert!(matches!(err, ChutoroError::BackendUnavailable { .. }));
+        .expect_err("builder must reject GPU preference");
+    assert!(matches!(
+        err,
+        ChutoroError::BackendUnavailable {
+            requested: ExecutionStrategy::GpuPreferred,
+        }
+    ));
 }
 
 #[rstest]

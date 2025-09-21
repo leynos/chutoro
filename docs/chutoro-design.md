@@ -1114,8 +1114,19 @@ impl ChutoroBuilder {
     //... other builder methods for HNSW/HDBSCAN parameters...
 
     pub fn build(self) -> Result<Chutoro, ChutoroError> {
-        // Validate min_cluster_size and ensure the requested backend is available.
-        unimplemented!()
+        let min_cluster_size = NonZeroUsize::new(self.min_cluster_size)
+            .ok_or(ChutoroError::InvalidMinClusterSize { got: self.min_cluster_size })?;
+
+        if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred) {
+            return Err(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::GpuPreferred,
+            });
+        }
+
+        Ok(Chutoro {
+            min_cluster_size,
+            execution_strategy: self.execution_strategy,
+        })
     }
 }
 
@@ -1131,21 +1142,39 @@ impl Chutoro {
     /// The walking skeleton validates the dataset before dispatch and
     /// partitions it into placeholder buckets sized by `min_cluster_size`.
     pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult, ChutoroError> {
-        // 1. Fail fast if the dataset is empty or undersized.
-        // 2. Dispatch to the CPU placeholder (the only backend in the skeleton).
-        // 3. Produce placeholder cluster assignments grouped by min_cluster_size.
-        unimplemented!()
+        let len = source.len();
+        if len == 0 {
+            return Err(ChutoroError::EmptySource {
+                data_source: source.name().to_owned(),
+            });
+        }
+        if len < self.min_cluster_size.get() {
+            return Err(ChutoroError::InsufficientItems {
+                data_source: source.name().to_owned(),
+                items: len,
+                min_cluster_size: self.min_cluster_size,
+            });
+        }
+
+        let cluster_span = self.min_cluster_size.get();
+        // Walking skeleton placeholder: group items by `min_cluster_size` until the
+        // FISHDBC pipeline replaces this stub.
+        let assignments = (0..len)
+            .map(|idx| ClusterId::new((idx / cluster_span) as u64))
+            .collect();
+        Ok(ClusteringResult::from_assignments(assignments))
     }
 }
 
 The walking skeleton validates builder parameters up-front. `ChutoroBuilder::build`
-rejects zero-sized clusters while deferring backend availability checks to
-`Chutoro::run` so that resolution happens alongside dispatch. The struct stores
-the validated `min_cluster_size` and `execution_strategy`, and `run` continues
-to fail fast on empty or undersized sources before dispatching. In the
-interim CPU-only implementation we partition the input into contiguous
-buckets the size of `min_cluster_size` to exercise multi-cluster flows while
-explicitly labelling the placeholder logic for the future FISHDBC pipeline.
+rejects zero-sized clusters and fails fast when GPU execution is requested in
+the CPU-only build so invalid configurations never reach [`Chutoro::run`].
+The struct stores the validated `min_cluster_size` and `execution_strategy`,
+and `run` continues to fail fast on empty or undersized sources before
+dispatching. In the interim CPU-only implementation we partition the input
+into contiguous buckets the size of `min_cluster_size` to exercise
+multi-cluster flows while explicitly labelling the placeholder logic for the
+future FISHDBC pipeline.
 
 `ClusteringResult` now caches the number of unique clusters so repeated
 queries do not rebuild a set, keeping the walking skeleton lightweight
