@@ -1,6 +1,6 @@
 //! Chutoro core library.
 
-use std::{collections::BTreeSet, num::NonZeroUsize};
+use std::{collections::HashSet, num::NonZeroUsize};
 
 use thiserror::Error;
 
@@ -178,12 +178,6 @@ pub struct ChutoroBuilder {
     execution_strategy: ExecutionStrategy,
 }
 
-#[derive(Debug, Clone)]
-struct ChutoroConfig {
-    min_cluster_size: NonZeroUsize,
-    execution_strategy: ExecutionStrategy,
-}
-
 impl Default for ChutoroBuilder {
     fn default() -> Self {
         Self {
@@ -277,16 +271,21 @@ impl ChutoroBuilder {
     /// assert_eq!(chutoro.min_cluster_size().get(), 5);
     /// ```
     pub fn build(self) -> Result<Chutoro, ChutoroError> {
+        if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred) {
+            return Err(ChutoroError::BackendUnavailable {
+                requested: self.execution_strategy,
+            });
+        }
+
         let min_cluster_size = NonZeroUsize::new(self.min_cluster_size).ok_or(
             ChutoroError::InvalidMinClusterSize {
                 got: self.min_cluster_size,
             },
         )?;
+
         Ok(Chutoro {
-            config: ChutoroConfig {
-                min_cluster_size,
-                execution_strategy: self.execution_strategy,
-            },
+            min_cluster_size,
+            execution_strategy: self.execution_strategy,
         })
     }
 }
@@ -309,7 +308,9 @@ impl ChutoroBuilder {
 ///     }
 /// }
 ///
-/// let chutoro = ChutoroBuilder::new().build()?;
+/// let chutoro = ChutoroBuilder::new()
+///     .with_min_cluster_size(3)
+///     .build()?;
 /// let result = chutoro.run(&Dummy(vec![1.0, 2.0, 4.0]))?;
 /// assert_eq!(result.assignments().len(), 3);
 /// assert_eq!(result.cluster_count(), 1);
@@ -317,7 +318,8 @@ impl ChutoroBuilder {
 /// ```
 #[derive(Debug, Clone)]
 pub struct Chutoro {
-    config: ChutoroConfig,
+    min_cluster_size: NonZeroUsize,
+    execution_strategy: ExecutionStrategy,
 }
 
 impl Chutoro {
@@ -332,7 +334,7 @@ impl Chutoro {
     /// ```
     #[must_use]
     pub fn min_cluster_size(&self) -> NonZeroUsize {
-        self.config.min_cluster_size
+        self.min_cluster_size
     }
 
     /// Returns the execution strategy that will be used when running.
@@ -349,7 +351,7 @@ impl Chutoro {
     /// ```
     #[must_use]
     pub fn execution_strategy(&self) -> ExecutionStrategy {
-        self.config.execution_strategy
+        self.execution_strategy
     }
 
     /// Executes the clustering pipeline against the provided [`DataSource`].
@@ -376,35 +378,31 @@ impl Chutoro {
     ///     }
     /// }
     ///
-    /// let chutoro = ChutoroBuilder::new().build().unwrap();
+    /// let chutoro = ChutoroBuilder::new()
+    ///     .with_min_cluster_size(3)
+    ///     .build()
+    ///     .unwrap();
     /// let result = chutoro.run(&Dummy(vec![1.0, 2.0, 4.0])).unwrap();
     /// assert_eq!(result.assignments().len(), 3);
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
     pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult, ChutoroError> {
-        let backend = self.resolve_backend()?;
         let len = source.len();
         if len == 0 {
             return Err(ChutoroError::EmptySource {
                 data_source: source.name().to_owned(),
             });
         }
-        if len < self.config.min_cluster_size.get() {
+        if len < self.min_cluster_size.get() {
             return Err(ChutoroError::InsufficientItems {
                 data_source: source.name().to_owned(),
                 items: len,
-                min_cluster_size: self.config.min_cluster_size,
+                min_cluster_size: self.min_cluster_size,
             });
         }
 
-        match backend {
-            ExecutionBackend::Cpu => self.run_cpu(source, len),
-        }
-    }
-
-    fn resolve_backend(&self) -> Result<ExecutionBackend, ChutoroError> {
-        match self.config.execution_strategy {
-            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => Ok(ExecutionBackend::Cpu),
+        match self.execution_strategy {
+            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => self.run_cpu(source, len),
             ExecutionStrategy::GpuPreferred => Err(ChutoroError::BackendUnavailable {
                 requested: ExecutionStrategy::GpuPreferred,
             }),
@@ -416,14 +414,13 @@ impl Chutoro {
         _source: &D,
         items: usize,
     ) -> Result<ClusteringResult, ChutoroError> {
-        let assignments = vec![ClusterId::new(0); items];
+        // TODO: Replace this bucketing logic with the real clustering implementation.
+        let cluster_span = self.min_cluster_size.get();
+        let assignments = (0..items)
+            .map(|idx| ClusterId::new((idx / cluster_span) as u64))
+            .collect();
         Ok(ClusteringResult::from_assignments(assignments))
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ExecutionBackend {
-    Cpu,
 }
 
 /// Represents the output of a [`Chutoro::run`] invocation.
@@ -484,7 +481,7 @@ impl ClusteringResult {
         self.assignments
             .iter()
             .map(|id| id.get())
-            .collect::<BTreeSet<_>>()
+            .collect::<HashSet<_>>()
             .len()
     }
 }

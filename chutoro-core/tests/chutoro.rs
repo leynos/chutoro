@@ -78,6 +78,19 @@ fn run_cpu_single_cluster(#[case] strategy: ExecutionStrategy, dummy: Dummy) {
 }
 
 #[rstest]
+fn run_cpu_partitions_by_min_cluster_size() {
+    let source = Dummy(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(2)
+        .build()
+        .expect("configuration must be valid");
+    let result = chutoro.run(&source).expect("run must succeed");
+    let assignment_ids: Vec<u64> = result.assignments().iter().map(|id| id.get()).collect();
+    assert_eq!(assignment_ids, vec![0, 0, 1, 1, 2, 2]);
+    assert_eq!(result.cluster_count(), 3);
+}
+
+#[rstest]
 fn run_empty_source_errors() {
     let chutoro = ChutoroBuilder::new()
         .build()
@@ -109,14 +122,10 @@ fn run_insufficient_items_errors(small_dummy: Dummy) {
 }
 
 #[rstest]
-fn run_gpu_preferred_errors(dummy: Dummy) {
-    let chutoro = ChutoroBuilder::new()
-        .with_min_cluster_size(1)
+fn run_gpu_preferred_errors() {
+    let err = ChutoroBuilder::new()
         .with_execution_strategy(ExecutionStrategy::GpuPreferred)
         .build()
-        .expect("configuration must be valid");
-    let err = chutoro
-        .run(&dummy)
         .expect_err("GPU preference must fail without a backend");
     assert!(matches!(err, ChutoroError::BackendUnavailable { .. }));
 }

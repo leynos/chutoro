@@ -1113,38 +1113,39 @@ impl ChutoroBuilder {
 
     //... other builder methods for HNSW/HDBSCAN parameters...
 
-    pub fn build(self) -> Chutoro {
-        Chutoro { params: self }
+    pub fn build(self) -> Result<Chutoro, ChutoroError> {
+        // Validate min_cluster_size and ensure the requested backend is available.
+        unimplemented!()
     }
 }
 
 /// The main chutoro clustering algorithm struct.
 pub struct Chutoro {
-    params: ChutoroBuilder,
+    min_cluster_size: NonZeroUsize,
+    execution_strategy: ExecutionStrategy,
 }
 
 impl Chutoro {
     /// Runs the clustering algorithm on the given data source.
     ///
-    /// The `DataSource` trait allows for flexible input from any source
-    /// that can provide item count and a distance metric.
+    /// The walking skeleton validates the dataset before dispatch and
+    /// partitions it into placeholder buckets sized by `min_cluster_size`.
     pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult, ChutoroError> {
-        // Core orchestration logic here.
-        // 1. Select execution backend (CPU/GPU).
-        // 2. Call the appropriate implementation.
-        // 3. Return the results.
+        // 1. Fail fast if the dataset is empty or undersized.
+        // 2. Dispatch to the CPU placeholder (the only backend in the skeleton).
+        // 3. Produce placeholder cluster assignments grouped by min_cluster_size.
         unimplemented!()
     }
 }
 
 The walking skeleton validates builder parameters up-front. `ChutoroBuilder::build`
-returns a `Result` so that zero-sized clusters are rejected immediately, avoiding
-surprise panics at runtime. The resulting `Chutoro` stores a validated
-configuration, and `run` now fails fast when a data source is empty, when it
-contains fewer items than `min_cluster_size`, or when a GPU execution strategy is
-requested in the CPU-only build. Until the full CPU pipeline lands, the CPU path
-emits a single cluster covering the dataset to exercise the orchestration flow
-end-to-end.
+now rejects zero-sized clusters and unsupported execution strategies so errors
+surface before a `Chutoro` is constructed. The struct stores the validated
+`min_cluster_size` and `execution_strategy`, and `run` continues to fail fast on
+empty or undersized sources before dispatching. In the interim CPU-only
+implementation we partition the input into contiguous buckets the size of
+`min_cluster_size` to exercise multi-cluster flows while signposting the TODO for
+the real clustering algorithm.
 
 ```
 
