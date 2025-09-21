@@ -1139,13 +1139,17 @@ impl Chutoro {
 }
 
 The walking skeleton validates builder parameters up-front. `ChutoroBuilder::build`
-now rejects zero-sized clusters and unsupported execution strategies so errors
-surface before a `Chutoro` is constructed. The struct stores the validated
-`min_cluster_size` and `execution_strategy`, and `run` continues to fail fast on
-empty or undersized sources before dispatching. In the interim CPU-only
-implementation we partition the input into contiguous buckets the size of
-`min_cluster_size` to exercise multi-cluster flows while signposting the TODO for
-the real clustering algorithm.
+rejects zero-sized clusters while deferring backend availability checks to
+`Chutoro::run` so that resolution happens alongside dispatch. The struct stores
+the validated `min_cluster_size` and `execution_strategy`, and `run` continues
+to fail fast on empty or undersized sources before dispatching. In the
+interim CPU-only implementation we partition the input into contiguous
+buckets the size of `min_cluster_size` to exercise multi-cluster flows while
+explicitly labelling the placeholder logic for the future FISHDBC pipeline.
+
+`ClusteringResult` now caches the number of unique clusters so repeated
+queries do not rebuild a set, keeping the walking skeleton lightweight
+without obscuring the temporary assignment strategy.
 
 ```
 

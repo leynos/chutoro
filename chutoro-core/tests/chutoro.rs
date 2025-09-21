@@ -122,11 +122,16 @@ fn run_insufficient_items_errors(small_dummy: Dummy) {
 }
 
 #[rstest]
-fn run_gpu_preferred_errors() {
-    let err = ChutoroBuilder::new()
+fn run_gpu_preferred_errors(dummy: Dummy) {
+    let len = dummy.len();
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(len)
         .with_execution_strategy(ExecutionStrategy::GpuPreferred)
         .build()
-        .expect_err("GPU preference must fail without a backend");
+        .expect("builder must allow GPU preference");
+    let err = chutoro
+        .run(&dummy)
+        .expect_err("GPU runs must fail without a backend");
     assert!(matches!(err, ChutoroError::BackendUnavailable { .. }));
 }
 

@@ -271,12 +271,6 @@ impl ChutoroBuilder {
     /// assert_eq!(chutoro.min_cluster_size().get(), 5);
     /// ```
     pub fn build(self) -> Result<Chutoro, ChutoroError> {
-        if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred) {
-            return Err(ChutoroError::BackendUnavailable {
-                requested: self.execution_strategy,
-            });
-        }
-
         let min_cluster_size = NonZeroUsize::new(self.min_cluster_size).ok_or(
             ChutoroError::InvalidMinClusterSize {
                 got: self.min_cluster_size,
@@ -414,7 +408,9 @@ impl Chutoro {
         _source: &D,
         items: usize,
     ) -> Result<ClusteringResult, ChutoroError> {
-        // TODO: Replace this bucketing logic with the real clustering implementation.
+        // FIXME: This is a walking skeleton implementation that partitions items into
+        // fixed-size buckets based on min_cluster_size. Replace with HNSW + MST +
+        // hierarchy extraction as per the FISHDBC algorithm design.
         let cluster_span = self.min_cluster_size.get();
         let assignments = (0..items)
             .map(|idx| ClusterId::new((idx / cluster_span) as u64))
@@ -436,6 +432,7 @@ impl Chutoro {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusteringResult {
     assignments: Vec<ClusterId>,
+    cluster_count: usize,
 }
 
 impl ClusteringResult {
@@ -450,7 +447,15 @@ impl ClusteringResult {
     /// ```
     #[must_use]
     pub fn from_assignments(assignments: Vec<ClusterId>) -> Self {
-        Self { assignments }
+        let cluster_count = assignments
+            .iter()
+            .map(|id| id.get())
+            .collect::<HashSet<_>>()
+            .len();
+        Self {
+            assignments,
+            cluster_count,
+        }
     }
 
     /// Returns the assignments in insertion order.
@@ -478,11 +483,7 @@ impl ClusteringResult {
     /// ```
     #[must_use]
     pub fn cluster_count(&self) -> usize {
-        self.assignments
-            .iter()
-            .map(|id| id.get())
-            .collect::<HashSet<_>>()
-            .len()
+        self.cluster_count
     }
 }
 
