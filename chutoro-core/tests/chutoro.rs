@@ -42,6 +42,7 @@ fn builder_rejects_zero_min_cluster_size() {
     ));
 }
 
+#[cfg(feature = "skeleton")]
 #[rstest]
 #[case::auto(ExecutionStrategy::Auto)]
 #[case::cpu_only(ExecutionStrategy::CpuOnly)]
@@ -58,6 +59,7 @@ fn run_cpu_single_cluster(#[case] strategy: ExecutionStrategy, dummy: Dummy) {
     assert!(result.assignments().iter().all(|id| id.get() == 0));
 }
 
+#[cfg(feature = "skeleton")]
 #[rstest]
 fn run_cpu_partitions_by_min_cluster_size() {
     let source = Dummy::new(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
@@ -69,6 +71,25 @@ fn run_cpu_partitions_by_min_cluster_size() {
     let assignment_ids: Vec<u64> = result.assignments().iter().map(|id| id.get()).collect();
     assert_eq!(assignment_ids, vec![0, 0, 1, 1, 2, 2]);
     assert_eq!(result.cluster_count(), 3);
+}
+
+#[cfg(not(feature = "skeleton"))]
+#[rstest]
+#[case::auto(ExecutionStrategy::Auto)]
+#[case::cpu_only(ExecutionStrategy::CpuOnly)]
+fn run_cpu_strategies_error_without_skeleton(#[case] strategy: ExecutionStrategy, dummy: Dummy) {
+    let chutoro = ChutoroBuilder::new()
+        .with_execution_strategy(strategy)
+        .build()
+        .expect("configuration must be valid");
+    let err = chutoro
+        .run(&dummy)
+        .expect_err("run must reject CPU strategies when the skeleton backend is disabled");
+    assert!(matches!(
+        err,
+        ChutoroError::BackendUnavailable { requested }
+            if requested == strategy
+    ));
 }
 
 #[rstest]
@@ -121,7 +142,7 @@ fn run_rejects_gpu_preferred(dummy: Dummy) {
     ));
 }
 
-#[cfg(feature = "gpu")]
+#[cfg(all(feature = "gpu", feature = "skeleton"))]
 #[rstest]
 fn run_gpu_preferred_succeeds_when_enabled(dummy: Dummy) {
     let chutoro = ChutoroBuilder::new()

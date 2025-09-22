@@ -137,8 +137,15 @@ impl Chutoro {
         }
 
         match self.execution_strategy {
+            #[cfg(feature = "skeleton")]
             ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => {
                 self.wrap_datasource_error(source, self.run_cpu(source, len))
+            }
+            #[cfg(not(feature = "skeleton"))]
+            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => {
+                Err(ChutoroError::BackendUnavailable {
+                    requested: self.execution_strategy,
+                })
             }
             #[cfg(feature = "gpu")]
             ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
@@ -149,6 +156,7 @@ impl Chutoro {
         }
     }
 
+    #[cfg(feature = "skeleton")]
     fn run_cpu<D: DataSource>(
         &self,
         _source: &D,
@@ -164,7 +172,7 @@ impl Chutoro {
         Ok(ClusteringResult::from_assignments(assignments))
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(all(feature = "gpu", feature = "skeleton"))]
     fn run_gpu<D: DataSource>(
         &self,
         source: &D,
@@ -173,6 +181,19 @@ impl Chutoro {
         // TODO: Replace with the real GPU backend once implemented. Until then we
         // reuse the CPU walking skeleton to exercise the orchestration path.
         self.wrap_datasource_error(source, self.run_cpu(source, items))
+    }
+
+    #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
+    fn run_gpu<D: DataSource>(
+        &self,
+        _source: &D,
+        _items: usize,
+    ) -> Result<ClusteringResult, ChutoroError> {
+        // We intentionally fail fast when the walking skeleton is disabled so GPU
+        // builds do not accidentally ship the placeholder CPU path.
+        Err(ChutoroError::BackendUnavailable {
+            requested: ExecutionStrategy::GpuPreferred,
+        })
     }
 
     fn wrap_datasource_error<D: DataSource>(

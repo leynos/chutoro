@@ -1153,9 +1153,16 @@ impl Chutoro {
         }
 
         match self.execution_strategy {
+            #[cfg(feature = "skeleton")]
             ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => {
                 self.wrap_datasource_error(source, self.run_cpu(source, len))
             }
+            #[cfg(not(feature = "skeleton"))]
+            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => Err(
+                ChutoroError::BackendUnavailable {
+                    requested: self.execution_strategy,
+                },
+            ),
             #[cfg(feature = "gpu")]
             ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
             #[cfg(not(feature = "gpu"))]
@@ -1165,6 +1172,7 @@ impl Chutoro {
         }
     }
 
+    #[cfg(feature = "skeleton")]
     fn run_cpu<D: DataSource>(
         &self,
         _source: &D,
@@ -1179,7 +1187,7 @@ impl Chutoro {
         Ok(ClusteringResult::from_assignments(assignments))
     }
 
-    #[cfg(feature = "gpu")]
+    #[cfg(all(feature = "gpu", feature = "skeleton"))]
     fn run_gpu<D: DataSource>(
         &self,
         source: &D,
@@ -1187,6 +1195,17 @@ impl Chutoro {
     ) -> Result<ClusteringResult, ChutoroError> {
         // Placeholder: dispatch to the CPU implementation until the GPU backend lands.
         self.wrap_datasource_error(source, self.run_cpu(source, items))
+    }
+
+    #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
+    fn run_gpu<D: DataSource>(
+        &self,
+        _source: &D,
+        _items: usize,
+    ) -> Result<ClusteringResult, ChutoroError> {
+        Err(ChutoroError::BackendUnavailable {
+            requested: ExecutionStrategy::GpuPreferred,
+        })
     }
 
     fn wrap_datasource_error<D: DataSource>(
@@ -1201,18 +1220,23 @@ impl Chutoro {
     }
 }
 
-The walking skeleton validates builder parameters up-front. `ChutoroBuilder::build`
-rejects zero-sized clusters while deferring backend availability to runtime so
-GPU-preferred configurations can be constructed ahead of accelerated support.
-The struct stores the validated `min_cluster_size` and `execution_strategy`,
-and [`Chutoro::run`] fails fast on empty or undersized sources while sharing
-`Arc<str>` handles for the data-source name so repeated errors avoid cloning.
-When the `gpu` feature is disabled the GPU branch returns `BackendUnavailable`;
-enabling it routes through a placeholder `run_gpu` that currently reuses the
-CPU skeleton until the accelerator lands. The temporary CPU implementation
-still partitions input into contiguous buckets sized by `min_cluster_size` to
-exercise multi-cluster flows while explicitly labelling the placeholder logic
-for the future FISHDBC pipeline.
+The walking skeleton validates builder parameters up-front.
+`ChutoroBuilder::build` rejects zero-sized clusters while deferring backend
+availability to runtime so GPU-preferred configurations can be constructed
+ahead of accelerated support. The struct stores the validated
+`min_cluster_size` and `execution_strategy`, and [`Chutoro::run`] fails fast on
+empty or undersized sources while sharing `Arc<str>` handles for the
+data-source name so repeated errors avoid cloning. The CPU walking skeleton is
+gated behind a `skeleton` feature (enabled by default) so downstream builds can
+strip the placeholder backend; when it is disabled, `Auto` and `CpuOnly`
+strategies surface `BackendUnavailable` to highlight the missing
+implementation. When the `gpu` feature is disabled the GPU branch returns
+`BackendUnavailable`; enabling it routes through a placeholder `run_gpu` that
+only compiles when the `skeleton` feature is active and reuses the CPU stub
+until the accelerator lands. The temporary CPU implementation still partitions
+input into contiguous buckets sized by `min_cluster_size` to exercise
+multi-cluster flows while explicitly labelling the placeholder logic for the
+future FISHDBC pipeline.
 
 `ClusteringResult` caches the number of unique clusters and exposes
 `try_from_assignments` so callers can surface non-contiguous identifiers
