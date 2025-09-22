@@ -3,6 +3,15 @@ name = "chutoro-core"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+skeleton = []
+gpu = []
+
+[package.metadata.docs.rs]
+features = ["skeleton", "gpu"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 thiserror = "1.0"
 

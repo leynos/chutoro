@@ -1,33 +1,15 @@
 #![expect(clippy::expect_used, reason = "tests require contextual panics")]
 //! Integration tests for the DataSource trait behaviour.
-use chutoro_core::{DataSource, DataSourceError};
-use rstest::{fixture, rstest};
 
-struct Dummy(Vec<f32>);
+mod common;
+
+use chutoro_core::{DataSource, DataSourceError};
+use common::Dummy;
+use rstest::{fixture, rstest};
 
 #[fixture]
 fn dummy(#[default(vec![1.0, 2.0])] data: Vec<f32>) -> Dummy {
-    Dummy(data)
-}
-
-impl DataSource for Dummy {
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-    fn name(&self) -> &str {
-        "dummy"
-    }
-    fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-        let a = self
-            .0
-            .get(i)
-            .ok_or(DataSourceError::OutOfBounds { index: i })?;
-        let b = self
-            .0
-            .get(j)
-            .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((a - b).abs())
-    }
+    Dummy::new(data)
 }
 
 #[rstest(dummy(vec![1.0, 3.0, 6.0]))]

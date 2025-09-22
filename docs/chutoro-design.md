@@ -1092,6 +1092,8 @@ A builder pattern will be used to configure the clustering algorithm.
 ```rust
 use crate::datasource::DataSource;
 use crate::result::ClusteringResult;
+use crate::error::{ChutoroError, DataSourceError};
+use std::sync::Arc;
 
 /// Builder for the chutoro implementation of the FISHDBC algorithm.
 pub struct ChutoroBuilder {
@@ -1113,29 +1115,137 @@ impl ChutoroBuilder {
 
     //... other builder methods for HNSW/HDBSCAN parameters...
 
-    pub fn build(self) -> Chutoro {
-        Chutoro { params: self }
+    pub fn build(self) -> Result<Chutoro, ChutoroError> {
+        let min_cluster_size = NonZeroUsize::new(self.min_cluster_size)
+            .ok_or(ChutoroError::InvalidMinClusterSize { got: self.min_cluster_size })?;
+
+        Ok(Chutoro {
+            min_cluster_size,
+            execution_strategy: self.execution_strategy,
+        })
     }
 }
 
 /// The main chutoro clustering algorithm struct.
 pub struct Chutoro {
-    params: ChutoroBuilder,
+    min_cluster_size: NonZeroUsize,
+    execution_strategy: ExecutionStrategy,
 }
 
 impl Chutoro {
     /// Runs the clustering algorithm on the given data source.
     ///
-    /// The `DataSource` trait allows for flexible input from any source
-    /// that can provide item count and a distance metric.
+    /// The walking skeleton validates the dataset before dispatch and
+    /// partitions it into placeholder buckets sized by `min_cluster_size`.
     pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult, ChutoroError> {
-        // Core orchestration logic here.
-        // 1. Select execution backend (CPU/GPU).
-        // 2. Call the appropriate implementation.
-        // 3. Return the results.
-        unimplemented!()
+        let len = source.len();
+        if len == 0 {
+            return Err(ChutoroError::EmptySource {
+                data_source: Arc::from(source.name()),
+            });
+        }
+        if len < self.min_cluster_size.get() {
+            return Err(ChutoroError::InsufficientItems {
+                data_source: Arc::from(source.name()),
+                items: len,
+                min_cluster_size: self.min_cluster_size,
+            });
+        }
+
+        match self.execution_strategy {
+            #[cfg(feature = "skeleton")]
+            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => {
+                self.wrap_datasource_error(source, self.run_cpu(source, len))
+            }
+            #[cfg(not(feature = "skeleton"))]
+            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => Err(
+                ChutoroError::BackendUnavailable {
+                    requested: self.execution_strategy,
+                },
+            ),
+            #[cfg(feature = "gpu")]
+            ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+            #[cfg(not(feature = "gpu"))]
+            ExecutionStrategy::GpuPreferred => Err(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::GpuPreferred,
+            }),
+        }
+    }
+
+    #[cfg(feature = "skeleton")]
+    fn run_cpu<D: DataSource>(
+        &self,
+        _source: &D,
+        items: usize,
+    ) -> Result<ClusteringResult, DataSourceError> {
+        // Walking skeleton placeholder: group items by `min_cluster_size` until the
+        // FISHDBC pipeline replaces this stub.
+        let cluster_span = self.min_cluster_size.get();
+        let assignments = (0..items)
+            .map(|idx| ClusterId::new((idx / cluster_span) as u64))
+            .collect();
+        Ok(ClusteringResult::from_assignments(assignments))
+    }
+
+    #[cfg(all(feature = "gpu", feature = "skeleton"))]
+    fn run_gpu<D: DataSource>(
+        &self,
+        source: &D,
+        items: usize,
+    ) -> Result<ClusteringResult, ChutoroError> {
+        // Placeholder: dispatch to the CPU implementation until the GPU backend lands.
+        self.wrap_datasource_error(source, self.run_cpu(source, items))
+    }
+
+    #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
+    fn run_gpu<D: DataSource>(
+        &self,
+        _source: &D,
+        _items: usize,
+    ) -> Result<ClusteringResult, ChutoroError> {
+        Err(ChutoroError::BackendUnavailable {
+            requested: ExecutionStrategy::GpuPreferred,
+        })
+    }
+
+    fn wrap_datasource_error<D: DataSource>(
+        &self,
+        source: &D,
+        result: Result<ClusteringResult, DataSourceError>,
+    ) -> Result<ClusteringResult, ChutoroError> {
+        result.map_err(|error| ChutoroError::DataSource {
+            data_source: Arc::from(source.name()),
+            error,
+        })
     }
 }
+
+The walking skeleton validates builder parameters up-front.
+`ChutoroBuilder::build` rejects zero-sized clusters while deferring backend
+availability to runtime so GPU-preferred configurations can be constructed
+ahead of accelerated support. The struct stores the validated
+`min_cluster_size` and `execution_strategy`, and [`Chutoro::run`] fails fast on
+empty or undersized sources while sharing `Arc<str>` handles for the
+data-source name so repeated errors avoid cloning. The CPU walking skeleton is
+gated behind an opt-in `skeleton` feature so downstream builds only compile
+the placeholder when explicitly requested. When it is disabled, `Auto` and
+`CpuOnly` strategies surface `BackendUnavailable` to highlight the missing
+implementation. When the `gpu` feature is disabled the GPU branch returns
+`BackendUnavailable`; enabling it routes through a placeholder `run_gpu` that
+only compiles when the `skeleton` feature is active and reuses the CPU stub
+until the accelerator lands. The temporary CPU implementation still partitions
+input into contiguous buckets sized by `min_cluster_size` to exercise
+multi-cluster flows while explicitly labelling the placeholder logic for the
+future FISHDBC pipeline.
+Tracking issues #12 and #13 record the work to replace the CPU skeleton and
+GPU shim with the real pipeline once the full FISHDBC implementation lands.
+
+`ClusteringResult` caches the number of unique clusters and exposes
+`try_from_assignments` so callers can surface non-contiguous identifiers
+instead of panicking. The helper returns a `NonContiguousClusterIds` enum to
+differentiate missing zero, gap, and overflow conditions. The walking skeleton
+continues to emit contiguous identifiers, keeping queries lightweight without
+obscuring the temporary assignment strategy.
 
 ```
 
