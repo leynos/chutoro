@@ -1,7 +1,7 @@
 //! Result types for clustering operations.
 //!
-//! Encapsulates cluster assignments produced by [`Chutoro::run`] alongside
-//! validation helpers for caller-supplied identifiers.
+//! Encapsulates cluster assignments from [`Chutoro::run`].
+//! Includes helpers for validating caller-provided identifiers.
 
 use std::collections::HashSet;
 use thiserror::Error;
@@ -162,10 +162,9 @@ impl ClusterId {
     /// let id = ClusterId::new(2);
     /// assert_eq!(id.get(), 2);
     /// ```
+    #[rustfmt::skip]
     #[must_use]
-    pub fn new(id: u64) -> Self {
-        Self(id)
-    }
+    pub fn new(id: u64) -> Self { Self(id) }
 
     /// Returns the underlying numeric identifier.
     ///
@@ -176,8 +175,7 @@ impl ClusterId {
     /// let id = ClusterId::new(7);
     /// assert_eq!(id.get(), 7);
     /// ```
+    #[rustfmt::skip]
     #[must_use]
-    pub fn get(self) -> u64 {
-        self.0
-    }
+    pub fn get(self) -> u64 { self.0 }
 }

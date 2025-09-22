@@ -72,10 +72,9 @@ impl ChutoroBuilder {
     /// assert_eq!(builder.min_cluster_size(), 5);
     /// assert_eq!(builder.execution_strategy(), ExecutionStrategy::Auto);
     /// ```
+    #[rustfmt::skip]
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
+    pub fn new() -> Self { Self::default() }
 
     /// Overrides the minimum cluster size.
     ///
@@ -101,10 +100,9 @@ impl ChutoroBuilder {
     /// let builder = ChutoroBuilder::new().with_min_cluster_size(3);
     /// assert_eq!(builder.min_cluster_size(), 3);
     /// ```
+    #[rustfmt::skip]
     #[must_use]
-    pub fn min_cluster_size(&self) -> usize {
-        self.min_cluster_size
-    }
+    pub fn min_cluster_size(&self) -> usize { self.min_cluster_size }
 
     /// Sets the execution strategy to use when running the algorithm.
     ///
@@ -130,10 +128,9 @@ impl ChutoroBuilder {
     /// let builder = ChutoroBuilder::new().with_execution_strategy(ExecutionStrategy::CpuOnly);
     /// assert_eq!(builder.execution_strategy(), ExecutionStrategy::CpuOnly);
     /// ```
+    #[rustfmt::skip]
     #[must_use]
-    pub fn execution_strategy(&self) -> ExecutionStrategy {
-        self.execution_strategy
-    }
+    pub fn execution_strategy(&self) -> ExecutionStrategy { self.execution_strategy }
 
     /// Validates the configuration and constructs a [`Chutoro`] instance.
     ///
