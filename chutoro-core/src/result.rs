@@ -1,3 +1,8 @@
+//! Result types for clustering operations.
+//!
+//! Encapsulates cluster assignments produced by [`Chutoro::run`] alongside
+//! validation helpers for caller-supplied identifiers.
+
 use std::collections::HashSet;
 use thiserror::Error;
 

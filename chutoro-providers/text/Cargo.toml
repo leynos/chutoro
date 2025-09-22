@@ -4,7 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-chutoro-core = { version = "0.1.0", path = "../../chutoro-core", features = ["skeleton"] }
+[dependencies.chutoro-core]
+version = "0.1.0"
+path = "../../chutoro-core"
+default-features = false
+features = ["skeleton"]
 
 [dev-dependencies]
 rstest = "0.23"

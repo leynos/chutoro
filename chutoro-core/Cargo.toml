@@ -8,6 +8,10 @@ default = []
 skeleton = []
 gpu = []
 
+[package.metadata.docs.rs]
+features = ["skeleton", "gpu"]
+rustdoc-args = ["--cfg", "docsrs"]
+
 [dependencies]
 thiserror = "1.0"
 

@@ -1237,6 +1237,8 @@ until the accelerator lands. The temporary CPU implementation still partitions
 input into contiguous buckets sized by `min_cluster_size` to exercise
 multi-cluster flows while explicitly labelling the placeholder logic for the
 future FISHDBC pipeline.
+Tracking issues #12 and #13 record the work to replace the CPU skeleton and
+GPU shim with the real pipeline once the full FISHDBC implementation lands.
 
 `ClusteringResult` caches the number of unique clusters and exposes
 `try_from_assignments` so callers can surface non-contiguous identifiers

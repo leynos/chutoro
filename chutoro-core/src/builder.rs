@@ -1,6 +1,10 @@
+//! Builder utilities for configuring Chutoro orchestration.
+//!
+//! Exposes the execution strategy selection surface and builder validation used before constructing [`Chutoro`] instances.
+
 use std::num::NonZeroUsize;
 
-use crate::{chutoro::Chutoro, error::ChutoroError};
+use crate::{Result, chutoro::Chutoro, error::ChutoroError};
 
 /// Indicates how [`Chutoro`] selects a compute backend when [`Chutoro::run`] is
 /// invoked.
@@ -140,7 +144,7 @@ impl ChutoroBuilder {
     /// let chutoro = ChutoroBuilder::new().build().expect("configuration is valid");
     /// assert_eq!(chutoro.min_cluster_size().get(), 5);
     /// ```
-    pub fn build(self) -> Result<Chutoro, ChutoroError> {
+    pub fn build(self) -> Result<Chutoro> {
         let min_cluster_size = NonZeroUsize::new(self.min_cluster_size).ok_or(
             ChutoroError::InvalidMinClusterSize {
                 got: self.min_cluster_size,

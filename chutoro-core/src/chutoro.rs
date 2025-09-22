@@ -1,11 +1,19 @@
+//! Core clustering orchestration for the Chutoro library.
+//!
+//! Provides the [`Chutoro`] runtime entry point and helpers for selecting
+//! execution backends and wrapping data-source failures.
+
 use std::{num::NonZeroUsize, sync::Arc};
 
 use crate::{
+    Result,
     builder::ExecutionStrategy,
     datasource::DataSource,
     error::{ChutoroError, DataSourceError},
     result::{ClusterId, ClusteringResult},
 };
+
+type DataSourceResult<T> = core::result::Result<T, DataSourceError>;
 
 /// Entry point for running the clustering pipeline.
 ///
@@ -121,7 +129,7 @@ impl Chutoro {
     /// assert_eq!(result.assignments().len(), 3);
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
-    pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult, ChutoroError> {
+    pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult> {
         let len = source.len();
         if len == 0 {
             return Err(ChutoroError::EmptySource {
@@ -157,12 +165,13 @@ impl Chutoro {
     }
 
     #[cfg(feature = "skeleton")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "skeleton")))]
     fn run_cpu<D: DataSource>(
         &self,
         _source: &D,
         items: usize,
-    ) -> Result<ClusteringResult, DataSourceError> {
-        // FIXME: This is a walking skeleton implementation that partitions items into
+    ) -> DataSourceResult<ClusteringResult> {
+        // FIXME(#12): This is a walking skeleton implementation that partitions items into
         // fixed-size buckets based on min_cluster_size. Replace with HNSW + MST +
         // hierarchy extraction as per the FISHDBC algorithm design.
         let cluster_span = self.min_cluster_size.get();
@@ -173,22 +182,16 @@ impl Chutoro {
     }
 
     #[cfg(all(feature = "gpu", feature = "skeleton"))]
-    fn run_gpu<D: DataSource>(
-        &self,
-        source: &D,
-        items: usize,
-    ) -> Result<ClusteringResult, ChutoroError> {
-        // TODO: Replace with the real GPU backend once implemented. Until then we
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "gpu", feature = "skeleton"))))]
+    fn run_gpu<D: DataSource>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
+        // TODO(#13): Replace with the real GPU backend once implemented. Until then we
         // reuse the CPU walking skeleton to exercise the orchestration path.
         self.wrap_datasource_error(source, self.run_cpu(source, items))
     }
 
     #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
-    fn run_gpu<D: DataSource>(
-        &self,
-        _source: &D,
-        _items: usize,
-    ) -> Result<ClusteringResult, ChutoroError> {
+    #[cfg_attr(docsrs, doc(cfg(all(feature = "gpu", not(feature = "skeleton")))))]
+    fn run_gpu<D: DataSource>(&self, _source: &D, _items: usize) -> Result<ClusteringResult> {
         // We intentionally fail fast when the walking skeleton is disabled so GPU
         // builds do not accidentally ship the placeholder CPU path.
         Err(ChutoroError::BackendUnavailable {
@@ -199,8 +202,8 @@ impl Chutoro {
     fn wrap_datasource_error<D: DataSource>(
         &self,
         source: &D,
-        result: Result<ClusteringResult, DataSourceError>,
-    ) -> Result<ClusteringResult, ChutoroError> {
+        result: DataSourceResult<ClusteringResult>,
+    ) -> Result<ClusteringResult> {
         result.map_err(|error| ChutoroError::DataSource {
             data_source: Arc::from(source.name()),
             error,

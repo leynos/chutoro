@@ -1,3 +1,7 @@
+//! Error types for the Chutoro core library.
+//!
+//! Defines error enums exposed by the public API and a convenient result alias.
+
 use std::{num::NonZeroUsize, sync::Arc};
 
 use thiserror::Error;
@@ -6,7 +10,7 @@ use crate::builder::ExecutionStrategy;
 
 /// An error produced by [`DataSource`] operations.
 #[non_exhaustive]
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum DataSourceError {
     /// Requested index was outside the source's bounds.
     #[error("index {index} is out of bounds")]
@@ -21,7 +25,7 @@ pub enum DataSourceError {
 
 /// Error type produced when constructing or running [`Chutoro`].
 #[non_exhaustive]
-#[derive(Debug, Error)]
+#[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum ChutoroError {
     /// Minimum cluster size must be greater than zero.
     #[error("min_cluster_size must be at least 1 (got {got})")]
@@ -50,3 +54,6 @@ pub enum ChutoroError {
         error: DataSourceError,
     },
 }
+
+/// Convenient alias for results returned by the core API.
+pub type Result<T> = core::result::Result<T, ChutoroError>;

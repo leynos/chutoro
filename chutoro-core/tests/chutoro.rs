@@ -165,22 +165,14 @@ fn cluster_count_matches_unique_assignments(
 }
 
 #[rstest]
-fn try_from_assignments_rejects_missing_zero() {
-    let err = ClusteringResult::try_from_assignments(vec![ClusterId::new(1)])
-        .expect_err("assignments must start at zero");
-    assert_eq!(err, NonContiguousClusterIds::MissingZero);
-}
-
-#[rstest]
-fn try_from_assignments_rejects_gap() {
-    let err = ClusteringResult::try_from_assignments(vec![ClusterId::new(0), ClusterId::new(2)])
-        .expect_err("assignments must be contiguous");
-    assert_eq!(err, NonContiguousClusterIds::Gap);
-}
-
-#[rstest]
-fn try_from_assignments_rejects_overflow() {
-    let err = ClusteringResult::try_from_assignments(vec![ClusterId::new(u64::MAX)])
-        .expect_err("assignments must stay within usize range");
-    assert_eq!(err, NonContiguousClusterIds::Overflow);
+#[case::missing_zero(vec![ClusterId::new(1)], NonContiguousClusterIds::MissingZero, "assignments must start at zero")]
+#[case::gap(vec![ClusterId::new(0), ClusterId::new(2)], NonContiguousClusterIds::Gap, "assignments must be contiguous")]
+#[case::overflow(vec![ClusterId::new(u64::MAX)], NonContiguousClusterIds::Overflow, "assignments must stay within usize range")]
+fn try_from_assignments_validates_contiguity(
+    #[case] assignments: Vec<ClusterId>,
+    #[case] expected_error: NonContiguousClusterIds,
+    #[case] error_message: &str,
+) {
+    let err = ClusteringResult::try_from_assignments(assignments).expect_err(error_message);
+    assert_eq!(err, expected_error);
 }
