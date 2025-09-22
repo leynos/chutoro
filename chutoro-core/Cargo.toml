@@ -16,4 +16,4 @@ rustdoc-args = ["--cfg", "docsrs"]
 thiserror = "1.0"
 
 [dev-dependencies]
-rstest = "0.23"
+rstest = "0.26"
