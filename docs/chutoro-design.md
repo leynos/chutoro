@@ -1227,9 +1227,9 @@ ahead of accelerated support. The struct stores the validated
 `min_cluster_size` and `execution_strategy`, and [`Chutoro::run`] fails fast on
 empty or undersized sources while sharing `Arc<str>` handles for the
 data-source name so repeated errors avoid cloning. The CPU walking skeleton is
-gated behind a `skeleton` feature (enabled by default) so downstream builds can
-strip the placeholder backend; when it is disabled, `Auto` and `CpuOnly`
-strategies surface `BackendUnavailable` to highlight the missing
+gated behind an opt-in `skeleton` feature so downstream builds only compile
+the placeholder when explicitly requested. When it is disabled, `Auto` and
+`CpuOnly` strategies surface `BackendUnavailable` to highlight the missing
 implementation. When the `gpu` feature is disabled the GPU branch returns
 `BackendUnavailable`; enabling it routes through a placeholder `run_gpu` that
 only compiles when the `skeleton` feature is active and reuses the CPU stub
