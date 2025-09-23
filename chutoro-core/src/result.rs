@@ -3,6 +3,7 @@
 //! Provides structures to represent clustering results including cluster
 //! assignments and validation of cluster identifier constraints.
 
+use std::collections::HashSet;
 use thiserror::Error;
 
 /// Represents the output of a [`Chutoro::run`] invocation.
@@ -34,7 +35,7 @@ pub enum NonContiguousClusterIds {
     #[error("cluster identifiers must not repeat identifiers")]
     Duplicate,
     /// The assignments require identifiers beyond the host pointer width.
-    #[error("cluster identifiers overflow the host pointer width")]
+    #[error("cluster identifiers exceed or reach the host pointer-width limit")]
     Overflow,
 }
 
@@ -63,6 +64,8 @@ impl ClusteringResult {
     /// callers to surface meaningful errors instead of panicking when the
     /// invariant is violated.
     ///
+    /// An empty `assignments` vector is accepted and yields `cluster_count == 0`.
+    ///
     /// # Errors
     /// Returns [`NonContiguousClusterIds::MissingZero`] when the assignments omit
     /// cluster `0`, [`NonContiguousClusterIds::Gap`] when identifiers skip values,
@@ -88,65 +91,46 @@ impl ClusteringResult {
             });
         }
 
-        let mut counts = vec![0usize; assignments.len()];
-        let mut saw_zero = false;
-        let mut duplicates = false;
-        let mut out_of_range = false;
-        let mut max_index = 0usize;
-        let mut has_index = false;
+        let mut seen = HashSet::new();
+        let mut max_id = 0u64;
+        let mut has_duplicate = false;
 
         for id in &assignments {
             let value = id.get();
-            if value == 0 {
-                saw_zero = true;
-            }
             if value >= usize::MAX as u64 {
                 return Err(NonContiguousClusterIds::Overflow);
             }
-            let idx = value as usize;
-            if !has_index || idx > max_index {
-                max_index = idx;
-                has_index = true;
+            if !seen.insert(value) {
+                has_duplicate = true;
             }
-            if idx >= counts.len() {
-                out_of_range = true;
-                continue;
-            }
-            if counts[idx] > 0 {
-                duplicates = true;
-            }
-            counts[idx] += 1;
+            max_id = max_id.max(value);
         }
 
-        if !saw_zero {
+        if !seen.contains(&0) {
             return Err(NonContiguousClusterIds::MissingZero);
         }
 
-        if out_of_range || max_index >= counts.len() {
-            return Err(NonContiguousClusterIds::Gap);
+        let expected = max_id
+            .checked_add(1)
+            .ok_or(NonContiguousClusterIds::Overflow)?;
+
+        if expected > usize::MAX as u64 {
+            return Err(NonContiguousClusterIds::Overflow);
         }
 
-        let missing = counts
-            .iter()
-            .take(max_index + 1)
-            .any(|count| *count == 0);
+        let expected = expected as usize;
 
-        if missing {
-            if duplicates {
-                return Err(NonContiguousClusterIds::Duplicate);
-            }
-            return Err(NonContiguousClusterIds::Gap);
+        if seen.len() != expected {
+            return Err(if has_duplicate {
+                NonContiguousClusterIds::Duplicate
+            } else {
+                NonContiguousClusterIds::Gap
+            });
         }
-
-        let cluster_count = counts
-            .into_iter()
-            .take(max_index + 1)
-            .filter(|count| *count > 0)
-            .count();
 
         Ok(Self {
             assignments,
-            cluster_count,
+            cluster_count: seen.len(),
         })
     }
 

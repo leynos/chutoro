@@ -144,8 +144,15 @@ impl Chutoro {
             });
         }
 
-        let cpu_enabled = cfg!(feature = "skeleton");
-        let gpu_enabled = cfg!(feature = "gpu");
+        #[cfg(feature = "skeleton")]
+        let cpu_enabled = true;
+        #[cfg(not(feature = "skeleton"))]
+        let cpu_enabled = false;
+
+        #[cfg(feature = "gpu")]
+        let gpu_enabled = true;
+        #[cfg(not(feature = "gpu"))]
+        let gpu_enabled = false;
 
         match self.execution_strategy {
             ExecutionStrategy::Auto => {
