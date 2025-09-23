@@ -3,7 +3,6 @@
 //! Provides structures to represent clustering results including cluster
 //! assignments and validation of cluster identifier constraints.
 
-use std::collections::HashSet;
 use thiserror::Error;
 
 /// Represents the output of a [`Chutoro::run`] invocation.
@@ -28,9 +27,12 @@ pub enum NonContiguousClusterIds {
     /// The assignments do not include cluster `0`.
     #[error("cluster identifiers must include 0")]
     MissingZero,
-    /// The assignments skip identifiers or contain duplicates that create gaps.
+    /// The assignments skip identifiers.
     #[error("cluster identifiers must be contiguous without gaps")]
     Gap,
+    /// The assignments contain duplicates that mask missing identifiers.
+    #[error("cluster identifiers must not repeat identifiers")]
+    Duplicate,
     /// The assignments require identifiers beyond the host pointer width.
     #[error("cluster identifiers overflow the host pointer width")]
     Overflow,
@@ -64,6 +66,7 @@ impl ClusteringResult {
     /// # Errors
     /// Returns [`NonContiguousClusterIds::MissingZero`] when the assignments omit
     /// cluster `0`, [`NonContiguousClusterIds::Gap`] when identifiers skip values,
+    /// [`NonContiguousClusterIds::Duplicate`] when duplicates hide missing identifiers,
     /// and [`NonContiguousClusterIds::Overflow`] when identifiers exceed the host
     /// pointer width.
     ///
@@ -78,32 +81,68 @@ impl ClusteringResult {
     pub fn try_from_assignments(
         assignments: Vec<ClusterId>,
     ) -> Result<Self, NonContiguousClusterIds> {
-        let mut unique = HashSet::new();
-        let mut max_id: Option<u64> = None;
+        if assignments.is_empty() {
+            return Ok(Self {
+                assignments,
+                cluster_count: 0,
+            });
+        }
+
+        let mut counts = vec![0usize; assignments.len()];
+        let mut saw_zero = false;
+        let mut duplicates = false;
+        let mut out_of_range = false;
+        let mut max_index = 0usize;
+        let mut has_index = false;
 
         for id in &assignments {
             let value = id.get();
-            unique.insert(value);
-            max_id = Some(max_id.map_or(value, |current| current.max(value)));
-        }
-
-        if let Some(max_value) = max_id {
-            let expected_len = max_value
-                .checked_add(1)
-                .ok_or(NonContiguousClusterIds::Overflow)?;
-            if expected_len > usize::MAX as u64 {
+            if value == 0 {
+                saw_zero = true;
+            }
+            if value >= usize::MAX as u64 {
                 return Err(NonContiguousClusterIds::Overflow);
             }
-            let expected_len = expected_len as usize;
-            if !unique.contains(&0) {
-                return Err(NonContiguousClusterIds::MissingZero);
+            let idx = value as usize;
+            if !has_index || idx > max_index {
+                max_index = idx;
+                has_index = true;
             }
-            if unique.len() != expected_len {
-                return Err(NonContiguousClusterIds::Gap);
+            if idx >= counts.len() {
+                out_of_range = true;
+                continue;
             }
+            if counts[idx] > 0 {
+                duplicates = true;
+            }
+            counts[idx] += 1;
         }
 
-        let cluster_count = unique.len();
+        if !saw_zero {
+            return Err(NonContiguousClusterIds::MissingZero);
+        }
+
+        if out_of_range || max_index >= counts.len() {
+            return Err(NonContiguousClusterIds::Gap);
+        }
+
+        let missing = counts
+            .iter()
+            .take(max_index + 1)
+            .any(|count| *count == 0);
+
+        if missing {
+            if duplicates {
+                return Err(NonContiguousClusterIds::Duplicate);
+            }
+            return Err(NonContiguousClusterIds::Gap);
+        }
+
+        let cluster_count = counts
+            .into_iter()
+            .take(max_index + 1)
+            .filter(|count| *count > 0)
+            .count();
 
         Ok(Self {
             assignments,

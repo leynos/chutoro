@@ -1,3 +1,5 @@
+//! Data source abstractions for the Chutoro core runtime.
+
 use crate::error::DataSourceError;
 
 /// Abstraction over a collection of items that can yield pairwise distances.
