@@ -144,56 +144,29 @@ impl Chutoro {
             });
         }
 
-        #[cfg(feature = "skeleton")]
-        let cpu_enabled = true;
-        #[cfg(not(feature = "skeleton"))]
-        let cpu_enabled = false;
-
-        #[cfg(feature = "gpu")]
-        let gpu_enabled = true;
-        #[cfg(not(feature = "gpu"))]
-        let gpu_enabled = false;
-
         match self.execution_strategy {
+            #[cfg(feature = "gpu")]
+            ExecutionStrategy::Auto | ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+            #[cfg(all(feature = "skeleton", not(feature = "gpu")))]
             ExecutionStrategy::Auto => {
-                if gpu_enabled {
-                    #[cfg(feature = "gpu")]
-                    {
-                        return self.run_gpu(source, len);
-                    }
-                }
-                if cpu_enabled {
-                    #[cfg(feature = "skeleton")]
-                    {
-                        return self.run_cpu_wrapped(source, len);
-                    }
-                }
-                Err(ChutoroError::BackendUnavailable {
-                    requested: ExecutionStrategy::Auto,
-                })
+                self.wrap_datasource_error(source, self.run_cpu(source, len))
             }
+            #[cfg(all(not(feature = "skeleton"), not(feature = "gpu")))]
+            ExecutionStrategy::Auto => Err(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::Auto,
+            }),
+            #[cfg(feature = "skeleton")]
             ExecutionStrategy::CpuOnly => {
-                if cpu_enabled {
-                    #[cfg(feature = "skeleton")]
-                    {
-                        return self.run_cpu_wrapped(source, len);
-                    }
-                }
-                Err(ChutoroError::BackendUnavailable {
-                    requested: ExecutionStrategy::CpuOnly,
-                })
+                self.wrap_datasource_error(source, self.run_cpu(source, len))
             }
-            ExecutionStrategy::GpuPreferred => {
-                if gpu_enabled {
-                    #[cfg(feature = "gpu")]
-                    {
-                        return self.run_gpu(source, len);
-                    }
-                }
-                Err(ChutoroError::BackendUnavailable {
-                    requested: ExecutionStrategy::GpuPreferred,
-                })
-            }
+            #[cfg(not(feature = "skeleton"))]
+            ExecutionStrategy::CpuOnly => Err(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::CpuOnly,
+            }),
+            #[cfg(not(feature = "gpu"))]
+            ExecutionStrategy::GpuPreferred => Err(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::GpuPreferred,
+            }),
         }
     }
 
@@ -214,17 +187,12 @@ impl Chutoro {
         Ok(ClusteringResult::from_assignments(assignments))
     }
 
-    #[cfg(feature = "skeleton")]
-    fn run_cpu_wrapped<D: DataSource>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
-        self.wrap_datasource_error(source, self.run_cpu(source, items))
-    }
-
     #[cfg(all(feature = "gpu", feature = "skeleton"))]
     #[cfg_attr(docsrs, doc(cfg(all(feature = "gpu", feature = "skeleton"))))]
     fn run_gpu<D: DataSource>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
         // TODO(#13): Replace with the real GPU backend once implemented. Until then we
         // reuse the CPU walking skeleton to exercise the orchestration path.
-        self.run_cpu_wrapped(source, items)
+        self.wrap_datasource_error(source, self.run_cpu(source, items))
     }
 
     #[cfg(all(feature = "gpu", not(feature = "skeleton")))]

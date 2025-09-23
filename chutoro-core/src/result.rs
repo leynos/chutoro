@@ -6,6 +6,8 @@
 use std::collections::HashSet;
 use thiserror::Error;
 
+const USIZE_MAX_U64: u64 = usize::MAX as u64;
+
 /// Represents the output of a [`Chutoro::run`] invocation.
 ///
 /// # Examples
@@ -91,13 +93,16 @@ impl ClusteringResult {
             });
         }
 
-        let mut seen = HashSet::new();
+        let mut seen = HashSet::with_capacity(assignments.len());
         let mut max_id = 0u64;
         let mut has_duplicate = false;
 
         for id in &assignments {
             let value = id.get();
-            if value >= usize::MAX as u64 {
+            if value == USIZE_MAX_U64 {
+                return Err(NonContiguousClusterIds::Overflow);
+            }
+            if usize::try_from(value).is_err() {
                 return Err(NonContiguousClusterIds::Overflow);
             }
             if !seen.insert(value) {
@@ -114,11 +119,7 @@ impl ClusteringResult {
             .checked_add(1)
             .ok_or(NonContiguousClusterIds::Overflow)?;
 
-        if expected > usize::MAX as u64 {
-            return Err(NonContiguousClusterIds::Overflow);
-        }
-
-        let expected = expected as usize;
+        let expected = usize::try_from(expected).map_err(|_| NonContiguousClusterIds::Overflow)?;
 
         if seen.len() != expected {
             return Err(if has_duplicate {
