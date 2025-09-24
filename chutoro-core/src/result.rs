@@ -8,6 +8,11 @@ use thiserror::Error;
 
 const USIZE_MAX_U64: u64 = usize::MAX as u64;
 
+#[inline]
+fn exceeds_pointer_width(value: u64) -> bool {
+    value == USIZE_MAX_U64 || usize::try_from(value).is_err()
+}
+
 /// Represents the output of a [`Chutoro::run`] invocation.
 ///
 /// # Examples
@@ -34,7 +39,7 @@ pub enum NonContiguousClusterIds {
     #[error("cluster identifiers must be contiguous without gaps")]
     Gap,
     /// The assignments contain duplicates that mask missing identifiers.
-    #[error("cluster identifiers must not repeat identifiers")]
+    #[error("duplicate cluster identifiers are invalid (duplicates can mask gaps)")]
     Duplicate,
     /// The assignments require identifiers beyond the host pointer width.
     #[error("cluster identifiers exceed or reach the host pointer-width limit")]
@@ -99,10 +104,7 @@ impl ClusteringResult {
 
         for id in &assignments {
             let value = id.get();
-            if value == USIZE_MAX_U64 {
-                return Err(NonContiguousClusterIds::Overflow);
-            }
-            if usize::try_from(value).is_err() {
+            if exceeds_pointer_width(value) {
                 return Err(NonContiguousClusterIds::Overflow);
             }
             if !seen.insert(value) {
@@ -119,9 +121,10 @@ impl ClusteringResult {
             .checked_add(1)
             .ok_or(NonContiguousClusterIds::Overflow)?;
 
-        let expected = usize::try_from(expected).map_err(|_| NonContiguousClusterIds::Overflow)?;
+        let expected_usize =
+            usize::try_from(expected).map_err(|_| NonContiguousClusterIds::Overflow)?;
 
-        if seen.len() != expected {
+        if seen.len() != expected_usize {
             return Err(if has_duplicate {
                 NonContiguousClusterIds::Duplicate
             } else {
