@@ -149,13 +149,11 @@ impl Chutoro {
             #[cfg(all(feature = "gpu", feature = "skeleton"))]
             ExecutionStrategy::Auto | ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
 
-            // GPU only (no skeleton): only GpuPreferred calls run_gpu; Auto is unavailable
+            // GPU only (no skeleton): route both strategies to the GPU stub
             #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
             ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
             #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
-            ExecutionStrategy::Auto => Err(ChutoroError::BackendUnavailable {
-                requested: ExecutionStrategy::Auto,
-            }),
+            ExecutionStrategy::Auto => self.run_gpu(source, len),
             #[cfg(all(feature = "skeleton", not(feature = "gpu")))]
             ExecutionStrategy::Auto => {
                 self.wrap_datasource_error(source, self.run_cpu(source, len))
@@ -174,7 +172,7 @@ impl Chutoro {
             }),
             #[cfg(not(feature = "gpu"))]
             ExecutionStrategy::GpuPreferred => Err(ChutoroError::BackendUnavailable {
-                requested: self.execution_strategy,
+                requested: ExecutionStrategy::GpuPreferred,
             }),
         }
     }
