@@ -145,8 +145,17 @@ impl Chutoro {
         }
 
         match self.execution_strategy {
-            #[cfg(feature = "gpu")]
+            // GPU + skeleton: route Auto and GpuPreferred to GPU path
+            #[cfg(all(feature = "gpu", feature = "skeleton"))]
             ExecutionStrategy::Auto | ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+
+            // GPU only (no skeleton): only GpuPreferred calls run_gpu; Auto is unavailable
+            #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
+            ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+            #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
+            ExecutionStrategy::Auto => Err(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::Auto,
+            }),
             #[cfg(all(feature = "skeleton", not(feature = "gpu")))]
             ExecutionStrategy::Auto => {
                 self.wrap_datasource_error(source, self.run_cpu(source, len))
@@ -165,7 +174,7 @@ impl Chutoro {
             }),
             #[cfg(not(feature = "gpu"))]
             ExecutionStrategy::GpuPreferred => Err(ChutoroError::BackendUnavailable {
-                requested: ExecutionStrategy::GpuPreferred,
+                requested: self.execution_strategy,
             }),
         }
     }
@@ -201,7 +210,7 @@ impl Chutoro {
         // We intentionally fail fast when the walking skeleton is disabled so GPU
         // builds do not accidentally ship the placeholder CPU path.
         Err(ChutoroError::BackendUnavailable {
-            requested: ExecutionStrategy::GpuPreferred,
+            requested: self.execution_strategy,
         })
     }
 
