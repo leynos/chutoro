@@ -148,6 +148,14 @@ impl ChutoroBuilder {
             },
         )?;
 
+        if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred)
+            && !cfg!(feature = "gpu")
+        {
+            return Err(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::GpuPreferred,
+            });
+        }
+
         Ok(Chutoro::new(min_cluster_size, self.execution_strategy))
     }
 }

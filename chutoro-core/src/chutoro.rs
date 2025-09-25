@@ -145,18 +145,31 @@ impl Chutoro {
         }
 
         match self.execution_strategy {
+            // GPU + skeleton: route Auto and GpuPreferred to GPU path
+            #[cfg(all(feature = "gpu", feature = "skeleton"))]
+            ExecutionStrategy::Auto | ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+
+            // GPU only (no skeleton): route both strategies to the GPU stub
+            #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
+            ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+            #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
+            ExecutionStrategy::Auto => self.run_gpu(source, len),
+            #[cfg(all(feature = "skeleton", not(feature = "gpu")))]
+            ExecutionStrategy::Auto => {
+                self.wrap_datasource_error(source, self.run_cpu(source, len))
+            }
+            #[cfg(all(not(feature = "skeleton"), not(feature = "gpu")))]
+            ExecutionStrategy::Auto => Err(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::Auto,
+            }),
             #[cfg(feature = "skeleton")]
-            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => {
+            ExecutionStrategy::CpuOnly => {
                 self.wrap_datasource_error(source, self.run_cpu(source, len))
             }
             #[cfg(not(feature = "skeleton"))]
-            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => {
-                Err(ChutoroError::BackendUnavailable {
-                    requested: self.execution_strategy,
-                })
-            }
-            #[cfg(feature = "gpu")]
-            ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+            ExecutionStrategy::CpuOnly => Err(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::CpuOnly,
+            }),
             #[cfg(not(feature = "gpu"))]
             ExecutionStrategy::GpuPreferred => Err(ChutoroError::BackendUnavailable {
                 requested: ExecutionStrategy::GpuPreferred,

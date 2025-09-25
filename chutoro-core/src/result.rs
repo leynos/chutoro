@@ -6,6 +6,13 @@
 use std::collections::HashSet;
 use thiserror::Error;
 
+const USIZE_MAX_U64: u64 = usize::MAX as u64;
+
+#[inline]
+fn exceeds_pointer_width(value: u64) -> bool {
+    value == USIZE_MAX_U64 || usize::try_from(value).is_err()
+}
+
 /// Represents the output of a [`Chutoro::run`] invocation.
 ///
 /// # Examples
@@ -28,11 +35,14 @@ pub enum NonContiguousClusterIds {
     /// The assignments do not include cluster `0`.
     #[error("cluster identifiers must include 0")]
     MissingZero,
-    /// The assignments skip identifiers or contain duplicates that create gaps.
+    /// The assignments skip identifiers.
     #[error("cluster identifiers must be contiguous without gaps")]
     Gap,
+    /// The assignments contain duplicates that mask missing identifiers.
+    #[error("duplicate cluster identifiers are invalid (duplicates can mask gaps)")]
+    Duplicate,
     /// The assignments require identifiers beyond the host pointer width.
-    #[error("cluster identifiers overflow the host pointer width")]
+    #[error("cluster identifiers exceed or reach the host pointer-width limit")]
     Overflow,
 }
 
@@ -61,9 +71,12 @@ impl ClusteringResult {
     /// callers to surface meaningful errors instead of panicking when the
     /// invariant is violated.
     ///
+    /// An empty `assignments` vector is accepted and yields `cluster_count == 0`.
+    ///
     /// # Errors
     /// Returns [`NonContiguousClusterIds::MissingZero`] when the assignments omit
     /// cluster `0`, [`NonContiguousClusterIds::Gap`] when identifiers skip values,
+    /// [`NonContiguousClusterIds::Duplicate`] when duplicates hide missing identifiers,
     /// and [`NonContiguousClusterIds::Overflow`] when identifiers exceed the host
     /// pointer width.
     ///
@@ -78,36 +91,50 @@ impl ClusteringResult {
     pub fn try_from_assignments(
         assignments: Vec<ClusterId>,
     ) -> Result<Self, NonContiguousClusterIds> {
-        let mut unique = HashSet::new();
-        let mut max_id: Option<u64> = None;
+        if assignments.is_empty() {
+            return Ok(Self {
+                assignments,
+                cluster_count: 0,
+            });
+        }
+
+        let mut seen = HashSet::with_capacity(assignments.len());
+        let mut max_id = 0u64;
+        let mut has_duplicate = false;
 
         for id in &assignments {
             let value = id.get();
-            unique.insert(value);
-            max_id = Some(max_id.map_or(value, |current| current.max(value)));
-        }
-
-        if let Some(max_value) = max_id {
-            let expected_len = max_value
-                .checked_add(1)
-                .ok_or(NonContiguousClusterIds::Overflow)?;
-            if expected_len > usize::MAX as u64 {
+            if exceeds_pointer_width(value) {
                 return Err(NonContiguousClusterIds::Overflow);
             }
-            let expected_len = expected_len as usize;
-            if !unique.contains(&0) {
-                return Err(NonContiguousClusterIds::MissingZero);
+            if !seen.insert(value) {
+                has_duplicate = true;
             }
-            if unique.len() != expected_len {
-                return Err(NonContiguousClusterIds::Gap);
-            }
+            max_id = max_id.max(value);
         }
 
-        let cluster_count = unique.len();
+        if !seen.contains(&0) {
+            return Err(NonContiguousClusterIds::MissingZero);
+        }
+
+        let expected = max_id
+            .checked_add(1)
+            .ok_or(NonContiguousClusterIds::Overflow)?;
+
+        let expected_usize =
+            usize::try_from(expected).map_err(|_| NonContiguousClusterIds::Overflow)?;
+
+        if seen.len() != expected_usize {
+            return Err(if has_duplicate {
+                NonContiguousClusterIds::Duplicate
+            } else {
+                NonContiguousClusterIds::Gap
+            });
+        }
 
         Ok(Self {
             assignments,
-            cluster_count,
+            cluster_count: seen.len(),
         })
     }
 
