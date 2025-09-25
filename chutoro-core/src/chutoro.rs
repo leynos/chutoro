@@ -210,7 +210,7 @@ impl Chutoro {
         // We intentionally fail fast when the walking skeleton is disabled so GPU
         // builds do not accidentally ship the placeholder CPU path.
         Err(ChutoroError::BackendUnavailable {
-            requested: self.execution_strategy,
+            requested: ExecutionStrategy::GpuPreferred,
         })
     }
 
