@@ -1,7 +1,7 @@
 use std::{fs::File, path::Path};
 
 use arrow_array::{Array, FixedSizeListArray, Float32Array, RecordBatchReader};
-use arrow_schema::DataType;
+use arrow_schema::{DataType, Field};
 use chutoro_core::{DataSource, DataSourceError};
 use parquet::arrow::{ProjectionMask, arrow_reader::ParquetRecordBatchReaderBuilder};
 use parquet::file::reader::ChunkReader;
@@ -50,9 +50,8 @@ impl DenseMatrixProvider {
         name: impl Into<String>,
         array: &FixedSizeListArray,
     ) -> Result<Self, DenseMatrixProviderError> {
-        let dimension = validate_fixed_size_list(array)?;
-        let mut values = Vec::with_capacity(array.len() * dimension);
-        copy_list_values(array, dimension, 0, &mut values)?;
+        let mut values = Vec::new();
+        let dimension = append_fixed_size_list_values(array, None, 0, &mut values)?;
         Ok(Self::from_parts(name, array.len(), dimension, values))
     }
 
@@ -86,24 +85,7 @@ impl DenseMatrixProvider {
                     column: column.to_owned(),
                 })?;
         let field = schema.field(column_index);
-        let width = match field.data_type() {
-            DataType::FixedSizeList(child, width) => {
-                if child.data_type() != &DataType::Float32 {
-                    return Err(DenseMatrixProviderError::InvalidListValueType {
-                        actual: child.data_type().clone(),
-                    });
-                }
-                *width
-            }
-            other => {
-                return Err(DenseMatrixProviderError::InvalidColumnType {
-                    column: column.to_owned(),
-                    actual: other.clone(),
-                });
-            }
-        };
-        let dimension = usize::try_from(width)
-            .map_err(|_| DenseMatrixProviderError::InvalidDimension { actual: width })?;
+        let dimension = validate_fixed_size_list_field(field, column)?;
         let mut values = Vec::new();
         let mut rows = 0_usize;
         for batch in reader {
@@ -116,18 +98,7 @@ impl DenseMatrixProvider {
                     column: column.to_owned(),
                     actual: column_array.data_type().clone(),
                 })?;
-            let list_width = usize::try_from(list.value_length()).map_err(|_| {
-                DenseMatrixProviderError::InvalidDimension {
-                    actual: list.value_length(),
-                }
-            })?;
-            if list_width != dimension {
-                return Err(DenseMatrixProviderError::InconsistentBatchDimension {
-                    expected: dimension,
-                    actual: list_width,
-                });
-            }
-            copy_list_values(list, dimension, rows, &mut values)?;
+            append_fixed_size_list_values(list, Some(dimension), rows, &mut values)?;
             rows += list.len();
         }
         Ok(Self::from_parts(name, rows, dimension, values))
@@ -163,6 +134,44 @@ impl DataSource for DenseMatrixProvider {
         }
         Ok(sum.sqrt())
     }
+}
+
+fn validate_fixed_size_list_field(
+    field: &Field,
+    column: &str,
+) -> Result<usize, DenseMatrixProviderError> {
+    match field.data_type() {
+        DataType::FixedSizeList(child, width) => {
+            if child.data_type() != &DataType::Float32 {
+                return Err(DenseMatrixProviderError::InvalidListValueType {
+                    actual: child.data_type().clone(),
+                });
+            }
+            usize::try_from(*width)
+                .map_err(|_| DenseMatrixProviderError::InvalidDimension { actual: *width })
+        }
+        other => Err(DenseMatrixProviderError::InvalidColumnType {
+            column: column.to_owned(),
+            actual: other.clone(),
+        }),
+    }
+}
+
+fn append_fixed_size_list_values(
+    array: &FixedSizeListArray,
+    expected_dimension: Option<usize>,
+    start_row: usize,
+    out: &mut Vec<f32>,
+) -> Result<usize, DenseMatrixProviderError> {
+    let dimension = validate_fixed_size_list(array)?;
+    if let Some(expected) = expected_dimension.filter(|&expected| expected != dimension) {
+        return Err(DenseMatrixProviderError::InconsistentBatchDimension {
+            expected,
+            actual: dimension,
+        });
+    }
+    _ = copy_list_values(array, dimension, start_row, out)?;
+    Ok(dimension)
 }
 
 fn validate_fixed_size_list(array: &FixedSizeListArray) -> Result<usize, DenseMatrixProviderError> {
