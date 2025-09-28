@@ -170,7 +170,7 @@ fn append_fixed_size_list_values(
             actual: dimension,
         });
     }
-    _ = copy_list_values(array, dimension, start_row, out)?;
+    copy_list_values(array, dimension, start_row, out)?;
     Ok(dimension)
 }
 
@@ -189,7 +189,7 @@ fn copy_list_values(
     dimension: usize,
     start_row: usize,
     out: &mut Vec<f32>,
-) -> Result<usize, DenseMatrixProviderError> {
+) -> Result<(), DenseMatrixProviderError> {
     let rows = array.len();
     let additional = rows
         .checked_mul(dimension)
@@ -227,5 +227,5 @@ fn copy_list_values(
         let end = start + dimension;
         out.extend_from_slice(&values[start..end]);
     }
-    Ok(rows)
+    Ok(())
 }
