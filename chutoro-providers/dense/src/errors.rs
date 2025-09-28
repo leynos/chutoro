@@ -21,6 +21,8 @@ pub enum DenseMatrixProviderError {
         expected: usize,
         actual: usize,
     },
+    #[error("matrix with {rows} rows and dimension {dimension} exceeds capacity limits")]
+    CapacityOverflow { rows: usize, dimension: usize },
     #[error("inconsistent dimensions across batches: expected {expected}, got {actual}")]
     InconsistentBatchDimension { expected: usize, actual: usize },
     #[error("arrow error: {0}")]

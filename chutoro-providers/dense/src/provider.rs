@@ -190,8 +190,12 @@ fn copy_list_values(
     start_row: usize,
     out: &mut Vec<f32>,
 ) -> Result<usize, DenseMatrixProviderError> {
-    out.reserve(array.len() * dimension);
-    for row_index in 0..array.len() {
+    let rows = array.len();
+    let additional = rows
+        .checked_mul(dimension)
+        .ok_or(DenseMatrixProviderError::CapacityOverflow { rows, dimension })?;
+    out.reserve(additional);
+    for row_index in 0..rows {
         let absolute_row = start_row + row_index;
         if array.is_null(row_index) {
             return Err(DenseMatrixProviderError::NullRow { row: absolute_row });
@@ -218,9 +222,10 @@ fn copy_list_values(
                 value_index,
             });
         }
-        for idx in 0..dimension {
-            out.push(floats.value(idx));
-        }
+        let values = floats.values().as_ref();
+        let start = floats.offset();
+        let end = start + dimension;
+        out.extend_from_slice(&values[start..end]);
     }
-    Ok(array.len())
+    Ok(rows)
 }
