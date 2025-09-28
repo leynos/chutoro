@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+arrow-array = "56.2.0"
+arrow-schema = "56.2.0"
+parquet = { version = "56.2.0", features = ["arrow"] }
+thiserror = "1.0"
 [dependencies.chutoro-core]
 version = "0.1.0"
 path = "../../chutoro-core"
@@ -11,4 +15,5 @@ default-features = false
 features = ["skeleton"]
 
 [dev-dependencies]
+bytes = "1.10"
 rstest = "0.23"
