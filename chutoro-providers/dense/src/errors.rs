@@ -1,3 +1,4 @@
+//! Errors emitted by dense matrix ingestion flows.
 use arrow_schema::{ArrowError, DataType};
 use thiserror::Error;
 

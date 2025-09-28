@@ -1,3 +1,4 @@
+//! Tests covering dense matrix ingestion from Arrow and Parquet sources.
 use super::{DenseMatrixProvider, DenseMatrixProviderError, DenseSource};
 use arrow_array::builder::{FixedSizeListBuilder, Float32Builder};
 use arrow_array::{ArrayRef, FixedSizeListArray, RecordBatch};

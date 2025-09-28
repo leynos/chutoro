@@ -1,3 +1,4 @@
+//! Dense matrix provider implementation and ingestion utilities.
 use std::{fs::File, path::Path};
 
 use arrow_array::{Array, FixedSizeListArray, Float32Array, RecordBatchReader};

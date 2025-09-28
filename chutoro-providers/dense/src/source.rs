@@ -1,3 +1,4 @@
+//! Dense matrix data source implementations shared across ingestion paths.
 use chutoro_core::{DataSource, DataSourceError};
 
 /// In-memory dense vector data source.
