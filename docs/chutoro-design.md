@@ -631,7 +631,7 @@ double-free if probed repeatedly.
 #### 5.4. Walking skeleton dense ingestion
 
 The initial CPU-only skeleton now materializes Arrow and Parquet feature
-columns through `DenseMatrixProvider`. The provider normalises
+columns through `DenseMatrixProvider`. The provider normalizes
 `FixedSizeList<Float32, D>` columns into a contiguous row-major `Vec<f32>` so
 the rest of the pipeline can reason about cache-friendly slices instead of
 nested Arrow arrays. Rows containing null lists or null scalar values are

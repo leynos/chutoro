@@ -1,7 +1,7 @@
 //! Tests covering dense matrix ingestion from Arrow and Parquet sources.
 use super::{DenseMatrixProvider, DenseMatrixProviderError, DenseSource};
 use arrow_array::builder::{FixedSizeListBuilder, Float32Builder};
-use arrow_array::{ArrayRef, FixedSizeListArray, RecordBatch};
+use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
 use bytes::Bytes;
 use chutoro_core::DataSource;
@@ -51,14 +51,13 @@ fn distance_ok() {
 }
 
 fn build_array(rows: &[[f32; 3]]) -> FixedSizeListArray {
-    let mut builder = FixedSizeListBuilder::new(Float32Builder::new(), 3);
-    for row in rows {
-        for value in row {
-            builder.values().append_value(*value);
-        }
-        builder.append(true);
-    }
-    builder.finish()
+    let values = Float32Array::from_iter_values(rows.iter().flatten().copied());
+    FixedSizeListArray::new(
+        Arc::new(Field::new("item", DataType::Float32, false)),
+        3,
+        Arc::new(values) as ArrayRef,
+        None,
+    )
 }
 
 #[rstest]
@@ -125,7 +124,7 @@ fn matrix_provider_rejects_non_float_children() {
 fn write_parquet(array: FixedSizeListArray) -> Bytes {
     let field = Field::new(
         "features",
-        DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, true)), 3),
+        DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, false)), 3),
         false,
     );
     let schema = Arc::new(Schema::new(vec![field]));

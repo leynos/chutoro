@@ -26,6 +26,7 @@ impl DenseMatrixProvider {
         dimension: usize,
         values: Vec<f32>,
     ) -> Self {
+        debug_assert_eq!(values.len(), rows.saturating_mul(dimension));
         Self {
             name: name.into(),
             rows,
@@ -109,8 +110,12 @@ impl DenseMatrixProvider {
         if index >= self.rows {
             return Err(DataSourceError::OutOfBounds { index });
         }
-        let start = index * self.dimension;
-        let end = start + self.dimension;
+        let start = index
+            .checked_mul(self.dimension)
+            .ok_or(DataSourceError::OutOfBounds { index })?;
+        let end = start
+            .checked_add(self.dimension)
+            .ok_or(DataSourceError::OutOfBounds { index })?;
         Ok(&self.values[start..end])
     }
 }
@@ -143,6 +148,12 @@ fn validate_fixed_size_list_field(
 ) -> Result<usize, DenseMatrixProviderError> {
     match field.data_type() {
         DataType::FixedSizeList(child, width) => {
+            if field.is_nullable() || child.is_nullable() {
+                return Err(DenseMatrixProviderError::InvalidColumnType {
+                    column: column.to_owned(),
+                    actual: field.data_type().clone(),
+                });
+            }
             if child.data_type() != &DataType::Float32 {
                 return Err(DenseMatrixProviderError::InvalidListValueType {
                     actual: child.data_type().clone(),
@@ -217,7 +228,7 @@ fn copy_list_values(
         if floats.null_count() > 0 {
             let value_index = (0..dimension)
                 .find(|&idx| floats.is_null(idx))
-                .unwrap_or_default();
+                .expect("null_count > 0 but no null index found");
             return Err(DenseMatrixProviderError::NullValue {
                 row: absolute_row,
                 value_index,
