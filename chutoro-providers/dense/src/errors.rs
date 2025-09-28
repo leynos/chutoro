@@ -8,6 +8,13 @@ pub enum DenseMatrixProviderError {
     ColumnNotFound { column: String },
     #[error("column `{column}` must be a FixedSizeList<Float32, _> but found {actual:?}")]
     InvalidColumnType { column: String, actual: DataType },
+    #[error(
+        "column `{column}` or its child field must not be nullable (nullable_child: {nullable_child})"
+    )]
+    NullableField {
+        column: String,
+        nullable_child: bool,
+    },
     #[error("FixedSizeList child type must be Float32 but found {actual:?}")]
     InvalidListValueType { actual: DataType },
     #[error("invalid FixedSizeList dimension {actual}")]

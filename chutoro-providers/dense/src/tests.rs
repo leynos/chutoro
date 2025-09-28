@@ -1,5 +1,7 @@
 //! Tests covering dense matrix ingestion from Arrow and Parquet sources.
 use super::{DenseMatrixProvider, DenseMatrixProviderError, DenseSource};
+use crate::provider::try_from_record_batches;
+
 use arrow_array::builder::{FixedSizeListBuilder, Float32Builder};
 use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
@@ -7,6 +9,7 @@ use bytes::Bytes;
 use chutoro_core::DataSource;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use rstest::rstest;
+use std::convert::TryFrom;
 use std::sync::Arc;
 
 #[rstest]
@@ -51,12 +54,37 @@ fn distance_ok() {
 }
 
 fn build_array(rows: &[[f32; 3]]) -> FixedSizeListArray {
+    let rows = rows.iter().map(|row| row.to_vec()).collect::<Vec<_>>();
+    build_list_array(&rows, 3, false)
+}
+
+fn build_list_array(
+    rows: &[Vec<f32>],
+    dimension: usize,
+    child_nullable: bool,
+) -> FixedSizeListArray {
+    assert!(rows.iter().all(|row| row.len() == dimension));
     let values = Float32Array::from_iter_values(rows.iter().flatten().copied());
     FixedSizeListArray::new(
-        Arc::new(Field::new("item", DataType::Float32, false)),
-        3,
+        Arc::new(Field::new("item", DataType::Float32, child_nullable)),
+        i32::try_from(dimension).expect("dimension fits in i32"),
         Arc::new(values) as ArrayRef,
         None,
+    )
+}
+
+fn feature_field(
+    dimension: usize,
+    child_nullable: bool,
+    list_nullable: bool,
+) -> Field {
+    Field::new(
+        "features",
+        DataType::FixedSizeList(
+            Arc::new(Field::new("item", DataType::Float32, child_nullable)),
+            i32::try_from(dimension).expect("dimension fits in i32"),
+        ),
+        list_nullable,
     )
 }
 
@@ -70,6 +98,21 @@ fn matrix_provider_from_fixed_size_list() {
     assert_eq!(provider.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
     let distance = provider.distance(0, 1).expect("distance should work");
     assert!((distance - (27.0_f32).sqrt()).abs() < 1e-6);
+}
+
+#[rstest]
+fn matrix_provider_distance_batch() {
+    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let provider =
+        DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
+    let pairs = vec![(0, 1), (1, 0)];
+    let mut out = vec![0.0; pairs.len()];
+    provider
+        .distance_batch(&pairs, &mut out)
+        .expect("batch distances should work");
+    for value in out {
+        assert!((value - (27.0_f32).sqrt()).abs() < 1e-6);
+    }
 }
 
 #[rstest]
@@ -122,12 +165,12 @@ fn matrix_provider_rejects_non_float_children() {
 }
 
 fn write_parquet(array: FixedSizeListArray) -> Bytes {
-    let field = Field::new(
-        "features",
-        DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, false)), 3),
-        false,
-    );
-    let schema = Arc::new(Schema::new(vec![field]));
+    let field = feature_field(3, false, false);
+    write_parquet_with_field(field, array)
+}
+
+fn write_parquet_with_field(field: Field, array: FixedSizeListArray) -> Bytes {
+    let schema = Arc::new(Schema::new(vec![field.clone()]));
     let batch =
         RecordBatch::try_new(schema.clone(), vec![Arc::new(array) as ArrayRef]).expect("batch");
     let mut buffer = Vec::new();
@@ -183,5 +226,60 @@ fn matrix_provider_parquet_wrong_type() {
     assert!(matches!(
         err,
         DenseMatrixProviderError::InvalidColumnType { .. }
+    ));
+}
+
+#[rstest]
+fn matrix_provider_parquet_inconsistent_dimension() {
+    let batch_one = {
+        let rows = vec![vec![1.0, 2.0, 3.0]];
+        let array = build_list_array(&rows, 3, false);
+        let field = feature_field(3, false, false);
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![field])),
+            vec![Arc::new(array) as ArrayRef],
+        )
+        .expect("batch one")
+    };
+    let batch_two = {
+        let rows = vec![vec![4.0, 5.0]];
+        let array = build_list_array(&rows, 2, false);
+        let field = feature_field(2, false, false);
+        RecordBatch::try_new(
+            Arc::new(Schema::new(vec![field])),
+            vec![Arc::new(array) as ArrayRef],
+        )
+        .expect("batch two")
+    };
+    let err = try_from_record_batches("demo", "features", vec![batch_one, batch_two])
+        .expect_err("dimension mismatch must fail");
+    assert!(matches!(
+        err,
+        DenseMatrixProviderError::InconsistentBatchDimension {
+            expected: 3,
+            actual: 2
+        }
+    ));
+}
+
+#[rstest]
+#[case(true, false)]
+#[case(false, true)]
+fn matrix_provider_parquet_nullable_schema(
+    #[case] list_nullable: bool,
+    #[case] child_nullable: bool,
+) {
+    let rows = vec![vec![1.0, 2.0, 3.0]];
+    let array = build_list_array(&rows, 3, child_nullable);
+    let field = feature_field(3, child_nullable, list_nullable);
+    let bytes = write_parquet_with_field(field, array);
+    let err = DenseMatrixProvider::try_from_parquet_reader("demo", bytes, "features")
+        .expect_err("nullable schema must be rejected");
+    assert!(matches!(
+        err,
+        DenseMatrixProviderError::NullableField {
+            column,
+            nullable_child
+        } if column == "features" && nullable_child == child_nullable
     ));
 }

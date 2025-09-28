@@ -2,6 +2,9 @@
 use std::{fs::File, path::Path};
 
 use arrow_array::{Array, FixedSizeListArray, Float32Array, RecordBatchReader};
+#[cfg(test)]
+use arrow_array::RecordBatch;
+
 use arrow_schema::{DataType, Field};
 use chutoro_core::{DataSource, DataSourceError};
 use parquet::arrow::{ProjectionMask, arrow_reader::ParquetRecordBatchReaderBuilder};
@@ -116,6 +119,9 @@ impl DenseMatrixProvider {
         let end = start
             .checked_add(self.dimension)
             .ok_or(DataSourceError::OutOfBounds { index })?;
+        if end > self.values.len() {
+            return Err(DataSourceError::OutOfBounds { index });
+        }
         Ok(&self.values[start..end])
     }
 }
@@ -140,6 +146,80 @@ impl DataSource for DenseMatrixProvider {
         }
         Ok(sum.sqrt())
     }
+
+    #[expect(clippy::float_arithmetic, reason = "vector arithmetic")]
+    fn distance_batch(
+        &self,
+        pairs: &[(usize, usize)],
+        out: &mut [f32],
+    ) -> Result<(), DataSourceError> {
+        if pairs.len() != out.len() {
+            return Err(DataSourceError::OutputLengthMismatch {
+                out: out.len(),
+                expected: pairs.len(),
+            });
+        }
+        let dimension = self.dimension;
+        for (idx, &(left, right)) in pairs.iter().enumerate() {
+            let a = self.row_slice(left)?;
+            let b = self.row_slice(right)?;
+            let mut sum = 0.0_f32;
+            for value_index in 0..dimension {
+                let diff = a[value_index] - b[value_index];
+                sum += diff * diff;
+            }
+            out[idx] = sum.sqrt();
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn try_from_record_batches(
+    name: impl Into<String>,
+    column: &str,
+    batches: Vec<RecordBatch>,
+) -> Result<DenseMatrixProvider, DenseMatrixProviderError> {
+    let mut values = Vec::new();
+    let mut rows = 0_usize;
+    let mut dimension: Option<usize> = None;
+
+    for batch in batches {
+        let schema = batch.schema();
+        let index =
+            schema
+                .index_of(column)
+                .map_err(|_| DenseMatrixProviderError::ColumnNotFound {
+                    column: column.to_owned(),
+                })?;
+        let field = schema.field(index);
+        let width = validate_fixed_size_list_field(field, column)?;
+        if let Some(expected) = dimension {
+            if expected != width {
+                return Err(DenseMatrixProviderError::InconsistentBatchDimension {
+                    expected,
+                    actual: width,
+                });
+            }
+        } else {
+            dimension = Some(width);
+        }
+        let column_array = batch.column(index);
+        let list = column_array
+            .as_any()
+            .downcast_ref::<FixedSizeListArray>()
+            .ok_or_else(|| DenseMatrixProviderError::InvalidColumnType {
+                column: column.to_owned(),
+                actual: column_array.data_type().clone(),
+            })?;
+        append_fixed_size_list_values(list, dimension, rows, &mut values)?;
+        rows += list.len();
+    }
+
+    let dimension = dimension.unwrap_or(0);
+    Ok(DenseMatrixProvider::from_parts(
+        name, rows, dimension, values,
+    ))
 }
 
 fn validate_fixed_size_list_field(
@@ -149,9 +229,9 @@ fn validate_fixed_size_list_field(
     match field.data_type() {
         DataType::FixedSizeList(child, width) => {
             if field.is_nullable() || child.is_nullable() {
-                return Err(DenseMatrixProviderError::InvalidColumnType {
+                return Err(DenseMatrixProviderError::NullableField {
                     column: column.to_owned(),
-                    actual: field.data_type().clone(),
+                    nullable_child: child.is_nullable(),
                 });
             }
             if child.data_type() != &DataType::Float32 {
