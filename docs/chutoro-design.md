@@ -628,6 +628,17 @@ double-free if probed repeatedly.
    `HAS_DISTANCE_BATCH` is absent, the wrapper routes calls to the scalar
    `distance`. If `HAS_DEVICE_VIEW` is missing, host-managed buffers are used.
 
+#### 5.4. Walking skeleton dense ingestion
+
+The initial CPU-only skeleton now materializes Arrow and Parquet feature
+columns through `DenseMatrixProvider`. The provider normalizes
+`FixedSizeList<Float32, D>` columns into a contiguous row-major `Vec<f32>` so
+the rest of the pipeline can reason about cache-friendly slices instead of
+nested Arrow arrays. Rows containing null lists or null scalar values are
+rejected with structured errors to keep distance computations deterministic.
+The Parquet path pushes a projection mask so only the requested feature column
+is scanned, helping future backends reuse the same ingestion contract.
+
 ### 6. Core Clustering Engine: A Multi-threaded CPU Implementation
 
 The default execution path for the clustering engine will be a

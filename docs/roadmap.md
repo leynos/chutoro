@@ -14,7 +14,7 @@ ______________________________________________________________________
   §10.2)
 - [x] Implement `ChutoroBuilder` and `Chutoro::run<D: DataSource>`
   orchestration API. (See §10.1)
-- [ ] Implement `DenseMatrixProvider` that packs Parquet/Arrow
+- [x] Implement `DenseMatrixProvider` that packs Parquet/Arrow
   `FixedSizeList<Float32,D>` into a contiguous row‑major `Vec<f32>`; reject
   ragged/null rows. (See §5, §10.4)
 - [ ] Implement `TextProvider` (one UTF‑8 string per line) to exercise
