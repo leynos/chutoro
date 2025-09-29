@@ -2,7 +2,8 @@
 use arrow_schema::{ArrowError, DataType};
 use thiserror::Error;
 
-/// Error conditions produced when dense feature ingestion fails validation.
+/// Variants cover the errors encountered when materializing dense matrices
+/// from Arrow or Parquet sources so the public ingestion API remains documented.
 #[derive(Debug, Error)]
 pub enum DenseMatrixProviderError {
     #[error("column `{column}` not found in Parquet schema")]
