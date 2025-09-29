@@ -1,9 +1,9 @@
 use super::{DenseMatrixProvider, DenseMatrixProviderError, support::*};
 use crate::ingest::{copy_list_values, validate_fixed_size_list_field};
-use chutoro_core::DataSource;
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Field, Schema};
 use bytes::Bytes;
+use chutoro_core::DataSource;
 use rstest::rstest;
 use std::sync::Arc;
 
@@ -13,6 +13,19 @@ fn matrix_provider_from_parquet() {
     let bytes = write_parquet(array);
     let provider = DenseMatrixProvider::try_from_parquet_reader("demo", bytes, "features")
         .expect("parquet load");
+    assert_eq!(provider.len(), 2);
+    assert_eq!(provider.dimension(), 3);
+    assert_eq!(provider.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+}
+
+#[rstest]
+fn matrix_provider_from_parquet_multiple_batches() {
+    let first = build_array(&[[1.0, 2.0, 3.0]]);
+    let second = build_array(&[[4.0, 5.0, 6.0]]);
+    let field = feature_field(3, false, false);
+    let bytes = write_parquet_two_batches(first, second, field);
+    let provider = DenseMatrixProvider::try_from_parquet_reader("demo", bytes, "features")
+        .expect("parquet load across batches");
     assert_eq!(provider.len(), 2);
     assert_eq!(provider.dimension(), 3);
     assert_eq!(provider.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
@@ -120,6 +133,36 @@ fn validate_field_rejects_negative_dimension() {
     assert!(matches!(
         err,
         DenseMatrixProviderError::InvalidDimension { actual } if actual == -1
+    ));
+}
+
+#[test]
+fn copy_list_values_rejects_null_row() {
+    let rows = vec![None, Some(vec![1.0, 2.0, 3.0])];
+    let array = build_list_array_with_row_nulls(&rows, 3);
+    let mut values = Vec::new();
+    let err = copy_list_values(&array, 3, 0, &mut values).expect_err("null row must be rejected");
+    assert!(matches!(
+        err,
+        DenseMatrixProviderError::NullRow { row } if row == 0
+    ));
+}
+
+#[test]
+fn copy_list_values_rejects_null_value() {
+    let rows = vec![
+        vec![Some(1.0), Some(2.0), Some(3.0)],
+        vec![Some(4.0), None, Some(6.0)],
+    ];
+    let array = build_list_array_with_value_nulls(&rows, 3);
+    let mut values = Vec::new();
+    let err = copy_list_values(&array, 3, 0, &mut values).expect_err("null value must be rejected");
+    assert!(matches!(
+        err,
+        DenseMatrixProviderError::NullValue {
+            row: 1,
+            value_index: 1
+        }
     ));
 }
 

@@ -16,7 +16,7 @@ fn try_new_rejects_mismatched_rows() {
     let err = DenseSource::try_new("d", vec![vec![0.0], vec![1.0, 2.0]]);
     assert!(matches!(
         err,
-        Err(DataSourceError::DimensionMismatch { .. })
+        Err(DataSourceError::DimensionMismatch { left, right }) if left == 1 && right == 2
     ));
 }
 
@@ -64,6 +64,20 @@ fn distance_batch_empty_pairs() {
     ds.distance_batch(&pairs, &mut prefilled)
         .expect("empty batches must leave cleared buffers untouched");
     assert!(prefilled.is_empty());
+}
+
+#[rstest]
+fn distance_batch_ok() {
+    let ds = DenseSource::try_new("d", vec![vec![0.0, 0.0], vec![3.0, 4.0]])
+        .expect("valid uniform rows");
+    let pairs = vec![(0, 1), (1, 0)];
+    let mut out = vec![42.0, 99.0];
+    ds.distance_batch(&pairs, &mut out)
+        .expect("batch must succeed");
+    assert!(
+        (out[0] - 5.0).abs() < 1e-6 && (out[1] - 5.0).abs() < 1e-6,
+        "batch must overwrite output in pair order"
+    );
 }
 
 #[rstest]

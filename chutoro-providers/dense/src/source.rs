@@ -64,6 +64,9 @@ impl DenseSource {
             return Err(DataSourceError::ZeroDimension);
         }
         for row in rows {
+            if row.is_empty() {
+                return Err(DataSourceError::ZeroDimension);
+            }
             if row.len() != dim {
                 return Err(DataSourceError::DimensionMismatch {
                     left: dim,

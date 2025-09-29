@@ -1,5 +1,4 @@
 use super::{DenseMatrixProvider, DenseMatrixProviderError, support::*};
-use arrow_array::builder::{FixedSizeListBuilder, Float32Builder};
 use arrow_array::{ArrayRef, FixedSizeListArray};
 use arrow_schema::{DataType, Field};
 use chutoro_core::DataSource;
@@ -81,14 +80,8 @@ fn matrix_provider_distance_batch_empty() {
 
 #[rstest]
 fn matrix_provider_rejects_null_rows() {
-    let mut builder = FixedSizeListBuilder::new(Float32Builder::new(), 2);
-    builder.values().append_value(1.0);
-    builder.values().append_value(2.0);
-    builder.append(true);
-    builder.values().append_null();
-    builder.values().append_null();
-    builder.append(false);
-    let array = builder.finish();
+    let rows = vec![Some(vec![1.0, 2.0]), None];
+    let array = build_list_array_with_row_nulls(&rows, 2);
     let err = DenseMatrixProvider::try_from_fixed_size_list("demo", &array)
         .expect_err("null rows must be rejected");
     assert!(matches!(err, DenseMatrixProviderError::NullRow { row: 1 }));
@@ -96,14 +89,8 @@ fn matrix_provider_rejects_null_rows() {
 
 #[rstest]
 fn matrix_provider_rejects_null_values() {
-    let mut builder = FixedSizeListBuilder::new(Float32Builder::new(), 2);
-    builder.values().append_value(1.0);
-    builder.values().append_value(2.0);
-    builder.append(true);
-    builder.values().append_value(3.0);
-    builder.values().append_null();
-    builder.append(true);
-    let array = builder.finish();
+    let rows = vec![vec![Some(1.0), Some(2.0)], vec![Some(3.0), None]];
+    let array = build_list_array_with_value_nulls(&rows, 2);
     let err = DenseMatrixProvider::try_from_fixed_size_list("demo", &array)
         .expect_err("null values must be rejected");
     assert!(matches!(
