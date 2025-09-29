@@ -21,6 +21,9 @@ pub enum DataSourceError {
     /// Compared vectors had different dimensions.
     #[error("dimension mismatch: left={left}, right={right}")]
     DimensionMismatch { left: usize, right: usize },
+    /// Data source contained no rows.
+    #[error("data source contains no rows")]
+    EmptyData,
 }
 
 /// Error type produced when constructing or running [`Chutoro`].

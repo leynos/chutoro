@@ -1,16 +1,20 @@
 //! Tests covering dense matrix ingestion from Arrow and Parquet sources.
 use super::{DenseMatrixProvider, DenseMatrixProviderError, DenseSource};
-use crate::ingest::{append_fixed_size_list_values, validate_fixed_size_list_field};
+use crate::ingest::{
+    append_fixed_size_list_values, copy_list_values, validate_fixed_size_list_field,
+};
 use arrow_array::Array;
 
 use arrow_array::builder::{FixedSizeListBuilder, Float32Builder};
 use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array, RecordBatch};
-use arrow_schema::{DataType, Field, Schema};
+use arrow_schema::{ArrowError, DataType, Field, Schema};
 use bytes::Bytes;
 use chutoro_core::DataSource;
 use parquet::arrow::arrow_writer::ArrowWriter;
+use parquet::errors::ParquetError;
 use rstest::rstest;
 use std::convert::TryFrom;
+use std::io;
 use std::sync::Arc;
 
 #[rstest]
@@ -35,6 +39,12 @@ fn try_new_rejects_mismatched_rows() {
 }
 
 #[rstest]
+fn try_new_rejects_empty_data() {
+    let err = DenseSource::try_new("d", Vec::new());
+    assert!(matches!(err, Err(chutoro_core::DataSourceError::EmptyData)));
+}
+
+#[rstest]
 fn distance_out_of_bounds() {
     let ds = DenseSource::try_new("d", vec![vec![0.0], vec![1.0]]).expect("rows must match");
     let err = ds
@@ -52,6 +62,16 @@ fn distance_ok() {
         .expect("valid uniform rows");
     let d = ds.distance(0, 1).expect("distance must succeed");
     assert!((d - 5.0).abs() < 1e-6);
+}
+
+#[rstest]
+fn distance_batch_empty_pairs() {
+    let ds = DenseSource::try_new("d", vec![vec![0.0, 0.0]]).expect("single row should be valid");
+    let pairs: Vec<(usize, usize)> = Vec::new();
+    let mut out = Vec::new();
+    ds.distance_batch(&pairs, &mut out)
+        .expect("empty batches must be allowed");
+    assert!(out.is_empty());
 }
 
 fn build_array(rows: &[[f32; 3]]) -> FixedSizeListArray {
@@ -157,6 +177,52 @@ fn matrix_provider_distance_batch() {
     for value in out {
         assert!((value - (27.0_f32).sqrt()).abs() < 1e-6);
     }
+}
+
+#[rstest]
+fn matrix_provider_distance_out_of_bounds() {
+    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let provider =
+        DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
+    let err = provider
+        .distance(0, 99)
+        .expect_err("distance must report out-of-bounds");
+    assert!(matches!(
+        err,
+        chutoro_core::DataSourceError::OutOfBounds { index: 99 }
+    ));
+}
+
+#[rstest]
+fn matrix_provider_distance_batch_length_mismatch() {
+    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let provider =
+        DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
+    let pairs = vec![(0, 1)];
+    let mut out = vec![0.0; 2];
+    let err = provider
+        .distance_batch(&pairs, &mut out)
+        .expect_err("mismatched lengths must error");
+    assert!(matches!(
+        err,
+        chutoro_core::DataSourceError::OutputLengthMismatch {
+            out: 2,
+            expected: 1
+        }
+    ));
+}
+
+#[rstest]
+fn matrix_provider_distance_batch_empty() {
+    let array = build_array(&[[1.0, 2.0, 3.0]]);
+    let provider =
+        DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
+    let pairs: Vec<(usize, usize)> = Vec::new();
+    let mut out = Vec::new();
+    provider
+        .distance_batch(&pairs, &mut out)
+        .expect("empty batch must succeed");
+    assert!(out.is_empty());
 }
 
 #[rstest]
@@ -326,4 +392,54 @@ fn matrix_provider_parquet_nullable_schema(
             nullable_child
         } if column == "features" && nullable_child == child_nullable
     ));
+}
+
+#[test]
+fn validate_field_rejects_negative_dimension() {
+    let child = Arc::new(Field::new("item", DataType::Float32, false));
+    let field = Field::new("features", DataType::FixedSizeList(child, -1), false);
+    let err = validate_fixed_size_list_field(&field, "features")
+        .expect_err("negative dimension must be rejected");
+    assert!(matches!(
+        err,
+        DenseMatrixProviderError::InvalidDimension { actual } if actual == -1
+    ));
+}
+
+#[test]
+fn copy_list_values_rejects_incorrect_length() {
+    let rows = vec![vec![1.0, 2.0]];
+    let array = build_list_array(&rows, 2, false);
+    let mut values = Vec::new();
+    let err = copy_list_values(&array, 3, 0, &mut values)
+        .expect_err("incorrect lengths must be rejected");
+    assert!(matches!(
+        err,
+        DenseMatrixProviderError::InvalidRowLength {
+            row: 0,
+            expected: 3,
+            actual: 2
+        }
+    ));
+}
+
+#[test]
+fn dense_matrix_provider_error_from_arrow() {
+    let arrow_err = ArrowError::ComputeError("boom".into());
+    let err = DenseMatrixProviderError::from(arrow_err);
+    assert!(matches!(err, DenseMatrixProviderError::Arrow(_)));
+}
+
+#[test]
+fn dense_matrix_provider_error_from_parquet() {
+    let parquet_err = ParquetError::General("boom".into());
+    let err = DenseMatrixProviderError::from(parquet_err);
+    assert!(matches!(err, DenseMatrixProviderError::Parquet(_)));
+}
+
+#[test]
+fn dense_matrix_provider_error_from_io() {
+    let io_err = io::Error::other("boom");
+    let err = DenseMatrixProviderError::from(io_err);
+    assert!(matches!(err, DenseMatrixProviderError::Io(_)));
 }

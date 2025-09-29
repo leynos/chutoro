@@ -41,6 +41,7 @@ impl DenseSource {
     ///
     /// # Errors
     /// Returns `DataSourceError::DimensionMismatch` if row lengths differ.
+    /// Returns `DataSourceError::EmptyData` if `data` is empty.
     ///
     /// # Examples
     /// ```
@@ -48,8 +49,13 @@ impl DenseSource {
     /// use chutoro_core::DataSourceError;
     /// let err = DenseSource::try_new("demo", vec![vec![0.0], vec![1.0, 2.0]]);
     /// assert!(matches!(err, Err(DataSourceError::DimensionMismatch { .. })));
+    /// let err_empty = DenseSource::try_new("demo", vec![]);
+    /// assert!(matches!(err_empty, Err(DataSourceError::EmptyData)));
     /// ```
     pub fn try_new(name: impl Into<String>, data: Vec<Vec<f32>>) -> Result<Self, DataSourceError> {
+        if data.is_empty() {
+            return Err(DataSourceError::EmptyData);
+        }
         if let Some((first, rest)) = data.split_first() {
             let dim = first.len();
             for row in rest {
