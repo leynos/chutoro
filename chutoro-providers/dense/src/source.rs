@@ -19,7 +19,7 @@ impl DenseSource {
     /// Creates a new dense source.
     ///
     /// # Panics
-    /// Panics if row lengths differ; use [`try_new`] for fallible construction.
+    /// Panics if `data` is empty or if row lengths differ; use [`try_new`] for fallible construction.
     ///
     /// # Examples
     /// ```
@@ -34,7 +34,7 @@ impl DenseSource {
             clippy::expect_used,
             reason = "constructor panics on inconsistent row lengths"
         )]
-        Self::try_new(name, data).expect("rows must have equal length")
+        Self::try_new(name, data).expect("data must be non-empty and rows must have equal length")
     }
 
     /// Creates a dense source after validating uniform dimensions.
@@ -42,29 +42,33 @@ impl DenseSource {
     /// # Errors
     /// Returns `DataSourceError::DimensionMismatch` if row lengths differ.
     /// Returns `DataSourceError::EmptyData` if `data` is empty.
+    /// Returns `DataSourceError::ZeroDimension` if any row has zero length.
     ///
     /// # Examples
     /// ```
     /// use chutoro_providers_dense::DenseSource;
     /// use chutoro_core::DataSourceError;
+    /// use std::iter;
     /// let err = DenseSource::try_new("demo", vec![vec![0.0], vec![1.0, 2.0]]);
     /// assert!(matches!(err, Err(DataSourceError::DimensionMismatch { .. })));
     /// let err_empty = DenseSource::try_new("demo", vec![]);
     /// assert!(matches!(err_empty, Err(DataSourceError::EmptyData)));
+    /// let err_zero = DenseSource::try_new("demo", iter::once(Vec::new()).collect());
+    /// assert!(matches!(err_zero, Err(DataSourceError::ZeroDimension)));
     /// ```
     pub fn try_new(name: impl Into<String>, data: Vec<Vec<f32>>) -> Result<Self, DataSourceError> {
-        if data.is_empty() {
-            return Err(DataSourceError::EmptyData);
+        let mut rows = data.iter();
+        let first = rows.next().ok_or(DataSourceError::EmptyData)?;
+        let dim = first.len();
+        if dim == 0 {
+            return Err(DataSourceError::ZeroDimension);
         }
-        if let Some((first, rest)) = data.split_first() {
-            let dim = first.len();
-            for row in rest {
-                if row.len() != dim {
-                    return Err(DataSourceError::DimensionMismatch {
-                        left: dim,
-                        right: row.len(),
-                    });
-                }
+        for row in rows {
+            if row.len() != dim {
+                return Err(DataSourceError::DimensionMismatch {
+                    left: dim,
+                    right: row.len(),
+                });
             }
         }
         Ok(Self {
