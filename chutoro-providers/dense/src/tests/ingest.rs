@@ -1,6 +1,7 @@
 //! Tests for DenseMatrixProvider ingestion from Parquet data. Validates single-batch and
 //! multi-batch loading, error handling for missing columns, incorrect types, inconsistent
 //! dimensions, nullable schemas, and null row/value rejection during copy operations.
+
 use super::{DenseMatrixProvider, DenseMatrixProviderError, support::*};
 use crate::ingest::{copy_list_values, validate_fixed_size_list_field};
 use arrow_array::RecordBatch;

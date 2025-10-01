@@ -1,3 +1,4 @@
+//! Tests for DenseSource construction and distance operations, covering mismatched dimensions, empty inputs, and batch validation.
 use super::DenseSource;
 use chutoro_core::{DataSource, DataSourceError};
 use rstest::rstest;
