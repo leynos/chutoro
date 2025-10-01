@@ -1,3 +1,7 @@
+//! Test support utilities for constructing Arrow arrays, Parquet data, and DenseMatrixProvider
+//! instances from RecordBatches. Provides helpers for building FixedSizeListArray fixtures with
+//! various null-handling patterns (row nulls, value nulls) and for serialising arrays to Parquet
+//! format for ingest testing.
 use super::{DenseMatrixProvider, DenseMatrixProviderError};
 use crate::ingest::{append_fixed_size_list_values, validate_fixed_size_list_field};
 use arrow_array::builder::BooleanBufferBuilder;
@@ -170,4 +174,3 @@ fn fixed_size_list_from_values(
         None,
     )
 }
-
