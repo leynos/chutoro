@@ -19,7 +19,7 @@ impl DenseSource {
     /// Creates a new dense source.
     ///
     /// # Panics
-    /// Panics if `data` is empty or if row lengths differ; use [`try_new`] for fallible construction.
+    /// Panics if `data` is empty, if row lengths differ, or if any row has zero length; use [`try_new`] for fallible construction.
     ///
     /// # Examples
     /// ```
@@ -34,7 +34,8 @@ impl DenseSource {
             clippy::expect_used,
             reason = "constructor panics on inconsistent row lengths"
         )]
-        Self::try_new(name, data).expect("data must be non-empty and rows must have equal length")
+        Self::try_new(name, data)
+            .expect("data must be non-empty with uniformly positive-dimension rows")
     }
 
     /// Creates a dense source after validating uniform dimensions.
