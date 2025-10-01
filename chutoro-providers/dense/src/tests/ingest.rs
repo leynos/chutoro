@@ -20,15 +20,20 @@ fn matrix_provider_from_parquet() {
 
 #[rstest]
 fn matrix_provider_from_parquet_multiple_batches() {
-    let first = build_array(&[[1.0, 2.0, 3.0]]);
-    let second = build_array(&[[4.0, 5.0, 6.0]]);
+    let first_rows = vec![vec![1.0, 2.0, 3.0], vec![7.0, 8.0, 9.0]];
+    let second_rows = vec![vec![4.0, 5.0, 6.0]];
+    let first = build_list_array(&first_rows, 3, false);
+    let second = build_list_array(&second_rows, 3, false);
     let field = feature_field(3, false, false);
     let bytes = write_parquet_two_batches(first, second, field);
     let provider = DenseMatrixProvider::try_from_parquet_reader("demo", bytes, "features")
         .expect("parquet load across batches");
-    assert_eq!(provider.len(), 2);
+    assert_eq!(provider.len(), 3);
     assert_eq!(provider.dimension(), 3);
-    assert_eq!(provider.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    assert_eq!(
+        provider.data(),
+        &[1.0, 2.0, 3.0, 7.0, 8.0, 9.0, 4.0, 5.0, 6.0]
+    );
 }
 
 #[rstest]

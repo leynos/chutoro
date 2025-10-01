@@ -19,12 +19,7 @@ pub(crate) fn build_list_array(
 ) -> FixedSizeListArray {
     assert!(rows.iter().all(|row| row.len() == dimension));
     let values = Float32Array::from_iter_values(rows.iter().flatten().copied());
-    FixedSizeListArray::new(
-        Arc::new(Field::new("item", DataType::Float32, child_nullable)),
-        i32::try_from(dimension).expect("dimension fits in i32"),
-        Arc::new(values) as ArrayRef,
-        None,
-    )
+    fixed_size_list_from_values(values, dimension, child_nullable)
 }
 
 pub(crate) fn build_list_array_with_row_nulls(
@@ -64,12 +59,7 @@ pub(crate) fn build_list_array_with_value_nulls(
 ) -> FixedSizeListArray {
     assert!(rows.iter().all(|row| row.len() == dimension));
     let values = Float32Array::from_iter(rows.iter().flatten().copied());
-    FixedSizeListArray::new(
-        Arc::new(Field::new("item", DataType::Float32, true)),
-        i32::try_from(dimension).expect("dimension fits in i32"),
-        Arc::new(values) as ArrayRef,
-        None,
-    )
+    fixed_size_list_from_values(values, dimension, true)
 }
 
 pub(crate) fn feature_field(dimension: usize, child_nullable: bool, list_nullable: bool) -> Field {
@@ -167,3 +157,17 @@ pub(crate) fn write_parquet_two_batches(
     }
     Bytes::from(buffer)
 }
+
+fn fixed_size_list_from_values(
+    values: Float32Array,
+    dimension: usize,
+    child_nullable: bool,
+) -> FixedSizeListArray {
+    FixedSizeListArray::new(
+        Arc::new(Field::new("item", DataType::Float32, child_nullable)),
+        i32::try_from(dimension).expect("dimension fits in i32"),
+        Arc::new(values) as ArrayRef,
+        None,
+    )
+}
+
