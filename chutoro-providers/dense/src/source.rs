@@ -32,7 +32,7 @@ impl DenseSource {
     pub fn new(name: impl Into<String>, data: Vec<Vec<f32>>) -> Self {
         #[expect(
             clippy::expect_used,
-            reason = "constructor panics on inconsistent row lengths"
+            reason = "constructor panics on empty data, zero-length rows, or inconsistent row lengths"
         )]
         Self::try_new(name, data)
             .expect("data must be non-empty with uniformly positive-dimension rows")
