@@ -284,6 +284,8 @@ version = "0.1.0"
 dependencies = [
  "chutoro-core",
  "rstest",
+ "strsim",
+ "thiserror",
 ]
 
 [[package]]
@@ -1138,6 +1140,12 @@ name = "snap"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
+
+[[package]]
+name = "strsim"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
 name = "syn"

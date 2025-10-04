@@ -17,7 +17,7 @@ ______________________________________________________________________
 - [x] Implement `DenseMatrixProvider` that packs Parquet/Arrow
   `FixedSizeList<Float32,D>` into a contiguous row‑major `Vec<f32>`; reject
   ragged/null rows. (See §5, §10.4)
-- [ ] Implement `TextProvider` (one UTF‑8 string per line) to exercise
+- [x] Implement `TextProvider` (one UTF‑8 string per line) to exercise
   non‑metric distances (e.g., Levenshtein). (See §1.3)
 - [ ] Add `cosine` and `euclidean` distance implementations in `chutoro-core`
   with optional precomputed norms for cosine. (See §3.1)

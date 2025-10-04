@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+[dependencies.strsim]
+version = "0.10"
+[dependencies.thiserror]
+version = "1.0"
 [dependencies.chutoro-core]
 version = "0.1.0"
 path = "../../chutoro-core"
