@@ -1,50 +1,135 @@
-//! Text provider for line-based UTF-8 sources implementing DataSource.
-use chutoro_core::{DataSource, DataSourceError};
+//! Text provider for line-based UTF-8 sources implementing [`DataSource`].
+use std::io::BufRead;
 
-/// UTF-8 text line data source.
-pub struct TextSource {
+use chutoro_core::{DataSource, DataSourceError};
+use strsim::levenshtein;
+use thiserror::Error;
+
+/// Errors produced when constructing a [`TextProvider`].
+#[derive(Debug, Error)]
+pub enum TextProviderError {
+    /// The reader yielded no lines.
+    #[error("text source is empty")]
+    EmptyInput,
+    /// Reading from the input failed.
+    #[error("failed to read text source: {0}")]
+    Io(#[from] std::io::Error),
+}
+
+/// UTF-8 text provider that reports Levenshtein distances between lines.
+#[derive(Debug)]
+pub struct TextProvider {
     data: Vec<String>,
-    lengths: Vec<usize>, // cached character counts
     name: String,
 }
 
-impl TextSource {
-    /// Creates a new text source.
+impl TextProvider {
+    /// Creates a provider from a collection of UTF-8 lines.
+    ///
+    /// # Errors
+    /// Returns [`TextProviderError::EmptyInput`] when `lines` is empty.
     ///
     /// # Examples
     /// ```
-    /// use chutoro_providers_text::TextSource;
-    /// let ds = TextSource::new("demo", vec!["a".into(), "bb".into()]);
-    /// assert_eq!(ds.len(), 2);
+    /// use chutoro_core::DataSource;
+    /// use chutoro_providers_text::TextProvider;
+    ///
+    /// let provider = TextProvider::new("demo", vec!["kitten".into(), "sitting".into()])
+    ///     .expect("provider must build");
+    /// assert_eq!(provider.len(), 2);
+    /// let distance = provider
+    ///     .distance(0, 1)
+    ///     .expect("distance calculation must succeed");
+    /// assert_eq!(distance, 3.0);
     /// ```
-    #[must_use]
-    pub fn new(name: impl Into<String>, data: Vec<String>) -> Self {
-        let lengths = data.iter().map(|s| s.chars().count()).collect();
-        // Cache character counts to avoid repeated iteration in `distance`.
-        Self {
-            data,
-            lengths,
-            name: name.into(),
+    pub fn new(name: impl Into<String>, lines: Vec<String>) -> Result<Self, TextProviderError> {
+        if lines.is_empty() {
+            return Err(TextProviderError::EmptyInput);
         }
+        Ok(Self {
+            data: lines,
+            name: name.into(),
+        })
+    }
+
+    /// Creates a provider by reading one UTF-8 string per line from `reader`.
+    ///
+    /// # Errors
+    /// Returns [`TextProviderError::EmptyInput`] if `reader` produced no lines and
+    /// [`TextProviderError::Io`] if reading fails.
+    ///
+    /// # Examples
+    /// ```
+    /// use std::io::Cursor;
+    ///
+    /// use chutoro_core::DataSource;
+    /// use chutoro_providers_text::TextProvider;
+    ///
+    /// let cursor = Cursor::new("alpha\\nbeta\\n");
+    /// let provider = TextProvider::try_from_reader("demo", cursor)
+    ///     .expect("provider must build");
+    /// assert_eq!(provider.len(), 2);
+    /// assert_eq!(provider.distance(0, 1).unwrap(), 4.0);
+    /// ```
+    pub fn try_from_reader(
+        name: impl Into<String>,
+        reader: impl BufRead,
+    ) -> Result<Self, TextProviderError> {
+        let mut lines = Vec::new();
+        Self::read_lines(reader, &mut lines)?;
+        Self::new(name, lines)
+    }
+
+    /// Returns the stored UTF-8 lines.
+    #[must_use]
+    pub fn lines(&self) -> &[String] {
+        &self.data
+    }
+
+    fn read_lines(
+        mut reader: impl BufRead,
+        lines: &mut Vec<String>,
+    ) -> Result<(), TextProviderError> {
+        let mut buffer = String::new();
+        loop {
+            buffer.clear();
+            let bytes_read = reader.read_line(&mut buffer)?;
+            if bytes_read == 0 {
+                break;
+            }
+            let line = buffer.trim_end_matches(['\r', '\n']).to_owned();
+            lines.push(line);
+        }
+        if lines.is_empty() {
+            return Err(TextProviderError::EmptyInput);
+        }
+        Ok(())
     }
 }
 
-impl DataSource for TextSource {
+impl DataSource for TextProvider {
     fn len(&self) -> usize {
         self.data.len()
     }
+
     fn name(&self) -> &str {
         &self.name
     }
+
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "Distances are exposed as f32 to match the DataSource API."
+    )]
     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-        let da = *self
-            .lengths
+        let left = self
+            .data
             .get(i)
             .ok_or(DataSourceError::OutOfBounds { index: i })?;
-        let db = *self
-            .lengths
+        let right = self
+            .data
             .get(j)
             .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok(da.abs_diff(db) as f32)
+        let distance = levenshtein(left, right);
+        Ok(distance as f32)
     }
 }

@@ -639,6 +639,25 @@ rejected with structured errors to keep distance computations deterministic.
 The Parquet path pushes a projection mask so only the requested feature column
 is scanned, helping future backends reuse the same ingestion contract.
 
+#### 5.5. Walking skeleton text ingestion
+
+The walking skeleton also needs a lightweight provider to exercise non-metric
+distances before the dynamic plugin system is available. The `TextProvider`
+ingests one UTF-8 string per line via `BufRead`, trimming platform-specific
+newline sequences while preserving empty strings as meaningful inputs.
+Construction fails fast when the source produces no records so callers receive
+an actionable `TextProviderError::EmptyInput` instead of deferred out-of-bounds
+errors.
+
+Distances are reported using the `strsim` crate's Levenshtein implementation,
+mirroring the DNA/protein use cases outlined in §1.3 without pulling in the
+heavier bioinformatics tooling planned for later phases. The provider
+implements `DataSource` directly so the same type can be handed to
+`Chutoro::run`, keeping the ingestion and computation pathway identical to
+numeric providers. Converting the `usize` Levenshtein score into `f32` matches
+the trait's contract and establishes the precedent that future non-metric
+sources surface distances through the same scalar channel.
+
 ### 6. Core Clustering Engine: A Multi-threaded CPU Implementation
 
 The default execution path for the clustering engine will be a
