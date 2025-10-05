@@ -133,3 +133,53 @@ impl DataSource for TextProvider {
         Ok(distance as f32)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{self, BufRead, Cursor, Read};
+
+    struct FailingReader;
+
+    impl Read for FailingReader {
+        fn read(&mut self, _buf: &mut [u8]) -> io::Result<usize> {
+            Err(io::Error::other("boom"))
+        }
+    }
+
+    impl BufRead for FailingReader {
+        fn fill_buf(&mut self) -> io::Result<&[u8]> {
+            Err(io::Error::other("boom"))
+        }
+
+        fn consume(&mut self, _amt: usize) {}
+
+        fn read_line(&mut self, _buf: &mut String) -> io::Result<usize> {
+            Err(io::Error::other("boom"))
+        }
+    }
+
+    #[test]
+    fn read_lines_populates_collection() {
+        let mut lines = Vec::new();
+        TextProvider::read_lines(Cursor::new("alpha\nbeta\n"), &mut lines)
+            .expect("reading must succeed");
+        assert_eq!(lines, ["alpha", "beta"]);
+    }
+
+    #[test]
+    fn read_lines_rejects_empty_input() {
+        let mut lines = Vec::new();
+        let err = TextProvider::read_lines(Cursor::new(""), &mut lines)
+            .expect_err("empty input must fail");
+        assert!(matches!(err, TextProviderError::EmptyInput));
+    }
+
+    #[test]
+    fn read_lines_propagates_io_errors() {
+        let mut lines = Vec::new();
+        let err = TextProvider::read_lines(FailingReader, &mut lines)
+            .expect_err("I/O failures must propagate");
+        assert!(matches!(err, TextProviderError::Io(_)));
+    }
+}
