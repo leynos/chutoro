@@ -19,7 +19,7 @@ ______________________________________________________________________
   ragged/null rows. (See §5, §10.4)
 - [x] Implement `TextProvider` (one UTF‑8 string per line) to exercise
   non‑metric distances (e.g., Levenshtein). (See §1.3)
-- [ ] Add `cosine` and `euclidean` distance implementations in `chutoro-core`
+- [x] Add `cosine` and `euclidean` distance implementations in `chutoro-core`
   with optional precomputed norms for cosine. (See §3.1)
 - [ ] Ship a minimal CLI: `chutoro run parquet <path> --column features ...`
   and `chutoro run text <path> --metric levenshtein`. (See §10)
