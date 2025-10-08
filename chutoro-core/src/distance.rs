@@ -320,41 +320,20 @@ pub fn cosine_distance(
     let right = Vector::new(right, VectorKind::Right)?;
     validate_dimensions(&left, &right)?;
 
-    let mut dot = 0.0f64;
-    let mut left_squares = 0.0f64;
-    let mut right_squares = 0.0f64;
-    let mut left_has_magnitude = false;
-    let mut right_has_magnitude = false;
-
-    for (&l, &r) in left.iter().zip(right.iter()) {
-        dot += f64::from(l) * f64::from(r);
-        left_has_magnitude |= l != 0.0;
-        right_has_magnitude |= r != 0.0;
-
-        if norms.is_none() {
-            left_squares += f64::from(l) * f64::from(l);
-            right_squares += f64::from(r) * f64::from(r);
-        }
-    }
-
-    let (left_norm, right_norm) = match norms {
+    let (dot, left_norm, right_norm) = match norms {
         Some(norms) => {
-            if !left_has_magnitude {
-                return Err(DistanceError::ZeroMagnitude {
-                    which: VectorKind::Left,
-                });
-            }
-            if !right_has_magnitude {
-                return Err(DistanceError::ZeroMagnitude {
-                    which: VectorKind::Right,
-                });
-            }
-            (norms.left_norm(), norms.right_norm())
+            let (dot, left_has_magnitude, right_has_magnitude) =
+                accumulate_dot_and_magnitudes(left.as_ref(), right.as_ref())?;
+            ensure_vectors_have_magnitude(left_has_magnitude, right_has_magnitude)?;
+            (dot, norms.left_norm(), norms.right_norm())
         }
-        None => (
-            Norm::new(left_squares.sqrt() as f32, VectorKind::Left)?,
-            Norm::new(right_squares.sqrt() as f32, VectorKind::Right)?,
-        ),
+        None => {
+            let (dot, left_squares, right_squares) =
+                accumulate_with_norm_computation(left.as_ref(), right.as_ref())?;
+            let left_norm = Norm::new(left_squares.sqrt() as f32, VectorKind::Left)?;
+            let right_norm = Norm::new(right_squares.sqrt() as f32, VectorKind::Right)?;
+            (dot, left_norm, right_norm)
+        }
     };
 
     let denominator = f64::from(*left_norm) * f64::from(*right_norm);
@@ -363,6 +342,50 @@ pub fn cosine_distance(
     let similarity = similarity.clamp(-1.0, 1.0);
 
     Ok(Distance::from_raw(1.0 - similarity))
+}
+
+fn accumulate_dot_and_magnitudes(left: &[f32], right: &[f32]) -> Result<(f64, bool, bool)> {
+    let mut dot = 0.0f64;
+    let mut left_has_magnitude = false;
+    let mut right_has_magnitude = false;
+
+    for (&l, &r) in left.iter().zip(right.iter()) {
+        dot += f64::from(l) * f64::from(r);
+        left_has_magnitude |= l != 0.0;
+        right_has_magnitude |= r != 0.0;
+    }
+
+    Ok((dot, left_has_magnitude, right_has_magnitude))
+}
+
+fn accumulate_with_norm_computation(left: &[f32], right: &[f32]) -> Result<(f64, f64, f64)> {
+    let mut dot = 0.0f64;
+    let mut left_squares = 0.0f64;
+    let mut right_squares = 0.0f64;
+
+    for (&l, &r) in left.iter().zip(right.iter()) {
+        dot += f64::from(l) * f64::from(r);
+        left_squares += f64::from(l) * f64::from(l);
+        right_squares += f64::from(r) * f64::from(r);
+    }
+
+    Ok((dot, left_squares, right_squares))
+}
+
+fn ensure_vectors_have_magnitude(left_has: bool, right_has: bool) -> Result<()> {
+    if !left_has {
+        return Err(DistanceError::ZeroMagnitude {
+            which: VectorKind::Left,
+        });
+    }
+
+    if !right_has {
+        return Err(DistanceError::ZeroMagnitude {
+            which: VectorKind::Right,
+        });
+    }
+
+    Ok(())
 }
 
 fn validate_dimensions(left: &Vector<'_>, right: &Vector<'_>) -> Result<()> {
