@@ -1,13 +1,8 @@
-//! Distance primitives for built-in numeric metrics.
-//!
-//! The walking skeleton exposes scalar implementations for Euclidean and
-//! cosine distances. These routines validate their inputs and surface detailed
-//! errors so callers can react appropriately during ingestion or algorithmic
-//! execution.
-
 use core::{fmt, ops::Deref};
 
 use thiserror::Error;
+
+use super::helpers::validate_dimensions;
 
 /// Identifies whether an error was produced while inspecting the left or right
 /// vector argument.
@@ -138,6 +133,10 @@ impl Norm {
             sum += f64::from(*value) * f64::from(*value);
         }
 
+        Self::from_squared_sum(sum, which)
+    }
+
+    pub(crate) fn from_squared_sum(sum: f64, which: VectorKind) -> Result<Self> {
         Self::new(sum.sqrt() as f32, which)
     }
 
@@ -161,7 +160,7 @@ impl Deref for Norm {
 pub struct Distance(f32);
 
 impl Distance {
-    fn from_raw(value: f32) -> Self {
+    pub(crate) fn from_raw(value: f32) -> Self {
         Self(value)
     }
 
@@ -243,157 +242,4 @@ impl CosineNorms {
     pub fn right_norm(&self) -> Norm {
         self.right
     }
-}
-
-/// Computes the Euclidean distance between two vectors.
-///
-/// # Examples
-///
-/// ```
-/// use chutoro_core::{DistanceError, euclidean_distance};
-///
-/// fn main() -> Result<(), DistanceError> {
-///     let distance = euclidean_distance(&[1.0, 2.0, 3.0], &[4.0, 6.0, 8.0])?;
-///     assert!((distance.value() - 7.071_068).abs() < 1e-6);
-///     Ok(())
-/// }
-/// ```
-///
-/// # Errors
-///
-/// - [`DistanceError::ZeroLength`] when any input is empty.
-/// - [`DistanceError::DimensionMismatch`] when input lengths differ.
-/// - [`DistanceError::NonFinite`] when a value is NaN or infinite.
-pub fn euclidean_distance(left: &[f32], right: &[f32]) -> Result<Distance> {
-    let left = Vector::new(left, VectorKind::Left)?;
-    let right = Vector::new(right, VectorKind::Right)?;
-    validate_dimensions(&left, &right)?;
-
-    let mut sum = 0.0f64;
-    for (&l, &r) in left.iter().zip(right.iter()) {
-        let diff = f64::from(l) - f64::from(r);
-        sum += diff * diff;
-    }
-
-    Ok(Distance::from_raw(sum.sqrt() as f32))
-}
-
-/// Computes the cosine distance between two vectors.
-///
-/// The optional [`CosineNorms`] parameter allows callers to reuse pre-computed
-/// L2 norms and avoid recomputing them for every query.
-///
-/// # Examples
-///
-/// ```
-/// use chutoro_core::{CosineNorms, DistanceError, cosine_distance};
-///
-/// fn main() -> Result<(), DistanceError> {
-///     let a = [1.0f32, 0.0, 0.0];
-///     let b = [0.0f32, 1.0, 0.0];
-///
-///     // Compute norms on the fly.
-///     let orthogonal = cosine_distance(&a, &b, None)?;
-///     assert!((orthogonal.value() - 1.0).abs() < 1e-6);
-///
-///     // Reuse pre-computed norms.
-///     let norms = CosineNorms::from_vectors(&a, &b)?;
-///     let again = cosine_distance(&a, &b, Some(norms))?;
-///     assert!((again.value() - 1.0).abs() < 1e-6);
-///     Ok(())
-/// }
-/// ```
-///
-/// # Errors
-///
-/// - [`DistanceError::ZeroLength`] when any input is empty.
-/// - [`DistanceError::DimensionMismatch`] when input lengths differ.
-/// - [`DistanceError::NonFinite`] when a value is NaN or infinite.
-/// - [`DistanceError::ZeroMagnitude`] when either vector has zero L2 norm.
-/// - [`DistanceError::InvalidNorm`] when pre-computed norms are non-finite.
-pub fn cosine_distance(
-    left: &[f32],
-    right: &[f32],
-    norms: Option<CosineNorms>,
-) -> Result<Distance> {
-    let left = Vector::new(left, VectorKind::Left)?;
-    let right = Vector::new(right, VectorKind::Right)?;
-    validate_dimensions(&left, &right)?;
-
-    let (dot, left_norm, right_norm) = match norms {
-        Some(norms) => {
-            let (dot, left_has_magnitude, right_has_magnitude) =
-                accumulate_dot_and_magnitudes(left.as_ref(), right.as_ref())?;
-            ensure_vectors_have_magnitude(left_has_magnitude, right_has_magnitude)?;
-            (dot, norms.left_norm(), norms.right_norm())
-        }
-        None => {
-            let (dot, left_squares, right_squares) =
-                accumulate_with_norm_computation(left.as_ref(), right.as_ref())?;
-            let left_norm = Norm::new(left_squares.sqrt() as f32, VectorKind::Left)?;
-            let right_norm = Norm::new(right_squares.sqrt() as f32, VectorKind::Right)?;
-            (dot, left_norm, right_norm)
-        }
-    };
-
-    let denominator = f64::from(*left_norm) * f64::from(*right_norm);
-    let similarity = (dot / denominator) as f32;
-    // Theoretical range is [-1, 1], but numerical noise can spill over.
-    let similarity = similarity.clamp(-1.0, 1.0);
-
-    Ok(Distance::from_raw(1.0 - similarity))
-}
-
-fn accumulate_dot_and_magnitudes(left: &[f32], right: &[f32]) -> Result<(f64, bool, bool)> {
-    let mut dot = 0.0f64;
-    let mut left_has_magnitude = false;
-    let mut right_has_magnitude = false;
-
-    for (&l, &r) in left.iter().zip(right.iter()) {
-        dot += f64::from(l) * f64::from(r);
-        left_has_magnitude |= l != 0.0;
-        right_has_magnitude |= r != 0.0;
-    }
-
-    Ok((dot, left_has_magnitude, right_has_magnitude))
-}
-
-fn accumulate_with_norm_computation(left: &[f32], right: &[f32]) -> Result<(f64, f64, f64)> {
-    let mut dot = 0.0f64;
-    let mut left_squares = 0.0f64;
-    let mut right_squares = 0.0f64;
-
-    for (&l, &r) in left.iter().zip(right.iter()) {
-        dot += f64::from(l) * f64::from(r);
-        left_squares += f64::from(l) * f64::from(l);
-        right_squares += f64::from(r) * f64::from(r);
-    }
-
-    Ok((dot, left_squares, right_squares))
-}
-
-fn ensure_vectors_have_magnitude(left_has: bool, right_has: bool) -> Result<()> {
-    if !left_has {
-        return Err(DistanceError::ZeroMagnitude {
-            which: VectorKind::Left,
-        });
-    }
-
-    if !right_has {
-        return Err(DistanceError::ZeroMagnitude {
-            which: VectorKind::Right,
-        });
-    }
-
-    Ok(())
-}
-
-fn validate_dimensions(left: &Vector<'_>, right: &Vector<'_>) -> Result<()> {
-    if left.dimension() != right.dimension() {
-        return Err(DistanceError::DimensionMismatch {
-            left: left.dimension(),
-            right: right.dimension(),
-        });
-    }
-    Ok(())
 }
