@@ -1,6 +1,6 @@
 //! Shared helpers for distance implementations.
 
-use super::types::{DistanceError, Result, Vector};
+use super::types::{DistanceError, Norm, Result, Vector, VectorKind};
 
 /// Ensures both vectors share the same dimensionality.
 pub(crate) fn validate_dimensions(left: &Vector<'_>, right: &Vector<'_>) -> Result<()> {
@@ -26,4 +26,11 @@ pub(crate) fn accumulate_components(left: &Vector<'_>, right: &Vector<'_>) -> (f
     }
 
     (dot, left_squares, right_squares)
+}
+
+/// Validates that cached cosine norms remain usable for the given vectors.
+pub(crate) fn ensure_cached_norms_usable(left_squares: f64, right_squares: f64) -> Result<()> {
+    Norm::validate_squared_sum(left_squares, VectorKind::Left)?;
+    Norm::validate_squared_sum(right_squares, VectorKind::Right)?;
+    Ok(())
 }

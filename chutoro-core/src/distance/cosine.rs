@@ -1,6 +1,8 @@
 //! Cosine distance implementation built on validated vector primitives.
 
-use crate::distance::helpers::{accumulate_components, validate_dimensions};
+use crate::distance::helpers::{
+    accumulate_components, ensure_cached_norms_usable, validate_dimensions,
+};
 use crate::distance::types::{CosineNorms, Distance, Norm, Result, Vector, VectorKind};
 
 /// Computes the cosine distance between two vectors.
@@ -49,8 +51,7 @@ pub fn cosine_distance(
 
     let (left_norm, right_norm) = match norms {
         Some(norms) => {
-            Norm::validate_squared_sum(left_squares, VectorKind::Left)?;
-            Norm::validate_squared_sum(right_squares, VectorKind::Right)?;
+            ensure_cached_norms_usable(left_squares, right_squares)?;
             (norms.left_norm(), norms.right_norm())
         }
         None => (
