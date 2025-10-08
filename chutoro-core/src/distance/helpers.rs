@@ -1,3 +1,5 @@
+//! Shared helpers for distance implementations.
+
 use super::types::{DistanceError, Result, Vector};
 
 /// Ensures both vectors share the same dimensionality.

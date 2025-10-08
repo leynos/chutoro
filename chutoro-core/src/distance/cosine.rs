@@ -1,3 +1,5 @@
+//! Cosine distance implementation built on validated vector primitives.
+
 use crate::distance::helpers::{accumulate_components, validate_dimensions};
 use crate::distance::types::{CosineNorms, Distance, Norm, Result, Vector, VectorKind};
 
@@ -47,8 +49,8 @@ pub fn cosine_distance(
 
     let (left_norm, right_norm) = match norms {
         Some(norms) => {
-            let _ = Norm::from_squared_sum(left_squares, VectorKind::Left)?;
-            let _ = Norm::from_squared_sum(right_squares, VectorKind::Right)?;
+            Norm::validate_squared_sum(left_squares, VectorKind::Left)?;
+            Norm::validate_squared_sum(right_squares, VectorKind::Right)?;
             (norms.left_norm(), norms.right_norm())
         }
         None => (

@@ -1,3 +1,5 @@
+//! Domain primitives shared by the distance routines.
+
 use core::{fmt, ops::Deref};
 
 use thiserror::Error;
@@ -136,7 +138,23 @@ impl Norm {
         Self::from_squared_sum(sum, which)
     }
 
+    pub(crate) fn validate_squared_sum(sum: f64, which: VectorKind) -> Result<()> {
+        if !sum.is_finite() {
+            return Err(DistanceError::InvalidNorm {
+                which,
+                value: f32::INFINITY,
+            });
+        }
+
+        if sum == 0.0 {
+            return Err(DistanceError::ZeroMagnitude { which });
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn from_squared_sum(sum: f64, which: VectorKind) -> Result<Self> {
+        Self::validate_squared_sum(sum, which)?;
         Self::new(sum.sqrt() as f32, which)
     }
 

@@ -1,3 +1,5 @@
+//! Euclidean distance implementation for validated vectors.
+
 use crate::distance::helpers::validate_dimensions;
 use crate::distance::types::{Distance, Result, Vector, VectorKind};
 
