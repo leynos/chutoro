@@ -658,6 +658,28 @@ numeric providers. Converting the `usize` Levenshtein score into `f32` matches
 the trait's contract and establishes the precedent that future non-metric
 sources surface distances through the same scalar channel.
 
+#### 5.6. Walking skeleton distance primitives
+
+The core crate now exposes scalar Euclidean and cosine distance routines used
+by the dense provider and early algorithm sketches. Both functions share a
+`DistanceError` enum so ingestion code and higher-level orchestration can
+report dimension mismatches, non-finite inputs, or zero-length vectors with
+targeted messages. Internal accumulations use `f64` to reduce precision loss
+when working with larger coordinates while still returning the `f32` distances
+required by the public `DataSource` API. Cosine distance accepts an optional
+`CosineNorms` handle, allowing HNSW search loops to pre-compute norms once per
+point and reuse them across many comparisons without re-computing square roots.
+Norms are validated eagerly (finite and strictly positive) so cached values
+cannot carry invalid state into later kernels.
+
+A subsequent refactor eliminated primitive obsession in these helpers. We now
+introduce domain newtypes for vectors, norms, and distances, shifting
+validation logic into their constructors. `Vector` validates the slice length
+and per-element finiteness, `Norm` guarantees strictly positive magnitudes, and
+`Distance` communicates that the return value is already validated. These
+smaller abstractions preserve the `f32` public surface area while giving the
+compiler more opportunities to guide call sites away from invalid data.
+
 ### 6. Core Clustering Engine: A Multi-threaded CPU Implementation
 
 The default execution path for the clustering engine will be a
