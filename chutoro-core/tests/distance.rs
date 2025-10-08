@@ -11,7 +11,7 @@ fn euclidean_distance_returns_expected(
     #[case] expected: f32,
 ) {
     let distance = euclidean_distance(&left, &right).expect("distance should succeed");
-    assert!((distance - expected).abs() < 1e-6);
+    assert!((distance.value() - expected).abs() < 1e-6);
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn cosine_distance_returns_expected(
     #[case] expected: f32,
 ) {
     let distance = cosine_distance(&left, &right, None).expect("distance should succeed");
-    assert!((distance - expected).abs() < 1e-6);
+    assert!((distance.value() - expected).abs() < 1e-6);
 }
 
 #[test]
@@ -64,9 +64,12 @@ fn cosine_distance_respects_precomputed_norms() {
 
     let baseline = cosine_distance(&left, &right, None).expect("baseline distance");
     let norms = CosineNorms::from_vectors(&left, &right).expect("norms from vectors");
+    assert!((norms.left_norm().value() - norms.left()).abs() < f32::EPSILON);
+    assert!((norms.right_norm().value() - norms.right()).abs() < f32::EPSILON);
+
     let cached = cosine_distance(&left, &right, Some(norms)).expect("cached distance");
 
-    assert!((baseline - cached).abs() < 1e-6);
+    assert!((baseline.value() - cached.value()).abs() < 1e-6);
 }
 
 #[test]

@@ -13,8 +13,8 @@ pub use crate::{
     chutoro::Chutoro,
     datasource::DataSource,
     distance::{
-        CosineNorms, DistanceError, Result as DistanceResult, VectorKind, cosine_distance,
-        euclidean_distance,
+        CosineNorms, Distance, DistanceError, Norm, Result as DistanceResult, VectorKind,
+        cosine_distance, euclidean_distance,
     },
     error::{ChutoroError, DataSourceError, Result},
     result::{ClusterId, ClusteringResult, NonContiguousClusterIds},
