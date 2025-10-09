@@ -1445,6 +1445,45 @@ Rust ecosystem.
 - `thiserror`: For ergonomic, boilerplate-free error handling.
 - `dashmap`: For a high-performance, concurrent hash map for the distance cache.
 
+#### 10.5. Walking skeleton CLI
+
+The first binary ships as a focused walking skeleton that exercises the core
+pipeline without depending on the unfinished plugin system. The `chutoro`
+executable is implemented with `clap` to provide a declarative command model
+and helpful error messages. The CLI exposes a single `run` command with two
+data-source variants:
+
+- `chutoro run parquet <path> --column <name>` loads a
+  `FixedSizeList<Float32, D>` column using
+  `DenseMatrixProvider::try_from_parquet_path`.
+- `chutoro run text <path> --metric levenshtein` streams UTF-8 lines into a
+  `TextProvider` and compares them via the Levenshtein distance from `strsim`.
+
+Both variants share common options:
+
+- `--min-cluster-size <usize>` maps to
+  `ChutoroBuilder::with_min_cluster_size` and defaults to `5`, matching the
+  library baseline.
+- `--name <string>` overrides the data-source name reported in diagnostics
+  and output. When omitted the CLI derives the name from the file name using a
+  lossy UTF-8 conversion to preserve visibility for non-Unicode paths.
+
+The CLI executes the builder once per invocation and maps ingestion and
+orchestration failures onto a `thiserror`-based `CliError` so tests and future
+integration can inspect precise failure modes. Output is human-readable text:
+
+```text
+data source: <name>
+clusters: <count>
+<index>\t<cluster-id>
+```
+
+`stdout` writes use `BufWriter` to avoid the banned `print!` macros while
+`stderr` mirrors the same approach for errors. Tests construct Parquet fixtures
+with Arrow/Parquet writers and rely on `rstest` parameterisation to cover
+successful execution, builder validation failures, unsupported columns, and the
+text ingestion edge cases (empty files and insufficient items).
+
 ### 11. Concluding Recommendations
 
 This document has laid out a comprehensive architectural blueprint for a

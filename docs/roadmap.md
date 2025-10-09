@@ -21,7 +21,7 @@ ______________________________________________________________________
   non‑metric distances (e.g., Levenshtein). (See §1.3)
 - [x] Add `cosine` and `euclidean` distance implementations in `chutoro-core`
   with optional precomputed norms for cosine. (See §3.1)
-- [ ] Ship a minimal CLI: `chutoro run parquet <path> --column features ...`
+- [x] Ship a minimal CLI: `chutoro run parquet <path> --column features ...`
   and `chutoro run text <path> --metric levenshtein`. (See §10)
 - [ ] Add structured logging via `tracing` + `tracing-subscriber`; bridge the
   `log` crate via `tracing-log`; replace manual prints and initialise logging
