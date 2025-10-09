@@ -174,7 +174,7 @@ pub(super) fn run_parquet(
 ) -> Result<ExecutionSummary, CliError> {
     let ParquetArgs { path, column, name } = args;
     let chosen_name = derive_data_source_name(&path, name.as_deref());
-    let provider = DenseMatrixProvider::try_from_parquet_path(chosen_name.clone(), &path, &column)?;
+    let provider = DenseMatrixProvider::try_from_parquet_path(chosen_name, &path, &column)?;
     let result = chutoro.run(&provider)?;
     Ok(ExecutionSummary {
         data_source: provider.name().to_owned(),
