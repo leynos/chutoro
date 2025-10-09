@@ -1,28 +1,63 @@
-use std::io::{self, BufWriter, Write};
+//! CLI entry point for executing the chutoro walking skeleton.
+
+use std::fmt;
+use std::io;
 use std::process::ExitCode;
 
 use clap::Parser;
 
-use chutoro_cli::cli::{Cli, render_summary, run_cli};
+use chutoro_cli::cli::{Cli, CliError, render_summary, run_cli};
+
+fn try_main() -> Result<(), MainError> {
+    let cli = Cli::parse();
+    let summary = run_cli(cli)?;
+    let mut stdout = io::stdout();
+    render_summary(&summary, &mut stdout)?;
+    Ok(())
+}
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
-    match run_cli(cli) {
-        Ok(summary) => {
-            let mut stdout = BufWriter::new(io::stdout());
-            match render_summary(&summary, &mut stdout) {
-                Ok(()) => ExitCode::SUCCESS,
-                Err(err) => {
-                    let mut stderr = BufWriter::new(io::stderr());
-                    let _ = writeln!(stderr, "failed to write output: {err}");
-                    ExitCode::from(1)
-                }
-            }
-        }
+    match try_main() {
+        Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            let mut stderr = BufWriter::new(io::stderr());
-            let _ = writeln!(stderr, "{err}");
+            eprintln!("{err}");
             ExitCode::from(1)
+        }
+    }
+}
+
+#[derive(Debug)]
+enum MainError {
+    Cli(CliError),
+    Output(io::Error),
+}
+
+impl From<CliError> for MainError {
+    fn from(error: CliError) -> Self {
+        Self::Cli(error)
+    }
+}
+
+impl From<io::Error> for MainError {
+    fn from(error: io::Error) -> Self {
+        Self::Output(error)
+    }
+}
+
+impl fmt::Display for MainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Cli(error) => write!(f, "{error}"),
+            Self::Output(error) => write!(f, "failed to write output: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for MainError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Cli(error) => Some(error),
+            Self::Output(error) => Some(error),
         }
     }
 }

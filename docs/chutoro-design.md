@@ -1478,11 +1478,11 @@ clusters: <count>
 <index>\t<cluster-id>
 ```
 
-`stdout` writes use `BufWriter` to avoid the banned `print!` macros while
-`stderr` mirrors the same approach for errors. Tests construct Parquet fixtures
-with Arrow/Parquet writers and rely on `rstest` parameterisation to cover
-successful execution, builder validation failures, unsupported columns, and the
-text ingestion edge cases (empty files and insufficient items).
+`stdout` writes forward directly to the summary renderer while `stderr` prints
+errors with `eprintln!`. Tests construct Parquet fixtures with Arrow/Parquet
+writers and rely on `rstest` parameterization to cover successful execution,
+builder validation failures, unsupported columns, and the text ingestion edge
+cases (empty files and insufficient items).
 
 ### 11. Concluding Recommendations
 

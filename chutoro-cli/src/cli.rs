@@ -210,9 +210,10 @@ fn derive_data_source_name(path: &Path, override_name: Option<&str>) -> String {
         return name.to_owned();
     }
 
-    path.file_name()
+    path.file_stem()
         .and_then(|value| value.to_str())
-        .map_or_else(|| path.display().to_string(), ToOwned::to_owned)
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "data_source".to_owned())
 }
 
 /// Renders `summary` to `writer` in a human-readable text format.
@@ -254,6 +255,7 @@ pub fn render_summary(summary: &ExecutionSummary, mut writer: impl Write) -> io:
 mod tests {
     use super::*;
 
+    use std::path::Path;
     use std::sync::Arc;
 
     use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array, RecordBatch};
@@ -263,6 +265,21 @@ mod tests {
     use tempfile::TempDir;
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    #[rstest]
+    #[case::override_name("/tmp/source.parquet", Some("override"), "override")]
+    #[case::stem_with_extension("/tmp/source.parquet", None, "source")]
+    #[case::stem_without_extension("/tmp/source", None, "source")]
+    #[case::missing_stem("", None, "data_source")]
+    fn derive_data_source_name_selects_expected_name(
+        #[case] raw_path: &str,
+        #[case] override_name: Option<&'static str>,
+        #[case] expected: &str,
+    ) {
+        let path = Path::new(raw_path);
+        let name = derive_data_source_name(path, override_name);
+        assert_eq!(name, expected);
+    }
 
     #[rstest]
     #[case(1, vec![0, 1, 2])]
