@@ -1461,11 +1461,10 @@ data-source variants:
 
 Both variants share common options:
 
-- `--min-cluster-size <usize>` maps to
-  `ChutoroBuilder::with_min_cluster_size` and defaults to `5`, matching the
-  library baseline.
-- `--name <string>` overrides the data-source name reported in diagnostics
-  and output. When omitted the CLI derives the name from the file name using a
+- `--min-cluster-size <usize>` maps to `ChutoroBuilder::with_min_cluster_size`
+  and defaults to `5`, matching the library baseline.
+- `--name <string>` overrides the data-source name reported in diagnostics and
+  output. When omitted the CLI derives the name from the file name using a
   lossy UTF-8 conversion to preserve visibility for non-Unicode paths.
 
 The CLI executes the builder once per invocation and maps ingestion and
