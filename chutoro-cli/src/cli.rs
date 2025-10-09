@@ -482,7 +482,7 @@ mod tests {
     /// Run CLI and expect an error, panicking with the given message if successful.
     fn run_cli_expecting_error(cli: Cli, panic_msg: &str) -> CliError {
         match run_cli(cli) {
-            Ok(_) => panic!("{panic_msg}"),
+            Ok(_) => panic!("{}", panic_msg),
             Err(err) => err,
         }
     }
@@ -490,7 +490,7 @@ mod tests {
     /// Run command and expect an error, panicking with the given message if successful.
     fn run_command_expecting_error(cmd: RunCommand, panic_msg: &str) -> CliError {
         match run_command(cmd) {
-            Ok(_) => panic!("{panic_msg}"),
+            Ok(_) => panic!("{}", panic_msg),
             Err(err) => err,
         }
     }
