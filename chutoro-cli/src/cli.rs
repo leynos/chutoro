@@ -322,10 +322,7 @@ mod tests {
                 }),
             }),
         };
-        let err = match run_cli(cli) {
-            Ok(_) => panic!("run must fail for insufficient items"),
-            Err(err) => err,
-        };
+        let err = run_cli_expecting_error(cli, "run must fail for insufficient items");
         assert!(matches!(
             err,
             CliError::Core(ChutoroError::InsufficientItems { .. })
@@ -347,10 +344,7 @@ mod tests {
                 }),
             }),
         };
-        let err = match run_cli(cli) {
-            Ok(_) => panic!("empty input must fail"),
-            Err(err) => err,
-        };
+        let err = run_cli_expecting_error(cli, "empty input must fail");
         assert!(matches!(err, CliError::Text(TextProviderError::EmptyInput)));
         Ok(())
     }
@@ -394,10 +388,7 @@ mod tests {
                 }),
             }),
         };
-        let err = match run_cli(cli) {
-            Ok(_) => panic!("unknown column must fail"),
-            Err(err) => err,
-        };
+        let err = run_cli_expecting_error(cli, "unknown column must fail");
         assert!(matches!(
             err,
             CliError::Dense(DenseMatrixProviderError::ColumnNotFound { .. })
@@ -409,17 +400,17 @@ mod tests {
     fn run_command_rejects_zero_min_cluster_size() -> TestResult {
         let dir = temp_dir();
         let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")?;
-        let err = match run_command(RunCommand {
-            min_cluster_size: 0,
-            source: RunSource::Text(TextArgs {
-                path,
-                metric: TextMetric::Levenshtein,
-                name: None,
-            }),
-        }) {
-            Ok(_) => panic!("zero min-cluster-size must fail"),
-            Err(err) => err,
-        };
+        let err = run_command_expecting_error(
+            RunCommand {
+                min_cluster_size: 0,
+                source: RunSource::Text(TextArgs {
+                    path,
+                    metric: TextMetric::Levenshtein,
+                    name: None,
+                }),
+            },
+            "zero min-cluster-size must fail",
+        );
         assert!(matches!(
             err,
             CliError::Core(ChutoroError::InvalidMinClusterSize { .. })
@@ -486,6 +477,22 @@ mod tests {
         writer.write(&batch)?;
         writer.close()?;
         Ok(path)
+    }
+
+    /// Run CLI and expect an error, panicking with the given message if successful.
+    fn run_cli_expecting_error(cli: Cli, panic_msg: &str) -> CliError {
+        match run_cli(cli) {
+            Ok(_) => panic!("{panic_msg}"),
+            Err(err) => err,
+        }
+    }
+
+    /// Run command and expect an error, panicking with the given message if successful.
+    fn run_command_expecting_error(cmd: RunCommand, panic_msg: &str) -> CliError {
+        match run_command(cmd) {
+            Ok(_) => panic!("{panic_msg}"),
+            Err(err) => err,
+        }
     }
 
     fn build_schema() -> Arc<Schema> {
