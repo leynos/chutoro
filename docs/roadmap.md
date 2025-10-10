@@ -21,8 +21,11 @@ ______________________________________________________________________
   non‑metric distances (e.g., Levenshtein). (See §1.3)
 - [x] Add `cosine` and `euclidean` distance implementations in `chutoro-core`
   with optional precomputed norms for cosine. (See §3.1)
-- [ ] Ship a minimal CLI: `chutoro run parquet <path> --column features ...`
-  and `chutoro run text <path> --metric levenshtein`. (See §10)
+- [x] Ship a minimal CLI: `chutoro run parquet <path> --column features ...`
+  and `chutoro run text <path> --metric levenshtein`. Shared flags include
+  `--min-cluster-size <usize>` defaulting to `5` and `--name <string>`.
+  `--name` defaults to the file stem via UTF-8 lossy conversion for visibility.
+  (See §10)
 - [ ] Add structured logging via `tracing` + `tracing-subscriber`; bridge the
   `log` crate via `tracing-log`; replace manual prints and initialise logging
   in the CLI (e.g.,
