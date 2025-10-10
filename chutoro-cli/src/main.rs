@@ -1,7 +1,7 @@
 //! CLI entry point for executing the chutoro walking skeleton.
 
 use std::fmt;
-use std::io;
+use std::io::{self, BufWriter, Write};
 use std::process::ExitCode;
 
 use clap::Parser;
@@ -11,8 +11,10 @@ use chutoro_cli::cli::{Cli, CliError, render_summary, run_cli};
 fn try_main() -> Result<(), MainError> {
     let cli = Cli::parse();
     let summary = run_cli(cli)?;
-    let mut stdout = io::stdout();
-    render_summary(&summary, &mut stdout)?;
+    let stdout = io::stdout();
+    let mut writer = BufWriter::new(stdout.lock());
+    render_summary(&summary, &mut writer)?;
+    writer.flush()?;
     Ok(())
 }
 
