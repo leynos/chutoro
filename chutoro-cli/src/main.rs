@@ -1,4 +1,8 @@
 //! CLI entry point for executing the chutoro walking skeleton.
+//!
+//! Parses command-line arguments with clap, executes the walking skeleton
+//! clustering pipeline, renders the summary to stdout, and maps errors to
+//! appropriate exit codes.
 
 use std::io::{self, BufWriter, Write};
 use std::process::ExitCode;
@@ -8,7 +12,8 @@ use thiserror::Error;
 
 use chutoro_cli::cli::{Cli, CliError, render_summary, run_cli};
 
-/// Parse CLI arguments, execute the command, render the summary, and flush the output stream.
+/// Parse CLI arguments, execute the command, render the summary, and flush the
+/// output stream.
 fn try_main() -> Result<(), MainError> {
     let cli = Cli::parse();
     let summary = run_cli(cli)?;
@@ -24,7 +29,7 @@ fn main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("{err}");
-            ExitCode::from(1)
+            ExitCode::FAILURE
         }
     }
 }
