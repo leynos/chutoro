@@ -6,6 +6,9 @@ edition = "2024"
 [dependencies]
 clap = { version = "4.5.4", features = ["derive"] }
 thiserror = "1.0"
+tracing = { version = "0.1", features = ["attributes"] }
+tracing-log = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
 
 [dependencies.chutoro-core]
 version = "0.1.0"

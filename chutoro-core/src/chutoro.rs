@@ -12,6 +12,9 @@ use crate::{
     error::{ChutoroError, DataSourceError},
     result::{ClusterId, ClusteringResult},
 };
+#[cfg(feature = "skeleton")]
+use tracing::info;
+use tracing::{Span, field, instrument};
 
 type DataSourceResult<T> = core::result::Result<T, DataSourceError>;
 
@@ -129,8 +132,24 @@ impl Chutoro {
     /// assert_eq!(result.assignments().len(), 3);
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
+    #[instrument(
+        name = "core.run",
+        err,
+        skip(self, source),
+        fields(
+            data_source = field::Empty,
+            items = field::Empty,
+            min_cluster_size = field::Empty,
+            strategy = field::Empty
+        ),
+    )]
     pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult> {
+        let span = Span::current();
+        span.record("data_source", field::display(source.name()));
+        span.record("min_cluster_size", field::display(self.min_cluster_size));
+        span.record("strategy", field::debug(self.execution_strategy));
         let len = source.len();
+        span.record("items", field::display(len));
         if len == 0 {
             return Err(ChutoroError::EmptySource {
                 data_source: Arc::from(source.name()),
@@ -179,11 +198,18 @@ impl Chutoro {
 
     #[cfg(feature = "skeleton")]
     #[cfg_attr(docsrs, doc(cfg(feature = "skeleton")))]
+    #[instrument(
+        name = "core.run_cpu",
+        err,
+        skip(self, _source),
+        fields(items, min_cluster_size = field::Empty),
+    )]
     fn run_cpu<D: DataSource>(
         &self,
         _source: &D,
         items: usize,
     ) -> DataSourceResult<ClusteringResult> {
+        Span::current().record("min_cluster_size", field::display(self.min_cluster_size));
         // FIXME(#12): This is a walking skeleton implementation that partitions items into
         // fixed-size buckets based on min_cluster_size. Replace with HNSW + MST +
         // hierarchy extraction as per the FISHDBC algorithm design.
@@ -191,7 +217,9 @@ impl Chutoro {
         let assignments = (0..items)
             .map(|idx| ClusterId::new((idx / cluster_span) as u64))
             .collect();
-        Ok(ClusteringResult::from_assignments(assignments))
+        let result = ClusteringResult::from_assignments(assignments);
+        info!(clusters = result.cluster_count(), "cpu execution completed");
+        Ok(result)
     }
 
     #[cfg(all(feature = "gpu", feature = "skeleton"))]

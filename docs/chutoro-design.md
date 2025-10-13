@@ -1477,11 +1477,17 @@ clusters: <count>
 <index>\t<cluster-id>
 ```
 
-`stdout` writes forward directly to the summary renderer while `stderr` prints
-errors with `eprintln!`. Tests construct Parquet fixtures with Arrow/Parquet
-writers and rely on `rstest` parameterization to cover successful execution,
-builder validation failures, unsupported columns, and the text ingestion edge
-cases (empty files and insufficient items).
+`stdout` writes forward directly to the summary renderer while structured
+diagnostics are emitted via `tracing`. The CLI initialises a subscriber that
+defaults to a human-readable formatter, supports opt-in JSON output via
+`CHUTORO_LOG_FORMAT=json`, and honours `RUST_LOG` through
+`tracing-subscriber`'s `EnvFilter`. The `tracing-log` bridge ensures any crate
+still using the `log` facade produces the same structured events, and the CLI
+defers to an existing global logger when one is already registered. Tests
+construct Parquet fixtures with Arrow/Parquet writers and rely on `rstest`
+parameterization to cover successful execution, builder validation failures,
+unsupported columns, and the text ingestion edge cases (empty files and
+insufficient items).
 
 ### 11. Concluding Recommendations
 

@@ -9,6 +9,7 @@ use chutoro_providers_dense::{DenseMatrixProvider, DenseMatrixProviderError};
 use chutoro_providers_text::{TextProvider, TextProviderError};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use thiserror::Error;
+use tracing::{Span, field, info, instrument};
 
 const DEFAULT_MIN_CLUSTER_SIZE: usize = 5;
 
@@ -151,52 +152,124 @@ pub struct ExecutionSummary {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(
+    name = "cli.run",
+    err,
+    skip(cli),
+    fields(command = field::Empty),
+)]
 pub fn run_cli(cli: Cli) -> Result<ExecutionSummary, CliError> {
     match cli.command {
-        Command::Run(run) => run_command(run),
+        Command::Run(run) => {
+            Span::current().record("command", field::display("run"));
+            run_command(run)
+        }
     }
 }
 
+#[instrument(
+    name = "cli.execute",
+    err,
+    skip(command),
+    fields(min_cluster_size = field::Empty, source = field::Empty),
+)]
 pub(super) fn run_command(command: RunCommand) -> Result<ExecutionSummary, CliError> {
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(command.min_cluster_size)
         .build()?;
 
-    match command.source {
-        RunSource::Parquet(args) => run_parquet(&chutoro, args),
-        RunSource::Text(args) => run_text(&chutoro, args),
-    }
+    let span = Span::current();
+    span.record("min_cluster_size", field::display(command.min_cluster_size));
+
+    let summary = match command.source {
+        RunSource::Parquet(args) => {
+            span.record("source", field::display("parquet"));
+            run_parquet(&chutoro, args)?
+        }
+        RunSource::Text(args) => {
+            span.record("source", field::display("text"));
+            run_text(&chutoro, args)?
+        }
+    };
+
+    info!(
+        data_source = summary.data_source.as_str(),
+        clusters = summary.result.cluster_count(),
+        "command completed"
+    );
+    Ok(summary)
 }
 
+#[instrument(
+    name = "cli.run_parquet",
+    err,
+    skip(chutoro, args),
+    fields(path = field::Empty, column = field::Empty, override_name = field::Empty),
+)]
 pub(super) fn run_parquet(
     chutoro: &Chutoro,
     args: ParquetArgs,
 ) -> Result<ExecutionSummary, CliError> {
     let ParquetArgs { path, column, name } = args;
+    let span = Span::current();
+    span.record("path", field::display(path.display()));
+    span.record("column", field::display(&column));
+    span.record(
+        "override_name",
+        field::display(name.as_deref().unwrap_or("<derived>")),
+    );
     let chosen_name = derive_data_source_name(&path, name.as_deref());
     let provider = DenseMatrixProvider::try_from_parquet_path(chosen_name, &path, &column)?;
     let result = chutoro.run(&provider)?;
+    info!(
+        data_source = provider.name(),
+        clusters = result.cluster_count(),
+        "parquet execution completed"
+    );
     Ok(ExecutionSummary {
         data_source: provider.name().to_owned(),
         result,
     })
 }
 
+#[instrument(
+    name = "cli.run_text",
+    err,
+    skip(chutoro, args),
+    fields(path = field::Empty, metric = field::Empty, override_name = field::Empty),
+)]
 pub(super) fn run_text(chutoro: &Chutoro, args: TextArgs) -> Result<ExecutionSummary, CliError> {
     let TextArgs { path, metric, name } = args;
+    let span = Span::current();
+    span.record("path", field::display(path.display()));
+    let metric_label = match metric {
+        TextMetric::Levenshtein => "levenshtein",
+    };
+    span.record("metric", field::display(metric_label));
+    span.record(
+        "override_name",
+        field::display(name.as_deref().unwrap_or("<derived>")),
+    );
     let chosen_name = derive_data_source_name(&path, name.as_deref());
     let reader = open_text_reader(&path)?;
     let provider = match metric {
         TextMetric::Levenshtein => TextProvider::try_from_reader(chosen_name, reader)?,
     };
     let result = chutoro.run(&provider)?;
+    info!(
+        data_source = provider.name(),
+        clusters = result.cluster_count(),
+        "text execution completed"
+    );
     Ok(ExecutionSummary {
         data_source: provider.name().to_owned(),
         result,
     })
 }
 
+#[instrument(name = "cli.open_text_reader", err, fields(path = field::Empty))]
 pub(super) fn open_text_reader(path: &Path) -> Result<BufReader<File>, CliError> {
+    Span::current().record("path", field::display(path.display()));
     let file = File::open(path).map_err(|source| CliError::Io {
         path: path.to_path_buf(),
         source,
