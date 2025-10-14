@@ -45,8 +45,9 @@ pub enum LoggingError {
 /// Install global structured logging if it has not already been configured.
 ///
 /// The log format defaults to human-readable output, but can be switched to
-/// JSON by setting `CHUTORO_LOG_FORMAT=json`. The log level is controlled via
-/// `RUST_LOG`.
+/// JSON by setting `CHUTORO_LOG_FORMAT=json`. Diagnostics are emitted to
+/// `stderr` so CLI payloads on `stdout` remain parseable. The log level is
+/// controlled via `RUST_LOG`.
 ///
 /// # Errors
 /// Returns [`LoggingError`] if the environment variable contains invalid
@@ -80,17 +81,18 @@ fn install_subscriber() -> Result<(), LoggingError> {
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_span_events(FmtSpan::FULL)
+        .with_writer(std::io::stderr);
+
     let fmt_layer = if use_json {
-        tracing_subscriber::fmt::layer()
-            .with_span_events(FmtSpan::FULL)
+        fmt_layer
             .json()
             .with_current_span(true)
             .with_span_list(true)
             .boxed()
     } else {
-        tracing_subscriber::fmt::layer()
-            .with_span_events(FmtSpan::FULL)
-            .boxed()
+        fmt_layer.boxed()
     };
 
     // Installing the log bridge is best-effort; if another logger already owns

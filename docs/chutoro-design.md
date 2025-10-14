@@ -1481,13 +1481,14 @@ clusters: <count>
 diagnostics are emitted via `tracing`. The CLI initializes a subscriber that
 defaults to a human-readable formatter, supports opt-in JSON output via
 `CHUTORO_LOG_FORMAT=json`, and honors `RUST_LOG` through `tracing-subscriber`'s
-`EnvFilter`. The `tracing-log` bridge ensures any crate still using the `log`
-facade produces the same structured events, and the CLI warns when structured
-logging is already configured so it can reuse an existing global logger. Tests
-construct Parquet fixtures with Arrow/Parquet writers and rely on `rstest`
-parameterization to cover successful execution, builder validation failures,
-unsupported columns, and the text ingestion edge cases (empty files and
-insufficient items).
+`EnvFilter`. Diagnostics are routed to `stderr` so the machine-readable
+summaries on `stdout` remain stable. The `tracing-log` bridge ensures any crate
+still using the `log` facade produces the same structured events, and the CLI
+warns when structured logging is already configured so it can reuse an existing
+global logger. Tests construct Parquet fixtures with Arrow/Parquet writers and
+rely on `rstest` parameterization to cover successful execution, builder
+validation failures, unsupported columns, and the text ingestion edge cases
+(empty files and insufficient items).
 
 ### 11. Concluding Recommendations
 
