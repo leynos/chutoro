@@ -19,3 +19,4 @@ tracing = { version = "0.1", features = ["attributes"] }
 [dev-dependencies]
 rstest = "0.23"
 rstest-bdd = "0.1.0-alpha4"
+tracing-subscriber = { version = "0.3", features = ["fmt"] }

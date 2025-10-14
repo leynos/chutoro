@@ -8,19 +8,12 @@ use std::{env, sync::OnceLock};
 use thiserror::Error;
 use tracing_log::LogTracer;
 use tracing_subscriber::{
-    EnvFilter, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
+    EnvFilter, Layer, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
 const LOG_FORMAT_ENV: &str = "CHUTORO_LOG_FORMAT";
 
 static INITIALISED: OnceLock<()> = OnceLock::new();
-
-/// Supported log formatting strategies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LogFormat {
-    Human,
-    Json,
-}
 
 /// Errors raised while initialising structured logging.
 #[derive(Debug, Error)]
@@ -40,6 +33,13 @@ pub enum LoggingError {
         /// Raw value supplied by the user.
         provided: String,
     },
+    /// Failed to install the global tracing subscriber.
+    #[error("failed to install tracing subscriber: {source}")]
+    InstallFailed {
+        /// Error raised by `tracing_subscriber`.
+        #[source]
+        source: tracing_subscriber::util::TryInitError,
+    },
 }
 
 /// Install global structured logging if it has not already been configured.
@@ -57,65 +57,61 @@ pub fn init_logging() -> Result<(), LoggingError> {
         return Ok(());
     }
 
-    install_subscriber()?;
+    match install_subscriber() {
+        Ok(()) => {}
+        Err(LoggingError::InstallFailed { source }) => {
+            eprintln!("structured logging already configured elsewhere: {source}");
+        }
+        Err(err) => return Err(err),
+    }
     let _ = INITIALISED.set(());
     Ok(())
 }
 
 fn install_subscriber() -> Result<(), LoggingError> {
-    let format = detect_log_format()?;
-    let env_filter = build_env_filter();
+    let use_json = match env::var(LOG_FORMAT_ENV) {
+        Ok(raw) => parse_log_format(&raw)?,
+        Err(env::VarError::NotPresent) => false,
+        Err(err @ env::VarError::NotUnicode(_)) => Err(LoggingError::InvalidUnicode {
+            name: LOG_FORMAT_ENV,
+            source: err,
+        })?,
+    };
+
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+
+    let fmt_layer = if use_json {
+        tracing_subscriber::fmt::layer()
+            .with_span_events(FmtSpan::FULL)
+            .json()
+            .with_current_span(true)
+            .with_span_list(true)
+            .boxed()
+    } else {
+        tracing_subscriber::fmt::layer()
+            .with_span_events(FmtSpan::FULL)
+            .boxed()
+    };
+
     // Installing the log bridge is best-effort; if another logger already owns
     // the global slot we keep the existing configuration.
     let _ = LogTracer::init();
 
-    match format {
-        LogFormat::Human => {
-            let _ = tracing_subscriber::registry()
-                .with(env_filter)
-                .with(tracing_subscriber::fmt::layer().with_span_events(FmtSpan::FULL))
-                .try_init();
-            Ok(())
-        }
-        LogFormat::Json => {
-            let _ = tracing_subscriber::registry()
-                .with(env_filter)
-                .with(
-                    tracing_subscriber::fmt::layer()
-                        .json()
-                        .with_current_span(true)
-                        .with_span_list(true)
-                        .with_span_events(FmtSpan::FULL),
-                )
-                .try_init();
-            Ok(())
-        }
-    }
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer)
+        .try_init()
+        .map_err(|source| LoggingError::InstallFailed { source })
 }
 
-fn detect_log_format() -> Result<LogFormat, LoggingError> {
-    match env::var(LOG_FORMAT_ENV) {
-        Ok(value) => parse_log_format(&value),
-        Err(env::VarError::NotPresent) => Ok(LogFormat::Human),
-        Err(err @ env::VarError::NotUnicode(_)) => Err(LoggingError::InvalidUnicode {
-            name: LOG_FORMAT_ENV,
-            source: err,
-        }),
-    }
-}
-
-fn parse_log_format(raw: &str) -> Result<LogFormat, LoggingError> {
+fn parse_log_format(raw: &str) -> Result<bool, LoggingError> {
     match raw.trim().to_ascii_lowercase().as_str() {
-        "human" => Ok(LogFormat::Human),
-        "json" => Ok(LogFormat::Json),
+        "human" => Ok(false),
+        "json" => Ok(true),
         other => Err(LoggingError::UnsupportedFormat {
             provided: other.to_owned(),
         }),
     }
-}
-
-fn build_env_filter() -> EnvFilter {
-    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"))
 }
 
 #[cfg(test)]
@@ -125,10 +121,10 @@ mod tests {
     use rstest::rstest;
 
     #[rstest]
-    #[case("human", LogFormat::Human)]
-    #[case("HUMAN", LogFormat::Human)]
-    #[case(" json ", LogFormat::Json)]
-    fn parse_log_format_accepts_supported_values(#[case] raw: &str, #[case] expected: LogFormat) {
+    #[case("human", false)]
+    #[case("HUMAN", false)]
+    #[case(" json ", true)]
+    fn parse_log_format_accepts_supported_values(#[case] raw: &str, #[case] expected: bool) {
         let format = parse_log_format(raw).expect("format must parse");
         assert_eq!(format, expected);
     }

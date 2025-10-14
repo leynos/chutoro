@@ -19,6 +19,8 @@ use clap::Parser;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use rstest::rstest;
 use tempfile::TempDir;
+use tracing::Level;
+use tracing_subscriber::layer::SubscriberExt;
 
 use chutoro_providers_dense::DenseMatrixProviderError;
 use chutoro_providers_text::TextProviderError;
@@ -210,10 +212,283 @@ fn clap_rejects_unknown_metric() {
     assert!(result.is_err());
 }
 
+#[rstest]
+fn run_command_emits_tracing_fields() -> TestResult {
+    let dir = temp_dir();
+    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")?;
+    let layer = tracing_support::RecordingLayer::default();
+    let subscriber = tracing_subscriber::registry().with(layer.clone());
+
+    let command = RunCommand {
+        min_cluster_size: 2,
+        source: RunSource::Text(TextArgs {
+            path: path.clone(),
+            metric: TextMetric::Levenshtein,
+            name: None,
+        }),
+    };
+
+    let summary = tracing::subscriber::with_default(subscriber, || run_command(command))?;
+    assert_eq!(summary.data_source, "lines");
+
+    let spans = layer.spans();
+    let execute = spans
+        .iter()
+        .find(|span| span.name == "cli.execute")
+        .expect("cli.execute span must exist");
+    assert_eq!(
+        execute.fields.get("min_cluster_size"),
+        Some(&"2".to_owned())
+    );
+    assert_eq!(execute.fields.get("source"), Some(&"text".to_owned()));
+
+    let text_span = spans
+        .iter()
+        .find(|span| span.name == "cli.run_text")
+        .expect("cli.run_text span must exist");
+    assert!(
+        text_span
+            .fields
+            .get("path")
+            .is_some_and(|value| value.ends_with("lines.txt"))
+    );
+    assert_eq!(
+        text_span.fields.get("metric"),
+        Some(&"levenshtein".to_owned())
+    );
+    assert_eq!(
+        text_span.fields.get("override_name"),
+        Some(&"<derived>".to_owned())
+    );
+
+    let events = layer.events();
+    assert!(events.iter().any(|event| {
+        event.level == Level::INFO
+            && event
+                .fields
+                .get("message")
+                .is_some_and(|value| value == "command completed")
+            && event
+                .fields
+                .get("data_source")
+                .is_some_and(|value| value == "lines")
+    }));
+    Ok(())
+}
+
+#[rstest]
+fn open_text_reader_records_path_on_error() -> TestResult {
+    let dir = temp_dir();
+    let missing_path = dir.path().join("missing.txt");
+    let layer = tracing_support::RecordingLayer::default();
+    let subscriber = tracing_subscriber::registry().with(layer.clone());
+
+    let command = RunCommand {
+        min_cluster_size: 1,
+        source: RunSource::Text(TextArgs {
+            path: missing_path.clone(),
+            metric: TextMetric::Levenshtein,
+            name: None,
+        }),
+    };
+
+    let err = tracing::subscriber::with_default(subscriber, || run_command(command))
+        .expect_err("missing file must fail");
+    assert!(matches!(err, CliError::Io { .. }));
+
+    let spans = layer.spans();
+    let reader_span = spans
+        .iter()
+        .find(|span| span.name == "cli.open_text_reader")
+        .expect("reader span must exist");
+    assert!(
+        reader_span
+            .fields
+            .get("path")
+            .is_some_and(|value| value.ends_with("missing.txt"))
+    );
+
+    let run_span = spans
+        .iter()
+        .find(|span| span.name == "cli.run_text")
+        .expect("run_text span must exist");
+    assert_eq!(
+        run_span.fields.get("override_name"),
+        Some(&"<derived>".to_owned())
+    );
+    Ok(())
+}
+
 fn temp_dir() -> TempDir {
     match TempDir::new() {
         Ok(dir) => dir,
         Err(err) => panic!("failed to create temp dir: {err}"),
+    }
+}
+
+mod tracing_support {
+    use super::*;
+
+    use std::collections::HashMap;
+    use std::fmt;
+    use std::sync::{Arc, Mutex};
+
+    use tracing::field::{Field, Visit};
+    use tracing::{Event, Subscriber};
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::layer::Context;
+    use tracing_subscriber::registry::LookupSpan;
+
+    #[derive(Clone, Default)]
+    pub struct RecordingLayer {
+        spans: Arc<Mutex<Vec<SpanRecord>>>,
+        events: Arc<Mutex<Vec<EventRecord>>>,
+    }
+
+    impl RecordingLayer {
+        pub fn spans(&self) -> Vec<SpanRecord> {
+            self.spans.lock().expect("lock poisoned").clone()
+        }
+
+        pub fn events(&self) -> Vec<EventRecord> {
+            self.events.lock().expect("lock poisoned").clone()
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct SpanRecord {
+        pub name: String,
+        pub fields: HashMap<String, String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct EventRecord {
+        pub level: Level,
+        pub target: String,
+        pub fields: HashMap<String, String>,
+    }
+
+    #[derive(Default)]
+    struct SpanData {
+        name: String,
+        fields: HashMap<String, String>,
+    }
+
+    impl<S> Layer<S> for RecordingLayer
+    where
+        S: Subscriber + for<'span> LookupSpan<'span>,
+    {
+        fn on_new_span(
+            &self,
+            attrs: &tracing::span::Attributes<'_>,
+            id: &tracing::span::Id,
+            ctx: Context<'_, S>,
+        ) {
+            if let Some(span) = ctx.span(id) {
+                let mut data = SpanData {
+                    name: attrs.metadata().name().to_owned(),
+                    fields: HashMap::new(),
+                };
+                attrs.record(&mut FieldRecorder {
+                    fields: &mut data.fields,
+                });
+                span.extensions_mut().insert(data);
+            }
+        }
+
+        fn on_record(
+            &self,
+            id: &tracing::span::Id,
+            values: &tracing::span::Record<'_>,
+            ctx: Context<'_, S>,
+        ) {
+            if let Some(span) = ctx.span(id)
+                && let Some(data) = span.extensions_mut().get_mut::<SpanData>()
+            {
+                values.record(&mut FieldRecorder {
+                    fields: &mut data.fields,
+                });
+            }
+        }
+
+        fn on_close(&self, id: tracing::span::Id, ctx: Context<'_, S>) {
+            if let Some(span) = ctx.span(&id)
+                && let Some(data) = span.extensions_mut().remove::<SpanData>()
+            {
+                self.spans.lock().expect("lock poisoned").push(SpanRecord {
+                    name: data.name,
+                    fields: data.fields,
+                });
+            }
+        }
+
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let mut fields = HashMap::new();
+            event.record(&mut FieldRecorder {
+                fields: &mut fields,
+            });
+            self.events
+                .lock()
+                .expect("lock poisoned")
+                .push(EventRecord {
+                    level: *event.metadata().level(),
+                    target: event.metadata().target().to_owned(),
+                    fields,
+                });
+        }
+    }
+
+    struct FieldRecorder<'a> {
+        fields: &'a mut HashMap<String, String>,
+    }
+
+    impl<'a> Visit for FieldRecorder<'a> {
+        fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
+            self.fields.insert(
+                field.name().to_owned(),
+                format!("{value:?}").trim_matches('"').to_owned(),
+            );
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.fields
+                .insert(field.name().to_owned(), value.to_owned());
+        }
+
+        fn record_error(&mut self, field: &Field, value: &(dyn std::error::Error + 'static)) {
+            self.fields
+                .insert(field.name().to_owned(), value.to_string());
+        }
+
+        fn record_bool(&mut self, field: &Field, value: bool) {
+            self.fields
+                .insert(field.name().to_owned(), value.to_string());
+        }
+
+        fn record_i64(&mut self, field: &Field, value: i64) {
+            self.fields
+                .insert(field.name().to_owned(), value.to_string());
+        }
+
+        fn record_u64(&mut self, field: &Field, value: u64) {
+            self.fields
+                .insert(field.name().to_owned(), value.to_string());
+        }
+
+        fn record_i128(&mut self, field: &Field, value: i128) {
+            self.fields
+                .insert(field.name().to_owned(), value.to_string());
+        }
+
+        fn record_u128(&mut self, field: &Field, value: u128) {
+            self.fields
+                .insert(field.name().to_owned(), value.to_string());
+        }
+
+        fn record_f64(&mut self, field: &Field, value: f64) {
+            self.fields
+                .insert(field.name().to_owned(), value.to_string());
+        }
     }
 }
 

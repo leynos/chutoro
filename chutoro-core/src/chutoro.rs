@@ -14,7 +14,7 @@ use crate::{
 };
 #[cfg(feature = "skeleton")]
 use tracing::info;
-use tracing::{Span, field, instrument};
+use tracing::{instrument, warn};
 
 type DataSourceResult<T> = core::result::Result<T, DataSourceError>;
 
@@ -132,33 +132,36 @@ impl Chutoro {
     /// assert_eq!(result.assignments().len(), 3);
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
+    pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult> {
+        let items = source.len();
+        self.run_with_len(source, items)
+    }
+
     #[instrument(
         name = "core.run",
         err,
         skip(self, source),
         fields(
-            data_source = field::Empty,
-            items = field::Empty,
-            min_cluster_size = field::Empty,
-            strategy = field::Empty
+            data_source = %source.name(),
+            items = items,
+            min_cluster_size = %self.min_cluster_size,
+            strategy = ?self.execution_strategy
         ),
     )]
-    pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult> {
-        let span = Span::current();
-        span.record("data_source", field::display(source.name()));
-        span.record("min_cluster_size", field::display(self.min_cluster_size));
-        span.record("strategy", field::debug(self.execution_strategy));
-        let len = source.len();
-        span.record("items", field::display(len));
-        if len == 0 {
+    fn run_with_len<D: DataSource>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
+        if items == 0 {
+            warn!(
+                data_source = source.name(),
+                "data source is empty, returning error"
+            );
             return Err(ChutoroError::EmptySource {
                 data_source: Arc::from(source.name()),
             });
         }
-        if len < self.min_cluster_size.get() {
+        if items < self.min_cluster_size.get() {
             return Err(ChutoroError::InsufficientItems {
                 data_source: Arc::from(source.name()),
-                items: len,
+                items,
                 min_cluster_size: self.min_cluster_size,
             });
         }
@@ -166,16 +169,18 @@ impl Chutoro {
         match self.execution_strategy {
             // GPU + skeleton: route Auto and GpuPreferred to GPU path
             #[cfg(all(feature = "gpu", feature = "skeleton"))]
-            ExecutionStrategy::Auto | ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+            ExecutionStrategy::Auto | ExecutionStrategy::GpuPreferred => {
+                self.run_gpu(source, items)
+            }
 
             // GPU only (no skeleton): route both strategies to the GPU stub
             #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
-            ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+            ExecutionStrategy::GpuPreferred => self.run_gpu(source, items),
             #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
-            ExecutionStrategy::Auto => self.run_gpu(source, len),
+            ExecutionStrategy::Auto => self.run_gpu(source, items),
             #[cfg(all(feature = "skeleton", not(feature = "gpu")))]
             ExecutionStrategy::Auto => {
-                self.wrap_datasource_error(source, self.run_cpu(source, len))
+                self.wrap_datasource_error(source, self.run_cpu(source, items))
             }
             #[cfg(all(not(feature = "skeleton"), not(feature = "gpu")))]
             ExecutionStrategy::Auto => Err(ChutoroError::BackendUnavailable {
@@ -183,7 +188,7 @@ impl Chutoro {
             }),
             #[cfg(feature = "skeleton")]
             ExecutionStrategy::CpuOnly => {
-                self.wrap_datasource_error(source, self.run_cpu(source, len))
+                self.wrap_datasource_error(source, self.run_cpu(source, items))
             }
             #[cfg(not(feature = "skeleton"))]
             ExecutionStrategy::CpuOnly => Err(ChutoroError::BackendUnavailable {
@@ -202,14 +207,13 @@ impl Chutoro {
         name = "core.run_cpu",
         err,
         skip(self, _source),
-        fields(items, min_cluster_size = field::Empty),
+        fields(items = items, min_cluster_size = %self.min_cluster_size),
     )]
     fn run_cpu<D: DataSource>(
         &self,
         _source: &D,
         items: usize,
     ) -> DataSourceResult<ClusteringResult> {
-        Span::current().record("min_cluster_size", field::display(self.min_cluster_size));
         // FIXME(#12): This is a walking skeleton implementation that partitions items into
         // fixed-size buckets based on min_cluster_size. Replace with HNSW + MST +
         // hierarchy extraction as per the FISHDBC algorithm design.
