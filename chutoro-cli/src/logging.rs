@@ -1,4 +1,4 @@
-//! Logging initialisation for the chutoro CLI.
+//! Logging initialization for the chutoro CLI.
 //!
 //! Installs a global `tracing` subscriber with optional JSON formatting and
 //! bridges the `log` facade so crates using either API emit structured events.
@@ -13,9 +13,9 @@ use tracing_subscriber::{
 
 const LOG_FORMAT_ENV: &str = "CHUTORO_LOG_FORMAT";
 
-static INITIALISED: OnceLock<()> = OnceLock::new();
+static INITIALIZED: OnceLock<()> = OnceLock::new();
 
-/// Errors raised while initialising structured logging.
+/// Errors raised while initializing structured logging.
 #[derive(Debug, Error)]
 pub enum LoggingError {
     /// Environment variable contained invalid UTF-8 data.
@@ -54,7 +54,7 @@ pub enum LoggingError {
 /// Unicode, the requested format is unsupported, or the subscriber cannot be
 /// installed.
 pub fn init_logging() -> Result<(), LoggingError> {
-    if INITIALISED.get().is_some() {
+    if INITIALIZED.get().is_some() {
         return Ok(());
     }
 
@@ -65,7 +65,7 @@ pub fn init_logging() -> Result<(), LoggingError> {
         }
         Err(err) => return Err(err),
     }
-    let _ = INITIALISED.set(());
+    let _ = INITIALIZED.set(());
     Ok(())
 }
 
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn init_logging_is_idempotent() {
-        init_logging().expect("logging must initialise");
+        init_logging().expect("logging must initialize");
         init_logging().expect("subsequent calls must be no-ops");
     }
 }

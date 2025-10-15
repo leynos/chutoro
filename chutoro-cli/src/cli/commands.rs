@@ -228,11 +228,7 @@ pub(super) fn run_parquet(
     let ParquetArgs { path, column, name } = args;
     let chosen_name = derive_data_source_name(&path, name.as_deref());
     let provider = DenseMatrixProvider::try_from_parquet_path(chosen_name, &path, &column)?;
-    let result = chutoro.run(&provider)?;
-    Ok(ExecutionSummary {
-        data_source: provider.name().to_owned(),
-        result,
-    })
+    execute_with_provider(chutoro, provider)
 }
 
 #[instrument(
@@ -252,11 +248,7 @@ pub(super) fn run_text(chutoro: &Chutoro, args: TextArgs) -> Result<ExecutionSum
     let provider = match metric {
         TextMetric::Levenshtein => TextProvider::try_from_reader(chosen_name, reader)?,
     };
-    let result = chutoro.run(&provider)?;
-    Ok(ExecutionSummary {
-        data_source: provider.name().to_owned(),
-        result,
-    })
+    execute_with_provider(chutoro, provider)
 }
 
 #[instrument(name = "cli.open_text_reader", err, skip(path), fields(path = %path.display()))]
@@ -277,6 +269,17 @@ pub(super) fn derive_data_source_name(path: &Path, override_name: Option<&str>) 
         .and_then(|value| value.to_str())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| "data_source".to_owned())
+}
+
+fn execute_with_provider<D>(chutoro: &Chutoro, provider: D) -> Result<ExecutionSummary, CliError>
+where
+    D: DataSource,
+{
+    let result = chutoro.run(&provider)?;
+    Ok(ExecutionSummary {
+        data_source: provider.name().to_owned(),
+        result,
+    })
 }
 
 /// Renders `summary` to `writer` in a human-readable text format.

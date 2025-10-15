@@ -1,6 +1,7 @@
 //! Shared test utilities used across chutoro crates.
 
 pub mod tracing {
+    //! Recording layer utilities for capturing spans and events in tests.
     use std::collections::HashMap;
     use std::fmt;
     use std::sync::{Arc, Mutex};
