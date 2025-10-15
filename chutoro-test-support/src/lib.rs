@@ -23,7 +23,7 @@ pub mod tracing {
 
     impl RecordingLayer {
         /// Returns a snapshot of the closed spans recorded by the layer in
-        /// creation order so instrumentation can be asserted without holding
+        /// completion order so instrumentation can be asserted without holding
         /// the internal lock.
         ///
         /// # Examples
@@ -146,6 +146,15 @@ pub mod tracing {
     }
 
     impl<'a> Visit for FieldRecorder<'a> {
+        fn record_bytes(&mut self, field: &Field, value: &[u8]) {
+            let mut encoded = String::with_capacity(value.len() * 2);
+            for byte in value {
+                use std::fmt::Write as _;
+                let _ = write!(&mut encoded, "{byte:02x}");
+            }
+            self.fields.insert(field.name().to_owned(), encoded);
+        }
+
         fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
             self.fields
                 .insert(field.name().to_owned(), format!("{value:?}"));

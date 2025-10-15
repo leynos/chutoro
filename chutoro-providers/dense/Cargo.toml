@@ -7,7 +7,7 @@ edition = "2024"
 arrow-array = "56.2.0"
 arrow-schema = "56.2.0"
 parquet = { version = "56.2.0", features = ["arrow"] }
-thiserror = "1.0"
+thiserror = "1.0.69"
 [dependencies.chutoro-core]
 version = "0.1.0"
 path = "../../chutoro-core"
