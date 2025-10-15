@@ -12,8 +12,9 @@ pub mod tracing {
     use tracing_subscriber::layer::Context;
     use tracing_subscriber::registry::LookupSpan;
 
-    /// Recording layer that captures spans and events for assertions in
-    /// integration and behavioural tests.
+    /// Recording layer installed during tests to capture spans and events for
+    /// later assertions. The layer records structured metadata so integration
+    /// and behavioural tests can verify instrumentation deterministically.
     #[derive(Clone, Default)]
     pub struct RecordingLayer {
         spans: Arc<Mutex<Vec<SpanRecord>>>,
@@ -21,27 +22,48 @@ pub mod tracing {
     }
 
     impl RecordingLayer {
-        /// Retrieve the spans recorded by the layer in creation order.
+        /// Returns a snapshot of the closed spans recorded by the layer in
+        /// creation order so instrumentation can be asserted without holding
+        /// the internal lock.
+        ///
+        /// # Examples
+        /// ```
+        /// use chutoro_test_support::tracing::RecordingLayer;
+        ///
+        /// let layer = RecordingLayer::default();
+        /// assert!(layer.spans().is_empty());
+        /// ```
         #[must_use]
         pub fn spans(&self) -> Vec<SpanRecord> {
             self.spans.lock().expect("lock poisoned").clone()
         }
 
-        /// Retrieve the events recorded by the layer in emission order.
+        /// Returns a snapshot of the emitted events recorded by the layer in
+        /// emission order for verifying structured diagnostics in tests.
+        ///
+        /// # Examples
+        /// ```
+        /// use chutoro_test_support::tracing::RecordingLayer;
+        ///
+        /// let layer = RecordingLayer::default();
+        /// assert!(layer.events().is_empty());
+        /// ```
         #[must_use]
         pub fn events(&self) -> Vec<EventRecord> {
             self.events.lock().expect("lock poisoned").clone()
         }
     }
 
-    /// Snapshot of a closed span and its associated fields.
+    /// Snapshot of a closed span, including its name and recorded fields, used
+    /// by tests to assert span metadata and field values.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct SpanRecord {
         pub name: String,
         pub fields: HashMap<String, String>,
     }
 
-    /// Snapshot of an emitted tracing event and its structured metadata.
+    /// Snapshot of an emitted tracing event, capturing its level, target, and
+    /// structured fields so tests can assert diagnostic payloads precisely.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct EventRecord {
         pub level: Level,
