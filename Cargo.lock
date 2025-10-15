@@ -308,6 +308,7 @@ dependencies = [
  "chutoro-core",
  "chutoro-providers-dense",
  "chutoro-providers-text",
+ "chutoro-test-support",
  "clap",
  "parquet",
  "rstest",
@@ -322,6 +323,7 @@ dependencies = [
 name = "chutoro-core"
 version = "0.1.0"
 dependencies = [
+ "chutoro-test-support",
  "rstest",
  "rstest-bdd",
  "thiserror 1.0.69",
@@ -350,6 +352,14 @@ dependencies = [
  "rstest",
  "strsim",
  "thiserror 2.0.17",
+]
+
+[[package]]
+name = "chutoro-test-support"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

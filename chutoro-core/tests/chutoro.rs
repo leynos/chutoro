@@ -1,7 +1,6 @@
 //! Tests for the `Chutoro` orchestration API.
 
 mod common;
-mod tracing_support;
 
 use chutoro_core::{
     ChutoroBuilder, ChutoroError, ClusterId, ClusteringResult, DataSource, DataSourceError,
@@ -12,6 +11,8 @@ use rstest::{fixture, rstest};
 use std::sync::Arc;
 use tracing::Level;
 use tracing_subscriber::layer::SubscriberExt;
+
+use chutoro_test_support::tracing::RecordingLayer;
 
 #[fixture]
 fn dummy() -> Dummy {
@@ -101,7 +102,7 @@ fn run_records_core_tracing(dummy: Dummy) {
         .with_execution_strategy(ExecutionStrategy::CpuOnly)
         .build()
         .expect("configuration must be valid");
-    let layer = tracing_support::RecordingLayer::default();
+    let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
     let result = tracing::subscriber::with_default(subscriber, || chutoro.run(&dummy))
@@ -144,7 +145,7 @@ fn run_logs_empty_source_warning() {
     let chutoro = ChutoroBuilder::new()
         .build()
         .expect("configuration must be valid");
-    let layer = tracing_support::RecordingLayer::default();
+    let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
     let err = tracing::subscriber::with_default(subscriber, || chutoro.run(&Dummy::new(vec![])))

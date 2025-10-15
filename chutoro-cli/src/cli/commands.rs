@@ -229,11 +229,6 @@ pub(super) fn run_parquet(
     let chosen_name = derive_data_source_name(&path, name.as_deref());
     let provider = DenseMatrixProvider::try_from_parquet_path(chosen_name, &path, &column)?;
     let result = chutoro.run(&provider)?;
-    info!(
-        data_source = provider.name(),
-        clusters = result.cluster_count(),
-        "parquet execution completed"
-    );
     Ok(ExecutionSummary {
         data_source: provider.name().to_owned(),
         result,
@@ -258,11 +253,6 @@ pub(super) fn run_text(chutoro: &Chutoro, args: TextArgs) -> Result<ExecutionSum
         TextMetric::Levenshtein => TextProvider::try_from_reader(chosen_name, reader)?,
     };
     let result = chutoro.run(&provider)?;
-    info!(
-        data_source = provider.name(),
-        clusters = result.cluster_count(),
-        "text execution completed"
-    );
     Ok(ExecutionSummary {
         data_source: provider.name().to_owned(),
         result,
