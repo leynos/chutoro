@@ -51,8 +51,10 @@ pub enum LoggingError {
 ///
 /// # Errors
 /// Returns [`LoggingError`] if the environment variable contains invalid
-/// Unicode, the requested format is unsupported, or the subscriber cannot be
-/// installed.
+/// Unicode or the requested format is unsupported. Subscriber installation
+/// failures (for example, when another global logger is already registered)
+/// are reported to `stderr` but do not cause this function to return an
+/// error.
 pub fn init_logging() -> Result<(), LoggingError> {
     if INITIALIZED.get().is_some() {
         return Ok(());
