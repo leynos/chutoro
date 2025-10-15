@@ -45,7 +45,7 @@ fn main() -> ExitCode {
 }
 
 fn report_logging_init_error(err: &LoggingError) {
-    error!(%err, "failed to initialize logging");
+    error!(error = %err, "failed to initialize logging");
 }
 
 #[derive(Debug, Error)]

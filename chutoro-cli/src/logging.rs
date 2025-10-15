@@ -64,7 +64,7 @@ pub fn init_logging() -> Result<(), LoggingError> {
     match install_subscriber() {
         Ok(()) => {}
         Err(LoggingError::InstallFailed { source }) => {
-            error!(%source, "structured logging already configured elsewhere");
+            error!(source = %source, "structured logging already configured elsewhere");
         }
         Err(err) => return Err(err),
     }
