@@ -86,11 +86,7 @@ fn install_subscriber() -> Result<(), LoggingError> {
         .with_writer(std::io::stderr);
 
     let fmt_layer = if use_json {
-        fmt_layer
-            .json()
-            .with_current_span(true)
-            .with_span_list(true)
-            .boxed()
+        fmt_layer.json().with_span_list(true).boxed()
     } else {
         fmt_layer.boxed()
     };
