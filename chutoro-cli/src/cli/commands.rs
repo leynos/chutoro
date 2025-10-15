@@ -216,7 +216,7 @@ pub(super) fn run_command(command: RunCommand) -> Result<ExecutionSummary, CliEr
     err,
     skip(chutoro, args),
     fields(
-        path = %args.path.display(),
+        path = %path_label(&args.path),
         column = %args.column,
         override_name = %args.name.as_deref().unwrap_or("<derived>")
     ),
@@ -236,7 +236,7 @@ pub(super) fn run_parquet(
     err,
     skip(chutoro, args),
     fields(
-        path = %args.path.display(),
+        path = %path_label(&args.path),
         metric = args.metric.label(),
         override_name = %args.name.as_deref().unwrap_or("<derived>")
     ),
@@ -251,7 +251,12 @@ pub(super) fn run_text(chutoro: &Chutoro, args: TextArgs) -> Result<ExecutionSum
     execute_with_provider(chutoro, provider)
 }
 
-#[instrument(name = "cli.open_text_reader", err, skip(path), fields(path = %path.display()))]
+#[instrument(
+    name = "cli.open_text_reader",
+    err,
+    skip(path),
+    fields(path = %path_label(path))
+)]
 pub(super) fn open_text_reader(path: &Path) -> Result<BufReader<File>, CliError> {
     let file = File::open(path).map_err(|source| CliError::Io {
         path: path.to_path_buf(),
@@ -269,6 +274,13 @@ pub(super) fn derive_data_source_name(path: &Path, override_name: Option<&str>) 
         .and_then(|value| value.to_str())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| "data_source".to_owned())
+}
+
+/// Produce a redacted label for a path that avoids leaking absolute directories.
+fn path_label(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "<unknown>".to_owned())
 }
 
 fn execute_with_provider<D>(chutoro: &Chutoro, provider: D) -> Result<ExecutionSummary, CliError>

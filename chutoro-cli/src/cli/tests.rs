@@ -252,7 +252,7 @@ fn run_command_emits_tracing_fields() -> TestResult {
         text_span
             .fields
             .get("path")
-            .is_some_and(|value| value.ends_with("lines.txt"))
+            .is_some_and(|value| value == "lines.txt")
     );
     assert_eq!(
         text_span.fields.get("metric"),
@@ -307,7 +307,7 @@ fn open_text_reader_records_path_on_error() -> TestResult {
         reader_span
             .fields
             .get("path")
-            .is_some_and(|value| value.ends_with("missing.txt"))
+            .is_some_and(|value| value == "missing.txt")
     );
 
     let run_span = spans

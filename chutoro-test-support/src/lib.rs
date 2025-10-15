@@ -12,6 +12,8 @@ pub mod tracing {
     use tracing_subscriber::layer::Context;
     use tracing_subscriber::registry::LookupSpan;
 
+    /// Recording layer that captures spans and events for assertions in
+    /// integration and behavioural tests.
     #[derive(Clone, Default)]
     pub struct RecordingLayer {
         spans: Arc<Mutex<Vec<SpanRecord>>>,
@@ -19,23 +21,27 @@ pub mod tracing {
     }
 
     impl RecordingLayer {
+        /// Retrieve the spans recorded by the layer in creation order.
         #[must_use]
         pub fn spans(&self) -> Vec<SpanRecord> {
             self.spans.lock().expect("lock poisoned").clone()
         }
 
+        /// Retrieve the events recorded by the layer in emission order.
         #[must_use]
         pub fn events(&self) -> Vec<EventRecord> {
             self.events.lock().expect("lock poisoned").clone()
         }
     }
 
+    /// Snapshot of a closed span and its associated fields.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct SpanRecord {
         pub name: String,
         pub fields: HashMap<String, String>,
     }
 
+    /// Snapshot of an emitted tracing event and its structured metadata.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct EventRecord {
         pub level: Level,
@@ -119,10 +125,8 @@ pub mod tracing {
 
     impl<'a> Visit for FieldRecorder<'a> {
         fn record_debug(&mut self, field: &Field, value: &dyn fmt::Debug) {
-            self.fields.insert(
-                field.name().to_owned(),
-                format!("{value:?}").trim_matches('"').to_owned(),
-            );
+            self.fields
+                .insert(field.name().to_owned(), format!("{value:?}"));
         }
 
         fn record_str(&mut self, field: &Field, value: &str) {
