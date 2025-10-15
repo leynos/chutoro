@@ -6,6 +6,7 @@
 use std::{env, sync::OnceLock};
 
 use thiserror::Error;
+use tracing::error;
 use tracing_log::LogTracer;
 use tracing_subscriber::{
     EnvFilter, Layer, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
@@ -63,7 +64,7 @@ pub fn init_logging() -> Result<(), LoggingError> {
     match install_subscriber() {
         Ok(()) => {}
         Err(LoggingError::InstallFailed { source }) => {
-            eprintln!("structured logging already configured elsewhere: {source}");
+            error!(%source, "structured logging already configured elsewhere");
         }
         Err(err) => return Err(err),
     }
