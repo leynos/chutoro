@@ -3,9 +3,7 @@
 //! Installs a global `tracing` subscriber with optional JSON formatting and
 //! bridges the `log` facade so crates using either API emit structured events.
 
-use std::env;
-
-use once_cell::sync::OnceCell;
+use std::{env, sync::OnceLock};
 use thiserror::Error;
 use tracing::error;
 use tracing_log::LogTracer;
@@ -15,7 +13,7 @@ use tracing_subscriber::{
 
 const LOG_FORMAT_ENV: &str = "CHUTORO_LOG_FORMAT";
 
-static INITIALIZED: OnceCell<()> = OnceCell::new();
+static INITIALIZED: OnceLock<Result<(), LoggingError>> = OnceLock::new();
 
 /// Errors raised while initializing structured logging.
 #[derive(Debug, Error)]
@@ -58,16 +56,32 @@ pub enum LoggingError {
 /// are reported via the existing logging subsystem but do not cause this
 /// function to return an error.
 pub fn init_logging() -> Result<(), LoggingError> {
-    INITIALIZED
-        .get_or_try_init(|| match install_subscriber() {
-            Ok(()) => Ok(()),
-            Err(LoggingError::InstallFailed { source }) => {
-                error!(source = %source, "structured logging already configured elsewhere");
-                Ok(())
-            }
-            Err(err) => Err(err),
-        })
-        .map(|_| ())
+    let result = INITIALIZED.get_or_init(|| match install_subscriber() {
+        Ok(()) => Ok(()),
+        Err(LoggingError::InstallFailed { source }) => {
+            error!(source = %source, "structured logging already configured elsewhere");
+            Ok(())
+        }
+        Err(err) => Err(err),
+    });
+
+    match result {
+        Ok(()) => Ok(()),
+        Err(LoggingError::InvalidUnicode { name, source }) => {
+            let env_name = *name;
+            let env_err = source.clone();
+            Err(LoggingError::InvalidUnicode {
+                name: env_name,
+                source: env_err,
+            })
+        }
+        Err(LoggingError::UnsupportedFormat { provided }) => Err(LoggingError::UnsupportedFormat {
+            provided: provided.clone(),
+        }),
+        Err(LoggingError::InstallFailed { .. }) => {
+            unreachable!("install failures are handled in init_logging")
+        }
+    }
 }
 
 fn install_subscriber() -> Result<(), LoggingError> {
@@ -92,8 +106,9 @@ fn install_subscriber() -> Result<(), LoggingError> {
         fmt_layer.boxed()
     };
 
-    // Installing the log bridge is best-effort; if another logger already owns
-    // the global slot we keep the existing configuration.
+    // Installing the log bridge is best-effort. If another logger already owns
+    // the global slot, crates emitting via the `log` facade will continue using
+    // that logger; tracing-native spans and events are unaffected.
     let _ = LogTracer::init();
 
     tracing_subscriber::registry()
