@@ -1499,7 +1499,7 @@ now surfaces `ChutoroError` and `DataSourceError` together with companion
 callers can attach stable, machine-readable identifiers to logs or metrics.
 
 Binary crates prefer `anyhow::Error` for ergonomic bubbling. The CLI
-initialises logging up front, executes command handling inside
+initializes logging up front, executes command handling inside
 `try_main() -> anyhow::Result<()>`, and layers context when rendering output
 fails. When a `CliError::Core` escapes, the wrapper logs the high level code
 alongside the inner data source code, preserving diagnostics without leaking

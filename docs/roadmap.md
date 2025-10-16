@@ -30,10 +30,10 @@ ______________________________________________________________________
   `log` crate via `tracing-log`; replace manual prints and initialize logging
   in the CLI (e.g.,
   `tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env())`,
-  human and JSON formats, and span IDs). (See §10.4)
+  human and JSON formats, and span IDs). (See §10.5)
 - [x] Define error taxonomy; adopt `thiserror` for a unified `ChutoroError` in
   public APIs and use `anyhow` in binaries; return `Result<T, ChutoroError>`
-  with stable, documented error codes. (See §10.4)
+  with stable, documented error codes. (See §10.6)
 - [ ] Establish CI (fmt, clippy, test), feature gates (`cpu`, `gpu` off by
   default), and reproducible toolchain (`rust-toolchain.toml`). (See §11)
 
