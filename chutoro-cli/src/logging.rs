@@ -3,9 +3,11 @@
 //! Installs a global `tracing` subscriber with optional JSON formatting and
 //! bridges the `log` facade so crates using either API emit structured events.
 
-use std::{env, sync::OnceLock};
+use std::{
+    env,
+    sync::{Mutex, OnceLock},
+};
 use thiserror::Error;
-use tracing::error;
 use tracing_log::LogTracer;
 use tracing_subscriber::{
     EnvFilter, Layer, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
@@ -13,7 +15,8 @@ use tracing_subscriber::{
 
 const LOG_FORMAT_ENV: &str = "CHUTORO_LOG_FORMAT";
 
-static INITIALIZED: OnceLock<Result<(), LoggingError>> = OnceLock::new();
+static INITIALIZED: OnceLock<()> = OnceLock::new();
+static INIT_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
 
 /// Errors raised while initializing structured logging.
 #[derive(Debug, Error)]
@@ -53,35 +56,36 @@ pub enum LoggingError {
 /// Returns [`LoggingError`] if the environment variable contains invalid
 /// Unicode or the requested format is unsupported. Subscriber installation
 /// failures (for example, when another global logger is already registered)
-/// are reported via the existing logging subsystem but do not cause this
-/// function to return an error.
+/// are reported to `stderr` but do not cause this function to return an error.
 pub fn init_logging() -> Result<(), LoggingError> {
-    let result = INITIALIZED.get_or_init(|| match install_subscriber() {
-        Ok(()) => Ok(()),
-        Err(LoggingError::InstallFailed { source }) => {
-            error!(source = %source, "structured logging already configured elsewhere");
-            Ok(())
-        }
-        Err(err) => Err(err),
-    });
+    let guard = INIT_GUARD
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("logging initialization mutex poisoned");
 
-    match result {
-        Ok(()) => Ok(()),
-        Err(LoggingError::InvalidUnicode { name, source }) => {
-            let env_name = *name;
-            let env_err = source.clone();
-            Err(LoggingError::InvalidUnicode {
-                name: env_name,
-                source: env_err,
-            })
+    if INITIALIZED.get().is_some() {
+        return Ok(());
+    }
+
+    match install_subscriber() {
+        Ok(()) => {
+            INITIALIZED
+                .set(())
+                .expect("logging initialization marker already set");
         }
-        Err(LoggingError::UnsupportedFormat { provided }) => Err(LoggingError::UnsupportedFormat {
-            provided: provided.clone(),
-        }),
-        Err(LoggingError::InstallFailed { .. }) => {
-            unreachable!("install failures are handled in init_logging")
+        Err(LoggingError::InstallFailed { source }) => {
+            eprintln!("structured logging already configured elsewhere: {source}");
+            INITIALIZED
+                .set(())
+                .expect("logging initialization marker already set");
+        }
+        Err(err) => {
+            drop(guard);
+            return Err(err);
         }
     }
+
+    Ok(())
 }
 
 fn install_subscriber() -> Result<(), LoggingError> {

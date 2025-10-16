@@ -44,8 +44,12 @@ fn main() -> ExitCode {
     }
 }
 
+#[expect(
+    clippy::print_stderr,
+    reason = "Emit one-off diagnostic before tracing is initialized"
+)]
 fn report_logging_init_error(err: &LoggingError) {
-    error!(error = %err, "failed to initialize logging");
+    eprintln!("failed to initialize logging: {err}");
 }
 
 #[derive(Debug, Error)]
