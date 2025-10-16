@@ -31,7 +31,7 @@ ______________________________________________________________________
   in the CLI (e.g.,
   `tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env())`,
   human and JSON formats, and span IDs). (See §10.4)
-- [ ] Define error taxonomy; adopt `thiserror` for a unified `ChutoroError` in
+- [x] Define error taxonomy; adopt `thiserror` for a unified `ChutoroError` in
   public APIs and use `anyhow` in binaries; return `Result<T, ChutoroError>`
   with stable, documented error codes. (See §10.4)
 - [ ] Establish CI (fmt, clippy, test), feature gates (`cpu`, `gpu` off by

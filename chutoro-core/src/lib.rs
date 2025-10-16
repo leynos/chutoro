@@ -16,6 +16,6 @@ pub use crate::{
         CosineNorms, Distance, DistanceError, Norm, Result as DistanceResult, VectorKind,
         cosine_distance, euclidean_distance,
     },
-    error::{ChutoroError, DataSourceError, Result},
+    error::{ChutoroError, ChutoroErrorCode, DataSourceError, DataSourceErrorCode, Result},
     result::{ClusterId, ClusteringResult, NonContiguousClusterIds},
 };

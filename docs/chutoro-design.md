@@ -1490,6 +1490,21 @@ rely on `rstest` parameterization to cover successful execution, builder
 validation failures, unsupported columns, and the text ingestion edge cases
 (empty files and insufficient items).
 
+#### 10.6. Error taxonomy and propagation
+
+Public crates expose structured errors built with `thiserror`. The core crate
+now surfaces `ChutoroError` and `DataSourceError` together with companion
+`ChutoroErrorCode` and `DataSourceErrorCode` enums. Each error instance exposes
+`code()` for programmatic inspection, and each code enum provides `as_str()` so
+callers can attach stable, machine-readable identifiers to logs or metrics.
+
+Binary crates prefer `anyhow::Error` for ergonomic bubbling. The CLI
+initialises logging up front, executes command handling inside
+`try_main() -> anyhow::Result<()>`, and layers context when rendering output
+fails. When a `CliError::Core` escapes, the wrapper logs the high level code
+alongside the inner data source code, preserving diagnostics without leaking
+implementation types across crate boundaries.
+
 ### 11. Concluding Recommendations
 
 This document has laid out a comprehensive architectural blueprint for a
