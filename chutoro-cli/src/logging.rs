@@ -125,9 +125,9 @@ fn install_subscriber() -> Result<(), LoggingError> {
 /// Emit a pre-initialisation diagnostic to stderr when structured logging
 /// initialisation collides with an existing subscriber.
 ///
-/// Clippy::print_stderr is a single lint we deny workspace-wide; suppress it
-/// narrowly for this pre-init diagnostic call because structured logging is not
-/// yet available.
+/// Clippy's `print_stderr` lint is denied workspace-wide; suppress it narrowly
+/// for this pre-init diagnostic because structured logging is not yet available
+/// and stderr is the only output channel.
 ///
 /// # Examples
 /// ```ignore
