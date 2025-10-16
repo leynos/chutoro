@@ -310,6 +310,7 @@ dependencies = [
  "chutoro-providers-text",
  "chutoro-test-support",
  "clap",
+ "once_cell",
  "parquet",
  "rstest",
  "tempfile",

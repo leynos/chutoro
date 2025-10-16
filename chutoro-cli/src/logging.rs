@@ -3,8 +3,9 @@
 //! Installs a global `tracing` subscriber with optional JSON formatting and
 //! bridges the `log` facade so crates using either API emit structured events.
 
-use std::{env, sync::OnceLock};
+use std::env;
 
+use once_cell::sync::OnceCell;
 use thiserror::Error;
 use tracing::error;
 use tracing_log::LogTracer;
@@ -14,7 +15,7 @@ use tracing_subscriber::{
 
 const LOG_FORMAT_ENV: &str = "CHUTORO_LOG_FORMAT";
 
-static INITIALIZED: OnceLock<()> = OnceLock::new();
+static INITIALIZED: OnceCell<()> = OnceCell::new();
 
 /// Errors raised while initializing structured logging.
 #[derive(Debug, Error)]
@@ -54,22 +55,19 @@ pub enum LoggingError {
 /// Returns [`LoggingError`] if the environment variable contains invalid
 /// Unicode or the requested format is unsupported. Subscriber installation
 /// failures (for example, when another global logger is already registered)
-/// are reported to `stderr` but do not cause this function to return an
-/// error.
+/// are reported via the existing logging subsystem but do not cause this
+/// function to return an error.
 pub fn init_logging() -> Result<(), LoggingError> {
-    if INITIALIZED.get().is_some() {
-        return Ok(());
-    }
-
-    match install_subscriber() {
-        Ok(()) => {}
-        Err(LoggingError::InstallFailed { source }) => {
-            error!(source = %source, "structured logging already configured elsewhere");
-        }
-        Err(err) => return Err(err),
-    }
-    let _ = INITIALIZED.set(());
-    Ok(())
+    INITIALIZED
+        .get_or_try_init(|| match install_subscriber() {
+            Ok(()) => Ok(()),
+            Err(LoggingError::InstallFailed { source }) => {
+                error!(source = %source, "structured logging already configured elsewhere");
+                Ok(())
+            }
+            Err(err) => Err(err),
+        })
+        .map(|_| ())
 }
 
 fn install_subscriber() -> Result<(), LoggingError> {
