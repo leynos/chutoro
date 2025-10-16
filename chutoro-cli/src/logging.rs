@@ -74,7 +74,7 @@ pub fn init_logging() -> Result<(), LoggingError> {
                 .expect("logging initialization marker already set");
         }
         Err(LoggingError::InstallFailed { source }) => {
-            eprintln!("structured logging already configured elsewhere: {source}");
+            report_logging_conflict(&source);
             INITIALIZED
                 .set(())
                 .expect("logging initialization marker already set");
@@ -120,6 +120,14 @@ fn install_subscriber() -> Result<(), LoggingError> {
         .with(fmt_layer)
         .try_init()
         .map_err(|source| LoggingError::InstallFailed { source })
+}
+
+#[expect(
+    clippy::print_stderr,
+    reason = "diagnostic printed during logging init conflict (matches main.rs pattern)"
+)]
+fn report_logging_conflict(source: &tracing_subscriber::util::TryInitError) {
+    eprintln!("structured logging already configured elsewhere: {source}");
 }
 
 fn parse_log_format(raw: &str) -> Result<bool, LoggingError> {
