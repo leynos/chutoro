@@ -32,5 +32,4 @@ rstest = "0.23"
 tempfile = "3.10"
 
 [dev-dependencies.chutoro-test-support]
-version = "0.1.0"
 path = "../chutoro-test-support"
