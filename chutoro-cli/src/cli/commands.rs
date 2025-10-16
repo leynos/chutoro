@@ -9,6 +9,7 @@ use chutoro_providers_dense::{DenseMatrixProvider, DenseMatrixProviderError};
 use chutoro_providers_text::{TextProvider, TextProviderError};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use thiserror::Error;
+use tracing::{info, instrument};
 
 const DEFAULT_MIN_CLUSTER_SIZE: usize = 5;
 
@@ -26,6 +27,14 @@ pub struct Cli {
 pub enum Command {
     /// Execute the walking skeleton pipeline.
     Run(RunCommand),
+}
+
+impl Command {
+    fn name(&self) -> &'static str {
+        match self {
+            Command::Run(_) => "run",
+        }
+    }
 }
 
 /// Options accepted by the `run` command.
@@ -51,6 +60,15 @@ pub enum RunSource {
     Parquet(ParquetArgs),
     /// Execute against a UTF-8 text corpus, one string per line.
     Text(TextArgs),
+}
+
+impl RunSource {
+    fn kind(&self) -> &'static str {
+        match self {
+            RunSource::Parquet(_) => "parquet",
+            RunSource::Text(_) => "text",
+        }
+    }
 }
 
 /// Parquet ingestion arguments.
@@ -88,6 +106,14 @@ pub struct TextArgs {
 pub enum TextMetric {
     /// Compute Levenshtein edit distance between lines.
     Levenshtein,
+}
+
+impl TextMetric {
+    fn label(self) -> &'static str {
+        match self {
+            TextMetric::Levenshtein => "levenshtein",
+        }
+    }
 }
 
 /// Errors surfaced while executing CLI commands.
@@ -151,23 +177,50 @@ pub struct ExecutionSummary {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(name = "cli.run", err, skip(cli), fields(command = %cli.command.name()))]
 pub fn run_cli(cli: Cli) -> Result<ExecutionSummary, CliError> {
     match cli.command {
         Command::Run(run) => run_command(run),
     }
 }
 
+#[instrument(
+    name = "cli.execute",
+    err,
+    skip(command),
+    fields(
+        min_cluster_size = command.min_cluster_size,
+        source = %command.source.kind()
+    ),
+)]
 pub(super) fn run_command(command: RunCommand) -> Result<ExecutionSummary, CliError> {
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(command.min_cluster_size)
         .build()?;
 
-    match command.source {
-        RunSource::Parquet(args) => run_parquet(&chutoro, args),
-        RunSource::Text(args) => run_text(&chutoro, args),
-    }
+    let summary = match command.source {
+        RunSource::Parquet(args) => run_parquet(&chutoro, args)?,
+        RunSource::Text(args) => run_text(&chutoro, args)?,
+    };
+
+    info!(
+        data_source = summary.data_source.as_str(),
+        clusters = summary.result.cluster_count(),
+        "command completed"
+    );
+    Ok(summary)
 }
 
+#[instrument(
+    name = "cli.run_parquet",
+    err,
+    skip(chutoro, args),
+    fields(
+        path = %path_label(&args.path),
+        column = %args.column,
+        override_name = %args.name.as_deref().unwrap_or("<derived>")
+    ),
+)]
 pub(super) fn run_parquet(
     chutoro: &Chutoro,
     args: ParquetArgs,
@@ -175,13 +228,19 @@ pub(super) fn run_parquet(
     let ParquetArgs { path, column, name } = args;
     let chosen_name = derive_data_source_name(&path, name.as_deref());
     let provider = DenseMatrixProvider::try_from_parquet_path(chosen_name, &path, &column)?;
-    let result = chutoro.run(&provider)?;
-    Ok(ExecutionSummary {
-        data_source: provider.name().to_owned(),
-        result,
-    })
+    execute_with_provider(chutoro, provider)
 }
 
+#[instrument(
+    name = "cli.run_text",
+    err,
+    skip(chutoro, args),
+    fields(
+        path = %path_label(&args.path),
+        metric = args.metric.label(),
+        override_name = %args.name.as_deref().unwrap_or("<derived>")
+    ),
+)]
 pub(super) fn run_text(chutoro: &Chutoro, args: TextArgs) -> Result<ExecutionSummary, CliError> {
     let TextArgs { path, metric, name } = args;
     let chosen_name = derive_data_source_name(&path, name.as_deref());
@@ -189,13 +248,15 @@ pub(super) fn run_text(chutoro: &Chutoro, args: TextArgs) -> Result<ExecutionSum
     let provider = match metric {
         TextMetric::Levenshtein => TextProvider::try_from_reader(chosen_name, reader)?,
     };
-    let result = chutoro.run(&provider)?;
-    Ok(ExecutionSummary {
-        data_source: provider.name().to_owned(),
-        result,
-    })
+    execute_with_provider(chutoro, provider)
 }
 
+#[instrument(
+    name = "cli.open_text_reader",
+    err,
+    skip(path),
+    fields(path = %path_label(path))
+)]
 pub(super) fn open_text_reader(path: &Path) -> Result<BufReader<File>, CliError> {
     let file = File::open(path).map_err(|source| CliError::Io {
         path: path.to_path_buf(),
@@ -213,6 +274,24 @@ pub(super) fn derive_data_source_name(path: &Path, override_name: Option<&str>) 
         .and_then(|value| value.to_str())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| "data_source".to_owned())
+}
+
+/// Produce a redacted label for a path that avoids leaking absolute directories.
+fn path_label(path: &Path) -> String {
+    path.file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "<unknown>".to_owned())
+}
+
+fn execute_with_provider<D>(chutoro: &Chutoro, provider: D) -> Result<ExecutionSummary, CliError>
+where
+    D: DataSource,
+{
+    let result = chutoro.run(&provider)?;
+    Ok(ExecutionSummary {
+        data_source: provider.name().to_owned(),
+        result,
+    })
 }
 
 /// Renders `summary` to `writer` in a human-readable text format.

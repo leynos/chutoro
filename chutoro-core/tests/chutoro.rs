@@ -9,6 +9,10 @@ use chutoro_core::{
 use common::Dummy;
 use rstest::{fixture, rstest};
 use std::sync::Arc;
+use tracing::Level;
+use tracing_subscriber::layer::SubscriberExt;
+
+use chutoro_test_support::tracing::RecordingLayer;
 
 #[fixture]
 fn dummy() -> Dummy {
@@ -88,6 +92,81 @@ fn run_cpu_partitions_by_min_cluster_size_non_divisible() {
     assert_eq!(result.cluster_count(), 3);
     let final_cluster_size = assignment_ids.iter().filter(|&&id| id == 2).count();
     assert_eq!(final_cluster_size, 1);
+}
+
+#[cfg(feature = "skeleton")]
+#[rstest]
+fn run_records_core_tracing(dummy: Dummy) {
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(dummy.len())
+        .with_execution_strategy(ExecutionStrategy::CpuOnly)
+        .build()
+        .expect("configuration must be valid");
+    let layer = RecordingLayer::default();
+    let subscriber = tracing_subscriber::registry().with(layer.clone());
+
+    let result = tracing::subscriber::with_default(subscriber, || chutoro.run(&dummy))
+        .expect("run must succeed");
+    assert_eq!(result.assignments().len(), dummy.len());
+
+    let spans = layer.spans();
+    let run_span = spans
+        .iter()
+        .find(|span| span.name == "core.run")
+        .expect("core.run span must exist");
+    let min_cluster = dummy.len().to_string();
+    assert_eq!(
+        run_span.fields.get("data_source"),
+        Some(&"dummy".to_owned())
+    );
+    assert_eq!(run_span.fields.get("items"), Some(&min_cluster));
+    assert_eq!(run_span.fields.get("min_cluster_size"), Some(&min_cluster));
+    assert_eq!(run_span.fields.get("strategy"), Some(&"CpuOnly".to_owned()));
+
+    let cpu_span = spans
+        .iter()
+        .find(|span| span.name == "core.run_cpu")
+        .expect("core.run_cpu span must exist");
+    assert_eq!(cpu_span.fields.get("items"), Some(&min_cluster));
+    assert_eq!(cpu_span.fields.get("min_cluster_size"), Some(&min_cluster));
+
+    let events = layer.events();
+    assert!(events.iter().any(|event| {
+        event.level == Level::INFO
+            && event
+                .fields
+                .get("message")
+                .is_some_and(|value| value == "cpu execution completed")
+    }));
+}
+
+#[rstest]
+fn run_logs_empty_source_warning() {
+    let chutoro = ChutoroBuilder::new()
+        .build()
+        .expect("configuration must be valid");
+    let layer = RecordingLayer::default();
+    let subscriber = tracing_subscriber::registry().with(layer.clone());
+
+    let err = tracing::subscriber::with_default(subscriber, || chutoro.run(&Dummy::new(vec![])))
+        .expect_err("empty sources must fail");
+    assert!(matches!(err, ChutoroError::EmptySource { .. }));
+
+    let spans = layer.spans();
+    let run_span = spans
+        .iter()
+        .find(|span| span.name == "core.run")
+        .expect("core.run span must exist");
+    assert_eq!(run_span.fields.get("items"), Some(&"0".to_owned()));
+
+    let events = layer.events();
+    assert!(events.iter().any(|event| {
+        event.level == Level::WARN
+            && event
+                .fields
+                .get("message")
+                .is_some_and(|value| value == "data source is empty, returning error")
+    }));
 }
 
 #[cfg(not(feature = "skeleton"))]

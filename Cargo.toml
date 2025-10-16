@@ -5,6 +5,7 @@ members = [
     "chutoro-cli",
     "chutoro-providers/dense",
     "chutoro-providers/text",
+    "chutoro-test-support",
 ]
 
 [workspace.package]

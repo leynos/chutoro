@@ -4,3 +4,4 @@
 //! command pipeline without forking a subprocess.
 
 pub mod cli;
+pub mod logging;

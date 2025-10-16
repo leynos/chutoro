@@ -12,6 +12,9 @@ use crate::{
     error::{ChutoroError, DataSourceError},
     result::{ClusterId, ClusteringResult},
 };
+#[cfg(feature = "skeleton")]
+use tracing::info;
+use tracing::{instrument, warn};
 
 type DataSourceResult<T> = core::result::Result<T, DataSourceError>;
 
@@ -130,16 +133,35 @@ impl Chutoro {
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
     pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult> {
-        let len = source.len();
-        if len == 0 {
+        let items = source.len();
+        self.run_with_len(source, items)
+    }
+
+    #[instrument(
+        name = "core.run",
+        err,
+        skip(self, source),
+        fields(
+            data_source = %source.name(),
+            items = items,
+            min_cluster_size = %self.min_cluster_size,
+            strategy = ?self.execution_strategy
+        ),
+    )]
+    fn run_with_len<D: DataSource>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
+        if items == 0 {
+            warn!(
+                data_source = source.name(),
+                "data source is empty, returning error"
+            );
             return Err(ChutoroError::EmptySource {
                 data_source: Arc::from(source.name()),
             });
         }
-        if len < self.min_cluster_size.get() {
+        if items < self.min_cluster_size.get() {
             return Err(ChutoroError::InsufficientItems {
                 data_source: Arc::from(source.name()),
-                items: len,
+                items,
                 min_cluster_size: self.min_cluster_size,
             });
         }
@@ -147,16 +169,18 @@ impl Chutoro {
         match self.execution_strategy {
             // GPU + skeleton: route Auto and GpuPreferred to GPU path
             #[cfg(all(feature = "gpu", feature = "skeleton"))]
-            ExecutionStrategy::Auto | ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+            ExecutionStrategy::Auto | ExecutionStrategy::GpuPreferred => {
+                self.run_gpu(source, items)
+            }
 
             // GPU only (no skeleton): route both strategies to the GPU stub
             #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
-            ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
+            ExecutionStrategy::GpuPreferred => self.run_gpu(source, items),
             #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
-            ExecutionStrategy::Auto => self.run_gpu(source, len),
+            ExecutionStrategy::Auto => self.run_gpu(source, items),
             #[cfg(all(feature = "skeleton", not(feature = "gpu")))]
             ExecutionStrategy::Auto => {
-                self.wrap_datasource_error(source, self.run_cpu(source, len))
+                self.wrap_datasource_error(source, self.run_cpu(source, items))
             }
             #[cfg(all(not(feature = "skeleton"), not(feature = "gpu")))]
             ExecutionStrategy::Auto => Err(ChutoroError::BackendUnavailable {
@@ -164,7 +188,7 @@ impl Chutoro {
             }),
             #[cfg(feature = "skeleton")]
             ExecutionStrategy::CpuOnly => {
-                self.wrap_datasource_error(source, self.run_cpu(source, len))
+                self.wrap_datasource_error(source, self.run_cpu(source, items))
             }
             #[cfg(not(feature = "skeleton"))]
             ExecutionStrategy::CpuOnly => Err(ChutoroError::BackendUnavailable {
@@ -179,6 +203,12 @@ impl Chutoro {
 
     #[cfg(feature = "skeleton")]
     #[cfg_attr(docsrs, doc(cfg(feature = "skeleton")))]
+    #[instrument(
+        name = "core.run_cpu",
+        err,
+        skip(self, _source),
+        fields(items = items, min_cluster_size = %self.min_cluster_size),
+    )]
     fn run_cpu<D: DataSource>(
         &self,
         _source: &D,
@@ -191,7 +221,9 @@ impl Chutoro {
         let assignments = (0..items)
             .map(|idx| ClusterId::new((idx / cluster_span) as u64))
             .collect();
-        Ok(ClusteringResult::from_assignments(assignments))
+        let result = ClusteringResult::from_assignments(assignments);
+        info!(clusters = result.cluster_count(), "cpu execution completed");
+        Ok(result)
     }
 
     #[cfg(all(feature = "gpu", feature = "skeleton"))]

@@ -26,8 +26,8 @@ ______________________________________________________________________
   `--min-cluster-size <usize>` defaulting to `5` and `--name <string>`.
   `--name` defaults to the file stem via UTF-8 lossy conversion for visibility.
   (See §10)
-- [ ] Add structured logging via `tracing` + `tracing-subscriber`; bridge the
-  `log` crate via `tracing-log`; replace manual prints and initialise logging
+- [x] Add structured logging via `tracing` + `tracing-subscriber`; bridge the
+  `log` crate via `tracing-log`; replace manual prints and initialize logging
   in the CLI (e.g.,
   `tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env())`,
   human and JSON formats, and span IDs). (See §10.4)

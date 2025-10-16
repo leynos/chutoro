@@ -13,8 +13,14 @@ features = ["skeleton", "gpu"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-thiserror = "1.0"
+thiserror = "1.0.69"
+tracing = { version = "0.1.41", features = ["attributes"] }
 
 [dev-dependencies]
 rstest = "0.23"
 rstest-bdd = "0.1.0-alpha4"
+tracing-subscriber = { version = "0.3.20", features = ["fmt"] }
+
+[dev-dependencies.chutoro-test-support]
+version = "0.1.0"
+path = "../chutoro-test-support"

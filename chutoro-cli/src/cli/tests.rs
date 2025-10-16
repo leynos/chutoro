@@ -19,6 +19,10 @@ use clap::Parser;
 use parquet::arrow::arrow_writer::ArrowWriter;
 use rstest::rstest;
 use tempfile::TempDir;
+use tracing::Level;
+use tracing_subscriber::layer::SubscriberExt;
+
+use chutoro_test_support::tracing::RecordingLayer;
 
 use chutoro_providers_dense::DenseMatrixProviderError;
 use chutoro_providers_text::TextProviderError;
@@ -208,6 +212,113 @@ fn clap_rejects_unknown_metric() {
     ];
     let result = Cli::try_parse_from(args);
     assert!(result.is_err());
+}
+
+#[rstest]
+fn run_command_emits_tracing_fields() -> TestResult {
+    let dir = temp_dir();
+    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")?;
+    let layer = RecordingLayer::default();
+    let subscriber = tracing_subscriber::registry().with(layer.clone());
+
+    let command = RunCommand {
+        min_cluster_size: 2,
+        source: RunSource::Text(TextArgs {
+            path: path.clone(),
+            metric: TextMetric::Levenshtein,
+            name: None,
+        }),
+    };
+
+    let summary = tracing::subscriber::with_default(subscriber, || run_command(command))?;
+    assert_eq!(summary.data_source, "lines");
+
+    let spans = layer.spans();
+    let execute = spans
+        .iter()
+        .find(|span| span.name == "cli.execute")
+        .expect("cli.execute span must exist");
+    assert_eq!(
+        execute.fields.get("min_cluster_size"),
+        Some(&"2".to_owned())
+    );
+    assert_eq!(execute.fields.get("source"), Some(&"text".to_owned()));
+
+    let text_span = spans
+        .iter()
+        .find(|span| span.name == "cli.run_text")
+        .expect("cli.run_text span must exist");
+    assert!(
+        text_span
+            .fields
+            .get("path")
+            .is_some_and(|value| value == "lines.txt")
+    );
+    assert_eq!(
+        text_span.fields.get("metric"),
+        Some(&"levenshtein".to_owned())
+    );
+    assert_eq!(
+        text_span.fields.get("override_name"),
+        Some(&"<derived>".to_owned())
+    );
+
+    let events = layer.events();
+    assert!(events.iter().any(|event| {
+        event.level == Level::INFO
+            && event
+                .fields
+                .get("message")
+                .is_some_and(|value| value == "command completed")
+            && event
+                .fields
+                .get("data_source")
+                .is_some_and(|value| value == "lines")
+    }));
+    Ok(())
+}
+
+#[rstest]
+fn open_text_reader_records_path_on_error() -> TestResult {
+    let dir = temp_dir();
+    let missing_path = dir.path().join("missing.txt");
+    let layer = RecordingLayer::default();
+    let subscriber = tracing_subscriber::registry().with(layer.clone());
+
+    let command = RunCommand {
+        min_cluster_size: 1,
+        source: RunSource::Text(TextArgs {
+            path: missing_path.clone(),
+            metric: TextMetric::Levenshtein,
+            name: None,
+        }),
+    };
+
+    let err = tracing::subscriber::with_default(subscriber, || run_command(command))
+        .expect_err("missing file must fail");
+    assert!(matches!(err, CliError::Io { .. }));
+
+    let spans = layer.spans();
+    let reader_span = spans
+        .iter()
+        .find(|span| span.name == "cli.open_text_reader")
+        .expect("reader span must exist");
+    assert!(
+        reader_span
+            .fields
+            .get("path")
+            .is_some_and(|value| value == "missing.txt")
+    );
+
+    let run_span = spans
+        .iter()
+        .find(|span| span.name == "cli.run_text")
+        .expect("run_text span must exist");
+    assert_eq!(
+        run_span.fields.get("override_name"),
+        Some(&"<derived>".to_owned())
+    );
+    Ok(())
 }
 
 fn temp_dir() -> TempDir {
