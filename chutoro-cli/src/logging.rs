@@ -122,9 +122,11 @@ fn install_subscriber() -> Result<(), LoggingError> {
         .map_err(|source| LoggingError::InstallFailed { source })
 }
 
+// Clippy::print_stderr is a single lint we deny workspace-wide;
+// suppress it narrowly for this pre-init diagnostic eprintln! call.
 #[expect(
     clippy::print_stderr,
-    reason = "diagnostic printed during logging init conflict (matches main.rs pattern)"
+    reason = "pre-initialisation diagnostic; structured logging unavailable; stderr is sole output channel"
 )]
 fn report_logging_conflict(source: &tracing_subscriber::util::TryInitError) {
     eprintln!("structured logging already configured elsewhere: {source}");
