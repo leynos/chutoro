@@ -16,7 +16,7 @@ ______________________________________________________________________
   orchestration API. (See §10.1)
 - [x] Implement `DenseMatrixProvider` that packs Parquet/Arrow
   `FixedSizeList<Float32,D>` into a contiguous row‑major `Vec<f32>`; reject
-  ragged/null rows. (See §5, §10.4)
+  ragged/null rows. (See §5, §10.6)
 - [x] Implement `TextProvider` (one UTF‑8 string per line) to exercise
   non‑metric distances (e.g., Levenshtein). (See §1.3)
 - [x] Add `cosine` and `euclidean` distance implementations in `chutoro-core`
@@ -30,10 +30,10 @@ ______________________________________________________________________
   `log` crate via `tracing-log`; replace manual prints and initialize logging
   in the CLI (e.g.,
   `tracing_subscriber::fmt().with_env_filter(EnvFilter::from_default_env())`,
-  human and JSON formats, and span IDs). (See §10.4)
-- [ ] Define error taxonomy; adopt `thiserror` for a unified `ChutoroError` in
+  human and JSON formats, and span IDs). (See §10.5)
+- [x] Define error taxonomy; adopt `thiserror` for a unified `ChutoroError` in
   public APIs and use `anyhow` in binaries; return `Result<T, ChutoroError>`
-  with stable, documented error codes. (See §10.4)
+  with stable, documented error codes. (See §10.6)
 - [ ] Establish CI (fmt, clippy, test), feature gates (`cpu`, `gpu` off by
   default), and reproducible toolchain (`rust-toolchain.toml`). (See §11)
 
@@ -47,7 +47,7 @@ ______________________________________________________________________
 - [ ] Implement CPU HNSW insertion/search with Rayon; two‑phase locking (`read`
   for search → `write` for insert) on a shared graph. (See §6.1, §6.2)
 - [ ] Introduce a `DistanceCache` backed by `dashmap` to avoid recomputing
-  distances across threads during HNSW insertion. (See §6.2, §10.4)
+  distances across threads during HNSW insertion. (See §6.2, §10.6)
   - Key: normalise to `(min(i,j), max(i,j))`; encode metric and its parameters
     (e.g., cosine with/without pre-norms) in the key.
   - Value: `f32` distance; NaN policy: do not cache NaN; propagate an error and
@@ -211,7 +211,7 @@ ______________________________________________________________________
 ## Phase 7 — DataFusion + object_store Provider (Optional)
 
 - [ ] Implement `DataFusionProvider` to execute SQL predicates/projections and
-  materialise to `DenseMatrixProvider`. (See §5, §10.4)
+  materialise to `DenseMatrixProvider`. (See §5, §10.6)
 - [ ] Support `s3://`, `gs://`, `azure://` via `object_store`; add sampling
   options for large tables. (See §5)
 - [ ] Document schema contract (single `features` `FixedSizeList<Float32,D>`

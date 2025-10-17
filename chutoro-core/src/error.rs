@@ -2,11 +2,61 @@
 //!
 //! Defines error enums exposed by the public API and a convenient result alias.
 
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{fmt, num::NonZeroUsize, sync::Arc};
 
 use thiserror::Error;
 
 use crate::builder::ExecutionStrategy;
+
+macro_rules! define_error_codes {
+    (
+        $(#[$enum_meta:meta])*
+        enum $CodeTy:ident for $ErrTy:ident {
+            $(
+                $(#[$variant_meta:meta])*
+                $CodeVariant:ident => $ErrVariant:ident $( { $($pattern:tt)* } )? => $code:expr
+            ),+ $(,)?
+        }
+    ) => {
+        $(#[$enum_meta])*
+        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+        #[non_exhaustive]
+        pub enum $CodeTy {
+            $(
+                $(#[$variant_meta])*
+                $CodeVariant,
+            )+
+        }
+
+        impl $CodeTy {
+            /// Return the stable machine-readable representation of this error code.
+            pub const fn as_str(self) -> &'static str {
+                match self {
+                    $(Self::$CodeVariant => $code,)+
+                }
+            }
+        }
+
+        impl fmt::Display for $CodeTy {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(self.as_str())
+            }
+        }
+
+        impl $ErrTy {
+            #[doc = concat!(
+                "Retrieve the stable [`",
+                stringify!($CodeTy),
+                "`] for this error."
+            )]
+            pub const fn code(&self) -> $CodeTy {
+                match self {
+                    $(Self::$ErrVariant $( { $($pattern)* } )? => $CodeTy::$CodeVariant,)+
+                }
+            }
+        }
+    };
+}
 
 /// An error produced by [`DataSource`] operations.
 #[non_exhaustive]
@@ -27,6 +77,22 @@ pub enum DataSourceError {
     /// Data source rows must have positive dimension.
     #[error("data source vectors must have positive dimension")]
     ZeroDimension,
+}
+
+define_error_codes! {
+    /// Stable codes describing [`DataSourceError`] variants.
+    enum DataSourceErrorCode for DataSourceError {
+        /// Requested index was outside the source's bounds.
+        OutOfBounds => OutOfBounds { .. } => "DATA_SOURCE_OUT_OF_BOUNDS",
+        /// Provided output buffer length did not match number of pairs.
+        OutputLengthMismatch => OutputLengthMismatch { .. } => "DATA_SOURCE_OUTPUT_LENGTH_MISMATCH",
+        /// Compared vectors had different dimensions.
+        DimensionMismatch => DimensionMismatch { .. } => "DATA_SOURCE_DIMENSION_MISMATCH",
+        /// Data source contained no rows.
+        EmptyData => EmptyData => "DATA_SOURCE_EMPTY",
+        /// Data source rows must have positive dimension.
+        ZeroDimension => ZeroDimension => "DATA_SOURCE_ZERO_DIMENSION",
+    }
 }
 
 /// Error type produced when constructing or running [`Chutoro`].
@@ -59,6 +125,33 @@ pub enum ChutoroError {
         #[source]
         error: DataSourceError,
     },
+}
+
+define_error_codes! {
+    /// Stable codes describing [`ChutoroError`] variants.
+    enum ChutoroErrorCode for ChutoroError {
+        /// Minimum cluster size must be greater than zero.
+        InvalidMinClusterSize => InvalidMinClusterSize { .. } => "CHUTORO_INVALID_MIN_CLUSTER_SIZE",
+        /// The supplied [`DataSource`] contained no items.
+        EmptySource => EmptySource { .. } => "CHUTORO_EMPTY_SOURCE",
+        /// The [`DataSource`] did not contain enough items for the configured
+        /// minimum cluster size.
+        InsufficientItems => InsufficientItems { .. } => "CHUTORO_INSUFFICIENT_ITEMS",
+        /// The requested execution strategy is unavailable in the current build.
+        BackendUnavailable => BackendUnavailable { .. } => "CHUTORO_BACKEND_UNAVAILABLE",
+        /// A [`DataSource`] operation failed while running the algorithm.
+        DataSourceFailure => DataSource { .. } => "CHUTORO_DATA_SOURCE_FAILURE",
+    }
+}
+
+impl ChutoroError {
+    /// Retrieve the inner [`DataSourceErrorCode`] when the error originated in a [`DataSource`].
+    pub const fn data_source_code(&self) -> Option<DataSourceErrorCode> {
+        match self {
+            Self::DataSource { error, .. } => Some(error.code()),
+            _ => None,
+        }
+    }
 }
 
 /// Convenient alias for results returned by the core API.
