@@ -37,7 +37,8 @@ fn main() -> ExitCode {
 
     if let Err(err) = try_main() {
         let (code, data_source_code) = err
-            .downcast_ref::<CliError>()
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<CliError>())
             .and_then(|cli_error| match cli_error {
                 CliError::Core(core) => Some((Some(core.code()), core.data_source_code())),
                 _ => None,
