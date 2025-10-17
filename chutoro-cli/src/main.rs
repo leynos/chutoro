@@ -15,7 +15,7 @@ use chutoro_cli::{
     cli::{Cli, CliError, render_summary, run_cli},
     logging::{self, LoggingError},
 };
-use tracing::{error, field};
+use tracing::error;
 
 /// Parse CLI arguments, execute the command, render the summary, and flush the
 /// output stream.
@@ -39,9 +39,9 @@ fn main() -> ExitCode {
         let (code, data_source_code) = err
             .chain()
             .find_map(|cause| {
-                // `std::error::Error::downcast_ref` routes through `Any`, ensuring we can
-                // detect concrete `CliError` values even when they sit beneath context
-                // wrappers.
+                // Downcast each cause so context layers do not obscure `CliError`
+                // instances that carry structured codes.
+                let cause: &(dyn std::error::Error + 'static) = cause;
                 cause
                     .downcast_ref::<CliError>()
                     .and_then(|cli_error| match cli_error {
@@ -51,13 +51,10 @@ fn main() -> ExitCode {
             })
             .unwrap_or((None, None));
 
-        let code_field = code.map(|code| field::display(code.as_str()));
-        let data_source_code_field = data_source_code.map(|code| field::display(code.as_str()));
-
         error!(
             error = %err,
-            code = code_field,
-            data_source_code = data_source_code_field,
+            code = ?code.map(|c| c.as_str()),
+            data_source_code = ?data_source_code.map(|c| c.as_str()),
             "command execution failed"
         );
         return ExitCode::FAILURE;
