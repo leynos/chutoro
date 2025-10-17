@@ -2,7 +2,7 @@
 //!
 //! Parses command-line arguments with clap, executes the walking skeleton
 //! clustering pipeline, renders the summary to stdout, and maps errors to
-//! appropriate exit codes. Logging is initialised eagerly so subsequent
+//! appropriate exit codes. Logging is initialized eagerly so subsequent
 //! operations can emit structured diagnostics via `tracing`.
 
 use std::io::{self, BufWriter, Write};
@@ -63,11 +63,11 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Emit a fallback diagnostic to stderr when tracing initialisation fails.
+/// Emit a fallback diagnostic to stderr when tracing initialization fails.
 #[expect(
     clippy::print_stderr,
-    reason = "Emit one-off diagnostic before tracing is initialised"
+    reason = "Emit one-off diagnostic before tracing is initialized"
 )]
 fn report_logging_init_error(err: &LoggingError) {
-    eprintln!("failed to initialise logging: {err}");
+    eprintln!("failed to initialize logging: {err}");
 }
