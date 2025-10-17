@@ -13,7 +13,7 @@ features = ["skeleton", "gpu"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-thiserror = "1.0.69"
+thiserror = "2.0.17"
 tracing = { version = "0.1.41", features = ["attributes"] }
 
 [dev-dependencies]
