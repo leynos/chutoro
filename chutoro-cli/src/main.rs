@@ -2,7 +2,7 @@
 //!
 //! Parses command-line arguments with clap, executes the walking skeleton
 //! clustering pipeline, renders the summary to stdout, and maps errors to
-//! appropriate exit codes. Logging is initialized eagerly so subsequent
+//! appropriate exit codes. Logging is initialised eagerly so subsequent
 //! operations can emit structured diagnostics via `tracing`.
 
 use std::io::{self, BufWriter, Write};
@@ -38,10 +38,16 @@ fn main() -> ExitCode {
     if let Err(err) = try_main() {
         let (code, data_source_code) = err
             .chain()
-            .find_map(|cause| cause.downcast_ref::<CliError>())
-            .and_then(|cli_error| match cli_error {
-                CliError::Core(core) => Some((Some(core.code()), core.data_source_code())),
-                _ => None,
+            .find_map(|cause| {
+                // `std::error::Error::downcast_ref` routes through `Any`, ensuring we can
+                // detect concrete `CliError` values even when they sit beneath context
+                // wrappers.
+                cause
+                    .downcast_ref::<CliError>()
+                    .and_then(|cli_error| match cli_error {
+                        CliError::Core(core) => Some((Some(core.code()), core.data_source_code())),
+                        _ => None,
+                    })
             })
             .unwrap_or((None, None));
 
@@ -62,8 +68,8 @@ fn main() -> ExitCode {
 
 #[expect(
     clippy::print_stderr,
-    reason = "Emit one-off diagnostic before tracing is initialized"
+    reason = "Emit one-off diagnostic before tracing is initialised"
 )]
 fn report_logging_init_error(err: &LoggingError) {
-    eprintln!("failed to initialize logging: {err}");
+    eprintln!("failed to initialise logging: {err}");
 }
