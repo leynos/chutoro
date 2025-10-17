@@ -63,6 +63,7 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// Emit a fallback diagnostic to stderr when tracing initialisation fails.
 #[expect(
     clippy::print_stderr,
     reason = "Emit one-off diagnostic before tracing is initialised"
