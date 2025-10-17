@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0.86"
-clap = { version = "4.5.4", features = ["derive"] }
+clap = { version = "4.5.49", features = ["derive"] }
 thiserror = "1.0.69"
 tracing = { version = "0.1.41", features = ["attributes"] }
 tracing-log = "0.2.0"
