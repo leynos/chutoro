@@ -24,7 +24,7 @@ use rayon::prelude::*;
 
 use crate::DataSource;
 
-use self::graph::{Graph, InsertionPlan};
+use self::graph::Graph;
 
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
@@ -105,8 +105,16 @@ impl CpuHnsw {
                 return Ok(());
             }
         }
-        let plan = self.plan(node, level, source)?;
-        self.apply(node, level, plan, source)?;
+        let plan = {
+            // Phase 1: Plan insertion under read lock
+            let graph = self.graph.read().expect("graph lock poisoned");
+            graph.plan_insertion(node, level, &self.params, source)
+        }?;
+        {
+            // Phase 2: Apply insertion under write lock
+            let mut graph = self.graph.write().expect("graph lock poisoned");
+            graph.apply_insertion(node, level, &self.params, plan, source)?;
+        }
         self.len.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
@@ -177,27 +185,6 @@ impl CpuHnsw {
         graph::validate_distance(source, node, node)?;
         self.len.store(1, Ordering::Relaxed);
         Ok(())
-    }
-
-    fn plan<D: DataSource + Sync>(
-        &self,
-        node: usize,
-        level: usize,
-        source: &D,
-    ) -> Result<InsertionPlan, HnswError> {
-        let graph = self.graph.read().expect("graph lock poisoned");
-        graph.plan_insertion(node, level, &self.params, source)
-    }
-
-    fn apply<D: DataSource + Sync>(
-        &self,
-        node: usize,
-        level: usize,
-        plan: InsertionPlan,
-        source: &D,
-    ) -> Result<(), HnswError> {
-        let mut graph = self.graph.write().expect("graph lock poisoned");
-        graph.apply_insertion(node, level, &self.params, plan, source)
     }
 
     fn sample_level(&self) -> usize {
