@@ -194,18 +194,37 @@ impl Graph {
         let mut improved = true;
         while improved {
             improved = false;
-            if let Some(node) = self.node(current) {
-                for &candidate in node.neighbours(ctx.level) {
-                    let candidate_dist = validate_distance(source, ctx.query, candidate)?;
-                    if candidate_dist < current_dist {
-                        current = candidate;
-                        current_dist = candidate_dist;
-                        improved = true;
-                    }
-                }
+            let Some(node) = self.node(current) else {
+                continue;
+            };
+
+            let next =
+                self.find_better_neighbour(source, ctx.query, node, ctx.level, current_dist)?;
+
+            if let Some((next, next_dist)) = next {
+                current = next;
+                current_dist = next_dist;
+                improved = true;
             }
         }
         Ok(current)
+    }
+
+    fn find_better_neighbour<D: DataSource + Sync>(
+        &self,
+        source: &D,
+        query: usize,
+        node: &Node,
+        level: usize,
+        current_dist: f32,
+    ) -> Result<Option<(usize, f32)>, HnswError> {
+        for &candidate in node.neighbours(level) {
+            let candidate_dist = validate_distance(source, query, candidate)?;
+            if candidate_dist < current_dist {
+                return Ok(Some((candidate, candidate_dist)));
+            }
+        }
+        Ok(None)
     }
 
     pub(crate) fn search_layer<D: DataSource + Sync>(
