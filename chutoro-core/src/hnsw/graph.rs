@@ -50,29 +50,55 @@ impl Graph {
         source: &D,
     ) -> Result<InsertionPlan, HnswError> {
         let entry = self.entry.ok_or(HnswError::GraphEmpty)?;
-        let top_level = entry.level;
+        let target_level = level.min(entry.level);
+        let current = self.greedy_descend_to_target_level(source, node, entry, target_level)?;
+        let layers = self.build_layer_plans_from_target(
+            source,
+            node,
+            current,
+            target_level,
+            params.ef_construction(),
+        )?;
+        Ok(InsertionPlan { layers })
+    }
+
+    fn greedy_descend_to_target_level<D: DataSource + Sync>(
+        &self,
+        source: &D,
+        query: usize,
+        entry: EntryPoint,
+        target_level: usize,
+    ) -> Result<usize, HnswError> {
         let mut current = entry.node;
-        if top_level > 0 {
-            for lvl in ((level.min(top_level) + 1)..=top_level).rev() {
-                current = self.greedy_search_layer(source, node, current, lvl)?;
+        if entry.level > target_level {
+            for level in ((target_level + 1)..=entry.level).rev() {
+                current = self.greedy_search_layer(source, query, current, level)?;
             }
         }
+        Ok(current)
+    }
 
-        let target = level.min(top_level);
-        let mut layers = Vec::with_capacity(target + 1);
-        for lvl in (0..=target).rev() {
-            let candidates =
-                self.search_layer(source, node, current, lvl, params.ef_construction())?;
+    fn build_layer_plans_from_target<D: DataSource + Sync>(
+        &self,
+        source: &D,
+        query: usize,
+        mut current: usize,
+        target_level: usize,
+        ef: usize,
+    ) -> Result<Vec<LayerPlan>, HnswError> {
+        let mut layers = Vec::with_capacity(target_level + 1);
+        for level in (0..=target_level).rev() {
+            let candidates = self.search_layer(source, query, current, level, ef)?;
             if let Some(best) = candidates.first() {
                 current = best.id;
             }
             layers.push(LayerPlan {
-                level: lvl,
+                level,
                 neighbours: candidates,
             });
         }
         layers.reverse();
-        Ok(InsertionPlan { layers })
+        Ok(layers)
     }
 
     pub(crate) fn apply_insertion<D: DataSource + Sync>(
