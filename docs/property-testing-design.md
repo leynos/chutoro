@@ -11,17 +11,17 @@ Kruskal's MST implementation. This framework is designed to move beyond
 traditional example-based unit testing towards a more rigorous, invariant-based
 verification model.
 
-We detail the core invariants that define correctness for each algorithm,
-propose sophisticated data generation strategies engineered to uncover subtle
-edge-case bugs, and provide a complete architectural blueprint for a two-tiered
-Continuous Integration (CI) system using GitHub Actions. This CI architecture
-balances the need for rapid developer feedback on pull requests with the
-necessity for deep, exhaustive verification performed on a weekly basis. The
-ultimate objective of this initiative is to establish a rigorous, automated
-correctness backstop for the `chutoro` library. This will empower developers to
-perform aggressive optimizations, conduct large-scale refactoring, and add new
-features with a high degree of confidence in the system's stability and
-correctness.
+This document details the core invariants that define correctness for each
+algorithm. It proposes sophisticated data generation strategies engineered
+to uncover subtle edge-case bugs and provides a complete architectural
+blueprint for a two-tiered Continuous Integration (CI) system using GitHub
+Actions. This CI architecture balances the need for rapid developer feedback
+on pull requests with the necessity for deep, exhaustive verification
+performed on a weekly basis. The ultimate objective of this initiative is to
+establish a rigorous, automated correctness backstop for the `chutoro`
+library. This will empower developers to perform aggressive optimizations,
+conduct large-scale refactoring, and add new features with a high degree of
+confidence in the system's stability and correctness.
 
 ## Section 1: Foundational principles of property-based testing with `proptest`
 
@@ -201,9 +201,9 @@ Therefore, the vector generation strategy will be a composite one, using
 - **Vectors with Duplicates:** A strategy that explicitly introduces multiple
     copies of the same vector to test for correct handling of duplicate points.
 
-By explicitly generating these "pathological" datasets, we are proactively
-testing the algorithm's robustness at its known weak points. This is a far more
-effective approach than waiting for failures to emerge from specific user data.
+Explicitly generating these "pathological" datasets proactively tests the
+algorithm's robustness at its known weak points. That proactive strategy is
+far more effective than waiting for failures to emerge from specific user data.
 
 For the HNSW construction parameters, a struct like `HnswConfig` can be
 annotated with `#` from `test-strategy`. This will allow `proptest` to
@@ -430,7 +430,7 @@ non-determinism.
 ### 4.1. Defining the invariants of a minimum spanning tree (MST)
 
 Any graph claiming to be an MST of a given input graph must satisfy a set of
-strict mathematical invariants. These form the basis of our property tests.
+strict mathematical invariants. These form the basis of the property tests.
 
 - **Invariant 1: Acyclicity:** The output graph must be a forest (or a tree
     if the input is connected), meaning it must not contain any cycles. This
