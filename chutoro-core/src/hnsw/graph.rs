@@ -218,8 +218,13 @@ impl Graph {
         level: usize,
         current_dist: f32,
     ) -> Result<Option<(usize, f32)>, HnswError> {
-        for &candidate in node.neighbours(level) {
-            let candidate_dist = validate_distance(source, query, candidate)?;
+        let neighbours = node.neighbours(level);
+        if neighbours.is_empty() {
+            return Ok(None);
+        }
+
+        let distances = validate_batch_distances(source, query, neighbours)?;
+        for (candidate, candidate_dist) in neighbours.iter().copied().zip(distances) {
             if candidate_dist < current_dist {
                 return Ok(Some((candidate, candidate_dist)));
             }
@@ -272,11 +277,19 @@ impl Graph {
             return Ok(());
         };
 
+        let mut fresh = Vec::new();
         for &candidate in node.neighbours(level) {
-            if !state.visited.insert(candidate) {
-                continue;
+            if state.visited.insert(candidate) {
+                fresh.push(candidate);
             }
-            let candidate_distance = validate_distance(source, query, candidate)?;
+        }
+
+        if fresh.is_empty() {
+            return Ok(());
+        }
+
+        let distances = validate_batch_distances(source, query, &fresh)?;
+        for (candidate, candidate_distance) in fresh.into_iter().zip(distances) {
             if self.should_add_candidate(&state.best, ef, candidate_distance) {
                 state
                     .candidates
@@ -368,17 +381,18 @@ impl Graph {
             .ok_or_else(|| HnswError::GraphInvariantViolation {
                 message: format!("node {node} missing during trim"),
             })?;
-        let list = node_ref.neighbours_mut(ctx.level);
-        if list.len() <= ctx.max_connections {
-            return Ok(());
-        }
-        let mut scored = Vec::with_capacity(list.len());
-        for &candidate in list.iter() {
-            let dist = validate_distance(source, node, candidate)?;
-            scored.push((candidate, dist));
-        }
+        let candidates = {
+            let list = node_ref.neighbours_mut(ctx.level);
+            if list.len() <= ctx.max_connections {
+                return Ok(());
+            }
+            list.clone()
+        };
+        let distances = validate_batch_distances(source, node, &candidates)?;
+        let mut scored: Vec<_> = candidates.into_iter().zip(distances).collect();
         scored.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal));
         scored.truncate(ctx.max_connections);
+        let list = node_ref.neighbours_mut(ctx.level);
         list.clear();
         list.extend(scored.into_iter().map(|(candidate, _)| candidate));
         Ok(())
@@ -531,4 +545,21 @@ pub(crate) fn validate_distance<D: DataSource + Sync>(
     } else {
         Err(HnswError::NonFiniteDistance { left, right })
     }
+}
+
+pub(crate) fn validate_batch_distances<D: DataSource + Sync>(
+    source: &D,
+    query: usize,
+    candidates: &[usize],
+) -> Result<Vec<f32>, HnswError> {
+    let distances = source.batch_distances(query, candidates)?;
+    for (candidate, distance) in candidates.iter().copied().zip(distances.iter().copied()) {
+        if !distance.is_finite() {
+            return Err(HnswError::NonFiniteDistance {
+                left: query,
+                right: candidate,
+            });
+        }
+    }
+    Ok(distances)
 }

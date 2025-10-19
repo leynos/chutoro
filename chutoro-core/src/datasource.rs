@@ -29,6 +29,9 @@ use crate::error::DataSourceError;
 /// let mut out = vec![0.0; 2];
 /// src.distance_batch(&pairs, &mut out)?;
 /// assert_eq!(out, [1.0, 2.0]);
+///
+/// let batched = src.batch_distances(0, &[1, 2])?;
+/// assert_eq!(batched, [1.0, 3.0]);
 /// # Ok::<(), DataSourceError>(())
 /// ```
 pub trait DataSource {
@@ -59,6 +62,22 @@ pub trait DataSource {
 
     /// Computes the distance between two items.
     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError>;
+
+    /// Computes the distances from `query` to every entry in `candidates`.
+    ///
+    /// Implementations can override this method to provide SIMD-optimised
+    /// kernels. The default implementation calls [`distance`] repeatedly and
+    /// collects the results.
+    fn batch_distances(
+        &self,
+        query: usize,
+        candidates: &[usize],
+    ) -> Result<Vec<f32>, DataSourceError> {
+        candidates
+            .iter()
+            .map(|&candidate| self.distance(query, candidate))
+            .collect()
+    }
 
     /// Computes several distances at once, storing results in `out`.
     ///

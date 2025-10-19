@@ -1,7 +1,13 @@
 use super::{CpuHnsw, HnswError, HnswParams, Neighbour};
 use crate::{DataSource, DataSourceError};
 use rstest::rstest;
-use std::num::NonZeroUsize;
+use std::{
+    num::NonZeroUsize,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 #[derive(Clone)]
 struct DummySource {
@@ -66,6 +72,85 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
 }
 
 #[rstest]
+fn uses_batch_distances_during_scoring() {
+    #[derive(Clone)]
+    struct InstrumentedSource {
+        data: Vec<f32>,
+        batch_calls: Arc<AtomicUsize>,
+    }
+
+    impl InstrumentedSource {
+        fn new(data: Vec<f32>, batch_calls: Arc<AtomicUsize>) -> Self {
+            Self { data, batch_calls }
+        }
+    }
+
+    impl DataSource for InstrumentedSource {
+        fn len(&self) -> usize {
+            self.data.len()
+        }
+
+        fn name(&self) -> &str {
+            "instrumented"
+        }
+
+        fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
+            let a = self
+                .data
+                .get(left)
+                .ok_or(DataSourceError::OutOfBounds { index: left })?;
+            let b = self
+                .data
+                .get(right)
+                .ok_or(DataSourceError::OutOfBounds { index: right })?;
+            Ok((a - b).abs())
+        }
+
+        fn batch_distances(
+            &self,
+            query: usize,
+            candidates: &[usize],
+        ) -> Result<Vec<f32>, DataSourceError> {
+            self.batch_calls.fetch_add(1, Ordering::Relaxed);
+            candidates
+                .iter()
+                .map(|&candidate| {
+                    let a = self
+                        .data
+                        .get(query)
+                        .ok_or(DataSourceError::OutOfBounds { index: query })?;
+                    let b = self
+                        .data
+                        .get(candidate)
+                        .ok_or(DataSourceError::OutOfBounds { index: candidate })?;
+                    Ok((a - b).abs())
+                })
+                .collect()
+        }
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let source = InstrumentedSource::new(vec![0.0, 1.0, 2.0, 5.0], Arc::clone(&calls));
+    let params = HnswParams::new(2, 4)
+        .expect("params must be valid")
+        .with_rng_seed(11);
+    let index = CpuHnsw::build(&source, params).expect("build must succeed");
+
+    index
+        .search(
+            &source,
+            1,
+            NonZeroUsize::new(4).expect("ef must be non-zero"),
+        )
+        .expect("search must succeed");
+
+    assert!(
+        calls.load(Ordering::Relaxed) > 0,
+        "batch distances should be exercised"
+    );
+}
+
+#[rstest]
 fn duplicate_insert_is_rejected() {
     let source = DummySource::new(vec![0.0, 1.0, 2.0]);
     let params = HnswParams::new(2, 4)
@@ -93,6 +178,38 @@ fn non_finite_distance_is_reported() {
 
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let err = CpuHnsw::build(&NanSource, params).expect_err("build must fail on NaN");
+    assert!(matches!(err, HnswError::NonFiniteDistance { .. }));
+}
+
+#[rstest]
+fn non_finite_batch_distance_is_reported() {
+    #[derive(Clone, Copy)]
+    struct BatchNan;
+
+    impl DataSource for BatchNan {
+        fn len(&self) -> usize {
+            3
+        }
+
+        fn name(&self) -> &str {
+            "batch-nan"
+        }
+
+        fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
+            Ok((left as f32 - right as f32).abs())
+        }
+
+        fn batch_distances(
+            &self,
+            _: usize,
+            candidates: &[usize],
+        ) -> Result<Vec<f32>, DataSourceError> {
+            Ok(vec![f32::NAN; candidates.len()])
+        }
+    }
+
+    let params = HnswParams::new(2, 4).expect("params must be valid");
+    let err = CpuHnsw::build(&BatchNan, params).expect_err("build must fail on batch NaN");
     assert!(matches!(err, HnswError::NonFiniteDistance { .. }));
 }
 
