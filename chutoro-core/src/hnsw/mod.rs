@@ -24,7 +24,7 @@ use rayon::prelude::*;
 
 use crate::DataSource;
 
-use self::graph::Graph;
+use self::graph::{ExtendedSearchContext, Graph, NodeContext, SearchContext};
 
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
@@ -108,12 +108,12 @@ impl CpuHnsw {
         let plan = {
             // Phase 1: Plan insertion under read lock
             let graph = self.graph.read().expect("graph lock poisoned");
-            graph.plan_insertion(node, level, &self.params, source)
+            graph.plan_insertion(NodeContext { node, level }, &self.params, source)
         }?;
         {
             // Phase 2: Apply insertion under write lock
             let mut graph = self.graph.write().expect("graph lock poisoned");
-            graph.apply_insertion(node, level, &self.params, plan, source)?;
+            graph.apply_insertion(NodeContext { node, level }, &self.params, plan, source)?;
         }
         self.len.fetch_add(1, Ordering::Relaxed);
         Ok(())
@@ -155,9 +155,24 @@ impl CpuHnsw {
         let entry = graph.entry().ok_or(HnswError::GraphEmpty)?;
         let mut current = entry.node;
         for level in (1..=entry.level).rev() {
-            current = graph.greedy_search_layer(source, query, current, level)?;
+            current = graph.greedy_search_layer(
+                source,
+                SearchContext {
+                    query,
+                    entry: current,
+                    level,
+                },
+            )?;
         }
-        graph.search_layer(source, query, current, 0, ef.get())
+        graph.search_layer(
+            source,
+            ExtendedSearchContext {
+                query,
+                entry: current,
+                level: 0,
+                ef: ef.get(),
+            },
+        )
     }
 
     /// Returns the number of nodes that have been inserted.

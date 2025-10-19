@@ -9,6 +9,33 @@ use crate::DataSource;
 
 use super::{error::HnswError, params::HnswParams};
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct NodeContext {
+    pub(crate) node: usize,
+    pub(crate) level: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct SearchContext {
+    pub(crate) query: usize,
+    pub(crate) entry: usize,
+    pub(crate) level: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ExtendedSearchContext {
+    pub(crate) query: usize,
+    pub(crate) entry: usize,
+    pub(crate) level: usize,
+    pub(crate) ef: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct EdgeContext {
+    level: usize,
+    max_connections: usize,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Graph {
     nodes: Vec<Option<Node>>,
@@ -44,17 +71,16 @@ impl Graph {
 
     pub(crate) fn plan_insertion<D: DataSource + Sync>(
         &self,
-        node: usize,
-        level: usize,
+        ctx: NodeContext,
         params: &HnswParams,
         source: &D,
     ) -> Result<InsertionPlan, HnswError> {
         let entry = self.entry.ok_or(HnswError::GraphEmpty)?;
-        let target_level = level.min(entry.level);
-        let current = self.greedy_descend_to_target_level(source, node, entry, target_level)?;
+        let target_level = ctx.level.min(entry.level);
+        let current = self.greedy_descend_to_target_level(source, ctx.node, entry, target_level)?;
         let layers = self.build_layer_plans_from_target(
             source,
-            node,
+            ctx.node,
             current,
             target_level,
             params.ef_construction(),
@@ -72,7 +98,14 @@ impl Graph {
         let mut current = entry.node;
         if entry.level > target_level {
             for level in ((target_level + 1)..=entry.level).rev() {
-                current = self.greedy_search_layer(source, query, current, level)?;
+                current = self.greedy_search_layer(
+                    source,
+                    SearchContext {
+                        query,
+                        entry: current,
+                        level,
+                    },
+                )?;
             }
         }
         Ok(current)
@@ -88,7 +121,15 @@ impl Graph {
     ) -> Result<Vec<LayerPlan>, HnswError> {
         let mut layers = Vec::with_capacity(target_level + 1);
         for level in (0..=target_level).rev() {
-            let candidates = self.search_layer(source, query, current, level, ef)?;
+            let candidates = self.search_layer(
+                source,
+                ExtendedSearchContext {
+                    query,
+                    entry: current,
+                    level,
+                    ef,
+                },
+            )?;
             if let Some(best) = candidates.first() {
                 current = best.id;
             }
@@ -103,31 +144,41 @@ impl Graph {
 
     pub(crate) fn apply_insertion<D: DataSource + Sync>(
         &mut self,
-        node: usize,
-        level: usize,
+        ctx: NodeContext,
         params: &HnswParams,
         plan: InsertionPlan,
         source: &D,
     ) -> Result<(), HnswError> {
         let slot = self
             .nodes
-            .get_mut(node)
+            .get_mut(ctx.node)
             .ok_or_else(|| HnswError::InvalidParameters {
-                reason: format!("node {node} is outside pre-allocated capacity"),
+                reason: format!("node {} is outside pre-allocated capacity", ctx.node),
             })?;
         if slot.is_some() {
-            return Err(HnswError::DuplicateNode { node });
+            return Err(HnswError::DuplicateNode { node: ctx.node });
         }
-        *slot = Some(Node::new(level));
-        if level > self.entry.map(|entry| entry.level).unwrap_or(0) {
-            self.entry = Some(EntryPoint { node, level });
+        *slot = Some(Node::new(ctx.level));
+        if ctx.level > self.entry.map(|entry| entry.level).unwrap_or(0) {
+            self.entry = Some(EntryPoint {
+                node: ctx.node,
+                level: ctx.level,
+            });
         }
 
-        for layer in plan.layers.into_iter().filter(|layer| layer.level <= level) {
+        for layer in plan
+            .layers
+            .into_iter()
+            .filter(|layer| layer.level <= ctx.level)
+        {
             let mut to_link = layer.neighbours;
             to_link.truncate(params.max_connections());
+            let edge_ctx = EdgeContext {
+                level: layer.level,
+                max_connections: params.max_connections(),
+            };
             for neighbour in to_link {
-                self.link_bidirectional(node, neighbour.id, layer.level, source, params)?;
+                self.link_bidirectional(ctx.node, neighbour.id, edge_ctx, source)?;
             }
         }
         Ok(())
@@ -136,18 +187,16 @@ impl Graph {
     pub(crate) fn greedy_search_layer<D: DataSource + Sync>(
         &self,
         source: &D,
-        query: usize,
-        entry: usize,
-        level: usize,
+        ctx: SearchContext,
     ) -> Result<usize, HnswError> {
-        let mut current = entry;
-        let mut current_dist = validate_distance(source, query, current)?;
+        let mut current = ctx.entry;
+        let mut current_dist = validate_distance(source, ctx.query, current)?;
         let mut improved = true;
         while improved {
             improved = false;
             if let Some(node) = self.node(current) {
-                for &candidate in node.neighbours(level) {
-                    let candidate_dist = validate_distance(source, query, candidate)?;
+                for &candidate in node.neighbours(ctx.level) {
+                    let candidate_dist = validate_distance(source, ctx.query, candidate)?;
                     if candidate_dist < current_dist {
                         current = candidate;
                         current_dist = candidate_dist;
@@ -162,20 +211,17 @@ impl Graph {
     pub(crate) fn search_layer<D: DataSource + Sync>(
         &self,
         source: &D,
-        query: usize,
-        entry: usize,
-        level: usize,
-        ef: usize,
+        ctx: ExtendedSearchContext,
     ) -> Result<Vec<Neighbour>, HnswError> {
-        let entry_dist = validate_distance(source, query, entry)?;
-        let mut state = LayerSearchState::new(entry, entry_dist);
+        let entry_dist = validate_distance(source, ctx.query, ctx.entry)?;
+        let mut state = LayerSearchState::new(ctx.entry, entry_dist);
 
         while let Some(ReverseNeighbour { inner }) = state.candidates.pop() {
-            if self.should_terminate_search(&state.best, ef, inner.distance) {
+            if self.should_terminate_search(&state.best, ctx.ef, inner.distance) {
                 break;
             }
 
-            self.process_neighbours(source, query, level, ef, inner.id, &mut state)?;
+            self.process_neighbours(source, ctx.query, ctx.level, ctx.ef, inner.id, &mut state)?;
         }
 
         Ok(self.finalize_results(state.into_best()))
@@ -264,12 +310,11 @@ impl Graph {
         &mut self,
         left: usize,
         right: usize,
-        level: usize,
+        ctx: EdgeContext,
         source: &D,
-        params: &HnswParams,
     ) -> Result<(), HnswError> {
-        self.link_one_way(left, right, level, source, params)?;
-        self.link_one_way(right, left, level, source, params)?;
+        self.link_one_way(left, right, ctx, source)?;
+        self.link_one_way(right, left, ctx, source)?;
         Ok(())
     }
 
@@ -277,37 +322,35 @@ impl Graph {
         &mut self,
         from: usize,
         to: usize,
-        level: usize,
+        ctx: EdgeContext,
         source: &D,
-        params: &HnswParams,
     ) -> Result<(), HnswError> {
         let node = self
             .node_mut(from)
             .ok_or_else(|| HnswError::GraphInvariantViolation {
                 message: format!("node {from} missing during link"),
             })?;
-        let list = node.neighbours_mut(level);
+        let list = node.neighbours_mut(ctx.level);
         if !list.contains(&to) {
             list.push(to);
         }
-        self.trim_neighbours(from, level, source, params.max_connections())?;
+        self.trim_neighbours(from, ctx, source)?;
         Ok(())
     }
 
     fn trim_neighbours<D: DataSource + Sync>(
         &mut self,
         node: usize,
-        level: usize,
+        ctx: EdgeContext,
         source: &D,
-        max_connections: usize,
     ) -> Result<(), HnswError> {
         let node_ref = self
             .node_mut(node)
             .ok_or_else(|| HnswError::GraphInvariantViolation {
                 message: format!("node {node} missing during trim"),
             })?;
-        let list = node_ref.neighbours_mut(level);
-        if list.len() <= max_connections {
+        let list = node_ref.neighbours_mut(ctx.level);
+        if list.len() <= ctx.max_connections {
             return Ok(());
         }
         let mut scored = Vec::with_capacity(list.len());
@@ -316,7 +359,7 @@ impl Graph {
             scored.push((candidate, dist));
         }
         scored.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal));
-        scored.truncate(max_connections);
+        scored.truncate(ctx.max_connections);
         list.clear();
         list.extend(scored.into_iter().map(|(candidate, _)| candidate));
         Ok(())
