@@ -1,6 +1,6 @@
-# A Framework for Invariant-Based Correctness Verification in the `chutoro` Library
+# A framework for invariant-based correctness verification in the `chutoro` library
 
-## Executive Summary
+## Executive summary
 
 This document presents a comprehensive design for a property-based testing
 (PBT) framework for the `chutoro` library, leveraging the `proptest` and
@@ -23,7 +23,7 @@ perform aggressive optimizations, conduct large-scale refactoring, and add new
 features with a high degree of confidence in the system's stability and
 correctness.
 
-## Section 1: Foundational Principles of Property-Based Testing with `proptest`
+## Section 1: Foundational principles of property-based testing with `proptest`
 
 This section establishes the conceptual groundwork for the property-based
 testing framework. A shared understanding of these principles is essential for
@@ -32,7 +32,7 @@ value from the proposed verification suite. The focus is on the philosophical
 shift from testing specific examples to verifying universal properties, and the
 powerful tooling provided by the Rust ecosystem to facilitate this shift.
 
-### 1.1. The Paradigm Shift: From Example-Based to Invariant-Based Verification
+### 1.1. The paradigm shift: From example-based to invariant-based verification
 
 Traditional unit testing, while valuable, is fundamentally limited by the
 developer's imagination. A test case such as `assert_eq!(my_func(2), 4)`
@@ -67,9 +67,9 @@ precise, machine-verifiable specification of the HNSW index's contract. Unlike
 prose comments, which can become outdated, this specification is continuously
 validated against the implementation by the CI system. It serves as a durable,
 reliable guide for future developers seeking to understand the algorithm's
-guaranteed behaviors.
+guaranteed behaviours.
 
-### 1.2. The `proptest` Ecosystem: Core Primitives and the `Strategy` Trait
+### 1.2. The `proptest` ecosystem: Core primitives and the `Strategy` trait
 
 The central abstraction in the `proptest` ecosystem is the `Strategy` trait. A
 value of type `impl Strategy<Value = T>` is an object that encapsulates the
@@ -105,7 +105,7 @@ embodies a form of white-box testing, where knowledge of the algorithm's
 potential weaknesses is used to guide the random data generator towards the
 most problematic regions of the input space.
 
-### 1.3. Accelerating Strategy Creation with `test-strategy`
+### 1.3. Accelerating strategy creation with `test-strategy`
 
 While `proptest`'s combinators are powerful, manually implementing the
 `Strategy` trait for every custom struct and enum in a large codebase like
@@ -135,7 +135,7 @@ arbitrary `String`. This dramatically reduces the amount of manual effort
 required to make the library's domain models testable, allowing engineers to
 focus on defining properties rather than writing data generators.
 
-### 1.4. The Power of Shrinking: Debugging with Minimal Counterexamples
+### 1.4. The power of shrinking: Debugging with minimal counterexamples
 
 Perhaps the single most important feature of `proptest` for debugging complex
 systems is *shrinking*. When a property fails, it often does so on a large,
@@ -161,7 +161,7 @@ of the input space, it is the shrinking mechanism that makes that coverage
 *practical* from a debugging and maintenance perspective. Without effective
 shrinking, property-based testing in complex domains would be far less viable.
 
-## Section 2: Invariant-Based Testing for the CPU HNSW Graph
+## Section 2: Invariant-based testing for the CPU HNSW graph
 
 This section provides a detailed testing plan for the HNSW (Hierarchical
 Navigable Small World) graph implementation. HNSW is a probabilistic data
@@ -170,11 +170,11 @@ performance and correctness. The goal of this PBT suite is to rigorously verify
 these invariants under a wide range of data distributions and operational
 sequences.
 
-### 2.1. Characterizing the HNSW Input Space
+### 2.1. Characterising the HNSW input space
 
 The primary inputs for constructing an HNSW index are a set of high-dimensional
 vectors, a distance metric (e.g., Euclidean, Cosine), and a set of construction
-parameters (e.g., `M`, the maximum number of neighbors per layer, and
+parameters (e.g., `M`, the maximum number of neighbours per layer, and
 `ef_construction`, the size of the dynamic candidate list during insertion).
 The PBT strategies must be designed to explore this input space thoroughly.
 
@@ -211,7 +211,7 @@ automatically explore how the algorithm behaves with different values for `M`,
 `ef_construction`, and other tuning parameters, potentially uncovering bugs
 that only manifest under specific configurations.
 
-### 2.2. Core Structural Invariants of a Valid HNSW Graph
+### 2.2. Core structural invariants of a valid HNSW graph
 
 A correctly constructed HNSW graph must adhere to several structural invariants
 at all times. The PBT suite will include functions to check these invariants,
@@ -223,9 +223,9 @@ operations.
     `$0 \le l < L$`. A violation of this invariant would break the navigational
     structure of the graph.
 
-- **Invariant 2: Neighborhood Size Constraints:** The number of neighbors for
+- **Invariant 2: Neighbourhood size constraints:** The number of neighbours for
     any node at a layer `L > 0` must be less than or equal to the parameter
-    `M`. The number of neighbors at the base layer (`L = 0`) must be less than
+    `M`. The number of neighbours at the base layer (`L = 0`) must be less than
     or equal to `$2 \times M$`. These constraints are fundamental to the "Small
     World" property and keep the graph sparse.
 
@@ -242,21 +242,21 @@ operations.
     existence of an edge `$(v, u)$`, this property must be rigorously verified
     across the entire graph.
 
-### 2.3. Property-Based Tests for HNSW
+### 2.3. Property-based tests for HNSW
 
 With the input strategies and invariant checkers in place, the following
 properties will be implemented.
 
-#### 2.3.1. Property 1: Search Correctness (Oracle-Based Testing)
+#### 2.3.1. Property 1: Search correctness (oracle-based testing)
 
 This is the most critical property for the HNSW component. It directly verifies
-that the index fulfills its primary function: finding approximate nearest
-neighbors efficiently.
+that the index fulfils its primary function: finding approximate nearest
+neighbours efficiently.
 
 - **Description:** The property will first generate a set of vectors and HNSW
     construction parameters. It will then build an HNSW index from these
     vectors. Subsequently, it will generate a random query vector and a value
-    for `k`. The test will find the `k` nearest neighbors to the query vector
+    for `k`. The test will find the `k` nearest neighbours to the query vector
     using two different methods:
 
     1. The `chutoro` HNSW index's search function.
@@ -265,7 +265,7 @@ neighbors efficiently.
         to every point in the dataset and sorts the results. This linear scan
         acts as the "oracle."
 
-- **Assertion:** The property will assert that the set of neighbors returned
+- **Assertion:** The property will assert that the set of neighbours returned
     by the HNSW search is identical to the set returned by the brute-force
     oracle. For an ANN algorithm, this can be relaxed to assert a minimum
     recall percentage (e.g., `recall >= 0.99`), especially for larger datasets
@@ -282,7 +282,7 @@ neighbors efficiently.
     performance monitoring tool and providing early warnings without the
     overhead of a dedicated benchmarking framework for every pull request.
 
-#### 2.3.2. Property 2: Structural Integrity After Operations
+#### 2.3.2. Property 2: Structural integrity after operations
 
 This property tests the robustness of the graph's mutation logic, which is a
 common source of subtle bugs like dangling pointers or inconsistent state.
@@ -307,10 +307,10 @@ common source of subtle bugs like dangling pointers or inconsistent state.
 - **Justification:** This property targets bugs that arise from the complex
     state transitions involved in adding or removing nodes from the
     multi-layered graph structure. A deletion, for example, must correctly
-    update neighbor lists across multiple layers without violating degree
+    update neighbour lists across multiple layers without violating degree
     constraints or creating disconnected components.
 
-#### 2.3.3. Property 3: Idempotency of Insertion
+#### 2.3.3. Property 3: Idempotency of insertion
 
 This property verifies that the insertion logic correctly handles duplicate
 data and avoids unintended side effects.
@@ -327,21 +327,21 @@ data and avoids unintended side effects.
     ensures that repeated insertions do not corrupt the graph state, for
     example by creating duplicate nodes or exceeding degree constraints.
 
-## Section 3: Verifying the Candidate Edge Harvest Algorithm
+## Section 3: Verifying the candidate edge harvest algorithm
 
 This section details the testing strategy for the Candidate Edge Harvest
 algorithm. This algorithm is likely a heuristic used during graph construction
-(e.g., for NN-Descent or a similar neighbor-graph refinement process). Testing
+(e.g., for NN-Descent or a similar neighbour-graph refinement process). Testing
 heuristics with PBT presents a different challenge than testing algorithms with
 a single, well-defined correct answer. The focus shifts from verifying a
 specific output to ensuring the output adheres to a set of desirable properties
-and behavioral bounds.
+and behavioural bounds.
 
-### 3.1. Characterizing the Input and Output Space
+### 3.1. Characterising the input and output space
 
 - **Input:** The primary input is a graph, likely represented as an adjacency
-    list, where each node has a set of "candidate" neighbors. This graph is the
-    result of a prior, possibly noisy, neighbor-finding step.
+    list, where each node has a set of "candidate" neighbours. This graph is the
+    result of a prior, possibly noisy, neighbour-finding step.
 
 - **Output:** The output is a refined graph where the harvesting heuristic
     has been applied. This typically involves pruning some edges and adding
@@ -349,7 +349,7 @@ and behavioral bounds.
     operations).
 
 The `proptest` strategy for this component must generate a wide variety of
-input graphs to test the heuristic's behavior under different topological
+input graphs to test the heuristic's behaviour under different topological
 conditions. A composite strategy using `prop_oneof!` will be designed to
 generate graphs with distinct characteristics:
 
@@ -367,17 +367,17 @@ generate graphs with distinct characteristics:
     when the input is not fully connected.
 
 By systematically generating these varied topologies, it becomes possible to
-establish connections between the input structure and the heuristic's behavior.
+establish connections between the input structure and the heuristic's behaviour.
 If, for example, a property consistently fails only on scale-free graphs, it
 provides a powerful clue that the heuristic's logic is flawed in its handling
 of high-degree nodes. This targeted diagnostic information is far more valuable
 than a single, isolated failure on a random input and can guide developers
 directly to the logical flaw.
 
-### 3.2. Defining Heuristic Invariants and Properties
+### 3.2. Defining heuristic invariants and properties
 
 Since there is no single "correct" output, the properties for the harvesting
-algorithm will verify its behavioral characteristics.
+algorithm will verify its behavioural characteristics.
 
 - **Property 1: Determinism:** For a given input graph and a fixed random
     seed, the output of the harvesting algorithm must be identical across
@@ -402,8 +402,8 @@ algorithm will verify its behavioral characteristics.
     number of connected components does not increase by more than a small,
     bounded amount.
 
-- **Property 4: Reverse Nearest Neighbor (RNN) Inclusion:** A common
-    heuristic in neighbor graph construction is based on the idea of
+- **Property 4: Reverse nearest neighbour (RNN) inclusion:** A common
+    heuristic in neighbour graph construction is based on the idea of
     strengthening symmetric connections. The property can verify that the
     heuristic is working as intended by asserting that the proportion of
     symmetric (RNN) edges in the output graph is significantly higher than in
@@ -418,7 +418,7 @@ across thousands of generated graph topologies. This data can then be used to
 make informed, data-driven decisions when tuning the heuristic's internal
 parameters for optimal real-world performance.
 
-## Section 4: Ensuring Correctness in the Parallel Kruskal's MST Implementation
+## Section 4: Ensuring correctness in the parallel Kruskal's MST implementation
 
 This section addresses the verification of the parallel implementation of
 Kruskal's algorithm for finding a Minimum Spanning Tree (MST). Testing a
@@ -427,7 +427,7 @@ according to the mathematical definition of an MST, and ensuring the
 implementation is free from concurrency bugs like race conditions and
 non-determinism.
 
-### 4.1. Defining the Invariants of a Minimum Spanning Tree (MST)
+### 4.1. Defining the invariants of a minimum spanning tree (MST)
 
 Any graph claiming to be an MST of a given input graph must satisfy a set of
 strict mathematical invariants. These form the basis of our property tests.
@@ -452,7 +452,7 @@ strict mathematical invariants. These form the basis of our property tests.
 - **Invariant 4: Edge Count:** For a connected input graph with `$V$`
     vertices, the resulting MST must contain exactly `$V - 1$` edges.
 
-### 4.2. Strategies for Generating Pathological Graphs
+### 4.2. Strategies for generating pathological graphs
 
 The correctness and stability of a parallel algorithm are most effectively
 tested by feeding it inputs designed to stress its concurrency logic. The
@@ -480,12 +480,12 @@ to probe for weaknesses.
     extremes of edge density to ensure the algorithm's performance and
     correctness are not dependent on the graph's sparsity.
 
-### 4.3. Property-Based Tests for Parallel Kruskal's
+### 4.3. Property-based tests for parallel Kruskal's
 
 The following properties will be implemented to verify the parallel Kruskal's
 implementation against the invariants and pathological inputs.
 
-#### 4.3.1. Property 1: Equivalence with a Sequential Oracle
+#### 4.3.1. Property 1: Equivalence with a sequential oracle
 
 This is the primary correctness check for the algorithm.
 
@@ -509,10 +509,10 @@ This is the primary correctness check for the algorithm.
     deterministic tie-breaking rule. The sequential oracle, by sorting edges,
     has a stable, implicit rule for which edge to pick first among those with
     equal weight. By comparing results, the PBT suite pressures the parallel
-    implementation to conform to a similarly deterministic behavior, making the
+    implementation to conform to a similarly deterministic behaviour, making the
     algorithm's output fully predictable even in ambiguous cases.
 
-#### 4.3.2. Property 2: Structural Invariant Verification
+#### 4.3.2. Property 2: Structural invariant verification
 
 This property provides a secondary correctness check that does not rely on the
 oracle.
@@ -530,7 +530,7 @@ oracle.
     cycle). It provides a safety net in the unlikely event that the sequential
     oracle itself has a bug.
 
-#### 4.3.3. Property 3: Concurrency Safety
+#### 4.3.3. Property 3: Concurrency safety
 
 This property is specifically designed to detect non-determinism arising from
 race conditions.
@@ -552,12 +552,12 @@ race conditions.
     an exceptionally powerful tool for detecting and diagnosing data races in
     the underlying concurrent data structures.
 
-### Table 4.1: Summary of Core Properties and Invariants
+### Table 4.1: Summary of core properties and invariants
 
 | **Component**          | **Property Name**         | **Invariant(s) Protected**                          | **Test Method**                           |
 | ---------------------- | ------------------------- | --------------------------------------------------- | ----------------------------------------- |
 | HNSW                   | Search Correctness        | Returns the true (or near-true) k-NN set            | Oracle (Brute-Force Linear Scan)          |
-| HNSW                   | Structural Integrity      | Layer Consistency, Neighborhood Size, Reachability  | Stateful Invariant Checks After Mutations |
+| HNSW                   | Structural Integrity      | Layer Consistency, Neighbourhood Size, Reachability | Stateful Invariant Checks After Mutations |
 | HNSW                   | Idempotency of Insertion  | State is unaffected by duplicate insertions         | Comparison of graph states                |
 | Candidate Edge Harvest | Determinism               | Repeatable output for a given input                 | Multiple runs and comparison              |
 | Candidate Edge Harvest | Degree Constraints        | Node degrees remain within specified bounds         | Direct graph traversal and degree check   |
@@ -566,8 +566,7 @@ race conditions.
 | Parallel Kruskal's MST | Structural Integrity      | Acyclicity, Connectivity, Edge Count                | Direct Invariant Checks                   |
 | Parallel Kruskal's MST | Concurrency Safety        | Determinism, Freedom from Race Conditions           | Repeated Execution & Comparison           |
 
-Section 5: A Two-Tiered CI Architecture with GitHub Actions
-______________________________________________________________________
+## Section 5: A two-tiered CI architecture with GitHub Actions
 
 To effectively integrate this PBT framework into the development lifecycle, a
 two-tiered CI architecture will be implemented using GitHub Actions. This
@@ -575,7 +574,7 @@ architecture is designed to balance two competing needs: the need for rapid,
 low-friction feedback for developers during the pull request process, and the
 need for deep, exhaustive verification to catch rare and subtle bugs.
 
-### 5.1. The Lightweight PR Suite: Rapid Feedback
+### 5.1. The lightweight PR suite: Rapid feedback
 
 The primary goal of this suite is to provide essential correctness checks on
 every pull request without imposing a significant delay on the development
@@ -595,14 +594,14 @@ workflow.
         This prevents a misbehaving or non-terminating test from blocking the
         entire CI queue.
 
-- **Optimization via Selective Execution:** To minimize CI costs and feedback
+- **Optimization via selective execution:** To minimize CI costs and feedback
     time, the workflow will be structured into separate jobs for each major
     component (HNSW, Kruskal, etc.). Path-based filtering will be used to
     ensure that only the relevant test suite is run. For example, a change to
     files within `src/hnsw/` will only trigger the HNSW PBT job. This prevents
     redundant test runs and provides more targeted feedback.
 
-### Table 5.1: Comparison of CI Suite Configurations
+### Table 5.1: Comparison of CI suite configurations
 
 | **Parameter**          | **PR Suite (Lightweight)**     | **Weekly Suite (Exhaustive)**           |
 | ---------------------- | ------------------------------ | --------------------------------------- |
@@ -613,7 +612,7 @@ workflow.
 | **Execution Scope**    | Path-filtered (selective jobs) | Full repository test suite              |
 | **Failure Action**     | Block PR merge                 | Alert team & upload failure artifact    |
 
-### 5.2. The Weekly Deep-Coverage Analysis: Exhaustive Verification
+### 5.2. The weekly deep-coverage analysis: Exhaustive verification
 
 The goal of this suite is to perform a much more intensive search for bugs that
 are too computationally expensive to run on every PR. This is where the true
@@ -628,7 +627,7 @@ power of PBT to find deep, rare bugs is realized.
         increased. This will be managed via an environment variable,
         `PROGTEST_CASES=25000`, which the test runner code will be configured
         to read. This allows the same test code to be used in both suites, with
-        behavior configured at the CI level.
+        behaviour configured at the CI level.
 
   - **Forking:** `proptest` will be configured with `fork: true`. This runs
         each set of test cases for a property in a separate process. It
@@ -654,7 +653,7 @@ power of PBT to find deep, rare bugs is realized.
         failure, ensuring that the team is promptly alerted to any regressions
         discovered by the deep analysis.
 
-### 5.3. YAML Configuration Blueprints
+### 5.3. YAML configuration blueprints
 
 The following provides skeleton YAML configurations for the two GitHub Actions
 workflows.
@@ -752,14 +751,14 @@ jobs:
 
 ```
 
-## Section 6: Strategic Implementation and Best Practices
+## Section 6: Strategic implementation and best practices
 
 The successful adoption of this PBT framework requires more than just technical
 implementation; it requires a strategic rollout plan, a commitment to best
 practices, and a clear understanding of how to leverage the framework for
 debugging and design improvement.
 
-### 6.1. An Incremental Rollout Plan
+### 6.1. An incremental rollout plan
 
 Adopting a new and powerful testing paradigm like PBT can have a learning
 curve. To ensure successful adoption and build team expertise incrementally, a
@@ -784,11 +783,11 @@ the more nuanced and complex testing challenges.
 - **Phase 3: Heuristic Verification & CI Integration.** The final
     implementation phase involves tackling the Candidate Edge Harvest
     algorithm. This will require the team to fully embrace the concept of
-    testing for behavioral properties rather than a single correct answer. Once
+    testing for behavioural properties rather than a single correct answer. Once
     all three test suites are implemented and stable, they will be integrated
     into the two-tiered CI pipeline described in Section 5.
 
-### 6.2. Writing Effective and Maintainable Properties
+### 6.2. Writing effective and maintainable properties
 
 - **Focus:** Each `proptest!` block should test a single, well-defined
     property or invariant. Avoid creating monolithic tests that check multiple
@@ -804,18 +803,18 @@ the more nuanced and complex testing challenges.
     `prop_assert!(is_acyclic, "The generated MST contains a cycle")`). This
     provides immediate context when a test fails.
 
-### 6.3. Debugging `proptest` Failures
+### 6.3. Debugging `proptest` failures
 
 When a test fails, `proptest` provides a detailed report. The key piece of
 information is the failure seed. To debug, a developer can set the
 `PROGTEST_SOURCE_FILE` environment variable to point to the failing test file
 and run the test again. `proptest` will automatically pick up the failure from
 the regression directory and deterministically reproduce it. The most important
-step is to analyze the *shrunken* counterexample provided in the report. This
+step is to analyse the *shrunken* counterexample provided in the report. This
 minimal input is the key to understanding the root cause of the bug, as
 described in Section 1.4.
 
-### 6.4. Performance Profiling of the Test Suite
+### 6.4. Performance profiling of the test suite
 
 The test suite itself is code and can have performance bottlenecks,
 particularly in complex data generation strategies. If the weekly CI run time
@@ -823,7 +822,7 @@ becomes unacceptably long, tools like `cargo-flamegraph` should be used to
 profile the test execution. This can identify slow strategies that may need
 optimization.
 
-### 6.5. Future Work: Extending the Framework
+### 6.5. Future work: Extending the framework
 
 The PBT framework established here for the core algorithms can and should be
 extended to other parts of the `chutoro` library. Potential future targets
