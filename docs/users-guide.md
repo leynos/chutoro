@@ -1,7 +1,7 @@
 # Chutoro user guide
 
-This guide explains how to integrate the `chutoro-core` crate into your Rust
-applications. It focuses on the APIs exposed to downstream crates and the
+Integration of the `chutoro-core` crate into Rust applications is described
+below. The guide focuses on the APIs exposed to downstream crates and the
 behaviour of the current walking skeleton implementation.
 
 ## Audience and scope
@@ -12,7 +12,7 @@ management via Cargo.
 
 ## Adding the crate
 
-Add `chutoro-core` to your project's `Cargo.toml`. Enable the `skeleton`
+The project's `Cargo.toml` must include `chutoro-core`. Enable the `skeleton`
 feature to use the CPU walking skeleton and, optionally, the `gpu` feature for
 future GPU support.
 
@@ -21,13 +21,13 @@ future GPU support.
 chutoro-core = { version = "0.1.0", features = ["skeleton"] }
 ```
 
-The crate exports all public entry points from the root module, so import the
-types you need directly from `chutoro_core`.
+The crate exports all public entry points from the root module, so required
+types can be imported directly from `chutoro_core`.
 
 ## Running the clustering pipeline
 
-Construct a `Chutoro` instance with `ChutoroBuilder`, then call `run` with a
-`DataSource` implementation.
+A `Chutoro` instance is constructed with `ChutoroBuilder`, followed by
+invocation of `run` with a `DataSource` implementation.
 
 ```rust
 use chutoro_core::{ChutoroBuilder, DataSource, DataSourceError, ExecutionStrategy};
@@ -58,8 +58,8 @@ backend ships, the strategy will prefer GPU execution when compiled with the
 `gpu` feature.
 
 The walking skeleton partitions input indices into contiguous buckets sized by
-`min_cluster_size`. Use this behaviour for smoke testing orchestration only;
-the algorithm will change once the full FISHDBC pipeline lands.
+`min_cluster_size`. This behaviour suits smoke testing orchestration only; the
+algorithm will change once the full FISHDBC pipeline lands.
 
 ## Implementing data sources
 
@@ -72,25 +72,26 @@ must provide three methods:
   failure.
 
 The default `distance_batch` helper uses `distance` to fill an output buffer
-and keeps it unchanged if any pair fails. Override it when your backend can
-compute batches more efficiently.
+and keeps it unchanged if any pair fails. Override when the backend can compute
+batches more efficiently.
 
-Guard against empty inputs by returning `DataSourceError::EmptyData` or
-`ZeroDimension` during ingestion. Chutoro will reject a `DataSource` with zero
-items, or one with fewer than `min_cluster_size` items, before invoking your
+Empty inputs should be handled by returning `DataSourceError::EmptyData` or
+`ZeroDimension` during ingestion. Chutoro rejects a `DataSource` with zero
+items, or one with fewer than `min_cluster_size` items, before invoking the
 backend.
 
 ## Results and assignments
 
 `Chutoro::run` returns a `ClusteringResult`, which exposes the per-item
 `assignments` and a pre-computed `cluster_count`. The helper enforces that
-cluster identifiers start at `0` and are contiguous. Use
-`ClusteringResult::try_from_assignments` when you need to validate identifiers
-before constructing a result manually. Errors are reported via the
-`NonContiguousClusterIds` enum so you can surface actionable feedback upstream.
+cluster identifiers start at `0` and are contiguous.
+`ClusteringResult::try_from_assignments` is available when validation of
+identifiers is required before constructing a result manually. Errors are
+reported via the `NonContiguousClusterIds` enum so actionable feedback can be
+surfaced upstream.
 
-Each assignment stores a `ClusterId`. Access the underlying value with `get()`
-when serialising or displaying results.
+Each assignment stores a `ClusterId`. The underlying value can be accessed with
+`get()` when serialising or displaying results.
 
 ## Error handling
 
