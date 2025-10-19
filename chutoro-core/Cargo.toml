@@ -13,6 +13,8 @@ features = ["skeleton", "gpu"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+rand = { version = "0.8.5", features = ["small_rng"] }
+rayon = "1.10.0"
 thiserror = "1.0.69"
 tracing = { version = "0.1.41", features = ["attributes"] }
 

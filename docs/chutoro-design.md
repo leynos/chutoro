@@ -716,6 +716,17 @@ modern Rust.
   into the map for other threads to use. This mirrors the functionality of the
   `decorated_d()` caching decorator in the Python model.[^8]
 
+_Implementation update (2024-07-02)._ The initial CPU index is now realised in
+`CpuHnsw`, which wraps the shared graph in `Arc<RwLock<_>>`. Insertion follows
+a strict two-phase protocol: worker threads hold a read lock while performing
+the HNSW search and only upgrade to a write lock to apply the insertion plan.
+Rayon drives batch construction, seeding the entry point synchronously before
+the parallel phase to avoid races. Random level assignment is handled by a
+`SmallRng` guarded with a `Mutex`, trading a short critical section for
+deterministic tests. The graph limits neighbour fan-out eagerly, pruning edges
+under the write lock using the caller-provided `DataSource` for distance
+ordering.
+
 #### 6.2. Algorithmic Implementation Sketch
 
 The implementation will follow the three-pillar structure of FISHDBC, with the

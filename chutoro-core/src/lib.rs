@@ -6,6 +6,7 @@ mod chutoro;
 mod datasource;
 mod distance;
 mod error;
+mod hnsw;
 mod result;
 
 pub use crate::{
@@ -17,5 +18,6 @@ pub use crate::{
         cosine_distance, euclidean_distance,
     },
     error::{ChutoroError, ChutoroErrorCode, DataSourceError, DataSourceErrorCode, Result},
+    hnsw::{CpuHnsw, HnswError, HnswParams, Neighbour},
     result::{ClusterId, ClusteringResult, NonContiguousClusterIds},
 };

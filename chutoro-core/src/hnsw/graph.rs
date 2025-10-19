@@ -1,0 +1,386 @@
+//! Internal graph representation for the CPU HNSW implementation.
+
+use std::{
+    cmp::Ordering,
+    collections::{BinaryHeap, HashSet},
+};
+
+use crate::DataSource;
+
+use super::{error::HnswError, params::HnswParams};
+
+#[derive(Clone, Debug)]
+pub(crate) struct Graph {
+    nodes: Vec<Option<Node>>,
+    entry: Option<EntryPoint>,
+}
+
+impl Graph {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            nodes: vec![None; capacity],
+            entry: None,
+        }
+    }
+
+    pub(crate) fn entry(&self) -> Option<EntryPoint> {
+        self.entry
+    }
+
+    pub(crate) fn insert_first(&mut self, node: usize, level: usize) -> Result<(), HnswError> {
+        let slot = self
+            .nodes
+            .get_mut(node)
+            .ok_or_else(|| HnswError::InvalidParameters {
+                reason: format!("node {node} is outside pre-allocated capacity"),
+            })?;
+        if slot.is_some() {
+            return Err(HnswError::DuplicateNode { node });
+        }
+        *slot = Some(Node::new(level));
+        self.entry = Some(EntryPoint { node, level });
+        Ok(())
+    }
+
+    pub(crate) fn plan_insertion<D: DataSource + Sync>(
+        &self,
+        node: usize,
+        level: usize,
+        params: &HnswParams,
+        source: &D,
+    ) -> Result<InsertionPlan, HnswError> {
+        let entry = self.entry.ok_or(HnswError::GraphEmpty)?;
+        let top_level = entry.level;
+        let mut current = entry.node;
+        if top_level > 0 {
+            for lvl in ((level.min(top_level) + 1)..=top_level).rev() {
+                current = self.greedy_search_layer(source, node, current, lvl)?;
+            }
+        }
+
+        let target = level.min(top_level);
+        let mut layers = Vec::with_capacity(target + 1);
+        for lvl in (0..=target).rev() {
+            let candidates =
+                self.search_layer(source, node, current, lvl, params.ef_construction())?;
+            if let Some(best) = candidates.first() {
+                current = best.id;
+            }
+            layers.push(LayerPlan {
+                level: lvl,
+                neighbours: candidates,
+            });
+        }
+        layers.reverse();
+        Ok(InsertionPlan { layers })
+    }
+
+    pub(crate) fn apply_insertion<D: DataSource + Sync>(
+        &mut self,
+        node: usize,
+        level: usize,
+        params: &HnswParams,
+        plan: InsertionPlan,
+        source: &D,
+    ) -> Result<(), HnswError> {
+        let slot = self
+            .nodes
+            .get_mut(node)
+            .ok_or_else(|| HnswError::InvalidParameters {
+                reason: format!("node {node} is outside pre-allocated capacity"),
+            })?;
+        if slot.is_some() {
+            return Err(HnswError::DuplicateNode { node });
+        }
+        *slot = Some(Node::new(level));
+        if level > self.entry.map(|entry| entry.level).unwrap_or(0) {
+            self.entry = Some(EntryPoint { node, level });
+        }
+
+        for layer in plan.layers.into_iter().filter(|layer| layer.level <= level) {
+            let mut to_link = layer.neighbours;
+            to_link.truncate(params.max_connections());
+            for neighbour in to_link {
+                self.link_bidirectional(node, neighbour.id, layer.level, source, params)?;
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn greedy_search_layer<D: DataSource + Sync>(
+        &self,
+        source: &D,
+        query: usize,
+        entry: usize,
+        level: usize,
+    ) -> Result<usize, HnswError> {
+        let mut current = entry;
+        let mut current_dist = validate_distance(source, query, current)?;
+        let mut improved = true;
+        while improved {
+            improved = false;
+            if let Some(node) = self.node(current) {
+                for &candidate in node.neighbours(level) {
+                    let candidate_dist = validate_distance(source, query, candidate)?;
+                    if candidate_dist < current_dist {
+                        current = candidate;
+                        current_dist = candidate_dist;
+                        improved = true;
+                    }
+                }
+            }
+        }
+        Ok(current)
+    }
+
+    pub(crate) fn search_layer<D: DataSource + Sync>(
+        &self,
+        source: &D,
+        query: usize,
+        entry: usize,
+        level: usize,
+        ef: usize,
+    ) -> Result<Vec<Neighbour>, HnswError> {
+        let mut visited = HashSet::new();
+        let mut candidates = BinaryHeap::new();
+        let mut best = BinaryHeap::new();
+
+        let entry_dist = validate_distance(source, query, entry)?;
+        visited.insert(entry);
+        candidates.push(ReverseNeighbour::new(entry, entry_dist));
+        best.push(Neighbour {
+            id: entry,
+            distance: entry_dist,
+        });
+
+        while let Some(ReverseNeighbour { inner }) = candidates.pop() {
+            if best.len() >= ef
+                && best
+                    .peek()
+                    .map(|furthest| inner.distance > furthest.distance)
+                    .unwrap_or(false)
+            {
+                break;
+            }
+
+            if let Some(node) = self.node(inner.id) {
+                for &candidate in node.neighbours(level) {
+                    if !visited.insert(candidate) {
+                        continue;
+                    }
+                    let candidate_dist = validate_distance(source, query, candidate)?;
+                    if best.len() < ef
+                        || best
+                            .peek()
+                            .map(|furthest| candidate_dist < furthest.distance)
+                            .unwrap_or(true)
+                    {
+                        candidates.push(ReverseNeighbour::new(candidate, candidate_dist));
+                        best.push(Neighbour {
+                            id: candidate,
+                            distance: candidate_dist,
+                        });
+                        if best.len() > ef {
+                            best.pop();
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut neighbours: Vec<_> = best.into_vec();
+        neighbours.sort_by(|a, b| {
+            a.distance
+                .partial_cmp(&b.distance)
+                .unwrap_or(Ordering::Equal)
+        });
+        Ok(neighbours)
+    }
+
+    fn link_bidirectional<D: DataSource + Sync>(
+        &mut self,
+        left: usize,
+        right: usize,
+        level: usize,
+        source: &D,
+        params: &HnswParams,
+    ) -> Result<(), HnswError> {
+        self.link_one_way(left, right, level, source, params)?;
+        self.link_one_way(right, left, level, source, params)?;
+        Ok(())
+    }
+
+    fn link_one_way<D: DataSource + Sync>(
+        &mut self,
+        from: usize,
+        to: usize,
+        level: usize,
+        source: &D,
+        params: &HnswParams,
+    ) -> Result<(), HnswError> {
+        let node = self
+            .node_mut(from)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: format!("node {from} missing during link"),
+            })?;
+        let list = node.neighbours_mut(level);
+        if !list.contains(&to) {
+            list.push(to);
+        }
+        self.trim_neighbours(from, level, source, params.max_connections())?;
+        Ok(())
+    }
+
+    fn trim_neighbours<D: DataSource + Sync>(
+        &mut self,
+        node: usize,
+        level: usize,
+        source: &D,
+        max_connections: usize,
+    ) -> Result<(), HnswError> {
+        let node_ref = self
+            .node_mut(node)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: format!("node {node} missing during trim"),
+            })?;
+        let list = node_ref.neighbours_mut(level);
+        if list.len() <= max_connections {
+            return Ok(());
+        }
+        let mut scored = Vec::with_capacity(list.len());
+        for &candidate in list.iter() {
+            let dist = validate_distance(source, node, candidate)?;
+            scored.push((candidate, dist));
+        }
+        scored.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal));
+        scored.truncate(max_connections);
+        list.clear();
+        list.extend(scored.into_iter().map(|(candidate, _)| candidate));
+        Ok(())
+    }
+
+    fn node(&self, id: usize) -> Option<&Node> {
+        self.nodes.get(id).and_then(Option::as_ref)
+    }
+
+    fn node_mut(&mut self, id: usize) -> Option<&mut Node> {
+        self.nodes.get_mut(id).and_then(Option::as_mut)
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Node {
+    neighbours: Vec<Vec<usize>>,
+}
+
+impl Node {
+    fn new(level: usize) -> Self {
+        let mut neighbours = Vec::with_capacity(level + 1);
+        neighbours.resize_with(level + 1, Vec::new);
+        Self { neighbours }
+    }
+
+    fn neighbours(&self, level: usize) -> &[usize] {
+        self.neighbours.get(level).map_or(&[], Vec::as_slice)
+    }
+
+    fn neighbours_mut(&mut self, level: usize) -> &mut Vec<usize> {
+        self.neighbours
+            .get_mut(level)
+            .expect("levels are initialised during construction")
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct EntryPoint {
+    pub(crate) node: usize,
+    pub(crate) level: usize,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct InsertionPlan {
+    pub(crate) layers: Vec<LayerPlan>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct LayerPlan {
+    pub(crate) level: usize,
+    pub(crate) neighbours: Vec<Neighbour>,
+}
+
+/// Neighbour discovered during a search, including its distance from the query.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Neighbour {
+    /// Index of the neighbour within the [`DataSource`].
+    pub id: usize,
+    /// Distance between the query item and [`Neighbour::id`].
+    pub distance: f32,
+}
+
+impl Eq for Neighbour {}
+
+impl Ord for Neighbour {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .distance
+            .partial_cmp(&self.distance)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| self.id.cmp(&other.id))
+    }
+}
+
+impl PartialOrd for Neighbour {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+struct ReverseNeighbour {
+    inner: Neighbour,
+}
+
+impl ReverseNeighbour {
+    fn new(id: usize, distance: f32) -> Self {
+        Self {
+            inner: Neighbour { id, distance },
+        }
+    }
+}
+
+impl Eq for ReverseNeighbour {}
+
+impl PartialEq for ReverseNeighbour {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.distance == other.inner.distance && self.inner.id == other.inner.id
+    }
+}
+
+impl Ord for ReverseNeighbour {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .inner
+            .distance
+            .partial_cmp(&self.inner.distance)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| other.inner.id.cmp(&self.inner.id))
+    }
+}
+
+impl PartialOrd for ReverseNeighbour {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+pub(crate) fn validate_distance<D: DataSource + Sync>(
+    source: &D,
+    left: usize,
+    right: usize,
+) -> Result<f32, HnswError> {
+    let value = source.distance(left, right)?;
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(HnswError::NonFiniteDistance { left, right })
+    }
+}
