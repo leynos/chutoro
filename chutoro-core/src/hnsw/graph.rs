@@ -167,60 +167,97 @@ impl Graph {
         level: usize,
         ef: usize,
     ) -> Result<Vec<Neighbour>, HnswError> {
-        let mut visited = HashSet::new();
-        let mut candidates = BinaryHeap::new();
-        let mut best = BinaryHeap::new();
-
         let entry_dist = validate_distance(source, query, entry)?;
-        visited.insert(entry);
-        candidates.push(ReverseNeighbour::new(entry, entry_dist));
-        best.push(Neighbour {
-            id: entry,
-            distance: entry_dist,
-        });
+        let mut state = LayerSearchState::new(entry, entry_dist);
 
-        while let Some(ReverseNeighbour { inner }) = candidates.pop() {
-            if best.len() >= ef
-                && best
-                    .peek()
-                    .map(|furthest| inner.distance > furthest.distance)
-                    .unwrap_or(false)
-            {
+        while let Some(ReverseNeighbour { inner }) = state.candidates.pop() {
+            if self.should_terminate_search(&state.best, ef, inner.distance) {
                 break;
             }
 
-            if let Some(node) = self.node(inner.id) {
-                for &candidate in node.neighbours(level) {
-                    if !visited.insert(candidate) {
-                        continue;
-                    }
-                    let candidate_dist = validate_distance(source, query, candidate)?;
-                    if best.len() < ef
-                        || best
-                            .peek()
-                            .map(|furthest| candidate_dist < furthest.distance)
-                            .unwrap_or(true)
-                    {
-                        candidates.push(ReverseNeighbour::new(candidate, candidate_dist));
-                        best.push(Neighbour {
-                            id: candidate,
-                            distance: candidate_dist,
-                        });
-                        if best.len() > ef {
-                            best.pop();
-                        }
-                    }
+            self.process_neighbours(source, query, level, ef, inner.id, &mut state)?;
+        }
+
+        Ok(self.finalize_results(state.into_best()))
+    }
+
+    fn should_terminate_search(
+        &self,
+        best: &BinaryHeap<Neighbour>,
+        ef: usize,
+        candidate_distance: f32,
+    ) -> bool {
+        best.len() >= ef
+            && best
+                .peek()
+                .map(|furthest| candidate_distance > furthest.distance)
+                .unwrap_or(false)
+    }
+
+    fn process_neighbours<D: DataSource + Sync>(
+        &self,
+        source: &D,
+        query: usize,
+        level: usize,
+        ef: usize,
+        node_id: usize,
+        state: &mut LayerSearchState,
+    ) -> Result<(), HnswError> {
+        let Some(node) = self.node(node_id) else {
+            return Ok(());
+        };
+
+        for &candidate in node.neighbours(level) {
+            if !state.visited.insert(candidate) {
+                continue;
+            }
+            let candidate_distance = validate_distance(source, query, candidate)?;
+            if self.should_add_candidate(&state.best, ef, candidate_distance) {
+                state
+                    .candidates
+                    .push(ReverseNeighbour::new(candidate, candidate_distance));
+                state.best.push(Neighbour {
+                    id: candidate,
+                    distance: candidate_distance,
+                });
+                if state.best.len() > ef {
+                    state.best.pop();
                 }
             }
         }
 
+        Ok(())
+    }
+
+    fn should_add_candidate(
+        &self,
+        best: &BinaryHeap<Neighbour>,
+        ef: usize,
+        candidate_distance: f32,
+    ) -> bool {
+        best.len() < ef
+            || best
+                .peek()
+                .map(|furthest| candidate_distance < furthest.distance)
+                .unwrap_or(true)
+    }
+
+    fn finalize_results(&self, best: BinaryHeap<Neighbour>) -> Vec<Neighbour> {
         let mut neighbours: Vec<_> = best.into_vec();
         neighbours.sort_by(|a, b| {
             a.distance
                 .partial_cmp(&b.distance)
                 .unwrap_or(Ordering::Equal)
         });
-        Ok(neighbours)
+        neighbours
+    }
+
+    fn node(&self, id: usize) -> Option<&Node> {
+        self.nodes.get(id).and_then(Option::as_ref)
+    }
+
+    fn node_mut(&mut self, id: usize) -> Option<&mut Node> {
+        self.nodes.get_mut(id).and_then(Option::as_mut)
     }
 
     fn link_bidirectional<D: DataSource + Sync>(
@@ -284,13 +321,37 @@ impl Graph {
         list.extend(scored.into_iter().map(|(candidate, _)| candidate));
         Ok(())
     }
+}
 
-    fn node(&self, id: usize) -> Option<&Node> {
-        self.nodes.get(id).and_then(Option::as_ref)
+struct LayerSearchState {
+    visited: HashSet<usize>,
+    candidates: BinaryHeap<ReverseNeighbour>,
+    best: BinaryHeap<Neighbour>,
+}
+
+impl LayerSearchState {
+    fn new(entry: usize, entry_distance: f32) -> Self {
+        let mut visited = HashSet::new();
+        visited.insert(entry);
+
+        let mut candidates = BinaryHeap::new();
+        candidates.push(ReverseNeighbour::new(entry, entry_distance));
+
+        let mut best = BinaryHeap::new();
+        best.push(Neighbour {
+            id: entry,
+            distance: entry_distance,
+        });
+
+        Self {
+            visited,
+            candidates,
+            best,
+        }
     }
 
-    fn node_mut(&mut self, id: usize) -> Option<&mut Node> {
-        self.nodes.get_mut(id).and_then(Option::as_mut)
+    fn into_best(self) -> BinaryHeap<Neighbour> {
+        self.best
     }
 }
 
