@@ -1,5 +1,6 @@
 use super::{CpuHnsw, HnswError, HnswErrorCode, HnswParams, Neighbour};
 use crate::{DataSource, DataSourceError};
+use rand::{Rng, SeedableRng, distributions::Standard, rngs::SmallRng};
 use rstest::rstest;
 use std::{
     num::NonZeroUsize,
@@ -59,7 +60,13 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
             NonZeroUsize::new(ef).expect("ef must be non-zero"),
         )
         .expect("search must succeed");
-    assert!(contains_id(&neighbours, 1));
+    let forward_ids: Vec<_> = neighbours.iter().map(|n| n.id).collect();
+    match ef {
+        8 => assert_eq!(forward_ids, vec![0, 1, 2]),
+        16 => assert_eq!(forward_ids, vec![0, 1, 2, 3]),
+        _ => unreachable!("unexpected ef in parameterised test"),
+    }
+    assert_sorted_by_distance(&neighbours);
 
     let neighbours = index
         .search(
@@ -68,7 +75,13 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
             NonZeroUsize::new(ef).expect("ef must be non-zero"),
         )
         .expect("search must succeed");
-    assert!(contains_id(&neighbours, 2));
+    let reverse_ids: Vec<_> = neighbours.iter().map(|n| n.id).collect();
+    match ef {
+        8 => assert_eq!(reverse_ids, vec![2, 1, 0]),
+        16 => assert_eq!(reverse_ids, vec![3, 2, 1, 0]),
+        _ => unreachable!("unexpected ef in parameterised test"),
+    }
+    assert_sorted_by_distance(&neighbours);
 }
 
 #[rstest]
@@ -178,7 +191,13 @@ fn non_finite_distance_is_reported() {
 
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let err = CpuHnsw::build(&NanSource, params).expect_err("build must fail on NaN");
-    assert!(matches!(err, HnswError::NonFiniteDistance { .. }));
+    match err {
+        HnswError::NonFiniteDistance { left, right } => {
+            assert_eq!(left, 0);
+            assert_eq!(right, 0);
+        }
+        other => panic!("expected non-finite distance, got {other:?}"),
+    }
 }
 
 #[rstest]
@@ -210,7 +229,13 @@ fn non_finite_batch_distance_is_reported() {
 
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let err = CpuHnsw::build(&BatchNan, params).expect_err("build must fail on batch NaN");
-    assert!(matches!(err, HnswError::NonFiniteDistance { .. }));
+    match err {
+        HnswError::NonFiniteDistance { left, right } => {
+            assert_eq!(left, 2);
+            assert_eq!(right, 1);
+        }
+        other => panic!("expected non-finite distance, got {other:?}"),
+    }
 }
 
 #[rstest]
@@ -226,14 +251,61 @@ fn rejects_invalid_parameters(#[values(0, 3)] max_connections: usize) {
 }
 
 #[test]
+fn accepts_equal_search_and_connection_width() {
+    let params = HnswParams::new(8, 8).expect("equal widths must be valid");
+    assert_eq!(params.max_connections(), 8);
+    assert_eq!(params.ef_construction(), 8);
+}
+
+#[test]
 fn with_capacity_rejects_zero_capacity() {
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let err = CpuHnsw::with_capacity(params, 0).expect_err("capacity must be positive");
     assert!(matches!(err, HnswError::InvalidParameters { .. }));
 }
 
-fn contains_id(neighbours: &[Neighbour], id: usize) -> bool {
-    neighbours.iter().any(|neighbour| neighbour.id == id)
+#[test]
+fn level_sampling_matches_geometric_tail() {
+    let params = HnswParams::new(16, 64)
+        .expect("params must be valid")
+        .with_rng_seed(1337);
+    let mut rng = SmallRng::seed_from_u64(params.rng_seed());
+    let mut counts = vec![0_usize; params.max_level() + 1];
+    let samples = 10_000;
+    for _ in 0..samples {
+        let mut level = 0_usize;
+        while level < params.max_level() {
+            let draw: f64 = rng.sample(Standard);
+            if params.should_stop(draw) {
+                break;
+            }
+            level += 1;
+        }
+        counts[level] += 1;
+    }
+
+    let continue_prob = 1.0 / params.max_connections() as f64;
+    for window in counts
+        .windows(2)
+        .filter(|pair| pair[0] > 0 && pair[1] > 0)
+        .take(3)
+    {
+        let next_ratio = window[1] as f64 / window[0] as f64;
+        assert!(
+            (next_ratio - continue_prob).abs() < 0.035,
+            "ratio should approach geometric tail (observed {next_ratio}, expected {continue_prob})",
+        );
+    }
+}
+
+fn assert_sorted_by_distance(neighbours: &[Neighbour]) {
+    for window in neighbours.windows(2) {
+        let [left, right] = [window[0], window[1]];
+        assert!(
+            left.distance <= right.distance + f32::EPSILON,
+            "distances must be non-decreasing: {neighbours:?}",
+        );
+    }
 }
 
 #[test]

@@ -23,12 +23,12 @@ use std::{
     },
 };
 
-use rand::{Rng, SeedableRng, rngs::SmallRng};
+use rand::{Rng, SeedableRng, distributions::Standard, rngs::SmallRng};
 use rayon::prelude::*;
 
 use crate::DataSource;
 
-use self::graph::{ExtendedSearchContext, Graph, NodeContext, SearchContext};
+use self::graph::{ApplyContext, ExtendedSearchContext, Graph, NodeContext, SearchContext};
 
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
@@ -119,7 +119,12 @@ impl CpuHnsw {
         {
             // Phase 2: Apply insertion under write lock
             let mut graph = self.graph.write().expect("graph lock poisoned");
-            graph.apply_insertion(NodeContext { node, level }, &self.params, plan, source)?;
+            graph.apply_insertion(ApplyContext {
+                node: NodeContext { node, level },
+                params: &self.params,
+                plan,
+                source,
+            })?;
         }
         self.len.fetch_add(1, Ordering::Relaxed);
         Ok(())
@@ -147,7 +152,11 @@ impl CpuHnsw {
     /// let index = CpuHnsw::build(&Dummy(vec![0.0, 1.0, 3.0]), params)
     ///     .expect("build must succeed");
     /// let neighbours = index
-    ///     .search(&Dummy(vec![0.0, 1.0, 3.0]), 0, std::num::NonZeroUsize::new(4).unwrap())
+    ///     .search(
+    ///         &Dummy(vec![0.0, 1.0, 3.0]),
+    ///         0,
+    ///         std::num::NonZeroUsize::new(4).expect("ef must be non-zero"),
+    ///     )
     ///     .expect("search must succeed");
     /// assert!(!neighbours.is_empty());
     /// ```
@@ -182,6 +191,10 @@ impl CpuHnsw {
     }
 
     /// Returns the number of nodes that have been inserted.
+    ///
+    /// Relaxed ordering is sufficient: inserts publish monotonically
+    /// increasing counts and callers only require eventual consistency for
+    /// metrics.
     #[must_use]
     pub fn len(&self) -> usize {
         self.len.load(Ordering::Relaxed)
@@ -212,7 +225,8 @@ impl CpuHnsw {
         let mut rng = self.rng.lock().expect("rng mutex poisoned");
         let mut level = 0_usize;
         while level < self.params.max_level() {
-            if self.params.should_stop(rng.r#gen::<f64>()) {
+            let draw: f64 = rng.sample(Standard);
+            if self.params.should_stop(draw) {
                 break;
             }
             level += 1;

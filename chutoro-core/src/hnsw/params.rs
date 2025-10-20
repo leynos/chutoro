@@ -41,7 +41,7 @@ impl HnswParams {
         Ok(Self {
             max_connections,
             ef_construction,
-            level_multiplier: (max_connections as f64).ln().recip().max(1.0),
+            level_multiplier: (max_connections as f64).ln().recip(),
             max_level: 12,
             rng_seed: 0x5EED_CAFE,
         })
@@ -50,7 +50,7 @@ impl HnswParams {
     /// Overrides the random level multiplier used when sampling layers.
     #[must_use]
     pub fn with_level_multiplier(mut self, multiplier: f64) -> Self {
-        self.level_multiplier = multiplier.max(1.0);
+        self.level_multiplier = multiplier.max(f64::MIN_POSITIVE);
         self
     }
 
@@ -88,6 +88,10 @@ impl HnswParams {
         self.rng_seed
     }
 
+    /// Returns whether level sampling should terminate given a uniform draw.
+    ///
+    /// The multiplier of `1/ln(M)` induces a geometric tail where the chance of
+    /// rising to the next layer is `1/M`, mirroring the reference algorithm.
     pub(crate) fn should_stop(&self, draw: f64) -> bool {
         let clamped = draw.clamp(1.0e-12, 1.0 - f64::EPSILON);
         (-clamped.ln()) * self.level_multiplier < 1.0

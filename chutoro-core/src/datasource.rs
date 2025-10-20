@@ -68,6 +68,11 @@ pub trait DataSource {
     /// Implementations can override this method to provide SIMD-optimised
     /// kernels. The default implementation calls [`distance`] repeatedly and
     /// collects the results.
+    ///
+    /// # Errors
+    /// Returns any [`DataSourceError`] surfaced by [`distance`]. Implementations
+    /// must return [`DataSourceError::OutOfBounds`] for invalid indices and must
+    /// not yield non-finite distances; callers may validate and fail on NaNs.
     fn batch_distances(
         &self,
         query: usize,
