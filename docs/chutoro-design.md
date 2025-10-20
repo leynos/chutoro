@@ -719,10 +719,10 @@ modern Rust.
 _Implementation update (2024-07-02)._ The initial CPU index is now realised in
 `CpuHnsw`, which wraps the shared graph in `Arc<RwLock<_>>`. Insertion follows
 a strict two-phase protocol: worker threads hold a read lock while performing
-the HNSW search and only upgrade to a write lock to apply the insertion plan.
-Rayon drives batch construction, seeding the entry point synchronously before
-the parallel phase to avoid races. Random level assignment is handled by a
-`SmallRng` guarded with a `Mutex`, trading a short critical section for
+the HNSW search, drop it, and then acquire a write lock to apply the insertion
+plan. Rayon drives batch construction, seeding the entry point synchronously
+before the parallel phase to avoid races. Random level assignment is handled by
+a `SmallRng` guarded with a `Mutex`, trading a short critical section for
 deterministic tests. The graph limits neighbour fan-out eagerly, pruning edges
 under the write lock using the caller-provided `DataSource` for distance
 ordering.
@@ -779,12 +779,12 @@ lock, improving concurrency.
 structure-of-arrays views of point data and computes distances with `std::simd`
 across lanes. Provide `#[target_feature]` specializations for AVX2 and AVX-512
 on x86, falling back to scalar per pair where metrics are not vectorizable.
-Expose a query-centric `batch_distances` helper on the core trait and make it
-the default path for HNSW candidate scoring on CPU: collect candidate indices
-in chunks sized to the SIMD width and evaluate with fused multiply-adds and
-vector reductions, exploiting the plugin v-table’s `batch_distances` hook while
-retaining the pair-oriented `distance_batch` for algorithms that require
-arbitrary tuples.
+Expose a query-centric `batch_distances(query, candidates)` helper on the core
+trait and make it the default path for HNSW candidate scoring on CPU: collect
+candidate indices in chunks sized to the SIMD width and evaluate with fused
+multiply-adds and vector reductions, exploiting the plugin v-table’s
+`batch_distances` hook while retaining the pair-oriented `distance_batch` for
+algorithms that require arbitrary tuples.
 - **HNSW search/insert heuristics:** When evaluating neighbours at a level,
   operate on packed indices and a structure-of-arrays layout of coordinates.
   Prefetch upcoming blocks to hide latency. Compute scores in SIMD blocks
@@ -825,7 +825,7 @@ sequenceDiagram
   participant Kern as SIMD Kernels
 
   Note over HNSW: Candidate scoring phase
-  HNSW->>DS: distance_batch(pairs, out)
+  HNSW->>DS: batch_distances(query, candidates)
   alt SIMD available
     DS->>Kern: run std::simd kernel (AVX2/AVX-512/Neon)
     Kern-->>DS: distances[]
@@ -838,7 +838,8 @@ sequenceDiagram
   %% initialization; kernel call-sites remain branch-free.
 ```
 
-_Figure 1: SIMD-backed candidate scoring with scalar fallback._
+_Figure 1: SIMD-backed candidate scoring via `batch_distances` with scalar
+fallback._
 
 ## Part III: GPU Acceleration Strategy
 

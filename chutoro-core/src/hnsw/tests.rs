@@ -1,4 +1,4 @@
-use super::{CpuHnsw, HnswError, HnswParams, Neighbour};
+use super::{CpuHnsw, HnswError, HnswErrorCode, HnswParams, Neighbour};
 use crate::{DataSource, DataSourceError};
 use rstest::rstest;
 use std::{
@@ -225,6 +225,46 @@ fn rejects_invalid_parameters(#[values(0, 3)] max_connections: usize) {
     }
 }
 
+#[test]
+fn with_capacity_rejects_zero_capacity() {
+    let params = HnswParams::new(2, 4).expect("params must be valid");
+    let err = CpuHnsw::with_capacity(params, 0).expect_err("capacity must be positive");
+    assert!(matches!(err, HnswError::InvalidParameters { .. }));
+}
+
 fn contains_id(neighbours: &[Neighbour], id: usize) -> bool {
     neighbours.iter().any(|neighbour| neighbour.id == id)
+}
+
+#[test]
+fn exposes_machine_readable_error_codes() {
+    assert_eq!(HnswError::EmptyBuild.code(), HnswErrorCode::EmptyBuild);
+    assert_eq!(
+        HnswError::InvalidParameters {
+            reason: "bad".into(),
+        }
+        .code(),
+        HnswErrorCode::InvalidParameters,
+    );
+    assert_eq!(
+        HnswError::DuplicateNode { node: 3 }.code(),
+        HnswErrorCode::DuplicateNode,
+    );
+    assert_eq!(HnswError::GraphEmpty.code(), HnswErrorCode::GraphEmpty);
+    assert_eq!(
+        HnswError::GraphInvariantViolation {
+            message: "oops".into(),
+        }
+        .code(),
+        HnswErrorCode::GraphInvariantViolation,
+    );
+    assert_eq!(
+        HnswError::NonFiniteDistance { left: 0, right: 1 }.code(),
+        HnswErrorCode::NonFiniteDistance,
+    );
+    assert_eq!(
+        HnswError::from(DataSourceError::EmptyData).code(),
+        HnswErrorCode::DataSource,
+    );
+    assert_eq!(HnswErrorCode::DataSource.as_str(), "DATA_SOURCE");
 }

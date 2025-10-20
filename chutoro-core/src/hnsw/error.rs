@@ -30,3 +30,54 @@ pub enum HnswError {
     #[error("data source failure: {0}")]
     DataSource(#[from] DataSourceError),
 }
+
+impl HnswError {
+    /// Returns a stable, machine-readable error code for the variant.
+    #[must_use]
+    pub const fn code(&self) -> HnswErrorCode {
+        match self {
+            Self::EmptyBuild => HnswErrorCode::EmptyBuild,
+            Self::InvalidParameters { .. } => HnswErrorCode::InvalidParameters,
+            Self::DuplicateNode { .. } => HnswErrorCode::DuplicateNode,
+            Self::GraphEmpty => HnswErrorCode::GraphEmpty,
+            Self::GraphInvariantViolation { .. } => HnswErrorCode::GraphInvariantViolation,
+            Self::NonFiniteDistance { .. } => HnswErrorCode::NonFiniteDistance,
+            Self::DataSource(_) => HnswErrorCode::DataSource,
+        }
+    }
+}
+
+/// Machine-readable error codes for [`HnswError`].
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum HnswErrorCode {
+    /// Construction was attempted on an empty data source.
+    EmptyBuild,
+    /// Parameters were invalid for the current configuration.
+    InvalidParameters,
+    /// The same node was inserted more than once.
+    DuplicateNode,
+    /// The graph is missing an entry point, which indicates a logic error.
+    GraphEmpty,
+    /// Attempted to operate on an inconsistent graph state.
+    GraphInvariantViolation,
+    /// The data source returned a non-finite distance.
+    NonFiniteDistance,
+    /// Wrapped [`DataSource`] error.
+    DataSource,
+}
+
+impl HnswErrorCode {
+    /// Returns the symbolic identifier for logging and metrics surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::EmptyBuild => "EMPTY_BUILD",
+            Self::InvalidParameters => "INVALID_PARAMETERS",
+            Self::DuplicateNode => "DUPLICATE_NODE",
+            Self::GraphEmpty => "GRAPH_EMPTY",
+            Self::GraphInvariantViolation => "GRAPH_INVARIANT_VIOLATION",
+            Self::NonFiniteDistance => "NON_FINITE_DISTANCE",
+            Self::DataSource => "DATA_SOURCE",
+        }
+    }
+}

@@ -9,7 +9,11 @@ mod error;
 mod graph;
 mod params;
 
-pub use self::{error::HnswError, graph::Neighbour, params::HnswParams};
+pub use self::{
+    error::{HnswError, HnswErrorCode},
+    graph::Neighbour,
+    params::HnswParams,
+};
 
 use std::{
     num::NonZeroUsize,
@@ -83,7 +87,9 @@ impl CpuHnsw {
     /// Creates an empty index with the desired capacity.
     pub fn with_capacity(params: HnswParams, capacity: usize) -> Result<Self, HnswError> {
         if capacity == 0 {
-            return Err(HnswError::EmptyBuild);
+            return Err(HnswError::InvalidParameters {
+                reason: "capacity must be greater than zero".into(),
+            });
         }
         Ok(Self {
             rng: Mutex::new(SmallRng::seed_from_u64(params.rng_seed())),

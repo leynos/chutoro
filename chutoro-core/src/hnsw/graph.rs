@@ -449,22 +449,29 @@ impl Graph {
         ctx: EdgeContext,
         source: &D,
     ) -> Result<(), HnswError> {
-        let node_ref = self
-            .node_mut(node)
-            .ok_or_else(|| HnswError::GraphInvariantViolation {
-                message: format!("node {node} missing during trim"),
-            })?;
         let candidates = {
+            let node_ref =
+                self.node_mut(node)
+                    .ok_or_else(|| HnswError::GraphInvariantViolation {
+                        message: format!("node {node} missing during trim"),
+                    })?;
             let list = node_ref.neighbours_mut(ctx.level);
             if list.len() <= ctx.max_connections {
                 return Ok(());
             }
             list.clone()
         };
+
         let distances = validate_batch_distances(source, node, &candidates)?;
         let mut scored: Vec<_> = candidates.into_iter().zip(distances).collect();
         scored.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal));
         scored.truncate(ctx.max_connections);
+
+        let node_ref = self
+            .node_mut(node)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: format!("node {node} missing during trim"),
+            })?;
         let list = node_ref.neighbours_mut(ctx.level);
         list.clear();
         list.extend(scored.into_iter().map(|(candidate, _)| candidate));
@@ -545,6 +552,15 @@ pub(crate) struct LayerPlan {
 }
 
 /// Neighbour discovered during a search, including its distance from the query.
+///
+/// # Examples
+/// ```
+/// use chutoro_core::Neighbour;
+///
+/// let neighbour = Neighbour { id: 3, distance: 0.42 };
+/// assert_eq!(neighbour.id, 3);
+/// assert!(neighbour.distance < 1.0);
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Neighbour {
     /// Index of the neighbour within the [`DataSource`].
