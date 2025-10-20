@@ -36,6 +36,42 @@ struct EdgeContext {
     max_connections: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct DescentContext {
+    query: usize,
+    entry: EntryPoint,
+    target_level: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct LayerPlanContext {
+    query: usize,
+    current: usize,
+    target_level: usize,
+    ef: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct NeighbourSearchContext {
+    query: usize,
+    level: usize,
+    current_dist: f32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ProcessNodeContext {
+    query: usize,
+    level: usize,
+    ef: usize,
+    node_id: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct NodePair {
+    from: usize,
+    to: usize,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Graph {
     nodes: Vec<Option<Node>>,
@@ -77,31 +113,34 @@ impl Graph {
     ) -> Result<InsertionPlan, HnswError> {
         let entry = self.entry.ok_or(HnswError::GraphEmpty)?;
         let target_level = ctx.level.min(entry.level);
-        let current = self.greedy_descend_to_target_level(source, ctx.node, entry, target_level)?;
-        let layers = self.build_layer_plans_from_target(
-            source,
-            ctx.node,
+        let descent_ctx = DescentContext {
+            query: ctx.node,
+            entry,
+            target_level,
+        };
+        let current = self.greedy_descend_to_target_level(source, descent_ctx)?;
+        let layer_ctx = LayerPlanContext {
+            query: ctx.node,
             current,
             target_level,
-            params.ef_construction(),
-        )?;
+            ef: params.ef_construction(),
+        };
+        let layers = self.build_layer_plans_from_target(source, layer_ctx)?;
         Ok(InsertionPlan { layers })
     }
 
     fn greedy_descend_to_target_level<D: DataSource + Sync>(
         &self,
         source: &D,
-        query: usize,
-        entry: EntryPoint,
-        target_level: usize,
+        ctx: DescentContext,
     ) -> Result<usize, HnswError> {
-        let mut current = entry.node;
-        if entry.level > target_level {
-            for level in ((target_level + 1)..=entry.level).rev() {
+        let mut current = ctx.entry.node;
+        if ctx.entry.level > ctx.target_level {
+            for level in ((ctx.target_level + 1)..=ctx.entry.level).rev() {
                 current = self.greedy_search_layer(
                     source,
                     SearchContext {
-                        query,
+                        query: ctx.query,
                         entry: current,
                         level,
                     },
@@ -114,20 +153,18 @@ impl Graph {
     fn build_layer_plans_from_target<D: DataSource + Sync>(
         &self,
         source: &D,
-        query: usize,
-        mut current: usize,
-        target_level: usize,
-        ef: usize,
+        ctx: LayerPlanContext,
     ) -> Result<Vec<LayerPlan>, HnswError> {
-        let mut layers = Vec::with_capacity(target_level + 1);
-        for level in (0..=target_level).rev() {
+        let mut layers = Vec::with_capacity(ctx.target_level + 1);
+        let mut current = ctx.current;
+        for level in (0..=ctx.target_level).rev() {
             let candidates = self.search_layer(
                 source,
                 ExtendedSearchContext {
-                    query,
+                    query: ctx.query,
                     entry: current,
                     level,
-                    ef,
+                    ef: ctx.ef,
                 },
             )?;
             if let Some(best) = candidates.first() {
@@ -178,7 +215,14 @@ impl Graph {
                 max_connections: params.max_connections(),
             };
             for neighbour in to_link {
-                self.link_bidirectional(ctx.node, neighbour.id, edge_ctx, source)?;
+                self.link_bidirectional(
+                    NodePair {
+                        from: ctx.node,
+                        to: neighbour.id,
+                    },
+                    edge_ctx,
+                    source,
+                )?;
             }
         }
         Ok(())
@@ -198,8 +242,12 @@ impl Graph {
                 continue;
             };
 
-            let next =
-                self.find_better_neighbour(source, ctx.query, node, ctx.level, current_dist)?;
+            let search_ctx = NeighbourSearchContext {
+                query: ctx.query,
+                level: ctx.level,
+                current_dist,
+            };
+            let next = self.find_better_neighbour(source, search_ctx, node)?;
 
             if let Some((next, next_dist)) = next {
                 current = next;
@@ -213,19 +261,17 @@ impl Graph {
     fn find_better_neighbour<D: DataSource + Sync>(
         &self,
         source: &D,
-        query: usize,
+        ctx: NeighbourSearchContext,
         node: &Node,
-        level: usize,
-        current_dist: f32,
     ) -> Result<Option<(usize, f32)>, HnswError> {
-        let neighbours = node.neighbours(level);
+        let neighbours = node.neighbours(ctx.level);
         if neighbours.is_empty() {
             return Ok(None);
         }
 
-        let distances = validate_batch_distances(source, query, neighbours)?;
+        let distances = validate_batch_distances(source, ctx.query, neighbours)?;
         for (candidate, candidate_dist) in neighbours.iter().copied().zip(distances) {
-            if candidate_dist < current_dist {
+            if candidate_dist < ctx.current_dist {
                 return Ok(Some((candidate, candidate_dist)));
             }
         }
@@ -245,7 +291,13 @@ impl Graph {
                 break;
             }
 
-            self.process_neighbours(source, ctx.query, ctx.level, ctx.ef, inner.id, &mut state)?;
+            let process_ctx = ProcessNodeContext {
+                query: ctx.query,
+                level: ctx.level,
+                ef: ctx.ef,
+                node_id: inner.id,
+            };
+            self.process_neighbours(source, process_ctx, &mut state)?;
         }
 
         Ok(self.finalize_results(state.into_best()))
@@ -267,23 +319,20 @@ impl Graph {
     fn process_neighbours<D: DataSource + Sync>(
         &self,
         source: &D,
-        query: usize,
-        level: usize,
-        ef: usize,
-        node_id: usize,
+        ctx: ProcessNodeContext,
         state: &mut LayerSearchState,
     ) -> Result<(), HnswError> {
-        let Some(node) = self.node(node_id) else {
+        let Some(node) = self.node(ctx.node_id) else {
             return Ok(());
         };
 
-        let fresh = self.collect_unvisited_neighbours(node, level, state);
+        let fresh = self.collect_unvisited_neighbours(node, ctx.level, state);
         if fresh.is_empty() {
             return Ok(());
         }
 
-        let distances = validate_batch_distances(source, query, &fresh)?;
-        self.update_search_state_with_candidates(fresh, distances, ef, state);
+        let distances = validate_batch_distances(source, ctx.query, &fresh)?;
+        self.update_search_state_with_candidates(fresh, distances, ctx.ef, state);
 
         Ok(())
     }
@@ -359,33 +408,38 @@ impl Graph {
 
     fn link_bidirectional<D: DataSource + Sync>(
         &mut self,
-        left: usize,
-        right: usize,
+        pair: NodePair,
         ctx: EdgeContext,
         source: &D,
     ) -> Result<(), HnswError> {
-        self.link_one_way(left, right, ctx, source)?;
-        self.link_one_way(right, left, ctx, source)?;
+        self.link_one_way(pair, ctx, source)?;
+        self.link_one_way(
+            NodePair {
+                from: pair.to,
+                to: pair.from,
+            },
+            ctx,
+            source,
+        )?;
         Ok(())
     }
 
     fn link_one_way<D: DataSource + Sync>(
         &mut self,
-        from: usize,
-        to: usize,
+        pair: NodePair,
         ctx: EdgeContext,
         source: &D,
     ) -> Result<(), HnswError> {
         let node = self
-            .node_mut(from)
+            .node_mut(pair.from)
             .ok_or_else(|| HnswError::GraphInvariantViolation {
-                message: format!("node {from} missing during link"),
+                message: format!("node {} missing during link", pair.from),
             })?;
         let list = node.neighbours_mut(ctx.level);
-        if !list.contains(&to) {
-            list.push(to);
+        if !list.contains(&pair.to) {
+            list.push(pair.to);
         }
-        self.trim_neighbours(from, ctx, source)?;
+        self.trim_neighbours(pair.from, ctx, source)?;
         Ok(())
     }
 
