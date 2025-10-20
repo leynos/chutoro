@@ -6,7 +6,7 @@ behaviour of the current walking skeleton implementation.
 
 ## Audience and scope
 
-The guide targets developers embedding Chutoro inside their own services. It
+The guide targets developers embedding Chutoro inside their services. It
 assumes familiarity with Rust, asynchronous job runners, and dependency
 management via Cargo.
 
@@ -99,16 +99,16 @@ Builder validation returns `ChutoroError::InvalidMinClusterSize` when the
 provided minimum cluster size is zero. `Chutoro::run` surfaces runtime failures
 via `ChutoroError` variants:
 
-- `EmptySource` when a `DataSource` yields zero items.
-- `InsufficientItems` when `len()` is below `min_cluster_size`.
-- `BackendUnavailable` when the requested `ExecutionStrategy` is not compiled
-  into the binary.
-- `DataSource` when `distance` or `distance_batch` fails. Use
+- `EmptySource`: returned when a `DataSource` yields zero items.
+- `InsufficientItems`: triggered if `len()` falls below `min_cluster_size`.
+- `BackendUnavailable`: emitted when the requested `ExecutionStrategy` is not
+  compiled into the binary.
+- `DataSource`: raised when `distance` or `distance_batch` fails. Use
   `ChutoroError::data_source_code()` to recover the underlying
   `DataSourceErrorCode` and respond programmatically.
 
 `DataSourceError` distinguishes out-of-bounds indices, dimension mismatches,
-and invalid buffers. Propagate these errors verbatim so callers receive stable
+and invalid buffers. Propagate these errors verbatim, so callers receive stable
 error codes via `DataSourceError::code()`.
 
 ## Distance helpers
@@ -131,7 +131,7 @@ The crate exposes two opt-in features:
   `ExecutionStrategy::Auto` and `ExecutionStrategy::CpuOnly` return
   `BackendUnavailable`.
 - `gpu` prepares the orchestration surface for the forthcoming GPU backend. In
-  the walking skeleton build it reuses the CPU path. Without `skeleton`, GPU
+  the walking skeleton build, it reuses the CPU path. Without `skeleton`, GPU
   execution errors out until the real accelerator implementation arrives.
 
 Choose an `ExecutionStrategy` that matches the compiled features. Allowing
