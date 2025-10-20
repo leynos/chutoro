@@ -277,34 +277,53 @@ impl Graph {
             return Ok(());
         };
 
-        let mut fresh = Vec::new();
-        for &candidate in node.neighbours(level) {
-            if state.visited.insert(candidate) {
-                fresh.push(candidate);
-            }
-        }
-
+        let fresh = self.collect_unvisited_neighbours(node, level, state);
         if fresh.is_empty() {
             return Ok(());
         }
 
         let distances = validate_batch_distances(source, query, &fresh)?;
-        for (candidate, candidate_distance) in fresh.into_iter().zip(distances) {
-            if self.should_add_candidate(&state.best, ef, candidate_distance) {
-                state
-                    .candidates
-                    .push(ReverseNeighbour::new(candidate, candidate_distance));
-                state.best.push(Neighbour {
-                    id: candidate,
-                    distance: candidate_distance,
-                });
-                if state.best.len() > ef {
-                    state.best.pop();
-                }
-            }
-        }
+        self.update_search_state_with_candidates(fresh, distances, ef, state);
 
         Ok(())
+    }
+
+    fn collect_unvisited_neighbours(
+        &self,
+        node: &Node,
+        level: usize,
+        state: &mut LayerSearchState,
+    ) -> Vec<usize> {
+        node.neighbours(level)
+            .iter()
+            .copied()
+            .filter(|candidate| state.visited.insert(*candidate))
+            .collect()
+    }
+
+    fn update_search_state_with_candidates(
+        &self,
+        candidates: Vec<usize>,
+        distances: Vec<f32>,
+        ef: usize,
+        state: &mut LayerSearchState,
+    ) {
+        for (candidate, candidate_distance) in candidates.into_iter().zip(distances) {
+            if !self.should_add_candidate(&state.best, ef, candidate_distance) {
+                continue;
+            }
+
+            state
+                .candidates
+                .push(ReverseNeighbour::new(candidate, candidate_distance));
+            state.best.push(Neighbour {
+                id: candidate,
+                distance: candidate_distance,
+            });
+            if state.best.len() > ef {
+                state.best.pop();
+            }
+        }
     }
 
     fn should_add_candidate(
