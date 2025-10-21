@@ -5,51 +5,14 @@ use crate::DataSource;
 use super::{
     error::HnswError,
     params::HnswParams,
-    search::{ExtendedSearchContext, SearchContext},
-    types::{EntryPoint, InsertionPlan, LayerPlan},
+    types::{InsertionPlan, LayerPlan},
     validate::validate_batch_distances,
 };
 
-use super::graph::Graph;
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct NodeContext {
-    pub(crate) node: usize,
-    pub(crate) level: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct EdgeContext {
-    level: usize,
-    max_connections: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct DescentContext {
-    query: usize,
-    entry: EntryPoint,
-    target_level: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct LayerPlanContext {
-    query: usize,
-    current: usize,
-    target_level: usize,
-    ef: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct NodePair {
-    from: usize,
-    to: usize,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct ApplyContext<'a> {
-    pub(crate) params: &'a HnswParams,
-    pub(crate) plan: InsertionPlan,
-}
+use super::graph::{
+    ApplyContext, DescentContext, EdgeContext, ExtendedSearchContext, Graph, LayerPlanContext,
+    NodeContext, NodePair, SearchContext,
+};
 
 impl Graph {
     pub(crate) fn plan_insertion<D: DataSource + Sync>(

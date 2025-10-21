@@ -34,9 +34,7 @@ use rayon::prelude::*;
 use crate::DataSource;
 
 use self::{
-    graph::Graph,
-    insert::{ApplyContext, NodeContext},
-    search::{ExtendedSearchContext, SearchContext},
+    graph::{ApplyContext, ExtendedSearchContext, Graph, NodeContext, SearchContext},
     validate::validate_distance,
 };
 

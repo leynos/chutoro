@@ -4,61 +4,15 @@ use crate::DataSource;
 
 use super::{
     error::HnswError,
+    graph::{
+        ExtendedSearchContext, NeighbourSearchContext, ProcessNodeContext, ScoredCandidates,
+        SearchContext,
+    },
     types::{Neighbour, ReverseNeighbour},
     validate::{validate_batch_distances, validate_distance},
 };
 
 use super::graph::Graph;
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct SearchContext {
-    pub(crate) query: usize,
-    pub(crate) entry: usize,
-    pub(crate) level: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ExtendedSearchContext {
-    pub(crate) query: usize,
-    pub(crate) entry: usize,
-    pub(crate) level: usize,
-    pub(crate) ef: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct NeighbourSearchContext {
-    query: usize,
-    level: usize,
-    current_dist: f32,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ProcessNodeContext {
-    pub(crate) query: usize,
-    pub(crate) level: usize,
-    pub(crate) ef: usize,
-    pub(crate) node_id: usize,
-}
-
-struct ScoredCandidates {
-    items: Vec<(usize, f32)>,
-}
-
-impl ScoredCandidates {
-    fn new(candidates: Vec<usize>, distances: Vec<f32>) -> Self {
-        assert_eq!(
-            candidates.len(),
-            distances.len(),
-            "candidate and distance batches must align",
-        );
-        let items = candidates.into_iter().zip(distances).collect();
-        Self { items }
-    }
-
-    fn into_iter(self) -> impl Iterator<Item = (usize, f32)> {
-        self.items.into_iter()
-    }
-}
 
 impl Graph {
     pub(crate) fn greedy_search_layer<D: DataSource + Sync>(
