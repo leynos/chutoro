@@ -35,6 +35,7 @@ use crate::DataSource;
 
 use self::{
     graph::{ApplyContext, ExtendedSearchContext, Graph, NodeContext, SearchContext},
+    insert::TrimJob,
     validate::{validate_batch_distances, validate_distance},
 };
 
@@ -83,7 +84,11 @@ impl CpuHnsw {
             return Err(HnswError::EmptyBuild);
         }
         let index = Self::with_capacity(params, items)?;
-        index.insert_initial(0, source)?;
+        let level = index.sample_level();
+        {
+            let mut graph = index.graph.write().expect("graph lock poisoned");
+            index.insert_initial(&mut graph, 0, level, source)?;
+        }
         if items > 1 {
             (1..items)
                 .into_par_iter()
@@ -113,9 +118,7 @@ impl CpuHnsw {
         {
             let mut graph = self.graph.write().expect("graph lock poisoned");
             if graph.entry().is_none() {
-                graph.insert_first(node, level)?;
-                validate_distance(source, node, node)?;
-                self.len.store(1, Ordering::Relaxed);
+                self.insert_initial(&mut graph, node, level, source)?;
                 return Ok(());
             }
         }
@@ -135,27 +138,52 @@ impl CpuHnsw {
                 },
             )?
         };
-
-        if !trim_jobs.is_empty() {
-            let mut trims = Vec::with_capacity(trim_jobs.len());
-            for job in trim_jobs {
-                let distances = validate_batch_distances(source, job.node, &job.candidates)?;
-                let mut scored: Vec<_> = job.candidates.into_iter().zip(distances).collect();
-                scored.sort_by(|(_, left), (_, right)| {
-                    left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
-                });
-                scored.truncate(job.ctx.max_connections);
-                trims.push((job.node, job.ctx, scored));
-            }
-
-            if !trims.is_empty() {
-                let mut graph = self.graph.write().expect("graph lock poisoned");
-                for (node_id, edge_ctx, scored) in trims {
-                    graph.apply_trim(node_id, edge_ctx, &scored)?;
-                }
-            }
-        }
+        self.apply_trim_jobs(trim_jobs, source)?;
         self.len.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn insert_initial<D: DataSource + Sync>(
+        &self,
+        graph: &mut Graph,
+        node: usize,
+        level: usize,
+        source: &D,
+    ) -> Result<(), HnswError> {
+        graph.insert_first(node, level)?;
+        validate_distance(source, node, node)?;
+        self.len.store(1, Ordering::Relaxed);
+        Ok(())
+    }
+
+    fn apply_trim_jobs<D: DataSource + Sync>(
+        &self,
+        trim_jobs: Vec<TrimJob>,
+        source: &D,
+    ) -> Result<(), HnswError> {
+        if trim_jobs.is_empty() {
+            return Ok(());
+        }
+
+        let mut trims = Vec::with_capacity(trim_jobs.len());
+        for job in trim_jobs {
+            let distances = validate_batch_distances(source, job.node, &job.candidates)?;
+            let mut scored: Vec<_> = job.candidates.into_iter().zip(distances).collect();
+            scored.sort_by(|(_, left), (_, right)| {
+                left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+            });
+            scored.truncate(job.ctx.max_connections);
+            trims.push((job.node, job.ctx, scored));
+        }
+
+        if trims.is_empty() {
+            return Ok(());
+        }
+
+        let mut graph = self.graph.write().expect("graph lock poisoned");
+        for (node_id, edge_ctx, scored) in trims {
+            graph.apply_trim(node_id, edge_ctx, &scored)?;
+        }
         Ok(())
     }
 
@@ -233,21 +261,6 @@ impl CpuHnsw {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    fn insert_initial<D: DataSource + Sync>(
-        &self,
-        node: usize,
-        source: &D,
-    ) -> Result<(), HnswError> {
-        let level = self.sample_level();
-        {
-            let mut graph = self.graph.write().expect("graph lock poisoned");
-            graph.insert_first(node, level)?;
-        }
-        validate_distance(source, node, node)?;
-        self.len.store(1, Ordering::Relaxed);
-        Ok(())
     }
 
     fn sample_level(&self) -> usize {
