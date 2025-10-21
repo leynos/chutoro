@@ -105,23 +105,23 @@ pub mod tracing {
             values: &tracing::span::Record<'_>,
             ctx: Context<'_, S>,
         ) {
-            if let Some(span) = ctx.span(id)
-                && let Some(data) = span.extensions_mut().get_mut::<SpanData>()
-            {
-                values.record(&mut FieldRecorder {
-                    fields: &mut data.fields,
-                });
+            if let Some(span) = ctx.span(id) {
+                if let Some(data) = span.extensions_mut().get_mut::<SpanData>() {
+                    values.record(&mut FieldRecorder {
+                        fields: &mut data.fields,
+                    });
+                }
             }
         }
 
         fn on_close(&self, id: tracing::span::Id, ctx: Context<'_, S>) {
-            if let Some(span) = ctx.span(&id)
-                && let Some(data) = span.extensions_mut().remove::<SpanData>()
-            {
-                self.spans.lock().expect("lock poisoned").push(SpanRecord {
-                    name: data.name,
-                    fields: data.fields,
-                });
+            if let Some(span) = ctx.span(&id) {
+                if let Some(data) = span.extensions_mut().remove::<SpanData>() {
+                    self.spans.lock().expect("lock poisoned").push(SpanRecord {
+                        name: data.name,
+                        fields: data.fields,
+                    });
+                }
             }
         }
 
@@ -145,7 +145,7 @@ pub mod tracing {
         fields: &'a mut HashMap<String, String>,
     }
 
-    impl<'a> Visit for FieldRecorder<'a> {
+    impl Visit for FieldRecorder<'_> {
         fn record_bytes(&mut self, field: &Field, value: &[u8]) {
             let mut encoded = String::with_capacity(value.len() * 2);
             for byte in value {

@@ -265,7 +265,12 @@ impl Graph {
         while improved {
             improved = false;
             let Some(node) = self.node(current) else {
-                continue;
+                return Err(HnswError::GraphInvariantViolation {
+                    message: format!(
+                        "node {current} missing during greedy search at level {}",
+                        ctx.level
+                    ),
+                });
             };
 
             let search_ctx = NeighbourSearchContext {

@@ -88,13 +88,13 @@ impl<'a> Vector<'a> {
     }
 }
 
-impl<'a> AsRef<[f32]> for Vector<'a> {
+impl AsRef<[f32]> for Vector<'_> {
     fn as_ref(&self) -> &[f32] {
         self.0
     }
 }
 
-impl<'a> Deref for Vector<'a> {
+impl Deref for Vector<'_> {
     type Target = [f32];
 
     fn deref(&self) -> &Self::Target {
