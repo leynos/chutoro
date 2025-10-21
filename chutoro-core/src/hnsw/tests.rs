@@ -1,7 +1,10 @@
 //! Tests for the CPU HNSW index covering builds, insertions, searches, and
 //! error propagation paths.
 
-use super::{CpuHnsw, HnswError, HnswErrorCode, HnswParams, Neighbour};
+use super::{
+    CpuHnsw, HnswError, HnswErrorCode, HnswParams, Neighbour,
+    graph::{ExtendedSearchContext, Graph},
+};
 use crate::{DataSource, DataSourceError};
 use rand::{Rng, SeedableRng, distributions::Standard, rngs::SmallRng};
 use rstest::rstest;
@@ -200,6 +203,40 @@ fn non_finite_distance_is_reported() {
             assert_eq!(right, 0);
         }
         other => panic!("expected non-finite distance, got {other:?}"),
+    }
+}
+
+#[test]
+fn reports_invariant_violation_when_search_node_missing() {
+    let source = DummySource::new(vec![0.0, 1.0]);
+    let mut graph = Graph::with_capacity(2);
+    graph
+        .insert_first(0, 0)
+        .expect("initial node must insert successfully");
+    graph
+        .node_mut(0)
+        .expect("node 0 must exist")
+        .neighbours_mut(0)
+        .push(1);
+
+    let ctx = ExtendedSearchContext {
+        query: 0,
+        entry: 0,
+        level: 0,
+        ef: 2,
+    };
+
+    let err = graph
+        .search_layer(&source, ctx)
+        .expect_err("missing node must surface an invariant violation");
+    match err {
+        HnswError::GraphInvariantViolation { message } => {
+            assert_eq!(
+                message,
+                "node 1 missing during neighbour processing at level 0",
+            );
+        }
+        other => panic!("expected GraphInvariantViolation, got {other:?}"),
     }
 }
 

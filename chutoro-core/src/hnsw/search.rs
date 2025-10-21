@@ -115,7 +115,12 @@ impl Graph {
         state: &mut LayerSearchState,
     ) -> Result<(), HnswError> {
         let Some(node) = self.node(ctx.node_id) else {
-            return Ok(());
+            return Err(HnswError::GraphInvariantViolation {
+                message: format!(
+                    "node {} missing during neighbour processing at level {}",
+                    ctx.node_id, ctx.level
+                ),
+            });
         };
 
         let fresh = self.collect_unvisited_neighbours(node, ctx.level, state);
