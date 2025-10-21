@@ -7,12 +7,17 @@
 
 mod error;
 mod graph;
+mod insert;
+mod node;
 mod params;
+mod search;
+mod types;
+mod validate;
 
 pub use self::{
     error::{HnswError, HnswErrorCode},
-    graph::Neighbour,
     params::HnswParams,
+    types::Neighbour,
 };
 
 use std::{
@@ -28,7 +33,12 @@ use rayon::prelude::*;
 
 use crate::DataSource;
 
-use self::graph::{ApplyContext, ExtendedSearchContext, Graph, NodeContext, SearchContext};
+use self::{
+    graph::Graph,
+    insert::{ApplyContext, NodeContext},
+    search::{ExtendedSearchContext, SearchContext},
+    validate::validate_distance,
+};
 
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
@@ -106,7 +116,7 @@ impl CpuHnsw {
             let mut graph = self.graph.write().expect("graph lock poisoned");
             if graph.entry().is_none() {
                 graph.insert_first(node, level)?;
-                graph::validate_distance(source, node, node)?;
+                validate_distance(source, node, node)?;
                 self.len.store(1, Ordering::Relaxed);
                 return Ok(());
             }
@@ -218,7 +228,7 @@ impl CpuHnsw {
             let mut graph = self.graph.write().expect("graph lock poisoned");
             graph.insert_first(node, level)?;
         }
-        graph::validate_distance(source, node, node)?;
+        validate_distance(source, node, node)?;
         self.len.store(1, Ordering::Relaxed);
         Ok(())
     }
