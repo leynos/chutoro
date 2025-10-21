@@ -119,12 +119,14 @@ impl CpuHnsw {
         {
             // Phase 2: Apply insertion under write lock
             let mut graph = self.graph.write().expect("graph lock poisoned");
-            graph.apply_insertion(ApplyContext {
-                node: NodeContext { node, level },
-                params: &self.params,
-                plan,
+            graph.apply_insertion(
+                NodeContext { node, level },
+                ApplyContext {
+                    params: &self.params,
+                    plan,
+                },
                 source,
-            })?;
+            )?;
         }
         self.len.fetch_add(1, Ordering::Relaxed);
         Ok(())

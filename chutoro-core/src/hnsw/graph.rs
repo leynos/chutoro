@@ -72,17 +72,30 @@ struct NodePair {
     to: usize,
 }
 
-#[derive(Debug)]
-pub(crate) struct ApplyContext<'a, D> {
-    pub(crate) node: NodeContext,
+#[derive(Clone, Debug)]
+pub(crate) struct ApplyContext<'a> {
     pub(crate) params: &'a HnswParams,
     pub(crate) plan: InsertionPlan,
-    pub(crate) source: &'a D,
 }
 
-struct CandidateBatch {
-    candidates: Vec<usize>,
-    distances: Vec<f32>,
+struct ScoredCandidates {
+    items: Vec<(usize, f32)>,
+}
+
+impl ScoredCandidates {
+    fn new(candidates: Vec<usize>, distances: Vec<f32>) -> Self {
+        assert_eq!(
+            candidates.len(),
+            distances.len(),
+            "candidate and distance batches must align",
+        );
+        let items = candidates.into_iter().zip(distances).collect();
+        Self { items }
+    }
+
+    fn into_iter(self) -> impl Iterator<Item = (usize, f32)> {
+        self.items.into_iter()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -194,14 +207,11 @@ impl Graph {
 
     pub(crate) fn apply_insertion<D: DataSource + Sync>(
         &mut self,
-        ctx: ApplyContext<'_, D>,
+        node: NodeContext,
+        apply_ctx: ApplyContext<'_>,
+        source: &D,
     ) -> Result<(), HnswError> {
-        let ApplyContext {
-            node,
-            params,
-            plan,
-            source,
-        } = ctx;
+        let ApplyContext { params, plan } = apply_ctx;
         let NodeContext { node, level } = node;
         let slot = self
             .nodes
@@ -348,14 +358,8 @@ impl Graph {
         }
 
         let distances = validate_batch_distances(source, ctx.query, &fresh)?;
-        self.update_search_state_with_candidates(
-            CandidateBatch {
-                candidates: fresh,
-                distances,
-            },
-            ctx.ef,
-            state,
-        );
+        let scored = ScoredCandidates::new(fresh, distances);
+        self.update_search_state_with_candidates(scored, ctx.ef, state);
 
         Ok(())
     }
@@ -375,15 +379,11 @@ impl Graph {
 
     fn update_search_state_with_candidates(
         &self,
-        batch: CandidateBatch,
+        scored: ScoredCandidates,
         ef: usize,
         state: &mut LayerSearchState,
     ) {
-        let CandidateBatch {
-            candidates,
-            distances,
-        } = batch;
-        for (candidate, candidate_distance) in candidates.into_iter().zip(distances) {
+        for (candidate, candidate_distance) in scored.into_iter() {
             if !self.should_add_candidate(&state.best, ef, candidate_distance) {
                 continue;
             }
