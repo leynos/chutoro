@@ -182,11 +182,7 @@ impl Graph {
 
     fn finalize_results(&self, best: BinaryHeap<Neighbour>) -> Vec<Neighbour> {
         let mut neighbours: Vec<_> = best.into_vec();
-        neighbours.sort_by(|a, b| {
-            a.distance
-                .partial_cmp(&b.distance)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        neighbours.sort_unstable();
         neighbours
     }
 }

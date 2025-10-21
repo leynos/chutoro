@@ -1,3 +1,7 @@
+//! Types for HNSW graph operations (entry points, plans, and neighbour
+//! ordering semantics). Distances are finite `f32` values enforced by the
+//! validation layer.
+
 use std::cmp::Ordering;
 
 /// Entry point into the hierarchical graph used when searching.
@@ -19,6 +23,9 @@ pub(crate) struct LayerPlan {
 }
 
 /// Neighbour discovered during a search, including its distance from the query.
+///
+/// Distances must be finite (`f32::is_finite()`); non-finite values are invalid
+/// and rejected by validation in the search pipeline.
 ///
 /// # Examples
 /// ```
@@ -75,7 +82,7 @@ impl Ord for ReverseNeighbour {
             .distance
             .partial_cmp(&self.inner.distance)
             .unwrap_or(Ordering::Equal)
-            .then_with(|| other.inner.id.cmp(&self.inner.id))
+            .then_with(|| self.inner.id.cmp(&other.inner.id))
     }
 }
 

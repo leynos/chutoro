@@ -83,7 +83,7 @@ pub(super) struct ScoredCandidates {
 
 impl ScoredCandidates {
     pub(super) fn new(candidates: Vec<usize>, distances: Vec<f32>) -> Self {
-        assert_eq!(
+        debug_assert_eq!(
             candidates.len(),
             distances.len(),
             "candidate and distance batches must align",

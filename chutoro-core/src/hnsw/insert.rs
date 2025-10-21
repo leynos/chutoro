@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::HashSet};
+use std::collections::HashSet;
 
 use crate::DataSource;
 
@@ -6,13 +6,19 @@ use super::{
     error::HnswError,
     params::HnswParams,
     types::{InsertionPlan, LayerPlan},
-    validate::validate_batch_distances,
 };
 
 use super::graph::{
     ApplyContext, DescentContext, EdgeContext, ExtendedSearchContext, Graph, LayerPlanContext,
     NodeContext, NodePair, SearchContext,
 };
+
+#[derive(Clone, Debug)]
+pub(super) struct TrimJob {
+    pub(crate) node: usize,
+    pub(crate) ctx: EdgeContext,
+    pub(crate) candidates: Vec<usize>,
+}
 
 impl Graph {
     pub(crate) fn plan_insertion<D: DataSource + Sync>(
@@ -89,16 +95,17 @@ impl Graph {
         Ok(layers)
     }
 
-    pub(crate) fn apply_insertion<D: DataSource + Sync>(
+    pub(crate) fn apply_insertion(
         &mut self,
         node: NodeContext,
         apply_ctx: ApplyContext<'_>,
-        source: &D,
-    ) -> Result<(), HnswError> {
+    ) -> Result<Vec<TrimJob>, HnswError> {
         let ApplyContext { params, plan } = apply_ctx;
         let NodeContext { node, level } = node;
         self.attach_node(node, level)?;
         self.promote_entry(node, level);
+
+        let mut trim_jobs = Vec::new();
 
         for layer in plan.layers.into_iter().filter(|layer| layer.level <= level) {
             let mut to_link = layer.neighbours;
@@ -121,10 +128,12 @@ impl Graph {
                 }
             }
             for changed in trim_targets {
-                self.trim_neighbours(changed, edge_ctx, source)?;
+                if let Some(job) = self.prepare_trim_job(changed, edge_ctx)? {
+                    trim_jobs.push(job);
+                }
             }
         }
-        Ok(())
+        Ok(trim_jobs)
     }
 
     fn link_bidirectional(
@@ -162,30 +171,37 @@ impl Graph {
         Ok(false)
     }
 
-    fn trim_neighbours<D: DataSource + Sync>(
+    fn prepare_trim_job(
+        &self,
+        node: usize,
+        ctx: EdgeContext,
+    ) -> Result<Option<TrimJob>, HnswError> {
+        let node_ref = self
+            .node(node)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: format!("node {node} missing during trim scheduling"),
+            })?;
+        let neighbours = node_ref.neighbours(ctx.level);
+        if neighbours.len() <= ctx.max_connections {
+            return Ok(None);
+        }
+        Ok(Some(TrimJob {
+            node,
+            ctx,
+            candidates: neighbours.to_vec(),
+        }))
+    }
+
+    pub(crate) fn apply_trim(
         &mut self,
         node: usize,
         ctx: EdgeContext,
-        source: &D,
+        scored: &[(usize, f32)],
     ) -> Result<(), HnswError> {
-        let candidates = {
-            let node_ref =
-                self.node_mut(node)
-                    .ok_or_else(|| HnswError::GraphInvariantViolation {
-                        message: format!("node {node} missing during trim"),
-                    })?;
-            let list = node_ref.neighbours_mut(ctx.level);
-            if list.len() <= ctx.max_connections {
-                return Ok(());
-            }
-            list.clone()
-        };
-
-        let distances = validate_batch_distances(source, node, &candidates)?;
-        let mut scored: Vec<_> = candidates.into_iter().zip(distances).collect();
-        scored.sort_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(Ordering::Equal));
-        scored.truncate(ctx.max_connections);
-
+        debug_assert!(
+            scored.len() <= ctx.max_connections,
+            "trimmed candidate list exceeds max connections"
+        );
         let node_ref = self
             .node_mut(node)
             .ok_or_else(|| HnswError::GraphInvariantViolation {
@@ -193,7 +209,7 @@ impl Graph {
             })?;
         let list = node_ref.neighbours_mut(ctx.level);
         list.clear();
-        list.extend(scored.into_iter().map(|(candidate, _)| candidate));
+        list.extend(scored.iter().map(|(candidate, _)| *candidate));
         Ok(())
     }
 }

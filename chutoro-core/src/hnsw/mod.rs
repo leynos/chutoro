@@ -35,7 +35,7 @@ use crate::DataSource;
 
 use self::{
     graph::{ApplyContext, ExtendedSearchContext, Graph, NodeContext, SearchContext},
-    validate::validate_distance,
+    validate::{validate_batch_distances, validate_distance},
 };
 
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
@@ -124,7 +124,7 @@ impl CpuHnsw {
             let graph = self.graph.read().expect("graph lock poisoned");
             graph.plan_insertion(NodeContext { node, level }, &self.params, source)
         }?;
-        {
+        let trim_jobs = {
             // Phase 2: Apply insertion under write lock
             let mut graph = self.graph.write().expect("graph lock poisoned");
             graph.apply_insertion(
@@ -133,8 +133,27 @@ impl CpuHnsw {
                     params: &self.params,
                     plan,
                 },
-                source,
-            )?;
+            )?
+        };
+
+        if !trim_jobs.is_empty() {
+            let mut trims = Vec::with_capacity(trim_jobs.len());
+            for job in trim_jobs {
+                let distances = validate_batch_distances(source, job.node, &job.candidates)?;
+                let mut scored: Vec<_> = job.candidates.into_iter().zip(distances).collect();
+                scored.sort_by(|(_, left), (_, right)| {
+                    left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                scored.truncate(job.ctx.max_connections);
+                trims.push((job.node, job.ctx, scored));
+            }
+
+            if !trims.is_empty() {
+                let mut graph = self.graph.write().expect("graph lock poisoned");
+                for (node_id, edge_ctx, scored) in trims {
+                    graph.apply_trim(node_id, edge_ctx, &scored)?;
+                }
+            }
         }
         self.len.fetch_add(1, Ordering::Relaxed);
         Ok(())
