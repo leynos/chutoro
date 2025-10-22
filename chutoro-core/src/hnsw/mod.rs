@@ -85,9 +85,10 @@ impl CpuHnsw {
         }
         let index = Self::with_capacity(params, items)?;
         let level = index.sample_level();
+        let node_ctx = NodeContext { node: 0, level };
         {
             let mut graph = index.graph.write().expect("graph lock poisoned");
-            index.insert_initial(&mut graph, 0, level, source)?;
+            index.insert_initial(&mut graph, node_ctx, source)?;
         }
         if items > 1 {
             (1..items)
@@ -115,23 +116,24 @@ impl CpuHnsw {
     /// Inserts a node into the graph, performing search under a shared lock.
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
         let level = self.sample_level();
+        let node_ctx = NodeContext { node, level };
         {
             let mut graph = self.graph.write().expect("graph lock poisoned");
             if graph.entry().is_none() {
-                self.insert_initial(&mut graph, node, level, source)?;
+                self.insert_initial(&mut graph, node_ctx, source)?;
                 return Ok(());
             }
         }
         let plan = {
             // Phase 1: Plan insertion under read lock
             let graph = self.graph.read().expect("graph lock poisoned");
-            graph.plan_insertion(NodeContext { node, level }, &self.params, source)
+            graph.plan_insertion(node_ctx, &self.params, source)
         }?;
         let trim_jobs = {
             // Phase 2: Apply insertion under write lock
             let mut graph = self.graph.write().expect("graph lock poisoned");
             graph.apply_insertion(
-                NodeContext { node, level },
+                node_ctx,
                 ApplyContext {
                     params: &self.params,
                     plan,
@@ -146,12 +148,11 @@ impl CpuHnsw {
     fn insert_initial<D: DataSource + Sync>(
         &self,
         graph: &mut Graph,
-        node: usize,
-        level: usize,
+        ctx: NodeContext,
         source: &D,
     ) -> Result<(), HnswError> {
-        graph.insert_first(node, level)?;
-        validate_distance(source, node, node)?;
+        graph.insert_first(ctx.node, ctx.level)?;
+        validate_distance(source, ctx.node, ctx.node)?;
         self.len.store(1, Ordering::Relaxed);
         Ok(())
     }
