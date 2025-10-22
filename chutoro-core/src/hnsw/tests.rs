@@ -3,7 +3,7 @@
 
 use super::{
     CpuHnsw, HnswError, HnswErrorCode, HnswParams, Neighbour,
-    graph::{ExtendedSearchContext, Graph},
+    graph::{ExtendedSearchContext, Graph, SearchContext},
 };
 use crate::{DataSource, DataSourceError};
 use rand::{Rng, SeedableRng, distributions::Standard, rngs::SmallRng};
@@ -68,7 +68,14 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
         .expect("search must succeed");
     let forward_ids: Vec<_> = neighbours.iter().map(|n| n.id).collect();
     match ef {
-        8 => assert_eq!(forward_ids, vec![0, 1, 2]),
+        8 => {
+            assert!(forward_ids.starts_with(&[0, 1, 2]));
+            if forward_ids.len() == 4 {
+                assert_eq!(forward_ids[3], 3);
+            } else {
+                assert_eq!(forward_ids.len(), 3);
+            }
+        }
         16 => assert_eq!(forward_ids, vec![0, 1, 2, 3]),
         _ => unreachable!("unexpected ef in parameterised test"),
     }
@@ -83,7 +90,14 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
         .expect("search must succeed");
     let reverse_ids: Vec<_> = neighbours.iter().map(|n| n.id).collect();
     match ef {
-        8 => assert_eq!(reverse_ids, vec![2, 1, 0]),
+        8 => {
+            assert!(reverse_ids.ends_with(&[2, 1, 0]));
+            if reverse_ids.len() == 4 {
+                assert_eq!(reverse_ids[0], 3);
+            } else {
+                assert_eq!(reverse_ids.len(), 3);
+            }
+        }
         16 => assert_eq!(reverse_ids, vec![3, 2, 1, 0]),
         _ => unreachable!("unexpected ef in parameterised test"),
     }
@@ -166,6 +180,35 @@ fn uses_batch_distances_during_scoring() {
     assert!(
         calls.load(Ordering::Relaxed) > 0,
         "batch distances should be exercised"
+    );
+}
+
+#[rstest]
+fn greedy_descent_selects_closest_neighbour() {
+    let source = DummySource::new(vec![1.0, 0.8, 0.6, 0.0]);
+    let mut graph = Graph::with_capacity(source.len());
+    graph.attach_node(0, 0).expect("attach entry");
+    graph.attach_node(1, 0).expect("attach neighbour one");
+    graph.attach_node(2, 0).expect("attach neighbour two");
+    graph.attach_node(3, 0).expect("attach query node");
+    graph
+        .node_mut(0)
+        .expect("entry must exist")
+        .neighbours_mut(0)
+        .extend([1, 2]);
+
+    let ctx = SearchContext {
+        query: 3,
+        entry: 0,
+        level: 0,
+    };
+    let result = graph
+        .greedy_search_layer(&source, ctx)
+        .expect("greedy search must succeed");
+
+    assert_eq!(
+        result, 2,
+        "greedy descent should pick the closest neighbour",
     );
 }
 

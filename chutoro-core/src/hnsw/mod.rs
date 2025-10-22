@@ -86,10 +86,12 @@ impl CpuHnsw {
         let index = Self::with_capacity(params, items)?;
         let level = index.sample_level();
         let node_ctx = NodeContext { node: 0, level };
+        validate_distance(source, node_ctx.node, node_ctx.node)?;
         {
             let mut graph = index.graph.write().expect("graph lock poisoned");
-            index.insert_initial(&mut graph, node_ctx, source)?;
+            index.insert_initial(&mut graph, node_ctx)?;
         }
+        index.len.store(1, Ordering::Relaxed);
         if items > 1 {
             (1..items)
                 .into_par_iter()
@@ -117,10 +119,25 @@ impl CpuHnsw {
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
         let level = self.sample_level();
         let node_ctx = NodeContext { node, level };
-        {
+        let has_entry = {
+            self.graph
+                .read()
+                .expect("graph lock poisoned")
+                .entry()
+                .is_some()
+        };
+        if !has_entry {
+            validate_distance(source, node_ctx.node, node_ctx.node)?;
             let mut graph = self.graph.write().expect("graph lock poisoned");
-            if graph.entry().is_none() {
-                self.insert_initial(&mut graph, node_ctx, source)?;
+            let inserted = if graph.entry().is_none() {
+                self.insert_initial(&mut graph, node_ctx)?;
+                true
+            } else {
+                false
+            };
+            drop(graph);
+            if inserted {
+                self.len.store(1, Ordering::Relaxed);
                 return Ok(());
             }
         }
@@ -145,16 +162,8 @@ impl CpuHnsw {
         Ok(())
     }
 
-    fn insert_initial<D: DataSource + Sync>(
-        &self,
-        graph: &mut Graph,
-        ctx: NodeContext,
-        source: &D,
-    ) -> Result<(), HnswError> {
-        graph.insert_first(ctx.node, ctx.level)?;
-        validate_distance(source, ctx.node, ctx.node)?;
-        self.len.store(1, Ordering::Relaxed);
-        Ok(())
+    fn insert_initial(&self, graph: &mut Graph, ctx: NodeContext) -> Result<(), HnswError> {
+        graph.insert_first(ctx.node, ctx.level)
     }
 
     fn apply_trim_jobs<D: DataSource + Sync>(
@@ -166,14 +175,17 @@ impl CpuHnsw {
             return Ok(());
         }
 
-        let mut trims = Vec::with_capacity(trim_jobs.len());
-        for job in trim_jobs {
-            let distances = validate_batch_distances(source, job.node, &job.candidates)?;
-            let mut scored: Vec<_> = job.candidates.into_iter().zip(distances).collect();
-            scored.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
-            scored.truncate(job.ctx.max_connections);
-            trims.push((job.node, job.ctx, scored));
-        }
+        let trims: Vec<_> = trim_jobs
+            .into_par_iter()
+            .map(|job| {
+                validate_batch_distances(source, job.node, &job.candidates).map(|distances| {
+                    let mut scored: Vec<_> = job.candidates.into_iter().zip(distances).collect();
+                    scored.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
+                    scored.truncate(job.ctx.max_connections);
+                    (job.node, job.ctx, scored)
+                })
+            })
+            .collect::<Result<Vec<_>, HnswError>>()?;
 
         if trims.is_empty() {
             return Ok(());
@@ -252,15 +264,13 @@ impl CpuHnsw {
     /// increasing counts and callers only require eventual consistency for
     /// metrics.
     #[must_use]
-    pub fn len(&self) -> usize {
-        self.len.load(Ordering::Relaxed)
-    }
+    #[rustfmt::skip]
+    pub fn len(&self) -> usize { self.len.load(Ordering::Relaxed) }
 
     /// Returns whether the index currently stores no nodes.
     #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
+    #[rustfmt::skip]
+    pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     fn sample_level(&self) -> usize {
         let mut rng = self.rng.lock().expect("rng mutex poisoned");

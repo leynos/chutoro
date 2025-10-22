@@ -62,12 +62,15 @@ impl Graph {
         }
 
         let distances = validate_batch_distances(source, ctx.query, neighbours)?;
+        let mut best: Option<(usize, f32)> = None;
         for (candidate, candidate_dist) in neighbours.iter().copied().zip(distances) {
-            if candidate_dist < ctx.current_dist {
-                return Ok(Some((candidate, candidate_dist)));
+            if candidate_dist < ctx.current_dist
+                && best.is_none_or(|(_, best_dist)| candidate_dist < best_dist)
+            {
+                best = Some((candidate, candidate_dist));
             }
         }
-        Ok(None)
+        Ok(best)
     }
 
     pub(crate) fn search_layer<D: DataSource + Sync>(
