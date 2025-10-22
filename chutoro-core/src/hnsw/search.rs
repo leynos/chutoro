@@ -1,4 +1,13 @@
-use std::collections::{BinaryHeap, HashSet};
+//! Layer search routines for the CPU HNSW graph.
+//!
+//! Implements greedy descent and best-first per-layer search whilst enforcing
+//! finite distance invariants. Non-finite values are rejected before they can
+//! pollute the traversal state.
+
+use std::{
+    cmp::Ordering,
+    collections::{BinaryHeap, HashSet},
+};
 
 use crate::DataSource;
 
@@ -62,15 +71,15 @@ impl Graph {
         }
 
         let distances = validate_batch_distances(source, ctx.query, neighbours)?;
-        let mut best: Option<(usize, f32)> = None;
-        for (candidate, candidate_dist) in neighbours.iter().copied().zip(distances) {
-            if candidate_dist < ctx.current_dist
-                && best.is_none_or(|(_, best_dist)| candidate_dist < best_dist)
-            {
-                best = Some((candidate, candidate_dist));
-            }
+        if let Some((best_id, best_dist)) = neighbours
+            .iter()
+            .copied()
+            .zip(distances)
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
+        {
+            return Ok((best_dist < ctx.current_dist).then_some((best_id, best_dist)));
         }
-        Ok(best)
+        Ok(None)
     }
 
     pub(crate) fn search_layer<D: DataSource + Sync>(
@@ -105,9 +114,9 @@ impl Graph {
         candidate_distance: f32,
     ) -> bool {
         best.len() >= ef
-            && best
-                .peek()
-                .map(|furthest| candidate_distance > furthest.distance)
+            && self
+                .furthest_distance(best)
+                .map(|furthest| candidate_distance > furthest)
                 .unwrap_or(false)
     }
 
@@ -182,9 +191,9 @@ impl Graph {
         candidate_distance: f32,
     ) -> bool {
         best.len() < ef
-            || best
-                .peek()
-                .map(|furthest| candidate_distance < furthest.distance)
+            || self
+                .furthest_distance(best)
+                .map(|furthest| candidate_distance < furthest)
                 .unwrap_or(true)
     }
 
@@ -192,6 +201,11 @@ impl Graph {
         let mut neighbours: Vec<_> = best.into_vec();
         neighbours.sort_unstable();
         neighbours
+    }
+
+    #[inline]
+    fn furthest_distance(&self, best: &BinaryHeap<Neighbour>) -> Option<f32> {
+        best.peek().map(|neighbour| neighbour.distance)
     }
 }
 

@@ -383,8 +383,9 @@ fn level_sampling_matches_geometric_tail() {
 
 fn assert_sorted_by_distance(neighbours: &[Neighbour]) {
     for window in neighbours.windows(2) {
-        let [left, right]: &[Neighbour; 2] =
-            window.try_into().expect("windows(2) always yields pairs");
+        let &[left, right] = window else {
+            continue;
+        };
         assert!(
             left.distance <= right.distance + f32::EPSILON,
             "distances must be non-decreasing: {neighbours:?}",
