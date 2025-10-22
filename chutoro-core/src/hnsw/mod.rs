@@ -169,9 +169,7 @@ impl CpuHnsw {
         for job in trim_jobs {
             let distances = validate_batch_distances(source, job.node, &job.candidates)?;
             let mut scored: Vec<_> = job.candidates.into_iter().zip(distances).collect();
-            scored.sort_by(|(_, left), (_, right)| {
-                left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal)
-            });
+            scored.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
             scored.truncate(job.ctx.max_connections);
             trims.push((job.node, job.ctx, scored));
         }
