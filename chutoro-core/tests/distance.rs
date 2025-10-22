@@ -1,3 +1,5 @@
+//! Integration tests validating the distance helpers exported by `chutoro-core`.
+
 use chutoro_core::{CosineNorms, DistanceError, VectorKind, cosine_distance, euclidean_distance};
 use rstest::rstest;
 

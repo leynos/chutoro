@@ -58,7 +58,9 @@ pub mod tracing {
     /// by tests to assert span metadata and field values.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct SpanRecord {
+        /// Span name captured from the tracing metadata.
         pub name: String,
+        /// Structured fields recorded against the span.
         pub fields: HashMap<String, String>,
     }
 
@@ -66,8 +68,11 @@ pub mod tracing {
     /// structured fields so tests can assert diagnostic payloads precisely.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct EventRecord {
+        /// Log level associated with the recorded event.
         pub level: Level,
+        /// Event target string extracted from the metadata.
         pub target: String,
+        /// Structured fields attached to the event.
         pub fields: HashMap<String, String>,
     }
 

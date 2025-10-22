@@ -1,4 +1,5 @@
 #![expect(clippy::expect_used, reason = "tests require contextual panics")]
+//! Integration tests covering the text-backed [`DataSource`] implementation.
 use std::io::Cursor;
 
 use chutoro_core::{DataSource, DataSourceError};

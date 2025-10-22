@@ -1,0 +1,2 @@
+[build]
+rustflags = ["-Dmissing_docs", "-Dmissing_crate_level_docs"]

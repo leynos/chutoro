@@ -33,20 +33,36 @@ pub enum DistanceError {
     ZeroLength,
     /// Input vectors had different lengths.
     #[error("dimension mismatch: left={left}, right={right}")]
-    DimensionMismatch { left: usize, right: usize },
+    DimensionMismatch {
+        /// Dimensionality of the left-hand vector.
+        left: usize,
+        /// Dimensionality of the right-hand vector.
+        right: usize,
+    },
     /// Encountered a non-finite value in one of the vectors.
     #[error("{which} vector contains a non-finite value at index {index}: {value}")]
     NonFinite {
+        /// Identifies whether the left or right vector contained the value.
         which: VectorKind,
+        /// Offset within the offending vector.
         index: usize,
+        /// The non-finite value that triggered validation failure.
         value: f32,
     },
     /// Cosine distance is undefined for zero-magnitude vectors.
     #[error("{which} vector has zero magnitude")]
-    ZeroMagnitude { which: VectorKind },
+    ZeroMagnitude {
+        /// Identifies the vector whose magnitude collapsed to zero.
+        which: VectorKind,
+    },
     /// Provided norms must be finite.
     #[error("provided {which} norm must be finite (got {value})")]
-    InvalidNorm { which: VectorKind, value: f32 },
+    InvalidNorm {
+        /// Identifies the vector whose norm was invalid.
+        which: VectorKind,
+        /// The invalid norm value supplied by the caller.
+        value: f32,
+    },
 }
 
 /// Convenient alias for distance computations.

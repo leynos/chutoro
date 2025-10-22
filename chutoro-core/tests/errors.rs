@@ -1,3 +1,5 @@
+//! Integration tests covering the public error types exposed by `chutoro-core`.
+
 use std::{num::NonZeroUsize, sync::Arc};
 
 use chutoro_core::{

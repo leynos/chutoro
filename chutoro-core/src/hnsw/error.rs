@@ -13,19 +13,33 @@ pub enum HnswError {
     EmptyBuild,
     /// Parameters were invalid for the current configuration.
     #[error("invalid HNSW parameter: {reason}")]
-    InvalidParameters { reason: String },
+    InvalidParameters {
+        /// Human-readable explanation of the parameter failure.
+        reason: String,
+    },
     /// The same node was inserted more than once.
     #[error("node {node} has already been inserted")]
-    DuplicateNode { node: usize },
+    DuplicateNode {
+        /// Identifier of the node that was inserted repeatedly.
+        node: usize,
+    },
     /// The graph is missing an entry point, which indicates a logic error.
     #[error("HNSW graph has no entry point")]
     GraphEmpty,
     /// Attempted to operate on an inconsistent graph state.
     #[error("HNSW graph invariant violated: {message}")]
-    GraphInvariantViolation { message: String },
+    GraphInvariantViolation {
+        /// Description of the violated invariant to assist debugging.
+        message: String,
+    },
     /// The data source returned a non-finite distance.
     #[error("data source returned a non-finite distance for ({left}, {right})")]
-    NonFiniteDistance { left: usize, right: usize },
+    NonFiniteDistance {
+        /// Index of the first node involved in the distance query.
+        left: usize,
+        /// Index of the second node involved in the distance query.
+        right: usize,
+    },
     /// Wrapped [`DataSource`] error.
     #[error("data source failure: {0}")]
     DataSource(#[from] DataSourceError),
