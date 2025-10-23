@@ -321,9 +321,9 @@ data and avoids unintended side effects.
 - **Description:** The strategy will generate a set of vectors and select one
     vector to be the "duplicate." It will then construct two HNSW indices. The
     first index will be built from the original set of vectors. The second
-    index will be built from the same set but with the "duplicate" vector added
-    multiple times. The property will assert that the final graph structures of
-    both indices are identical.
+    index will be built from the same set, but with the "duplicate" vector
+    added multiple times. The property will assert that the final graph
+    structures of both indices are identical.
 
 - **Justification:** A robust system should produce the same result
     regardless of how many times the same piece of data is inserted. This test
