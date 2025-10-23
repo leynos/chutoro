@@ -2,17 +2,21 @@
 
 mod common;
 
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
 use chutoro_core::{
     ChutoroBuilder, ChutoroError, ClusterId, ClusteringResult, DataSource, DataSourceError,
     ExecutionStrategy, NonContiguousClusterIds,
 };
 use common::Dummy;
 use rstest::{fixture, rstest};
-use std::sync::Arc;
 use tracing::Level;
 use tracing_subscriber::layer::SubscriberExt;
 
 use chutoro_test_support::tracing::RecordingLayer;
+
+type TestResult<T = ()> = Result<T>;
 
 #[fixture]
 fn dummy() -> Dummy {
@@ -25,95 +29,101 @@ fn small_dummy() -> Dummy {
 }
 
 #[rstest]
-fn builder_defaults() {
+fn builder_defaults() -> TestResult {
     let builder = ChutoroBuilder::new();
     assert_eq!(builder.min_cluster_size(), 5);
     assert_eq!(builder.execution_strategy(), ExecutionStrategy::Auto);
 
-    let chutoro = builder.clone().build().expect("defaults valid");
+    let chutoro = builder.clone().build().context("defaults valid")?;
     assert_eq!(chutoro.min_cluster_size().get(), 5);
     assert_eq!(chutoro.execution_strategy(), ExecutionStrategy::Auto);
+    Ok(())
 }
 
 #[rstest]
-fn builder_rejects_zero_min_cluster_size() {
+fn builder_rejects_zero_min_cluster_size() -> TestResult {
     let err = ChutoroBuilder::new()
         .with_min_cluster_size(0)
         .build()
-        .expect_err("builder must reject zero min_cluster_size");
+        .err()
+        .context("builder must reject zero min_cluster_size")?;
     assert!(matches!(
         err,
         ChutoroError::InvalidMinClusterSize { got: 0 }
     ));
+    Ok(())
 }
 
 #[cfg(feature = "skeleton")]
 #[rstest]
 #[case::auto(ExecutionStrategy::Auto)]
 #[case::cpu_only(ExecutionStrategy::CpuOnly)]
-fn run_cpu_single_cluster(#[case] strategy: ExecutionStrategy, dummy: Dummy) {
+fn run_cpu_single_cluster(#[case] strategy: ExecutionStrategy, dummy: Dummy) -> TestResult {
     let len = dummy.len();
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(len)
         .with_execution_strategy(strategy)
         .build()
-        .expect("configuration must be valid");
-    let result = chutoro.run(&dummy).expect("run must succeed");
+        .context("configuration must be valid")?;
+    let result = chutoro.run(&dummy).context("run must succeed")?;
     assert_eq!(result.assignments().len(), dummy.len());
     assert_eq!(result.cluster_count(), 1);
     assert!(result.assignments().iter().all(|id| id.get() == 0));
+    Ok(())
 }
 
 #[cfg(feature = "skeleton")]
 #[rstest]
-fn run_cpu_partitions_by_min_cluster_size() {
+fn run_cpu_partitions_by_min_cluster_size() -> TestResult {
     let source = Dummy::new(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(2)
         .build()
-        .expect("configuration must be valid");
-    let result = chutoro.run(&source).expect("run must succeed");
+        .context("configuration must be valid")?;
+    let result = chutoro.run(&source).context("run must succeed")?;
     let assignment_ids: Vec<u64> = result.assignments().iter().map(|id| id.get()).collect();
     assert_eq!(assignment_ids, vec![0, 0, 1, 1, 2, 2]);
     assert_eq!(result.cluster_count(), 3);
+    Ok(())
 }
 
 #[cfg(feature = "skeleton")]
 #[rstest]
-fn run_cpu_partitions_by_min_cluster_size_non_divisible() {
+fn run_cpu_partitions_by_min_cluster_size_non_divisible() -> TestResult {
     let source = Dummy::new(vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(3)
         .build()
-        .expect("configuration must be valid");
-    let result = chutoro.run(&source).expect("run must succeed");
+        .context("configuration must be valid")?;
+    let result = chutoro.run(&source).context("run must succeed")?;
     let assignment_ids: Vec<u64> = result.assignments().iter().map(|id| id.get()).collect();
     assert_eq!(assignment_ids, vec![0, 0, 0, 1, 1, 1, 2]);
     assert_eq!(result.cluster_count(), 3);
     let final_cluster_size = assignment_ids.iter().filter(|&&id| id == 2).count();
     assert_eq!(final_cluster_size, 1);
+    Ok(())
 }
 
 #[cfg(feature = "skeleton")]
 #[rstest]
-fn run_records_core_tracing(dummy: Dummy) {
+fn run_records_core_tracing(dummy: Dummy) -> TestResult {
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(dummy.len())
         .with_execution_strategy(ExecutionStrategy::CpuOnly)
         .build()
-        .expect("configuration must be valid");
+        .context("configuration must be valid")?;
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
     let result = tracing::subscriber::with_default(subscriber, || chutoro.run(&dummy))
-        .expect("run must succeed");
+        .context("run must succeed")?;
     assert_eq!(result.assignments().len(), dummy.len());
 
     let spans = layer.spans();
     let run_span = spans
         .iter()
         .find(|span| span.name == "core.run")
-        .expect("core.run span must exist");
+        .context("core.run span must exist")?;
     let min_cluster = dummy.len().to_string();
     assert_eq!(
         run_span.fields.get("data_source"),
@@ -126,7 +136,7 @@ fn run_records_core_tracing(dummy: Dummy) {
     let cpu_span = spans
         .iter()
         .find(|span| span.name == "core.run_cpu")
-        .expect("core.run_cpu span must exist");
+        .context("core.run_cpu span must exist")?;
     assert_eq!(cpu_span.fields.get("items"), Some(&min_cluster));
     assert_eq!(cpu_span.fields.get("min_cluster_size"), Some(&min_cluster));
 
@@ -138,25 +148,27 @@ fn run_records_core_tracing(dummy: Dummy) {
                 .get("message")
                 .is_some_and(|value| value == "cpu execution completed")
     }));
+    Ok(())
 }
 
 #[rstest]
-fn run_logs_empty_source_warning() {
+fn run_logs_empty_source_warning() -> TestResult {
     let chutoro = ChutoroBuilder::new()
         .build()
-        .expect("configuration must be valid");
+        .context("configuration must be valid")?;
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
     let err = tracing::subscriber::with_default(subscriber, || chutoro.run(&Dummy::new(vec![])))
-        .expect_err("empty sources must fail");
+        .err()
+        .context("empty sources must fail")?;
     assert!(matches!(err, ChutoroError::EmptySource { .. }));
 
     let spans = layer.spans();
     let run_span = spans
         .iter()
         .find(|span| span.name == "core.run")
-        .expect("core.run span must exist");
+        .context("core.run span must exist")?;
     assert_eq!(run_span.fields.get("items"), Some(&"0".to_owned()));
 
     let events = layer.events();
@@ -167,48 +179,57 @@ fn run_logs_empty_source_warning() {
                 .get("message")
                 .is_some_and(|value| value == "data source is empty, returning error")
     }));
+    Ok(())
 }
 
 #[cfg(not(feature = "skeleton"))]
 #[rstest]
 #[case::auto(ExecutionStrategy::Auto)]
 #[case::cpu_only(ExecutionStrategy::CpuOnly)]
-fn run_cpu_strategies_error_without_skeleton(#[case] strategy: ExecutionStrategy, dummy: Dummy) {
+fn run_cpu_strategies_error_without_skeleton(
+    #[case] strategy: ExecutionStrategy,
+    dummy: Dummy,
+) -> TestResult {
     let chutoro = ChutoroBuilder::new()
         .with_execution_strategy(strategy)
         .build()
-        .expect("configuration must be valid");
+        .context("configuration must be valid")?;
     let err = chutoro
         .run(&dummy)
-        .expect_err("run must reject CPU strategies when the skeleton backend is disabled");
+        .err()
+        .context("run must reject CPU strategies when the skeleton backend is disabled")?;
     assert!(matches!(
         err,
         ChutoroError::BackendUnavailable { requested }
             if requested == strategy
     ));
+    Ok(())
 }
 
 #[rstest]
-fn run_empty_source_errors() {
+fn run_empty_source_errors() -> TestResult {
     let chutoro = ChutoroBuilder::new()
         .build()
-        .expect("configuration must be valid");
+        .context("configuration must be valid")?;
     let empty = Dummy::new(vec![]);
     let err = chutoro
         .run(&empty)
-        .expect_err("run must reject empty data sources");
+        .err()
+        .context("run must reject empty data sources")?;
     assert!(matches!(err, ChutoroError::EmptySource { .. }));
+    Ok(())
 }
 
 #[rstest]
-fn run_insufficient_items_errors(small_dummy: Dummy) {
+fn run_insufficient_items_errors(small_dummy: Dummy) -> TestResult {
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(4)
         .build()
-        .expect("configuration must be valid");
+        .context("configuration must be valid")?;
     let err = chutoro
         .run(&small_dummy)
-        .expect_err("run must enforce min_cluster_size");
+        .err()
+        .context("run must enforce min_cluster_size")?;
     assert!(matches!(
         err,
         ChutoroError::InsufficientItems {
@@ -217,33 +238,37 @@ fn run_insufficient_items_errors(small_dummy: Dummy) {
             ..
         } if min_cluster_size.get() == 4
     ));
+    Ok(())
 }
 
 #[cfg(not(feature = "gpu"))]
 #[rstest]
-fn builder_rejects_gpu_preferred_without_feature(dummy: Dummy) {
+fn builder_rejects_gpu_preferred_without_feature(dummy: Dummy) -> TestResult {
     let err = ChutoroBuilder::new()
         .with_min_cluster_size(dummy.len())
         .with_execution_strategy(ExecutionStrategy::GpuPreferred)
         .build()
-        .expect_err("builder must reject GPU preference when feature is disabled");
+        .err()
+        .context("builder must reject GPU preference when feature is disabled")?;
     assert!(matches!(
         err,
         ChutoroError::BackendUnavailable {
             requested: ExecutionStrategy::GpuPreferred,
         }
     ));
+    Ok(())
 }
 
 #[cfg(all(feature = "gpu", feature = "skeleton"))]
 #[rstest]
-fn run_gpu_preferred_succeeds_when_enabled(dummy: Dummy) {
+fn run_gpu_preferred_succeeds_when_enabled(dummy: Dummy) -> TestResult {
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(dummy.len())
         .with_execution_strategy(ExecutionStrategy::GpuPreferred)
         .build()
-        .expect("builder must allow runtime GPU preference");
-    let _ = chutoro.run(&dummy).expect("gpu run must succeed");
+        .context("builder must allow runtime GPU preference")?;
+    let _ = chutoro.run(&dummy).context("gpu run must succeed")?;
+    Ok(())
 }
 
 #[rstest]
@@ -258,9 +283,21 @@ fn cluster_count_matches_unique_assignments(
 }
 
 #[rstest]
-#[case::missing_zero(vec![ClusterId::new(1)], NonContiguousClusterIds::MissingZero, "assignments must start at zero")]
-#[case::gap(vec![ClusterId::new(0), ClusterId::new(2)], NonContiguousClusterIds::Gap, "assignments must be contiguous")]
-#[case::overflow(vec![ClusterId::new(u64::MAX)], NonContiguousClusterIds::Overflow, "assignments must stay within usize range")]
+#[case::missing_zero(
+    vec![ClusterId::new(1)],
+    NonContiguousClusterIds::MissingZero,
+    "assignments must start at zero"
+)]
+#[case::gap(
+    vec![ClusterId::new(0), ClusterId::new(2)],
+    NonContiguousClusterIds::Gap,
+    "assignments must be contiguous"
+)]
+#[case::overflow(
+    vec![ClusterId::new(u64::MAX)],
+    NonContiguousClusterIds::Overflow,
+    "assignments must stay within usize range"
+)]
 #[case::duplicate(
     vec![ClusterId::new(0), ClusterId::new(0), ClusterId::new(2)],
     NonContiguousClusterIds::Duplicate,
@@ -270,9 +307,12 @@ fn try_from_assignments_validates_contiguity(
     #[case] assignments: Vec<ClusterId>,
     #[case] expected_error: NonContiguousClusterIds,
     #[case] error_message: &str,
-) {
-    let err = ClusteringResult::try_from_assignments(assignments).expect_err(error_message);
+) -> TestResult {
+    let err = ClusteringResult::try_from_assignments(assignments)
+        .err()
+        .with_context(|| error_message.to_owned())?;
     assert_eq!(err, expected_error);
+    Ok(())
 }
 
 #[test]

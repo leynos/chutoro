@@ -324,6 +324,7 @@ dependencies = [
 name = "chutoro-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chutoro-test-support",
  "rand",
  "rayon",
@@ -350,6 +351,7 @@ dependencies = [
 name = "chutoro-providers-text"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "chutoro-core",
  "rstest",
  "strsim",

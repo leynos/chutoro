@@ -12,7 +12,7 @@ use crate::DataSource;
 use super::{
     error::HnswError,
     params::HnswParams,
-    types::{InsertionPlan, LayerPlan},
+    types::{InsertionPlan, LayerPlan, Neighbour},
 };
 
 use super::graph::{
@@ -49,6 +49,77 @@ pub(super) struct PreparedInsertion {
     pub(crate) promote_entry: bool,
     pub(crate) new_node_neighbours: Vec<Vec<usize>>,
     pub(crate) updates: Vec<NodeUpdate>,
+}
+
+struct LayerProcessingState<'graph, 'a> {
+    graph: &'graph Graph,
+    new_node_neighbours: &'a mut [Vec<usize>],
+    updates: &'a mut HashMap<(usize, usize), NodeUpdate>,
+}
+
+impl<'graph, 'a> LayerProcessingState<'graph, 'a> {
+    fn new(
+        graph: &'graph Graph,
+        new_node_neighbours: &'a mut [Vec<usize>],
+        updates: &'a mut HashMap<(usize, usize), NodeUpdate>,
+    ) -> Self {
+        Self {
+            graph,
+            new_node_neighbours,
+            updates,
+        }
+    }
+
+    fn stage_layer(
+        &mut self,
+        node: usize,
+        edge_ctx: EdgeContext,
+        neighbours: Vec<Neighbour>,
+    ) -> Result<(), HnswError> {
+        for neighbour in neighbours {
+            self.stage_neighbour(node, edge_ctx, neighbour.id)?;
+        }
+        Ok(())
+    }
+
+    fn stage_neighbour(
+        &mut self,
+        node: usize,
+        edge_ctx: EdgeContext,
+        neighbour_id: usize,
+    ) -> Result<(), HnswError> {
+        let level_neighbours = &mut self.new_node_neighbours[edge_ctx.level];
+        if !level_neighbours.contains(&neighbour_id) {
+            level_neighbours.push(neighbour_id);
+        }
+        let entry = match self.updates.entry((neighbour_id, edge_ctx.level)) {
+            Entry::Occupied(existing) => existing.into_mut(),
+            Entry::Vacant(vacant) => {
+                let candidates = self
+                    .graph
+                    .node(neighbour_id)
+                    .ok_or_else(|| HnswError::GraphInvariantViolation {
+                        message: format!("node {} missing during insertion planning", neighbour_id),
+                    })?
+                    .neighbours(edge_ctx.level)
+                    .to_vec();
+                vacant.insert(NodeUpdate {
+                    node: neighbour_id,
+                    ctx: edge_ctx,
+                    candidates,
+                    new_node: node,
+                })
+            }
+        };
+        debug_assert_eq!(
+            entry.new_node, node,
+            "node updates must originate from the current insertion",
+        );
+        if !entry.candidates.contains(&node) {
+            entry.candidates.push(node);
+        }
+        Ok(())
+    }
 }
 
 /// Stores the final trimmed neighbour list for a node and level.
@@ -197,20 +268,18 @@ impl Graph {
         let mut new_node_neighbours = vec![Vec::new(); level + 1];
         let mut updates: HashMap<(usize, usize), NodeUpdate> = HashMap::new();
 
-        for layer in plan.layers.into_iter().filter(|layer| layer.level <= level) {
-            let mut to_link = layer.neighbours;
-            to_link.truncate(params.max_connections());
-            let edge_ctx = EdgeContext {
-                level: layer.level,
-                max_connections: params.max_connections(),
-            };
-            self.process_layer_neighbours(
-                node,
-                edge_ctx,
-                to_link,
-                &mut new_node_neighbours,
-                &mut updates,
-            )?;
+        {
+            let mut layer_state =
+                LayerProcessingState::new(self, new_node_neighbours.as_mut_slice(), &mut updates);
+            for layer in plan.layers.into_iter().filter(|layer| layer.level <= level) {
+                let mut to_link = layer.neighbours;
+                to_link.truncate(params.max_connections());
+                let edge_ctx = EdgeContext {
+                    level: layer.level,
+                    max_connections: params.max_connections(),
+                };
+                layer_state.stage_layer(node, edge_ctx, to_link)?;
+            }
         }
 
         let updates: Vec<NodeUpdate> = updates.into_values().collect();
@@ -225,66 +294,6 @@ impl Graph {
             },
             trim_jobs,
         ))
-    }
-
-    fn process_layer_neighbours(
-        &self,
-        node: usize,
-        edge_ctx: EdgeContext,
-        neighbours: Vec<super::types::Neighbour>,
-        new_node_neighbours: &mut [Vec<usize>],
-        updates: &mut HashMap<(usize, usize), NodeUpdate>,
-    ) -> Result<(), HnswError> {
-        for neighbour in neighbours {
-            self.process_single_neighbour(
-                node,
-                neighbour.id,
-                edge_ctx,
-                new_node_neighbours,
-                updates,
-            )?;
-        }
-        Ok(())
-    }
-
-    fn process_single_neighbour(
-        &self,
-        node: usize,
-        neighbour_id: usize,
-        edge_ctx: EdgeContext,
-        new_node_neighbours: &mut [Vec<usize>],
-        updates: &mut HashMap<(usize, usize), NodeUpdate>,
-    ) -> Result<(), HnswError> {
-        let level_neighbours = &mut new_node_neighbours[edge_ctx.level];
-        if !level_neighbours.contains(&neighbour_id) {
-            level_neighbours.push(neighbour_id);
-        }
-        let entry = match updates.entry((neighbour_id, edge_ctx.level)) {
-            Entry::Occupied(existing) => existing.into_mut(),
-            Entry::Vacant(vacant) => {
-                let candidates = self
-                    .node(neighbour_id)
-                    .ok_or_else(|| HnswError::GraphInvariantViolation {
-                        message: format!("node {} missing during insertion planning", neighbour_id),
-                    })?
-                    .neighbours(edge_ctx.level)
-                    .to_vec();
-                vacant.insert(NodeUpdate {
-                    node: neighbour_id,
-                    ctx: edge_ctx,
-                    candidates,
-                    new_node: node,
-                })
-            }
-        };
-        debug_assert_eq!(
-            entry.new_node, node,
-            "node updates must originate from the current insertion",
-        );
-        if !entry.candidates.contains(&node) {
-            entry.candidates.push(node);
-        }
-        Ok(())
     }
 
     fn collect_trim_jobs(&self, updates: &[NodeUpdate]) -> Vec<TrimJob> {
@@ -337,10 +346,11 @@ impl Graph {
         self.attach_node(node.node, node.level)?;
         {
             let node_ref = self.node_mut(node.node).expect("node was attached above");
-            for (level, neighbours) in new_node_neighbours.into_iter().enumerate() {
-                if level > node.level {
-                    break;
-                }
+            for (level, neighbours) in new_node_neighbours
+                .into_iter()
+                .enumerate()
+                .take(node.level + 1)
+            {
                 let list = node_ref.neighbours_mut(level);
                 list.clear();
                 list.extend(neighbours);
