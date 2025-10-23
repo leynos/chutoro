@@ -35,7 +35,7 @@ use crate::DataSource;
 
 use self::{
     graph::{ApplyContext, ExtendedSearchContext, Graph, NodeContext, SearchContext},
-    insert::TrimJob,
+    insert::{TrimJob, TrimResult},
     validate::{validate_batch_distances, validate_distance},
 };
 
@@ -156,8 +156,8 @@ impl CpuHnsw {
             let graph = self.graph.read().expect("graph lock poisoned");
             graph.plan_insertion(node_ctx, &self.params, source)
         }?;
-        let trim_jobs = {
-            // Phase 2: Apply insertion under write lock
+        let (prepared, trim_jobs) = {
+            // Phase 2: Stage insertion under write lock
             let mut graph = self.graph.write().expect("graph lock poisoned");
             graph.apply_insertion(
                 node_ctx,
@@ -167,7 +167,12 @@ impl CpuHnsw {
                 },
             )?
         };
-        self.apply_trim_jobs(trim_jobs, source)?;
+        let trim_results = self.score_trim_jobs(trim_jobs, source)?;
+        {
+            // Phase 3: Commit insertion under write lock
+            let mut graph = self.graph.write().expect("graph lock poisoned");
+            graph.commit_insertion(prepared, trim_results)?;
+        }
         self.len.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
@@ -176,36 +181,30 @@ impl CpuHnsw {
         graph.insert_first(ctx.node, ctx.level)
     }
 
-    fn apply_trim_jobs<D: DataSource + Sync>(
+    fn score_trim_jobs<D: DataSource + Sync>(
         &self,
         trim_jobs: Vec<TrimJob>,
         source: &D,
-    ) -> Result<(), HnswError> {
+    ) -> Result<Vec<TrimResult>, HnswError> {
         if trim_jobs.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
 
-        let trims: Vec<_> = trim_jobs
+        trim_jobs
             .into_par_iter()
             .map(|job| {
                 validate_batch_distances(source, job.node, &job.candidates).map(|distances| {
                     let mut scored: Vec<_> = job.candidates.into_iter().zip(distances).collect();
                     scored.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
                     scored.truncate(job.ctx.max_connections);
-                    (job.node, job.ctx, scored)
+                    TrimResult {
+                        node: job.node,
+                        ctx: job.ctx,
+                        neighbours: scored.into_iter().map(|(node, _)| node).collect(),
+                    }
                 })
             })
-            .collect::<Result<Vec<_>, HnswError>>()?;
-
-        if trims.is_empty() {
-            return Ok(());
-        }
-
-        let mut graph = self.graph.write().expect("graph lock poisoned");
-        for (node_id, edge_ctx, scored) in trims {
-            graph.apply_trim(node_id, edge_ctx, &scored)?;
-        }
-        Ok(())
+            .collect::<Result<Vec<_>, HnswError>>()
     }
 
     /// Searches the index for the `ef` closest neighbours of `query`.

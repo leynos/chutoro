@@ -1,4 +1,11 @@
-use std::collections::HashSet;
+//! HNSW insertion workflow.
+//!
+//! Provides the planning and application phases for inserting nodes into the HNSW graph.
+//! Planning computes the descent path and layer-by-layer neighbour candidates without
+//! holding write locks. Application mutates the graph structure, performs bidirectional
+//! linking, and schedules trimming jobs for nodes that exceed maximum connection limits.
+
+use std::collections::{HashMap, hash_map::Entry};
 
 use crate::DataSource;
 
@@ -10,9 +17,10 @@ use super::{
 
 use super::graph::{
     ApplyContext, DescentContext, EdgeContext, ExtendedSearchContext, Graph, LayerPlanContext,
-    NodeContext, NodePair, SearchContext,
+    NodeContext, SearchContext,
 };
 
+/// Captures the neighbour candidates for a node that may require trimming.
 #[derive(Clone, Debug)]
 pub(super) struct TrimJob {
     pub(crate) node: usize,
@@ -20,7 +28,61 @@ pub(super) struct TrimJob {
     pub(crate) candidates: Vec<usize>,
 }
 
+/// Tracks the staged neighbour list for an affected node before trimming.
+#[derive(Clone, Debug)]
+pub(super) struct NodeUpdate {
+    pub(crate) node: usize,
+    pub(crate) ctx: EdgeContext,
+    pub(crate) candidates: Vec<usize>,
+}
+
+impl NodeUpdate {
+    fn needs_trim(&self) -> bool {
+        self.candidates.len() > self.ctx.max_connections
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct PreparedInsertion {
+    pub(crate) node: NodeContext,
+    pub(crate) promote_entry: bool,
+    pub(crate) new_node_neighbours: Vec<Vec<usize>>,
+    pub(crate) updates: Vec<NodeUpdate>,
+}
+
+/// Stores the final trimmed neighbour list for a node and level.
+#[derive(Clone, Debug)]
+pub(super) struct TrimResult {
+    pub(crate) node: usize,
+    pub(crate) ctx: EdgeContext,
+    pub(crate) neighbours: Vec<usize>,
+}
+
 impl Graph {
+    /// Plans insertion of a node into the HNSW graph without mutating state.
+    ///
+    /// Computes the descent path from the current entry point down to the
+    /// target level, then searches each layer from the target level to layer 0
+    /// to identify candidate neighbours for bidirectional linking.
+    ///
+    /// # Parameters
+    ///
+    /// - `ctx` – node identifier and assigned level for the new node.
+    /// - `params` – HNSW construction parameters.
+    /// - `source` – data source providing distance calculations.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HnswError::GraphEmpty`] if the graph has no entry point and
+    /// propagates distance or invariant failures from the descent and search
+    /// phases.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let plan = graph.plan_insertion(node_ctx, &params, data_source)?;
+    /// assert!(!plan.layers.is_empty());
+    /// ```
     pub(crate) fn plan_insertion<D: DataSource + Sync>(
         &self,
         ctx: NodeContext,
@@ -95,17 +157,44 @@ impl Graph {
         Ok(layers)
     }
 
+    /// Prepares an insertion commit by staging all neighbour list updates.
+    ///
+    /// The returned [`PreparedInsertion`] captures the new node metadata and
+    /// the neighbour lists for all affected nodes as they would appear after
+    /// linking. Trimming is deferred to the caller, which should compute
+    /// distances without holding the graph lock and then call
+    /// [`Graph::commit_insertion`] with the resulting [`TrimResult`]s.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let (prepared, trim_jobs) = graph.apply_insertion(node_ctx, apply_ctx)?;
+    /// let trims = trim_jobs
+    ///     .into_iter()
+    ///     .map(|job| compute_trim(job, data_source))
+    ///     .collect::<Result<Vec<_>, _>>()?;
+    /// graph.commit_insertion(prepared, trims)?;
+    /// ```
     pub(crate) fn apply_insertion(
         &mut self,
         node: NodeContext,
         apply_ctx: ApplyContext<'_>,
-    ) -> Result<Vec<TrimJob>, HnswError> {
+    ) -> Result<(PreparedInsertion, Vec<TrimJob>), HnswError> {
         let ApplyContext { params, plan } = apply_ctx;
         let NodeContext { node, level } = node;
-        self.attach_node(node, level)?;
-        self.promote_entry(node, level);
+        if !self.has_slot(node) {
+            return Err(HnswError::InvalidParameters {
+                reason: format!("node {node} is outside pre-allocated capacity"),
+            });
+        }
+        if self.node(node).is_some() {
+            return Err(HnswError::DuplicateNode { node });
+        }
 
-        let mut trim_jobs = Vec::new();
+        let promote_entry = level > self.entry().map(|entry| entry.level).unwrap_or(0);
+
+        let mut new_node_neighbours = vec![Vec::new(); level + 1];
+        let mut updates: HashMap<(usize, usize), NodeUpdate> = HashMap::new();
 
         for layer in plan.layers.into_iter().filter(|layer| layer.level <= level) {
             let mut to_link = layer.neighbours;
@@ -114,102 +203,122 @@ impl Graph {
                 level: layer.level,
                 max_connections: params.max_connections(),
             };
-            let mut trim_targets = HashSet::new();
             for neighbour in to_link {
-                let updated = self.link_bidirectional(
-                    NodePair {
-                        from: node,
-                        to: neighbour.id,
-                    },
-                    edge_ctx,
-                )?;
-                for changed in updated {
-                    trim_targets.insert(changed);
+                let level_neighbours = &mut new_node_neighbours[edge_ctx.level];
+                if !level_neighbours.contains(&neighbour.id) {
+                    level_neighbours.push(neighbour.id);
                 }
-            }
-            for changed in trim_targets {
-                if let Some(job) = self.prepare_trim_job(changed, edge_ctx)? {
-                    trim_jobs.push(job);
+                let entry = match updates.entry((neighbour.id, edge_ctx.level)) {
+                    Entry::Occupied(existing) => existing.into_mut(),
+                    Entry::Vacant(vacant) => {
+                        let candidates = self
+                            .node(neighbour.id)
+                            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                                message: format!(
+                                    "node {} missing during insertion planning",
+                                    neighbour.id
+                                ),
+                            })?
+                            .neighbours(edge_ctx.level)
+                            .to_vec();
+                        vacant.insert(NodeUpdate {
+                            node: neighbour.id,
+                            ctx: edge_ctx,
+                            candidates,
+                        })
+                    }
+                };
+                if !entry.candidates.contains(&node) {
+                    entry.candidates.push(node);
                 }
             }
         }
-        Ok(trim_jobs)
-    }
 
-    fn link_bidirectional(
-        &mut self,
-        pair: NodePair,
-        ctx: EdgeContext,
-    ) -> Result<Vec<usize>, HnswError> {
-        let mut updated = Vec::with_capacity(2);
-        if self.link_one_way(pair, ctx)? {
-            updated.push(pair.from);
-        }
-        if self.link_one_way(
-            NodePair {
-                from: pair.to,
-                to: pair.from,
+        let updates: Vec<NodeUpdate> = updates.into_values().collect();
+        let trim_jobs = updates
+            .iter()
+            .filter(|update| update.needs_trim())
+            .map(|update| TrimJob {
+                node: update.node,
+                ctx: update.ctx,
+                candidates: update.candidates.clone(),
+            })
+            .collect();
+
+        Ok((
+            PreparedInsertion {
+                node: NodeContext { node, level },
+                promote_entry,
+                new_node_neighbours,
+                updates,
             },
-            ctx,
-        )? {
-            updated.push(pair.to);
-        }
-        Ok(updated)
+            trim_jobs,
+        ))
     }
 
-    fn link_one_way(&mut self, pair: NodePair, ctx: EdgeContext) -> Result<bool, HnswError> {
-        let node = self
-            .node_mut(pair.from)
-            .ok_or_else(|| HnswError::GraphInvariantViolation {
-                message: format!("node {} missing during link", pair.from),
-            })?;
-        let list = node.neighbours_mut(ctx.level);
-        if !list.contains(&pair.to) {
-            list.push(pair.to);
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    fn prepare_trim_job(
-        &self,
-        node: usize,
-        ctx: EdgeContext,
-    ) -> Result<Option<TrimJob>, HnswError> {
-        let node_ref = self
-            .node(node)
-            .ok_or_else(|| HnswError::GraphInvariantViolation {
-                message: format!("node {node} missing during trim scheduling"),
-            })?;
-        let neighbours = node_ref.neighbours(ctx.level);
-        if neighbours.len() <= ctx.max_connections {
-            return Ok(None);
-        }
-        Ok(Some(TrimJob {
-            node,
-            ctx,
-            candidates: neighbours.to_vec(),
-        }))
-    }
-
-    pub(crate) fn apply_trim(
+    /// Applies a prepared insertion after trim distances have been evaluated.
+    ///
+    /// Consumes the [`PreparedInsertion`] generated by [`Graph::apply_insertion`]
+    /// and the trimmed neighbour selections, mutating the graph in a single
+    /// write-locked window. Nodes without corresponding [`TrimResult`] entries
+    /// retain the staged candidate order.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let (prepared, jobs) = graph.apply_insertion(node_ctx, apply_ctx)?;
+    /// let trims = jobs
+    ///     .into_iter()
+    ///     .map(|job| compute_trim(job, data_source))
+    ///     .collect::<Result<Vec<_>, _>>()?;
+    /// graph.commit_insertion(prepared, trims)?;
+    /// ```
+    pub(crate) fn commit_insertion(
         &mut self,
-        node: usize,
-        ctx: EdgeContext,
-        scored: &[(usize, f32)],
+        prepared: PreparedInsertion,
+        trims: Vec<TrimResult>,
     ) -> Result<(), HnswError> {
-        debug_assert!(
-            scored.len() <= ctx.max_connections,
-            "trimmed candidate list exceeds max connections"
-        );
-        let node_ref = self
-            .node_mut(node)
-            .ok_or_else(|| HnswError::GraphInvariantViolation {
-                message: format!("node {node} missing during trim"),
-            })?;
-        let list = node_ref.neighbours_mut(ctx.level);
-        list.clear();
-        list.extend(scored.iter().map(|(candidate, _)| *candidate));
+        let PreparedInsertion {
+            node,
+            promote_entry,
+            new_node_neighbours,
+            updates,
+        } = prepared;
+
+        self.attach_node(node.node, node.level)?;
+        {
+            let node_ref = self.node_mut(node.node).expect("node was attached above");
+            for (level, neighbours) in new_node_neighbours.into_iter().enumerate() {
+                if level > node.level {
+                    break;
+                }
+                let list = node_ref.neighbours_mut(level);
+                list.clear();
+                list.extend(neighbours);
+            }
+        }
+        if promote_entry {
+            self.promote_entry(node.node, node.level);
+        }
+
+        let mut trim_lookup: HashMap<(usize, usize), Vec<usize>> = trims
+            .into_iter()
+            .map(|result| ((result.node, result.ctx.level), result.neighbours))
+            .collect();
+
+        for update in updates {
+            let neighbours = trim_lookup
+                .remove(&(update.node, update.ctx.level))
+                .unwrap_or_else(|| update.candidates.clone());
+            let node_ref =
+                self.node_mut(update.node)
+                    .ok_or_else(|| HnswError::GraphInvariantViolation {
+                        message: format!("node {} missing during insertion commit", update.node),
+                    })?;
+            let list = node_ref.neighbours_mut(update.ctx.level);
+            list.clear();
+            list.extend(neighbours);
+        }
         Ok(())
     }
 }

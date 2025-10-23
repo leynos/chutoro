@@ -34,12 +34,6 @@ pub(super) struct LayerPlanContext {
     pub(crate) ef: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(super) struct NodePair {
-    pub(crate) from: usize,
-    pub(crate) to: usize,
-}
-
 #[derive(Clone, Debug)]
 pub(super) struct ApplyContext<'a> {
     pub(crate) params: &'a HnswParams,
@@ -91,8 +85,13 @@ impl ScoredCandidates {
         let items = candidates.into_iter().zip(distances).collect();
         Self { items }
     }
+}
 
-    pub(super) fn into_iter(self) -> impl Iterator<Item = (usize, f32)> {
+impl IntoIterator for ScoredCandidates {
+    type Item = (usize, f32);
+    type IntoIter = std::vec::IntoIter<(usize, f32)>;
+
+    fn into_iter(self) -> Self::IntoIter {
         self.items.into_iter()
     }
 }
@@ -148,5 +147,9 @@ impl Graph {
 
     pub(crate) fn node_mut(&mut self, id: usize) -> Option<&mut Node> {
         self.nodes.get_mut(id).and_then(Option::as_mut)
+    }
+
+    pub(super) fn has_slot(&self, node: usize) -> bool {
+        self.nodes.get(node).is_some()
     }
 }

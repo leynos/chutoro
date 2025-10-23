@@ -166,7 +166,7 @@ impl Graph {
         ef: usize,
         state: &mut LayerSearchState,
     ) {
-        for (candidate, candidate_distance) in scored.into_iter() {
+        for (candidate, candidate_distance) in scored {
             if !self.should_add_candidate(&state.best, ef, candidate_distance) {
                 continue;
             }
