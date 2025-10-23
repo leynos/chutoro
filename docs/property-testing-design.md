@@ -172,7 +172,7 @@ performance and correctness. The goal of this PBT suite is to rigorously verify
 these invariants under a wide range of data distributions and operational
 sequences.
 
-### 2.1. Characterising the HNSW input space
+### 2.1. Characterizing the HNSW input space
 
 The primary inputs for constructing an HNSW index are a set of high-dimensional
 vectors, a distance metric (e.g., Euclidean, Cosine), and a set of construction
@@ -339,7 +339,7 @@ a single, well-defined correct answer. The focus shifts from verifying a
 specific output to ensuring the output adheres to a set of desirable properties
 and behavioural bounds.
 
-### 3.1. Characterising the input and output space
+### 3.1. Characterizing the input and output space
 
 - **Input:** The primary input is a graph, likely represented as an adjacency
     list, where each node has a set of "candidate" neighbours. This graph is
