@@ -64,13 +64,26 @@ macro_rules! define_error_codes {
 pub enum DataSourceError {
     /// Requested index was outside the source's bounds.
     #[error("index {index} is out of bounds")]
-    OutOfBounds { index: usize },
+    OutOfBounds {
+        /// The requested row that exceeded the source bounds.
+        index: usize,
+    },
     /// Provided output buffer length did not match number of pairs.
     #[error("output buffer has length {out} but {expected} pairs were given")]
-    OutputLengthMismatch { out: usize, expected: usize },
+    OutputLengthMismatch {
+        /// Caller-provided buffer length.
+        out: usize,
+        /// Expected number of vector pairs required for the operation.
+        expected: usize,
+    },
     /// Compared vectors had different dimensions.
     #[error("dimension mismatch: left={left}, right={right}")]
-    DimensionMismatch { left: usize, right: usize },
+    DimensionMismatch {
+        /// Dimensionality of the left-hand vector.
+        left: usize,
+        /// Dimensionality of the right-hand vector.
+        right: usize,
+    },
     /// Data source contained no rows.
     #[error("data source contains no rows")]
     EmptyData,
@@ -101,28 +114,42 @@ define_error_codes! {
 pub enum ChutoroError {
     /// Minimum cluster size must be greater than zero.
     #[error("min_cluster_size must be at least 1 (got {got})")]
-    InvalidMinClusterSize { got: usize },
+    InvalidMinClusterSize {
+        /// The invalid minimum cluster size supplied by the caller.
+        got: usize,
+    },
     /// The supplied [`DataSource`] contained no items.
     #[error("data source `{data_source}` contains no items")]
-    EmptySource { data_source: Arc<str> },
+    EmptySource {
+        /// Identifier for the empty data source.
+        data_source: Arc<str>,
+    },
     /// The [`DataSource`] did not contain enough items for the configured
     /// `min_cluster_size`.
     #[error(
         "data source `{data_source}` has {items} items but min_cluster_size requires {min_cluster_size}"
     )]
     InsufficientItems {
+        /// Identifier for the data source that lacked sufficient items.
         data_source: Arc<str>,
+        /// Number of items available in the data source.
         items: usize,
+        /// Minimum cluster size required by the algorithm.
         min_cluster_size: NonZeroUsize,
     },
     /// The requested execution strategy is unavailable in the current build.
     #[error("the requested execution strategy {requested:?} is not available in this build")]
-    BackendUnavailable { requested: ExecutionStrategy },
+    BackendUnavailable {
+        /// Strategy that could not be satisfied by the current build.
+        requested: ExecutionStrategy,
+    },
     /// A [`DataSource`] operation failed while running the algorithm.
     #[error("data source `{data_source}` failed: {error}")]
     DataSource {
+        /// Identifier for the data source that produced the error.
         data_source: Arc<str>,
         #[source]
+        /// Underlying data source error bubbled up by the algorithm.
         error: DataSourceError,
     },
 }

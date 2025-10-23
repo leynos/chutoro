@@ -44,7 +44,7 @@ ______________________________________________________________________
 
 ## Phase 1 — CPU HNSW + Candidate Edge Harvest + Parallel Kruskal MST
 
-- [ ] Implement CPU HNSW insertion/search with Rayon; two‑phase locking (`read`
+- [x] Implement CPU HNSW insertion/search with Rayon; two‑phase locking (`read`
   for search → `write` for insert) on a shared graph. (See §6.1, §6.2)
 - [ ] Introduce a `DistanceCache` backed by `dashmap` to avoid recomputing
   distances across threads during HNSW insertion. (See §6.2, §10.6)

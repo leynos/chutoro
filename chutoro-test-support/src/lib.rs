@@ -58,7 +58,9 @@ pub mod tracing {
     /// by tests to assert span metadata and field values.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct SpanRecord {
+        /// Span name captured from the tracing metadata.
         pub name: String,
+        /// Structured fields recorded against the span.
         pub fields: HashMap<String, String>,
     }
 
@@ -66,8 +68,11 @@ pub mod tracing {
     /// structured fields so tests can assert diagnostic payloads precisely.
     #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct EventRecord {
+        /// Log level associated with the recorded event.
         pub level: Level,
+        /// Event target string extracted from the metadata.
         pub target: String,
+        /// Structured fields attached to the event.
         pub fields: HashMap<String, String>,
     }
 
@@ -105,23 +110,23 @@ pub mod tracing {
             values: &tracing::span::Record<'_>,
             ctx: Context<'_, S>,
         ) {
-            if let Some(span) = ctx.span(id)
-                && let Some(data) = span.extensions_mut().get_mut::<SpanData>()
-            {
-                values.record(&mut FieldRecorder {
-                    fields: &mut data.fields,
-                });
+            if let Some(span) = ctx.span(id) {
+                if let Some(data) = span.extensions_mut().get_mut::<SpanData>() {
+                    values.record(&mut FieldRecorder {
+                        fields: &mut data.fields,
+                    });
+                }
             }
         }
 
         fn on_close(&self, id: tracing::span::Id, ctx: Context<'_, S>) {
-            if let Some(span) = ctx.span(&id)
-                && let Some(data) = span.extensions_mut().remove::<SpanData>()
-            {
-                self.spans.lock().expect("lock poisoned").push(SpanRecord {
-                    name: data.name,
-                    fields: data.fields,
-                });
+            if let Some(span) = ctx.span(&id) {
+                if let Some(data) = span.extensions_mut().remove::<SpanData>() {
+                    self.spans.lock().expect("lock poisoned").push(SpanRecord {
+                        name: data.name,
+                        fields: data.fields,
+                    });
+                }
             }
         }
 
@@ -145,7 +150,7 @@ pub mod tracing {
         fields: &'a mut HashMap<String, String>,
     }
 
-    impl<'a> Visit for FieldRecorder<'a> {
+    impl Visit for FieldRecorder<'_> {
         fn record_bytes(&mut self, field: &Field, value: &[u8]) {
             let mut encoded = String::with_capacity(value.len() * 2);
             for byte in value {

@@ -6,6 +6,8 @@ mod chutoro;
 mod datasource;
 mod distance;
 mod error;
+#[cfg(feature = "cpu")]
+mod hnsw;
 mod result;
 
 pub use crate::{
@@ -19,3 +21,7 @@ pub use crate::{
     error::{ChutoroError, ChutoroErrorCode, DataSourceError, DataSourceErrorCode, Result},
     result::{ClusterId, ClusteringResult, NonContiguousClusterIds},
 };
+
+#[cfg(feature = "cpu")]
+#[cfg_attr(docsrs, doc(cfg(feature = "cpu")))]
+pub use crate::hnsw::{CpuHnsw, HnswError, HnswErrorCode, HnswParams, Neighbour};
