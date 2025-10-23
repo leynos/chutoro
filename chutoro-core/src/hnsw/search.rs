@@ -190,11 +190,7 @@ impl Graph {
         ef: usize,
         candidate_distance: f32,
     ) -> bool {
-        best.len() < ef
-            || !matches!(
-                self.compare_to_furthest(best, candidate_distance),
-                Some(Ordering::Greater)
-            )
+        !self.should_terminate_search(best, ef, candidate_distance)
     }
 
     fn finalize_results(&self, best: BinaryHeap<Neighbour>) -> Vec<Neighbour> {
