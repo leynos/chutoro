@@ -190,6 +190,8 @@ impl Graph {
         ef: usize,
         candidate_distance: f32,
     ) -> bool {
+        // The admission predicate is the logical complement of the termination
+        // guard so both checks evolve together as the heap comparison changes.
         !self.should_terminate_search(best, ef, candidate_distance)
     }
 
