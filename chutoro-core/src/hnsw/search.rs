@@ -113,11 +113,13 @@ impl Graph {
         ef: usize,
         candidate_distance: f32,
     ) -> bool {
-        best.len() >= ef
-            && matches!(
-                self.compare_to_furthest(best, candidate_distance),
-                Some(Ordering::Greater)
-            )
+        self.evaluate_candidate_with(
+            best,
+            ef,
+            candidate_distance,
+            |ordering| ordering == Ordering::Greater,
+            false,
+        )
     }
 
     fn process_neighbours<D: DataSource + Sync>(
@@ -190,9 +192,13 @@ impl Graph {
         ef: usize,
         candidate_distance: f32,
     ) -> bool {
-        // The admission predicate is the logical complement of the termination
-        // guard so both checks evolve together as the heap comparison changes.
-        !self.should_terminate_search(best, ef, candidate_distance)
+        self.evaluate_candidate_with(
+            best,
+            ef,
+            candidate_distance,
+            |ordering| ordering != Ordering::Greater,
+            true,
+        )
     }
 
     fn finalize_results(&self, best: BinaryHeap<Neighbour>) -> Vec<Neighbour> {
@@ -214,6 +220,23 @@ impl Graph {
     ) -> Option<Ordering> {
         self.furthest_distance(best)
             .map(|furthest| candidate_distance.total_cmp(&furthest))
+    }
+
+    fn evaluate_candidate_with(
+        &self,
+        best: &BinaryHeap<Neighbour>,
+        ef: usize,
+        candidate_distance: f32,
+        comparator: impl Fn(Ordering) -> bool,
+        fallback: bool,
+    ) -> bool {
+        if best.len() < ef {
+            return fallback;
+        }
+
+        self.compare_to_furthest(best, candidate_distance)
+            .map(comparator)
+            .unwrap_or(false)
     }
 }
 
