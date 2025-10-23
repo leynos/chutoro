@@ -126,7 +126,7 @@ impl Graph {
         let Some(node) = self.node(ctx.node_id) else {
             return Err(HnswError::GraphInvariantViolation {
                 message: format!(
-                    "node {} missing during neighbour processing at level {}",
+                    "node {} missing during layer search at level {}",
                     ctx.node_id, ctx.level
                 ),
             });

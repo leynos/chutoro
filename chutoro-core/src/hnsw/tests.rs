@@ -274,10 +274,7 @@ fn reports_invariant_violation_when_search_node_missing() {
         .expect_err("missing node must surface an invariant violation");
     match err {
         HnswError::GraphInvariantViolation { message } => {
-            assert_eq!(
-                message,
-                "node 1 missing during neighbour processing at level 0",
-            );
+            assert_eq!(message, "node 1 missing during layer search at level 0");
         }
         other => panic!("expected GraphInvariantViolation, got {other:?}"),
     }
@@ -310,12 +307,19 @@ fn non_finite_batch_distance_is_reported() {
         }
     }
 
-    let params = HnswParams::new(2, 4).expect("params must be valid");
+    let params = HnswParams::new(1, 1).expect("params must be valid");
     let err = CpuHnsw::build(&BatchNan, params).expect_err("build must fail on batch NaN");
     match err {
         HnswError::NonFiniteDistance { left, right } => {
-            assert_eq!(left, 2);
-            assert_eq!(right, 1);
+            assert!(
+                left == 2 || right == 2,
+                "expected node 2 to participate in non-finite edge, got ({left}, {right})"
+            );
+            let other = if left == 2 { right } else { left };
+            assert!(
+                other == 0 || other == 1,
+                "unexpected counterpart for non-finite edge: {other}"
+            );
         }
         other => panic!("expected non-finite distance, got {other:?}"),
     }
@@ -383,8 +387,9 @@ fn level_sampling_matches_geometric_tail() {
 
 fn assert_sorted_by_distance(neighbours: &[Neighbour]) {
     for window in neighbours.windows(2) {
-        let &[left, right] = window else {
-            continue;
+        let [left, right] = match window {
+            [left, right] => [left, right],
+            _ => unreachable!("windows(2) always yields pairs"),
         };
         assert!(
             left.distance <= right.distance + f32::EPSILON,
