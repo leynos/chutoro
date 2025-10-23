@@ -73,10 +73,36 @@ ______________________________________________________________________
   for cycle checks. (See §3.2, §6.2)
 - [ ] Implement hierarchy extraction from MST (sequential to start): build
   condensed tree and stability scoring; output flat labels. (See §1.2, §6.2)
-- [ ] Add deterministic tests on tiny datasets (exact mutual‑reachability path)
-  to sanity‑check hierarchy logic. (See §11)
+- [ ] Add deterministic tests on tiny datasets (exact mutual-reachability path)
+  to sanity-check hierarchy logic. (See §11)
 - [ ] Add functional tests comparing ARI/NMI with HDBSCAN/HNSW baselines on
   small public sets. (See §11)
+- [ ] Introduce property-based generators for HNSW using `proptest` +
+  `test-strategy`; cover uniform, clustered, manifold, and duplicate vectors
+  plus configuration sampling. (See property-testing-design §2.1)
+- [ ] Surface HNSW structural invariant checkers (layer consistency, degree
+  bounds, reachability, bidirectional links) callable from properties. (See
+  property-testing-design §2.2)
+- [ ] Add HNSW search correctness property comparing index results against a
+  brute-force oracle with a configurable recall threshold and timing capture.
+  (See property-testing-design §2.3.1)
+- [ ] Add stateful HNSW mutation property that exercises add/delete/
+  reconfigure sequences and revalidates invariants after each operation. (See
+  property-testing-design §2.3.2)
+- [ ] Add HNSW insertion idempotency property ensuring repeated duplicates
+  leave graph state unchanged. (See property-testing-design §2.3.3)
+- [ ] Implement composite graph strategies (random, scale-free, lattice,
+  disconnected) for candidate edge harvest testing. (See
+  property-testing-design §3.1)
+- [ ] Add candidate edge harvest property suite covering determinism, degree
+  ceilings, connectivity preservation, and reverse nearest neighbour uplift
+  metrics. (See property-testing-design §3.2)
+- [ ] Build parallel Kruskal property suite: compare against sequential
+  oracle, enforce acyclicity/connectivity/edge-count invariants, and rerun jobs
+  to detect race-induced non-determinism. (See property-testing-design §4)
+- [ ] Integrate property-based suites into CI with a path-filtered PR job (250
+  cases, 10 minute timeout) and scheduled weekly job (25,000 cases,
+  `fork = true`, `PROGTEST_CASES` env var). (See property-testing-design §5)
 
 **Exit criteria:** 100k × D vectors complete in minutes on CPU; memory bounded
 ≈ `n*M` edges; ARI/NMI within acceptable band vs reference. (See §6.2)

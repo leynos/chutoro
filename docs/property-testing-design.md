@@ -12,16 +12,16 @@ traditional example-based unit testing towards a more rigorous, invariant-based
 verification model.
 
 This document details the core invariants that define correctness for each
-algorithm. It proposes sophisticated data generation strategies engineered
-to uncover subtle edge-case bugs and provides a complete architectural
-blueprint for a two-tiered Continuous Integration (CI) system using GitHub
-Actions. This CI architecture balances the need for rapid developer feedback
-on pull requests with the necessity for deep, exhaustive verification
-performed on a weekly basis. The ultimate objective of this initiative is to
-establish a rigorous, automated correctness backstop for the `chutoro`
-library. This will empower developers to perform aggressive optimizations,
-conduct large-scale refactoring, and add new features with a high degree of
-confidence in the system's stability and correctness.
+algorithm. It proposes sophisticated data generation strategies engineered to
+uncover subtle edge-case bugs and provides a complete architectural blueprint
+for a two-tiered Continuous Integration (CI) system using GitHub Actions. This
+CI architecture balances the need for rapid developer feedback on pull requests
+with the necessity for deep, exhaustive verification performed on a weekly
+basis. The ultimate objective of this initiative is to establish a rigorous,
+automated correctness backstop for the `chutoro` library. This will empower
+developers to perform aggressive optimizations, conduct large-scale
+refactoring, and add new features with a high degree of confidence in the
+system's stability and correctness.
 
 ## Section 1: Foundational principles of property-based testing with `proptest`
 
@@ -111,7 +111,7 @@ While `proptest`'s combinators are powerful, manually implementing the
 `Strategy` trait for every custom struct and enum in a large codebase like
 `chutoro` can be tedious and boilerplate-intensive. The `test-strategy` crate
 provides a high-level solution to this problem in the form of a procedural
-macro, `#`.
+macro, `test_strategy`.
 
 By annotating a custom data structure with this macro, developers can instruct
 `test-strategy` to automatically generate a corresponding `proptest::Strategy`
@@ -120,7 +120,7 @@ the enum and combines the strategies for each component part into a strategy
 for the whole type. For example, given the following struct:
 
 ```rust
-#
+#[test_strategy]
 struct MyStruct {
     #[strategy(1..=100u32)]
     val: u32,
@@ -129,7 +129,7 @@ struct MyStruct {
 
 ```
 
-The `test-strategy` macro will generate a strategy that produces `MyStruct`
+The `#[test_strategy]` macro will generate a strategy that produces `MyStruct`
 instances where `val` is an integer between 1 and 100, and `name` is an
 arbitrary `String`. This dramatically reduces the amount of manual effort
 required to make the library's domain models testable, allowing engineers to
@@ -202,12 +202,12 @@ Therefore, the vector generation strategy will be a composite one, using
     copies of the same vector to test for correct handling of duplicate points.
 
 Explicitly generating these "pathological" datasets proactively tests the
-algorithm's robustness at its known weak points. That proactive strategy is
-far more effective than waiting for failures to emerge from specific user data.
+algorithm's robustness at its known weak points. That proactive strategy is far
+more effective than waiting for failures to emerge from specific user data.
 
 For the HNSW construction parameters, a struct like `HnswConfig` can be
-annotated with `#` from `test-strategy`. This will allow `proptest` to
-automatically explore how the algorithm behaves with different values for `M`,
+annotated with `#[test_strategy]`. This will allow `proptest` to automatically
+explore how the algorithm behaves with different values for `M`,
 `ef_construction`, and other tuning parameters, potentially uncovering bugs
 that only manifest under specific configurations.
 
@@ -340,8 +340,8 @@ and behavioural bounds.
 ### 3.1. Characterising the input and output space
 
 - **Input:** The primary input is a graph, likely represented as an adjacency
-    list, where each node has a set of "candidate" neighbours. This graph is the
-    result of a prior, possibly noisy, neighbour-finding step.
+    list, where each node has a set of "candidate" neighbours. This graph is
+    the result of a prior, possibly noisy, neighbour-finding step.
 
 - **Output:** The output is a refined graph where the harvesting heuristic
     has been applied. This typically involves pruning some edges and adding
@@ -367,12 +367,12 @@ generate graphs with distinct characteristics:
     when the input is not fully connected.
 
 By systematically generating these varied topologies, it becomes possible to
-establish connections between the input structure and the heuristic's behaviour.
-If, for example, a property consistently fails only on scale-free graphs, it
-provides a powerful clue that the heuristic's logic is flawed in its handling
-of high-degree nodes. This targeted diagnostic information is far more valuable
-than a single, isolated failure on a random input and can guide developers
-directly to the logical flaw.
+establish connections between the input structure and the heuristic's
+behaviour. If, for example, a property consistently fails only on scale-free
+graphs, it provides a powerful clue that the heuristic's logic is flawed in its
+handling of high-degree nodes. This targeted diagnostic information is far more
+valuable than a single, isolated failure on a random input and can guide
+developers directly to the logical flaw.
 
 ### 3.2. Defining heuristic invariants and properties
 
@@ -509,8 +509,8 @@ This is the primary correctness check for the algorithm.
     deterministic tie-breaking rule. The sequential oracle, by sorting edges,
     has a stable, implicit rule for which edge to pick first among those with
     equal weight. By comparing results, the PBT suite pressures the parallel
-    implementation to conform to a similarly deterministic behaviour, making the
-    algorithm's output fully predictable even in ambiguous cases.
+    implementation to conform to a similarly deterministic behaviour, making
+    the algorithm's output fully predictable even in ambiguous cases.
 
 #### 4.3.2. Property 2: Structural invariant verification
 
@@ -783,9 +783,9 @@ the more nuanced and complex testing challenges.
 - **Phase 3: Heuristic Verification & CI Integration.** The final
     implementation phase involves tackling the Candidate Edge Harvest
     algorithm. This will require the team to fully embrace the concept of
-    testing for behavioural properties rather than a single correct answer. Once
-    all three test suites are implemented and stable, they will be integrated
-    into the two-tiered CI pipeline described in Section 5.
+    testing for behavioural properties rather than a single correct answer.
+    Once all three test suites are implemented and stable, they will be
+    integrated into the two-tiered CI pipeline described in Section 5.
 
 ### 6.2. Writing effective and maintainable properties
 
