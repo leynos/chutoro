@@ -29,7 +29,7 @@ use std::{
 };
 
 use rand::{Rng, SeedableRng, distributions::Standard, rngs::SmallRng};
-use rayon::prelude::*;
+use rayon::{current_num_threads, current_thread_index, prelude::*};
 
 use crate::DataSource;
 
@@ -45,6 +45,7 @@ pub struct CpuHnsw {
     params: HnswParams,
     graph: Arc<RwLock<Graph>>,
     rng: Mutex<SmallRng>,
+    worker_rngs: Vec<Mutex<SmallRng>>,
     len: AtomicUsize,
 }
 
@@ -107,8 +108,17 @@ impl CpuHnsw {
                 reason: "capacity must be greater than zero".into(),
             });
         }
+        let base_seed = params.rng_seed();
+        let worker_rngs = (0..current_num_threads())
+            .map(|idx| {
+                let seed = base_seed ^ ((idx as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                Mutex::new(SmallRng::seed_from_u64(seed))
+            })
+            .collect();
+
         Ok(Self {
-            rng: Mutex::new(SmallRng::seed_from_u64(params.rng_seed())),
+            rng: Mutex::new(SmallRng::seed_from_u64(base_seed)),
+            worker_rngs,
             graph: Arc::new(RwLock::new(Graph::with_capacity(capacity))),
             len: AtomicUsize::new(0),
             params,
@@ -273,7 +283,18 @@ impl CpuHnsw {
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     fn sample_level(&self) -> usize {
+        if let Some(index) = current_thread_index() {
+            if let Some(rng) = self.worker_rngs.get(index) {
+                let mut guard = rng.lock().expect("worker rng mutex poisoned");
+                return self.sample_level_from_rng(&mut guard);
+            }
+        }
+
         let mut rng = self.rng.lock().expect("rng mutex poisoned");
+        self.sample_level_from_rng(&mut rng)
+    }
+
+    fn sample_level_from_rng(&self, rng: &mut SmallRng) -> usize {
         let mut level = 0_usize;
         while level < self.params.max_level() {
             let draw: f64 = rng.sample(Standard);

@@ -4,10 +4,7 @@
 //! finite distance invariants. Non-finite values are rejected before they can
 //! pollute the traversal state.
 
-use std::{
-    cmp::Ordering,
-    collections::{BinaryHeap, HashSet},
-};
+use std::collections::{BinaryHeap, HashSet};
 
 use crate::DataSource;
 
@@ -75,7 +72,7 @@ impl Graph {
             .iter()
             .copied()
             .zip(distances)
-            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
         {
             return Ok((best_dist < ctx.current_dist).then_some((best_id, best_dist)));
         }

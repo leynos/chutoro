@@ -11,6 +11,10 @@ impl Node {
     }
 
     pub(crate) fn neighbours(&self, level: usize) -> &[usize] {
+        debug_assert!(
+            level < self.neighbours.len(),
+            "levels are initialised during construction"
+        );
         self.neighbours.get(level).map_or(&[], Vec::as_slice)
     }
 
