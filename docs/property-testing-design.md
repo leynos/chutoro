@@ -110,17 +110,19 @@ most problematic regions of the input space.
 While `proptest`'s combinators are powerful, manually implementing the
 `Strategy` trait for every custom struct and enum in a large codebase like
 `chutoro` can be tedious and boilerplate-intensive. The `test-strategy` crate
-provides a high-level solution to this problem in the form of a procedural
-macro, `test_strategy`.
+provides a high-level solution to this problem in the form of a derive macro,
+`Arbitrary`.
 
-By annotating a custom data structure with this macro, developers can instruct
+By deriving this macro on a custom data structure, developers can instruct
 `test-strategy` to automatically generate a corresponding `proptest::Strategy`
 implementation. The macro inspects the fields of the struct or the variants of
 the enum and combines the strategies for each component part into a strategy
 for the whole type. For example, given the following struct:
 
 ```rust
-#[test_strategy]
+use test_strategy::Arbitrary;
+
+#[derive(Arbitrary, Debug)]
 struct MyStruct {
     #[strategy(1..=100u32)]
     val: u32,
@@ -129,9 +131,9 @@ struct MyStruct {
 
 ```
 
-The `#[test_strategy]` macro will generate a strategy that produces `MyStruct`
-instances where `val` is an integer between 1 and 100, and `name` is an
-arbitrary `String`. This dramatically reduces the amount of manual effort
+The `#[derive(Arbitrary)]` macro will generate a strategy that produces
+`MyStruct` instances where `val` is an integer between 1 and 100, and `name` is
+an arbitrary `String`. This dramatically reduces the amount of manual effort
 required to make the library's domain models testable, allowing engineers to
 focus on defining properties rather than writing data generators.
 
@@ -205,11 +207,11 @@ Explicitly generating these "pathological" datasets proactively tests the
 algorithm's robustness at its known weak points. That proactive strategy is far
 more effective than waiting for failures to emerge from specific user data.
 
-For the HNSW construction parameters, a struct like `HnswConfig` can be
-annotated with `#[test_strategy]`. This will allow `proptest` to automatically
-explore how the algorithm behaves with different values for `M`,
-`ef_construction`, and other tuning parameters, potentially uncovering bugs
-that only manifest under specific configurations.
+For the HNSW construction parameters, a struct like `HnswConfig` can derive
+`Arbitrary`. This will allow `proptest` to automatically explore how the
+algorithm behaves with different values for `M`, `ef_construction`, and other
+tuning parameters, potentially uncovering bugs that only manifest under
+specific configurations.
 
 ### 2.2. Core structural invariants of a valid HNSW graph
 
