@@ -40,9 +40,9 @@ verifies that the system works for a single, hand-picked input. This approach
 can effectively catch simple regressions but is notoriously poor at discovering
 "unknown unknowns"---bugs that occur under complex, unforeseen, or esoteric
 conditions. The developer is burdened with the task of manually identifying all
-relevant edge cases (zero, negative numbers, empty lists, very large inputs), a
-task that is difficult for simple functions and nearly impossible for complex
-algorithms like HNSW or parallel MST.
+relevant edge cases (zero, negative numbers, empty lists, inputs with more than
+1e6 elements), a task that is difficult for simple functions and nearly
+impossible for complex algorithms like HNSW or parallel MST.
 
 Property-based testing (PBT) inverts this model. Instead of asserting the
 output for a specific input, the developer specifies a universal truth, or an
