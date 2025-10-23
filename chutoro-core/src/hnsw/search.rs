@@ -113,12 +113,13 @@ impl Graph {
         ef: usize,
         candidate_distance: f32,
     ) -> bool {
-        self.evaluate_candidate_with(
-            best,
-            ef,
-            candidate_distance,
-            |ordering| ordering == Ordering::Greater,
-            false,
+        if best.len() < ef {
+            return false;
+        }
+
+        matches!(
+            self.compare_to_furthest(best, candidate_distance),
+            Some(Ordering::Greater)
         )
     }
 
@@ -192,13 +193,7 @@ impl Graph {
         ef: usize,
         candidate_distance: f32,
     ) -> bool {
-        self.evaluate_candidate_with(
-            best,
-            ef,
-            candidate_distance,
-            |ordering| ordering != Ordering::Greater,
-            true,
-        )
+        !self.should_terminate_search(best, ef, candidate_distance)
     }
 
     fn finalize_results(&self, best: BinaryHeap<Neighbour>) -> Vec<Neighbour> {
@@ -220,23 +215,6 @@ impl Graph {
     ) -> Option<Ordering> {
         self.furthest_distance(best)
             .map(|furthest| candidate_distance.total_cmp(&furthest))
-    }
-
-    fn evaluate_candidate_with(
-        &self,
-        best: &BinaryHeap<Neighbour>,
-        ef: usize,
-        candidate_distance: f32,
-        comparator: impl Fn(Ordering) -> bool,
-        fallback: bool,
-    ) -> bool {
-        if best.len() < ef {
-            return fallback;
-        }
-
-        self.compare_to_furthest(best, candidate_distance)
-            .map(comparator)
-            .unwrap_or(false)
     }
 }
 
