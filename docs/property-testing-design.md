@@ -274,15 +274,16 @@ neighbours efficiently.
     where perfect recall may not be guaranteed.
 
 - **Justification:** This property provides an end-to-end correctness check.
-    It validates not only the graph structure but also the search algorithm
-    that navigates it. Furthermore, this test serves a dual purpose. By timing
-    both the HNSW search and the brute-force search within the property, the
-    test can log the performance speedup. Aggregating this data across a CI run
-    provides a statistical distribution of the algorithm's performance on
-    varied data. A sudden drop in the average speedup ratio can signal a
-    performance regression, transforming the PBT suite into a lightweight
-    performance monitoring tool and providing early warnings without the
-    overhead of a dedicated benchmarking framework for every pull request.
+    It validates not only the graph structure, but it also covers the search
+    algorithm that navigates it. Furthermore, this test serves a dual purpose.
+    By timing both the HNSW search and the brute-force search within the
+    property, the test can log the performance speedup. Aggregating this data
+    across a CI run provides a statistical distribution of the algorithm's
+    performance on varied data. A sudden drop in the average speedup ratio can
+    signal a performance regression, transforming the PBT suite into a
+    lightweight performance monitoring tool and providing early warnings
+    without the overhead of a dedicated benchmarking framework for every pull
+    request.
 
 #### 2.3.2. Property 2: Structural integrity after operations
 
