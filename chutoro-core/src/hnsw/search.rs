@@ -4,7 +4,10 @@
 //! finite distance invariants. Non-finite values are rejected before they can
 //! pollute the traversal state.
 
-use std::collections::{BinaryHeap, HashSet};
+use std::{
+    cmp::Ordering,
+    collections::{BinaryHeap, HashSet},
+};
 
 use crate::DataSource;
 
@@ -111,10 +114,10 @@ impl Graph {
         candidate_distance: f32,
     ) -> bool {
         best.len() >= ef
-            && self
-                .furthest_distance(best)
-                .map(|furthest| candidate_distance > furthest)
-                .unwrap_or(false)
+            && matches!(
+                self.compare_to_furthest(best, candidate_distance),
+                Some(Ordering::Greater)
+            )
     }
 
     fn process_neighbours<D: DataSource + Sync>(
@@ -188,10 +191,10 @@ impl Graph {
         candidate_distance: f32,
     ) -> bool {
         best.len() < ef
-            || self
-                .furthest_distance(best)
-                .map(|furthest| candidate_distance < furthest)
-                .unwrap_or(true)
+            || !matches!(
+                self.compare_to_furthest(best, candidate_distance),
+                Some(Ordering::Greater)
+            )
     }
 
     fn finalize_results(&self, best: BinaryHeap<Neighbour>) -> Vec<Neighbour> {
@@ -203,6 +206,16 @@ impl Graph {
     #[inline]
     fn furthest_distance(&self, best: &BinaryHeap<Neighbour>) -> Option<f32> {
         best.peek().map(|neighbour| neighbour.distance)
+    }
+
+    #[inline]
+    fn compare_to_furthest(
+        &self,
+        best: &BinaryHeap<Neighbour>,
+        candidate_distance: f32,
+    ) -> Option<Ordering> {
+        self.furthest_distance(best)
+            .map(|furthest| candidate_distance.total_cmp(&furthest))
     }
 }
 
