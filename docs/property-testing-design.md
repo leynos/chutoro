@@ -17,11 +17,11 @@ uncover subtle edge-case bugs and provides a complete architectural blueprint
 for a two-tiered Continuous Integration (CI) system using GitHub Actions. This
 CI architecture balances the need for rapid developer feedback on pull requests
 with the necessity for deep, exhaustive verification performed on a weekly
-basis. The ultimate objective of this initiative is to establish a rigorous,
-automated correctness backstop for the `chutoro` library. This will empower
-developers to perform aggressive optimizations, conduct large-scale
-refactoring, and add new features with a high degree of confidence in the
-system's stability and correctness.
+basis. The goal of this initiative is to establish a rigorous, automated
+correctness backstop for the `chutoro` library. This will empower developers to
+perform aggressive optimizations, conduct large-scale refactoring, and add new
+features with a high degree of confidence in the system's stability and
+correctness.
 
 ## Section 1: Foundational principles of property-based testing with `proptest`
 
