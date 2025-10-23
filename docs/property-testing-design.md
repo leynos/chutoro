@@ -116,8 +116,8 @@ provides a high-level solution to this problem in the form of a derive macro,
 By deriving this macro on a custom data structure, developers can instruct
 `test-strategy` to automatically generate a corresponding `proptest::Strategy`
 implementation. The macro inspects the fields of the struct or the variants of
-the enum and combines the strategies for each component part into a strategy
-for the whole type. For example, given the following struct:
+the enum and combines the strategies for each component into a strategy for the
+whole type. For example, given the following struct:
 
 ```rust
 use test_strategy::Arbitrary;
