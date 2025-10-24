@@ -89,7 +89,7 @@ ______________________________________________________________________
 - [ ] Add stateful HNSW mutation property that exercises add/delete/
   reconfigure sequences and revalidates invariants after each operation. (See
   property-testing-design §2.3.2)
-- [ ] Add HNSW insertion idempotency property ensuring that repeated duplicate
+- [ ] Add insertion idempotency property for HNSW ensuring repeated duplicate
   insertions leave graph state unchanged. (See property-testing-design §2.3.3)
 - [ ] Implement composite graph strategies (random, scale-free, lattice,
   disconnected) for candidate edge harvest testing. (See
