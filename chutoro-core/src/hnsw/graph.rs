@@ -20,18 +20,63 @@ pub(super) struct EdgeContext {
 }
 
 #[derive(Clone, Copy, Debug)]
+struct InsertBaseContext {
+    query: usize,
+    target_level: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
 pub(super) struct DescentContext {
-    pub(crate) query: usize,
+    base: InsertBaseContext,
     pub(crate) entry: EntryPoint,
-    pub(crate) target_level: usize,
+}
+
+impl DescentContext {
+    pub(crate) fn new(query: usize, entry: EntryPoint, target_level: usize) -> Self {
+        Self {
+            base: InsertBaseContext {
+                query,
+                target_level,
+            },
+            entry,
+        }
+    }
+
+    pub(crate) fn query(&self) -> usize {
+        self.base.query
+    }
+
+    pub(crate) fn target_level(&self) -> usize {
+        self.base.target_level
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct LayerPlanContext {
-    pub(crate) query: usize,
+    base: InsertBaseContext,
     pub(crate) current: usize,
-    pub(crate) target_level: usize,
     pub(crate) ef: usize,
+}
+
+impl LayerPlanContext {
+    pub(crate) fn new(query: usize, current: usize, target_level: usize, ef: usize) -> Self {
+        Self {
+            base: InsertBaseContext {
+                query,
+                target_level,
+            },
+            current,
+            ef,
+        }
+    }
+
+    pub(crate) fn query(&self) -> usize {
+        self.base.query
+    }
+
+    pub(crate) fn target_level(&self) -> usize {
+        self.base.target_level
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -47,64 +92,78 @@ pub(super) struct SearchContext {
     pub(crate) level: usize,
 }
 
+impl SearchContext {
+    pub(crate) fn with_ef(self, ef: usize) -> ExtendedSearchContext {
+        ExtendedSearchContext { base: self, ef }
+    }
+
+    pub(crate) fn with_distance(self, current_dist: f32) -> NeighbourSearchContext {
+        NeighbourSearchContext {
+            base: self,
+            current_dist,
+        }
+    }
+
+    pub(crate) fn query(&self) -> usize {
+        self.query
+    }
+
+    pub(crate) fn entry(&self) -> usize {
+        self.entry
+    }
+
+    pub(crate) fn level(&self) -> usize {
+        self.level
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(super) struct ExtendedSearchContext {
-    pub(crate) query: usize,
-    pub(crate) entry: usize,
-    pub(crate) level: usize,
+    pub(crate) base: SearchContext,
     pub(crate) ef: usize,
+}
+
+impl ExtendedSearchContext {
+    pub(crate) fn query(&self) -> usize {
+        self.base.query()
+    }
+
+    pub(crate) fn entry(&self) -> usize {
+        self.base.entry()
+    }
+
+    pub(crate) fn level(&self) -> usize {
+        self.base.level()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct NeighbourSearchContext {
-    pub(crate) query: usize,
-    pub(crate) level: usize,
+    base: SearchContext,
     pub(crate) current_dist: f32,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(super) struct ProcessNodeContext {
-    pub(crate) query: usize,
-    pub(crate) level: usize,
-    pub(crate) ef: usize,
-    pub(crate) node_id: usize,
-}
-
-#[derive(Clone, Debug)]
-pub(super) struct ScoredCandidates {
-    items: Vec<(usize, f32)>,
-}
-
-impl ScoredCandidates {
-    pub(super) fn new(candidates: Vec<usize>, distances: Vec<f32>) -> Self {
-        debug_assert_eq!(
-            candidates.len(),
-            distances.len(),
-            "candidate and distance batches must align",
-        );
-        let items = candidates.into_iter().zip(distances).collect();
-        Self { items }
+impl NeighbourSearchContext {
+    pub(crate) fn query(&self) -> usize {
+        self.base.query()
     }
-}
 
-impl IntoIterator for ScoredCandidates {
-    type Item = (usize, f32);
-    type IntoIter = std::vec::IntoIter<(usize, f32)>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.items.into_iter()
+    pub(crate) fn level(&self) -> usize {
+        self.base.level()
     }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct Graph {
+    params: HnswParams,
     nodes: Vec<Option<Node>>,
     entry: Option<EntryPoint>,
 }
 
 impl Graph {
-    pub(crate) fn with_capacity(capacity: usize) -> Self {
+    pub(crate) fn with_capacity(params: HnswParams, capacity: usize) -> Self {
         Self {
+            params,
             nodes: vec![None; capacity],
             entry: None,
         }
@@ -121,6 +180,14 @@ impl Graph {
     }
 
     pub(crate) fn attach_node(&mut self, node: usize, level: usize) -> Result<(), HnswError> {
+        if level > self.params.max_level() {
+            return Err(HnswError::InvalidParameters {
+                reason: format!(
+                    "level {level} exceeds max_level {}",
+                    self.params.max_level()
+                ),
+            });
+        }
         let slot = self
             .nodes
             .get_mut(node)

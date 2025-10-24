@@ -34,9 +34,7 @@ def _generate_secret_id(payload: str) -> str:
         msg = "Failed to decode Vault response whilst generating a secret-id"
         raise VaultBootstrapError(msg) from exc
 
-    secret_id = data.get("data", {}).get("secret_id")
-    if not secret_id:
-        msg = "Vault response missing secret_id field"
-        raise VaultBootstrapError(msg)
-
-    return secret_id
+    if secret_id := data.get("data", {}).get("secret_id"):
+        return secret_id
+    else:
+        raise VaultBootstrapError("Vault response missing secret_id field")

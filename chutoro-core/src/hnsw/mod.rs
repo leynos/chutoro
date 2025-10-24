@@ -34,7 +34,7 @@ use rayon::{current_num_threads, current_thread_index, prelude::*};
 use crate::DataSource;
 
 use self::{
-    graph::{ApplyContext, ExtendedSearchContext, Graph, NodeContext, SearchContext},
+    graph::{ApplyContext, Graph, NodeContext, SearchContext},
     insert::{TrimJob, TrimResult},
     validate::{validate_batch_distances, validate_distance},
 };
@@ -116,10 +116,12 @@ impl CpuHnsw {
             })
             .collect();
 
+        let graph = Graph::with_capacity(params.clone(), capacity);
+
         Ok(Self {
             rng: Mutex::new(SmallRng::seed_from_u64(base_seed)),
             worker_rngs,
-            graph: Arc::new(RwLock::new(Graph::with_capacity(capacity))),
+            graph: Arc::new(RwLock::new(graph)),
             len: AtomicUsize::new(0),
             params,
         })
@@ -129,56 +131,59 @@ impl CpuHnsw {
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
         let level = self.sample_level();
         let node_ctx = NodeContext { node, level };
-        let has_entry = {
-            self.graph
-                .read()
-                .expect("graph lock poisoned")
-                .entry()
-                .is_some()
-        };
-        if !has_entry {
-            validate_distance(source, node_ctx.node, node_ctx.node)?;
-            let mut graph = self.graph.write().expect("graph lock poisoned");
-            let inserted = if graph.entry().is_none() {
-                self.insert_initial(&mut graph, node_ctx)?;
-                true
-            } else {
-                false
-            };
-            drop(graph);
-            if inserted {
-                self.len.store(1, Ordering::Relaxed);
-                return Ok(());
-            }
+        if self.try_insert_initial(node_ctx, source)? {
+            self.len.store(1, Ordering::Relaxed);
+            return Ok(());
         }
-        let plan = {
-            // Phase 1: Plan insertion under read lock
-            let graph = self.graph.read().expect("graph lock poisoned");
-            graph.plan_insertion(node_ctx, &self.params, source)
-        }?;
-        let (prepared, trim_jobs) = {
-            // Phase 2: Stage insertion under write lock
-            let mut graph = self.graph.write().expect("graph lock poisoned");
+
+        let plan = self.read_graph(|graph| graph.plan_insertion(node_ctx, &self.params, source))?;
+        let (prepared, trim_jobs) = self.write_graph(|graph| {
             graph.apply_insertion(
                 node_ctx,
                 ApplyContext {
                     params: &self.params,
                     plan,
                 },
-            )?
-        };
+            )
+        })?;
         let trim_results = self.score_trim_jobs(trim_jobs, source)?;
-        {
-            // Phase 3: Commit insertion under write lock
-            let mut graph = self.graph.write().expect("graph lock poisoned");
-            graph.commit_insertion(prepared, trim_results)?;
-        }
+        self.write_graph(|graph| graph.commit_insertion(prepared, trim_results))?;
         self.len.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
     fn insert_initial(&self, graph: &mut Graph, ctx: NodeContext) -> Result<(), HnswError> {
         graph.insert_first(ctx.node, ctx.level)
+    }
+
+    fn read_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> R {
+        let guard = self.graph.read().expect("graph lock poisoned");
+        f(&guard)
+    }
+
+    fn write_graph<R>(&self, f: impl FnOnce(&mut Graph) -> R) -> R {
+        let mut guard = self.graph.write().expect("graph lock poisoned");
+        f(&mut guard)
+    }
+
+    fn try_insert_initial<D: DataSource + Sync>(
+        &self,
+        ctx: NodeContext,
+        source: &D,
+    ) -> Result<bool, HnswError> {
+        if self.read_graph(|graph| graph.entry().is_some()) {
+            return Ok(false);
+        }
+
+        validate_distance(source, ctx.node, ctx.node)?;
+        self.write_graph(|graph| {
+            if graph.entry().is_none() {
+                self.insert_initial(graph, ctx)?;
+                Ok(true)
+            } else {
+                Ok(false)
+            }
+        })
     }
 
     fn score_trim_jobs<D: DataSource + Sync>(
@@ -258,12 +263,12 @@ impl CpuHnsw {
         }
         graph.search_layer(
             source,
-            ExtendedSearchContext {
+            SearchContext {
                 query,
                 entry: current,
                 level: 0,
-                ef: ef.get(),
-            },
+            }
+            .with_ef(ef.get()),
         )
     }
 

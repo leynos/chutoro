@@ -1,3 +1,7 @@
+//! Node storage for the CPU HNSW graph.
+//!
+//! Maintains per-level neighbour lists and provides accessors used during
+//! search, insertion, and trimming.
 #[derive(Clone, Debug)]
 pub(crate) struct Node {
     neighbours: Vec<Vec<usize>>,

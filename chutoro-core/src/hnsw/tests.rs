@@ -3,7 +3,7 @@
 
 use super::{
     CpuHnsw, HnswError, HnswErrorCode, HnswParams, Neighbour,
-    graph::{ExtendedSearchContext, Graph, SearchContext},
+    graph::{Graph, SearchContext},
 };
 use crate::{DataSource, DataSourceError};
 use rand::{Rng, SeedableRng, distributions::Standard, rngs::SmallRng};
@@ -186,7 +186,8 @@ fn uses_batch_distances_during_scoring() {
 #[rstest]
 fn greedy_descent_selects_closest_neighbour() {
     let source = DummySource::new(vec![1.0, 0.8, 0.6, 0.0]);
-    let mut graph = Graph::with_capacity(source.len());
+    let params = HnswParams::new(2, 4).expect("params must be valid");
+    let mut graph = Graph::with_capacity(params, source.len());
     graph.attach_node(0, 0).expect("attach entry");
     graph.attach_node(1, 0).expect("attach neighbour one");
     graph.attach_node(2, 0).expect("attach neighbour two");
@@ -210,6 +211,26 @@ fn greedy_descent_selects_closest_neighbour() {
         result, 2,
         "greedy descent should pick the closest neighbour",
     );
+}
+
+#[test]
+fn search_respects_minimum_ef() {
+    let source = DummySource::new(vec![0.0, 1.5, 3.0]);
+    let params = HnswParams::new(2, 4)
+        .expect("params must be valid")
+        .with_rng_seed(29);
+    let index = CpuHnsw::build(&source, params).expect("build must succeed");
+
+    let neighbours = index
+        .search(
+            &source,
+            0,
+            NonZeroUsize::new(1).expect("ef must be non-zero"),
+        )
+        .expect("search must succeed");
+
+    assert_eq!(neighbours.len(), 1, "ef=1 must return a single result");
+    assert_eq!(neighbours[0].id, 0, "search should favour the closest node");
 }
 
 #[rstest]
@@ -252,7 +273,8 @@ fn non_finite_distance_is_reported() {
 #[test]
 fn reports_invariant_violation_when_search_node_missing() {
     let source = DummySource::new(vec![0.0, 1.0]);
-    let mut graph = Graph::with_capacity(2);
+    let params = HnswParams::new(2, 4).expect("params must be valid");
+    let mut graph = Graph::with_capacity(params, 2);
     graph
         .insert_first(0, 0)
         .expect("initial node must insert successfully");
@@ -262,12 +284,12 @@ fn reports_invariant_violation_when_search_node_missing() {
         .neighbours_mut(0)
         .push(1);
 
-    let ctx = ExtendedSearchContext {
+    let ctx = SearchContext {
         query: 0,
         entry: 0,
         level: 0,
-        ef: 2,
-    };
+    }
+    .with_ef(2);
 
     let err = graph
         .search_layer(&source, ctx)
@@ -277,6 +299,28 @@ fn reports_invariant_violation_when_search_node_missing() {
             assert_eq!(message, "node 1 missing during layer search at level 0");
         }
         other => panic!("expected GraphInvariantViolation, got {other:?}"),
+    }
+}
+
+#[test]
+fn attach_node_rejects_excessive_levels() {
+    let params = HnswParams::new(2, 4)
+        .expect("params must be valid")
+        .with_max_level(1);
+    let mut graph = Graph::with_capacity(params, 3);
+    graph.attach_node(0, 1).expect("level within bounds");
+
+    let err = graph
+        .attach_node(1, 3)
+        .expect_err("level above max must fail");
+    match err {
+        HnswError::InvalidParameters { reason } => {
+            assert!(
+                reason.contains("exceeds max_level"),
+                "error should report level overflow: {reason}"
+            );
+        }
+        other => panic!("expected InvalidParameters, got {other:?}"),
     }
 }
 

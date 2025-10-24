@@ -112,3 +112,76 @@ pub trait DataSource {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::error::DataSourceError;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[derive(Clone)]
+    struct CountingSource {
+        data: Vec<f32>,
+        calls: Arc<AtomicUsize>,
+    }
+
+    impl CountingSource {
+        fn new(data: Vec<f32>, calls: Arc<AtomicUsize>) -> Self {
+            Self { data, calls }
+        }
+    }
+
+    impl DataSource for CountingSource {
+        fn len(&self) -> usize {
+            self.data.len()
+        }
+
+        fn name(&self) -> &str {
+            "counting"
+        }
+
+        fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            let a = self
+                .data
+                .get(left)
+                .ok_or(DataSourceError::OutOfBounds { index: left })?;
+            let b = self
+                .data
+                .get(right)
+                .ok_or(DataSourceError::OutOfBounds { index: right })?;
+            Ok((a - b).abs())
+        }
+    }
+
+    #[test]
+    fn batch_distances_invokes_scalar_distance() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let source = CountingSource::new(vec![0.0, 1.0, 3.0], Arc::clone(&calls));
+
+        let distances = source
+            .batch_distances(0, &[1, 2])
+            .expect("batch distances should succeed");
+
+        assert_eq!(distances, vec![1.0, 3.0]);
+        assert_eq!(calls.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn batch_distances_propagates_errors() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let source = CountingSource::new(vec![0.0, 1.0], calls);
+
+        let err = source
+            .batch_distances(0, &[1, 5])
+            .expect_err("invalid candidate must fail");
+
+        match err {
+            DataSourceError::OutOfBounds { index } => assert_eq!(index, 5),
+            other => panic!("expected out-of-bounds error, got {other:?}"),
+        }
+    }
+}

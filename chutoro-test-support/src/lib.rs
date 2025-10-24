@@ -110,24 +110,27 @@ pub mod tracing {
             values: &tracing::span::Record<'_>,
             ctx: Context<'_, S>,
         ) {
-            if let Some(span) = ctx.span(id) {
-                if let Some(data) = span.extensions_mut().get_mut::<SpanData>() {
-                    values.record(&mut FieldRecorder {
-                        fields: &mut data.fields,
-                    });
-                }
+            let Some(span) = ctx.span(id) else {
+                return;
+            };
+            if let Some(data) = span.extensions_mut().get_mut::<SpanData>() {
+                values.record(&mut FieldRecorder {
+                    fields: &mut data.fields,
+                });
             }
         }
 
         fn on_close(&self, id: tracing::span::Id, ctx: Context<'_, S>) {
-            if let Some(span) = ctx.span(&id) {
-                if let Some(data) = span.extensions_mut().remove::<SpanData>() {
-                    self.spans.lock().expect("lock poisoned").push(SpanRecord {
-                        name: data.name,
-                        fields: data.fields,
-                    });
-                }
-            }
+            let Some(span) = ctx.span(&id) else {
+                return;
+            };
+            let Some(data) = span.extensions_mut().remove::<SpanData>() else {
+                return;
+            };
+            self.spans.lock().expect("lock poisoned").push(SpanRecord {
+                name: data.name,
+                fields: data.fields,
+            });
         }
 
         fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
