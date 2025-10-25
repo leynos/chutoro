@@ -19,6 +19,93 @@ use super::{
 use super::graph::Graph;
 
 #[derive(Debug)]
+struct SearchState {
+    visited: HashSet<usize>,
+    candidates: BinaryHeap<ReverseNeighbour>,
+    best: BinaryHeap<Neighbour>,
+    best_ids: HashSet<usize>,
+}
+
+impl SearchState {
+    fn new(entry: usize, distance: f32) -> Self {
+        let mut visited = HashSet::new();
+        visited.insert(entry);
+
+        let mut candidates = BinaryHeap::new();
+        candidates.push(ReverseNeighbour::new(entry, distance));
+
+        let mut best = BinaryHeap::new();
+        best.push(Neighbour {
+            id: entry,
+            distance,
+        });
+
+        let mut best_ids = HashSet::new();
+        best_ids.insert(entry);
+
+        Self {
+            visited,
+            candidates,
+            best,
+            best_ids,
+        }
+    }
+
+    fn pop_candidate(&mut self) -> Option<ReverseNeighbour> {
+        self.candidates.pop()
+    }
+
+    fn should_terminate(&self, ef: usize, candidate_distance: f32) -> bool {
+        self.best.len() >= ef
+            && self
+                .best
+                .peek()
+                .is_some_and(|furthest| candidate_distance > furthest.distance)
+    }
+
+    fn visit(&mut self, candidate: usize) -> bool {
+        self.visited.insert(candidate)
+    }
+
+    fn try_enqueue(&mut self, candidate: usize, distance: f32, ef: usize) {
+        if self.best.len() >= ef
+            && self
+                .best
+                .peek()
+                .is_some_and(|furthest| distance >= furthest.distance)
+        {
+            return;
+        }
+
+        if !self.best_ids.insert(candidate) {
+            return;
+        }
+
+        self.candidates
+            .push(ReverseNeighbour::new(candidate, distance));
+        self.best.push(Neighbour {
+            id: candidate,
+            distance,
+        });
+        self.enforce_capacity(ef);
+    }
+
+    fn enforce_capacity(&mut self, ef: usize) {
+        while self.best.len() > ef {
+            if let Some(removed) = self.best.pop() {
+                self.best_ids.remove(&removed.id);
+            }
+        }
+    }
+
+    fn finalise(self) -> Vec<Neighbour> {
+        let mut neighbours = self.best.into_vec();
+        neighbours.sort_unstable_by(|a, b| a.distance.total_cmp(&b.distance));
+        neighbours
+    }
+}
+
+#[derive(Debug)]
 pub(super) struct LayerSearcher<'graph> {
     graph: &'graph Graph,
 }
@@ -90,20 +177,10 @@ impl<'graph> LayerSearcher<'graph> {
         let entry = ctx.entry();
         let entry_dist = validate_distance(source, ctx.query(), entry)?;
 
-        let mut visited = HashSet::new();
-        visited.insert(entry);
+        let mut state = SearchState::new(entry, entry_dist);
 
-        let mut candidates = BinaryHeap::new();
-        candidates.push(ReverseNeighbour::new(entry, entry_dist));
-
-        let mut best = BinaryHeap::new();
-        best.push(Neighbour {
-            id: entry,
-            distance: entry_dist,
-        });
-
-        while let Some(ReverseNeighbour { inner }) = candidates.pop() {
-            if Self::should_terminate_layer(&best, ctx.ef, inner.distance) {
+        while let Some(ReverseNeighbour { inner }) = state.pop_candidate() {
+            if state.should_terminate(ctx.ef, inner.distance) {
                 break;
             }
 
@@ -121,64 +198,17 @@ impl<'graph> LayerSearcher<'graph> {
                 .neighbours(ctx.level())
                 .iter()
                 .copied()
-                .filter(|candidate| visited.insert(*candidate))
+                .filter(|candidate| state.visit(*candidate))
                 .collect();
             if fresh.is_empty() {
                 continue;
             }
 
             let distances = validate_batch_distances(source, ctx.query(), &fresh)?;
-            let scored = fresh.into_iter().zip(distances.into_iter());
-            Self::enqueue_candidates(&mut best, &mut candidates, ctx, scored);
-        }
-        let mut neighbours: Vec<_> = best.into_vec();
-        neighbours.sort_unstable_by(|a, b| a.distance.total_cmp(&b.distance));
-        Ok(neighbours)
-    }
-
-    fn should_terminate_layer(
-        best: &BinaryHeap<Neighbour>,
-        ef: usize,
-        candidate_distance: f32,
-    ) -> bool {
-        best.len() >= ef
-            && best
-                .peek()
-                .is_some_and(|furthest| candidate_distance > furthest.distance)
-    }
-
-    fn should_enqueue_candidate(best: &BinaryHeap<Neighbour>, ef: usize, distance: f32) -> bool {
-        best.len() < ef
-            || best
-                .peek()
-                .is_some_and(|furthest| distance < furthest.distance)
-    }
-
-    fn enforce_layer_capacity(best: &mut BinaryHeap<Neighbour>, ef: usize) {
-        if best.len() > ef {
-            best.pop();
-        }
-    }
-
-    fn enqueue_candidates<I>(
-        best: &mut BinaryHeap<Neighbour>,
-        candidates: &mut BinaryHeap<ReverseNeighbour>,
-        ctx: ExtendedSearchContext,
-        neighbours: I,
-    ) where
-        I: IntoIterator<Item = (usize, f32)>,
-    {
-        for (candidate, distance) in neighbours {
-            if !Self::should_enqueue_candidate(best, ctx.ef, distance) {
-                continue;
+            for (candidate, distance) in fresh.into_iter().zip(distances.into_iter()) {
+                state.try_enqueue(candidate, distance, ctx.ef);
             }
-
-            candidates.push(ReverseNeighbour::new(candidate, distance));
-            best.push(Neighbour {
-                id: candidate,
-                distance,
-            });
-            Self::enforce_layer_capacity(best, ctx.ef);
         }
+        Ok(state.finalise())
     }
 }

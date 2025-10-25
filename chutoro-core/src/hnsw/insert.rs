@@ -5,7 +5,7 @@
 //! holding write locks. Application mutates the graph structure, performs bidirectional
 //! linking, and schedules trimming jobs for nodes that exceed maximum connection limits.
 
-use std::collections::{HashMap, HashSet, hash_map::Entry};
+use std::collections::{HashMap, HashSet};
 
 use crate::DataSource;
 
@@ -88,13 +88,13 @@ impl<'graph> InsertionPlanner<'graph> {
         ctx: DescentContext,
     ) -> Result<usize, HnswError> {
         let mut current = ctx.entry.node;
-        if ctx.entry.level > ctx.target_level() {
+        if ctx.entry.level > ctx.target_level {
             let searcher = self.graph.searcher();
-            for level in ((ctx.target_level() + 1)..=ctx.entry.level).rev() {
+            for level in ((ctx.target_level + 1)..=ctx.entry.level).rev() {
                 current = searcher.greedy_search_layer(
                     source,
                     SearchContext {
-                        query: ctx.query(),
+                        query: ctx.query,
                         entry: current,
                         level,
                     },
@@ -109,14 +109,14 @@ impl<'graph> InsertionPlanner<'graph> {
         source: &D,
         ctx: LayerPlanContext,
     ) -> Result<Vec<LayerPlan>, HnswError> {
-        let mut layers = Vec::with_capacity(ctx.target_level() + 1);
+        let mut layers = Vec::with_capacity(ctx.target_level + 1);
         let mut current = ctx.current;
         let searcher = self.graph.searcher();
-        for level in (0..=ctx.target_level()).rev() {
+        for level in (0..=ctx.target_level).rev() {
             let candidates = searcher.search_layer(
                 source,
                 SearchContext {
-                    query: ctx.query(),
+                    query: ctx.query,
                     entry: current,
                     level,
                 }
@@ -173,29 +173,29 @@ impl<'graph> InsertionExecutor<'graph> {
 
         let mut new_node_neighbours = vec![Vec::new(); level + 1];
         let mut staged: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+        let mut initialised = HashSet::new();
         let mut needs_trim = HashSet::new();
 
         for layer in plan.layers.into_iter().filter(|layer| layer.level <= level) {
-            let edge_ctx = EdgeContext {
-                level: layer.level,
-                max_connections,
-            };
+            let level_index = layer.level;
 
             for neighbour in layer.neighbours.into_iter().take(max_connections) {
-                let level_neighbours = &mut new_node_neighbours[edge_ctx.level];
-                Self::record_new_node_link(level_neighbours, neighbour.id);
-
-                let candidates =
-                    self.ensure_staged_candidates(&mut staged, neighbour.id, edge_ctx.level)?;
-                Self::ensure_reciprocal_link(candidates, node);
-
-                Self::mark_trim_requirement(
-                    &mut needs_trim,
-                    candidates.len(),
+                self.stage_neighbour(
+                    node,
+                    neighbour.id,
+                    level_index,
                     max_connections,
-                    (neighbour.id, edge_ctx.level),
-                );
+                    &mut new_node_neighbours,
+                    &mut staged,
+                    &mut initialised,
+                    &mut needs_trim,
+                )?;
             }
+        }
+
+        for neighbours in &mut new_node_neighbours {
+            let mut seen = HashSet::new();
+            neighbours.retain(|neighbour| seen.insert(*neighbour));
         }
 
         let mut updates = Vec::with_capacity(staged.len());
@@ -233,51 +233,52 @@ impl<'graph> InsertionExecutor<'graph> {
         ))
     }
 
-    fn ensure_staged_candidates<'a>(
+    #[allow(clippy::too_many_arguments)]
+    fn stage_neighbour(
         &self,
-        staged: &'a mut HashMap<(usize, usize), Vec<usize>>,
+        new_node: usize,
         neighbour: usize,
-        level: usize,
-    ) -> Result<&'a mut Vec<usize>, HnswError> {
-        let entry = staged.entry((neighbour, level));
-        match entry {
-            Entry::Occupied(existing) => Ok(existing.into_mut()),
-            Entry::Vacant(vacant) => Ok(vacant.insert(self.initial_candidates(neighbour, level)?)),
-        }
-    }
-
-    fn initial_candidates(&self, node: usize, level: usize) -> Result<Vec<usize>, HnswError> {
-        let Some(graph_node) = self.graph.node(node) else {
-            return Err(HnswError::GraphInvariantViolation {
-                message: format!("node {node} missing during insertion planning at level {level}",),
-            });
-        };
-        Ok(graph_node.neighbours(level).to_vec())
-    }
-
-    fn ensure_reciprocal_link(candidates: &mut Vec<usize>, node: usize) {
-        if candidates.contains(&node) {
-            return;
-        }
-        candidates.push(node);
-    }
-
-    fn record_new_node_link(level_neighbours: &mut Vec<usize>, candidate: usize) {
-        if level_neighbours.contains(&candidate) {
-            return;
-        }
-        level_neighbours.push(candidate);
-    }
-
-    fn mark_trim_requirement(
-        needs_trim: &mut HashSet<(usize, usize)>,
-        candidates_len: usize,
+        level_index: usize,
         max_connections: usize,
-        key: (usize, usize),
-    ) {
-        if candidates_len > max_connections {
+        new_node_neighbours: &mut [Vec<usize>],
+        staged: &mut HashMap<(usize, usize), Vec<usize>>,
+        initialised: &mut HashSet<(usize, usize)>,
+        needs_trim: &mut HashSet<(usize, usize)>,
+    ) -> Result<(), HnswError> {
+        new_node_neighbours[level_index].push(neighbour);
+
+        let key = (neighbour, level_index);
+        if initialised.insert(key) {
+            let graph_node = self.graph.node(neighbour).ok_or_else(|| {
+                HnswError::GraphInvariantViolation {
+                    message: format!(
+                        "node {neighbour} missing during insertion planning at level {level_index}",
+                    ),
+                }
+            })?;
+            staged.insert(key, graph_node.neighbours(level_index).to_vec());
+        }
+
+        let candidates =
+            staged
+                .get_mut(&key)
+                .ok_or_else(|| HnswError::GraphInvariantViolation {
+                    message: format!(
+                        "node {neighbour} missing from staged updates at level {level_index}",
+                    ),
+                })?;
+
+        let contains_new = candidates.iter().any(|&existing| existing == new_node);
+        let projected = candidates.len() + usize::from(!contains_new);
+        if projected > max_connections {
             needs_trim.insert(key);
         }
+        if contains_new {
+            return Ok(());
+        }
+
+        candidates.push(new_node);
+        Ok(())
     }
 
     /// Applies a prepared insertion after trim distances have been evaluated.

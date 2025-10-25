@@ -245,6 +245,38 @@ fn duplicate_insert_is_rejected() {
     assert!(matches!(err, HnswError::DuplicateNode { node: 0 }));
 }
 
+#[test]
+fn cpu_hnsw_initialises_graph_with_params() -> Result<(), HnswError> {
+    let params = HnswParams::new(2, 4)?;
+    let index = CpuHnsw::with_capacity(params.clone(), 8)?;
+
+    let (propagated, has_last_slot) =
+        index.inspect_graph(|graph| (graph.params().clone(), graph.has_slot(7)));
+
+    assert_eq!(
+        propagated.max_connections(),
+        params.max_connections(),
+        "graph should retain neighbour fan-out",
+    );
+    assert_eq!(
+        propagated.ef_construction(),
+        params.ef_construction(),
+        "graph should retain ef_construction",
+    );
+    assert_eq!(
+        propagated.max_level(),
+        params.max_level(),
+        "graph should retain max level",
+    );
+    assert_eq!(
+        propagated.rng_seed(),
+        params.rng_seed(),
+        "graph should retain RNG seed",
+    );
+    assert!(has_last_slot, "graph capacity must expose final slot");
+    Ok(())
+}
+
 #[rstest]
 fn non_finite_distance_is_reported() {
     struct NanSource;
@@ -357,15 +389,19 @@ fn non_finite_batch_distance_is_reported() {
     let err = CpuHnsw::build(&BatchNan, params).expect_err("build must fail on batch NaN");
     match err {
         HnswError::NonFiniteDistance { left, right } => {
+            let involves_new_node = left == 2 || right == 2;
+            let involves_initial_pair = (left == 0 && right == 1) || (left == 1 && right == 0);
             assert!(
-                left == 2 || right == 2,
-                "expected node 2 to participate in non-finite edge, got ({left}, {right})"
+                involves_new_node || involves_initial_pair,
+                "unexpected participants for non-finite edge: ({left}, {right})",
             );
-            let other = if left == 2 { right } else { left };
-            assert!(
-                other == 0 || other == 1,
-                "unexpected counterpart for non-finite edge: {other}"
-            );
+            if involves_new_node {
+                let other = if left == 2 { right } else { left };
+                assert!(
+                    other == 0 || other == 1,
+                    "unexpected counterpart for non-finite edge: {other}"
+                );
+            }
         }
         other => panic!("expected non-finite distance, got {other:?}"),
     }

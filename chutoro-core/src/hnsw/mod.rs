@@ -174,6 +174,11 @@ impl CpuHnsw {
         f(&mut guard)
     }
 
+    #[cfg(test)]
+    pub(crate) fn inspect_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> R {
+        self.read_graph(f)
+    }
+
     fn try_insert_initial<D: DataSource + Sync>(
         &self,
         ctx: NodeContext,

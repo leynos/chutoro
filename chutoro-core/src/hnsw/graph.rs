@@ -22,40 +22,26 @@ pub(super) struct EdgeContext {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct InsertBaseContext {
-    query: usize,
-    target_level: usize,
-}
-
-#[derive(Clone, Copy, Debug)]
 pub(super) struct DescentContext {
-    base: InsertBaseContext,
+    pub(crate) query: usize,
+    pub(crate) target_level: usize,
     pub(crate) entry: EntryPoint,
 }
 
 impl DescentContext {
     pub(crate) fn new(query: usize, entry: EntryPoint, target_level: usize) -> Self {
         Self {
-            base: InsertBaseContext {
-                query,
-                target_level,
-            },
+            query,
+            target_level,
             entry,
         }
-    }
-
-    pub(crate) fn query(&self) -> usize {
-        self.base.query
-    }
-
-    pub(crate) fn target_level(&self) -> usize {
-        self.base.target_level
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct LayerPlanContext {
-    base: InsertBaseContext,
+    pub(crate) query: usize,
+    pub(crate) target_level: usize,
     pub(crate) current: usize,
     pub(crate) ef: usize,
 }
@@ -63,21 +49,11 @@ pub(super) struct LayerPlanContext {
 impl LayerPlanContext {
     pub(crate) fn new(query: usize, current: usize, target_level: usize, ef: usize) -> Self {
         Self {
-            base: InsertBaseContext {
-                query,
-                target_level,
-            },
+            query,
+            target_level,
             current,
             ef,
         }
-    }
-
-    pub(crate) fn query(&self) -> usize {
-        self.base.query
-    }
-
-    pub(crate) fn target_level(&self) -> usize {
-        self.base.target_level
     }
 }
 
@@ -185,7 +161,7 @@ impl Graph {
         if level > self.params.max_level() {
             return Err(HnswError::InvalidParameters {
                 reason: format!(
-                    "level {level} exceeds max_level {}",
+                    "node {node}: level {level} exceeds max_level {}",
                     self.params.max_level()
                 ),
             });
@@ -232,5 +208,10 @@ impl Graph {
 
     pub(super) fn searcher(&self) -> LayerSearcher<'_> {
         LayerSearcher::new(self)
+    }
+
+    #[cfg(test)]
+    pub(super) fn params(&self) -> &HnswParams {
+        &self.params
     }
 }
