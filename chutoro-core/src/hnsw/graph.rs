@@ -2,8 +2,10 @@
 
 use super::{
     error::HnswError,
+    insert::{InsertionExecutor, InsertionPlanner},
     node::Node,
     params::HnswParams,
+    search::LayerSearcher,
     types::{EntryPoint, InsertionPlan},
 };
 
@@ -218,5 +220,17 @@ impl Graph {
 
     pub(super) fn has_slot(&self, node: usize) -> bool {
         self.nodes.get(node).is_some()
+    }
+
+    pub(super) fn insertion_planner(&self) -> InsertionPlanner<'_> {
+        InsertionPlanner::new(self)
+    }
+
+    pub(super) fn insertion_executor(&mut self) -> InsertionExecutor<'_> {
+        InsertionExecutor::new(self)
+    }
+
+    pub(super) fn searcher(&self) -> LayerSearcher<'_> {
+        LayerSearcher::new(self)
     }
 }

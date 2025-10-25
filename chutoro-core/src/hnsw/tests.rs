@@ -204,6 +204,7 @@ fn greedy_descent_selects_closest_neighbour() {
         level: 0,
     };
     let result = graph
+        .searcher()
         .greedy_search_layer(&source, ctx)
         .expect("greedy search must succeed");
 
@@ -292,6 +293,7 @@ fn reports_invariant_violation_when_search_node_missing() {
     .with_ef(2);
 
     let err = graph
+        .searcher()
         .search_layer(&source, ctx)
         .expect_err("missing node must surface an invariant violation");
     match err {

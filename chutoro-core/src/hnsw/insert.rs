@@ -51,38 +51,28 @@ pub(super) struct TrimResult {
     pub(crate) neighbours: Vec<usize>,
 }
 
-impl Graph {
+#[derive(Debug)]
+pub(super) struct InsertionPlanner<'graph> {
+    graph: &'graph Graph,
+}
+
+impl<'graph> InsertionPlanner<'graph> {
+    pub(super) fn new(graph: &'graph Graph) -> Self {
+        Self { graph }
+    }
+
     /// Plans insertion of a node into the HNSW graph without mutating state.
     ///
     /// Computes the descent path from the current entry point down to the
     /// target level, then searches each layer from the target level to layer 0
     /// to identify candidate neighbours for bidirectional linking.
-    ///
-    /// # Parameters
-    ///
-    /// - `ctx` – node identifier and assigned level for the new node.
-    /// - `params` – HNSW construction parameters.
-    /// - `source` – data source providing distance calculations.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`HnswError::GraphEmpty`] if the graph has no entry point and
-    /// propagates distance or invariant failures from the descent and search
-    /// phases.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let plan = graph.plan_insertion(node_ctx, &params, data_source)?;
-    /// assert!(!plan.layers.is_empty());
-    /// ```
-    pub(crate) fn plan_insertion<D: DataSource + Sync>(
+    pub(super) fn plan<D: DataSource + Sync>(
         &self,
         ctx: NodeContext,
         params: &HnswParams,
         source: &D,
     ) -> Result<InsertionPlan, HnswError> {
-        let entry = self.entry().ok_or(HnswError::GraphEmpty)?;
+        let entry = self.graph.entry().ok_or(HnswError::GraphEmpty)?;
         let target_level = ctx.level.min(entry.level);
         let descent_ctx = DescentContext::new(ctx.node, entry, target_level);
         let current = self.greedy_descend_to_target_level(source, descent_ctx)?;
@@ -99,8 +89,9 @@ impl Graph {
     ) -> Result<usize, HnswError> {
         let mut current = ctx.entry.node;
         if ctx.entry.level > ctx.target_level() {
+            let searcher = self.graph.searcher();
             for level in ((ctx.target_level() + 1)..=ctx.entry.level).rev() {
-                current = self.greedy_search_layer(
+                current = searcher.greedy_search_layer(
                     source,
                     SearchContext {
                         query: ctx.query(),
@@ -120,8 +111,9 @@ impl Graph {
     ) -> Result<Vec<LayerPlan>, HnswError> {
         let mut layers = Vec::with_capacity(ctx.target_level() + 1);
         let mut current = ctx.current;
+        let searcher = self.graph.searcher();
         for level in (0..=ctx.target_level()).rev() {
-            let candidates = self.search_layer(
+            let candidates = searcher.search_layer(
                 source,
                 SearchContext {
                     query: ctx.query(),
@@ -141,6 +133,17 @@ impl Graph {
         layers.reverse();
         Ok(layers)
     }
+}
+
+#[derive(Debug)]
+pub(super) struct InsertionExecutor<'graph> {
+    graph: &'graph mut Graph,
+}
+
+impl<'graph> InsertionExecutor<'graph> {
+    pub(super) fn new(graph: &'graph mut Graph) -> Self {
+        Self { graph }
+    }
 
     /// Prepares an insertion commit by staging all neighbour list updates.
     ///
@@ -148,35 +151,24 @@ impl Graph {
     /// the neighbour lists for all affected nodes as they would appear after
     /// linking. Trimming is deferred to the caller, which should compute
     /// distances without holding the graph lock and then call
-    /// [`Graph::commit_insertion`] with the resulting [`TrimResult`]s.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let (prepared, trim_jobs) = graph.apply_insertion(node_ctx, apply_ctx)?;
-    /// let trims = trim_jobs
-    ///     .into_iter()
-    ///     .map(|job| compute_trim(job, data_source))
-    ///     .collect::<Result<Vec<_>, _>>()?;
-    /// graph.commit_insertion(prepared, trims)?;
-    /// ```
-    pub(crate) fn apply_insertion(
+    /// [`InsertionExecutor::commit`] with the resulting [`TrimResult`]s.
+    pub(super) fn apply(
         &mut self,
         node: NodeContext,
         apply_ctx: ApplyContext<'_>,
     ) -> Result<(PreparedInsertion, Vec<TrimJob>), HnswError> {
         let ApplyContext { params, plan } = apply_ctx;
         let NodeContext { node, level } = node;
-        if !self.has_slot(node) {
+        if !self.graph.has_slot(node) {
             return Err(HnswError::InvalidParameters {
                 reason: format!("node {node} is outside pre-allocated capacity"),
             });
         }
-        if self.node(node).is_some() {
+        if self.graph.node(node).is_some() {
             return Err(HnswError::DuplicateNode { node });
         }
 
-        let promote_entry = level > self.entry().map(|entry| entry.level).unwrap_or(0);
+        let promote_entry = level > self.graph.entry().map(|entry| entry.level).unwrap_or(0);
         let max_connections = params.max_connections();
 
         let mut new_node_neighbours = vec![Vec::new(); level + 1];
@@ -241,12 +233,12 @@ impl Graph {
         ))
     }
 
-    fn ensure_staged_candidates<'graph>(
-        &'graph self,
-        staged: &'graph mut HashMap<(usize, usize), Vec<usize>>,
+    fn ensure_staged_candidates<'a>(
+        &self,
+        staged: &'a mut HashMap<(usize, usize), Vec<usize>>,
         neighbour: usize,
         level: usize,
-    ) -> Result<&'graph mut Vec<usize>, HnswError> {
+    ) -> Result<&'a mut Vec<usize>, HnswError> {
         let entry = staged.entry((neighbour, level));
         match entry {
             Entry::Occupied(existing) => Ok(existing.into_mut()),
@@ -255,9 +247,9 @@ impl Graph {
     }
 
     fn initial_candidates(&self, node: usize, level: usize) -> Result<Vec<usize>, HnswError> {
-        let Some(graph_node) = self.node(node) else {
+        let Some(graph_node) = self.graph.node(node) else {
             return Err(HnswError::GraphInvariantViolation {
-                message: format!("node {node} missing during insertion planning at level {level}"),
+                message: format!("node {node} missing during insertion planning at level {level}",),
             });
         };
         Ok(graph_node.neighbours(level).to_vec())
@@ -289,23 +281,7 @@ impl Graph {
     }
 
     /// Applies a prepared insertion after trim distances have been evaluated.
-    ///
-    /// Consumes the [`PreparedInsertion`] generated by [`Graph::apply_insertion`]
-    /// and the trimmed neighbour selections, mutating the graph in a single
-    /// write-locked window. Nodes without corresponding [`TrimResult`] entries
-    /// retain the staged candidate order.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// let (prepared, jobs) = graph.apply_insertion(node_ctx, apply_ctx)?;
-    /// let trims = jobs
-    ///     .into_iter()
-    ///     .map(|job| compute_trim(job, data_source))
-    ///     .collect::<Result<Vec<_>, _>>()?;
-    /// graph.commit_insertion(prepared, trims)?;
-    /// ```
-    pub(crate) fn commit_insertion(
+    pub(super) fn commit(
         &mut self,
         prepared: PreparedInsertion,
         trims: Vec<TrimResult>,
@@ -317,9 +293,12 @@ impl Graph {
             updates,
         } = prepared;
 
-        self.attach_node(node.node, node.level)?;
+        self.graph.attach_node(node.node, node.level)?;
         {
-            let node_ref = self.node_mut(node.node).expect("node was attached above");
+            let node_ref = self
+                .graph
+                .node_mut(node.node)
+                .expect("node was attached above");
             for (level, neighbours) in new_node_neighbours
                 .into_iter()
                 .enumerate()
@@ -331,7 +310,7 @@ impl Graph {
             }
         }
         if promote_entry {
-            self.promote_entry(node.node, node.level);
+            self.graph.promote_entry(node.node, node.level);
         }
 
         let mut trim_lookup: HashMap<(usize, usize), Vec<usize>> = trims
@@ -343,11 +322,11 @@ impl Graph {
             let neighbours = trim_lookup
                 .remove(&(update.node, update.ctx.level))
                 .unwrap_or_else(|| update.candidates.clone());
-            let node_ref =
-                self.node_mut(update.node)
-                    .ok_or_else(|| HnswError::GraphInvariantViolation {
-                        message: format!("node {} missing during insertion commit", update.node),
-                    })?;
+            let node_ref = self.graph.node_mut(update.node).ok_or_else(|| {
+                HnswError::GraphInvariantViolation {
+                    message: format!("node {} missing during insertion commit", update.node),
+                }
+            })?;
             let list = node_ref.neighbours_mut(update.ctx.level);
             list.clear();
             list.extend(neighbours);

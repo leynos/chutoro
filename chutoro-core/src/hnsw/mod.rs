@@ -136,9 +136,14 @@ impl CpuHnsw {
             return Ok(());
         }
 
-        let plan = self.read_graph(|graph| graph.plan_insertion(node_ctx, &self.params, source))?;
+        let plan = self.read_graph(|graph| {
+            graph
+                .insertion_planner()
+                .plan(node_ctx, &self.params, source)
+        })?;
         let (prepared, trim_jobs) = self.write_graph(|graph| {
-            graph.apply_insertion(
+            let mut executor = graph.insertion_executor();
+            executor.apply(
                 node_ctx,
                 ApplyContext {
                     params: &self.params,
@@ -147,7 +152,10 @@ impl CpuHnsw {
             )
         })?;
         let trim_results = self.score_trim_jobs(trim_jobs, source)?;
-        self.write_graph(|graph| graph.commit_insertion(prepared, trim_results))?;
+        self.write_graph(|graph| {
+            let mut executor = graph.insertion_executor();
+            executor.commit(prepared, trim_results)
+        })?;
         self.len.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
@@ -250,9 +258,10 @@ impl CpuHnsw {
     ) -> Result<Vec<Neighbour>, HnswError> {
         let graph = self.graph.read().expect("graph lock poisoned");
         let entry = graph.entry().ok_or(HnswError::GraphEmpty)?;
+        let searcher = graph.searcher();
         let mut current = entry.node;
         for level in (1..=entry.level).rev() {
-            current = graph.greedy_search_layer(
+            current = searcher.greedy_search_layer(
                 source,
                 SearchContext {
                     query,
@@ -261,7 +270,7 @@ impl CpuHnsw {
                 },
             )?;
         }
-        graph.search_layer(
+        searcher.search_layer(
             source,
             SearchContext {
                 query,

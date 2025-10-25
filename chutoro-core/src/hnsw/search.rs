@@ -11,14 +11,24 @@ use crate::DataSource;
 use super::{
     error::HnswError,
     graph::{ExtendedSearchContext, NeighbourSearchContext, SearchContext},
+    node::Node,
     types::{Neighbour, ReverseNeighbour},
     validate::{validate_batch_distances, validate_distance},
 };
 
 use super::graph::Graph;
 
-impl Graph {
-    pub(crate) fn greedy_search_layer<D: DataSource + Sync>(
+#[derive(Debug)]
+pub(super) struct LayerSearcher<'graph> {
+    graph: &'graph Graph,
+}
+
+impl<'graph> LayerSearcher<'graph> {
+    pub(super) fn new(graph: &'graph Graph) -> Self {
+        Self { graph }
+    }
+
+    pub(super) fn greedy_search_layer<D: DataSource + Sync>(
         &self,
         source: &D,
         ctx: SearchContext,
@@ -28,7 +38,7 @@ impl Graph {
         let mut improved = true;
         while improved {
             improved = false;
-            let Some(node) = self.node(current) else {
+            let Some(node) = self.graph.node(current) else {
                 return Err(HnswError::GraphInvariantViolation {
                     message: format!(
                         "node {current} missing during greedy search at level {}",
@@ -53,7 +63,7 @@ impl Graph {
         &self,
         source: &D,
         ctx: NeighbourSearchContext,
-        node: &super::node::Node,
+        node: &Node,
     ) -> Result<Option<(usize, f32)>, HnswError> {
         let neighbours = node.neighbours(ctx.level());
         if neighbours.is_empty() {
@@ -72,7 +82,7 @@ impl Graph {
         Ok(None)
     }
 
-    pub(crate) fn search_layer<D: DataSource + Sync>(
+    pub(super) fn search_layer<D: DataSource + Sync>(
         &self,
         source: &D,
         ctx: ExtendedSearchContext,
@@ -97,7 +107,7 @@ impl Graph {
                 break;
             }
 
-            let Some(node) = self.node(inner.id) else {
+            let Some(node) = self.graph.node(inner.id) else {
                 return Err(HnswError::GraphInvariantViolation {
                     message: format!(
                         "node {} missing during layer search at level {}",
