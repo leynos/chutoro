@@ -52,6 +52,13 @@ pub(super) struct TrimResult {
 }
 
 #[derive(Debug)]
+struct StageOutcome {
+    new_node_neighbours: Vec<Vec<usize>>,
+    staged: HashMap<(usize, usize), Vec<usize>>,
+    needs_trim: HashSet<(usize, usize)>,
+}
+
+#[derive(Debug)]
 pub(super) struct InsertionPlanner<'graph> {
     graph: &'graph Graph,
 }
@@ -159,6 +166,29 @@ impl<'graph> InsertionExecutor<'graph> {
     ) -> Result<(PreparedInsertion, Vec<TrimJob>), HnswError> {
         let ApplyContext { params, plan } = apply_ctx;
         let NodeContext { node, level } = node;
+        self.ensure_slot_available(node)?;
+        let promote_entry = level > self.graph.entry().map(|entry| entry.level).unwrap_or(0);
+        let max_connections = params.max_connections();
+        let StageOutcome {
+            new_node_neighbours,
+            staged,
+            needs_trim,
+        } = self.stage_plan(NodeContext { node, level }, plan, max_connections)?;
+        let (updates, trim_jobs) =
+            Self::assemble_updates(node, max_connections, staged, &needs_trim);
+
+        Ok((
+            PreparedInsertion {
+                node: NodeContext { node, level },
+                promote_entry,
+                new_node_neighbours,
+                updates,
+            },
+            trim_jobs,
+        ))
+    }
+
+    fn ensure_slot_available(&self, node: usize) -> Result<(), HnswError> {
         if !self.graph.has_slot(node) {
             return Err(HnswError::InvalidParameters {
                 reason: format!("node {node} is outside pre-allocated capacity"),
@@ -167,21 +197,30 @@ impl<'graph> InsertionExecutor<'graph> {
         if self.graph.node(node).is_some() {
             return Err(HnswError::DuplicateNode { node });
         }
+        Ok(())
+    }
 
-        let promote_entry = level > self.graph.entry().map(|entry| entry.level).unwrap_or(0);
-        let max_connections = params.max_connections();
-
-        let mut new_node_neighbours = vec![Vec::new(); level + 1];
+    fn stage_plan(
+        &self,
+        ctx: NodeContext,
+        plan: InsertionPlan,
+        max_connections: usize,
+    ) -> Result<StageOutcome, HnswError> {
+        let mut new_node_neighbours = vec![Vec::new(); ctx.level + 1];
         let mut staged: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
         let mut initialised = HashSet::new();
         let mut needs_trim = HashSet::new();
 
-        for layer in plan.layers.into_iter().filter(|layer| layer.level <= level) {
+        for layer in plan
+            .layers
+            .into_iter()
+            .filter(|layer| layer.level <= ctx.level)
+        {
             let level_index = layer.level;
 
             for neighbour in layer.neighbours.into_iter().take(max_connections) {
                 self.stage_neighbour(
-                    node,
+                    ctx.node,
                     neighbour.id,
                     level_index,
                     max_connections,
@@ -193,11 +232,21 @@ impl<'graph> InsertionExecutor<'graph> {
             }
         }
 
-        for neighbours in &mut new_node_neighbours {
-            let mut seen = HashSet::new();
-            neighbours.retain(|neighbour| seen.insert(*neighbour));
-        }
+        Self::dedupe_new_node_lists(&mut new_node_neighbours);
 
+        Ok(StageOutcome {
+            new_node_neighbours,
+            staged,
+            needs_trim,
+        })
+    }
+
+    fn assemble_updates(
+        node: usize,
+        max_connections: usize,
+        staged: HashMap<(usize, usize), Vec<usize>>,
+        needs_trim: &HashSet<(usize, usize)>,
+    ) -> (Vec<StagedUpdate>, Vec<TrimJob>) {
         let mut updates = Vec::with_capacity(staged.len());
         let mut trim_jobs = Vec::with_capacity(needs_trim.len());
 
@@ -222,15 +271,14 @@ impl<'graph> InsertionExecutor<'graph> {
             });
         }
 
-        Ok((
-            PreparedInsertion {
-                node: NodeContext { node, level },
-                promote_entry,
-                new_node_neighbours,
-                updates,
-            },
-            trim_jobs,
-        ))
+        (updates, trim_jobs)
+    }
+
+    fn dedupe_new_node_lists(levels: &mut [Vec<usize>]) {
+        for neighbours in levels {
+            let mut seen = HashSet::new();
+            neighbours.retain(|neighbour| seen.insert(*neighbour));
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -336,6 +384,7 @@ impl<'graph> InsertionExecutor<'graph> {
     }
 }
 
+#[inline]
 fn prioritise_new_node(new_node: usize, candidates: &mut [usize]) {
     if let Some(pos) = candidates
         .iter()

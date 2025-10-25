@@ -116,46 +116,11 @@ pub trait DataSource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::DataSourceError;
+    use crate::test_utils::CountingSource;
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
-
-    #[derive(Clone)]
-    struct CountingSource {
-        data: Vec<f32>,
-        calls: Arc<AtomicUsize>,
-    }
-
-    impl CountingSource {
-        fn new(data: Vec<f32>, calls: Arc<AtomicUsize>) -> Self {
-            Self { data, calls }
-        }
-    }
-
-    impl DataSource for CountingSource {
-        fn len(&self) -> usize {
-            self.data.len()
-        }
-
-        fn name(&self) -> &str {
-            "counting"
-        }
-
-        fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
-            self.calls.fetch_add(1, Ordering::Relaxed);
-            let a = self
-                .data
-                .get(left)
-                .ok_or(DataSourceError::OutOfBounds { index: left })?;
-            let b = self
-                .data
-                .get(right)
-                .ok_or(DataSourceError::OutOfBounds { index: right })?;
-            Ok((a - b).abs())
-        }
-    }
 
     #[test]
     fn batch_distances_invokes_scalar_distance() {
@@ -167,7 +132,7 @@ mod tests {
             .expect("batch distances should succeed");
 
         assert_eq!(distances, vec![1.0, 3.0]);
-        assert_eq!(calls.load(Ordering::Relaxed), 2);
+        assert_eq!(source.calls().load(Ordering::Relaxed), 2);
     }
 
     #[test]
@@ -179,9 +144,9 @@ mod tests {
             .batch_distances(0, &[1, 5])
             .expect_err("invalid candidate must fail");
 
-        match err {
-            DataSourceError::OutOfBounds { index } => assert_eq!(index, 5),
-            other => panic!("expected out-of-bounds error, got {other:?}"),
-        }
+        assert!(
+            matches!(err, DataSourceError::OutOfBounds { index: 5 }),
+            "expected OutOfBounds with index 5, got {err:?}",
+        );
     }
 }

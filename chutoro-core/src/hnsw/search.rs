@@ -23,13 +23,12 @@ struct SearchState {
     visited: HashSet<usize>,
     candidates: BinaryHeap<ReverseNeighbour>,
     best: BinaryHeap<Neighbour>,
-    best_ids: HashSet<usize>,
+    discovered: HashSet<usize>,
 }
 
 impl SearchState {
     fn new(entry: usize, distance: f32) -> Self {
-        let mut visited = HashSet::new();
-        visited.insert(entry);
+        let visited = HashSet::new();
 
         let mut candidates = BinaryHeap::new();
         candidates.push(ReverseNeighbour::new(entry, distance));
@@ -40,14 +39,14 @@ impl SearchState {
             distance,
         });
 
-        let mut best_ids = HashSet::new();
-        best_ids.insert(entry);
+        let mut discovered = HashSet::new();
+        discovered.insert(entry);
 
         Self {
             visited,
             candidates,
             best,
-            best_ids,
+            discovered,
         }
     }
 
@@ -63,21 +62,24 @@ impl SearchState {
                 .is_some_and(|furthest| candidate_distance > furthest.distance)
     }
 
-    fn visit(&mut self, candidate: usize) -> bool {
+    fn mark_processed(&mut self, candidate: usize) -> bool {
         self.visited.insert(candidate)
     }
 
+    fn discover(&mut self, candidate: usize) -> bool {
+        self.discovered.insert(candidate)
+    }
+
     fn try_enqueue(&mut self, candidate: usize, distance: f32, ef: usize) {
+        if self.visited.contains(&candidate) {
+            return;
+        }
         if self.best.len() >= ef
             && self
                 .best
                 .peek()
                 .is_some_and(|furthest| distance > furthest.distance)
         {
-            return;
-        }
-
-        if !self.best_ids.insert(candidate) {
             return;
         }
 
@@ -92,9 +94,7 @@ impl SearchState {
 
     fn enforce_capacity(&mut self, ef: usize) {
         while self.best.len() > ef {
-            if let Some(removed) = self.best.pop() {
-                self.best_ids.remove(&removed.id);
-            }
+            self.best.pop();
         }
     }
 
@@ -194,11 +194,15 @@ impl<'graph> LayerSearcher<'graph> {
                 });
             };
 
+            if !state.mark_processed(inner.id) {
+                continue;
+            }
+
             let fresh: Vec<_> = node
                 .neighbours(ctx.level())
                 .iter()
                 .copied()
-                .filter(|candidate| state.visit(*candidate))
+                .filter(|candidate| state.discover(*candidate))
                 .collect();
             if fresh.is_empty() {
                 continue;

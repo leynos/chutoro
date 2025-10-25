@@ -30,7 +30,7 @@ dbg_macro                           = "deny"
 print_stdout                        = "deny"
 print_stderr                        = "deny"
 
-# 2. panic-prone operations
+# 3. panic-prone operations
 unwrap_used                         = "deny"
 expect_used                         = "deny"
 indexing_slicing                    = "deny"

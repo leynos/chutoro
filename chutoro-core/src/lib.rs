@@ -25,3 +25,6 @@ pub use crate::{
 #[cfg(feature = "cpu")]
 #[cfg_attr(docsrs, doc(cfg(feature = "cpu")))]
 pub use crate::hnsw::{CpuHnsw, HnswError, HnswErrorCode, HnswParams, Neighbour};
+
+#[cfg(test)]
+pub(crate) mod test_utils;

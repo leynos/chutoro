@@ -3,9 +3,10 @@
 
 use super::{
     CpuHnsw, HnswError, HnswErrorCode, HnswParams, Neighbour,
-    graph::{Graph, SearchContext},
+    graph::{EdgeContext, Graph, SearchContext},
+    insert::TrimJob,
 };
-use crate::{DataSource, DataSourceError};
+use crate::{DataSource, DataSourceError, test_utils::CountingSource};
 use rand::{Rng, SeedableRng, distributions::Standard, rngs::SmallRng};
 use rstest::rstest;
 use std::{
@@ -108,35 +109,29 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
 fn uses_batch_distances_during_scoring() {
     #[derive(Clone)]
     struct InstrumentedSource {
-        data: Vec<f32>,
+        base: CountingSource,
         batch_calls: Arc<AtomicUsize>,
     }
 
     impl InstrumentedSource {
         fn new(data: Vec<f32>, batch_calls: Arc<AtomicUsize>) -> Self {
-            Self { data, batch_calls }
+            let base =
+                CountingSource::with_name("instrumented", data, Arc::new(AtomicUsize::new(0)));
+            Self { base, batch_calls }
         }
     }
 
     impl DataSource for InstrumentedSource {
         fn len(&self) -> usize {
-            self.data.len()
+            self.base.len()
         }
 
         fn name(&self) -> &str {
-            "instrumented"
+            self.base.name()
         }
 
         fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
-            let a = self
-                .data
-                .get(left)
-                .ok_or(DataSourceError::OutOfBounds { index: left })?;
-            let b = self
-                .data
-                .get(right)
-                .ok_or(DataSourceError::OutOfBounds { index: right })?;
-            Ok((a - b).abs())
+            self.base.distance(left, right)
         }
 
         fn batch_distances(
@@ -149,11 +144,13 @@ fn uses_batch_distances_during_scoring() {
                 .iter()
                 .map(|&candidate| {
                     let a = self
-                        .data
+                        .base
+                        .data()
                         .get(query)
                         .ok_or(DataSourceError::OutOfBounds { index: query })?;
                     let b = self
-                        .data
+                        .base
+                        .data()
                         .get(candidate)
                         .ok_or(DataSourceError::OutOfBounds { index: candidate })?;
                     Ok((a - b).abs())
@@ -325,6 +322,34 @@ fn cpu_hnsw_initialises_graph_with_params() -> Result<(), HnswError> {
     Ok(())
 }
 
+#[test]
+fn trimming_keeps_new_node_on_distance_ties() -> Result<(), HnswError> {
+    let params = HnswParams::new(1, 4)?;
+    let index = CpuHnsw::with_capacity(params.clone(), 3)?;
+    let ctx = EdgeContext {
+        level: 0,
+        max_connections: params.max_connections(),
+    };
+    let job = TrimJob {
+        node: 0,
+        ctx,
+        candidates: vec![2, 1],
+    };
+
+    let results = index
+        .score_trim_jobs(vec![job], &DummySource::new(vec![0.0, 1.0, 1.0]))?
+        .into_iter()
+        .next()
+        .expect("trim job yields a result");
+
+    assert_eq!(
+        results.neighbours,
+        vec![2],
+        "stable sorting must retain the new node when distances tie",
+    );
+    Ok(())
+}
+
 #[rstest]
 fn non_finite_distance_is_reported() {
     struct NanSource;
@@ -435,23 +460,22 @@ fn non_finite_batch_distance_is_reported() {
 
     let params = HnswParams::new(1, 1).expect("params must be valid");
     let err = CpuHnsw::build(&BatchNan, params).expect_err("build must fail on batch NaN");
-    match err {
-        HnswError::NonFiniteDistance { left, right } => {
-            let involves_new_node = left == 2 || right == 2;
-            let involves_initial_pair = (left == 0 && right == 1) || (left == 1 && right == 0);
-            assert!(
-                involves_new_node || involves_initial_pair,
-                "unexpected participants for non-finite edge: ({left}, {right})",
-            );
-            if involves_new_node {
-                let other = if left == 2 { right } else { left };
-                assert!(
-                    other == 0 || other == 1,
-                    "unexpected counterpart for non-finite edge: {other}"
-                );
-            }
-        }
+    let (left, right) = match err {
+        HnswError::NonFiniteDistance { left, right } => (left, right),
         other => panic!("expected non-finite distance, got {other:?}"),
+    };
+
+    let counterpart = new_node_counterpart(left, right, 2);
+    assert!(
+        counterpart.is_some() || is_initial_pair(left, right),
+        "unexpected participants for non-finite edge: ({left}, {right})",
+    );
+
+    if let Some(other) = counterpart {
+        assert!(
+            matches!(other, 0 | 1),
+            "unexpected counterpart for non-finite edge: {other}",
+        );
     }
 }
 
@@ -524,6 +548,20 @@ fn assert_sorted_by_distance(neighbours: &[Neighbour]) {
             );
         }
     }
+}
+
+fn new_node_counterpart(left: usize, right: usize, new_node: usize) -> Option<usize> {
+    if left == new_node {
+        Some(right)
+    } else if right == new_node {
+        Some(left)
+    } else {
+        None
+    }
+}
+
+fn is_initial_pair(left: usize, right: usize) -> bool {
+    matches!((left, right), (0, 1) | (1, 0))
 }
 
 #[test]

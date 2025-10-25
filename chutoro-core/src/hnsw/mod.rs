@@ -215,6 +215,7 @@ impl CpuHnsw {
                     let mut scored: Vec<_> = job.candidates.into_iter().zip(distances).collect();
                     // Stable sort preserves input order on ties, favouring the new node
                     // positioned earlier by `prioritise_new_node`.
+                    // `Vec::sort_by` is stable, so equal distances retain the input order.
                     scored.sort_by(|a, b| a.1.total_cmp(&b.1));
                     scored.truncate(job.ctx.max_connections);
                     TrimResult {
