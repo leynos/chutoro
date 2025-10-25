@@ -201,8 +201,8 @@ impl Chutoro {
         }
     }
 
+    /// Execute the CPU walking skeleton; available with the `skeleton` feature.
     #[cfg(feature = "skeleton")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "skeleton")))]
     #[instrument(
         name = "core.run_cpu",
         err,
@@ -226,16 +226,16 @@ impl Chutoro {
         Ok(result)
     }
 
+    /// Execute the GPU walking skeleton; requires the `gpu` and `skeleton` features.
     #[cfg(all(feature = "gpu", feature = "skeleton"))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "gpu", feature = "skeleton"))))]
     fn run_gpu<D: DataSource>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
         // TODO(#13): Replace with the real GPU backend once implemented. Until then we
         // reuse the CPU walking skeleton to exercise the orchestration path.
         self.wrap_datasource_error(source, self.run_cpu(source, items))
     }
 
+    /// Fail when GPU execution is requested without the `skeleton` feature.
     #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
-    #[cfg_attr(docsrs, doc(cfg(all(feature = "gpu", not(feature = "skeleton")))))]
     fn run_gpu<D: DataSource>(&self, _source: &D, _items: usize) -> Result<ClusteringResult> {
         // We intentionally fail fast when the walking skeleton is disabled so GPU
         // builds do not accidentally ship the placeholder CPU path.

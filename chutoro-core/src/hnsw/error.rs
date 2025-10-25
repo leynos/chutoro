@@ -40,7 +40,7 @@ pub enum HnswError {
         /// Index of the second node involved in the distance query.
         right: usize,
     },
-    /// Wrapped [`DataSource`] error.
+    /// Wrapped [`crate::DataSource`] error.
     #[error("data source failure: {0}")]
     DataSource(#[from] DataSourceError),
 }
@@ -76,7 +76,7 @@ pub enum HnswErrorCode {
     GraphInvariantViolation,
     /// The data source returned a non-finite distance.
     NonFiniteDistance,
-    /// Wrapped [`DataSource`] error.
+    /// Wrapped [`crate::DataSource`] error.
     DataSource,
 }
 

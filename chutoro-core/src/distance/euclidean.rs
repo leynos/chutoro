@@ -19,9 +19,11 @@ use crate::distance::types::{Distance, Result, Vector, VectorKind};
 ///
 /// # Errors
 ///
-/// - [`DistanceError::ZeroLength`] when any input is empty.
-/// - [`DistanceError::DimensionMismatch`] when input lengths differ.
-/// - [`DistanceError::NonFinite`] when a value is NaN or infinite.
+/// - [`crate::distance::DistanceError::ZeroLength`] when any input is empty.
+/// - [`crate::distance::DistanceError::DimensionMismatch`]
+///   when input lengths differ.
+/// - [`crate::distance::DistanceError::NonFinite`] when a value is NaN or
+///   infinite.
 pub fn euclidean_distance(left: &[f32], right: &[f32]) -> Result<Distance> {
     let left = Vector::new(left, VectorKind::Left)?;
     let right = Vector::new(right, VectorKind::Right)?;

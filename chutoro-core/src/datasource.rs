@@ -66,11 +66,11 @@ pub trait DataSource {
     /// Computes the distances from `query` to every entry in `candidates`.
     ///
     /// Implementations can override this method to provide SIMD-optimised
-    /// kernels. The default implementation calls [`distance`] repeatedly and
+    /// kernels. The default implementation calls [`Self::distance`] repeatedly and
     /// collects the results.
     ///
     /// # Errors
-    /// Returns any [`DataSourceError`] surfaced by [`distance`]. Implementations
+    /// Returns any [`DataSourceError`] surfaced by [`Self::distance`]. Implementations
     /// must return [`DataSourceError::OutOfBounds`] for invalid indices and must
     /// not yield non-finite distances; callers may validate and fail on NaNs.
     fn batch_distances(
@@ -86,7 +86,7 @@ pub trait DataSource {
 
     /// Computes several distances at once, storing results in `out`.
     ///
-    /// The default implementation calls [`distance`] for each pair.
+    /// The default implementation calls [`Self::distance`] for each pair.
     ///
     /// # Errors
     /// Returns `DataSourceError::OutputLengthMismatch` if `pairs.len() != out.len()`.

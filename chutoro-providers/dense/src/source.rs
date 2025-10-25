@@ -19,7 +19,7 @@ impl DenseSource {
     /// Creates a new dense source.
     ///
     /// # Panics
-    /// Panics if `data` is empty, if row lengths differ, or if any row has zero length; use [`try_new`] for fallible construction.
+    /// Panics if `data` is empty, if row lengths differ, or if any row has zero length; use [`Self::try_new`] for fallible construction.
     ///
     /// # Examples
     /// ```

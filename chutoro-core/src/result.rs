@@ -13,7 +13,7 @@ fn exceeds_pointer_width(value: u64) -> bool {
     value == USIZE_MAX_U64 || usize::try_from(value).is_err()
 }
 
-/// Represents the output of a [`Chutoro::run`] invocation.
+/// Represents the output of a [`crate::Chutoro::run`] invocation.
 ///
 /// # Examples
 /// ```

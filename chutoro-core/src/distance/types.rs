@@ -243,7 +243,8 @@ impl CosineNorms {
     ///
     /// # Errors
     ///
-    /// Propagates validation errors surfaced by [`cosine_distance`].
+    /// Propagates validation errors surfaced by
+    /// [`crate::distance::cosine_distance`].
     pub fn from_vectors(left: &[f32], right: &[f32]) -> Result<Self> {
         let left = Vector::new(left, VectorKind::Left)?;
         let right = Vector::new(right, VectorKind::Right)?;

@@ -33,11 +33,15 @@ use crate::distance::types::{CosineNorms, Distance, Norm, Result, Vector, Vector
 ///
 /// # Errors
 ///
-/// - [`DistanceError::ZeroLength`] when any input is empty.
-/// - [`DistanceError::DimensionMismatch`] when input lengths differ.
-/// - [`DistanceError::NonFinite`] when a value is NaN or infinite.
-/// - [`DistanceError::ZeroMagnitude`] when either vector has zero L2 norm.
-/// - [`DistanceError::InvalidNorm`] when pre-computed norms are non-finite.
+/// - [`crate::distance::DistanceError::ZeroLength`] when any input is empty.
+/// - [`crate::distance::DistanceError::DimensionMismatch`]
+///   when input lengths differ.
+/// - [`crate::distance::DistanceError::NonFinite`] when a value is NaN or
+///   infinite.
+/// - [`crate::distance::DistanceError::ZeroMagnitude`] when either vector has
+///   zero L2 norm.
+/// - [`crate::distance::DistanceError::InvalidNorm`] when pre-computed norms
+///   are non-finite.
 pub fn cosine_distance(
     left: &[f32],
     right: &[f32],
