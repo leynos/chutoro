@@ -1,34 +1,24 @@
-//! HNSW insertion workflow.
-//!
-//! Provides the planning and application phases for inserting nodes into the HNSW graph.
-//! Planning computes the descent path and layer-by-layer neighbour candidates without
-//! holding write locks. Application mutates the graph structure, performs bidirectional
-//! linking, and schedules trimming jobs for nodes that exceed maximum connection limits.
+//! Applies staged HNSW insertions by mutating the graph and scheduling trim
+//! jobs.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::DataSource;
-
-use super::{
+use crate::hnsw::{
     error::HnswError,
-    params::HnswParams,
-    types::{InsertionPlan, LayerPlan},
-};
-
-use super::graph::{
-    ApplyContext, DescentContext, EdgeContext, Graph, LayerPlanContext, NodeContext, SearchContext,
+    graph::{ApplyContext, EdgeContext, Graph, NodeContext},
+    types::InsertionPlan,
 };
 
 /// Captures the neighbour candidates for a node that may require trimming.
 #[derive(Clone, Debug)]
-pub(super) struct TrimJob {
+pub(crate) struct TrimJob {
     pub(crate) node: usize,
     pub(crate) ctx: EdgeContext,
     pub(crate) candidates: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct PreparedInsertion {
+pub(crate) struct PreparedInsertion {
     pub(crate) node: NodeContext,
     pub(crate) promote_entry: bool,
     pub(crate) new_node_neighbours: Vec<Vec<usize>>,
@@ -37,7 +27,7 @@ pub(super) struct PreparedInsertion {
 
 /// Captures the staged neighbour set for a node at a given level.
 #[derive(Clone, Debug)]
-pub(super) struct StagedUpdate {
+pub(crate) struct StagedUpdate {
     pub(crate) node: usize,
     pub(crate) ctx: EdgeContext,
     pub(crate) candidates: Vec<usize>,
@@ -45,7 +35,7 @@ pub(super) struct StagedUpdate {
 
 /// Stores the final trimmed neighbour list for a node and level.
 #[derive(Clone, Debug)]
-pub(super) struct TrimResult {
+pub(crate) struct TrimResult {
     pub(crate) node: usize,
     pub(crate) ctx: EdgeContext,
     pub(crate) neighbours: Vec<usize>,
@@ -60,96 +50,12 @@ type LayerProcessingOutcome = (
 );
 
 #[derive(Debug)]
-pub(super) struct InsertionPlanner<'graph> {
-    graph: &'graph Graph,
-}
-
-impl<'graph> InsertionPlanner<'graph> {
-    pub(super) fn new(graph: &'graph Graph) -> Self {
-        Self { graph }
-    }
-
-    /// Plans insertion of a node into the HNSW graph without mutating state.
-    ///
-    /// Computes the descent path from the current entry point down to the
-    /// target level, then searches each layer from the target level to layer 0
-    /// to identify candidate neighbours for bidirectional linking.
-    pub(super) fn plan<D: DataSource + Sync>(
-        &self,
-        ctx: NodeContext,
-        params: &HnswParams,
-        source: &D,
-    ) -> Result<InsertionPlan, HnswError> {
-        let entry = self.graph.entry().ok_or(HnswError::GraphEmpty)?;
-        let target_level = ctx.level.min(entry.level);
-        let descent_ctx = DescentContext::new(ctx.node, entry, target_level);
-        let current = self.greedy_descend_to_target_level(source, descent_ctx)?;
-        let layer_ctx =
-            LayerPlanContext::new(ctx.node, current, target_level, params.ef_construction());
-        let layers = self.build_layer_plans_from_target(source, layer_ctx)?;
-        Ok(InsertionPlan { layers })
-    }
-
-    fn greedy_descend_to_target_level<D: DataSource + Sync>(
-        &self,
-        source: &D,
-        ctx: DescentContext,
-    ) -> Result<usize, HnswError> {
-        let mut current = ctx.entry.node;
-        if ctx.entry.level > ctx.target_level {
-            let searcher = self.graph.searcher();
-            for level in ((ctx.target_level + 1)..=ctx.entry.level).rev() {
-                current = searcher.greedy_search_layer(
-                    source,
-                    SearchContext {
-                        query: ctx.query,
-                        entry: current,
-                        level,
-                    },
-                )?;
-            }
-        }
-        Ok(current)
-    }
-
-    fn build_layer_plans_from_target<D: DataSource + Sync>(
-        &self,
-        source: &D,
-        ctx: LayerPlanContext,
-    ) -> Result<Vec<LayerPlan>, HnswError> {
-        let mut layers = Vec::with_capacity(ctx.target_level + 1);
-        let mut current = ctx.current;
-        let searcher = self.graph.searcher();
-        for level in (0..=ctx.target_level).rev() {
-            let candidates = searcher.search_layer(
-                source,
-                SearchContext {
-                    query: ctx.query,
-                    entry: current,
-                    level,
-                }
-                .with_ef(ctx.ef),
-            )?;
-            if let Some(best) = candidates.first() {
-                current = best.id;
-            }
-            layers.push(LayerPlan {
-                level,
-                neighbours: candidates,
-            });
-        }
-        layers.reverse();
-        Ok(layers)
-    }
-}
-
-#[derive(Debug)]
-pub(super) struct InsertionExecutor<'graph> {
+pub(crate) struct InsertionExecutor<'graph> {
     graph: &'graph mut Graph,
 }
 
 impl<'graph> InsertionExecutor<'graph> {
-    pub(super) fn new(graph: &'graph mut Graph) -> Self {
+    pub(crate) fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
     }
 
@@ -160,7 +66,7 @@ impl<'graph> InsertionExecutor<'graph> {
     /// linking. Trimming is deferred to the caller, which should compute
     /// distances without holding the graph lock and then call
     /// [`InsertionExecutor::commit`] with the resulting [`TrimResult`]s.
-    pub(super) fn apply(
+    pub(crate) fn apply(
         &mut self,
         node: NodeContext,
         apply_ctx: ApplyContext<'_>,
@@ -332,7 +238,7 @@ impl<'graph> InsertionExecutor<'graph> {
     }
 
     /// Applies a prepared insertion after trim distances have been evaluated.
-    pub(super) fn commit(
+    pub(crate) fn commit(
         &mut self,
         prepared: PreparedInsertion,
         trims: Vec<TrimResult>,
