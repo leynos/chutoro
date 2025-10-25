@@ -51,12 +51,13 @@ pub(super) struct TrimResult {
     pub(crate) neighbours: Vec<usize>,
 }
 
-#[derive(Debug)]
-struct StageOutcome {
-    new_node_neighbours: Vec<Vec<usize>>,
-    staged: HashMap<(usize, usize), Vec<usize>>,
-    needs_trim: HashSet<(usize, usize)>,
-}
+/// Captures the accumulated state produced while staging insertion layers.
+type LayerProcessingOutcome = (
+    Vec<Vec<usize>>,
+    HashMap<(usize, usize), Vec<usize>>,
+    HashSet<(usize, usize)>,
+    HashSet<(usize, usize)>,
+);
 
 #[derive(Debug)]
 pub(super) struct InsertionPlanner<'graph> {
@@ -169,13 +170,11 @@ impl<'graph> InsertionExecutor<'graph> {
         self.ensure_slot_available(node)?;
         let promote_entry = level > self.graph.entry().map(|entry| entry.level).unwrap_or(0);
         let max_connections = params.max_connections();
-        let StageOutcome {
-            new_node_neighbours,
-            staged,
-            needs_trim,
-        } = self.stage_plan(NodeContext { node, level }, plan, max_connections)?;
+        let (mut new_node_neighbours, staged, _initialised, needs_trim) =
+            self.process_insertion_layers(node, level, plan, max_connections)?;
+        Self::dedupe_new_node_lists(&mut new_node_neighbours);
         let (updates, trim_jobs) =
-            Self::assemble_updates(node, max_connections, staged, &needs_trim);
+            Self::generate_updates_and_trim_jobs(node, staged, needs_trim, max_connections);
 
         Ok((
             PreparedInsertion {
@@ -200,27 +199,30 @@ impl<'graph> InsertionExecutor<'graph> {
         Ok(())
     }
 
-    fn stage_plan(
+    /// Processes the insertion layers, staging neighbour lists and identifying
+    /// nodes that will require trimming once distances are available.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Layer staging relies on explicit inputs for clarity"
+    )]
+    fn process_insertion_layers(
         &self,
-        ctx: NodeContext,
+        node: usize,
+        level: usize,
         plan: InsertionPlan,
         max_connections: usize,
-    ) -> Result<StageOutcome, HnswError> {
-        let mut new_node_neighbours = vec![Vec::new(); ctx.level + 1];
+    ) -> Result<LayerProcessingOutcome, HnswError> {
+        let mut new_node_neighbours = vec![Vec::new(); level + 1];
         let mut staged: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
         let mut initialised = HashSet::new();
         let mut needs_trim = HashSet::new();
 
-        for layer in plan
-            .layers
-            .into_iter()
-            .filter(|layer| layer.level <= ctx.level)
-        {
+        for layer in plan.layers.into_iter().filter(|layer| layer.level <= level) {
             let level_index = layer.level;
 
             for neighbour in layer.neighbours.into_iter().take(max_connections) {
                 self.stage_neighbour(
-                    ctx.node,
+                    node,
                     neighbour.id,
                     level_index,
                     max_connections,
@@ -232,20 +234,16 @@ impl<'graph> InsertionExecutor<'graph> {
             }
         }
 
-        Self::dedupe_new_node_lists(&mut new_node_neighbours);
-
-        Ok(StageOutcome {
-            new_node_neighbours,
-            staged,
-            needs_trim,
-        })
+        Ok((new_node_neighbours, staged, initialised, needs_trim))
     }
 
-    fn assemble_updates(
+    /// Builds staged updates and trimming jobs from the collected neighbour
+    /// candidates.
+    fn generate_updates_and_trim_jobs(
         node: usize,
-        max_connections: usize,
         staged: HashMap<(usize, usize), Vec<usize>>,
-        needs_trim: &HashSet<(usize, usize)>,
+        needs_trim: HashSet<(usize, usize)>,
+        max_connections: usize,
     ) -> (Vec<StagedUpdate>, Vec<TrimJob>) {
         let mut updates = Vec::with_capacity(staged.len());
         let mut trim_jobs = Vec::with_capacity(needs_trim.len());

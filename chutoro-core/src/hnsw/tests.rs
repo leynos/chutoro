@@ -460,22 +460,35 @@ fn non_finite_batch_distance_is_reported() {
 
     let params = HnswParams::new(1, 1).expect("params must be valid");
     let err = CpuHnsw::build(&BatchNan, params).expect_err("build must fail on batch NaN");
-    let (left, right) = match err {
-        HnswError::NonFiniteDistance { left, right } => (left, right),
-        other => panic!("expected non-finite distance, got {other:?}"),
-    };
+    fn involves_new_node(left: usize, right: usize) -> bool {
+        left == 2 || right == 2
+    }
 
-    let counterpart = new_node_counterpart(left, right, 2);
-    assert!(
-        counterpart.is_some() || is_initial_pair(left, right),
-        "unexpected participants for non-finite edge: ({left}, {right})",
-    );
+    fn involves_initial_pair(left: usize, right: usize) -> bool {
+        matches!((left, right), (0, 1) | (1, 0))
+    }
 
-    if let Some(other) = counterpart {
+    fn validate_non_finite_participants(left: usize, right: usize) {
         assert!(
-            matches!(other, 0 | 1),
-            "unexpected counterpart for non-finite edge: {other}",
+            involves_new_node(left, right) || involves_initial_pair(left, right),
+            "unexpected participants for non-finite edge: ({left}, {right})",
         );
+
+        if involves_new_node(left, right) {
+            let other =
+                new_node_counterpart(left, right, 2).expect("new node counterpart must exist");
+            assert!(
+                involves_initial_pair(0, other) || involves_initial_pair(1, other),
+                "unexpected counterpart for non-finite edge: {other}",
+            );
+        }
+    }
+
+    match err {
+        HnswError::NonFiniteDistance { left, right } => {
+            validate_non_finite_participants(left, right);
+        }
+        other => panic!("expected non-finite distance, got {other:?}"),
     }
 }
 
@@ -558,10 +571,6 @@ fn new_node_counterpart(left: usize, right: usize, new_node: usize) -> Option<us
     } else {
         None
     }
-}
-
-fn is_initial_pair(left: usize, right: usize) -> bool {
-    matches!((left, right), (0, 1) | (1, 0))
 }
 
 #[test]
