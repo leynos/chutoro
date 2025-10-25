@@ -6,6 +6,9 @@ import json
 from typing import Any, Mapping
 
 
+_MISSING_SECRET_ID_MSG = "Vault response missing secret_id field"
+
+
 class VaultBootstrapError(RuntimeError):
     """Raised when Vault initialisation commands cannot be completed."""
 
@@ -36,5 +39,4 @@ def _generate_secret_id(payload: str) -> str:
 
     if secret_id := data.get("data", {}).get("secret_id"):
         return secret_id
-    else:
-        raise VaultBootstrapError("Vault response missing secret_id field")
+    raise VaultBootstrapError(_MISSING_SECRET_ID_MSG)

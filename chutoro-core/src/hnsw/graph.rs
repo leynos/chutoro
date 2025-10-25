@@ -50,6 +50,7 @@ pub(super) struct LayerPlanContext {
 }
 
 impl LayerPlanContext {
+    /// Construct a layer-planning context.
     #[must_use]
     #[inline]
     pub(crate) fn new(query: usize, current: usize, target_level: usize, ef: usize) -> Self {
@@ -218,14 +219,17 @@ impl Graph {
         self.nodes.get(node).is_some()
     }
 
+    #[inline]
     pub(super) fn insertion_planner(&self) -> InsertionPlanner<'_> {
         InsertionPlanner::new(self)
     }
 
+    #[inline]
     pub(super) fn insertion_executor(&mut self) -> InsertionExecutor<'_> {
         InsertionExecutor::new(self)
     }
 
+    #[inline]
     pub(super) fn searcher(&self) -> LayerSearcher<'_> {
         LayerSearcher::new(self)
     }
