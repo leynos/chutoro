@@ -77,7 +77,7 @@ impl<'graph> InsertionExecutor<'graph> {
         let promote_entry = level > self.graph.entry().map(|entry| entry.level).unwrap_or(0);
         let max_connections = params.max_connections();
         let (mut new_node_neighbours, staged, _initialised, needs_trim) =
-            self.process_insertion_layers(node, level, plan, max_connections)?;
+            self.process_insertion_layers(NodeContext { node, level }, plan, max_connections)?;
         Self::dedupe_new_node_lists(&mut new_node_neighbours);
         let (updates, trim_jobs) =
             Self::generate_updates_and_trim_jobs(node, staged, needs_trim, max_connections);
@@ -107,28 +107,30 @@ impl<'graph> InsertionExecutor<'graph> {
 
     /// Processes the insertion layers, staging neighbour lists and identifying
     /// nodes that will require trimming once distances are available.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Layer staging relies on explicit inputs for clarity"
-    )]
+    ///
+    /// The provided [`NodeContext`] identifies the new node and the highest
+    /// level that should be considered during staging.
     fn process_insertion_layers(
         &self,
-        node: usize,
-        level: usize,
+        ctx: NodeContext,
         plan: InsertionPlan,
         max_connections: usize,
     ) -> Result<LayerProcessingOutcome, HnswError> {
-        let mut new_node_neighbours = vec![Vec::new(); level + 1];
+        let mut new_node_neighbours = vec![Vec::new(); ctx.level + 1];
         let mut staged: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
         let mut initialised = HashSet::new();
         let mut needs_trim = HashSet::new();
 
-        for layer in plan.layers.into_iter().filter(|layer| layer.level <= level) {
+        for layer in plan
+            .layers
+            .into_iter()
+            .filter(|layer| layer.level <= ctx.level)
+        {
             let level_index = layer.level;
 
             for neighbour in layer.neighbours.into_iter().take(max_connections) {
                 self.stage_neighbour(
-                    node,
+                    ctx.node,
                     neighbour.id,
                     level_index,
                     max_connections,
