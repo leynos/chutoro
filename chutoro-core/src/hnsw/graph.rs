@@ -29,6 +29,9 @@ pub(super) struct DescentContext {
 }
 
 impl DescentContext {
+    /// Construct a descent context.
+    #[must_use]
+    #[inline]
     pub(crate) fn new(query: usize, entry: EntryPoint, target_level: usize) -> Self {
         Self {
             query,
@@ -47,6 +50,8 @@ pub(super) struct LayerPlanContext {
 }
 
 impl LayerPlanContext {
+    #[must_use]
+    #[inline]
     pub(crate) fn new(query: usize, current: usize, target_level: usize, ef: usize) -> Self {
         Self {
             query,
@@ -71,10 +76,14 @@ pub(super) struct SearchContext {
 }
 
 impl SearchContext {
+    #[must_use]
+    #[inline]
     pub(crate) fn with_ef(self, ef: usize) -> ExtendedSearchContext {
         ExtendedSearchContext { base: self, ef }
     }
 
+    #[must_use]
+    #[inline]
     pub(crate) fn with_distance(self, current_dist: f32) -> NeighbourSearchContext {
         NeighbourSearchContext {
             base: self,
@@ -82,14 +91,17 @@ impl SearchContext {
         }
     }
 
+    #[inline]
     pub(crate) fn query(&self) -> usize {
         self.query
     }
 
+    #[inline]
     pub(crate) fn entry(&self) -> usize {
         self.entry
     }
 
+    #[inline]
     pub(crate) fn level(&self) -> usize {
         self.level
     }
@@ -102,14 +114,17 @@ pub(super) struct ExtendedSearchContext {
 }
 
 impl ExtendedSearchContext {
+    #[inline]
     pub(crate) fn query(&self) -> usize {
         self.base.query()
     }
 
+    #[inline]
     pub(crate) fn entry(&self) -> usize {
         self.base.entry()
     }
 
+    #[inline]
     pub(crate) fn level(&self) -> usize {
         self.base.level()
     }
@@ -122,10 +137,12 @@ pub(super) struct NeighbourSearchContext {
 }
 
 impl NeighbourSearchContext {
+    #[inline]
     pub(crate) fn query(&self) -> usize {
         self.base.query()
     }
 
+    #[inline]
     pub(crate) fn level(&self) -> usize {
         self.base.level()
     }

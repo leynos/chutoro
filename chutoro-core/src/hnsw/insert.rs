@@ -281,7 +281,10 @@ impl<'graph> InsertionExecutor<'graph> {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Staging shares tightly-coupled accumulators; refactoring into a tracker is follow-up work"
+    )]
     fn stage_neighbour(
         &self,
         new_node: usize,
@@ -297,13 +300,14 @@ impl<'graph> InsertionExecutor<'graph> {
 
         let key = (neighbour, level_index);
         if initialised.insert(key) {
-            let graph_node = self.graph.node(neighbour).ok_or_else(|| {
-                HnswError::GraphInvariantViolation {
-                    message: format!(
-                        "node {neighbour} missing during insertion planning at level {level_index}",
-                    ),
-                }
-            })?;
+            let graph_node =
+                self.graph
+                    .node(neighbour)
+                    .ok_or_else(|| HnswError::GraphInvariantViolation {
+                        message: format!(
+                            "insertion planning: node {neighbour} missing at level {level_index}",
+                        ),
+                    })?;
             staged.insert(key, graph_node.neighbours(level_index).to_vec());
         }
 
@@ -312,7 +316,7 @@ impl<'graph> InsertionExecutor<'graph> {
                 .get_mut(&key)
                 .ok_or_else(|| HnswError::GraphInvariantViolation {
                     message: format!(
-                        "node {neighbour} missing from staged updates at level {level_index}",
+                        "insertion planning: node {neighbour} missing from staged updates at level {level_index}",
                     ),
                 })?;
 
