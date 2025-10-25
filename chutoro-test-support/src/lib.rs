@@ -113,11 +113,13 @@ pub mod tracing {
             let Some(span) = ctx.span(id) else {
                 return;
             };
-            if let Some(data) = span.extensions_mut().get_mut::<SpanData>() {
-                values.record(&mut FieldRecorder {
-                    fields: &mut data.fields,
-                });
-            }
+            let mut extensions = span.extensions_mut();
+            let Some(data) = extensions.get_mut::<SpanData>() else {
+                return;
+            };
+            values.record(&mut FieldRecorder {
+                fields: &mut data.fields,
+            });
         }
 
         fn on_close(&self, id: tracing::span::Id, ctx: Context<'_, S>) {

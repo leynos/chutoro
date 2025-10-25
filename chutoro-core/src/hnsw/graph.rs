@@ -139,7 +139,10 @@ pub(crate) struct Graph {
 }
 
 impl Graph {
+    #[must_use]
+    #[inline]
     pub(crate) fn with_capacity(params: HnswParams, capacity: usize) -> Self {
+        debug_assert!(capacity > 0, "capacity must be greater than zero");
         Self {
             params,
             nodes: vec![None; capacity],

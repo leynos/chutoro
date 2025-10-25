@@ -19,7 +19,10 @@ impl Node {
             level < self.neighbours.len(),
             "levels are initialised during construction"
         );
-        self.neighbours.get(level).map_or(&[], Vec::as_slice)
+        self.neighbours
+            .get(level)
+            .expect("levels are initialised during construction")
+            .as_slice()
     }
 
     pub(crate) fn neighbours_mut(&mut self, level: usize) -> &mut Vec<usize> {

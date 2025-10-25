@@ -213,7 +213,9 @@ impl CpuHnsw {
             .map(|job| {
                 validate_batch_distances(source, job.node, &job.candidates).map(|distances| {
                     let mut scored: Vec<_> = job.candidates.into_iter().zip(distances).collect();
-                    scored.sort_unstable_by(|a, b| a.1.total_cmp(&b.1));
+                    // Stable sort preserves input order on ties, favouring the new node
+                    // positioned earlier by `prioritise_new_node`.
+                    scored.sort_by(|a, b| a.1.total_cmp(&b.1));
                     scored.truncate(job.ctx.max_connections);
                     TrimResult {
                         node: job.node,
