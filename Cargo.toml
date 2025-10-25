@@ -77,5 +77,9 @@ error_impl_error                    = "deny"
 result_large_err                    = "deny"
 
 [workspace.lints.rust]
+unknown_lints                       = "deny"
+renamed_and_removed_lints           = "deny"
 missing_docs                        = "deny"
+
+[workspace.lints.rustdoc]
 missing_crate_level_docs            = "deny"
