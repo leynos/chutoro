@@ -215,6 +215,54 @@ fn greedy_descent_selects_closest_neighbour() {
 }
 
 #[test]
+fn layer_search_explores_equal_distance_candidates() {
+    let source = DummySource::new(vec![0.0, 1.0, 1.0, 0.2]);
+    let params = HnswParams::new(2, 4).expect("params must be valid");
+    let mut graph = Graph::with_capacity(params, source.len());
+
+    graph.insert_first(1, 0).expect("seed entry point");
+    graph.attach_node(0, 0).expect("attach query node");
+    graph.attach_node(2, 0).expect("attach tie candidate");
+    graph.attach_node(3, 0).expect("attach hidden closer node");
+
+    graph
+        .node_mut(1)
+        .expect("entry must exist")
+        .neighbours_mut(0)
+        .extend([2]);
+    graph
+        .node_mut(2)
+        .expect("tie candidate must exist")
+        .neighbours_mut(0)
+        .extend([1, 3]);
+    graph
+        .node_mut(3)
+        .expect("closer node must exist")
+        .neighbours_mut(0)
+        .extend([2]);
+
+    let searcher = graph.searcher();
+    let ctx = SearchContext {
+        query: 0,
+        entry: 1,
+        level: 0,
+    }
+    .with_ef(1);
+
+    let neighbours = searcher
+        .search_layer(&source, ctx)
+        .expect("layer search must succeed");
+
+    assert_eq!(neighbours.len(), 1, "ef=1 should cap the result set");
+    let neighbour = &neighbours[0];
+    assert_eq!(neighbour.id, 3, "search should reach the closer node");
+    assert!(
+        neighbour.distance < 1.0,
+        "closer node must improve the bound"
+    );
+}
+
+#[test]
 fn search_respects_minimum_ef() {
     let source = DummySource::new(vec![0.0, 1.5, 3.0]);
     let params = HnswParams::new(2, 4)

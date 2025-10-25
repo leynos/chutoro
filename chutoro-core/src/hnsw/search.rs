@@ -72,7 +72,7 @@ impl SearchState {
             && self
                 .best
                 .peek()
-                .is_some_and(|furthest| distance >= furthest.distance)
+                .is_some_and(|furthest| distance > furthest.distance)
         {
             return;
         }
