@@ -160,9 +160,9 @@ impl<'graph> InsertionExecutor<'graph> {
                 level: lvl,
                 max_connections,
             };
+            prioritise_new_node(node, &mut candidates);
             if needs_trim.contains(&(other, lvl)) {
-                let mut reordered = candidates.clone();
-                prioritise_new_node(node, &mut reordered);
+                let reordered = candidates.clone();
                 trim_jobs.push(TrimJob {
                     node: other,
                     ctx,
@@ -187,8 +187,8 @@ impl<'graph> InsertionExecutor<'graph> {
     }
 
     fn dedupe_candidates(candidates: &mut Vec<usize>) {
-        let mut seen = HashSet::new();
-        candidates.retain(|candidate| seen.insert(*candidate));
+        candidates.sort_unstable();
+        candidates.dedup();
     }
 
     #[expect(
