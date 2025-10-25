@@ -154,7 +154,8 @@ impl<'graph> InsertionExecutor<'graph> {
         let mut updates = Vec::with_capacity(staged.len());
         let mut trim_jobs = Vec::with_capacity(needs_trim.len());
 
-        for ((other, lvl), candidates) in staged.into_iter() {
+        for ((other, lvl), mut candidates) in staged.into_iter() {
+            Self::dedupe_candidates(&mut candidates);
             let ctx = EdgeContext {
                 level: lvl,
                 max_connections,
@@ -183,6 +184,11 @@ impl<'graph> InsertionExecutor<'graph> {
             let mut seen = HashSet::new();
             neighbours.retain(|neighbour| seen.insert(*neighbour));
         }
+    }
+
+    fn dedupe_candidates(candidates: &mut Vec<usize>) {
+        let mut seen = HashSet::new();
+        candidates.retain(|candidate| seen.insert(*candidate));
     }
 
     #[expect(
