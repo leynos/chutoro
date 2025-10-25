@@ -28,18 +28,26 @@ struct SearchState {
 
 impl SearchState {
     fn new(entry: usize, distance: f32) -> Self {
-        let visited = HashSet::new();
+        // Fallback when `ef` is not available at the call-site.
+        Self::with_capacity(entry, distance, 64)
+    }
 
-        let mut candidates = BinaryHeap::new();
+    fn with_capacity(entry: usize, distance: f32, ef: usize) -> Self {
+        let queue_capacity = ef.max(1);
+        let set_capacity = queue_capacity.saturating_mul(4);
+
+        let visited = HashSet::with_capacity(set_capacity);
+
+        let mut candidates = BinaryHeap::with_capacity(queue_capacity);
         candidates.push(ReverseNeighbour::new(entry, distance));
 
-        let mut best = BinaryHeap::new();
+        let mut best = BinaryHeap::with_capacity(queue_capacity);
         best.push(Neighbour {
             id: entry,
             distance,
         });
 
-        let mut discovered = HashSet::new();
+        let mut discovered = HashSet::with_capacity(set_capacity);
         discovered.insert(entry);
 
         Self {
@@ -177,7 +185,11 @@ impl<'graph> LayerSearcher<'graph> {
         let entry = ctx.entry();
         let entry_dist = validate_distance(source, ctx.query(), entry)?;
 
-        let mut state = SearchState::new(entry, entry_dist);
+        let mut state = if ctx.ef == 0 {
+            SearchState::new(entry, entry_dist)
+        } else {
+            SearchState::with_capacity(entry, entry_dist, ctx.ef)
+        };
 
         while let Some(ReverseNeighbour { inner }) = state.pop_candidate() {
             if state.should_terminate(ctx.ef, inner.distance) {
