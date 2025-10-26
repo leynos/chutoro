@@ -37,7 +37,7 @@ pub(crate) struct LayerPlan {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Neighbour {
-    /// Index of the neighbour within the [`DataSource`].
+    /// Index of the neighbour within the [`crate::DataSource`].
     pub id: usize,
     /// Distance between the query item and [`Neighbour::id`].
     pub distance: f32,

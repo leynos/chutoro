@@ -1,5 +1,4 @@
 //! Chutoro core library.
-#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod builder;
 mod chutoro;
@@ -23,5 +22,8 @@ pub use crate::{
 };
 
 #[cfg(feature = "cpu")]
-#[cfg_attr(docsrs, doc(cfg(feature = "cpu")))]
+/// CPU-accelerated HNSW index components; requires the `cpu` feature.
 pub use crate::hnsw::{CpuHnsw, HnswError, HnswErrorCode, HnswParams, Neighbour};
+
+#[cfg(test)]
+pub(crate) mod test_utils;

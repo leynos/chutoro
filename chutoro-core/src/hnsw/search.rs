@@ -4,50 +4,147 @@
 //! finite distance invariants. Non-finite values are rejected before they can
 //! pollute the traversal state.
 
-use std::{
-    cmp::Ordering,
-    collections::{BinaryHeap, HashSet},
-};
+use std::collections::{BinaryHeap, HashSet};
 
 use crate::DataSource;
 
 use super::{
     error::HnswError,
-    graph::{
-        ExtendedSearchContext, NeighbourSearchContext, ProcessNodeContext, ScoredCandidates,
-        SearchContext,
-    },
+    graph::{ExtendedSearchContext, NeighbourSearchContext, SearchContext},
+    node::Node,
     types::{Neighbour, ReverseNeighbour},
     validate::{validate_batch_distances, validate_distance},
 };
 
 use super::graph::Graph;
 
-impl Graph {
-    pub(crate) fn greedy_search_layer<D: DataSource + Sync>(
+#[derive(Debug)]
+struct SearchState {
+    visited: HashSet<usize>,
+    candidates: BinaryHeap<ReverseNeighbour>,
+    best: BinaryHeap<Neighbour>,
+    discovered: HashSet<usize>,
+}
+
+impl SearchState {
+    fn new(entry: usize, distance: f32) -> Self {
+        // Fallback when `ef` is not available at the call-site.
+        Self::with_capacity(entry, distance, 64)
+    }
+
+    fn with_capacity(entry: usize, distance: f32, ef: usize) -> Self {
+        let queue_capacity = ef.max(1);
+        let set_capacity = queue_capacity.saturating_mul(4);
+
+        let visited = HashSet::with_capacity(set_capacity);
+
+        let mut candidates = BinaryHeap::with_capacity(queue_capacity);
+        candidates.push(ReverseNeighbour::new(entry, distance));
+
+        let mut best = BinaryHeap::with_capacity(queue_capacity);
+        best.push(Neighbour {
+            id: entry,
+            distance,
+        });
+
+        let mut discovered = HashSet::with_capacity(set_capacity);
+        discovered.insert(entry);
+
+        Self {
+            visited,
+            candidates,
+            best,
+            discovered,
+        }
+    }
+
+    fn pop_candidate(&mut self) -> Option<ReverseNeighbour> {
+        self.candidates.pop()
+    }
+
+    fn should_terminate(&self, ef: usize, candidate_distance: f32) -> bool {
+        if self.best.len() < ef {
+            return false;
+        }
+
+        self.best
+            .peek()
+            .is_some_and(|furthest| candidate_distance >= furthest.distance)
+    }
+
+    fn mark_processed(&mut self, candidate: usize) -> bool {
+        self.visited.insert(candidate)
+    }
+
+    fn discover(&mut self, candidate: usize) -> bool {
+        self.discovered.insert(candidate)
+    }
+
+    fn try_enqueue(&mut self, candidate: usize, distance: f32, ef: usize) {
+        if self.visited.contains(&candidate) {
+            return;
+        }
+        if self.best.len() >= ef
+            && self
+                .best
+                .peek()
+                .is_some_and(|furthest| distance >= furthest.distance)
+        {
+            return;
+        }
+
+        self.candidates
+            .push(ReverseNeighbour::new(candidate, distance));
+        self.best.push(Neighbour {
+            id: candidate,
+            distance,
+        });
+        self.enforce_capacity(ef);
+    }
+
+    fn enforce_capacity(&mut self, ef: usize) {
+        while self.best.len() > ef {
+            self.best.pop();
+        }
+    }
+
+    fn finalise(self) -> Vec<Neighbour> {
+        let mut neighbours = self.best.into_vec();
+        neighbours.sort_unstable_by(|a, b| a.distance.total_cmp(&b.distance));
+        neighbours
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct LayerSearcher<'graph> {
+    graph: &'graph Graph,
+}
+
+impl<'graph> LayerSearcher<'graph> {
+    pub(super) fn new(graph: &'graph Graph) -> Self {
+        Self { graph }
+    }
+
+    pub(super) fn greedy_search_layer<D: DataSource + Sync>(
         &self,
         source: &D,
         ctx: SearchContext,
     ) -> Result<usize, HnswError> {
-        let mut current = ctx.entry;
-        let mut current_dist = validate_distance(source, ctx.query, current)?;
+        let mut current = ctx.entry();
+        let mut current_dist = validate_distance(source, ctx.query(), current)?;
         let mut improved = true;
         while improved {
             improved = false;
-            let Some(node) = self.node(current) else {
+            let Some(node) = self.graph.node(current) else {
                 return Err(HnswError::GraphInvariantViolation {
                     message: format!(
                         "node {current} missing during greedy search at level {}",
-                        ctx.level
+                        ctx.level()
                     ),
                 });
             };
 
-            let search_ctx = NeighbourSearchContext {
-                query: ctx.query,
-                level: ctx.level,
-                current_dist,
-            };
+            let search_ctx = ctx.with_distance(current_dist);
             let next = self.find_better_neighbour(source, search_ctx, node)?;
 
             if let Some((next, next_dist)) = next {
@@ -63,14 +160,14 @@ impl Graph {
         &self,
         source: &D,
         ctx: NeighbourSearchContext,
-        node: &super::node::Node,
+        node: &Node,
     ) -> Result<Option<(usize, f32)>, HnswError> {
-        let neighbours = node.neighbours(ctx.level);
+        let neighbours = node.neighbours(ctx.level());
         if neighbours.is_empty() {
             return Ok(None);
         }
 
-        let distances = validate_batch_distances(source, ctx.query, neighbours)?;
+        let distances = validate_batch_distances(source, ctx.query(), neighbours)?;
         if let Some((best_id, best_dist)) = neighbours
             .iter()
             .copied()
@@ -82,170 +179,54 @@ impl Graph {
         Ok(None)
     }
 
-    pub(crate) fn search_layer<D: DataSource + Sync>(
+    pub(super) fn search_layer<D: DataSource + Sync>(
         &self,
         source: &D,
         ctx: ExtendedSearchContext,
     ) -> Result<Vec<Neighbour>, HnswError> {
-        let entry_dist = validate_distance(source, ctx.query, ctx.entry)?;
-        let mut state = LayerSearchState::new(ctx.entry, entry_dist);
+        let entry = ctx.entry();
+        let entry_dist = validate_distance(source, ctx.query(), entry)?;
 
-        while let Some(ReverseNeighbour { inner }) = state.candidates.pop() {
-            if self.should_terminate_search(&state.best, ctx.ef, inner.distance) {
+        let mut state = if ctx.ef == 0 {
+            SearchState::new(entry, entry_dist)
+        } else {
+            SearchState::with_capacity(entry, entry_dist, ctx.ef)
+        };
+
+        while let Some(ReverseNeighbour { inner }) = state.pop_candidate() {
+            if state.should_terminate(ctx.ef, inner.distance) {
                 break;
             }
 
-            let process_ctx = ProcessNodeContext {
-                query: ctx.query,
-                level: ctx.level,
-                ef: ctx.ef,
-                node_id: inner.id,
+            let Some(node) = self.graph.node(inner.id) else {
+                return Err(HnswError::GraphInvariantViolation {
+                    message: format!(
+                        "node {} missing during layer search at level {}",
+                        inner.id,
+                        ctx.level()
+                    ),
+                });
             };
-            self.process_neighbours(source, process_ctx, &mut state)?;
-        }
 
-        Ok(self.finalize_results(state.into_best()))
-    }
-
-    fn should_terminate_search(
-        &self,
-        best: &BinaryHeap<Neighbour>,
-        ef: usize,
-        candidate_distance: f32,
-    ) -> bool {
-        if best.len() < ef {
-            return false;
-        }
-
-        matches!(
-            self.compare_to_furthest(best, candidate_distance),
-            Some(Ordering::Greater)
-        )
-    }
-
-    fn process_neighbours<D: DataSource + Sync>(
-        &self,
-        source: &D,
-        ctx: ProcessNodeContext,
-        state: &mut LayerSearchState,
-    ) -> Result<(), HnswError> {
-        let Some(node) = self.node(ctx.node_id) else {
-            return Err(HnswError::GraphInvariantViolation {
-                message: format!(
-                    "node {} missing during layer search at level {}",
-                    ctx.node_id, ctx.level
-                ),
-            });
-        };
-
-        let fresh = self.collect_unvisited_neighbours(node, ctx.level, state);
-        if fresh.is_empty() {
-            return Ok(());
-        }
-
-        let distances = validate_batch_distances(source, ctx.query, &fresh)?;
-        let scored = ScoredCandidates::new(fresh, distances);
-        self.update_search_state_with_candidates(scored, ctx.ef, state);
-
-        Ok(())
-    }
-
-    fn collect_unvisited_neighbours(
-        &self,
-        node: &super::node::Node,
-        level: usize,
-        state: &mut LayerSearchState,
-    ) -> Vec<usize> {
-        node.neighbours(level)
-            .iter()
-            .copied()
-            .filter(|candidate| state.visited.insert(*candidate))
-            .collect()
-    }
-
-    fn update_search_state_with_candidates(
-        &self,
-        scored: ScoredCandidates,
-        ef: usize,
-        state: &mut LayerSearchState,
-    ) {
-        for (candidate, candidate_distance) in scored {
-            if !self.should_add_candidate(&state.best, ef, candidate_distance) {
+            if !state.mark_processed(inner.id) {
                 continue;
             }
 
-            state
-                .candidates
-                .push(ReverseNeighbour::new(candidate, candidate_distance));
-            state.best.push(Neighbour {
-                id: candidate,
-                distance: candidate_distance,
-            });
-            if state.best.len() > ef {
-                state.best.pop();
+            let fresh: Vec<_> = node
+                .neighbours(ctx.level())
+                .iter()
+                .copied()
+                .filter(|candidate| state.discover(*candidate))
+                .collect();
+            if fresh.is_empty() {
+                continue;
+            }
+
+            let distances = validate_batch_distances(source, ctx.query(), &fresh)?;
+            for (candidate, distance) in fresh.into_iter().zip(distances.into_iter()) {
+                state.try_enqueue(candidate, distance, ctx.ef);
             }
         }
-    }
-
-    fn should_add_candidate(
-        &self,
-        best: &BinaryHeap<Neighbour>,
-        ef: usize,
-        candidate_distance: f32,
-    ) -> bool {
-        !self.should_terminate_search(best, ef, candidate_distance)
-    }
-
-    fn finalize_results(&self, best: BinaryHeap<Neighbour>) -> Vec<Neighbour> {
-        let mut neighbours: Vec<_> = best.into_vec();
-        neighbours.sort_unstable();
-        neighbours
-    }
-
-    #[inline]
-    fn furthest_distance(&self, best: &BinaryHeap<Neighbour>) -> Option<f32> {
-        best.peek().map(|neighbour| neighbour.distance)
-    }
-
-    #[inline]
-    fn compare_to_furthest(
-        &self,
-        best: &BinaryHeap<Neighbour>,
-        candidate_distance: f32,
-    ) -> Option<Ordering> {
-        self.furthest_distance(best)
-            .map(|furthest| candidate_distance.total_cmp(&furthest))
-    }
-}
-
-struct LayerSearchState {
-    visited: HashSet<usize>,
-    candidates: BinaryHeap<ReverseNeighbour>,
-    best: BinaryHeap<Neighbour>,
-}
-
-impl LayerSearchState {
-    fn new(entry: usize, entry_distance: f32) -> Self {
-        let mut visited = HashSet::new();
-        visited.insert(entry);
-
-        let mut candidates = BinaryHeap::new();
-        candidates.push(ReverseNeighbour::new(entry, entry_distance));
-
-        let mut best = BinaryHeap::new();
-        best.push(Neighbour {
-            id: entry,
-            distance: entry_distance,
-        });
-
-        Self {
-            visited,
-            candidates,
-            best,
-        }
-    }
-
-    fn into_best(self) -> BinaryHeap<Neighbour> {
-        self.best
+        Ok(state.finalise())
     }
 }

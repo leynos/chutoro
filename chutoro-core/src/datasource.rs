@@ -66,11 +66,11 @@ pub trait DataSource {
     /// Computes the distances from `query` to every entry in `candidates`.
     ///
     /// Implementations can override this method to provide SIMD-optimised
-    /// kernels. The default implementation calls [`distance`] repeatedly and
+    /// kernels. The default implementation calls [`Self::distance`] repeatedly and
     /// collects the results.
     ///
     /// # Errors
-    /// Returns any [`DataSourceError`] surfaced by [`distance`]. Implementations
+    /// Returns any [`DataSourceError`] surfaced by [`Self::distance`]. Implementations
     /// must return [`DataSourceError::OutOfBounds`] for invalid indices and must
     /// not yield non-finite distances; callers may validate and fail on NaNs.
     fn batch_distances(
@@ -86,7 +86,7 @@ pub trait DataSource {
 
     /// Computes several distances at once, storing results in `out`.
     ///
-    /// The default implementation calls [`distance`] for each pair.
+    /// The default implementation calls [`Self::distance`] for each pair.
     ///
     /// # Errors
     /// Returns `DataSourceError::OutputLengthMismatch` if `pairs.len() != out.len()`.
@@ -110,5 +110,43 @@ pub trait DataSource {
         }
         out.copy_from_slice(&tmp);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::CountingSource;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    #[test]
+    fn batch_distances_invokes_scalar_distance() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let source = CountingSource::new(vec![0.0, 1.0, 3.0], Arc::clone(&calls));
+
+        let distances = source
+            .batch_distances(0, &[1, 2])
+            .expect("batch distances should succeed");
+
+        assert_eq!(distances, vec![1.0, 3.0]);
+        assert_eq!(source.calls().load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn batch_distances_propagates_errors() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let source = CountingSource::new(vec![0.0, 1.0], calls);
+
+        let err = source
+            .batch_distances(0, &[1, 5])
+            .expect_err("invalid candidate must fail");
+
+        assert!(
+            matches!(err, DataSourceError::OutOfBounds { index: 5 }),
+            "expected OutOfBounds with index 5, got {err:?}",
+        );
     }
 }

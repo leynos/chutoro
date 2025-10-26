@@ -58,7 +58,7 @@ macro_rules! define_error_codes {
     };
 }
 
-/// An error produced by [`DataSource`] operations.
+/// An error produced by [`crate::DataSource`] operations.
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum DataSourceError {
@@ -108,7 +108,7 @@ define_error_codes! {
     }
 }
 
-/// Error type produced when constructing or running [`Chutoro`].
+/// Error type produced when constructing or running [`crate::Chutoro`].
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, Error, PartialEq)]
 pub enum ChutoroError {
@@ -118,13 +118,13 @@ pub enum ChutoroError {
         /// The invalid minimum cluster size supplied by the caller.
         got: usize,
     },
-    /// The supplied [`DataSource`] contained no items.
+    /// The supplied [`crate::DataSource`] contained no items.
     #[error("data source `{data_source}` contains no items")]
     EmptySource {
         /// Identifier for the empty data source.
         data_source: Arc<str>,
     },
-    /// The [`DataSource`] did not contain enough items for the configured
+    /// The [`crate::DataSource`] did not contain enough items for the configured
     /// `min_cluster_size`.
     #[error(
         "data source `{data_source}` has {items} items but min_cluster_size requires {min_cluster_size}"
@@ -143,7 +143,7 @@ pub enum ChutoroError {
         /// Strategy that could not be satisfied by the current build.
         requested: ExecutionStrategy,
     },
-    /// A [`DataSource`] operation failed while running the algorithm.
+    /// A [`crate::DataSource`] operation failed while running the algorithm.
     #[error("data source `{data_source}` failed: {error}")]
     DataSource {
         /// Identifier for the data source that produced the error.
@@ -159,20 +159,20 @@ define_error_codes! {
     enum ChutoroErrorCode for ChutoroError {
         /// Minimum cluster size must be greater than zero.
         InvalidMinClusterSize => InvalidMinClusterSize { .. } => "CHUTORO_INVALID_MIN_CLUSTER_SIZE",
-        /// The supplied [`DataSource`] contained no items.
+        /// The supplied [`crate::DataSource`] contained no items.
         EmptySource => EmptySource { .. } => "CHUTORO_EMPTY_SOURCE",
-        /// The [`DataSource`] did not contain enough items for the configured
+        /// The [`crate::DataSource`] did not contain enough items for the configured
         /// minimum cluster size.
         InsufficientItems => InsufficientItems { .. } => "CHUTORO_INSUFFICIENT_ITEMS",
         /// The requested execution strategy is unavailable in the current build.
         BackendUnavailable => BackendUnavailable { .. } => "CHUTORO_BACKEND_UNAVAILABLE",
-        /// A [`DataSource`] operation failed while running the algorithm.
+        /// A [`crate::DataSource`] operation failed while running the algorithm.
         DataSourceFailure => DataSource { .. } => "CHUTORO_DATA_SOURCE_FAILURE",
     }
 }
 
 impl ChutoroError {
-    /// Retrieve the inner [`DataSourceErrorCode`] when the error originated in a [`DataSource`].
+    /// Retrieve the inner [`DataSourceErrorCode`] when the error originated in a [`crate::DataSource`].
     pub const fn data_source_code(&self) -> Option<DataSourceErrorCode> {
         match self {
             Self::DataSource { error, .. } => Some(error.code()),
