@@ -5,5 +5,6 @@ mod errors;
 mod fixtures;
 mod metadata;
 mod params;
+mod property;
 mod sampling;
 mod search;

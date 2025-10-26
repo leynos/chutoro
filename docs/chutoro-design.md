@@ -846,6 +846,29 @@ sequenceDiagram
 _Figure 1: SIMD-backed candidate scoring via `batch_distances` with scalar
 fallback._
 
+#### 6.4. Property-based input generation for CPU HNSW tests
+
+The CPU module now ships with dedicated property-based generators that exercise
+the HNSW pipeline under varied input regimes. Using `test-strategy` to derive
+`proptest` strategies keeps the generators declarative whilst providing
+shrinking-friendly seeds. Four dataset distributions are synthesised: uniform
+hypercubes, tightly clustered clouds, low-dimensional manifolds embedded in
+higher-dimensional ambient space, and datasets with controlled duplicate
+vectors. Each generation path records structural metadata (cluster layout,
+manifold bases, duplicate index groups) so invariant checks can assert the
+expected geometry during shrinking.
+
+The generator suite also produces sampled `HnswParams` inputs, constraining the
+ranges so `ef_construction` always exceeds `max_connections` and level sampling
+remains numerically stable. The concrete parameters are materialised through a
+`HnswParamsSeed` helper that propagates validation errors, enabling explicit
+tests for unhappy paths. To support end-to-end properties a dense in-memory
+`DataSource` fixture wraps generated vectors and enforces dimension checks up
+front, preventing silent ingestion of malformed test data. These choices align
+the testing surface with the plan described in
+`docs/property-testing-design.md`, giving the HNSW unit tests a reproducible
+and expressive input space.
+
 ## Part III: GPU Acceleration Strategy
 
 To achieve the highest possible performance on large datasets, the design
