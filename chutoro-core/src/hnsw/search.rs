@@ -63,11 +63,13 @@ impl SearchState {
     }
 
     fn should_terminate(&self, ef: usize, candidate_distance: f32) -> bool {
-        self.best.len() >= ef
-            && self
-                .best
-                .peek()
-                .is_some_and(|furthest| candidate_distance >= furthest.distance)
+        if self.best.len() < ef {
+            return false;
+        }
+
+        self.best
+            .peek()
+            .is_some_and(|furthest| candidate_distance >= furthest.distance)
     }
 
     fn mark_processed(&mut self, candidate: usize) -> bool {
