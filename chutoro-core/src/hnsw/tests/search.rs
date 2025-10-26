@@ -42,7 +42,7 @@ fn greedy_descent_selects_closest_neighbour() {
 }
 
 #[rstest]
-fn layer_search_explores_equal_distance_candidates() {
+fn layer_search_halts_on_equal_distance_candidates() {
     let source = DummySource::new(vec![0.0, 1.0, 1.0, 0.2]);
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let mut graph = Graph::with_capacity(params, source.len());
@@ -82,10 +82,13 @@ fn layer_search_explores_equal_distance_candidates() {
 
     assert_eq!(neighbours.len(), 1, "ef=1 should cap the result set");
     let neighbour = &neighbours[0];
-    assert_eq!(neighbour.id, 3, "search should reach the closer node");
-    assert!(
-        neighbour.distance < 1.0,
-        "closer node must improve the bound",
+    assert_eq!(
+        neighbour.id, 1,
+        "layer search must remain at the entry when ties meet the bound",
+    );
+    assert_eq!(
+        neighbour.distance, 1.0,
+        "entry distance defines the stopping bound for equal candidates",
     );
 }
 
@@ -105,5 +108,9 @@ fn search_respects_minimum_ef() {
         )
         .expect("search must succeed");
     assert_eq!(neighbours.len(), 1);
-    assert_eq!(neighbours[0].id, 0);
+    let entry = index.inspect_graph(|graph| graph.entry().expect("entry exists").node);
+    assert_eq!(
+        neighbours[0].id, entry,
+        "with ef=1 the search should return the entry point",
+    );
 }

@@ -31,7 +31,7 @@ fn non_finite_distance_is_reported() {
         }
     }
 
-    let params = HnswParams::new(1, 1).expect("params must be valid");
+    let params = HnswParams::new(1, 2).expect("params must be valid");
     let err = CpuHnsw::build(&NanSource, params).expect_err("build must fail on NaN");
     match err {
         HnswError::NonFiniteDistance { .. } => {}
@@ -59,7 +59,7 @@ fn reports_invariant_violation_when_search_node_missing() {
         entry: 0,
         level: 0,
     }
-    .with_ef(2);
+    .with_ef(3);
 
     let err = searcher
         .search_layer(&source, ctx)

@@ -67,7 +67,7 @@ impl SearchState {
             && self
                 .best
                 .peek()
-                .is_some_and(|furthest| candidate_distance > furthest.distance)
+                .is_some_and(|furthest| candidate_distance >= furthest.distance)
     }
 
     fn mark_processed(&mut self, candidate: usize) -> bool {
@@ -86,7 +86,7 @@ impl SearchState {
             && self
                 .best
                 .peek()
-                .is_some_and(|furthest| distance > furthest.distance)
+                .is_some_and(|furthest| distance >= furthest.distance)
         {
             return;
         }
