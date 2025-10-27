@@ -67,24 +67,9 @@ pub(super) fn generate_manifold_dataset(rng: &mut SmallRng) -> GeneratedDataset 
     if basis.is_empty() {
         basis = vec![unit_vector(ambient_dim, 0)];
     }
-    let mut vectors = Vec::with_capacity(len);
-    for _ in 0..len {
-        let coeffs: Vec<f32> = (0..basis.len())
-            .map(|_| rng.gen_range(-4.0..=4.0))
-            .collect();
-        let mut point = origin.clone();
-        for (basis_vec, coeff) in basis.iter().zip(&coeffs) {
-            for (value, basis_value) in point.iter_mut().zip(basis_vec) {
-                *value += coeff * basis_value;
-            }
-        }
-        if noise_bound > 0.0 {
-            for value in &mut point {
-                *value += rng.gen_range(-noise_bound..=noise_bound);
-            }
-        }
-        vectors.push(point);
-    }
+    let vectors = (0..len)
+        .map(|_| generate_manifold_point(rng, &origin, &basis, noise_bound))
+        .collect();
     GeneratedDataset {
         vectors,
         metadata: DistributionMetadata::Manifold {
@@ -156,5 +141,38 @@ fn gram_schmidt_step(vector: &mut [f32], basis: &[Vec<f32>]) {
         for (value, base_component) in vector.iter_mut().zip(base) {
             *value -= projection * base_component;
         }
+    }
+}
+
+fn generate_manifold_point(
+    rng: &mut SmallRng,
+    origin: &[f32],
+    basis: &[Vec<f32>],
+    noise_bound: f32,
+) -> Vec<f32> {
+    let coeffs: Vec<f32> = (0..basis.len())
+        .map(|_| rng.gen_range(-4.0..=4.0))
+        .collect();
+    let mut point = project_onto_manifold(origin, basis, &coeffs);
+    apply_noise(rng, &mut point, noise_bound);
+    point
+}
+
+fn project_onto_manifold(origin: &[f32], basis: &[Vec<f32>], coeffs: &[f32]) -> Vec<f32> {
+    let mut point = origin.to_vec();
+    for (basis_vec, coeff) in basis.iter().zip(coeffs) {
+        for (value, basis_value) in point.iter_mut().zip(basis_vec) {
+            *value += coeff * basis_value;
+        }
+    }
+    point
+}
+
+fn apply_noise(rng: &mut SmallRng, point: &mut [f32], noise_bound: f32) {
+    if noise_bound <= 0.0 {
+        return;
+    }
+    for value in point {
+        *value += rng.gen_range(-noise_bound..=noise_bound);
     }
 }
