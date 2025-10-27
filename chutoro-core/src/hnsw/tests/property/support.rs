@@ -17,7 +17,11 @@ use crate::{DataSource, DataSourceError};
 ///
 /// # Examples
 ///
-/// ```ignore
+/// This example is marked `no_run` because the support module is scoped to
+/// tests via `pub(super)`, so rustdoc cannot access it during documentation
+/// builds.
+///
+/// ```no_run
 /// use crate::hnsw::tests::property::support::DenseVectorSource;
 /// use crate::DataSourceError;
 ///
@@ -95,7 +99,11 @@ impl DataSource for DenseVectorSource {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// This example is marked `no_run` because the helper is restricted to the
+/// property-test module and rustdoc cannot compile the snippet when
+/// documenting the crate.
+///
+/// ```no_run
 /// use crate::hnsw::tests::property::support::euclidean_distance;
 ///
 /// let distance = euclidean_distance(&[0.0, 0.0], &[3.0, 4.0]);
@@ -118,7 +126,11 @@ pub(super) fn euclidean_distance(left: &[f32], right: &[f32]) -> f32 {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// This example is marked `no_run` because the helper is restricted to the
+/// property-test module and rustdoc cannot compile the snippet when
+/// documenting the crate.
+///
+/// ```no_run
 /// use crate::hnsw::tests::property::support::dot;
 ///
 /// let product = dot(&[1.0, 2.0], &[3.0, 4.0]);
@@ -132,7 +144,11 @@ pub(super) fn dot(left: &[f32], right: &[f32]) -> f32 {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// This example is marked `no_run` because the helper is restricted to the
+/// property-test module and rustdoc cannot compile the snippet when
+/// documenting the crate.
+///
+/// ```no_run
 /// use crate::hnsw::tests::property::support::l2_norm;
 ///
 /// let norm = l2_norm(&[3.0, 4.0]);
@@ -150,7 +166,11 @@ pub(super) fn l2_norm(vector: &[f32]) -> f32 {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// This example is marked `no_run` because the helper is restricted to the
+/// property-test module and rustdoc cannot compile the snippet when
+/// documenting the crate.
+///
+/// ```no_run
 /// use crate::hnsw::tests::property::support::unit_vector;
 ///
 /// let vector = unit_vector(3, 1);
