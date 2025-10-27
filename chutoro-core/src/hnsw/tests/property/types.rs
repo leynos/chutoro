@@ -1,3 +1,8 @@
+//! Type definitions and metadata structures for property-based HNSW tests.
+//!
+//! Provides enums and fixtures consumed by the HNSW property strategies and
+//! generators.
+
 use test_strategy::Arbitrary;
 
 use crate::{

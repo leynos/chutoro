@@ -1,3 +1,8 @@
+//! Strategy builders for property-based HNSW tests.
+//!
+//! Provides combinators that synthesise dataset fixtures and parameter seeds
+//! for use in proptest suites.
+
 use proptest::prelude::*;
 use rand::{SeedableRng, rngs::SmallRng};
 
@@ -9,6 +14,19 @@ use super::{
     types::{HnswFixture, HnswParamsSeed, VectorDistribution},
 };
 
+/// Generates HNSW fixtures covering multiple vector distributions.
+///
+/// # Examples
+///
+/// ```ignore
+/// use crate::hnsw::tests::property::strategies::hnsw_fixture_strategy;
+/// use proptest::prelude::*;
+///
+/// let strategy = hnsw_fixture_strategy();
+/// proptest!(|(fixture in strategy)| {
+///     prop_assert!(fixture.vectors.len() > 1);
+/// });
+/// ```
 pub(super) fn hnsw_fixture_strategy() -> impl Strategy<Value = HnswFixture> {
     (
         any::<VectorDistribution>(),
@@ -30,6 +48,19 @@ pub(super) fn hnsw_fixture_strategy() -> impl Strategy<Value = HnswFixture> {
         })
 }
 
+/// Samples plausible HNSW parameter configurations.
+///
+/// # Examples
+///
+/// ```ignore
+/// use crate::hnsw::tests::property::strategies::hnsw_params_strategy;
+/// use proptest::prelude::*;
+///
+/// let strategy = hnsw_params_strategy();
+/// proptest!(|(params in strategy)| {
+///     prop_assert!(params.max_connections >= 2);
+/// });
+/// ```
 pub(super) fn hnsw_params_strategy() -> impl Strategy<Value = HnswParamsSeed> {
     (
         2_usize..=32,
@@ -52,6 +83,31 @@ pub(super) fn hnsw_params_strategy() -> impl Strategy<Value = HnswParamsSeed> {
         )
 }
 
+/// Converts a generated dataset into an [`HnswFixture`].
+///
+/// # Examples
+///
+/// ```ignore
+/// use crate::hnsw::tests::property::datasets::generate_uniform_dataset;
+/// use crate::hnsw::tests::property::strategies::map_dataset;
+/// use crate::hnsw::tests::property::types::{
+///     HnswParamsSeed,
+///     VectorDistribution,
+/// };
+/// use rand::{rngs::SmallRng, SeedableRng};
+///
+/// let params = HnswParamsSeed {
+///     max_connections: 4,
+///     ef_construction: 4,
+///     level_multiplier: 1.0,
+///     max_level: 4,
+///     rng_seed: 0,
+/// };
+/// let mut rng = SmallRng::seed_from_u64(1);
+/// let dataset = generate_uniform_dataset(&mut rng);
+/// let fixture = map_dataset(VectorDistribution::Uniform, params, dataset);
+/// assert_eq!(fixture.distribution, VectorDistribution::Uniform);
+/// ```
 fn map_dataset(
     distribution: VectorDistribution,
     params: HnswParamsSeed,
