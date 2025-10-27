@@ -203,7 +203,12 @@ fn sample_vector(dimension: usize, rng: &mut SmallRng, dist: Uniform<f32>) -> Ve
     (0..dimension).map(|_| rng.sample(dist)).collect()
 }
 
-/// Builds an orthonormal basis using Gram-Schmidt rejection.
+/// Generates an orthonormal basis via Gram-Schmidt orthogonalisation.
+///
+/// Samples random candidates and removes their projection onto the existing
+/// basis. If a candidate becomes degenerate (norm close to zero), the routine
+/// falls back to the corresponding canonical unit vector so the returned basis
+/// always spans the intrinsic subspace.
 ///
 /// # Examples
 ///

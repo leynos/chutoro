@@ -1,13 +1,30 @@
-//! Support utilities used across property-based HNSW tests.
+//! In-memory test support for property-based HNSW validation.
 //!
-//! Provides lightweight data sources and vector arithmetic helpers that back
-//! the dataset generators and fixtures.
+//! Provides [`DenseVectorSource`] for wrapping generated vector datasets with
+//! eager dimension validation alongside vector utilities used by the dataset
+//! generators ([`euclidean_distance`], [`dot`], [`l2_norm`], [`unit_vector`]).
 
 use std::sync::Arc;
 
 use crate::{DataSource, DataSourceError};
 
-/// Dense in-memory data source backed by generated vectors.
+/// Dense in-memory data source backed by generated vectors for property tests.
+///
+/// Wraps generated vectors in `Arc` so multiple strategies can clone the data
+/// cheaply. Implements [`DataSource`] to expose Euclidean distance queries and
+/// eagerly validates dimensions, ensuring fixtures fail fast when provided with
+/// malformed vectors.
+///
+/// # Examples
+///
+/// ```ignore
+/// use crate::hnsw::tests::property::support::DenseVectorSource;
+/// use crate::DataSourceError;
+///
+/// let vectors = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
+/// let source = DenseVectorSource::new("test", vectors)?;
+/// # Ok::<(), DataSourceError>(())
+/// ```
 #[derive(Clone, Debug)]
 pub(super) struct DenseVectorSource {
     name: Arc<str>,
@@ -19,17 +36,6 @@ impl DenseVectorSource {
     ///
     /// Returns an error if the dataset is empty, contains zero-length vectors,
     /// or mixes dimensions.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// use crate::hnsw::tests::property::support::DenseVectorSource;
-    /// use crate::DataSourceError;
-    ///
-    /// let vectors = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
-    /// let source = DenseVectorSource::new("test", vectors)?;
-    /// # Ok::<(), DataSourceError>(())
-    /// ```
     pub fn new(name: impl Into<String>, vectors: Vec<Vec<f32>>) -> Result<Self, DataSourceError> {
         if vectors.is_empty() {
             return Err(DataSourceError::EmptyData);
@@ -83,6 +89,9 @@ impl DataSource for DenseVectorSource {
 }
 
 /// Computes the Euclidean distance between two vectors.
+///
+/// Assumes `left` and `right` have equal length; behaviour is unspecified when
+/// they differ because the internal iterator zips both slices.
 ///
 /// # Examples
 ///
