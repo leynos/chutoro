@@ -77,7 +77,7 @@ ______________________________________________________________________
   to sanity-check hierarchy logic. (See §11)
 - [ ] Add functional tests comparing ARI/NMI with HDBSCAN/HNSW baselines on
   small public sets. (See §11)
-- [ ] Introduce property-based generators for HNSW using `proptest` +
+- [x] Introduce property-based generators for HNSW using `proptest` +
   `test-strategy`; cover uniform, clustered, manifold, and duplicate vectors
   plus configuration sampling. (See property-testing-design §2.1)
 - [ ] Surface HNSW structural invariant checkers (layer consistency, degree
