@@ -15,6 +15,7 @@ pub(crate) struct TrimJob {
     pub(crate) node: usize,
     pub(crate) ctx: EdgeContext,
     pub(crate) candidates: Vec<usize>,
+    pub(crate) sequences: Vec<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -49,6 +50,12 @@ type LayerProcessingOutcome = (
     HashSet<(usize, usize)>,
 );
 
+struct TrimWork {
+    staged: HashMap<(usize, usize), Vec<usize>>,
+    needs_trim: HashSet<(usize, usize)>,
+    max_connections: usize,
+}
+
 #[derive(Debug)]
 pub(crate) struct InsertionExecutor<'graph> {
     graph: &'graph mut Graph,
@@ -72,19 +79,45 @@ impl<'graph> InsertionExecutor<'graph> {
         apply_ctx: ApplyContext<'_>,
     ) -> Result<(PreparedInsertion, Vec<TrimJob>), HnswError> {
         let ApplyContext { params, plan } = apply_ctx;
-        let NodeContext { node, level } = node;
+        let NodeContext {
+            node,
+            level,
+            sequence,
+        } = node;
         self.ensure_slot_available(node)?;
         let promote_entry = level > self.graph.entry().map(|entry| entry.level).unwrap_or(0);
         let max_connections = params.max_connections();
-        let (mut new_node_neighbours, staged, _initialised, needs_trim) =
-            self.process_insertion_layers(NodeContext { node, level }, plan, max_connections)?;
+        let (mut new_node_neighbours, staged, _initialised, needs_trim) = self
+            .process_insertion_layers(
+                NodeContext {
+                    node,
+                    level,
+                    sequence,
+                },
+                plan,
+                max_connections,
+            )?;
         Self::dedupe_new_node_lists(&mut new_node_neighbours);
-        let (updates, trim_jobs) =
-            Self::generate_updates_and_trim_jobs(node, staged, needs_trim, max_connections);
+        let (updates, trim_jobs) = self.generate_updates_and_trim_jobs(
+            NodeContext {
+                node,
+                level,
+                sequence,
+            },
+            TrimWork {
+                staged,
+                needs_trim,
+                max_connections,
+            },
+        )?;
 
         Ok((
             PreparedInsertion {
-                node: NodeContext { node, level },
+                node: NodeContext {
+                    node,
+                    level,
+                    sequence,
+                },
                 promote_entry,
                 new_node_neighbours,
                 updates,
@@ -148,27 +181,37 @@ impl<'graph> InsertionExecutor<'graph> {
     /// Builds staged updates and trimming jobs from the collected neighbour
     /// candidates.
     fn generate_updates_and_trim_jobs(
-        node: usize,
-        staged: HashMap<(usize, usize), Vec<usize>>,
-        needs_trim: HashSet<(usize, usize)>,
-        max_connections: usize,
-    ) -> (Vec<StagedUpdate>, Vec<TrimJob>) {
+        &self,
+        new_node: NodeContext,
+        work: TrimWork,
+    ) -> Result<(Vec<StagedUpdate>, Vec<TrimJob>), HnswError> {
+        let TrimWork {
+            mut staged,
+            needs_trim,
+            max_connections,
+        } = work;
         let mut updates = Vec::with_capacity(staged.len());
         let mut trim_jobs = Vec::with_capacity(needs_trim.len());
 
-        for ((other, lvl), mut candidates) in staged.into_iter() {
+        for ((other, lvl), mut candidates) in staged.drain() {
             Self::dedupe_candidates(&mut candidates);
             let ctx = EdgeContext {
                 level: lvl,
                 max_connections,
             };
-            prioritise_new_node(node, &mut candidates);
+            prioritise_new_node(new_node.node, &mut candidates);
+            let mut sequences = Vec::with_capacity(candidates.len());
+            for &candidate in &candidates {
+                sequences.push(self.sequence_for_candidate(candidate, new_node, lvl)?);
+            }
             if needs_trim.contains(&(other, lvl)) {
                 let reordered = candidates.clone();
+                let seq_copy = sequences.clone();
                 trim_jobs.push(TrimJob {
                     node: other,
                     ctx,
                     candidates: reordered,
+                    sequences: seq_copy,
                 });
             }
             updates.push(StagedUpdate {
@@ -178,7 +221,7 @@ impl<'graph> InsertionExecutor<'graph> {
             });
         }
 
-        (updates, trim_jobs)
+        Ok((updates, trim_jobs))
     }
 
     fn dedupe_new_node_lists(levels: &mut [Vec<usize>]) {
@@ -191,6 +234,24 @@ impl<'graph> InsertionExecutor<'graph> {
     fn dedupe_candidates(candidates: &mut Vec<usize>) {
         candidates.sort_unstable();
         candidates.dedup();
+    }
+
+    fn sequence_for_candidate(
+        &self,
+        candidate: usize,
+        new_node: NodeContext,
+        level: usize,
+    ) -> Result<u64, HnswError> {
+        if candidate == new_node.node {
+            return Ok(new_node.sequence);
+        }
+        self.graph
+            .node_sequence(candidate)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: format!(
+                    "insertion planning: sequence missing for node {candidate} at level {level}"
+                ),
+            })
     }
 
     #[expect(
@@ -258,7 +319,7 @@ impl<'graph> InsertionExecutor<'graph> {
             updates,
         } = prepared;
 
-        self.graph.attach_node(node.node, node.level)?;
+        self.graph.attach_node(node)?;
         {
             let node_ref = self
                 .graph

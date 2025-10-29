@@ -176,7 +176,7 @@ fn cpu_hnsw_initialises_graph_with_params() -> Result<(), HnswError> {
 }
 
 #[rstest]
-fn trimming_keeps_new_node_on_distance_ties() -> Result<(), HnswError> {
+fn trimming_prefers_lower_id_on_distance_ties() -> Result<(), HnswError> {
     let params = HnswParams::new(1, 4)?;
     let index = CpuHnsw::with_capacity(params.clone(), 3)?;
     let ctx = EdgeContext {
@@ -187,6 +187,7 @@ fn trimming_keeps_new_node_on_distance_ties() -> Result<(), HnswError> {
         node: 0,
         ctx,
         candidates: vec![2, 1],
+        sequences: vec![2_u64, 1_u64],
     };
 
     let result = index
@@ -197,8 +198,8 @@ fn trimming_keeps_new_node_on_distance_ties() -> Result<(), HnswError> {
 
     assert_eq!(
         result.neighbours,
-        vec![2],
-        "stable sorting must retain the new node when distances tie",
+        vec![1],
+        "deterministic tie-breaking must prefer the lower identifier",
     );
     Ok(())
 }

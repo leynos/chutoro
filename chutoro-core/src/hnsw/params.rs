@@ -1,6 +1,8 @@
 //! Parameter handling for the CPU HNSW implementation.
 
-use crate::hnsw::error::HnswError;
+use std::{num::NonZeroUsize, time::Duration};
+
+use crate::hnsw::{distance_cache::DistanceCacheConfig, error::HnswError};
 
 /// Configuration parameters for the CPU HNSW index.
 #[derive(Clone, Debug)]
@@ -10,6 +12,7 @@ pub struct HnswParams {
     level_multiplier: f64,
     max_level: usize,
     rng_seed: u64,
+    distance_cache: DistanceCacheConfig,
 }
 
 impl HnswParams {
@@ -44,6 +47,7 @@ impl HnswParams {
             level_multiplier: (max_connections as f64).ln().recip(),
             max_level: 12,
             rng_seed: 0x5EED_CAFE,
+            distance_cache: DistanceCacheConfig::default(),
         })
     }
 
@@ -68,6 +72,27 @@ impl HnswParams {
         self
     }
 
+    /// Applies a custom distance-cache configuration.
+    #[must_use]
+    pub fn with_distance_cache_config(mut self, config: DistanceCacheConfig) -> Self {
+        self.distance_cache = config;
+        self
+    }
+
+    /// Overrides the maximum number of cached distances.
+    #[must_use]
+    pub fn with_distance_cache_max_entries(mut self, max: NonZeroUsize) -> Self {
+        self.distance_cache = DistanceCacheConfig::new(max).with_ttl(self.distance_cache.ttl());
+        self
+    }
+
+    /// Overrides the optional time-to-live applied to cached entries.
+    #[must_use]
+    pub fn with_distance_cache_ttl(mut self, ttl: Option<Duration>) -> Self {
+        self.distance_cache = self.distance_cache.clone().with_ttl(ttl);
+        self
+    }
+
     /// Returns the neighbour fan-out enforced during insertion.
     #[must_use]
     pub fn max_connections(&self) -> usize {
@@ -86,6 +111,10 @@ impl HnswParams {
 
     pub(crate) fn rng_seed(&self) -> u64 {
         self.rng_seed
+    }
+
+    pub(crate) fn distance_cache_config(&self) -> &DistanceCacheConfig {
+        &self.distance_cache
     }
 
     /// Returns whether level sampling should terminate given a uniform draw.

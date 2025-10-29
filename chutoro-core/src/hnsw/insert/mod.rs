@@ -10,4 +10,4 @@ mod executor;
 mod planner;
 
 pub(super) use executor::{InsertionExecutor, TrimJob, TrimResult};
-pub(super) use planner::InsertionPlanner;
+pub(super) use planner::{InsertionPlanner, PlanningInputs};

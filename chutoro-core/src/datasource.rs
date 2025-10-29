@@ -1,6 +1,56 @@
 //! Data source abstractions for the Chutoro core runtime.
 
 use crate::error::DataSourceError;
+use std::{fmt, sync::Arc};
+
+/// Describes the distance metric exposed by a [`DataSource`].
+///
+/// The identifier must include all configuration that affects distance
+/// semantics. For example, cosine distance with pre-computed norms should
+/// expose a different descriptor to the raw cosine metric so that caches can
+/// distinguish them.
+///
+/// # Examples
+/// ```
+/// use chutoro_core::MetricDescriptor;
+///
+/// let descriptor = MetricDescriptor::new("cosine:prenorm=true");
+/// assert_eq!(descriptor.as_str(), "cosine:prenorm=true");
+/// ```
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct MetricDescriptor(Arc<str>);
+
+impl MetricDescriptor {
+    /// Creates a descriptor from a string identifier.
+    #[must_use]
+    pub fn new(identifier: impl Into<Arc<str>>) -> Self {
+        Self(identifier.into())
+    }
+
+    /// Returns the metric identifier as a `&str`.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Builds the default "unknown" descriptor.
+    #[must_use]
+    pub fn unknown() -> Self {
+        Self::new("unknown")
+    }
+}
+
+impl Default for MetricDescriptor {
+    fn default() -> Self {
+        Self::unknown()
+    }
+}
+
+impl fmt::Display for MetricDescriptor {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// Abstraction over a collection of items that can yield pairwise distances.
 ///
@@ -59,6 +109,38 @@ pub trait DataSource {
 
     /// Returns a human-readable name.
     fn name(&self) -> &str;
+
+    /// Returns the descriptor for the metric used by the data source.
+    ///
+    /// The default implementation returns [`MetricDescriptor::unknown`].
+    /// Implementations should override this method to provide a stable,
+    /// configuration-rich identifier so that caches can disambiguate entries
+    /// for different metrics or pre-processing modes.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_core::{DataSource, MetricDescriptor};
+    ///
+    /// struct Dummy;
+    ///
+    /// impl DataSource for Dummy {
+    ///     fn len(&self) -> usize { 0 }
+    ///     fn name(&self) -> &str { "dummy" }
+    ///     fn distance(&self, _: usize, _: usize) -> Result<f32, chutoro_core::DataSourceError> {
+    ///         Ok(0.0)
+    ///     }
+    ///     fn metric_descriptor(&self) -> MetricDescriptor {
+    ///         MetricDescriptor::new("euclidean")
+    ///     }
+    /// }
+    ///
+    /// let src = Dummy;
+    /// assert_eq!(src.metric_descriptor().as_str(), "euclidean");
+    /// ```
+    #[must_use]
+    fn metric_descriptor(&self) -> MetricDescriptor {
+        MetricDescriptor::unknown()
+    }
 
     /// Computes the distance between two items.
     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError>;

@@ -12,7 +12,7 @@ mod result;
 pub use crate::{
     builder::{ChutoroBuilder, ExecutionStrategy},
     chutoro::Chutoro,
-    datasource::DataSource,
+    datasource::{DataSource, MetricDescriptor},
     distance::{
         CosineNorms, Distance, DistanceError, Norm, Result as DistanceResult, VectorKind,
         cosine_distance, euclidean_distance,
@@ -23,7 +23,9 @@ pub use crate::{
 
 #[cfg(feature = "cpu")]
 /// CPU-accelerated HNSW index components; requires the `cpu` feature.
-pub use crate::hnsw::{CpuHnsw, HnswError, HnswErrorCode, HnswParams, Neighbour};
+pub use crate::hnsw::{
+    CpuHnsw, DistanceCacheConfig, HnswError, HnswErrorCode, HnswParams, Neighbour,
+};
 
 #[cfg(test)]
 pub(crate) mod test_utils;

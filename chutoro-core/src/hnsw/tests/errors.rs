@@ -6,7 +6,9 @@ use crate::{
     DataSource, DataSourceError,
     hnsw::{
         CpuHnsw, HnswError, HnswParams,
-        graph::{Graph, SearchContext},
+        distance_cache::{DistanceCache, DistanceCacheConfig},
+        graph::{Graph, NodeContext, SearchContext},
+        validate::validate_batch_distances,
     },
 };
 
@@ -45,7 +47,11 @@ fn reports_invariant_violation_when_search_node_missing() {
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let mut graph = Graph::with_capacity(params, source.len());
     graph
-        .insert_first(0, 0)
+        .insert_first(NodeContext {
+            node: 0,
+            level: 0,
+            sequence: 0,
+        })
         .expect("initial node must insert successfully");
     graph
         .node_mut(0)
@@ -62,12 +68,15 @@ fn reports_invariant_violation_when_search_node_missing() {
     .with_ef(3);
 
     let err = searcher
-        .search_layer(&source, ctx)
+        .search_layer(None, &source, ctx)
         .expect_err("missing node must surface an invariant violation");
 
     match err {
         HnswError::GraphInvariantViolation { message } => {
-            assert_eq!(message, "node 1 missing during layer search at level 0");
+            assert_eq!(
+                message,
+                "sequence missing for node 1 during layer expansion"
+            );
         }
         other => panic!("expected invariant violation, got {other:?}"),
     }
@@ -78,7 +87,11 @@ fn attach_node_rejects_excessive_levels() {
     let params = HnswParams::new(1, 4).expect("params must be valid");
     let mut graph = Graph::with_capacity(params.clone(), 2);
     let err = graph
-        .attach_node(0, params.max_level() + 1)
+        .attach_node(NodeContext {
+            node: 0,
+            level: params.max_level() + 1,
+            sequence: 0,
+        })
         .expect_err("excessive level must be rejected");
     assert!(matches!(err, HnswError::InvalidParameters { .. }));
 }
@@ -110,8 +123,9 @@ fn non_finite_batch_distance_is_reported() {
         }
     }
 
-    let params = HnswParams::new(1, 1).expect("params must be valid");
-    let err = CpuHnsw::build(&BatchNan, params).expect_err("build must fail on batch NaN");
+    let cache = DistanceCache::new(DistanceCacheConfig::default());
+    let err = validate_batch_distances(Some(&cache), &BatchNan, 0, &[1, 2])
+        .expect_err("batch distance validation must reject NaNs");
 
     fn involves_new_node(left: usize, right: usize) -> bool {
         left == 2 || right == 2
@@ -137,11 +151,10 @@ fn non_finite_batch_distance_is_reported() {
         }
     }
 
-    match err {
-        HnswError::NonFiniteDistance { left, right } => {
-            validate_non_finite_participants(left, right);
-        }
-        other => panic!("expected non-finite distance, got {other:?}"),
+    if let HnswError::NonFiniteDistance { left, right } = err {
+        validate_non_finite_participants(left, right);
+    } else {
+        panic!("expected non-finite distance, got {err:?}");
     }
 }
 

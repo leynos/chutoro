@@ -10,13 +10,14 @@ use super::{
 };
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct NodeContext {
+pub(crate) struct NodeContext {
     pub(crate) node: usize,
     pub(crate) level: usize,
+    pub(crate) sequence: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct EdgeContext {
+pub(crate) struct EdgeContext {
     pub(crate) level: usize,
     pub(crate) max_connections: usize,
 }
@@ -150,9 +151,32 @@ impl NeighbourSearchContext {
 }
 
 #[derive(Clone, Debug)]
+struct NodeRecord {
+    node: Node,
+    sequence: u64,
+}
+
+impl NodeRecord {
+    fn new(level: usize, sequence: u64) -> Self {
+        Self {
+            node: Node::new(level),
+            sequence,
+        }
+    }
+
+    fn node(&self) -> &Node {
+        &self.node
+    }
+
+    fn node_mut(&mut self) -> &mut Node {
+        &mut self.node
+    }
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct Graph {
     params: HnswParams,
-    nodes: Vec<Option<Node>>,
+    nodes: Vec<Option<NodeRecord>>,
     entry: Option<EntryPoint>,
 }
 
@@ -172,31 +196,36 @@ impl Graph {
         self.entry
     }
 
-    pub(crate) fn insert_first(&mut self, node: usize, level: usize) -> Result<(), HnswError> {
-        self.attach_node(node, level)?;
-        self.entry = Some(EntryPoint { node, level });
+    pub(crate) fn insert_first(&mut self, ctx: NodeContext) -> Result<(), HnswError> {
+        self.attach_node(ctx)?;
+        self.entry = Some(EntryPoint {
+            node: ctx.node,
+            level: ctx.level,
+        });
         Ok(())
     }
 
-    pub(crate) fn attach_node(&mut self, node: usize, level: usize) -> Result<(), HnswError> {
-        if level > self.params.max_level() {
+    pub(crate) fn attach_node(&mut self, ctx: NodeContext) -> Result<(), HnswError> {
+        if ctx.level > self.params.max_level() {
             return Err(HnswError::InvalidParameters {
                 reason: format!(
-                    "node {node}: level {level} exceeds max_level {}",
+                    "node {}: level {} exceeds max_level {}",
+                    ctx.node,
+                    ctx.level,
                     self.params.max_level()
                 ),
             });
         }
         let slot = self
             .nodes
-            .get_mut(node)
+            .get_mut(ctx.node)
             .ok_or_else(|| HnswError::InvalidParameters {
-                reason: format!("node {node} is outside pre-allocated capacity"),
+                reason: format!("node {} is outside pre-allocated capacity", ctx.node),
             })?;
         if slot.is_some() {
-            return Err(HnswError::DuplicateNode { node });
+            return Err(HnswError::DuplicateNode { node: ctx.node });
         }
-        *slot = Some(Node::new(level));
+        *slot = Some(NodeRecord::new(ctx.level, ctx.sequence));
         Ok(())
     }
 
@@ -208,11 +237,21 @@ impl Graph {
     }
 
     pub(crate) fn node(&self, id: usize) -> Option<&Node> {
-        self.nodes.get(id).and_then(Option::as_ref)
+        self.nodes
+            .get(id)
+            .and_then(|slot| slot.as_ref().map(NodeRecord::node))
     }
 
     pub(crate) fn node_mut(&mut self, id: usize) -> Option<&mut Node> {
-        self.nodes.get_mut(id).and_then(Option::as_mut)
+        self.nodes
+            .get_mut(id)
+            .and_then(|slot| slot.as_mut().map(NodeRecord::node_mut))
+    }
+
+    pub(crate) fn node_sequence(&self, id: usize) -> Option<u64> {
+        self.nodes
+            .get(id)
+            .and_then(|slot| slot.as_ref().map(|record| record.sequence))
     }
 
     pub(super) fn has_slot(&self, node: usize) -> bool {

@@ -8,7 +8,7 @@ use crate::{
     DataSource,
     hnsw::{
         CpuHnsw, HnswParams,
-        graph::{Graph, SearchContext},
+        graph::{Graph, NodeContext, SearchContext},
     },
 };
 
@@ -19,10 +19,34 @@ fn greedy_descent_selects_closest_neighbour() {
     let source = DummySource::new(vec![1.0, 0.8, 0.6, 0.0]);
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let mut graph = Graph::with_capacity(params, source.len());
-    graph.attach_node(0, 0).expect("attach entry");
-    graph.attach_node(1, 0).expect("attach neighbour one");
-    graph.attach_node(2, 0).expect("attach neighbour two");
-    graph.attach_node(3, 0).expect("attach query node");
+    graph
+        .attach_node(NodeContext {
+            node: 0,
+            level: 0,
+            sequence: 0,
+        })
+        .expect("attach entry");
+    graph
+        .attach_node(NodeContext {
+            node: 1,
+            level: 0,
+            sequence: 1,
+        })
+        .expect("attach neighbour one");
+    graph
+        .attach_node(NodeContext {
+            node: 2,
+            level: 0,
+            sequence: 2,
+        })
+        .expect("attach neighbour two");
+    graph
+        .attach_node(NodeContext {
+            node: 3,
+            level: 0,
+            sequence: 3,
+        })
+        .expect("attach query node");
     graph
         .node_mut(0)
         .expect("entry must exist")
@@ -36,7 +60,7 @@ fn greedy_descent_selects_closest_neighbour() {
     };
     let result = graph
         .searcher()
-        .greedy_search_layer(&source, ctx)
+        .greedy_search_layer(None, &source, ctx)
         .expect("search must succeed");
     assert_eq!(result, 2);
 }
@@ -47,10 +71,34 @@ fn layer_search_halts_on_equal_distance_candidates() {
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let mut graph = Graph::with_capacity(params, source.len());
 
-    graph.insert_first(1, 0).expect("seed entry point");
-    graph.attach_node(0, 0).expect("attach query node");
-    graph.attach_node(2, 0).expect("attach tie candidate");
-    graph.attach_node(3, 0).expect("attach hidden closer node");
+    graph
+        .insert_first(NodeContext {
+            node: 1,
+            level: 0,
+            sequence: 1,
+        })
+        .expect("seed entry point");
+    graph
+        .attach_node(NodeContext {
+            node: 0,
+            level: 0,
+            sequence: 0,
+        })
+        .expect("attach query node");
+    graph
+        .attach_node(NodeContext {
+            node: 2,
+            level: 0,
+            sequence: 2,
+        })
+        .expect("attach tie candidate");
+    graph
+        .attach_node(NodeContext {
+            node: 3,
+            level: 0,
+            sequence: 3,
+        })
+        .expect("attach hidden closer node");
 
     graph
         .node_mut(1)
@@ -77,7 +125,7 @@ fn layer_search_halts_on_equal_distance_candidates() {
 
     let neighbours = graph
         .searcher()
-        .search_layer(&source, ctx)
+        .search_layer(None, &source, ctx)
         .expect("layer search must succeed");
 
     assert_eq!(neighbours.len(), 1, "ef=1 should cap the result set");

@@ -5,6 +5,7 @@
 //! lock on the graph, and write access is limited to the mutation window when
 //! inserting a node.
 
+mod distance_cache;
 mod error;
 mod graph;
 mod insert;
@@ -15,6 +16,7 @@ mod types;
 mod validate;
 
 pub use self::{
+    distance_cache::DistanceCacheConfig,
     error::{HnswError, HnswErrorCode},
     params::HnswParams,
     types::Neighbour,
@@ -24,7 +26,7 @@ use std::{
     num::NonZeroUsize,
     sync::{
         Arc, Mutex, RwLock,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicU64, AtomicUsize, Ordering},
     },
 };
 
@@ -34,8 +36,9 @@ use rayon::{current_num_threads, current_thread_index, prelude::*};
 use crate::DataSource;
 
 use self::{
+    distance_cache::DistanceCache,
     graph::{ApplyContext, Graph, NodeContext, SearchContext},
-    insert::{TrimJob, TrimResult},
+    insert::{PlanningInputs, TrimJob, TrimResult},
     validate::{validate_batch_distances, validate_distance},
 };
 
@@ -46,6 +49,8 @@ pub struct CpuHnsw {
     graph: Arc<RwLock<Graph>>,
     rng: Mutex<SmallRng>,
     worker_rngs: Vec<Mutex<SmallRng>>,
+    distance_cache: DistanceCache,
+    next_sequence: AtomicU64,
     len: AtomicUsize,
 }
 
@@ -86,8 +91,18 @@ impl CpuHnsw {
         }
         let index = Self::with_capacity(params, items)?;
         let level = index.sample_level();
-        let node_ctx = NodeContext { node: 0, level };
-        validate_distance(source, node_ctx.node, node_ctx.node)?;
+        let sequence = index.allocate_sequence();
+        let node_ctx = NodeContext {
+            node: 0,
+            level,
+            sequence,
+        };
+        validate_distance(
+            Some(&index.distance_cache),
+            source,
+            node_ctx.node,
+            node_ctx.node,
+        )?;
         {
             let mut graph = index.graph.write().expect("graph lock poisoned");
             index.insert_initial(&mut graph, node_ctx)?;
@@ -116,12 +131,15 @@ impl CpuHnsw {
             })
             .collect();
 
+        let cache = DistanceCache::new(params.distance_cache_config().clone());
         let graph = Graph::with_capacity(params.clone(), capacity);
 
         Ok(Self {
             rng: Mutex::new(SmallRng::seed_from_u64(base_seed)),
             worker_rngs,
             graph: Arc::new(RwLock::new(graph)),
+            distance_cache: cache,
+            next_sequence: AtomicU64::new(0),
             len: AtomicUsize::new(0),
             params,
         })
@@ -130,16 +148,25 @@ impl CpuHnsw {
     /// Inserts a node into the graph, performing search under a shared lock.
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
         let level = self.sample_level();
-        let node_ctx = NodeContext { node, level };
+        let sequence = self.allocate_sequence();
+        let node_ctx = NodeContext {
+            node,
+            level,
+            sequence,
+        };
         if self.try_insert_initial(node_ctx, source)? {
             self.len.store(1, Ordering::Relaxed);
             return Ok(());
         }
 
+        let cache = &self.distance_cache;
         let plan = self.read_graph(|graph| {
-            graph
-                .insertion_planner()
-                .plan(node_ctx, &self.params, source)
+            graph.insertion_planner().plan(PlanningInputs {
+                ctx: node_ctx,
+                params: &self.params,
+                source,
+                cache: Some(cache),
+            })
         })?;
         let (prepared, trim_jobs) = self.write_graph(|graph| {
             let mut executor = graph.insertion_executor();
@@ -161,7 +188,7 @@ impl CpuHnsw {
     }
 
     fn insert_initial(&self, graph: &mut Graph, ctx: NodeContext) -> Result<(), HnswError> {
-        graph.insert_first(ctx.node, ctx.level)
+        graph.insert_first(ctx)
     }
 
     fn read_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> R {
@@ -188,7 +215,7 @@ impl CpuHnsw {
             return Ok(false);
         }
 
-        validate_distance(source, ctx.node, ctx.node)?;
+        validate_distance(Some(&self.distance_cache), source, ctx.node, ctx.node)?;
         self.write_graph(|graph| {
             if graph.entry().is_none() {
                 self.insert_initial(graph, ctx)?;
@@ -208,20 +235,50 @@ impl CpuHnsw {
             return Ok(Vec::new());
         }
 
+        use std::cmp::Ordering;
+
+        struct CandidateScore {
+            id: usize,
+            sequence: u64,
+            distance: f32,
+        }
+
+        impl CandidateScore {
+            fn cmp(&self, other: &Self) -> Ordering {
+                self.distance
+                    .total_cmp(&other.distance)
+                    .then(self.id.cmp(&other.id))
+                    .then(self.sequence.cmp(&other.sequence))
+            }
+        }
+
         trim_jobs
             .into_par_iter()
             .map(|job| {
-                validate_batch_distances(source, job.node, &job.candidates).map(|distances| {
-                    let mut scored: Vec<_> = job.candidates.into_iter().zip(distances).collect();
-                    // Stable sort preserves input order on ties, favouring the new node
-                    // positioned earlier by `prioritise_new_node`.
-                    // `Vec::sort_by` is stable, so equal distances retain the input order.
-                    scored.sort_by(|a, b| a.1.total_cmp(&b.1));
+                validate_batch_distances(
+                    Some(&self.distance_cache),
+                    source,
+                    job.node,
+                    &job.candidates,
+                )
+                .map(|distances| {
+                    let mut scored: Vec<_> = job
+                        .candidates
+                        .into_iter()
+                        .zip(job.sequences)
+                        .zip(distances)
+                        .map(|((id, sequence), distance)| CandidateScore {
+                            id,
+                            sequence,
+                            distance,
+                        })
+                        .collect();
+                    scored.sort_by(CandidateScore::cmp);
                     scored.truncate(job.ctx.max_connections);
                     TrimResult {
                         node: job.node,
                         ctx: job.ctx,
-                        neighbours: scored.into_iter().map(|(node, _)| node).collect(),
+                        neighbours: scored.into_iter().map(|score| score.id).collect(),
                     }
                 })
             })
@@ -270,6 +327,7 @@ impl CpuHnsw {
         let mut current = entry.node;
         for level in (1..=entry.level).rev() {
             current = searcher.greedy_search_layer(
+                Some(&self.distance_cache),
                 source,
                 SearchContext {
                     query,
@@ -279,6 +337,7 @@ impl CpuHnsw {
             )?;
         }
         searcher.search_layer(
+            Some(&self.distance_cache),
             source,
             SearchContext {
                 query,
@@ -302,6 +361,10 @@ impl CpuHnsw {
     #[must_use]
     #[rustfmt::skip]
     pub fn is_empty(&self) -> bool { self.len() == 0 }
+
+    fn allocate_sequence(&self) -> u64 {
+        self.next_sequence.fetch_add(1, Ordering::SeqCst)
+    }
 
     fn sample_level(&self) -> usize {
         if let Some(index) = current_thread_index() {

@@ -60,16 +60,58 @@ impl PartialOrd for Neighbour {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct RankedNeighbour {
+    pub(crate) neighbour: Neighbour,
+    pub(crate) sequence: u64,
+}
+
+impl RankedNeighbour {
+    pub(crate) fn new(id: usize, distance: f32, sequence: u64) -> Self {
+        Self {
+            neighbour: Neighbour { id, distance },
+            sequence,
+        }
+    }
+
+    pub(crate) fn into_neighbour(self) -> Neighbour {
+        self.neighbour
+    }
+}
+
+impl Eq for RankedNeighbour {}
+
+impl Ord for RankedNeighbour {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.neighbour
+            .distance
+            .partial_cmp(&other.neighbour.distance)
+            .unwrap_or(Ordering::Equal)
+            .then_with(|| self.neighbour.id.cmp(&other.neighbour.id))
+            .then_with(|| self.sequence.cmp(&other.sequence))
+    }
+}
+
+impl PartialOrd for RankedNeighbour {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct ReverseNeighbour {
-    pub(crate) inner: Neighbour,
+    pub(crate) inner: RankedNeighbour,
 }
 
 impl ReverseNeighbour {
-    pub(crate) fn new(id: usize, distance: f32) -> Self {
+    pub(crate) fn new(id: usize, distance: f32, sequence: u64) -> Self {
         Self {
-            inner: Neighbour { id, distance },
+            inner: RankedNeighbour::new(id, distance, sequence),
         }
+    }
+
+    pub(crate) fn from_ranked(neighbour: RankedNeighbour) -> Self {
+        Self { inner: neighbour }
     }
 }
 
@@ -79,16 +121,20 @@ impl Ord for ReverseNeighbour {
     fn cmp(&self, other: &Self) -> Ordering {
         other
             .inner
+            .neighbour
             .distance
-            .partial_cmp(&self.inner.distance)
+            .partial_cmp(&self.inner.neighbour.distance)
             .unwrap_or(Ordering::Equal)
-            .then_with(|| self.inner.id.cmp(&other.inner.id))
+            .then_with(|| self.inner.neighbour.id.cmp(&other.inner.neighbour.id))
+            .then_with(|| self.inner.sequence.cmp(&other.inner.sequence))
     }
 }
 
 impl PartialEq for ReverseNeighbour {
     fn eq(&self, other: &Self) -> bool {
-        self.inner.distance == other.inner.distance && self.inner.id == other.inner.id
+        self.inner.neighbour.distance == other.inner.neighbour.distance
+            && self.inner.neighbour.id == other.inner.neighbour.id
+            && self.inner.sequence == other.inner.sequence
     }
 }
 
