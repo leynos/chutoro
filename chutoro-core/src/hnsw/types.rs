@@ -48,8 +48,7 @@ impl Eq for Neighbour {}
 impl Ord for Neighbour {
     fn cmp(&self, other: &Self) -> Ordering {
         self.distance
-            .partial_cmp(&other.distance)
-            .unwrap_or(Ordering::Equal)
+            .total_cmp(&other.distance)
             .then_with(|| self.id.cmp(&other.id))
     }
 }

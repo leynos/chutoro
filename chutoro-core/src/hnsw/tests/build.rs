@@ -189,6 +189,11 @@ fn trimming_prefers_lower_id_on_distance_ties() -> Result<(), HnswError> {
         candidates: vec![2, 1],
         sequences: vec![2_u64, 1_u64],
     };
+    assert_eq!(
+        job.sequences.len(),
+        job.candidates.len(),
+        "sequences must align with candidates",
+    );
 
     let result = index
         .score_trim_jobs(vec![job], &DummySource::new(vec![0.0, 1.0, 1.0]))?

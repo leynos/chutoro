@@ -141,8 +141,7 @@ impl SearchNeighbour {
 
 fn compare_neighbours(left: &SearchNeighbour, right: &SearchNeighbour) -> std::cmp::Ordering {
     left.distance
-        .partial_cmp(&right.distance)
-        .unwrap_or(std::cmp::Ordering::Equal)
+        .total_cmp(&right.distance)
         .then_with(|| left.id.cmp(&right.id))
         .then_with(|| left.sequence.cmp(&right.sequence))
 }

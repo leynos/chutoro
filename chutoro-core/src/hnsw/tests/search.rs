@@ -7,7 +7,7 @@ use rstest::rstest;
 use crate::{
     DataSource,
     hnsw::{
-        CpuHnsw, HnswParams,
+        CpuHnsw, HnswError, HnswParams,
         graph::{Graph, NodeContext, SearchContext},
     },
 };
@@ -138,6 +138,58 @@ fn layer_search_halts_on_equal_distance_candidates() {
         neighbour.distance, 1.0,
         "entry distance defines the stopping bound for equal candidates",
     );
+}
+
+#[rstest]
+fn layer_search_orders_equal_distance_deterministically() -> Result<(), HnswError> {
+    let source = DummySource::new(vec![0.0, 1.0, 1.0, 1.0]);
+    let params = HnswParams::new(3, 4)?;
+    let mut graph = Graph::with_capacity(params, source.len());
+
+    graph
+        .insert_first(NodeContext {
+            node: 0,
+            level: 0,
+            sequence: 0,
+        })
+        .expect("seed entry point");
+
+    for (node, sequence) in [(1, 1_u64), (2, 2_u64), (3, 3_u64)] {
+        graph
+            .attach_node(NodeContext {
+                node,
+                level: 0,
+                sequence,
+            })
+            .expect("attach equidistant node");
+        graph
+            .node_mut(node)
+            .expect("node must exist")
+            .neighbours_mut(0)
+            .extend([0]);
+    }
+
+    graph
+        .node_mut(0)
+        .expect("entry must exist")
+        .neighbours_mut(0)
+        .extend([1, 2, 3]);
+
+    let ctx = SearchContext {
+        query: 0,
+        entry: 0,
+        level: 0,
+    }
+    .with_ef(3);
+
+    let neighbours = graph.searcher().search_layer(None, &source, ctx)?;
+    let ids: Vec<_> = neighbours
+        .into_iter()
+        .map(|neighbour| neighbour.id)
+        .collect();
+
+    assert_eq!(ids, vec![0, 1, 2], "ordering must remain stable under ties");
+    Ok(())
 }
 
 #[rstest]
