@@ -119,14 +119,7 @@ impl Eq for ReverseNeighbour {}
 
 impl Ord for ReverseNeighbour {
     fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .inner
-            .neighbour
-            .distance
-            .partial_cmp(&self.inner.neighbour.distance)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| self.inner.neighbour.id.cmp(&other.inner.neighbour.id))
-            .then_with(|| self.inner.sequence.cmp(&other.inner.sequence))
+        other.inner.cmp(&self.inner)
     }
 }
 
