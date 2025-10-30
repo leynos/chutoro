@@ -151,32 +151,9 @@ impl NeighbourSearchContext {
 }
 
 #[derive(Clone, Debug)]
-struct NodeRecord {
-    node: Node,
-    sequence: u64,
-}
-
-impl NodeRecord {
-    fn new(level: usize, sequence: u64) -> Self {
-        Self {
-            node: Node::new(level),
-            sequence,
-        }
-    }
-
-    fn node(&self) -> &Node {
-        &self.node
-    }
-
-    fn node_mut(&mut self) -> &mut Node {
-        &mut self.node
-    }
-}
-
-#[derive(Clone, Debug)]
 pub(crate) struct Graph {
     params: HnswParams,
-    nodes: Vec<Option<NodeRecord>>,
+    nodes: Vec<Option<Node>>,
     entry: Option<EntryPoint>,
 }
 
@@ -225,7 +202,7 @@ impl Graph {
         if slot.is_some() {
             return Err(HnswError::DuplicateNode { node: ctx.node });
         }
-        *slot = Some(NodeRecord::new(ctx.level, ctx.sequence));
+        *slot = Some(Node::new(ctx.level, ctx.sequence));
         Ok(())
     }
 
@@ -237,21 +214,15 @@ impl Graph {
     }
 
     pub(crate) fn node(&self, id: usize) -> Option<&Node> {
-        self.nodes
-            .get(id)
-            .and_then(|slot| slot.as_ref().map(NodeRecord::node))
+        self.nodes.get(id).and_then(Option::as_ref)
     }
 
     pub(crate) fn node_mut(&mut self, id: usize) -> Option<&mut Node> {
-        self.nodes
-            .get_mut(id)
-            .and_then(|slot| slot.as_mut().map(NodeRecord::node_mut))
+        self.nodes.get_mut(id).and_then(Option::as_mut)
     }
 
     pub(crate) fn node_sequence(&self, id: usize) -> Option<u64> {
-        self.nodes
-            .get(id)
-            .and_then(|slot| slot.as_ref().map(|record| record.sequence))
+        self.node(id).map(Node::sequence)
     }
 
     pub(super) fn has_slot(&self, node: usize) -> bool {

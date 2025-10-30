@@ -13,7 +13,7 @@ use super::{
     error::HnswError,
     graph::{ExtendedSearchContext, NeighbourSearchContext, SearchContext},
     node::Node,
-    types::{Neighbour, RankedNeighbour, ReverseNeighbour},
+    types::Neighbour,
     validate::{validate_batch_distances, validate_distance},
 };
 
@@ -22,31 +22,31 @@ use super::graph::Graph;
 #[derive(Debug)]
 struct SearchState {
     visited: HashSet<usize>,
-    candidates: BinaryHeap<ReverseNeighbour>,
-    best: BinaryHeap<RankedNeighbour>,
+    candidates: BinaryHeap<CandidateNeighbour>,
+    best: BinaryHeap<BestNeighbour>,
     discovered: HashSet<usize>,
 }
 
 impl SearchState {
-    fn new(entry: usize, distance: f32, sequence: u64) -> Self {
+    fn new(entry: SearchNeighbour) -> Self {
         // Fallback when `ef` is not available at the call-site.
-        Self::with_capacity(entry, distance, sequence, 64)
+        Self::with_capacity(entry, 64)
     }
 
-    fn with_capacity(entry: usize, distance: f32, sequence: u64, ef: usize) -> Self {
+    fn with_capacity(entry: SearchNeighbour, ef: usize) -> Self {
         let queue_capacity = ef.max(1);
         let set_capacity = queue_capacity.saturating_mul(4);
 
         let visited = HashSet::with_capacity(set_capacity);
 
         let mut candidates = BinaryHeap::with_capacity(queue_capacity);
-        candidates.push(ReverseNeighbour::new(entry, distance, sequence));
+        candidates.push(CandidateNeighbour(entry));
 
         let mut best = BinaryHeap::with_capacity(queue_capacity);
-        best.push(RankedNeighbour::new(entry, distance, sequence));
+        best.push(BestNeighbour(entry));
 
         let mut discovered = HashSet::with_capacity(set_capacity);
-        discovered.insert(entry);
+        discovered.insert(entry.id);
 
         Self {
             visited,
@@ -56,8 +56,10 @@ impl SearchState {
         }
     }
 
-    fn pop_candidate(&mut self) -> Option<ReverseNeighbour> {
-        self.candidates.pop()
+    fn pop_candidate(&mut self) -> Option<SearchNeighbour> {
+        self.candidates
+            .pop()
+            .map(|CandidateNeighbour(neighbour)| neighbour)
     }
 
     fn should_terminate(&self, ef: usize, candidate_distance: f32) -> bool {
@@ -67,7 +69,7 @@ impl SearchState {
 
         self.best
             .peek()
-            .is_some_and(|furthest| candidate_distance >= furthest.neighbour.distance)
+            .is_some_and(|BestNeighbour(furthest)| candidate_distance >= furthest.distance)
     }
 
     fn mark_processed(&mut self, candidate: usize) -> bool {
@@ -78,8 +80,8 @@ impl SearchState {
         self.discovered.insert(candidate)
     }
 
-    fn try_enqueue(&mut self, candidate: RankedNeighbour, ef: usize) {
-        let id = candidate.neighbour.id;
+    fn try_enqueue(&mut self, candidate: SearchNeighbour, ef: usize) {
+        let id = candidate.id;
         if self.visited.contains(&id) {
             return;
         }
@@ -87,14 +89,13 @@ impl SearchState {
             && self
                 .best
                 .peek()
-                .is_some_and(|furthest| candidate.neighbour.distance >= furthest.neighbour.distance)
+                .is_some_and(|BestNeighbour(furthest)| candidate.distance >= furthest.distance)
         {
             return;
         }
 
-        self.candidates
-            .push(ReverseNeighbour::from_ranked(candidate));
-        self.best.push(candidate);
+        self.candidates.push(CandidateNeighbour(candidate));
+        self.best.push(BestNeighbour(candidate));
         self.enforce_capacity(ef);
     }
 
@@ -105,25 +106,116 @@ impl SearchState {
     }
 
     fn finalise(self) -> Vec<Neighbour> {
-        let mut neighbours = self.best.into_vec();
+        let mut neighbours: Vec<_> = self.best.into_vec();
         neighbours.sort_unstable();
         neighbours
             .into_iter()
-            .map(RankedNeighbour::into_neighbour)
+            .map(|BestNeighbour(neighbour)| neighbour.into_public())
             .collect()
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SearchNeighbour {
+    id: usize,
+    distance: f32,
+    sequence: u64,
+}
+
+impl SearchNeighbour {
+    fn new(id: usize, distance: f32, sequence: u64) -> Self {
+        Self {
+            id,
+            distance,
+            sequence,
+        }
+    }
+
+    fn into_public(self) -> Neighbour {
+        Neighbour {
+            id: self.id,
+            distance: self.distance,
+        }
+    }
+}
+
+fn compare_neighbours(left: &SearchNeighbour, right: &SearchNeighbour) -> std::cmp::Ordering {
+    left.distance
+        .partial_cmp(&right.distance)
+        .unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| left.id.cmp(&right.id))
+        .then_with(|| left.sequence.cmp(&right.sequence))
+}
+
+#[derive(Clone, Copy, Debug)]
+struct CandidateNeighbour(SearchNeighbour);
+
+impl Eq for CandidateNeighbour {}
+
+impl PartialEq for CandidateNeighbour {
+    fn eq(&self, other: &Self) -> bool {
+        compare_neighbours(&self.0, &other.0) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Ord for CandidateNeighbour {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        compare_neighbours(&other.0, &self.0)
+    }
+}
+
+impl PartialOrd for CandidateNeighbour {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct BestNeighbour(SearchNeighbour);
+
+impl Eq for BestNeighbour {}
+
+impl PartialEq for BestNeighbour {
+    fn eq(&self, other: &Self) -> bool {
+        compare_neighbours(&self.0, &other.0) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Ord for BestNeighbour {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        compare_neighbours(&self.0, &other.0)
+    }
+}
+
+impl PartialOrd for BestNeighbour {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SearchInputs<'a, D: DataSource + Sync> {
+    cache: Option<&'a DistanceCache>,
+    source: &'a D,
+}
+
+impl<'a, D: DataSource + Sync> SearchInputs<'a, D> {
+    fn new(cache: Option<&'a DistanceCache>, source: &'a D) -> Self {
+        Self { cache, source }
+    }
+
+    fn validate_distance(&self, left: usize, right: usize) -> Result<f32, HnswError> {
+        validate_distance(self.cache, self.source, left, right)
+    }
+
+    fn validate_batch(&self, query: usize, candidates: &[usize]) -> Result<Vec<f32>, HnswError> {
+        validate_batch_distances(self.cache, self.source, query, candidates)
     }
 }
 
 #[derive(Debug)]
 pub(super) struct LayerSearcher<'graph> {
     graph: &'graph Graph,
-}
-
-struct NeighbourLookup<'a, D: DataSource + Sync> {
-    cache: Option<&'a DistanceCache>,
-    source: &'a D,
-    ctx: NeighbourSearchContext,
-    node: &'a Node,
 }
 
 impl<'graph> LayerSearcher<'graph> {
@@ -137,8 +229,9 @@ impl<'graph> LayerSearcher<'graph> {
         source: &D,
         ctx: SearchContext,
     ) -> Result<usize, HnswError> {
+        let inputs = SearchInputs::new(cache, source);
         let mut current = ctx.entry();
-        let mut current_dist = validate_distance(cache, source, ctx.query(), current)?;
+        let mut current_dist = inputs.validate_distance(ctx.query(), current)?;
         let mut improved = true;
         while improved {
             improved = false;
@@ -152,16 +245,11 @@ impl<'graph> LayerSearcher<'graph> {
             };
 
             let search_ctx = ctx.with_distance(current_dist);
-            let next = self.find_better_neighbour(NeighbourLookup {
-                cache,
-                source,
-                ctx: search_ctx,
-                node,
-            })?;
+            let next = self.find_better_neighbour(&inputs, search_ctx, node)?;
 
-            if let Some((next, next_dist)) = next {
-                current = next;
-                current_dist = next_dist;
+            if let Some(neighbour) = next {
+                current = neighbour.id;
+                current_dist = neighbour.distance;
                 improved = true;
             }
         }
@@ -170,21 +258,16 @@ impl<'graph> LayerSearcher<'graph> {
 
     fn find_better_neighbour<D: DataSource + Sync>(
         &self,
-        lookup: NeighbourLookup<'_, D>,
-    ) -> Result<Option<(usize, f32)>, HnswError> {
-        let NeighbourLookup {
-            cache,
-            source,
-            ctx,
-            node,
-        } = lookup;
-
+        inputs: &SearchInputs<'_, D>,
+        ctx: NeighbourSearchContext,
+        node: &Node,
+    ) -> Result<Option<SearchNeighbour>, HnswError> {
         let neighbours = node.neighbours(ctx.level());
         if neighbours.is_empty() {
             return Ok(None);
         }
 
-        let distances = validate_batch_distances(cache, source, ctx.query(), neighbours)?;
+        let distances = inputs.validate_batch(ctx.query(), neighbours)?;
         if let Some((best_id, best_dist)) = neighbours
             .iter()
             .copied()
@@ -192,11 +275,11 @@ impl<'graph> LayerSearcher<'graph> {
             .min_by(|a, b| a.1.total_cmp(&b.1))
         {
             if best_dist < ctx.current_dist {
-                self.sequence_or_invariant(
+                let sequence = self.sequence_or_invariant(
                     best_id,
                     format!("sequence missing for node {best_id} during greedy search"),
                 )?;
-                return Ok(Some((best_id, best_dist)));
+                return Ok(Some(SearchNeighbour::new(best_id, best_dist, sequence)));
             }
         }
         Ok(None)
@@ -214,37 +297,41 @@ impl<'graph> LayerSearcher<'graph> {
         source: &D,
         ctx: ExtendedSearchContext,
     ) -> Result<Vec<Neighbour>, HnswError> {
+        let inputs = SearchInputs::new(cache, source);
         let entry = ctx.entry();
-        let entry_dist = validate_distance(cache, source, ctx.query(), entry)?;
-        let entry_sequence =
-            self.graph
-                .node_sequence(entry)
-                .ok_or_else(|| HnswError::GraphInvariantViolation {
-                    message: format!("sequence missing for node {entry} during layer search"),
-                })?;
+        let entry_dist = inputs.validate_distance(ctx.query(), entry)?;
+        let entry_sequence = self
+            .graph
+            .node(entry)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: format!("sequence missing for node {entry} during layer search"),
+            })?
+            .sequence();
+
+        let entry_neighbour = SearchNeighbour::new(entry, entry_dist, entry_sequence);
 
         let mut state = if ctx.ef == 0 {
-            SearchState::new(entry, entry_dist, entry_sequence)
+            SearchState::new(entry_neighbour)
         } else {
-            SearchState::with_capacity(entry, entry_dist, entry_sequence, ctx.ef)
+            SearchState::with_capacity(entry_neighbour, ctx.ef)
         };
 
-        while let Some(ReverseNeighbour { inner }) = state.pop_candidate() {
-            if state.should_terminate(ctx.ef, inner.neighbour.distance) {
+        while let Some(candidate) = state.pop_candidate() {
+            if state.should_terminate(ctx.ef, candidate.distance) {
                 break;
             }
 
-            let Some(node) = self.graph.node(inner.neighbour.id) else {
+            let Some(node) = self.graph.node(candidate.id) else {
                 return Err(HnswError::GraphInvariantViolation {
                     message: format!(
                         "node {} missing during layer search at level {}",
-                        inner.neighbour.id,
+                        candidate.id,
                         ctx.level()
                     ),
                 });
             };
 
-            if !state.mark_processed(inner.neighbour.id) {
+            if !state.mark_processed(candidate.id) {
                 continue;
             }
 
@@ -258,13 +345,13 @@ impl<'graph> LayerSearcher<'graph> {
                 continue;
             }
 
-            let distances = validate_batch_distances(cache, source, ctx.query(), &fresh)?;
+            let distances = inputs.validate_batch(ctx.query(), &fresh)?;
             for (candidate, distance) in fresh.into_iter().zip(distances.into_iter()) {
                 let sequence = self.sequence_or_invariant(
                     candidate,
                     format!("sequence missing for node {candidate} during layer expansion"),
                 )?;
-                state.try_enqueue(RankedNeighbour::new(candidate, distance, sequence), ctx.ef);
+                state.try_enqueue(SearchNeighbour::new(candidate, distance, sequence), ctx.ef);
             }
         }
         Ok(state.finalise())

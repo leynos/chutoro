@@ -1,4 +1,12 @@
+//! Concurrent distance cache with sharded LRU bookkeeping for HNSW.
+//!
+//! Avoids recomputing distances across threads, exposes cache metrics, and
+//! enforces deterministic eviction even under high contention by hashing keys
+//! into fixed-capacity shards.
+
 use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
     num::NonZeroUsize,
     sync::Mutex,
     time::{Duration, Instant},
@@ -102,10 +110,26 @@ pub(crate) enum LookupOutcome {
     Miss(PendingMiss),
 }
 
+const DEFAULT_LRU_SHARDS: usize = 64;
+const TARGET_LRU_ENTRIES_PER_SHARD: usize = 4096;
+
+#[derive(Debug)]
+struct LruShard {
+    usage: Mutex<LruCache<DistanceKey, ()>>,
+}
+
+impl LruShard {
+    fn new(capacity: NonZeroUsize) -> Self {
+        Self {
+            usage: Mutex::new(LruCache::new(capacity)),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct DistanceCache {
     entries: DashMap<DistanceKey, CacheEntry>,
-    usage: Mutex<LruCache<DistanceKey, ()>>,
+    shards: Vec<LruShard>,
     config: DistanceCacheConfig,
 }
 
@@ -113,9 +137,11 @@ impl DistanceCache {
     pub(crate) fn new(config: DistanceCacheConfig) -> Self {
         let capacity = config.max_entries();
         let cap_usize = capacity.get();
+        let shard_capacities = lru_shard_capacities(cap_usize);
+        let shards = shard_capacities.into_iter().map(LruShard::new).collect();
         Self {
             entries: DashMap::with_capacity(cap_usize),
-            usage: Mutex::new(LruCache::new(capacity)),
+            shards,
             config,
         }
     }
@@ -193,7 +219,8 @@ impl DistanceCache {
     }
 
     fn touch(&self, key: &DistanceKey) {
-        let mut usage = self
+        let shard = self.shard_for_key(key);
+        let mut usage = shard
             .usage
             .lock()
             .expect("distance cache usage mutex poisoned");
@@ -204,9 +231,23 @@ impl DistanceCache {
     }
 
     fn remove_from_usage(&self, key: &DistanceKey) {
-        if let Ok(mut usage) = self.usage.lock() {
+        let shard = self.shard_for_key(key);
+        if let Ok(mut usage) = shard.usage.lock() {
             usage.pop(key);
         }
+    }
+
+    fn shard_for_key(&self, key: &DistanceKey) -> &LruShard {
+        let index = if self.shards.len() == 1 {
+            0
+        } else {
+            let mut hasher = DefaultHasher::new();
+            key.hash(&mut hasher);
+            (hasher.finish() as usize) % self.shards.len()
+        };
+        self.shards
+            .get(index)
+            .expect("distance cache shard index must be valid")
     }
 
     #[cfg(feature = "metrics")]
@@ -246,3 +287,21 @@ impl DistanceCache {
 }
 
 impl PendingMiss {}
+
+fn lru_shard_capacities(total_capacity: usize) -> Vec<NonZeroUsize> {
+    debug_assert!(total_capacity > 0, "total capacity must be non-zero");
+    let desired_shards = total_capacity.div_ceil(TARGET_LRU_ENTRIES_PER_SHARD);
+    let shard_count = desired_shards
+        .clamp(1, DEFAULT_LRU_SHARDS)
+        .min(total_capacity);
+    let base = total_capacity / shard_count;
+    let remainder = total_capacity % shard_count;
+
+    (0..shard_count)
+        .map(|index| {
+            let extra = usize::from(index < remainder);
+            let shard_capacity = base + extra;
+            NonZeroUsize::new(shard_capacity).expect("shard capacity must be non-zero")
+        })
+        .collect()
+}

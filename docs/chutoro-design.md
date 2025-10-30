@@ -735,8 +735,9 @@ added.
 A process-local `DistanceCache` now backs both search and trimming. The cache
 stores normalised `(min, max)` pairs keyed with the `MetricDescriptor` exposed
 by the data source, preventing cross-metric reuse. It uses a `DashMap` for
-concurrent lookups, wraps an `LruCache` in a `Mutex` to bound entries, and
-supports optional TTL-based expiry for workloads with extremely stale
+concurrent lookups and a set of sharded `LruCache`s behind `Mutex` guards to
+bound entries while avoiding a single hot lock under contention. Optional
+TTL-based expiry remains available for workloads with extremely stale
 distances. NaNs never enter the store: misses returning non-finite values log a
 `WARN` and bubble a `HnswError::NonFiniteDistance`. The cache publishes
 `distance_cache_hits`, `distance_cache_misses`, `distance_cache_evictions`, and
@@ -745,12 +746,12 @@ enabled, and the hot lookup paths are wrapped in `tracing` spans so production
 deployments can attribute latency spikes without sampling.
 
 Neighbour ordering now includes a deterministic tie-break: when distances
-match we order by node id and then by an insertion sequence counter stored
-alongside every `Node`. This rule stabilises candidate trimming and layer
-search under fixed RNG seeds even when the cache changes execution timing. The
-sequence numbers are assigned once per insertion and recorded inside the graph
-so property tests and deterministic builds see identical outcomes run after
-run.
+match, nodes are ordered by node id and then by an insertion sequence counter
+stored alongside every `Node`. This rule stabilises candidate trimming and
+layer search under fixed RNG seeds even when the cache changes execution
+timing. The sequence numbers are assigned once per insertion and recorded
+inside the graph so property tests and deterministic builds see identical
+outcomes run after run.
 
 #### 6.2. Algorithmic Implementation Sketch
 
