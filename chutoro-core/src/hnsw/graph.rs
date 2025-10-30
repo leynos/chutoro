@@ -9,10 +9,17 @@ use super::{
     types::{EntryPoint, InsertionPlan},
 };
 
+/// Context for attaching or inserting a node into the HNSW graph.
+///
+/// The insertion `sequence` is used for deterministic neighbour ordering and
+/// trimming when distances and identifiers coincide.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NodeContext {
+    /// Identifier of the node slot being initialised.
     pub(crate) node: usize,
+    /// Highest level assigned to the node within the hierarchy.
     pub(crate) level: usize,
+    /// Monotonic insertion sequence for deterministic tie-breaking.
     pub(crate) sequence: u64,
 }
 

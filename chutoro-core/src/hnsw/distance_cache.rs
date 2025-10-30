@@ -134,6 +134,8 @@ pub(crate) struct DistanceCache {
 }
 
 impl DistanceCache {
+    /// Builds a cache using the supplied configuration for capacity and
+    /// optional time-to-live limits.
     pub(crate) fn new(config: DistanceCacheConfig) -> Self {
         let capacity = config.max_entries();
         let cap_usize = capacity.get();
@@ -286,7 +288,7 @@ impl DistanceCache {
     fn record_lookup_latency(&self, _elapsed: Duration) {}
 }
 
-impl PendingMiss {}
+// no inherent methods on PendingMiss
 
 fn lru_shard_capacities(total_capacity: usize) -> Vec<NonZeroUsize> {
     debug_assert!(total_capacity > 0, "total capacity must be non-zero");

@@ -274,10 +274,7 @@ impl<'graph> LayerSearcher<'graph> {
             .min_by(|a, b| a.1.total_cmp(&b.1))
         {
             if best_dist < ctx.current_dist {
-                let sequence = self.sequence_or_invariant(
-                    best_id,
-                    format!("sequence missing for node {best_id} during greedy search"),
-                )?;
+                let sequence = self.sequence_for_node(best_id, "greedy search")?;
                 return Ok(Some(SearchNeighbour::new(best_id, best_dist, sequence)));
             }
         }
@@ -290,6 +287,13 @@ impl<'graph> LayerSearcher<'graph> {
             .ok_or(HnswError::GraphInvariantViolation { message })
     }
 
+    fn sequence_for_node(&self, node: usize, context: &str) -> Result<u64, HnswError> {
+        self.sequence_or_invariant(
+            node,
+            format!("sequence missing for node {node} during {context}"),
+        )
+    }
+
     pub(super) fn search_layer<D: DataSource + Sync>(
         &self,
         cache: Option<&DistanceCache>,
@@ -299,13 +303,7 @@ impl<'graph> LayerSearcher<'graph> {
         let inputs = SearchInputs::new(cache, source);
         let entry = ctx.entry();
         let entry_dist = inputs.validate_distance(ctx.query(), entry)?;
-        let entry_sequence = self
-            .graph
-            .node(entry)
-            .ok_or_else(|| HnswError::GraphInvariantViolation {
-                message: format!("sequence missing for node {entry} during layer search"),
-            })?
-            .sequence();
+        let entry_sequence = self.sequence_for_node(entry, "layer search")?;
 
         let entry_neighbour = SearchNeighbour::new(entry, entry_dist, entry_sequence);
 
@@ -346,10 +344,7 @@ impl<'graph> LayerSearcher<'graph> {
 
             let distances = inputs.validate_batch(ctx.query(), &fresh)?;
             for (candidate, distance) in fresh.into_iter().zip(distances.into_iter()) {
-                let sequence = self.sequence_or_invariant(
-                    candidate,
-                    format!("sequence missing for node {candidate} during layer expansion"),
-                )?;
+                let sequence = self.sequence_for_node(candidate, "layer expansion")?;
                 state.try_enqueue(SearchNeighbour::new(candidate, distance, sequence), ctx.ef);
             }
         }
