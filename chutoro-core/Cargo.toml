@@ -6,7 +6,7 @@ rust-version = "1.85"
 
 [features]
 default = ["cpu"]
-cpu = ["dep:rand", "dep:rayon"]
+cpu = ["dep:rand", "dep:rayon", "dep:dashmap", "dep:lru"]
 metrics = ["dep:metrics"]
 skeleton = []
 gpu = []
@@ -16,8 +16,8 @@ features = ["skeleton", "gpu"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-dashmap = "6.1.0"
-lru = "0.12.3"
+dashmap = { version = "6.1.0", optional = true }
+lru = { version = "0.12.3", optional = true }
 metrics = { version = "0.24.0", optional = true }
 rand = { version = "0.8.5", features = ["small_rng"], optional = true }
 rayon = { version = "1.10.0", optional = true }
