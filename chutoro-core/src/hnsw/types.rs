@@ -49,7 +49,7 @@ impl Ord for Neighbour {
     fn cmp(&self, other: &Self) -> Ordering {
         self.distance
             .total_cmp(&other.distance)
-            .then_with(|| self.id.cmp(&other.id))
+            .then(self.id.cmp(&other.id))
     }
 }
 
@@ -90,7 +90,7 @@ impl RankedNeighbour {
     pub(crate) fn compare(&self, other: &Self) -> Ordering {
         self.inner
             .cmp(&other.inner)
-            .then_with(|| self.sequence.cmp(&other.sequence))
+            .then(self.sequence.cmp(&other.sequence))
     }
 }
 
@@ -110,6 +110,6 @@ impl Ord for RankedNeighbour {
 
 impl PartialOrd for RankedNeighbour {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(std::cmp::Ord::cmp(self, other))
+        Some(self.cmp(other))
     }
 }
