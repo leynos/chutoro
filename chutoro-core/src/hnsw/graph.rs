@@ -26,7 +26,7 @@ pub(crate) struct NodeContext {
 /// Context for connecting edges during insertion and trimming.
 ///
 /// Encapsulates the layer level targeted by the operation alongside the
-/// connection bound applied when selecting neighbours.
+/// connection bounds applied when selecting neighbours.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EdgeContext {
     /// Layer level for the edge operation.

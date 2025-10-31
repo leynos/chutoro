@@ -53,6 +53,22 @@ impl DistanceCacheConfig {
         self
     }
 
+    /// Updates the maximum number of cached entries retained before eviction.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use chutoro_core::DistanceCacheConfig;
+    /// use std::num::NonZeroUsize;
+    ///
+    /// let config = DistanceCacheConfig::default()
+    ///     .with_max_entries(NonZeroUsize::new(2).unwrap());
+    /// assert_eq!(config.max_entries().get(), 2);
+    /// ```
+    pub fn with_max_entries(mut self, max: NonZeroUsize) -> Self {
+        self.max_entries = max;
+        self
+    }
+
     /// Returns the maximum number of cached distances retained before eviction.
     pub fn max_entries(&self) -> NonZeroUsize {
         self.max_entries
@@ -136,6 +152,21 @@ pub(crate) struct DistanceCache {
 impl DistanceCache {
     /// Builds a cache using the supplied configuration for capacity and
     /// optional time-to-live limits.
+    ///
+    /// Entries are evicted when the configured maximum is exceeded or their
+    /// time-to-live expires.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use chutoro_core::DistanceCacheConfig;
+    /// use chutoro_core::hnsw::distance_cache::DistanceCache;
+    /// use std::num::NonZeroUsize;
+    ///
+    /// let config = DistanceCacheConfig::new(NonZeroUsize::new(4).unwrap());
+    /// let cache = DistanceCache::new(config.clone());
+    /// assert_eq!(config.max_entries().get(), 4);
+    /// let _ = cache;
+    /// ```
     pub(crate) fn new(config: DistanceCacheConfig) -> Self {
         let capacity = config.max_entries();
         let cap_usize = capacity.get();

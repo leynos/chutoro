@@ -183,7 +183,8 @@ struct BestNeighbour(SearchNeighbour);
 
 impl_neighbour_wrapper!(BestNeighbour, compare_neighbours);
 
-/// Bundles the optional distance cache and data source used during search.
+/// Bundles the optional distance cache and data source used to validate
+/// distances during search.
 #[derive(Clone, Copy, Debug)]
 struct SearchInputs<'a, D: DataSource + Sync> {
     cache: Option<&'a DistanceCache>,

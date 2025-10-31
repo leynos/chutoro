@@ -16,6 +16,47 @@ pub(crate) struct InsertionPlanner<'graph> {
     graph: &'graph Graph,
 }
 
+/// Inputs required to plan an insertion without mutating the graph.
+///
+/// Provide the node context, HNSW parameters, the data source, and an optional
+/// distance cache used for greedy descent and layer searches.
+///
+/// # Examples
+/// ```rust,ignore
+/// use chutoro_core::hnsw::{DistanceCacheConfig, HnswParams};
+/// use chutoro_core::hnsw::graph::NodeContext;
+/// use chutoro_core::hnsw::insert::planner::PlanningInputs;
+/// use chutoro_core::DataSource;
+/// use std::num::NonZeroUsize;
+///
+/// struct DummySource;
+///
+/// impl DataSource for DummySource {
+///     fn len(&self) -> usize { 1 }
+///     fn name(&self) -> &str { "dummy" }
+///     fn distance(&self, _: usize, _: usize) -> Result<f32, chutoro_core::DataSourceError> {
+///         Ok(0.0)
+///     }
+///     fn batch_distances(&self, _: usize, _: &[usize]) -> Result<Vec<f32>, chutoro_core::DataSourceError> {
+///         Ok(vec![0.0])
+///     }
+///     fn metric_descriptor(&self) -> chutoro_core::MetricDescriptor {
+///         chutoro_core::MetricDescriptor::new("dummy")
+///     }
+/// }
+///
+/// let params = HnswParams::new(8, 16).unwrap()
+///     .with_distance_cache_config(DistanceCacheConfig::new(NonZeroUsize::new(128).unwrap()));
+/// let ctx = NodeContext { node: 0, level: 0, sequence: 0 };
+/// let source = DummySource;
+/// let inputs = PlanningInputs {
+///     ctx,
+///     params: &params,
+///     source: &source,
+///     cache: None,
+/// };
+/// assert_eq!(inputs.ctx.node, 0);
+/// ```
 #[derive(Clone, Copy)]
 pub(crate) struct PlanningInputs<'a, D: DataSource + Sync> {
     pub(crate) ctx: NodeContext,

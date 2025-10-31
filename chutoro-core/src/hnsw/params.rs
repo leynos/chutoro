@@ -82,7 +82,7 @@ impl HnswParams {
     /// Overrides the maximum number of cached distances.
     #[must_use]
     pub fn with_distance_cache_max_entries(mut self, max: NonZeroUsize) -> Self {
-        self.distance_cache = DistanceCacheConfig::new(max).with_ttl(self.distance_cache.ttl());
+        self.distance_cache = self.distance_cache.clone().with_max_entries(max);
         self
     }
 

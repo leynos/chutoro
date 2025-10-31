@@ -80,7 +80,7 @@ fn lru_eviction_discards_oldest_entry() {
 #[rstest]
 fn ttl_expiry_forces_refresh() {
     let config = DistanceCacheConfig::new(NonZeroUsize::new(2).expect("capacity"))
-        .with_ttl(Some(Duration::from_millis(1)));
+        .with_ttl(Some(Duration::from_millis(20)));
     let cache = DistanceCache::new(config);
     let metric = MetricDescriptor::new("ttl");
 
@@ -92,11 +92,30 @@ fn ttl_expiry_forces_refresh() {
         .complete_miss(miss, 4.2)
         .expect("completing miss must succeed");
 
-    thread::sleep(Duration::from_millis(5));
+    thread::sleep(Duration::from_millis(100));
 
     match cache.begin_lookup(&metric, 1, 2) {
         LookupOutcome::Hit(_) => panic!("entry should expire after TTL"),
         LookupOutcome::Miss(_) => {}
+    }
+}
+
+#[rstest]
+fn normalises_pair_order() {
+    let cache = cache_with_capacity(2);
+    let metric = MetricDescriptor::new("sym");
+
+    let miss = match cache.begin_lookup(&metric, 7, 3) {
+        LookupOutcome::Miss(miss) => miss,
+        _ => unreachable!(),
+    };
+    cache
+        .complete_miss(miss, 1.23)
+        .expect("completing miss must succeed");
+
+    match cache.begin_lookup(&metric, 3, 7) {
+        LookupOutcome::Hit(value) => assert_eq!(value, 1.23),
+        _ => panic!("normalised (a,b) must hit for (b,a)"),
     }
 }
 
