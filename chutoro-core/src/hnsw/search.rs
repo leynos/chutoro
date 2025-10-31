@@ -146,52 +146,44 @@ fn compare_neighbours(left: &SearchNeighbour, right: &SearchNeighbour) -> std::c
         .then_with(|| left.sequence.cmp(&right.sequence))
 }
 
+macro_rules! impl_neighbour_wrapper {
+    ($name:ident, $cmp:expr) => {
+        impl Eq for $name {}
+
+        impl PartialEq for $name {
+            fn eq(&self, other: &Self) -> bool {
+                $cmp(&self.0, &other.0) == std::cmp::Ordering::Equal
+            }
+        }
+
+        impl Ord for $name {
+            fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+                $cmp(&self.0, &other.0)
+            }
+        }
+
+        impl PartialOrd for $name {
+            fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+                Some(self.cmp(other))
+            }
+        }
+    };
+}
+
 #[derive(Clone, Copy, Debug)]
 struct CandidateNeighbour(SearchNeighbour);
 
-impl Eq for CandidateNeighbour {}
-
-impl PartialEq for CandidateNeighbour {
-    fn eq(&self, other: &Self) -> bool {
-        compare_neighbours(&self.0, &other.0) == std::cmp::Ordering::Equal
-    }
-}
-
-impl Ord for CandidateNeighbour {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        compare_neighbours(&other.0, &self.0)
-    }
-}
-
-impl PartialOrd for CandidateNeighbour {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
+impl_neighbour_wrapper!(
+    CandidateNeighbour,
+    |left: &SearchNeighbour, right: &SearchNeighbour| { compare_neighbours(right, left) }
+);
 
 #[derive(Clone, Copy, Debug)]
 struct BestNeighbour(SearchNeighbour);
 
-impl Eq for BestNeighbour {}
+impl_neighbour_wrapper!(BestNeighbour, compare_neighbours);
 
-impl PartialEq for BestNeighbour {
-    fn eq(&self, other: &Self) -> bool {
-        compare_neighbours(&self.0, &other.0) == std::cmp::Ordering::Equal
-    }
-}
-
-impl Ord for BestNeighbour {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        compare_neighbours(&self.0, &other.0)
-    }
-}
-
-impl PartialOrd for BestNeighbour {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
+/// Bundles the optional distance cache and data source used during search.
 #[derive(Clone, Copy, Debug)]
 struct SearchInputs<'a, D: DataSource + Sync> {
     cache: Option<&'a DistanceCache>,
@@ -199,14 +191,17 @@ struct SearchInputs<'a, D: DataSource + Sync> {
 }
 
 impl<'a, D: DataSource + Sync> SearchInputs<'a, D> {
+    /// Creates a new wrapper around the cache and data source used by search.
     fn new(cache: Option<&'a DistanceCache>, source: &'a D) -> Self {
         Self { cache, source }
     }
 
+    /// Validates and returns the distance between two nodes.
     fn validate_distance(&self, left: usize, right: usize) -> Result<f32, HnswError> {
         validate_distance(self.cache, self.source, left, right)
     }
 
+    /// Validates and returns the distances from the query node to candidates.
     fn validate_batch(&self, query: usize, candidates: &[usize]) -> Result<Vec<f32>, HnswError> {
         validate_batch_distances(self.cache, self.source, query, candidates)
     }

@@ -23,9 +23,15 @@ pub(crate) struct NodeContext {
     pub(crate) sequence: u64,
 }
 
+/// Context for connecting edges during insertion and trimming.
+///
+/// Encapsulates the layer level targeted by the operation alongside the
+/// connection bound applied when selecting neighbours.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct EdgeContext {
+    /// Layer level for the edge operation.
     pub(crate) level: usize,
+    /// Maximum number of connections permitted at this level.
     pub(crate) max_connections: usize,
 }
 
