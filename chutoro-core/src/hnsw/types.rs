@@ -58,3 +58,58 @@ impl PartialOrd for Neighbour {
         Some(self.cmp(other))
     }
 }
+
+/// Internal wrapper retaining deterministic ordering metadata for neighbour
+/// comparisons.
+///
+/// # Examples
+/// ```rust,ignore
+/// use chutoro_core::hnsw::types::RankedNeighbour;
+///
+/// let ranked = RankedNeighbour::new(4, 0.5, 7);
+/// assert_eq!(ranked.into_neighbour().id, 4);
+/// ```
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RankedNeighbour {
+    inner: Neighbour,
+    sequence: u64,
+}
+
+impl RankedNeighbour {
+    pub(crate) fn new(id: usize, distance: f32, sequence: u64) -> Self {
+        Self {
+            inner: Neighbour { id, distance },
+            sequence,
+        }
+    }
+
+    pub(crate) fn into_neighbour(self) -> Neighbour {
+        self.inner
+    }
+
+    pub(crate) fn compare(&self, other: &Self) -> Ordering {
+        self.inner
+            .cmp(&other.inner)
+            .then_with(|| self.sequence.cmp(&other.sequence))
+    }
+}
+
+impl Eq for RankedNeighbour {}
+
+impl PartialEq for RankedNeighbour {
+    fn eq(&self, other: &Self) -> bool {
+        self.compare(other) == Ordering::Equal
+    }
+}
+
+impl Ord for RankedNeighbour {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.compare(other)
+    }
+}
+
+impl PartialOrd for RankedNeighbour {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(std::cmp::Ord::cmp(self, other))
+    }
+}

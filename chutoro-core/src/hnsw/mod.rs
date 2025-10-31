@@ -39,6 +39,7 @@ use self::{
     distance_cache::DistanceCache,
     graph::{ApplyContext, Graph, NodeContext, SearchContext},
     insert::{PlanningInputs, TrimJob, TrimResult},
+    types::RankedNeighbour,
     validate::{validate_batch_distances, validate_distance},
 };
 
@@ -235,51 +236,30 @@ impl CpuHnsw {
             return Ok(Vec::new());
         }
 
-        use std::cmp::Ordering;
-
-        struct CandidateScore {
-            id: usize,
-            sequence: u64,
-            distance: f32,
-        }
-
-        impl CandidateScore {
-            fn cmp(&self, other: &Self) -> Ordering {
-                self.distance
-                    .total_cmp(&other.distance)
-                    .then(self.id.cmp(&other.id))
-                    .then(self.sequence.cmp(&other.sequence))
-            }
-        }
-
         trim_jobs
             .into_par_iter()
-            .map(|job| {
-                validate_batch_distances(
+            .map(|job| -> Result<TrimResult, HnswError> {
+                let distances = validate_batch_distances(
                     Some(&self.distance_cache),
                     source,
                     job.node,
                     &job.candidates,
-                )
-                .map(|distances| {
-                    let mut scored: Vec<_> = job
-                        .candidates
+                )?;
+                let mut scored = Vec::with_capacity(job.candidates.len());
+                for ((id, sequence), distance) in
+                    job.candidates.into_iter().zip(job.sequences).zip(distances)
+                {
+                    scored.push(RankedNeighbour::new(id, distance, sequence));
+                }
+                scored.sort_unstable();
+                scored.truncate(job.ctx.max_connections);
+                Ok(TrimResult {
+                    node: job.node,
+                    ctx: job.ctx,
+                    neighbours: scored
                         .into_iter()
-                        .zip(job.sequences)
-                        .zip(distances)
-                        .map(|((id, sequence), distance)| CandidateScore {
-                            id,
-                            sequence,
-                            distance,
-                        })
-                        .collect();
-                    scored.sort_by(CandidateScore::cmp);
-                    scored.truncate(job.ctx.max_connections);
-                    TrimResult {
-                        node: job.node,
-                        ctx: job.ctx,
-                        neighbours: scored.into_iter().map(|score| score.id).collect(),
-                    }
+                        .map(|neighbour| neighbour.into_neighbour().id)
+                        .collect(),
                 })
             })
             .collect::<Result<Vec<_>, HnswError>>()
@@ -363,7 +343,7 @@ impl CpuHnsw {
     pub fn is_empty(&self) -> bool { self.len() == 0 }
 
     fn allocate_sequence(&self) -> u64 {
-        self.next_sequence.fetch_add(1, Ordering::SeqCst)
+        self.next_sequence.fetch_add(1, Ordering::Relaxed)
     }
 
     fn sample_level(&self) -> usize {
