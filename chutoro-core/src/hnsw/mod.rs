@@ -132,7 +132,7 @@ impl CpuHnsw {
             })
             .collect();
 
-        let cache = DistanceCache::new(params.distance_cache_config().clone());
+        let cache = DistanceCache::new(*params.distance_cache_config());
         let graph = Graph::with_capacity(params.clone(), capacity);
 
         Ok(Self {

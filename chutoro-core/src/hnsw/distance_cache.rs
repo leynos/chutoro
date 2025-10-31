@@ -29,7 +29,7 @@ use crate::{datasource::MetricDescriptor, hnsw::error::HnswError};
 ///     .with_ttl(None);
 /// assert_eq!(config.max_entries().get(), 1024);
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct DistanceCacheConfig {
     max_entries: NonZeroUsize,
     ttl: Option<Duration>,
@@ -48,6 +48,7 @@ impl DistanceCacheConfig {
     }
 
     /// Sets an optional time-to-live applied to cached entries.
+    #[must_use]
     pub fn with_ttl(mut self, ttl: Option<Duration>) -> Self {
         self.ttl = ttl;
         self
@@ -64,6 +65,7 @@ impl DistanceCacheConfig {
     ///     .with_max_entries(NonZeroUsize::new(2).unwrap());
     /// assert_eq!(config.max_entries().get(), 2);
     /// ```
+    #[must_use]
     pub fn with_max_entries(mut self, max: NonZeroUsize) -> Self {
         self.max_entries = max;
         self
