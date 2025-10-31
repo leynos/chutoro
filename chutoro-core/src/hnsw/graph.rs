@@ -234,6 +234,31 @@ impl Graph {
         self.nodes.get_mut(id).and_then(Option::as_mut)
     }
 
+    /// Retrieves the insertion sequence assigned to a node for deterministic
+    /// neighbour ordering.
+    ///
+    /// Returns `None` when the node slot has not been initialised or the
+    /// identifier exceeds the allocated capacity.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use chutoro_core::hnsw::{
+    ///     graph::{Graph, NodeContext},
+    ///     params::HnswParams,
+    /// };
+    ///
+    /// let params = HnswParams::new(8, 16).expect("params");
+    /// let mut graph = Graph::with_capacity(params, 2);
+    /// graph
+    ///     .insert_first(NodeContext {
+    ///         node: 0,
+    ///         level: 0,
+    ///         sequence: 7,
+    ///     })
+    ///     .expect("insert first node");
+    /// assert_eq!(graph.node_sequence(0), Some(7));
+    /// assert_eq!(graph.node_sequence(1), None);
+    /// ```
     pub(crate) fn node_sequence(&self, id: usize) -> Option<u64> {
         self.node(id).map(Node::sequence)
     }

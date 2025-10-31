@@ -115,6 +115,8 @@ impl SearchState {
     }
 }
 
+/// Internal representation of a neighbour encountered during search enriched
+/// with an insertion sequence for deterministic tie-breaking.
 #[derive(Clone, Copy, Debug)]
 struct SearchNeighbour {
     id: usize,
@@ -123,6 +125,15 @@ struct SearchNeighbour {
 }
 
 impl SearchNeighbour {
+    /// Builds a neighbour snapshot used by the search queues.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use chutoro_core::hnsw::search::SearchNeighbour;
+    ///
+    /// let neighbour = SearchNeighbour::new(5, 0.42, 7);
+    /// assert_eq!(neighbour.id, 5);
+    /// ```
     fn new(id: usize, distance: f32, sequence: u64) -> Self {
         Self {
             id,
@@ -131,6 +142,16 @@ impl SearchNeighbour {
         }
     }
 
+    /// Converts the search neighbour into the public [`Neighbour`] type.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use chutoro_core::hnsw::search::SearchNeighbour;
+    ///
+    /// let neighbour = SearchNeighbour::new(1, 0.1, 2);
+    /// let public = neighbour.into_public();
+    /// assert_eq!(public.id, 1);
+    /// ```
     fn into_public(self) -> Neighbour {
         Neighbour {
             id: self.id,

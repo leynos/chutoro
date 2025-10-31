@@ -10,6 +10,23 @@ use crate::hnsw::{
 };
 
 /// Captures the neighbour candidates for a node that may require trimming.
+///
+/// Each candidate has a corresponding insertion sequence used to implement the
+/// deterministic tie-break when trimming applies.
+///
+/// # Examples
+/// ```rust,ignore
+/// use chutoro_core::hnsw::insert::executor::{EdgeContext, TrimJob};
+///
+/// let ctx = EdgeContext { level: 0, max_connections: 2 };
+/// let job = TrimJob {
+///     node: 1,
+///     ctx,
+///     candidates: vec![2, 3],
+///     sequences: vec![4, 5],
+/// };
+/// assert_eq!(job.candidates.len(), job.sequences.len());
+/// ```
 #[derive(Clone, Debug)]
 pub(crate) struct TrimJob {
     pub(crate) node: usize,
@@ -206,12 +223,16 @@ impl<'graph> InsertionExecutor<'graph> {
             }
             if needs_trim.contains(&(other, lvl)) {
                 let reordered = candidates.clone();
-                let seq_copy = sequences.clone();
+                debug_assert_eq!(
+                    reordered.len(),
+                    sequences.len(),
+                    "trim job sequences must align with candidates",
+                );
                 trim_jobs.push(TrimJob {
                     node: other,
                     ctx,
                     candidates: reordered,
-                    sequences: seq_copy,
+                    sequences,
                 });
             }
             updates.push(StagedUpdate {
