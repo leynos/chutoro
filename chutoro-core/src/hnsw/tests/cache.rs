@@ -100,6 +100,8 @@ fn ttl_expiry_forces_refresh() {
     }
 }
 
+/// Ensures cache lookups hit regardless of the operand ordering, verifying key
+/// normalisation for symmetric distance metrics.
 #[rstest]
 fn normalises_pair_order() {
     let cache = cache_with_capacity(2);

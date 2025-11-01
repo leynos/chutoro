@@ -79,7 +79,8 @@ impl HnswParams {
         self
     }
 
-    /// Overrides the maximum number of cached distances.
+    /// Overrides the maximum number of cached distances while preserving the
+    /// existing cache time-to-live.
     #[must_use]
     pub fn with_distance_cache_max_entries(mut self, max: NonZeroUsize) -> Self {
         self.distance_cache = self.distance_cache.with_max_entries(max);
