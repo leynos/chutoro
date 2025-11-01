@@ -108,8 +108,12 @@ impl Ord for RankedNeighbour {
     }
 }
 
+#[expect(
+    clippy::non_canonical_partial_ord_impl,
+    reason = "Reviewer requested direct delegation to compare()"
+)]
 impl PartialOrd for RankedNeighbour {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+        Some(self.compare(other))
     }
 }
