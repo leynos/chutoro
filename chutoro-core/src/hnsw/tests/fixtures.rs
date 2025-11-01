@@ -45,13 +45,3 @@ pub(super) fn assert_sorted_by_distance(neighbours: &[Neighbour]) {
         }
     }
 }
-
-pub(super) fn new_node_counterpart(left: usize, right: usize, new_node: usize) -> Option<usize> {
-    if left == new_node {
-        Some(right)
-    } else if right == new_node {
-        Some(left)
-    } else {
-        None
-    }
-}

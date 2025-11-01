@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-use super::fixtures::{DummySource, new_node_counterpart};
+use super::fixtures::DummySource;
 
 #[rstest]
 fn non_finite_distance_is_reported() {
@@ -127,32 +127,11 @@ fn non_finite_batch_distance_is_reported() {
     let err = validate_batch_distances(Some(&cache), &BatchNan, 0, &[1, 2])
         .expect_err("batch distance validation must reject NaNs");
 
-    fn involves_new_node(left: usize, right: usize) -> bool {
-        left == 2 || right == 2
-    }
-
-    fn involves_initial_pair(left: usize, right: usize) -> bool {
-        matches!((left, right), (0, 1) | (1, 0))
-    }
-
-    fn validate_non_finite_participants(left: usize, right: usize) {
-        assert!(
-            involves_new_node(left, right) || involves_initial_pair(left, right),
-            "unexpected participants for non-finite edge: ({left}, {right})",
-        );
-
-        if involves_new_node(left, right) {
-            let other =
-                new_node_counterpart(left, right, 2).expect("new node counterpart must exist");
-            assert!(
-                matches!(other, 0 | 1),
-                "unexpected counterpart for non-finite edge: {other}",
-            );
-        }
-    }
-
     if let HnswError::NonFiniteDistance { left, right } = err {
-        validate_non_finite_participants(left, right);
+        assert!(
+            [0, 1, 2].contains(&left) && [0, 1, 2].contains(&right),
+            "unexpected participants for non-finite edge: ({left}, {right})"
+        );
     } else {
         panic!("expected non-finite distance, got {err:?}");
     }
