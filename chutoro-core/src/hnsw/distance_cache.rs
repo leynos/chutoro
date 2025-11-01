@@ -267,9 +267,11 @@ impl DistanceCache {
 
     fn remove_from_usage(&self, key: &DistanceKey) {
         let shard = self.shard_for_key(key);
-        if let Ok(mut usage) = shard.usage.lock() {
-            usage.pop(key);
-        }
+        let mut usage = shard
+            .usage
+            .lock()
+            .expect("distance cache usage mutex poisoned");
+        usage.pop(key);
     }
 
     fn shard_for_key(&self, key: &DistanceKey) -> &LruShard {
