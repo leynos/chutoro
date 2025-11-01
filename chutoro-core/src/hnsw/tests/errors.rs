@@ -159,6 +159,48 @@ fn non_finite_batch_distance_is_reported() {
 }
 
 #[rstest]
+fn reports_partial_batch_results_from_source() {
+    #[derive(Clone, Copy)]
+    struct PartialBatch;
+
+    impl DataSource for PartialBatch {
+        fn len(&self) -> usize {
+            4
+        }
+
+        fn name(&self) -> &str {
+            "partial-batch"
+        }
+
+        fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
+            Ok((left as f32 - right as f32).abs())
+        }
+
+        fn batch_distances(
+            &self,
+            _: usize,
+            _candidates: &[usize],
+        ) -> Result<Vec<f32>, DataSourceError> {
+            Ok(vec![0.0])
+        }
+    }
+
+    let cache = DistanceCache::new(DistanceCacheConfig::default());
+    let err = validate_batch_distances(Some(&cache), &PartialBatch, 0, &[1, 2])
+        .expect_err("partial batch results must be rejected");
+
+    match err {
+        HnswError::InvalidParameters { reason } => {
+            assert!(
+                reason.contains("pending candidates"),
+                "reason should describe the mismatch: {reason}"
+            );
+        }
+        other => panic!("expected invalid parameters error, got {other:?}"),
+    }
+}
+
+#[rstest]
 fn rejects_invalid_parameters(#[values(0, 3)] max_connections: usize) {
     if max_connections == 0 {
         let err = HnswParams::new(0, 4).expect_err("zero connections invalid");

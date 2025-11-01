@@ -40,10 +40,7 @@ fn batch_lookup_or_compute<D: DataSource + Sync>(
         context.resolve(pending, &mut results)?;
     }
 
-    Ok(results
-        .into_iter()
-        .map(|value| value.expect("cache lookups resolve every candidate"))
-        .collect())
+    ensure_all_resolved(query, candidates, results)
 }
 
 pub(crate) fn validate_distance<D: DataSource + Sync>(
@@ -129,11 +126,74 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
             .collect();
         let computed = self.source.batch_distances(self.query, &missing)?;
 
+        if computed.len() != pending.len() {
+            return Err(HnswError::InvalidParameters {
+                reason: format!(
+                    "data source returned {} distance(s) for {} pending candidates during cached batch validation",
+                    computed.len(),
+                    pending.len()
+                ),
+            });
+        }
+
         for ((index, miss), value) in pending.into_iter().zip(computed.into_iter()) {
             let value = self.cache.complete_miss(miss, value)?;
             results[index] = Some(value);
         }
 
         Ok(())
+    }
+}
+
+fn ensure_all_resolved(
+    query: usize,
+    candidates: &[usize],
+    results: Vec<Option<f32>>,
+) -> Result<Vec<f32>, HnswError> {
+    if results.len() != candidates.len() {
+        return Err(HnswError::InvalidParameters {
+            reason: format!(
+                "distance cache returned {} result slot(s) for {} candidates during batch validation",
+                results.len(),
+                candidates.len()
+            ),
+        });
+    }
+
+    let mut resolved = Vec::with_capacity(results.len());
+    for (candidate, value) in candidates.iter().zip(results.into_iter()) {
+        match value {
+            Some(value) => resolved.push(value),
+            None => {
+                return Err(HnswError::InvalidParameters {
+                    reason: format!(
+                        "distance cache left candidate {candidate} unresolved for query {query}"
+                    ),
+                });
+            }
+        }
+    }
+
+    Ok(resolved)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ensure_all_resolved_reports_unresolved_candidate() {
+        let err = ensure_all_resolved(0, &[1, 2], vec![Some(0.1), None])
+            .expect_err("unresolved candidate must be reported");
+
+        match err {
+            HnswError::InvalidParameters { reason } => {
+                assert!(
+                    reason.contains("candidate 2"),
+                    "reason must describe the unresolved candidate: {reason}"
+                );
+            }
+            other => panic!("expected invalid parameters error, got {other:?}"),
+        }
     }
 }
