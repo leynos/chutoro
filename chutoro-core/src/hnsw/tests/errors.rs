@@ -1,6 +1,6 @@
 //! Error handling tests covering invalid parameters and data source failures.
 
-use rstest::rstest;
+use rstest::{fixture, rstest};
 
 use crate::{
     DataSource, DataSourceError,
@@ -13,6 +13,11 @@ use crate::{
 };
 
 use super::fixtures::DummySource;
+
+#[fixture]
+fn default_cache() -> DistanceCache {
+    DistanceCache::new(DistanceCacheConfig::default())
+}
 
 #[rstest]
 fn non_finite_distance_is_reported() {
@@ -97,7 +102,7 @@ fn attach_node_rejects_excessive_levels() {
 }
 
 #[rstest]
-fn non_finite_batch_distance_is_reported() {
+fn non_finite_batch_distance_is_reported(default_cache: DistanceCache) {
     #[derive(Clone, Copy)]
     struct BatchNan;
 
@@ -123,8 +128,7 @@ fn non_finite_batch_distance_is_reported() {
         }
     }
 
-    let cache = DistanceCache::new(DistanceCacheConfig::default());
-    let err = validate_batch_distances(Some(&cache), &BatchNan, 0, &[1, 2])
+    let err = validate_batch_distances(Some(&default_cache), &BatchNan, 0, &[1, 2])
         .expect_err("batch distance validation must reject NaNs");
 
     if let HnswError::NonFiniteDistance { left, right } = err {
@@ -138,7 +142,7 @@ fn non_finite_batch_distance_is_reported() {
 }
 
 #[rstest]
-fn reports_partial_batch_results_from_source() {
+fn reports_partial_batch_results_from_source(default_cache: DistanceCache) {
     #[derive(Clone, Copy)]
     struct PartialBatch;
 
@@ -164,8 +168,7 @@ fn reports_partial_batch_results_from_source() {
         }
     }
 
-    let cache = DistanceCache::new(DistanceCacheConfig::default());
-    let err = validate_batch_distances(Some(&cache), &PartialBatch, 0, &[1, 2])
+    let err = validate_batch_distances(Some(&default_cache), &PartialBatch, 0, &[1, 2])
         .expect_err("partial batch results must be rejected");
 
     match err {
