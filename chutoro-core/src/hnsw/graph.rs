@@ -9,15 +9,29 @@ use super::{
     types::{EntryPoint, InsertionPlan},
 };
 
+/// Context for attaching or inserting a node into the HNSW graph.
+///
+/// The insertion `sequence` is used for deterministic neighbour ordering and
+/// trimming when distances and identifiers coincide.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct NodeContext {
+pub(crate) struct NodeContext {
+    /// Identifier of the node slot being initialised.
     pub(crate) node: usize,
+    /// Highest level assigned to the node within the hierarchy.
     pub(crate) level: usize,
+    /// Monotonic insertion sequence for deterministic tie-breaking.
+    pub(crate) sequence: u64,
 }
 
+/// Context for connecting edges during insertion and trimming.
+///
+/// Encapsulates the layer level targeted by the operation alongside the
+/// connection bounds applied when selecting neighbours.
 #[derive(Clone, Copy, Debug)]
-pub(super) struct EdgeContext {
+pub(crate) struct EdgeContext {
+    /// Layer level for the edge operation.
     pub(crate) level: usize,
+    /// Maximum number of connections permitted at this level.
     pub(crate) max_connections: usize,
 }
 
@@ -172,31 +186,36 @@ impl Graph {
         self.entry
     }
 
-    pub(crate) fn insert_first(&mut self, node: usize, level: usize) -> Result<(), HnswError> {
-        self.attach_node(node, level)?;
-        self.entry = Some(EntryPoint { node, level });
+    pub(crate) fn insert_first(&mut self, ctx: NodeContext) -> Result<(), HnswError> {
+        self.attach_node(ctx)?;
+        self.entry = Some(EntryPoint {
+            node: ctx.node,
+            level: ctx.level,
+        });
         Ok(())
     }
 
-    pub(crate) fn attach_node(&mut self, node: usize, level: usize) -> Result<(), HnswError> {
-        if level > self.params.max_level() {
+    pub(crate) fn attach_node(&mut self, ctx: NodeContext) -> Result<(), HnswError> {
+        if ctx.level > self.params.max_level() {
             return Err(HnswError::InvalidParameters {
                 reason: format!(
-                    "node {node}: level {level} exceeds max_level {}",
+                    "node {}: level {} exceeds max_level {}",
+                    ctx.node,
+                    ctx.level,
                     self.params.max_level()
                 ),
             });
         }
         let slot = self
             .nodes
-            .get_mut(node)
+            .get_mut(ctx.node)
             .ok_or_else(|| HnswError::InvalidParameters {
-                reason: format!("node {node} is outside pre-allocated capacity"),
+                reason: format!("node {} is outside pre-allocated capacity", ctx.node),
             })?;
         if slot.is_some() {
-            return Err(HnswError::DuplicateNode { node });
+            return Err(HnswError::DuplicateNode { node: ctx.node });
         }
-        *slot = Some(Node::new(level));
+        *slot = Some(Node::new(ctx.level, ctx.sequence));
         Ok(())
     }
 
@@ -213,6 +232,35 @@ impl Graph {
 
     pub(crate) fn node_mut(&mut self, id: usize) -> Option<&mut Node> {
         self.nodes.get_mut(id).and_then(Option::as_mut)
+    }
+
+    /// Retrieves the insertion sequence assigned to a node for deterministic
+    /// neighbour ordering.
+    ///
+    /// Returns `None` when the node slot has not been initialised or the
+    /// identifier exceeds the allocated capacity.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use chutoro_core::hnsw::{
+    ///     graph::{Graph, NodeContext},
+    ///     params::HnswParams,
+    /// };
+    ///
+    /// let params = HnswParams::new(8, 16).expect("params");
+    /// let mut graph = Graph::with_capacity(params, 2);
+    /// graph
+    ///     .insert_first(NodeContext {
+    ///         node: 0,
+    ///         level: 0,
+    ///         sequence: 7,
+    ///     })
+    ///     .expect("insert first node");
+    /// assert_eq!(graph.node_sequence(0), Some(7));
+    /// assert_eq!(graph.node_sequence(1), None);
+    /// ```
+    pub(crate) fn node_sequence(&self, id: usize) -> Option<u64> {
+        self.node(id).map(Node::sequence)
     }
 
     pub(super) fn has_slot(&self, node: usize) -> bool {

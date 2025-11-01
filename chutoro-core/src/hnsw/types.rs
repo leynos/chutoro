@@ -48,9 +48,8 @@ impl Eq for Neighbour {}
 impl Ord for Neighbour {
     fn cmp(&self, other: &Self) -> Ordering {
         self.distance
-            .partial_cmp(&other.distance)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| self.id.cmp(&other.id))
+            .total_cmp(&other.distance)
+            .then(self.id.cmp(&other.id))
     }
 }
 
@@ -60,40 +59,61 @@ impl PartialOrd for Neighbour {
     }
 }
 
+/// Internal wrapper retaining deterministic ordering metadata for neighbour
+/// comparisons.
+///
+/// # Examples
+/// ```rust,ignore
+/// use chutoro_core::hnsw::types::RankedNeighbour;
+///
+/// let ranked = RankedNeighbour::new(4, 0.5, 7);
+/// assert_eq!(ranked.into_neighbour().id, 4);
+/// ```
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct ReverseNeighbour {
-    pub(crate) inner: Neighbour,
+pub(crate) struct RankedNeighbour {
+    inner: Neighbour,
+    sequence: u64,
 }
 
-impl ReverseNeighbour {
-    pub(crate) fn new(id: usize, distance: f32) -> Self {
+impl RankedNeighbour {
+    pub(crate) fn new(id: usize, distance: f32, sequence: u64) -> Self {
         Self {
             inner: Neighbour { id, distance },
+            sequence,
         }
     }
-}
 
-impl Eq for ReverseNeighbour {}
+    pub(crate) fn into_neighbour(self) -> Neighbour {
+        self.inner
+    }
 
-impl Ord for ReverseNeighbour {
-    fn cmp(&self, other: &Self) -> Ordering {
-        other
-            .inner
-            .distance
-            .partial_cmp(&self.inner.distance)
-            .unwrap_or(Ordering::Equal)
-            .then_with(|| self.inner.id.cmp(&other.inner.id))
+    pub(crate) fn compare(&self, other: &Self) -> Ordering {
+        self.inner
+            .cmp(&other.inner)
+            .then(self.sequence.cmp(&other.sequence))
     }
 }
 
-impl PartialEq for ReverseNeighbour {
+impl Eq for RankedNeighbour {}
+
+impl PartialEq for RankedNeighbour {
     fn eq(&self, other: &Self) -> bool {
-        self.inner.distance == other.inner.distance && self.inner.id == other.inner.id
+        self.compare(other) == Ordering::Equal
     }
 }
 
-impl PartialOrd for ReverseNeighbour {
+impl Ord for RankedNeighbour {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.compare(other)
+    }
+}
+
+#[expect(
+    clippy::non_canonical_partial_ord_impl,
+    reason = "Reviewer requested direct delegation to compare()"
+)]
+impl PartialOrd for RankedNeighbour {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+        Some(self.compare(other))
     }
 }

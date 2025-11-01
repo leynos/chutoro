@@ -5,13 +5,17 @@
 #[derive(Clone, Debug)]
 pub(crate) struct Node {
     neighbours: Vec<Vec<usize>>,
+    sequence: u64,
 }
 
 impl Node {
-    pub(crate) fn new(level: usize) -> Self {
+    pub(crate) fn new(level: usize, sequence: u64) -> Self {
         let mut neighbours = Vec::with_capacity(level + 1);
         neighbours.resize_with(level + 1, Vec::new);
-        Self { neighbours }
+        Self {
+            neighbours,
+            sequence,
+        }
     }
 
     pub(crate) fn neighbours(&self, level: usize) -> &[usize] {
@@ -29,5 +33,9 @@ impl Node {
         self.neighbours
             .get_mut(level)
             .expect("levels are initialised during construction")
+    }
+
+    pub(crate) fn sequence(&self) -> u64 {
+        self.sequence
     }
 }

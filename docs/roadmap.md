@@ -46,7 +46,7 @@ ______________________________________________________________________
 
 - [x] Implement CPU HNSW insertion/search with Rayon; two‑phase locking (`read`
   for search → `write` for insert) on a shared graph. (See §6.1, §6.2)
-- [ ] Introduce a `DistanceCache` backed by `dashmap` to avoid recomputing
+- [x] Introduce a `DistanceCache` backed by `dashmap` to avoid recomputing
   distances across threads during HNSW insertion. (See §6.2, §10.6)
   - Key: normalise to `(min(i,j), max(i,j))`; encode metric and its parameters
     (e.g., cosine with/without pre-norms) in the key.
