@@ -239,23 +239,50 @@ impl CpuHnsw {
         trim_jobs
             .into_par_iter()
             .map(|job| -> Result<TrimResult, HnswError> {
+                let TrimJob {
+                    node,
+                    ctx,
+                    candidates,
+                    sequences,
+                } = job;
+
+                if candidates.len() != sequences.len() {
+                    return Err(HnswError::InvalidParameters {
+                        reason: format!(
+                            "trim job candidates ({}) must match sequence count ({})",
+                            candidates.len(),
+                            sequences.len()
+                        ),
+                    });
+                }
+
                 let distances = validate_batch_distances(
                     Some(&self.distance_cache),
                     source,
-                    job.node,
-                    &job.candidates,
+                    node,
+                    &candidates,
                 )?;
-                let mut scored = Vec::with_capacity(job.candidates.len());
-                for ((id, sequence), distance) in
-                    job.candidates.into_iter().zip(job.sequences).zip(distances)
-                {
+                if distances.len() != candidates.len() {
+                    return Err(HnswError::InvalidParameters {
+                        reason: format!(
+                            "trim job distance count ({}) mismatches candidates ({})",
+                            distances.len(),
+                            candidates.len()
+                        ),
+                    });
+                }
+
+                let mut scored = Vec::with_capacity(candidates.len());
+                for (index, id) in candidates.into_iter().enumerate() {
+                    let sequence = sequences[index];
+                    let distance = distances[index];
                     scored.push(RankedNeighbour::new(id, distance, sequence));
                 }
                 scored.sort_unstable();
-                scored.truncate(job.ctx.max_connections);
+                scored.truncate(ctx.max_connections);
                 Ok(TrimResult {
-                    node: job.node,
-                    ctx: job.ctx,
+                    node,
+                    ctx,
                     neighbours: scored
                         .into_iter()
                         .map(|neighbour| neighbour.into_neighbour().id)
