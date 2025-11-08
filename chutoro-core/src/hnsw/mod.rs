@@ -9,6 +9,7 @@ mod distance_cache;
 mod error;
 mod graph;
 mod insert;
+mod invariants;
 mod node;
 mod params;
 mod search;
@@ -18,6 +19,7 @@ mod validate;
 pub use self::{
     distance_cache::DistanceCacheConfig,
     error::{HnswError, HnswErrorCode},
+    invariants::{HnswInvariant, HnswInvariantChecker, HnswInvariantViolation},
     params::HnswParams,
     types::Neighbour,
 };
@@ -395,6 +397,28 @@ impl CpuHnsw {
             level += 1;
         }
         level
+    }
+
+    /// Returns a handle for checking structural invariants.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// # use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         Ok((self.0[i] - self.0[j]).abs())
+    /// #     }
+    /// # }
+    /// let params = HnswParams::new(4, 8).expect("params");
+    /// let index = CpuHnsw::build(&Dummy(vec![0.0, 1.0]), params).expect("build");
+    /// index.invariants().reachability().expect("graph connected");
+    /// ```
+    #[must_use]
+    pub fn invariants(&self) -> HnswInvariantChecker<'_> {
+        HnswInvariantChecker::new(self)
     }
 }
 

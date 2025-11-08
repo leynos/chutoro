@@ -186,6 +186,39 @@ impl Graph {
         self.entry
     }
 
+    /// Returns the allocated slot count, used for sizing auxiliary buffers.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use chutoro_core::hnsw::{graph::Graph, params::HnswParams};
+    /// let params = HnswParams::new(4, 8).expect("params must be valid");
+    /// let graph = Graph::with_capacity(params, 3);
+    /// assert_eq!(graph.capacity(), 3);
+    /// ```
+    #[must_use]
+    pub(crate) fn capacity(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// Iterates over all inserted nodes along with their identifiers.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use chutoro_core::hnsw::{graph::{Graph, NodeContext}, params::HnswParams};
+    /// let params = HnswParams::new(4, 8).expect("params must be valid");
+    /// let mut graph = Graph::with_capacity(params, 2);
+    /// graph.insert_first(NodeContext { node: 0, level: 0, sequence: 0 }).expect("insert first");
+    /// graph.attach_node(NodeContext { node: 1, level: 0, sequence: 1 }).expect("attach second");
+    /// let ids: Vec<_> = graph.nodes_iter().map(|(id, _)| id).collect();
+    /// assert_eq!(ids, vec![0, 1]);
+    /// ```
+    pub(crate) fn nodes_iter(&self) -> impl Iterator<Item = (usize, &Node)> {
+        self.nodes
+            .iter()
+            .enumerate()
+            .filter_map(|(id, node)| node.as_ref().map(|node_ref| (id, node_ref)))
+    }
+
     pub(crate) fn insert_first(&mut self, ctx: NodeContext) -> Result<(), HnswError> {
         self.attach_node(ctx)?;
         self.entry = Some(EntryPoint {

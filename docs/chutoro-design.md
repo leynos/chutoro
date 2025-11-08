@@ -890,6 +890,29 @@ the testing surface with the plan described in
 `docs/property-testing-design.md`, giving the HNSW unit tests a reproducible
 and expressive input space.
 
+#### 6.5. Structural invariant checkers
+
+_Implementation update (2025-11-08)._ The CPU graph now exposes a dedicated
+`HnswInvariantChecker` via `CpuHnsw::invariants()`, providing direct access to
+the four structural checks enumerated in `docs/property-testing-design.md`
+(layer consistency, degree bounds, reachability, and bidirectional links). Each
+check acquires a read lock on the graph, snapshots the adjacency needed for the
+invariant, and reports failures through a typed `HnswInvariantViolation`. The
+violation payloads capture the offending node, layer, and contextual detail
+(e.g., whether a neighbour is missing entirely or merely lacks the referenced
+layer), which keeps property failures actionable during shrinking.
+
+The checker can run individual invariants
+(`check(HnswInvariant::Reachability)`), subsets (`check_many`), or the entire
+suite (`check_all`). This API keeps properties succinct: generators can insert
+a batch of points and then call `index.invariants().check_all()` at the end of
+each step without cracking open the graph's private representation. The test
+harness uses `rstest` cases to cover happy paths alongside intentionally
+corrupted graphs (dangling nodes, overfull adjacency lists, disconnected
+components, and asymmetric edges), guarding against regressions in the
+validator itself and ensuring property tests inherit precise failure
+diagnostics.
+
 ## Part III: GPU Acceleration Strategy
 
 To achieve the highest possible performance on large datasets, the design

@@ -80,7 +80,7 @@ ______________________________________________________________________
 - [x] Introduce property-based generators for HNSW using `proptest` +
   `test-strategy`; cover uniform, clustered, manifold, and duplicate vectors
   plus configuration sampling. (See property-testing-design §2.1)
-- [ ] Surface HNSW structural invariant checkers (layer consistency, degree
+- [x] Surface HNSW structural invariant checkers (layer consistency, degree
   bounds, reachability, bidirectional links) callable from properties. (See
   property-testing-design §2.2)
 - [ ] Add HNSW search correctness property comparing index results against a
