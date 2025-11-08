@@ -340,10 +340,19 @@ fn check_reachability(graph: &Graph) -> Result<(), HnswInvariantViolation> {
     let validator = LayerValidator::new(graph);
     validator.ensure(entry.node, entry.node, entry.level)?;
 
+    let visited = bfs_traverse(graph, validator, entry.node)?;
+    check_all_nodes_reachable(graph, &visited)
+}
+
+fn bfs_traverse(
+    graph: &Graph,
+    validator: LayerValidator<'_>,
+    entry: usize,
+) -> Result<Vec<bool>, HnswInvariantViolation> {
     let mut visited = vec![false; validator.capacity()];
     let mut queue = VecDeque::new();
-    queue.push_back(entry.node);
-    visited[entry.node] = true;
+    queue.push_back(entry);
+    visited[entry] = true;
 
     while let Some(node_id) = queue.pop_front() {
         let node = graph
@@ -354,16 +363,34 @@ fn check_reachability(graph: &Graph) -> Result<(), HnswInvariantViolation> {
                 layer: 0,
                 detail: LayerConsistencyDetail::MissingNode,
             })?;
-        for (level, target) in node.iter_neighbours() {
-            validator.ensure(node_id, target, level)?;
-            if visited[target] {
-                continue;
-            }
-            visited[target] = true;
-            queue.push_back(target);
-        }
+        process_neighbours(node, validator, node_id, &mut visited, &mut queue)?;
     }
 
+    Ok(visited)
+}
+
+fn process_neighbours(
+    node: &Node,
+    validator: LayerValidator<'_>,
+    origin: usize,
+    visited: &mut [bool],
+    queue: &mut VecDeque<usize>,
+) -> Result<(), HnswInvariantViolation> {
+    for (level, target) in node.iter_neighbours() {
+        validator.ensure(origin, target, level)?;
+        if visited[target] {
+            continue;
+        }
+        visited[target] = true;
+        queue.push_back(target);
+    }
+    Ok(())
+}
+
+fn check_all_nodes_reachable(
+    graph: &Graph,
+    visited: &[bool],
+) -> Result<(), HnswInvariantViolation> {
     for (node_id, _) in graph.nodes_iter() {
         if !visited[node_id] {
             return Err(HnswInvariantViolation::UnreachableNode { node: node_id });
