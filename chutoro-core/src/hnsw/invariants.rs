@@ -417,7 +417,7 @@ fn check_bidirectional(graph: &Graph) -> Result<(), HnswInvariantViolation> {
     for (source, node) in graph.nodes_iter() {
         for (level, target) in node.iter_neighbours() {
             let neighbour = validator.ensure(source, target, level)?;
-            if neighbour.neighbours(level).iter().any(|&id| id == source) {
+            if neighbour.neighbours(level).contains(&source) {
                 continue;
             }
             return Err(HnswInvariantViolation::MissingBacklink {
