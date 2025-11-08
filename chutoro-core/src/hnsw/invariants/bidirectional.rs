@@ -14,13 +14,13 @@ pub(super) fn check_bidirectional(
             Err(err) => return mode.record(err),
         };
         if neighbour.neighbours(level).contains(&source) {
-            return Ok(());
+            Ok(())
+        } else {
+            mode.record(HnswInvariantViolation::MissingBacklink {
+                origin: source,
+                target,
+                layer: level,
+            })
         }
-        mode.record(HnswInvariantViolation::MissingBacklink {
-            origin: source,
-            target,
-            layer: level,
-        })?;
-        Ok(())
     })
 }

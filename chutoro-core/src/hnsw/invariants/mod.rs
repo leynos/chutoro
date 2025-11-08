@@ -196,7 +196,9 @@ impl<'index> HnswInvariantChecker<'index> {
         invariants: impl IntoIterator<Item = HnswInvariant>,
     ) -> Vec<HnswInvariantViolation> {
         let mut violations = Vec::new();
-        let _ = self.run_with_mode(invariants, EvaluationMode::Collect(&mut violations));
+        if let Err(err) = self.run_with_mode(invariants, EvaluationMode::Collect(&mut violations)) {
+            violations.push(err);
+        }
         violations
     }
 

@@ -33,7 +33,14 @@ pub(super) fn check_reachability(
                 layer: 0,
                 detail: super::LayerConsistencyDetail::MissingNode,
             })?;
-        process_neighbours(node, &validator, node_id, &mut context)?;
+
+        for (level, target) in node.iter_neighbours() {
+            match validator.ensure(node_id, target, level) {
+                Ok(_) if context.visited[target] => continue,
+                Ok(_) => context.visit(target),
+                Err(err) => mode.record(err)?,
+            }
+        }
     }
 
     for (node_id, _) in ctx.graph.nodes_iter() {
@@ -61,20 +68,4 @@ impl BfsContext {
         self.visited[node] = true;
         self.queue.push_back(node);
     }
-}
-
-fn process_neighbours(
-    node: &crate::hnsw::node::Node,
-    validator: &LayerValidator<'_>,
-    origin: usize,
-    context: &mut BfsContext,
-) -> Result<(), HnswInvariantViolation> {
-    for (level, target) in node.iter_neighbours() {
-        validator.ensure(origin, target, level)?;
-        if context.visited[target] {
-            continue;
-        }
-        context.visit(target);
-    }
-    Ok(())
 }
