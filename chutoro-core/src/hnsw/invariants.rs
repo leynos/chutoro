@@ -330,6 +330,21 @@ fn check_degree_bounds(graph: &Graph, params: &HnswParams) -> Result<(), HnswInv
     Ok(())
 }
 
+#[derive(Debug)]
+struct BfsContext {
+    visited: Vec<bool>,
+    queue: VecDeque<usize>,
+}
+
+impl BfsContext {
+    fn new(capacity: usize) -> Self {
+        Self {
+            visited: vec![false; capacity],
+            queue: VecDeque::new(),
+        }
+    }
+}
+
 fn check_reachability(graph: &Graph) -> Result<(), HnswInvariantViolation> {
     if graph.nodes_iter().next().is_none() {
         return Ok(());
@@ -340,21 +355,20 @@ fn check_reachability(graph: &Graph) -> Result<(), HnswInvariantViolation> {
     let validator = LayerValidator::new(graph);
     validator.ensure(entry.node, entry.node, entry.level)?;
 
-    let visited = bfs_traverse(graph, validator, entry.node)?;
-    check_all_nodes_reachable(graph, &visited)
+    let mut context = BfsContext::new(validator.capacity());
+    context.visited[entry.node] = true;
+    context.queue.push_back(entry.node);
+
+    bfs_traverse(graph, &validator, &mut context)?;
+    check_all_nodes_reachable(graph, &context.visited)
 }
 
 fn bfs_traverse(
     graph: &Graph,
-    validator: LayerValidator<'_>,
-    entry: usize,
-) -> Result<Vec<bool>, HnswInvariantViolation> {
-    let mut visited = vec![false; validator.capacity()];
-    let mut queue = VecDeque::new();
-    queue.push_back(entry);
-    visited[entry] = true;
-
-    while let Some(node_id) = queue.pop_front() {
+    validator: &LayerValidator<'_>,
+    context: &mut BfsContext,
+) -> Result<(), HnswInvariantViolation> {
+    while let Some(node_id) = context.queue.pop_front() {
         let node = graph
             .node(node_id)
             .ok_or(HnswInvariantViolation::LayerConsistency {
@@ -363,26 +377,25 @@ fn bfs_traverse(
                 layer: 0,
                 detail: LayerConsistencyDetail::MissingNode,
             })?;
-        process_neighbours(node, validator, node_id, &mut visited, &mut queue)?;
+        process_neighbours(node, validator, node_id, context)?;
     }
 
-    Ok(visited)
+    Ok(())
 }
 
 fn process_neighbours(
     node: &Node,
-    validator: LayerValidator<'_>,
+    validator: &LayerValidator<'_>,
     origin: usize,
-    visited: &mut [bool],
-    queue: &mut VecDeque<usize>,
+    context: &mut BfsContext,
 ) -> Result<(), HnswInvariantViolation> {
     for (level, target) in node.iter_neighbours() {
         validator.ensure(origin, target, level)?;
-        if visited[target] {
+        if context.visited[target] {
             continue;
         }
-        visited[target] = true;
-        queue.push_back(target);
+        context.visited[target] = true;
+        context.queue.push_back(target);
     }
     Ok(())
 }
