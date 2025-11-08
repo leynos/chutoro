@@ -896,11 +896,15 @@ _Implementation update (2025-11-08)._ The CPU graph now exposes a dedicated
 `HnswInvariantChecker` via `CpuHnsw::invariants()`, providing direct access to
 the four structural checks enumerated in `docs/property-testing-design.md`
 (layer consistency, degree bounds, reachability, and bidirectional links). Each
-check acquires a read lock on the graph, snapshots the adjacency needed for the
-invariant, and reports failures through a typed `HnswInvariantViolation`. The
-violation payloads capture the offending node, layer, and contextual detail
-(e.g., whether a neighbour is missing entirely or merely lacks the referenced
-layer), which keeps property failures actionable during shrinking.
+batch of invariants holds the graph read lock for the entire evaluation so the
+caller observes a consistent view of the topology and avoids repeated lock
+acquisition. Failures are surfaced via the typed `HnswInvariantViolation` enum.
+The payloads capture the offending node, layer, and contextual detail (e.g.,
+whether a neighbour is missing entirely or merely lacks the referenced layer),
+which keeps property failures actionable during shrinking. Degree checks now
+emit a dedicated `ConfigError` variant whenever the configured fan-out would
+overflow the base-layer bound (an early warning that the chosen `HnswParams`
+are unsound).
 
 The checker can run individual invariants
 (`check(HnswInvariant::Reachability)`), subsets (`check_many`), or the entire
@@ -912,6 +916,14 @@ corrupted graphs (dangling nodes, overfull adjacency lists, disconnected
 components, and asymmetric edges), guarding against regressions in the
 validator itself and ensuring property tests inherit precise failure
 diagnostics.
+
+A new `collect_many`/`collect_all` API complement the fail-fast helpers. These
+variants feed every violation into a caller-provided sink, allowing CI and
+property tests to gather the entire diagnostic set from a single snapshot of
+the graph. Internally the invariant checkers honour the reporting mode so
+aggregated runs continue collecting reachable failures (e.g., all unreachable
+nodes) while preserving the previous short-circuit behaviour for fail-fast
+callers.
 
 ## Part III: GPU Acceleration Strategy
 
