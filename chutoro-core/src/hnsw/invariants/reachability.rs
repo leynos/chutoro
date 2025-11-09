@@ -28,16 +28,29 @@ pub(super) fn check_reachability(
     let mut context = BfsContext::new(validator.capacity());
     context.visit(entry.node);
 
+    bfs_traverse(ctx.graph, &validator, &mut context, mode)?;
+    check_all_nodes_visited(ctx.graph, &context, mode)
+}
+
+fn bfs_traverse(
+    graph: &crate::hnsw::graph::Graph,
+    validator: &LayerValidator<'_>,
+    context: &mut BfsContext,
+    mode: &mut EvaluationMode<'_>,
+) -> Result<(), HnswInvariantViolation> {
     while let Some(node_id) = context.queue.pop_front() {
-        let node = ctx
-            .graph
-            .node(node_id)
-            .ok_or(HnswInvariantViolation::LayerConsistency {
-                origin: node_id,
-                target: node_id,
-                layer: 0,
-                detail: super::LayerConsistencyDetail::MissingNode,
-            })?;
+        let node = match graph.node(node_id) {
+            Some(node) => node,
+            None => {
+                mode.record(HnswInvariantViolation::LayerConsistency {
+                    origin: node_id,
+                    target: node_id,
+                    layer: 0,
+                    detail: super::LayerConsistencyDetail::MissingNode,
+                })?;
+                continue;
+            }
+        };
 
         for (level, target) in node.iter_neighbours() {
             match validator.ensure(node_id, target, level) {
@@ -47,8 +60,15 @@ pub(super) fn check_reachability(
             }
         }
     }
+    Ok(())
+}
 
-    for (node_id, _) in ctx.graph.nodes_iter() {
+fn check_all_nodes_visited(
+    graph: &crate::hnsw::graph::Graph,
+    context: &BfsContext,
+    mode: &mut EvaluationMode<'_>,
+) -> Result<(), HnswInvariantViolation> {
+    for (node_id, _) in graph.nodes_iter() {
         if !context.visited[node_id] {
             mode.record(HnswInvariantViolation::UnreachableNode { node: node_id })?;
         }
