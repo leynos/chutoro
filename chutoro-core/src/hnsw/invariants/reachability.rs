@@ -1,3 +1,8 @@
+//! Reachability invariant enforcement for the CPU HNSW graph.
+//!
+//! Validates that every node remains reachable from the entry point across all
+//! layers, reusing the shared `EvaluationMode` to either fail fast or collect
+//! every missing edge and unreachable vertex.
 use std::collections::VecDeque;
 
 use super::{EvaluationMode, GraphContext, HnswInvariantViolation, helpers::LayerValidator};
