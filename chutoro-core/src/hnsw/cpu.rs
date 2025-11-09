@@ -1,3 +1,7 @@
+//! CPU-resident HNSW implementation that drives insertion, search, and
+//! invariant checking for the chutoro graph. Coordinates Rayon workers,
+//! sharded RNGs, and the shared distance cache while exposing the public
+//! `CpuHnsw` API used by the CLI and tests.
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -164,7 +168,7 @@ impl CpuHnsw {
                 },
             )?;
         }
-        searcher.search_layer(
+        let mut neighbours = searcher.search_layer(
             Some(&self.distance_cache),
             source,
             SearchContext {
@@ -173,7 +177,9 @@ impl CpuHnsw {
                 level: 0,
             }
             .with_ef(ef.get()),
-        )
+        )?;
+        normalise_neighbour_order(&mut neighbours)?;
+        Ok(neighbours)
     }
 
     /// Returns the number of nodes that have been inserted.
@@ -323,4 +329,13 @@ impl CpuHnsw {
         }
         level
     }
+}
+
+fn normalise_neighbour_order(neighbours: &mut [Neighbour]) -> Result<(), HnswError> {
+    neighbours.sort_by(|left, right| {
+        left.distance
+            .total_cmp(&right.distance)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    Ok(())
 }

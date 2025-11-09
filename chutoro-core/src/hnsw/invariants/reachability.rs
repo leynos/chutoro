@@ -38,29 +38,45 @@ fn bfs_traverse(
     context: &mut BfsContext,
     mode: &mut EvaluationMode<'_>,
 ) -> Result<(), HnswInvariantViolation> {
+    let traversal = TraversalContext { graph, validator };
     while let Some(node_id) = context.queue.pop_front() {
-        let node = match graph.node(node_id) {
-            Some(node) => node,
-            None => {
-                mode.record(HnswInvariantViolation::LayerConsistency {
-                    origin: node_id,
-                    target: node_id,
-                    layer: 0,
-                    detail: super::LayerConsistencyDetail::MissingNode,
-                })?;
-                continue;
-            }
-        };
+        process_single_node(&traversal, node_id, context, mode)?;
+    }
+    Ok(())
+}
 
-        for (level, target) in node.iter_neighbours() {
-            match validator.ensure(node_id, target, level) {
-                Ok(_) if context.visited[target] => continue,
-                Ok(_) => context.visit(target),
-                Err(err) => mode.record(err)?,
-            }
+fn process_single_node(
+    traversal: &TraversalContext<'_>,
+    node_id: usize,
+    context: &mut BfsContext,
+    mode: &mut EvaluationMode<'_>,
+) -> Result<(), HnswInvariantViolation> {
+    let node = match traversal.graph.node(node_id) {
+        Some(node) => node,
+        None => {
+            mode.record(HnswInvariantViolation::LayerConsistency {
+                origin: node_id,
+                target: node_id,
+                layer: 0,
+                detail: super::LayerConsistencyDetail::MissingNode,
+            })?;
+            return Ok(());
+        }
+    };
+
+    for (level, target) in node.iter_neighbours() {
+        match traversal.validator.ensure(node_id, target, level) {
+            Ok(_) if context.visited[target] => continue,
+            Ok(_) => context.visit(target),
+            Err(err) => mode.record(err)?,
         }
     }
     Ok(())
+}
+
+struct TraversalContext<'a> {
+    graph: &'a crate::hnsw::graph::Graph,
+    validator: &'a LayerValidator<'a>,
 }
 
 fn check_all_nodes_visited(
