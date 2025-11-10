@@ -75,6 +75,7 @@ fn process_single_node(
     Ok(())
 }
 
+#[inline(always)]
 fn process_neighbour(
     traversal: &TraversalContext<'_>,
     task: NeighbourTask,
@@ -134,5 +135,122 @@ impl BfsContext {
     fn visit(&mut self, node: usize) {
         self.visited[node] = true;
         self.queue.push_back(node);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for the reachability helper functions and BFS context wiring.
+
+    use super::*;
+    use crate::hnsw::{
+        graph::{Graph, NodeContext},
+        params::HnswParams,
+    };
+
+    #[test]
+    fn process_neighbour_visits_unseen_targets() {
+        let graph = demo_graph();
+        let validator = LayerValidator::new(&graph);
+        let traversal = TraversalContext {
+            graph: &graph,
+            validator: &validator,
+        };
+        let mut context = BfsContext::new(validator.capacity());
+        let mut mode = EvaluationMode::FailFast;
+        let task = NeighbourTask {
+            origin: 0,
+            level: 0,
+            target: 1,
+        };
+
+        process_neighbour(&traversal, task, &mut context, &mut mode)
+            .expect("fresh targets should be enqueued");
+
+        assert!(context.visited[1], "expected node 1 to be marked visited");
+        assert_eq!(context.queue.pop_front(), Some(1));
+    }
+
+    #[test]
+    fn process_neighbour_skips_already_visited_targets() {
+        let graph = demo_graph();
+        let validator = LayerValidator::new(&graph);
+        let traversal = TraversalContext {
+            graph: &graph,
+            validator: &validator,
+        };
+        let mut context = BfsContext::new(validator.capacity());
+        context.visit(1);
+        context.queue.clear();
+        let mut mode = EvaluationMode::FailFast;
+
+        process_neighbour(
+            &traversal,
+            NeighbourTask {
+                origin: 0,
+                level: 0,
+                target: 1,
+            },
+            &mut context,
+            &mut mode,
+        )
+        .expect("visited nodes should be ignored");
+
+        assert!(
+            context.queue.is_empty(),
+            "no duplicate visits should be queued"
+        );
+    }
+
+    #[test]
+    fn process_neighbour_records_layer_consistency_violations() {
+        let graph = demo_graph();
+        let validator = LayerValidator::new(&graph);
+        let traversal = TraversalContext {
+            graph: &graph,
+            validator: &validator,
+        };
+        let mut context = BfsContext::new(validator.capacity());
+        let mut violations = Vec::new();
+        let mut mode = EvaluationMode::Collect(&mut violations);
+
+        process_neighbour(
+            &traversal,
+            NeighbourTask {
+                origin: 0,
+                level: 0,
+                target: 3,
+            },
+            &mut context,
+            &mut mode,
+        )
+        .expect("collect mode should absorb violations");
+
+        assert!(matches!(
+            violations.as_slice(),
+            [HnswInvariantViolation::LayerConsistency { target: 3, .. }]
+        ));
+    }
+
+    fn demo_graph() -> Graph {
+        let params = HnswParams::new(1, 4).expect("params must be valid");
+        let mut graph = Graph::with_capacity(params, 4);
+        graph
+            .insert_first(NodeContext {
+                node: 0,
+                level: 0,
+                sequence: 0,
+            })
+            .expect("insert entry");
+        graph
+            .attach_node(NodeContext {
+                node: 1,
+                level: 0,
+                sequence: 1,
+            })
+            .expect("attach neighbour");
+        graph.node_mut(0).expect("node 0").neighbours_mut(0).push(1);
+        graph.node_mut(1).expect("node 1").neighbours_mut(0).push(0);
+        graph
     }
 }
