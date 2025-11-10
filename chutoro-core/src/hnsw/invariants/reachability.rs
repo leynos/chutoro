@@ -65,13 +65,39 @@ fn process_single_node(
     };
 
     for (level, target) in node.iter_neighbours() {
-        match traversal.validator.ensure(node_id, target, level) {
-            Ok(_) if context.visited[target] => continue,
-            Ok(_) => context.visit(target),
-            Err(err) => mode.record(err)?,
-        }
+        let task = NeighbourTask {
+            origin: node_id,
+            level,
+            target,
+        };
+        process_neighbour(traversal, task, context, mode)?;
     }
     Ok(())
+}
+
+fn process_neighbour(
+    traversal: &TraversalContext<'_>,
+    task: NeighbourTask,
+    context: &mut BfsContext,
+    mode: &mut EvaluationMode<'_>,
+) -> Result<(), HnswInvariantViolation> {
+    let NeighbourTask {
+        origin,
+        level,
+        target,
+    } = task;
+    match traversal.validator.ensure(origin, target, level) {
+        Ok(_) if context.visited[target] => {}
+        Ok(_) => context.visit(target),
+        Err(err) => mode.record(err)?,
+    }
+    Ok(())
+}
+
+struct NeighbourTask {
+    origin: usize,
+    level: usize,
+    target: usize,
 }
 
 struct TraversalContext<'a> {

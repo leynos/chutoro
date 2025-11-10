@@ -26,6 +26,9 @@ use super::{
     validate::{validate_batch_distances, validate_distance},
 };
 
+/// Mixes worker RNG seeds by the 64-bit golden ratio to decorrelate threads.
+const WORKER_SEED_SPACING: u64 = 0x9E37_79B9_7F4A_7C15;
+
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
 pub struct CpuHnsw {
@@ -113,7 +116,9 @@ impl CpuHnsw {
         let base_seed = params.rng_seed();
         let worker_rngs = (0..current_num_threads())
             .map(|idx| {
-                let seed = base_seed ^ ((idx as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                // Mix the worker index into the base seed to keep per-thread RNGs
+                // decorrelated when Rayon reuses threads across searches.
+                let seed = base_seed ^ ((idx as u64 + 1).wrapping_mul(WORKER_SEED_SPACING));
                 Mutex::new(SmallRng::seed_from_u64(seed))
             })
             .collect();
@@ -247,7 +252,7 @@ impl CpuHnsw {
             }
             .with_ef(ef.get()),
         )?;
-        normalise_neighbour_order(&mut neighbours)?;
+        normalise_neighbour_order(&mut neighbours);
         Ok(neighbours)
     }
 
@@ -306,6 +311,47 @@ impl CpuHnsw {
         })
     }
 
+    /// Scores trim jobs in parallel, validating candidate, sequence, and
+    /// distance lengths before emitting ranked neighbour lists capped at each
+    /// edge context's `max_connections`.
+    ///
+    /// The caller supplies trimmed candidates gathered while the graph lock is
+    /// held. This method then validates the batched distances without the lock
+    /// and deterministically orders neighbours by distance and insertion
+    /// sequence so ties remain stable.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use chutoro_core::{
+    ///     CpuHnsw,
+    ///     DataSource,
+    ///     DataSourceError,
+    ///     HnswParams,
+    ///     hnsw::graph::EdgeContext,
+    ///     hnsw::insert::executor::TrimJob,
+    /// };
+    ///
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    /// #         Ok((a - b).abs())
+    /// #     }
+    /// # }
+    /// let params = HnswParams::new(1, 2).unwrap();
+    /// let hnsw = CpuHnsw::with_capacity(params, 2).unwrap();
+    /// let trim_jobs = vec![TrimJob {
+    ///     node: 0,
+    ///     ctx: EdgeContext { level: 0, max_connections: 1 },
+    ///     candidates: vec![0],
+    ///     sequences: vec![0],
+    /// }];
+    /// let results = hnsw.score_trim_jobs(trim_jobs, &Dummy(vec![0.0])).unwrap();
+    /// assert_eq!(results[0].neighbours, vec![0]);
+    /// ```
     pub(crate) fn score_trim_jobs<D: DataSource + Sync>(
         &self,
         trim_jobs: Vec<TrimJob>,
@@ -400,11 +446,10 @@ impl CpuHnsw {
     }
 }
 
-fn normalise_neighbour_order(neighbours: &mut [Neighbour]) -> Result<(), HnswError> {
+fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
     neighbours.sort_by(|left, right| {
         left.distance
             .total_cmp(&right.distance)
             .then_with(|| left.id.cmp(&right.id))
     });
-    Ok(())
 }
