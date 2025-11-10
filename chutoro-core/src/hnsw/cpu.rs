@@ -43,6 +43,26 @@ impl CpuHnsw {
     ///
     /// The first item seeds the entry point; remaining items are inserted in
     /// parallel with Rayon workers.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
+    ///
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    /// #         Ok((a - b).abs())
+    /// #     }
+    /// # }
+    /// let params = HnswParams::new(2, 4).expect("params must be valid");
+    /// let index = CpuHnsw::build(&Dummy(vec![0.0, 1.0, 2.0]), params)
+    ///     .expect("build must succeed");
+    /// assert_eq!(index.len(), 3);
+    /// ```
     pub fn build<D: DataSource + Sync>(source: &D, params: HnswParams) -> Result<Self, HnswError> {
         let items = source.len();
         if items == 0 {
@@ -76,6 +96,14 @@ impl CpuHnsw {
     }
 
     /// Creates an empty index with the desired capacity.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_core::{CpuHnsw, HnswParams};
+    /// let params = HnswParams::new(2, 8).expect("params");
+    /// let index = CpuHnsw::with_capacity(params, 16).expect("capacity must be > 0");
+    /// assert!(index.is_empty());
+    /// ```
     pub fn with_capacity(params: HnswParams, capacity: usize) -> Result<Self, HnswError> {
         if capacity == 0 {
             return Err(HnswError::InvalidParameters {
@@ -105,6 +133,25 @@ impl CpuHnsw {
     }
 
     /// Inserts a node into the graph, performing search under a shared lock.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    /// #         Ok((a - b).abs())
+    /// #     }
+    /// # }
+    /// let params = HnswParams::new(2, 4).expect("params");
+    /// let data = Dummy(vec![0.0, 2.0, 4.0]);
+    /// let index = CpuHnsw::build(&data, params).expect("build must succeed");
+    /// index.insert(1, &data).expect("insert must succeed");
+    /// ```
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
         let level = self.sample_level();
         let sequence = self.allocate_sequence();
@@ -147,6 +194,28 @@ impl CpuHnsw {
     }
 
     /// Searches the index for the `ef` closest neighbours of `query`.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    /// #         Ok((a - b).abs())
+    /// #     }
+    /// # }
+    /// let params = HnswParams::new(2, 4).expect("params");
+    /// let data = Dummy(vec![0.0, 1.0, 3.5]);
+    /// let index = CpuHnsw::build(&data, params).expect("build must succeed");
+    /// let neighbours = index
+    ///     .search(&data, 0, std::num::NonZeroUsize::new(2).unwrap())
+    ///     .expect("search must succeed");
+    /// assert_eq!(neighbours[0].id, 0);
+    /// ```
     pub fn search<D: DataSource + Sync>(
         &self,
         source: &D,
