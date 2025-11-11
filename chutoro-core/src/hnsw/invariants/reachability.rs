@@ -58,6 +58,13 @@ pub(super) fn check_reachability(
     check_all_nodes_visited(ctx.graph, &context, mode)
 }
 
+/// Performs the breadth-first traversal by draining `context.queue`, invoking
+/// `process_single_node` for each dequeued vertex, and letting `mode` decide
+/// whether violations should stop the walk. Accepts the HNSW `graph`, the
+/// layer `validator`, the mutable BFS `context`, and the `mode` governing
+/// violation handling, returning `Ok(())` when traversal finishes or
+/// propagating any `Err(HnswInvariantViolation)` emitted by
+/// `process_single_node`.
 fn bfs_traverse(
     graph: &crate::hnsw::graph::Graph,
     validator: &LayerValidator<'_>,
