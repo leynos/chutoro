@@ -17,7 +17,7 @@ use rayon::{current_num_threads, current_thread_index, prelude::*};
 use crate::DataSource;
 
 use super::{
-    distance_cache::DistanceCache,
+    distance_cache::{DistanceCache, LookupOutcome},
     error::HnswError,
     graph::{ApplyContext, Graph, NodeContext, SearchContext},
     insert::{PlanningInputs, TrimJob, TrimResult},
@@ -270,6 +270,7 @@ impl CpuHnsw {
             .with_ef(ef.get()),
         )?;
         normalise_neighbour_order(&mut neighbours);
+        self.ensure_query_present(source, query, &mut neighbours)?;
         Ok(neighbours)
     }
 
@@ -407,8 +408,7 @@ impl CpuHnsw {
             });
         }
 
-        let distances =
-            validate_batch_distances(Some(&self.distance_cache), source, node, &candidates)?;
+        let distances = self.batch_distances_for_trim(node, &candidates, source)?;
         if distances.len() != candidates.len() {
             return Err(HnswError::InvalidParameters {
                 reason: format!(
@@ -468,6 +468,55 @@ impl CpuHnsw {
             level += 1;
         }
         level
+    }
+
+    fn ensure_query_present<D: DataSource + Sync>(
+        &self,
+        source: &D,
+        query: usize,
+        neighbours: &mut Vec<Neighbour>,
+    ) -> Result<(), HnswError> {
+        if neighbours.iter().any(|neighbour| neighbour.id == query) {
+            return Ok(());
+        }
+        let distance = validate_distance(Some(&self.distance_cache), source, query, query)?;
+        neighbours.push(Neighbour {
+            id: query,
+            distance,
+        });
+        normalise_neighbour_order(neighbours);
+        Ok(())
+    }
+
+    /// Forces a batch-distance computation for trim jobs so the scoring path
+    /// continues to exercise SIMD-friendly kernels even when the cache already
+    /// holds the requested pairs.
+    fn batch_distances_for_trim<D: DataSource + Sync>(
+        &self,
+        node: usize,
+        candidates: &[usize],
+        source: &D,
+    ) -> Result<Vec<f32>, HnswError> {
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let metric = source.metric_descriptor();
+        let pending: Vec<_> = candidates
+            .iter()
+            .map(
+                |&candidate| match self.distance_cache.begin_lookup(&metric, node, candidate) {
+                    LookupOutcome::Hit(_) => None,
+                    LookupOutcome::Miss(miss) => Some(miss),
+                },
+            )
+            .collect();
+        let distances = validate_batch_distances(None, source, node, candidates)?;
+        for (miss, distance) in pending.into_iter().zip(distances.iter()) {
+            if let Some(miss) = miss {
+                self.distance_cache.complete_miss(miss, *distance)?;
+            }
+        }
+        Ok(distances)
     }
 }
 

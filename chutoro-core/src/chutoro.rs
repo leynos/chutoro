@@ -5,17 +5,19 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
+#[cfg(feature = "skeleton")]
+use crate::error::DataSourceError;
+#[cfg(feature = "skeleton")]
+use crate::result::ClusterId;
 use crate::{
-    Result,
-    builder::ExecutionStrategy,
-    datasource::DataSource,
-    error::{ChutoroError, DataSourceError},
-    result::{ClusterId, ClusteringResult},
+    Result, builder::ExecutionStrategy, datasource::DataSource, error::ChutoroError,
+    result::ClusteringResult,
 };
 #[cfg(feature = "skeleton")]
 use tracing::info;
 use tracing::{instrument, warn};
 
+#[cfg(feature = "skeleton")]
 type DataSourceResult<T> = core::result::Result<T, DataSourceError>;
 
 /// Entry point for running the clustering pipeline.
@@ -158,6 +160,9 @@ impl Chutoro {
                 data_source: Arc::from(source.name()),
             });
         }
+        if let Some(err) = self.backend_unavailable_error() {
+            return Err(err);
+        }
         if items < self.min_cluster_size.get() {
             return Err(ChutoroError::InsufficientItems {
                 data_source: Arc::from(source.name()),
@@ -244,6 +249,38 @@ impl Chutoro {
         })
     }
 
+    fn backend_unavailable_error(&self) -> Option<ChutoroError> {
+        match self.execution_strategy {
+            ExecutionStrategy::CpuOnly => {
+                if cfg!(not(feature = "skeleton")) {
+                    return Some(ChutoroError::BackendUnavailable {
+                        requested: ExecutionStrategy::CpuOnly,
+                    });
+                }
+            }
+            ExecutionStrategy::GpuPreferred => {
+                if cfg!(not(feature = "gpu"))
+                    || cfg!(all(feature = "gpu", not(feature = "skeleton")))
+                {
+                    return Some(ChutoroError::BackendUnavailable {
+                        requested: ExecutionStrategy::GpuPreferred,
+                    });
+                }
+            }
+            ExecutionStrategy::Auto => {
+                if cfg!(all(not(feature = "skeleton"), not(feature = "gpu")))
+                    || cfg!(all(feature = "gpu", not(feature = "skeleton")))
+                {
+                    return Some(ChutoroError::BackendUnavailable {
+                        requested: ExecutionStrategy::Auto,
+                    });
+                }
+            }
+        }
+        None
+    }
+
+    #[cfg(feature = "skeleton")]
     fn wrap_datasource_error<D: DataSource>(
         &self,
         source: &D,
