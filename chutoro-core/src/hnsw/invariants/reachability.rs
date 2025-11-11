@@ -174,6 +174,7 @@ impl BfsContext {
     }
 
     fn visit(&mut self, node: usize) {
+        debug_assert!(node < self.visited.len(), "node ID exceeds graph capacity");
         self.visited[node] = true;
         self.queue.push_back(node);
     }
