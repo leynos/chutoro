@@ -113,7 +113,6 @@ fn process_single_node(
     Ok(())
 }
 
-#[inline(always)]
 fn process_neighbour(
     traversal: &TraversalContext<'_>,
     task: NeighbourTask,
