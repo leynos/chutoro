@@ -250,21 +250,17 @@ impl Chutoro {
     }
 
     fn backend_unavailable_error(&self) -> Option<ChutoroError> {
-        match self.execution_strategy {
-            #[cfg(not(feature = "skeleton"))]
-            ExecutionStrategy::CpuOnly | ExecutionStrategy::Auto => {
-                Some(ChutoroError::BackendUnavailable {
-                    requested: self.execution_strategy,
-                })
-            }
+        const CPU_PATH_AVAILABLE: bool = cfg!(feature = "skeleton");
+        const GPU_PATH_AVAILABLE: bool = cfg!(all(feature = "gpu", feature = "skeleton"));
 
-            #[cfg(not(all(feature = "gpu", feature = "skeleton")))]
-            ExecutionStrategy::GpuPreferred => Some(ChutoroError::BackendUnavailable {
-                requested: self.execution_strategy,
-            }),
+        let unavailable = match self.execution_strategy {
+            ExecutionStrategy::CpuOnly | ExecutionStrategy::Auto => !CPU_PATH_AVAILABLE,
+            ExecutionStrategy::GpuPreferred => !GPU_PATH_AVAILABLE,
+        };
 
-            _ => None,
-        }
+        unavailable.then(|| ChutoroError::BackendUnavailable {
+            requested: self.execution_strategy,
+        })
     }
 
     #[cfg(feature = "skeleton")]

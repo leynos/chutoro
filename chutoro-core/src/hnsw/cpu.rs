@@ -478,61 +478,6 @@ impl CpuHnsw {
         level
     }
 
-    fn ensure_query_present<D: DataSource + Sync>(
-        &self,
-        args: EnsureQueryArgs<'_, D>,
-    ) -> Result<(), HnswError> {
-        let EnsureQueryArgs {
-            source,
-            query,
-            ef,
-            neighbours,
-        } = args;
-        if ef.get() == 1 || neighbours.iter().any(|neighbour| neighbour.id == query) {
-            return Ok(());
-        }
-        let distance = validate_distance(Some(&self.distance_cache), source, query, query)?;
-        neighbours.push(Neighbour {
-            id: query,
-            distance,
-        });
-        normalise_neighbour_order(neighbours);
-        while neighbours.len() > ef.get() {
-            neighbours.pop();
-        }
-        Ok(())
-    }
-
-    /// Forces a batch-distance computation for trim jobs so the scoring path
-    /// continues to exercise SIMD-friendly kernels even when the cache already
-    /// holds the requested pairs.
-    fn batch_distances_for_trim<D: DataSource + Sync>(
-        &self,
-        node: usize,
-        candidates: &[usize],
-        source: &D,
-    ) -> Result<Vec<f32>, HnswError> {
-        if candidates.is_empty() {
-            return Ok(Vec::new());
-        }
-        let metric = source.metric_descriptor();
-        let pending: Vec<_> = candidates
-            .iter()
-            .map(
-                |&candidate| match self.distance_cache.begin_lookup(&metric, node, candidate) {
-                    LookupOutcome::Hit(_) => None,
-                    LookupOutcome::Miss(miss) => Some(miss),
-                },
-            )
-            .collect();
-        let distances = validate_batch_distances(None, source, node, candidates)?;
-        for (miss, distance) in pending.into_iter().zip(distances.iter()) {
-            if let Some(miss) = miss {
-                self.distance_cache.complete_miss(miss, *distance)?;
-            }
-        }
-        Ok(distances)
-    }
 }
 
 fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
@@ -550,6 +495,70 @@ struct EnsureQueryArgs<'a, D: DataSource + Sync> {
     query: usize,
     ef: NonZeroUsize,
     neighbours: &'a mut Vec<Neighbour>,
+}
+
+trait SearchMaintenance {
+    fn ensure_query_present<D: DataSource + Sync>(
+        &self,
+        args: EnsureQueryArgs<'_, D>,
+    ) -> Result<(), HnswError>;
+
+    fn batch_distances_for_trim<D: DataSource + Sync>(
+        &self,
+        node: usize,
+        candidates: &[usize],
+        source: &D,
+    ) -> Result<Vec<f32>, HnswError>;
+}
+
+impl SearchMaintenance for CpuHnsw {
+    fn ensure_query_present<D: DataSource + Sync>(
+        &self,
+        args: EnsureQueryArgs<'_, D>,
+    ) -> Result<(), HnswError> {
+        let EnsureQueryArgs {
+            source,
+            query,
+            ef,
+            neighbours,
+        } = args;
+        if ef.get() == 1 || neighbours.iter().any(|neighbour| neighbour.id == query) {
+            return Ok(());
+        }
+        let distance = validate_distance(Some(&self.distance_cache), source, query, query)?;
+        neighbours.push(Neighbour { id: query, distance });
+        normalise_neighbour_order(neighbours);
+        while neighbours.len() > ef.get() {
+            neighbours.pop();
+        }
+        Ok(())
+    }
+
+    fn batch_distances_for_trim<D: DataSource + Sync>(
+        &self,
+        node: usize,
+        candidates: &[usize],
+        source: &D,
+    ) -> Result<Vec<f32>, HnswError> {
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let metric = source.metric_descriptor();
+        let pending: Vec<_> = candidates
+            .iter()
+            .map(|&candidate| match self.distance_cache.begin_lookup(&metric, node, candidate) {
+                LookupOutcome::Hit(_) => None,
+                LookupOutcome::Miss(miss) => Some(miss),
+            })
+            .collect();
+        let distances = validate_batch_distances(None, source, node, candidates)?;
+        for (miss, distance) in pending.into_iter().zip(distances.iter()) {
+            if let Some(miss) = miss {
+                self.distance_cache.complete_miss(miss, *distance)?;
+            }
+        }
+        Ok(distances)
+    }
 }
 
 #[cfg(test)]
@@ -570,70 +579,58 @@ mod tests {
 
     #[test]
     fn ensure_query_added_when_room_available() {
-        let cpu = test_index(4);
-        let source = TestSource::new(vec![0.0, 1.0]);
-        let mut neighbours = vec![Neighbour {
-            id: 1,
-            distance: 1.0,
-        }];
-        cpu.ensure_query_present(EnsureQueryArgs {
-            source: &source,
-            query: 0,
-            ef: NonZeroUsize::new(2).unwrap(),
-            neighbours: &mut neighbours,
-        })
-        .expect("insertion must succeed");
-        assert_eq!(
-            neighbours.iter().map(|n| n.id).collect::<Vec<_>>(),
-            vec![0, 1]
+        test_ensure_query_present(
+            4,
+            vec![Neighbour {
+                id: 1,
+                distance: 1.0,
+            }],
+            2,
+            vec![
+                Neighbour {
+                    id: 0,
+                    distance: 0.0,
+                },
+                Neighbour {
+                    id: 1,
+                    distance: 1.0,
+                },
+            ],
+            "ensure_query_added_when_room_available",
         );
     }
 
     #[test]
     fn ensure_query_skips_when_capacity_is_one() {
-        let cpu = test_index(2);
-        let source = TestSource::new(vec![0.0, 1.0]);
-        let mut neighbours = vec![Neighbour {
-            id: 1,
-            distance: 1.0,
-        }];
-        cpu.ensure_query_present(EnsureQueryArgs {
-            source: &source,
-            query: 0,
-            ef: NonZeroUsize::new(1).unwrap(),
-            neighbours: &mut neighbours,
-        })
-        .expect("insertion must succeed");
-        assert_eq!(
-            neighbours,
+        test_ensure_query_present(
+            2,
             vec![Neighbour {
                 id: 1,
-                distance: 1.0
-            }]
+                distance: 1.0,
+            }],
+            1,
+            vec![Neighbour {
+                id: 1,
+                distance: 1.0,
+            }],
+            "ensure_query_skips_when_capacity_is_one",
         );
     }
 
     #[test]
     fn ensure_query_noop_when_present() {
-        let cpu = test_index(2);
-        let source = TestSource::new(vec![0.0, 1.0]);
-        let mut neighbours = vec![Neighbour {
-            id: 0,
-            distance: 0.0,
-        }];
-        cpu.ensure_query_present(EnsureQueryArgs {
-            source: &source,
-            query: 0,
-            ef: NonZeroUsize::new(1).unwrap(),
-            neighbours: &mut neighbours,
-        })
-        .expect("insertion must succeed");
-        assert_eq!(
-            neighbours,
+        test_ensure_query_present(
+            2,
             vec![Neighbour {
                 id: 0,
-                distance: 0.0
-            }]
+                distance: 0.0,
+            }],
+            1,
+            vec![Neighbour {
+                id: 0,
+                distance: 0.0,
+            }],
+            "ensure_query_noop_when_present",
         );
     }
 
@@ -687,6 +684,25 @@ mod tests {
         drop(guard);
         handle.join().expect("thread joins");
         assert!(finished.load(AtomicOrdering::SeqCst));
+    }
+
+    fn test_ensure_query_present(
+        index_size: usize,
+        mut neighbours: Vec<Neighbour>,
+        ef: usize,
+        expected: Vec<Neighbour>,
+        test_name: &str,
+    ) {
+        let cpu = test_index(index_size);
+        let source = TestSource::new(vec![0.0, 1.0]);
+        cpu.ensure_query_present(EnsureQueryArgs {
+            source: &source,
+            query: 0,
+            ef: NonZeroUsize::new(ef).expect("ef must be non-zero"),
+            neighbours: &mut neighbours,
+        })
+        .unwrap_or_else(|err| panic!("{test_name}: ensure_query_present failed: {err:?}"));
+        assert_eq!(neighbours, expected, "{test_name}: neighbours mismatch");
     }
 
     fn test_index(capacity: usize) -> CpuHnsw {
