@@ -6,7 +6,7 @@ use std::{
     collections::BinaryHeap,
     num::NonZeroUsize,
     sync::{
-        Arc, Mutex, RwLock,
+        Arc, Condvar, Mutex, RwLock,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
 };
@@ -54,6 +54,7 @@ pub struct CpuHnsw {
     rng: Mutex<SmallRng>,
     worker_rngs: Vec<Mutex<SmallRng>>,
     distance_cache: DistanceCache,
+    insert_semaphore: Semaphore,
     next_sequence: AtomicU64,
     len: AtomicUsize,
 }
@@ -148,6 +149,7 @@ impl CpuHnsw {
             worker_rngs,
             graph: Arc::new(RwLock::new(graph)),
             distance_cache: cache,
+            insert_semaphore: Semaphore::new(1),
             next_sequence: AtomicU64::new(0),
             len: AtomicUsize::new(0),
             params,
@@ -175,6 +177,7 @@ impl CpuHnsw {
     /// index.insert(1, &data).expect("insert must succeed");
     /// ```
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
+        let _insertion_guard = self.insert_semaphore.acquire();
         let level = self.sample_level();
         let sequence = self.allocate_sequence();
         let node_ctx = NodeContext {
@@ -538,6 +541,50 @@ fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
             .total_cmp(&right.distance)
             .then_with(|| left.id.cmp(&right.id))
     });
+}
+
+#[derive(Debug)]
+struct Semaphore {
+    permits: Mutex<usize>,
+    condvar: Condvar,
+}
+
+impl Semaphore {
+    fn new(permits: usize) -> Self {
+        assert!(permits > 0, "semaphore must allow at least one permit");
+        Self {
+            permits: Mutex::new(permits),
+            condvar: Condvar::new(),
+        }
+    }
+
+    fn acquire(&self) -> SemaphoreGuard<'_> {
+        let mut permits = self.permits.lock().expect("semaphore mutex poisoned");
+        while *permits == 0 {
+            permits = self
+                .condvar
+                .wait(permits)
+                .expect("semaphore mutex poisoned during wait");
+        }
+        *permits -= 1;
+        SemaphoreGuard { semaphore: self }
+    }
+
+    fn release(&self) {
+        let mut permits = self.permits.lock().expect("semaphore mutex poisoned");
+        *permits += 1;
+        self.condvar.notify_one();
+    }
+}
+
+struct SemaphoreGuard<'a> {
+    semaphore: &'a Semaphore,
+}
+
+impl Drop for SemaphoreGuard<'_> {
+    fn drop(&mut self) {
+        self.semaphore.release();
+    }
 }
 
 /// Bundles the context required to ensure a search result includes the query
