@@ -188,13 +188,36 @@ mod tests {
         graph::{Graph, NodeContext},
         params::HnswParams,
     };
+    use rstest::*;
 
-    #[test]
-    fn process_neighbour_visits_unseen_targets() {
-        let graph = demo_graph();
-        let validator = LayerValidator::new(&graph);
+    #[fixture]
+    fn demo_graph() -> Graph {
+        let params = HnswParams::new(1, 4).expect("params must be valid");
+        let mut graph = Graph::with_capacity(params, 4);
+        graph
+            .insert_first(NodeContext {
+                node: 0,
+                level: 0,
+                sequence: 0,
+            })
+            .expect("insert entry");
+        graph
+            .attach_node(NodeContext {
+                node: 1,
+                level: 0,
+                sequence: 1,
+            })
+            .expect("attach neighbour");
+        graph.node_mut(0).expect("node 0").neighbours_mut(0).push(1);
+        graph.node_mut(1).expect("node 1").neighbours_mut(0).push(0);
+        graph
+    }
+
+    #[rstest]
+    fn process_neighbour_visits_unseen_targets(demo_graph: Graph) {
+        let validator = LayerValidator::new(&demo_graph);
         let traversal = TraversalContext {
-            graph: &graph,
+            graph: &demo_graph,
             validator: &validator,
         };
         let mut context = BfsContext::new(validator.capacity());
@@ -212,12 +235,11 @@ mod tests {
         assert_eq!(context.queue.pop_front(), Some(1));
     }
 
-    #[test]
-    fn process_neighbour_skips_already_visited_targets() {
-        let graph = demo_graph();
-        let validator = LayerValidator::new(&graph);
+    #[rstest]
+    fn process_neighbour_skips_already_visited_targets(demo_graph: Graph) {
+        let validator = LayerValidator::new(&demo_graph);
         let traversal = TraversalContext {
-            graph: &graph,
+            graph: &demo_graph,
             validator: &validator,
         };
         let mut context = BfsContext::new(validator.capacity());
@@ -243,12 +265,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn process_neighbour_records_layer_consistency_violations() {
-        let graph = demo_graph();
-        let validator = LayerValidator::new(&graph);
+    #[rstest]
+    fn process_neighbour_records_layer_consistency_violations(demo_graph: Graph) {
+        let validator = LayerValidator::new(&demo_graph);
         let traversal = TraversalContext {
-            graph: &graph,
+            graph: &demo_graph,
             validator: &validator,
         };
         let mut context = BfsContext::new(validator.capacity());
@@ -271,27 +292,5 @@ mod tests {
             violations.as_slice(),
             [HnswInvariantViolation::LayerConsistency { target: 3, .. }]
         ));
-    }
-
-    fn demo_graph() -> Graph {
-        let params = HnswParams::new(1, 4).expect("params must be valid");
-        let mut graph = Graph::with_capacity(params, 4);
-        graph
-            .insert_first(NodeContext {
-                node: 0,
-                level: 0,
-                sequence: 0,
-            })
-            .expect("insert entry");
-        graph
-            .attach_node(NodeContext {
-                node: 1,
-                level: 0,
-                sequence: 1,
-            })
-            .expect("attach neighbour");
-        graph.node_mut(0).expect("node 0").neighbours_mut(0).push(1);
-        graph.node_mut(1).expect("node 1").neighbours_mut(0).push(0);
-        graph
     }
 }
