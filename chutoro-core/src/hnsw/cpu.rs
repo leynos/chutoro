@@ -17,14 +17,17 @@ use rayon::{current_num_threads, current_thread_index, prelude::*};
 use crate::DataSource;
 
 use super::{
-    distance_cache::{DistanceCache, LookupOutcome},
+    distance_cache::DistanceCache,
     error::HnswError,
     graph::{ApplyContext, Graph, NodeContext, SearchContext},
+    helpers::{
+        EnsureQueryArgs, batch_distances_for_trim, ensure_query_present, normalise_neighbour_order,
+    },
     insert::{PlanningInputs, TrimJob, TrimResult},
     invariants::HnswInvariantChecker,
     params::HnswParams,
     types::{Neighbour, RankedNeighbour},
-    validate::{validate_batch_distances, validate_distance},
+    validate::validate_distance,
 };
 
 /// SplitMix64 increment (the 64-bit golden ratio) used for per-worker seed
@@ -273,12 +276,15 @@ impl CpuHnsw {
             .with_ef(ef.get()),
         )?;
         normalise_neighbour_order(&mut neighbours);
-        self.ensure_query_present(EnsureQueryArgs {
-            source,
-            query,
-            ef,
-            neighbours: &mut neighbours,
-        })?;
+        ensure_query_present(
+            &self.distance_cache,
+            EnsureQueryArgs {
+                source,
+                query,
+                ef,
+                neighbours: &mut neighbours,
+            },
+        )?;
         Ok(neighbours)
     }
 
@@ -416,7 +422,7 @@ impl CpuHnsw {
             });
         }
 
-        let distances = self.batch_distances_for_trim(node, &candidates, source)?;
+        let distances = batch_distances_for_trim(&self.distance_cache, node, &candidates, source)?;
         if distances.len() != candidates.len() {
             return Err(HnswError::InvalidParameters {
                 reason: format!(
@@ -479,92 +485,6 @@ impl CpuHnsw {
     }
 }
 
-fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
-    neighbours.sort_by(|left, right| {
-        left.distance
-            .total_cmp(&right.distance)
-            .then_with(|| left.id.cmp(&right.id))
-    });
-}
-
-/// Bundles the context required to ensure a search result includes the query
-/// item when enough capacity is available.
-struct EnsureQueryArgs<'a, D: DataSource + Sync> {
-    source: &'a D,
-    query: usize,
-    ef: NonZeroUsize,
-    neighbours: &'a mut Vec<Neighbour>,
-}
-
-trait SearchMaintenance {
-    fn ensure_query_present<D: DataSource + Sync>(
-        &self,
-        args: EnsureQueryArgs<'_, D>,
-    ) -> Result<(), HnswError>;
-
-    fn batch_distances_for_trim<D: DataSource + Sync>(
-        &self,
-        node: usize,
-        candidates: &[usize],
-        source: &D,
-    ) -> Result<Vec<f32>, HnswError>;
-}
-
-impl SearchMaintenance for CpuHnsw {
-    fn ensure_query_present<D: DataSource + Sync>(
-        &self,
-        args: EnsureQueryArgs<'_, D>,
-    ) -> Result<(), HnswError> {
-        let EnsureQueryArgs {
-            source,
-            query,
-            ef,
-            neighbours,
-        } = args;
-        if ef.get() == 1 || neighbours.iter().any(|neighbour| neighbour.id == query) {
-            return Ok(());
-        }
-        let distance = validate_distance(Some(&self.distance_cache), source, query, query)?;
-        neighbours.push(Neighbour {
-            id: query,
-            distance,
-        });
-        normalise_neighbour_order(neighbours);
-        while neighbours.len() > ef.get() {
-            neighbours.pop();
-        }
-        Ok(())
-    }
-
-    fn batch_distances_for_trim<D: DataSource + Sync>(
-        &self,
-        node: usize,
-        candidates: &[usize],
-        source: &D,
-    ) -> Result<Vec<f32>, HnswError> {
-        if candidates.is_empty() {
-            return Ok(Vec::new());
-        }
-        let metric = source.metric_descriptor();
-        let pending: Vec<_> = candidates
-            .iter()
-            .map(
-                |&candidate| match self.distance_cache.begin_lookup(&metric, node, candidate) {
-                    LookupOutcome::Hit(_) => None,
-                    LookupOutcome::Miss(miss) => Some(miss),
-                },
-            )
-            .collect();
-        let distances = validate_batch_distances(None, source, node, candidates)?;
-        for (miss, distance) in pending.into_iter().zip(distances.iter()) {
-            if let Some(miss) = miss {
-                self.distance_cache.complete_miss(miss, *distance)?;
-            }
-        }
-        Ok(distances)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -572,7 +492,6 @@ mod tests {
         MetricDescriptor, datasource::DataSource, error::DataSourceError, hnsw::HnswParams,
     };
     use std::{
-        num::NonZeroUsize,
         sync::{
             Arc,
             atomic::{AtomicBool, Ordering as AtomicOrdering},
@@ -580,58 +499,6 @@ mod tests {
         thread,
         time::Duration,
     };
-
-    fn neighbour(id: usize, distance: f32) -> Neighbour {
-        Neighbour { id, distance }
-    }
-
-    #[test]
-    fn ensure_query_added_when_room_available() {
-        test_ensure_query_present(EnsureQueryTestCase {
-            index_size: 4,
-            initial_neighbours: vec![neighbour(1, 1.0)],
-            ef: 2,
-            expected: vec![neighbour(0, 0.0), neighbour(1, 1.0)],
-        });
-    }
-
-    #[test]
-    fn ensure_query_skips_when_capacity_is_one() {
-        test_ensure_query_present(EnsureQueryTestCase {
-            index_size: 2,
-            initial_neighbours: vec![neighbour(1, 1.0)],
-            ef: 1,
-            expected: vec![neighbour(1, 1.0)],
-        });
-    }
-
-    #[test]
-    fn ensure_query_noop_when_present() {
-        test_ensure_query_present(EnsureQueryTestCase {
-            index_size: 2,
-            initial_neighbours: vec![neighbour(0, 0.0)],
-            ef: 1,
-            expected: vec![neighbour(0, 0.0)],
-        });
-    }
-
-    #[test]
-    fn batch_distances_populates_cache() {
-        let cpu = test_index(4);
-        let source = TestSource::new(vec![0.0, 1.0, 4.0]);
-        let distances = cpu
-            .batch_distances_for_trim(0, &[1, 2], &source)
-            .expect("batch distances must succeed");
-        assert_eq!(distances, vec![1.0, 4.0]);
-
-        let metric = source.metric_descriptor();
-        matches!(
-            cpu.distance_cache.begin_lookup(&metric, 0, 1),
-            LookupOutcome::Hit(value) if (value - 1.0).abs() < f32::EPSILON
-        )
-        .then_some(())
-        .expect("distance cache must record lookup");
-    }
 
     #[test]
     fn insert_waits_for_mutex() {
@@ -665,32 +532,6 @@ mod tests {
         drop(guard);
         handle.join().expect("thread joins");
         assert!(finished.load(AtomicOrdering::SeqCst));
-    }
-
-    struct EnsureQueryTestCase {
-        index_size: usize,
-        initial_neighbours: Vec<Neighbour>,
-        ef: usize,
-        expected: Vec<Neighbour>,
-    }
-
-    fn test_ensure_query_present(case: EnsureQueryTestCase) {
-        let cpu = test_index(case.index_size);
-        let source = TestSource::new(vec![0.0, 1.0]);
-        let mut neighbours = case.initial_neighbours.clone();
-        cpu.ensure_query_present(EnsureQueryArgs {
-            source: &source,
-            query: 0,
-            ef: NonZeroUsize::new(case.ef).expect("ef must be non-zero"),
-            neighbours: &mut neighbours,
-        })
-        .expect("ensure_query_present must succeed");
-        assert_eq!(neighbours, case.expected);
-    }
-
-    fn test_index(capacity: usize) -> CpuHnsw {
-        let params = HnswParams::new(2, 4).expect("params").with_rng_seed(13);
-        CpuHnsw::with_capacity(params, capacity).expect("index")
     }
 
     #[derive(Clone)]

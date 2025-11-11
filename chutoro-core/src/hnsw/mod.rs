@@ -9,6 +9,7 @@ mod cpu;
 mod distance_cache;
 mod error;
 mod graph;
+mod helpers;
 mod insert;
 mod invariants;
 mod node;
