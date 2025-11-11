@@ -7,6 +7,32 @@ use std::collections::VecDeque;
 
 use super::{EvaluationMode, GraphContext, HnswInvariantViolation, helpers::LayerValidator};
 
+/// Verifies that every node in the graph remains reachable from the declared
+/// entry point by validating each layer and traversing the structure via BFS.
+///
+/// Records violations through `mode` so callers that aggregate failures can
+/// continue collecting issues even when the function returns `Ok(())`.
+///
+/// # Parameters
+/// - `ctx`: [`GraphContext`] supplying the HNSW graph and associated metadata
+///   used by the layer validator and traversal logic.
+/// - `mode`: [`EvaluationMode`] used to record or surface violations detected
+///   during validation and traversal.
+///
+/// # Returns
+/// [`Result::Ok`] when all nodes are reachable; otherwise returns
+/// [`HnswInvariantViolation`] immediately if `mode` is fail-fast or after it
+/// records the violation when `mode` is collecting.
+///
+/// # Errors
+/// - Returns early with `Ok(())` when the graph is empty.
+/// - Records `MissingEntryPoint` when the graph lacks an entry node.
+/// - Propagates `LayerValidator::ensure` failures (e.g., broken layering) via
+///   `mode` before returning.
+/// - Surfaces violations encountered during `bfs_traverse`, such as invalid
+///   neighbours discovered through `process_neighbour`.
+/// - Emits unreachable-node violations from `check_all_nodes_visited` when BFS
+///   fails to visit every node.
 pub(super) fn check_reachability(
     ctx: GraphContext<'_>,
     mode: &mut EvaluationMode<'_>,
