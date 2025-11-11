@@ -160,15 +160,15 @@ impl Chutoro {
                 data_source: Arc::from(source.name()),
             });
         }
-        if let Some(err) = self.backend_unavailable_error() {
-            return Err(err);
-        }
         if items < self.min_cluster_size.get() {
             return Err(ChutoroError::InsufficientItems {
                 data_source: Arc::from(source.name()),
                 items,
                 min_cluster_size: self.min_cluster_size,
             });
+        }
+        if let Some(err) = self.backend_unavailable_error() {
+            return Err(err);
         }
 
         match self.execution_strategy {
@@ -258,7 +258,7 @@ impl Chutoro {
             ExecutionStrategy::GpuPreferred => !GPU_PATH_AVAILABLE,
         };
 
-        unavailable.then(|| ChutoroError::BackendUnavailable {
+        unavailable.then_some(ChutoroError::BackendUnavailable {
             requested: self.execution_strategy,
         })
     }

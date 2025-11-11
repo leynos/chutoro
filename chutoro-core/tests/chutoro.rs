@@ -175,6 +175,7 @@ fn run_logs_empty_source_warning() {
 #[case::cpu_only(ExecutionStrategy::CpuOnly)]
 fn run_cpu_strategies_error_without_skeleton(#[case] strategy: ExecutionStrategy, dummy: Dummy) {
     let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(dummy.len())
         .with_execution_strategy(strategy)
         .build()
         .expect("configuration must be valid");

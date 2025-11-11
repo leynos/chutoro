@@ -477,7 +477,6 @@ impl CpuHnsw {
         }
         level
     }
-
 }
 
 fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
@@ -526,7 +525,10 @@ impl SearchMaintenance for CpuHnsw {
             return Ok(());
         }
         let distance = validate_distance(Some(&self.distance_cache), source, query, query)?;
-        neighbours.push(Neighbour { id: query, distance });
+        neighbours.push(Neighbour {
+            id: query,
+            distance,
+        });
         normalise_neighbour_order(neighbours);
         while neighbours.len() > ef.get() {
             neighbours.pop();
@@ -546,10 +548,12 @@ impl SearchMaintenance for CpuHnsw {
         let metric = source.metric_descriptor();
         let pending: Vec<_> = candidates
             .iter()
-            .map(|&candidate| match self.distance_cache.begin_lookup(&metric, node, candidate) {
-                LookupOutcome::Hit(_) => None,
-                LookupOutcome::Miss(miss) => Some(miss),
-            })
+            .map(
+                |&candidate| match self.distance_cache.begin_lookup(&metric, node, candidate) {
+                    LookupOutcome::Hit(_) => None,
+                    LookupOutcome::Miss(miss) => Some(miss),
+                },
+            )
             .collect();
         let distances = validate_batch_distances(None, source, node, candidates)?;
         for (miss, distance) in pending.into_iter().zip(distances.iter()) {
@@ -570,68 +574,45 @@ mod tests {
     use std::{
         num::NonZeroUsize,
         sync::{
-            atomic::{AtomicBool, Ordering as AtomicOrdering},
             Arc,
+            atomic::{AtomicBool, Ordering as AtomicOrdering},
         },
         thread,
         time::Duration,
     };
 
+    fn neighbour(id: usize, distance: f32) -> Neighbour {
+        Neighbour { id, distance }
+    }
+
     #[test]
     fn ensure_query_added_when_room_available() {
-        test_ensure_query_present(
-            4,
-            vec![Neighbour {
-                id: 1,
-                distance: 1.0,
-            }],
-            2,
-            vec![
-                Neighbour {
-                    id: 0,
-                    distance: 0.0,
-                },
-                Neighbour {
-                    id: 1,
-                    distance: 1.0,
-                },
-            ],
-            "ensure_query_added_when_room_available",
-        );
+        test_ensure_query_present(EnsureQueryTestCase {
+            index_size: 4,
+            initial_neighbours: vec![neighbour(1, 1.0)],
+            ef: 2,
+            expected: vec![neighbour(0, 0.0), neighbour(1, 1.0)],
+        });
     }
 
     #[test]
     fn ensure_query_skips_when_capacity_is_one() {
-        test_ensure_query_present(
-            2,
-            vec![Neighbour {
-                id: 1,
-                distance: 1.0,
-            }],
-            1,
-            vec![Neighbour {
-                id: 1,
-                distance: 1.0,
-            }],
-            "ensure_query_skips_when_capacity_is_one",
-        );
+        test_ensure_query_present(EnsureQueryTestCase {
+            index_size: 2,
+            initial_neighbours: vec![neighbour(1, 1.0)],
+            ef: 1,
+            expected: vec![neighbour(1, 1.0)],
+        });
     }
 
     #[test]
     fn ensure_query_noop_when_present() {
-        test_ensure_query_present(
-            2,
-            vec![Neighbour {
-                id: 0,
-                distance: 0.0,
-            }],
-            1,
-            vec![Neighbour {
-                id: 0,
-                distance: 0.0,
-            }],
-            "ensure_query_noop_when_present",
-        );
+        test_ensure_query_present(EnsureQueryTestCase {
+            index_size: 2,
+            initial_neighbours: vec![neighbour(0, 0.0)],
+            ef: 1,
+            expected: vec![neighbour(0, 0.0)],
+        });
     }
 
     #[test]
@@ -686,23 +667,25 @@ mod tests {
         assert!(finished.load(AtomicOrdering::SeqCst));
     }
 
-    fn test_ensure_query_present(
+    struct EnsureQueryTestCase {
         index_size: usize,
-        mut neighbours: Vec<Neighbour>,
+        initial_neighbours: Vec<Neighbour>,
         ef: usize,
         expected: Vec<Neighbour>,
-        test_name: &str,
-    ) {
-        let cpu = test_index(index_size);
+    }
+
+    fn test_ensure_query_present(case: EnsureQueryTestCase) {
+        let cpu = test_index(case.index_size);
         let source = TestSource::new(vec![0.0, 1.0]);
+        let mut neighbours = case.initial_neighbours.clone();
         cpu.ensure_query_present(EnsureQueryArgs {
             source: &source,
             query: 0,
-            ef: NonZeroUsize::new(ef).expect("ef must be non-zero"),
+            ef: NonZeroUsize::new(case.ef).expect("ef must be non-zero"),
             neighbours: &mut neighbours,
         })
-        .unwrap_or_else(|err| panic!("{test_name}: ensure_query_present failed: {err:?}"));
-        assert_eq!(neighbours, expected, "{test_name}: neighbours mismatch");
+        .expect("ensure_query_present must succeed");
+        assert_eq!(neighbours, case.expected);
     }
 
     fn test_index(capacity: usize) -> CpuHnsw {
