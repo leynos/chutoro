@@ -283,10 +283,16 @@ mod tests {
     #[cfg(not(feature = "skeleton"))]
     #[test]
     fn backend_error_without_skeleton() {
-        let chutoro = Chutoro::new(NonZeroUsize::new(1).unwrap(), ExecutionStrategy::Auto);
+        let chutoro = Chutoro::new(
+            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
+            ExecutionStrategy::Auto,
+        );
         assert!(chutoro.backend_unavailable_error().is_some());
 
-        let cpu_only = Chutoro::new(NonZeroUsize::new(1).unwrap(), ExecutionStrategy::CpuOnly);
+        let cpu_only = Chutoro::new(
+            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
+            ExecutionStrategy::CpuOnly,
+        );
         assert!(cpu_only.backend_unavailable_error().is_some());
     }
 
@@ -294,13 +300,16 @@ mod tests {
     #[test]
     fn gpu_preferred_requires_gpu_feature() {
         let chutoro = Chutoro::new(
-            NonZeroUsize::new(1).unwrap(),
+            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
             ExecutionStrategy::GpuPreferred,
         );
         let err = chutoro.backend_unavailable_error();
         assert!(matches!(err, Some(ChutoroError::BackendUnavailable { .. })));
 
-        let auto = Chutoro::new(NonZeroUsize::new(1).unwrap(), ExecutionStrategy::Auto);
+        let auto = Chutoro::new(
+            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
+            ExecutionStrategy::Auto,
+        );
         assert!(auto.backend_unavailable_error().is_none());
     }
 
@@ -312,7 +321,10 @@ mod tests {
             ExecutionStrategy::CpuOnly,
             ExecutionStrategy::GpuPreferred,
         ] {
-            let chutoro = Chutoro::new(NonZeroUsize::new(1).unwrap(), strategy);
+            let chutoro = Chutoro::new(
+                NonZeroUsize::new(1).expect("literal 1 is non-zero"),
+                strategy,
+            );
             assert!(chutoro.backend_unavailable_error().is_none());
         }
     }
