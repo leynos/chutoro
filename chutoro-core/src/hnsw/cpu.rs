@@ -6,7 +6,7 @@ use std::{
     collections::BinaryHeap,
     num::NonZeroUsize,
     sync::{
-        Arc, Condvar, Mutex, RwLock,
+        Arc, Mutex, RwLock,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
 };
@@ -54,7 +54,7 @@ pub struct CpuHnsw {
     rng: Mutex<SmallRng>,
     worker_rngs: Vec<Mutex<SmallRng>>,
     distance_cache: DistanceCache,
-    insert_semaphore: Semaphore,
+    insert_mutex: Mutex<()>,
     next_sequence: AtomicU64,
     len: AtomicUsize,
 }
@@ -149,7 +149,7 @@ impl CpuHnsw {
             worker_rngs,
             graph: Arc::new(RwLock::new(graph)),
             distance_cache: cache,
-            insert_semaphore: Semaphore::new(1),
+            insert_mutex: Mutex::new(()),
             next_sequence: AtomicU64::new(0),
             len: AtomicUsize::new(0),
             params,
@@ -177,7 +177,7 @@ impl CpuHnsw {
     /// index.insert(1, &data).expect("insert must succeed");
     /// ```
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
-        let _insertion_guard = self.insert_semaphore.acquire();
+        let _insertion_guard = self.insert_mutex.lock().expect("insert mutex poisoned");
         let level = self.sample_level();
         let sequence = self.allocate_sequence();
         let node_ctx = NodeContext {
@@ -543,50 +543,6 @@ fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
     });
 }
 
-#[derive(Debug)]
-struct Semaphore {
-    permits: Mutex<usize>,
-    condvar: Condvar,
-}
-
-impl Semaphore {
-    fn new(permits: usize) -> Self {
-        assert!(permits > 0, "semaphore must allow at least one permit");
-        Self {
-            permits: Mutex::new(permits),
-            condvar: Condvar::new(),
-        }
-    }
-
-    fn acquire(&self) -> SemaphoreGuard<'_> {
-        let mut permits = self.permits.lock().expect("semaphore mutex poisoned");
-        while *permits == 0 {
-            permits = self
-                .condvar
-                .wait(permits)
-                .expect("semaphore mutex poisoned during wait");
-        }
-        *permits -= 1;
-        SemaphoreGuard { semaphore: self }
-    }
-
-    fn release(&self) {
-        let mut permits = self.permits.lock().expect("semaphore mutex poisoned");
-        *permits += 1;
-        self.condvar.notify_one();
-    }
-}
-
-struct SemaphoreGuard<'a> {
-    semaphore: &'a Semaphore,
-}
-
-impl Drop for SemaphoreGuard<'_> {
-    fn drop(&mut self) {
-        self.semaphore.release();
-    }
-}
-
 /// Bundles the context required to ensure a search result includes the query
 /// item when enough capacity is available.
 struct EnsureQueryArgs<'a, D: DataSource + Sync> {
@@ -594,4 +550,176 @@ struct EnsureQueryArgs<'a, D: DataSource + Sync> {
     query: usize,
     ef: NonZeroUsize,
     neighbours: &'a mut Vec<Neighbour>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        MetricDescriptor, datasource::DataSource, error::DataSourceError, hnsw::HnswParams,
+    };
+    use std::{
+        num::NonZeroUsize,
+        sync::{
+            atomic::{AtomicBool, Ordering as AtomicOrdering},
+            Arc,
+        },
+        thread,
+        time::Duration,
+    };
+
+    #[test]
+    fn ensure_query_added_when_room_available() {
+        let cpu = test_index(4);
+        let source = TestSource::new(vec![0.0, 1.0]);
+        let mut neighbours = vec![Neighbour {
+            id: 1,
+            distance: 1.0,
+        }];
+        cpu.ensure_query_present(EnsureQueryArgs {
+            source: &source,
+            query: 0,
+            ef: NonZeroUsize::new(2).unwrap(),
+            neighbours: &mut neighbours,
+        })
+        .expect("insertion must succeed");
+        assert_eq!(
+            neighbours.iter().map(|n| n.id).collect::<Vec<_>>(),
+            vec![0, 1]
+        );
+    }
+
+    #[test]
+    fn ensure_query_skips_when_capacity_is_one() {
+        let cpu = test_index(2);
+        let source = TestSource::new(vec![0.0, 1.0]);
+        let mut neighbours = vec![Neighbour {
+            id: 1,
+            distance: 1.0,
+        }];
+        cpu.ensure_query_present(EnsureQueryArgs {
+            source: &source,
+            query: 0,
+            ef: NonZeroUsize::new(1).unwrap(),
+            neighbours: &mut neighbours,
+        })
+        .expect("insertion must succeed");
+        assert_eq!(
+            neighbours,
+            vec![Neighbour {
+                id: 1,
+                distance: 1.0
+            }]
+        );
+    }
+
+    #[test]
+    fn ensure_query_noop_when_present() {
+        let cpu = test_index(2);
+        let source = TestSource::new(vec![0.0, 1.0]);
+        let mut neighbours = vec![Neighbour {
+            id: 0,
+            distance: 0.0,
+        }];
+        cpu.ensure_query_present(EnsureQueryArgs {
+            source: &source,
+            query: 0,
+            ef: NonZeroUsize::new(1).unwrap(),
+            neighbours: &mut neighbours,
+        })
+        .expect("insertion must succeed");
+        assert_eq!(
+            neighbours,
+            vec![Neighbour {
+                id: 0,
+                distance: 0.0
+            }]
+        );
+    }
+
+    #[test]
+    fn batch_distances_populates_cache() {
+        let cpu = test_index(4);
+        let source = TestSource::new(vec![0.0, 1.0, 4.0]);
+        let distances = cpu
+            .batch_distances_for_trim(0, &[1, 2], &source)
+            .expect("batch distances must succeed");
+        assert_eq!(distances, vec![1.0, 4.0]);
+
+        let metric = source.metric_descriptor();
+        matches!(
+            cpu.distance_cache.begin_lookup(&metric, 0, 1),
+            LookupOutcome::Hit(value) if (value - 1.0).abs() < f32::EPSILON
+        )
+        .then_some(())
+        .expect("distance cache must record lookup");
+    }
+
+    #[test]
+    fn insert_waits_for_mutex() {
+        let params = HnswParams::new(2, 4).expect("params").with_rng_seed(31);
+        let index = Arc::new(CpuHnsw::with_capacity(params, 2).expect("index"));
+        let source = Arc::new(TestSource::new(vec![0.0, 1.0]));
+
+        let guard = index.insert_mutex.lock().expect("mutex");
+        let started = Arc::new(AtomicBool::new(false));
+        let finished = Arc::new(AtomicBool::new(false));
+
+        let handle = {
+            let index = Arc::clone(&index);
+            let source = Arc::clone(&source);
+            let started = Arc::clone(&started);
+            let finished = Arc::clone(&finished);
+            thread::spawn(move || {
+                started.store(true, AtomicOrdering::SeqCst);
+                index.insert(0, &*source).expect("insert must succeed");
+                finished.store(true, AtomicOrdering::SeqCst);
+            })
+        };
+
+        thread::sleep(Duration::from_millis(50));
+        assert!(started.load(AtomicOrdering::SeqCst));
+        assert!(
+            !finished.load(AtomicOrdering::SeqCst),
+            "insert should block while the mutex is held"
+        );
+
+        drop(guard);
+        handle.join().expect("thread joins");
+        assert!(finished.load(AtomicOrdering::SeqCst));
+    }
+
+    fn test_index(capacity: usize) -> CpuHnsw {
+        let params = HnswParams::new(2, 4).expect("params").with_rng_seed(13);
+        CpuHnsw::with_capacity(params, capacity).expect("index")
+    }
+
+    #[derive(Clone)]
+    struct TestSource {
+        data: Vec<f32>,
+    }
+
+    impl TestSource {
+        fn new(data: Vec<f32>) -> Self {
+            Self { data }
+        }
+    }
+
+    impl DataSource for TestSource {
+        fn len(&self) -> usize {
+            self.data.len()
+        }
+
+        fn name(&self) -> &str {
+            "test"
+        }
+
+        fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
+            Ok((self.data[left] - self.data[right]).abs())
+        }
+
+        fn metric_descriptor(&self) -> MetricDescriptor {
+            MetricDescriptor::new("test")
+        }
+    }
 }

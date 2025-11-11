@@ -251,33 +251,20 @@ impl Chutoro {
 
     fn backend_unavailable_error(&self) -> Option<ChutoroError> {
         match self.execution_strategy {
-            ExecutionStrategy::CpuOnly => {
-                if cfg!(not(feature = "skeleton")) {
-                    return Some(ChutoroError::BackendUnavailable {
-                        requested: ExecutionStrategy::CpuOnly,
-                    });
-                }
+            #[cfg(not(feature = "skeleton"))]
+            ExecutionStrategy::CpuOnly | ExecutionStrategy::Auto => {
+                Some(ChutoroError::BackendUnavailable {
+                    requested: self.execution_strategy,
+                })
             }
-            ExecutionStrategy::GpuPreferred => {
-                if cfg!(not(feature = "gpu"))
-                    || cfg!(all(feature = "gpu", not(feature = "skeleton")))
-                {
-                    return Some(ChutoroError::BackendUnavailable {
-                        requested: ExecutionStrategy::GpuPreferred,
-                    });
-                }
-            }
-            ExecutionStrategy::Auto => {
-                if cfg!(all(not(feature = "skeleton"), not(feature = "gpu")))
-                    || cfg!(all(feature = "gpu", not(feature = "skeleton")))
-                {
-                    return Some(ChutoroError::BackendUnavailable {
-                        requested: ExecutionStrategy::Auto,
-                    });
-                }
-            }
+
+            #[cfg(not(all(feature = "gpu", feature = "skeleton")))]
+            ExecutionStrategy::GpuPreferred => Some(ChutoroError::BackendUnavailable {
+                requested: self.execution_strategy,
+            }),
+
+            _ => None,
         }
-        None
     }
 
     #[cfg(feature = "skeleton")]
@@ -290,5 +277,47 @@ impl Chutoro {
             data_source: Arc::from(source.name()),
             error,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(not(feature = "skeleton"))]
+    #[test]
+    fn backend_error_without_skeleton() {
+        let chutoro = Chutoro::new(NonZeroUsize::new(1).unwrap(), ExecutionStrategy::Auto);
+        assert!(chutoro.backend_unavailable_error().is_some());
+
+        let cpu_only = Chutoro::new(NonZeroUsize::new(1).unwrap(), ExecutionStrategy::CpuOnly);
+        assert!(cpu_only.backend_unavailable_error().is_some());
+    }
+
+    #[cfg(all(feature = "skeleton", not(feature = "gpu")))]
+    #[test]
+    fn gpu_preferred_requires_gpu_feature() {
+        let chutoro = Chutoro::new(
+            NonZeroUsize::new(1).unwrap(),
+            ExecutionStrategy::GpuPreferred,
+        );
+        let err = chutoro.backend_unavailable_error();
+        assert!(matches!(err, Some(ChutoroError::BackendUnavailable { .. })));
+
+        let auto = Chutoro::new(NonZeroUsize::new(1).unwrap(), ExecutionStrategy::Auto);
+        assert!(auto.backend_unavailable_error().is_none());
+    }
+
+    #[cfg(all(feature = "gpu", feature = "skeleton"))]
+    #[test]
+    fn backend_available_when_features_enabled() {
+        for strategy in [
+            ExecutionStrategy::Auto,
+            ExecutionStrategy::CpuOnly,
+            ExecutionStrategy::GpuPreferred,
+        ] {
+            let chutoro = Chutoro::new(NonZeroUsize::new(1).unwrap(), strategy);
+            assert!(chutoro.backend_unavailable_error().is_none());
+        }
     }
 }
