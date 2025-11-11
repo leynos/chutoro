@@ -117,21 +117,40 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
     }
 
     let metric = source.metric_descriptor();
-    let pending: Vec<_> = candidates
-        .iter()
-        .map(
-            |&candidate| match cache.begin_lookup(&metric, node, candidate) {
-                LookupOutcome::Hit(_) => None,
-                LookupOutcome::Miss(miss) => Some(miss),
-            },
-        )
-        .collect();
-    let distances = validate_batch_distances(None, source, node, candidates)?;
-    for (miss, distance) in pending.into_iter().zip(distances.iter()) {
-        if let Some(miss) = miss {
-            cache.complete_miss(miss, *distance)?;
+    let mut distances = vec![0.0; candidates.len()];
+    let mut miss_candidates = Vec::new();
+    let mut miss_meta = Vec::new();
+
+    for (index, &candidate) in candidates.iter().enumerate() {
+        match cache.begin_lookup(&metric, node, candidate) {
+            LookupOutcome::Hit(value) => distances[index] = value,
+            LookupOutcome::Miss(miss) => {
+                miss_candidates.push(candidate);
+                miss_meta.push((index, miss));
+            }
         }
     }
+
+    if miss_candidates.is_empty() {
+        return Ok(distances);
+    }
+
+    let miss_distances = validate_batch_distances(None, source, node, &miss_candidates)?;
+    if miss_distances.len() != miss_candidates.len() {
+        return Err(HnswError::InvalidParameters {
+            reason: format!(
+                "miss distance count ({}) mismatches candidates ({})",
+                miss_distances.len(),
+                miss_candidates.len()
+            ),
+        });
+    }
+
+    for ((index, miss), distance) in miss_meta.into_iter().zip(miss_distances.into_iter()) {
+        cache.complete_miss(miss, distance)?;
+        distances[index] = distance;
+    }
+
     Ok(distances)
 }
 
