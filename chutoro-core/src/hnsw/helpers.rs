@@ -144,55 +144,43 @@ mod tests {
         DistanceCache::new(DistanceCacheConfig::default())
     }
 
-    #[test]
-    fn ensure_query_added_when_room_available() {
-        let mut neighbours = vec![neighbour(1, 1.0)];
+    fn run_ensure_query_test(
+        initial_neighbours: Vec<Neighbour>,
+        ef: usize,
+        expected_neighbours: Vec<Neighbour>,
+    ) {
         let source = TestSource::new(vec![0.0, 1.0]);
+        let mut neighbours = initial_neighbours;
         ensure_query_present(
             &cache(),
             EnsureQueryArgs {
                 source: &source,
                 query: 0,
-                ef: NonZeroUsize::new(2).expect("ef must be non-zero"),
+                ef: NonZeroUsize::new(ef).expect("ef must be non-zero"),
                 neighbours: &mut neighbours,
             },
         )
         .expect("ensure_query_present must succeed");
-        assert_eq!(neighbours, vec![neighbour(0, 0.0), neighbour(1, 1.0)]);
+        assert_eq!(neighbours, expected_neighbours);
+    }
+
+    #[test]
+    fn ensure_query_added_when_room_available() {
+        run_ensure_query_test(
+            vec![neighbour(1, 1.0)],
+            2,
+            vec![neighbour(0, 0.0), neighbour(1, 1.0)],
+        );
     }
 
     #[test]
     fn ensure_query_skips_when_capacity_is_one() {
-        let mut neighbours = vec![neighbour(1, 1.0)];
-        let source = TestSource::new(vec![0.0, 1.0]);
-        ensure_query_present(
-            &cache(),
-            EnsureQueryArgs {
-                source: &source,
-                query: 0,
-                ef: NonZeroUsize::new(1).expect("ef must be non-zero"),
-                neighbours: &mut neighbours,
-            },
-        )
-        .expect("ensure_query_present must succeed");
-        assert_eq!(neighbours, vec![neighbour(1, 1.0)]);
+        run_ensure_query_test(vec![neighbour(1, 1.0)], 1, vec![neighbour(1, 1.0)]);
     }
 
     #[test]
     fn ensure_query_noop_when_present() {
-        let mut neighbours = vec![neighbour(0, 0.0)];
-        let source = TestSource::new(vec![0.0, 1.0]);
-        ensure_query_present(
-            &cache(),
-            EnsureQueryArgs {
-                source: &source,
-                query: 0,
-                ef: NonZeroUsize::new(1).expect("ef must be non-zero"),
-                neighbours: &mut neighbours,
-            },
-        )
-        .expect("ensure_query_present must succeed");
-        assert_eq!(neighbours, vec![neighbour(0, 0.0)]);
+        run_ensure_query_test(vec![neighbour(0, 0.0)], 1, vec![neighbour(0, 0.0)]);
     }
 
     #[test]
