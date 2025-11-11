@@ -270,7 +270,12 @@ impl CpuHnsw {
             .with_ef(ef.get()),
         )?;
         normalise_neighbour_order(&mut neighbours);
-        self.ensure_query_present(source, query, &mut neighbours)?;
+        self.ensure_query_present(EnsureQueryArgs {
+            source,
+            query,
+            ef,
+            neighbours: &mut neighbours,
+        })?;
         Ok(neighbours)
     }
 
@@ -472,11 +477,15 @@ impl CpuHnsw {
 
     fn ensure_query_present<D: DataSource + Sync>(
         &self,
-        source: &D,
-        query: usize,
-        neighbours: &mut Vec<Neighbour>,
+        args: EnsureQueryArgs<'_, D>,
     ) -> Result<(), HnswError> {
-        if neighbours.iter().any(|neighbour| neighbour.id == query) {
+        let EnsureQueryArgs {
+            source,
+            query,
+            ef,
+            neighbours,
+        } = args;
+        if ef.get() == 1 || neighbours.iter().any(|neighbour| neighbour.id == query) {
             return Ok(());
         }
         let distance = validate_distance(Some(&self.distance_cache), source, query, query)?;
@@ -485,6 +494,9 @@ impl CpuHnsw {
             distance,
         });
         normalise_neighbour_order(neighbours);
+        while neighbours.len() > ef.get() {
+            neighbours.pop();
+        }
         Ok(())
     }
 
@@ -526,4 +538,13 @@ fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
             .total_cmp(&right.distance)
             .then_with(|| left.id.cmp(&right.id))
     });
+}
+
+/// Bundles the context required to ensure a search result includes the query
+/// item when enough capacity is available.
+struct EnsureQueryArgs<'a, D: DataSource + Sync> {
+    source: &'a D,
+    query: usize,
+    ef: NonZeroUsize,
+    neighbours: &'a mut Vec<Neighbour>,
 }
