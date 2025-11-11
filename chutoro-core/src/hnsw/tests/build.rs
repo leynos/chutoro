@@ -238,3 +238,50 @@ fn trimming_prefers_lower_id_on_distance_ties() -> Result<(), HnswError> {
     );
     Ok(())
 }
+
+#[rstest]
+fn score_trim_jobs_limits_results_to_max_connections() -> Result<(), HnswError> {
+    let params = HnswParams::new(1, 4)?;
+    let index = CpuHnsw::with_capacity(params.clone(), 6)?;
+    let ctx = EdgeContext {
+        level: 0,
+        max_connections: 2,
+    };
+    let job = TrimJob {
+        node: 0,
+        ctx,
+        candidates: vec![1, 2, 3, 4, 5],
+        sequences: vec![10, 11, 12, 13, 14],
+    };
+    let result = index
+        .score_trim_jobs(
+            vec![job],
+            &DummySource::new(vec![0.0, 0.05, 0.1, 0.2, 0.4, 0.8]),
+        )?
+        .into_iter()
+        .next()
+        .expect("trim job result expected");
+
+    assert_eq!(result.neighbours, vec![1, 2]);
+    Ok(())
+}
+
+#[rstest]
+fn score_trim_jobs_rejects_length_mismatch() {
+    let params = HnswParams::new(1, 4).expect("params");
+    let index = CpuHnsw::with_capacity(params.clone(), 3).expect("index");
+    let ctx = EdgeContext {
+        level: 0,
+        max_connections: 1,
+    };
+    let job = TrimJob {
+        node: 0,
+        ctx,
+        candidates: vec![1, 2],
+        sequences: vec![1],
+    };
+    let err = index
+        .score_trim_jobs(vec![job], &DummySource::new(vec![0.0, 0.5, 1.0]))
+        .expect_err("mismatched candidate/sequence lengths must error");
+    assert!(matches!(err, HnswError::InvalidParameters { .. }));
+}

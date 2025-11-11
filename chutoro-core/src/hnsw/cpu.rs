@@ -3,6 +3,7 @@
 //! sharded RNGs, and the shared distance cache while exposing the public
 //! `CpuHnsw` API used by the CLI and tests.
 use std::{
+    collections::BinaryHeap,
     num::NonZeroUsize,
     sync::{
         Arc, Mutex, RwLock,
@@ -25,6 +26,25 @@ use super::{
     types::{Neighbour, RankedNeighbour},
     validate::{validate_batch_distances, validate_distance},
 };
+
+/// SplitMix64 increment (the 64-bit golden ratio) used for per-worker seed
+/// derivation.
+const WORKER_SEED_SPACING: u64 = 0x9E37_79B9_7F4A_7C15;
+const SPLITMIX_MULT_A: u64 = 0xBF58_476D_1CE4_E5B9;
+const SPLITMIX_MULT_B: u64 = 0x94D0_49BB_1331_11EB;
+
+#[inline]
+fn mix_worker_seed(base_seed: u64, worker_index: usize) -> u64 {
+    splitmix64(base_seed ^ ((worker_index as u64 + 1).wrapping_mul(WORKER_SEED_SPACING)))
+}
+
+#[inline]
+fn splitmix64(mut state: u64) -> u64 {
+    state = state.wrapping_add(WORKER_SEED_SPACING);
+    state = (state ^ (state >> 30)).wrapping_mul(SPLITMIX_MULT_A);
+    state = (state ^ (state >> 27)).wrapping_mul(SPLITMIX_MULT_B);
+    state ^ (state >> 31)
+}
 
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
@@ -113,7 +133,9 @@ impl CpuHnsw {
         let base_seed = params.rng_seed();
         let worker_rngs = (0..current_num_threads())
             .map(|idx| {
-                let seed = base_seed ^ ((idx as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15));
+                // Derive per-worker seeds via SplitMix64 to decorrelate streams
+                // even when Rayon reuses threads across insert/search phases.
+                let seed = mix_worker_seed(base_seed, idx);
                 Mutex::new(SmallRng::seed_from_u64(seed))
             })
             .collect();
@@ -247,7 +269,7 @@ impl CpuHnsw {
             }
             .with_ef(ef.get()),
         )?;
-        normalise_neighbour_order(&mut neighbours)?;
+        normalise_neighbour_order(&mut neighbours);
         Ok(neighbours)
     }
 
@@ -306,6 +328,48 @@ impl CpuHnsw {
         })
     }
 
+    /// Scores trim jobs in parallel, validating candidate, sequence, and
+    /// distance lengths before emitting ranked neighbour lists capped at each
+    /// edge context's `max_connections`.
+    ///
+    /// The caller supplies trimmed candidates gathered while the graph lock is
+    /// held. This method then validates the batched distances without the lock
+    /// and deterministically orders neighbours by distance and insertion
+    /// sequence so ties remain stable while a bounded binary heap retains only
+    /// the best `max_connections` entries.
+    ///
+    /// # Examples
+    /// ```rust,ignore
+    /// use chutoro_core::{
+    ///     CpuHnsw,
+    ///     DataSource,
+    ///     DataSourceError,
+    ///     HnswParams,
+    ///     hnsw::graph::EdgeContext,
+    ///     hnsw::insert::executor::TrimJob,
+    /// };
+    ///
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    /// #         Ok((a - b).abs())
+    /// #     }
+    /// # }
+    /// let params = HnswParams::new(1, 2).unwrap();
+    /// let hnsw = CpuHnsw::with_capacity(params, 2).unwrap();
+    /// let trim_jobs = vec![TrimJob {
+    ///     node: 0,
+    ///     ctx: EdgeContext { level: 0, max_connections: 1 },
+    ///     candidates: vec![0],
+    ///     sequences: vec![0],
+    /// }];
+    /// let results = hnsw.score_trim_jobs(trim_jobs, &Dummy(vec![0.0])).unwrap();
+    /// assert_eq!(results[0].neighbours, vec![0]);
+    /// ```
     pub(crate) fn score_trim_jobs<D: DataSource + Sync>(
         &self,
         trim_jobs: Vec<TrimJob>,
@@ -317,58 +381,65 @@ impl CpuHnsw {
 
         trim_jobs
             .into_par_iter()
-            .map(|job| -> Result<TrimResult, HnswError> {
-                let TrimJob {
-                    node,
-                    ctx,
-                    candidates,
-                    sequences,
-                } = job;
-
-                if candidates.len() != sequences.len() {
-                    return Err(HnswError::InvalidParameters {
-                        reason: format!(
-                            "trim job candidates ({}) must match sequence count ({})",
-                            candidates.len(),
-                            sequences.len()
-                        ),
-                    });
-                }
-
-                let distances = validate_batch_distances(
-                    Some(&self.distance_cache),
-                    source,
-                    node,
-                    &candidates,
-                )?;
-                if distances.len() != candidates.len() {
-                    return Err(HnswError::InvalidParameters {
-                        reason: format!(
-                            "trim job distance count ({}) mismatches candidates ({})",
-                            distances.len(),
-                            candidates.len()
-                        ),
-                    });
-                }
-
-                let mut scored = Vec::with_capacity(candidates.len());
-                for (index, id) in candidates.into_iter().enumerate() {
-                    let sequence = sequences[index];
-                    let distance = distances[index];
-                    scored.push(RankedNeighbour::new(id, distance, sequence));
-                }
-                scored.sort_unstable();
-                scored.truncate(ctx.max_connections);
-                Ok(TrimResult {
-                    node,
-                    ctx,
-                    neighbours: scored
-                        .into_iter()
-                        .map(|neighbour| neighbour.into_neighbour().id)
-                        .collect(),
-                })
-            })
+            .map(|job| self.run_trim_job(job, source))
             .collect::<Result<Vec<_>, HnswError>>()
+    }
+
+    fn run_trim_job<D: DataSource + Sync>(
+        &self,
+        job: TrimJob,
+        source: &D,
+    ) -> Result<TrimResult, HnswError> {
+        let TrimJob {
+            node,
+            ctx,
+            candidates,
+            sequences,
+        } = job;
+
+        if candidates.len() != sequences.len() {
+            return Err(HnswError::InvalidParameters {
+                reason: format!(
+                    "trim job candidates ({}) must match sequence count ({})",
+                    candidates.len(),
+                    sequences.len()
+                ),
+            });
+        }
+
+        let distances =
+            validate_batch_distances(Some(&self.distance_cache), source, node, &candidates)?;
+        if distances.len() != candidates.len() {
+            return Err(HnswError::InvalidParameters {
+                reason: format!(
+                    "trim job distance count ({}) mismatches candidates ({})",
+                    distances.len(),
+                    candidates.len()
+                ),
+            });
+        }
+
+        let mut heap = BinaryHeap::with_capacity(ctx.max_connections);
+        for (index, id) in candidates.into_iter().enumerate() {
+            let sequence = sequences[index];
+            let distance = distances[index];
+            heap.push(RankedNeighbour::new(id, distance, sequence));
+            if heap.len() > ctx.max_connections {
+                heap.pop();
+            }
+        }
+
+        let neighbours = heap
+            .into_sorted_vec()
+            .into_iter()
+            .map(|neighbour| neighbour.into_neighbour().id)
+            .collect();
+
+        Ok(TrimResult {
+            node,
+            ctx,
+            neighbours,
+        })
     }
 
     fn allocate_sequence(&self) -> u64 {
@@ -400,11 +471,10 @@ impl CpuHnsw {
     }
 }
 
-fn normalise_neighbour_order(neighbours: &mut [Neighbour]) -> Result<(), HnswError> {
+fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
     neighbours.sort_by(|left, right| {
         left.distance
             .total_cmp(&right.distance)
             .then_with(|| left.id.cmp(&right.id))
     });
-    Ok(())
 }
