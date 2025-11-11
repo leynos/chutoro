@@ -78,6 +78,11 @@ fn bfs_traverse(
     Ok(())
 }
 
+/// Processes a dequeued node by loading it from the graph, recording a
+/// `LayerConsistency::MissingNode` violation (via `mode`) and returning
+/// `Ok(())` when the node no longer exists. Accepts the traversal context,
+/// the `node_id`, the mutable BFS context, and the current evaluation mode,
+/// and iterates the node's neighbours, delegating each to `process_neighbour`.
 fn process_single_node(
     traversal: &TraversalContext<'_>,
     node_id: usize,
@@ -139,6 +144,10 @@ struct TraversalContext<'a> {
     validator: &'a LayerValidator<'a>,
 }
 
+/// Walks every node in the graph, using the BFS `context` to detect vertices
+/// that were never visited, and records `UnreachableNode` violations via
+/// `mode`. Returns `Ok(())` when all nodes were reachable, or propagates any
+/// `Err(HnswInvariantViolation)` surfaced by the evaluation mode.
 fn check_all_nodes_visited(
     graph: &crate::hnsw::graph::Graph,
     context: &BfsContext,
