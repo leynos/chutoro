@@ -250,6 +250,10 @@ impl Chutoro {
     }
 
     fn backend_unavailable_error(&self) -> Option<ChutoroError> {
+        // CPU path is only available when the skeleton feature provides the
+        // reference implementation. The GPU path depends on both gpu and
+        // skeleton features because the GPU implementation builds atop the
+        // same scaffolding.
         const CPU_PATH_AVAILABLE: bool = cfg!(feature = "skeleton");
         const GPU_PATH_AVAILABLE: bool = cfg!(all(feature = "gpu", feature = "skeleton"));
 
