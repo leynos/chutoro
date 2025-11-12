@@ -211,6 +211,26 @@ mod tests {
     }
 
     #[test]
+    fn ensure_query_evicts_furthest_when_full() {
+        let mut neighbours = vec![neighbour(1, 1.0), neighbour(2, 2.0)];
+        let source = TestSource::new(vec![0.0, 1.0, 2.0]);
+        ensure_query_present(
+            &cache(),
+            EnsureQueryArgs {
+                source: &source,
+                query: 0,
+                ef: NonZeroUsize::new(2).expect("ef must be non-zero"),
+                neighbours: &mut neighbours,
+            },
+        )
+        .expect("ensure_query_present must succeed");
+        assert_eq!(neighbours.len(), 2);
+        assert!(neighbours.iter().any(|neighbour| neighbour.id == 0));
+        assert!(neighbours.iter().any(|neighbour| neighbour.id == 1));
+        assert!(neighbours.iter().all(|neighbour| neighbour.id != 2));
+    }
+
+    #[test]
     fn batch_distances_populates_cache() {
         let cache = cache();
         let source = TestSource::new(vec![0.0, 1.0, 4.0]);
