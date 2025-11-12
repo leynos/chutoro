@@ -36,19 +36,27 @@ pub(crate) fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
 /// neighbour list has spare capacity.
 ///
 /// # Examples
-/// ```rust,ignore
+/// ```rust
 /// # use std::num::NonZeroUsize;
-/// # use chutoro_core::hnsw::{helpers::{EnsureQueryArgs, ensure_query_present, normalise_neighbour_order}, distance_cache::DistanceCache};
-/// # use chutoro_core::{DistanceCacheConfig, datasource::DataSource};
-/// # struct Dummy;
-/// # impl DataSource for Dummy {
-/// #     fn len(&self) -> usize { 1 }
-/// #     fn name(&self) -> &str { "dummy" }
-/// #     fn distance(&self, _: usize, _: usize) -> Result<f32, chutoro_core::datasource::DataSourceError> { Ok(0.0) }
-/// # }
-/// # let cache = DistanceCache::new(DistanceCacheConfig::default());
-/// # let mut neighbours = Vec::new();
-/// # normalise_neighbour_order(&mut neighbours);
+/// use chutoro_core::{DistanceCacheConfig, DataSource, DataSourceError};
+/// use chutoro_core::datasource::MetricDescriptor;
+/// use chutoro_core::hnsw::distance_cache::DistanceCache;
+/// use chutoro_core::hnsw::helpers::{
+///     EnsureQueryArgs, ensure_query_present, normalise_neighbour_order,
+/// };
+///
+/// struct Dummy;
+///
+/// impl DataSource for Dummy {
+///     fn len(&self) -> usize { 1 }
+///     fn name(&self) -> &str { "dummy" }
+///     fn distance(&self, _: usize, _: usize) -> Result<f32, DataSourceError> { Ok(0.0) }
+///     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("dummy") }
+/// }
+///
+/// let cache = DistanceCache::new(DistanceCacheConfig::default());
+/// let mut neighbours = Vec::new();
+/// normalise_neighbour_order(&mut neighbours);
 /// ensure_query_present(
 ///     &cache,
 ///     EnsureQueryArgs {
