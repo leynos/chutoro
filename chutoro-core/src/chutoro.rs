@@ -283,21 +283,19 @@ impl Chutoro {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(feature = "skeleton"))]
+    use rstest::rstest;
 
     #[cfg(not(feature = "skeleton"))]
-    #[test]
-    fn backend_error_without_skeleton() {
+    #[rstest]
+    #[case(ExecutionStrategy::Auto)]
+    #[case(ExecutionStrategy::CpuOnly)]
+    fn backend_error_without_skeleton(#[case] strategy: ExecutionStrategy) {
         let chutoro = Chutoro::new(
             NonZeroUsize::new(1).expect("literal 1 is non-zero"),
-            ExecutionStrategy::Auto,
+            strategy,
         );
         assert!(chutoro.backend_unavailable_error().is_some());
-
-        let cpu_only = Chutoro::new(
-            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
-            ExecutionStrategy::CpuOnly,
-        );
-        assert!(cpu_only.backend_unavailable_error().is_some());
     }
 
     #[cfg(all(feature = "skeleton", not(feature = "gpu")))]
