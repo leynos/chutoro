@@ -96,16 +96,23 @@ pub(crate) fn ensure_query_present<D: DataSource + Sync>(
 /// returning them in the same order and populating the shared cache.
 ///
 /// # Examples
-/// ```rust,ignore
-/// # use chutoro_core::{DistanceCacheConfig, datasource::DataSource};
-/// # use chutoro_core::hnsw::helpers::batch_distances_for_trim;
-/// # use chutoro_core::hnsw::distance_cache::DistanceCache;
-/// # struct Dummy(Vec<f32>);
-/// # impl DataSource for Dummy {
-/// #     fn len(&self) -> usize { self.0.len() }
-/// #     fn name(&self) -> &str { "dummy" }
-/// #     fn distance(&self, i: usize, j: usize) -> Result<f32, chutoro_core::datasource::DataSourceError> { Ok((self.0[i] - self.0[j]).abs()) }
-/// # }
+/// ```rust
+/// use chutoro_core::{DistanceCacheConfig, DataSource, DataSourceError};
+/// use chutoro_core::datasource::MetricDescriptor;
+/// use chutoro_core::hnsw::distance_cache::DistanceCache;
+/// use chutoro_core::hnsw::helpers::batch_distances_for_trim;
+///
+/// struct Dummy(Vec<f32>);
+///
+/// impl DataSource for Dummy {
+///     fn len(&self) -> usize { self.0.len() }
+///     fn name(&self) -> &str { "dummy" }
+///     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+///         Ok((self.0[i] - self.0[j]).abs())
+///     }
+///     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("dummy") }
+/// }
+///
 /// let cache = DistanceCache::new(DistanceCacheConfig::default());
 /// let source = Dummy(vec![0.0, 1.0, 4.0]);
 /// let distances = batch_distances_for_trim(&cache, 0, &[1, 2], &source)?;
