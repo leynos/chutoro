@@ -244,12 +244,10 @@ mod tests {
         assert_eq!(distances, vec![1.0, 4.0]);
 
         let metric = source.metric_descriptor();
-        matches!(
+        assert!(matches!(
             cache.begin_lookup(&metric, 0, 1),
             LookupOutcome::Hit(value) if (value - 1.0).abs() < f32::EPSILON
-        )
-        .then_some(())
-        .expect("distance cache must record lookup");
+        ));
     }
 
     fn neighbour(id: usize, distance: f32) -> Neighbour {
