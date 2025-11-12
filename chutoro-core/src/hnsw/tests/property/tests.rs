@@ -1,7 +1,8 @@
-use proptest::{prop_assert, prop_assert_eq, proptest};
+use proptest::{prelude::any, prop_assert, prop_assert_eq, proptest};
 use rstest::rstest;
 
 use super::{
+    search_property::run_search_correctness_property,
     strategies::hnsw_fixture_strategy,
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
@@ -158,5 +159,15 @@ proptest! {
                 prop_assert!(residual <= tolerance);
             }
         }
+    }
+
+    #[test]
+    fn hnsw_search_matches_brute_force(
+        fixture in hnsw_fixture_strategy(),
+        query_hint in any::<u16>(),
+        k_hint in any::<u16>(),
+    ) {
+        run_search_correctness_property(fixture, query_hint, k_hint)
+            .unwrap_or_else(|err| panic!("search correctness property failed: {err:?}"));
     }
 }

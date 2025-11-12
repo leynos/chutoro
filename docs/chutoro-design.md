@@ -925,6 +925,34 @@ aggregated runs continue collecting reachable failures (e.g., all unreachable
 nodes) while preserving the previous short-circuit behaviour for fail-fast
 callers.
 
+#### 6.6. Search correctness property
+
+_Implementation update (2025-11-12)._ The CPU suite now exercises the oracle
+driven search property from `docs/property-testing-design.md §2.3.1`. Each
+generated fixture is converted into a `DenseVectorSource`, built into a
+`CpuHnsw`, and queried using a deterministic index derived from the sampled RNG
+seed so shrinking remains reproducible. For every query the property runs two
+searches:
+
+- `CpuHnsw::search` with `ef = max(len, 2 * k, 16)` to model an ANN
+  configuration while giving the base-layer search enough headroom to reach
+  every inserted node.
+- A brute-force oracle that computes every distance and sorts the top `k`
+  neighbours.
+
+Results are compared via recall@k. The minimum acceptable recall is drawn from
+the `CHUTORO_HNSW_PBT_MIN_RECALL` environment variable, which accepts values in
+`(0.0, 1.0]` and defaults to `0.90`. Invalid inputs emit a warning via
+`tracing` and fall back to the default so CI remains deterministic. To avoid
+asking the graph for more detail than its fan-out allows, the property only
+evaluates fixtures with `max_connections >= 16` and bounds `k` by
+`min(16, len, max_connections)`. The test captures `Instant` timings for both
+the HNSW search and the brute-force scan, logging the microsecond durations and
+the derived speed-up ratio through the existing `tracing` subscriber. This
+turns the property into a lightweight performance probe: a regression that
+harms recall or negates the expected speed-up now fails the suite with
+actionable metrics attached to the failing case.
+
 ## Part III: GPU Acceleration Strategy
 
 To achieve the highest possible performance on large datasets, the design

@@ -83,7 +83,7 @@ ______________________________________________________________________
 - [x] Surface HNSW structural invariant checkers (layer consistency, degree
   bounds, reachability, bidirectional links) callable from properties. (See
   property-testing-design §2.2)
-- [ ] Add HNSW search correctness property comparing index results against a
+- [x] Add HNSW search correctness property comparing index results against a
   brute-force oracle with a configurable recall threshold and timing capture.
   (See property-testing-design §2.3.1)
 - [ ] Add stateful HNSW mutation property that exercises add/delete/
