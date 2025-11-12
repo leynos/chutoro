@@ -88,9 +88,7 @@ pub(crate) fn ensure_query_present<D: DataSource + Sync>(
         distance,
     });
     normalise_neighbour_order(neighbours);
-    while neighbours.len() > ef.get() {
-        neighbours.pop();
-    }
+    neighbours.truncate(ef.get());
     Ok(())
 }
 
