@@ -314,7 +314,7 @@ impl<'graph> InsertionExecutor<'graph> {
                     ),
                 })?;
 
-        let contains_new = candidates.iter().any(|&existing| existing == new_node);
+        let contains_new = candidates.contains(&new_node);
         let projected = candidates.len() + usize::from(!contains_new);
         if projected > max_connections {
             needs_trim.insert(key);

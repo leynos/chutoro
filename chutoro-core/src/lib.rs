@@ -24,7 +24,8 @@ pub use crate::{
 #[cfg(feature = "cpu")]
 /// CPU-accelerated HNSW index components; requires the `cpu` feature.
 pub use crate::hnsw::{
-    CpuHnsw, DistanceCacheConfig, HnswError, HnswErrorCode, HnswParams, Neighbour,
+    CpuHnsw, DistanceCacheConfig, HnswError, HnswErrorCode, HnswInvariant, HnswInvariantChecker,
+    HnswInvariantViolation, HnswParams, Neighbour,
 };
 
 #[cfg(test)]
