@@ -5,13 +5,18 @@
 //! logic directly via `rstest`.
 
 use std::{
-    collections::HashSet,
+    collections::{BinaryHeap, HashSet},
     env,
     num::NonZeroUsize,
     time::{Duration, Instant},
 };
 
-use proptest::test_runner::{TestCaseError, TestCaseResult};
+#[cfg(test)]
+use super::types::{DistributionMetadata, HnswParamsSeed, VectorDistribution};
+use proptest::{
+    prop_assume,
+    test_runner::{TestCaseError, TestCaseResult},
+};
 use rstest::rstest;
 
 use super::types::HnswFixture;
@@ -40,9 +45,7 @@ pub(super) fn run_search_correctness_property(
     }
 
     const MIN_VALID_CONNECTIONS: usize = 16;
-    if fixture.params.max_connections < MIN_VALID_CONNECTIONS {
-        return Ok(());
-    }
+    prop_assume!(fixture.params.max_connections >= MIN_VALID_CONNECTIONS);
     let query = (usize::from(query_hint) % len).min(len.saturating_sub(1));
     let fanout_cap = fixture.params.max_connections.max(2);
     let max_k = len.min(16).min(fanout_cap);
@@ -65,27 +68,26 @@ pub(super) fn run_search_correctness_property(
         .map_err(|err| TestCaseError::fail(format!("oracle failed: {err}")))?;
     let oracle_elapsed = oracle_started.elapsed();
 
+    let threshold = config.min_recall();
     let recall = recall_at_k(&oracle, &hnsw_neighbours, k);
+    let recall_ctx = RecallCheckContext {
+        fixture: &fixture,
+        len,
+        k,
+        query,
+        fanout_cap,
+        threshold,
+    };
     record_search_metrics(SearchMetricsContext {
         fixture: &fixture,
         len,
         k,
         recall,
-        threshold: config.min_recall(),
+        threshold,
         timings: SearchTimings::new(hnsw_elapsed, oracle_elapsed),
     });
 
-    if recall < config.min_recall() {
-        return Err(TestCaseError::fail(format!(
-            "recall {recall:.3} below threshold {threshold:.3} (len={len}, k={k}, query={query}, max_connections={}, fanout_cap={}, distribution={:?})",
-            fixture.params.max_connections,
-            fanout_cap,
-            fixture.distribution,
-            threshold = config.min_recall(),
-        )));
-    }
-
-    Ok(())
+    ensure_recall_meets_threshold(recall, &recall_ctx)
 }
 
 fn brute_force_top_k<D: DataSource + Sync>(
@@ -93,17 +95,24 @@ fn brute_force_top_k<D: DataSource + Sync>(
     query: usize,
     k: usize,
 ) -> Result<Vec<Neighbour>, DataSourceError> {
-    let mut neighbours: Vec<Neighbour> = (0..source.len())
-        .map(|candidate| -> Result<Neighbour, DataSourceError> {
-            let distance = source.distance(query, candidate)?;
-            Ok(Neighbour {
-                id: candidate,
-                distance,
-            })
-        })
-        .collect::<Result<_, _>>()?;
+    if k == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut heap: BinaryHeap<Neighbour> = BinaryHeap::with_capacity(k);
+    for candidate in 0..source.len() {
+        let distance = source.distance(query, candidate)?;
+        heap.push(Neighbour {
+            id: candidate,
+            distance,
+        });
+        if heap.len() > k {
+            heap.pop();
+        }
+    }
+
+    let mut neighbours = heap.into_vec();
     neighbours.sort_unstable();
-    neighbours.truncate(k);
     Ok(neighbours)
 }
 
@@ -153,6 +162,32 @@ struct SearchMetricsContext<'a> {
     timings: SearchTimings,
 }
 
+struct RecallCheckContext<'a> {
+    fixture: &'a HnswFixture,
+    len: usize,
+    k: usize,
+    query: usize,
+    fanout_cap: usize,
+    threshold: f32,
+}
+
+fn ensure_recall_meets_threshold(recall: f32, ctx: &RecallCheckContext<'_>) -> TestCaseResult {
+    if recall < ctx.threshold {
+        return Err(TestCaseError::fail(format!(
+            "recall {recall:.3} below threshold {threshold:.3} (len={len}, k={k}, query={query}, max_connections={}, fanout_cap={}, distribution={:?})",
+            ctx.fixture.params.max_connections,
+            ctx.fanout_cap,
+            ctx.fixture.distribution,
+            len = ctx.len,
+            k = ctx.k,
+            query = ctx.query,
+            threshold = ctx.threshold,
+        )));
+    }
+
+    Ok(())
+}
+
 fn record_search_metrics(ctx: SearchMetricsContext<'_>) {
     tracing::info!(
         distribution = ?ctx.fixture.distribution,
@@ -161,8 +196,8 @@ fn record_search_metrics(ctx: SearchMetricsContext<'_>) {
         k = ctx.k,
         recall = ctx.recall,
         threshold = ctx.threshold,
-        hnsw_micros = ctx.timings.hnsw.as_secs_f64() * 1_000_000.0,
-        oracle_micros = ctx.timings.oracle.as_secs_f64() * 1_000_000.0,
+        hnsw_micros = ctx.timings.hnsw.as_micros(),
+        oracle_micros = ctx.timings.oracle.as_micros(),
         speedup = ctx.timings.speedup(),
         "hnsw search correctness property",
     );
@@ -270,4 +305,48 @@ fn neighbours_from_ids(ids: &[usize]) -> Vec<Neighbour> {
             distance: idx as f32,
         })
         .collect()
+}
+
+#[cfg(test)]
+fn uniform_fixture(max_connections: usize) -> HnswFixture {
+    HnswFixture {
+        distribution: VectorDistribution::Uniform,
+        vectors: vec![vec![0.0, 0.0], vec![1.0, 1.0]],
+        metadata: DistributionMetadata::Uniform { bound: 1.0 },
+        params: HnswParamsSeed {
+            max_connections,
+            ef_construction: 32,
+            level_multiplier: 1.0,
+            max_level: 2,
+            rng_seed: 42,
+        },
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn recall_threshold_failure_includes_context() {
+    let fixture = uniform_fixture(32);
+    let ctx = RecallCheckContext {
+        fixture: &fixture,
+        len: 10,
+        k: 4,
+        query: 2,
+        fanout_cap: 8,
+        threshold: 0.9,
+    };
+    let err =
+        ensure_recall_meets_threshold(0.5, &ctx).expect_err("recall below threshold must fail");
+
+    match err {
+        TestCaseError::Fail(message) => {
+            let text = message.message();
+            assert!(text.contains("recall 0.500 below threshold 0.900"));
+            assert!(text.contains("len=10, k=4, query=2"));
+            assert!(text.contains("max_connections=32"));
+            assert!(text.contains("fanout_cap=8"));
+            assert!(text.contains("distribution=Uniform"));
+        }
+        other => panic!("unexpected error variant: {other:?}"),
+    }
 }

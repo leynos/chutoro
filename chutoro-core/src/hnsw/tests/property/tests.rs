@@ -167,7 +167,6 @@ proptest! {
         query_hint in any::<u16>(),
         k_hint in any::<u16>(),
     ) {
-        run_search_correctness_property(fixture, query_hint, k_hint)
-            .unwrap_or_else(|err| panic!("search correctness property failed: {err:?}"));
+        run_search_correctness_property(fixture, query_hint, k_hint)?;
     }
 }
