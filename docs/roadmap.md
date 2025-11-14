@@ -105,8 +105,8 @@ ______________________________________________________________________
   `fork = true`, `PROGTEST_CASES` env var). (See property-testing-design §5)
   - [ ] CI tuning for property-based guardrails.
     - Decide on the recall floor that CI must enforce by setting
-      `CHUTORO_HNSW_PBT_MIN_RECALL`; raise it once the high-fan-out search
-      implementation improves.
+      `CHUTORO_HNSW_PBT_MIN_RECALL`;
+      raise the recall floor once the high-fan-out search implementation improves.
     - Broaden max_connections guardrails once graph connectivity work lands so
       that the current `max_connections >= 16` guard can be tightened.
 

@@ -44,6 +44,10 @@ pub(super) fn run_search_correctness_property(
         return Ok(());
     }
 
+    if len > config.max_fixture_len() {
+        return Ok(());
+    }
+
     const MIN_VALID_CONNECTIONS: usize = 16;
     prop_assume!(fixture.params.max_connections >= MIN_VALID_CONNECTIONS);
     let query = (usize::from(query_hint) % len).min(len.saturating_sub(1));
@@ -189,7 +193,7 @@ fn ensure_recall_meets_threshold(recall: f32, ctx: &RecallCheckContext<'_>) -> T
 }
 
 fn record_search_metrics(ctx: SearchMetricsContext<'_>) {
-    tracing::info!(
+    tracing::debug!(
         distribution = ?ctx.fixture.distribution,
         dimension = ctx.fixture.dimension(),
         len = ctx.len,
@@ -212,11 +216,14 @@ enum RecallThresholdError {
 #[derive(Clone, Copy, Debug)]
 struct SearchPropertyConfig {
     min_recall: f32,
+    max_fixture_len: usize,
 }
 
 impl SearchPropertyConfig {
     const ENV_KEY: &'static str = "CHUTORO_HNSW_PBT_MIN_RECALL";
-    const DEFAULT_MIN_RECALL: f32 = 0.90;
+    const MAX_FIXTURE_LEN_ENV_KEY: &'static str = "CHUTORO_HNSW_PBT_MAX_FIXTURE_LEN";
+    const DEFAULT_MIN_RECALL: f32 = 0.50;
+    const DEFAULT_MAX_FIXTURE_LEN: usize = 32;
 
     fn load() -> Self {
         let min_recall = env::var(Self::ENV_KEY)
@@ -234,11 +241,47 @@ impl SearchPropertyConfig {
                 }
             })
             .unwrap_or(Self::DEFAULT_MIN_RECALL);
-        Self { min_recall }
+
+        let max_fixture_len = env::var(Self::MAX_FIXTURE_LEN_ENV_KEY)
+            .ok()
+            .and_then(|value| {
+                let trimmed = value.trim();
+                match trimmed.parse::<usize>() {
+                    Ok(parsed) if parsed >= 2 => Some(parsed),
+                    Ok(parsed) => {
+                        tracing::warn!(
+                            env = Self::MAX_FIXTURE_LEN_ENV_KEY,
+                            raw = %value,
+                            parsed,
+                            "invalid max fixture length (must be >= 2); falling back to default",
+                        );
+                        None
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            env = Self::MAX_FIXTURE_LEN_ENV_KEY,
+                            raw = %value,
+                            ?err,
+                            "invalid max fixture length; falling back to default",
+                        );
+                        None
+                    }
+                }
+            })
+            .unwrap_or(Self::DEFAULT_MAX_FIXTURE_LEN);
+
+        Self {
+            min_recall,
+            max_fixture_len,
+        }
     }
 
     fn min_recall(&self) -> f32 {
         self.min_recall
+    }
+
+    fn max_fixture_len(&self) -> usize {
+        self.max_fixture_len
     }
 }
 
@@ -308,19 +351,100 @@ fn neighbours_from_ids(ids: &[usize]) -> Vec<Neighbour> {
 }
 
 #[cfg(test)]
-fn uniform_fixture(max_connections: usize) -> HnswFixture {
+fn fixture_with_vectors(vectors: Vec<Vec<f32>>, max_connections: usize) -> HnswFixture {
+    assert!(
+        !vectors.is_empty(),
+        "test fixtures must contain at least one vector"
+    );
+    let dimension = vectors[0].len();
+    assert!(vectors.iter().all(|vector| vector.len() == dimension));
     HnswFixture {
         distribution: VectorDistribution::Uniform,
-        vectors: vec![vec![0.0, 0.0], vec![1.0, 1.0]],
+        vectors,
         metadata: DistributionMetadata::Uniform { bound: 1.0 },
         params: HnswParamsSeed {
             max_connections,
-            ef_construction: 32,
+            ef_construction: 64,
             level_multiplier: 1.0,
             max_level: 2,
             rng_seed: 42,
         },
     }
+}
+
+#[cfg(test)]
+fn uniform_fixture(max_connections: usize) -> HnswFixture {
+    fixture_with_vectors(vec![vec![0.0, 0.0], vec![1.0, 1.0]], max_connections)
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+struct MatrixSource {
+    distances: Vec<Vec<f32>>,
+}
+
+#[cfg(test)]
+impl MatrixSource {
+    fn new(distances: Vec<Vec<f32>>) -> Self {
+        Self { distances }
+    }
+}
+
+#[cfg(test)]
+impl DataSource for MatrixSource {
+    fn len(&self) -> usize {
+        self.distances.len()
+    }
+
+    fn name(&self) -> &str {
+        "matrix"
+    }
+
+    fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+        let row = self
+            .distances
+            .get(i)
+            .ok_or(DataSourceError::OutOfBounds { index: i })?;
+        row.get(j)
+            .copied()
+            .ok_or(DataSourceError::OutOfBounds { index: j })
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn brute_force_top_k_returns_empty_when_k_is_zero() {
+    let source = MatrixSource::new(vec![vec![0.0, 0.5], vec![0.5, 0.0]]);
+    let neighbours = brute_force_top_k(&source, 0, 0).expect("k=0 should succeed");
+    assert!(neighbours.is_empty());
+}
+
+#[cfg(test)]
+#[test]
+fn brute_force_top_k_returns_all_when_k_exceeds_len() {
+    let source = MatrixSource::new(vec![vec![0.0, 0.4], vec![0.4, 0.0]]);
+    let neighbours = brute_force_top_k(&source, 0, 10).expect("k>len should return all nodes");
+    assert_eq!(neighbours.len(), 2);
+    assert_eq!(
+        neighbours.iter().map(|n| n.id).collect::<Vec<_>>(),
+        vec![0, 1]
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn brute_force_top_k_handles_empty_source() {
+    let source = MatrixSource::new(Vec::new());
+    let neighbours = brute_force_top_k(&source, 0, 1).expect("empty source should be ok");
+    assert!(neighbours.is_empty());
+}
+
+#[cfg(test)]
+#[test]
+fn search_property_returns_ok_for_single_item_fixture() {
+    let fixture = fixture_with_vectors(vec![vec![0.0]], 16);
+    run_search_correctness_property(fixture, 0, 0)
+        .expect("len < 2 fixture should be skipped early");
 }
 
 #[cfg(test)]

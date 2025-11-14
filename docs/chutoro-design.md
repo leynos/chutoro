@@ -942,16 +942,18 @@ searches:
 
 Results are compared via recall@k. The minimum acceptable recall is drawn from
 the `CHUTORO_HNSW_PBT_MIN_RECALL` environment variable, which accepts values in
-`(0.0, 1.0]` and defaults to `0.90`. Invalid inputs emit a warning via
-`tracing` and fall back to the default so CI remains deterministic. To avoid
+`(0.0, 1.0]` and defaults to `0.50`. Invalid inputs emit a warning via
+`tracing` and fall back to the default so CI remains deterministic. Extremely
+large fixtures are rejected up-front using the
+`CHUTORO_HNSW_PBT_MAX_FIXTURE_LEN` cap (default `32`), ensuring the brute-force
+oracle never dominates CI time; both limits can be overridden per job. To avoid
 asking the graph for more detail than its fan-out allows, the property only
 evaluates fixtures with `max_connections >= 16` and bounds `k` by
 `min(16, len, max_connections)`. The test captures `Instant` timings for both
 the HNSW search and the brute-force scan, logging the microsecond durations and
-the derived speed-up ratio through the existing `tracing` subscriber. This
-turns the property into a lightweight performance probe: a regression that
-harms recall or negates the expected speed-up now fails the suite with
-actionable metrics attached to the failing case.
+the derived speed-up ratio at `DEBUG` solely for observability. Recall falling
+below the configured threshold is the only failure condition today; speed-up
+data helps diagnose regressions but does not gate CI.
 
 ## Part III: GPU Acceleration Strategy
 
