@@ -104,7 +104,7 @@ ______________________________________________________________________
   cases, 10 minute timeout) and scheduled weekly job (25,000 cases,
   `fork = true`, `PROGTEST_CASES` env var). (See property-testing-design §5)
   - [ ] CI tuning for property-based guardrails.
-    - Decide on recall floor CI must enforce by setting
+    - Decide on the recall floor that CI must enforce by setting
       `CHUTORO_HNSW_PBT_MIN_RECALL`; raise it once the high-fan-out search
       implementation improves.
     - Broaden max_connections guardrails once graph connectivity work lands so
