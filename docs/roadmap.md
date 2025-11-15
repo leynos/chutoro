@@ -83,7 +83,7 @@ ______________________________________________________________________
 - [x] Surface HNSW structural invariant checkers (layer consistency, degree
   bounds, reachability, bidirectional links) callable from properties. (See
   property-testing-design §2.2)
-- [ ] Add HNSW search correctness property comparing index results against a
+- [x] Add HNSW search correctness property comparing index results against a
   brute-force oracle with a configurable recall threshold and timing capture.
   (See property-testing-design §2.3.1)
 - [ ] Add stateful HNSW mutation property that exercises add/delete/
@@ -103,6 +103,12 @@ ______________________________________________________________________
 - [ ] Integrate property-based suites into CI with a path-filtered PR job (250
   cases, 10 minute timeout) and scheduled weekly job (25,000 cases,
   `fork = true`, `PROGTEST_CASES` env var). (See property-testing-design §5)
+  - [ ] CI tuning for property-based guardrails.
+    - Decide on the recall floor that CI must enforce by setting
+      `CHUTORO_HNSW_PBT_MIN_RECALL`;
+      raise the recall floor once the high-fan-out search implementation improves.
+    - Broaden max_connections guardrails once graph connectivity work lands so
+      that the current `max_connections >= 16` guard can be tightened.
 
 **Exit criteria:** 100k × D vectors complete in minutes on CPU; memory bounded
 ≈ `n*M` edges; ARI/NMI within acceptable band vs reference. (See §6.2)
