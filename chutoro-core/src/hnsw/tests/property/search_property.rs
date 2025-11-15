@@ -290,7 +290,7 @@ fn parse_recall_threshold(raw: &str) -> Result<f32, RecallThresholdError> {
     let parsed = trimmed
         .parse::<f32>()
         .map_err(|_| RecallThresholdError::ParseFloat)?;
-    if !(0.0..=1.0).contains(&parsed) || parsed <= 0.0 {
+    if parsed <= 0.0 || parsed > 1.0 {
         return Err(RecallThresholdError::OutOfRange { value: parsed });
     }
     Ok(parsed)
