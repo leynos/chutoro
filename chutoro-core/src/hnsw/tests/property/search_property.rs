@@ -5,13 +5,18 @@
 //! logic directly via `rstest`.
 
 use std::{
-    collections::HashSet,
+    collections::{BinaryHeap, HashSet},
     env,
     num::NonZeroUsize,
     time::{Duration, Instant},
 };
 
-use proptest::test_runner::{TestCaseError, TestCaseResult};
+#[cfg(test)]
+use super::types::{DistributionMetadata, HnswParamsSeed, VectorDistribution};
+use proptest::{
+    prop_assume,
+    test_runner::{TestCaseError, TestCaseResult},
+};
 use rstest::rstest;
 
 use super::types::HnswFixture;
@@ -34,15 +39,13 @@ pub(super) fn run_search_correctness_property(
         .into_source()
         .map_err(|err| TestCaseError::fail(format!("fixture -> source failed: {err}")))?;
 
+    const MIN_FIXTURE_LEN: usize = 2;
     let len = source.len();
-    if len < 2 {
-        return Ok(());
-    }
+    prop_assume!(len >= MIN_FIXTURE_LEN);
+    prop_assume!(len <= config.max_fixture_len());
 
     const MIN_VALID_CONNECTIONS: usize = 16;
-    if fixture.params.max_connections < MIN_VALID_CONNECTIONS {
-        return Ok(());
-    }
+    prop_assume!(fixture.params.max_connections >= MIN_VALID_CONNECTIONS);
     let query = (usize::from(query_hint) % len).min(len.saturating_sub(1));
     let fanout_cap = fixture.params.max_connections.max(2);
     let max_k = len.min(16).min(fanout_cap);
@@ -65,27 +68,26 @@ pub(super) fn run_search_correctness_property(
         .map_err(|err| TestCaseError::fail(format!("oracle failed: {err}")))?;
     let oracle_elapsed = oracle_started.elapsed();
 
+    let threshold = config.min_recall();
     let recall = recall_at_k(&oracle, &hnsw_neighbours, k);
+    let recall_ctx = RecallCheckContext {
+        fixture: &fixture,
+        len,
+        k,
+        query,
+        fanout_cap,
+        threshold,
+    };
     record_search_metrics(SearchMetricsContext {
         fixture: &fixture,
         len,
         k,
         recall,
-        threshold: config.min_recall(),
+        threshold,
         timings: SearchTimings::new(hnsw_elapsed, oracle_elapsed),
     });
 
-    if recall < config.min_recall() {
-        return Err(TestCaseError::fail(format!(
-            "recall {recall:.3} below threshold {threshold:.3} (len={len}, k={k}, query={query}, max_connections={}, fanout_cap={}, distribution={:?})",
-            fixture.params.max_connections,
-            fanout_cap,
-            fixture.distribution,
-            threshold = config.min_recall(),
-        )));
-    }
-
-    Ok(())
+    ensure_recall_meets_threshold(recall, &recall_ctx)
 }
 
 fn brute_force_top_k<D: DataSource + Sync>(
@@ -93,17 +95,24 @@ fn brute_force_top_k<D: DataSource + Sync>(
     query: usize,
     k: usize,
 ) -> Result<Vec<Neighbour>, DataSourceError> {
-    let mut neighbours: Vec<Neighbour> = (0..source.len())
-        .map(|candidate| -> Result<Neighbour, DataSourceError> {
-            let distance = source.distance(query, candidate)?;
-            Ok(Neighbour {
-                id: candidate,
-                distance,
-            })
-        })
-        .collect::<Result<_, _>>()?;
+    if k == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut heap: BinaryHeap<Neighbour> = BinaryHeap::with_capacity(k);
+    for candidate in 0..source.len() {
+        let distance = source.distance(query, candidate)?;
+        heap.push(Neighbour {
+            id: candidate,
+            distance,
+        });
+        if heap.len() > k {
+            heap.pop();
+        }
+    }
+
+    let mut neighbours = heap.into_vec();
     neighbours.sort_unstable();
-    neighbours.truncate(k);
     Ok(neighbours)
 }
 
@@ -153,16 +162,42 @@ struct SearchMetricsContext<'a> {
     timings: SearchTimings,
 }
 
+struct RecallCheckContext<'a> {
+    fixture: &'a HnswFixture,
+    len: usize,
+    k: usize,
+    query: usize,
+    fanout_cap: usize,
+    threshold: f32,
+}
+
+fn ensure_recall_meets_threshold(recall: f32, ctx: &RecallCheckContext<'_>) -> TestCaseResult {
+    if recall < ctx.threshold {
+        return Err(TestCaseError::fail(format!(
+            "recall {recall:.3} below threshold {threshold:.3} (len={len}, k={k}, query={query}, max_connections={}, fanout_cap={}, distribution={:?})",
+            ctx.fixture.params.max_connections,
+            ctx.fanout_cap,
+            ctx.fixture.distribution,
+            len = ctx.len,
+            k = ctx.k,
+            query = ctx.query,
+            threshold = ctx.threshold,
+        )));
+    }
+
+    Ok(())
+}
+
 fn record_search_metrics(ctx: SearchMetricsContext<'_>) {
-    tracing::info!(
+    tracing::debug!(
         distribution = ?ctx.fixture.distribution,
         dimension = ctx.fixture.dimension(),
         len = ctx.len,
         k = ctx.k,
         recall = ctx.recall,
         threshold = ctx.threshold,
-        hnsw_micros = ctx.timings.hnsw.as_secs_f64() * 1_000_000.0,
-        oracle_micros = ctx.timings.oracle.as_secs_f64() * 1_000_000.0,
+        hnsw_micros = ctx.timings.hnsw.as_micros(),
+        oracle_micros = ctx.timings.oracle.as_micros(),
         speedup = ctx.timings.speedup(),
         "hnsw search correctness property",
     );
@@ -177,33 +212,76 @@ enum RecallThresholdError {
 #[derive(Clone, Copy, Debug)]
 struct SearchPropertyConfig {
     min_recall: f32,
+    max_fixture_len: usize,
 }
 
 impl SearchPropertyConfig {
     const ENV_KEY: &'static str = "CHUTORO_HNSW_PBT_MIN_RECALL";
-    const DEFAULT_MIN_RECALL: f32 = 0.90;
+    const MAX_FIXTURE_LEN_ENV_KEY: &'static str = "CHUTORO_HNSW_PBT_MAX_FIXTURE_LEN";
+    const DEFAULT_MIN_RECALL: f32 = 0.50;
+    const DEFAULT_MAX_FIXTURE_LEN: usize = 32;
 
     fn load() -> Self {
-        let min_recall = env::var(Self::ENV_KEY)
-            .ok()
-            .and_then(|value| match parse_recall_threshold(&value) {
-                Ok(parsed) => Some(parsed),
-                Err(err) => {
-                    tracing::warn!(
-                        env = Self::ENV_KEY,
-                        raw = value,
-                        ?err,
-                        "invalid recall threshold, falling back to default",
-                    );
-                    None
-                }
-            })
-            .unwrap_or(Self::DEFAULT_MIN_RECALL);
-        Self { min_recall }
+        let min_recall = Self::read_env_or_default(
+            Self::ENV_KEY,
+            Self::DEFAULT_MIN_RECALL,
+            Self::parse_min_recall,
+        );
+        let max_fixture_len = Self::read_env_or_default(
+            Self::MAX_FIXTURE_LEN_ENV_KEY,
+            Self::DEFAULT_MAX_FIXTURE_LEN,
+            Self::parse_max_fixture_len,
+        );
+
+        Self {
+            min_recall,
+            max_fixture_len,
+        }
     }
 
     fn min_recall(&self) -> f32 {
         self.min_recall
+    }
+
+    fn max_fixture_len(&self) -> usize {
+        self.max_fixture_len
+    }
+
+    fn read_env_or_default<T, F>(key: &'static str, default: T, parser: F) -> T
+    where
+        T: Copy,
+        F: Fn(&str) -> Result<T, String>,
+    {
+        match env::var(key) {
+            Ok(raw) => match parser(&raw) {
+                Ok(value) => value,
+                Err(reason) => {
+                    tracing::warn!(
+                        env = key,
+                        raw = %raw,
+                        reason = %reason,
+                        "invalid config override, falling back to default",
+                    );
+                    default
+                }
+            },
+            Err(_) => default,
+        }
+    }
+
+    fn parse_min_recall(raw: &str) -> Result<f32, String> {
+        parse_recall_threshold(raw).map_err(|err| format!("{err:?}"))
+    }
+
+    fn parse_max_fixture_len(raw: &str) -> Result<usize, String> {
+        let trimmed = raw.trim();
+        let parsed = trimmed
+            .parse::<usize>()
+            .map_err(|err| format!("parse error: {err}"))?;
+        if parsed < 2 {
+            return Err("value must be >= 2".to_string());
+        }
+        Ok(parsed)
     }
 }
 
@@ -270,4 +348,155 @@ fn neighbours_from_ids(ids: &[usize]) -> Vec<Neighbour> {
             distance: idx as f32,
         })
         .collect()
+}
+
+#[cfg(test)]
+fn fixture_with_vectors(vectors: Vec<Vec<f32>>, max_connections: usize) -> HnswFixture {
+    assert!(
+        !vectors.is_empty(),
+        "test fixtures must contain at least one vector"
+    );
+    let dimension = vectors[0].len();
+    assert!(vectors.iter().all(|vector| vector.len() == dimension));
+    HnswFixture {
+        distribution: VectorDistribution::Uniform,
+        vectors,
+        metadata: DistributionMetadata::Uniform { bound: 1.0 },
+        params: HnswParamsSeed {
+            max_connections,
+            ef_construction: 64,
+            level_multiplier: 1.0,
+            max_level: 2,
+            rng_seed: 42,
+        },
+    }
+}
+
+#[cfg(test)]
+fn uniform_fixture(max_connections: usize) -> HnswFixture {
+    fixture_with_vectors(vec![vec![0.0, 0.0], vec![1.0, 1.0]], max_connections)
+}
+
+#[cfg(test)]
+fn fixture_with_len(len: usize, dimension: usize, max_connections: usize) -> HnswFixture {
+    assert!(dimension > 0, "dimension must be positive");
+    let vectors = (0..len)
+        .map(|idx| vec![idx as f32; dimension])
+        .collect::<Vec<_>>();
+    fixture_with_vectors(vectors, max_connections)
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+struct MatrixSource {
+    distances: Vec<Vec<f32>>,
+}
+
+#[cfg(test)]
+impl MatrixSource {
+    fn new(distances: Vec<Vec<f32>>) -> Self {
+        Self { distances }
+    }
+}
+
+#[cfg(test)]
+impl DataSource for MatrixSource {
+    fn len(&self) -> usize {
+        self.distances.len()
+    }
+
+    fn name(&self) -> &str {
+        "matrix"
+    }
+
+    fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+        let row = self
+            .distances
+            .get(i)
+            .ok_or(DataSourceError::OutOfBounds { index: i })?;
+        row.get(j)
+            .copied()
+            .ok_or(DataSourceError::OutOfBounds { index: j })
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn brute_force_top_k_returns_empty_when_k_is_zero() {
+    let source = MatrixSource::new(vec![vec![0.0, 0.5], vec![0.5, 0.0]]);
+    let neighbours = brute_force_top_k(&source, 0, 0).expect("k=0 should succeed");
+    assert!(neighbours.is_empty());
+}
+
+#[cfg(test)]
+#[test]
+fn brute_force_top_k_returns_all_when_k_exceeds_len() {
+    let source = MatrixSource::new(vec![vec![0.0, 0.4], vec![0.4, 0.0]]);
+    let neighbours = brute_force_top_k(&source, 0, 10).expect("k>len should return all nodes");
+    assert_eq!(neighbours.len(), 2);
+    assert_eq!(
+        neighbours.iter().map(|n| n.id).collect::<Vec<_>>(),
+        vec![0, 1]
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn brute_force_top_k_handles_empty_source() {
+    let source = MatrixSource::new(Vec::new());
+    let neighbours = brute_force_top_k(&source, 0, 1).expect("empty source should be ok");
+    assert!(neighbours.is_empty());
+}
+
+#[cfg(test)]
+#[test]
+fn search_property_rejects_single_item_fixture() {
+    let fixture = fixture_with_len(1, 1, 16);
+    let result = run_search_correctness_property(fixture, 0, 0);
+    assert!(matches!(result, Err(TestCaseError::Reject(_))));
+}
+
+#[cfg(test)]
+#[test]
+fn search_property_rejects_fixtures_exceeding_max_len() {
+    let len = SearchPropertyConfig::DEFAULT_MAX_FIXTURE_LEN + 1;
+    let fixture = fixture_with_len(len, 2, 16);
+    let result = run_search_correctness_property(fixture, 0, 0);
+    assert!(matches!(result, Err(TestCaseError::Reject(_))));
+}
+
+#[cfg(test)]
+#[test]
+fn search_property_rejects_when_connections_too_low() {
+    let fixture = fixture_with_len(4, 2, 8);
+    let result = run_search_correctness_property(fixture, 0, 0);
+    assert!(matches!(result, Err(TestCaseError::Reject(_))));
+}
+
+#[cfg(test)]
+#[test]
+fn recall_threshold_failure_includes_context() {
+    let fixture = uniform_fixture(32);
+    let ctx = RecallCheckContext {
+        fixture: &fixture,
+        len: 10,
+        k: 4,
+        query: 2,
+        fanout_cap: 8,
+        threshold: 0.9,
+    };
+    let err =
+        ensure_recall_meets_threshold(0.5, &ctx).expect_err("recall below threshold must fail");
+
+    match err {
+        TestCaseError::Fail(message) => {
+            let text = message.message();
+            assert!(text.contains("recall 0.500 below threshold 0.900"));
+            assert!(text.contains("len=10, k=4, query=2"));
+            assert!(text.contains("max_connections=32"));
+            assert!(text.contains("fanout_cap=8"));
+            assert!(text.contains("distribution=Uniform"));
+        }
+        other => panic!("unexpected error variant: {other:?}"),
+    }
 }

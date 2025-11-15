@@ -1,4 +1,8 @@
-use proptest::{prelude::any, prop_assert, prop_assert_eq, proptest};
+use proptest::{
+    prelude::any,
+    prop_assert, prop_assert_eq, proptest,
+    test_runner::{TestCaseError, TestCaseResult, TestError, TestRunner},
+};
 use rstest::rstest;
 
 use super::{
@@ -160,14 +164,25 @@ proptest! {
             }
         }
     }
+}
 
-    #[test]
-    fn hnsw_search_matches_brute_force(
-        fixture in hnsw_fixture_strategy(),
-        query_hint in any::<u16>(),
-        k_hint in any::<u16>(),
-    ) {
-        run_search_correctness_property(fixture, query_hint, k_hint)
-            .unwrap_or_else(|err| panic!("search correctness property failed: {err:?}"));
-    }
+#[test]
+fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
+    let mut runner = TestRunner::default();
+    runner
+        .run(
+            &(hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
+            |(fixture, query_hint, k_hint)| {
+                run_search_correctness_property(fixture, query_hint, k_hint)
+            },
+        )
+        .map_err(|err| match err {
+            TestError::Abort(reason) => {
+                TestCaseError::fail(format!("hnsw search proptest aborted: {reason}"))
+            }
+            TestError::Fail(reason, value) => TestCaseError::fail(format!(
+                "hnsw search proptest failed: {reason}; minimal input: {value:#?}"
+            )),
+        })?;
+    Ok(())
 }
