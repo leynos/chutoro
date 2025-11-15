@@ -39,14 +39,10 @@ pub(super) fn run_search_correctness_property(
         .into_source()
         .map_err(|err| TestCaseError::fail(format!("fixture -> source failed: {err}")))?;
 
+    const MIN_FIXTURE_LEN: usize = 2;
     let len = source.len();
-    if len < 2 {
-        return Ok(());
-    }
-
-    if len > config.max_fixture_len() {
-        return Ok(());
-    }
+    prop_assume!(len >= MIN_FIXTURE_LEN);
+    prop_assume!(len <= config.max_fixture_len());
 
     const MIN_VALID_CONNECTIONS: usize = 16;
     prop_assume!(fixture.params.max_connections >= MIN_VALID_CONNECTIONS);
@@ -226,49 +222,16 @@ impl SearchPropertyConfig {
     const DEFAULT_MAX_FIXTURE_LEN: usize = 32;
 
     fn load() -> Self {
-        let min_recall = env::var(Self::ENV_KEY)
-            .ok()
-            .and_then(|value| match parse_recall_threshold(&value) {
-                Ok(parsed) => Some(parsed),
-                Err(err) => {
-                    tracing::warn!(
-                        env = Self::ENV_KEY,
-                        raw = value,
-                        ?err,
-                        "invalid recall threshold, falling back to default",
-                    );
-                    None
-                }
-            })
-            .unwrap_or(Self::DEFAULT_MIN_RECALL);
-
-        let max_fixture_len = env::var(Self::MAX_FIXTURE_LEN_ENV_KEY)
-            .ok()
-            .and_then(|value| {
-                let trimmed = value.trim();
-                match trimmed.parse::<usize>() {
-                    Ok(parsed) if parsed >= 2 => Some(parsed),
-                    Ok(parsed) => {
-                        tracing::warn!(
-                            env = Self::MAX_FIXTURE_LEN_ENV_KEY,
-                            raw = %value,
-                            parsed,
-                            "invalid max fixture length (must be >= 2); falling back to default",
-                        );
-                        None
-                    }
-                    Err(err) => {
-                        tracing::warn!(
-                            env = Self::MAX_FIXTURE_LEN_ENV_KEY,
-                            raw = %value,
-                            ?err,
-                            "invalid max fixture length; falling back to default",
-                        );
-                        None
-                    }
-                }
-            })
-            .unwrap_or(Self::DEFAULT_MAX_FIXTURE_LEN);
+        let min_recall = Self::read_env_or_default(
+            Self::ENV_KEY,
+            Self::DEFAULT_MIN_RECALL,
+            Self::parse_min_recall,
+        );
+        let max_fixture_len = Self::read_env_or_default(
+            Self::MAX_FIXTURE_LEN_ENV_KEY,
+            Self::DEFAULT_MAX_FIXTURE_LEN,
+            Self::parse_max_fixture_len,
+        );
 
         Self {
             min_recall,
@@ -282,6 +245,43 @@ impl SearchPropertyConfig {
 
     fn max_fixture_len(&self) -> usize {
         self.max_fixture_len
+    }
+
+    fn read_env_or_default<T, F>(key: &'static str, default: T, parser: F) -> T
+    where
+        T: Copy,
+        F: Fn(&str) -> Result<T, String>,
+    {
+        match env::var(key) {
+            Ok(raw) => match parser(&raw) {
+                Ok(value) => value,
+                Err(reason) => {
+                    tracing::warn!(
+                        env = key,
+                        raw = %raw,
+                        reason = %reason,
+                        "invalid config override, falling back to default",
+                    );
+                    default
+                }
+            },
+            Err(_) => default,
+        }
+    }
+
+    fn parse_min_recall(raw: &str) -> Result<f32, String> {
+        parse_recall_threshold(raw).map_err(|err| format!("{err:?}"))
+    }
+
+    fn parse_max_fixture_len(raw: &str) -> Result<usize, String> {
+        let trimmed = raw.trim();
+        let parsed = trimmed
+            .parse::<usize>()
+            .map_err(|err| format!("parse error: {err}"))?;
+        if parsed < 2 {
+            return Err("value must be >= 2".to_string());
+        }
+        Ok(parsed)
     }
 }
 
@@ -378,6 +378,15 @@ fn uniform_fixture(max_connections: usize) -> HnswFixture {
 }
 
 #[cfg(test)]
+fn fixture_with_len(len: usize, dimension: usize, max_connections: usize) -> HnswFixture {
+    assert!(dimension > 0, "dimension must be positive");
+    let vectors = (0..len)
+        .map(|idx| vec![idx as f32; dimension])
+        .collect::<Vec<_>>();
+    fixture_with_vectors(vectors, max_connections)
+}
+
+#[cfg(test)]
 #[derive(Clone)]
 struct MatrixSource {
     distances: Vec<Vec<f32>>,
@@ -441,10 +450,27 @@ fn brute_force_top_k_handles_empty_source() {
 
 #[cfg(test)]
 #[test]
-fn search_property_returns_ok_for_single_item_fixture() {
-    let fixture = fixture_with_vectors(vec![vec![0.0]], 16);
-    run_search_correctness_property(fixture, 0, 0)
-        .expect("len < 2 fixture should be skipped early");
+fn search_property_rejects_single_item_fixture() {
+    let fixture = fixture_with_len(1, 1, 16);
+    let result = run_search_correctness_property(fixture, 0, 0);
+    assert!(matches!(result, Err(TestCaseError::Reject(_))));
+}
+
+#[cfg(test)]
+#[test]
+fn search_property_rejects_fixtures_exceeding_max_len() {
+    let len = SearchPropertyConfig::DEFAULT_MAX_FIXTURE_LEN + 1;
+    let fixture = fixture_with_len(len, 2, 16);
+    let result = run_search_correctness_property(fixture, 0, 0);
+    assert!(matches!(result, Err(TestCaseError::Reject(_))));
+}
+
+#[cfg(test)]
+#[test]
+fn search_property_rejects_when_connections_too_low() {
+    let fixture = fixture_with_len(4, 2, 8);
+    let result = run_search_correctness_property(fixture, 0, 0);
+    assert!(matches!(result, Err(TestCaseError::Reject(_))));
 }
 
 #[cfg(test)]
