@@ -99,11 +99,10 @@ impl<'ctx> MutationRunner<'ctx> {
         match operation {
             MutationOperationSeed::Add { slot_hint } => {
                 if let Some(node) = self.pools.select_available(*slot_hint) {
-                    self.index
-                        .insert(node, self.source)
-                        .map_err(|err| TestCaseError::fail(format!(
-                            "insert node {node} failed: {err}"
-                        )))?;
+                    let insert_result = self.index.insert(node, self.source);
+                    insert_result.map_err(|err| {
+                        TestCaseError::fail(format!("insert node {node} failed: {err}"))
+                    })?;
                     self.pools.mark_inserted(node);
                     Ok(OperationOutcome::applied(format!("add node {node}")))
                 } else {
@@ -116,12 +115,10 @@ impl<'ctx> MutationRunner<'ctx> {
                         "delete skipped: no inserted nodes",
                     ));
                 };
-                let deleted = self
-                    .index
-                    .delete_node_for_test(node)
-                    .map_err(|err| TestCaseError::fail(format!(
-                        "delete node {node} failed: {err}"
-                    )))?;
+                let delete_result = self.index.delete_node_for_test(node);
+                let deleted = delete_result.map_err(|err| {
+                    TestCaseError::fail(format!("delete node {node} failed: {err}"))
+                })?;
                 if deleted {
                     self.pools.mark_deleted(node);
                     return Ok(OperationOutcome::applied(format!("delete node {node}")));
