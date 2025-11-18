@@ -124,3 +124,24 @@ impl HnswParamsSeed {
         })
     }
 }
+
+/// Sequence of HNSW mutation operations applied during the property test.
+#[derive(Clone, Debug)]
+pub(super) struct MutationPlan {
+    /// Hint controlling the number of nodes inserted before applying
+    /// operations.
+    pub initial_population_hint: u16,
+    /// Operations to attempt after seeding the index.
+    pub operations: Vec<MutationOperationSeed>,
+}
+
+/// Mutation operation sampled by the strategy.
+#[derive(Clone, Debug)]
+pub(super) enum MutationOperationSeed {
+    /// Inserts a node selected from the not-yet-inserted pool.
+    Add { slot_hint: u16 },
+    /// Deletes a node selected from the inserted pool.
+    Delete { slot_hint: u16 },
+    /// Reconfigures the index by deriving parameters from the provided seed.
+    Reconfigure { params: HnswParamsSeed },
+}

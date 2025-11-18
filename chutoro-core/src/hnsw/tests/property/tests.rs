@@ -1,13 +1,14 @@
 use proptest::{
     prelude::any,
     prop_assert, prop_assert_eq, proptest,
-    test_runner::{TestCaseError, TestCaseResult, TestError, TestRunner},
+    test_runner::{Config, TestCaseError, TestCaseResult, TestError, TestRunner},
 };
 use rstest::rstest;
 
 use super::{
+    mutation_property::run_mutation_property,
     search_property::run_search_correctness_property,
-    strategies::hnsw_fixture_strategy,
+    strategies::{hnsw_fixture_strategy, mutation_plan_strategy},
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
@@ -182,6 +183,29 @@ fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
             }
             TestError::Fail(reason, value) => TestCaseError::fail(format!(
                 "hnsw search proptest failed: {reason}; minimal input: {value:#?}"
+            )),
+        })?;
+    Ok(())
+}
+
+#[test]
+fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
+    let mut runner = TestRunner::new(Config {
+        cases: 64,
+        max_shrink_iters: 2048,
+        ..Config::default()
+    });
+    runner
+        .run(
+            &(hnsw_fixture_strategy(), mutation_plan_strategy()),
+            |(fixture, plan)| run_mutation_property(fixture, plan),
+        )
+        .map_err(|err| match err {
+            TestError::Abort(reason) => {
+                TestCaseError::fail(format!("hnsw mutation proptest aborted: {reason}"))
+            }
+            TestError::Fail(reason, value) => TestCaseError::fail(format!(
+                "hnsw mutation proptest failed: {reason}; minimal input: {value:#?}"
             )),
         })?;
     Ok(())

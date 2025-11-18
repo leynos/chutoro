@@ -49,6 +49,15 @@ fn splitmix64(mut state: u64) -> u64 {
     state ^ (state >> 31)
 }
 
+fn build_worker_rngs(base_seed: u64) -> Vec<Mutex<SmallRng>> {
+    (0..current_num_threads())
+        .map(|idx| {
+            let seed = mix_worker_seed(base_seed, idx);
+            Mutex::new(SmallRng::seed_from_u64(seed))
+        })
+        .collect()
+}
+
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
 pub struct CpuHnsw {
@@ -135,14 +144,7 @@ impl CpuHnsw {
             });
         }
         let base_seed = params.rng_seed();
-        let worker_rngs = (0..current_num_threads())
-            .map(|idx| {
-                // Derive per-worker seeds via SplitMix64 to decorrelate streams
-                // even when Rayon reuses threads across insert/search phases.
-                let seed = mix_worker_seed(base_seed, idx);
-                Mutex::new(SmallRng::seed_from_u64(seed))
-            })
-            .collect();
+        let worker_rngs = build_worker_rngs(base_seed);
 
         let cache = DistanceCache::new(*params.distance_cache_config());
         let graph = Graph::with_capacity(params.clone(), capacity);
@@ -321,6 +323,25 @@ impl CpuHnsw {
     #[cfg(test)]
     pub(crate) fn inspect_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> R {
         self.read_graph(f)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn delete_node_for_test(&mut self, node: usize) -> Result<bool, HnswError> {
+        let deleted = self.write_graph(|graph| graph.delete_node(node))?;
+        if deleted {
+            let previous = self.len.fetch_sub(1, Ordering::Relaxed);
+            debug_assert!(previous > 0, "len must remain positive when deleting nodes");
+        }
+        Ok(deleted)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reconfigure_for_test(&mut self, params: HnswParams) {
+        let base_seed = params.rng_seed();
+        self.rng = Mutex::new(SmallRng::seed_from_u64(base_seed));
+        self.worker_rngs = build_worker_rngs(base_seed);
+        self.distance_cache = DistanceCache::new(*params.distance_cache_config());
+        self.params = params;
     }
 
     fn try_insert_initial<D: DataSource + Sync>(

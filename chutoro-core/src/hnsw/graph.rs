@@ -319,4 +319,44 @@ impl Graph {
     pub(super) fn params(&self) -> &HnswParams {
         &self.params
     }
+
+    #[cfg(test)]
+    pub(super) fn delete_node(&mut self, node: usize) -> Result<bool, HnswError> {
+        if node >= self.nodes.len() {
+            return Err(HnswError::InvalidParameters {
+                reason: format!("node {node} exceeds graph capacity {}", self.nodes.len()),
+            });
+        }
+        let slot = self.nodes.get_mut(node).expect("bounds checked above");
+        if slot.is_none() {
+            return Ok(false);
+        }
+        *slot = None;
+        for maybe_node in self.nodes.iter_mut().flatten() {
+            let levels = maybe_node.level_count();
+            for level in 0..levels {
+                let neighbours = maybe_node.neighbours_mut(level);
+                neighbours.retain(|&target| target != node);
+            }
+        }
+        if self.entry.map(|entry| entry.node) == Some(node) {
+            self.entry = self.recompute_entry_point();
+        }
+        Ok(true)
+    }
+
+    #[cfg(test)]
+    fn recompute_entry_point(&self) -> Option<EntryPoint> {
+        self.nodes_iter()
+            .max_by(|(left_id, left_node), (right_id, right_node)| {
+                left_node
+                    .level_count()
+                    .cmp(&right_node.level_count())
+                    .then_with(|| right_id.cmp(left_id))
+            })
+            .map(|(id, node)| EntryPoint {
+                node: id,
+                level: node.level_count().saturating_sub(1),
+            })
+    }
 }

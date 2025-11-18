@@ -86,7 +86,7 @@ ______________________________________________________________________
 - [x] Add HNSW search correctness property comparing index results against a
   brute-force oracle with a configurable recall threshold and timing capture.
   (See property-testing-design §2.3.1)
-- [ ] Add stateful HNSW mutation property that exercises add/delete/
+- [x] Add stateful HNSW mutation property that exercises add/delete/
   reconfigure sequences and revalidates invariants after each operation. (See
   property-testing-design §2.3.2)
 - [ ] Add HNSW insertion idempotency property: repeated duplicate insertions
