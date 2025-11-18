@@ -15,7 +15,7 @@ use super::{
     support::DenseVectorSource,
     types::{HnswFixture, HnswParamsSeed, MutationOperationSeed, MutationPlan},
 };
-use crate::{CpuHnsw, DataSource, HnswParams};
+use crate::{CpuHnsw, DataSource, HnswError, HnswParams};
 
 const MIN_MUTATION_FIXTURE_LEN: usize = 2;
 const MAX_MUTATION_FIXTURE_LEN: usize = 48;
@@ -100,9 +100,7 @@ impl<'ctx> MutationRunner<'ctx> {
             MutationOperationSeed::Add { slot_hint } => {
                 if let Some(node) = self.pools.select_available(*slot_hint) {
                     let insert_result = self.index.insert(node, self.source);
-                    insert_result.map_err(|err| {
-                        TestCaseError::fail(format!("insert node {node} failed: {err}"))
-                    })?;
+                    insert_result.map_err(|err| mutation_fail("insert", node, err))?;
                     self.pools.mark_inserted(node);
                     Ok(OperationOutcome::applied(format!("add node {node}")))
                 } else {
@@ -116,9 +114,7 @@ impl<'ctx> MutationRunner<'ctx> {
                     ));
                 };
                 let delete_result = self.index.delete_node_for_test(node);
-                let deleted = delete_result.map_err(|err| {
-                    TestCaseError::fail(format!("delete node {node} failed: {err}"))
-                })?;
+                let deleted = delete_result.map_err(|err| mutation_fail("delete", node, err))?;
                 if deleted {
                     self.pools.mark_deleted(node);
                     return Ok(OperationOutcome::applied(format!("delete node {node}")));
@@ -167,6 +163,10 @@ fn next_reconfigure_params(
         .with_rng_seed(seed.rng_seed)
         .with_distance_cache_config(*current.distance_cache_config());
     Ok(params)
+}
+
+fn mutation_fail(action: &str, node: usize, err: HnswError) -> TestCaseError {
+    TestCaseError::fail(format!("{action} node {node} failed: {err}"))
 }
 
 #[derive(Default)]
