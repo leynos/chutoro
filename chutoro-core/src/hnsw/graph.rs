@@ -321,6 +321,12 @@ impl Graph {
     }
 
     #[cfg(test)]
+    pub(super) fn set_params(&mut self, params: HnswParams) {
+        self.params = params;
+    }
+
+    #[cfg(test)]
+    #[allow(dead_code)]
     pub(super) fn delete_node(&mut self, node: usize) -> Result<bool, HnswError> {
         if node >= self.nodes.len() {
             return Err(HnswError::InvalidParameters {
@@ -346,6 +352,7 @@ impl Graph {
     }
 
     #[cfg(test)]
+    #[allow(dead_code)]
     fn recompute_entry_point(&self) -> Option<EntryPoint> {
         self.nodes_iter()
             .max_by(|(left_id, left_node), (right_id, right_node)| {

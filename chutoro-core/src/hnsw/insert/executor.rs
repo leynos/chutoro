@@ -41,6 +41,7 @@ pub(crate) struct PreparedInsertion {
     pub(crate) promote_entry: bool,
     pub(crate) new_node_neighbours: Vec<Vec<usize>>,
     pub(crate) updates: Vec<StagedUpdate>,
+    pub(crate) max_connections: usize,
 }
 
 /// Captures the staged neighbour set for a node at a given level.
@@ -138,6 +139,7 @@ impl<'graph> InsertionExecutor<'graph> {
                 promote_entry,
                 new_node_neighbours,
                 updates,
+                max_connections,
             },
             trim_jobs,
         ))
@@ -328,6 +330,7 @@ impl<'graph> InsertionExecutor<'graph> {
     }
 
     /// Applies a prepared insertion after trim distances have been evaluated.
+    #[allow(clippy::excessive_nesting)]
     pub(crate) fn commit(
         &mut self,
         prepared: PreparedInsertion,
@@ -338,37 +341,80 @@ impl<'graph> InsertionExecutor<'graph> {
             promote_entry,
             new_node_neighbours,
             updates,
+            max_connections,
         } = prepared;
+        let original_new_node_neighbours = new_node_neighbours.clone();
+
+        // Map neighbour level -> ids that still reference the new node after trimming.
+        let mut reciprocity: HashMap<usize, HashSet<usize>> = HashMap::new();
 
         self.graph.attach_node(node)?;
-        {
-            let node_ref = self
-                .graph
-                .node_mut(node.node)
-                .expect("node was attached above");
-            for (level, neighbours) in new_node_neighbours
-                .into_iter()
-                .enumerate()
-                .take(node.level + 1)
-            {
-                let list = node_ref.neighbours_mut(level);
-                list.clear();
-                list.extend(neighbours);
-            }
-        }
-        if promote_entry {
-            self.graph.promote_entry(node.node, node.level);
-        }
-
         let mut trim_lookup: HashMap<(usize, usize), Vec<usize>> = trims
             .into_iter()
             .map(|result| ((result.node, result.ctx.level), result.neighbours))
             .collect();
 
+        let mut final_updates = Vec::with_capacity(updates.len());
+
         for update in updates {
             let neighbours = trim_lookup
                 .remove(&(update.node, update.ctx.level))
                 .unwrap_or_else(|| update.candidates.clone());
+            if neighbours.contains(&node.node) {
+                reciprocity
+                    .entry(update.ctx.level)
+                    .or_default()
+                    .insert(update.node);
+            }
+            final_updates.push((update, neighbours));
+        }
+
+        // Keep only neighbours that retained the reverse edge; this preserves the
+        // bidirectional invariant when trimming evicts the new node from a list.
+        let mut filtered_new_node_neighbours = new_node_neighbours;
+        for (level, neighbours) in filtered_new_node_neighbours
+            .iter_mut()
+            .enumerate()
+            .take(node.level + 1)
+        {
+            if let Some(retained) = reciprocity.get(&level) {
+                neighbours.retain(|id| retained.contains(id));
+            }
+            if neighbours.is_empty() {
+                if let Some(fallback) = original_new_node_neighbours
+                    .get(level)
+                    .and_then(|orig| orig.first())
+                    .copied()
+                {
+                    neighbours.push(fallback);
+                    reciprocity.entry(level).or_default().insert(fallback);
+                }
+            }
+        }
+
+        // The new node has not had its neighbour lists written yet; do so now
+        // using the filtered, reciprocal set, and then promote entry if needed.
+        {
+            let node_ref = self
+                .graph
+                .node_mut(node.node)
+                .expect("node was attached above");
+            for (level, neighbours) in filtered_new_node_neighbours
+                .iter()
+                .enumerate()
+                .take(node.level + 1)
+            {
+                let list = node_ref.neighbours_mut(level);
+                list.clear();
+                list.extend(neighbours.iter().copied());
+            }
+        }
+
+        if promote_entry {
+            self.graph.promote_entry(node.node, node.level);
+        }
+
+        for (update, neighbours) in final_updates {
             let node_ref = self.graph.node_mut(update.node).ok_or_else(|| {
                 HnswError::GraphInvariantViolation {
                     message: format!("node {} missing during insertion commit", update.node),
@@ -378,7 +424,49 @@ impl<'graph> InsertionExecutor<'graph> {
             list.clear();
             list.extend(neighbours);
         }
+        self.enforce_bidirectional(max_connections);
         Ok(())
+    }
+}
+
+impl<'graph> InsertionExecutor<'graph> {
+    #[allow(clippy::excessive_nesting)]
+    fn enforce_bidirectional(&mut self, max_connections: usize) {
+        let mut edges = Vec::new();
+        for (origin, node) in self.graph.nodes_iter() {
+            for (level, target) in node.iter_neighbours() {
+                edges.push((origin, target, level));
+            }
+        }
+
+        for (origin, target, level) in edges {
+            let limit = if level == 0 {
+                max_connections.saturating_mul(2)
+            } else {
+                max_connections
+            };
+
+            let mut needs_reverse = false;
+            if let Some(target_node) = self.graph.node_mut(target) {
+                let neighbours = target_node.neighbours_mut(level);
+                if !neighbours.contains(&origin) {
+                    if neighbours.len() < limit {
+                        neighbours.push(origin);
+                    } else {
+                        needs_reverse = true;
+                    }
+                }
+            }
+
+            if needs_reverse {
+                if let Some(origin_node) = self.graph.node_mut(origin) {
+                    let list = origin_node.neighbours_mut(level);
+                    if let Some(pos) = list.iter().position(|&id| id == target) {
+                        list.remove(pos);
+                    }
+                }
+            }
+        }
     }
 }
 

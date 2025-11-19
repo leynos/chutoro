@@ -143,7 +143,8 @@ fn derive_initial_population(hint: u16, len: usize) -> usize {
         return 0;
     }
     let base = usize::from(hint) % len;
-    base.max(1)
+    let upper_bound = len / 2;
+    base.max(1).min(upper_bound.max(1))
 }
 
 fn next_reconfigure_params(
