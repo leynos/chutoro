@@ -89,6 +89,14 @@ ______________________________________________________________________
 - [x] Add stateful HNSW mutation property that exercises add/delete/
   reconfigure sequences and revalidates invariants after each operation. (See
   property-testing-design §2.3.2)
+- [ ] Restore safe deletion semantics in tests: reintroduce delete handling
+  without breaking reachability, or fail fast when deletion would disconnect
+  the graph. (Follow-up to reciprocity fix.)
+- [ ] Add a regression test where trimming evicts the new node from an existing
+  neighbour, asserting the post-commit reciprocity pass either adds the reverse
+  edge or removes the forward edge.
+- [ ] Integrate reciprocity enforcement into the insertion executor to avoid
+  the post-pass scan once correctness is validated.
 - [ ] Add HNSW insertion idempotency property: repeated duplicate insertions
   leave graph state unchanged. (See property-testing-design §2.3.3)
 - [ ] Implement composite graph strategies (random, scale-free, lattice,
