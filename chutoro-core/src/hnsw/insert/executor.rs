@@ -60,6 +60,8 @@ pub(crate) struct TrimResult {
     pub(crate) neighbours: Vec<usize>,
 }
 
+type FinalisedUpdate = (StagedUpdate, Vec<usize>);
+
 /// Captures the accumulated state produced while staging insertion layers.
 type LayerProcessingOutcome = (
     Vec<Vec<usize>>,
@@ -330,7 +332,6 @@ impl<'graph> InsertionExecutor<'graph> {
     }
 
     /// Applies a prepared insertion after trim distances have been evaluated.
-    #[allow(clippy::excessive_nesting)]
     pub(crate) fn commit(
         &mut self,
         prepared: PreparedInsertion,
@@ -343,24 +344,53 @@ impl<'graph> InsertionExecutor<'graph> {
             updates,
             max_connections,
         } = prepared;
-        let original_new_node_neighbours = new_node_neighbours.clone();
 
-        // Map neighbour level -> ids that still reference the new node after trimming.
-        let mut reciprocity: HashMap<usize, HashSet<usize>> = HashMap::new();
-
-        self.graph.attach_node(node)?;
         let mut trim_lookup: HashMap<(usize, usize), Vec<usize>> = trims
             .into_iter()
             .map(|result| ((result.node, result.ctx.level), result.neighbours))
             .collect();
 
+        let original_new_node_neighbours = new_node_neighbours.clone();
+        let (final_updates, mut reciprocity) = Self::build_reciprocity_map(
+            updates,
+            &mut trim_lookup,
+            node.node,
+        );
+        let filtered_new_node_neighbours = Self::filter_neighbours_by_reciprocity(
+            new_node_neighbours,
+            &original_new_node_neighbours,
+            &mut reciprocity,
+            node.level,
+        );
+
+        self.graph.attach_node(node)?;
+        self.apply_new_node_neighbours(node.node, node.level, filtered_new_node_neighbours);
+        if promote_entry {
+            self.graph.promote_entry(node.node, node.level);
+        }
+
+        self.apply_neighbour_updates(final_updates)?;
+        self.enforce_bidirectional(max_connections);
+        Ok(())
+    }
+}
+
+impl<'graph> InsertionExecutor<'graph> {
+    /// Builds the final neighbour lists for staged updates while tracking which
+    /// nodes reciprocated connections to the newly inserted node per layer.
+    fn build_reciprocity_map(
+        updates: Vec<StagedUpdate>,
+        trim_lookup: &mut HashMap<(usize, usize), Vec<usize>>,
+        new_node: usize,
+    ) -> (Vec<FinalisedUpdate>, HashMap<usize, HashSet<usize>>) {
         let mut final_updates = Vec::with_capacity(updates.len());
+        let mut reciprocity: HashMap<usize, HashSet<usize>> = HashMap::new();
 
         for update in updates {
             let neighbours = trim_lookup
                 .remove(&(update.node, update.ctx.level))
                 .unwrap_or_else(|| update.candidates.clone());
-            if neighbours.contains(&node.node) {
+            if neighbours.contains(&new_node) {
                 reciprocity
                     .entry(update.ctx.level)
                     .or_default()
@@ -369,51 +399,83 @@ impl<'graph> InsertionExecutor<'graph> {
             final_updates.push((update, neighbours));
         }
 
-        // Keep only neighbours that retained the reverse edge; this preserves the
-        // bidirectional invariant when trimming evicts the new node from a list.
-        let mut filtered_new_node_neighbours = new_node_neighbours;
-        for (level, neighbours) in filtered_new_node_neighbours
+        (final_updates, reciprocity)
+    }
+
+    /// Filters the new node's neighbours to retain only nodes that preserved
+    /// reciprocal links after trimming, falling back to the original adjacency
+    /// when reciprocity drops every candidate on a layer.
+    fn filter_neighbours_by_reciprocity(
+        mut new_node_neighbours: Vec<Vec<usize>>,
+        original_new_node_neighbours: &[Vec<usize>],
+        reciprocity: &mut HashMap<usize, HashSet<usize>>,
+        node_level: usize,
+    ) -> Vec<Vec<usize>> {
+        for (level, neighbours) in new_node_neighbours
             .iter_mut()
             .enumerate()
-            .take(node.level + 1)
+            .take(node_level + 1)
         {
-            if let Some(retained) = reciprocity.get(&level) {
-                neighbours.retain(|id| retained.contains(id));
+            if let Some(reciprocated) = reciprocity.get(&level) {
+                neighbours.retain(|candidate| reciprocated.contains(candidate));
             }
-            if neighbours.is_empty() {
-                if let Some(fallback) = original_new_node_neighbours
-                    .get(level)
-                    .and_then(|orig| orig.first())
-                    .copied()
-                {
-                    neighbours.push(fallback);
-                    reciprocity.entry(level).or_default().insert(fallback);
-                }
+            let fallback = original_new_node_neighbours
+                .get(level)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            Self::ensure_neighbour_connectivity(level, neighbours, reciprocity, fallback);
+        }
+        new_node_neighbours
+    }
+
+    /// Ensures each layer retains at least one neighbour by reinserting the
+    /// original candidate used during staging when reciprocity drops the entire
+    /// set after trimming.
+    fn ensure_neighbour_connectivity(
+        level: usize,
+        neighbours: &mut Vec<usize>,
+        reciprocity: &mut HashMap<usize, HashSet<usize>>,
+        fallback: &[usize],
+    ) {
+        if neighbours.is_empty() {
+            if let Some(&fallback_candidate) = fallback.first() {
+                neighbours.push(fallback_candidate);
+                reciprocity
+                    .entry(level)
+                    .or_default()
+                    .insert(fallback_candidate);
             }
         }
+    }
 
-        // The new node has not had its neighbour lists written yet; do so now
-        // using the filtered, reciprocal set, and then promote entry if needed.
+    /// Writes the filtered neighbour lists back to the newly attached node.
+    fn apply_new_node_neighbours(
+        &mut self,
+        node_id: usize,
+        node_level: usize,
+        filtered_neighbours: Vec<Vec<usize>>,
+    ) {
+        let node_ref = self
+            .graph
+            .node_mut(node_id)
+            .expect("node was attached above");
+        for (level, neighbours) in filtered_neighbours
+            .into_iter()
+            .enumerate()
+            .take(node_level + 1)
         {
-            let node_ref = self
-                .graph
-                .node_mut(node.node)
-                .expect("node was attached above");
-            for (level, neighbours) in filtered_new_node_neighbours
-                .iter()
-                .enumerate()
-                .take(node.level + 1)
-            {
-                let list = node_ref.neighbours_mut(level);
-                list.clear();
-                list.extend(neighbours.iter().copied());
-            }
+            let list = node_ref.neighbours_mut(level);
+            list.clear();
+            list.extend(neighbours);
         }
+    }
 
-        if promote_entry {
-            self.graph.promote_entry(node.node, node.level);
-        }
-
+    /// Applies the neighbour updates gathered during staging to the existing
+    /// nodes now that their adjacency lists have been trimmed.
+    fn apply_neighbour_updates(
+        &mut self,
+        final_updates: Vec<FinalisedUpdate>,
+    ) -> Result<(), HnswError> {
         for (update, neighbours) in final_updates {
             let node_ref = self.graph.node_mut(update.node).ok_or_else(|| {
                 HnswError::GraphInvariantViolation {
@@ -424,12 +486,13 @@ impl<'graph> InsertionExecutor<'graph> {
             list.clear();
             list.extend(neighbours);
         }
-        self.enforce_bidirectional(max_connections);
         Ok(())
     }
-}
 
-impl<'graph> InsertionExecutor<'graph> {
+    /// Ensures every edge retains a reciprocal counterpart when trimming evicts
+    /// the new link but the source still has capacity. Falls back to removing
+    /// the forward edge when reciprocity cannot be restored without exceeding
+    /// the layer's degree bounds.
     #[allow(clippy::excessive_nesting)]
     fn enforce_bidirectional(&mut self, max_connections: usize) {
         let mut edges = Vec::new();
