@@ -351,11 +351,8 @@ impl<'graph> InsertionExecutor<'graph> {
             .collect();
 
         let original_new_node_neighbours = new_node_neighbours.clone();
-        let (final_updates, mut reciprocity) = Self::build_reciprocity_map(
-            updates,
-            &mut trim_lookup,
-            node.node,
-        );
+        let (final_updates, mut reciprocity) =
+            Self::build_reciprocity_map(updates, &mut trim_lookup, node.node);
         let filtered_new_node_neighbours = Self::filter_neighbours_by_reciprocity(
             new_node_neighbours,
             &original_new_node_neighbours,

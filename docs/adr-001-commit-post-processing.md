@@ -19,8 +19,8 @@ Accepted
 ## Decision
 
 - Enforce bidirectional edges after every insertion commit with a post-pass:
-  add the reverse edge when capacity allows, otherwise drop the forward edge
-  to preserve invariants without exceeding degree bounds.
+  add the reverse edge when capacity allows, otherwise drop the forward edge to
+  preserve invariants without exceeding degree bounds.
 - Guarantee each new node retains at least one neighbour by falling back to the
   first planned neighbour if trimming removed all reciprocal links.
 - Skip delete mutations in tests to avoid disconnecting the graph under tight

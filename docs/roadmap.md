@@ -92,7 +92,8 @@ ______________________________________________________________________
   - [ ] Restore safe deletion semantics in tests: reintroduce delete handling
     without breaking reachability, or fail fast when deletion would disconnect
     the graph. (Follow-up to reciprocity fix.)
-  - [ ] Add a regression test where trimming evicts the new node from an existing
+  - [ ] Add a regression test where trimming evicts the new node from an
+        existing
     neighbour, asserting the post-commit reciprocity pass either adds the reverse
     edge or removes the forward edge.
   - [ ] Integrate reciprocity enforcement into the insertion executor to avoid
