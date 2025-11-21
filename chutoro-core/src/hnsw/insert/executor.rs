@@ -785,15 +785,6 @@ impl<'graph> InsertionExecutor<'graph> {
     }
 
     #[cfg(test)]
-    fn node_has_capacity(&self, node_id: usize, level: usize, limit: usize) -> bool {
-        self.graph
-            .node(node_id)
-            .filter(|node| node.level_count() > level)
-            .map(|node| node.neighbours(level).len() < limit)
-            .unwrap_or(false)
-    }
-
-    #[cfg(test)]
     fn first_reachable_with_capacity(&self, visited: &[bool], limit: usize) -> Option<usize> {
         self.graph
             .nodes_iter()
