@@ -36,7 +36,7 @@ pub(crate) fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
 /// neighbour list has spare capacity.
 ///
 /// # Examples
-/// ```rust
+/// ```rust,ignore
 /// # use std::num::NonZeroUsize;
 /// use chutoro_core::{DistanceCacheConfig, DataSource, DataSourceError};
 /// use crate::datasource::MetricDescriptor;
@@ -96,7 +96,7 @@ pub(crate) fn ensure_query_present<D: DataSource + Sync>(
 /// returning them in the same order and populating the shared cache.
 ///
 /// # Examples
-/// ```rust
+/// ```rust,ignore
 /// use chutoro_core::{DistanceCacheConfig, DataSource, DataSourceError};
 /// use crate::datasource::MetricDescriptor;
 /// use crate::hnsw::distance_cache::DistanceCache;

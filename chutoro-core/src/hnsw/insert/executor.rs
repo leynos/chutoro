@@ -372,6 +372,14 @@ impl<'graph> InsertionExecutor<'graph> {
     }
 }
 
+/// Represents an edge in the HNSW graph with its coordinates.
+#[derive(Debug, Clone, Copy)]
+struct EdgeRef {
+    origin: usize,
+    target: usize,
+    level: usize,
+}
+
 impl<'graph> InsertionExecutor<'graph> {
     /// Builds the final neighbour lists for staged updates while tracking which
     /// nodes reciprocated connections to the newly inserted node per layer.
@@ -493,21 +501,25 @@ impl<'graph> InsertionExecutor<'graph> {
     fn enforce_bidirectional(&mut self, max_connections: usize) {
         let edges = self.collect_all_edges();
 
-        for (origin, target, level) in edges {
-            let needs_reverse = self.ensure_reverse_edge(origin, target, level, max_connections);
+        for edge in edges {
+            let needs_reverse = self.ensure_reverse_edge(edge, max_connections);
 
             if needs_reverse {
-                self.remove_forward_edge(origin, target, level);
+                self.remove_forward_edge(edge);
             }
         }
     }
 
     /// Collects all edges from the graph as (origin, target, level) tuples.
-    fn collect_all_edges(&self) -> Vec<(usize, usize, usize)> {
+    fn collect_all_edges(&self) -> Vec<EdgeRef> {
         let mut edges = Vec::new();
         for (origin, node) in self.graph.nodes_iter() {
             for (level, target) in node.iter_neighbours() {
-                edges.push((origin, target, level));
+                edges.push(EdgeRef {
+                    origin,
+                    target,
+                    level,
+                });
             }
         }
         edges
@@ -524,30 +536,20 @@ impl<'graph> InsertionExecutor<'graph> {
 
     /// Ensures a reverse edge exists from target to origin. Returns true if
     /// the forward edge should be removed due to capacity constraints.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "API must surface origin, target, level, and fan-out cap separately"
-    )]
-    fn ensure_reverse_edge(
-        &mut self,
-        origin: usize,
-        target: usize,
-        level: usize,
-        max_connections: usize,
-    ) -> bool {
-        let limit = self.compute_connection_limit(level, max_connections);
-        let Some(target_node) = self.graph.node_mut(target) else {
+    fn ensure_reverse_edge(&mut self, edge: EdgeRef, max_connections: usize) -> bool {
+        let limit = self.compute_connection_limit(edge.level, max_connections);
+        let Some(target_node) = self.graph.node_mut(edge.target) else {
             return false;
         };
 
-        let neighbours = target_node.neighbours_mut(level);
+        let neighbours = target_node.neighbours_mut(edge.level);
 
-        if neighbours.contains(&origin) {
+        if neighbours.contains(&edge.origin) {
             return false;
         }
 
         if neighbours.len() < limit {
-            neighbours.push(origin);
+            neighbours.push(edge.origin);
             false
         } else {
             true
@@ -555,13 +557,13 @@ impl<'graph> InsertionExecutor<'graph> {
     }
 
     /// Removes the forward edge from origin to target at the specified level.
-    fn remove_forward_edge(&mut self, origin: usize, target: usize, level: usize) {
-        let Some(origin_node) = self.graph.node_mut(origin) else {
+    fn remove_forward_edge(&mut self, edge: EdgeRef) {
+        let Some(origin_node) = self.graph.node_mut(edge.origin) else {
             return;
         };
 
-        let list = origin_node.neighbours_mut(level);
-        if let Some(pos) = list.iter().position(|&id| id == target) {
+        let list = origin_node.neighbours_mut(edge.level);
+        if let Some(pos) = list.iter().position(|&id| id == edge.target) {
             list.remove(pos);
         }
     }

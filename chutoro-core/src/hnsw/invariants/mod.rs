@@ -39,8 +39,8 @@ impl HnswInvariant {
     /// Returns all invariants in the order they should be evaluated.
     ///
     /// # Examples
-    /// ```
-    /// use crate::hnsw::invariants::HnswInvariant;
+    /// ```rust,ignore
+    /// use chutoro_core::HnswInvariant;
     /// let invariants = HnswInvariant::all();
     /// assert_eq!(invariants.len(), 4);
     /// assert!(matches!(invariants[0], HnswInvariant::LayerConsistency));

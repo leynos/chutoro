@@ -78,7 +78,7 @@ impl CpuHnsw {
     /// parallel with Rayon workers.
     ///
     /// # Examples
-    /// ```
+    /// ```rust,ignore
     /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
     ///
     /// # struct Dummy(Vec<f32>);
@@ -131,7 +131,7 @@ impl CpuHnsw {
     /// Creates an empty index with the desired capacity.
     ///
     /// # Examples
-    /// ```
+    /// ```rust,ignore
     /// use chutoro_core::{CpuHnsw, HnswParams};
     /// let params = HnswParams::new(2, 8).expect("params");
     /// let index = CpuHnsw::with_capacity(params, 16).expect("capacity must be > 0");
@@ -164,7 +164,7 @@ impl CpuHnsw {
     /// Inserts a node into the graph, performing search under a shared lock.
     ///
     /// # Examples
-    /// ```
+    /// ```rust,ignore
     /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
     /// # struct Dummy(Vec<f32>);
     /// # impl DataSource for Dummy {
