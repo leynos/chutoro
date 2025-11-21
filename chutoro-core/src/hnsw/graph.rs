@@ -1,5 +1,8 @@
 //! Internal graph representation for the CPU HNSW implementation.
 
+#[cfg(test)]
+use std::collections::HashSet;
+
 use super::{
     error::HnswError,
     insert::{InsertionExecutor, InsertionPlanner},
@@ -326,7 +329,6 @@ impl Graph {
     }
 
     #[cfg(test)]
-    #[allow(dead_code)]
     pub(super) fn delete_node(&mut self, node: usize) -> Result<bool, HnswError> {
         if node >= self.nodes.len() {
             return Err(HnswError::InvalidParameters {
@@ -334,10 +336,14 @@ impl Graph {
             });
         }
         let slot = self.nodes.get_mut(node).expect("bounds checked above");
-        if slot.is_none() {
+        let Some(removed) = slot.take() else {
             return Ok(false);
-        }
-        *slot = None;
+        };
+
+        let removed_neighbours: Vec<Vec<usize>> = (0..removed.level_count())
+            .map(|level| removed.neighbours(level).to_vec())
+            .collect();
+
         for maybe_node in self.nodes.iter_mut().flatten() {
             let levels = maybe_node.level_count();
             for level in 0..levels {
@@ -345,6 +351,11 @@ impl Graph {
                 neighbours.retain(|&target| target != node);
             }
         }
+
+        for (level, neighbours) in removed_neighbours.into_iter().enumerate() {
+            self.reconnect_neighbours(level, neighbours);
+        }
+
         if self.entry.map(|entry| entry.node) == Some(node) {
             self.entry = self.recompute_entry_point();
         }
@@ -352,18 +363,95 @@ impl Graph {
     }
 
     #[cfg(test)]
-    #[allow(dead_code)]
     fn recompute_entry_point(&self) -> Option<EntryPoint> {
         self.nodes_iter()
-            .max_by(|(left_id, left_node), (right_id, right_node)| {
-                left_node
-                    .level_count()
-                    .cmp(&right_node.level_count())
-                    .then_with(|| right_id.cmp(left_id))
-            })
+            .max_by_key(|(id, node)| (node.level_count(), std::cmp::Reverse(*id)))
             .map(|(id, node)| EntryPoint {
                 node: id,
                 level: node.level_count().saturating_sub(1),
             })
+    }
+
+    #[cfg(test)]
+    fn reconnect_neighbours(&mut self, level: usize, neighbours: Vec<usize>) {
+        let mut unique = Vec::new();
+        let mut seen = HashSet::new();
+        for neighbour in neighbours {
+            if seen.insert(neighbour)
+                && self.nodes.get(neighbour).and_then(Option::as_ref).is_some()
+            {
+                unique.push(neighbour);
+            }
+        }
+
+        if unique.len() < 2 {
+            return;
+        }
+
+        for pair in unique.windows(2) {
+            if let [origin, target] = pair {
+                self.try_add_bidirectional_edge(*origin, *target, level);
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn try_add_bidirectional_edge(&mut self, origin: usize, target: usize, level: usize) {
+        let added_forward = self.try_add_edge(origin, target, level);
+        let added_reverse = self.try_add_edge(target, origin, level);
+
+        if added_forward && !added_reverse {
+            self.remove_edge(origin, target, level);
+        }
+        if added_reverse && !added_forward {
+            self.remove_edge(target, origin, level);
+        }
+    }
+
+    #[cfg(test)]
+    fn try_add_edge(&mut self, origin: usize, target: usize, level: usize) -> bool {
+        let limit = self.connection_limit(level);
+        let Some(node) = self.nodes.get_mut(origin).and_then(Option::as_mut) else {
+            return false;
+        };
+        if level >= node.level_count() {
+            return false;
+        }
+
+        let neighbours = node.neighbours_mut(level);
+        if neighbours.contains(&target) {
+            return true;
+        }
+
+        if neighbours.len() < limit {
+            neighbours.push(target);
+            return true;
+        }
+
+        false
+    }
+
+    #[cfg(test)]
+    fn remove_edge(&mut self, origin: usize, target: usize, level: usize) {
+        let Some(node) = self.nodes.get_mut(origin).and_then(Option::as_mut) else {
+            return;
+        };
+        if level >= node.level_count() {
+            return;
+        }
+
+        let neighbours = node.neighbours_mut(level);
+        if let Some(pos) = neighbours.iter().position(|&candidate| candidate == target) {
+            neighbours.remove(pos);
+        }
+    }
+
+    #[cfg(test)]
+    fn connection_limit(&self, level: usize) -> usize {
+        if level == 0 {
+            self.params.max_connections().saturating_mul(2)
+        } else {
+            self.params.max_connections()
+        }
     }
 }

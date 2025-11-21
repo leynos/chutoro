@@ -327,10 +327,11 @@ impl CpuHnsw {
 
     #[cfg(test)]
     pub(crate) fn delete_node_for_test(&mut self, node: usize) -> Result<bool, HnswError> {
-        let _ = node;
-        // Deletion during property tests can disconnect the graph when degree
-        // bounds are tight; skip the mutation instead to keep invariants intact.
-        Ok(false)
+        let deleted = self.write_graph(|graph| graph.delete_node(node))?;
+        if deleted {
+            self.len.fetch_sub(1, Ordering::Relaxed);
+        }
+        Ok(deleted)
     }
 
     #[cfg(test)]
