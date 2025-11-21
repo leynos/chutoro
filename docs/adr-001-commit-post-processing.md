@@ -43,6 +43,21 @@ Accepted
 - Initial population seeding remains bounded to half the fixture size,
   preventing early overfill edge cases.
 
+## Findings to date
+
+- `hnsw_mutations_preserve_invariants_proptest` still fails intermittently. The
+  most recent run aborted with a stack overflow after reporting
+  `proptest: FileFailurePersistence::SourceParallel set, but no source file
+  known`, suggesting uncontrolled recursion while attempting to heal the graph
+  after staged insertions.
+- Another failing seed flagged a missing reverse edge after the bootstrap
+  insert stage (`edge exists 13 -> 0 at level 0 but no reverse edge`), which
+  indicates the local reciprocity fallback may still drop back-links when
+  trim-induced evictions and base-layer degree limits collide.
+- Test-only reachability healing and bidirectional enforcement now run inside
+  `commit`, but they are not yet sufficient to stabilise the mutation property
+  across seeds. Additional guardrails or instrumentation are needed.
+
 ## Next steps
 
 - Add targeted unit tests where insertion trimming evicts the new node and the
