@@ -260,7 +260,37 @@ fn bootstrap_uniform_fixture_remains_reachable() {
         rng_seed: 0,
     };
     let params = seed.build().expect("params must be valid");
-    let vectors = vec![
+    let vectors = bootstrap_uniform_vectors();
+    let source =
+        DenseVectorSource::new("uniform-bootstrap", vectors).expect("fixture must be valid");
+    let len = source.len();
+    let initial_population = derive_initial_population(19, len);
+    let index = CpuHnsw::with_capacity(params, len).expect("capacity must be valid");
+    for node in 0..initial_population {
+        index
+            .insert(node, &source)
+            .expect("bootstrap insertion must succeed");
+    }
+
+    index.inspect_graph(|graph| {
+        for node in 0..initial_population {
+            let node_ref = graph.node(node).expect("seeded node should exist");
+            assert!(
+                !node_ref.neighbours(0).is_empty(),
+                "seeded node {node} should expose base neighbours",
+            );
+        }
+    });
+
+    index
+        .invariants()
+        .check_all()
+        .expect("bootstrap should preserve reachability");
+}
+
+#[cfg(test)]
+fn bootstrap_uniform_vectors() -> Vec<Vec<f32>> {
+    vec![
         vec![
             -0.396_401_4,
             -0.574_703_04,
@@ -401,31 +431,5 @@ fn bootstrap_uniform_fixture_remains_reachable() {
             -1.333_986_3,
             1.106_944_7,
         ],
-    ];
-
-    let source =
-        DenseVectorSource::new("uniform-bootstrap", vectors).expect("fixture must be valid");
-    let len = source.len();
-    let initial_population = derive_initial_population(19, len);
-    let index = CpuHnsw::with_capacity(params, len).expect("capacity must be valid");
-    for node in 0..initial_population {
-        index
-            .insert(node, &source)
-            .expect("bootstrap insertion must succeed");
-    }
-
-    index.inspect_graph(|graph| {
-        for node in 0..initial_population {
-            let node_ref = graph.node(node).expect("seeded node should exist");
-            assert!(
-                !node_ref.neighbours(0).is_empty(),
-                "seeded node {node} should expose base neighbours",
-            );
-        }
-    });
-
-    index
-        .invariants()
-        .check_all()
-        .expect("bootstrap should preserve reachability");
+    ]
 }
