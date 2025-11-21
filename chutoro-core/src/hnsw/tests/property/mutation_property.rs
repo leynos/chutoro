@@ -200,13 +200,9 @@ impl MutationPools {
     }
 
     fn bootstrap(&mut self, count: usize) -> Vec<usize> {
-        let mut seeded = Vec::new();
         let take = count.min(self.available.len());
-        for _ in 0..take {
-            let node = self.available.remove(0);
-            self.inserted.push(node);
-            seeded.push(node);
-        }
+        let seeded: Vec<usize> = self.available.drain(0..take).collect();
+        self.inserted.extend(&seeded);
         seeded
     }
 
