@@ -490,42 +490,75 @@ impl<'graph> InsertionExecutor<'graph> {
     /// the new link but the source still has capacity. Falls back to removing
     /// the forward edge when reciprocity cannot be restored without exceeding
     /// the layer's degree bounds.
-    #[allow(clippy::excessive_nesting)]
     fn enforce_bidirectional(&mut self, max_connections: usize) {
+        let edges = self.collect_all_edges();
+
+        for (origin, target, level) in edges {
+            let limit = self.compute_connection_limit(level, max_connections);
+            let needs_reverse = self.ensure_reverse_edge(origin, target, level, limit);
+
+            if needs_reverse {
+                self.remove_forward_edge(origin, target, level);
+            }
+        }
+    }
+
+    /// Collects all edges from the graph as (origin, target, level) tuples.
+    fn collect_all_edges(&self) -> Vec<(usize, usize, usize)> {
         let mut edges = Vec::new();
         for (origin, node) in self.graph.nodes_iter() {
             for (level, target) in node.iter_neighbours() {
                 edges.push((origin, target, level));
             }
         }
+        edges
+    }
 
-        for (origin, target, level) in edges {
-            let limit = if level == 0 {
-                max_connections.saturating_mul(2)
-            } else {
-                max_connections
-            };
+    /// Computes the connection limit for a given level (doubled for level 0).
+    fn compute_connection_limit(&self, level: usize, max_connections: usize) -> usize {
+        if level == 0 {
+            max_connections.saturating_mul(2)
+        } else {
+            max_connections
+        }
+    }
 
-            let mut needs_reverse = false;
-            if let Some(target_node) = self.graph.node_mut(target) {
-                let neighbours = target_node.neighbours_mut(level);
-                if !neighbours.contains(&origin) {
-                    if neighbours.len() < limit {
-                        neighbours.push(origin);
-                    } else {
-                        needs_reverse = true;
-                    }
-                }
-            }
+    /// Ensures a reverse edge exists from target to origin. Returns true if
+    /// the forward edge should be removed due to capacity constraints.
+    fn ensure_reverse_edge(
+        &mut self,
+        origin: usize,
+        target: usize,
+        level: usize,
+        limit: usize,
+    ) -> bool {
+        let Some(target_node) = self.graph.node_mut(target) else {
+            return false;
+        };
 
-            if needs_reverse {
-                if let Some(origin_node) = self.graph.node_mut(origin) {
-                    let list = origin_node.neighbours_mut(level);
-                    if let Some(pos) = list.iter().position(|&id| id == target) {
-                        list.remove(pos);
-                    }
-                }
-            }
+        let neighbours = target_node.neighbours_mut(level);
+
+        if neighbours.contains(&origin) {
+            return false;
+        }
+
+        if neighbours.len() < limit {
+            neighbours.push(origin);
+            false
+        } else {
+            true
+        }
+    }
+
+    /// Removes the forward edge from origin to target at the specified level.
+    fn remove_forward_edge(&mut self, origin: usize, target: usize, level: usize) {
+        let Some(origin_node) = self.graph.node_mut(origin) else {
+            return;
+        };
+
+        let list = origin_node.neighbours_mut(level);
+        if let Some(pos) = list.iter().position(|&id| id == target) {
+            list.remove(pos);
         }
     }
 }
