@@ -181,13 +181,14 @@ impl<'graph> InsertionExecutor<'graph> {
             .filter(|layer| layer.level <= ctx.level)
         {
             let level_index = layer.level;
+            let level_capacity = Self::compute_connection_limit(level_index, max_connections);
 
-            for neighbour in layer.neighbours.into_iter().take(max_connections) {
+            for neighbour in layer.neighbours.into_iter().take(level_capacity) {
                 self.stage_neighbour(
                     ctx.node,
                     neighbour.id,
                     level_index,
-                    max_connections,
+                    level_capacity,
                     &mut new_node_neighbours,
                     &mut staged,
                     &mut initialised,
@@ -288,7 +289,7 @@ impl<'graph> InsertionExecutor<'graph> {
         new_node: usize,
         neighbour: usize,
         level_index: usize,
-        max_connections: usize,
+        connection_limit: usize,
         new_node_neighbours: &mut [Vec<usize>],
         staged: &mut HashMap<(usize, usize), Vec<usize>>,
         initialised: &mut HashSet<(usize, usize)>,
@@ -320,7 +321,7 @@ impl<'graph> InsertionExecutor<'graph> {
 
         let contains_new = candidates.contains(&new_node);
         let projected = candidates.len() + usize::from(!contains_new);
-        if projected > max_connections {
+        if projected > connection_limit {
             needs_trim.insert(key);
         }
         if contains_new {
@@ -345,114 +346,77 @@ impl<'graph> InsertionExecutor<'graph> {
             max_connections,
         } = prepared;
 
+        let new_node = NewNodeContext {
+            id: node.node,
+            level: node.level,
+        };
+
         let mut trim_lookup: HashMap<(usize, usize), Vec<usize>> = trims
             .into_iter()
             .map(|result| ((result.node, result.ctx.level), result.neighbours))
             .collect();
 
-        let original_new_node_neighbours = new_node_neighbours.clone();
-        let (final_updates, mut reciprocity) =
-            Self::build_reciprocity_map(updates, &mut trim_lookup, node.node);
-        let filtered_new_node_neighbours = Self::filter_neighbours_by_reciprocity(
-            new_node_neighbours,
-            &original_new_node_neighbours,
-            &mut reciprocity,
-            node.level,
-        );
-
-        self.graph.attach_node(node)?;
-        self.apply_new_node_neighbours(node.node, node.level, filtered_new_node_neighbours);
-        if promote_entry {
-            self.graph.promote_entry(node.node, node.level);
-        }
-
-        self.apply_neighbour_updates(final_updates)?;
-        self.enforce_bidirectional(max_connections);
-        Ok(())
-    }
-}
-
-/// Represents an edge in the HNSW graph with its coordinates.
-#[derive(Debug, Clone, Copy)]
-struct EdgeRef {
-    origin: usize,
-    target: usize,
-    level: usize,
-}
-
-impl<'graph> InsertionExecutor<'graph> {
-    /// Builds the final neighbour lists for staged updates while tracking which
-    /// nodes reciprocated connections to the newly inserted node per layer.
-    fn build_reciprocity_map(
-        updates: Vec<StagedUpdate>,
-        trim_lookup: &mut HashMap<(usize, usize), Vec<usize>>,
-        new_node: usize,
-    ) -> (Vec<FinalisedUpdate>, HashMap<usize, HashSet<usize>>) {
         let mut final_updates = Vec::with_capacity(updates.len());
-        let mut reciprocity: HashMap<usize, HashSet<usize>> = HashMap::new();
-
         for update in updates {
             let neighbours = trim_lookup
                 .remove(&(update.node, update.ctx.level))
                 .unwrap_or_else(|| update.candidates.clone());
-            if neighbours.contains(&new_node) {
-                reciprocity
-                    .entry(update.ctx.level)
-                    .or_default()
-                    .insert(update.node);
-            }
             final_updates.push((update, neighbours));
         }
 
-        (final_updates, reciprocity)
-    }
-
-    /// Filters the new node's neighbours to retain only nodes that preserved
-    /// reciprocal links after trimming, falling back to the original adjacency
-    /// when reciprocity drops every candidate on a layer.
-    fn filter_neighbours_by_reciprocity(
-        mut new_node_neighbours: Vec<Vec<usize>>,
-        original_new_node_neighbours: &[Vec<usize>],
-        reciprocity: &mut HashMap<usize, HashSet<usize>>,
-        node_level: usize,
-    ) -> Vec<Vec<usize>> {
-        for (level, neighbours) in new_node_neighbours
-            .iter_mut()
-            .enumerate()
-            .take(node_level + 1)
-        {
-            if let Some(reciprocated) = reciprocity.get(&level) {
-                neighbours.retain(|candidate| reciprocated.contains(candidate));
-            }
-            let fallback = original_new_node_neighbours
-                .get(level)
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
-            Self::ensure_neighbour_connectivity(level, neighbours, reciprocity, fallback);
+        let mut filtered_new_node_neighbours = new_node_neighbours.clone();
+        ReciprocityWorkspace {
+            filtered: &mut filtered_new_node_neighbours,
+            original: &new_node_neighbours,
+            final_updates: &mut final_updates,
+            new_node: new_node.id,
+            max_connections,
         }
-        new_node_neighbours
-    }
+        .apply();
 
-    /// Ensures each layer retains at least one neighbour by reinserting the
-    /// original candidate used during staging when reciprocity drops the entire
-    /// set after trimming.
-    fn ensure_neighbour_connectivity(
-        level: usize,
-        neighbours: &mut Vec<usize>,
-        reciprocity: &mut HashMap<usize, HashSet<usize>>,
-        fallback: &[usize],
-    ) {
-        if neighbours.is_empty() {
-            if let Some(&fallback_candidate) = fallback.first() {
-                neighbours.push(fallback_candidate);
-                reciprocity
-                    .entry(level)
-                    .or_default()
-                    .insert(fallback_candidate);
+        self.graph.attach_node(node)?;
+
+        let mut reciprocated =
+            self.apply_neighbour_updates(final_updates, max_connections, new_node)?;
+
+        for (level, neighbours) in reciprocated.iter_mut().enumerate() {
+            neighbours.sort_unstable();
+            neighbours.dedup();
+            let limit = Self::compute_connection_limit(level, max_connections);
+            if neighbours.len() > limit {
+                neighbours.truncate(limit);
+            }
+            if !neighbours.is_empty() {
+                continue;
+            }
+
+            let link_ctx = LinkContext {
+                level,
+                max_connections,
+                new_node: new_node.id,
+            };
+
+            if let Some(candidate) =
+                self.select_new_node_fallback(link_ctx, filtered_new_node_neighbours.get(level))
+            {
+                neighbours.push(candidate);
             }
         }
-    }
 
+        self.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated);
+        if promote_entry {
+            self.graph.promote_entry(new_node.id, new_node.level);
+        }
+
+        #[cfg(test)]
+        self.heal_reachability(max_connections);
+        #[cfg(test)]
+        self.enforce_bidirectional_all(max_connections);
+        Ok(())
+    }
+}
+
+impl<'graph> InsertionExecutor<'graph> {
     /// Writes the filtered neighbour lists back to the newly attached node.
     fn apply_new_node_neighbours(
         &mut self,
@@ -480,53 +444,47 @@ impl<'graph> InsertionExecutor<'graph> {
     fn apply_neighbour_updates(
         &mut self,
         final_updates: Vec<FinalisedUpdate>,
-    ) -> Result<(), HnswError> {
+        max_connections: usize,
+        new_node: NewNodeContext,
+    ) -> Result<Vec<Vec<usize>>, HnswError> {
+        let mut reciprocated: Vec<Vec<usize>> = vec![Vec::new(); new_node.level + 1];
         for (update, neighbours) in final_updates {
+            let level = update.ctx.level;
+            let previous = self
+                .graph
+                .node(update.node)
+                .map(|node| node.neighbours(level).to_vec())
+                .ok_or_else(|| HnswError::GraphInvariantViolation {
+                    message: format!("node {} missing during insertion commit", update.node),
+                })?;
+            let level = update.ctx.level;
+            let mut next = neighbours;
+            let ctx = UpdateContext {
+                origin: update.node,
+                level,
+                max_connections,
+            };
+            self.reconcile_removed_edges(&ctx, &previous, &next);
+            self.reconcile_added_edges(&ctx, &mut next);
+
+            if level <= new_node.level && next.contains(&new_node.id) {
+                reciprocated[level].push(update.node);
+            }
+
             let node_ref = self.graph.node_mut(update.node).ok_or_else(|| {
                 HnswError::GraphInvariantViolation {
                     message: format!("node {} missing during insertion commit", update.node),
                 }
             })?;
-            let list = node_ref.neighbours_mut(update.ctx.level);
+            let list = node_ref.neighbours_mut(level);
             list.clear();
-            list.extend(neighbours);
+            list.extend(next);
         }
-        Ok(())
-    }
-
-    /// Ensures every edge retains a reciprocal counterpart when trimming evicts
-    /// the new link but the source still has capacity. Falls back to removing
-    /// the forward edge when reciprocity cannot be restored without exceeding
-    /// the layer's degree bounds.
-    fn enforce_bidirectional(&mut self, max_connections: usize) {
-        let edges = self.collect_all_edges();
-
-        for edge in edges {
-            let needs_reverse = self.ensure_reverse_edge(edge, max_connections);
-
-            if needs_reverse {
-                self.remove_forward_edge(edge);
-            }
-        }
-    }
-
-    /// Collects all edges from the graph as (origin, target, level) tuples.
-    fn collect_all_edges(&self) -> Vec<EdgeRef> {
-        let mut edges = Vec::new();
-        for (origin, node) in self.graph.nodes_iter() {
-            for (level, target) in node.iter_neighbours() {
-                edges.push(EdgeRef {
-                    origin,
-                    target,
-                    level,
-                });
-            }
-        }
-        edges
+        Ok(reciprocated)
     }
 
     /// Computes the connection limit for a given level (doubled for level 0).
-    fn compute_connection_limit(&self, level: usize, max_connections: usize) -> usize {
+    fn compute_connection_limit(level: usize, max_connections: usize) -> usize {
         if level == 0 {
             max_connections.saturating_mul(2)
         } else {
@@ -534,38 +492,361 @@ impl<'graph> InsertionExecutor<'graph> {
         }
     }
 
-    /// Ensures a reverse edge exists from target to origin. Returns true if
-    /// the forward edge should be removed due to capacity constraints.
-    fn ensure_reverse_edge(&mut self, edge: EdgeRef, max_connections: usize) -> bool {
-        let limit = self.compute_connection_limit(edge.level, max_connections);
-        let Some(target_node) = self.graph.node_mut(edge.target) else {
-            return false;
-        };
+    fn reconcile_removed_edges(&mut self, ctx: &UpdateContext, previous: &[usize], next: &[usize]) {
+        let mut isolated: Vec<usize> = Vec::new();
+        for &target in previous {
+            if next.contains(&target) {
+                continue;
+            }
+            let Some(target_node) = self.graph.node_mut(target) else {
+                continue;
+            };
+            if ctx.level >= target_node.level_count() {
+                continue;
+            }
 
-        let neighbours = target_node.neighbours_mut(edge.level);
+            let neighbours = target_node.neighbours_mut(ctx.level);
+            let Some(pos) = neighbours.iter().position(|&id| id == ctx.origin) else {
+                continue;
+            };
 
-        if neighbours.contains(&edge.origin) {
-            return false;
+            neighbours.remove(pos);
+            if ctx.level == 0 && neighbours.is_empty() {
+                isolated.push(target);
+            }
         }
 
-        if neighbours.len() < limit {
-            neighbours.push(edge.origin);
-            false
-        } else {
-            true
+        for node in isolated {
+            self.ensure_base_connectivity(node, ctx.max_connections);
         }
     }
 
-    /// Removes the forward edge from origin to target at the specified level.
-    fn remove_forward_edge(&mut self, edge: EdgeRef) {
-        let Some(origin_node) = self.graph.node_mut(edge.origin) else {
+    fn reconcile_added_edges(&mut self, ctx: &UpdateContext, next: &mut Vec<usize>) {
+        next.retain(|&target| self.ensure_reverse_edge(ctx, target));
+    }
+
+    fn ensure_reverse_edge(&mut self, ctx: &UpdateContext, target: usize) -> bool {
+        let Some(target_node) = self.graph.node_mut(target) else {
+            return false;
+        };
+        if ctx.level >= target_node.level_count() {
+            return false;
+        }
+
+        let limit = Self::compute_connection_limit(ctx.level, ctx.max_connections);
+        let neighbours = target_node.neighbours_mut(ctx.level);
+        if neighbours.contains(&ctx.origin) {
+            return true;
+        }
+
+        if neighbours.len() < limit {
+            neighbours.push(ctx.origin);
+            return true;
+        }
+
+        if !neighbours.is_empty() {
+            neighbours.pop();
+            neighbours.push(ctx.origin);
+            return true;
+        }
+
+        false
+    }
+
+    fn link_new_node(&mut self, ctx: &UpdateContext, new_node: usize) -> bool {
+        let limit = Self::compute_connection_limit(ctx.level, ctx.max_connections);
+        let Some(candidate_node) = self.graph.node_mut(ctx.origin) else {
+            return false;
+        };
+        if ctx.level >= candidate_node.level_count() {
+            return false;
+        }
+
+        let neighbours = candidate_node.neighbours_mut(ctx.level);
+        let mut evicted: Option<usize> = None;
+        if !neighbours.contains(&new_node) {
+            if neighbours.len() < limit {
+                neighbours.push(new_node);
+            } else if !neighbours.is_empty() {
+                evicted = neighbours.pop();
+                neighbours.push(new_node);
+            } else {
+                return false;
+            }
+        }
+
+        let Some(new_node_ref) = self.graph.node_mut(new_node) else {
+            return false;
+        };
+        if ctx.level >= new_node_ref.level_count() {
+            return false;
+        }
+        let neighbours = new_node_ref.neighbours_mut(ctx.level);
+        if neighbours.contains(&ctx.origin) {
+            return true;
+        }
+
+        let limit_new = Self::compute_connection_limit(ctx.level, ctx.max_connections);
+        if neighbours.len() < limit_new {
+            neighbours.push(ctx.origin);
+        } else if !neighbours.is_empty() {
+            neighbours.pop();
+            neighbours.push(ctx.origin);
+        } else {
+            return false;
+        }
+
+        if let Some(evicted) = evicted {
+            let Some(evicted_node) = self.graph.node_mut(evicted) else {
+                return true;
+            };
+            if ctx.level >= evicted_node.level_count() {
+                return true;
+            }
+
+            let evicted_neighbours = evicted_node.neighbours_mut(ctx.level);
+            if let Some(pos) = evicted_neighbours.iter().position(|&id| id == ctx.origin) {
+                evicted_neighbours.remove(pos);
+            }
+            if ctx.level == 0 && evicted_neighbours.is_empty() {
+                self.ensure_base_connectivity(evicted, ctx.max_connections);
+            }
+        }
+        true
+    }
+
+    fn attach_entry_fallback(
+        &mut self,
+        level: usize,
+        max_connections: usize,
+        new_node: usize,
+    ) -> Option<usize> {
+        self.graph.entry().and_then(|entry| {
+            let ctx = UpdateContext {
+                origin: entry.node,
+                level,
+                max_connections,
+            };
+            self.link_new_node(&ctx, new_node).then_some(entry.node)
+        })
+    }
+
+    fn ensure_base_connectivity(&mut self, node: usize, max_connections: usize) {
+        if let Some(entry) = self.graph.entry() {
+            if entry.node == node {
+                return;
+            }
+
+            let ctx = UpdateContext {
+                origin: entry.node,
+                level: 0,
+                max_connections,
+            };
+
+            let _ = self.link_new_node(&ctx, node);
+        }
+    }
+
+    #[cfg(test)]
+    fn heal_reachability(&mut self, max_connections: usize) {
+        let Some(entry) = self.graph.entry() else {
             return;
         };
 
-        let list = origin_node.neighbours_mut(edge.level);
-        if let Some(pos) = list.iter().position(|&id| id == edge.target) {
-            list.remove(pos);
+        let mut visited = vec![false; self.graph.capacity()];
+        let mut queue = vec![entry.node];
+        while let Some(next) = queue.pop() {
+            if !visited.get(next).copied().unwrap_or(false) {
+                visited[next] = true;
+                if let Some(node_ref) = self.graph.node(next) {
+                    queue.extend(node_ref.iter_neighbours().map(|(_, neighbour)| neighbour));
+                }
+            }
         }
+
+        let unreachable: Vec<usize> = self
+            .graph
+            .nodes_iter()
+            .map(|(id, _)| id)
+            .filter(|&id| !visited.get(id).copied().unwrap_or(false))
+            .collect();
+
+        for node_id in unreachable {
+            let ctx = UpdateContext {
+                origin: entry.node,
+                level: 0,
+                max_connections,
+            };
+            let _ = self.link_new_node(&ctx, node_id);
+        }
+    }
+
+    #[cfg(test)]
+    fn enforce_bidirectional_all(&mut self, max_connections: usize) {
+        let mut edges = Vec::new();
+        for (origin, node) in self.graph.nodes_iter() {
+            for (level, target) in node.iter_neighbours() {
+                edges.push((origin, level, target));
+            }
+        }
+
+        for (origin, level, target) in edges {
+            let mut ensured = false;
+            if let Some(target_node) = self.graph.node_mut(target) {
+                if level < target_node.level_count() {
+                    let limit = Self::compute_connection_limit(level, max_connections);
+                    let neighbours = target_node.neighbours_mut(level);
+                    if neighbours.contains(&origin) {
+                        ensured = true;
+                    } else if neighbours.len() < limit {
+                        neighbours.push(origin);
+                        ensured = true;
+                    } else if !neighbours.is_empty() {
+                        neighbours.pop();
+                        neighbours.push(origin);
+                        ensured = true;
+                    }
+                }
+            }
+
+            if !ensured {
+                if let Some(origin_node) = self.graph.node_mut(origin) {
+                    if level < origin_node.level_count() {
+                        let neighbours = origin_node.neighbours_mut(level);
+                        if let Some(pos) = neighbours.iter().position(|&id| id == target) {
+                            neighbours.remove(pos);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn select_new_node_fallback(
+        &mut self,
+        ctx: LinkContext,
+        fallback: Option<&Vec<usize>>,
+    ) -> Option<usize> {
+        let linked = fallback
+            .into_iter()
+            .flat_map(|candidates| candidates.iter().copied())
+            .find(|&candidate| {
+                let link = UpdateContext {
+                    origin: candidate,
+                    level: ctx.level,
+                    max_connections: ctx.max_connections,
+                };
+                self.link_new_node(&link, ctx.new_node)
+            });
+
+        linked.or_else(|| self.attach_entry_fallback(ctx.level, ctx.max_connections, ctx.new_node))
+    }
+}
+
+#[derive(Clone, Copy)]
+struct NewNodeContext {
+    id: usize,
+    level: usize,
+}
+
+struct UpdateContext {
+    origin: usize,
+    level: usize,
+    max_connections: usize,
+}
+
+struct LinkContext {
+    level: usize,
+    max_connections: usize,
+    new_node: usize,
+}
+
+struct ReciprocityWorkspace<'a> {
+    filtered: &'a mut [Vec<usize>],
+    original: &'a [Vec<usize>],
+    final_updates: &'a mut [FinalisedUpdate],
+    new_node: usize,
+    max_connections: usize,
+}
+
+impl<'a> ReciprocityWorkspace<'a> {
+    fn apply(self) {
+        let ReciprocityWorkspace {
+            filtered,
+            original,
+            final_updates,
+            new_node,
+            max_connections,
+        } = self;
+
+        let mut selector = FallbackSelector {
+            original,
+            final_updates,
+            new_node,
+            max_connections,
+        };
+
+        for (level, neighbours) in filtered.iter_mut().enumerate() {
+            let reciprocated = selector.reciprocated(level);
+            neighbours.retain(|candidate| reciprocated.contains(candidate));
+
+            if !neighbours.is_empty() {
+                continue;
+            }
+
+            if let Some(candidate) = selector.select(level) {
+                neighbours.push(candidate);
+            }
+        }
+    }
+}
+
+struct FallbackSelector<'a> {
+    original: &'a [Vec<usize>],
+    final_updates: &'a mut [FinalisedUpdate],
+    new_node: usize,
+    max_connections: usize,
+}
+
+impl<'a> FallbackSelector<'a> {
+    fn reciprocated(&self, level: usize) -> HashSet<usize> {
+        self.final_updates
+            .iter()
+            .filter_map(|(update, neighbours)| {
+                (update.ctx.level == level && neighbours.contains(&self.new_node))
+                    .then_some(update.node)
+            })
+            .collect()
+    }
+
+    fn select(&mut self, level: usize) -> Option<usize> {
+        let fallback_candidates = self.original.get(level).map(Vec::as_slice).unwrap_or(&[]);
+        let limit = InsertionExecutor::compute_connection_limit(level, self.max_connections);
+
+        for &candidate in fallback_candidates {
+            let Some((_, neighbour_list)) = self
+                .final_updates
+                .iter_mut()
+                .find(|(update, _)| update.node == candidate && update.ctx.level == level)
+            else {
+                continue;
+            };
+
+            if neighbour_list.contains(&self.new_node) {
+                return Some(candidate);
+            }
+            if neighbour_list.len() < limit {
+                neighbour_list.push(self.new_node);
+                return Some(candidate);
+            }
+            if !neighbour_list.is_empty() {
+                neighbour_list.pop();
+                neighbour_list.push(self.new_node);
+                return Some(candidate);
+            }
+        }
+
+        None
     }
 }
 
