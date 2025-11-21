@@ -91,12 +91,7 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
 
 #[cfg(test)]
 fn heal_graph(index: &CpuHnsw) {
-    index.write_graph(|graph| {
-        let max_connections = graph.params().max_connections();
-        let mut executor = graph.insertion_executor();
-        executor.enforce_bidirectional_all(max_connections);
-        executor.heal_reachability(max_connections);
-    });
+    index.heal_for_test();
 }
 
 struct MutationRunner<'ctx> {
