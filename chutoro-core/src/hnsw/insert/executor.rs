@@ -653,8 +653,46 @@ impl<'graph> InsertionExecutor<'graph> {
             return;
         };
 
+        let base_limit = Self::compute_connection_limit(0, max_connections);
+
+        loop {
+            let visited = self.collect_reachable(entry.node);
+            let unreachable: Vec<usize> = self
+                .graph
+                .nodes_iter()
+                .map(|(id, _)| id)
+                .filter(|&id| !visited.get(id).copied().unwrap_or(false))
+                .collect();
+
+            if unreachable.is_empty() {
+                break;
+            }
+
+            let mut progress = false;
+            for node_id in unreachable {
+                if !self.node_has_capacity(node_id, 0, base_limit) {
+                    continue;
+                }
+                if let Some(origin) = self.first_reachable_with_capacity(&visited, base_limit) {
+                    let ctx = UpdateContext {
+                        origin,
+                        level: 0,
+                        max_connections,
+                    };
+                    progress |= self.link_new_node(&ctx, node_id);
+                }
+            }
+
+            if !progress {
+                break;
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn collect_reachable(&self, entry: usize) -> Vec<bool> {
         let mut visited = vec![false; self.graph.capacity()];
-        let mut queue = vec![entry.node];
+        let mut queue = vec![entry];
         while let Some(next) = queue.pop() {
             if !visited.get(next).copied().unwrap_or(false) {
                 visited[next] = true;
@@ -663,22 +701,29 @@ impl<'graph> InsertionExecutor<'graph> {
                 }
             }
         }
+        visited
+    }
 
-        let unreachable: Vec<usize> = self
-            .graph
+    #[cfg(test)]
+    fn node_has_capacity(&self, node_id: usize, level: usize, limit: usize) -> bool {
+        self.graph
+            .node(node_id)
+            .filter(|node| node.level_count() > level)
+            .map(|node| node.neighbours(level).len() < limit)
+            .unwrap_or(false)
+    }
+
+    #[cfg(test)]
+    fn first_reachable_with_capacity(&self, visited: &[bool], limit: usize) -> Option<usize> {
+        self.graph
             .nodes_iter()
+            .map(|(id, node)| (id, node))
+            .find(|(id, node)| {
+                visited.get(*id).copied().unwrap_or(false)
+                    && node.level_count() > 0
+                    && node.neighbours(0).len() < limit
+            })
             .map(|(id, _)| id)
-            .filter(|&id| !visited.get(id).copied().unwrap_or(false))
-            .collect();
-
-        for node_id in unreachable {
-            let ctx = UpdateContext {
-                origin: entry.node,
-                level: 0,
-                max_connections,
-            };
-            let _ = self.link_new_node(&ctx, node_id);
-        }
     }
 
     #[cfg(test)]

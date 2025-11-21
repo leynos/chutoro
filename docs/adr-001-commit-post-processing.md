@@ -57,6 +57,10 @@ Accepted
 - Test-only reachability healing and bidirectional enforcement now run inside
   `commit`, but they are not yet sufficient to stabilise the mutation property
   across seeds. Additional guardrails or instrumentation are needed.
+- After tightening reachability healing to avoid entry-centric eviction churn,
+  the mutation property now fails on a smaller case after the first add with a
+  missing reverse link at layer 1 (`edge 2 -> 4`), showing that reciprocity is
+  still not guaranteed for existing node pairs that survive trimming.
 - The current `commit` path invokes `enforce_bidirectional` without a test-only
   guard; it walks every edge (`collect_all_edges`/`ensure_reverse_edge`) after
   each insertion. This introduces an `O(E)` production cost and can rewrite
