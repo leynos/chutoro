@@ -353,8 +353,8 @@ impl CpuHnsw {
         self.rng = Mutex::new(SmallRng::seed_from_u64(base_seed));
         self.worker_rngs = build_worker_rngs(base_seed);
         self.distance_cache = DistanceCache::new(*params.distance_cache_config());
-        self.params = params.clone();
-        self.write_graph(|graph| graph.set_params(params));
+        self.params = params;
+        self.write_graph(|graph| graph.set_params(&self.params));
     }
 
     fn try_insert_initial<D: DataSource + Sync>(

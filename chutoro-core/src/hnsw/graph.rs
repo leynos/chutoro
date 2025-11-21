@@ -324,8 +324,8 @@ impl Graph {
     }
 
     #[cfg(test)]
-    pub(super) fn set_params(&mut self, params: HnswParams) {
-        self.params = params;
+    pub(super) fn set_params(&mut self, params: &HnswParams) {
+        self.params = params.clone();
     }
 
     #[cfg(test)]
