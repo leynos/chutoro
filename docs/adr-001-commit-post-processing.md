@@ -64,11 +64,16 @@ Accepted
 - A later seed showed a bootstrap failure with `edge 11 -> 8` missing a reverse
   link at layer 0. Hypothesis: one-way edges can survive when a reverse-link
   insertion evicts a neighbour but the new node keeps the forward edge.
-  Mitigation: after every commit we now run a local reciprocity pass over the
-  new node's neighbour lists (`ensure_new_node_reciprocity`) that either adds
-  the missing back-link (evicting and scrubbing as needed) or removes the
-  forward edge. Targeted unit tests cover both eviction scrubbing and the
-  one-way edge cleanup, and the mutation property now passes.
+  Mitigation: after every commit we now run a reciprocity pass over all touched
+  nodes (`ensure_reciprocity_for_touched`) that either adds the missing
+  back-link (evicting and scrubbing as needed) or removes the forward edge. New
+  unit tests cover both reverse-edge eviction scrubbing and healing an existing
+  one-way edge.
+
+- Intermittent failure (`edge 4 -> 0` missing backlink at layer 0) was
+  reproduced on a small clustered fixture when the forward edge belonged to a
+  prior insertion, not the new node. The touched-node reciprocity pass addresses
+  this broader case; repeated property runs now pass locally.
 - The current `commit` path invokes `enforce_bidirectional` without a test-only
   guard; it walks every edge (`collect_all_edges`/`ensure_reverse_edge`) after
   each insertion. This introduces an `O(E)` production cost and can rewrite

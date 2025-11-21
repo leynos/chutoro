@@ -376,7 +376,7 @@ impl<'graph> InsertionExecutor<'graph> {
 
         self.graph.attach_node(node)?;
 
-        let mut reciprocated =
+        let (mut reciprocated, mut touched) =
             self.apply_neighbour_updates(final_updates, max_connections, new_node)?;
 
         for (level, neighbours) in reciprocated.iter_mut().enumerate() {
@@ -404,7 +404,8 @@ impl<'graph> InsertionExecutor<'graph> {
         }
 
         self.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated);
-        self.ensure_new_node_reciprocity(new_node.id, max_connections);
+        touched.extend((0..=new_node.level).map(|level| (new_node.id, level)));
+        self.ensure_reciprocity_for_touched(&touched, max_connections);
         if promote_entry {
             self.graph.promote_entry(new_node.id, new_node.level);
         }
@@ -447,8 +448,9 @@ impl<'graph> InsertionExecutor<'graph> {
         final_updates: Vec<FinalisedUpdate>,
         max_connections: usize,
         new_node: NewNodeContext,
-    ) -> Result<Vec<Vec<usize>>, HnswError> {
+    ) -> Result<(Vec<Vec<usize>>, Vec<(usize, usize)>), HnswError> {
         let mut reciprocated: Vec<Vec<usize>> = vec![Vec::new(); new_node.level + 1];
+        let mut touched: Vec<(usize, usize)> = Vec::with_capacity(final_updates.len());
         for (update, neighbours) in final_updates {
             let level = update.ctx.level;
             let previous = self
@@ -480,8 +482,9 @@ impl<'graph> InsertionExecutor<'graph> {
             let list = node_ref.neighbours_mut(level);
             list.clear();
             list.extend(next);
+            touched.push((update.node, level));
         }
-        Ok(reciprocated)
+        Ok((reciprocated, touched))
     }
 
     /// Computes the connection limit for a given level (doubled for level 0).
@@ -620,30 +623,43 @@ impl<'graph> InsertionExecutor<'graph> {
         true
     }
 
-    fn ensure_new_node_reciprocity(&mut self, node: usize, max_connections: usize) {
-        let Some(snapshot) = self.graph.node(node).map(|node_ref| {
-            (0..node_ref.level_count())
-                .map(|level| node_ref.neighbours(level).to_vec())
-                .collect::<Vec<_>>()
-        }) else {
-            return;
-        };
+    fn ensure_reciprocity_for_touched(
+        &mut self,
+        touched: &[(usize, usize)],
+        max_connections: usize,
+    ) {
+        let mut seen = HashSet::new();
+        for &(origin, level) in touched {
+            if !seen.insert((origin, level)) {
+                continue;
+            }
+            let Some(neighbours_snapshot) = self
+                .graph
+                .node(origin)
+                .filter(|node| node.level_count() > level)
+                .map(|node| node.neighbours(level).to_vec())
+            else {
+                continue;
+            };
 
-        for (level, neighbours) in snapshot.into_iter().enumerate() {
             let ctx = UpdateContext {
-                origin: node,
+                origin,
                 level,
                 max_connections,
             };
-            for target in neighbours {
+
+            for target in neighbours_snapshot {
                 if self.ensure_reverse_edge(&ctx, target) {
                     continue;
                 }
 
-                if let Some(node_mut) = self.graph.node_mut(node) {
-                    let list = node_mut.neighbours_mut(level);
+                if let Some(origin_node) = self.graph.node_mut(origin) {
+                    let list = origin_node.neighbours_mut(level);
                     if let Some(pos) = list.iter().position(|&id| id == target) {
                         list.remove(pos);
+                        if level == 0 && list.is_empty() {
+                            self.ensure_base_connectivity(origin, max_connections);
+                        }
                     }
                 }
             }
@@ -996,13 +1012,53 @@ mod tests {
         graph.node_mut(1).unwrap().neighbours_mut(0).push(0);
 
         let mut executor = graph.insertion_executor();
-        executor.ensure_new_node_reciprocity(1, 1);
+        executor.ensure_reciprocity_for_touched(&[(1, 0)], 1);
 
         let node0 = executor.graph.node(0).unwrap();
         let node1 = executor.graph.node(1).unwrap();
 
         assert!(node0.neighbours(0).contains(&1));
         assert!(node1.neighbours(0).contains(&0));
+    }
+
+    #[test]
+    fn ensure_reciprocity_for_touched_heals_existing_one_way() {
+        let params = HnswParams::new(2, 4).expect("params must be valid");
+        let mut graph = Graph::with_capacity(params, 3);
+
+        graph
+            .insert_first(NodeContext {
+                node: 0,
+                level: 0,
+                sequence: 0,
+            })
+            .expect("insert entry");
+        graph
+            .attach_node(NodeContext {
+                node: 1,
+                level: 0,
+                sequence: 1,
+            })
+            .expect("attach node 1");
+        graph
+            .attach_node(NodeContext {
+                node: 2,
+                level: 0,
+                sequence: 2,
+            })
+            .expect("attach node 2");
+
+        // One-way edge from node 2 to node 0.
+        graph.node_mut(2).unwrap().neighbours_mut(0).push(0);
+
+        let mut executor = graph.insertion_executor();
+        executor.ensure_reciprocity_for_touched(&[(2, 0)], 2);
+
+        let node0 = executor.graph.node(0).unwrap();
+        let node2 = executor.graph.node(2).unwrap();
+
+        assert!(node0.neighbours(0).contains(&2));
+        assert!(node2.neighbours(0).contains(&0));
     }
 }
 
