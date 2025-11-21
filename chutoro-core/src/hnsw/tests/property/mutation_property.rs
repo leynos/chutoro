@@ -1,6 +1,6 @@
 //! Stateful mutation property covering add/delete/reconfigure sequences.
 //!
-//! Builds an index from a sampled fixture, executes a series of randomised
+//! Builds an index from a sampled fixture, executes a series of randomized
 //! mutations, and revalidates every structural invariant after each step. The
 //! operations are derived from [`MutationPlan`] so the shrinking process can
 //! replay the failing sequence deterministically.
