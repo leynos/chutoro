@@ -74,6 +74,11 @@ Accepted
   reproduced on a small clustered fixture when the forward edge belonged to a
   prior insertion, not the new node. The touched-node reciprocity pass addresses
   this broader case; repeated property runs now pass locally.
+- Another intermittent bootstrap failure reported node 11 unreachable. Hypothesis:
+  base-layer healing refused to link unreachable nodes when all reachable nodes
+  were at capacity, leaving isolated vertices. Healing now tries capacity-first
+  and then forces a link via any reachable node (allowing eviction) to restore
+  reachability.
 - The current `commit` path invokes `enforce_bidirectional` without a test-only
   guard; it walks every edge (`collect_all_edges`/`ensure_reverse_edge`) after
   each insertion. This introduces an `O(E)` production cost and can rewrite

@@ -741,10 +741,19 @@ impl<'graph> InsertionExecutor<'graph> {
 
             let mut progress = false;
             for node_id in unreachable {
-                if !self.node_has_capacity(node_id, 0, base_limit) {
-                    continue;
-                }
                 if let Some(origin) = self.first_reachable_with_capacity(&visited, base_limit) {
+                    let ctx = UpdateContext {
+                        origin,
+                        level: 0,
+                        max_connections,
+                    };
+                    if self.link_new_node(&ctx, node_id) {
+                        progress = true;
+                        continue;
+                    }
+                }
+
+                if let Some(origin) = self.first_reachable(&visited) {
                     let ctx = UpdateContext {
                         origin,
                         level: 0,
@@ -795,6 +804,14 @@ impl<'graph> InsertionExecutor<'graph> {
                     && node.neighbours(0).len() < limit
             })
             .map(|(id, _)| id)
+    }
+
+    #[cfg(test)]
+    fn first_reachable(&self, visited: &[bool]) -> Option<usize> {
+        self.graph
+            .nodes_iter()
+            .map(|(id, _)| id)
+            .find(|&id| visited.get(id).copied().unwrap_or(false))
     }
 
     #[cfg(test)]

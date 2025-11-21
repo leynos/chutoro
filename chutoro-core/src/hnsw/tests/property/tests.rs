@@ -169,6 +169,30 @@ proptest! {
 }
 
 #[test]
+#[ignore]
+fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
+    let mut runner = TestRunner::new(Config {
+        cases: 640,
+        max_shrink_iters: 4096,
+        ..Config::default()
+    });
+    runner
+        .run(
+            &(hnsw_fixture_strategy(), mutation_plan_strategy()),
+            |(fixture, plan)| run_mutation_property(fixture, plan),
+        )
+        .map_err(|err| match err {
+            TestError::Abort(reason) => {
+                TestCaseError::fail(format!("hnsw mutation proptest aborted: {reason}"))
+            }
+            TestError::Fail(reason, value) => TestCaseError::fail(format!(
+                "hnsw mutation proptest failed: {reason}; minimal input: {value:#?}"
+            )),
+        })?;
+    Ok(())
+}
+
+#[test]
 fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
     let mut runner = TestRunner::default();
     runner
