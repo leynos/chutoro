@@ -138,7 +138,7 @@ impl<'ctx> MutationRunner<'ctx> {
     }
 }
 
-fn derive_initial_population(hint: u16, len: usize) -> usize {
+pub(super) fn derive_initial_population(hint: u16, len: usize) -> usize {
     if len == 0 {
         return 0;
     }
@@ -266,6 +266,21 @@ mod tests {
         assert_eq!(derive_initial_population(0, 4), 1);
         assert_eq!(derive_initial_population(5, 4), 1);
         assert_eq!(derive_initial_population(6, 7), 3);
+    }
+
+    #[rstest]
+    fn derive_initial_population_edge_cases() {
+        assert_eq!(derive_initial_population(0, 0), 0);
+        assert_eq!(derive_initial_population(1, 0), 0);
+        assert_eq!(derive_initial_population(10, 0), 0);
+
+        for hint in [0_u16, 1, 4, 10, u16::MAX] {
+            assert_eq!(
+                derive_initial_population(hint, 1),
+                1,
+                "expected 1 initial element for len=1 and hint={hint}",
+            );
+        }
     }
 
     #[rstest]
