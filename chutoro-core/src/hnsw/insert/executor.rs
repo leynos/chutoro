@@ -629,35 +629,52 @@ impl<'graph> InsertionExecutor<'graph> {
             if !seen.insert((origin, level)) {
                 continue;
             }
-            let Some(neighbours_snapshot) = self
-                .graph
-                .node(origin)
-                .filter(|node| node.level_count() > level)
-                .map(|node| node.neighbours(level).to_vec())
-            else {
+            self.ensure_reciprocity_for_node_level(origin, level, max_connections);
+        }
+    }
+
+    fn ensure_reciprocity_for_node_level(
+        &mut self,
+        origin: usize,
+        level: usize,
+        max_connections: usize,
+    ) {
+        let Some(neighbours_snapshot) = self
+            .graph
+            .node(origin)
+            .filter(|node| node.level_count() > level)
+            .map(|node| node.neighbours(level).to_vec())
+        else {
+            return;
+        };
+
+        let ctx = UpdateContext {
+            origin,
+            level,
+            max_connections,
+        };
+
+        for target in neighbours_snapshot {
+            if self.ensure_reverse_edge(&ctx, target) {
                 continue;
-            };
+            }
+            self.remove_one_way_edge(&ctx, target);
+        }
+    }
 
-            let ctx = UpdateContext {
-                origin,
-                level,
-                max_connections,
-            };
+    fn remove_one_way_edge(&mut self, ctx: &UpdateContext, target: usize) {
+        let Some(origin_node) = self.graph.node_mut(ctx.origin) else {
+            return;
+        };
+        if ctx.level >= origin_node.level_count() {
+            return;
+        }
 
-            for target in neighbours_snapshot {
-                if self.ensure_reverse_edge(&ctx, target) {
-                    continue;
-                }
-
-                if let Some(origin_node) = self.graph.node_mut(origin) {
-                    let list = origin_node.neighbours_mut(level);
-                    if let Some(pos) = list.iter().position(|&id| id == target) {
-                        list.remove(pos);
-                        if level == 0 && list.is_empty() {
-                            self.ensure_base_connectivity(origin, max_connections);
-                        }
-                    }
-                }
+        let list = origin_node.neighbours_mut(ctx.level);
+        if let Some(pos) = list.iter().position(|&id| id == target) {
+            list.remove(pos);
+            if ctx.level == 0 && list.is_empty() {
+                self.ensure_base_connectivity(ctx.origin, ctx.max_connections);
             }
         }
     }
