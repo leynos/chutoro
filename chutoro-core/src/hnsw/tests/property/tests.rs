@@ -6,15 +6,16 @@ use proptest::{
 use rstest::rstest;
 
 use super::{
+    mutation_property::derive_initial_population,
     mutation_property::run_mutation_property,
     search_property::run_search_correctness_property,
     strategies::{hnsw_fixture_strategy, mutation_plan_strategy},
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
-use crate::DataSource;
 use crate::error::DataSourceError;
 use crate::hnsw::HnswError;
+use crate::{CpuHnsw, DataSource};
 
 #[test]
 fn dense_vector_source_rejects_inconsistent_rows() {
@@ -209,4 +210,184 @@ fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
             )),
         })?;
     Ok(())
+}
+
+#[test]
+fn bootstrap_uniform_fixture_remains_reachable() {
+    let seed = HnswParamsSeed {
+        max_connections: 2,
+        ef_construction: 2,
+        level_multiplier: 0.2,
+        max_level: 2,
+        rng_seed: 0,
+    };
+    let params = seed.build().expect("params must be valid");
+    let vectors = vec![
+        vec![
+            -0.396_401_4,
+            -0.574_703_04,
+            -1.152_957_6,
+            0.531_228_8,
+            0.382_021_3,
+            0.262_859_23,
+            0.918_031_8,
+            -0.216_050_39,
+        ],
+        vec![
+            0.155_689_36,
+            -1.092_277_3,
+            -0.479_329_05,
+            1.093_218_7,
+            -0.502_325_24,
+            -1.234_767_7,
+            -0.783_448_5,
+            -1.039_418_3,
+        ],
+        vec![
+            0.900_763_4,
+            -0.246_779_44,
+            1.321_268_2,
+            1.240_773_6,
+            0.638_659_24,
+            0.297_954_56,
+            -1.118_238_9,
+            0.910_250_07,
+        ],
+        vec![
+            -1.008_921_9,
+            -0.862_424,
+            0.610_633_13,
+            -0.781_000_55,
+            -0.293_144_46,
+            0.418_012_74,
+            1.209_498_5,
+            0.750_078_3,
+        ],
+        vec![
+            -1.045_952_4,
+            0.563_875_2,
+            0.111_062_765,
+            -0.381_774_37,
+            0.723_139_17,
+            -0.119_114_995,
+            -0.267_742_04,
+            0.925_248_74,
+        ],
+        vec![
+            0.048_650_265,
+            1.342_758,
+            -1.177_938_5,
+            0.876_737_5,
+            0.561_164_5,
+            1.305_7,
+            1.189_487_8,
+            1.003_763_8,
+        ],
+        vec![
+            -0.771_407_25,
+            0.109_181_05,
+            -0.472_181_08,
+            1.142_654_5,
+            0.335_322_5,
+            -1.111_399_8,
+            0.257_928_6,
+            -0.765_718_3,
+        ],
+        vec![
+            -0.783_968_9,
+            -1.260_217_7,
+            0.098_876_24,
+            -0.426_839_1,
+            0.833_862_4,
+            -0.796_487_5,
+            0.955_031_04,
+            0.462_075_7,
+        ],
+        vec![
+            -0.929_420_2,
+            1.347_091_3,
+            0.806_613_3,
+            0.422_841_9,
+            0.315_650_82,
+            0.444_848_78,
+            -0.834_046_2,
+            -1.300_822,
+        ],
+        vec![
+            -1.340_137_1,
+            -0.085_052_97,
+            0.625_077_96,
+            -1.034_425_4,
+            -0.369_696_14,
+            0.951_833_6,
+            0.825_142,
+            -1.250_152_5,
+        ],
+        vec![
+            0.388_505_94,
+            1.075_180_2,
+            0.942_937,
+            0.684_565_2,
+            0.995_674_25,
+            -0.023_818_135,
+            -0.763_824_4,
+            -0.046_542_287,
+        ],
+        vec![
+            -1.220_171_8,
+            -0.246_241_81,
+            1.058_289_4,
+            1.085_396_6,
+            -0.618_380_5,
+            -1.211_029_4,
+            0.843_734_15,
+            1.008_184_8,
+        ],
+        vec![
+            0.453_891_52,
+            0.986_010_2,
+            -0.949_058_8,
+            -1.271_146_9,
+            -1.280_239_1,
+            -0.256_128_67,
+            0.554_179_8,
+            -0.119_055_27,
+        ],
+        vec![
+            0.867_020_7,
+            -0.885_747_2,
+            -0.820_472_7,
+            -0.772_429_65,
+            -1.103_221_3,
+            -1.251_388_8,
+            -1.333_986_3,
+            1.106_944_7,
+        ],
+    ];
+
+    let source =
+        DenseVectorSource::new("uniform-bootstrap", vectors).expect("fixture must be valid");
+    let len = source.len();
+    let initial_population = derive_initial_population(19, len);
+    let index = CpuHnsw::with_capacity(params, len).expect("capacity must be valid");
+    for node in 0..initial_population {
+        index
+            .insert(node, &source)
+            .expect("bootstrap insertion must succeed");
+    }
+
+    index.inspect_graph(|graph| {
+        for node in 0..initial_population {
+            let node_ref = graph.node(node).expect("seeded node should exist");
+            assert!(
+                !node_ref.neighbours(0).is_empty(),
+                "seeded node {node} should expose base neighbours",
+            );
+        }
+    });
+
+    index
+        .invariants()
+        .check_all()
+        .expect("bootstrap should preserve reachability");
 }
