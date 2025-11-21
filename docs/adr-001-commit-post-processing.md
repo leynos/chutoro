@@ -57,6 +57,11 @@ Accepted
 - Test-only reachability healing and bidirectional enforcement now run inside
   `commit`, but they are not yet sufficient to stabilise the mutation property
   across seeds. Additional guardrails or instrumentation are needed.
+- The current `commit` path invokes `enforce_bidirectional` without a test-only
+  guard; it walks every edge (`collect_all_edges`/`ensure_reverse_edge`) after
+  each insertion. This introduces an `O(E)` production cost and can rewrite
+  unrelated adjacency lists, regressing from the prior local update strategy as
+  the graph grows.
 
 ## Next steps
 
