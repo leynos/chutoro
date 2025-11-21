@@ -171,32 +171,14 @@ proptest! {
 #[test]
 #[ignore]
 fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
-    std::thread::Builder::new()
-        .name("hnsw-mutation-stress".into())
-        .stack_size(32 * 1024 * 1024)
-        .spawn(|| {
-            let mut runner = TestRunner::new(Config {
-                cases: 640,
-                max_shrink_iters: 4096,
-                ..Config::default()
-            });
-            runner
-                .run(
-                    &(hnsw_fixture_strategy(), mutation_plan_strategy()),
-                    |(fixture, plan)| run_mutation_property(fixture, plan),
-                )
-                .map_err(|err| match err {
-                    TestError::Abort(reason) => {
-                        TestCaseError::fail(format!("hnsw mutation proptest aborted: {reason}",))
-                    }
-                    TestError::Fail(reason, value) => TestCaseError::fail(format!(
-                        "hnsw mutation proptest failed: {reason}; minimal input: {value:#?}",
-                    )),
-                })
-        })
-        .expect("spawn stress runner")
-        .join()
-        .expect("stress runner panicked")
+    run_mutation_proptest_with_stack(
+        Config {
+            cases: 640,
+            max_shrink_iters: 4096,
+            ..Config::default()
+        },
+        32 * 1024 * 1024,
+    )
 }
 
 #[test]
@@ -222,32 +204,41 @@ fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
 
 #[test]
 fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
+    run_mutation_proptest_with_stack(
+        Config {
+            cases: 64,
+            max_shrink_iters: 2048,
+            ..Config::default()
+        },
+        16 * 1024 * 1024,
+    )
+}
+
+fn run_mutation_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
     std::thread::Builder::new()
         .name("hnsw-mutation".into())
-        .stack_size(16 * 1024 * 1024)
-        .spawn(|| {
-            let mut runner = TestRunner::new(Config {
-                cases: 64,
-                max_shrink_iters: 2048,
-                ..Config::default()
-            });
-            runner
-                .run(
-                    &(hnsw_fixture_strategy(), mutation_plan_strategy()),
-                    |(fixture, plan)| run_mutation_property(fixture, plan),
-                )
-                .map_err(|err| match err {
-                    TestError::Abort(reason) => {
-                        TestCaseError::fail(format!("hnsw mutation proptest aborted: {reason}",))
-                    }
-                    TestError::Fail(reason, value) => TestCaseError::fail(format!(
-                        "hnsw mutation proptest failed: {reason}; minimal input: {value:#?}",
-                    )),
-                })
-        })
+        .stack_size(stack_size)
+        .spawn(move || run_mutation_proptest(config))
         .expect("spawn mutation runner")
         .join()
         .expect("mutation runner panicked")
+}
+
+fn run_mutation_proptest(config: Config) -> TestCaseResult {
+    let mut runner = TestRunner::new(config);
+    runner
+        .run(
+            &(hnsw_fixture_strategy(), mutation_plan_strategy()),
+            |(fixture, plan)| run_mutation_property(fixture, plan),
+        )
+        .map_err(|err| match err {
+            TestError::Abort(reason) => {
+                TestCaseError::fail(format!("hnsw mutation proptest aborted: {reason}"))
+            }
+            TestError::Fail(reason, value) => TestCaseError::fail(format!(
+                "hnsw mutation proptest failed: {reason}; minimal input: {value:#?}",
+            )),
+        })
 }
 
 #[test]
