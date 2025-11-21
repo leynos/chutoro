@@ -433,6 +433,12 @@ impl CpuHnsw {
             sequences,
         } = job;
 
+        let connection_limit = if ctx.level == 0 {
+            ctx.max_connections.saturating_mul(2)
+        } else {
+            ctx.max_connections
+        };
+
         if candidates.len() != sequences.len() {
             return Err(HnswError::InvalidParameters {
                 reason: format!(
@@ -454,12 +460,12 @@ impl CpuHnsw {
             });
         }
 
-        let mut heap = BinaryHeap::with_capacity(ctx.max_connections);
+        let mut heap = BinaryHeap::with_capacity(connection_limit);
         for (index, id) in candidates.into_iter().enumerate() {
             let sequence = sequences[index];
             let distance = distances[index];
             heap.push(RankedNeighbour::new(id, distance, sequence));
-            if heap.len() > ctx.max_connections {
+            if heap.len() > connection_limit {
                 heap.pop();
             }
         }
