@@ -961,7 +961,7 @@ _Implementation update (2025-11-18)._ The property outlined in
 `docs/property-testing-design.md §2.3.2` now runs end-to-end. A `MutationPlan`
 strategy pairs each generated fixture with a bounded sequence of `Add`,
 `Delete`, and `Reconfigure` operations plus an initial population hint. The
-harness materialises the vectors into the in-memory `DenseVectorSource`, seeds
+harness materializes the vectors into the in-memory `DenseVectorSource`, seeds
 `CpuHnsw::with_capacity`, and executes the plan with a deterministic
 `MutationPools` tracker that keeps “available” and “inserted” node sets in
 sync. After every successful mutation the test calls `CpuHnsw::invariants()` so
