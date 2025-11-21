@@ -23,9 +23,9 @@ pub(crate) struct InsertionPlanner<'graph> {
 ///
 /// # Examples
 /// ```rust,ignore
-/// use chutoro_core::hnsw::{DistanceCacheConfig, HnswParams};
-/// use chutoro_core::hnsw::graph::NodeContext;
-/// use chutoro_core::hnsw::insert::planner::PlanningInputs;
+/// use crate::hnsw::{DistanceCacheConfig, HnswParams};
+/// use crate::hnsw::graph::NodeContext;
+/// use crate::hnsw::insert::planner::PlanningInputs;
 /// use chutoro_core::DataSource;
 /// use std::num::NonZeroUsize;
 ///

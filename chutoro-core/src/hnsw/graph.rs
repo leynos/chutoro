@@ -190,7 +190,7 @@ impl Graph {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use chutoro_core::hnsw::{graph::Graph, params::HnswParams};
+    /// use crate::hnsw::{graph::Graph, params::HnswParams};
     /// let params = HnswParams::new(4, 8).expect("params must be valid");
     /// let graph = Graph::with_capacity(params, 3);
     /// assert_eq!(graph.capacity(), 3);
@@ -204,7 +204,7 @@ impl Graph {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use chutoro_core::hnsw::{graph::{Graph, NodeContext}, params::HnswParams};
+    /// use crate::hnsw::{graph::{Graph, NodeContext}, params::HnswParams};
     /// let params = HnswParams::new(4, 8).expect("params must be valid");
     /// let mut graph = Graph::with_capacity(params, 2);
     /// graph.insert_first(NodeContext { node: 0, level: 0, sequence: 0 }).expect("insert first");
@@ -275,7 +275,7 @@ impl Graph {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use chutoro_core::hnsw::{
+    /// use crate::hnsw::{
     ///     graph::{Graph, NodeContext},
     ///     params::HnswParams,
     /// };

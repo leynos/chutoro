@@ -129,7 +129,7 @@ impl SearchNeighbour {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use chutoro_core::hnsw::search::SearchNeighbour;
+    /// use crate::hnsw::search::SearchNeighbour;
     ///
     /// let neighbour = SearchNeighbour::new(5, 0.42, 7);
     /// assert_eq!(neighbour.id, 5);
@@ -146,7 +146,7 @@ impl SearchNeighbour {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use chutoro_core::hnsw::search::SearchNeighbour;
+    /// use crate::hnsw::search::SearchNeighbour;
     ///
     /// let neighbour = SearchNeighbour::new(1, 0.1, 2);
     /// let public = neighbour.into_public();

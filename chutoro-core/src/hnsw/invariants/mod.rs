@@ -40,7 +40,7 @@ impl HnswInvariant {
     ///
     /// # Examples
     /// ```
-    /// use chutoro_core::hnsw::invariants::HnswInvariant;
+    /// use crate::hnsw::invariants::HnswInvariant;
     /// let invariants = HnswInvariant::all();
     /// assert_eq!(invariants.len(), 4);
     /// assert!(matches!(invariants[0], HnswInvariant::LayerConsistency));

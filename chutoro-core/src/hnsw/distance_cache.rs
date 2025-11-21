@@ -161,7 +161,7 @@ impl DistanceCache {
     /// # Examples
     /// ```rust,ignore
     /// use chutoro_core::DistanceCacheConfig;
-    /// use chutoro_core::hnsw::distance_cache::DistanceCache;
+    /// use crate::hnsw::distance_cache::DistanceCache;
     /// use std::num::NonZeroUsize;
     ///
     /// let config = DistanceCacheConfig::new(NonZeroUsize::new(4).unwrap());

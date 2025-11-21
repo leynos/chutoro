@@ -16,7 +16,7 @@ use crate::hnsw::{
 ///
 /// # Examples
 /// ```rust,ignore
-/// use chutoro_core::hnsw::insert::executor::{EdgeContext, TrimJob};
+/// use crate::hnsw::insert::executor::{EdgeContext, TrimJob};
 ///
 /// let ctx = EdgeContext { level: 0, max_connections: 2 };
 /// let job = TrimJob {
@@ -494,8 +494,7 @@ impl<'graph> InsertionExecutor<'graph> {
         let edges = self.collect_all_edges();
 
         for (origin, target, level) in edges {
-            let limit = self.compute_connection_limit(level, max_connections);
-            let needs_reverse = self.ensure_reverse_edge(origin, target, level, limit);
+            let needs_reverse = self.ensure_reverse_edge(origin, target, level, max_connections);
 
             if needs_reverse {
                 self.remove_forward_edge(origin, target, level);
@@ -525,13 +524,18 @@ impl<'graph> InsertionExecutor<'graph> {
 
     /// Ensures a reverse edge exists from target to origin. Returns true if
     /// the forward edge should be removed due to capacity constraints.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "API must surface origin, target, level, and fan-out cap separately"
+    )]
     fn ensure_reverse_edge(
         &mut self,
         origin: usize,
         target: usize,
         level: usize,
-        limit: usize,
+        max_connections: usize,
     ) -> bool {
+        let limit = self.compute_connection_limit(level, max_connections);
         let Some(target_node) = self.graph.node_mut(target) else {
             return false;
         };
