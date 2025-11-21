@@ -328,7 +328,7 @@ impl CpuHnsw {
         f(&guard)
     }
 
-    fn write_graph<R>(&self, f: impl FnOnce(&mut Graph) -> R) -> R {
+    pub(crate) fn write_graph<R>(&self, f: impl FnOnce(&mut Graph) -> R) -> R {
         let mut guard = self.graph.write().expect("graph lock poisoned");
         f(&mut guard)
     }

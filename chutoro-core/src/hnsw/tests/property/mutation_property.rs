@@ -45,7 +45,7 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
     }
 
     #[cfg(test)]
-    index.heal_for_test();
+    heal_graph(&index);
 
     index.invariants().check_all().map_err(|err| {
         TestCaseError::fail(format!(
@@ -76,7 +76,7 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
             "hnsw mutation step"
         );
         #[cfg(test)]
-        index.heal_for_test();
+        heal_graph(&index);
         index.invariants().check_all().map_err(|err| {
             TestCaseError::fail(format!(
                 "invariants failed after step {step} ({:?}): {err}",
@@ -87,6 +87,16 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
 
     prop_assume!(applied > 0);
     Ok(())
+}
+
+#[cfg(test)]
+fn heal_graph(index: &CpuHnsw) {
+    index.write_graph(|graph| {
+        let max_connections = graph.params().max_connections();
+        let mut executor = graph.insertion_executor();
+        executor.enforce_bidirectional_all(max_connections);
+        executor.heal_reachability(max_connections);
+    });
 }
 
 struct MutationRunner<'ctx> {
