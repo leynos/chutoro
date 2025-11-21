@@ -539,14 +539,18 @@ impl<'graph> InsertionExecutor<'graph> {
             return true;
         }
 
+        let mut evicted: Option<usize> = None;
         if neighbours.len() < limit {
             neighbours.push(ctx.origin);
             return true;
         }
 
         if !neighbours.is_empty() {
-            neighbours.pop();
+            evicted = neighbours.pop();
             neighbours.push(ctx.origin);
+        }
+        if let Some(evicted) = evicted {
+            self.scrub_forward_edge(evicted, target, ctx.level, ctx.max_connections);
             return true;
         }
 
@@ -644,6 +648,26 @@ impl<'graph> InsertionExecutor<'graph> {
             };
 
             let _ = self.link_new_node(&ctx, node);
+        }
+    }
+
+    fn scrub_forward_edge(
+        &mut self,
+        origin: usize,
+        target: usize,
+        level: usize,
+        max_connections: usize,
+    ) {
+        if let Some(origin_node) = self.graph.node_mut(origin) {
+            if level < origin_node.level_count() {
+                let neighbours = origin_node.neighbours_mut(level);
+                if let Some(pos) = neighbours.iter().position(|&id| id == target) {
+                    neighbours.remove(pos);
+                    if level == 0 && neighbours.is_empty() {
+                        self.ensure_base_connectivity(origin, max_connections);
+                    }
+                }
+            }
         }
     }
 
@@ -851,6 +875,72 @@ struct FallbackSelector<'a> {
     final_updates: &'a mut [FinalisedUpdate],
     new_node: usize,
     max_connections: usize,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hnsw::{
+        graph::{Graph, NodeContext},
+        params::HnswParams,
+    };
+
+    #[test]
+    fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
+        let params = HnswParams::new(1, 4).expect("params must be valid");
+        let mut graph = Graph::with_capacity(params, 3);
+
+        graph
+            .insert_first(NodeContext {
+                node: 0,
+                level: 1,
+                sequence: 0,
+            })
+            .expect("insert entry");
+        graph
+            .attach_node(NodeContext {
+                node: 1,
+                level: 1,
+                sequence: 1,
+            })
+            .expect("attach node 1");
+        graph
+            .attach_node(NodeContext {
+                node: 2,
+                level: 1,
+                sequence: 2,
+            })
+            .expect("attach node 2");
+
+        // Forward edges: 0 -> 1, 2 -> 1; target (1) is at capacity and prefers 2.
+        graph.node_mut(0).unwrap().neighbours_mut(1).push(1);
+        graph.node_mut(1).unwrap().neighbours_mut(1).push(2);
+        graph.node_mut(2).unwrap().neighbours_mut(1).push(1);
+
+        let mut executor = graph.insertion_executor();
+        let ensured = executor.ensure_reverse_edge(
+            &UpdateContext {
+                origin: 0,
+                level: 1,
+                max_connections: 1,
+            },
+            1,
+        );
+
+        assert!(ensured, "reverse edge should be ensured even when evicting");
+
+        let target = executor.graph.node(1).unwrap();
+        assert_eq!(target.neighbours(1), &[0]);
+
+        let evicted = executor.graph.node(2).unwrap();
+        assert!(
+            !evicted.neighbours(1).contains(&1),
+            "evicted neighbour should lose its forward edge to maintain reciprocity",
+        );
+
+        let origin = executor.graph.node(0).unwrap();
+        assert!(origin.neighbours(1).contains(&1));
+    }
 }
 
 impl<'a> FallbackSelector<'a> {

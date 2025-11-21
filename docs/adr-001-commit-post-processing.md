@@ -58,9 +58,10 @@ Accepted
   `commit`, but they are not yet sufficient to stabilise the mutation property
   across seeds. Additional guardrails or instrumentation are needed.
 - After tightening reachability healing to avoid entry-centric eviction churn,
-  the mutation property now fails on a smaller case after the first add with a
-  missing reverse link at layer 1 (`edge 2 -> 4`), showing that reciprocity is
-  still not guaranteed for existing node pairs that survive trimming.
+  a failing seed exposed a missing reverse link at layer 1 (`edge 2 -> 4`)
+  caused by evicting an existing neighbour while adding a reverse edge. We now
+  scrub the evicted node's forward edge during reverse-link insertion and the
+  mutation property passes.
 - The current `commit` path invokes `enforce_bidirectional` without a test-only
   guard; it walks every edge (`collect_all_edges`/`ensure_reverse_edge`) after
   each insertion. This introduces an `O(E)` production cost and can rewrite
