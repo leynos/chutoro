@@ -60,8 +60,15 @@ Accepted
 - After tightening reachability healing to avoid entry-centric eviction churn,
   a failing seed exposed a missing reverse link at layer 1 (`edge 2 -> 4`)
   caused by evicting an existing neighbour while adding a reverse edge. We now
-  scrub the evicted node's forward edge during reverse-link insertion and the
-  mutation property passes.
+  scrub the evicted node's forward edge during reverse-link insertion.
+- A later seed showed a bootstrap failure with `edge 11 -> 8` missing a reverse
+  link at layer 0. Hypothesis: one-way edges can survive when a reverse-link
+  insertion evicts a neighbour but the new node keeps the forward edge.
+  Mitigation: after every commit we now run a local reciprocity pass over the
+  new node's neighbour lists (`ensure_new_node_reciprocity`) that either adds
+  the missing back-link (evicting and scrubbing as needed) or removes the
+  forward edge. Targeted unit tests cover both eviction scrubbing and the
+  one-way edge cleanup, and the mutation property now passes.
 - The current `commit` path invokes `enforce_bidirectional` without a test-only
   guard; it walks every edge (`collect_all_edges`/`ensure_reverse_edge`) after
   each insertion. This introduces an `O(E)` production cost and can rewrite

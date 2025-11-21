@@ -404,6 +404,7 @@ impl<'graph> InsertionExecutor<'graph> {
         }
 
         self.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated);
+        self.ensure_new_node_reciprocity(new_node.id, max_connections);
         if promote_entry {
             self.graph.promote_entry(new_node.id, new_node.level);
         }
@@ -617,6 +618,36 @@ impl<'graph> InsertionExecutor<'graph> {
             }
         }
         true
+    }
+
+    fn ensure_new_node_reciprocity(&mut self, node: usize, max_connections: usize) {
+        let Some(snapshot) = self.graph.node(node).map(|node_ref| {
+            (0..node_ref.level_count())
+                .map(|level| node_ref.neighbours(level).to_vec())
+                .collect::<Vec<_>>()
+        }) else {
+            return;
+        };
+
+        for (level, neighbours) in snapshot.into_iter().enumerate() {
+            let ctx = UpdateContext {
+                origin: node,
+                level,
+                max_connections,
+            };
+            for target in neighbours {
+                if self.ensure_reverse_edge(&ctx, target) {
+                    continue;
+                }
+
+                if let Some(node_mut) = self.graph.node_mut(node) {
+                    let list = node_mut.neighbours_mut(level);
+                    if let Some(pos) = list.iter().position(|&id| id == target) {
+                        list.remove(pos);
+                    }
+                }
+            }
+        }
     }
 
     fn attach_entry_fallback(
@@ -940,6 +971,38 @@ mod tests {
 
         let origin = executor.graph.node(0).unwrap();
         assert!(origin.neighbours(1).contains(&1));
+    }
+
+    #[test]
+    fn ensure_new_node_reciprocity_removes_one_way_edges() {
+        let params = HnswParams::new(1, 4).expect("params must be valid");
+        let mut graph = Graph::with_capacity(params, 2);
+
+        graph
+            .insert_first(NodeContext {
+                node: 0,
+                level: 0,
+                sequence: 0,
+            })
+            .expect("insert entry");
+        graph
+            .attach_node(NodeContext {
+                node: 1,
+                level: 0,
+                sequence: 1,
+            })
+            .expect("attach node 1");
+
+        graph.node_mut(1).unwrap().neighbours_mut(0).push(0);
+
+        let mut executor = graph.insertion_executor();
+        executor.ensure_new_node_reciprocity(1, 1);
+
+        let node0 = executor.graph.node(0).unwrap();
+        let node1 = executor.graph.node(1).unwrap();
+
+        assert!(node0.neighbours(0).contains(&1));
+        assert!(node1.neighbours(0).contains(&0));
     }
 }
 
