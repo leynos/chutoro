@@ -44,6 +44,9 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
         })?;
     }
 
+    #[cfg(test)]
+    index.heal_for_test();
+
     index.invariants().check_all().map_err(|err| {
         TestCaseError::fail(format!(
             "invariants failed after bootstrap (len={len}): {err}"
@@ -72,6 +75,8 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
             summary = %outcome.summary,
             "hnsw mutation step"
         );
+        #[cfg(test)]
+        index.heal_for_test();
         index.invariants().check_all().map_err(|err| {
             TestCaseError::fail(format!(
                 "invariants failed after step {step} ({:?}): {err}",

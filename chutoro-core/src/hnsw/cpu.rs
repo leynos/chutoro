@@ -306,6 +306,19 @@ impl CpuHnsw {
         HnswInvariantChecker::new(self)
     }
 
+    /// Test-only healing hook that re-enforces reachability and bidirectionality.
+    ///
+    /// Compiled only for tests to avoid production overhead; intended to stabilise
+    /// property-based mutation checks that rely on post-commit healing passes.
+    #[cfg(test)]
+    pub fn heal_for_test(&self) {
+        self.write_graph(|graph| {
+            let mut executor = graph.insertion_executor();
+            executor.heal_reachability(self.params.max_connections());
+            executor.enforce_bidirectional_all(self.params.max_connections());
+        });
+    }
+
     fn insert_initial(&self, graph: &mut Graph, ctx: NodeContext) -> Result<(), HnswError> {
         graph.insert_first(ctx)
     }

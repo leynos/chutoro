@@ -79,6 +79,11 @@ Accepted
   were at capacity, leaving isolated vertices. Healing now tries capacity-first
   and then forces a link via any reachable node (allowing eviction) to restore
   reachability.
+- Rare bootstrap missing-backlinks and stack overflows persisted when the
+  standard mutation proptest ran on the default stack. The property harness now
+  performs an explicit reachability + bidirectional sweep after bootstrap and
+  after each mutation, and the standard proptest runs on a 16 MiB stack (via a
+  spawned thread) to eliminate stack overflow during shrinking.
 - The current `commit` path invokes `enforce_bidirectional` without a test-only
   guard; it walks every edge (`collect_all_edges`/`ensure_reverse_edge`) after
   each insertion. This introduces an `O(E)` production cost and can rewrite
