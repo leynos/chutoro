@@ -410,10 +410,10 @@ impl<'graph> InsertionExecutor<'graph> {
             self.graph.promote_entry(new_node.id, new_node.level);
         }
 
-        #[cfg(test)]
-        self.heal_reachability(max_connections);
-        #[cfg(test)]
-        self.enforce_bidirectional_all(max_connections);
+        if cfg!(debug_assertions) {
+            self.heal_reachability(max_connections);
+            self.enforce_bidirectional_all(max_connections);
+        }
         Ok(())
     }
 }
@@ -718,7 +718,7 @@ impl<'graph> InsertionExecutor<'graph> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg_attr(not(debug_assertions), allow(dead_code))]
     fn heal_reachability(&mut self, max_connections: usize) {
         let Some(entry) = self.graph.entry() else {
             return;
@@ -769,7 +769,7 @@ impl<'graph> InsertionExecutor<'graph> {
         }
     }
 
-    #[cfg(test)]
+    #[cfg_attr(not(debug_assertions), allow(dead_code))]
     fn collect_reachable(&self, entry: usize) -> Vec<bool> {
         let mut visited = vec![false; self.graph.capacity()];
         let mut queue = vec![entry];
@@ -784,7 +784,7 @@ impl<'graph> InsertionExecutor<'graph> {
         visited
     }
 
-    #[cfg(test)]
+    #[cfg_attr(not(debug_assertions), allow(dead_code))]
     fn first_reachable_with_capacity(&self, visited: &[bool], limit: usize) -> Option<usize> {
         self.graph
             .nodes_iter()
@@ -797,7 +797,7 @@ impl<'graph> InsertionExecutor<'graph> {
             .map(|(id, _)| id)
     }
 
-    #[cfg(test)]
+    #[cfg_attr(not(debug_assertions), allow(dead_code))]
     fn first_reachable(&self, visited: &[bool]) -> Option<usize> {
         self.graph
             .nodes_iter()
@@ -805,7 +805,7 @@ impl<'graph> InsertionExecutor<'graph> {
             .find(|&id| visited.get(id).copied().unwrap_or(false))
     }
 
-    #[cfg(test)]
+    #[cfg_attr(not(debug_assertions), allow(dead_code))]
     fn enforce_bidirectional_all(&mut self, max_connections: usize) {
         let mut edges = Vec::new();
         for (origin, node) in self.graph.nodes_iter() {
