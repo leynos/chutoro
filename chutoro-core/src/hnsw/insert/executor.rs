@@ -542,19 +542,29 @@ impl<'graph> InsertionExecutor<'graph> {
         let mut evicted: Option<usize> = None;
         if neighbours.len() < limit {
             neighbours.push(ctx.origin);
-            return true;
-        }
-
-        if !neighbours.is_empty() {
+        } else if !neighbours.is_empty() {
             evicted = neighbours.pop();
             neighbours.push(ctx.origin);
         }
-        if let Some(evicted) = evicted {
-            self.scrub_forward_edge(evicted, target, ctx.level, ctx.max_connections);
-            return true;
+
+        #[cfg(test)]
+        {
+            if !neighbours.contains(&ctx.origin) {
+                panic!(
+                    "ensure_reverse_edge failed to insert {origin}->{target} at level {level}; degree {} (limit {limit})",
+                    neighbours.len(),
+                    origin = ctx.origin,
+                    target = target,
+                    level = ctx.level,
+                );
+            }
         }
 
-        false
+        if let Some(evicted) = evicted {
+            self.scrub_forward_edge(ctx, evicted);
+        }
+
+        true
     }
 
     fn link_new_node(&mut self, ctx: &UpdateContext, new_node: usize) -> bool {
@@ -711,22 +721,19 @@ impl<'graph> InsertionExecutor<'graph> {
         }
     }
 
-    fn scrub_forward_edge(
-        &mut self,
-        origin: usize,
-        target: usize,
-        level: usize,
-        max_connections: usize,
-    ) {
-        if let Some(origin_node) = self.graph.node_mut(origin) {
-            if level < origin_node.level_count() {
-                let neighbours = origin_node.neighbours_mut(level);
-                if let Some(pos) = neighbours.iter().position(|&id| id == target) {
-                    neighbours.remove(pos);
-                    if level == 0 && neighbours.is_empty() {
-                        self.ensure_base_connectivity(origin, max_connections);
-                    }
-                }
+    fn scrub_forward_edge(&mut self, ctx: &UpdateContext, target: usize) {
+        let Some(origin_node) = self.graph.node_mut(ctx.origin) else {
+            return;
+        };
+        if ctx.level >= origin_node.level_count() {
+            return;
+        }
+
+        let neighbours = origin_node.neighbours_mut(ctx.level);
+        if let Some(pos) = neighbours.iter().position(|&id| id == target) {
+            neighbours.remove(pos);
+            if ctx.level == 0 && neighbours.is_empty() {
+                self.ensure_base_connectivity(ctx.origin, ctx.max_connections);
             }
         }
     }
@@ -825,40 +832,70 @@ impl<'graph> InsertionExecutor<'graph> {
     #[cfg_attr(not(debug_assertions), allow(dead_code))]
     #[cfg(test)]
     pub(crate) fn enforce_bidirectional_all(&mut self, max_connections: usize) {
-        let mut edges = Vec::new();
-        for (origin, node) in self.graph.nodes_iter() {
-            for (level, target) in node.iter_neighbours() {
-                edges.push((origin, level, target));
-            }
-        }
+        let edges: Vec<(usize, usize, usize)> = self
+            .graph
+            .nodes_iter()
+            .flat_map(|(origin, node)| {
+                node.iter_neighbours()
+                    .map(move |(level, target)| (origin, level, target))
+            })
+            .collect();
 
         for (origin, level, target) in edges {
-            let mut ensured = false;
-            if let Some(target_node) = self.graph.node_mut(target) {
-                if level < target_node.level_count() {
-                    let limit = Self::compute_connection_limit(level, max_connections);
-                    let neighbours = target_node.neighbours_mut(level);
-                    if neighbours.contains(&origin) {
-                        ensured = true;
-                    } else if neighbours.len() < limit {
-                        neighbours.push(origin);
-                        ensured = true;
-                    } else if !neighbours.is_empty() {
-                        neighbours.pop();
-                        neighbours.push(origin);
-                        ensured = true;
-                    }
-                }
+            let ctx = UpdateContext {
+                origin,
+                level,
+                max_connections,
+            };
+
+            let Some(target_node) = self.graph.node_mut(target) else {
+                self.remove_one_way_edge(&ctx, target);
+                continue;
+            };
+
+            if level >= target_node.level_count() {
+                self.remove_one_way_edge(&ctx, target);
+                continue;
             }
 
-            if !ensured {
-                if let Some(origin_node) = self.graph.node_mut(origin) {
-                    if level < origin_node.level_count() {
-                        let neighbours = origin_node.neighbours_mut(level);
-                        if let Some(pos) = neighbours.iter().position(|&id| id == target) {
-                            neighbours.remove(pos);
-                        }
-                    }
+            let limit = Self::compute_connection_limit(level, max_connections);
+            let neighbours = target_node.neighbours_mut(level);
+            if neighbours.contains(&origin) {
+                continue;
+            }
+
+            if neighbours.len() < limit {
+                neighbours.push(origin);
+                continue;
+            }
+
+            // At capacity: drop the forward edge instead of evicting another node.
+            self.remove_one_way_edge(&ctx, target);
+        }
+
+        // Validate that no one-way edges remain; panic in tests with details to
+        // surface the offending edge and degree limits.
+        for (origin, node) in self.graph.nodes_iter() {
+            for (level, target) in node.iter_neighbours() {
+                let target_node = self.graph.node(target).unwrap_or_else(|| {
+                    panic!(
+                        "enforce_bidirectional_all left edge {origin}->{target} at level {level} to missing node",
+                    )
+                });
+
+                if level >= target_node.level_count() {
+                    panic!(
+                        "enforce_bidirectional_all left edge {origin}->{target} at absent level {level} (target has {})",
+                        target_node.level_count(),
+                    );
+                }
+
+                if !target_node.neighbours(level).contains(&origin) {
+                    let limit = Self::compute_connection_limit(level, max_connections);
+                    let degree = target_node.neighbours(level).len();
+                    panic!(
+                        "enforce_bidirectional_all left one-way edge {origin}->{target} at level {level}; target degree {degree} (limit {limit})",
+                    );
                 }
             }
         }
@@ -1085,6 +1122,68 @@ mod tests {
 
         assert!(node0.neighbours(0).contains(&2));
         assert!(node2.neighbours(0).contains(&0));
+    }
+
+    #[test]
+    fn enforce_bidirectional_all_adds_upper_layer_backlink() {
+        let params = HnswParams::new(2, 4).expect("params must be valid");
+        let mut graph = Graph::with_capacity(params, 2);
+
+        graph
+            .insert_first(NodeContext {
+                node: 0,
+                level: 1,
+                sequence: 0,
+            })
+            .expect("insert entry");
+        graph
+            .attach_node(NodeContext {
+                node: 1,
+                level: 1,
+                sequence: 1,
+            })
+            .expect("attach node 1");
+
+        graph.node_mut(0).unwrap().neighbours_mut(1).push(1);
+
+        let mut executor = graph.insertion_executor();
+        executor.enforce_bidirectional_all(2);
+
+        let node0 = executor.graph.node(0).unwrap();
+        let node1 = executor.graph.node(1).unwrap();
+
+        assert!(node0.neighbours(1).contains(&1));
+        assert!(node1.neighbours(1).contains(&0));
+    }
+
+    #[test]
+    fn enforce_bidirectional_all_removes_invalid_upper_edge() {
+        let params = HnswParams::new(2, 4).expect("params must be valid");
+        let mut graph = Graph::with_capacity(params, 2);
+
+        graph
+            .insert_first(NodeContext {
+                node: 0,
+                level: 1,
+                sequence: 0,
+            })
+            .expect("insert entry");
+        graph
+            .attach_node(NodeContext {
+                node: 1,
+                level: 0,
+                sequence: 1,
+            })
+            .expect("attach node 1");
+
+        // One-way edge exists at level 1, but target only has level 0.
+        graph.node_mut(0).unwrap().neighbours_mut(1).push(1);
+
+        let mut executor = graph.insertion_executor();
+        executor.enforce_bidirectional_all(2);
+
+        let node0 = executor.graph.node(0).unwrap();
+        assert!(node0.neighbours(1).is_empty());
     }
 }
 

@@ -82,13 +82,42 @@ Accepted
 - Rare bootstrap missing-backlinks and stack overflows persisted when the
   standard mutation proptest ran on the default stack. The property harness now
   performs an explicit reachability + bidirectional sweep after bootstrap and
-  after each mutation, and the standard proptest runs on a 16 MiB stack (via a
-  spawned thread) to eliminate stack overflow during shrinking.
+  after each mutation, and the standard proptest runs on a 64 MiB stack (via a
+  spawned thread) with `max_shrink_iters` capped at 1024 to curb shrink-stage
+  recursion depth. Stack overflows no longer repro, but intermittent
+  missing-backlink failures still appear.
 - The current `commit` path invokes `enforce_bidirectional` without a test-only
   guard; it walks every edge (`collect_all_edges`/`ensure_reverse_edge`) after
   each insertion. This introduces an `O(E)` production cost and can rewrite
   unrelated adjacency lists, regressing from the prior local update strategy as
   the graph grows.
+
+- Latest failing seed (Uniform fixture, first Add step) showed `edge 1 -> 4`
+  at layer 1 missing the reverse link even after the test-only healing sweep.
+  This suggests the whole-graph reciprocity pass still leaves upper-layer
+  one-way edges when the target node exists at that layer but is at capacity.
+  Next debugging action: instrument the touched-node set and
+  `enforce_bidirectional`'s eviction path for upper layers to confirm whether
+  we lose back-links when reverse insertion evicts an unrelated neighbour or
+  when the forward edge survives an attempted removal.
+- A subsequent run aborted after bootstrap with `edge 5 -> 2` missing the
+  reverse link at layer 0 despite the post-bootstrap healing call. This points
+  to a gap in `enforce_bidirectional_all` itself rather than the touched-node
+  set, so instrumentation should capture both attempted reverse insertions and
+  forward-edge removals during the global sweep.
+- Added a fixed-point `enforce_bidirectional_all` (test-only) plus explicit
+  validation that panics if any one-way edge survives. Unit tests now cover
+  upper-layer reciprocity and removal of edges that target a missing level.
+  With the validation enabled, the mutation proptest still panics on a
+  manifold fixture where many base-layer edges remain one-way even though the
+  targets are at capacity (`limit=14`). Hypotheses: (1) reverse insertions are
+  being skipped for edges added during trimming (edge snapshot gap); (2)
+  `ensure_reverse_edge` may report success while failing to place the origin
+  when the neighbour list is already at the level-specific limit; (3)
+  duplicate edges or over-capacity lists interfere with reciprocity checks.
+  Next steps: instrument `ensure_reverse_edge` to log/flag when it returns true
+  without inserting the origin, and consider forcibly removing forward edges in
+  that case to guarantee invariants.
 
 ## Next steps
 

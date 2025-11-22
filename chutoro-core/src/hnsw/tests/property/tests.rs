@@ -207,10 +207,10 @@ fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
     run_mutation_proptest_with_stack(
         Config {
             cases: 64,
-            max_shrink_iters: 2048,
+            max_shrink_iters: 1024,
             ..Config::default()
         },
-        16 * 1024 * 1024,
+        64 * 1024 * 1024,
     )
 }
 
