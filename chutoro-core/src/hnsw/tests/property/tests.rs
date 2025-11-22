@@ -1,9 +1,11 @@
 use proptest::{
     prelude::any,
     prop_assert, prop_assert_eq, proptest,
+    strategy::Strategy,
     test_runner::{Config, TestCaseError, TestCaseResult, TestError, TestRunner},
 };
 use rstest::rstest;
+use std::fmt::Debug;
 
 use super::{
     mutation_property::derive_initial_population,
@@ -183,23 +185,14 @@ fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
 
 #[test]
 fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
-    let mut runner = TestRunner::default();
-    runner
-        .run(
-            &(hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
-            |(fixture, query_hint, k_hint)| {
-                run_search_correctness_property(fixture, query_hint, k_hint)
-            },
-        )
-        .map_err(|err| match err {
-            TestError::Abort(reason) => {
-                TestCaseError::fail(format!("hnsw search proptest aborted: {reason}"))
-            }
-            TestError::Fail(reason, value) => TestCaseError::fail(format!(
-                "hnsw search proptest failed: {reason}; minimal input: {value:#?}"
-            )),
-        })?;
-    Ok(())
+    run_named_proptest(
+        Config::default(),
+        &(hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
+        "hnsw search",
+        |(fixture, query_hint, k_hint)| {
+            run_search_correctness_property(fixture, query_hint, k_hint)
+        },
+    )
 }
 
 #[test]
@@ -225,20 +218,29 @@ fn run_mutation_proptest_with_stack(config: Config, stack_size: usize) -> TestCa
 }
 
 fn run_mutation_proptest(config: Config) -> TestCaseResult {
+    run_named_proptest(
+        config,
+        &(hnsw_fixture_strategy(), mutation_plan_strategy()),
+        "hnsw mutation",
+        |(fixture, plan)| run_mutation_property(fixture, plan),
+    )
+}
+
+fn run_named_proptest<S, F>(config: Config, strategies: &S, name: &str, f: F) -> TestCaseResult
+where
+    S: Strategy,
+    S::Value: Debug,
+    F: Fn(S::Value) -> TestCaseResult,
+{
     let mut runner = TestRunner::new(config);
-    runner
-        .run(
-            &(hnsw_fixture_strategy(), mutation_plan_strategy()),
-            |(fixture, plan)| run_mutation_property(fixture, plan),
-        )
-        .map_err(|err| match err {
-            TestError::Abort(reason) => {
-                TestCaseError::fail(format!("hnsw mutation proptest aborted: {reason}"))
-            }
-            TestError::Fail(reason, value) => TestCaseError::fail(format!(
-                "hnsw mutation proptest failed: {reason}; minimal input: {value:#?}",
-            )),
-        })
+    runner.run(strategies, f).map_err(|err| match err {
+        TestError::Abort(reason) => {
+            TestCaseError::fail(format!("{name} proptest aborted: {reason}"))
+        }
+        TestError::Fail(reason, value) => TestCaseError::fail(format!(
+            "{name} proptest failed: {reason}; minimal input: {value:#?}"
+        )),
+    })
 }
 
 #[test]
