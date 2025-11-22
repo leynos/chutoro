@@ -770,16 +770,10 @@ impl<'graph> InsertionExecutor<'graph> {
 
     #[cfg_attr(not(debug_assertions), allow(dead_code))]
     #[cfg(test)]
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "test-only healing loop is clearer inline"
-    )]
     pub(crate) fn heal_reachability(&mut self, max_connections: usize) {
         let Some(entry) = self.graph.entry() else {
             return;
         };
-
-        let base_limit = Self::compute_connection_limit(0, max_connections);
 
         loop {
             let visited = self.collect_reachable(entry.node);
@@ -796,32 +790,46 @@ impl<'graph> InsertionExecutor<'graph> {
 
             let mut progress = false;
             for node_id in unreachable {
-                if let Some(origin) = self.first_reachable_with_capacity(&visited, base_limit) {
-                    let ctx = UpdateContext {
-                        origin,
-                        level: 0,
-                        max_connections,
-                    };
-                    if self.link_new_node(&ctx, node_id) {
-                        progress = true;
-                        continue;
-                    }
-                }
-
-                if let Some(origin) = self.first_reachable(&visited) {
-                    let ctx = UpdateContext {
-                        origin,
-                        level: 0,
-                        max_connections,
-                    };
-                    progress |= self.link_new_node(&ctx, node_id);
-                }
+                progress |= self.try_connect_unreachable_node(node_id, &visited, max_connections);
             }
 
             if !progress {
                 break;
             }
         }
+    }
+
+    #[cfg(test)]
+    fn try_connect_unreachable_node(
+        &mut self,
+        node_id: usize,
+        visited: &[bool],
+        max_connections: usize,
+    ) -> bool {
+        let base_limit = Self::compute_connection_limit(0, max_connections);
+        if let Some(origin) = self.first_reachable_with_capacity(visited, base_limit) {
+            let ctx = UpdateContext {
+                origin,
+                level: 0,
+                max_connections,
+            };
+            if self.link_new_node(&ctx, node_id) {
+                return true;
+            }
+        }
+
+        if let Some(origin) = self.first_reachable(visited) {
+            let ctx = UpdateContext {
+                origin,
+                level: 0,
+                max_connections,
+            };
+            if self.link_new_node(&ctx, node_id) {
+                return true;
+            }
+        }
+
+        false
     }
 
     #[cfg_attr(not(debug_assertions), allow(dead_code))]
