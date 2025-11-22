@@ -55,16 +55,16 @@ Accepted
   indicates the local reciprocity fallback may still drop back-links when
   trim-induced evictions and base-layer degree limits collide.
 - Test-only reachability healing and bidirectional enforcement now run inside
-  `commit`, but they are not yet sufficient to stabilise the mutation property
+  `commit`, but they are not yet sufficient to stabilize the mutation property
   across seeds. Additional guardrails or instrumentation are needed.
 - After tightening reachability healing to avoid entry-centric eviction churn,
   a failing seed exposed a missing reverse link at layer 1 (`edge 2 -> 4`)
   caused by evicting an existing neighbour while adding a reverse edge. The
   implementation now scrubs the evicted node's forward edge during
   reverse-link insertion.
-- A later seed showed a bootstrap failure with `edge 11 -> 8` missing a reverse
+- A later seed showed a bootstrap failure, with `edge 11 -> 8` missing a reverse
   link at layer 0. Hypothesis: one-way edges can survive when a reverse-link
-  insertion evicts a neighbour but the new node keeps the forward edge.
+  insertion evicts a neighbour, but the new node keeps the forward edge.
   Mitigation: after every commit we now run a reciprocity pass over all touched
   nodes (`ensure_reciprocity_for_touched`) that either adds the missing
   back-link (evicting and scrubbing as needed) or removes the forward edge. New
@@ -93,7 +93,7 @@ Accepted
   unrelated adjacency lists, regressing from the prior local update strategy as
   the graph grows.
 
-- Latest failing seed (Uniform fixture, first Add step) showed `edge 1 -> 4`
+- The latest failing seed (Uniform fixture, first Add step) showed `edge 1 -> 4`
   at layer 1 missing the reverse link even after the test-only healing sweep.
   This suggests the whole-graph reciprocity pass still leaves upper-layer
   one-way edges when the target node exists at that layer but is at capacity.
@@ -101,7 +101,7 @@ Accepted
   `enforce_bidirectional`'s eviction path for upper layers to confirm whether
   back-links are lost when reverse insertion evicts an unrelated neighbour or
   when the forward edge survives an attempted removal.
-- A subsequent run aborted after bootstrap with `edge 5 -> 2` missing the
+- A subsequent run aborted after bootstrap, with `edge 5 -> 2` missing the
   reverse link at layer 0 despite the post-bootstrap healing call. This points
   to a gap in `enforce_bidirectional_all` itself rather than the touched-node
   set, so instrumentation should capture both attempted reverse insertions and
