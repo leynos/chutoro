@@ -265,6 +265,10 @@ fn bootstrap_uniform_fixture_remains_reachable() {
         DenseVectorSource::new("uniform-bootstrap", vectors).expect("fixture must be valid");
     let len = source.len();
     let initial_population = derive_initial_population(19, len);
+    assert!(
+        initial_population > 0,
+        "initial_population must be non-zero to exercise bootstrap"
+    );
     let index = CpuHnsw::with_capacity(params, len).expect("capacity must be valid");
     for node in 0..initial_population {
         index
