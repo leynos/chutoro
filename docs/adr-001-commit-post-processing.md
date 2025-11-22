@@ -59,8 +59,9 @@ Accepted
   across seeds. Additional guardrails or instrumentation are needed.
 - After tightening reachability healing to avoid entry-centric eviction churn,
   a failing seed exposed a missing reverse link at layer 1 (`edge 2 -> 4`)
-  caused by evicting an existing neighbour while adding a reverse edge. We now
-  scrub the evicted node's forward edge during reverse-link insertion.
+  caused by evicting an existing neighbour while adding a reverse edge. The
+  implementation now scrubs the evicted node's forward edge during
+  reverse-link insertion.
 - A later seed showed a bootstrap failure with `edge 11 -> 8` missing a reverse
   link at layer 0. Hypothesis: one-way edges can survive when a reverse-link
   insertion evicts a neighbour but the new node keeps the forward edge.
@@ -84,7 +85,7 @@ Accepted
   performs an explicit reachability + bidirectional sweep after bootstrap and
   after each mutation, and the standard proptest runs on a 64 MiB stack (via a
   spawned thread) with `max_shrink_iters` capped at 1024 to curb shrink-stage
-  recursion depth. Stack overflows no longer repro, but intermittent
+  recursion depth. Stack overflows no longer reappear, but intermittent
   missing-backlink failures still appear.
 - The current `commit` path invokes `enforce_bidirectional` without a test-only
   guard; it walks every edge (`collect_all_edges`/`ensure_reverse_edge`) after
@@ -98,7 +99,7 @@ Accepted
   one-way edges when the target node exists at that layer but is at capacity.
   Next debugging action: instrument the touched-node set and
   `enforce_bidirectional`'s eviction path for upper layers to confirm whether
-  we lose back-links when reverse insertion evicts an unrelated neighbour or
+  back-links are lost when reverse insertion evicts an unrelated neighbour or
   when the forward edge survives an attempted removal.
 - A subsequent run aborted after bootstrap with `edge 5 -> 2` missing the
   reverse link at layer 0 despite the post-bootstrap healing call. This points

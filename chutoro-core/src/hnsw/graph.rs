@@ -447,6 +447,11 @@ impl Graph {
     }
 
     #[cfg(test)]
+    /// Returns the connection limit for the given level.
+    ///
+    /// Level 0 (base layer) permits twice as many connections as higher
+    /// levels, following standard HNSW design to improve recall at the densest
+    /// layer.
     fn connection_limit(&self, level: usize) -> usize {
         if level == 0 {
             self.params.max_connections().saturating_mul(2)
