@@ -33,31 +33,23 @@ fn map_test_error(err: TestError<impl std::fmt::Debug>, test_name: &str) -> Test
 }
 
 /// Runs a mutation property test with custom configuration and stack size.
-fn run_mutation_test_with_config(
-    cases: u32,
-    max_shrink_iters: u32,
-    stack_size: usize,
-) -> TestCaseResult {
-    let config = Config {
-        cases,
-        max_shrink_iters,
-        ..Config::default()
-    };
-
+fn run_mutation_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
     std::thread::Builder::new()
         .name("hnsw-mutation".into())
         .stack_size(stack_size)
-        .spawn(move || {
-            run_proptest(
-                config,
-                (hnsw_fixture_strategy(), mutation_plan_strategy()),
-                "hnsw mutation proptest",
-                |(fixture, plan)| run_mutation_property(fixture, plan),
-            )
-        })
+        .spawn(move || run_mutation_proptest(config))
         .expect("spawn mutation runner")
         .join()
         .expect("mutation runner panicked")
+}
+
+fn run_mutation_proptest(config: Config) -> TestCaseResult {
+    run_proptest(
+        config,
+        (hnsw_fixture_strategy(), mutation_plan_strategy()),
+        "hnsw mutation proptest",
+        |(fixture, plan)| run_mutation_property(fixture, plan),
+    )
 }
 
 use super::{
@@ -226,7 +218,14 @@ proptest! {
 #[test]
 #[ignore]
 fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
-    run_mutation_test_with_config(640, 4096, 32 * 1024 * 1024)
+    run_mutation_proptest_with_stack(
+        Config {
+            cases: 640,
+            max_shrink_iters: 4096,
+            ..Config::default()
+        },
+        32 * 1024 * 1024,
+    )
 }
 
 #[test]
@@ -243,7 +242,14 @@ fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
 
 #[test]
 fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
-    run_mutation_test_with_config(64, 1024, 96 * 1024 * 1024)
+    run_mutation_proptest_with_stack(
+        Config {
+            cases: 64,
+            max_shrink_iters: 1024,
+            ..Config::default()
+        },
+        96 * 1024 * 1024,
+    )
 }
 
 #[test]
