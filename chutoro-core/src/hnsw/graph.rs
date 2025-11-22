@@ -374,20 +374,43 @@ impl Graph {
 
     #[cfg(test)]
     fn reconnect_neighbours(&mut self, level: usize, neighbours: Vec<usize>) {
-        let mut unique = Vec::new();
-        let mut seen = HashSet::new();
-        for neighbour in neighbours {
-            if seen.insert(neighbour)
-                && self.nodes.get(neighbour).and_then(Option::as_ref).is_some()
-            {
-                unique.push(neighbour);
-            }
-        }
+        let unique = self.validate_and_dedupe_neighbours(neighbours);
 
         if unique.len() < 2 {
             return;
         }
 
+        self.connect_neighbour_pairs(&unique, level);
+    }
+
+    /// Validates and deduplicates a list of neighbours, keeping only valid nodes.
+    #[cfg(test)]
+    fn validate_and_dedupe_neighbours(&self, neighbours: Vec<usize>) -> Vec<usize> {
+        let mut unique = Vec::new();
+        let mut seen = HashSet::new();
+
+        for neighbour in neighbours {
+            if self.is_valid_unique_neighbour(neighbour, &mut seen) {
+                unique.push(neighbour);
+            }
+        }
+
+        unique
+    }
+
+    /// Checks if a neighbour is both unique and points to a valid node.
+    #[cfg(test)]
+    fn is_valid_unique_neighbour(&self, neighbour: usize, seen: &mut HashSet<usize>) -> bool {
+        if !seen.insert(neighbour) {
+            return false;
+        }
+
+        self.nodes.get(neighbour).and_then(Option::as_ref).is_some()
+    }
+
+    /// Connects consecutive pairs of neighbours bidirectionally at the given level.
+    #[cfg(test)]
+    fn connect_neighbour_pairs(&mut self, unique: &[usize], level: usize) {
         for pair in unique.windows(2) {
             if let [origin, target] = pair {
                 self.try_add_bidirectional_edge(*origin, *target, level);
