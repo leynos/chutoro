@@ -1,11 +1,59 @@
 use proptest::{
     prelude::any,
     prop_assert, prop_assert_eq, proptest,
-    strategy::Strategy,
     test_runner::{Config, TestCaseError, TestCaseResult, TestError, TestRunner},
 };
 use rstest::rstest;
-use std::fmt::Debug;
+
+/// Runs a property test with the given configuration and strategy.
+fn run_proptest<S, F>(config: Config, strategy: S, test_name: &str, property: F) -> TestCaseResult
+where
+    S: proptest::strategy::Strategy,
+    F: Fn(S::Value) -> TestCaseResult,
+{
+    let mut runner = TestRunner::new(config);
+    runner
+        .run(&strategy, property)
+        .map_err(|err| map_test_error(err, test_name))
+}
+
+/// Maps TestError to TestCaseError with formatted messages.
+fn map_test_error(err: TestError<impl std::fmt::Debug>, test_name: &str) -> TestCaseError {
+    match err {
+        TestError::Abort(reason) => TestCaseError::fail(format!("{test_name} aborted: {reason}")),
+        TestError::Fail(reason, value) => TestCaseError::fail(format!(
+            "{test_name} failed: {reason}; minimal input: {value:#?}"
+        )),
+    }
+}
+
+/// Runs a mutation property test with custom configuration and stack size.
+fn run_mutation_test_with_config(
+    cases: u32,
+    max_shrink_iters: u32,
+    stack_size: usize,
+) -> TestCaseResult {
+    let config = Config {
+        cases,
+        max_shrink_iters,
+        ..Config::default()
+    };
+
+    std::thread::Builder::new()
+        .name("hnsw-mutation".into())
+        .stack_size(stack_size)
+        .spawn(move || {
+            run_proptest(
+                config,
+                (hnsw_fixture_strategy(), mutation_plan_strategy()),
+                "hnsw mutation proptest",
+                |(fixture, plan)| run_mutation_property(fixture, plan),
+            )
+        })
+        .expect("spawn mutation runner")
+        .join()
+        .expect("mutation runner panicked")
+}
 
 use super::{
     mutation_property::derive_initial_population,
@@ -173,22 +221,15 @@ proptest! {
 #[test]
 #[ignore]
 fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
-    run_mutation_proptest_with_stack(
-        Config {
-            cases: 640,
-            max_shrink_iters: 4096,
-            ..Config::default()
-        },
-        32 * 1024 * 1024,
-    )
+    run_mutation_test_with_config(640, 4096, 32 * 1024 * 1024)
 }
 
 #[test]
 fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
-    run_named_proptest(
+    run_proptest(
         Config::default(),
-        &(hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
-        "hnsw search",
+        (hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
+        "hnsw search proptest",
         |(fixture, query_hint, k_hint)| {
             run_search_correctness_property(fixture, query_hint, k_hint)
         },
@@ -197,50 +238,7 @@ fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
 
 #[test]
 fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
-    run_mutation_proptest_with_stack(
-        Config {
-            cases: 64,
-            max_shrink_iters: 1024,
-            ..Config::default()
-        },
-        96 * 1024 * 1024,
-    )
-}
-
-fn run_mutation_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
-    std::thread::Builder::new()
-        .name("hnsw-mutation".into())
-        .stack_size(stack_size)
-        .spawn(move || run_mutation_proptest(config))
-        .expect("spawn mutation runner")
-        .join()
-        .expect("mutation runner panicked")
-}
-
-fn run_mutation_proptest(config: Config) -> TestCaseResult {
-    run_named_proptest(
-        config,
-        &(hnsw_fixture_strategy(), mutation_plan_strategy()),
-        "hnsw mutation",
-        |(fixture, plan)| run_mutation_property(fixture, plan),
-    )
-}
-
-fn run_named_proptest<S, F>(config: Config, strategies: &S, name: &str, f: F) -> TestCaseResult
-where
-    S: Strategy,
-    S::Value: Debug,
-    F: Fn(S::Value) -> TestCaseResult,
-{
-    let mut runner = TestRunner::new(config);
-    runner.run(strategies, f).map_err(|err| match err {
-        TestError::Abort(reason) => {
-            TestCaseError::fail(format!("{name} proptest aborted: {reason}"))
-        }
-        TestError::Fail(reason, value) => TestCaseError::fail(format!(
-            "{name} proptest failed: {reason}; minimal input: {value:#?}"
-        )),
-    })
+    run_mutation_test_with_config(64, 1024, 96 * 1024 * 1024)
 }
 
 #[test]
