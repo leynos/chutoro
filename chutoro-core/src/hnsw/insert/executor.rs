@@ -876,60 +876,72 @@ impl<'graph> InsertionExecutor<'graph> {
 
     #[cfg_attr(not(debug_assertions), allow(dead_code))]
     #[cfg(test)]
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "test-only sweep keeps inline edge validation for clarity"
-    )]
     pub(crate) fn enforce_bidirectional_all(&mut self, max_connections: usize) {
-        let edges: Vec<(usize, usize, usize)> = self
-            .graph
-            .nodes_iter()
-            .flat_map(|(origin, node)| {
-                node.iter_neighbours()
-                    .map(move |(level, target)| (origin, level, target))
-            })
-            .collect();
-
-        for (origin, level, target) in edges {
+        for (origin, level, target) in self.collect_edges() {
             let ctx = UpdateContext {
                 origin,
                 level,
                 max_connections,
             };
-
-            let Some(target_node) = self.graph.node_mut(target) else {
-                self.remove_one_way_edge(&ctx, target);
-                continue;
-            };
-
-            if level >= target_node.level_count() {
-                self.remove_one_way_edge(&ctx, target);
-                continue;
-            }
-
-            let limit = Self::compute_connection_limit(level, max_connections);
-            let neighbours = target_node.neighbours_mut(level);
-            if neighbours.contains(&origin) {
-                continue;
-            }
-
-            if neighbours.len() < limit {
-                neighbours.push(origin);
-                continue;
-            }
-
-            // At capacity: drop the forward edge instead of evicting another node.
-            self.remove_one_way_edge(&ctx, target);
+            self.heal_or_remove_edge(&ctx, target);
         }
 
-        // Validate that no one-way edges remain; panic in tests with details to
-        // surface the offending edge and degree limits.
+        self.validate_all_edges_reciprocal(max_connections);
+    }
+
+    #[cfg(test)]
+    fn collect_edges(&self) -> Vec<(usize, usize, usize)> {
+        self.graph
+            .nodes_iter()
+            .flat_map(|(origin, node)| {
+                node.iter_neighbours()
+                    .map(move |(level, target)| (origin, level, target))
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    fn heal_or_remove_edge(&mut self, ctx: &UpdateContext, target: usize) {
+        let Some(target_node) = self.graph.node_mut(target) else {
+            self.remove_one_way_edge(ctx, target);
+            return;
+        };
+
+        if ctx.level >= target_node.level_count() {
+            self.remove_one_way_edge(ctx, target);
+            return;
+        }
+
+        let limit = Self::compute_connection_limit(ctx.level, ctx.max_connections);
+        let neighbours = target_node.neighbours_mut(ctx.level);
+        if neighbours.contains(&ctx.origin) {
+            return;
+        }
+
+        if neighbours.len() < limit {
+            neighbours.push(ctx.origin);
+            return;
+        }
+
+        // At capacity: drop the forward edge instead of evicting another node.
+        self.remove_one_way_edge(ctx, target);
+    }
+
+    #[cfg(test)]
+    #[expect(
+        clippy::excessive_nesting,
+        reason = "test-only reciprocal validation keeps explicit panic messages"
+    )]
+    fn validate_all_edges_reciprocal(&self, max_connections: usize) {
         for (origin, node) in self.graph.nodes_iter() {
             for (level, target) in node.iter_neighbours() {
-                let Some(target_node) = self.graph.node(target) else {
-                    panic!(
-                        "enforce_bidirectional_all left edge {origin}->{target} at level {level} to missing node",
-                    );
+                let target_node = match self.graph.node(target) {
+                    Some(node) => node,
+                    None => {
+                        panic!(
+                            "enforce_bidirectional_all left edge {origin}->{target} at level {level} to missing node",
+                        );
+                    }
                 };
 
                 let target_levels = target_node.level_count();
