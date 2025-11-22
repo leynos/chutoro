@@ -446,11 +446,8 @@ impl CpuHnsw {
             sequences,
         } = job;
 
-        let connection_limit = if ctx.level == 0 {
-            ctx.max_connections.saturating_mul(2)
-        } else {
-            ctx.max_connections
-        };
+        let connection_limit =
+            crate::hnsw::params::connection_limit_for_level(ctx.level, ctx.max_connections);
 
         if candidates.len() != sequences.len() {
             return Err(HnswError::InvalidParameters {

@@ -230,7 +230,7 @@ impl<'a, D: DataSource + Sync> SearchInputs<'a, D> {
 }
 
 #[derive(Debug)]
-pub(super) struct LayerSearcher<'graph> {
+pub(crate) struct LayerSearcher<'graph> {
     graph: &'graph Graph,
 }
 

@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 use crate::hnsw::{
     error::HnswError,
     graph::{ApplyContext, EdgeContext, Graph, NodeContext},
+    params::connection_limit_for_level,
     types::InsertionPlan,
 };
 
@@ -488,11 +489,7 @@ impl<'graph> InsertionExecutor<'graph> {
 
     /// Computes the connection limit for a given level (doubled for level 0).
     fn compute_connection_limit(level: usize, max_connections: usize) -> usize {
-        if level == 0 {
-            max_connections.saturating_mul(2)
-        } else {
-            max_connections
-        }
+        connection_limit_for_level(level, max_connections)
     }
 
     fn can_link_at_level(&self, node_id: usize, level: usize) -> bool {
