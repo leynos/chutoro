@@ -561,7 +561,7 @@ impl<'graph> InsertionExecutor<'graph> {
         }
 
         if let Some(evicted) = evicted {
-            self.scrub_forward_edge(ctx, evicted);
+            self.remove_forward_edge_from(evicted, ctx.level, target, ctx.max_connections);
         }
 
         true
@@ -721,19 +721,25 @@ impl<'graph> InsertionExecutor<'graph> {
         }
     }
 
-    fn scrub_forward_edge(&mut self, ctx: &UpdateContext, target: usize) {
-        let Some(origin_node) = self.graph.node_mut(ctx.origin) else {
+    fn remove_forward_edge_from(
+        &mut self,
+        origin: usize,
+        level: usize,
+        target: usize,
+        max_connections: usize,
+    ) {
+        let Some(origin_node) = self.graph.node_mut(origin) else {
             return;
         };
-        if ctx.level >= origin_node.level_count() {
+        if level >= origin_node.level_count() {
             return;
         }
 
-        let neighbours = origin_node.neighbours_mut(ctx.level);
+        let neighbours = origin_node.neighbours_mut(level);
         if let Some(pos) = neighbours.iter().position(|&id| id == target) {
             neighbours.remove(pos);
-            if ctx.level == 0 && neighbours.is_empty() {
-                self.ensure_base_connectivity(ctx.origin, ctx.max_connections);
+            if level == 0 && neighbours.is_empty() {
+                self.ensure_base_connectivity(origin, max_connections);
             }
         }
     }

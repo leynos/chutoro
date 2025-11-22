@@ -210,7 +210,7 @@ fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
             max_shrink_iters: 1024,
             ..Config::default()
         },
-        64 * 1024 * 1024,
+        96 * 1024 * 1024,
     )
 }
 
