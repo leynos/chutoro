@@ -64,7 +64,7 @@ impl PartialOrd for Neighbour {
 ///
 /// # Examples
 /// ```rust,ignore
-/// use chutoro_core::hnsw::types::RankedNeighbour;
+/// use crate::hnsw::types::RankedNeighbour;
 ///
 /// let ranked = RankedNeighbour::new(4, 0.5, 7);
 /// assert_eq!(ranked.into_neighbour().id, 4);

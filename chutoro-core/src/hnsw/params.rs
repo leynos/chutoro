@@ -133,3 +133,15 @@ impl Default for HnswParams {
         Self::new(16, 64).expect("default parameters must be valid")
     }
 }
+
+/// Returns the connection limit for a given level.
+///
+/// Level 0 (base layer) permits twice as many connections as higher levels,
+/// following standard HNSW design to improve recall at the densest layer.
+pub(crate) fn connection_limit_for_level(level: usize, max_connections: usize) -> usize {
+    if level == 0 {
+        max_connections.saturating_mul(2)
+    } else {
+        max_connections
+    }
+}

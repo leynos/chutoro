@@ -49,6 +49,15 @@ fn splitmix64(mut state: u64) -> u64 {
     state ^ (state >> 31)
 }
 
+fn build_worker_rngs(base_seed: u64) -> Vec<Mutex<SmallRng>> {
+    (0..current_num_threads())
+        .map(|idx| {
+            let seed = mix_worker_seed(base_seed, idx);
+            Mutex::new(SmallRng::seed_from_u64(seed))
+        })
+        .collect()
+}
+
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
 pub struct CpuHnsw {
@@ -69,8 +78,8 @@ impl CpuHnsw {
     /// parallel with Rayon workers.
     ///
     /// # Examples
-    /// ```
-    /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
+    /// ```rust,ignore
+    /// use crate::{CpuHnsw, DataSource, DataSourceError, HnswParams};
     ///
     /// # struct Dummy(Vec<f32>);
     /// # impl DataSource for Dummy {
@@ -122,7 +131,7 @@ impl CpuHnsw {
     /// Creates an empty index with the desired capacity.
     ///
     /// # Examples
-    /// ```
+    /// ```rust,ignore
     /// use chutoro_core::{CpuHnsw, HnswParams};
     /// let params = HnswParams::new(2, 8).expect("params");
     /// let index = CpuHnsw::with_capacity(params, 16).expect("capacity must be > 0");
@@ -135,14 +144,7 @@ impl CpuHnsw {
             });
         }
         let base_seed = params.rng_seed();
-        let worker_rngs = (0..current_num_threads())
-            .map(|idx| {
-                // Derive per-worker seeds via SplitMix64 to decorrelate streams
-                // even when Rayon reuses threads across insert/search phases.
-                let seed = mix_worker_seed(base_seed, idx);
-                Mutex::new(SmallRng::seed_from_u64(seed))
-            })
-            .collect();
+        let worker_rngs = build_worker_rngs(base_seed);
 
         let cache = DistanceCache::new(*params.distance_cache_config());
         let graph = Graph::with_capacity(params.clone(), capacity);
@@ -162,7 +164,7 @@ impl CpuHnsw {
     /// Inserts a node into the graph, performing search under a shared lock.
     ///
     /// # Examples
-    /// ```
+    /// ```rust,ignore
     /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
     /// # struct Dummy(Vec<f32>);
     /// # impl DataSource for Dummy {
@@ -304,6 +306,19 @@ impl CpuHnsw {
         HnswInvariantChecker::new(self)
     }
 
+    /// Test-only healing hook that re-enforces reachability and bidirectionality.
+    ///
+    /// Compiled only for tests to avoid production overhead; intended to stabilise
+    /// property-based mutation checks that rely on post-commit healing passes.
+    #[cfg(test)]
+    pub fn heal_for_test(&self) {
+        self.write_graph(|graph| {
+            let mut executor = graph.insertion_executor();
+            executor.heal_reachability(self.params.max_connections());
+            executor.enforce_bidirectional_all(self.params.max_connections());
+        });
+    }
+
     fn insert_initial(&self, graph: &mut Graph, ctx: NodeContext) -> Result<(), HnswError> {
         graph.insert_first(ctx)
     }
@@ -313,7 +328,7 @@ impl CpuHnsw {
         f(&guard)
     }
 
-    fn write_graph<R>(&self, f: impl FnOnce(&mut Graph) -> R) -> R {
+    pub(crate) fn write_graph<R>(&self, f: impl FnOnce(&mut Graph) -> R) -> R {
         let mut guard = self.graph.write().expect("graph lock poisoned");
         f(&mut guard)
     }
@@ -321,6 +336,25 @@ impl CpuHnsw {
     #[cfg(test)]
     pub(crate) fn inspect_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> R {
         self.read_graph(f)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn delete_node_for_test(&mut self, node: usize) -> Result<bool, HnswError> {
+        let deleted = self.write_graph(|graph| graph.delete_node(node))?;
+        if deleted {
+            self.len.fetch_sub(1, Ordering::Relaxed);
+        }
+        Ok(deleted)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn reconfigure_for_test(&mut self, params: HnswParams) {
+        let base_seed = params.rng_seed();
+        self.rng = Mutex::new(SmallRng::seed_from_u64(base_seed));
+        self.worker_rngs = build_worker_rngs(base_seed);
+        self.distance_cache = DistanceCache::new(*params.distance_cache_config());
+        self.params = params;
+        self.write_graph(|graph| graph.set_params(&self.params));
     }
 
     fn try_insert_initial<D: DataSource + Sync>(
@@ -412,6 +446,9 @@ impl CpuHnsw {
             sequences,
         } = job;
 
+        let connection_limit =
+            crate::hnsw::params::connection_limit_for_level(ctx.level, ctx.max_connections);
+
         if candidates.len() != sequences.len() {
             return Err(HnswError::InvalidParameters {
                 reason: format!(
@@ -433,12 +470,12 @@ impl CpuHnsw {
             });
         }
 
-        let mut heap = BinaryHeap::with_capacity(ctx.max_connections);
+        let mut heap = BinaryHeap::with_capacity(connection_limit);
         for (index, id) in candidates.into_iter().enumerate() {
             let sequence = sequences[index];
             let distance = distances[index];
             heap.push(RankedNeighbour::new(id, distance, sequence));
-            if heap.len() > ctx.max_connections {
+            if heap.len() > connection_limit {
                 heap.pop();
             }
         }

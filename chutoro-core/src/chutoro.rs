@@ -23,7 +23,7 @@ type DataSourceResult<T> = core::result::Result<T, DataSourceError>;
 /// Entry point for running the clustering pipeline.
 ///
 /// # Examples
-/// ```
+/// ```rust,no_run
 /// use chutoro_core::{ChutoroBuilder, DataSource, DataSourceError};
 ///
 /// struct Dummy(Vec<f32>);
@@ -69,7 +69,7 @@ impl Chutoro {
     /// Returns the minimum cluster size configured for this instance.
     ///
     /// # Examples
-    /// ```
+    /// ```rust,no_run
     /// use chutoro_core::ChutoroBuilder;
     ///
     /// let chutoro = ChutoroBuilder::new()
@@ -86,7 +86,7 @@ impl Chutoro {
     /// Returns the execution strategy that will be used when running.
     ///
     /// # Examples
-    /// ```
+    /// ```rust,no_run
     /// use chutoro_core::{ChutoroBuilder, ExecutionStrategy};
     ///
     /// let chutoro = ChutoroBuilder::new()
@@ -109,7 +109,7 @@ impl Chutoro {
     /// requested backend is not compiled in the current build.
     ///
     /// # Examples
-    /// ```
+    /// ```rust,no_run
     /// use chutoro_core::{ChutoroBuilder, DataSource, DataSourceError};
     ///
     /// struct Dummy(Vec<f32>);

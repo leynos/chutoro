@@ -43,7 +43,7 @@ impl Node {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use chutoro_core::hnsw::{graph::{Graph, NodeContext}, params::HnswParams};
+    /// use crate::hnsw::{graph::{Graph, NodeContext}, params::HnswParams};
     ///
     /// let params = HnswParams::new(4, 8).expect("params must be valid");
     /// let mut graph = Graph::with_capacity(params, 1);
@@ -60,7 +60,7 @@ impl Node {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use chutoro_core::hnsw::{graph::{Graph, NodeContext}, params::HnswParams};
+    /// use crate::hnsw::{graph::{Graph, NodeContext}, params::HnswParams};
     ///
     /// let params = HnswParams::new(4, 8).expect("params");
     /// let mut graph = Graph::with_capacity(params, 2);

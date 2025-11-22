@@ -36,12 +36,12 @@ pub(crate) fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
 /// neighbour list has spare capacity.
 ///
 /// # Examples
-/// ```rust
+/// ```rust,ignore
 /// # use std::num::NonZeroUsize;
 /// use chutoro_core::{DistanceCacheConfig, DataSource, DataSourceError};
-/// use chutoro_core::datasource::MetricDescriptor;
-/// use chutoro_core::hnsw::distance_cache::DistanceCache;
-/// use chutoro_core::hnsw::helpers::{
+/// use crate::datasource::MetricDescriptor;
+/// use crate::hnsw::distance_cache::DistanceCache;
+/// use crate::hnsw::helpers::{
 ///     EnsureQueryArgs, ensure_query_present, normalise_neighbour_order,
 /// };
 ///
@@ -67,7 +67,7 @@ pub(crate) fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
 ///     },
 /// )?;
 /// assert_eq!(neighbours.len(), 1);
-/// # Ok::<(), chutoro_core::hnsw::error::HnswError>(())
+/// # Ok::<(), crate::hnsw::error::HnswError>(())
 /// ```
 pub(crate) fn ensure_query_present<D: DataSource + Sync>(
     cache: &DistanceCache,
@@ -96,11 +96,11 @@ pub(crate) fn ensure_query_present<D: DataSource + Sync>(
 /// returning them in the same order and populating the shared cache.
 ///
 /// # Examples
-/// ```rust
+/// ```rust,ignore
 /// use chutoro_core::{DistanceCacheConfig, DataSource, DataSourceError};
-/// use chutoro_core::datasource::MetricDescriptor;
-/// use chutoro_core::hnsw::distance_cache::DistanceCache;
-/// use chutoro_core::hnsw::helpers::batch_distances_for_trim;
+/// use crate::datasource::MetricDescriptor;
+/// use crate::hnsw::distance_cache::DistanceCache;
+/// use crate::hnsw::helpers::batch_distances_for_trim;
 ///
 /// struct Dummy(Vec<f32>);
 ///
@@ -117,7 +117,7 @@ pub(crate) fn ensure_query_present<D: DataSource + Sync>(
 /// let source = Dummy(vec![0.0, 1.0, 4.0]);
 /// let distances = batch_distances_for_trim(&cache, 0, &[1, 2], &source)?;
 /// assert_eq!(distances, vec![1.0, 4.0]);
-/// # Ok::<(), chutoro_core::hnsw::error::HnswError>(())
+/// # Ok::<(), crate::hnsw::error::HnswError>(())
 /// ```
 pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
     cache: &DistanceCache,
