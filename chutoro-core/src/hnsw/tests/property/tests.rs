@@ -306,7 +306,6 @@ mod fixtures {
     }
 }
 
-#[cfg(test)]
 fn bootstrap_uniform_vectors() -> Vec<Vec<f32>> {
     fixtures::load_bootstrap_uniform_vectors_from_fixture()
 }
