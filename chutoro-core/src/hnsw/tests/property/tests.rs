@@ -1,3 +1,8 @@
+//! Property-based tests for the HNSW implementation covering mutation plans
+//! (add/delete/reconfigure), search correctness, fixture validation, bootstrap
+//! reachability, and the shared proptest runners/helpers used to orchestrate
+//! these scenarios.
+
 use proptest::{
     prelude::any,
     prop_assert, prop_assert_eq, proptest,
