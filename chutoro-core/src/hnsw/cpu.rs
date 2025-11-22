@@ -79,7 +79,7 @@ impl CpuHnsw {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
+    /// use crate::{CpuHnsw, DataSource, DataSourceError, HnswParams};
     ///
     /// # struct Dummy(Vec<f32>);
     /// # impl DataSource for Dummy {

@@ -404,7 +404,7 @@ impl<'graph> InsertionExecutor<'graph> {
             }
         }
 
-        self.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated);
+        self.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
         touched.extend((0..=new_node.level).map(|level| (new_node.id, level)));
         self.ensure_reciprocity_for_touched(&touched, max_connections);
         if promote_entry {
@@ -422,11 +422,12 @@ impl<'graph> InsertionExecutor<'graph> {
         node_id: usize,
         node_level: usize,
         filtered_neighbours: Vec<Vec<usize>>,
-    ) {
-        let node_ref = self
-            .graph
-            .node_mut(node_id)
-            .expect("node was attached above");
+    ) -> Result<(), HnswError> {
+        let Some(node_ref) = self.graph.node_mut(node_id) else {
+            return Err(HnswError::GraphInvariantViolation {
+                message: format!("node {node_id} missing after attach during commit"),
+            });
+        };
         for (level, neighbours) in filtered_neighbours
             .into_iter()
             .enumerate()
@@ -436,6 +437,7 @@ impl<'graph> InsertionExecutor<'graph> {
             list.clear();
             list.extend(neighbours);
         }
+        Ok(())
     }
 
     /// Applies the neighbour updates gathered during staging to the existing
@@ -490,6 +492,49 @@ impl<'graph> InsertionExecutor<'graph> {
             max_connections.saturating_mul(2)
         } else {
             max_connections
+        }
+    }
+
+    fn can_link_at_level(&self, node_id: usize, level: usize) -> bool {
+        self.graph
+            .node(node_id)
+            .map(|node| level < node.level_count())
+            .unwrap_or(false)
+    }
+
+    fn add_to_neighbour_list(
+        neighbours: &mut Vec<usize>,
+        new_id: usize,
+        limit: usize,
+    ) -> Option<usize> {
+        if neighbours.contains(&new_id) {
+            return None;
+        }
+        if neighbours.len() < limit {
+            neighbours.push(new_id);
+            return None;
+        }
+        if let Some(evicted) = neighbours.pop() {
+            neighbours.push(new_id);
+            return Some(evicted);
+        }
+        None
+    }
+
+    fn clean_up_evicted_edge(&mut self, evicted: usize, ctx: &UpdateContext) {
+        let Some(evicted_node) = self.graph.node_mut(evicted) else {
+            return;
+        };
+        if ctx.level >= evicted_node.level_count() {
+            return;
+        }
+
+        let evicted_neighbours = evicted_node.neighbours_mut(ctx.level);
+        if let Some(pos) = evicted_neighbours.iter().position(|&id| id == ctx.origin) {
+            evicted_neighbours.remove(pos);
+        }
+        if ctx.level == 0 && evicted_neighbours.is_empty() {
+            self.ensure_base_connectivity(evicted, ctx.max_connections);
         }
     }
 
@@ -570,62 +615,37 @@ impl<'graph> InsertionExecutor<'graph> {
 
     fn link_new_node(&mut self, ctx: &UpdateContext, new_node: usize) -> bool {
         let limit = Self::compute_connection_limit(ctx.level, ctx.max_connections);
-        let Some(candidate_node) = self.graph.node_mut(ctx.origin) else {
-            return false;
-        };
-        if ctx.level >= candidate_node.level_count() {
+        if !self.can_link_at_level(ctx.origin, ctx.level) {
             return false;
         }
 
+        let Some(candidate_node) = self.graph.node_mut(ctx.origin) else {
+            return false;
+        };
+
         let neighbours = candidate_node.neighbours_mut(ctx.level);
-        let mut evicted: Option<usize> = None;
+        let evicted = Self::add_to_neighbour_list(neighbours, new_node, limit);
         if !neighbours.contains(&new_node) {
-            if neighbours.len() < limit {
-                neighbours.push(new_node);
-            } else if !neighbours.is_empty() {
-                evicted = neighbours.pop();
-                neighbours.push(new_node);
-            } else {
-                return false;
-            }
+            return false;
+        }
+
+        if !self.can_link_at_level(new_node, ctx.level) {
+            return false;
         }
 
         let Some(new_node_ref) = self.graph.node_mut(new_node) else {
             return false;
         };
-        if ctx.level >= new_node_ref.level_count() {
-            return false;
-        }
-        let neighbours = new_node_ref.neighbours_mut(ctx.level);
-        if neighbours.contains(&ctx.origin) {
-            return true;
-        }
 
+        let neighbours = new_node_ref.neighbours_mut(ctx.level);
         let limit_new = Self::compute_connection_limit(ctx.level, ctx.max_connections);
-        if neighbours.len() < limit_new {
-            neighbours.push(ctx.origin);
-        } else if !neighbours.is_empty() {
-            neighbours.pop();
-            neighbours.push(ctx.origin);
-        } else {
+        Self::add_to_neighbour_list(neighbours, ctx.origin, limit_new);
+        if !neighbours.contains(&ctx.origin) {
             return false;
         }
 
         if let Some(evicted) = evicted {
-            let Some(evicted_node) = self.graph.node_mut(evicted) else {
-                return true;
-            };
-            if ctx.level >= evicted_node.level_count() {
-                return true;
-            }
-
-            let evicted_neighbours = evicted_node.neighbours_mut(ctx.level);
-            if let Some(pos) = evicted_neighbours.iter().position(|&id| id == ctx.origin) {
-                evicted_neighbours.remove(pos);
-            }
-            if ctx.level == 0 && evicted_neighbours.is_empty() {
-                self.ensure_base_connectivity(evicted, ctx.max_connections);
-            }
+            self.clean_up_evicted_edge(evicted, ctx);
         }
         true
     }
