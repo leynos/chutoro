@@ -7,7 +7,6 @@ pub(super) mod internal;
 pub(super) mod rng;
 pub(super) mod trim;
 
-#[cfg(test)]
 pub(super) mod test_helpers;
 
 use std::{
@@ -81,7 +80,7 @@ impl CpuHnsw {
             return Err(HnswError::EmptyBuild);
         }
         let index = Self::with_capacity(params, items)?;
-        let level = index.sample_level();
+        let level = index.sample_level()?;
         let sequence = index.allocate_sequence();
         let node_ctx = NodeContext {
             node: 0,
@@ -95,8 +94,7 @@ impl CpuHnsw {
             node_ctx.node,
         )?;
         {
-            let mut graph = index.graph.write().expect("graph lock poisoned");
-            index.insert_initial(&mut graph, node_ctx)?;
+            index.write_graph(|graph| index.insert_initial(graph, node_ctx))?;
         }
         index.len.store(1, Ordering::Relaxed);
         if items > 1 {
@@ -161,8 +159,13 @@ impl CpuHnsw {
     /// index.insert(1, &data).expect("insert must succeed");
     /// ```
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
-        let _insertion_guard = self.insert_mutex.lock().expect("insert mutex poisoned");
-        let level = self.sample_level();
+        let _insertion_guard = self
+            .insert_mutex
+            .lock()
+            .map_err(|_| HnswError::LockPoisoned {
+                resource: "insert mutex",
+            })?;
+        let level = self.sample_level()?;
         let sequence = self.allocate_sequence();
         let node_ctx = NodeContext {
             node,
@@ -231,7 +234,7 @@ impl CpuHnsw {
         query: usize,
         ef: NonZeroUsize,
     ) -> Result<Vec<Neighbour>, HnswError> {
-        let graph = self.graph.read().expect("graph lock poisoned");
+        let graph = self.read_graph_guard()?;
         let entry = graph.entry().ok_or(HnswError::GraphEmpty)?;
         let searcher = graph.searcher();
         let mut current = entry.node;

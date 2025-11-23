@@ -32,8 +32,13 @@ fn exposes_machine_readable_error_codes() {
         HnswErrorCode::NonFiniteDistance,
     );
     assert_eq!(
+        HnswError::LockPoisoned { resource: "graph" }.code(),
+        HnswErrorCode::LockPoisoned,
+    );
+    assert_eq!(
         HnswError::from(DataSourceError::EmptyData).code(),
         HnswErrorCode::DataSource,
     );
     assert_eq!(HnswErrorCode::DataSource.as_str(), "DATA_SOURCE");
+    assert_eq!(HnswErrorCode::LockPoisoned.as_str(), "LOCK_POISONED");
 }

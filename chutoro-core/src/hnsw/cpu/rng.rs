@@ -5,6 +5,8 @@ use std::sync::Mutex;
 use rand::{Rng, SeedableRng, distributions::Standard, rngs::SmallRng};
 use rayon::{current_num_threads, current_thread_index};
 
+use crate::hnsw::error::HnswError;
+
 use super::CpuHnsw;
 
 /// SplitMix64 increment (the 64-bit golden ratio) used for per-worker seed
@@ -36,16 +38,20 @@ pub(super) fn build_worker_rngs(base_seed: u64) -> Vec<Mutex<SmallRng>> {
 }
 
 impl CpuHnsw {
-    pub(super) fn sample_level(&self) -> usize {
+    pub(super) fn sample_level(&self) -> Result<usize, HnswError> {
         if let Some(index) = current_thread_index() {
             if let Some(rng) = self.worker_rngs.get(index) {
-                let mut guard = rng.lock().expect("worker rng mutex poisoned");
-                return self.sample_level_from_rng(&mut guard);
+                let mut guard = rng.lock().map_err(|_| HnswError::LockPoisoned {
+                    resource: "worker rng mutex",
+                })?;
+                return Ok(self.sample_level_from_rng(&mut guard));
             }
         }
 
-        let mut rng = self.rng.lock().expect("rng mutex poisoned");
-        self.sample_level_from_rng(&mut rng)
+        let mut rng = self.rng.lock().map_err(|_| HnswError::LockPoisoned {
+            resource: "rng mutex",
+        })?;
+        Ok(self.sample_level_from_rng(&mut rng))
     }
 
     pub(super) fn sample_level_from_rng(&self, rng: &mut SmallRng) -> usize {

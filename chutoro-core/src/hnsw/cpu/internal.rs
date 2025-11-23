@@ -1,6 +1,6 @@
 //! Private helpers for graph access, initial insertion, and sequence handling.
 
-use std::sync::atomic::Ordering;
+use std::sync::{RwLockReadGuard, RwLockWriteGuard, atomic::Ordering};
 
 use crate::{
     DataSource,
@@ -22,13 +22,31 @@ impl CpuHnsw {
         graph.insert_first(ctx)
     }
 
-    pub(super) fn read_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> R {
-        let guard = self.graph.read().expect("graph lock poisoned");
+    pub(super) fn read_graph_guard(&self) -> Result<RwLockReadGuard<'_, Graph>, HnswError> {
+        self.graph
+            .read()
+            .map_err(|_| HnswError::LockPoisoned { resource: "graph" })
+    }
+
+    pub(super) fn write_graph_guard(&self) -> Result<RwLockWriteGuard<'_, Graph>, HnswError> {
+        self.graph
+            .write()
+            .map_err(|_| HnswError::LockPoisoned { resource: "graph" })
+    }
+
+    pub(super) fn read_graph<R>(
+        &self,
+        f: impl FnOnce(&Graph) -> Result<R, HnswError>,
+    ) -> Result<R, HnswError> {
+        let guard = self.read_graph_guard()?;
         f(&guard)
     }
 
-    pub(crate) fn write_graph<R>(&self, f: impl FnOnce(&mut Graph) -> R) -> R {
-        let mut guard = self.graph.write().expect("graph lock poisoned");
+    pub(crate) fn write_graph<R>(
+        &self,
+        f: impl FnOnce(&mut Graph) -> Result<R, HnswError>,
+    ) -> Result<R, HnswError> {
+        let mut guard = self.write_graph_guard()?;
         f(&mut guard)
     }
 
@@ -41,7 +59,7 @@ impl CpuHnsw {
         ctx: NodeContext,
         source: &D,
     ) -> Result<bool, HnswError> {
-        if self.read_graph(|graph| graph.entry().is_some()) {
+        if self.read_graph(|graph| Ok(graph.entry().is_some()))? {
             return Ok(false);
         }
 
