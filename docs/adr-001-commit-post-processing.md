@@ -47,9 +47,9 @@ Accepted
 
 - `hnsw_mutations_preserve_invariants_proptest` still fails intermittently. The
   most recent run aborted with a stack overflow after reporting
-  `proptest: FileFailurePersistence::SourceParallel set, but no source file
-  known`, suggesting uncontrolled recursion while attempting to heal the graph
-  after staged insertions.
+  `proptest: FileFailurePersistence::SourceParallel set, but no source file known`,
+   suggesting uncontrolled recursion while attempting to heal the graph after
+  staged insertions.
 - Another failing seed flagged a missing reverse edge after the bootstrap
   insert stage (`edge exists 13 -> 0 at level 0 but no reverse edge`), which
   indicates the local reciprocity fallback may still drop back-links when
@@ -60,8 +60,8 @@ Accepted
 - After tightening reachability healing to avoid entry-centric eviction churn,
   a failing seed exposed a missing reverse link at layer 1 (`edge 2 -> 4`)
   caused by evicting an existing neighbour while adding a reverse edge. The
-  implementation now scrubs the evicted node's forward edge during
-  reverse-link insertion.
+  implementation now scrubs the evicted node's forward edge during reverse-link
+  insertion.
 - A later seed showed a bootstrap failure, with `edge 11 -> 8` missing a reverse
   link at layer 0. Hypothesis: one-way edges can survive when a reverse-link
   insertion evicts a neighbour, but the new node keeps the forward edge.
@@ -73,9 +73,10 @@ Accepted
 
 - Intermittent failure (`edge 4 -> 0` missing backlink at layer 0) was
   reproduced on a small clustered fixture when the forward edge belonged to a
-  prior insertion, not the new node. The touched-node reciprocity pass addresses
-  this broader case; repeated property runs now pass locally.
-- Another intermittent bootstrap failure reported node 11 unreachable. Hypothesis:
+  prior insertion, not the new node. The touched-node reciprocity pass
+  addresses this broader case; repeated property runs now pass locally.
+- Another intermittent bootstrap failure reported node 11 unreachable.
+  Hypothesis:
   base-layer healing refused to link unreachable nodes when all reachable nodes
   were at capacity, leaving isolated vertices. Healing now tries capacity-first
   and then forces a link via any reachable node (allowing eviction) to restore
@@ -109,16 +110,16 @@ Accepted
 - Added a fixed-point `enforce_bidirectional_all` (test-only) plus explicit
   validation that panics if any one-way edge survives. Unit tests now cover
   upper-layer reciprocity and removal of edges that target a missing level.
-  With the validation enabled, the mutation proptest still panics on a
-  manifold fixture where many base-layer edges remain one-way even though the
-  targets are at capacity (`limit=14`). Hypotheses: (1) reverse insertions are
-  being skipped for edges added during trimming (edge snapshot gap); (2)
+  With the validation enabled, the mutation proptest still panics on a manifold
+  fixture where many base-layer edges remain one-way even though the targets
+  are at capacity (`limit=14`). Hypotheses: (1) reverse insertions are being
+  skipped for edges added during trimming (edge snapshot gap); (2)
   `ensure_reverse_edge` may report success while failing to place the origin
-  when the neighbour list is already at the level-specific limit; (3)
-  duplicate edges or over-capacity lists interfere with reciprocity checks.
-  Next steps: instrument `ensure_reverse_edge` to log/flag when it returns true
-  without inserting the origin, and consider forcibly removing forward edges in
-  that case to guarantee invariants.
+  when the neighbour list is already at the level-specific limit; (3) duplicate
+  edges or over-capacity lists interfere with reciprocity checks. Next steps:
+  instrument `ensure_reverse_edge` to log/flag when it returns true without
+  inserting the origin, and consider forcibly removing forward edges in that
+  case to guarantee invariants.
 
 ## Next steps
 

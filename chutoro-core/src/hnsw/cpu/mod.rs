@@ -2,8 +2,15 @@
 //! invariant checking for the chutoro graph. Coordinates Rayon workers,
 //! sharded RNGs, and the shared distance cache while exposing the public
 //! `CpuHnsw` API used by the CLI and tests.
+
+mod internal;
+mod rng;
+mod trim;
+
+#[cfg(test)]
+mod test_helpers;
+
 use std::{
-    collections::BinaryHeap,
     num::NonZeroUsize,
     sync::{
         Arc, Mutex, RwLock,
@@ -11,8 +18,8 @@ use std::{
     },
 };
 
-use rand::{Rng, SeedableRng, distributions::Standard, rngs::SmallRng};
-use rayon::{current_num_threads, current_thread_index, prelude::*};
+use rand::{SeedableRng, rngs::SmallRng};
+use rayon::prelude::*;
 
 use crate::DataSource;
 
@@ -20,43 +27,15 @@ use super::{
     distance_cache::DistanceCache,
     error::HnswError,
     graph::{ApplyContext, Graph, NodeContext, SearchContext},
-    helpers::{
-        EnsureQueryArgs, batch_distances_for_trim, ensure_query_present, normalise_neighbour_order,
-    },
-    insert::{PlanningInputs, TrimJob, TrimResult},
+    helpers::{EnsureQueryArgs, ensure_query_present, normalise_neighbour_order},
+    insert::PlanningInputs,
     invariants::HnswInvariantChecker,
     params::HnswParams,
-    types::{Neighbour, RankedNeighbour},
+    types::Neighbour,
     validate::validate_distance,
 };
 
-/// SplitMix64 increment (the 64-bit golden ratio) used for per-worker seed
-/// derivation.
-const WORKER_SEED_SPACING: u64 = 0x9E37_79B9_7F4A_7C15;
-const SPLITMIX_MULT_A: u64 = 0xBF58_476D_1CE4_E5B9;
-const SPLITMIX_MULT_B: u64 = 0x94D0_49BB_1331_11EB;
-
-#[inline]
-fn mix_worker_seed(base_seed: u64, worker_index: usize) -> u64 {
-    splitmix64(base_seed ^ ((worker_index as u64 + 1).wrapping_mul(WORKER_SEED_SPACING)))
-}
-
-#[inline]
-fn splitmix64(mut state: u64) -> u64 {
-    state = state.wrapping_add(WORKER_SEED_SPACING);
-    state = (state ^ (state >> 30)).wrapping_mul(SPLITMIX_MULT_A);
-    state = (state ^ (state >> 27)).wrapping_mul(SPLITMIX_MULT_B);
-    state ^ (state >> 31)
-}
-
-fn build_worker_rngs(base_seed: u64) -> Vec<Mutex<SmallRng>> {
-    (0..current_num_threads())
-        .map(|idx| {
-            let seed = mix_worker_seed(base_seed, idx);
-            Mutex::new(SmallRng::seed_from_u64(seed))
-        })
-        .collect()
-}
+use self::rng::build_worker_rngs;
 
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
@@ -304,221 +283,6 @@ impl CpuHnsw {
     #[must_use]
     pub fn invariants(&self) -> HnswInvariantChecker<'_> {
         HnswInvariantChecker::new(self)
-    }
-
-    /// Test-only healing hook that re-enforces reachability and bidirectionality.
-    ///
-    /// Compiled only for tests to avoid production overhead; intended to stabilise
-    /// property-based mutation checks that rely on post-commit healing passes.
-    #[cfg(test)]
-    pub fn heal_for_test(&self) {
-        self.write_graph(|graph| {
-            let mut executor = graph.insertion_executor();
-            executor.heal_reachability(self.params.max_connections());
-            executor.enforce_bidirectional_all(self.params.max_connections());
-        });
-    }
-
-    fn insert_initial(&self, graph: &mut Graph, ctx: NodeContext) -> Result<(), HnswError> {
-        graph.insert_first(ctx)
-    }
-
-    fn read_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> R {
-        let guard = self.graph.read().expect("graph lock poisoned");
-        f(&guard)
-    }
-
-    pub(crate) fn write_graph<R>(&self, f: impl FnOnce(&mut Graph) -> R) -> R {
-        let mut guard = self.graph.write().expect("graph lock poisoned");
-        f(&mut guard)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn inspect_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> R {
-        self.read_graph(f)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn delete_node_for_test(&mut self, node: usize) -> Result<bool, HnswError> {
-        let deleted = self.write_graph(|graph| graph.delete_node(node))?;
-        if deleted {
-            self.len.fetch_sub(1, Ordering::Relaxed);
-        }
-        Ok(deleted)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn reconfigure_for_test(&mut self, params: HnswParams) {
-        let base_seed = params.rng_seed();
-        self.rng = Mutex::new(SmallRng::seed_from_u64(base_seed));
-        self.worker_rngs = build_worker_rngs(base_seed);
-        self.distance_cache = DistanceCache::new(*params.distance_cache_config());
-        self.params = params;
-        self.write_graph(|graph| graph.set_params(&self.params));
-    }
-
-    fn try_insert_initial<D: DataSource + Sync>(
-        &self,
-        ctx: NodeContext,
-        source: &D,
-    ) -> Result<bool, HnswError> {
-        if self.read_graph(|graph| graph.entry().is_some()) {
-            return Ok(false);
-        }
-
-        validate_distance(Some(&self.distance_cache), source, ctx.node, ctx.node)?;
-        self.write_graph(|graph| {
-            if graph.entry().is_none() {
-                self.insert_initial(graph, ctx)?;
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        })
-    }
-
-    /// Scores trim jobs in parallel, validating candidate, sequence, and
-    /// distance lengths before emitting ranked neighbour lists capped at each
-    /// edge context's `max_connections`.
-    ///
-    /// The caller supplies trimmed candidates gathered while the graph lock is
-    /// held. This method then validates the batched distances without the lock
-    /// and deterministically orders neighbours by distance and insertion
-    /// sequence so ties remain stable while a bounded binary heap retains only
-    /// the best `max_connections` entries.
-    ///
-    /// # Examples
-    /// ```rust,ignore
-    /// use chutoro_core::{
-    ///     CpuHnsw,
-    ///     DataSource,
-    ///     DataSourceError,
-    ///     HnswParams,
-    ///     hnsw::graph::EdgeContext,
-    ///     hnsw::insert::executor::TrimJob,
-    /// };
-    ///
-    /// # struct Dummy(Vec<f32>);
-    /// # impl DataSource for Dummy {
-    /// #     fn len(&self) -> usize { self.0.len() }
-    /// #     fn name(&self) -> &str { "dummy" }
-    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
-    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
-    /// #         Ok((a - b).abs())
-    /// #     }
-    /// # }
-    /// let params = HnswParams::new(1, 2).unwrap();
-    /// let hnsw = CpuHnsw::with_capacity(params, 2).unwrap();
-    /// let trim_jobs = vec![TrimJob {
-    ///     node: 0,
-    ///     ctx: EdgeContext { level: 0, max_connections: 1 },
-    ///     candidates: vec![0],
-    ///     sequences: vec![0],
-    /// }];
-    /// let results = hnsw.score_trim_jobs(trim_jobs, &Dummy(vec![0.0])).unwrap();
-    /// assert_eq!(results[0].neighbours, vec![0]);
-    /// ```
-    pub(crate) fn score_trim_jobs<D: DataSource + Sync>(
-        &self,
-        trim_jobs: Vec<TrimJob>,
-        source: &D,
-    ) -> Result<Vec<TrimResult>, HnswError> {
-        if trim_jobs.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        trim_jobs
-            .into_par_iter()
-            .map(|job| self.run_trim_job(job, source))
-            .collect::<Result<Vec<_>, HnswError>>()
-    }
-
-    fn run_trim_job<D: DataSource + Sync>(
-        &self,
-        job: TrimJob,
-        source: &D,
-    ) -> Result<TrimResult, HnswError> {
-        let TrimJob {
-            node,
-            ctx,
-            candidates,
-            sequences,
-        } = job;
-
-        let connection_limit =
-            crate::hnsw::params::connection_limit_for_level(ctx.level, ctx.max_connections);
-
-        if candidates.len() != sequences.len() {
-            return Err(HnswError::InvalidParameters {
-                reason: format!(
-                    "trim job candidates ({}) must match sequence count ({})",
-                    candidates.len(),
-                    sequences.len()
-                ),
-            });
-        }
-
-        let distances = batch_distances_for_trim(&self.distance_cache, node, &candidates, source)?;
-        if distances.len() != candidates.len() {
-            return Err(HnswError::InvalidParameters {
-                reason: format!(
-                    "trim job distance count ({}) mismatches candidates ({})",
-                    distances.len(),
-                    candidates.len()
-                ),
-            });
-        }
-
-        let mut heap = BinaryHeap::with_capacity(connection_limit);
-        for (index, id) in candidates.into_iter().enumerate() {
-            let sequence = sequences[index];
-            let distance = distances[index];
-            heap.push(RankedNeighbour::new(id, distance, sequence));
-            if heap.len() > connection_limit {
-                heap.pop();
-            }
-        }
-
-        let neighbours = heap
-            .into_sorted_vec()
-            .into_iter()
-            .map(|neighbour| neighbour.into_neighbour().id)
-            .collect();
-
-        Ok(TrimResult {
-            node,
-            ctx,
-            neighbours,
-        })
-    }
-
-    fn allocate_sequence(&self) -> u64 {
-        self.next_sequence.fetch_add(1, Ordering::Relaxed)
-    }
-
-    fn sample_level(&self) -> usize {
-        if let Some(index) = current_thread_index() {
-            if let Some(rng) = self.worker_rngs.get(index) {
-                let mut guard = rng.lock().expect("worker rng mutex poisoned");
-                return self.sample_level_from_rng(&mut guard);
-            }
-        }
-
-        let mut rng = self.rng.lock().expect("rng mutex poisoned");
-        self.sample_level_from_rng(&mut rng)
-    }
-
-    fn sample_level_from_rng(&self, rng: &mut SmallRng) -> usize {
-        let mut level = 0_usize;
-        while level < self.params.max_level() {
-            let draw: f64 = rng.sample(Standard);
-            if self.params.should_stop(draw) {
-                break;
-            }
-            level += 1;
-        }
-        level
     }
 }
 
