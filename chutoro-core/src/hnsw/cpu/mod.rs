@@ -7,6 +7,7 @@ pub(super) mod internal;
 pub(super) mod rng;
 pub(super) mod trim;
 
+#[cfg(test)]
 pub(super) mod test_helpers;
 
 use std::{
