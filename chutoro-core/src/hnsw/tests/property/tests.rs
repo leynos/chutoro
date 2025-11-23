@@ -1,19 +1,80 @@
+//! Property-based tests for the HNSW implementation covering mutation plans
+//! (add/delete/reconfigure), search correctness, fixture validation, bootstrap
+//! reachability, and the shared proptest runners/helpers used to orchestrate
+//! these scenarios.
+
 use proptest::{
     prelude::any,
     prop_assert, prop_assert_eq, proptest,
-    test_runner::{TestCaseError, TestCaseResult, TestError, TestRunner},
+    test_runner::{Config, TestCaseError, TestCaseResult, TestError, TestRunner},
 };
 use rstest::rstest;
 
+/// Runs a property test with the given configuration and strategy.
+fn run_proptest<S, F>(config: Config, strategy: S, test_name: &str, property: F) -> TestCaseResult
+where
+    S: proptest::strategy::Strategy,
+    F: Fn(S::Value) -> TestCaseResult,
+{
+    let mut runner = TestRunner::new(config);
+    runner
+        .run(&strategy, property)
+        .map_err(|err| map_test_error(err, test_name))
+}
+
+/// Maps TestError to TestCaseError with formatted messages.
+fn map_test_error(err: TestError<impl std::fmt::Debug>, test_name: &str) -> TestCaseError {
+    match err {
+        TestError::Abort(reason) => TestCaseError::fail(format!("{test_name} aborted: {reason}")),
+        TestError::Fail(reason, value) => TestCaseError::fail(format!(
+            "{test_name} failed: {reason}; minimal input: {value:#?}"
+        )),
+    }
+}
+
+/// Runs a mutation property test with custom configuration and stack size.
+fn run_mutation_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
+    std::thread::Builder::new()
+        .name("hnsw-mutation".into())
+        .stack_size(stack_size)
+        .spawn(move || run_mutation_proptest(config))
+        .expect("spawn mutation runner")
+        .join()
+        .expect("mutation runner panicked")
+}
+
+fn run_mutation_proptest(config: Config) -> TestCaseResult {
+    run_proptest(
+        config,
+        (hnsw_fixture_strategy(), mutation_plan_strategy()),
+        "hnsw mutation proptest",
+        |(fixture, plan)| run_mutation_property(fixture, plan),
+    )
+}
+
+/// Runs a mutation property test with custom configuration parameters.
+fn run_mutation_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> TestCaseResult {
+    run_mutation_proptest_with_stack(
+        Config {
+            cases,
+            max_shrink_iters,
+            ..Config::default()
+        },
+        stack_size,
+    )
+}
+
 use super::{
+    mutation_property::derive_initial_population,
+    mutation_property::run_mutation_property,
     search_property::run_search_correctness_property,
-    strategies::hnsw_fixture_strategy,
+    strategies::{hnsw_fixture_strategy, mutation_plan_strategy},
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
-use crate::DataSource;
 use crate::error::DataSourceError;
 use crate::hnsw::HnswError;
+use crate::{CpuHnsw, DataSource};
 
 #[test]
 fn dense_vector_source_rejects_inconsistent_rows() {
@@ -167,22 +228,84 @@ proptest! {
 }
 
 #[test]
+#[ignore]
+fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
+    run_mutation_test(640, 4096, 32 * 1024 * 1024)
+}
+
+#[test]
 fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
-    let mut runner = TestRunner::default();
-    runner
-        .run(
-            &(hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
-            |(fixture, query_hint, k_hint)| {
-                run_search_correctness_property(fixture, query_hint, k_hint)
-            },
-        )
-        .map_err(|err| match err {
-            TestError::Abort(reason) => {
-                TestCaseError::fail(format!("hnsw search proptest aborted: {reason}"))
-            }
-            TestError::Fail(reason, value) => TestCaseError::fail(format!(
-                "hnsw search proptest failed: {reason}; minimal input: {value:#?}"
-            )),
-        })?;
-    Ok(())
+    run_proptest(
+        Config::default(),
+        (hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
+        "hnsw search proptest",
+        |(fixture, query_hint, k_hint)| {
+            run_search_correctness_property(fixture, query_hint, k_hint)
+        },
+    )
+}
+
+#[test]
+fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
+    run_mutation_test(64, 1024, 96 * 1024 * 1024)
+}
+
+#[test]
+fn bootstrap_uniform_fixture_remains_reachable() {
+    let seed = HnswParamsSeed {
+        max_connections: 2,
+        ef_construction: 2,
+        level_multiplier: 0.2,
+        max_level: 2,
+        rng_seed: 0,
+    };
+    let params = seed.build().expect("params must be valid");
+    let vectors = bootstrap_uniform_vectors();
+    let source =
+        DenseVectorSource::new("uniform-bootstrap", vectors).expect("fixture must be valid");
+    let len = source.len();
+    let initial_population = derive_initial_population(19, len);
+    assert!(
+        initial_population > 0,
+        "initial_population must be non-zero to exercise bootstrap"
+    );
+    let index = CpuHnsw::with_capacity(params, len).expect("capacity must be valid");
+    for node in 0..initial_population {
+        index
+            .insert(node, &source)
+            .expect("bootstrap insertion must succeed");
+    }
+
+    index.inspect_graph(|graph| {
+        for node in 0..initial_population {
+            let node_ref = graph.node(node).expect("seeded node should exist");
+            assert!(
+                !node_ref.neighbours(0).is_empty(),
+                "seeded node {node} should expose base neighbours",
+            );
+        }
+    });
+
+    index
+        .invariants()
+        .check_all()
+        .expect("bootstrap should preserve reachability");
+}
+
+mod fixtures {
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct BootstrapVectors(Vec<Vec<f32>>);
+
+    pub(super) fn load_bootstrap_uniform_vectors_from_fixture() -> Vec<Vec<f32>> {
+        const RAW: &str = include_str!("fixtures/bootstrap_uniform_vectors.json");
+        serde_json::from_str::<BootstrapVectors>(RAW)
+            .expect("bootstrap uniform vectors fixture should parse")
+            .0
+    }
+}
+
+fn bootstrap_uniform_vectors() -> Vec<Vec<f32>> {
+    fixtures::load_bootstrap_uniform_vectors_from_fixture()
 }

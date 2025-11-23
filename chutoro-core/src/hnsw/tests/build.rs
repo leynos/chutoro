@@ -233,8 +233,8 @@ fn trimming_prefers_lower_id_on_distance_ties() -> Result<(), HnswError> {
 
     assert_eq!(
         result.neighbours,
-        vec![1],
-        "deterministic tie-breaking must prefer the lower identifier",
+        vec![1, 2],
+        "base layer retains up to 2 * M neighbours while preserving tie-break ordering",
     );
     Ok(())
 }
@@ -262,7 +262,7 @@ fn score_trim_jobs_limits_results_to_max_connections() -> Result<(), HnswError> 
         .next()
         .expect("trim job result expected");
 
-    assert_eq!(result.neighbours, vec![1, 2]);
+    assert_eq!(result.neighbours, vec![1, 2, 3, 4]);
     Ok(())
 }
 

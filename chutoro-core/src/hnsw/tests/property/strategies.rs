@@ -11,8 +11,10 @@ use super::{
         GeneratedDataset, generate_clustered_dataset, generate_duplicate_dataset,
         generate_manifold_dataset, generate_uniform_dataset,
     },
-    types::{HnswFixture, HnswParamsSeed, VectorDistribution},
+    types::{HnswFixture, HnswParamsSeed, MutationOperationSeed, MutationPlan, VectorDistribution},
 };
+
+const MAX_MUTATION_STEPS: usize = 12;
 
 /// Generates HNSW fixtures covering multiple vector distributions.
 ///
@@ -81,6 +83,26 @@ pub(super) fn hnsw_params_strategy() -> impl Strategy<Value = HnswParamsSeed> {
                 }
             },
         )
+}
+
+/// Samples mutation plans covering add/delete/reconfigure sequences.
+pub(super) fn mutation_plan_strategy() -> impl Strategy<Value = MutationPlan> {
+    (
+        any::<u16>(),
+        prop::collection::vec(mutation_operation_seed_strategy(), 1..=MAX_MUTATION_STEPS),
+    )
+        .prop_map(|(initial_population_hint, operations)| MutationPlan {
+            initial_population_hint,
+            operations,
+        })
+}
+
+fn mutation_operation_seed_strategy() -> impl Strategy<Value = MutationOperationSeed> {
+    prop_oneof![
+        any::<u16>().prop_map(|slot_hint| MutationOperationSeed::Add { slot_hint }),
+        any::<u16>().prop_map(|slot_hint| MutationOperationSeed::Delete { slot_hint }),
+        hnsw_params_strategy().prop_map(|params| MutationOperationSeed::Reconfigure { params }),
+    ]
 }
 
 /// Converts a generated dataset into an [`HnswFixture`].

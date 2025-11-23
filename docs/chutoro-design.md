@@ -955,6 +955,32 @@ the derived speed-up ratio at `DEBUG` solely for observability. Recall falling
 below the configured threshold is the only failure condition today; speed-up
 data helps diagnose regressions but does not gate CI.
 
+#### 6.7. Stateful mutation property
+
+_Implementation update (2025-11-18)._ The property outlined in
+`docs/property-testing-design.md §2.3.2` now runs end-to-end. A `MutationPlan`
+strategy pairs each generated fixture with a bounded sequence of `Add`,
+`Delete`, and `Reconfigure` operations plus an initial population hint. The
+harness materializes the vectors into the in-memory `DenseVectorSource`, seeds
+`CpuHnsw::with_capacity`, and executes the plan with a deterministic
+`MutationPools` tracker that keeps “available” and “inserted” node sets in
+sync. After every successful mutation the test calls `CpuHnsw::invariants()` so
+the first failing operation is reported with exact context, and the summary of
+each step is emitted at `tracing::debug` to make shrinking transcripts
+actionable.
+
+Deletions rely on a new graph helper exposed solely to tests: it scrubs the
+removed node from every adjacency list, recomputes the entry point by selecting
+the highest-level survivor (ties break toward lower ids for determinism), and
+updates the public length counter. This keeps the production API unchanged
+while allowing the property to stress detachment logic until delete support
+ships for end users. Reconfiguration applies sampled `HnswParamsSeed`s but
+clamps `max_connections`/`ef_construction` so the property only relaxes fan-out
+limits; this prevents false positives from shrinking degree bounds without
+trimming the graph. Mutation plans that fail to apply at least one operation
+are rejected via `prop_assume!`, guaranteeing CI exercises meaningful
+add/delete/reconfigure sequences on every run.
+
 ## Part III: GPU Acceleration Strategy
 
 To achieve the highest possible performance on large datasets, the design

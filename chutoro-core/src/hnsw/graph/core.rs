@@ -1,6 +1,6 @@
 //! Internal graph representation for the CPU HNSW implementation.
 
-use super::{
+use crate::hnsw::{
     error::HnswError,
     insert::{InsertionExecutor, InsertionPlanner},
     node::Node,
@@ -36,7 +36,7 @@ pub(crate) struct EdgeContext {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct DescentContext {
+pub(crate) struct DescentContext {
     pub(crate) query: usize,
     pub(crate) target_level: usize,
     pub(crate) entry: EntryPoint,
@@ -56,7 +56,7 @@ impl DescentContext {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct LayerPlanContext {
+pub(crate) struct LayerPlanContext {
     pub(crate) query: usize,
     pub(crate) target_level: usize,
     pub(crate) current: usize,
@@ -78,13 +78,13 @@ impl LayerPlanContext {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct ApplyContext<'a> {
+pub(crate) struct ApplyContext<'a> {
     pub(crate) params: &'a HnswParams,
     pub(crate) plan: InsertionPlan,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct SearchContext {
+pub(crate) struct SearchContext {
     pub(crate) query: usize,
     pub(crate) entry: usize,
     pub(crate) level: usize,
@@ -123,7 +123,7 @@ impl SearchContext {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct ExtendedSearchContext {
+pub(crate) struct ExtendedSearchContext {
     pub(crate) base: SearchContext,
     pub(crate) ef: usize,
 }
@@ -146,7 +146,7 @@ impl ExtendedSearchContext {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(super) struct NeighbourSearchContext {
+pub(crate) struct NeighbourSearchContext {
     base: SearchContext,
     pub(crate) current_dist: f32,
 }
@@ -165,9 +165,9 @@ impl NeighbourSearchContext {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Graph {
-    params: HnswParams,
-    nodes: Vec<Option<Node>>,
-    entry: Option<EntryPoint>,
+    pub(super) params: HnswParams,
+    pub(super) nodes: Vec<Option<Node>>,
+    pub(super) entry: Option<EntryPoint>,
 }
 
 impl Graph {
@@ -190,7 +190,7 @@ impl Graph {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use chutoro_core::hnsw::{graph::Graph, params::HnswParams};
+    /// use crate::hnsw::{graph::Graph, params::HnswParams};
     /// let params = HnswParams::new(4, 8).expect("params must be valid");
     /// let graph = Graph::with_capacity(params, 3);
     /// assert_eq!(graph.capacity(), 3);
@@ -204,7 +204,7 @@ impl Graph {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use chutoro_core::hnsw::{graph::{Graph, NodeContext}, params::HnswParams};
+    /// use crate::hnsw::{graph::{Graph, NodeContext}, params::HnswParams};
     /// let params = HnswParams::new(4, 8).expect("params must be valid");
     /// let mut graph = Graph::with_capacity(params, 2);
     /// graph.insert_first(NodeContext { node: 0, level: 0, sequence: 0 }).expect("insert first");
@@ -275,7 +275,7 @@ impl Graph {
     ///
     /// # Examples
     /// ```rust,ignore
-    /// use chutoro_core::hnsw::{
+    /// use crate::hnsw::{
     ///     graph::{Graph, NodeContext},
     ///     params::HnswParams,
     /// };
@@ -296,27 +296,27 @@ impl Graph {
         self.node(id).map(Node::sequence)
     }
 
-    pub(super) fn has_slot(&self, node: usize) -> bool {
+    pub(crate) fn has_slot(&self, node: usize) -> bool {
         self.nodes.get(node).is_some()
     }
 
     #[inline]
-    pub(super) fn insertion_planner(&self) -> InsertionPlanner<'_> {
+    pub(crate) fn insertion_planner(&self) -> InsertionPlanner<'_> {
         InsertionPlanner::new(self)
     }
 
     #[inline]
-    pub(super) fn insertion_executor(&mut self) -> InsertionExecutor<'_> {
+    pub(crate) fn insertion_executor(&mut self) -> InsertionExecutor<'_> {
         InsertionExecutor::new(self)
     }
 
     #[inline]
-    pub(super) fn searcher(&self) -> LayerSearcher<'_> {
+    pub(crate) fn searcher(&self) -> LayerSearcher<'_> {
         LayerSearcher::new(self)
     }
 
     #[cfg(test)]
-    pub(super) fn params(&self) -> &HnswParams {
+    pub(crate) fn params(&self) -> &HnswParams {
         &self.params
     }
 }
