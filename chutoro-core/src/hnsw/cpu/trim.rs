@@ -57,7 +57,9 @@ impl CpuHnsw {
     ///     candidates: vec![0],
     ///     sequences: vec![0],
     /// }];
-    /// let results = hnsw.score_trim_jobs(trim_jobs, &Dummy(vec![0.0])).unwrap();
+    /// let results = hnsw
+    ///     .score_trim_jobs(trim_jobs, &Dummy(vec![0.0]))
+    ///     .expect("trim scoring must succeed in example");
     /// assert_eq!(results[0].neighbours, vec![0]);
     /// ```
     pub(crate) fn score_trim_jobs<D: DataSource + Sync>(

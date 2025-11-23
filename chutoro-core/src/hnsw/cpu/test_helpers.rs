@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 //! Test-only helpers for exercising and reconfiguring the CPU HNSW.
 
 use std::sync::Mutex;
