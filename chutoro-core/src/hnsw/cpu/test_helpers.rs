@@ -10,6 +10,7 @@ use crate::hnsw::{
 
 use super::{CpuHnsw, rng::build_worker_rngs};
 
+#[cfg(test)]
 impl CpuHnsw {
     /// Test-only healing hook that re-enforces reachability and bidirectionality.
     ///

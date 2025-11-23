@@ -3,12 +3,12 @@
 //! sharded RNGs, and the shared distance cache while exposing the public
 //! `CpuHnsw` API used by the CLI and tests.
 
-mod internal;
-mod rng;
-mod trim;
+pub(super) mod internal;
+pub(super) mod rng;
+pub(super) mod trim;
 
 #[cfg(test)]
-mod test_helpers;
+pub(super) mod test_helpers;
 
 use std::{
     num::NonZeroUsize,

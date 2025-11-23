@@ -49,8 +49,8 @@ impl CpuHnsw {
     /// #         Ok((a - b).abs())
     /// #     }
     /// # }
-    /// let params = HnswParams::new(1, 2).unwrap();
-    /// let hnsw = CpuHnsw::with_capacity(params, 2).unwrap();
+    /// let params = HnswParams::new(1, 2).expect("params must permit at least two nodes");
+    /// let hnsw = CpuHnsw::with_capacity(params, 2).expect("capacity should accept two nodes");
     /// let trim_jobs = vec![TrimJob {
     ///     node: 0,
     ///     ctx: EdgeContext { level: 0, max_connections: 1 },
