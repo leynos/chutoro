@@ -65,7 +65,7 @@ Accepted
 - A later seed showed a bootstrap failure, with `edge 11 -> 8` missing a reverse
   link at layer 0. Hypothesis: one-way edges can survive when a reverse-link
   insertion evicts a neighbour, but the new node keeps the forward edge.
-  Mitigation: after every commit we now run a reciprocity pass over all touched
+  Mitigation: after every commit, a reciprocity pass runs over all touched
   nodes (`ensure_reciprocity_for_touched`) that either adds the missing
   back-link (evicting and scrubbing as needed) or removes the forward edge. New
   unit tests cover both reverse-edge eviction scrubbing and healing an existing
