@@ -1,27 +1,26 @@
 //! Search correctness helpers for the CPU HNSW property suite.
 //!
 //! Hosts the brute-force oracle, recall measurement utilities, configurable
-//! recall threshold parsing, and targeted unit tests that exercise the helper
-//! logic directly via `rstest`.
+//! recall thresholds, and targeted unit tests that exercise the helper logic
+//! directly via `rstest`.
 
 use std::{
     collections::{BinaryHeap, HashSet},
-    env,
     num::NonZeroUsize,
     time::{Duration, Instant},
 };
 
+use super::search_config::SearchPropertyConfig;
+use super::types::HnswFixture;
 #[cfg(test)]
 use super::types::{DistributionMetadata, HnswParamsSeed, VectorDistribution};
+use crate::error::DataSourceError;
+use crate::{CpuHnsw, DataSource, Neighbour};
 use proptest::{
     prop_assume,
     test_runner::{TestCaseError, TestCaseResult},
 };
 use rstest::rstest;
-
-use super::types::HnswFixture;
-use crate::error::DataSourceError;
-use crate::{CpuHnsw, DataSource, Neighbour};
 
 /// Executes the search-correctness property for a generated fixture.
 pub(super) fn run_search_correctness_property(
@@ -201,124 +200,6 @@ fn record_search_metrics(ctx: SearchMetricsContext<'_>) {
         speedup = ctx.timings.speedup(),
         "hnsw search correctness property",
     );
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum RecallThresholdError {
-    ParseFloat,
-    OutOfRange { value: f32 },
-}
-
-#[derive(Clone, Copy, Debug)]
-struct SearchPropertyConfig {
-    min_recall: f32,
-    max_fixture_len: usize,
-}
-
-impl SearchPropertyConfig {
-    const ENV_KEY: &'static str = "CHUTORO_HNSW_PBT_MIN_RECALL";
-    const MAX_FIXTURE_LEN_ENV_KEY: &'static str = "CHUTORO_HNSW_PBT_MAX_FIXTURE_LEN";
-    const DEFAULT_MIN_RECALL: f32 = 0.50;
-    const DEFAULT_MAX_FIXTURE_LEN: usize = 32;
-
-    fn load() -> Self {
-        let min_recall = Self::read_env_or_default(
-            Self::ENV_KEY,
-            Self::DEFAULT_MIN_RECALL,
-            Self::parse_min_recall,
-        );
-        let max_fixture_len = Self::read_env_or_default(
-            Self::MAX_FIXTURE_LEN_ENV_KEY,
-            Self::DEFAULT_MAX_FIXTURE_LEN,
-            Self::parse_max_fixture_len,
-        );
-
-        Self {
-            min_recall,
-            max_fixture_len,
-        }
-    }
-
-    fn min_recall(&self) -> f32 {
-        self.min_recall
-    }
-
-    fn max_fixture_len(&self) -> usize {
-        self.max_fixture_len
-    }
-
-    fn read_env_or_default<T, F>(key: &'static str, default: T, parser: F) -> T
-    where
-        T: Copy,
-        F: Fn(&str) -> Result<T, String>,
-    {
-        match env::var(key) {
-            Ok(raw) => match parser(&raw) {
-                Ok(value) => value,
-                Err(reason) => {
-                    tracing::warn!(
-                        env = key,
-                        raw = %raw,
-                        reason = %reason,
-                        "invalid config override, falling back to default",
-                    );
-                    default
-                }
-            },
-            Err(_) => default,
-        }
-    }
-
-    fn parse_min_recall(raw: &str) -> Result<f32, String> {
-        parse_recall_threshold(raw).map_err(|err| format!("{err:?}"))
-    }
-
-    fn parse_max_fixture_len(raw: &str) -> Result<usize, String> {
-        let trimmed = raw.trim();
-        let parsed = trimmed
-            .parse::<usize>()
-            .map_err(|err| format!("parse error: {err}"))?;
-        if parsed < 2 {
-            return Err("value must be >= 2".to_string());
-        }
-        Ok(parsed)
-    }
-}
-
-fn parse_recall_threshold(raw: &str) -> Result<f32, RecallThresholdError> {
-    let trimmed = raw.trim();
-    let parsed = trimmed
-        .parse::<f32>()
-        .map_err(|_| RecallThresholdError::ParseFloat)?;
-    if parsed <= 0.0 || parsed > 1.0 {
-        return Err(RecallThresholdError::OutOfRange { value: parsed });
-    }
-    Ok(parsed)
-}
-
-#[rstest]
-#[case("0.5", 0.5)]
-#[case("1.0", 1.0)]
-#[case("0.01", 0.01)]
-fn parse_recall_threshold_accepts_valid_values(#[case] input: &str, #[case] expected: f32) {
-    let parsed = parse_recall_threshold(input).expect("value should parse");
-    assert!(
-        (parsed - expected).abs() < f32::EPSILON,
-        "parsed {parsed} vs {expected}"
-    );
-}
-
-#[rstest]
-#[case("0.0", RecallThresholdError::OutOfRange { value: 0.0 })]
-#[case("-0.1", RecallThresholdError::OutOfRange { value: -0.1 })]
-#[case("1.0001", RecallThresholdError::OutOfRange { value: 1.0001 })]
-#[case("abc", RecallThresholdError::ParseFloat)]
-fn parse_recall_threshold_rejects_invalid_values(
-    #[case] input: &str,
-    #[case] expected: RecallThresholdError,
-) {
-    let err = parse_recall_threshold(input).expect_err("value should fail");
-    assert_eq!(err, expected);
 }
 
 #[rstest]
