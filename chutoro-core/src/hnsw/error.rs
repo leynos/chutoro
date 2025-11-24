@@ -40,6 +40,12 @@ pub enum HnswError {
         /// Index of the second node involved in the distance query.
         right: usize,
     },
+    /// A synchronisation primitive became poisoned after a panic.
+    #[error("lock for {resource} is poisoned")]
+    LockPoisoned {
+        /// Name of the locked resource that was poisoned.
+        resource: &'static str,
+    },
     /// Wrapped [`crate::DataSource`] error.
     #[error("data source failure: {0}")]
     DataSource(#[from] DataSourceError),
@@ -56,6 +62,7 @@ impl HnswError {
             Self::GraphEmpty => HnswErrorCode::GraphEmpty,
             Self::GraphInvariantViolation { .. } => HnswErrorCode::GraphInvariantViolation,
             Self::NonFiniteDistance { .. } => HnswErrorCode::NonFiniteDistance,
+            Self::LockPoisoned { .. } => HnswErrorCode::LockPoisoned,
             Self::DataSource(_) => HnswErrorCode::DataSource,
         }
     }
@@ -76,6 +83,8 @@ pub enum HnswErrorCode {
     GraphInvariantViolation,
     /// The data source returned a non-finite distance.
     NonFiniteDistance,
+    /// A synchronisation primitive became poisoned after a panic.
+    LockPoisoned,
     /// Wrapped [`crate::DataSource`] error.
     DataSource,
 }
@@ -91,6 +100,7 @@ impl HnswErrorCode {
             Self::GraphEmpty => "GRAPH_EMPTY",
             Self::GraphInvariantViolation => "GRAPH_INVARIANT_VIOLATION",
             Self::NonFiniteDistance => "NON_FINITE_DISTANCE",
+            Self::LockPoisoned => "LOCK_POISONED",
             Self::DataSource => "DATA_SOURCE",
         }
     }
