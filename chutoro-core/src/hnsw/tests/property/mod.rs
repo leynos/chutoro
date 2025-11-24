@@ -2,6 +2,7 @@
 
 pub(super) mod datasets;
 pub(super) mod mutation_property;
+pub(super) mod search_config;
 pub(super) mod search_property;
 pub(super) mod strategies;
 pub(super) mod support;
