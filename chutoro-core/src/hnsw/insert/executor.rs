@@ -114,18 +114,7 @@ impl<'graph> InsertionExecutor<'graph> {
             level: node.level,
         };
 
-        let mut trim_lookup: HashMap<(usize, usize), Vec<usize>> = trims
-            .into_iter()
-            .map(|result| ((result.node, result.ctx.level), result.neighbours))
-            .collect();
-
-        let mut final_updates: Vec<FinalisedUpdate> = Vec::with_capacity(updates.len());
-        for update in updates {
-            let neighbours = trim_lookup
-                .remove(&(update.node, update.ctx.level))
-                .unwrap_or_else(|| update.candidates.clone());
-            final_updates.push((update, neighbours));
-        }
+        let mut final_updates = Self::prepare_final_updates(updates, trims);
 
         let mut filtered_new_node_neighbours = new_node_neighbours.clone();
         ReciprocityWorkspace {
@@ -144,32 +133,12 @@ impl<'graph> InsertionExecutor<'graph> {
             applicator.apply_neighbour_updates(final_updates, max_connections, new_node)?
         };
 
-        {
-            let mut healer = ConnectivityHealer::new(self.graph);
-            for (level, neighbours) in reciprocated.iter_mut().enumerate() {
-                neighbours.sort_unstable();
-                neighbours.dedup();
-                let limit = compute_connection_limit(level, max_connections);
-                if neighbours.len() > limit {
-                    neighbours.truncate(limit);
-                }
-                if !neighbours.is_empty() {
-                    continue;
-                }
-
-                let link_ctx = LinkContext {
-                    level,
-                    max_connections,
-                    new_node: new_node.id,
-                };
-
-                if let Some(candidate) = healer
-                    .select_new_node_fallback(link_ctx, filtered_new_node_neighbours.get(level))
-                {
-                    neighbours.push(candidate);
-                }
-            }
-        }
+        self.heal_connectivity_gaps(
+            &mut reciprocated,
+            &filtered_new_node_neighbours,
+            new_node.id,
+            max_connections,
+        );
 
         {
             let mut applicator = CommitApplicator::new(self.graph);
@@ -188,6 +157,60 @@ impl<'graph> InsertionExecutor<'graph> {
         }
 
         Ok(())
+    }
+
+    fn prepare_final_updates(
+        updates: Vec<super::types::StagedUpdate>,
+        trims: Vec<TrimResult>,
+    ) -> Vec<FinalisedUpdate> {
+        let mut trim_lookup: HashMap<(usize, usize), Vec<usize>> = trims
+            .into_iter()
+            .map(|result| ((result.node, result.ctx.level), result.neighbours))
+            .collect();
+
+        let mut final_updates: Vec<FinalisedUpdate> = Vec::with_capacity(updates.len());
+        for update in updates {
+            let neighbours = trim_lookup
+                .remove(&(update.node, update.ctx.level))
+                .unwrap_or_else(|| update.candidates.clone());
+            final_updates.push((update, neighbours));
+        }
+
+        final_updates
+    }
+
+    fn heal_connectivity_gaps(
+        &mut self,
+        reciprocated: &mut [Vec<usize>],
+        filtered_new_node_neighbours: &[Vec<usize>],
+        new_node_id: usize,
+        max_connections: usize,
+    ) {
+        let mut healer = ConnectivityHealer::new(self.graph);
+        for (level, neighbours) in reciprocated.iter_mut().enumerate() {
+            neighbours.sort_unstable();
+            neighbours.dedup();
+            let limit = compute_connection_limit(level, max_connections);
+            if neighbours.len() > limit {
+                neighbours.truncate(limit);
+            }
+            if !neighbours.is_empty() {
+                continue;
+            }
+
+            let link_ctx = LinkContext {
+                level,
+                max_connections,
+                new_node: new_node_id,
+            };
+
+            if let Some(candidate) = healer.select_new_node_fallback(
+                link_ctx,
+                filtered_new_node_neighbours.get(level),
+            ) {
+                neighbours.push(candidate);
+            }
+        }
     }
 
     #[cfg_attr(not(debug_assertions), allow(dead_code))]
