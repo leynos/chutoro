@@ -81,6 +81,10 @@ impl<'graph> InsertionStager<'graph> {
 
     /// Builds staged updates and trimming jobs from the collected neighbour
     /// candidates.
+    #[expect(
+        clippy::excessive_nesting,
+        reason = "Trim job construction keeps candidate/sequence assembly together"
+    )]
     pub(super) fn generate_updates_and_trim_jobs(
         &self,
         new_node: NodeContext,
@@ -101,11 +105,11 @@ impl<'graph> InsertionStager<'graph> {
                 max_connections,
             };
             prioritise_new_node(new_node.node, &mut candidates);
-            let mut sequences = Vec::with_capacity(candidates.len());
-            for &candidate in &candidates {
-                sequences.push(self.sequence_for_candidate(candidate, new_node, lvl)?);
-            }
             if needs_trim.contains(&(other, lvl)) {
+                let mut sequences = Vec::with_capacity(candidates.len());
+                for &candidate in &candidates {
+                    sequences.push(self.sequence_for_candidate(candidate, new_node, lvl)?);
+                }
                 let reordered = candidates.clone();
                 debug_assert_eq!(
                     reordered.len(),

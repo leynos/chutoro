@@ -16,7 +16,10 @@ impl<'graph> TestHelpers<'graph> {
         Self { graph }
     }
 
-    #[cfg_attr(not(debug_assertions), allow(dead_code))]
+    #[cfg_attr(
+        not(debug_assertions),
+        expect(dead_code, reason = "test helper unused in release builds")
+    )]
     pub(super) fn heal_reachability(&mut self, max_connections: usize) {
         let Some(entry) = self.graph.entry() else {
             return;
@@ -80,7 +83,10 @@ impl<'graph> TestHelpers<'graph> {
         false
     }
 
-    #[cfg_attr(not(debug_assertions), allow(dead_code))]
+    #[cfg_attr(
+        not(debug_assertions),
+        expect(dead_code, reason = "test helper unused in release builds")
+    )]
     #[expect(
         clippy::excessive_nesting,
         reason = "test-only BFS uses simple inline queue"
@@ -99,7 +105,10 @@ impl<'graph> TestHelpers<'graph> {
         visited
     }
 
-    #[cfg_attr(not(debug_assertions), allow(dead_code))]
+    #[cfg_attr(
+        not(debug_assertions),
+        expect(dead_code, reason = "test helper unused in release builds")
+    )]
     pub(super) fn first_reachable_with_capacity(
         &self,
         visited: &[bool],
@@ -115,7 +124,10 @@ impl<'graph> TestHelpers<'graph> {
             .map(|(id, _)| id)
     }
 
-    #[cfg_attr(not(debug_assertions), allow(dead_code))]
+    #[cfg_attr(
+        not(debug_assertions),
+        expect(dead_code, reason = "test helper unused in release builds")
+    )]
     pub(super) fn first_reachable(&self, visited: &[bool]) -> Option<usize> {
         self.graph
             .nodes_iter()
@@ -123,7 +135,10 @@ impl<'graph> TestHelpers<'graph> {
             .find(|&id| visited.get(id).copied().unwrap_or(false))
     }
 
-    #[cfg_attr(not(debug_assertions), allow(dead_code))]
+    #[cfg_attr(
+        not(debug_assertions),
+        expect(dead_code, reason = "test helper unused in release builds")
+    )]
     pub(super) fn enforce_bidirectional_all(&mut self, max_connections: usize) {
         for (origin, level, target) in self.collect_edges() {
             let ctx = UpdateContext {

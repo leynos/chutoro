@@ -24,6 +24,10 @@ impl<'graph> EdgeReconciler<'graph> {
         self.graph
     }
 
+    pub(super) fn graph(&self) -> &Graph {
+        self.graph
+    }
+
     pub(super) fn reconcile_removed_edges(
         &mut self,
         ctx: &UpdateContext,

@@ -211,7 +211,10 @@ impl<'graph> InsertionExecutor<'graph> {
         }
     }
 
-    #[cfg_attr(not(debug_assertions), allow(dead_code))]
+    #[cfg_attr(
+        not(debug_assertions),
+        expect(dead_code, reason = "test helper unused in release builds")
+    )]
     #[cfg(test)]
     pub(crate) fn heal_reachability(&mut self, max_connections: usize) {
         super::test_helpers::TestHelpers::new(self.graph).heal_reachability(max_connections);
