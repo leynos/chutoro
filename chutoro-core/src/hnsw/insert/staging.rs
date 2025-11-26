@@ -13,7 +13,7 @@ use crate::hnsw::{
     types::InsertionPlan,
 };
 
-use super::executor::compute_connection_limit;
+use super::limits::compute_connection_limit;
 use super::types::{LayerProcessingOutcome, StagedUpdate, TrimJob, TrimWork};
 
 #[derive(Debug)]

@@ -6,11 +6,11 @@ use std::collections::HashMap;
 use crate::hnsw::{
     error::HnswError,
     graph::{ApplyContext, Graph, NodeContext},
-    params::connection_limit_for_level,
 };
 
 use super::commit::CommitApplicator;
 use super::connectivity::ConnectivityHealer;
+use super::limits::compute_connection_limit;
 use super::reciprocity::{ReciprocityEnforcer, ReciprocityWorkspace};
 use super::staging::InsertionStager;
 use super::types::{
@@ -222,11 +222,6 @@ impl<'graph> InsertionExecutor<'graph> {
         super::test_helpers::TestHelpers::new(self.graph)
             .enforce_bidirectional_all(max_connections);
     }
-}
-
-/// Computes the connection limit for a given level (doubled for level 0).
-pub(super) fn compute_connection_limit(level: usize, max_connections: usize) -> usize {
-    connection_limit_for_level(level, max_connections)
 }
 
 #[cfg(test)]

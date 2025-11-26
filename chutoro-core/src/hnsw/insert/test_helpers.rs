@@ -1,7 +1,7 @@
 //! Test-only helpers for repairing graph connectivity and reciprocity.
 
 use super::{
-    connectivity::ConnectivityHealer, executor::compute_connection_limit,
+    connectivity::ConnectivityHealer, limits::compute_connection_limit,
     reconciliation::EdgeReconciler, types::UpdateContext,
 };
 use crate::hnsw::graph::Graph;

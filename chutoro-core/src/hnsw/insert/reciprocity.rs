@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use crate::hnsw::graph::Graph;
 
 use super::{
-    executor::compute_connection_limit,
+    limits::compute_connection_limit,
     reconciliation::EdgeReconciler,
     types::{FinalisedUpdate, UpdateContext},
 };

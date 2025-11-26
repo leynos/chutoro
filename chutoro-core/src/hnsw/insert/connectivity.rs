@@ -4,7 +4,7 @@
 //! base-layer reachability guarantees, and cleanup of evicted edges when
 //! neighbour lists overflow.
 
-use super::executor::compute_connection_limit;
+use super::limits::compute_connection_limit;
 use super::types::{LinkContext, UpdateContext};
 use crate::hnsw::graph::Graph;
 

@@ -7,7 +7,7 @@
 use crate::hnsw::graph::Graph;
 
 use super::{
-    connectivity::ConnectivityHealer, executor::compute_connection_limit, types::UpdateContext,
+    connectivity::ConnectivityHealer, limits::compute_connection_limit, types::UpdateContext,
 };
 
 #[derive(Debug)]
