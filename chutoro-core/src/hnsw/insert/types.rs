@@ -99,3 +99,10 @@ pub(super) struct LinkContext {
     pub(super) max_connections: usize,
     pub(super) new_node: usize,
 }
+
+/// Context for healing connectivity gaps during insertion.
+pub(super) struct HealingContext<'a> {
+    pub filtered_new_node_neighbours: &'a [Vec<usize>],
+    pub new_node_id: usize,
+    pub max_connections: usize,
+}

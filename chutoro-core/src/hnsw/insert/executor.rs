@@ -13,7 +13,7 @@ use super::commit::CommitApplicator;
 use super::connectivity::ConnectivityHealer;
 use super::reciprocity::{ReciprocityEnforcer, ReciprocityWorkspace};
 use super::staging::InsertionStager;
-use super::types::{FinalisedUpdate, LinkContext, NewNodeContext, PreparedInsertion, TrimWork};
+use super::types::{FinalisedUpdate, HealingContext, LinkContext, NewNodeContext, PreparedInsertion, TrimWork};
 
 pub(crate) use super::types::{TrimJob, TrimResult};
 
@@ -135,9 +135,11 @@ impl<'graph> InsertionExecutor<'graph> {
 
         self.heal_connectivity_gaps(
             &mut reciprocated,
-            &filtered_new_node_neighbours,
-            new_node.id,
-            max_connections,
+            HealingContext {
+                filtered_new_node_neighbours: &filtered_new_node_neighbours,
+                new_node_id: new_node.id,
+                max_connections,
+            },
         );
 
         {
@@ -182,15 +184,13 @@ impl<'graph> InsertionExecutor<'graph> {
     fn heal_connectivity_gaps(
         &mut self,
         reciprocated: &mut [Vec<usize>],
-        filtered_new_node_neighbours: &[Vec<usize>],
-        new_node_id: usize,
-        max_connections: usize,
+        healing_ctx: HealingContext<'_>,
     ) {
         let mut healer = ConnectivityHealer::new(self.graph);
         for (level, neighbours) in reciprocated.iter_mut().enumerate() {
             neighbours.sort_unstable();
             neighbours.dedup();
-            let limit = compute_connection_limit(level, max_connections);
+            let limit = compute_connection_limit(level, healing_ctx.max_connections);
             if neighbours.len() > limit {
                 neighbours.truncate(limit);
             }
@@ -200,12 +200,12 @@ impl<'graph> InsertionExecutor<'graph> {
 
             let link_ctx = LinkContext {
                 level,
-                max_connections,
-                new_node: new_node_id,
+                max_connections: healing_ctx.max_connections,
+                new_node: healing_ctx.new_node_id,
             };
 
             if let Some(candidate) =
-                healer.select_new_node_fallback(link_ctx, filtered_new_node_neighbours.get(level))
+                healer.select_new_node_fallback(link_ctx, healing_ctx.filtered_new_node_neighbours.get(level))
             {
                 neighbours.push(candidate);
             }
