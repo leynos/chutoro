@@ -94,10 +94,6 @@ impl<'graph> InsertionExecutor<'graph> {
     }
 
     /// Applies a prepared insertion after trim distances have been evaluated.
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "Fallback selection and connectivity healing require structured branching"
-    )]
     pub(crate) fn commit(
         &mut self,
         prepared: PreparedInsertion,
