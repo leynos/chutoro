@@ -204,10 +204,9 @@ impl<'graph> InsertionExecutor<'graph> {
                 new_node: new_node_id,
             };
 
-            if let Some(candidate) = healer.select_new_node_fallback(
-                link_ctx,
-                filtered_new_node_neighbours.get(level),
-            ) {
+            if let Some(candidate) =
+                healer.select_new_node_fallback(link_ctx, filtered_new_node_neighbours.get(level))
+            {
                 neighbours.push(candidate);
             }
         }
