@@ -13,7 +13,9 @@ use super::commit::CommitApplicator;
 use super::connectivity::ConnectivityHealer;
 use super::reciprocity::{ReciprocityEnforcer, ReciprocityWorkspace};
 use super::staging::InsertionStager;
-use super::types::{FinalisedUpdate, HealingContext, LinkContext, NewNodeContext, PreparedInsertion, TrimWork};
+use super::types::{
+    FinalisedUpdate, HealingContext, LinkContext, NewNodeContext, PreparedInsertion, TrimWork,
+};
 
 pub(crate) use super::types::{TrimJob, TrimResult};
 
@@ -204,9 +206,10 @@ impl<'graph> InsertionExecutor<'graph> {
                 new_node: healing_ctx.new_node_id,
             };
 
-            if let Some(candidate) =
-                healer.select_new_node_fallback(link_ctx, healing_ctx.filtered_new_node_neighbours.get(level))
-            {
+            if let Some(candidate) = healer.select_new_node_fallback(
+                link_ctx,
+                healing_ctx.filtered_new_node_neighbours.get(level),
+            ) {
                 neighbours.push(candidate);
             }
         }
