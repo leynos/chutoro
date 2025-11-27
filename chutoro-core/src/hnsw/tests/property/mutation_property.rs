@@ -48,10 +48,12 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
     heal_graph(&index);
 
     index.invariants().check_all().map_err(|err| {
+        debug!(len, %err, "invariants failed after bootstrap");
         TestCaseError::fail(format!(
             "invariants failed after bootstrap (len={len}): {err}"
         ))
     })?;
+    debug!(len, "invariants passed after bootstrap");
 
     let mut active_params = params;
     let mut applied = 0_usize;
@@ -78,11 +80,26 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
         #[cfg(test)]
         heal_graph(&index);
         index.invariants().check_all().map_err(|err| {
+            debug!(
+                step,
+                applied,
+                len = index.len(),
+                operation = ?operation,
+                %err,
+                "invariants failed after mutation step"
+            );
             TestCaseError::fail(format!(
                 "invariants failed after step {step} ({:?}): {err}",
                 operation,
             ))
         })?;
+        debug!(
+            step,
+            applied,
+            len = index.len(),
+            operation = ?operation,
+            "invariants passed after mutation step"
+        );
     }
 
     prop_assume!(applied > 0);

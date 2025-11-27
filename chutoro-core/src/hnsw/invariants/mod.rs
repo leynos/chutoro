@@ -13,6 +13,7 @@ mod reachability;
 use std::fmt;
 
 use thiserror::Error;
+use tracing::{debug, trace};
 
 use crate::hnsw::{CpuHnsw, graph::Graph, params::HnswParams};
 
@@ -155,7 +156,8 @@ impl<'index> HnswInvariantChecker<'index> {
         &self,
         invariants: impl IntoIterator<Item = HnswInvariant>,
     ) -> Result<(), HnswInvariantViolation> {
-        self.run_with_mode(invariants, EvaluationMode::FailFast)
+        let invariants: Vec<_> = invariants.into_iter().collect();
+        self.run_with_mode(&invariants, EvaluationMode::FailFast)
     }
 
     /// Runs a single invariant.
@@ -195,8 +197,41 @@ impl<'index> HnswInvariantChecker<'index> {
         &self,
         invariants: impl IntoIterator<Item = HnswInvariant>,
     ) -> Vec<HnswInvariantViolation> {
+        self.collect_many_with_mode(invariants, false)
+    }
+
+    /// Executes every invariant and logs each violation as it is recorded.
+    ///
+    /// Useful when debugging property-test failures where multiple invariant
+    /// breaches may be present before shrinking.
+    #[must_use]
+    pub fn collect_all_with_logging(&self) -> Vec<HnswInvariantViolation> {
+        self.collect_many_with_logging(HnswInvariant::all())
+    }
+
+    /// Executes the selected invariants, logging each violation as it is
+    /// captured.
+    #[must_use]
+    pub fn collect_many_with_logging(
+        &self,
+        invariants: impl IntoIterator<Item = HnswInvariant>,
+    ) -> Vec<HnswInvariantViolation> {
+        self.collect_many_with_mode(invariants, true)
+    }
+
+    fn collect_many_with_mode(
+        &self,
+        invariants: impl IntoIterator<Item = HnswInvariant>,
+        log_violations: bool,
+    ) -> Vec<HnswInvariantViolation> {
+        let invariants: Vec<_> = invariants.into_iter().collect();
         let mut violations = Vec::new();
-        if let Err(err) = self.run_with_mode(invariants, EvaluationMode::Collect(&mut violations)) {
+        let mode = if log_violations {
+            EvaluationMode::CollectLogged(&mut violations)
+        } else {
+            EvaluationMode::Collect(&mut violations)
+        };
+        if let Err(err) = self.run_with_mode(&invariants, mode) {
             violations.push(err);
         }
         violations
@@ -204,12 +239,24 @@ impl<'index> HnswInvariantChecker<'index> {
 
     fn run_with_mode(
         &self,
-        invariants: impl IntoIterator<Item = HnswInvariant>,
+        invariants: &[HnswInvariant],
         mut mode: EvaluationMode<'_>,
     ) -> Result<(), HnswInvariantViolation> {
         self.with_context(|ctx| {
+            let node_count = ctx.graph.nodes_iter().count();
+            let entry = ctx.graph.entry();
+            debug!(
+                invariants = invariants.len(),
+                graph_nodes = node_count,
+                entry = ?entry,
+                max_connections = ctx.params.max_connections(),
+                ef_construction = ctx.params.ef_construction(),
+                max_level = ctx.params.max_level(),
+                "running HNSW invariants"
+            );
             for invariant in invariants {
-                dispatch(ctx, invariant, &mut mode)?;
+                trace!(?invariant, "checking invariant");
+                dispatch(ctx, *invariant, &mut mode)?;
             }
             Ok(())
         })
@@ -250,6 +297,7 @@ pub(super) struct GraphContext<'a> {
 pub(super) enum EvaluationMode<'a> {
     FailFast,
     Collect(&'a mut Vec<HnswInvariantViolation>),
+    CollectLogged(&'a mut Vec<HnswInvariantViolation>),
 }
 
 impl EvaluationMode<'_> {
@@ -257,6 +305,11 @@ impl EvaluationMode<'_> {
         match self {
             Self::FailFast => Err(violation),
             Self::Collect(sink) => {
+                sink.push(violation);
+                Ok(())
+            }
+            Self::CollectLogged(sink) => {
+                debug!(%violation, "recorded invariant violation");
                 sink.push(violation);
                 Ok(())
             }
