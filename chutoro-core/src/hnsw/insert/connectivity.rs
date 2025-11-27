@@ -59,8 +59,7 @@ impl<'graph> ConnectivityHealer<'graph> {
         };
 
         let neighbours = new_node_ref.neighbours_mut(ctx.level);
-        let limit_new = compute_connection_limit(ctx.level, ctx.max_connections);
-        Self::add_to_neighbour_list(neighbours, ctx.origin, limit_new);
+        Self::add_to_neighbour_list(neighbours, ctx.origin, limit);
         if !neighbours.contains(&ctx.origin) {
             return false;
         }
@@ -90,7 +89,7 @@ impl<'graph> ConnectivityHealer<'graph> {
     pub(super) fn select_new_node_fallback(
         &mut self,
         ctx: LinkContext,
-        fallback: Option<&Vec<usize>>,
+        fallback: Option<&[usize]>,
     ) -> Option<usize> {
         let linked = fallback
             .into_iter()

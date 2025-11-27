@@ -76,7 +76,12 @@ impl<'graph> InsertionStager<'graph> {
             }
         }
 
-        Ok((new_node_neighbours, staged, initialised, needs_trim))
+        Ok(LayerProcessingOutcome {
+            new_node_neighbours,
+            staged,
+            initialised,
+            needs_trim,
+        })
     }
 
     /// Builds staged updates and trimming jobs from the collected neighbour

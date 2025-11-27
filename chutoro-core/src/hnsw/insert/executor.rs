@@ -14,7 +14,8 @@ use super::limits::compute_connection_limit;
 use super::reciprocity::{ReciprocityEnforcer, ReciprocityWorkspace};
 use super::staging::InsertionStager;
 use super::types::{
-    FinalisedUpdate, HealingContext, LinkContext, NewNodeContext, PreparedInsertion, TrimWork,
+    FinalisedUpdate, HealingContext, LayerProcessingOutcome, LinkContext, NewNodeContext,
+    PreparedInsertion, StagedUpdate, TrimWork,
 };
 
 pub(crate) use super::types::{TrimJob, TrimResult};
@@ -53,16 +54,20 @@ impl<'graph> InsertionExecutor<'graph> {
 
         let promote_entry = level > self.graph.entry().map(|entry| entry.level).unwrap_or(0);
         let max_connections = params.max_connections();
-        let (mut new_node_neighbours, staged, _initialised, needs_trim) = stager
-            .process_insertion_layers(
-                NodeContext {
-                    node,
-                    level,
-                    sequence,
-                },
-                plan,
-                max_connections,
-            )?;
+        let LayerProcessingOutcome {
+            mut new_node_neighbours,
+            staged,
+            initialised: _initialised,
+            needs_trim,
+        } = stager.process_insertion_layers(
+            NodeContext {
+                node,
+                level,
+                sequence,
+            },
+            plan,
+            max_connections,
+        )?;
         InsertionStager::dedupe_new_node_lists(&mut new_node_neighbours);
         let (updates, trim_jobs) = stager.generate_updates_and_trim_jobs(
             NodeContext {
@@ -160,7 +165,7 @@ impl<'graph> InsertionExecutor<'graph> {
     }
 
     fn prepare_final_updates(
-        updates: Vec<super::types::StagedUpdate>,
+        updates: Vec<StagedUpdate>,
         trims: Vec<TrimResult>,
     ) -> Vec<FinalisedUpdate> {
         let mut trim_lookup: HashMap<(usize, usize), Vec<usize>> = trims
@@ -204,7 +209,10 @@ impl<'graph> InsertionExecutor<'graph> {
 
             if let Some(candidate) = healer.select_new_node_fallback(
                 link_ctx,
-                healing_ctx.filtered_new_node_neighbours.get(level),
+                healing_ctx
+                    .filtered_new_node_neighbours
+                    .get(level)
+                    .map(Vec::as_slice),
             ) {
                 neighbours.push(candidate);
             }

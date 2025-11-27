@@ -95,7 +95,7 @@ impl<'graph> TestHelpers<'graph> {
         let mut visited = vec![false; self.graph.capacity()];
         let mut queue = vec![entry];
         while let Some(next) = queue.pop() {
-            if !visited.get(next).copied().unwrap_or(false) {
+            if next < visited.len() && !visited[next] {
                 visited[next] = true;
                 if let Some(node_ref) = self.graph.node(next) {
                     queue.extend(node_ref.iter_neighbours().map(|(_, neighbour)| neighbour));

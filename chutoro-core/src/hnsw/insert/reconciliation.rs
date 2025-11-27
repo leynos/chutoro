@@ -89,7 +89,9 @@ impl<'graph> EdgeReconciler<'graph> {
         if neighbours.len() < limit {
             neighbours.push(ctx.origin);
         } else if !neighbours.is_empty() {
-            evicted = neighbours.pop();
+            // Neighbour lists produced by trimming are ordered furthest-first; evict
+            // the furthest (front) to preserve closer entries when capacity is full.
+            evicted = Some(neighbours.remove(0));
             neighbours.push(ctx.origin);
         }
 

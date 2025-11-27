@@ -66,12 +66,12 @@ pub(crate) struct TrimResult {
 pub(super) type FinalisedUpdate = (StagedUpdate, Vec<usize>);
 
 /// Outcome of staging the insertion layers prior to trimming.
-pub(super) type LayerProcessingOutcome = (
-    Vec<Vec<usize>>,
-    HashMap<(usize, usize), Vec<usize>>,
-    HashSet<(usize, usize)>,
-    HashSet<(usize, usize)>,
-);
+pub(super) struct LayerProcessingOutcome {
+    pub(super) new_node_neighbours: Vec<Vec<usize>>,
+    pub(super) staged: HashMap<(usize, usize), Vec<usize>>,
+    pub(super) initialised: HashSet<(usize, usize)>,
+    pub(super) needs_trim: HashSet<(usize, usize)>,
+}
 
 /// Accumulates the staged neighbour lists and trimming metadata.
 pub(super) struct TrimWork {
@@ -102,7 +102,7 @@ pub(super) struct LinkContext {
 
 /// Context for healing connectivity gaps during insertion.
 pub(super) struct HealingContext<'a> {
-    pub filtered_new_node_neighbours: &'a [Vec<usize>],
-    pub new_node_id: usize,
-    pub max_connections: usize,
+    pub(super) filtered_new_node_neighbours: &'a [Vec<usize>],
+    pub(super) new_node_id: usize,
+    pub(super) max_connections: usize,
 }
