@@ -25,19 +25,34 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
     let mut index = CpuHnsw::with_capacity(active_params.clone(), len)
         .map_err(|err| TestCaseError::fail(format!("with_capacity(len={len}) failed: {err}")))?;
     let mut pools = MutationPools::new(len);
+    let mut ctx = MutationContext::new(&mut index, &mut pools, &source);
 
-    bootstrap_and_validate(
-        &mut index,
-        &mut pools,
-        &source,
-        plan.initial_population_hint,
-        len,
-    )?;
+    bootstrap_and_validate(&mut ctx, plan.initial_population_hint, len)?;
 
-    let applied = apply_mutation_steps(&mut index, &mut pools, &mut active_params, &source, &plan)?;
+    let applied = apply_mutation_steps(&mut ctx, &mut active_params, &plan)?;
 
     prop_assume!(applied > 0);
     Ok(())
+}
+
+struct MutationContext<'a> {
+    index: &'a mut CpuHnsw,
+    pools: &'a mut MutationPools,
+    source: &'a DenseVectorSource,
+}
+
+impl<'a> MutationContext<'a> {
+    fn new(
+        index: &'a mut CpuHnsw,
+        pools: &'a mut MutationPools,
+        source: &'a DenseVectorSource,
+    ) -> Self {
+        Self {
+            index,
+            pools,
+            source,
+        }
+    }
 }
 
 fn setup_mutation_index(
@@ -57,26 +72,23 @@ fn setup_mutation_index(
     Ok((params, source, len))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn bootstrap_and_validate(
-    index: &mut CpuHnsw,
-    pools: &mut MutationPools,
-    source: &DenseVectorSource,
+    ctx: &mut MutationContext<'_>,
     initial_population_hint: u16,
     len: usize,
 ) -> Result<(), TestCaseError> {
     let initial_population = derive_initial_population(initial_population_hint, len);
-    let seeded = pools.bootstrap(initial_population);
+    let seeded = ctx.pools.bootstrap(initial_population);
     for node in seeded {
-        index.insert(node, source).map_err(|err| {
+        ctx.index.insert(node, ctx.source).map_err(|err| {
             TestCaseError::fail(format!("initial insert node {node} failed: {err}"))
         })?;
     }
 
     #[cfg(test)]
-    heal_graph(index);
+    heal_graph(ctx.index);
 
-    index.invariants().check_all().map_err(|err| {
+    ctx.index.invariants().check_all().map_err(|err| {
         debug!(len, %err, "invariants failed after bootstrap");
         TestCaseError::fail(format!(
             "invariants failed after bootstrap (len={len}): {err}"
@@ -86,21 +98,18 @@ fn bootstrap_and_validate(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn apply_mutation_steps(
-    index: &mut CpuHnsw,
-    pools: &mut MutationPools,
+    ctx: &mut MutationContext<'_>,
     active_params: &mut HnswParams,
-    source: &DenseVectorSource,
     plan: &MutationPlan,
 ) -> Result<usize, TestCaseError> {
     let mut applied = 0_usize;
     for (step, operation) in plan.operations.iter().enumerate() {
         let outcome = {
             let mut ctx = MutationRunner {
-                index,
-                pools,
-                source,
+                index: ctx.index,
+                pools: ctx.pools,
+                source: ctx.source,
                 active_params,
             };
             ctx.apply(operation)?
@@ -115,12 +124,12 @@ fn apply_mutation_steps(
             "hnsw mutation step"
         );
         #[cfg(test)]
-        heal_graph(index);
-        index.invariants().check_all().map_err(|err| {
+        heal_graph(ctx.index);
+        ctx.index.invariants().check_all().map_err(|err| {
             debug!(
                 step,
                 applied,
-                len = index.len(),
+                len = ctx.index.len(),
                 operation = ?operation,
                 %err,
                 "invariants failed after mutation step"
@@ -133,7 +142,7 @@ fn apply_mutation_steps(
         debug!(
             step,
             applied,
-            len = index.len(),
+            len = ctx.index.len(),
             operation = ?operation,
             "invariants passed after mutation step"
         );
