@@ -313,6 +313,40 @@ common source of subtle bugs like dangling pointers or inconsistent state.
     update neighbour lists across multiple layers without violating degree
     constraints or creating disconnected components.
 
+##### Debugging proptest failures
+
+Property failures are reproducible and diagnosable with deterministic seeds.
+
+1. Reproduce the failure locally with the reported seed:
+
+   ```sh
+   cargo test --seed <SEED> -p chutoro-core \
+     hnsw_mutations_preserve_invariants_proptest --exact --nocapture
+   ```
+
+2. Enable verbose logging to trace each mutation and invariant check:
+
+   ```sh
+   RUST_LOG=debug cargo test --seed <SEED> -p chutoro-core \
+     hnsw_mutations_preserve_invariants_proptest --exact --nocapture
+   ```
+
+3. Interpreting violations:
+
+   - `MissingBacklink { origin, target, layer }`: the forward edge was
+     retained but the reverse link was trimmed or never added.
+   - `LayerConsistency { .. }`: a node references a neighbour slot that is
+     missing or exposes too few layers.
+   - Use `collect_all_with_logging()` from the invariant checker to capture
+     and log multiple violations before shrinking.
+
+4. Shrinking: proptest will minimise the failing sequence. Inspect the
+   printed "minimal failing input" to focus on the smallest reproducing plan.
+
+5. Common patterns: high fan-out trims that evict the new node, deletes that
+   disconnect the entry point, and mixed reconfigure + delete sequences that
+   shrink lower layers before reciprocity is restored.
+
 #### 2.3.3. Property 3: Idempotency of insertion
 
 This property verifies that the insertion logic correctly handles duplicate

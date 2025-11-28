@@ -24,3 +24,18 @@ via the `metrics` crate:
 - `distance_cache_lookup_latency_histogram` (histogram, seconds)
 
 These metric names are stable for downstream crates.
+
+## Debugging property tests
+
+Mutation properties (`hnsw_mutations_preserve_invariants_proptest`) exercise
+add, delete, and reconfigure paths with invariant sweeps.
+
+- Run: `cargo test -p chutoro-core hnsw_mutations_preserve_invariants_proptest`
+- Reproduce: `cargo test --seed <SEED> -p chutoro-core \
+  hnsw_mutations_preserve_invariants_proptest --exact --nocapture`
+- Verbose logs: `RUST_LOG=debug cargo test --seed <SEED> -p chutoro-core \
+  hnsw_mutations_preserve_invariants_proptest --exact --nocapture`
+- Stress runs: raise `PROPTEST_CASES` in `chutoro-core/src/hnsw/tests/mod.rs`
+  or set the env var when invoking `cargo test`.
+- See `docs/property-testing-design.md#debugging-proptest-failures` for
+  interpreting violations and log output.
