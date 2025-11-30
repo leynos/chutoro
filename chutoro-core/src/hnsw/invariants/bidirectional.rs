@@ -26,14 +26,15 @@ pub(super) fn check_bidirectional(
         trace!(source, target, level, "checking edge for backlink");
         match validator.ensure(source, target, level) {
             Ok(neighbour) => {
-                if neighbour.neighbours(level).contains(&source) {
+                let neighbours = neighbour.neighbours(level);
+                if neighbours.contains(&source) {
                     Ok(())
                 } else {
                     debug!(
                         source,
                         target,
                         level,
-                        neighbours = ?neighbour.neighbours(level),
+                        neighbours = ?neighbours,
                         "missing backlink"
                     );
                     mode.record(HnswInvariantViolation::MissingBacklink {
