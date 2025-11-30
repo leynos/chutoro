@@ -152,10 +152,7 @@ impl<'index> HnswInvariantChecker<'index> {
     }
 
     /// Runs a custom subset of invariants in the provided order.
-    pub fn check_many<I>(
-        &self,
-        invariants: I,
-    ) -> Result<(), HnswInvariantViolation>
+    pub fn check_many<I>(&self, invariants: I) -> Result<(), HnswInvariantViolation>
     where
         I: IntoIterator<Item = HnswInvariant>,
         I::IntoIter: Clone,

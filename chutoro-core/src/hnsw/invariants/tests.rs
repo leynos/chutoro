@@ -187,6 +187,13 @@ fn reachability_collects_all_unreachable_nodes() {
 
 #[test]
 fn collect_all_reports_multiple_violations() {
+    assert_collects_unreachable_nodes(|index| index.invariants().collect_all(), "collect_all");
+}
+
+fn assert_collects_unreachable_nodes<F>(collect: F, description: &str)
+where
+    F: FnOnce(&CpuHnsw) -> Vec<HnswInvariantViolation>,
+{
     let (index, _data) = build_index();
     {
         let mut graph = index.graph.write().expect("lock");
@@ -194,30 +201,20 @@ fn collect_all_reports_multiple_violations() {
             clear_node(&mut graph, entry.node);
         }
     }
-    let violations = index.invariants().collect_all();
+    let violations = collect(&index);
     assert!(
         violations
             .iter()
             .any(|violation| matches!(violation, HnswInvariantViolation::UnreachableNode { .. })),
-        "collect_all should capture unreachable nodes"
+        "{description} should capture unreachable nodes"
     );
 }
 
 #[test]
 fn collect_all_with_logging_captures_unreachable_nodes() {
-    let (index, _data) = build_index();
-    {
-        let mut graph = index.graph.write().expect("lock");
-        if let Some(entry) = graph.entry() {
-            clear_node(&mut graph, entry.node);
-        }
-    }
-    let violations = index.invariants().collect_all_with_logging();
-    assert!(
-        violations
-            .iter()
-            .any(|violation| matches!(violation, HnswInvariantViolation::UnreachableNode { .. })),
-        "collect_all_with_logging should capture unreachable nodes"
+    assert_collects_unreachable_nodes(
+        |index| index.invariants().collect_all_with_logging(),
+        "collect_all_with_logging",
     );
 }
 
