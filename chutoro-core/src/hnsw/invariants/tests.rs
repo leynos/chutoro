@@ -1,6 +1,6 @@
 use super::{
-    EvaluationMode, GraphContext, HnswInvariantViolation, check_degree_bounds, check_reachability,
-    helpers,
+    EvaluationMode, GraphContext, HnswInvariant, HnswInvariantViolation, check_degree_bounds,
+    check_reachability, helpers,
 };
 use crate::{
     datasource::DataSource,
@@ -170,7 +170,10 @@ fn reachability_collects_all_unreachable_nodes() {
         params: &params,
     };
     let mut violations = Vec::new();
-    let mut mode = EvaluationMode::Collect(&mut violations);
+    let mut mode = EvaluationMode::Collect {
+        sink: &mut violations,
+        log: false,
+    };
     check_reachability(ctx, &mut mode).expect("collect mode never errors");
     assert!(violations.iter().any(|violation| matches!(
         violation,
@@ -197,6 +200,47 @@ fn collect_all_reports_multiple_violations() {
             .iter()
             .any(|violation| matches!(violation, HnswInvariantViolation::UnreachableNode { .. })),
         "collect_all should capture unreachable nodes"
+    );
+}
+
+#[test]
+fn collect_all_with_logging_captures_unreachable_nodes() {
+    let (index, _data) = build_index();
+    {
+        let mut graph = index.graph.write().expect("lock");
+        if let Some(entry) = graph.entry() {
+            clear_node(&mut graph, entry.node);
+        }
+    }
+    let violations = index.invariants().collect_all_with_logging();
+    assert!(
+        violations
+            .iter()
+            .any(|violation| matches!(violation, HnswInvariantViolation::UnreachableNode { .. })),
+        "collect_all_with_logging should capture unreachable nodes"
+    );
+}
+
+#[test]
+fn collect_many_with_logging_reports_degree_violation() {
+    let (index, _data) = build_index();
+    {
+        let mut graph = index.graph.write().expect("lock");
+        if let Some(node) = graph.node_mut(0) {
+            let neighbours = node.neighbours_mut(0);
+            neighbours.clear();
+            neighbours.extend(std::iter::repeat_n(1, 10));
+        }
+    }
+    let violations = index
+        .invariants()
+        .collect_many_with_logging([HnswInvariant::DegreeBounds]);
+    assert!(
+        violations.iter().any(|violation| matches!(
+            violation,
+            HnswInvariantViolation::DegreeBounds { degree, .. } if *degree >= 9
+        )),
+        "degree bounds violation should be reported"
     );
 }
 

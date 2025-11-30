@@ -13,7 +13,7 @@ mod reachability;
 use std::fmt;
 
 use thiserror::Error;
-use tracing::{debug, trace};
+use tracing::{Level, debug, trace};
 
 use crate::hnsw::{CpuHnsw, graph::Graph, params::HnswParams};
 
@@ -152,12 +152,15 @@ impl<'index> HnswInvariantChecker<'index> {
     }
 
     /// Runs a custom subset of invariants in the provided order.
-    pub fn check_many(
+    pub fn check_many<I>(
         &self,
-        invariants: impl IntoIterator<Item = HnswInvariant>,
-    ) -> Result<(), HnswInvariantViolation> {
-        let invariants: Vec<_> = invariants.into_iter().collect();
-        self.run_with_mode(&invariants, EvaluationMode::FailFast)
+        invariants: I,
+    ) -> Result<(), HnswInvariantViolation>
+    where
+        I: IntoIterator<Item = HnswInvariant>,
+        I::IntoIter: Clone,
+    {
+        self.run_with_mode(invariants, EvaluationMode::FailFast)
     }
 
     /// Runs a single invariant.
@@ -226,27 +229,37 @@ impl<'index> HnswInvariantChecker<'index> {
     ) -> Vec<HnswInvariantViolation> {
         let invariants: Vec<_> = invariants.into_iter().collect();
         let mut violations = Vec::new();
-        let mode = if log_violations {
-            EvaluationMode::CollectLogged(&mut violations)
-        } else {
-            EvaluationMode::Collect(&mut violations)
+        let mode = EvaluationMode::Collect {
+            sink: &mut violations,
+            log: log_violations,
         };
-        if let Err(err) = self.run_with_mode(&invariants, mode) {
+        if let Err(err) = self.run_with_mode(invariants.iter().copied(), mode) {
             violations.push(err);
         }
         violations
     }
 
-    fn run_with_mode(
+    fn run_with_mode<I>(
         &self,
-        invariants: &[HnswInvariant],
+        invariants: I,
         mut mode: EvaluationMode<'_>,
-    ) -> Result<(), HnswInvariantViolation> {
+    ) -> Result<(), HnswInvariantViolation>
+    where
+        I: IntoIterator<Item = HnswInvariant>,
+        I::IntoIter: Clone,
+    {
         self.with_context(|ctx| {
-            let node_count = ctx.graph.nodes_iter().count();
+            let iter = invariants.into_iter();
+            let (lower, upper) = iter.clone().size_hint();
+            let node_count = if tracing::enabled!(Level::DEBUG) {
+                Some(ctx.graph.nodes_iter().count())
+            } else {
+                None
+            };
             let entry = ctx.graph.entry();
             debug!(
-                invariants = invariants.len(),
+                invariants_lower = lower,
+                invariants_upper = upper,
                 graph_nodes = node_count,
                 entry = ?entry,
                 max_connections = ctx.params.max_connections(),
@@ -254,9 +267,9 @@ impl<'index> HnswInvariantChecker<'index> {
                 max_level = ctx.params.max_level(),
                 "running HNSW invariants"
             );
-            for invariant in invariants {
+            for invariant in iter {
                 trace!(?invariant, "checking invariant");
-                dispatch(ctx, *invariant, &mut mode)?;
+                dispatch(ctx, invariant, &mut mode)?;
             }
             Ok(())
         })
@@ -296,20 +309,20 @@ pub(super) struct GraphContext<'a> {
 
 pub(super) enum EvaluationMode<'a> {
     FailFast,
-    Collect(&'a mut Vec<HnswInvariantViolation>),
-    CollectLogged(&'a mut Vec<HnswInvariantViolation>),
+    Collect {
+        sink: &'a mut Vec<HnswInvariantViolation>,
+        log: bool,
+    },
 }
 
 impl EvaluationMode<'_> {
     fn record(&mut self, violation: HnswInvariantViolation) -> Result<(), HnswInvariantViolation> {
         match self {
             Self::FailFast => Err(violation),
-            Self::Collect(sink) => {
-                sink.push(violation);
-                Ok(())
-            }
-            Self::CollectLogged(sink) => {
-                debug!(%violation, "recorded invariant violation");
+            Self::Collect { sink, log } => {
+                if *log {
+                    debug!(%violation, "recorded invariant violation");
+                }
                 sink.push(violation);
                 Ok(())
             }

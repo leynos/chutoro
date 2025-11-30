@@ -275,7 +275,10 @@ mod tests {
         };
         let mut context = BfsContext::new(validator.capacity());
         let mut violations = Vec::new();
-        let mut mode = EvaluationMode::Collect(&mut violations);
+        let mut mode = EvaluationMode::Collect {
+            sink: &mut violations,
+            log: false,
+        };
 
         process_neighbour(
             &traversal,
