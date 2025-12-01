@@ -334,14 +334,14 @@ Property failures are reproducible and diagnosable with deterministic seeds.
 3. Interpreting violations:
 
    - `MissingBacklink { origin, target, layer }` means the forward edge was
-     retained, but the reverse link was trimmed or never added.
+     retained, but the reverse link was trimmed or never added
    - `LayerConsistency { .. }` indicates that a node references a neighbour
-     slot that is missing or exposes too few layers.
+     slot that is missing, or the neighbour exists but exposes too few layers
    - Use `collect_all_with_logging()` from the invariant checker to capture
      and log multiple violations before shrinking.
 
-4. Shrinking: proptest will minimize the failing sequence. Inspect the
-   printed "minimal failing input" to focus on the smallest reproducing plan.
+4. Shrinking: proptest will minimize the failing sequence; inspect the printed
+   "minimal failing input" to focus on the smallest reproducing plan.
 
 5. Common patterns: high fan-out trims that evict the new node, deletes that
    disconnect the entry point, and mixed reconfigure + delete sequences that
