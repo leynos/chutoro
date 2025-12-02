@@ -284,7 +284,7 @@ fn collect_neighbour_layers(removed: &Node) -> Vec<Vec<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hnsw::graph::NodeContext;
+    use crate::hnsw::{HnswError, graph::NodeContext};
     use rstest::rstest;
 
     #[rstest]
@@ -327,6 +327,56 @@ mod tests {
         let node2 = graph.node(2).expect("node 2 must remain");
         assert_eq!(node2.neighbours(0), &[0], "node 2 must connect to node 0");
         assert_eq!(graph.entry().map(|entry| entry.node), Some(0));
+    }
+
+    #[rstest]
+    fn delete_node_returns_ok_false_for_missing_node() {
+        let params = HnswParams::new(2, 4).expect("params must be valid");
+        let mut graph = Graph::with_capacity(params, 3);
+
+        graph
+            .insert_first(NodeContext {
+                node: 0,
+                level: 0,
+                sequence: 0,
+            })
+            .expect("insert entry");
+
+        let first_delete = graph.delete_node(0).expect("delete existing node");
+        assert!(
+            first_delete,
+            "expected Ok(true) when deleting an existing node"
+        );
+
+        let second_delete = graph.delete_node(0);
+        assert!(
+            matches!(second_delete, Ok(false)),
+            "expected Ok(false) when deleting a missing node, got {:?}",
+            second_delete
+        );
+
+        let third_delete = graph.delete_node(0);
+        assert!(
+            matches!(third_delete, Ok(false)),
+            "expected Ok(false) on repeated deletes of a missing node, got {:?}",
+            third_delete
+        );
+    }
+
+    #[rstest]
+    fn delete_node_returns_invalid_parameters_for_out_of_bounds_index() {
+        let params = HnswParams::new(2, 4).expect("params must be valid");
+        let mut graph = Graph::with_capacity(params, 3);
+
+        let result = graph.delete_node(5);
+
+        match result {
+            Err(HnswError::InvalidParameters { .. }) => {}
+            other => panic!(
+                "expected Err(HnswError::InvalidParameters {{ .. }}), got {:?}",
+                other
+            ),
+        }
     }
 
     #[rstest]
