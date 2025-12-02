@@ -185,14 +185,19 @@ impl<'ctx> MutationRunner<'ctx> {
                     ));
                 };
                 let delete_result = self.index.delete_node_for_test(node);
-                let deleted = delete_result.map_err(|err| mutation_fail("delete", node, err))?;
-                if deleted {
-                    self.pools.mark_deleted(node);
-                    return Ok(OperationOutcome::applied(format!("delete node {node}")));
+                match delete_result {
+                    Ok(true) => {
+                        self.pools.mark_deleted(node);
+                        Ok(OperationOutcome::applied(format!("delete node {node}")))
+                    }
+                    Ok(false) => Ok(OperationOutcome::skipped(format!(
+                        "delete skipped: node {node} missing"
+                    ))),
+                    Err(err @ HnswError::GraphInvariantViolation { .. }) => {
+                        Ok(OperationOutcome::skipped(format!("delete aborted: {err}")))
+                    }
+                    Err(err) => Err(mutation_fail("delete", node, err)),
                 }
-                Ok(OperationOutcome::skipped(format!(
-                    "delete skipped: node {node} missing"
-                )))
             }
             MutationOperationSeed::Reconfigure { params } => {
                 let next = next_reconfigure_params(self.active_params, params)?;
@@ -361,6 +366,66 @@ mod tests {
         assert_eq!(pools.select_available(0), Some(0));
         pools.mark_inserted(2);
         assert!(pools.select_available(0).is_some());
+    }
+
+    #[test]
+    fn graph_invariant_violation_on_delete_is_reported_as_skipped() {
+        use crate::hnsw::graph::NodeContext;
+        use crate::hnsw::tests::property::support::DenseVectorSource;
+
+        let params = HnswParams::new(1, 1).expect("params must be valid");
+        let mut index = CpuHnsw::with_capacity(params.clone(), 3).expect("index must allocate");
+
+        // Build a graph where deleting the entry node strands an isolated vertex,
+        // forcing delete_node_for_test to surface a GraphInvariantViolation.
+        index
+            .write_graph(|graph| {
+                graph.insert_first(NodeContext {
+                    node: 0,
+                    level: 0,
+                    sequence: 0,
+                })?;
+                graph.attach_node(NodeContext {
+                    node: 1,
+                    level: 0,
+                    sequence: 1,
+                })?;
+                graph.attach_node(NodeContext {
+                    node: 2,
+                    level: 0,
+                    sequence: 2,
+                })?;
+                graph.node_mut(0).expect("node 0").neighbours_mut(0).push(1);
+                graph.node_mut(1).expect("node 1").neighbours_mut(0).push(0);
+                Ok(())
+            })
+            .expect("graph construction must succeed");
+
+        let source = DenseVectorSource::new("stub", vec![vec![0.0_f32]]).expect("source");
+        let mut pools = MutationPools::new(3);
+        pools.mark_inserted(0);
+        let mut active_params = params;
+
+        let mut runner = MutationRunner {
+            index: &mut index,
+            pools: &mut pools,
+            source: &source,
+            active_params: &mut active_params,
+        };
+
+        let outcome = runner
+            .apply(&MutationOperationSeed::Delete { slot_hint: 0 })
+            .expect("delete should not hard-fail");
+
+        assert!(
+            !outcome.applied,
+            "GraphInvariantViolation should yield a skipped mutation, not applied"
+        );
+        assert!(
+            outcome.summary.starts_with("delete aborted:"),
+            "expected skip summary to start with 'delete aborted:', got {}",
+            outcome.summary
+        );
     }
 
     #[rstest]

@@ -91,7 +91,7 @@ ______________________________________________________________________
   property-testing-design §2.3.2)
   - [x] Improve invariant logging and document how to reproduce/shrink
         property-test failures for debugging.
-  - [ ] Restore safe deletion semantics in tests: reintroduce delete handling
+  - [x] Restore safe deletion semantics in tests: reintroduce delete handling
     without breaking reachability, or fail fast when deletion would disconnect
     the graph. (Follow-up to reciprocity fix.)
   - [ ] Add a regression test where trimming evicts the new node from an
