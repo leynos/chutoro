@@ -981,6 +981,14 @@ trimming the graph. Mutation plans that fail to apply at least one operation
 are rejected via `prop_assume!`, guaranteeing CI exercises meaningful
 add/delete/reconfigure sequences on every run.
 
+Deletion now guards reachability: the helper snapshots the graph, reconnects
+former neighbours, and only commits the mutation when every remaining node is
+still reachable from the recomputed entry point. If reconnection would strand a
+vertex—common when base-layer fan-out is saturated—the helper restores the
+original graph and surfaces a `GraphInvariantViolation`. This fail-fast path
+keeps mutation plans deterministic without exposing delete semantics in the
+production API.
+
 ## Part III: GPU Acceleration Strategy
 
 To achieve the highest possible performance on large datasets, the design

@@ -185,14 +185,19 @@ impl<'ctx> MutationRunner<'ctx> {
                     ));
                 };
                 let delete_result = self.index.delete_node_for_test(node);
-                let deleted = delete_result.map_err(|err| mutation_fail("delete", node, err))?;
-                if deleted {
-                    self.pools.mark_deleted(node);
-                    return Ok(OperationOutcome::applied(format!("delete node {node}")));
+                match delete_result {
+                    Ok(true) => {
+                        self.pools.mark_deleted(node);
+                        Ok(OperationOutcome::applied(format!("delete node {node}")))
+                    }
+                    Ok(false) => Ok(OperationOutcome::skipped(format!(
+                        "delete skipped: node {node} missing"
+                    ))),
+                    Err(err @ HnswError::GraphInvariantViolation { .. }) => {
+                        Ok(OperationOutcome::skipped(format!("delete aborted: {err}")))
+                    }
+                    Err(err) => Err(mutation_fail("delete", node, err)),
                 }
-                Ok(OperationOutcome::skipped(format!(
-                    "delete skipped: node {node} missing"
-                )))
             }
             MutationOperationSeed::Reconfigure { params } => {
                 let next = next_reconfigure_params(self.active_params, params)?;
