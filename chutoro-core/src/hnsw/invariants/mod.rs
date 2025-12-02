@@ -13,6 +13,7 @@ mod reachability;
 use std::fmt;
 
 use thiserror::Error;
+use tracing::{Level, debug, trace};
 
 use crate::hnsw::{CpuHnsw, graph::Graph, params::HnswParams};
 
@@ -151,10 +152,11 @@ impl<'index> HnswInvariantChecker<'index> {
     }
 
     /// Runs a custom subset of invariants in the provided order.
-    pub fn check_many(
-        &self,
-        invariants: impl IntoIterator<Item = HnswInvariant>,
-    ) -> Result<(), HnswInvariantViolation> {
+    pub fn check_many<I>(&self, invariants: I) -> Result<(), HnswInvariantViolation>
+    where
+        I: IntoIterator<Item = HnswInvariant>,
+        I::IntoIter: Clone,
+    {
         self.run_with_mode(invariants, EvaluationMode::FailFast)
     }
 
@@ -195,20 +197,75 @@ impl<'index> HnswInvariantChecker<'index> {
         &self,
         invariants: impl IntoIterator<Item = HnswInvariant>,
     ) -> Vec<HnswInvariantViolation> {
+        self.collect_many_with_mode(invariants, false)
+    }
+
+    /// Executes every invariant and logs each violation as it is recorded.
+    ///
+    /// Useful when debugging property-test failures where multiple invariant
+    /// breaches may be present before shrinking.
+    #[must_use]
+    pub fn collect_all_with_logging(&self) -> Vec<HnswInvariantViolation> {
+        self.collect_many_with_logging(HnswInvariant::all())
+    }
+
+    /// Executes the selected invariants, logging each violation as it is
+    /// captured.
+    #[must_use]
+    pub fn collect_many_with_logging(
+        &self,
+        invariants: impl IntoIterator<Item = HnswInvariant>,
+    ) -> Vec<HnswInvariantViolation> {
+        self.collect_many_with_mode(invariants, true)
+    }
+
+    fn collect_many_with_mode(
+        &self,
+        invariants: impl IntoIterator<Item = HnswInvariant>,
+        log_violations: bool,
+    ) -> Vec<HnswInvariantViolation> {
+        let invariants: Vec<_> = invariants.into_iter().collect();
         let mut violations = Vec::new();
-        if let Err(err) = self.run_with_mode(invariants, EvaluationMode::Collect(&mut violations)) {
+        let mode = EvaluationMode::Collect {
+            sink: &mut violations,
+            log: log_violations,
+        };
+        if let Err(err) = self.run_with_mode(invariants.iter().copied(), mode) {
             violations.push(err);
         }
         violations
     }
 
-    fn run_with_mode(
+    fn run_with_mode<I>(
         &self,
-        invariants: impl IntoIterator<Item = HnswInvariant>,
+        invariants: I,
         mut mode: EvaluationMode<'_>,
-    ) -> Result<(), HnswInvariantViolation> {
+    ) -> Result<(), HnswInvariantViolation>
+    where
+        I: IntoIterator<Item = HnswInvariant>,
+        I::IntoIter: Clone,
+    {
         self.with_context(|ctx| {
-            for invariant in invariants {
+            let iter = invariants.into_iter();
+            let (lower, upper) = iter.clone().size_hint();
+            let node_count = if tracing::enabled!(Level::DEBUG) {
+                Some(ctx.graph.nodes_iter().count())
+            } else {
+                None
+            };
+            let entry = ctx.graph.entry();
+            debug!(
+                invariants_lower = lower,
+                invariants_upper = upper,
+                graph_nodes = node_count,
+                entry = ?entry,
+                max_connections = ctx.params.max_connections(),
+                ef_construction = ctx.params.ef_construction(),
+                max_level = ctx.params.max_level(),
+                "running HNSW invariants"
+            );
+            for invariant in iter {
+                trace!(?invariant, "checking invariant");
                 dispatch(ctx, invariant, &mut mode)?;
             }
             Ok(())
@@ -249,14 +306,20 @@ pub(super) struct GraphContext<'a> {
 
 pub(super) enum EvaluationMode<'a> {
     FailFast,
-    Collect(&'a mut Vec<HnswInvariantViolation>),
+    Collect {
+        sink: &'a mut Vec<HnswInvariantViolation>,
+        log: bool,
+    },
 }
 
 impl EvaluationMode<'_> {
     fn record(&mut self, violation: HnswInvariantViolation) -> Result<(), HnswInvariantViolation> {
         match self {
             Self::FailFast => Err(violation),
-            Self::Collect(sink) => {
+            Self::Collect { sink, log } => {
+                if *log {
+                    debug!(%violation, "recorded invariant violation");
+                }
                 sink.push(violation);
                 Ok(())
             }

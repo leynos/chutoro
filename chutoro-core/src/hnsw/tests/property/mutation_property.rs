@@ -21,6 +21,43 @@ const MIN_MUTATION_FIXTURE_LEN: usize = 2;
 const MAX_MUTATION_FIXTURE_LEN: usize = 48;
 
 pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) -> TestCaseResult {
+    let (mut active_params, source, len) = setup_mutation_index(&fixture)?;
+    let mut index = CpuHnsw::with_capacity(active_params.clone(), len)
+        .map_err(|err| TestCaseError::fail(format!("with_capacity(len={len}) failed: {err}")))?;
+    let mut pools = MutationPools::new(len);
+    let mut ctx = MutationContext::new(&mut index, &mut pools, &source);
+
+    bootstrap_and_validate(&mut ctx, plan.initial_population_hint, len)?;
+
+    let applied = apply_mutation_steps(&mut ctx, &mut active_params, &plan)?;
+
+    prop_assume!(applied > 0);
+    Ok(())
+}
+
+struct MutationContext<'a> {
+    index: &'a mut CpuHnsw,
+    pools: &'a mut MutationPools,
+    source: &'a DenseVectorSource,
+}
+
+impl<'a> MutationContext<'a> {
+    fn new(
+        index: &'a mut CpuHnsw,
+        pools: &'a mut MutationPools,
+        source: &'a DenseVectorSource,
+    ) -> Self {
+        Self {
+            index,
+            pools,
+            source,
+        }
+    }
+}
+
+fn setup_mutation_index(
+    fixture: &HnswFixture,
+) -> Result<(HnswParams, DenseVectorSource, usize), TestCaseError> {
     let params = fixture
         .params
         .build()
@@ -32,37 +69,48 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
     let len = source.len();
     prop_assume!(len >= MIN_MUTATION_FIXTURE_LEN);
     prop_assume!(len <= MAX_MUTATION_FIXTURE_LEN);
+    Ok((params, source, len))
+}
 
-    let mut index = CpuHnsw::with_capacity(params.clone(), len)
-        .map_err(|err| TestCaseError::fail(format!("with_capacity(len={len}) failed: {err}")))?;
-    let mut pools = MutationPools::new(len);
-    let initial_population = derive_initial_population(plan.initial_population_hint, len);
-    let seeded = pools.bootstrap(initial_population);
+fn bootstrap_and_validate(
+    ctx: &mut MutationContext<'_>,
+    initial_population_hint: u16,
+    len: usize,
+) -> Result<(), TestCaseError> {
+    let initial_population = derive_initial_population(initial_population_hint, len);
+    let seeded = ctx.pools.bootstrap(initial_population);
     for node in seeded {
-        index.insert(node, &source).map_err(|err| {
+        ctx.index.insert(node, ctx.source).map_err(|err| {
             TestCaseError::fail(format!("initial insert node {node} failed: {err}"))
         })?;
     }
 
     #[cfg(test)]
-    heal_graph(&index);
+    heal_graph(ctx.index);
 
-    index.invariants().check_all().map_err(|err| {
+    ctx.index.invariants().check_all().map_err(|err| {
+        debug!(len, %err, "invariants failed after bootstrap");
         TestCaseError::fail(format!(
             "invariants failed after bootstrap (len={len}): {err}"
         ))
     })?;
+    debug!(len, "invariants passed after bootstrap");
+    Ok(())
+}
 
-    let mut active_params = params;
+fn apply_mutation_steps(
+    ctx: &mut MutationContext<'_>,
+    active_params: &mut HnswParams,
+    plan: &MutationPlan,
+) -> Result<usize, TestCaseError> {
     let mut applied = 0_usize;
-
     for (step, operation) in plan.operations.iter().enumerate() {
         let outcome = {
             let mut ctx = MutationRunner {
-                index: &mut index,
-                pools: &mut pools,
-                source: &source,
-                active_params: &mut active_params,
+                index: ctx.index,
+                pools: ctx.pools,
+                source: ctx.source,
+                active_params,
             };
             ctx.apply(operation)?
         };
@@ -76,17 +124,30 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
             "hnsw mutation step"
         );
         #[cfg(test)]
-        heal_graph(&index);
-        index.invariants().check_all().map_err(|err| {
+        heal_graph(ctx.index);
+        ctx.index.invariants().check_all().map_err(|err| {
+            debug!(
+                step,
+                applied,
+                len = ctx.index.len(),
+                operation = ?operation,
+                %err,
+                "invariants failed after mutation step"
+            );
             TestCaseError::fail(format!(
                 "invariants failed after step {step} ({:?}): {err}",
                 operation,
             ))
         })?;
+        debug!(
+            step,
+            applied,
+            len = ctx.index.len(),
+            operation = ?operation,
+            "invariants passed after mutation step"
+        );
     }
-
-    prop_assume!(applied > 0);
-    Ok(())
+    Ok(applied)
 }
 
 #[cfg(test)]
