@@ -1,9 +1,12 @@
 use super::*;
 use crate::hnsw::insert::{reconciliation::EdgeReconciler, test_helpers::TestHelpers, types};
 use crate::hnsw::{
-    graph::{Graph, NodeContext},
-    params::HnswParams,
+    error::HnswError,
+    graph::{ApplyContext, Graph, NodeContext},
+    params::{HnswParams, connection_limit_for_level},
+    types::{InsertionPlan, LayerPlan, Neighbour},
 };
+use rstest::rstest;
 
 #[test]
 fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
@@ -192,4 +195,162 @@ fn enforce_bidirectional_all_removes_invalid_upper_edge() {
 
     let node0 = graph.node(0).unwrap();
     assert!(node0.neighbours(1).is_empty());
+}
+
+#[rstest]
+#[case::evicts_tail(vec![1, 3], 1)]
+#[case::evicts_tail_wider(vec![1, 3, 4, 5], 2)]
+fn trimming_eviction_restores_reciprocity(
+    #[case] trimmed_neighbours: Vec<usize>,
+    #[case] max_connections: usize,
+) -> Result<(), HnswError> {
+    let params = HnswParams::new(max_connections, max_connections * 4)?;
+    let new_node_id = trimmed_neighbours
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    let reserve_id = new_node_id.saturating_add(1);
+    let capacity = reserve_id.saturating_add(1);
+
+    let mut graph = Graph::with_capacity(params.clone(), capacity);
+    graph
+        .insert_first(NodeContext {
+            node: 0,
+            level: 0,
+            sequence: 0,
+        })
+        .expect("insert entry");
+
+    for (offset, &id) in trimmed_neighbours.iter().enumerate() {
+        graph
+            .attach_node(NodeContext {
+                node: id,
+                level: 0,
+                sequence: (offset + 1) as u64,
+            })
+            .expect("attach neighbour");
+    }
+
+    graph
+        .attach_node(NodeContext {
+            node: reserve_id,
+            level: 0,
+            sequence: (trimmed_neighbours.len() + 1) as u64,
+        })
+        .expect("attach reserve neighbour");
+
+    {
+        let entry_neighbours = graph.node_mut(0).expect("entry present").neighbours_mut(0);
+        entry_neighbours.clear();
+        entry_neighbours.extend(trimmed_neighbours.iter().copied());
+    }
+
+    let evicted = *trimmed_neighbours
+        .last()
+        .expect("trimmed neighbours must be non-empty");
+
+    for &neighbour in &trimmed_neighbours {
+        let list = graph
+            .node_mut(neighbour)
+            .expect("neighbour present")
+            .neighbours_mut(0);
+        if !list.contains(&0) {
+            list.push(0);
+        }
+    }
+
+    {
+        let list = graph
+            .node_mut(evicted)
+            .expect("evicted neighbour present")
+            .neighbours_mut(0);
+        if !list.contains(&reserve_id) {
+            list.push(reserve_id);
+        }
+    }
+
+    {
+        let reserve_list = graph
+            .node_mut(reserve_id)
+            .expect("reserve neighbour present")
+            .neighbours_mut(0);
+        if !reserve_list.contains(&evicted) {
+            reserve_list.push(evicted);
+        }
+    }
+
+    {
+        let mut executor = InsertionExecutor::new(&mut graph);
+        let plan = InsertionPlan {
+            layers: vec![LayerPlan {
+                level: 0,
+                neighbours: vec![Neighbour {
+                    id: 0,
+                    distance: 0.0,
+                }],
+            }],
+        };
+
+        let (prepared, trim_jobs) = executor.apply(
+            NodeContext {
+                node: new_node_id,
+                level: 0,
+                sequence: (reserve_id as u64) + 1,
+            },
+            ApplyContext {
+                params: &params,
+                plan,
+            },
+        )?;
+
+        assert_eq!(
+            trim_jobs.len(),
+            1,
+            "only the entry node should require trim"
+        );
+        let job = trim_jobs.into_iter().next().expect("trim job expected");
+        assert_eq!(job.node, 0, "trim must target the entry node");
+        let trim_result = TrimResult {
+            node: job.node,
+            ctx: job.ctx,
+            neighbours: trimmed_neighbours.clone(),
+        };
+
+        executor.commit(prepared, vec![trim_result])?;
+    }
+
+    let connection_limit = connection_limit_for_level(0, params.max_connections());
+    let entry = graph.node(0).expect("entry node available");
+    let entry_neighbours = entry.neighbours(0);
+    assert!(
+        entry_neighbours.contains(&new_node_id),
+        "reciprocity pass should reintroduce the new node even after trim eviction",
+    );
+    assert!(
+        !entry_neighbours.contains(&evicted),
+        "evicted neighbour should be removed to honour capacity constraints",
+    );
+    assert!(
+        entry_neighbours.len() <= connection_limit,
+        "entry degree should respect the base-layer limit after reconciliation",
+    );
+
+    let new_node = graph
+        .node(new_node_id)
+        .expect("new node must be attached after commit");
+    assert!(
+        new_node.neighbours(0).contains(&0),
+        "new node should have a reciprocal edge to the entry node",
+    );
+
+    if let Some(evicted_node) = graph.node(evicted) {
+        assert!(
+            !evicted_node.neighbours(0).contains(&0),
+            "forward edge from evicted neighbour should be removed",
+        );
+    }
+
+    Ok(())
 }
