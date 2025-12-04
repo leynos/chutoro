@@ -9,24 +9,29 @@ use std::collections::HashSet;
 
 use crate::hnsw::graph::Graph;
 
-use super::{
-    limits::compute_connection_limit,
-    reconciliation::EdgeReconciler,
-    types::{FinalisedUpdate, UpdateContext},
-};
+use super::{limits::compute_connection_limit, types::FinalisedUpdate};
 
+#[cfg(any(test, debug_assertions))]
 #[derive(Debug)]
-pub(super) struct ReciprocityEnforcer<'graph> {
-    pub(super) graph: &'graph mut Graph,
+pub(super) struct ReciprocityAuditor<'graph> {
+    graph: &'graph Graph,
 }
 
-impl<'graph> ReciprocityEnforcer<'graph> {
-    pub(super) fn new(graph: &'graph mut Graph) -> Self {
+#[cfg(any(test, debug_assertions))]
+#[derive(Clone, Copy)]
+struct AuditContext {
+    level: usize,
+    max_connections: usize,
+}
+
+#[cfg(any(test, debug_assertions))]
+impl<'graph> ReciprocityAuditor<'graph> {
+    pub(super) fn new(graph: &'graph Graph) -> Self {
         Self { graph }
     }
 
-    pub(super) fn ensure_reciprocity_for_touched(
-        &mut self,
+    pub(super) fn assert_reciprocity_for_touched(
+        &self,
         touched: &[(usize, usize)],
         max_connections: usize,
     ) {
@@ -35,41 +40,67 @@ impl<'graph> ReciprocityEnforcer<'graph> {
             if !seen.insert((origin, level)) {
                 continue;
             }
-            self.ensure_reciprocity_for_node_level(origin, level, max_connections);
+
+            let ctx = AuditContext {
+                level,
+                max_connections,
+            };
+            self.assert_origin_state(origin, ctx);
         }
     }
 
-    pub(super) fn ensure_reciprocity_for_node_level(
-        &mut self,
-        origin: usize,
-        level: usize,
-        max_connections: usize,
-    ) {
-        let neighbours_snapshot = {
-            let graph_ref = &*self.graph;
-            graph_ref
-                .node(origin)
-                .filter(|node| node.level_count() > level)
-                .map(|node| node.neighbours(level).to_vec())
+    fn assert_origin_state(&self, origin: usize, ctx: AuditContext) {
+        let level = ctx.level;
+        let Some(origin_node) = self.graph.node(origin) else {
+            panic!("reciprocity audit: node {origin} missing from graph");
         };
-
-        let Some(neighbours_snapshot) = neighbours_snapshot else {
+        if level >= origin_node.level_count() {
             return;
-        };
-
-        let ctx = UpdateContext {
-            origin,
-            level,
-            max_connections,
-        };
-
-        let mut reconciler = EdgeReconciler::new(self.graph);
-        for target in neighbours_snapshot {
-            if reconciler.ensure_reverse_edge(&ctx, target) {
-                continue;
-            }
-            reconciler.remove_forward_edge_from(&ctx, target);
         }
+
+        let origin_neighbours = origin_node.neighbours(level);
+        let origin_limit = compute_connection_limit(level, ctx.max_connections);
+        assert!(
+            origin_neighbours.len() <= origin_limit,
+            "reciprocity audit: node {origin} exceeds degree limit {origin_limit} at level \
+             {level}; neighbours {:?}",
+            origin_neighbours,
+        );
+
+        for &target in origin_neighbours {
+            self.assert_target_state(origin, target, ctx);
+        }
+    }
+
+    fn assert_target_state(&self, origin: usize, target: usize, ctx: AuditContext) {
+        let level = ctx.level;
+        let Some(target_node) = self.graph.node(target) else {
+            panic!(
+                "reciprocity audit: edge {origin}->{target} at level {level} targets missing node",
+            );
+        };
+
+        let target_levels = target_node.level_count();
+        assert!(
+            ctx.level < target_levels,
+            "reciprocity audit: edge {origin}->{target} points to absent level {level} \
+             (target exposes {target_levels} levels)",
+        );
+
+        let neighbours = target_node.neighbours(ctx.level);
+        let limit = compute_connection_limit(ctx.level, ctx.max_connections);
+        assert!(
+            neighbours.contains(&origin),
+            "reciprocity audit: missing reverse edge {target}->{origin} at level {level}; \
+             target degree {} (limit {limit})",
+            neighbours.len(),
+        );
+        assert!(
+            neighbours.len() <= limit,
+            "reciprocity audit: node {target} exceeds degree limit {limit} at level {level}; \
+             neighbours {:?}",
+            neighbours,
+        );
     }
 }
 
