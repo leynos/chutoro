@@ -1,5 +1,5 @@
 //! Tests the insertion executor’s edge reconciliation: reverse-edge eviction,
-//! reciprocity enforcement after trimming, fallback linking, and bidirectional
+//! inline reciprocity after trimming, fallback linking, and bidirectional
 //! healing. Scenarios build tiny graphs manually with deterministic sequences
 //! to validate post-commit graph state and degree limits without concurrency.
 
@@ -142,32 +142,76 @@ fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
 
 #[allow(clippy::too_many_arguments)]
 #[rstest]
-#[case::simple_two_node(1, 2, vec![1], 1, 0, vec![(1, 0)], 1, 0, 1)]
-#[case::three_node_healing(2, 3, vec![1, 2], 2, 0, vec![(2, 0)], 2, 0, 2)]
-fn ensure_reciprocity_for_touched(
+#[case::repairs_base_layer_one_way_edge(2, 0, None, 0)]
+#[case::removes_invalid_upper_layer_edge(1, 1, Some(vec![1]), 1)]
+fn commit_inlines_reciprocity(
     #[case] max_connections: usize,
-    #[case] capacity: usize,
-    #[case] nodes_to_attach: Vec<usize>,
-    #[case] edge_from: usize,
-    #[case] edge_to: usize,
-    #[case] touched: Vec<(usize, usize)>,
-    #[case] new_node_sequence: u64,
-    #[case] assert_from: usize,
-    #[case] assert_to: usize,
-) {
-    let mut graph = setup_basic_graph(max_connections, 4, capacity);
-    insert_entry_node(&mut graph, 0);
+    #[case] seed_edge_level: usize,
+    #[case] trim_override: Option<Vec<usize>>,
+    #[case] new_node_level: usize,
+) -> Result<(), HnswError> {
+    let params = HnswParams::new(max_connections, 4)?;
+    let entry_level = new_node_level.max(seed_edge_level);
+    let mut graph = setup_basic_graph(max_connections, 4, 4);
+    insert_entry_node(&mut graph, entry_level);
 
-    for (idx, node) in nodes_to_attach.iter().copied().enumerate() {
-        attach_test_node(&mut graph, node, 0, (idx as u64) + 1);
+    attach_test_node(&mut graph, 1, 0, 1);
+
+    add_edge(&mut graph, 0, 1, seed_edge_level);
+
+    let mut layers = vec![LayerPlan {
+        level: 0,
+        neighbours: vec![Neighbour {
+            id: 0,
+            distance: 0.0,
+        }],
+    }];
+    if new_node_level > 0 {
+        layers.push(LayerPlan {
+            level: new_node_level,
+            neighbours: vec![Neighbour {
+                id: 0,
+                distance: 0.0,
+            }],
+        });
     }
 
-    add_edge(&mut graph, edge_from, edge_to, 0);
+    let mut executor = InsertionExecutor::new(&mut graph);
+    let (prepared, trim_jobs) = executor.apply(
+        NodeContext {
+            node: 2,
+            level: new_node_level,
+            sequence: 2,
+        },
+        ApplyContext {
+            params: &params,
+            plan: InsertionPlan { layers },
+        },
+    )?;
 
-    let mut enforcer = ReciprocityEnforcer::new(&mut graph);
-    enforcer.ensure_reciprocity_for_touched(&touched, new_node_sequence as usize);
+    let trims: Vec<TrimResult> = trim_jobs
+        .iter()
+        .map(|job| TrimResult {
+            node: job.node,
+            ctx: job.ctx,
+            neighbours: trim_override
+                .clone()
+                .unwrap_or_else(|| job.candidates.clone()),
+        })
+        .collect();
 
-    assert_bidirectional_edge(enforcer.graph, assert_from, assert_to, 0);
+    executor.commit(prepared, trims)?;
+
+    assert_bidirectional_edge(&graph, 0, 2, 0);
+    if new_node_level > 0 {
+        assert_bidirectional_edge(&graph, 0, 2, new_node_level);
+        assert_no_edge(&graph, 0, 1, seed_edge_level);
+        assert_no_edge(&graph, 1, 0, seed_edge_level);
+    } else {
+        assert_bidirectional_edge(&graph, 0, 1, 0);
+    }
+
+    Ok(())
 }
 
 #[test]
