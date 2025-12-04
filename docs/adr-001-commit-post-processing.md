@@ -119,11 +119,12 @@ Accepted
   instrument `ensure_reverse_edge` to log/flag when it returns true without
   inserting the origin, and consider forcibly removing forward edges in that
   case to guarantee invariants.
+- Added a regression test that reproduces trim-induced eviction of the new node
+  and exercises the fallback path that evicts an existing neighbour to restore
+  reciprocity (see `hnsw/insert/executor/tests.rs`).
 
 ## Next steps
 
-- Add targeted unit tests where insertion trimming evicts the new node and the
-  fallback path must evict a neighbour to restore reciprocity.
 - Benchmark the localized commit path against the previous post-pass to confirm
   insertion latency improvements and to guard against degree-bound regressions.
 - Expand deletion coverage with adversarial cases to validate the lightweight
