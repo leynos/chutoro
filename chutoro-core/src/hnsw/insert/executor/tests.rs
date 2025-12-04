@@ -3,6 +3,8 @@
 //! healing. Scenarios build tiny graphs manually with deterministic sequences
 //! to validate post-commit graph state and degree limits without concurrency.
 
+#![allow(clippy::too_many_arguments)]
+
 use super::*;
 use crate::hnsw::insert::{reconciliation::EdgeReconciler, test_helpers::TestHelpers, types};
 use crate::hnsw::{
@@ -138,32 +140,34 @@ fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
     assert!(origin.neighbours(1).contains(&1));
 }
 
-#[test]
-fn ensure_new_node_reciprocity_removes_one_way_edges() {
-    let mut graph = setup_basic_graph(1, 4, 2);
+#[allow(clippy::too_many_arguments)]
+#[rstest]
+#[case::simple_two_node(1, 2, vec![1], 1, 0, vec![(1, 0)], 1, 0, 1)]
+#[case::three_node_healing(2, 3, vec![1, 2], 2, 0, vec![(2, 0)], 2, 0, 2)]
+fn ensure_reciprocity_for_touched(
+    #[case] max_connections: usize,
+    #[case] capacity: usize,
+    #[case] nodes_to_attach: Vec<usize>,
+    #[case] edge_from: usize,
+    #[case] edge_to: usize,
+    #[case] touched: Vec<(usize, usize)>,
+    #[case] new_node_sequence: u64,
+    #[case] assert_from: usize,
+    #[case] assert_to: usize,
+) {
+    let mut graph = setup_basic_graph(max_connections, 4, capacity);
     insert_entry_node(&mut graph, 0);
-    attach_test_node(&mut graph, 1, 0, 1);
-    add_edge(&mut graph, 1, 0, 0);
+
+    for (idx, node) in nodes_to_attach.iter().copied().enumerate() {
+        attach_test_node(&mut graph, node, 0, (idx as u64) + 1);
+    }
+
+    add_edge(&mut graph, edge_from, edge_to, 0);
 
     let mut enforcer = ReciprocityEnforcer::new(&mut graph);
-    enforcer.ensure_reciprocity_for_touched(&[(1, 0)], 1);
+    enforcer.ensure_reciprocity_for_touched(&touched, new_node_sequence as usize);
 
-    assert_bidirectional_edge(enforcer.graph, 0, 1, 0);
-}
-
-#[test]
-fn ensure_reciprocity_for_touched_heals_existing_one_way() {
-    let mut graph = setup_basic_graph(2, 4, 3);
-    insert_entry_node(&mut graph, 0);
-    attach_test_node(&mut graph, 1, 0, 1);
-    attach_test_node(&mut graph, 2, 0, 2);
-
-    add_edge(&mut graph, 2, 0, 0);
-
-    let mut enforcer = ReciprocityEnforcer::new(&mut graph);
-    enforcer.ensure_reciprocity_for_touched(&[(2, 0)], 2);
-
-    assert_bidirectional_edge(enforcer.graph, 0, 2, 0);
+    assert_bidirectional_edge(enforcer.graph, assert_from, assert_to, 0);
 }
 
 #[test]
