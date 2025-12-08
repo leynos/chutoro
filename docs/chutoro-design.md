@@ -989,6 +989,19 @@ original graph and surfaces a `GraphInvariantViolation`. This fail-fast path
 keeps mutation plans deterministic without exposing delete semantics in the
 production API.
 
+#### 6.8. Inline reciprocity enforcement
+
+_Implementation update (2025-12-04)._ The insertion executor now enforces
+bidirectional links while applying trimmed neighbour lists instead of running a
+post-pass scan across touched nodes. `EdgeReconciler` still inserts reverse
+edges (or drops the forward edge when capacity or level gaps block
+reciprocity), and `ReciprocityWorkspace` rewrites trimmed updates when trimming
+evicts the new node. A new debug-only `ReciprocityAuditor` asserts that every
+touched node keeps a reciprocal back-link and stays within the per-level degree
+limit; production builds skip the scan entirely. The fallback healing path
+remains unchanged, so trimmed evictions still replace the weakest candidate
+with the new node to guarantee at least one reciprocal link per level.
+
 ## Part III: GPU Acceleration Strategy
 
 To achieve the highest possible performance on large datasets, the design

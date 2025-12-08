@@ -11,7 +11,9 @@ use crate::hnsw::{
 use super::commit::CommitApplicator;
 use super::connectivity::ConnectivityHealer;
 use super::limits::compute_connection_limit;
-use super::reciprocity::{ReciprocityEnforcer, ReciprocityWorkspace};
+#[cfg(any(test, debug_assertions))]
+use super::reciprocity::ReciprocityAuditor;
+use super::reciprocity::ReciprocityWorkspace;
 use super::staging::InsertionStager;
 use super::types::{
     FinalisedUpdate, HealingContext, LayerProcessingOutcome, LinkContext, NewNodeContext,
@@ -152,10 +154,13 @@ impl<'graph> InsertionExecutor<'graph> {
 
         touched.extend((0..=new_node.level).map(|level| (new_node.id, level)));
 
+        #[cfg(any(test, debug_assertions))]
         {
-            let mut enforcer = ReciprocityEnforcer::new(self.graph);
-            enforcer.ensure_reciprocity_for_touched(&touched, max_connections);
+            let auditor = ReciprocityAuditor::new(self.graph);
+            auditor.assert_reciprocity_for_touched(&touched, max_connections);
         }
+        #[cfg(not(any(test, debug_assertions)))]
+        let _ = &touched;
 
         if promote_entry {
             self.graph.promote_entry(new_node.id, new_node.level);
