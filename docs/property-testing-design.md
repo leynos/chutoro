@@ -364,6 +364,28 @@ data and avoids unintended side effects.
     ensures that repeated insertions do not corrupt the graph state, for
     example by creating duplicate nodes or exceeding degree constraints.
 
+##### Implementation notes
+
+The idempotency property is implemented in `idempotency_property.rs` and
+validates that:
+
+1. Duplicate insertions are rejected with `HnswError::DuplicateNode`
+2. The graph state remains unchanged after rejection
+3. Structural equality is verified by comparing entry points, node presence,
+   and sorted neighbour sets at each level
+
+Key design decisions:
+
+- **Snapshot-based comparison:** Rather than comparing two separately built
+  indices (which can differ due to Rayon parallelism), the test snapshots the
+  graph before duplicate attempts and verifies no change occurred afterward.
+- **Sequence numbers excluded:** Node sequence numbers are excluded from
+  comparison as they are insertion order artifacts.
+- **Neighbour lists compared as sorted sets:** Order-independent comparison
+  ensures equivalence regardless of internal ordering.
+- **Early rejection verification:** Each duplicate insertion attempt must
+  return `DuplicateNode` error; any other error or success indicates a bug.
+
 ## Section 3: Verifying the candidate edge harvest algorithm
 
 This section details the testing strategy for the Candidate Edge Harvest

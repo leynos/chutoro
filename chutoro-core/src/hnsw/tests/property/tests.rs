@@ -65,10 +65,11 @@ fn run_mutation_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> Te
 }
 
 use super::{
+    idempotency_property::run_idempotency_property,
     mutation_property::derive_initial_population,
     mutation_property::run_mutation_property,
     search_property::run_search_correctness_property,
-    strategies::{hnsw_fixture_strategy, mutation_plan_strategy},
+    strategies::{hnsw_fixture_strategy, idempotency_plan_strategy, mutation_plan_strategy},
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
@@ -242,6 +243,16 @@ fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
         |(fixture, query_hint, k_hint)| {
             run_search_correctness_property(fixture, query_hint, k_hint)
         },
+    )
+}
+
+#[test]
+fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
+    run_proptest(
+        Config::default(),
+        (hnsw_fixture_strategy(), idempotency_plan_strategy()),
+        "hnsw idempotency proptest",
+        |(fixture, plan)| run_idempotency_property(fixture, plan),
     )
 }
 

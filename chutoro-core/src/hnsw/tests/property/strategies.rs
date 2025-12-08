@@ -11,7 +11,10 @@ use super::{
         GeneratedDataset, generate_clustered_dataset, generate_duplicate_dataset,
         generate_manifold_dataset, generate_uniform_dataset,
     },
-    types::{HnswFixture, HnswParamsSeed, MutationOperationSeed, MutationPlan, VectorDistribution},
+    types::{
+        HnswFixture, HnswParamsSeed, IdempotencyPlan, MutationOperationSeed, MutationPlan,
+        VectorDistribution,
+    },
 };
 
 const MAX_MUTATION_STEPS: usize = 12;
@@ -141,4 +144,18 @@ fn map_dataset(
         metadata: dataset.metadata,
         params,
     }
+}
+
+/// Samples idempotency test plans for verifying duplicate insertion rejection.
+///
+/// Generates plans specifying which nodes to attempt re-insertion on and how
+/// many times to retry each. The actual node indices are resolved during test
+/// execution by mapping hints modulo the fixture length.
+pub(super) fn idempotency_plan_strategy() -> impl Strategy<Value = IdempotencyPlan> {
+    (prop::collection::vec(any::<u16>(), 1..=8), 1_usize..=5).prop_map(
+        |(duplicate_hints, attempts_per_index)| IdempotencyPlan {
+            duplicate_hints,
+            attempts_per_index,
+        },
+    )
 }
