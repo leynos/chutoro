@@ -380,7 +380,7 @@ Key design decisions:
   indices (which can differ due to Rayon parallelism), the test snapshots the
   graph before duplicate attempts and verifies no change occurred afterwards.
 - **Sequence numbers excluded:** Node sequence numbers are excluded from
-  comparison as they are insertion order artifacts.
+  comparison as they are insertion order artefacts.
 - **Neighbour lists compared as sorted sets:** Order-independent comparison
   ensures equivalence regardless of internal ordering.
 - **Early rejection verification:** Each duplicate insertion attempt must
