@@ -110,49 +110,39 @@ impl<'graph> CommitApplicator<'graph> {
         Ok((reciprocated, touched))
     }
 
-    /// Scans all existing nodes to find which ones have the new node in their
+    /// Scans all populated nodes to find which ones have the new node in their
     /// neighbour lists.
+    ///
+    /// Uses the graph's node iterator to avoid scanning empty capacity slots,
+    /// making this O(populated_nodes × levels) rather than O(capacity × levels).
     fn compute_reciprocated_edges(&self, new_node: NewNodeContext) -> Vec<Vec<usize>> {
         let mut reciprocated: Vec<Vec<usize>> = vec![Vec::new(); new_node.level + 1];
-        for node_id in 0..self.graph.capacity() {
-            self.collect_reciprocated_edges_for_node(node_id, &new_node, &mut reciprocated);
+        for (node_id, node) in self.graph.nodes_iter() {
+            if node_id == new_node.id {
+                continue;
+            }
+            Self::collect_edges_to_new_node(node_id, node, &new_node, &mut reciprocated);
         }
         reciprocated
     }
 
-    /// Checks if a single node has edges pointing to the new node and records
-    /// them in the reciprocated buckets.
+    /// Collects edges from a single existing node that point to the new node.
     #[expect(
         clippy::needless_range_loop,
         reason = "Level indices map to reciprocated bucket indices"
     )]
-    fn collect_reciprocated_edges_for_node(
-        &self,
+    fn collect_edges_to_new_node(
         node_id: usize,
+        node: &crate::hnsw::node::Node,
         new_node: &NewNodeContext,
         reciprocated: &mut [Vec<usize>],
     ) {
-        if node_id == new_node.id {
-            return;
-        }
-        let Some(node) = self.graph.node(node_id) else {
-            return;
-        };
         for level in 0..=new_node.level {
-            if self.node_has_edge_to(node, level, new_node.id) {
+            let has_edge =
+                level < node.level_count() && node.neighbours(level).contains(&new_node.id);
+            if has_edge {
                 reciprocated[level].push(node_id);
             }
         }
-    }
-
-    /// Returns true if the node has the target in its neighbour list at the
-    /// given level.
-    fn node_has_edge_to(
-        &self,
-        node: &crate::hnsw::node::Node,
-        level: usize,
-        target: usize,
-    ) -> bool {
-        level < node.level_count() && node.neighbours(level).contains(&target)
     }
 }

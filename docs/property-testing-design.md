@@ -378,7 +378,7 @@ Key design decisions:
 
 - **Snapshot-based comparison:** Rather than comparing two separately built
   indices (which can differ due to Rayon parallelism), the test snapshots the
-  graph before duplicate attempts and verifies no change occurred afterward.
+  graph before duplicate attempts and verifies no change occurred afterwards.
 - **Sequence numbers excluded:** Node sequence numbers are excluded from
   comparison as they are insertion order artifacts.
 - **Neighbour lists compared as sorted sets:** Order-independent comparison
