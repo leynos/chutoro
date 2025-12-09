@@ -127,6 +127,9 @@ fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
 
     assert!(ensured, "reverse edge should be ensured even when evicting");
 
+    // Apply deferred scrubs to remove the evicted node's forward edge.
+    reconciler.apply_deferred_scrubs(1);
+
     let target = reconciler.graph.node(1).unwrap();
     assert_eq!(target.neighbours(1), &[0]);
 

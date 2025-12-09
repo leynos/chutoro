@@ -24,19 +24,24 @@ impl<'graph> CommitApplicator<'graph> {
         Self { graph }
     }
 
-    /// Writes the filtered neighbour lists back to the newly attached node.
+    /// Writes the neighbour lists to the newly attached node.
+    ///
+    /// The new node's neighbours should reflect exactly the set of existing
+    /// nodes that have a reciprocal edge to it. This is computed by checking
+    /// which existing nodes currently have the new node in their neighbour
+    /// lists.
     pub(super) fn apply_new_node_neighbours(
         &mut self,
         node_id: usize,
         node_level: usize,
-        filtered_neighbours: Vec<Vec<usize>>,
+        existing_nodes_with_new_node: Vec<Vec<usize>>,
     ) -> Result<(), HnswError> {
         let Some(node_ref) = self.graph.node_mut(node_id) else {
             return Err(HnswError::GraphInvariantViolation {
                 message: format!("node {node_id} missing after attach during commit"),
             });
         };
-        for (level, neighbours) in filtered_neighbours
+        for (level, neighbours) in existing_nodes_with_new_node
             .into_iter()
             .enumerate()
             .take(node_level + 1)
@@ -56,7 +61,6 @@ impl<'graph> CommitApplicator<'graph> {
         max_connections: usize,
         new_node: NewNodeContext,
     ) -> Result<ApplyUpdatesOutcome, HnswError> {
-        let mut reciprocated: Vec<Vec<usize>> = vec![Vec::new(); new_node.level + 1];
         let mut touched: Vec<(usize, usize)> = Vec::with_capacity(final_updates.len());
         let mut reconciler = EdgeReconciler::new(self.graph);
 
@@ -80,10 +84,6 @@ impl<'graph> CommitApplicator<'graph> {
             reconciler.reconcile_removed_edges(&ctx, &previous, &next);
             reconciler.reconcile_added_edges(&ctx, &mut next);
 
-            if level <= new_node.level && next.contains(&new_node.id) {
-                reciprocated[level].push(update.node);
-            }
-
             let node_ref = reconciler
                 .graph_mut()
                 .node_mut(update.node)
@@ -97,6 +97,46 @@ impl<'graph> CommitApplicator<'graph> {
             touched.push((update.node, level));
         }
 
+        // Apply deferred scrubs now that all updates have written their edges.
+        // This filters out scrubs that would remove edges just added by other
+        // updates in the same batch.
+        reconciler.apply_deferred_scrubs(max_connections);
+
+        // Compute which existing nodes have the new node in their final
+        // neighbour lists. This is done AFTER scrubs are applied to ensure
+        // we capture the accurate final state.
+        let reciprocated = self.compute_reciprocated_edges(new_node);
+
         Ok((reciprocated, touched))
+    }
+
+    /// Scans all existing nodes to find which ones have the new node in their
+    /// neighbour lists.
+    #[expect(
+        clippy::needless_range_loop,
+        reason = "Level indices map to reciprocated bucket indices"
+    )]
+    #[expect(
+        clippy::excessive_nesting,
+        reason = "Three nested loops is inherent to the graph structure"
+    )]
+    fn compute_reciprocated_edges(&self, new_node: NewNodeContext) -> Vec<Vec<usize>> {
+        let mut reciprocated: Vec<Vec<usize>> = vec![Vec::new(); new_node.level + 1];
+        // Scan all nodes to find those linking to the new node.
+        // This is more expensive but ensures correctness after scrubs.
+        for node_id in 0..self.graph.capacity() {
+            if node_id == new_node.id {
+                continue;
+            }
+            let Some(node) = self.graph.node(node_id) else {
+                continue;
+            };
+            for level in 0..=new_node.level {
+                if level < node.level_count() && node.neighbours(level).contains(&new_node.id) {
+                    reciprocated[level].push(node_id);
+                }
+            }
+        }
+        reciprocated
     }
 }

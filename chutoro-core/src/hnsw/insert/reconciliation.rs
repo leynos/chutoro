@@ -3,21 +3,32 @@
 //! Trimming can remove or reorder neighbours for existing nodes. This module
 //! ensures reciprocal edges are maintained, scrubs invalid forward edges, and
 //! restores base connectivity when nodes become isolated at the base layer.
+//!
+//! Scrub requests are deferred to avoid conflicts when multiple updates in the
+//! same batch touch overlapping edges. After all updates are processed, the
+//! deferred scrubs are filtered against the final edge set to ensure we don't
+//! remove edges that were added by later updates.
 
 use crate::hnsw::graph::Graph;
 
 use super::{
-    connectivity::ConnectivityHealer, limits::compute_connection_limit, types::UpdateContext,
+    connectivity::ConnectivityHealer,
+    limits::compute_connection_limit,
+    types::{DeferredScrub, UpdateContext},
 };
 
 #[derive(Debug)]
 pub(super) struct EdgeReconciler<'graph> {
     pub(super) graph: &'graph mut Graph,
+    deferred_scrubs: Vec<DeferredScrub>,
 }
 
 impl<'graph> EdgeReconciler<'graph> {
     pub(super) fn new(graph: &'graph mut Graph) -> Self {
-        Self { graph }
+        Self {
+            graph,
+            deferred_scrubs: Vec::new(),
+        }
     }
 
     pub(super) fn graph_mut(&mut self) -> &mut Graph {
@@ -109,24 +120,48 @@ impl<'graph> EdgeReconciler<'graph> {
         }
 
         if let Some(evicted) = evicted {
-            self.scrub_forward_edge(ctx, target, evicted);
+            self.deferred_scrubs.push(DeferredScrub {
+                origin: evicted,
+                target,
+                level: ctx.level,
+            });
         }
 
         true
     }
 
-    pub(super) fn scrub_forward_edge(
-        &mut self,
-        ctx: &UpdateContext,
-        target: usize,
-        evicted: usize,
-    ) {
-        let evicted_ctx = UpdateContext {
-            origin: evicted,
-            level: ctx.level,
-            max_connections: ctx.max_connections,
-        };
-        self.remove_forward_edge_from(&evicted_ctx, target);
+    /// Applies all deferred scrubs, removing one-way edges where the reverse
+    /// edge was not restored by a later update.
+    ///
+    /// For each scrub (origin evicted from target), we check:
+    /// 1. If target now links back to origin, reciprocity is intact - skip
+    /// 2. If origin no longer links to target, the edge is already gone - skip
+    /// 3. Otherwise, the forward edge is orphaned - remove it
+    pub(super) fn apply_deferred_scrubs(&mut self, max_connections: usize) {
+        let scrubs = std::mem::take(&mut self.deferred_scrubs);
+        for scrub in scrubs {
+            // Check if target now has a forward link back to origin (i.e.,
+            // a later update re-added the reciprocal edge).
+            let target_links_origin = self
+                .graph
+                .node(scrub.target)
+                .and_then(|node| {
+                    (scrub.level < node.level_count())
+                        .then(|| node.neighbours(scrub.level).contains(&scrub.origin))
+                })
+                .unwrap_or(false);
+
+            if target_links_origin {
+                continue;
+            }
+
+            let ctx = UpdateContext {
+                origin: scrub.origin,
+                level: scrub.level,
+                max_connections,
+            };
+            self.remove_forward_edge_from(&ctx, scrub.target);
+        }
     }
 
     pub(super) fn remove_forward_edge_from(&mut self, ctx: &UpdateContext, target: usize) {

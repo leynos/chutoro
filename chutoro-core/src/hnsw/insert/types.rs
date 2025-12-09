@@ -106,3 +106,19 @@ pub(super) struct HealingContext<'a> {
     pub(super) new_node_id: usize,
     pub(super) max_connections: usize,
 }
+
+/// A deferred scrub request collected during reconciliation.
+///
+/// When `ensure_reverse_edge` evicts a node to make room for a new link, we
+/// cannot immediately scrub the forward edge because a later update in the same
+/// batch might re-add it. Instead, scrub requests are collected and filtered
+/// before application.
+#[derive(Clone, Debug)]
+pub(super) struct DeferredScrub {
+    /// The node whose forward edge should be scrubbed.
+    pub(super) origin: usize,
+    /// The target of the forward edge to remove.
+    pub(super) target: usize,
+    /// The level at which the edge exists.
+    pub(super) level: usize,
+}
