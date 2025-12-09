@@ -2,6 +2,7 @@
 
 mod build;
 mod cache;
+mod edge_harvest;
 mod errors;
 mod fixtures;
 mod metadata;

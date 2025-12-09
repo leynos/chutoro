@@ -67,7 +67,7 @@ ______________________________________________________________________
     id; when ids match fall back to the insertion sequence number. Eviction
     must be time-independent in tests. This rule is used in all builds and
     tests to guarantee stable outputs under fixed seeds.
-- [ ] During insertion, capture candidate edges `(u,v,w)` discovered by HNSW;
+- [x] During insertion, capture candidate edges `(u,v,w)` discovered by HNSW;
   accumulate via Rayon `map` → `reduce` into a global edge list. (See §6.2)
 - [ ] Implement parallel Kruskal: parallel sort of edges, concurrent union‑find
   for cycle checks. (See §3.2, §6.2)

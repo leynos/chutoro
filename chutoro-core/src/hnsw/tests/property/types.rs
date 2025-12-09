@@ -158,3 +158,13 @@ pub(super) struct IdempotencyPlan {
     /// Number of duplicate attempts per selected index (1-5).
     pub attempts_per_index: usize,
 }
+
+/// Plan for edge harvest property testing.
+///
+/// Used to verify that candidate edge harvesting produces consistent,
+/// structurally valid results.
+#[derive(Clone, Debug)]
+pub(super) struct EdgeHarvestPlan {
+    /// Number of times to rebuild with the same seed to check determinism.
+    pub rebuild_attempts: usize,
+}

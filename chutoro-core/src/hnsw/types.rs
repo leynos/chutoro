@@ -117,3 +117,110 @@ impl PartialOrd for RankedNeighbour {
         Some(self.compare(other))
     }
 }
+
+/// Edge discovered during HNSW insertion for MST construction.
+///
+/// Represents a candidate edge `(source, target, distance)` discovered when
+/// inserting a node into the HNSW graph. These edges are collected during
+/// the build phase and used for subsequent MST construction in the FISHDBC
+/// pipeline.
+///
+/// The `sequence` field provides deterministic tie-breaking when edges have
+/// equal distances, ensuring reproducible results under fixed RNG seeds.
+///
+/// # Examples
+/// ```
+/// use chutoro_core::CandidateEdge;
+///
+/// let edge = CandidateEdge::new(0, 1, 0.5, 42);
+/// assert_eq!(edge.source(), 0);
+/// assert_eq!(edge.target(), 1);
+/// assert!((edge.distance() - 0.5).abs() < f32::EPSILON);
+///
+/// // Canonicalise ensures source <= target for undirected graphs.
+/// let reversed = CandidateEdge::new(5, 2, 0.3, 10);
+/// let canonical = reversed.canonicalise();
+/// assert_eq!(canonical.source(), 2);
+/// assert_eq!(canonical.target(), 5);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CandidateEdge {
+    source: usize,
+    target: usize,
+    distance: f32,
+    sequence: u64,
+}
+
+impl CandidateEdge {
+    /// Creates a new candidate edge.
+    #[must_use]
+    pub fn new(source: usize, target: usize, distance: f32, sequence: u64) -> Self {
+        Self {
+            source,
+            target,
+            distance,
+            sequence,
+        }
+    }
+
+    /// Returns the source node identifier.
+    #[must_use]
+    #[rustfmt::skip]
+    pub fn source(&self) -> usize { self.source }
+
+    /// Returns the target node identifier.
+    #[must_use]
+    #[rustfmt::skip]
+    pub fn target(&self) -> usize { self.target }
+
+    /// Returns the distance (weight) between source and target.
+    #[must_use]
+    #[rustfmt::skip]
+    pub fn distance(&self) -> f32 { self.distance }
+
+    /// Returns the insertion sequence for deterministic ordering.
+    #[must_use]
+    #[rustfmt::skip]
+    pub fn sequence(&self) -> u64 { self.sequence }
+
+    /// Returns the edge with `source <= target` for canonical representation.
+    ///
+    /// Useful for undirected MST construction where edge direction is
+    /// irrelevant.
+    #[must_use]
+    pub fn canonicalise(self) -> Self {
+        if self.source <= self.target {
+            self
+        } else {
+            Self {
+                source: self.target,
+                target: self.source,
+                ..self
+            }
+        }
+    }
+}
+
+impl Eq for CandidateEdge {}
+
+impl Ord for CandidateEdge {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.distance
+            .total_cmp(&other.distance)
+            .then_with(|| self.source.cmp(&other.source))
+            .then_with(|| self.target.cmp(&other.target))
+            .then_with(|| self.sequence.cmp(&other.sequence))
+    }
+}
+
+impl PartialOrd for CandidateEdge {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+/// Collection of candidate edges discovered during HNSW construction.
+///
+/// Used to accumulate edges from parallel insertions via Rayon `map` → `reduce`
+/// for subsequent MST construction.
+pub type EdgeHarvest = Vec<CandidateEdge>;

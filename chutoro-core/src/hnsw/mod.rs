@@ -24,7 +24,7 @@ pub use self::{
     error::{HnswError, HnswErrorCode},
     invariants::{HnswInvariant, HnswInvariantChecker, HnswInvariantViolation},
     params::HnswParams,
-    types::Neighbour,
+    types::{CandidateEdge, EdgeHarvest, Neighbour},
 };
 
 #[cfg(test)]

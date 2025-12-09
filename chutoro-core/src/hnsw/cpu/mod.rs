@@ -28,10 +28,10 @@ use super::{
     error::HnswError,
     graph::{ApplyContext, Graph, NodeContext, SearchContext},
     helpers::{EnsureQueryArgs, ensure_query_present, normalise_neighbour_order},
-    insert::PlanningInputs,
+    insert::{PlanningInputs, extract_candidate_edges},
     invariants::HnswInvariantChecker,
     params::HnswParams,
-    types::Neighbour,
+    types::{CandidateEdge, EdgeHarvest, Neighbour},
     validate::validate_distance,
 };
 
@@ -76,6 +76,46 @@ impl CpuHnsw {
     /// assert_eq!(index.len(), 3);
     /// ```
     pub fn build<D: DataSource + Sync>(source: &D, params: HnswParams) -> Result<Self, HnswError> {
+        Self::build_with_edges(source, params).map(|(index, _)| index)
+    }
+
+    /// Builds an HNSW index and returns candidate edges for MST construction.
+    ///
+    /// The first item seeds the entry point (no edges harvested for it).
+    /// Remaining items are inserted in parallel using Rayon, with edges
+    /// accumulated via `map` → `reduce` into a global edge list.
+    ///
+    /// The returned edges are sorted by insertion sequence for deterministic
+    /// ordering, then by distance, source, and target.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams, MetricDescriptor};
+    ///
+    /// struct Dummy(Vec<f32>);
+    /// impl DataSource for Dummy {
+    ///     fn len(&self) -> usize { self.0.len() }
+    ///     fn name(&self) -> &str { "dummy" }
+    ///     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    ///         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    ///         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    ///         Ok((a - b).abs())
+    ///     }
+    ///     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("test") }
+    /// }
+    ///
+    /// let params = HnswParams::new(2, 4).expect("params");
+    /// let (index, edges) = CpuHnsw::build_with_edges(&Dummy(vec![0.0, 1.0, 2.0]), params)
+    ///     .expect("build");
+    ///
+    /// assert_eq!(index.len(), 3);
+    /// // Edges connect nodes discovered during insertion
+    /// assert!(edges.iter().all(|e| e.source() < 3 && e.target() < 3));
+    /// ```
+    pub fn build_with_edges<D: DataSource + Sync>(
+        source: &D,
+        params: HnswParams,
+    ) -> Result<(Self, EdgeHarvest), HnswError> {
         let items = source.len();
         if items == 0 {
             return Err(HnswError::EmptyBuild);
@@ -98,12 +138,24 @@ impl CpuHnsw {
             index.write_graph(|graph| index.insert_initial(graph, node_ctx))?;
         }
         index.len.store(1, Ordering::Relaxed);
-        if items > 1 {
+
+        // Node 0 has no edges to harvest (it's the entry point with no prior nodes)
+        let mut edges = if items > 1 {
             (1..items)
                 .into_par_iter()
-                .try_for_each(|node| index.insert(node, source))?;
-        }
-        Ok(index)
+                .map(|node| index.insert_impl(node, source))
+                .try_reduce(Vec::new, |mut acc, node_edges| {
+                    acc.extend(node_edges);
+                    Ok(acc)
+                })?
+        } else {
+            Vec::new()
+        };
+
+        // Sort by sequence for deterministic ordering across parallel insertions
+        edges.sort_unstable_by(|a, b| a.sequence().cmp(&b.sequence()).then_with(|| a.cmp(b)));
+
+        Ok((index, edges))
     }
 
     /// Creates an empty index with the desired capacity.
@@ -160,6 +212,18 @@ impl CpuHnsw {
     /// index.insert(1, &data).expect("insert must succeed");
     /// ```
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
+        self.insert_impl(node, source).map(|_| ())
+    }
+
+    /// Inserts a node and returns the candidate edges discovered during planning.
+    ///
+    /// This is used internally by [`Self::build_with_edges`] to accumulate edges
+    /// via Rayon `map` → `reduce` for MST construction.
+    fn insert_impl<D: DataSource + Sync>(
+        &self,
+        node: usize,
+        source: &D,
+    ) -> Result<Vec<CandidateEdge>, HnswError> {
         let _insertion_guard = self
             .insert_mutex
             .lock()
@@ -175,7 +239,7 @@ impl CpuHnsw {
         };
         if self.try_insert_initial(node_ctx, source)? {
             self.len.store(1, Ordering::Relaxed);
-            return Ok(());
+            return Ok(Vec::new());
         }
 
         let cache = &self.distance_cache;
@@ -187,6 +251,10 @@ impl CpuHnsw {
                 cache: Some(cache),
             })
         })?;
+
+        // Extract candidate edges before consuming the plan
+        let edges = extract_candidate_edges(node, sequence, &plan);
+
         let (prepared, trim_jobs) = self.write_graph(|graph| {
             let mut executor = graph.insertion_executor();
             executor.apply(
@@ -203,7 +271,7 @@ impl CpuHnsw {
             executor.commit(prepared, trim_results)
         })?;
         self.len.fetch_add(1, Ordering::Relaxed);
-        Ok(())
+        Ok(edges)
     }
 
     /// Searches the index for the `ef` closest neighbours of `query`.
