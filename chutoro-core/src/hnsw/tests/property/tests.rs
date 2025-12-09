@@ -64,11 +64,32 @@ fn run_mutation_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> Te
     )
 }
 
+/// Runs an idempotency property test with custom configuration and stack size.
+fn run_idempotency_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
+    std::thread::Builder::new()
+        .name("hnsw-idempotency".into())
+        .stack_size(stack_size)
+        .spawn(move || run_idempotency_proptest(config))
+        .expect("spawn idempotency runner")
+        .join()
+        .expect("idempotency runner panicked")
+}
+
+fn run_idempotency_proptest(config: Config) -> TestCaseResult {
+    run_proptest(
+        config,
+        (hnsw_fixture_strategy(), idempotency_plan_strategy()),
+        "hnsw idempotency proptest",
+        |(fixture, plan)| run_idempotency_property(fixture, plan),
+    )
+}
+
 use super::{
+    idempotency_property::run_idempotency_property,
     mutation_property::derive_initial_population,
     mutation_property::run_mutation_property,
     search_property::run_search_correctness_property,
-    strategies::{hnsw_fixture_strategy, mutation_plan_strategy},
+    strategies::{hnsw_fixture_strategy, idempotency_plan_strategy, mutation_plan_strategy},
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
@@ -243,6 +264,11 @@ fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
             run_search_correctness_property(fixture, query_hint, k_hint)
         },
     )
+}
+
+#[test]
+fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
+    run_idempotency_proptest_with_stack(Config::default(), 96 * 1024 * 1024)
 }
 
 #[test]

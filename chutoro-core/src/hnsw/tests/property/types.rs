@@ -145,3 +145,16 @@ pub(super) enum MutationOperationSeed {
     /// Reconfigures the index by deriving parameters from the provided seed.
     Reconfigure { params: HnswParamsSeed },
 }
+
+/// Plan describing which nodes to attempt duplicate insertion on.
+///
+/// Used by the idempotency property to verify that repeated insertions of the
+/// same node leave the graph state unchanged.
+#[derive(Clone, Debug)]
+pub(super) struct IdempotencyPlan {
+    /// Hints for selecting indices to duplicate (mapped to actual indices via
+    /// modulo during test execution).
+    pub duplicate_hints: Vec<u16>,
+    /// Number of duplicate attempts per selected index (1-5).
+    pub attempts_per_index: usize,
+}

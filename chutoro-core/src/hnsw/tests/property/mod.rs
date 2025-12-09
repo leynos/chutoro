@@ -1,6 +1,7 @@
 //! Property-based generators and validation helpers for CPU HNSW tests.
 
 pub(super) mod datasets;
+pub(super) mod idempotency_property;
 pub(super) mod mutation_property;
 pub(super) mod search_config;
 pub(super) mod search_property;

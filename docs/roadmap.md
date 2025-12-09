@@ -99,7 +99,7 @@ ______________________________________________________________________
         adds the reverse edge or removes the forward edge.
   - [x] Integrate reciprocity enforcement into the insertion executor to avoid
         the post-pass scan once correctness is validated.
-- [ ] Add HNSW insertion idempotency property: repeated duplicate insertions
+- [x] Add HNSW insertion idempotency property: repeated duplicate insertions
   leave graph state unchanged. (See property-testing-design §2.3.3)
 - [ ] Implement composite graph strategies (random, scale-free, lattice,
   disconnected) for candidate edge harvest testing. (See
