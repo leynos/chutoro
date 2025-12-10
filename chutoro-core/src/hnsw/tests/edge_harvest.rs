@@ -215,9 +215,19 @@ fn canonicalise_normalises_edge_direction() {
 
     // Already canonical edge should remain unchanged
     let already_canonical = CandidateEdge::new(1, 3, 0.3, 20);
-    let result = already_canonical.canonicalise();
-    assert_eq!(result.source(), 1);
-    assert_eq!(result.target(), 3);
+    let already_canonical_result = already_canonical.canonicalise();
+    assert_eq!(already_canonical_result.source(), 1);
+    assert_eq!(already_canonical_result.target(), 3);
+    assert!((already_canonical_result.distance() - 0.3).abs() < f32::EPSILON);
+    assert_eq!(already_canonical_result.sequence(), 20);
+
+    // Self edge (source == target) should remain unchanged (idempotent)
+    let self_edge = CandidateEdge::new(4, 4, 0.7, 30);
+    let self_edge_result = self_edge.canonicalise();
+    assert_eq!(self_edge_result.source(), 4);
+    assert_eq!(self_edge_result.target(), 4);
+    assert!((self_edge_result.distance() - 0.7).abs() < f32::EPSILON);
+    assert_eq!(self_edge_result.sequence(), 30);
 }
 
 #[rstest]

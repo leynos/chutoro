@@ -37,6 +37,64 @@ use super::{
 
 use self::rng::build_worker_rngs;
 
+/// Trait for collecting candidate edges during insertion.
+///
+/// Enables separation of edge harvesting from insertion logic, allowing
+/// non-harvesting paths to avoid allocation overhead.
+trait EdgeCollector {
+    /// Collects edges discovered during a single node insertion.
+    fn collect(&mut self, edges: Vec<CandidateEdge>);
+}
+
+/// No-op collector that discards edges without allocation.
+struct NoopCollector;
+
+impl EdgeCollector for NoopCollector {
+    fn collect(&mut self, _edges: Vec<CandidateEdge>) {}
+}
+
+/// Collector that accumulates edges into a `Vec`.
+struct VecCollector(Vec<CandidateEdge>);
+
+impl VecCollector {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    fn into_inner(self) -> Vec<CandidateEdge> {
+        self.0
+    }
+}
+
+impl EdgeCollector for VecCollector {
+    fn collect(&mut self, mut edges: Vec<CandidateEdge>) {
+        self.0.append(&mut edges);
+    }
+}
+
+impl EdgeHarvest {
+    /// Collects edges from parallel insertions using Rayon `map` → `try_reduce`.
+    ///
+    /// Inserts nodes `1..items` in parallel, accumulating discovered edges into
+    /// a single sorted harvest. The returned edges are sorted by insertion
+    /// sequence for deterministic ordering.
+    pub(super) fn from_parallel_inserts<D: DataSource + Sync>(
+        index: &CpuHnsw,
+        source: &D,
+        items: usize,
+    ) -> Result<Self, HnswError> {
+        let edges = (1..items)
+            .into_par_iter()
+            .map(|node| index.insert_with_edges(node, source))
+            .try_reduce(Vec::new, |mut acc, node_edges| {
+                acc.extend(node_edges);
+                Ok(acc)
+            })?;
+
+        Ok(Self::from_unsorted(edges))
+    }
+}
+
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
 pub struct CpuHnsw {
@@ -54,7 +112,11 @@ impl CpuHnsw {
     /// Builds a new HNSW index from the provided [`DataSource`].
     ///
     /// The first item seeds the entry point; remaining items are inserted in
-    /// parallel with Rayon workers.
+    /// parallel with Rayon workers. This method uses a non-harvesting path
+    /// that avoids edge allocation overhead.
+    ///
+    /// Use [`Self::build_with_edges`] if you need candidate edges for MST
+    /// construction.
     ///
     /// # Examples
     /// ```rust,ignore
@@ -76,7 +138,17 @@ impl CpuHnsw {
     /// assert_eq!(index.len(), 3);
     /// ```
     pub fn build<D: DataSource + Sync>(source: &D, params: HnswParams) -> Result<Self, HnswError> {
-        Self::build_with_edges(source, params).map(|(index, _)| index)
+        let index = Self::build_initial(source, params)?;
+        let items = source.len();
+
+        // Non-harvesting path: use try_for_each to avoid edge allocation
+        if items > 1 {
+            (1..items)
+                .into_par_iter()
+                .try_for_each(|node| index.insert_no_harvest(node, source))?;
+        }
+
+        Ok(index)
     }
 
     /// Builds an HNSW index and returns candidate edges for MST construction.
@@ -86,7 +158,7 @@ impl CpuHnsw {
     /// accumulated via `map` → `reduce` into a global edge list.
     ///
     /// The returned edges are sorted by insertion sequence for deterministic
-    /// ordering, then by distance, source, and target.
+    /// ordering, then by the natural `Ord` (distance, source, target, sequence).
     ///
     /// # Examples
     /// ```
@@ -116,6 +188,27 @@ impl CpuHnsw {
         source: &D,
         params: HnswParams,
     ) -> Result<(Self, EdgeHarvest), HnswError> {
+        let index = Self::build_initial(source, params)?;
+        let items = source.len();
+
+        // Node 0 has no edges to harvest (it's the entry point with no prior nodes)
+        let edges = if items > 1 {
+            EdgeHarvest::from_parallel_inserts(&index, source, items)?
+        } else {
+            EdgeHarvest::default()
+        };
+
+        Ok((index, edges))
+    }
+
+    /// Shared initial setup for both `build` and `build_with_edges`.
+    ///
+    /// Creates the index, inserts the entry point (node 0), and returns
+    /// the index ready for parallel insertion of remaining nodes.
+    fn build_initial<D: DataSource + Sync>(
+        source: &D,
+        params: HnswParams,
+    ) -> Result<Self, HnswError> {
         let items = source.len();
         if items == 0 {
             return Err(HnswError::EmptyBuild);
@@ -134,28 +227,10 @@ impl CpuHnsw {
             node_ctx.node,
             node_ctx.node,
         )?;
-        {
-            index.write_graph(|graph| index.insert_initial(graph, node_ctx))?;
-        }
+        index.write_graph(|graph| index.insert_initial(graph, node_ctx))?;
         index.len.store(1, Ordering::Relaxed);
 
-        // Node 0 has no edges to harvest (it's the entry point with no prior nodes)
-        let mut edges = if items > 1 {
-            (1..items)
-                .into_par_iter()
-                .map(|node| index.insert_impl(node, source))
-                .try_reduce(Vec::new, |mut acc, node_edges| {
-                    acc.extend(node_edges);
-                    Ok(acc)
-                })?
-        } else {
-            Vec::new()
-        };
-
-        // Sort by sequence for deterministic ordering across parallel insertions
-        edges.sort_unstable_by(|a, b| a.sequence().cmp(&b.sequence()).then_with(|| a.cmp(b)));
-
-        Ok((index, edges))
+        Ok(index)
     }
 
     /// Creates an empty index with the desired capacity.
@@ -212,18 +287,42 @@ impl CpuHnsw {
     /// index.insert(1, &data).expect("insert must succeed");
     /// ```
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
-        self.insert_impl(node, source).map(|_| ())
+        self.insert_with_collector(node, source, &mut NoopCollector)
+    }
+
+    /// Inserts a node without harvesting edges (fast path for plain build).
+    fn insert_no_harvest<D: DataSource + Sync>(
+        &self,
+        node: usize,
+        source: &D,
+    ) -> Result<(), HnswError> {
+        self.insert_with_collector(node, source, &mut NoopCollector)
     }
 
     /// Inserts a node and returns the candidate edges discovered during planning.
     ///
-    /// This is used internally by [`Self::build_with_edges`] to accumulate edges
-    /// via Rayon `map` → `reduce` for MST construction.
-    fn insert_impl<D: DataSource + Sync>(
+    /// This is used internally by [`EdgeHarvest::from_parallel_inserts`] to
+    /// accumulate edges via Rayon `map` → `reduce` for MST construction.
+    fn insert_with_edges<D: DataSource + Sync>(
         &self,
         node: usize,
         source: &D,
     ) -> Result<Vec<CandidateEdge>, HnswError> {
+        let mut collector = VecCollector::new();
+        self.insert_with_collector(node, source, &mut collector)?;
+        Ok(collector.into_inner())
+    }
+
+    /// Core insertion logic parameterised by edge collection strategy.
+    ///
+    /// Uses the [`EdgeCollector`] trait to separate edge harvesting from
+    /// insertion, enabling zero-overhead paths when edges are not needed.
+    fn insert_with_collector<D: DataSource + Sync, C: EdgeCollector>(
+        &self,
+        node: usize,
+        source: &D,
+        collector: &mut C,
+    ) -> Result<(), HnswError> {
         let _insertion_guard = self
             .insert_mutex
             .lock()
@@ -239,7 +338,7 @@ impl CpuHnsw {
         };
         if self.try_insert_initial(node_ctx, source)? {
             self.len.store(1, Ordering::Relaxed);
-            return Ok(Vec::new());
+            return Ok(());
         }
 
         let cache = &self.distance_cache;
@@ -254,6 +353,7 @@ impl CpuHnsw {
 
         // Extract candidate edges before consuming the plan
         let edges = extract_candidate_edges(node, sequence, &plan);
+        collector.collect(edges);
 
         let (prepared, trim_jobs) = self.write_graph(|graph| {
             let mut executor = graph.insertion_executor();
@@ -271,7 +371,7 @@ impl CpuHnsw {
             executor.commit(prepared, trim_results)
         })?;
         self.len.fetch_add(1, Ordering::Relaxed);
-        Ok(edges)
+        Ok(())
     }
 
     /// Searches the index for the `ef` closest neighbours of `query`.

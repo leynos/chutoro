@@ -221,6 +221,97 @@ impl PartialOrd for CandidateEdge {
 
 /// Collection of candidate edges discovered during HNSW construction.
 ///
+/// Wraps a `Vec<CandidateEdge>` to provide a stable API that can evolve
+/// (e.g., to carry metadata or change representation) without breaking
+/// consumers.
+///
 /// Used to accumulate edges from parallel insertions via Rayon `map` → `reduce`
 /// for subsequent MST construction.
-pub type EdgeHarvest = Vec<CandidateEdge>;
+///
+/// # Examples
+/// ```
+/// use chutoro_core::{CandidateEdge, EdgeHarvest};
+///
+/// let edges = vec![
+///     CandidateEdge::new(0, 1, 0.5, 1),
+///     CandidateEdge::new(1, 2, 0.3, 2),
+/// ];
+/// let harvest = EdgeHarvest::new(edges);
+/// assert_eq!(harvest.len(), 2);
+/// assert!(!harvest.is_empty());
+///
+/// for edge in harvest.iter() {
+///     assert!(edge.distance() > 0.0);
+/// }
+/// ```
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EdgeHarvest(Vec<CandidateEdge>);
+
+impl EdgeHarvest {
+    /// Creates a new edge harvest from the given edges.
+    #[must_use]
+    pub fn new(edges: Vec<CandidateEdge>) -> Self {
+        Self(edges)
+    }
+
+    /// Creates an edge harvest from unsorted edges, applying deterministic ordering.
+    ///
+    /// Edges are sorted primarily by insertion sequence (for deterministic ordering
+    /// across parallel insertions), then by the natural `Ord` implementation
+    /// (distance, source, target, sequence).
+    #[must_use]
+    pub fn from_unsorted(mut edges: Vec<CandidateEdge>) -> Self {
+        edges.sort_unstable_by(|a, b| a.sequence().cmp(&b.sequence()).then_with(|| a.cmp(b)));
+        Self(edges)
+    }
+
+    /// Returns the number of harvested edges.
+    #[must_use]
+    #[rustfmt::skip]
+    pub fn len(&self) -> usize { self.0.len() }
+
+    /// Returns whether the harvest contains no edges.
+    #[must_use]
+    #[rustfmt::skip]
+    pub fn is_empty(&self) -> bool { self.0.is_empty() }
+
+    /// Returns an iterator over the harvested edges.
+    #[rustfmt::skip]
+    pub fn iter(&self) -> impl Iterator<Item = &CandidateEdge> { self.0.iter() }
+
+    /// Consumes the harvest and returns the underlying edges.
+    #[must_use]
+    #[rustfmt::skip]
+    pub fn into_inner(self) -> Vec<CandidateEdge> { self.0 }
+
+    /// Returns an iterator over overlapping windows of edges.
+    ///
+    /// Used for verifying sort order invariants.
+    pub fn windows(&self, size: usize) -> impl Iterator<Item = &[CandidateEdge]> {
+        self.0.windows(size)
+    }
+}
+
+impl From<Vec<CandidateEdge>> for EdgeHarvest {
+    fn from(edges: Vec<CandidateEdge>) -> Self {
+        Self(edges)
+    }
+}
+
+impl IntoIterator for EdgeHarvest {
+    type Item = CandidateEdge;
+    type IntoIter = std::vec::IntoIter<CandidateEdge>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a EdgeHarvest {
+    type Item = &'a CandidateEdge;
+    type IntoIter = std::slice::Iter<'a, CandidateEdge>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
+}
