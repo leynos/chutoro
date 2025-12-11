@@ -166,5 +166,11 @@ pub(super) struct IdempotencyPlan {
 #[derive(Clone, Debug)]
 pub(super) struct EdgeHarvestPlan {
     /// Number of times to rebuild with the same seed to check determinism.
+    ///
+    /// # Valid Range
+    ///
+    /// Should be at least 2 for meaningful determinism checks (comparing multiple
+    /// rebuilds). The associated test strategies enforce this minimum. Upper bounds
+    /// are chosen to keep property runs within time budgets (typically 2-5).
     pub rebuild_attempts: usize,
 }

@@ -29,7 +29,7 @@ fn build_with_edges_returns_valid_edges(
 
     assert_eq!(index.len(), num_nodes);
 
-    // All edges reference valid nodes
+    // Validate all edge invariants in a single pass
     for edge in &edges {
         assert!(
             edge.source() < num_nodes,
@@ -41,10 +41,6 @@ fn build_with_edges_returns_valid_edges(
             "target {} out of bounds",
             edge.target()
         );
-    }
-
-    // No self-edges
-    for edge in &edges {
         assert_ne!(
             edge.source(),
             edge.target(),
@@ -52,19 +48,11 @@ fn build_with_edges_returns_valid_edges(
             edge.source(),
             edge.target()
         );
-    }
-
-    // All distances are finite
-    for edge in &edges {
         assert!(
             edge.distance().is_finite(),
             "non-finite distance: {}",
             edge.distance()
         );
-    }
-
-    // All distances are non-negative
-    for edge in &edges {
         assert!(
             edge.distance() >= 0.0,
             "negative distance: {}",
@@ -185,7 +173,11 @@ fn build_with_edges_edges_sorted_by_sequence() {
 
     let (_, edges) = CpuHnsw::build_with_edges(&source, params).expect("build");
 
-    // Verify edges are sorted by sequence (then by distance, source, target)
+    // Verify edges are sorted: primary key is sequence, secondary is natural Ord.
+    //
+    // EdgeHarvest::from_unsorted sorts by sequence first, then by CandidateEdge's
+    // Ord implementation (distance, source, target, sequence) as a tie-breaker.
+    // We verify this composite ordering by chaining comparisons.
     for window in edges.windows(2) {
         let (prev, curr) = (&window[0], &window[1]);
         let ordering = prev
@@ -194,7 +186,7 @@ fn build_with_edges_edges_sorted_by_sequence() {
             .then_with(|| prev.cmp(curr));
         assert!(
             ordering.is_le(),
-            "edges must be sorted by sequence: {:?} should come before {:?}",
+            "edges must be sorted by (sequence, natural Ord): {:?} should come before {:?}",
             prev,
             curr
         );

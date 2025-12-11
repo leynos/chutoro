@@ -343,13 +343,16 @@ mod tests {
 
         let (_, edges) = CpuHnsw::build_with_edges(&source, params).expect("build");
 
-        // Verify edges are sorted by sequence
+        // Verify edges are sorted: primary key is sequence, secondary is natural Ord.
+        //
+        // EdgeHarvest::from_unsorted sorts by sequence first, then by CandidateEdge's
+        // Ord implementation (distance, source, target, sequence) as a tie-breaker.
         for window in edges.windows(2) {
             let (prev, curr) = (&window[0], &window[1]);
             assert!(
-                prev.sequence() <= curr.sequence()
+                prev.sequence() < curr.sequence()
                     || (prev.sequence() == curr.sequence() && prev <= curr),
-                "edges must be sorted: {:?} should come before {:?}",
+                "edges must be sorted by (sequence, natural Ord): {:?} should come before {:?}",
                 prev,
                 curr
             );

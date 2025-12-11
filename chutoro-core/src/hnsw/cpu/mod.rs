@@ -145,7 +145,7 @@ impl CpuHnsw {
         if items > 1 {
             (1..items)
                 .into_par_iter()
-                .try_for_each(|node| index.insert_no_harvest(node, source))?;
+                .try_for_each(|node| index.insert(node, source))?;
         }
 
         Ok(index)
@@ -287,15 +287,6 @@ impl CpuHnsw {
     /// index.insert(1, &data).expect("insert must succeed");
     /// ```
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
-        self.insert_with_collector(node, source, &mut NoopCollector)
-    }
-
-    /// Inserts a node without harvesting edges (fast path for plain build).
-    fn insert_no_harvest<D: DataSource + Sync>(
-        &self,
-        node: usize,
-        source: &D,
-    ) -> Result<(), HnswError> {
         self.insert_with_collector(node, source, &mut NoopCollector)
     }
 

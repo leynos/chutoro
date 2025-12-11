@@ -31,6 +31,19 @@ use crate::hnsw::types::{CandidateEdge, InsertionPlan};
 ///
 /// Self-edges (where `source == target`) are filtered out.
 ///
+/// # Duplicate Edges
+///
+/// The same neighbour may appear in multiple layers of the insertion plan,
+/// resulting in duplicate `(source, target, distance)` tuples with identical
+/// sequence numbers. This is intentional behaviour:
+///
+/// - The downstream MST pipeline treats edges as a simple graph; duplicates
+///   are naturally deduplicated when building the union-find structure.
+/// - Preserving duplicates here avoids an O(n log n) sort + dedup per insertion
+///   in the hot path, deferring any deduplication cost to the final MST phase.
+/// - The edge count may exceed the number of unique node pairs, but this does
+///   not affect correctness.
+///
 /// # Arguments
 ///
 /// * `source_node` - The node being inserted

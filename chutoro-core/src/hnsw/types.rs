@@ -248,10 +248,16 @@ impl PartialOrd for CandidateEdge {
 pub struct EdgeHarvest(Vec<CandidateEdge>);
 
 impl EdgeHarvest {
-    /// Creates a new edge harvest from the given edges.
+    /// Creates a new edge harvest from the given edges, applying deterministic ordering.
+    ///
+    /// Edges are sorted primarily by insertion sequence (for deterministic ordering
+    /// across parallel insertions), then by the natural `Ord` implementation
+    /// (distance, source, target, sequence).
+    ///
+    /// All constructors enforce this invariant to ensure consistent behaviour.
     #[must_use]
     pub fn new(edges: Vec<CandidateEdge>) -> Self {
-        Self(edges)
+        Self::from_unsorted(edges)
     }
 
     /// Creates an edge harvest from unsorted edges, applying deterministic ordering.
@@ -294,7 +300,7 @@ impl EdgeHarvest {
 
 impl From<Vec<CandidateEdge>> for EdgeHarvest {
     fn from(edges: Vec<CandidateEdge>) -> Self {
-        Self(edges)
+        Self::from_unsorted(edges)
     }
 }
 
