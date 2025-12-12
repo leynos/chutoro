@@ -57,7 +57,7 @@ pub(super) fn run_edge_harvest_determinism_property(
         .map_err(|err| TestCaseError::fail(format!("initial build failed: {err}")))?;
 
     // Rebuild multiple times and compare characteristics
-    for attempt in 1..=plan.rebuild_attempts {
+    for attempt in 1..=plan.rebuild_attempts() {
         let source_copy = fixture
             .clone()
             .into_source()
@@ -241,7 +241,7 @@ mod tests {
         #[case] rebuild_attempts: usize,
     ) {
         let fixture = make_fixture(vector_count, seed);
-        let plan = EdgeHarvestPlan { rebuild_attempts };
+        let plan = EdgeHarvestPlan::new(rebuild_attempts);
         run_edge_harvest_determinism_property(fixture, plan)
             .expect("determinism property must hold");
     }
@@ -313,21 +313,14 @@ mod tests {
         // Run all properties on clustered data
         run_edge_harvest_validity_property(fixture.clone()).expect("validity must hold");
         run_edge_harvest_coverage_property(fixture.clone()).expect("coverage must hold");
-        run_edge_harvest_determinism_property(
-            fixture,
-            EdgeHarvestPlan {
-                rebuild_attempts: 2,
-            },
-        )
-        .expect("determinism must hold");
+        run_edge_harvest_determinism_property(fixture, EdgeHarvestPlan::new(2))
+            .expect("determinism must hold");
     }
 
     #[rstest]
     fn edge_harvest_two_nodes_minimal() {
         let fixture = make_fixture(2, 42);
-        let plan = EdgeHarvestPlan {
-            rebuild_attempts: 3,
-        };
+        let plan = EdgeHarvestPlan::new(3);
 
         run_edge_harvest_determinism_property(fixture.clone(), plan)
             .expect("determinism with 2 nodes");

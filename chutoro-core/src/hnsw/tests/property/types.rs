@@ -169,8 +169,37 @@ pub(super) struct EdgeHarvestPlan {
     ///
     /// # Valid Range
     ///
-    /// Should be at least 2 for meaningful determinism checks (comparing multiple
-    /// rebuilds). The associated test strategies enforce this minimum. Upper bounds
-    /// are chosen to keep property runs within time budgets (typically 2-5).
-    pub rebuild_attempts: usize,
+    /// Must be at least 2 for meaningful determinism checks (comparing multiple
+    /// rebuilds). Upper bounds are chosen to keep property runs within time budgets
+    /// (typically 2-5).
+    rebuild_attempts: usize,
+}
+
+/// Minimum rebuild attempts required for meaningful determinism checks.
+pub(super) const MIN_REBUILD_ATTEMPTS: usize = 2;
+
+/// Maximum rebuild attempts to keep property runs within time budgets.
+pub(super) const MAX_REBUILD_ATTEMPTS: usize = 5;
+
+impl EdgeHarvestPlan {
+    /// Creates a new edge harvest plan with the specified rebuild attempts.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `rebuild_attempts < MIN_REBUILD_ATTEMPTS` (currently 2).
+    #[must_use]
+    pub fn new(rebuild_attempts: usize) -> Self {
+        assert!(
+            rebuild_attempts >= MIN_REBUILD_ATTEMPTS,
+            "rebuild_attempts must be at least {MIN_REBUILD_ATTEMPTS} for meaningful \
+             determinism checks, got {rebuild_attempts}"
+        );
+        Self { rebuild_attempts }
+    }
+
+    /// Returns the number of rebuild attempts.
+    #[must_use]
+    pub fn rebuild_attempts(&self) -> usize {
+        self.rebuild_attempts
+    }
 }

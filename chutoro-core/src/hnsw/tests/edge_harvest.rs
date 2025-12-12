@@ -177,9 +177,9 @@ fn build_with_edges_edges_sorted_by_sequence() {
 
     // Verify edges are sorted: primary key is sequence, secondary is natural Ord.
     //
-    // EdgeHarvest::from_unsorted sorts by sequence first, then by CandidateEdge's
-    // Ord implementation (distance, source, target, sequence) as a tie-breaker.
-    // We verify this composite ordering by chaining comparisons.
+    // Note: CandidateEdge::Ord uses distance as the primary key (not sequence),
+    // so we must explicitly compare sequences first, then fall back to the
+    // natural Ord only when sequences are equal.
     for window in edges.windows(2) {
         let (prev, curr) = (&window[0], &window[1]);
         let ordering = prev

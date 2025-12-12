@@ -12,8 +12,8 @@ use super::{
         generate_manifold_dataset, generate_uniform_dataset,
     },
     types::{
-        HnswFixture, HnswParamsSeed, IdempotencyPlan, MutationOperationSeed, MutationPlan,
-        VectorDistribution,
+        EdgeHarvestPlan, HnswFixture, HnswParamsSeed, IdempotencyPlan, MAX_REBUILD_ATTEMPTS,
+        MIN_REBUILD_ATTEMPTS, MutationOperationSeed, MutationPlan, VectorDistribution,
     },
 };
 
@@ -158,4 +158,18 @@ pub(super) fn idempotency_plan_strategy() -> impl Strategy<Value = IdempotencyPl
             attempts_per_index,
         },
     )
+}
+
+/// Samples edge harvest plans for verifying candidate edge harvesting consistency.
+///
+/// Generates plans with `rebuild_attempts` in the range
+/// [`MIN_REBUILD_ATTEMPTS`]..=[`MAX_REBUILD_ATTEMPTS`] (currently 2..=5).
+/// The minimum ensures meaningful determinism checks (comparing at least two builds).
+/// The maximum keeps property runs within time budgets.
+#[expect(
+    dead_code,
+    reason = "prepared for future proptest-based edge harvest tests"
+)]
+pub(super) fn edge_harvest_plan_strategy() -> impl Strategy<Value = EdgeHarvestPlan> {
+    (MIN_REBUILD_ATTEMPTS..=MAX_REBUILD_ATTEMPTS).prop_map(EdgeHarvestPlan::new)
 }
