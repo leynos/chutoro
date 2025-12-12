@@ -52,9 +52,17 @@ fn run_mutation_proptest(config: Config) -> TestCaseResult {
     )
 }
 
-/// Runs a mutation property test with custom configuration parameters.
-fn run_mutation_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> TestCaseResult {
-    run_mutation_proptest_with_stack(
+/// Runs a property test with custom configuration parameters and stack size.
+fn run_test_with_config<F>(
+    cases: u32,
+    max_shrink_iters: u32,
+    stack_size: usize,
+    runner: F,
+) -> TestCaseResult
+where
+    F: FnOnce(Config, usize) -> TestCaseResult,
+{
+    runner(
         Config {
             cases,
             max_shrink_iters,
@@ -64,15 +72,23 @@ fn run_mutation_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> Te
     )
 }
 
+/// Runs a mutation property test with custom configuration parameters.
+fn run_mutation_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> TestCaseResult {
+    run_test_with_config(
+        cases,
+        max_shrink_iters,
+        stack_size,
+        run_mutation_proptest_with_stack,
+    )
+}
+
 /// Runs an idempotency property test with custom configuration parameters.
 fn run_idempotency_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> TestCaseResult {
-    run_idempotency_proptest_with_stack(
-        Config {
-            cases,
-            max_shrink_iters,
-            ..Config::default()
-        },
+    run_test_with_config(
+        cases,
+        max_shrink_iters,
         stack_size,
+        run_idempotency_proptest_with_stack,
     )
 }
 
