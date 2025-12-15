@@ -64,6 +64,10 @@ impl ConcurrentUnionFind {
         }
     }
 
+    /// Executes union after acquiring locks in the correct order.
+    ///
+    /// The lock indices are passed as a tuple to maintain explicit lock ordering
+    /// and avoid accidental misuse whilst keeping the parameter count reasonable.
     fn execute_union_with_locks(
         &self,
         locks: (usize, usize),
