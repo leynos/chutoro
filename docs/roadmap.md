@@ -69,7 +69,7 @@ ______________________________________________________________________
     tests to guarantee stable outputs under fixed seeds.
 - [x] During insertion, capture candidate edges `(u,v,w)` discovered by HNSW;
   accumulate via Rayon `map` → `reduce` into a global edge list. (See §6.2)
-- [ ] Implement parallel Kruskal: parallel sort of edges, concurrent union‑find
+- [x] Implement parallel Kruskal: parallel sort of edges, concurrent union‑find
   for cycle checks. (See §3.2, §6.2)
 - [ ] Implement hierarchy extraction from MST (sequential to start): build
   condensed tree and stability scoring; output flat labels. (See §1.2, §6.2)
