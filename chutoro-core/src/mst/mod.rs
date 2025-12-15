@@ -178,6 +178,78 @@ pub fn parallel_kruskal(
     parallel_kruskal_from_edges(node_count, edges.iter())
 }
 
+fn validate_and_canonicalize_edge(
+    edge: &CandidateEdge,
+    node_count: usize,
+) -> Result<Option<MstEdge>, MstError> {
+    let source = edge.source();
+    let target = edge.target();
+
+    if source >= node_count {
+        return Err(MstError::InvalidNodeId {
+            node: source,
+            node_count,
+        });
+    }
+    if target >= node_count {
+        return Err(MstError::InvalidNodeId {
+            node: target,
+            node_count,
+        });
+    }
+
+    let weight = edge.distance();
+    if !weight.is_finite() {
+        return Err(MstError::NonFiniteWeight {
+            left: source,
+            right: target,
+        });
+    }
+
+    if source == target {
+        return Ok(None);
+    }
+
+    let (source, target) = if source <= target {
+        (source, target)
+    } else {
+        (target, source)
+    };
+
+    Ok(Some(MstEdge {
+        source,
+        target,
+        weight,
+        sequence: edge.sequence(),
+    }))
+}
+
+fn process_weight_group(
+    group: &[MstEdge],
+    union_find: &ConcurrentUnionFind,
+) -> Result<Vec<MstEdge>, MstError> {
+    group
+        .par_iter()
+        .try_fold(Vec::new, |mut acc, edge| {
+            if union_find.try_union(edge.source, edge.target)? {
+                acc.push(*edge);
+            }
+            Ok(acc)
+        })
+        .try_reduce(Vec::new, |mut left, right| {
+            left.extend(right);
+            Ok(left)
+        })
+}
+
+fn is_mst_complete(
+    node_count: usize,
+    union_find: &ConcurrentUnionFind,
+    forest_edges: &[MstEdge],
+) -> bool {
+    union_find.components() == 1 && forest_edges.len() == node_count.saturating_sub(1)
+}
+
 pub(crate) fn parallel_kruskal_from_edges<'a>(
     node_count: usize,
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
@@ -188,46 +260,9 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
 
     let mut edge_list = Vec::new();
     for edge in edges {
-        let source = edge.source();
-        let target = edge.target();
-
-        if source >= node_count {
-            return Err(MstError::InvalidNodeId {
-                node: source,
-                node_count,
-            });
+        if let Some(mst_edge) = validate_and_canonicalize_edge(edge, node_count)? {
+            edge_list.push(mst_edge);
         }
-        if target >= node_count {
-            return Err(MstError::InvalidNodeId {
-                node: target,
-                node_count,
-            });
-        }
-
-        let weight = edge.distance();
-        if !weight.is_finite() {
-            return Err(MstError::NonFiniteWeight {
-                left: source,
-                right: target,
-            });
-        }
-
-        if source == target {
-            continue;
-        }
-
-        let (source, target) = if source <= target {
-            (source, target)
-        } else {
-            (target, source)
-        };
-
-        edge_list.push(MstEdge {
-            source,
-            target,
-            weight,
-            sequence: edge.sequence(),
-        });
     }
 
     if edge_list.is_empty() {
@@ -252,22 +287,11 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
         }
 
         let group = &edge_list[cursor..next];
-        let accepted = group
-            .par_iter()
-            .try_fold(Vec::new, |mut acc, edge| {
-                if union_find.try_union(edge.source, edge.target)? {
-                    acc.push(*edge);
-                }
-                Ok(acc)
-            })
-            .try_reduce(Vec::new, |mut left, right| {
-                left.extend(right);
-                Ok(left)
-            })?;
+        let accepted = process_weight_group(group, &union_find)?;
 
         forest_edges.extend(accepted);
 
-        if union_find.components() == 1 && forest_edges.len() == node_count.saturating_sub(1) {
+        if is_mst_complete(node_count, &union_find, &forest_edges) {
             break;
         }
 
