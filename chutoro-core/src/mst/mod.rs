@@ -250,6 +250,22 @@ fn is_mst_complete(
     union_find.components() == 1 && forest_edges.len() == node_count.saturating_sub(1)
 }
 
+fn prepare_edge_list<'a>(
+    edges: impl IntoIterator<Item = &'a CandidateEdge>,
+    node_count: usize,
+) -> Result<Vec<MstEdge>, MstError> {
+    let mut edge_list = Vec::new();
+    for edge in edges {
+        if let Some(mst_edge) = validate_and_canonicalize_edge(edge, node_count)? {
+            edge_list.push(mst_edge);
+        }
+    }
+
+    edge_list.par_sort_unstable();
+    edge_list.dedup();
+    Ok(edge_list)
+}
+
 pub(crate) fn parallel_kruskal_from_edges<'a>(
     node_count: usize,
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
@@ -258,12 +274,7 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
         return Err(MstError::EmptyGraph);
     }
 
-    let mut edge_list = Vec::new();
-    for edge in edges {
-        if let Some(mst_edge) = validate_and_canonicalize_edge(edge, node_count)? {
-            edge_list.push(mst_edge);
-        }
-    }
+    let edge_list = prepare_edge_list(edges, node_count)?;
 
     if edge_list.is_empty() {
         return Ok(MinimumSpanningForest {
@@ -271,9 +282,6 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
             component_count: node_count,
         });
     }
-
-    edge_list.par_sort_unstable();
-    edge_list.dedup();
 
     let union_find = ConcurrentUnionFind::new(node_count);
     let mut forest_edges = Vec::with_capacity(node_count.saturating_sub(1));

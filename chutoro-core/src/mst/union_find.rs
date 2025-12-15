@@ -55,27 +55,22 @@ impl ConcurrentUnionFind {
                 return Ok(false);
             }
 
-            let (first_lock, second_lock) =
-                lock_order(self.lock_index(left_root), self.lock_index(right_root));
+            let lock_pair = lock_order(self.lock_index(left_root), self.lock_index(right_root));
 
-            match self.execute_union_with_locks(first_lock, second_lock, left, right)? {
+            match self.execute_union_with_locks(lock_pair, left, right)? {
                 UnionAttempt::Done(result) => return Ok(result),
                 UnionAttempt::Retry => continue,
             };
         }
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "The helper keeps lock ordering and endpoints explicit to avoid accidental misuse."
-    )]
     fn execute_union_with_locks(
         &self,
-        first_lock: usize,
-        second_lock: usize,
+        locks: (usize, usize),
         left: usize,
         right: usize,
     ) -> Result<UnionAttempt, MstError> {
+        let (first_lock, second_lock) = locks;
         if first_lock == second_lock {
             let _guard = self.lock_stripe(first_lock)?;
             return self.try_union_after_lock(left, right);
