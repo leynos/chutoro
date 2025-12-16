@@ -43,6 +43,16 @@ pub enum MstError {
         /// Name of the locked resource that was poisoned.
         resource: &'static str,
     },
+    /// An internal invariant was violated, indicating a logic error.
+    #[error("MST invariant violated: {invariant} (index {index}, lock_count {lock_count})")]
+    InvariantViolation {
+        /// Name of the violated invariant to assist debugging.
+        invariant: &'static str,
+        /// The lock index that violated the invariant.
+        index: usize,
+        /// The number of locks available.
+        lock_count: usize,
+    },
 }
 
 impl MstError {
@@ -54,6 +64,7 @@ impl MstError {
             Self::InvalidNodeId { .. } => MstErrorCode::InvalidNodeId,
             Self::NonFiniteWeight { .. } => MstErrorCode::NonFiniteWeight,
             Self::LockPoisoned { .. } => MstErrorCode::LockPoisoned,
+            Self::InvariantViolation { .. } => MstErrorCode::InvariantViolation,
         }
     }
 }
@@ -69,6 +80,8 @@ pub enum MstErrorCode {
     NonFiniteWeight,
     /// A synchronisation primitive became poisoned after a panic.
     LockPoisoned,
+    /// An internal invariant was violated.
+    InvariantViolation,
 }
 
 impl MstErrorCode {
@@ -80,6 +93,7 @@ impl MstErrorCode {
             Self::InvalidNodeId => "INVALID_NODE_ID",
             Self::NonFiniteWeight => "NON_FINITE_WEIGHT",
             Self::LockPoisoned => "LOCK_POISONED",
+            Self::InvariantViolation => "INVARIANT_VIOLATION",
         }
     }
 }
@@ -254,13 +268,21 @@ fn prepare_edge_list<'a>(
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
     node_count: usize,
 ) -> Result<Vec<MstEdge>, MstError> {
-    let mut edge_list = Vec::new();
-    for edge in edges {
-        if let Some(mst_edge) = validate_and_canonicalize_edge(edge, node_count)? {
-            edge_list.push(mst_edge);
-        }
-    }
+    let edges: Vec<&CandidateEdge> = edges.into_iter().collect();
+    let edge_list = edges
+        .par_iter()
+        .try_fold(Vec::new, |mut acc, edge| {
+            if let Some(mst_edge) = validate_and_canonicalize_edge(edge, node_count)? {
+                acc.push(mst_edge);
+            }
+            Ok(acc)
+        })
+        .try_reduce(Vec::new, |mut left, right| {
+            left.extend(right);
+            Ok(left)
+        })?;
 
+    let mut edge_list = edge_list;
     edge_list.par_sort_unstable();
     edge_list.dedup();
     Ok(edge_list)

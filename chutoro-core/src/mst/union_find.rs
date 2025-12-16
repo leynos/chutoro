@@ -86,15 +86,15 @@ impl ConcurrentUnionFind {
     }
 
     fn lock_stripe(&self, index: usize) -> Result<std::sync::MutexGuard<'_, ()>, MstError> {
-        self.locks
-            .get(index)
-            .ok_or(MstError::LockPoisoned {
-                resource: "union-find striped lock table",
-            })?
-            .lock()
-            .map_err(|_| MstError::LockPoisoned {
-                resource: "union-find striped lock",
-            })
+        let lock = self.locks.get(index).ok_or(MstError::InvariantViolation {
+            invariant: "lock_index must point into the striped lock table",
+            index,
+            lock_count: self.locks.len(),
+        })?;
+
+        lock.lock().map_err(|_| MstError::LockPoisoned {
+            resource: "union-find striped lock",
+        })
     }
 
     fn try_union_after_lock(&self, left: usize, right: usize) -> Result<UnionAttempt, MstError> {
