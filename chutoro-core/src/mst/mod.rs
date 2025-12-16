@@ -284,7 +284,9 @@ fn prepare_edge_list<'a>(
 
     let mut edge_list = edge_list;
     edge_list.par_sort_unstable();
-    edge_list.dedup();
+    edge_list.dedup_by(|left, right| {
+        left.weight == right.weight && left.source == right.source && left.target == right.target
+    });
     Ok(edge_list)
 }
 

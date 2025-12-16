@@ -1,8 +1,13 @@
 //! Concurrent union-find for the parallel Kruskal implementation.
 //!
 //! This union-find prioritises correctness and deadlock avoidance over maximum
-//! throughput. It uses a striped lock table so disjoint unions can proceed in
-//! parallel while maintaining a consistent lock ordering.
+//! throughput. Disjoint unions can proceed in parallel while maintaining a
+//! consistent lock ordering.
+//!
+//! The implementation uses one lock per node id (acquired by root id), locking
+//! `(min_root, max_root)` to remain deadlock-free. Each union re-validates that
+//! the roots used to derive the lock order are still current after acquiring
+//! locks; if they change, the attempt is retried.
 
 use std::sync::{
     Mutex,
@@ -16,7 +21,6 @@ pub(super) struct ConcurrentUnionFind {
     ranks: Vec<AtomicUsize>,
     components: AtomicUsize,
     locks: Vec<Mutex<()>>,
-    lock_mask: usize,
 }
 
 impl ConcurrentUnionFind {
@@ -28,17 +32,13 @@ impl ConcurrentUnionFind {
             ranks.push(AtomicUsize::new(0));
         }
 
-        let stripes = lock_stripes(node_count);
-        let lock_mask = stripes.saturating_sub(1);
-
-        let locks = (0..stripes).map(|_| Mutex::new(())).collect();
+        let locks = (0..node_count).map(|_| Mutex::new(())).collect();
 
         Self {
             parents,
             ranks,
             components: AtomicUsize::new(node_count),
             locks,
-            lock_mask,
         }
     }
 
@@ -55,76 +55,49 @@ impl ConcurrentUnionFind {
                 return Ok(false);
             }
 
-            let lock_pair = lock_order(self.lock_index(left_root), self.lock_index(right_root));
+            let lock_pair = lock_order(left_root, right_root);
+            let (first_lock, second_lock) = lock_pair;
+            let _first_guard = self.lock_root(first_lock)?;
+            let _second_guard = (second_lock != first_lock)
+                .then(|| self.lock_root(second_lock))
+                .transpose()?;
 
-            match self.execute_union_with_locks(lock_pair, left, right)? {
-                UnionAttempt::Done(result) => return Ok(result),
-                UnionAttempt::Retry => continue,
-            };
+            let left_root = self.find(left);
+            let right_root = self.find(right);
+
+            if left_root == right_root {
+                return Ok(false);
+            }
+
+            if lock_order(left_root, right_root) != lock_pair {
+                continue;
+            }
+
+            if !self.is_root(left_root) || !self.is_root(right_root) {
+                continue;
+            }
+
+            return self.union_roots(left_root, right_root);
         }
     }
 
-    /// Executes union after acquiring locks in the correct order.
-    ///
-    /// The lock indices are passed as a tuple to maintain explicit lock ordering
-    /// and avoid accidental misuse whilst keeping the parameter count reasonable.
-    fn execute_union_with_locks(
-        &self,
-        locks: (usize, usize),
-        left: usize,
-        right: usize,
-    ) -> Result<UnionAttempt, MstError> {
-        let (first_lock, second_lock) = locks;
-        if first_lock == second_lock {
-            let _guard = self.lock_stripe(first_lock)?;
-            return self.try_union_after_lock(left, right);
-        }
-
-        let _first_guard = self.lock_stripe(first_lock)?;
-        let _second_guard = self.lock_stripe(second_lock)?;
-        self.try_union_after_lock(left, right)
-    }
-
-    fn lock_stripe(&self, index: usize) -> Result<std::sync::MutexGuard<'_, ()>, MstError> {
+    fn lock_root(&self, index: usize) -> Result<std::sync::MutexGuard<'_, ()>, MstError> {
         let lock = self.locks.get(index).ok_or(MstError::InvariantViolation {
-            invariant: "lock_index must point into the striped lock table",
+            invariant: "root lock index must be within the lock table",
             index,
             lock_count: self.locks.len(),
         })?;
 
         lock.lock().map_err(|_| MstError::LockPoisoned {
-            resource: "union-find striped lock",
+            resource: "union-find root lock",
         })
-    }
-
-    fn try_union_after_lock(&self, left: usize, right: usize) -> Result<UnionAttempt, MstError> {
-        let left_root = self.find(left);
-        let right_root = self.find(right);
-
-        if left_root == right_root {
-            return Ok(UnionAttempt::Done(false));
-        }
-
-        if !self.is_root(left_root) || !self.is_root(right_root) {
-            return Ok(UnionAttempt::Retry);
-        }
-
-        Ok(UnionAttempt::Done(self.union_roots(left_root, right_root)?))
     }
 
     fn union_roots(&self, left_root: usize, right_root: usize) -> Result<bool, MstError> {
         let left_rank = self.ranks[left_root].load(Ordering::Relaxed);
         let right_rank = self.ranks[right_root].load(Ordering::Relaxed);
 
-        let (parent, child) = if left_rank > right_rank {
-            (left_root, right_root)
-        } else if right_rank > left_rank {
-            (right_root, left_root)
-        } else if left_root <= right_root {
-            (left_root, right_root)
-        } else {
-            (right_root, left_root)
-        };
+        let (parent, child) = choose_parent_child(left_root, right_root, left_rank, right_rank);
 
         self.parents[child].store(parent, Ordering::Release);
 
@@ -158,15 +131,6 @@ impl ConcurrentUnionFind {
             current = parent;
         }
     }
-
-    fn lock_index(&self, node: usize) -> usize {
-        node & self.lock_mask
-    }
-}
-
-enum UnionAttempt {
-    Done(bool),
-    Retry,
 }
 
 fn lock_order(first: usize, second: usize) -> (usize, usize) {
@@ -177,12 +141,18 @@ fn lock_order(first: usize, second: usize) -> (usize, usize) {
     }
 }
 
-fn lock_stripes(node_count: usize) -> usize {
-    const MAX_STRIPES: usize = 4096;
-    if node_count <= 1 {
-        return 1;
+fn choose_parent_child(
+    left_root: usize,
+    right_root: usize,
+    left_rank: usize,
+    right_rank: usize,
+) -> (usize, usize) {
+    if left_rank > right_rank {
+        return (left_root, right_root);
+    }
+    if right_rank > left_rank {
+        return (right_root, left_root);
     }
 
-    let stripes = node_count.next_power_of_two();
-    stripes.min(MAX_STRIPES)
+    lock_order(left_root, right_root)
 }
