@@ -150,75 +150,83 @@ fn undirected_edges_are_canonicalised_and_deduplicated() {
     assert_eq!(edge.sequence(), 10);
 }
 
+/// Builds a test case for a connected graph with specified edges and expected MST.
+fn build_connected_case(
+    node_count: usize,
+    input_edges: &[(usize, usize, f32, u64)],
+    expected_edges: Vec<MstEdge>,
+) -> (usize, EdgeHarvest, Vec<MstEdge>) {
+    let edges = harvest(input_edges);
+    (node_count, edges, expected_edges)
+}
+
 fn connected_unique_weights_case() -> (usize, EdgeHarvest, Vec<MstEdge>) {
-    let node_count = 4;
-    let edges = harvest(&[
-        (0, 1, 1.0, 0),
-        (1, 2, 2.0, 1),
-        (2, 3, 3.0, 2),
-        (0, 2, 6.0, 3),
-        (0, 3, 10.0, 4),
-    ]);
-
-    let expected = vec![
-        MstEdge {
-            source: 0,
-            target: 1,
-            weight: 1.0,
-            sequence: 0,
-        },
-        MstEdge {
-            source: 1,
-            target: 2,
-            weight: 2.0,
-            sequence: 1,
-        },
-        MstEdge {
-            source: 2,
-            target: 3,
-            weight: 3.0,
-            sequence: 2,
-        },
-    ];
-
-    (node_count, edges, expected)
+    build_connected_case(
+        4,
+        &[
+            (0, 1, 1.0, 0),
+            (1, 2, 2.0, 1),
+            (2, 3, 3.0, 2),
+            (0, 2, 6.0, 3),
+            (0, 3, 10.0, 4),
+        ],
+        vec![
+            MstEdge {
+                source: 0,
+                target: 1,
+                weight: 1.0,
+                sequence: 0,
+            },
+            MstEdge {
+                source: 1,
+                target: 2,
+                weight: 2.0,
+                sequence: 1,
+            },
+            MstEdge {
+                source: 2,
+                target: 3,
+                weight: 3.0,
+                sequence: 2,
+            },
+        ],
+    )
 }
 
 fn connected_duplicate_edges_case() -> (usize, EdgeHarvest, Vec<MstEdge>) {
-    let node_count = 4;
-    let edges = harvest(&[
-        // Same undirected edges with distinct sequences to exercise
-        // deterministic tie-breaking during preparation.
-        (1, 0, 1.0, 2),
-        (0, 1, 1.0, 1),
-        (2, 0, 1.0, 9),
-        (0, 2, 1.0, 3),
-        // Unique edge to connect node 3.
-        (0, 3, 2.0, 4),
-    ]);
-
-    let expected = vec![
-        MstEdge {
-            source: 0,
-            target: 1,
-            weight: 1.0,
-            sequence: 1,
-        },
-        MstEdge {
-            source: 0,
-            target: 2,
-            weight: 1.0,
-            sequence: 3,
-        },
-        MstEdge {
-            source: 0,
-            target: 3,
-            weight: 2.0,
-            sequence: 4,
-        },
-    ];
-
-    (node_count, edges, expected)
+    build_connected_case(
+        4,
+        &[
+            // Same undirected edges with distinct sequences to exercise
+            // deterministic tie-breaking during preparation.
+            (1, 0, 1.0, 2),
+            (0, 1, 1.0, 1),
+            (2, 0, 1.0, 9),
+            (0, 2, 1.0, 3),
+            // Unique edge to connect node 3.
+            (0, 3, 2.0, 4),
+        ],
+        vec![
+            MstEdge {
+                source: 0,
+                target: 1,
+                weight: 1.0,
+                sequence: 1,
+            },
+            MstEdge {
+                source: 0,
+                target: 2,
+                weight: 1.0,
+                sequence: 3,
+            },
+            MstEdge {
+                source: 0,
+                target: 3,
+                weight: 2.0,
+                sequence: 4,
+            },
+        ],
+    )
 }
 
 #[rstest]
