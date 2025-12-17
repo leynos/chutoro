@@ -269,7 +269,7 @@ fn prepare_edge_list<'a>(
     node_count: usize,
 ) -> Result<Vec<MstEdge>, MstError> {
     let edges: Vec<&CandidateEdge> = edges.into_iter().collect();
-    let edge_list = edges
+    let mut edge_list = edges
         .par_iter()
         .try_fold(Vec::new, |mut acc, edge| {
             if let Some(mst_edge) = validate_and_canonicalize_edge(edge, node_count)? {
@@ -282,7 +282,6 @@ fn prepare_edge_list<'a>(
             Ok(left)
         })?;
 
-    let mut edge_list = edge_list;
     edge_list.par_sort_unstable();
     edge_list.dedup_by(|left, right| {
         left.weight == right.weight && left.source == right.source && left.target == right.target
