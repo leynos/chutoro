@@ -242,18 +242,16 @@ fn process_weight_group(
     group: &[MstEdge],
     union_find: &ConcurrentUnionFind,
 ) -> Result<Vec<MstEdge>, MstError> {
-    group
-        .par_iter()
-        .try_fold(Vec::new, |mut acc, edge| {
-            if union_find.try_union(edge.source, edge.target)? {
-                acc.push(*edge);
-            }
-            Ok(acc)
-        })
-        .try_reduce(Vec::new, |mut left, right| {
-            left.extend(right);
-            Ok(left)
-        })
+    // Process edges sequentially to ensure deterministic MST selection.
+    // Since edges are already sorted by (weight, source, target, sequence),
+    // sequential iteration produces reproducible results.
+    let mut accepted = Vec::new();
+    for edge in group {
+        if union_find.try_union(edge.source, edge.target)? {
+            accepted.push(*edge);
+        }
+    }
+    Ok(accepted)
 }
 
 fn is_mst_complete(
