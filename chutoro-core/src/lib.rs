@@ -7,6 +7,8 @@ mod distance;
 mod error;
 #[cfg(feature = "cpu")]
 mod hnsw;
+#[cfg(feature = "cpu")]
+mod mst;
 mod result;
 
 pub use crate::{
@@ -27,6 +29,10 @@ pub use crate::hnsw::{
     CandidateEdge, CpuHnsw, DistanceCacheConfig, EdgeHarvest, HnswError, HnswErrorCode,
     HnswInvariant, HnswInvariantChecker, HnswInvariantViolation, HnswParams, Neighbour,
 };
+
+#[cfg(feature = "cpu")]
+/// CPU minimum spanning tree (MST) utilities; requires the `cpu` feature.
+pub use crate::mst::{MinimumSpanningForest, MstEdge, MstError, MstErrorCode, parallel_kruskal};
 
 #[cfg(test)]
 pub(crate) mod test_utils;

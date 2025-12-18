@@ -791,6 +791,15 @@ lock, improving concurrency.
    detection, it offers a strong balance of implementation complexity and
    performance within the multi-threaded CPU context.
 
+Design decision: the CPU parallel Kruskal implementation canonicalises directed
+candidate edges to undirected `(min(u, v), max(u, v))` pairs and rejects
+non-finite weights. Edges are globally sorted using Rayon `par_sort_unstable`
+with `f32::total_cmp` and deterministic tie-breaks (`source`, `target`,
+`sequence`). To preserve Kruskal's correctness guarantees, the scan maintains a
+non-decreasing weight order; within each equal-weight bucket, cycle checks are
+parallelised via a striped-lock union-find so disjoint unions can proceed
+concurrently without deadlocks.
+
 - **Cluster Extraction:** The final stage, which involves processing the MST to
   build the cluster hierarchy and extract the stable clusters, is generally
   less computationally intensive than the graph construction phases. An initial
