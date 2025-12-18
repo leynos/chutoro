@@ -5,20 +5,11 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
-#[cfg(feature = "skeleton")]
-use crate::error::DataSourceError;
-#[cfg(feature = "skeleton")]
-use crate::result::ClusterId;
 use crate::{
     Result, builder::ExecutionStrategy, datasource::DataSource, error::ChutoroError,
     result::ClusteringResult,
 };
-#[cfg(feature = "skeleton")]
-use tracing::info;
 use tracing::{instrument, warn};
-
-#[cfg(feature = "skeleton")]
-type DataSourceResult<T> = core::result::Result<T, DataSourceError>;
 
 /// Entry point for running the clustering pipeline.
 ///
@@ -134,7 +125,7 @@ impl Chutoro {
     /// assert_eq!(result.assignments().len(), 3);
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
-    pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult> {
+    pub fn run<D: DataSource + Sync>(&self, source: &D) -> Result<ClusteringResult> {
         let items = source.len();
         self.run_with_len(source, items)
     }
@@ -150,7 +141,11 @@ impl Chutoro {
             strategy = ?self.execution_strategy
         ),
     )]
-    fn run_with_len<D: DataSource>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
+    fn run_with_len<D: DataSource + Sync>(
+        &self,
+        source: &D,
+        items: usize,
+    ) -> Result<ClusteringResult> {
         if items == 0 {
             warn!(
                 data_source = source.name(),
@@ -172,93 +167,118 @@ impl Chutoro {
         }
 
         match self.execution_strategy {
-            // GPU + skeleton: route Auto and GpuPreferred to GPU path
-            #[cfg(all(feature = "gpu", feature = "skeleton"))]
-            ExecutionStrategy::Auto | ExecutionStrategy::GpuPreferred => {
-                self.run_gpu(source, items)
-            }
-
-            // GPU only (no skeleton): route both strategies to the GPU stub
-            #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
-            ExecutionStrategy::GpuPreferred => self.run_gpu(source, items),
-            #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
-            ExecutionStrategy::Auto => self.run_gpu(source, items),
-            #[cfg(all(feature = "skeleton", not(feature = "gpu")))]
             ExecutionStrategy::Auto => {
-                self.wrap_datasource_error(source, self.run_cpu(source, items))
+                if cfg!(feature = "cpu") {
+                    self.run_cpu(source, items)
+                } else {
+                    self.run_gpu(source, items)
+                }
             }
-            #[cfg(all(not(feature = "skeleton"), not(feature = "gpu")))]
-            ExecutionStrategy::Auto => Err(ChutoroError::BackendUnavailable {
-                requested: ExecutionStrategy::Auto,
-            }),
-            #[cfg(feature = "skeleton")]
-            ExecutionStrategy::CpuOnly => {
-                self.wrap_datasource_error(source, self.run_cpu(source, items))
-            }
-            #[cfg(not(feature = "skeleton"))]
-            ExecutionStrategy::CpuOnly => Err(ChutoroError::BackendUnavailable {
-                requested: ExecutionStrategy::CpuOnly,
-            }),
-            #[cfg(not(feature = "gpu"))]
-            ExecutionStrategy::GpuPreferred => Err(ChutoroError::BackendUnavailable {
-                requested: ExecutionStrategy::GpuPreferred,
-            }),
+            ExecutionStrategy::CpuOnly => self.run_cpu(source, items),
+            ExecutionStrategy::GpuPreferred => self.run_gpu(source, items),
         }
     }
 
-    /// Execute the CPU walking skeleton; available with the `skeleton` feature.
-    #[cfg(feature = "skeleton")]
+    /// Execute the CPU FISHDBC pipeline; available with the `cpu` feature.
     #[instrument(
         name = "core.run_cpu",
         err,
-        skip(self, _source),
+        skip(self, source),
         fields(items = items, min_cluster_size = %self.min_cluster_size),
     )]
-    fn run_cpu<D: DataSource>(
+    fn run_cpu<D: DataSource + Sync>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
+        #[cfg(feature = "cpu")]
+        {
+            use crate::{
+                CandidateEdge, ClusterId, CpuHnsw, EdgeHarvest, HierarchyConfig, HnswParams,
+                MstError, parallel_kruskal,
+            };
+
+            let params = HnswParams::default();
+            let (index, harvested) = CpuHnsw::build_with_edges(source, params.clone())
+                .map_err(|error| self.map_cpu_hnsw_error(source, error))?;
+
+            let min_cluster_size = self.min_cluster_size.get();
+            let ef = {
+                let desired = min_cluster_size
+                    .saturating_add(1)
+                    .max(params.ef_construction())
+                    .min(items);
+                NonZeroUsize::new(desired)
+                    .unwrap_or_else(|| NonZeroUsize::new(1).expect("literal 1 is non-zero"))
+            };
+
+            let mut core_distances = Vec::with_capacity(items);
+            for point in 0..items {
+                let neighbours = index
+                    .search(source, point, ef)
+                    .map_err(|error| self.map_cpu_hnsw_error(source, error))?;
+                let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
+                let core = if others.len() >= min_cluster_size {
+                    others[min_cluster_size - 1].distance
+                } else {
+                    others.last().map(|n| n.distance).unwrap_or(0.0)
+                };
+                core_distances.push(core);
+            }
+
+            let mutual_edges: Vec<CandidateEdge> = harvested
+                .iter()
+                .map(|edge| {
+                    let left = edge.source();
+                    let right = edge.target();
+                    let dist = edge.distance();
+                    let weight = dist.max(core_distances[left]).max(core_distances[right]);
+                    CandidateEdge::new(left, right, weight, edge.sequence())
+                })
+                .collect();
+            let mutual_harvest = EdgeHarvest::new(mutual_edges);
+
+            let forest = parallel_kruskal(items, &mutual_harvest)
+                .map_err(|error: MstError| self.map_cpu_mst_error(error))?;
+
+            let labels = crate::extract_labels_from_mst(
+                items,
+                forest.edges(),
+                HierarchyConfig::new(self.min_cluster_size),
+            )
+            .map_err(|error| self.map_cpu_hierarchy_error(error))?;
+
+            let assignments = labels
+                .into_iter()
+                .map(|label| ClusterId::new(label as u64))
+                .collect();
+
+            Ok(ClusteringResult::from_assignments(assignments))
+        }
+        #[cfg(not(feature = "cpu"))]
+        {
+            let _ = (source, items);
+            Err(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::CpuOnly,
+            })
+        }
+    }
+
+    fn run_gpu<D: DataSource + Sync>(
         &self,
         _source: &D,
-        items: usize,
-    ) -> DataSourceResult<ClusteringResult> {
-        // FIXME(#12): This is a walking skeleton implementation that partitions items into
-        // fixed-size buckets based on min_cluster_size. Replace with HNSW + MST +
-        // hierarchy extraction as per the FISHDBC algorithm design.
-        let cluster_span = self.min_cluster_size.get();
-        let assignments = (0..items)
-            .map(|idx| ClusterId::new((idx / cluster_span) as u64))
-            .collect();
-        let result = ClusteringResult::from_assignments(assignments);
-        info!(clusters = result.cluster_count(), "cpu execution completed");
-        Ok(result)
-    }
-
-    /// Execute the GPU walking skeleton; requires the `gpu` and `skeleton` features.
-    #[cfg(all(feature = "gpu", feature = "skeleton"))]
-    fn run_gpu<D: DataSource>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
-        // TODO(#13): Replace with the real GPU backend once implemented. Until then we
-        // reuse the CPU walking skeleton to exercise the orchestration path.
-        self.wrap_datasource_error(source, self.run_cpu(source, items))
-    }
-
-    /// Fail when GPU execution is requested without the `skeleton` feature.
-    #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
-    fn run_gpu<D: DataSource>(&self, _source: &D, _items: usize) -> Result<ClusteringResult> {
-        // We intentionally fail fast when the walking skeleton is disabled so GPU
-        // builds do not accidentally ship the placeholder CPU path.
+        _items: usize,
+    ) -> Result<ClusteringResult> {
         Err(ChutoroError::BackendUnavailable {
             requested: ExecutionStrategy::GpuPreferred,
         })
     }
 
     fn backend_unavailable_error(&self) -> Option<ChutoroError> {
-        // CPU path is only available when the skeleton feature provides the
-        // reference implementation. The GPU path depends on both gpu and
-        // skeleton features because the GPU implementation builds atop the
-        // same scaffolding.
-        const CPU_PATH_AVAILABLE: bool = cfg!(feature = "skeleton");
-        const GPU_PATH_AVAILABLE: bool = cfg!(all(feature = "gpu", feature = "skeleton"));
+        const CPU_PATH_AVAILABLE: bool = cfg!(feature = "cpu");
+        // The `gpu` feature currently exposes the orchestration surface only;
+        // no accelerated implementation ships yet.
+        const GPU_PATH_AVAILABLE: bool = false;
 
         let unavailable = match self.execution_strategy {
-            ExecutionStrategy::CpuOnly | ExecutionStrategy::Auto => !CPU_PATH_AVAILABLE,
+            ExecutionStrategy::Auto => !(CPU_PATH_AVAILABLE || GPU_PATH_AVAILABLE),
+            ExecutionStrategy::CpuOnly => !CPU_PATH_AVAILABLE,
             ExecutionStrategy::GpuPreferred => !GPU_PATH_AVAILABLE,
         };
 
@@ -267,38 +287,51 @@ impl Chutoro {
         })
     }
 
-    #[cfg(feature = "skeleton")]
-    fn wrap_datasource_error<D: DataSource>(
+    #[cfg(feature = "cpu")]
+    fn map_cpu_hnsw_error<D: DataSource>(
         &self,
         source: &D,
-        result: DataSourceResult<ClusteringResult>,
-    ) -> Result<ClusteringResult> {
-        result.map_err(|error| ChutoroError::DataSource {
-            data_source: Arc::from(source.name()),
-            error,
-        })
+        error: crate::HnswError,
+    ) -> ChutoroError {
+        match error {
+            crate::HnswError::DataSource(error) => ChutoroError::DataSource {
+                data_source: Arc::from(source.name()),
+                error,
+            },
+            other => ChutoroError::CpuHnswFailure {
+                code: Arc::from(other.code().as_str()),
+                message: Arc::from(other.to_string()),
+            },
+        }
+    }
+
+    #[cfg(feature = "cpu")]
+    fn map_cpu_mst_error(&self, error: crate::MstError) -> ChutoroError {
+        ChutoroError::CpuMstFailure {
+            code: Arc::from(error.code().as_str()),
+            message: Arc::from(error.to_string()),
+        }
+    }
+
+    #[cfg(feature = "cpu")]
+    fn map_cpu_hierarchy_error(&self, error: crate::HierarchyError) -> ChutoroError {
+        ChutoroError::CpuHierarchyFailure {
+            code: Arc::from(match error {
+                crate::HierarchyError::EmptyDataset => "EMPTY_DATASET",
+                crate::HierarchyError::MinClusterSizeTooLarge { .. } => {
+                    "MIN_CLUSTER_SIZE_TOO_LARGE"
+                }
+                crate::HierarchyError::InvalidEdgeWeight { .. } => "INVALID_EDGE_WEIGHT",
+            }),
+            message: Arc::from(error.to_string()),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(not(feature = "skeleton"))]
-    use rstest::rstest;
 
-    #[cfg(not(feature = "skeleton"))]
-    #[rstest]
-    #[case(ExecutionStrategy::Auto)]
-    #[case(ExecutionStrategy::CpuOnly)]
-    fn backend_error_without_skeleton(#[case] strategy: ExecutionStrategy) {
-        let chutoro = Chutoro::new(
-            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
-            strategy,
-        );
-        assert!(chutoro.backend_unavailable_error().is_some());
-    }
-
-    #[cfg(all(feature = "skeleton", not(feature = "gpu")))]
     #[test]
     fn gpu_preferred_requires_gpu_feature() {
         let chutoro = Chutoro::new(
@@ -306,28 +339,35 @@ mod tests {
             ExecutionStrategy::GpuPreferred,
         );
         let err = chutoro.backend_unavailable_error();
-        assert!(matches!(err, Some(ChutoroError::BackendUnavailable { .. })));
-
-        let auto = Chutoro::new(
-            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
-            ExecutionStrategy::Auto,
-        );
-        assert!(auto.backend_unavailable_error().is_none());
+        assert!(matches!(
+            err,
+            Some(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::GpuPreferred
+            })
+        ));
     }
 
-    #[cfg(all(feature = "gpu", feature = "skeleton"))]
     #[test]
     fn backend_available_when_features_enabled() {
-        for strategy in [
-            ExecutionStrategy::Auto,
-            ExecutionStrategy::CpuOnly,
-            ExecutionStrategy::GpuPreferred,
-        ] {
-            let chutoro = Chutoro::new(
-                NonZeroUsize::new(1).expect("literal 1 is non-zero"),
-                strategy,
-            );
-            assert!(chutoro.backend_unavailable_error().is_none());
+        if cfg!(feature = "cpu") {
+            for strategy in [ExecutionStrategy::Auto, ExecutionStrategy::CpuOnly] {
+                let chutoro = Chutoro::new(
+                    NonZeroUsize::new(1).expect("literal 1 is non-zero"),
+                    strategy,
+                );
+                assert!(chutoro.backend_unavailable_error().is_none());
+            }
         }
+
+        let chutoro = Chutoro::new(
+            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
+            ExecutionStrategy::GpuPreferred,
+        );
+        assert!(matches!(
+            chutoro.backend_unavailable_error(),
+            Some(ChutoroError::BackendUnavailable {
+                requested: ExecutionStrategy::GpuPreferred
+            })
+        ));
     }
 }

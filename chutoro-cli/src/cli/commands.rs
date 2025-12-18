@@ -25,7 +25,7 @@ pub struct Cli {
 /// Supported CLI commands.
 #[derive(Debug, Subcommand, Clone)]
 pub enum Command {
-    /// Execute the walking skeleton pipeline.
+    /// Execute the clustering pipeline.
     Run(RunCommand),
 }
 
@@ -53,7 +53,7 @@ pub struct RunCommand {
     pub source: RunSource,
 }
 
-/// Input data sources supported by the walking skeleton.
+/// Input data sources supported by the CLI.
 #[derive(Debug, Subcommand, Clone)]
 pub enum RunSource {
     /// Execute against a Parquet file containing a `FixedSizeList<Float32, D>` column.
@@ -144,7 +144,7 @@ pub enum CliError {
 pub struct ExecutionSummary {
     /// Name reported by the data source implementation.
     pub data_source: String,
-    /// Cluster assignments produced by the walking skeleton.
+    /// Cluster assignments produced by the clustering pipeline.
     pub result: ClusteringResult,
 }
 
@@ -285,7 +285,7 @@ fn path_label(path: &Path) -> String {
 
 fn execute_with_provider<D>(chutoro: &Chutoro, provider: D) -> Result<ExecutionSummary, CliError>
 where
-    D: DataSource,
+    D: DataSource + Sync,
 {
     let result = chutoro.run(&provider)?;
     Ok(ExecutionSummary {

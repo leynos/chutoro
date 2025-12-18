@@ -14,8 +14,6 @@ tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "jso
 [dependencies.chutoro-core]
 version = "0.1.0"
 path = "../chutoro-core"
-default-features = false
-features = ["skeleton"]
 
 [dependencies.chutoro-providers-dense]
 version = "0.1.0"

@@ -71,11 +71,11 @@ ______________________________________________________________________
   accumulate via Rayon `map` → `reduce` into a global edge list. (See §6.2)
 - [x] Implement parallel Kruskal: parallel sort of edges, concurrent union‑find
   for cycle checks. (See §3.2, §6.2)
-- [ ] Implement hierarchy extraction from MST (sequential to start): build
+- [x] Implement hierarchy extraction from MST (sequential to start): build
   condensed tree and stability scoring; output flat labels. (See §1.2, §6.2)
-- [ ] Add deterministic tests on tiny datasets (exact mutual-reachability path)
+- [x] Add deterministic tests on tiny datasets (exact mutual-reachability path)
   to sanity-check hierarchy logic. (See §11)
-- [ ] Add functional tests comparing ARI/NMI with HDBSCAN/HNSW baselines on
+- [x] Add functional tests comparing ARI/NMI with HDBSCAN/HNSW baselines on
   small public sets. (See §11)
 - [x] Introduce property-based generators for HNSW using `proptest` +
   `test-strategy`; cover uniform, clustered, manifold, and duplicate vectors

@@ -808,6 +808,33 @@ concurrently without deadlocks.
   as a disjoint-set for condensing the tree, are readily available in the Rust
   ecosystem.
 
+_Implementation update (2025-12-18)._ The CPU backend now performs hierarchy
+extraction sequentially from the mutual-reachability MST by first deriving the
+single-linkage hierarchy (a dendrogram) from the MST edges. The implementation
+constructs a single-linkage forest by sorting MST edges in non-decreasing
+weight order and performing union-find merges; each merge creates an internal
+node annotated with the merge distance.
+
+To obtain a practical hierarchy, the dendrogram is condensed using
+`min_cluster_size` in the HDBSCAN style: when a cluster would split into two
+subclusters that both satisfy `min_cluster_size`, the split is recorded as two
+child clusters. When only one branch satisfies `min_cluster_size`, the cluster
+continues down the large branch with the same cluster id while points in the
+small branch are emitted as leaves at the split lambda (`lambda = 1 / d`,
+treating `d = 0` as `lambda = +∞`). This produces a condensed tree where each
+cluster can shed points multiple times before finally splitting into child
+clusters.
+
+Cluster stability is computed using an excess-of-mass score:
+`stability(cluster) = Σ (lambda_leave - lambda_birth) * child_size`, summing
+over point leaves and child-cluster exits. The extractor then selects clusters
+using a recursive EOM rule (choose the parent if its stability exceeds the sum
+of its children's selected stabilities, otherwise keep the children). Flat
+labels are produced by propagating the nearest selected ancestor label to each
+point. Points that never observe a selected ancestor are classified as noise
+and are assigned a dedicated label appended after the selected clusters so
+labels remain contiguous starting at zero.
+
 #### 6.3. SIMD utilization
 
 - **Distance kernels (biggest win):** Add a CPU backend that takes contiguous
@@ -1328,7 +1355,7 @@ A builder pattern will be used to configure the clustering algorithm.
 ```rust
 use crate::datasource::DataSource;
 use crate::result::ClusteringResult;
-use crate::error::{ChutoroError, DataSourceError};
+use crate::error::ChutoroError;
 use std::sync::Arc;
 
 /// Builder for the chutoro implementation of the FISHDBC algorithm.
@@ -1371,9 +1398,9 @@ pub struct Chutoro {
 impl Chutoro {
     /// Runs the clustering algorithm on the given data source.
     ///
-    /// The walking skeleton validates the dataset before dispatch and
-    /// partitions it into placeholder buckets sized by `min_cluster_size`.
-    pub fn run<D: DataSource>(&self, source: &D) -> Result<ClusteringResult, ChutoroError> {
+    /// The CPU implementation validates the dataset before dispatch and then
+    /// executes the FISHDBC pipeline (HNSW → MST → hierarchy extraction).
+    pub fn run<D: DataSource + Sync>(&self, source: &D) -> Result<ClusteringResult, ChutoroError> {
         let len = source.len();
         if len == 0 {
             return Err(ChutoroError::EmptySource {
@@ -1389,99 +1416,69 @@ impl Chutoro {
         }
 
         match self.execution_strategy {
-            #[cfg(feature = "skeleton")]
-            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => {
-                self.wrap_datasource_error(source, self.run_cpu(source, len))
+            ExecutionStrategy::Auto => {
+                #[cfg(feature = "gpu")]
+                {
+                    self.run_gpu(source, len)
+                }
+                #[cfg(not(feature = "gpu"))]
+                {
+                    self.run_cpu(source, len)
+                }
             }
-            #[cfg(not(feature = "skeleton"))]
-            ExecutionStrategy::Auto | ExecutionStrategy::CpuOnly => Err(
-                ChutoroError::BackendUnavailable {
-                    requested: self.execution_strategy,
-                },
-            ),
-            #[cfg(feature = "gpu")]
+            ExecutionStrategy::CpuOnly => self.run_cpu(source, len),
             ExecutionStrategy::GpuPreferred => self.run_gpu(source, len),
-            #[cfg(not(feature = "gpu"))]
-            ExecutionStrategy::GpuPreferred => Err(ChutoroError::BackendUnavailable {
-                requested: ExecutionStrategy::GpuPreferred,
-            }),
         }
     }
 
-    #[cfg(feature = "skeleton")]
-    fn run_cpu<D: DataSource>(
-        &self,
-        _source: &D,
-        items: usize,
-    ) -> Result<ClusteringResult, DataSourceError> {
-        // Walking skeleton placeholder: group items by `min_cluster_size` until the
-        // FISHDBC pipeline replaces this stub.
-        let cluster_span = self.min_cluster_size.get();
-        let assignments = (0..items)
-            .map(|idx| ClusterId::new((idx / cluster_span) as u64))
-            .collect();
-        Ok(ClusteringResult::from_assignments(assignments))
-    }
-
-    #[cfg(all(feature = "gpu", feature = "skeleton"))]
-    fn run_gpu<D: DataSource>(
+    #[cfg(feature = "cpu")]
+    fn run_cpu<D: DataSource + Sync>(
         &self,
         source: &D,
         items: usize,
     ) -> Result<ClusteringResult, ChutoroError> {
-        // Placeholder: dispatch to the CPU implementation until the GPU backend lands.
-        self.wrap_datasource_error(source, self.run_cpu(source, items))
+        // Build HNSW, transform harvested edges into mutual-reachability
+        // weights, run Kruskal, and extract labels from the MST.
+        //
+        // See `chutoro-core/src/chutoro.rs` for the current implementation.
+        todo!()
     }
 
-    #[cfg(all(feature = "gpu", not(feature = "skeleton")))]
+    #[cfg(feature = "gpu")]
     fn run_gpu<D: DataSource>(
         &self,
-        _source: &D,
-        _items: usize,
+        source: &D,
+        items: usize,
     ) -> Result<ClusteringResult, ChutoroError> {
         Err(ChutoroError::BackendUnavailable {
             requested: ExecutionStrategy::GpuPreferred,
         })
     }
-
-    fn wrap_datasource_error<D: DataSource>(
-        &self,
-        source: &D,
-        result: Result<ClusteringResult, DataSourceError>,
-    ) -> Result<ClusteringResult, ChutoroError> {
-        result.map_err(|error| ChutoroError::DataSource {
-            data_source: Arc::from(source.name()),
-            error,
-        })
-    }
 }
 
-The walking skeleton validates builder parameters up-front.
 `ChutoroBuilder::build` rejects zero-sized clusters while deferring backend
 availability to runtime so GPU-preferred configurations can be constructed
 ahead of accelerated support. The struct stores the validated
 `min_cluster_size` and `execution_strategy`, and [`Chutoro::run`] fails fast on
 empty or undersized sources while sharing `Arc<str>` handles for the
-data-source name so repeated errors avoid cloning. The CPU walking skeleton is
-gated behind an opt-in `skeleton` feature so downstream builds only compile
-the placeholder when explicitly requested. When it is disabled, `Auto` and
-`CpuOnly` strategies surface `BackendUnavailable` to highlight the missing
-implementation. When the `gpu` feature is disabled the GPU branch returns
-`BackendUnavailable`; enabling it routes through a placeholder `run_gpu` that
-only compiles when the `skeleton` feature is active and reuses the CPU stub
-until the accelerator lands. The temporary CPU implementation still partitions
-input into contiguous buckets sized by `min_cluster_size` to exercise
-multi-cluster flows while explicitly labelling the placeholder logic for the
-future FISHDBC pipeline.
-Tracking issues #12 and #13 record the work to replace the CPU skeleton and
-GPU shim with the real pipeline once the full FISHDBC implementation lands.
+data-source name so repeated errors avoid cloning.
+
+_Implementation update (2025-12-18)._ The CPU pipeline is available when the
+`cpu` feature is enabled (it is part of the default feature set). The `Auto`
+execution strategy runs the CPU FISHDBC pipeline (HNSW construction with
+candidate edge harvest, mutual-reachability MST construction, and hierarchy
+extraction). The `gpu` feature prepares the orchestration surface for the
+accelerator backend; requesting `GpuPreferred` continues to surface
+`BackendUnavailable` until the accelerator implementation lands (tracking issue
+#13).
 
 `ClusteringResult` caches the number of unique clusters and exposes
 `try_from_assignments` so callers can surface non-contiguous identifiers
 instead of panicking. The helper returns a `NonContiguousClusterIds` enum to
-differentiate missing zero, gap, and overflow conditions. The walking skeleton
-continues to emit contiguous identifiers, keeping queries lightweight without
-obscuring the temporary assignment strategy.
+differentiate missing zero, gap, and overflow conditions. The CPU pipeline
+emits contiguous identifiers by construction, keeping the result surface stable
+while allowing future work to introduce explicit noise modelling or membership
+probabilities without breaking the identifier invariants.
 
 ```
 
