@@ -213,7 +213,16 @@ fn normalised_mutual_information(left: &[usize], right: &[usize]) -> f64 {
         return 1.0;
     }
 
+    let (left_counts, right_counts, contingency) = build_contingency_table(left, right);
+    let mi = compute_mutual_information(&left_counts, &right_counts, &contingency, n);
+    let h_left = compute_entropy(&left_counts, n);
+    let h_right = compute_entropy(&right_counts, n);
+    normalise_mi(mi, h_left, h_right)
+}
+
+fn build_contingency_table(left: &[usize], right: &[usize]) -> ContingencyTableBuild {
     use std::collections::HashMap;
+
     let mut left_counts = HashMap::<usize, usize>::new();
     let mut right_counts = HashMap::<usize, usize>::new();
     let mut contingency = HashMap::<(usize, usize), usize>::new();
@@ -224,26 +233,41 @@ fn normalised_mutual_information(left: &[usize], right: &[usize]) -> f64 {
         *contingency.entry((l, r)).or_insert(0) += 1;
     }
 
+    (left_counts, right_counts, contingency)
+}
+
+type ClusterCounts = std::collections::HashMap<usize, usize>;
+type PairCounts = std::collections::HashMap<(usize, usize), usize>;
+type ContingencyTableBuild = (ClusterCounts, ClusterCounts, PairCounts);
+
+fn compute_mutual_information(
+    left_counts: &ClusterCounts,
+    right_counts: &ClusterCounts,
+    contingency: &PairCounts,
+    n: usize,
+) -> f64 {
     let n_f64 = n as f64;
     let mut mi = 0.0_f64;
-    for ((l, r), count) in contingency {
+    for (&(l, r), &count) in contingency {
         let count_f64 = count as f64;
         let pl = *left_counts.get(&l).expect("exists") as f64;
         let pr = *right_counts.get(&r).expect("exists") as f64;
         mi += (count_f64 / n_f64) * ((count_f64 * n_f64) / (pl * pr)).ln();
     }
+    mi
+}
 
-    let entropy = |counts: &HashMap<usize, usize>| {
-        let mut h = 0.0_f64;
-        for &count in counts.values() {
-            let p = (count as f64) / n_f64;
-            h -= p * p.ln();
-        }
-        h
-    };
+fn compute_entropy(counts: &ClusterCounts, n: usize) -> f64 {
+    let n_f64 = n as f64;
+    let mut h = 0.0_f64;
+    for &count in counts.values() {
+        let p = (count as f64) / n_f64;
+        h -= p * p.ln();
+    }
+    h
+}
 
-    let h_left = entropy(&left_counts);
-    let h_right = entropy(&right_counts);
+fn normalise_mi(mi: f64, h_left: f64, h_right: f64) -> f64 {
     if h_left == 0.0 && h_right == 0.0 {
         1.0
     } else if h_left == 0.0 || h_right == 0.0 {
