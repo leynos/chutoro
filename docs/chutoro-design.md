@@ -1454,13 +1454,12 @@ impl Chutoro {
         let (index, harvested) = CpuHnsw::build_with_edges(source, params.clone())?;
 
         let min_cluster_size = self.min_cluster_size.get();
-        let ef = NonZeroUsize::new(
-            min_cluster_size
-                .saturating_add(1)
-                .max(params.ef_construction())
-                .min(items),
-        )
-        .unwrap_or_else(|| NonZeroUsize::new(1).expect("literal 1 is non-zero"));
+        let desired = min_cluster_size
+            .saturating_add(1)
+            .max(params.ef_construction())
+            .min(items);
+        let ef = NonZeroUsize::new(desired)
+            .expect("ef_construction is non-zero so the computed ef is non-zero");
 
         let mut core_distances = Vec::with_capacity(items);
         for point in 0..items {

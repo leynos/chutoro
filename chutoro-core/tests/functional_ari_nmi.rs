@@ -106,6 +106,8 @@ fn core_distances_exact<D: DataSource>(source: &D, min_cluster_size: usize) -> V
         }
         distances.sort_by(|a, b| a.total_cmp(b));
         *core_value = distances
+            // Select the k-th nearest neighbour distance as the core distance
+            // (0-indexed, so `k-1`), matching HDBSCAN's definition.
             .get(min_cluster_size.saturating_sub(1))
             .copied()
             .or_else(|| distances.last().copied())

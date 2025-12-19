@@ -37,8 +37,6 @@ fn build_record_batch(schema: Arc<Schema>) -> RecordBatch {
     let values = Float32Array::from(vec![0.0_f32, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]);
     let item_field = Arc::new(Field::new("item", DataType::Float32, false));
     let list = FixedSizeListArray::new(item_field, 2, Arc::new(values) as ArrayRef, None);
-    match RecordBatch::try_new(schema, vec![Arc::new(list) as ArrayRef]) {
-        Ok(batch) => batch,
-        Err(err) => panic!("failed to construct record batch: {err}"),
-    }
+    RecordBatch::try_new(schema, vec![Arc::new(list) as ArrayRef])
+        .expect("failed to construct record batch")
 }
