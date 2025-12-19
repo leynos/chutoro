@@ -107,6 +107,22 @@ impl CondensedForest {
             });
         }
 
+        Self::validate_edges(edges)?;
+
+        let forest = SingleLinkageForest::from_mst(node_count, edges);
+        let mut condensed = Self {
+            clusters: Vec::new(),
+            roots: Vec::new(),
+        };
+
+        for root in forest.roots.iter().copied() {
+            Self::process_root_into_condensed(root, &forest, min_cluster_size, &mut condensed);
+        }
+
+        Ok(condensed)
+    }
+
+    fn validate_edges(edges: &[MstEdge]) -> Result<(), HierarchyError> {
         for edge in edges {
             let weight = edge.weight();
             if !weight.is_finite() || weight < 0.0 {
@@ -118,28 +134,28 @@ impl CondensedForest {
             }
         }
 
-        let forest = SingleLinkageForest::from_mst(node_count, edges);
-        let mut condensed = Self {
-            clusters: Vec::new(),
-            roots: Vec::new(),
-        };
+        Ok(())
+    }
 
-        for root in forest.roots.iter().copied() {
-            let root_size = forest.nodes[root].size;
-            if root_size < min_cluster_size {
-                // Entire component is below the minimum cluster size; it will
-                // become noise during labelling.
-                continue;
-            }
-            let cluster_id = condensed.clusters.len();
-            condensed.clusters.push(CondensedCluster::new(None, 0.0));
-            condensed.roots.push(cluster_id);
-            let mut builder =
-                CondenseBuilder::new(&forest, min_cluster_size, &mut condensed.clusters);
-            builder.condense_cluster(root, cluster_id);
+    fn process_root_into_condensed(
+        root: usize,
+        forest: &SingleLinkageForest,
+        min_cluster_size: usize,
+        condensed: &mut Self,
+    ) {
+        let root_size = forest.nodes[root].size;
+        if root_size < min_cluster_size {
+            // Entire component is below the minimum cluster size; it will
+            // become noise during labelling.
+            return;
         }
 
-        Ok(condensed)
+        let cluster_id = condensed.clusters.len();
+        condensed.clusters.push(CondensedCluster::new(None, 0.0));
+        condensed.roots.push(cluster_id);
+
+        let mut builder = CondenseBuilder::new(forest, min_cluster_size, &mut condensed.clusters);
+        builder.condense_cluster(root, cluster_id);
     }
 }
 
@@ -297,12 +313,24 @@ impl SingleLinkageForest {
         let mut edges_sorted = edges.to_vec();
         edges_sorted.sort_unstable();
 
+        Self::merge_edges(&mut dsu, &mut nodes, edges_sorted);
+
+        let roots = Self::collect_roots(&mut dsu, node_count);
+        Self { nodes, roots }
+    }
+
+    fn merge_edges(
+        dsu: &mut DisjointSet,
+        nodes: &mut Vec<LinkageNode>,
+        edges_sorted: Vec<MstEdge>,
+    ) {
         for edge in edges_sorted {
             let left_root = dsu.find(edge.source());
             let right_root = dsu.find(edge.target());
             if left_root == right_root {
                 continue;
             }
+
             let left_node = dsu.component_node[left_root];
             let right_node = dsu.component_node[right_root];
             let new_id = nodes.len();
@@ -317,18 +345,19 @@ impl SingleLinkageForest {
             let merged = dsu.union(left_root, right_root);
             dsu.component_node[merged] = new_id;
         }
+    }
 
-        let mut roots = Vec::new();
-        for node in 0..node_count {
-            let root = dsu.find(node);
-            if root == node {
-                roots.push(dsu.component_node[root]);
-            }
-        }
+    fn collect_roots(dsu: &mut DisjointSet, node_count: usize) -> Vec<usize> {
+        let mut roots: Vec<usize> = (0..node_count)
+            .filter_map(|node| {
+                let root = dsu.find(node);
+                (root == node).then_some(dsu.component_node[root])
+            })
+            .collect();
 
         roots.sort_unstable();
         roots.dedup();
-        Self { nodes, roots }
+        roots
     }
 }
 
