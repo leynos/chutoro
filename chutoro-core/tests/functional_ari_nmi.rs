@@ -244,11 +244,19 @@ fn normalised_mutual_information(left: &[usize], right: &[usize]) -> f64 {
 
     let h_left = entropy(&left_counts);
     let h_right = entropy(&right_counts);
-    if h_left == 0.0 || h_right == 0.0 {
+    if h_left == 0.0 && h_right == 0.0 {
+        1.0
+    } else if h_left == 0.0 || h_right == 0.0 {
         0.0
     } else {
         mi / (h_left * h_right).sqrt()
     }
+}
+
+#[test]
+fn nmi_is_one_when_both_partitions_have_single_cluster() {
+    let labels = vec![0, 0, 0, 0];
+    assert_eq!(normalised_mutual_information(&labels, &labels), 1.0);
 }
 
 #[test]

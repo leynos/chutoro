@@ -45,6 +45,7 @@ fn build_schema() -> Arc<Schema> {
 }
 
 fn build_record_batch(schema: Arc<Schema>) -> RecordBatch {
+    // Flat buffer representing 4 2D points: (0,0), (1,1), (2,2), (3,3).
     let values = Float32Array::from(vec![0.0_f32, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]);
     let item_field = Arc::new(Field::new("item", DataType::Float32, false));
     let list = FixedSizeListArray::new(item_field, 2, Arc::new(values) as ArrayRef, None);
