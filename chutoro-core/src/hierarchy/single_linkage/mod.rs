@@ -226,16 +226,11 @@ pub(crate) fn extract_flat_labels(
         labeller.label_cluster(root, None);
     }
 
-    let mut out = Vec::with_capacity(node_count);
     let cluster_count = selected_ids.len();
-    for label in labels {
-        match label {
-            Some(cluster_label) => out.push(cluster_label),
-            None => out.push(cluster_count),
-        }
-    }
-
-    Ok(out)
+    Ok(labels
+        .into_iter()
+        .map(|label| label.unwrap_or(cluster_count))
+        .collect())
 }
 
 struct Labeller<'a> {
@@ -299,7 +294,7 @@ fn select_stable_clusters_inner(
     }
 
     let mut child_score = 0.0_f32;
-    let mut child_selected = Vec::new();
+    let mut child_selected = Vec::with_capacity(cluster.children.len());
     for child in &cluster.children {
         let before = selected.len();
         let score = select_stable_clusters_inner(condensed, *child, selected);

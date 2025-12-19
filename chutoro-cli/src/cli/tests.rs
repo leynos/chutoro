@@ -29,6 +29,10 @@ use chutoro_providers_text::TextProviderError;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
+/// Runs the text pipeline once with the provided input file and minimum
+/// cluster size.
+///
+/// Returns the [`ExecutionSummary`] produced by the CLI runner.
 fn run_text_once(path: PathBuf, min_cluster_size: usize) -> Result<ExecutionSummary, CliError> {
     let cli = Cli {
         command: Command::Run(RunCommand {
@@ -43,6 +47,11 @@ fn run_text_once(path: PathBuf, min_cluster_size: usize) -> Result<ExecutionSumm
     run_cli(cli)
 }
 
+/// Asserts that a text run produced a clustering with the expected number of
+/// assignments, and returns the observed cluster count.
+///
+/// This keeps the tests robust by checking invariants that should hold across
+/// implementations without relying on exact label ids.
 fn assert_text_result_summary(
     summary: &ExecutionSummary,
     expected_items: usize,

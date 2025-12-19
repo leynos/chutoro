@@ -1415,6 +1415,8 @@ impl Chutoro {
             });
         }
 
+        // If neither the `cpu` nor `gpu` feature is enabled, the orchestrator
+        // cannot select a backend and returns `BackendUnavailable`.
         match self.execution_strategy {
             ExecutionStrategy::Auto => {
                 if cfg!(feature = "cpu") {
