@@ -91,6 +91,40 @@ pub(crate) struct CondensedForest {
 }
 
 impl CondensedForest {
+    fn validate_edges(edges: &[MstEdge]) -> Result<(), HierarchyError> {
+        for edge in edges {
+            let weight = edge.weight();
+            if !weight.is_finite() || weight < 0.0 {
+                return Err(HierarchyError::InvalidEdgeWeight {
+                    left: edge.source(),
+                    right: edge.target(),
+                    weight,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn process_root_into_condensed(
+        root: usize,
+        forest: &SingleLinkageForest,
+        min_cluster_size: usize,
+        condensed: &mut CondensedForest,
+    ) {
+        let root_size = forest.nodes[root].size;
+        if root_size < min_cluster_size {
+            // Entire component is below the minimum cluster size; it will
+            // become noise during labelling.
+            return;
+        }
+
+        let cluster_id = condensed.clusters.len();
+        condensed.clusters.push(CondensedCluster::new(None, 0.0));
+        condensed.roots.push(cluster_id);
+        let mut builder = CondenseBuilder::new(forest, min_cluster_size, &mut condensed.clusters);
+        builder.condense_cluster(root, cluster_id);
+    }
+
     pub(crate) fn from_mst(
         node_count: usize,
         edges: &[MstEdge],
@@ -107,16 +141,7 @@ impl CondensedForest {
             });
         }
 
-        for edge in edges {
-            let weight = edge.weight();
-            if !weight.is_finite() || weight < 0.0 {
-                return Err(HierarchyError::InvalidEdgeWeight {
-                    left: edge.source(),
-                    right: edge.target(),
-                    weight,
-                });
-            }
-        }
+        Self::validate_edges(edges)?;
 
         let forest = SingleLinkageForest::from_mst(node_count, edges);
         let mut condensed = Self {
@@ -125,18 +150,7 @@ impl CondensedForest {
         };
 
         for root in forest.roots.iter().copied() {
-            let root_size = forest.nodes[root].size;
-            if root_size < min_cluster_size {
-                // Entire component is below the minimum cluster size; it will
-                // become noise during labelling.
-                continue;
-            }
-            let cluster_id = condensed.clusters.len();
-            condensed.clusters.push(CondensedCluster::new(None, 0.0));
-            condensed.roots.push(cluster_id);
-            let mut builder =
-                CondenseBuilder::new(&forest, min_cluster_size, &mut condensed.clusters);
-            builder.condense_cluster(root, cluster_id);
+            Self::process_root_into_condensed(root, &forest, min_cluster_size, &mut condensed);
         }
 
         Ok(condensed)
@@ -281,22 +295,11 @@ struct SingleLinkageForest {
 }
 
 impl SingleLinkageForest {
-    fn from_mst(node_count: usize, edges: &[MstEdge]) -> Self {
-        let mut nodes = Vec::with_capacity(node_count.saturating_mul(2).saturating_sub(1));
-        for point in 0..node_count {
-            nodes.push(LinkageNode {
-                left: None,
-                right: None,
-                weight: 0.0,
-                size: 1,
-                point: Some(point),
-            });
-        }
-
-        let mut dsu = DisjointSet::new(node_count);
-        let mut edges_sorted = edges.to_vec();
-        edges_sorted.sort_unstable();
-
+    fn merge_edges(
+        dsu: &mut DisjointSet,
+        nodes: &mut Vec<LinkageNode>,
+        edges_sorted: Vec<MstEdge>,
+    ) {
         for edge in edges_sorted {
             let left_root = dsu.find(edge.source());
             let right_root = dsu.find(edge.target());
@@ -317,17 +320,39 @@ impl SingleLinkageForest {
             let merged = dsu.union(left_root, right_root);
             dsu.component_node[merged] = new_id;
         }
+    }
 
-        let mut roots = Vec::new();
-        for node in 0..node_count {
-            let root = dsu.find(node);
-            if root == node {
-                roots.push(dsu.component_node[root]);
-            }
-        }
+    fn collect_roots(dsu: &mut DisjointSet, node_count: usize) -> Vec<usize> {
+        let mut roots: Vec<usize> = (0..node_count)
+            .filter_map(|node| {
+                let root = dsu.find(node);
+                (root == node).then_some(dsu.component_node[root])
+            })
+            .collect();
 
         roots.sort_unstable();
         roots.dedup();
+        roots
+    }
+
+    fn from_mst(node_count: usize, edges: &[MstEdge]) -> Self {
+        let mut nodes = Vec::with_capacity(node_count.saturating_mul(2).saturating_sub(1));
+        for point in 0..node_count {
+            nodes.push(LinkageNode {
+                left: None,
+                right: None,
+                weight: 0.0,
+                size: 1,
+                point: Some(point),
+            });
+        }
+
+        let mut dsu = DisjointSet::new(node_count);
+        let mut edges_sorted = edges.to_vec();
+        edges_sorted.sort_unstable();
+
+        Self::merge_edges(&mut dsu, &mut nodes, edges_sorted);
+        let roots = Self::collect_roots(&mut dsu, node_count);
         Self { nodes, roots }
     }
 }
