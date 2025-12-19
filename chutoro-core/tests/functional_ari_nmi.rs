@@ -165,7 +165,32 @@ fn adjusted_rand_index(left: &[usize], right: &[usize]) -> f64 {
         return 1.0;
     }
 
+    let (left_counts, right_counts, contingency) = build_ari_contingency(left, right);
+
+    let sum_ij: f64 = contingency.values().copied().map(comb2).sum();
+    let sum_i: f64 = left_counts.iter().copied().map(comb2).sum();
+    let sum_j: f64 = right_counts.iter().copied().map(comb2).sum();
+    let total = comb2(n);
+    if total == 0.0 {
+        return 1.0;
+    }
+
+    let expected = (sum_i * sum_j) / total;
+    let max_index = 0.5 * (sum_i + sum_j);
+    let denom = max_index - expected;
+    if denom == 0.0 {
+        0.0
+    } else {
+        (sum_ij - expected) / denom
+    }
+}
+
+type AriPairCounts = std::collections::HashMap<(usize, usize), usize>;
+type AriContingencyBuild = (Vec<usize>, Vec<usize>, AriPairCounts);
+
+fn build_ari_contingency(left: &[usize], right: &[usize]) -> AriContingencyBuild {
     use std::collections::HashMap;
+
     let mut left_ids = HashMap::<usize, usize>::new();
     let mut right_ids = HashMap::<usize, usize>::new();
     let mut left_counts = Vec::<usize>::new();
@@ -188,22 +213,7 @@ fn adjusted_rand_index(left: &[usize], right: &[usize]) -> f64 {
         *contingency.entry((li, ri)).or_insert(0) += 1;
     }
 
-    let sum_ij: f64 = contingency.values().copied().map(comb2).sum();
-    let sum_i: f64 = left_counts.iter().copied().map(comb2).sum();
-    let sum_j: f64 = right_counts.iter().copied().map(comb2).sum();
-    let total = comb2(n);
-    if total == 0.0 {
-        return 1.0;
-    }
-
-    let expected = (sum_i * sum_j) / total;
-    let max_index = 0.5 * (sum_i + sum_j);
-    let denom = max_index - expected;
-    if denom == 0.0 {
-        0.0
-    } else {
-        (sum_ij - expected) / denom
-    }
+    (left_counts, right_counts, contingency)
 }
 
 fn normalised_mutual_information(left: &[usize], right: &[usize]) -> f64 {
@@ -219,6 +229,10 @@ fn normalised_mutual_information(left: &[usize], right: &[usize]) -> f64 {
     let h_right = compute_entropy(&right_counts, n);
     normalise_mi(mi, h_left, h_right)
 }
+
+type ClusterCounts = std::collections::HashMap<usize, usize>;
+type PairCounts = std::collections::HashMap<(usize, usize), usize>;
+type ContingencyTableBuild = (ClusterCounts, ClusterCounts, PairCounts);
 
 fn build_contingency_table(left: &[usize], right: &[usize]) -> ContingencyTableBuild {
     use std::collections::HashMap;
@@ -236,10 +250,6 @@ fn build_contingency_table(left: &[usize], right: &[usize]) -> ContingencyTableB
     (left_counts, right_counts, contingency)
 }
 
-type ClusterCounts = std::collections::HashMap<usize, usize>;
-type PairCounts = std::collections::HashMap<(usize, usize), usize>;
-type ContingencyTableBuild = (ClusterCounts, ClusterCounts, PairCounts);
-
 fn compute_mutual_information(
     left_counts: &ClusterCounts,
     right_counts: &ClusterCounts,
@@ -250,8 +260,12 @@ fn compute_mutual_information(
     let mut mi = 0.0_f64;
     for (&(l, r), &count) in contingency {
         let count_f64 = count as f64;
-        let pl = *left_counts.get(&l).expect("exists") as f64;
-        let pr = *right_counts.get(&r).expect("exists") as f64;
+        let pl = *left_counts
+            .get(&l)
+            .expect("left cluster label must exist in left_counts") as f64;
+        let pr = *right_counts
+            .get(&r)
+            .expect("right cluster label must exist in right_counts") as f64;
         mi += (count_f64 / n_f64) * ((count_f64 * n_f64) / (pl * pr)).ln();
     }
     mi
