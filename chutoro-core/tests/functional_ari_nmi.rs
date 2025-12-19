@@ -10,8 +10,8 @@ use std::num::NonZeroUsize;
 use rstest::rstest;
 
 use chutoro_core::{
-    CandidateEdge, ChutoroBuilder, DataSource, DataSourceError, EdgeHarvest, ExecutionStrategy,
-    HierarchyConfig, MetricDescriptor, extract_labels_from_mst, parallel_kruskal,
+    CandidateEdge, DataSource, DataSourceError, EdgeHarvest, HierarchyConfig, MetricDescriptor,
+    extract_labels_from_mst, parallel_kruskal, run_cpu_pipeline,
 };
 
 fn parse_csv_rows(input: &str, dims: usize) -> Vec<Vec<f32>> {
@@ -142,12 +142,8 @@ fn exact_pipeline<D: DataSource>(source: &D, min_cluster_size: NonZeroUsize) -> 
 }
 
 fn approx_pipeline<D: DataSource + Sync>(source: &D, min_cluster_size: NonZeroUsize) -> Vec<usize> {
-    let chutoro = ChutoroBuilder::new()
-        .with_min_cluster_size(min_cluster_size.get())
-        .with_execution_strategy(ExecutionStrategy::CpuOnly)
-        .build()
-        .expect("chutoro builder configuration is valid");
-    let result = chutoro.run(source).expect("approx pipeline should succeed");
+    let result =
+        run_cpu_pipeline(source, min_cluster_size).expect("approx pipeline should succeed");
     result
         .assignments()
         .iter()

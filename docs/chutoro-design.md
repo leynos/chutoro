@@ -1443,7 +1443,8 @@ impl Chutoro {
         // weights, run Kruskal, and extract labels from the MST.
         //
         // This is a sketch of the current implementation; the authoritative
-        // version lives in `chutoro-core/src/chutoro.rs`.
+        // version lives in `chutoro-core/src/cpu_pipeline.rs`, and
+        // `Chutoro::run_cpu` delegates to it.
         use crate::{
             CandidateEdge, ClusterId, CpuHnsw, EdgeHarvest, HierarchyConfig, HnswParams,
             parallel_kruskal,

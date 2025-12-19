@@ -207,7 +207,7 @@ impl Chutoro {
     fn run_cpu<D: DataSource + Sync>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
         #[cfg(feature = "cpu")]
         {
-            self.run_cpu_pipeline(source, items)
+            crate::cpu_pipeline::run_cpu_pipeline_with_len(source, items, self.min_cluster_size)
         }
         #[cfg(not(feature = "cpu"))]
         {
@@ -216,76 +216,6 @@ impl Chutoro {
                 requested: ExecutionStrategy::CpuOnly,
             })
         }
-    }
-
-    #[cfg(feature = "cpu")]
-    fn run_cpu_pipeline<D: DataSource + Sync>(
-        &self,
-        source: &D,
-        items: usize,
-    ) -> Result<ClusteringResult> {
-        use crate::{
-            CandidateEdge, ClusterId, CpuHnsw, EdgeHarvest, HierarchyConfig, HnswParams,
-            parallel_kruskal,
-        };
-
-        let params = HnswParams::default();
-        let (index, harvested) = CpuHnsw::build_with_edges(source, params.clone())
-            .map_err(|error| self.map_cpu_hnsw_error(source, error))?;
-
-        let min_cluster_size = self.min_cluster_size.get();
-        let desired = min_cluster_size
-            .saturating_add(1)
-            .max(params.ef_construction())
-            .min(items);
-        let ef = NonZeroUsize::new(desired)
-            .expect("ef_construction is non-zero so the computed ef is non-zero");
-
-        let mut core_distances = Vec::with_capacity(items);
-        // TODO: If core-distance computation becomes a bottleneck, consider
-        // parallelising this loop (e.g. via `rayon`) while preserving
-        // determinism and stable error handling.
-        for point in 0..items {
-            let neighbours = index
-                .search(source, point, ef)
-                .map_err(|error| self.map_cpu_hnsw_error(source, error))?;
-            let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
-            let core = if others.len() >= min_cluster_size {
-                others[min_cluster_size - 1].distance
-            } else {
-                others.last().map(|n| n.distance).unwrap_or(0.0)
-            };
-            core_distances.push(core);
-        }
-
-        let mutual_edges: Vec<CandidateEdge> = harvested
-            .iter()
-            .map(|edge| {
-                let left = edge.source();
-                let right = edge.target();
-                let dist = edge.distance();
-                let weight = dist.max(core_distances[left]).max(core_distances[right]);
-                CandidateEdge::new(left, right, weight, edge.sequence())
-            })
-            .collect();
-        let mutual_harvest = EdgeHarvest::new(mutual_edges);
-
-        let forest = parallel_kruskal(items, &mutual_harvest)
-            .map_err(|error| self.map_cpu_mst_error(error))?;
-
-        let labels = crate::extract_labels_from_mst(
-            items,
-            forest.edges(),
-            HierarchyConfig::new(self.min_cluster_size),
-        )
-        .map_err(|error| self.map_cpu_hierarchy_error(error))?;
-
-        let assignments = labels
-            .into_iter()
-            .map(|label| ClusterId::new(label as u64))
-            .collect();
-
-        Ok(ClusteringResult::from_assignments(assignments))
     }
 
     fn run_gpu<D: DataSource + Sync>(
@@ -311,40 +241,6 @@ impl Chutoro {
             ExecutionStrategy::Auto => !(CPU_PATH_AVAILABLE || GPU_PATH_AVAILABLE),
             ExecutionStrategy::CpuOnly => !CPU_PATH_AVAILABLE,
             ExecutionStrategy::GpuPreferred => !GPU_PATH_AVAILABLE,
-        }
-    }
-
-    #[cfg(feature = "cpu")]
-    fn map_cpu_hnsw_error<D: DataSource>(
-        &self,
-        source: &D,
-        error: crate::HnswError,
-    ) -> ChutoroError {
-        match error {
-            crate::HnswError::DataSource(error) => ChutoroError::DataSource {
-                data_source: Arc::from(source.name()),
-                error,
-            },
-            other => ChutoroError::CpuHnswFailure {
-                code: Arc::from(other.code().as_str()),
-                message: Arc::from(other.to_string()),
-            },
-        }
-    }
-
-    #[cfg(feature = "cpu")]
-    fn map_cpu_mst_error(&self, error: crate::MstError) -> ChutoroError {
-        ChutoroError::CpuMstFailure {
-            code: Arc::from(error.code().as_str()),
-            message: Arc::from(error.to_string()),
-        }
-    }
-
-    #[cfg(feature = "cpu")]
-    fn map_cpu_hierarchy_error(&self, error: crate::HierarchyError) -> ChutoroError {
-        ChutoroError::CpuHierarchyFailure {
-            code: Arc::from(error.code().as_str()),
-            message: Arc::from(error.to_string()),
         }
     }
 }

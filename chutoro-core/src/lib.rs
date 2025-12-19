@@ -2,6 +2,8 @@
 
 mod builder;
 mod chutoro;
+#[cfg(feature = "cpu")]
+mod cpu_pipeline;
 mod datasource;
 mod distance;
 mod error;
@@ -24,6 +26,9 @@ pub use crate::{
     error::{ChutoroError, ChutoroErrorCode, DataSourceError, DataSourceErrorCode, Result},
     result::{ClusterId, ClusteringResult, NonContiguousClusterIds},
 };
+
+#[cfg(feature = "cpu")]
+pub use crate::cpu_pipeline::run_cpu_pipeline;
 
 #[cfg(feature = "cpu")]
 /// CPU-accelerated HNSW index components; requires the `cpu` feature.

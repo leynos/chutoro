@@ -6,19 +6,11 @@ use super::{
     TextMetric, render_summary, run_cli,
 };
 
-use std::fs::File;
-use std::io::{self, Write};
 use std::path::Path;
-use std::path::PathBuf;
-use std::sync::Arc;
 
-use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array, RecordBatch};
-use arrow_schema::{DataType, Field, Schema};
 use chutoro_core::{ChutoroError, ClusteringResult};
 use clap::Parser;
-use parquet::arrow::arrow_writer::ArrowWriter;
 use rstest::rstest;
-use tempfile::TempDir;
 use tracing::Level;
 use tracing_subscriber::layer::SubscriberExt;
 
@@ -27,18 +19,28 @@ use chutoro_test_support::tracing::RecordingLayer;
 use chutoro_providers_dense::DenseMatrixProviderError;
 use chutoro_providers_text::TextProviderError;
 
+#[path = "test_fixtures.rs"]
+mod test_fixtures;
+use test_fixtures::create_parquet_file;
+
+#[path = "test_helpers.rs"]
+mod test_helpers;
+use test_helpers::{
+    create_text_file, run_cli_expecting_error, run_command_expecting_error, temp_dir,
+};
+
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 /// Runs the text pipeline once with the provided input file and minimum
 /// cluster size.
 ///
 /// Returns the [`ExecutionSummary`] produced by the CLI runner.
-fn run_text_once(path: PathBuf, min_cluster_size: usize) -> Result<ExecutionSummary, CliError> {
+fn run_text_once(path: &Path, min_cluster_size: usize) -> Result<ExecutionSummary, CliError> {
     let cli = Cli {
         command: Command::Run(RunCommand {
             min_cluster_size,
             source: RunSource::Text(TextArgs {
-                path,
+                path: path.to_path_buf(),
                 metric: TextMetric::Levenshtein,
                 name: None,
             }),
@@ -82,26 +84,15 @@ fn derive_data_source_name_selects_expected_name(
     assert_eq!(name, expected);
 }
 
-#[rstest]
-#[case(1)]
-#[case(2)]
-fn run_text_success(#[case] min_cluster_size: usize) -> TestResult {
-    let dir = temp_dir();
-    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")?;
-    let summary = run_text_once(path, min_cluster_size)?;
-    assert_text_result_summary(&summary, 3)?;
-    Ok(())
-}
-
-#[rstest]
-fn run_text_min_cluster_size_affects_cluster_structure() -> TestResult {
+#[test]
+fn run_text_success() -> TestResult {
     let dir = temp_dir();
     let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")?;
 
-    let summary_min_1 = run_text_once(path.clone(), 1)?;
+    let summary_min_1 = run_text_once(path.as_path(), 1)?;
     let clusters_min_1 = assert_text_result_summary(&summary_min_1, 3)?;
 
-    let summary_min_2 = run_text_once(path, 2)?;
+    let summary_min_2 = run_text_once(path.as_path(), 2)?;
     let clusters_min_2 = assert_text_result_summary(&summary_min_2, 3)?;
 
     assert!(
@@ -268,7 +259,7 @@ fn run_command_emits_tracing_fields() -> TestResult {
     let command = RunCommand {
         min_cluster_size: 2,
         source: RunSource::Text(TextArgs {
-            path: path.clone(),
+            path,
             metric: TextMetric::Levenshtein,
             name: None,
         }),
@@ -373,61 +364,4 @@ fn open_text_reader_records_path_on_error() -> TestResult {
         Some(&"<derived>".to_owned())
     );
     Ok(())
-}
-
-fn temp_dir() -> TempDir {
-    match TempDir::new() {
-        Ok(dir) => dir,
-        Err(err) => panic!("failed to create temp dir: {err}"),
-    }
-}
-
-fn create_text_file(dir: &TempDir, name: &str, contents: &str) -> io::Result<PathBuf> {
-    let path = dir.path().join(name);
-    let mut file = File::create(&path)?;
-    file.write_all(contents.as_bytes())?;
-    Ok(path)
-}
-
-fn create_parquet_file(dir: &TempDir, name: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
-    let path = dir.path().join(name);
-    let schema = build_schema();
-    let batch = build_record_batch(schema.clone());
-    let file = File::create(&path)?;
-    let mut writer = ArrowWriter::try_new(file, schema, None)?;
-    writer.write(&batch)?;
-    writer.close()?;
-    Ok(path)
-}
-
-/// Run CLI and expect an error, panicking with the given message if successful.
-fn run_cli_expecting_error(cli: Cli, panic_msg: &str) -> CliError {
-    match run_cli(cli) {
-        Ok(_) => panic!("{}", panic_msg),
-        Err(err) => err,
-    }
-}
-
-/// Run command and expect an error, panicking with the given message if successful.
-fn run_command_expecting_error(cmd: RunCommand, panic_msg: &str) -> CliError {
-    match run_command(cmd) {
-        Ok(_) => panic!("{}", panic_msg),
-        Err(err) => err,
-    }
-}
-
-fn build_schema() -> Arc<Schema> {
-    let item_field = Arc::new(Field::new("item", DataType::Float32, false));
-    let list_type = DataType::FixedSizeList(item_field.clone(), 2);
-    Arc::new(Schema::new(vec![Field::new("features", list_type, false)]))
-}
-
-fn build_record_batch(schema: Arc<Schema>) -> RecordBatch {
-    let values = Float32Array::from(vec![0.0_f32, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]);
-    let item_field = Arc::new(Field::new("item", DataType::Float32, false));
-    let list = FixedSizeListArray::new(item_field, 2, Arc::new(values) as ArrayRef, None);
-    match RecordBatch::try_new(schema, vec![Arc::new(list) as ArrayRef]) {
-        Ok(batch) => batch,
-        Err(err) => panic!("failed to construct record batch: {err}"),
-    }
 }

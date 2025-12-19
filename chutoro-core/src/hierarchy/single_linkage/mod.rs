@@ -135,9 +135,11 @@ impl CondensedForest {
         for edge in edges {
             let weight = edge.weight();
             if !weight.is_finite() || weight < 0.0 {
+                let left = edge.source().min(edge.target());
+                let right = edge.source().max(edge.target());
                 return Err(HierarchyError::InvalidEdgeWeight {
-                    left: edge.source(),
-                    right: edge.target(),
+                    left,
+                    right,
                     weight,
                 });
             }
@@ -210,6 +212,10 @@ pub(crate) fn extract_flat_labels(
 ) -> Result<Vec<usize>, HierarchyError> {
     if node_count == 0 {
         return Err(HierarchyError::EmptyDataset);
+    }
+    if condensed.clusters.is_empty() {
+        // No condensed clusters implies every point is noise.
+        return Ok(vec![0; node_count]);
     }
 
     let selected = select_stable_clusters(condensed);
