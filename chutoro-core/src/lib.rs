@@ -38,7 +38,9 @@ pub use crate::mst::{MinimumSpanningForest, MstEdge, MstError, MstErrorCode, par
 
 #[cfg(feature = "cpu")]
 /// Hierarchy extraction utilities for the CPU pipeline; requires the `cpu` feature.
-pub use crate::hierarchy::{HierarchyConfig, HierarchyError, extract_labels_from_mst};
+pub use crate::hierarchy::{
+    HierarchyConfig, HierarchyError, HierarchyErrorCode, extract_labels_from_mst,
+};
 
 #[cfg(test)]
 pub(crate) mod test_utils;

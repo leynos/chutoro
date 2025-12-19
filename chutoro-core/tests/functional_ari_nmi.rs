@@ -267,13 +267,13 @@ fn normalised_mutual_information(left: &[usize], right: &[usize]) -> f64 {
     let n_f64 = n as f64;
     let mut mi = 0.0_f64;
     for ((l, r), count) in contingency {
-        let count = count as f64;
-        if count == 0.0 {
+        let count_f64 = count as f64;
+        if count_f64 == 0.0 {
             continue;
         }
         let pl = *left_counts.get(&l).expect("exists") as f64;
         let pr = *right_counts.get(&r).expect("exists") as f64;
-        mi += (count / n_f64) * ((count * n_f64) / (pl * pr)).ln();
+        mi += (count_f64 / n_f64) * ((count_f64 * n_f64) / (pl * pr)).ln();
     }
 
     let entropy = |counts: &HashMap<usize, usize>| {
@@ -292,6 +292,33 @@ fn normalised_mutual_information(left: &[usize], right: &[usize]) -> f64 {
     } else {
         mi / (h_left * h_right).sqrt()
     }
+}
+
+#[test]
+fn metrics_identity_and_permutation_are_one() {
+    let labels = vec![0, 0, 1, 1, 2, 2];
+    assert_eq!(adjusted_rand_index(&labels, &labels), 1.0);
+    assert!((normalised_mutual_information(&labels, &labels) - 1.0).abs() < 1e-12);
+
+    let permuted = vec![1, 1, 2, 2, 0, 0];
+    assert_eq!(adjusted_rand_index(&labels, &permuted), 1.0);
+    assert!((normalised_mutual_information(&labels, &permuted) - 1.0).abs() < 1e-12);
+}
+
+#[test]
+fn metrics_are_finite_for_non_trivial_partitions() {
+    let left = vec![0, 0, 0, 1, 1, 2];
+    let right = vec![0, 1, 0, 1, 2, 2];
+    let ari = adjusted_rand_index(&left, &right);
+    let nmi = normalised_mutual_information(&left, &right);
+
+    assert!(ari.is_finite());
+    assert!(ari <= 1.0);
+    assert!(ari >= -1.0);
+
+    assert!(nmi.is_finite());
+    assert!(nmi <= 1.0);
+    assert!(nmi >= 0.0);
 }
 
 #[derive(Clone, Copy, Debug)]

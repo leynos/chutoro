@@ -129,9 +129,9 @@ performs the final calculation.
 
 The crate exposes the following feature flags:
 
-- `cpu` enables the CPU backend and is included in the default feature set.
-- `metrics` enables metrics emission from hot paths.
-- `gpu` enables the GPU execution path selection surface (the accelerator
+- `cpu` includes the CPU backend in the default feature set.
+- `metrics` exposes metrics emission from hot paths.
+- `gpu` prepares the GPU execution path selection surface (the accelerator
   implementation is not yet available).
 - `skeleton` is a legacy compatibility flag retained for early versions; it is
   no longer required by the CPU backend.

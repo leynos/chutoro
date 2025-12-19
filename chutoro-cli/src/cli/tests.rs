@@ -45,26 +45,48 @@ fn derive_data_source_name_selects_expected_name(
 }
 
 #[rstest]
-#[case(1)]
-#[case(2)]
-fn run_text_success(#[case] min_cluster_size: usize) -> TestResult {
+fn run_text_success() -> TestResult {
     let dir = temp_dir();
     let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")?;
-    let cli = Cli {
-        command: Command::Run(RunCommand {
-            min_cluster_size,
-            source: RunSource::Text(TextArgs {
-                path,
-                metric: TextMetric::Levenshtein,
-                name: None,
+    let run_with_min_cluster_size = |min_cluster_size: usize| {
+        let cli = Cli {
+            command: Command::Run(RunCommand {
+                min_cluster_size,
+                source: RunSource::Text(TextArgs {
+                    path: path.clone(),
+                    metric: TextMetric::Levenshtein,
+                    name: None,
+                }),
             }),
-        }),
+        };
+        run_cli(cli)
     };
-    let summary = run_cli(cli)?;
-    assert_eq!(summary.result.assignments().len(), 3);
+
+    let summary_min_1 = run_with_min_cluster_size(1)?;
+    assert_eq!(summary_min_1.result.assignments().len(), 3);
     assert!(
-        summary.result.cluster_count() >= 1 && summary.result.cluster_count() <= 3,
+        summary_min_1.result.cluster_count() >= 1 && summary_min_1.result.cluster_count() <= 3,
         "expected 1..=3 clusters for a 3-row input"
+    );
+
+    let summary_min_2 = run_with_min_cluster_size(2)?;
+    assert_eq!(summary_min_2.result.assignments().len(), 3);
+    assert!(
+        summary_min_2.result.cluster_count() >= 1 && summary_min_2.result.cluster_count() <= 3,
+        "expected 1..=3 clusters for a 3-row input"
+    );
+
+    let clusters_min_1 = summary_min_1.result.cluster_count();
+    let clusters_min_2 = summary_min_2.result.cluster_count();
+    assert!(
+        clusters_min_2 <= clusters_min_1,
+        "expected min_cluster_size=2 to yield <= clusters than min_cluster_size=1 (got {} vs {})",
+        clusters_min_2,
+        clusters_min_1
+    );
+    assert_ne!(
+        clusters_min_1, clusters_min_2,
+        "expected min_cluster_size to influence cluster structure for this synthetic input"
     );
     Ok(())
 }

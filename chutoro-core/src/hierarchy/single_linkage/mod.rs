@@ -19,9 +19,14 @@
 //! This yields a condensed forest suitable for computing stability scores and
 //! extracting a flat clustering.
 
+mod condense;
+mod forest;
+
 use std::num::NonZeroUsize;
 
 use crate::mst::MstEdge;
+
+use self::condense::CondenseBuilder;
 
 #[derive(Clone, Debug, thiserror::Error, PartialEq)]
 #[non_exhaustive]
@@ -48,6 +53,41 @@ pub enum HierarchyError {
         /// Invalid weight value observed on the edge.
         weight: f32,
     },
+}
+
+impl HierarchyError {
+    /// Returns a stable, machine-readable error code for the variant.
+    #[must_use]
+    pub const fn code(&self) -> HierarchyErrorCode {
+        match self {
+            Self::EmptyDataset => HierarchyErrorCode::EmptyDataset,
+            Self::MinClusterSizeTooLarge { .. } => HierarchyErrorCode::MinClusterSizeTooLarge,
+            Self::InvalidEdgeWeight { .. } => HierarchyErrorCode::InvalidEdgeWeight,
+        }
+    }
+}
+
+/// Machine-readable error codes for [`HierarchyError`].
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum HierarchyErrorCode {
+    /// The caller requested hierarchy extraction for an empty dataset.
+    EmptyDataset,
+    /// The configured minimum cluster size exceeds the dataset size.
+    MinClusterSizeTooLarge,
+    /// An input edge weight was invalid for hierarchy extraction.
+    InvalidEdgeWeight,
+}
+
+impl HierarchyErrorCode {
+    /// Returns the symbolic identifier for logging and metrics surfaces.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::EmptyDataset => "EMPTY_DATASET",
+            Self::MinClusterSizeTooLarge => "MIN_CLUSTER_SIZE_TOO_LARGE",
+            Self::InvalidEdgeWeight => "INVALID_EDGE_WEIGHT",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -166,6 +206,8 @@ pub(crate) fn extract_flat_labels(
     }
 
     if condensed.clusters.is_empty() {
+        // No condensed clusters were retained; treat all points as noise with
+        // noise label `0`.
         return Ok(vec![0; node_count]);
     }
 
@@ -189,9 +231,7 @@ pub(crate) fn extract_flat_labels(
     for label in labels {
         match label {
             Some(cluster_label) => out.push(cluster_label),
-            None => {
-                out.push(cluster_count);
-            }
+            None => out.push(cluster_count),
         }
     }
 
@@ -272,6 +312,7 @@ fn select_stable_clusters_inner(
     }
 
     // Replace child selections with the current cluster.
+    // Drain child selections in reverse order to preserve valid indices.
     for (start, end) in child_selected.into_iter().rev() {
         selected.drain(start..end);
     }
@@ -292,229 +333,4 @@ struct LinkageNode {
 struct SingleLinkageForest {
     nodes: Vec<LinkageNode>,
     roots: Vec<usize>,
-}
-
-impl SingleLinkageForest {
-    fn merge_edges(
-        dsu: &mut DisjointSet,
-        nodes: &mut Vec<LinkageNode>,
-        edges_sorted: Vec<MstEdge>,
-    ) {
-        for edge in edges_sorted {
-            let left_root = dsu.find(edge.source());
-            let right_root = dsu.find(edge.target());
-            if left_root == right_root {
-                continue;
-            }
-            let left_node = dsu.component_node[left_root];
-            let right_node = dsu.component_node[right_root];
-            let new_id = nodes.len();
-            let size = nodes[left_node].size + nodes[right_node].size;
-            nodes.push(LinkageNode {
-                left: Some(left_node),
-                right: Some(right_node),
-                weight: edge.weight(),
-                size,
-                point: None,
-            });
-            let merged = dsu.union(left_root, right_root);
-            dsu.component_node[merged] = new_id;
-        }
-    }
-
-    fn collect_roots(dsu: &mut DisjointSet, node_count: usize) -> Vec<usize> {
-        let mut roots: Vec<usize> = (0..node_count)
-            .filter_map(|node| {
-                let root = dsu.find(node);
-                (root == node).then_some(dsu.component_node[root])
-            })
-            .collect();
-
-        roots.sort_unstable();
-        roots.dedup();
-        roots
-    }
-
-    fn from_mst(node_count: usize, edges: &[MstEdge]) -> Self {
-        let mut nodes = Vec::with_capacity(node_count.saturating_mul(2).saturating_sub(1));
-        for point in 0..node_count {
-            nodes.push(LinkageNode {
-                left: None,
-                right: None,
-                weight: 0.0,
-                size: 1,
-                point: Some(point),
-            });
-        }
-
-        let mut dsu = DisjointSet::new(node_count);
-        let mut edges_sorted = edges.to_vec();
-        edges_sorted.sort_unstable();
-
-        Self::merge_edges(&mut dsu, &mut nodes, edges_sorted);
-        let roots = Self::collect_roots(&mut dsu, node_count);
-        Self { nodes, roots }
-    }
-}
-
-struct CondenseBuilder<'a> {
-    forest: &'a SingleLinkageForest,
-    min_cluster_size: usize,
-    clusters: &'a mut Vec<CondensedCluster>,
-}
-
-impl<'a> CondenseBuilder<'a> {
-    fn new(
-        forest: &'a SingleLinkageForest,
-        min_cluster_size: usize,
-        clusters: &'a mut Vec<CondensedCluster>,
-    ) -> Self {
-        Self {
-            forest,
-            min_cluster_size,
-            clusters,
-        }
-    }
-
-    fn condense_cluster(&mut self, node_id: usize, cluster_id: usize) {
-        let node = &self.forest.nodes[node_id];
-        let Some((left, right)) = node.left.zip(node.right) else {
-            if let Some(point) = node.point {
-                record_point_event(self.clusters, cluster_id, point, f32::INFINITY);
-            }
-            return;
-        };
-
-        let lambda = weight_to_lambda(node.weight);
-        let left_size = self.forest.nodes[left].size;
-        let right_size = self.forest.nodes[right].size;
-        let left_big = left_size >= self.min_cluster_size;
-        let right_big = right_size >= self.min_cluster_size;
-
-        match (left_big, right_big) {
-            (true, true) => {
-                let left_cluster = self.create_child_cluster(cluster_id, lambda, left_size);
-                let right_cluster = self.create_child_cluster(cluster_id, lambda, right_size);
-                self.condense_cluster(left, left_cluster);
-                self.condense_cluster(right, right_cluster);
-            }
-            (true, false) => {
-                self.emit_pruned_points(right, cluster_id, lambda);
-                self.condense_cluster(left, cluster_id);
-            }
-            (false, true) => {
-                self.emit_pruned_points(left, cluster_id, lambda);
-                self.condense_cluster(right, cluster_id);
-            }
-            (false, false) => {
-                self.emit_pruned_points(left, cluster_id, lambda);
-                self.emit_pruned_points(right, cluster_id, lambda);
-            }
-        }
-    }
-
-    fn create_child_cluster(&mut self, parent: usize, lambda: f32, size: usize) -> usize {
-        let child_id = self.clusters.len();
-        self.clusters
-            .push(CondensedCluster::new(Some(parent), lambda));
-        self.clusters[parent].children.push(child_id);
-        self.clusters[parent]
-            .events
-            .push(CondensedEvent::ChildCluster {
-                cluster: child_id,
-                lambda,
-                size,
-            });
-        record_stability_increment(&mut self.clusters[parent], lambda, size as f32);
-        child_id
-    }
-
-    fn emit_pruned_points(&mut self, node_id: usize, cluster_id: usize, lambda: f32) {
-        let mut stack = vec![node_id];
-        while let Some(current) = stack.pop() {
-            let node = &self.forest.nodes[current];
-            if let Some(point) = node.point {
-                record_point_event(self.clusters, cluster_id, point, lambda);
-                continue;
-            }
-            if let Some(left) = node.left {
-                stack.push(left);
-            }
-            if let Some(right) = node.right {
-                stack.push(right);
-            }
-        }
-    }
-}
-
-fn record_point_event(
-    clusters: &mut [CondensedCluster],
-    cluster_id: usize,
-    point: usize,
-    lambda: f32,
-) {
-    let cluster = &mut clusters[cluster_id];
-    cluster.events.push(CondensedEvent::Point {
-        index: point,
-        lambda,
-    });
-    record_stability_increment(cluster, lambda, 1.0);
-}
-
-fn record_stability_increment(cluster: &mut CondensedCluster, lambda: f32, size: f32) {
-    let increment = (lambda - cluster.birth_lambda) * size;
-    cluster.stability += increment;
-}
-
-fn weight_to_lambda(weight: f32) -> f32 {
-    if weight == 0.0 {
-        f32::INFINITY
-    } else {
-        1.0 / weight
-    }
-}
-
-#[derive(Clone, Debug)]
-struct DisjointSet {
-    parent: Vec<usize>,
-    rank: Vec<u8>,
-    component_node: Vec<usize>,
-}
-
-impl DisjointSet {
-    fn new(n: usize) -> Self {
-        Self {
-            parent: (0..n).collect(),
-            rank: vec![0; n],
-            component_node: (0..n).collect(),
-        }
-    }
-
-    fn find(&mut self, node: usize) -> usize {
-        let parent = self.parent[node];
-        if parent == node {
-            return node;
-        }
-        let root = self.find(parent);
-        self.parent[node] = root;
-        root
-    }
-
-    fn union(&mut self, left: usize, right: usize) -> usize {
-        let mut left = self.find(left);
-        let mut right = self.find(right);
-        if left == right {
-            return left;
-        }
-        let left_rank = self.rank[left];
-        let right_rank = self.rank[right];
-        if left_rank < right_rank {
-            std::mem::swap(&mut left, &mut right);
-        }
-        self.parent[right] = left;
-        if left_rank == right_rank {
-            self.rank[left] = left_rank.saturating_add(1);
-        }
-        left
-    }
 }

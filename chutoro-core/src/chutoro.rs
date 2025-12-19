@@ -209,6 +209,9 @@ impl Chutoro {
             };
 
             let mut core_distances = Vec::with_capacity(items);
+            // TODO: If core-distance computation becomes a bottleneck, consider
+            // parallelising this loop (e.g. via `rayon`) while preserving
+            // determinism and stable error handling.
             for point in 0..items {
                 let neighbours = index
                     .search(source, point, ef)
@@ -316,13 +319,7 @@ impl Chutoro {
     #[cfg(feature = "cpu")]
     fn map_cpu_hierarchy_error(&self, error: crate::HierarchyError) -> ChutoroError {
         ChutoroError::CpuHierarchyFailure {
-            code: Arc::from(match error {
-                crate::HierarchyError::EmptyDataset => "EMPTY_DATASET",
-                crate::HierarchyError::MinClusterSizeTooLarge { .. } => {
-                    "MIN_CLUSTER_SIZE_TOO_LARGE"
-                }
-                crate::HierarchyError::InvalidEdgeWeight { .. } => "INVALID_EDGE_WEIGHT",
-            }),
+            code: Arc::from(error.code().as_str()),
             message: Arc::from(error.to_string()),
         }
     }

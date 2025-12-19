@@ -44,10 +44,9 @@ fn mutual_reachability_edges_1d(points: &[f32], min_cluster_size: usize) -> Edge
 }
 
 fn unique_label_count(labels: &[usize]) -> usize {
-    let mut sorted = labels.to_vec();
-    sorted.sort_unstable();
-    sorted.dedup();
-    sorted.len()
+    use std::collections::HashSet;
+
+    labels.iter().copied().collect::<HashSet<_>>().len()
 }
 
 #[rstest]

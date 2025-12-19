@@ -4,7 +4,7 @@ This is a generated project using [Copier](https://copier.readthedocs.io/).
 
 The default CPU backend executes the FISHDBC pipeline (HNSW construction with
 candidate edge harvest, mutual-reachability MST construction, and stability
-based hierarchy extraction) as described in
+stability-based hierarchy extraction) as described in
 [`docs/chutoro-design.md`](docs/chutoro-design.md).
 
 ## Distance cache determinism and metrics

@@ -18,12 +18,13 @@
 //! relative to HNSW construction and MST computation.
 
 mod single_linkage;
+mod union_find;
 
 use std::num::NonZeroUsize;
 
 use crate::mst::MstEdge;
 
-pub use self::single_linkage::HierarchyError;
+pub use self::single_linkage::{HierarchyError, HierarchyErrorCode};
 
 use self::single_linkage::{CondensedForest, extract_flat_labels};
 
