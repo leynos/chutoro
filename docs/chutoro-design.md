@@ -1417,13 +1417,10 @@ impl Chutoro {
 
         match self.execution_strategy {
             ExecutionStrategy::Auto => {
-                #[cfg(feature = "gpu")]
-                {
-                    self.run_gpu(source, len)
-                }
-                #[cfg(not(feature = "gpu"))]
-                {
+                if cfg!(feature = "cpu") {
                     self.run_cpu(source, len)
+                } else {
+                    self.run_gpu(source, len)
                 }
             }
             ExecutionStrategy::CpuOnly => self.run_cpu(source, len),
@@ -1440,8 +1437,64 @@ impl Chutoro {
         // Build HNSW, transform harvested edges into mutual-reachability
         // weights, run Kruskal, and extract labels from the MST.
         //
-        // See `chutoro-core/src/chutoro.rs` for the current implementation.
-        todo!()
+        // This is a sketch of the current implementation; the authoritative
+        // version lives in `chutoro-core/src/chutoro.rs`.
+        use crate::{
+            CandidateEdge, ClusterId, CpuHnsw, EdgeHarvest, HierarchyConfig, HnswParams,
+            parallel_kruskal,
+        };
+
+        let params = HnswParams::default();
+        let (index, harvested) = CpuHnsw::build_with_edges(source, params.clone())?;
+
+        let min_cluster_size = self.min_cluster_size.get();
+        let ef = NonZeroUsize::new(
+            min_cluster_size
+                .saturating_add(1)
+                .max(params.ef_construction())
+                .min(items),
+        )
+        .unwrap_or_else(|| NonZeroUsize::new(1).expect("literal 1 is non-zero"));
+
+        let mut core_distances = Vec::with_capacity(items);
+        for point in 0..items {
+            let neighbours = index.search(source, point, ef)?;
+            let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
+            let core = if others.len() >= min_cluster_size {
+                others[min_cluster_size - 1].distance
+            } else {
+                others.last().map(|n| n.distance).unwrap_or(0.0)
+            };
+            core_distances.push(core);
+        }
+
+        let mutual_edges: Vec<CandidateEdge> = harvested
+            .iter()
+            .map(|edge| {
+                let left = edge.source();
+                let right = edge.target();
+                let weight = edge
+                    .distance()
+                    .max(core_distances[left])
+                    .max(core_distances[right]);
+                CandidateEdge::new(left, right, weight, edge.sequence())
+            })
+            .collect();
+        let mutual_harvest = EdgeHarvest::new(mutual_edges);
+
+        let forest = parallel_kruskal(items, &mutual_harvest)?;
+        let labels = crate::extract_labels_from_mst(
+            items,
+            forest.edges(),
+            HierarchyConfig::new(self.min_cluster_size),
+        )?;
+
+        let assignments = labels
+            .into_iter()
+            .map(|label| ClusterId::new(label as u64))
+            .collect();
+
+        Ok(ClusteringResult::from_assignments(assignments))
     }
 
     #[cfg(feature = "gpu")]

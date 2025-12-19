@@ -199,14 +199,12 @@ impl Chutoro {
                 .map_err(|error| self.map_cpu_hnsw_error(source, error))?;
 
             let min_cluster_size = self.min_cluster_size.get();
-            let ef = {
-                let desired = min_cluster_size
-                    .saturating_add(1)
-                    .max(params.ef_construction())
-                    .min(items);
-                NonZeroUsize::new(desired)
-                    .unwrap_or_else(|| NonZeroUsize::new(1).expect("literal 1 is non-zero"))
-            };
+            let desired = min_cluster_size
+                .saturating_add(1)
+                .max(params.ef_construction())
+                .min(items);
+            let ef = NonZeroUsize::new(desired)
+                .expect("ef_construction is non-zero so the computed ef is non-zero");
 
             let mut core_distances = Vec::with_capacity(items);
             // TODO: If core-distance computation becomes a bottleneck, consider

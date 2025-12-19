@@ -28,9 +28,9 @@ use crate::mst::MstEdge;
 
 use self::condense::CondenseBuilder;
 
+/// Errors returned by hierarchy extraction.
 #[derive(Clone, Debug, thiserror::Error, PartialEq)]
 #[non_exhaustive]
-/// Errors returned by hierarchy extraction.
 pub enum HierarchyError {
     /// Hierarchy extraction requires at least one node.
     #[error("cannot extract a hierarchy for an empty dataset")]
