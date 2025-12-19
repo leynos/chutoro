@@ -833,7 +833,8 @@ of its children's selected stabilities, otherwise keep the children). Flat
 labels are produced by propagating the nearest selected ancestor label to each
 point. Points that never observe a selected ancestor are classified as noise
 and are assigned a dedicated label appended after the selected clusters so
-labels remain contiguous starting at zero.
+labels remain contiguous starting at zero. When no clusters are selected, all
+points are classified as noise and receive label `0`.
 
 #### 6.3. SIMD utilization
 

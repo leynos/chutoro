@@ -46,9 +46,9 @@ pub enum HierarchyError {
     /// An MST edge weight was invalid for hierarchy extraction.
     #[error("invalid MST edge weight {weight} for edge ({left}, {right})")]
     InvalidEdgeWeight {
-        /// Smaller endpoint id for the offending edge.
+        /// Endpoint id for the offending edge.
         left: usize,
-        /// Larger endpoint id for the offending edge.
+        /// Other endpoint id for the offending edge.
         right: usize,
         /// Invalid weight value observed on the edge.
         weight: f32,
@@ -197,6 +197,13 @@ impl CondensedForest {
     }
 }
 
+/// Extracts flat cluster labels from a condensed hierarchy forest.
+///
+/// Cluster labels are contiguous `usize` identifiers starting at `0`. Noise
+/// points are assigned a dedicated label appended after the selected clusters.
+///
+/// When no clusters are selected (for example when all components are smaller
+/// than `min_cluster_size` during condensation), the noise label is `0`.
 pub(crate) fn extract_flat_labels(
     node_count: usize,
     condensed: &CondensedForest,
@@ -221,6 +228,8 @@ pub(crate) fn extract_flat_labels(
     }
 
     let cluster_count = selected_ids.len();
+    // When `cluster_count == 0`, the returned labels are all `0`, representing
+    // the dedicated noise label (there are no clusters to offset it from).
     Ok(labels
         .into_iter()
         .map(|label| label.unwrap_or(cluster_count))

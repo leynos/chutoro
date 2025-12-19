@@ -11,6 +11,17 @@ use crate::{
 };
 use tracing::{instrument, warn};
 
+const CPU_PATH_AVAILABLE: bool = cfg!(feature = "cpu");
+// The `gpu` feature currently exposes the orchestration surface only;
+// no accelerated implementation ships yet.
+const GPU_PATH_AVAILABLE: bool = false;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BackendChoice {
+    Cpu,
+    Gpu,
+}
+
 /// Entry point for running the clustering pipeline.
 ///
 /// # Examples
@@ -166,16 +177,23 @@ impl Chutoro {
             return Err(err);
         }
 
+        match self.choose_backend() {
+            BackendChoice::Cpu => self.run_cpu(source, items),
+            BackendChoice::Gpu => self.run_gpu(source, items),
+        }
+    }
+
+    fn choose_backend(&self) -> BackendChoice {
         match self.execution_strategy {
             ExecutionStrategy::Auto => {
-                if cfg!(feature = "cpu") {
-                    self.run_cpu(source, items)
+                if CPU_PATH_AVAILABLE {
+                    BackendChoice::Cpu
                 } else {
-                    self.run_gpu(source, items)
+                    BackendChoice::Gpu
                 }
             }
-            ExecutionStrategy::CpuOnly => self.run_cpu(source, items),
-            ExecutionStrategy::GpuPreferred => self.run_gpu(source, items),
+            ExecutionStrategy::CpuOnly => BackendChoice::Cpu,
+            ExecutionStrategy::GpuPreferred => BackendChoice::Gpu,
         }
     }
 
@@ -189,68 +207,7 @@ impl Chutoro {
     fn run_cpu<D: DataSource + Sync>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
         #[cfg(feature = "cpu")]
         {
-            use crate::{
-                CandidateEdge, ClusterId, CpuHnsw, EdgeHarvest, HierarchyConfig, HnswParams,
-                MstError, parallel_kruskal,
-            };
-
-            let params = HnswParams::default();
-            let (index, harvested) = CpuHnsw::build_with_edges(source, params.clone())
-                .map_err(|error| self.map_cpu_hnsw_error(source, error))?;
-
-            let min_cluster_size = self.min_cluster_size.get();
-            let desired = min_cluster_size
-                .saturating_add(1)
-                .max(params.ef_construction())
-                .min(items);
-            let ef = NonZeroUsize::new(desired)
-                .expect("ef_construction is non-zero so the computed ef is non-zero");
-
-            let mut core_distances = Vec::with_capacity(items);
-            // TODO: If core-distance computation becomes a bottleneck, consider
-            // parallelising this loop (e.g. via `rayon`) while preserving
-            // determinism and stable error handling.
-            for point in 0..items {
-                let neighbours = index
-                    .search(source, point, ef)
-                    .map_err(|error| self.map_cpu_hnsw_error(source, error))?;
-                let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
-                let core = if others.len() >= min_cluster_size {
-                    others[min_cluster_size - 1].distance
-                } else {
-                    others.last().map(|n| n.distance).unwrap_or(0.0)
-                };
-                core_distances.push(core);
-            }
-
-            let mutual_edges: Vec<CandidateEdge> = harvested
-                .iter()
-                .map(|edge| {
-                    let left = edge.source();
-                    let right = edge.target();
-                    let dist = edge.distance();
-                    let weight = dist.max(core_distances[left]).max(core_distances[right]);
-                    CandidateEdge::new(left, right, weight, edge.sequence())
-                })
-                .collect();
-            let mutual_harvest = EdgeHarvest::new(mutual_edges);
-
-            let forest = parallel_kruskal(items, &mutual_harvest)
-                .map_err(|error: MstError| self.map_cpu_mst_error(error))?;
-
-            let labels = crate::extract_labels_from_mst(
-                items,
-                forest.edges(),
-                HierarchyConfig::new(self.min_cluster_size),
-            )
-            .map_err(|error| self.map_cpu_hierarchy_error(error))?;
-
-            let assignments = labels
-                .into_iter()
-                .map(|label| ClusterId::new(label as u64))
-                .collect();
-
-            Ok(ClusteringResult::from_assignments(assignments))
+            self.run_cpu_pipeline(source, items)
         }
         #[cfg(not(feature = "cpu"))]
         {
@@ -259,6 +216,76 @@ impl Chutoro {
                 requested: ExecutionStrategy::CpuOnly,
             })
         }
+    }
+
+    #[cfg(feature = "cpu")]
+    fn run_cpu_pipeline<D: DataSource + Sync>(
+        &self,
+        source: &D,
+        items: usize,
+    ) -> Result<ClusteringResult> {
+        use crate::{
+            CandidateEdge, ClusterId, CpuHnsw, EdgeHarvest, HierarchyConfig, HnswParams,
+            parallel_kruskal,
+        };
+
+        let params = HnswParams::default();
+        let (index, harvested) = CpuHnsw::build_with_edges(source, params.clone())
+            .map_err(|error| self.map_cpu_hnsw_error(source, error))?;
+
+        let min_cluster_size = self.min_cluster_size.get();
+        let desired = min_cluster_size
+            .saturating_add(1)
+            .max(params.ef_construction())
+            .min(items);
+        let ef = NonZeroUsize::new(desired)
+            .expect("ef_construction is non-zero so the computed ef is non-zero");
+
+        let mut core_distances = Vec::with_capacity(items);
+        // TODO: If core-distance computation becomes a bottleneck, consider
+        // parallelising this loop (e.g. via `rayon`) while preserving
+        // determinism and stable error handling.
+        for point in 0..items {
+            let neighbours = index
+                .search(source, point, ef)
+                .map_err(|error| self.map_cpu_hnsw_error(source, error))?;
+            let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
+            let core = if others.len() >= min_cluster_size {
+                others[min_cluster_size - 1].distance
+            } else {
+                others.last().map(|n| n.distance).unwrap_or(0.0)
+            };
+            core_distances.push(core);
+        }
+
+        let mutual_edges: Vec<CandidateEdge> = harvested
+            .iter()
+            .map(|edge| {
+                let left = edge.source();
+                let right = edge.target();
+                let dist = edge.distance();
+                let weight = dist.max(core_distances[left]).max(core_distances[right]);
+                CandidateEdge::new(left, right, weight, edge.sequence())
+            })
+            .collect();
+        let mutual_harvest = EdgeHarvest::new(mutual_edges);
+
+        let forest = parallel_kruskal(items, &mutual_harvest)
+            .map_err(|error| self.map_cpu_mst_error(error))?;
+
+        let labels = crate::extract_labels_from_mst(
+            items,
+            forest.edges(),
+            HierarchyConfig::new(self.min_cluster_size),
+        )
+        .map_err(|error| self.map_cpu_hierarchy_error(error))?;
+
+        let assignments = labels
+            .into_iter()
+            .map(|label| ClusterId::new(label as u64))
+            .collect();
+
+        Ok(ClusteringResult::from_assignments(assignments))
     }
 
     fn run_gpu<D: DataSource + Sync>(
@@ -272,20 +299,19 @@ impl Chutoro {
     }
 
     fn backend_unavailable_error(&self) -> Option<ChutoroError> {
-        const CPU_PATH_AVAILABLE: bool = cfg!(feature = "cpu");
-        // The `gpu` feature currently exposes the orchestration surface only;
-        // no accelerated implementation ships yet.
-        const GPU_PATH_AVAILABLE: bool = false;
-
-        let unavailable = match self.execution_strategy {
-            ExecutionStrategy::Auto => !(CPU_PATH_AVAILABLE || GPU_PATH_AVAILABLE),
-            ExecutionStrategy::CpuOnly => !CPU_PATH_AVAILABLE,
-            ExecutionStrategy::GpuPreferred => !GPU_PATH_AVAILABLE,
-        };
+        let unavailable = self.is_backend_unavailable();
 
         unavailable.then_some(ChutoroError::BackendUnavailable {
             requested: self.execution_strategy,
         })
+    }
+
+    fn is_backend_unavailable(&self) -> bool {
+        match self.execution_strategy {
+            ExecutionStrategy::Auto => !(CPU_PATH_AVAILABLE || GPU_PATH_AVAILABLE),
+            ExecutionStrategy::CpuOnly => !CPU_PATH_AVAILABLE,
+            ExecutionStrategy::GpuPreferred => !GPU_PATH_AVAILABLE,
+        }
     }
 
     #[cfg(feature = "cpu")]

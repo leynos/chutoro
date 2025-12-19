@@ -106,7 +106,7 @@ fn run_text_min_cluster_size_affects_cluster_structure() -> TestResult {
 
     assert!(
         clusters_min_2 <= clusters_min_1,
-        "expected min_cluster_size=2 to yield <= clusters than min_cluster_size=1 (got {} vs {})",
+        "expected min_cluster_size=2 to yield no more clusters than min_cluster_size=1 (got {} vs {})",
         clusters_min_2,
         clusters_min_1
     );
@@ -308,6 +308,10 @@ fn run_command_emits_tracing_fields() -> TestResult {
     );
 
     let events = layer.events();
+    // The recording layer captures fields via `Debug` formatting, which may
+    // include quotes for string fields depending on how the collector records
+    // them (observed under `cfg(coverage)` in CI). Accept both representations
+    // to keep this assertion stable across environments.
     let expected_message = "command completed";
     let expected_message_debug = format!("{expected_message:?}");
     let expected_data_source = "lines";

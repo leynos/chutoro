@@ -101,6 +101,21 @@ fn assigns_outlier_to_noise_when_min_cluster_size_excludes_it() {
 }
 
 #[test]
+fn assigns_all_points_to_noise_when_every_component_is_too_small() {
+    let node_count = 4;
+    let min_cluster_size = 3;
+
+    let labels = extract_labels_from_mst(
+        node_count,
+        &[],
+        HierarchyConfig::new(NonZeroUsize::new(min_cluster_size).expect("non-zero")),
+    )
+    .expect("hierarchy extraction should succeed for empty forests");
+
+    assert_eq!(labels, vec![0; node_count]);
+}
+
+#[test]
 fn rejects_empty_dataset() {
     let err = extract_labels_from_mst(
         0,

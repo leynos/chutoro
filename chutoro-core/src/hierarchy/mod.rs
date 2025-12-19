@@ -55,7 +55,9 @@ impl HierarchyConfig {
 ///
 /// The output labels are contiguous `usize` identifiers starting at `0`. When
 /// any point is classified as noise, an additional label is appended so noise
-/// points receive a valid contiguous identifier as well.
+/// points receive a valid contiguous identifier as well. When all points are
+/// classified as noise, no cluster labels are emitted and the noise label is
+/// `0`.
 ///
 /// # Errors
 /// Returns [`HierarchyError`] when `node_count == 0`, when `min_cluster_size`

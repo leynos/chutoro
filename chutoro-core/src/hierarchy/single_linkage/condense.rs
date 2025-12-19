@@ -12,6 +12,25 @@ pub(super) struct CondenseBuilder<'a> {
     clusters: &'a mut Vec<CondensedCluster>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SplitCase {
+    BothBig,
+    LeftBigOnly,
+    RightBigOnly,
+    BothSmall,
+}
+
+impl SplitCase {
+    fn from_flags(left_big: bool, right_big: bool) -> Self {
+        match (left_big, right_big) {
+            (true, true) => Self::BothBig,
+            (true, false) => Self::LeftBigOnly,
+            (false, true) => Self::RightBigOnly,
+            (false, false) => Self::BothSmall,
+        }
+    }
+}
+
 impl<'a> CondenseBuilder<'a> {
     pub(super) fn new(
         forest: &'a SingleLinkageForest,
@@ -40,22 +59,22 @@ impl<'a> CondenseBuilder<'a> {
         let left_big = left_size >= self.min_cluster_size;
         let right_big = right_size >= self.min_cluster_size;
 
-        match (left_big, right_big) {
-            (true, true) => {
+        match SplitCase::from_flags(left_big, right_big) {
+            SplitCase::BothBig => {
                 let left_cluster = self.create_child_cluster(cluster_id, lambda, left_size);
                 let right_cluster = self.create_child_cluster(cluster_id, lambda, right_size);
                 self.condense_cluster(left, left_cluster);
                 self.condense_cluster(right, right_cluster);
             }
-            (true, false) => {
+            SplitCase::LeftBigOnly => {
                 self.emit_pruned_points(right, cluster_id, lambda);
                 self.condense_cluster(left, cluster_id);
             }
-            (false, true) => {
+            SplitCase::RightBigOnly => {
                 self.emit_pruned_points(left, cluster_id, lambda);
                 self.condense_cluster(right, cluster_id);
             }
-            (false, false) => {
+            SplitCase::BothSmall => {
                 self.emit_pruned_points(left, cluster_id, lambda);
                 self.emit_pruned_points(right, cluster_id, lambda);
             }
