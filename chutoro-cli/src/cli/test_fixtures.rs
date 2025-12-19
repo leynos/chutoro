@@ -13,6 +13,17 @@ use arrow_schema::{DataType, Field, Schema};
 use parquet::arrow::arrow_writer::ArrowWriter;
 use tempfile::TempDir;
 
+/// Creates a small Parquet file containing a fixed `features` column.
+///
+/// The file is written to `dir` using the provided `name`, and contains a
+/// single record batch with a `features: FixedSizeList<Float32, 2>` column.
+///
+/// This is intended for CLI tests that exercise Parquet ingestion without
+/// relying on external fixtures.
+///
+/// # Errors
+/// Returns an error when the file cannot be created or the Parquet writer fails
+/// to write the batch.
 pub fn create_parquet_file(
     dir: &TempDir,
     name: &str,

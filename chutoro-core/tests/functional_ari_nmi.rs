@@ -228,9 +228,6 @@ fn normalised_mutual_information(left: &[usize], right: &[usize]) -> f64 {
     let mut mi = 0.0_f64;
     for ((l, r), count) in contingency {
         let count_f64 = count as f64;
-        if count_f64 == 0.0 {
-            continue;
-        }
         let pl = *left_counts.get(&l).expect("exists") as f64;
         let pr = *right_counts.get(&r).expect("exists") as f64;
         mi += (count_f64 / n_f64) * ((count_f64 * n_f64) / (pl * pr)).ln();
