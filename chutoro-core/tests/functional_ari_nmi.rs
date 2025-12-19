@@ -10,8 +10,8 @@ use std::num::NonZeroUsize;
 use rstest::rstest;
 
 use chutoro_core::{
-    CandidateEdge, CpuHnsw, DataSource, DataSourceError, EdgeHarvest, HierarchyConfig, HnswParams,
-    MetricDescriptor, extract_labels_from_mst, parallel_kruskal,
+    CandidateEdge, ChutoroBuilder, DataSource, DataSourceError, EdgeHarvest, ExecutionStrategy,
+    HierarchyConfig, MetricDescriptor, extract_labels_from_mst, parallel_kruskal,
 };
 
 fn parse_csv_rows(input: &str, dims: usize) -> Vec<Vec<f32>> {
@@ -141,56 +141,18 @@ fn exact_pipeline<D: DataSource>(source: &D, min_cluster_size: NonZeroUsize) -> 
     .expect("exact hierarchy extraction should succeed")
 }
 
-fn hnsw_pipeline(
-    source: &DenseVectors,
-    min_cluster_size: NonZeroUsize,
-    params: HnswParams,
-) -> Vec<usize> {
-    let (index, harvested) =
-        CpuHnsw::build_with_edges(source, params.clone()).expect("HNSW build should succeed");
-
-    let n = source.len();
-    let ef = {
-        let desired = min_cluster_size
-            .get()
-            .saturating_add(1)
-            .max(params.ef_construction())
-            .min(n);
-        NonZeroUsize::new(desired).unwrap_or_else(|| NonZeroUsize::new(1).expect("non-zero"))
-    };
-
-    let mut core = Vec::with_capacity(n);
-    for point in 0..n {
-        let neighbours = index
-            .search(source, point, ef)
-            .expect("HNSW search should succeed");
-        let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
-        let k = min_cluster_size.get();
-        let value = if others.len() >= k {
-            others[k - 1].distance
-        } else {
-            others.last().map(|n| n.distance).unwrap_or(0.0)
-        };
-        core.push(value);
-    }
-
-    let mutual: Vec<CandidateEdge> = harvested
+fn approx_pipeline<D: DataSource + Sync>(source: &D, min_cluster_size: NonZeroUsize) -> Vec<usize> {
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(min_cluster_size.get())
+        .with_execution_strategy(ExecutionStrategy::CpuOnly)
+        .build()
+        .expect("chutoro builder configuration is valid");
+    let result = chutoro.run(source).expect("approx pipeline should succeed");
+    result
+        .assignments()
         .iter()
-        .map(|edge| {
-            let left = edge.source();
-            let right = edge.target();
-            let weight = edge.distance().max(core[left]).max(core[right]);
-            CandidateEdge::new(left, right, weight, edge.sequence())
-        })
-        .collect();
-    let mutual = EdgeHarvest::new(mutual);
-    let forest = parallel_kruskal(source.len(), &mutual).expect("approx MST should succeed");
-    extract_labels_from_mst(
-        source.len(),
-        forest.edges(),
-        HierarchyConfig::new(min_cluster_size),
-    )
-    .expect("approx hierarchy extraction should succeed")
+        .map(|id| usize::try_from(id.get()).expect("cluster identifiers fit usize"))
+        .collect()
 }
 
 fn comb2(value: usize) -> f64 {
@@ -361,10 +323,7 @@ fn hnsw_pipeline_matches_exact_baseline(
         NonZeroUsize::new(min_cluster_size).expect("min_cluster_size must be non-zero");
 
     let exact = exact_pipeline(&source, min_cluster_size);
-    let params = HnswParams::new(32, 128)
-        .expect("params must be valid")
-        .with_rng_seed(0xDEC0_DED1);
-    let approx = hnsw_pipeline(&source, min_cluster_size, params);
+    let approx = approx_pipeline(&source, min_cluster_size);
 
     let ari = adjusted_rand_index(&exact, &approx);
     let nmi = normalised_mutual_information(&exact, &approx);

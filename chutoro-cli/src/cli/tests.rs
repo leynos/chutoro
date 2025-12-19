@@ -308,16 +308,22 @@ fn run_command_emits_tracing_fields() -> TestResult {
     );
 
     let events = layer.events();
+    let expected_message = "command completed";
+    let expected_message_debug = format!("{expected_message:?}");
+    let expected_data_source = "lines";
+    let expected_data_source_debug = format!("{expected_data_source:?}");
     assert!(events.iter().any(|event| {
+        let message = event.fields.get("message").map(String::as_str);
+        let data_source = event.fields.get("data_source").map(String::as_str);
         event.level == Level::INFO
-            && event
-                .fields
-                .get("message")
-                .is_some_and(|value| value == "command completed")
-            && event
-                .fields
-                .get("data_source")
-                .is_some_and(|value| value == "lines")
+            && matches!(
+                message,
+                Some(value) if value == expected_message || value == expected_message_debug
+            )
+            && matches!(
+                data_source,
+                Some(value) if value == expected_data_source || value == expected_data_source_debug
+            )
     }));
     Ok(())
 }

@@ -205,12 +205,6 @@ pub(crate) fn extract_flat_labels(
         return Err(HierarchyError::EmptyDataset);
     }
 
-    if condensed.clusters.is_empty() {
-        // No condensed clusters were retained; treat all points as noise with
-        // noise label `0`.
-        return Ok(vec![0; node_count]);
-    }
-
     let selected = select_stable_clusters(condensed);
     let mut selected_ids: Vec<usize> = selected.into_iter().collect();
     selected_ids.sort_unstable();
@@ -324,6 +318,7 @@ struct LinkageNode {
     point: Option<usize>,
 }
 
+// `SingleLinkageForest::from_mst` lives in the `forest` submodule.
 #[derive(Clone, Debug)]
 struct SingleLinkageForest {
     nodes: Vec<LinkageNode>,

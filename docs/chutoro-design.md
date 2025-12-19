@@ -1422,6 +1422,8 @@ impl Chutoro {
                 if cfg!(feature = "cpu") {
                     self.run_cpu(source, len)
                 } else {
+                    // Falls back to `run_gpu`, which returns `BackendUnavailable`
+                    // until the accelerator implementation is complete.
                     self.run_gpu(source, len)
                 }
             }
