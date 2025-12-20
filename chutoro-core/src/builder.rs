@@ -9,11 +9,10 @@ use crate::{Result, chutoro::Chutoro, error::ChutoroError};
 /// Indicates how [`Chutoro`] selects a compute backend when [`Chutoro::run`] is
 /// invoked.
 ///
-/// `Auto` resolves backends deterministically. Today it maps to the CPU
-/// walking skeleton because no GPU implementation ships with the crate.
-/// Once a GPU backend lands it will select the GPU when that feature is
-/// enabled and fall back to the CPU otherwise so behaviour stays stable
-/// across builds.
+/// `Auto` resolves backends deterministically. Today it runs the CPU backend
+/// (enabled by the default `cpu` feature). Once a real GPU backend ships, it
+/// will select the GPU implementation when available and fall back to the CPU
+/// otherwise so behaviour stays stable across builds.
 ///
 /// # Examples
 /// ```

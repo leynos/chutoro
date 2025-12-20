@@ -1,7 +1,7 @@
-//! CLI entry point for executing the chutoro walking skeleton.
+//! CLI entry point for executing the chutoro CPU clustering pipeline.
 //!
-//! Parses command-line arguments with clap, executes the walking skeleton
-//! clustering pipeline, renders the summary to stdout, and maps errors to
+//! Parses command-line arguments with clap, executes the clustering pipeline,
+//! renders the summary to stdout, and maps errors to
 //! appropriate exit codes. Logging is initialized eagerly so subsequent
 //! operations can emit structured diagnostics via `tracing`.
 

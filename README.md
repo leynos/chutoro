@@ -2,11 +2,10 @@
 
 This is a generated project using [Copier](https://copier.readthedocs.io/).
 
-> **Walking skeleton:** The CPU-only build currently partitions inputs into
-> placeholder buckets sized by `min_cluster_size`. This stub proves the
-> orchestration wiring and will be replaced by the HNSW + MST +
-> hierarchy extraction pipeline described in
-> [`docs/chutoro-design.md`](docs/chutoro-design.md).
+The default CPU backend executes the FISHDBC pipeline (HNSW construction with
+candidate edge harvest, mutual-reachability MST construction, and
+stability-based hierarchy extraction) as described in
+[`docs/chutoro-design.md`](docs/chutoro-design.md).
 
 ## Distance cache determinism and metrics
 

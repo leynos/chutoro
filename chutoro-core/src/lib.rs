@@ -2,9 +2,13 @@
 
 mod builder;
 mod chutoro;
+#[cfg(feature = "cpu")]
+mod cpu_pipeline;
 mod datasource;
 mod distance;
 mod error;
+#[cfg(feature = "cpu")]
+mod hierarchy;
 #[cfg(feature = "cpu")]
 mod hnsw;
 #[cfg(feature = "cpu")]
@@ -24,6 +28,9 @@ pub use crate::{
 };
 
 #[cfg(feature = "cpu")]
+pub use crate::cpu_pipeline::run_cpu_pipeline;
+
+#[cfg(feature = "cpu")]
 /// CPU-accelerated HNSW index components; requires the `cpu` feature.
 pub use crate::hnsw::{
     CandidateEdge, CpuHnsw, DistanceCacheConfig, EdgeHarvest, HnswError, HnswErrorCode,
@@ -33,6 +40,12 @@ pub use crate::hnsw::{
 #[cfg(feature = "cpu")]
 /// CPU minimum spanning tree (MST) utilities; requires the `cpu` feature.
 pub use crate::mst::{MinimumSpanningForest, MstEdge, MstError, MstErrorCode, parallel_kruskal};
+
+#[cfg(feature = "cpu")]
+/// Hierarchy extraction utilities for the CPU pipeline; requires the `cpu` feature.
+pub use crate::hierarchy::{
+    HierarchyConfig, HierarchyError, HierarchyErrorCode, extract_labels_from_mst,
+};
 
 #[cfg(test)]
 pub(crate) mod test_utils;

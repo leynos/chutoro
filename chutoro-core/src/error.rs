@@ -152,6 +152,30 @@ pub enum ChutoroError {
         /// Underlying data source error bubbled up by the algorithm.
         error: DataSourceError,
     },
+    /// CPU HNSW construction/search failed.
+    #[error("cpu hnsw failed ({code}): {message}")]
+    CpuHnswFailure {
+        /// Underlying HNSW error code for diagnostic purposes.
+        code: Arc<str>,
+        /// Human-readable description of the failure.
+        message: Arc<str>,
+    },
+    /// CPU MST construction failed.
+    #[error("cpu mst failed ({code}): {message}")]
+    CpuMstFailure {
+        /// Underlying MST error code for diagnostic purposes.
+        code: Arc<str>,
+        /// Human-readable description of the failure.
+        message: Arc<str>,
+    },
+    /// CPU hierarchy extraction failed.
+    #[error("cpu hierarchy failed ({code}): {message}")]
+    CpuHierarchyFailure {
+        /// Underlying hierarchy error code for diagnostic purposes.
+        code: Arc<str>,
+        /// Human-readable description of the failure.
+        message: Arc<str>,
+    },
 }
 
 define_error_codes! {
@@ -168,6 +192,12 @@ define_error_codes! {
         BackendUnavailable => BackendUnavailable { .. } => "CHUTORO_BACKEND_UNAVAILABLE",
         /// A [`crate::DataSource`] operation failed while running the algorithm.
         DataSourceFailure => DataSource { .. } => "CHUTORO_DATA_SOURCE_FAILURE",
+        /// CPU HNSW construction/search failed.
+        CpuHnswFailure => CpuHnswFailure { .. } => "CHUTORO_CPU_HNSW_FAILURE",
+        /// CPU MST construction failed.
+        CpuMstFailure => CpuMstFailure { .. } => "CHUTORO_CPU_MST_FAILURE",
+        /// CPU hierarchy extraction failed.
+        CpuHierarchyFailure => CpuHierarchyFailure { .. } => "CHUTORO_CPU_HIERARCHY_FAILURE",
     }
 }
 

@@ -12,7 +12,7 @@ skeleton = []
 gpu = []
 
 [package.metadata.docs.rs]
-features = ["skeleton", "gpu"]
+features = ["cpu", "gpu"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]

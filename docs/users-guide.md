@@ -2,7 +2,7 @@
 
 Integration of the `chutoro-core` crate into Rust applications is described
 below. The guide focuses on the APIs exposed to downstream crates and the
-behaviour of the current walking skeleton implementation.
+behaviour of the CPU FISHDBC implementation.
 
 ## Audience and scope
 
@@ -12,13 +12,13 @@ management via Cargo.
 
 ## Adding the crate
 
-The project's `Cargo.toml` must include `chutoro-core`. Enable the `skeleton`
-feature to use the CPU walking skeleton and, optionally, the `gpu` feature for
-future GPU support.
+The project's `Cargo.toml` must include `chutoro-core`. The default feature set
+enables the CPU backend; the `gpu` feature prepares the orchestration surface
+for a future GPU backend.
 
 ```toml
 [dependencies]
-chutoro-core = { version = "0.1.0", features = ["skeleton"] }
+chutoro-core = "0.1.0"
 ```
 
 The crate exports all public entry points from the root module, so required
@@ -53,13 +53,9 @@ assert_eq!(result.cluster_count(), 1);
 # Ok::<(), chutoro_core::ChutoroError>(())
 ```
 
-`ExecutionStrategy::Auto` resolves to the CPU skeleton today. Once a GPU
-backend ships, the strategy will prefer GPU execution when compiled with the
-`gpu` feature.
-
-The walking skeleton partitions input indices into contiguous buckets sized by
-`min_cluster_size`. This behaviour suits smoke testing orchestration only; the
-algorithm will change once the full FISHDBC pipeline lands.
+`ExecutionStrategy::Auto` runs the CPU backend. The `gpu` feature prepares the
+orchestration surface for a future accelerator backend; requesting
+`ExecutionStrategy::GpuPreferred` currently yields `BackendUnavailable`.
 
 ## Implementing data sources
 
@@ -74,6 +70,9 @@ must provide three methods:
 The default `distance_batch` helper uses `distance` to fill an output buffer
 and keeps it unchanged if any pair fails. Override when the backend can compute
 batches more efficiently.
+
+The CPU backend performs parallel HNSW insertion, so `Chutoro::run` requires a
+`DataSource + Sync`.
 
 Empty inputs should be handled by returning `DataSourceError::EmptyData` or
 `ZeroDimension` during ingestion. Chutoro rejects a `DataSource` with zero
@@ -106,6 +105,9 @@ via `ChutoroError` variants:
 - `DataSource`: raised when `distance` or `distance_batch` fails. Use
   `ChutoroError::data_source_code()` to recover the underlying
   `DataSourceErrorCode` and respond programmatically.
+- `CpuHnswFailure`, `CpuMstFailure`, and `CpuHierarchyFailure`: raised when the
+  CPU backend encounters internal failures in HNSW construction/search, MST
+  construction, or hierarchy extraction.
 
 `DataSourceError` distinguishes out-of-bounds indices, dimension mismatches,
 and invalid buffers. Propagate these errors verbatim, so callers receive stable
@@ -125,14 +127,14 @@ performs the final calculation.
 
 ## Feature flags and execution strategies
 
-The crate exposes two opt-in features:
+The crate exposes the following feature flags:
 
-- `skeleton` enables the CPU walking skeleton implementation. Without it,
-  `ExecutionStrategy::Auto` and `ExecutionStrategy::CpuOnly` return
-  `BackendUnavailable`.
-- `gpu` prepares the orchestration surface for the forthcoming GPU backend. In
-  the walking skeleton build, it reuses the CPU path. Without `skeleton`, GPU
-  execution errors out until the real accelerator implementation arrives.
+- `cpu` includes the CPU backend in the default feature set.
+- `metrics` exposes metrics emission from hot paths.
+- `gpu` prepares the GPU execution path selection surface (the accelerator
+  implementation is not yet available).
+- `skeleton` is a legacy compatibility flag retained for early versions; it is
+  no longer required by the CPU backend.
 
 Choose an `ExecutionStrategy` that matches the compiled features. Allowing
 `Auto` keeps behaviour stable across builds while seamlessly adopting GPU
