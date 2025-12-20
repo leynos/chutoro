@@ -233,7 +233,6 @@ fn normalised_mutual_information(left: &[usize], right: &[usize]) -> f64 {
 type ClusterCounts = std::collections::HashMap<usize, usize>;
 type PairCounts = std::collections::HashMap<(usize, usize), usize>;
 type ContingencyTableBuild = (ClusterCounts, ClusterCounts, PairCounts);
-
 fn build_contingency_table(left: &[usize], right: &[usize]) -> ContingencyTableBuild {
     use std::collections::HashMap;
 
