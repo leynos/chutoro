@@ -29,3 +29,6 @@ pub use self::{
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(kani)]
+mod kani_proofs;
