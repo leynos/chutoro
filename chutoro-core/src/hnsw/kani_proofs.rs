@@ -104,13 +104,21 @@ fn populate_edges_nondeterministically(graph: &mut Graph) {
     const EDGES: [(usize, usize); 6] = [(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)];
 
     for (source, target) in EDGES {
-        if kani::any::<bool>() {
-            if let Some(node) = graph.node_mut(source) {
-                let neighbours = node.neighbours_mut(0);
-                if !neighbours.contains(&target) {
-                    neighbours.push(target);
-                }
-            }
+        // Skip this edge if Kani decides not to include it
+        if !kani::any::<bool>() {
+            continue;
+        }
+
+        // Get mutable reference to source node, skip if not found
+        let Some(node) = graph.node_mut(source) else {
+            continue;
+        };
+
+        let neighbours = node.neighbours_mut(0);
+
+        // Only add if not already present
+        if !neighbours.contains(&target) {
+            neighbours.push(target);
         }
     }
 }
@@ -132,12 +140,22 @@ fn enforce_bidirectional_constraint(graph: &mut Graph) {
 
     // Add reverse edges where missing
     for (source, target) in edges_to_add {
-        if let Some(node) = graph.node_mut(source) {
-            let neighbours = node.neighbours_mut(0);
-            if !neighbours.contains(&target) {
-                neighbours.push(target);
-            }
-        }
+        add_reverse_edge_if_missing(graph, source, target);
+    }
+}
+
+/// Adds a reverse edge from `source` to `target` if it doesn't already exist.
+///
+/// This helper abstracts the pattern of conditionally adding an edge,
+/// reducing nesting in the calling code.
+fn add_reverse_edge_if_missing(graph: &mut Graph, source: usize, target: usize) {
+    let Some(node) = graph.node_mut(source) else {
+        return;
+    };
+
+    let neighbours = node.neighbours_mut(0);
+    if !neighbours.contains(&target) {
+        neighbours.push(target);
     }
 }
 
