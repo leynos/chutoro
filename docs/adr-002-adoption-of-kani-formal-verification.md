@@ -30,7 +30,7 @@ providing formal proofs of correctness for small configurations.
 
 ## Decision
 
-We adopt Kani for formal verification of HNSW structural invariants, starting
+Kani is adopted for formal verification of HNSW structural invariants, starting
 with the bidirectional links invariant on bounded graph configurations.
 
 ### Implementation Approach
@@ -54,14 +54,14 @@ with the bidirectional links invariant on bounded graph configurations.
 
 The two approaches serve different purposes and complement each other:
 
-| Aspect           | Proptest                      | Kani                 |
-| ---------------- | ----------------------------- | -------------------- |
-| Coverage model   | Probabilistic sampling        | Exhaustive (bounded) |
-| Typical scale    | Hundreds of nodes             | 3-10 nodes           |
-| Execution time   | Seconds                       | Minutes              |
-| Failure output   | Minimal shrunk counterexample | Full execution trace |
-| Primary use case | Regression catching           | Invariant proofs     |
-| CI integration   | Every PR                      | Nightly (planned)    |
+| Aspect                                  | Proptest                      | Kani                 |
+| --------------------------------------- | ----------------------------- | -------------------- |
+| Coverage model                          | Probabilistic sampling        | Exhaustive (bounded) |
+| Typical scale                           | Hundreds of nodes             | 3-10 nodes           |
+| Execution time                          | Seconds                       | Minutes              |
+| Failure output                          | Minimal shrunk counterexample | Full execution trace |
+| Primary use case                        | Regression catching           | Invariant proofs     |
+| Continuous Integration (CI) integration | Every pull request (PR)       | Nightly (planned)    |
 
 Proptest remains the primary testing tool for catching regressions on realistic
 configurations. Kani provides formal guarantees for small configurations,

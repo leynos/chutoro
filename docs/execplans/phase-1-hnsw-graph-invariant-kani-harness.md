@@ -32,14 +32,14 @@ formal proofs rather than probabilistic coverage.
 - Kani harness for bidirectional link invariant
 - 3-node, 1-layer graph configuration
 - Makefile integration (`make kani`)
-- ADR documenting Kani adoption rationale
+- Architecture Decision Record (ADR) documenting Kani adoption rationale
 
 ### Out of Scope (Future Phases)
 
 - Multi-layer verification
 - Larger graph bounds (4+ nodes)
 - Other invariants (degree bounds, reachability, layer consistency)
-- CI integration (deferred to Phase 2)
+- Continuous Integration (CI) integration (deferred to Phase 2)
 
 ## Implementation Checklist
 
