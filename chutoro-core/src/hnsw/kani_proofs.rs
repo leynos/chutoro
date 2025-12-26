@@ -28,6 +28,7 @@
 
 use crate::hnsw::{
     graph::{Graph, NodeContext},
+    invariants::is_bidirectional,
     params::HnswParams,
 };
 
@@ -92,7 +93,12 @@ fn verify_bidirectional_links_3_nodes_1_layer() {
     enforce_bidirectional_constraint(&mut graph);
 
     // Assert the bidirectional invariant holds for the final graph state
-    assert_bidirectional_invariant(&graph);
+    // Uses the shared helper from invariants module to ensure alignment
+    // with the production invariant definition.
+    kani::assert(
+        is_bidirectional(&graph),
+        "bidirectional invariant violated: missing reverse edge",
+    );
 }
 
 /// Populates edges nondeterministically using Kani's symbolic execution.
@@ -156,22 +162,5 @@ fn add_reverse_edge_if_missing(graph: &mut Graph, source: usize, target: usize) 
     let neighbours = node.neighbours_mut(0);
     if !neighbours.contains(&target) {
         neighbours.push(target);
-    }
-}
-
-/// Asserts that the bidirectional invariant holds for all edges in the graph.
-///
-/// For every edge `(source, target)` at level 0, verifies that the target
-/// node contains a reverse edge back to the source.
-fn assert_bidirectional_invariant(graph: &Graph) {
-    for (source, node) in graph.nodes_iter() {
-        for &target in node.neighbours(0) {
-            let target_node = graph.node(target).expect("target node must exist");
-            let has_reverse = target_node.neighbours(0).contains(&source);
-            kani::assert(
-                has_reverse,
-                "bidirectional invariant violated: missing reverse edge",
-            );
-        }
     }
 }

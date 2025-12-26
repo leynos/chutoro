@@ -22,6 +22,9 @@ use self::{
     layer_consistency::check_layer_consistency, reachability::check_reachability,
 };
 
+#[cfg(kani)]
+pub(crate) use self::helpers::is_bidirectional;
+
 /// Enumerates the structural invariants enforced by the CPU HNSW graph.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HnswInvariant {
