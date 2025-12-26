@@ -109,6 +109,10 @@ fn verify_bidirectional_links_3_nodes_1_layer() {
 fn populate_edges_nondeterministically(graph: &mut Graph) {
     const EDGES: [(usize, usize); 6] = [(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)];
 
+    // Explicit degree bound matching the HNSW M parameter (max_connections).
+    // This helps Kani's bounded model checker by constraining Vec growth.
+    const MAX_DEGREE: usize = 2;
+
     for (source, target) in EDGES {
         // Skip this edge if Kani decides not to include it
         if !kani::any::<bool>() {
@@ -121,6 +125,11 @@ fn populate_edges_nondeterministically(graph: &mut Graph) {
         };
 
         let neighbours = node.neighbours_mut(0);
+
+        // Skip if already at max degree (bounds state space for Kani)
+        if neighbours.len() >= MAX_DEGREE {
+            continue;
+        }
 
         // Only add if not already present
         if !neighbours.contains(&target) {
@@ -153,7 +162,9 @@ fn enforce_bidirectional_constraint(graph: &mut Graph) {
 /// Adds a reverse edge from `source` to `target` if it doesn't already exist.
 ///
 /// This helper abstracts the pattern of conditionally adding an edge,
-/// reducing nesting in the calling code.
+/// reducing nesting in the calling code. The degree bound is intentionally
+/// not enforced here since reciprocity enforcement may temporarily exceed
+/// the M parameter before trimming occurs in production code.
 fn add_reverse_edge_if_missing(graph: &mut Graph, source: usize, target: usize) {
     let Some(node) = graph.node_mut(source) else {
         return;
