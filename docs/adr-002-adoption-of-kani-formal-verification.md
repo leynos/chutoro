@@ -130,6 +130,38 @@ The first harness (`verify_bidirectional_links_3_nodes_1_layer`) demonstrates:
 - Separating edge population from constraint enforcement mirrors the actual
   HNSW insertion flow and makes the harness easier to understand.
 
+### 2025-12-27: Kani Setup and Reconciliation Harness
+
+- `cargo install kani-verifier` failed on Rust 1.87.0 because
+  `home@0.5.12` requires Rust 1.88. The installation succeeded with a pinned
+  compatible version:
+
+```bash
+cargo install kani-verifier --version 0.65.0 --locked
+```
+
+- Kani emits a warning about unsupported constructs (`caller_location`,
+  `foreign function`) during harness checks. These are only problematic if
+  reachable.
+
+- `cargo kani -p chutoro-core --default-unwind 10 --harness \
+  verify_bidirectional_links_3_nodes_1_layer` did not complete within
+  10 minutes in this environment. The run spent most time in CBMC's bounded
+  model checking with extensive unwinding logs.
+
+- A reconciliation-based harness has been added to exercise production logic:
+  `verify_bidirectional_links_reconciliation_3_nodes_1_layer` calls
+  `apply_reconciled_update_for_kani`, which runs
+  `EdgeReconciler::{reconcile_removed_edges,reconcile_added_edges}` and
+  `apply_deferred_scrubs` before asserting `is_bidirectional`. This replaces
+  the harness-local "fix-up" logic with the real insertion reconciliation
+  path.
+
+- The reconciliation harness run also timed out (5 minutes) and surfaced
+  additional warnings about Kani's sequential treatment of concurrency
+  primitives (thread locals and atomics). These warnings appear in the harness
+  output even though the harness itself is single-threaded.
+
 ## Next Steps
 
 1. **Validate harness**: Run `cargo kani` and verify successful completion
@@ -144,8 +176,18 @@ The first harness (`verify_bidirectional_links_3_nodes_1_layer`) demonstrates:
 4. **CI integration**: Add nightly Kani verification job to GitHub Actions
    once harness suite stabilizes
 
-5. **Documentation**: Record verification results, any discovered issues, and
+5. **Performance tuning**: Investigate CBMC timeouts, adjust bounds, and
+   consider smaller harnesses or reduced nondeterminism to keep Kani runs
+   practical.
+
+6. **Documentation**: Record verification results, any discovered issues, and
    update this ADR with findings
+
+## Change Control
+
+- 2025-12-27: Installed kani-verifier v0.65.0 (Rust 1.87 compatible), noted
+  timeout behaviour when running the 3-node harness, and added a
+  reconciliation-based harness that exercises production reciprocity logic.
 
 ## References
 

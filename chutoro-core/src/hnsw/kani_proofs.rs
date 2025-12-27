@@ -29,6 +29,7 @@
 use crate::hnsw::{
     graph::{Graph, NodeContext},
     invariants::is_bidirectional,
+    insert::apply_reconciled_update_for_kani,
     params::HnswParams,
 };
 
@@ -98,6 +99,75 @@ fn verify_bidirectional_links_3_nodes_1_layer() {
     kani::assert(
         is_bidirectional(&graph),
         "bidirectional invariant violated: missing reverse edge",
+    );
+}
+
+/// Verifies that reconciliation preserves bidirectional links.
+///
+/// This harness exercises the production reconciliation path used during
+/// insertion commit. It starts from a bidirectional baseline graph, applies a
+/// nondeterministic update to a single node, and then invokes the real
+/// reconciliation logic to enforce reciprocity.
+///
+/// # Verification Bounds
+///
+/// - **Nodes**: 3 (IDs 0, 1, 2)
+/// - **Layers**: 1 (base layer only, level 0)
+/// - **Updates**: Nondeterministic neighbour list for node 0
+#[kani::proof]
+#[kani::unwind(10)]
+fn verify_bidirectional_links_reconciliation_3_nodes_1_layer() {
+    let params = HnswParams::new(2, 2).expect("params must be valid");
+    let max_connections = params.max_connections();
+    let mut graph = Graph::with_capacity(params, 3);
+
+    graph
+        .insert_first(NodeContext {
+            node: 0,
+            level: 0,
+            sequence: 0,
+        })
+        .expect("insert node 0");
+    graph
+        .attach_node(NodeContext {
+            node: 1,
+            level: 0,
+            sequence: 1,
+        })
+        .expect("attach node 1");
+    graph
+        .attach_node(NodeContext {
+            node: 2,
+            level: 0,
+            sequence: 2,
+        })
+        .expect("attach node 2");
+
+    // Seed a bidirectional baseline graph.
+    if kani::any::<bool>() {
+        add_bidirectional_edge(&mut graph, 0, 1, 0);
+    }
+    if kani::any::<bool>() {
+        add_bidirectional_edge(&mut graph, 0, 2, 0);
+    }
+    if kani::any::<bool>() {
+        add_bidirectional_edge(&mut graph, 1, 2, 0);
+    }
+
+    // Proposed trimmed neighbours for node 0 (may add or remove edges).
+    let mut next: Vec<usize> = Vec::new();
+    if kani::any::<bool>() {
+        push_if_absent(&mut next, 1);
+    }
+    if kani::any::<bool>() {
+        push_if_absent(&mut next, 2);
+    }
+
+    apply_reconciled_update_for_kani(&mut graph, 0, 0, max_connections, &mut next);
+
+    kani::assert(
+        is_bidirectional(&graph),
+        "bidirectional invariant violated after reconciliation",
     );
 }
 
@@ -173,5 +243,26 @@ fn add_reverse_edge_if_missing(graph: &mut Graph, source: usize, target: usize) 
     let neighbours = node.neighbours_mut(0);
     if !neighbours.contains(&target) {
         neighbours.push(target);
+    }
+}
+
+fn add_bidirectional_edge(graph: &mut Graph, origin: usize, target: usize, level: usize) {
+    add_edge_if_missing(graph, origin, target, level);
+    add_edge_if_missing(graph, target, origin, level);
+}
+
+fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usize, level: usize) {
+    let Some(node) = graph.node_mut(origin) else {
+        return;
+    };
+    let neighbours = node.neighbours_mut(level);
+    if !neighbours.contains(&target) {
+        neighbours.push(target);
+    }
+}
+
+fn push_if_absent(list: &mut Vec<usize>, value: usize) {
+    if !list.contains(&value) {
+        list.push(value);
     }
 }

@@ -82,3 +82,60 @@ pub(super) fn extract_candidate_edges(
         })
         .collect()
 }
+
+/// Applies reconciliation logic to a single update for Kani harnesses.
+///
+/// This helper mirrors the production commit flow (removed-edge reconciliation,
+/// added-edge reconciliation, list write-back, and deferred scrubs) while
+/// keeping the setup compact for bounded verification.
+///
+/// # Examples
+/// ```rust,ignore
+/// use crate::hnsw::{
+///     graph::{Graph, NodeContext},
+///     insert::apply_reconciled_update_for_kani,
+///     params::HnswParams,
+/// };
+///
+/// let params = HnswParams::new(2, 2).expect("params must be valid");
+/// let mut graph = Graph::with_capacity(params, 2);
+/// graph
+///     .insert_first(NodeContext { node: 0, level: 0, sequence: 0 })
+///     .expect("insert node 0");
+/// graph
+///     .attach_node(NodeContext { node: 1, level: 0, sequence: 1 })
+///     .expect("attach node 1");
+/// let mut next = vec![1];
+/// apply_reconciled_update_for_kani(&mut graph, 0, 0, 2, &mut next);
+/// ```
+#[cfg(kani)]
+pub(crate) fn apply_reconciled_update_for_kani(
+    graph: &mut crate::hnsw::graph::Graph,
+    origin: usize,
+    level: usize,
+    max_connections: usize,
+    next: &mut Vec<usize>,
+) {
+    let previous = graph
+        .node(origin)
+        .map(|node| node.neighbours(level).to_vec())
+        .unwrap_or_default();
+
+    let ctx = types::UpdateContext {
+        origin,
+        level,
+        max_connections,
+    };
+    let mut reconciler = reconciliation::EdgeReconciler::new(graph);
+    let next_snapshot = next.clone();
+    reconciler.reconcile_removed_edges(&ctx, &previous, &next_snapshot);
+    reconciler.reconcile_added_edges(&ctx, next);
+
+    if let Some(node_ref) = reconciler.graph_mut().node_mut(origin) {
+        let list = node_ref.neighbours_mut(level);
+        list.clear();
+        list.extend(next.iter().copied());
+    }
+
+    reconciler.apply_deferred_scrubs(max_connections);
+}
