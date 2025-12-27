@@ -101,7 +101,7 @@ ______________________________________________________________________
         the post-pass scan once correctness is validated.
 - [x] Add HNSW insertion idempotency property: repeated duplicate insertions
   leave graph state unchanged. (See property-testing-design §2.3.3)
-- [ ] Implement composite graph strategies (random, scale-free, lattice,
+- [x] Implement composite graph strategies (random, scale-free, lattice,
   disconnected) for candidate edge harvest testing. (See
   property-testing-design §3.1)
 - [ ] Add candidate edge harvest property suite covering determinism, degree
