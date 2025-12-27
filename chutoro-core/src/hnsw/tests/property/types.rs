@@ -6,7 +6,7 @@
 use test_strategy::Arbitrary;
 
 use crate::{
-    DataSourceError,
+    CandidateEdge, DataSourceError,
     hnsw::{HnswError, HnswParams},
 };
 
@@ -202,4 +202,85 @@ impl EdgeHarvestPlan {
     pub fn rebuild_attempts(&self) -> usize {
         self.rebuild_attempts
     }
+}
+
+// ============================================================================
+// Graph Topology Types for Edge Harvest Testing
+// ============================================================================
+
+/// Kind of graph topology produced by graph generators for edge harvest testing.
+///
+/// These are graph structures (edge sets) as opposed to vector distributions.
+/// Used for testing the candidate edge harvest algorithm with various graph
+/// topologies.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Arbitrary)]
+pub(super) enum GraphTopology {
+    /// Erdos-Renyi random graph with uniform edge probability.
+    #[weight(3)]
+    Random,
+    /// Scale-free graph with power-law degree distribution (Barabasi-Albert model).
+    #[weight(2)]
+    ScaleFree,
+    /// Grid/lattice graph with uniform local connectivity.
+    #[weight(2)]
+    Lattice,
+    /// Graph with multiple disconnected components.
+    #[weight(2)]
+    Disconnected,
+}
+
+/// Metadata describing how a graph topology was synthesised.
+#[derive(Clone, Debug)]
+#[allow(dead_code, reason = "fields used for debugging and future validation")]
+pub(super) enum GraphMetadata {
+    /// Erdos-Renyi random graph.
+    Random {
+        /// Number of nodes in the graph.
+        node_count: usize,
+        /// Edge probability used during generation.
+        edge_probability: f64,
+    },
+    /// Scale-free graph using Barabasi-Albert preferential attachment.
+    ScaleFree {
+        /// Number of nodes in the graph.
+        node_count: usize,
+        /// Number of edges to attach from each new node.
+        edges_per_new_node: usize,
+        /// Exponent of the power-law distribution.
+        exponent: f64,
+    },
+    /// Grid/lattice structure.
+    Lattice {
+        /// Grid dimensions (rows, columns).
+        dimensions: (usize, usize),
+        /// Whether diagonal edges are included.
+        with_diagonals: bool,
+    },
+    /// Disconnected components.
+    Disconnected {
+        /// Number of components.
+        component_count: usize,
+        /// Sizes of each component.
+        component_sizes: Vec<usize>,
+    },
+}
+
+/// Generated graph with edges and metadata for property testing.
+#[derive(Clone, Debug)]
+pub(super) struct GeneratedGraph {
+    /// Number of nodes in the graph.
+    pub node_count: usize,
+    /// Generated edges as `CandidateEdge` instances.
+    pub edges: Vec<CandidateEdge>,
+    /// Metadata describing the generation parameters.
+    pub metadata: GraphMetadata,
+}
+
+/// Test fixture bundling graph topology with generated graph structure.
+#[derive(Clone, Debug)]
+pub(super) struct GraphFixture {
+    /// Graph topology type.
+    pub topology: GraphTopology,
+    /// Generated graph structure.
+    pub graph: GeneratedGraph,
 }

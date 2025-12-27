@@ -129,13 +129,20 @@ fn run_idempotency_proptest(config: Config) -> TestCaseResult {
 }
 
 use super::{
+    graph_topology_tests::{
+        run_graph_metadata_consistency_property, run_graph_mst_compatibility_property,
+        run_graph_validity_property,
+    },
     idempotency_property::run_idempotency_property,
     mutation_property::derive_initial_population,
     mutation_property::run_mutation_property,
     search_property::run_search_correctness_property,
-    strategies::{hnsw_fixture_strategy, idempotency_plan_strategy, mutation_plan_strategy},
+    strategies::{
+        graph_fixture_strategy, hnsw_fixture_strategy, idempotency_plan_strategy,
+        mutation_plan_strategy,
+    },
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
-    types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
+    types::{DistributionMetadata, GraphTopology, HnswParamsSeed, VectorDistribution},
 };
 use crate::error::DataSourceError;
 use crate::hnsw::HnswError;
@@ -371,4 +378,44 @@ mod fixtures {
 
 fn bootstrap_uniform_vectors() -> Vec<Vec<f32>> {
     fixtures::load_bootstrap_uniform_vectors_from_fixture()
+}
+
+// ============================================================================
+// Graph Topology Property Tests
+// ============================================================================
+
+proptest! {
+    #[test]
+    fn generated_graphs_are_valid(fixture in graph_fixture_strategy()) {
+        run_graph_validity_property(&fixture)?;
+    }
+
+    #[test]
+    fn graph_metadata_is_consistent(fixture in graph_fixture_strategy()) {
+        run_graph_metadata_consistency_property(&fixture)?;
+    }
+
+    #[test]
+    fn graphs_are_mst_compatible(fixture in graph_fixture_strategy()) {
+        run_graph_mst_compatibility_property(&fixture)?;
+    }
+
+    #[test]
+    fn graph_topology_matches_metadata_type(fixture in graph_fixture_strategy()) {
+        use super::types::GraphMetadata;
+        match (&fixture.topology, &fixture.graph.metadata) {
+            (GraphTopology::Random, GraphMetadata::Random { .. }) => {}
+            (GraphTopology::ScaleFree, GraphMetadata::ScaleFree { .. }) => {}
+            (GraphTopology::Lattice, GraphMetadata::Lattice { .. }) => {}
+            (GraphTopology::Disconnected, GraphMetadata::Disconnected { .. }) => {}
+            (topology, metadata) => {
+                prop_assert!(
+                    false,
+                    "topology {:?} mismatched metadata {:?}",
+                    topology,
+                    metadata,
+                );
+            }
+        }
+    }
 }
