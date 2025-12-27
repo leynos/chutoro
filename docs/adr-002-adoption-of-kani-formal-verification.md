@@ -39,16 +39,15 @@ with the bidirectional links invariant on bounded graph configurations.
    interference with normal builds or test execution
 
 2. **Module Location**: Harnesses reside in
-   `chutoro-core/src/hnsw/kani_proofs.rs`,
-   enabling access to internal types via `pub(crate)` visibility without
-   exposing them publicly
+   `chutoro-core/src/hnsw/kani_proofs.rs`, enabling access to internal types
+   via `pub(crate)` visibility without exposing them publicly
 
-3. **Bounded Verification**: Initial harness targets 3 nodes, 1 layer - small
-   enough for tractable verification (64 edge configurations), yet large enough
-   to expose non-trivial edge patterns
+3. **Bounded Verification**: Two tiers are maintained: a practical 2-node
+   smoke/reconciliation harness for quick feedback, and a 3-node exhaustive
+   harness for broader coverage (run via `make kani-full`)
 
-4. **Makefile Integration**: `make kani` target provides developer-friendly
-   invocation without requiring knowledge of Kani command-line options
+4. **Makefile Integration**: `make kani` runs the practical harnesses, while
+   `make kani-full` runs the full suite
 
 ### Complementary Testing Strategy
 
@@ -72,8 +71,9 @@ explores larger state spaces.
 
 ### Positive
 
-- **Formal proofs**: The bidirectional invariant is verified for *all* 64
-  possible edge configurations of a 3-node graph, not just sampled ones
+- **Formal proofs (bounded)**: The 3-node harness is intended to verify all 64
+  possible edge configurations, but it still times out in this environment (see
+  Findings)
 - **Bug discovery**: Exhaustive exploration may find edge cases missed by
   random sampling, particularly subtle interactions between edge operations
 - **Executable specification**: Kani harnesses serve as machine-verified
@@ -132,35 +132,30 @@ The first harness (`verify_bidirectional_links_3_nodes_1_layer`) demonstrates:
 
 ### 2025-12-27: Kani Setup and Reconciliation Harness
 
-- `cargo install kani-verifier` failed on Rust 1.87.0 because
-  `home@0.5.12` requires Rust 1.88. The installation succeeded with a pinned
-  compatible version:
+- `cargo install --locked kani-verifier` now succeeds on Rust 1.88.0 and
+  installs Kani v0.66.0 (which downloads `nightly-2025-11-05` for verification
+  runs).
 
-```bash
-cargo install kani-verifier --version 0.65.0 --locked
-```
+- Kani emits warnings about unsupported constructs (`caller_location`,
+  `foreign function`) and about treating concurrency primitives (atomics,
+  thread-locals) as sequential. These are only problematic if the relevant code
+  is reachable by the harness.
 
-- Kani emits a warning about unsupported constructs (`caller_location`,
-  `foreign function`) during harness checks. These are only problematic if
-  reachable.
+- `make kani` now runs the smoke harness and the 2-node reconciliation harness.
+  In this environment the smoke harness completes in ~96 seconds and the 2-node
+  reconciliation harness completes in ~14 seconds (total ~2m 14s, excluding
+  compilation).
 
-- `cargo kani -p chutoro-core --default-unwind 10 --harness \
-  verify_bidirectional_links_3_nodes_1_layer` did not complete within
-  10 minutes in this environment. The run spent most time in CBMC's bounded
-  model checking with extensive unwinding logs.
+- The 3-node exhaustive harness still does not complete within 10 minutes
+  (`cargo kani -p chutoro-core --default-unwind 10 --harness \
+  verify_bidirectional_links_3_nodes_1_layer
+  `), so the 64-configuration proof remains aspirational for now.
 
-- A reconciliation-based harness has been added to exercise production logic:
-  `verify_bidirectional_links_reconciliation_3_nodes_1_layer` calls
-  `apply_reconciled_update_for_kani`, which runs
-  `EdgeReconciler::{reconcile_removed_edges,reconcile_added_edges}` and
-  `apply_deferred_scrubs` before asserting `is_bidirectional`. This replaces
-  the harness-local "fix-up" logic with the real insertion reconciliation
-  path.
-
-- The reconciliation harness run also timed out (5 minutes) and surfaced
-  additional warnings about Kani's sequential treatment of concurrency
-  primitives (thread locals and atomics). These warnings appear in the harness
-  output even though the harness itself is single-threaded.
+- The reconciliation coverage is split into a practical 2-node harness that
+  calls `ensure_reverse_edge_for_kani` (wrapping
+  `EdgeReconciler::ensure_reverse_edge`) and a heavier 3-node harness that
+  calls `apply_reconciled_update_for_kani` (which exercises removed-edge
+  reconciliation, added-edge reconciliation, and deferred scrubs).
 
 ## Next Steps
 
@@ -185,9 +180,9 @@ cargo install kani-verifier --version 0.65.0 --locked
 
 ## Change Control
 
-- 2025-12-27: Installed kani-verifier v0.65.0 (Rust 1.87 compatible), noted
-  timeout behaviour when running the 3-node harness, and added a
-  reconciliation-based harness that exercises production reciprocity logic.
+- 2025-12-27: Installed kani-verifier v0.66.0 (Rust 1.88), added practical
+  smoke + 2-node reconciliation harnesses, introduced `kani-full` for the
+  heavier 3-node runs, and updated findings with current timings/timeouts.
 
 ## References
 

@@ -12,10 +12,16 @@
 //! cargo kani -p chutoro-core --harness verify_bidirectional_links_3_nodes_1_layer
 //! ```
 //!
-//! Or via the Makefile:
+//! Or via the Makefile (practical harnesses):
 //!
 //! ```bash
 //! make kani
+//! ```
+//!
+//! Run the full suite (includes heavier 3-node harnesses):
+//!
+//! ```bash
+//! make kani-full
 //! ```
 //!
 //! # Relationship to Property Testing
@@ -28,10 +34,43 @@
 
 use crate::hnsw::{
     graph::{Graph, NodeContext},
+    insert::{apply_reconciled_update_for_kani, ensure_reverse_edge_for_kani},
     invariants::is_bidirectional,
-    insert::apply_reconciled_update_for_kani,
     params::HnswParams,
 };
+
+/// Smoke-checks that a tiny symmetric graph satisfies the invariant.
+///
+/// This harness is deterministic and intended to validate the Kani
+/// toolchain wiring with minimal solver work.
+#[kani::proof]
+#[kani::unwind(4)]
+fn verify_bidirectional_links_smoke_2_nodes_1_layer() {
+    let params = HnswParams::new(1, 1).expect("params must be valid");
+    let mut graph = Graph::with_capacity(params, 2);
+
+    graph
+        .insert_first(NodeContext {
+            node: 0,
+            level: 0,
+            sequence: 0,
+        })
+        .expect("insert node 0");
+    graph
+        .attach_node(NodeContext {
+            node: 1,
+            level: 0,
+            sequence: 1,
+        })
+        .expect("attach node 1");
+
+    add_bidirectional_edge(&mut graph, 0, 1, 0);
+
+    kani::assert(
+        is_bidirectional(&graph),
+        "bidirectional invariant violated in smoke harness",
+    );
+}
 
 /// Verifies that HNSW graph edges are bidirectional (symmetric).
 ///
@@ -105,15 +144,56 @@ fn verify_bidirectional_links_3_nodes_1_layer() {
 /// Verifies that reconciliation preserves bidirectional links.
 ///
 /// This harness exercises the production reconciliation path used during
-/// insertion commit. It starts from a bidirectional baseline graph, applies a
-/// nondeterministic update to a single node, and then invokes the real
-/// reconciliation logic to enforce reciprocity.
+/// insertion commit. It applies a nondeterministic forward edge and then
+/// invokes `EdgeReconciler::ensure_reverse_edge` via
+/// `ensure_reverse_edge_for_kani` to enforce reciprocity.
 ///
 /// # Verification Bounds
 ///
-/// - **Nodes**: 3 (IDs 0, 1, 2)
+/// - **Nodes**: 2 (IDs 0, 1)
 /// - **Layers**: 1 (base layer only, level 0)
 /// - **Updates**: Nondeterministic neighbour list for node 0
+#[kani::proof]
+#[kani::unwind(4)]
+fn verify_bidirectional_links_reconciliation_2_nodes_1_layer() {
+    let params = HnswParams::new(1, 1).expect("params must be valid");
+    let max_connections = params.max_connections();
+    let mut graph = Graph::with_capacity(params, 2);
+
+    graph
+        .insert_first(NodeContext {
+            node: 0,
+            level: 0,
+            sequence: 0,
+        })
+        .expect("insert node 0");
+    graph
+        .attach_node(NodeContext {
+            node: 1,
+            level: 0,
+            sequence: 1,
+        })
+        .expect("attach node 1");
+    let should_link = kani::any::<bool>();
+    if should_link {
+        add_edge_if_missing(&mut graph, 0, 1, 0);
+        let added = ensure_reverse_edge_for_kani(&mut graph, 0, 1, 0, max_connections);
+        kani::assert(added, "expected reverse edge to be inserted");
+    }
+
+    let origin_has_target = graph.node(0).expect("node 0").neighbours(0).contains(&1);
+    let target_has_origin = graph.node(1).expect("node 1").neighbours(0).contains(&0);
+
+    kani::assert(
+        origin_has_target == target_has_origin,
+        "bidirectional invariant violated after reconciliation",
+    );
+}
+
+/// Verifies reconciliation on a 3-node graph (heavier, but broader coverage).
+///
+/// This harness is intentionally more expensive and is intended for
+/// `make kani-full` runs rather than the default `make kani`.
 #[kani::proof]
 #[kani::unwind(10)]
 fn verify_bidirectional_links_reconciliation_3_nodes_1_layer() {

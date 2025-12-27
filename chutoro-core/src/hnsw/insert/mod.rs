@@ -139,3 +139,45 @@ pub(crate) fn apply_reconciled_update_for_kani(
 
     reconciler.apply_deferred_scrubs(max_connections);
 }
+
+/// Ensures a reverse edge using the production reconciler for Kani harnesses.
+///
+/// This helper calls the same reconciliation code used during insertion
+/// commit to ensure a reverse edge exists for a single `(origin, target,
+/// level)` tuple.
+///
+/// # Examples
+/// ```rust,ignore
+/// use crate::hnsw::{
+///     graph::{Graph, NodeContext},
+///     insert::ensure_reverse_edge_for_kani,
+///     params::HnswParams,
+/// };
+///
+/// let params = HnswParams::new(1, 1).expect("params must be valid");
+/// let mut graph = Graph::with_capacity(params, 2);
+/// graph
+///     .insert_first(NodeContext { node: 0, level: 0, sequence: 0 })
+///     .expect("insert node 0");
+/// graph
+///     .attach_node(NodeContext { node: 1, level: 0, sequence: 1 })
+///     .expect("attach node 1");
+/// let added = ensure_reverse_edge_for_kani(&mut graph, 0, 1, 0, 1);
+/// assert!(added);
+/// ```
+#[cfg(kani)]
+pub(crate) fn ensure_reverse_edge_for_kani(
+    graph: &mut crate::hnsw::graph::Graph,
+    origin: usize,
+    target: usize,
+    level: usize,
+    max_connections: usize,
+) -> bool {
+    let ctx = types::UpdateContext {
+        origin,
+        level,
+        max_connections,
+    };
+    let mut reconciler = reconciliation::EdgeReconciler::new(graph);
+    reconciler.ensure_reverse_edge(&ctx, target)
+}
