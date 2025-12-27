@@ -1,4 +1,4 @@
-.PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie kani
+.PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie kani kani-full
 
 APP ?= chutoro-cli
 CARGO ?= cargo
@@ -39,7 +39,11 @@ markdownlint: ## Lint Markdown files
 nixie: ## Validate Mermaid diagrams
 	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 $(NIXIE)
 
-kani: ## Run Kani formal verification harnesses
+kani: ## Run Kani practical harnesses (smoke + 2-node reconciliation)
+	$(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_smoke_2_nodes_1_layer
+	$(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_reconciliation_2_nodes_1_layer
+
+kani-full: ## Run all Kani formal verification harnesses
 	$(CARGO) kani -p chutoro-core --default-unwind 10
 
 help: ## Show available targets

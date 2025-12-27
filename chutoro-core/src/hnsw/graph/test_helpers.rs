@@ -351,15 +351,13 @@ mod tests {
         let second_delete = graph.delete_node(0);
         assert!(
             matches!(second_delete, Ok(false)),
-            "expected Ok(false) when deleting a missing node, got {:?}",
-            second_delete
+            "expected Ok(false) when deleting a missing node, got {second_delete:?}"
         );
 
         let third_delete = graph.delete_node(0);
         assert!(
             matches!(third_delete, Ok(false)),
-            "expected Ok(false) on repeated deletes of a missing node, got {:?}",
-            third_delete
+            "expected Ok(false) on repeated deletes of a missing node, got {third_delete:?}"
         );
     }
 
@@ -372,10 +370,7 @@ mod tests {
 
         match result {
             Err(HnswError::InvalidParameters { .. }) => {}
-            other => panic!(
-                "expected Err(HnswError::InvalidParameters {{ .. }}), got {:?}",
-                other
-            ),
+            other => panic!("expected Err(HnswError::InvalidParameters {{ .. }}), got {other:?}"),
         }
     }
 
