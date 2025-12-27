@@ -68,3 +68,31 @@ impl<'a> LayerValidator<'a> {
         self.capacity
     }
 }
+
+/// Checks if all edges in the graph are bidirectional.
+///
+/// Returns `true` if the invariant holds (every edge has a reverse edge at
+/// the same layer), `false` otherwise. This simplified predicate is suitable
+/// for use in Kani harnesses where a boolean result is preferred over
+/// detailed violation reporting.
+///
+/// This function mirrors the logic in [`super::bidirectional::check_bidirectional`]
+/// but returns a simple boolean rather than recording violations, ensuring
+/// the Kani harness uses the same invariant definition as production code.
+#[cfg(kani)]
+pub(crate) fn is_bidirectional(graph: &Graph) -> bool {
+    for (source, node) in graph.nodes_iter() {
+        for (level, target) in node.iter_neighbours() {
+            let Some(target_node) = graph.node(target) else {
+                return false;
+            };
+            if target_node.level_count() <= level {
+                return false;
+            }
+            if !target_node.neighbours(level).contains(&source) {
+                return false;
+            }
+        }
+    }
+    true
+}
