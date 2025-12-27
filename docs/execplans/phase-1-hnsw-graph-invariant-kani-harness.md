@@ -131,7 +131,7 @@ cargo kani -p chutoro-core --harness verify_bidirectional_links_3_nodes_1_layer
 2. **Additional invariants**: Add harnesses for degree bounds, layer
    consistency, and reachability
 3. **CI integration**: Add nightly Kani verification job to GitHub Actions
-4. **Performance**: Optimise harness for faster verification cycles
+4. **Performance**: Optimize harness for faster verification cycles
 5. **Documentation**: Record verification results and discovered issues
 
 ## References

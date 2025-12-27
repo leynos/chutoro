@@ -142,7 +142,7 @@ The first harness (`verify_bidirectional_links_3_nodes_1_layer`) demonstrates:
    more complex interaction patterns
 
 4. **CI integration**: Add nightly Kani verification job to GitHub Actions
-   once harness suite stabilises
+   once harness suite stabilizes
 
 5. **Documentation**: Record verification results, any discovered issues, and
    update this ADR with findings
