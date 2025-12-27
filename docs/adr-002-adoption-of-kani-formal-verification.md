@@ -156,33 +156,86 @@ The first harness (`verify_bidirectional_links_3_nodes_1_layer`) demonstrates:
   `EdgeReconciler::ensure_reverse_edge`) and a heavier 3-node harness that
   calls `apply_reconciled_update_for_kani` (which exercises removed-edge
   reconciliation, added-edge reconciliation, and deferred scrubs).
+- A targeted mutation test that skips inserting the reverse edge causes the
+  2-node reconciliation harness to fail with "bidirectional invariant violated
+  after reconciliation", confirming that the harness is sensitive to
+  reciprocity defects.
+
+### Audit Recommendations (Bidirectionality Verification)
+
+- Replace the 3-node bidirectionality harness that calls
+  `enforce_bidirectional_constraint` with a harness that drives production
+  commit paths (for example, `CommitApplicator::apply_neighbour_updates` or
+  `EdgeReconciler::reconcile_*`). The current 3-node harness inserts reverse
+  edges itself, so it cannot detect missing reciprocity in production code.
+- Add a focused eviction/deferred-scrub scenario: pre-fill a target neighbour
+  list to its `max_connections`, force `ensure_reverse_edge` to evict, and then
+  assert reciprocity after `apply_deferred_scrubs`. This exercises the
+  correctness of eviction plus scrub logic directly.
+- Add explicit `kani::assume` guards that mirror production preconditions
+  (in-range node ids, deduped neighbour lists) to reduce state explosion while
+  still covering legitimate inputs. Document these assumptions in the harness
+  docs so they are not mistaken for proof obligations.
+- Keep `make kani` as the practical local gate and reserve `make kani-full` for
+  a nightly "slow" CI run once it is stable; do not add Kani to normal test
+  runs.
+
+### Verification Targets (Next Invariants)
+
+The following invariants are explicitly defined to avoid ambiguity, and are
+intended as future formal verification targets:
+
+1. **No self-loops**: For every node `u` and layer `l`, `u` is not in
+   `N_l(u)`.
+2. **Neighbour list uniqueness**: For every node `u` and layer `l`, the list
+   `N_l(u)` contains no duplicates (set semantics).
+3. **Entry-point validity and maximality**: If the graph contains at least one
+   node, the entry point is set to an existing node, and its level equals the
+   maximum level present in the graph (for all nodes `v`,
+   `level(entry) >= level(v)`).
+4. **MST structural correctness (CPU/GPU)**: For any connected candidate graph
+   on `n` nodes, the MST output has exactly `n-1` edges, is acyclic, and
+   connects all nodes. For disconnected graphs with `c` components, the output
+   is a forest with `n-c` edges.
+5. **Distance kernel consistency (CPU/GPU)**: For any metric distance
+   implementation, distances are symmetric and zero on identical inputs, and
+   CPU and GPU implementations agree within a defined tolerance `epsilon` for
+   the same inputs.
 
 ## Next Steps
 
 1. **Validate harness**: Run `cargo kani` and verify successful completion
-   without counterexamples
+   without counterexamples.
 
-2. **Expand coverage**: Add harnesses for degree bounds and layer consistency
-   invariants following the established pattern
+2. **Commit-path harnesses**: Replace the 3-node bidirectionality harness with
+   a commit-path harness that drives reconciliation and deferred scrubs, and
+   add an eviction-focused scenario.
 
-3. **Increase bounds**: Test 4-node and 2-layer configurations to explore
-   more complex interaction patterns
+3. **Expand invariants**: Add harnesses for the explicit targets listed above,
+   including no-self-loops, neighbour uniqueness, entry-point maximality, MST
+   structural correctness, and distance kernel consistency.
 
-4. **CI integration**: Add nightly Kani verification job to GitHub Actions
-   once harness suite stabilizes
+4. **Increase bounds**: Test 4-node and 2-layer configurations to explore more
+   complex interaction patterns once the commit-path harnesses are stable.
 
-5. **Performance tuning**: Investigate CBMC timeouts, adjust bounds, and
+5. **CI integration**: Add a nightly "slow" Kani verification job that runs
+   `make kani-full` only when main has new commits that day.
+
+6. **Performance tuning**: Investigate CBMC timeouts, adjust bounds, and
    consider smaller harnesses or reduced nondeterminism to keep Kani runs
    practical.
 
-6. **Documentation**: Record verification results, any discovered issues, and
-   update this ADR with findings
+7. **Documentation**: Record verification results, any discovered issues, and
+   update this ADR with findings.
 
 ## Change Control
 
 - 2025-12-27: Installed kani-verifier v0.66.0 (Rust 1.88), added practical
   smoke + 2-node reconciliation harnesses, introduced `kani-full` for the
   heavier 3-node runs, and updated findings with current timings/timeouts.
+- 2025-12-27: Recorded audit recommendations, added explicit verification
+  targets (five additional invariants), and clarified the plan for a nightly
+  "slow" Kani CI job while keeping normal test runs unchanged.
 
 ## References
 

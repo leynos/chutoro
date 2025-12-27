@@ -101,6 +101,33 @@ ______________________________________________________________________
         the post-pass scan once correctness is validated.
 - [x] Add HNSW insertion idempotency property: repeated duplicate insertions
   leave graph state unchanged. (See property-testing-design §2.3.3)
+- [ ] Formal verification (Kani) expansion for HNSW and pipeline invariants:
+  - [ ] Replace the 3-node bidirectionality harness with a commit-path harness
+    that drives reconciliation and deferred scrubs via
+    `CommitApplicator::apply_neighbour_updates`.
+  - [ ] Add an eviction/deferred-scrub scenario: pre-fill a target neighbour
+    list to `max_connections`, force `ensure_reverse_edge` to evict, and assert
+    reciprocity after `apply_deferred_scrubs`.
+  - [ ] Add bounded Kani harnesses for the following explicit invariants:
+    - **No self-loops**: For every node `u` and layer `l`, `u` is not in
+      `N_l(u)`.
+    - **Neighbour list uniqueness**: For every node `u` and layer `l`, the list
+      `N_l(u)` contains no duplicates (set semantics).
+    - **Entry-point validity and maximality**: If the graph contains at least
+      one node, the entry point is set to an existing node, and its level equals
+      the maximum level present in the graph (for all nodes `v`,
+      `level(entry) >= level(v)`).
+    - **MST structural correctness (CPU/GPU)**: For any connected candidate
+      graph on `n` nodes, the MST output has exactly `n-1` edges, is acyclic,
+      and connects all nodes. For disconnected graphs with `c` components, the
+      output is a forest with `n-c` edges.
+    - **Distance kernel consistency (CPU/GPU)**: For any metric distance
+      implementation, distances are symmetric and zero on identical inputs, and
+      CPU and GPU implementations agree within a defined tolerance `epsilon`
+      for the same inputs.
+- [ ] Add a nightly "slow" CI job that runs `make kani-full` only when main has
+  new commits that day; keep `make test` unchanged so Kani remains opt-in for
+  normal development loops.
 - [ ] Implement composite graph strategies (random, scale-free, lattice,
   disconnected) for candidate edge harvest testing. (See
   property-testing-design §3.1)
