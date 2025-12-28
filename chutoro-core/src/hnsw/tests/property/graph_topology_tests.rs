@@ -18,6 +18,47 @@ use crate::{EdgeHarvest, parallel_kruskal};
 
 use super::types::{GraphFixture, GraphMetadata, GraphTopology};
 
+/// Validates that a node index is within the valid range.
+///
+/// Returns an error if the node index is greater than or equal to `node_count`.
+fn validate_node_in_bounds(
+    node: usize,
+    node_count: usize,
+    node_type: &str,
+    edge_idx: usize,
+) -> TestCaseResult {
+    if node >= node_count {
+        return Err(TestCaseError::fail(format!(
+            "edge {edge_idx}: {node_type} {node} out of bounds (node_count = {node_count})"
+        )));
+    }
+    Ok(())
+}
+
+/// Validates that an edge is not a self-loop.
+///
+/// Returns an error if source equals target.
+fn validate_no_self_edge(source: usize, target: usize, edge_idx: usize) -> TestCaseResult {
+    if source == target {
+        return Err(TestCaseError::fail(format!(
+            "edge {edge_idx}: self-edge ({source} -> {target})"
+        )));
+    }
+    Ok(())
+}
+
+/// Validates that a distance value is finite and positive.
+///
+/// Returns an error if the distance is not finite or is less than or equal to zero.
+fn validate_distance(distance: f32, edge_idx: usize) -> TestCaseResult {
+    if !distance.is_finite() || distance <= 0.0 {
+        return Err(TestCaseError::fail(format!(
+            "edge {edge_idx}: invalid distance {distance}"
+        )));
+    }
+    Ok(())
+}
+
 /// Verifies all edges reference valid nodes and have valid properties.
 ///
 /// Checks:
@@ -28,42 +69,69 @@ pub(super) fn run_graph_validity_property(fixture: &GraphFixture) -> TestCaseRes
     let graph = &fixture.graph;
 
     for (i, edge) in graph.edges.iter().enumerate() {
-        // Valid source reference.
-        if edge.source() >= graph.node_count {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: source {} out of bounds (node_count = {})",
-                edge.source(),
-                graph.node_count
-            )));
-        }
-
-        // Valid target reference.
-        if edge.target() >= graph.node_count {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: target {} out of bounds (node_count = {})",
-                edge.target(),
-                graph.node_count
-            )));
-        }
-
-        // No self-edges.
-        if edge.source() == edge.target() {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: self-edge ({} -> {})",
-                edge.source(),
-                edge.target()
-            )));
-        }
-
-        // Finite positive distance.
-        if !edge.distance().is_finite() || edge.distance() <= 0.0 {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: invalid distance {}",
-                edge.distance()
-            )));
-        }
+        validate_node_in_bounds(edge.source(), graph.node_count, "source", i)?;
+        validate_node_in_bounds(edge.target(), graph.node_count, "target", i)?;
+        validate_no_self_edge(edge.source(), edge.target(), i)?;
+        validate_distance(edge.distance(), i)?;
     }
 
+    Ok(())
+}
+
+/// Validates random graph metadata consistency.
+///
+/// Checks that the metadata node count matches the actual graph node count.
+fn validate_random_metadata(node_count: usize, graph_node_count: usize) -> TestCaseResult {
+    if node_count != graph_node_count {
+        return Err(TestCaseError::fail(format!(
+            "random: node_count mismatch (metadata={node_count}, graph={graph_node_count})"
+        )));
+    }
+    Ok(())
+}
+
+/// Validates scale-free graph metadata consistency.
+///
+/// Checks that the metadata node count matches the actual graph node count.
+fn validate_scale_free_metadata(node_count: usize, graph_node_count: usize) -> TestCaseResult {
+    if node_count != graph_node_count {
+        return Err(TestCaseError::fail(format!(
+            "scale-free: node_count mismatch (metadata={node_count}, graph={graph_node_count})"
+        )));
+    }
+    Ok(())
+}
+
+/// Validates lattice graph metadata consistency.
+///
+/// Checks that the product of dimensions equals the actual graph node count.
+fn validate_lattice_metadata(
+    dimensions: (usize, usize),
+    graph_node_count: usize,
+) -> TestCaseResult {
+    let product = dimensions.0 * dimensions.1;
+    if product != graph_node_count {
+        return Err(TestCaseError::fail(format!(
+            "lattice: dimensions mismatch ({}x{}={product}, graph={graph_node_count})",
+            dimensions.0, dimensions.1
+        )));
+    }
+    Ok(())
+}
+
+/// Validates disconnected graph metadata consistency.
+///
+/// Checks that the sum of component sizes equals the actual graph node count.
+fn validate_disconnected_metadata(
+    component_sizes: &[usize],
+    graph_node_count: usize,
+) -> TestCaseResult {
+    let total: usize = component_sizes.iter().sum();
+    if total != graph_node_count {
+        return Err(TestCaseError::fail(format!(
+            "disconnected: component sizes mismatch (sum={total}, graph={graph_node_count})"
+        )));
+    }
     Ok(())
 }
 
@@ -73,31 +141,13 @@ pub(super) fn run_graph_metadata_consistency_property(fixture: &GraphFixture) ->
 
     match (&fixture.topology, &graph.metadata) {
         (GraphTopology::Random, GraphMetadata::Random { node_count, .. }) => {
-            if *node_count != graph.node_count {
-                return Err(TestCaseError::fail(format!(
-                    "random: node_count mismatch (metadata={}, graph={})",
-                    node_count, graph.node_count
-                )));
-            }
+            validate_random_metadata(*node_count, graph.node_count)?;
         }
         (GraphTopology::ScaleFree, GraphMetadata::ScaleFree { node_count, .. }) => {
-            if *node_count != graph.node_count {
-                return Err(TestCaseError::fail(format!(
-                    "scale-free: node_count mismatch (metadata={}, graph={})",
-                    node_count, graph.node_count
-                )));
-            }
+            validate_scale_free_metadata(*node_count, graph.node_count)?;
         }
         (GraphTopology::Lattice, GraphMetadata::Lattice { dimensions, .. }) => {
-            if dimensions.0 * dimensions.1 != graph.node_count {
-                return Err(TestCaseError::fail(format!(
-                    "lattice: dimensions mismatch ({}x{}={}, graph={})",
-                    dimensions.0,
-                    dimensions.1,
-                    dimensions.0 * dimensions.1,
-                    graph.node_count
-                )));
-            }
+            validate_lattice_metadata(*dimensions, graph.node_count)?;
         }
         (
             GraphTopology::Disconnected,
@@ -105,13 +155,7 @@ pub(super) fn run_graph_metadata_consistency_property(fixture: &GraphFixture) ->
                 component_sizes, ..
             },
         ) => {
-            let total: usize = component_sizes.iter().sum();
-            if total != graph.node_count {
-                return Err(TestCaseError::fail(format!(
-                    "disconnected: component sizes mismatch (sum={}, graph={})",
-                    total, graph.node_count
-                )));
-            }
+            validate_disconnected_metadata(component_sizes, graph.node_count)?;
         }
         _ => {
             return Err(TestCaseError::fail(format!(

@@ -31,6 +31,54 @@ impl ComponentSpec {
     }
 }
 
+/// Mutable state for graph construction during scale-free generation.
+///
+/// Groups together the mutable references needed for adding edges,
+/// reducing parameter count in helper functions.
+struct GraphBuilder<'a> {
+    /// Collection of edges being built.
+    edges: &'a mut Vec<CandidateEdge>,
+    /// Degree count for each node.
+    degrees: &'a mut [usize],
+    /// Monotonic sequence counter for edge ordering.
+    sequence: &'a mut u64,
+}
+
+impl<'a> GraphBuilder<'a> {
+    /// Creates a new graph builder from mutable references.
+    fn new(
+        edges: &'a mut Vec<CandidateEdge>,
+        degrees: &'a mut [usize],
+        sequence: &'a mut u64,
+    ) -> Self {
+        Self {
+            edges,
+            degrees,
+            sequence,
+        }
+    }
+}
+
+/// Parameters for preferential attachment in scale-free graph generation.
+///
+/// Groups algorithm parameters to reduce argument count in helper functions.
+struct PreferentialAttachmentParams {
+    /// Number of edges to add for each new node.
+    edges_per_new_node: usize,
+    /// Exponent for the power-law degree distribution.
+    exponent: f64,
+}
+
+impl PreferentialAttachmentParams {
+    /// Creates new preferential attachment parameters.
+    fn new(edges_per_new_node: usize, exponent: f64) -> Self {
+        Self {
+            edges_per_new_node,
+            exponent,
+        }
+    }
+}
+
 /// Generates an Erdos-Renyi random graph.
 ///
 /// Each pair of nodes has probability `p` of being connected.
@@ -98,27 +146,15 @@ pub(super) fn generate_scale_free_graph(rng: &mut SmallRng) -> GeneratedGraph {
     let mut degrees = vec![0usize; node_count];
     let mut sequence = 0u64;
 
+    let params = PreferentialAttachmentParams::new(edges_per_new_node, exponent);
+    let mut builder = GraphBuilder::new(&mut edges, &mut degrees, &mut sequence);
+
     // Create initial complete graph among the first `initial_nodes` nodes.
-    create_initial_complete_graph(
-        rng,
-        &mut edges,
-        &mut degrees,
-        &mut sequence,
-        initial_nodes,
-        node_count,
-    );
+    create_initial_complete_graph(rng, &mut builder, initial_nodes, node_count);
 
     // Add remaining nodes with preferential attachment.
     for new_node in initial_nodes..node_count {
-        attach_node_preferentially(
-            rng,
-            &mut edges,
-            &mut degrees,
-            &mut sequence,
-            new_node,
-            edges_per_new_node,
-            exponent,
-        );
+        attach_node_preferentially(rng, &mut builder, new_node, &params);
     }
 
     GeneratedGraph {
@@ -136,22 +172,21 @@ pub(super) fn generate_scale_free_graph(rng: &mut SmallRng) -> GeneratedGraph {
 ///
 /// Connects all pairs of nodes in the range `[0, min(initial_nodes, node_count))`
 /// with random edge distances. Updates degree counts for each connection.
-#[allow(clippy::too_many_arguments)]
 fn create_initial_complete_graph(
     rng: &mut SmallRng,
-    edges: &mut Vec<CandidateEdge>,
-    degrees: &mut [usize],
-    sequence: &mut u64,
+    builder: &mut GraphBuilder,
     initial_nodes: usize,
     node_count: usize,
 ) {
     for i in 0..initial_nodes.min(node_count) {
         for j in (i + 1)..initial_nodes.min(node_count) {
             let distance = rng.gen_range(0.1_f32..10.0);
-            edges.push(CandidateEdge::new(i, j, distance, *sequence));
-            degrees[i] += 1;
-            degrees[j] += 1;
-            *sequence += 1;
+            builder
+                .edges
+                .push(CandidateEdge::new(i, j, distance, *builder.sequence));
+            builder.degrees[i] += 1;
+            builder.degrees[j] += 1;
+            *builder.sequence += 1;
         }
     }
 }
@@ -161,26 +196,32 @@ fn create_initial_complete_graph(
 /// Connects `new_node` to up to `edges_per_new_node` existing nodes,
 /// selecting targets with probability proportional to their degree
 /// raised to the given `exponent`.
-#[allow(clippy::too_many_arguments)]
 fn attach_node_preferentially(
     rng: &mut SmallRng,
-    edges: &mut Vec<CandidateEdge>,
-    degrees: &mut [usize],
-    sequence: &mut u64,
+    builder: &mut GraphBuilder,
     new_node: usize,
-    edges_per_new_node: usize,
-    exponent: f64,
+    params: &PreferentialAttachmentParams,
 ) {
     let mut attached = Vec::new();
-    for _ in 0..edges_per_new_node.min(new_node) {
-        let target = select_by_degree(rng, &degrees[..new_node], &attached, exponent);
+    for _ in 0..params.edges_per_new_node.min(new_node) {
+        let target = select_by_degree(
+            rng,
+            &builder.degrees[..new_node],
+            &attached,
+            params.exponent,
+        );
         if let Some(target) = target {
             let distance = rng.gen_range(0.1_f32..10.0);
-            edges.push(CandidateEdge::new(new_node, target, distance, *sequence));
-            degrees[new_node] += 1;
-            degrees[target] += 1;
+            builder.edges.push(CandidateEdge::new(
+                new_node,
+                target,
+                distance,
+                *builder.sequence,
+            ));
+            builder.degrees[new_node] += 1;
+            builder.degrees[target] += 1;
             attached.push(target);
-            *sequence += 1;
+            *builder.sequence += 1;
         }
     }
 }
