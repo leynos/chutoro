@@ -83,6 +83,26 @@ pub(super) fn extract_candidate_edges(
         .collect()
 }
 
+/// Bundles update parameters for Kani reconciliation helpers.
+#[cfg(kani)]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct KaniUpdateContext {
+    pub(crate) origin: usize,
+    pub(crate) level: usize,
+    pub(crate) max_connections: usize,
+}
+
+#[cfg(kani)]
+impl KaniUpdateContext {
+    pub(crate) fn new(origin: usize, level: usize, max_connections: usize) -> Self {
+        Self {
+            origin,
+            level,
+            max_connections,
+        }
+    }
+}
+
 /// Applies reconciliation logic to a single update for Kani harnesses.
 ///
 /// This helper mirrors the production commit flow (removed-edge reconciliation,
@@ -93,7 +113,7 @@ pub(super) fn extract_candidate_edges(
 /// ```rust,ignore
 /// use crate::hnsw::{
 ///     graph::{Graph, NodeContext},
-///     insert::apply_reconciled_update_for_kani,
+///     insert::{apply_reconciled_update_for_kani, KaniUpdateContext},
 ///     params::HnswParams,
 /// };
 ///
@@ -105,39 +125,38 @@ pub(super) fn extract_candidate_edges(
 /// graph
 ///     .attach_node(NodeContext { node: 1, level: 0, sequence: 1 })
 ///     .expect("attach node 1");
+/// let ctx = KaniUpdateContext::new(0, 0, 2);
 /// let mut next = vec![1];
-/// apply_reconciled_update_for_kani(&mut graph, 0, 0, 2, &mut next);
+/// apply_reconciled_update_for_kani(&mut graph, ctx, &mut next);
 /// ```
 #[cfg(kani)]
 pub(crate) fn apply_reconciled_update_for_kani(
     graph: &mut crate::hnsw::graph::Graph,
-    origin: usize,
-    level: usize,
-    max_connections: usize,
+    ctx: KaniUpdateContext,
     next: &mut Vec<usize>,
 ) {
     let previous = graph
-        .node(origin)
-        .map(|node| node.neighbours(level).to_vec())
+        .node(ctx.origin)
+        .map(|node| node.neighbours(ctx.level).to_vec())
         .unwrap_or_default();
 
-    let ctx = types::UpdateContext {
-        origin,
-        level,
-        max_connections,
+    let update_ctx = types::UpdateContext {
+        origin: ctx.origin,
+        level: ctx.level,
+        max_connections: ctx.max_connections,
     };
     let mut reconciler = reconciliation::EdgeReconciler::new(graph);
     let next_snapshot = next.clone();
-    reconciler.reconcile_removed_edges(&ctx, &previous, &next_snapshot);
-    reconciler.reconcile_added_edges(&ctx, next);
+    reconciler.reconcile_removed_edges(&update_ctx, &previous, &next_snapshot);
+    reconciler.reconcile_added_edges(&update_ctx, next);
 
-    if let Some(node_ref) = reconciler.graph_mut().node_mut(origin) {
-        let list = node_ref.neighbours_mut(level);
+    if let Some(node_ref) = reconciler.graph_mut().node_mut(ctx.origin) {
+        let list = node_ref.neighbours_mut(ctx.level);
         list.clear();
         list.extend(next.iter().copied());
     }
 
-    reconciler.apply_deferred_scrubs(max_connections);
+    reconciler.apply_deferred_scrubs(ctx.max_connections);
 }
 
 /// Ensures a reverse edge using the production reconciler for Kani harnesses.

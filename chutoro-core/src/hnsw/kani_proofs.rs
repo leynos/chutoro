@@ -34,7 +34,7 @@
 
 use crate::hnsw::{
     graph::{Graph, NodeContext},
-    insert::{apply_reconciled_update_for_kani, ensure_reverse_edge_for_kani},
+    insert::{KaniUpdateContext, apply_reconciled_update_for_kani, ensure_reverse_edge_for_kani},
     invariants::is_bidirectional,
     params::HnswParams,
 };
@@ -243,7 +243,8 @@ fn verify_bidirectional_links_reconciliation_3_nodes_1_layer() {
         push_if_absent(&mut next, 2);
     }
 
-    apply_reconciled_update_for_kani(&mut graph, 0, 0, max_connections, &mut next);
+    let ctx = KaniUpdateContext::new(0, 0, max_connections);
+    apply_reconciled_update_for_kani(&mut graph, ctx, &mut next);
 
     kani::assert(
         is_bidirectional(&graph),
