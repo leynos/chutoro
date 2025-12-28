@@ -182,11 +182,8 @@ fn verify_bidirectional_links_reconciliation_2_nodes_1_layer() {
         kani::assert(added, "expected reverse edge to be inserted");
     }
 
-    let origin_has_target = graph.node(0).expect("node 0").neighbours(0).contains(&1);
-    let target_has_origin = graph.node(1).expect("node 1").neighbours(0).contains(&0);
-
     kani::assert(
-        origin_has_target == target_has_origin,
+        is_bidirectional(&graph),
         "bidirectional invariant violated after reconciliation",
     );
 }
@@ -318,10 +315,9 @@ fn enforce_bidirectional_constraint(graph: &mut Graph) {
 /// not enforced here since reciprocity enforcement may temporarily exceed
 /// the M parameter before trimming occurs in production code.
 fn add_reverse_edge_if_missing(graph: &mut Graph, source: usize, target: usize) {
-    let Some(node) = graph.node_mut(source) else {
-        return;
-    };
-
+    let node = graph
+        .node_mut(source)
+        .expect("add_reverse_edge_if_missing: source node must exist");
     let neighbours = node.neighbours_mut(0);
     if !neighbours.contains(&target) {
         neighbours.push(target);
@@ -334,9 +330,9 @@ fn add_bidirectional_edge(graph: &mut Graph, origin: usize, target: usize, level
 }
 
 fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usize, level: usize) {
-    let Some(node) = graph.node_mut(origin) else {
-        return;
-    };
+    let node = graph
+        .node_mut(origin)
+        .expect("add_edge_if_missing: origin node must exist in the graph");
     let neighbours = node.neighbours_mut(level);
     if !neighbours.contains(&target) {
         neighbours.push(target);

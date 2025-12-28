@@ -42,7 +42,9 @@ produces a cluster assignment (even with stubbed internals).
 
 ______________________________________________________________________
 
-## Phase 1 — CPU HNSW + Candidate Edge Harvest + Parallel Kruskal MST
+## Phase 1 — CPU HNSW + Candidate Edge Harvest + Parallel Kruskal minimum
+
+spanning tree (MST)
 
 - [x] Implement CPU HNSW insertion/search with Rayon; two‑phase locking (`read`
   for search → `write` for insert) on a shared graph. (See §6.1, §6.2)
@@ -117,10 +119,10 @@ ______________________________________________________________________
       one node, the entry point is set to an existing node, and its level equals
       the maximum level present in the graph (for all nodes `v`,
       `level(entry) >= level(v)`).
-    - **MST structural correctness (CPU/GPU)**: For any connected candidate
-      graph on `n` nodes, the MST output has exactly `n-1` edges, is acyclic,
-      and connects all nodes. For disconnected graphs with `c` components, the
-      output is a forest with `n-c` edges.
+    - **Minimum spanning tree (MST) structural correctness (CPU/GPU)**: For
+      any connected candidate graph on `n` nodes, the MST output has exactly
+      `n-1` edges, is acyclic, and connects all nodes. For disconnected graphs
+      with `c` components, the output is a forest with `n-c` edges.
     - **Distance kernel consistency (CPU/GPU)**: For any metric distance
       implementation, distances are symmetric and zero on identical inputs, and
       CPU and GPU implementations agree within a defined tolerance `epsilon`

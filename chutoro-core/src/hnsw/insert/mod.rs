@@ -103,6 +103,16 @@ impl KaniUpdateContext {
     }
 }
 
+#[cfg(kani)]
+fn is_deduped(list: &[usize]) -> bool {
+    for (idx, value) in list.iter().enumerate() {
+        if list[idx + 1..].contains(value) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Applies reconciliation logic to a single update for Kani harnesses.
 ///
 /// This helper mirrors the production commit flow (removed-edge reconciliation,
@@ -135,10 +145,45 @@ pub(crate) fn apply_reconciled_update_for_kani(
     ctx: KaniUpdateContext,
     next: &mut Vec<usize>,
 ) {
-    let previous = graph
-        .node(ctx.origin)
-        .map(|node| node.neighbours(ctx.level).to_vec())
-        .unwrap_or_default();
+    let previous = {
+        let origin_node = graph
+            .node(ctx.origin)
+            .expect("Kani update origin must exist in the graph");
+        let level_valid = ctx.level < origin_node.level_count();
+        debug_assert!(
+            level_valid,
+            "Kani update origin must expose the requested level"
+        );
+        kani::assume(level_valid);
+        let origin_deduped = is_deduped(origin_node.neighbours(ctx.level));
+        debug_assert!(
+            origin_deduped,
+            "Kani update origin neighbours must be deduplicated"
+        );
+        kani::assume(origin_deduped);
+        origin_node.neighbours(ctx.level).to_vec()
+    };
+
+    let next_deduped = is_deduped(next);
+    debug_assert!(next_deduped, "Kani update next list must be deduplicated");
+    kani::assume(next_deduped);
+    let next_targets_exist = next.iter().all(|&id| graph.node(id).is_some());
+    debug_assert!(
+        next_targets_exist,
+        "Kani update targets must exist in the graph"
+    );
+    kani::assume(next_targets_exist);
+    let next_targets_level_valid = next.iter().all(|&id| {
+        graph
+            .node(id)
+            .map(|node| ctx.level < node.level_count())
+            .unwrap_or(false)
+    });
+    debug_assert!(
+        next_targets_level_valid,
+        "Kani update targets must expose the requested level"
+    );
+    kani::assume(next_targets_level_valid);
 
     let update_ctx = types::UpdateContext {
         origin: ctx.origin,
@@ -146,8 +191,7 @@ pub(crate) fn apply_reconciled_update_for_kani(
         max_connections: ctx.max_connections,
     };
     let mut reconciler = reconciliation::EdgeReconciler::new(graph);
-    let next_snapshot = next.clone();
-    reconciler.reconcile_removed_edges(&update_ctx, &previous, &next_snapshot);
+    reconciler.reconcile_removed_edges(&update_ctx, &previous, next.as_slice());
     reconciler.reconcile_added_edges(&update_ctx, next);
 
     if let Some(node_ref) = reconciler.graph_mut().node_mut(ctx.origin) {
@@ -191,6 +235,41 @@ pub(crate) fn ensure_reverse_edge_for_kani(
     ctx: KaniUpdateContext,
     target: usize,
 ) -> bool {
+    {
+        let origin_node = graph
+            .node(ctx.origin)
+            .expect("Kani update origin must exist in the graph");
+        let origin_level_valid = ctx.level < origin_node.level_count();
+        debug_assert!(
+            origin_level_valid,
+            "Kani update origin must expose the requested level"
+        );
+        kani::assume(origin_level_valid);
+        let origin_deduped = is_deduped(origin_node.neighbours(ctx.level));
+        debug_assert!(
+            origin_deduped,
+            "Kani update origin neighbours must be deduplicated"
+        );
+        kani::assume(origin_deduped);
+    }
+    {
+        let target_node = graph
+            .node(target)
+            .expect("Kani update target must exist in the graph");
+        let target_level_valid = ctx.level < target_node.level_count();
+        debug_assert!(
+            target_level_valid,
+            "Kani update target must expose the requested level"
+        );
+        kani::assume(target_level_valid);
+        let target_deduped = is_deduped(target_node.neighbours(ctx.level));
+        debug_assert!(
+            target_deduped,
+            "Kani update target neighbours must be deduplicated"
+        );
+        kani::assume(target_deduped);
+    }
+
     let update_ctx = types::UpdateContext {
         origin: ctx.origin,
         level: ctx.level,

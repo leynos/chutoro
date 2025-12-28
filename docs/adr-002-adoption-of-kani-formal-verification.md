@@ -221,9 +221,9 @@ intended as future formal verification targets:
 5. **CI integration**: Add a nightly "slow" Kani verification job that runs
    `make kani-full` only when main has new commits that day.
 
-6. **Performance tuning**: Investigate CBMC timeouts, adjust bounds, and
-   consider smaller harnesses or reduced nondeterminism to keep Kani runs
-   practical.
+6. **Performance tuning**: Investigate C Bounded Model Checker (CBMC)
+   timeouts, adjust bounds, and consider smaller harnesses or reduced
+   nondeterminism to keep Kani runs practical.
 
 7. **Documentation**: Record verification results, any discovered issues, and
    update this ADR with findings.
