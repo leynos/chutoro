@@ -169,7 +169,7 @@ pub(crate) fn apply_reconciled_update_for_kani(
 /// ```rust,ignore
 /// use crate::hnsw::{
 ///     graph::{Graph, NodeContext},
-///     insert::ensure_reverse_edge_for_kani,
+///     insert::{ensure_reverse_edge_for_kani, KaniUpdateContext},
 ///     params::HnswParams,
 /// };
 ///
@@ -181,22 +181,21 @@ pub(crate) fn apply_reconciled_update_for_kani(
 /// graph
 ///     .attach_node(NodeContext { node: 1, level: 0, sequence: 1 })
 ///     .expect("attach node 1");
-/// let added = ensure_reverse_edge_for_kani(&mut graph, 0, 1, 0, 1);
+/// let ctx = KaniUpdateContext::new(0, 0, 1);
+/// let added = ensure_reverse_edge_for_kani(&mut graph, ctx, 1);
 /// assert!(added);
 /// ```
 #[cfg(kani)]
 pub(crate) fn ensure_reverse_edge_for_kani(
     graph: &mut crate::hnsw::graph::Graph,
-    origin: usize,
+    ctx: KaniUpdateContext,
     target: usize,
-    level: usize,
-    max_connections: usize,
 ) -> bool {
-    let ctx = types::UpdateContext {
-        origin,
-        level,
-        max_connections,
+    let update_ctx = types::UpdateContext {
+        origin: ctx.origin,
+        level: ctx.level,
+        max_connections: ctx.max_connections,
     };
     let mut reconciler = reconciliation::EdgeReconciler::new(graph);
-    reconciler.ensure_reverse_edge(&ctx, target)
+    reconciler.ensure_reverse_edge(&update_ctx, target)
 }

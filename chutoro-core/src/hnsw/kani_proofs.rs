@@ -177,7 +177,8 @@ fn verify_bidirectional_links_reconciliation_2_nodes_1_layer() {
     let should_link = kani::any::<bool>();
     if should_link {
         add_edge_if_missing(&mut graph, 0, 1, 0);
-        let added = ensure_reverse_edge_for_kani(&mut graph, 0, 1, 0, max_connections);
+        let ctx = KaniUpdateContext::new(0, 0, max_connections);
+        let added = ensure_reverse_edge_for_kani(&mut graph, ctx, 1);
         kani::assert(added, "expected reverse edge to be inserted");
     }
 
