@@ -218,6 +218,44 @@ pub(super) fn run_lattice_regularity_property(fixture: &GraphFixture) -> TestCas
     Ok(())
 }
 
+/// Builds a mapping from node index to component index.
+///
+/// Given a list of component sizes and total node count, creates a vector
+/// where `result[node]` gives the component index that node belongs to.
+/// Components are assigned sequentially: nodes 0..sizes[0] map to component 0,
+/// nodes sizes[0]..sizes[0]+sizes[1] map to component 1, etc.
+fn build_node_to_component_mapping(component_sizes: &[usize], node_count: usize) -> Vec<usize> {
+    let mut node_to_component = vec![0usize; node_count];
+    let mut offset = 0;
+    for (comp_idx, &size) in component_sizes.iter().enumerate() {
+        for i in 0..size {
+            node_to_component[offset + i] = comp_idx;
+        }
+        offset += size;
+    }
+    node_to_component
+}
+
+/// Verifies no edge crosses component boundaries.
+///
+/// Iterates through all edges and checks that source and target nodes
+/// belong to the same component according to the provided mapping.
+/// Returns an error if any edge violates component isolation.
+fn verify_no_cross_component_edges(
+    edges: &[crate::CandidateEdge],
+    node_to_component: &[usize],
+) -> TestCaseResult {
+    for edge in edges {
+        if node_to_component[edge.source()] != node_to_component[edge.target()] {
+            return Err(TestCaseError::fail(format!(
+                "edge crosses components: {:?}",
+                edge
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Verifies disconnected graphs have no cross-component edges.
 pub(super) fn run_disconnected_isolation_property(fixture: &GraphFixture) -> TestCaseResult {
     if !matches!(fixture.topology, GraphTopology::Disconnected) {
@@ -230,25 +268,8 @@ pub(super) fn run_disconnected_isolation_property(fixture: &GraphFixture) -> Tes
         component_sizes, ..
     } = &graph.metadata
     {
-        // Build node-to-component mapping.
-        let mut node_to_component = vec![0usize; graph.node_count];
-        let mut offset = 0;
-        for (comp_idx, &size) in component_sizes.iter().enumerate() {
-            for i in 0..size {
-                node_to_component[offset + i] = comp_idx;
-            }
-            offset += size;
-        }
-
-        // Verify no edge crosses components.
-        for edge in &graph.edges {
-            if node_to_component[edge.source()] != node_to_component[edge.target()] {
-                return Err(TestCaseError::fail(format!(
-                    "edge crosses components: {:?}",
-                    edge
-                )));
-            }
-        }
+        let node_to_component = build_node_to_component_mapping(component_sizes, graph.node_count);
+        verify_no_cross_component_edges(&graph.edges, &node_to_component)?;
     }
 
     Ok(())

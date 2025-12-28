@@ -14,6 +14,23 @@ use crate::CandidateEdge;
 
 use super::types::{GeneratedGraph, GraphMetadata};
 
+/// Specifies a component's position and size within a disconnected graph.
+///
+/// Used to reduce parameter count when adding edges within a component.
+struct ComponentSpec {
+    /// Starting node index for this component.
+    node_offset: usize,
+    /// Number of nodes in this component.
+    size: usize,
+}
+
+impl ComponentSpec {
+    /// Creates a new component specification.
+    fn new(node_offset: usize, size: usize) -> Self {
+        Self { node_offset, size }
+    }
+}
+
 /// Generates an Erdos-Renyi random graph.
 ///
 /// Each pair of nodes has probability `p` of being connected.
@@ -82,30 +99,26 @@ pub(super) fn generate_scale_free_graph(rng: &mut SmallRng) -> GeneratedGraph {
     let mut sequence = 0u64;
 
     // Create initial complete graph among the first `initial_nodes` nodes.
-    for i in 0..initial_nodes.min(node_count) {
-        for j in (i + 1)..initial_nodes.min(node_count) {
-            let distance = rng.gen_range(0.1_f32..10.0);
-            edges.push(CandidateEdge::new(i, j, distance, sequence));
-            degrees[i] += 1;
-            degrees[j] += 1;
-            sequence += 1;
-        }
-    }
+    create_initial_complete_graph(
+        rng,
+        &mut edges,
+        &mut degrees,
+        &mut sequence,
+        initial_nodes,
+        node_count,
+    );
 
     // Add remaining nodes with preferential attachment.
     for new_node in initial_nodes..node_count {
-        let mut attached = Vec::new();
-        for _ in 0..edges_per_new_node.min(new_node) {
-            let target = select_by_degree(rng, &degrees[..new_node], &attached, exponent);
-            if let Some(target) = target {
-                let distance = rng.gen_range(0.1_f32..10.0);
-                edges.push(CandidateEdge::new(new_node, target, distance, sequence));
-                degrees[new_node] += 1;
-                degrees[target] += 1;
-                attached.push(target);
-                sequence += 1;
-            }
-        }
+        attach_node_preferentially(
+            rng,
+            &mut edges,
+            &mut degrees,
+            &mut sequence,
+            new_node,
+            edges_per_new_node,
+            exponent,
+        );
     }
 
     GeneratedGraph {
@@ -116,6 +129,59 @@ pub(super) fn generate_scale_free_graph(rng: &mut SmallRng) -> GeneratedGraph {
             edges_per_new_node,
             exponent,
         },
+    }
+}
+
+/// Creates the initial complete graph for scale-free graph generation.
+///
+/// Connects all pairs of nodes in the range `[0, min(initial_nodes, node_count))`
+/// with random edge distances. Updates degree counts for each connection.
+#[allow(clippy::too_many_arguments)]
+fn create_initial_complete_graph(
+    rng: &mut SmallRng,
+    edges: &mut Vec<CandidateEdge>,
+    degrees: &mut [usize],
+    sequence: &mut u64,
+    initial_nodes: usize,
+    node_count: usize,
+) {
+    for i in 0..initial_nodes.min(node_count) {
+        for j in (i + 1)..initial_nodes.min(node_count) {
+            let distance = rng.gen_range(0.1_f32..10.0);
+            edges.push(CandidateEdge::new(i, j, distance, *sequence));
+            degrees[i] += 1;
+            degrees[j] += 1;
+            *sequence += 1;
+        }
+    }
+}
+
+/// Attaches a new node to the graph using preferential attachment.
+///
+/// Connects `new_node` to up to `edges_per_new_node` existing nodes,
+/// selecting targets with probability proportional to their degree
+/// raised to the given `exponent`.
+#[allow(clippy::too_many_arguments)]
+fn attach_node_preferentially(
+    rng: &mut SmallRng,
+    edges: &mut Vec<CandidateEdge>,
+    degrees: &mut [usize],
+    sequence: &mut u64,
+    new_node: usize,
+    edges_per_new_node: usize,
+    exponent: f64,
+) {
+    let mut attached = Vec::new();
+    for _ in 0..edges_per_new_node.min(new_node) {
+        let target = select_by_degree(rng, &degrees[..new_node], &attached, exponent);
+        if let Some(target) = target {
+            let distance = rng.gen_range(0.1_f32..10.0);
+            edges.push(CandidateEdge::new(new_node, target, distance, *sequence));
+            degrees[new_node] += 1;
+            degrees[target] += 1;
+            attached.push(target);
+            *sequence += 1;
+        }
     }
 }
 
@@ -271,7 +337,12 @@ pub(super) fn generate_disconnected_graph(rng: &mut SmallRng) -> GeneratedGraph 
     let mut node_offset = 0;
 
     for &size in &component_sizes {
-        add_component_edges(rng, &mut edges, &mut sequence, node_offset, size);
+        add_component_edges(
+            rng,
+            &mut edges,
+            &mut sequence,
+            ComponentSpec::new(node_offset, size),
+        );
         node_offset += size;
     }
 
@@ -286,24 +357,22 @@ pub(super) fn generate_disconnected_graph(rng: &mut SmallRng) -> GeneratedGraph 
 }
 
 /// Adds edges within a single component (extracted to reduce nesting).
-#[allow(clippy::too_many_arguments)]
 fn add_component_edges(
     rng: &mut SmallRng,
     edges: &mut Vec<CandidateEdge>,
     sequence: &mut u64,
-    node_offset: usize,
-    size: usize,
+    component: ComponentSpec,
 ) {
     let edge_prob = rng.gen_range(0.2..0.6);
-    for i in 0..size {
-        for j in (i + 1)..size {
+    for i in 0..component.size {
+        for j in (i + 1)..component.size {
             if !rng.gen_bool(edge_prob) {
                 continue;
             }
             let distance = rng.gen_range(0.1_f32..10.0);
             edges.push(CandidateEdge::new(
-                node_offset + i,
-                node_offset + j,
+                component.node_offset + i,
+                component.node_offset + j,
                 distance,
                 *sequence,
             ));
