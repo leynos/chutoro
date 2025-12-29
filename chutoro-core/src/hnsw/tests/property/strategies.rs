@@ -182,7 +182,8 @@ pub(super) fn edge_harvest_plan_strategy() -> impl Strategy<Value = EdgeHarvestP
 /// Generates graph fixtures covering multiple topologies for edge harvest testing.
 ///
 /// Produces graphs with random, scale-free, lattice, and disconnected structures
-/// for testing candidate edge harvest algorithms.
+/// for testing candidate edge harvest algorithms. All generators guarantee at
+/// least one edge, eliminating the need for filtering.
 ///
 /// # Examples
 ///
@@ -196,18 +197,14 @@ pub(super) fn edge_harvest_plan_strategy() -> impl Strategy<Value = EdgeHarvestP
 /// });
 /// ```
 pub(super) fn graph_fixture_strategy() -> impl Strategy<Value = GraphFixture> {
-    (any::<GraphTopology>(), any::<u64>())
-        .prop_map(|(topology, seed)| {
-            let mut rng = SmallRng::seed_from_u64(seed);
-            let graph = match topology {
-                GraphTopology::Random => generate_random_graph(&mut rng),
-                GraphTopology::ScaleFree => generate_scale_free_graph(&mut rng),
-                GraphTopology::Lattice => generate_lattice_graph(&mut rng),
-                GraphTopology::Disconnected => generate_disconnected_graph(&mut rng),
-            };
-            GraphFixture { topology, graph }
-        })
-        .prop_filter("graph must have edges", |fixture| {
-            !fixture.graph.edges.is_empty()
-        })
+    (any::<GraphTopology>(), any::<u64>()).prop_map(|(topology, seed)| {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let graph = match topology {
+            GraphTopology::Random => generate_random_graph(&mut rng),
+            GraphTopology::ScaleFree => generate_scale_free_graph(&mut rng),
+            GraphTopology::Lattice => generate_lattice_graph(&mut rng),
+            GraphTopology::Disconnected => generate_disconnected_graph(&mut rng),
+        };
+        GraphFixture { topology, graph }
+    })
 }

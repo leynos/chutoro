@@ -82,7 +82,9 @@ impl PreferentialAttachmentParams {
 /// Generates an Erdos-Renyi random graph.
 ///
 /// Each pair of nodes has probability `p` of being connected.
-/// Node count ranges from 4 to 64, edge probability from 0.1 to 0.5.
+/// Node count ranges from 4 to 64, edge probability from 0.15 to 0.5.
+/// Guarantees at least one edge by connecting nodes 0-1 when probabilistic
+/// generation yields no edges.
 ///
 /// # Examples
 ///
@@ -93,10 +95,12 @@ impl PreferentialAttachmentParams {
 /// let mut rng = SmallRng::seed_from_u64(42);
 /// let graph = generate_random_graph(&mut rng);
 /// assert!(graph.node_count >= 4);
+/// assert!(!graph.edges.is_empty());
 /// ```
 pub(super) fn generate_random_graph(rng: &mut SmallRng) -> GeneratedGraph {
     let node_count = rng.gen_range(4..=64);
-    let edge_probability = rng.gen_range(0.1..=0.5);
+    // Increased minimum probability from 0.1 to 0.15 to reduce empty edge cases.
+    let edge_probability = rng.gen_range(0.15..=0.5);
     let mut edges = Vec::new();
     let mut sequence = 0u64;
 
@@ -108,6 +112,12 @@ pub(super) fn generate_random_graph(rng: &mut SmallRng) -> GeneratedGraph {
                 sequence += 1;
             }
         }
+    }
+
+    // Guarantee at least one edge to avoid filtering in prop_filter.
+    if edges.is_empty() {
+        let distance = rng.gen_range(0.1_f32..10.0);
+        edges.push(CandidateEdge::new(0, 1, distance, sequence));
     }
 
     GeneratedGraph {
@@ -350,7 +360,8 @@ fn add_lattice_edges(
 /// Generates a graph with disconnected components.
 ///
 /// Creates 2-5 separate components, each with random internal structure
-/// (Erdos-Renyi style within each component).
+/// (Erdos-Renyi style within each component). Guarantees at least one edge
+/// by ensuring every component has at least one internal edge.
 ///
 /// # Examples
 ///
@@ -361,6 +372,7 @@ fn add_lattice_edges(
 /// let mut rng = SmallRng::seed_from_u64(42);
 /// let graph = generate_disconnected_graph(&mut rng);
 /// assert!(graph.node_count >= 6);
+/// assert!(!graph.edges.is_empty());
 /// ```
 pub(super) fn generate_disconnected_graph(rng: &mut SmallRng) -> GeneratedGraph {
     let component_count = rng.gen_range(2..=5);
@@ -378,12 +390,24 @@ pub(super) fn generate_disconnected_graph(rng: &mut SmallRng) -> GeneratedGraph 
     let mut node_offset = 0;
 
     for &size in &component_sizes {
+        let component_start_edge_count = edges.len();
         add_component_edges(
             rng,
             &mut edges,
             &mut sequence,
             ComponentSpec::new(node_offset, size),
         );
+        // Guarantee at least one edge per component to avoid empty graphs.
+        if edges.len() == component_start_edge_count && size >= 2 {
+            let distance = rng.gen_range(0.1_f32..10.0);
+            edges.push(CandidateEdge::new(
+                node_offset,
+                node_offset + 1,
+                distance,
+                sequence,
+            ));
+            sequence += 1;
+        }
         node_offset += size;
     }
 
@@ -464,8 +488,17 @@ fn select_by_degree(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hnsw::tests::property::graph_topology_tests::validate_edge;
     use rand::SeedableRng;
     use rstest::rstest;
+
+    /// Asserts that all edges in a graph are valid using the centralized validation.
+    fn assert_all_edges_valid(graph: &GeneratedGraph) {
+        for (i, edge) in graph.edges.iter().enumerate() {
+            validate_edge(edge, graph.node_count, i)
+                .unwrap_or_else(|e| panic!("edge validation failed: {e}"));
+        }
+    }
 
     #[rstest]
     #[case(42)]
@@ -479,13 +512,7 @@ mod tests {
         assert!(graph.node_count >= 4);
         assert!(graph.node_count <= 64);
 
-        for edge in &graph.edges {
-            assert!(edge.source() < graph.node_count);
-            assert!(edge.target() < graph.node_count);
-            assert_ne!(edge.source(), edge.target());
-            assert!(edge.distance().is_finite());
-            assert!(edge.distance() > 0.0);
-        }
+        assert_all_edges_valid(&graph);
     }
 
     #[rstest]
@@ -500,13 +527,7 @@ mod tests {
         assert!(graph.node_count >= 8);
         assert!(graph.node_count <= 48);
 
-        for edge in &graph.edges {
-            assert!(edge.source() < graph.node_count);
-            assert!(edge.target() < graph.node_count);
-            assert_ne!(edge.source(), edge.target());
-            assert!(edge.distance().is_finite());
-            assert!(edge.distance() > 0.0);
-        }
+        assert_all_edges_valid(&graph);
     }
 
     #[rstest]
@@ -521,13 +542,7 @@ mod tests {
         assert!(graph.node_count >= 4);
         assert!(graph.node_count <= 64);
 
-        for edge in &graph.edges {
-            assert!(edge.source() < graph.node_count);
-            assert!(edge.target() < graph.node_count);
-            assert_ne!(edge.source(), edge.target());
-            assert!(edge.distance().is_finite());
-            assert!(edge.distance() > 0.0);
-        }
+        assert_all_edges_valid(&graph);
 
         // Lattice should always produce edges.
         assert!(!graph.edges.is_empty());
@@ -544,13 +559,7 @@ mod tests {
 
         assert!(graph.node_count >= 6);
 
-        for edge in &graph.edges {
-            assert!(edge.source() < graph.node_count);
-            assert!(edge.target() < graph.node_count);
-            assert_ne!(edge.source(), edge.target());
-            assert!(edge.distance().is_finite());
-            assert!(edge.distance() > 0.0);
-        }
+        assert_all_edges_valid(&graph);
 
         // Verify metadata.
         if let GraphMetadata::Disconnected {
@@ -667,6 +676,8 @@ mod tests {
         // Generate lattices with and without diagonals and compare edge counts.
         let mut with_diag_edges = 0usize;
         let mut without_diag_edges = 0usize;
+        let mut with_diag_count = 0usize;
+        let mut without_diag_count = 0usize;
 
         for seed in 0..20 {
             let mut rng = SmallRng::seed_from_u64(seed);
@@ -675,14 +686,29 @@ mod tests {
             if let GraphMetadata::Lattice { with_diagonals, .. } = &graph.metadata {
                 if *with_diagonals {
                     with_diag_edges += graph.edges.len();
+                    with_diag_count += 1;
                 } else {
                     without_diag_edges += graph.edges.len();
+                    without_diag_count += 1;
                 }
             }
         }
 
-        // On average, diagonal lattices should have more edges.
-        // Both should be non-zero given 20 samples with 50% probability.
-        assert!(with_diag_edges > 0 || without_diag_edges > 0);
+        // Both variants should occur given 20 samples with ~50% probability each.
+        assert!(
+            with_diag_count > 0 && without_diag_count > 0,
+            "expected both diagonal and non-diagonal lattices to be generated; \
+             with_diag_count={with_diag_count}, without_diag_count={without_diag_count}"
+        );
+
+        // On average, diagonal lattices should have at least as many edges as non-diagonal ones.
+        let avg_with_diag = with_diag_edges as f64 / with_diag_count as f64;
+        let avg_without_diag = without_diag_edges as f64 / without_diag_count as f64;
+
+        assert!(
+            avg_with_diag >= avg_without_diag,
+            "expected lattices with diagonals to be at least as dense as those without; \
+             avg_with_diag={avg_with_diag}, avg_without_diag={avg_without_diag}"
+        );
     }
 }

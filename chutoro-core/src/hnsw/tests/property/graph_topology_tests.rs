@@ -21,7 +21,7 @@ use super::types::{GraphFixture, GraphMetadata, GraphTopology};
 /// Validates that a node index is within the valid range.
 ///
 /// Returns an error if the node index is greater than or equal to `node_count`.
-fn validate_node_in_bounds(
+pub(super) fn validate_node_in_bounds(
     node: usize,
     node_count: usize,
     node_type: &str,
@@ -38,7 +38,11 @@ fn validate_node_in_bounds(
 /// Validates that an edge is not a self-loop.
 ///
 /// Returns an error if source equals target.
-fn validate_no_self_edge(source: usize, target: usize, edge_idx: usize) -> TestCaseResult {
+pub(super) fn validate_no_self_edge(
+    source: usize,
+    target: usize,
+    edge_idx: usize,
+) -> TestCaseResult {
     if source == target {
         return Err(TestCaseError::fail(format!(
             "edge {edge_idx}: self-edge ({source} -> {target})"
@@ -50,12 +54,27 @@ fn validate_no_self_edge(source: usize, target: usize, edge_idx: usize) -> TestC
 /// Validates that a distance value is finite and positive.
 ///
 /// Returns an error if the distance is not finite or is less than or equal to zero.
-fn validate_distance(distance: f32, edge_idx: usize) -> TestCaseResult {
+pub(super) fn validate_distance(distance: f32, edge_idx: usize) -> TestCaseResult {
     if !distance.is_finite() || distance <= 0.0 {
         return Err(TestCaseError::fail(format!(
             "edge {edge_idx}: invalid distance {distance}"
         )));
     }
+    Ok(())
+}
+
+/// Validates a single edge has valid node bounds, is not a self-loop, and has valid distance.
+///
+/// Combines all edge validity checks into a single function for convenience.
+pub(super) fn validate_edge(
+    edge: &crate::CandidateEdge,
+    node_count: usize,
+    edge_idx: usize,
+) -> TestCaseResult {
+    validate_node_in_bounds(edge.source(), node_count, "source", edge_idx)?;
+    validate_node_in_bounds(edge.target(), node_count, "target", edge_idx)?;
+    validate_no_self_edge(edge.source(), edge.target(), edge_idx)?;
+    validate_distance(edge.distance(), edge_idx)?;
     Ok(())
 }
 
