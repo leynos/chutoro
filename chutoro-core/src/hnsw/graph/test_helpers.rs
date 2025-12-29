@@ -370,9 +370,7 @@ mod tests {
 
         match result {
             Err(HnswError::InvalidParameters { .. }) => {}
-            other => panic!(
-                "expected Err(HnswError::InvalidParameters {{ .. }}), got {other:?}",
-            ),
+            other => panic!("expected Err(HnswError::InvalidParameters {{ .. }}), got {other:?}",),
         }
     }
 
