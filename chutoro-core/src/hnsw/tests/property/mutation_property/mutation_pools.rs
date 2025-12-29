@@ -1,6 +1,5 @@
 //! Mutation pools used by the stateful mutation property.
 
-#[derive(Default)]
 pub(super) struct MutationPools {
     inserted: Vec<usize>,
     available: Vec<usize>,
@@ -38,6 +37,7 @@ impl MutationPools {
     pub(super) fn mark_deleted(&mut self, node: usize) {
         if Self::remove_value(&mut self.inserted, node) {
             self.available.push(node);
+            // Keep available sorted so selection remains deterministic for tests.
             self.available.sort_unstable();
         }
     }
@@ -76,6 +76,6 @@ mod tests {
         pools.mark_deleted(0);
         assert_eq!(pools.select_available(0), Some(0));
         pools.mark_inserted(2);
-        assert!(pools.select_available(0).is_some());
+        assert_eq!(pools.select_available(0), Some(0));
     }
 }
