@@ -142,9 +142,9 @@ The first harness (`verify_bidirectional_links_3_nodes_1_layer`) demonstrates:
   is reachable by the harness.
 
 - `make kani` now runs the smoke harness and the 2-node reconciliation harness.
-  In this environment the smoke harness completes in ~96 seconds and the 2-node
-  reconciliation harness completes in ~14 seconds (total ~2m 14s, excluding
-  compilation).
+  In this environment, the smoke harness completes in ~96 seconds and the
+  2-node reconciliation harness completes in ~14 seconds (total ~2m 14s,
+  excluding compilation).
 
 - The 3-node exhaustive harness still does not complete within 10 minutes
   (`cargo kani -p chutoro-core --default-unwind 10 --harness \

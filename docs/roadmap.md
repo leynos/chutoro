@@ -42,9 +42,7 @@ produces a cluster assignment (even with stubbed internals).
 
 ______________________________________________________________________
 
-## Phase 1 — CPU HNSW + Candidate Edge Harvest + Parallel Kruskal minimum
-
-spanning tree (MST)
+## Phase 1 — CPU HNSW + Candidate Edge Harvest + Parallel Kruskal minimum spanning tree (MST)
 
 - [x] Implement CPU HNSW insertion/search with Rayon; two‑phase locking (`read`
   for search → `write` for insert) on a shared graph. (See §6.1, §6.2)
