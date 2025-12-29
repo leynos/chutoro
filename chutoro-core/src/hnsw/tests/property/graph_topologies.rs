@@ -656,8 +656,7 @@ mod tests {
                 assert_eq!(
                     node_to_component[edge.source()],
                     node_to_component[edge.target()],
-                    "edge {:?} crosses components",
-                    edge
+                    "edge {edge:?} crosses components",
                 );
             }
         }

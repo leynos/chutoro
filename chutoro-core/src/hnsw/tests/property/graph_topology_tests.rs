@@ -223,8 +223,7 @@ pub(super) fn run_scale_free_hub_property(fixture: &GraphFixture) -> TestCaseRes
     // This is a relaxed assertion since small graphs may not show clear hubs.
     if (max_degree as f64) < avg_degree * 0.8 {
         return Err(TestCaseError::fail(format!(
-            "scale-free graph lacks hub nodes: max_degree={}, avg_degree={:.1}",
-            max_degree, avg_degree
+            "scale-free graph lacks hub nodes: max_degree={max_degree}, avg_degree={avg_degree:.1}",
         )));
     }
 
@@ -254,8 +253,7 @@ pub(super) fn run_lattice_regularity_property(fixture: &GraphFixture) -> TestCas
     // - With diagonals: more values but still limited (typically 3-8)
     if unique_degrees.len() > 8 {
         return Err(TestCaseError::fail(format!(
-            "lattice has too many distinct degrees: {:?}",
-            unique_degrees
+            "lattice has too many distinct degrees: {unique_degrees:?}",
         )));
     }
 
@@ -292,8 +290,7 @@ fn verify_no_cross_component_edges(
     for edge in edges {
         if node_to_component[edge.source()] != node_to_component[edge.target()] {
             return Err(TestCaseError::fail(format!(
-                "edge crosses components: {:?}",
-                edge
+                "edge crosses components: {edge:?}",
             )));
         }
     }

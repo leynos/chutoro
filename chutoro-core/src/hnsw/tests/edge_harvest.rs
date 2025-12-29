@@ -126,7 +126,7 @@ fn build_with_edges_covers_inserted_nodes() {
     for node in 1..num_nodes {
         assert!(
             sources.contains(&node),
-            "node {node} should appear as an edge source"
+            "node {node} should appear as an edge source",
         );
     }
 }
@@ -187,7 +187,7 @@ fn build_with_edges_edges_sorted_by_sequence() {
             .then_with(|| prev.cmp(curr));
         assert!(
             ordering.is_le(),
-            "edges must be sorted by (sequence, natural Ord): {prev:?} should come before {curr:?}"
+            "edges must be sorted by (sequence, natural Ord): {prev:?} should come before {curr:?}",
         );
     }
 }
