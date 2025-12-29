@@ -1,11 +1,33 @@
-//! Mutation pools used by the stateful mutation property.
+//! Tracks node lifecycle for stateful HNSW property tests.
+//!
+//! The pool maintains two mutually exclusive collections of node identifiers:
+//! `inserted` for nodes currently present in the HNSW index, and `available` for
+//! nodes eligible for insertion (either never used or previously deleted).
+//!
+//! The `available` pool is kept sorted so property tests can select nodes
+//! deterministically. The mutation operations (`mark_inserted`, `mark_deleted`)
+//! preserve the invariant that every node belongs to exactly one pool.
 
+/// Tracks node membership for stateful property tests with two exclusive pools.
+///
+/// Inserted nodes are currently present in the HNSW index, while available nodes
+/// are ready to be inserted during mutation steps.
 pub(super) struct MutationPools {
+    /// Nodes currently present in the HNSW index.
     inserted: Vec<usize>,
+    /// Nodes available for insertion, kept sorted for deterministic selection.
     available: Vec<usize>,
 }
 
 impl MutationPools {
+    /// Creates a new pool with the given capacity of node identifiers.
+    ///
+    /// # Parameters
+    /// - `capacity`: The total number of nodes available to distribute between
+    ///   the inserted and available pools.
+    ///
+    /// # Returns
+    /// A pool seeded with all node identifiers in the available set.
     pub(super) fn new(capacity: usize) -> Self {
         Self {
             inserted: Vec::new(),
@@ -13,6 +35,16 @@ impl MutationPools {
         }
     }
 
+    /// Moves up to `count` nodes from available into inserted and returns them.
+    ///
+    /// # Parameters
+    /// - `count`: The maximum number of nodes to move into the inserted pool.
+    ///
+    /// # Returns
+    /// The list of node identifiers promoted into the inserted pool.
+    ///
+    /// # Invariants
+    /// The available pool remains sorted after draining.
     pub(super) fn bootstrap(&mut self, count: usize) -> Vec<usize> {
         let take = count.min(self.available.len());
         let seeded: Vec<usize> = self.available.drain(0..take).collect();
@@ -20,20 +52,48 @@ impl MutationPools {
         seeded
     }
 
+    /// Selects a node from the available pool using the provided hint.
+    ///
+    /// # Parameters
+    /// - `hint`: A value used to deterministically index into the pool.
+    ///
+    /// # Returns
+    /// The chosen node identifier, or `None` if the pool is empty.
     pub(super) fn select_available(&self, hint: u16) -> Option<usize> {
         Self::select_from(&self.available, hint)
     }
 
+    /// Selects a node from the inserted pool using the provided hint.
+    ///
+    /// # Parameters
+    /// - `hint`: A value used to deterministically index into the pool.
+    ///
+    /// # Returns
+    /// The chosen node identifier, or `None` if the pool is empty.
     pub(super) fn select_inserted(&self, hint: u16) -> Option<usize> {
         Self::select_from(&self.inserted, hint)
     }
 
+    /// Marks a node as inserted if it exists in the available pool.
+    ///
+    /// # Parameters
+    /// - `node`: The node identifier to move into the inserted pool.
+    ///
+    /// # Invariants
+    /// The available pool remains sorted for deterministic selection.
     pub(super) fn mark_inserted(&mut self, node: usize) {
         if Self::remove_value(&mut self.available, node) {
             self.inserted.push(node);
         }
     }
 
+    /// Marks a node as deleted by returning it to the available pool.
+    ///
+    /// # Parameters
+    /// - `node`: The node identifier to move into the available pool.
+    ///
+    /// # Invariants
+    /// The available pool is kept sorted for deterministic selection.
     pub(super) fn mark_deleted(&mut self, node: usize) {
         if Self::remove_value(&mut self.inserted, node) {
             self.available.push(node);
