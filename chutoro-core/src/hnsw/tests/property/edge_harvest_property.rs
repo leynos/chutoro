@@ -79,7 +79,9 @@ pub(super) fn run_edge_harvest_determinism_property(
         // non-deterministic insertion order)
         let min_edges = baseline_edges.len().min(edges.len());
         let max_edges = baseline_edges.len().max(edges.len());
-        let tolerance = ((min_edges as f64) * 0.3).max(3.0) as usize;
+        let base_tolerance = ((min_edges as f64) * 0.3).max(3.0) as usize;
+        // Tiny graphs can swing by a full neighbourhood based on insertion order.
+        let tolerance = base_tolerance.max(params.max_connections());
 
         if max_edges > min_edges + tolerance {
             return Err(TestCaseError::fail(format!(
