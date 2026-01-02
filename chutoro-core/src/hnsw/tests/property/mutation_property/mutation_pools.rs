@@ -8,7 +8,8 @@
 //! deterministically. The mutation operations (`mark_inserted`, `mark_deleted`)
 //! preserve the invariant that every node belongs to exactly one pool.
 
-/// Tracks node membership for stateful property tests with two exclusive pools.
+/// Tracks node membership for stateful property tests with two mutually
+/// exclusive pools.
 ///
 /// Inserted nodes are currently present in the HNSW index, while available nodes
 /// are ready to be inserted during mutation steps.
@@ -137,5 +138,61 @@ mod tests {
         assert_eq!(pools.select_available(0), Some(0));
         pools.mark_inserted(2);
         assert_eq!(pools.select_available(0), Some(0));
+    }
+
+    #[rstest]
+    fn mutation_pools_zero_capacity_is_empty() {
+        let pools = MutationPools::new(0);
+        assert_eq!(pools.select_available(0), None);
+        assert_eq!(pools.select_inserted(0), None);
+    }
+
+    #[rstest]
+    fn mutation_pools_bootstrap_clamps_to_capacity() {
+        let mut pools = MutationPools::new(2);
+        let seeded = pools.bootstrap(5);
+        assert_eq!(seeded, vec![0, 1]);
+        assert_eq!(pools.select_available(0), None);
+        assert_eq!(pools.select_inserted(0), Some(0));
+    }
+
+    #[rstest]
+    fn mutation_pools_select_from_empty_pools_returns_none() {
+        let mut pools = MutationPools::new(1);
+        pools.bootstrap(1);
+        assert_eq!(pools.select_available(0), None);
+        pools.mark_deleted(0);
+        assert_eq!(pools.select_inserted(0), None);
+    }
+
+    #[rstest]
+    fn mutation_pools_deleted_nodes_are_sorted() {
+        let mut pools = MutationPools::new(5);
+        pools.bootstrap(5);
+        pools.mark_deleted(4);
+        pools.mark_deleted(1);
+        pools.mark_deleted(3);
+        assert_eq!(pools.select_available(0), Some(1));
+        assert_eq!(pools.select_available(1), Some(3));
+        assert_eq!(pools.select_available(2), Some(4));
+    }
+
+    #[rstest]
+    fn mutation_pools_marking_missing_nodes_is_noop() {
+        let mut pools = MutationPools::new(3);
+        let seeded = pools.bootstrap(1);
+        assert_eq!(seeded, vec![0]);
+        assert_eq!(pools.select_available(0), Some(1));
+        assert_eq!(pools.select_available(1), Some(2));
+        assert_eq!(pools.select_inserted(0), Some(0));
+
+        pools.mark_inserted(0);
+        pools.mark_inserted(9);
+        pools.mark_deleted(2);
+        pools.mark_deleted(9);
+
+        assert_eq!(pools.select_available(0), Some(1));
+        assert_eq!(pools.select_available(1), Some(2));
+        assert_eq!(pools.select_inserted(0), Some(0));
     }
 }
