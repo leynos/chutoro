@@ -21,11 +21,30 @@ use proptest::{
     test_runner::{TestCaseError, TestCaseResult},
 };
 
+use super::graph_topology_tests::{validate_no_self_edge, validate_node_in_bounds};
 use super::types::{EdgeHarvestPlan, HnswFixture};
 use crate::{CpuHnsw, DataSource};
 
 const MIN_EDGE_HARVEST_FIXTURE_LEN: usize = 2;
 const MAX_EDGE_HARVEST_FIXTURE_LEN: usize = 100;
+
+/// Validates that a distance value is finite and non-negative.
+///
+/// Note: This differs from graph topology's `validate_distance` which requires
+/// positive distances. Edge harvest allows zero distances for coincident points.
+fn validate_nonnegative_distance(distance: f32, edge_idx: usize) -> TestCaseResult {
+    if !distance.is_finite() {
+        return Err(TestCaseError::fail(format!(
+            "edge {edge_idx}: non-finite distance {distance}"
+        )));
+    }
+    if distance < 0.0 {
+        return Err(TestCaseError::fail(format!(
+            "edge {edge_idx}: negative distance {distance}"
+        )));
+    }
+    Ok(())
+}
 
 /// Runs the edge harvest consistency property: builds an index multiple times
 /// and verifies the harvested edges have similar characteristics.
@@ -120,48 +139,10 @@ pub(super) fn run_edge_harvest_validity_property(fixture: HnswFixture) -> TestCa
     let num_nodes = index.len();
 
     for (i, edge) in edges.iter().enumerate() {
-        // Valid source reference
-        if edge.source() >= num_nodes {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: source {} out of bounds (num_nodes = {})",
-                edge.source(),
-                num_nodes
-            )));
-        }
-
-        // Valid target reference
-        if edge.target() >= num_nodes {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: target {} out of bounds (num_nodes = {})",
-                edge.target(),
-                num_nodes
-            )));
-        }
-
-        // No self-edges
-        if edge.source() == edge.target() {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: self-edge detected ({} -> {})",
-                edge.source(),
-                edge.target()
-            )));
-        }
-
-        // Finite distance
-        if !edge.distance().is_finite() {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: non-finite distance {}",
-                edge.distance()
-            )));
-        }
-
-        // Non-negative distance
-        if edge.distance() < 0.0 {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: negative distance {}",
-                edge.distance()
-            )));
-        }
+        validate_node_in_bounds(edge.source(), num_nodes, "source", i)?;
+        validate_node_in_bounds(edge.target(), num_nodes, "target", i)?;
+        validate_no_self_edge(edge.source(), edge.target(), i)?;
+        validate_nonnegative_distance(edge.distance(), i)?;
     }
 
     Ok(())
