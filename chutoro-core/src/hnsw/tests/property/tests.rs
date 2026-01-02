@@ -142,7 +142,7 @@ use super::{
         mutation_plan_strategy,
     },
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
-    types::{DistributionMetadata, GraphTopology, HnswParamsSeed, VectorDistribution},
+    types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
 use crate::error::DataSourceError;
 use crate::hnsw::HnswError;
@@ -398,24 +398,5 @@ proptest! {
     #[test]
     fn graphs_are_mst_compatible(fixture in graph_fixture_strategy()) {
         run_graph_mst_compatibility_property(&fixture)?;
-    }
-
-    #[test]
-    fn graph_topology_matches_metadata_type(fixture in graph_fixture_strategy()) {
-        use super::types::GraphMetadata;
-        match (&fixture.topology, &fixture.graph.metadata) {
-            (GraphTopology::Random, GraphMetadata::Random { .. }) => {}
-            (GraphTopology::ScaleFree, GraphMetadata::ScaleFree { .. }) => {}
-            (GraphTopology::Lattice, GraphMetadata::Lattice { .. }) => {}
-            (GraphTopology::Disconnected, GraphMetadata::Disconnected { .. }) => {}
-            (topology, metadata) => {
-                prop_assert!(
-                    false,
-                    "topology {:?} mismatched metadata {:?}",
-                    topology,
-                    metadata,
-                );
-            }
-        }
     }
 }

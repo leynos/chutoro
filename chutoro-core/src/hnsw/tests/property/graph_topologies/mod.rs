@@ -14,6 +14,9 @@ use crate::CandidateEdge;
 
 use super::types::{GeneratedGraph, GraphMetadata};
 
+#[cfg(test)]
+mod tests;
+
 /// Specifies a component's position and size within a disconnected graph.
 ///
 /// Used to reduce parameter count when adding edges within a component.
@@ -236,6 +239,100 @@ fn attach_node_preferentially(
     }
 }
 
+/// Context for lattice graph generation.
+///
+/// Groups lattice configuration parameters to reduce argument count in
+/// helper functions.
+struct LatticeContext {
+    /// Number of rows in the grid.
+    rows: usize,
+    /// Number of columns in the grid.
+    cols: usize,
+    /// Whether diagonal edges are included.
+    with_diagonals: bool,
+}
+
+impl LatticeContext {
+    /// Creates a new lattice context.
+    fn new(rows: usize, cols: usize, with_diagonals: bool) -> Self {
+        Self {
+            rows,
+            cols,
+            with_diagonals,
+        }
+    }
+
+    /// Computes the node index for a given row and column.
+    fn node_id(&self, r: usize, c: usize) -> usize {
+        r * self.cols + c
+    }
+
+    /// Adds edges for a single lattice node to the edge collection.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "uses parameter objects for context; remaining args are mutable state and rng"
+    )]
+    fn add_edges_for_node(
+        &self,
+        rng: &mut SmallRng,
+        edges: &mut Vec<CandidateEdge>,
+        sequence: &mut u64,
+        pos: &LatticePosition,
+    ) {
+        // Right neighbour.
+        if pos.col + 1 < self.cols {
+            let distance = rng.gen_range(0.5_f32..2.0);
+            edges.push(CandidateEdge::new(
+                pos.current,
+                self.node_id(pos.row, pos.col + 1),
+                distance,
+                *sequence,
+            ));
+            *sequence += 1;
+        }
+
+        // Down neighbour.
+        if pos.row + 1 < self.rows {
+            let distance = rng.gen_range(0.5_f32..2.0);
+            edges.push(CandidateEdge::new(
+                pos.current,
+                self.node_id(pos.row + 1, pos.col),
+                distance,
+                *sequence,
+            ));
+            *sequence += 1;
+        }
+
+        // Diagonal neighbours (if enabled).
+        if !self.with_diagonals {
+            return;
+        }
+
+        // Down-right diagonal.
+        if pos.row + 1 < self.rows && pos.col + 1 < self.cols {
+            let distance = rng.gen_range(0.7_f32..2.8);
+            edges.push(CandidateEdge::new(
+                pos.current,
+                self.node_id(pos.row + 1, pos.col + 1),
+                distance,
+                *sequence,
+            ));
+            *sequence += 1;
+        }
+        // Down-left diagonal.
+        if pos.row + 1 < self.rows && pos.col > 0 {
+            let distance = rng.gen_range(0.7_f32..2.8);
+            edges.push(CandidateEdge::new(
+                pos.current,
+                self.node_id(pos.row + 1, pos.col - 1),
+                distance,
+                *sequence,
+            ));
+            *sequence += 1;
+        }
+    }
+}
+
 /// Generates a lattice/grid graph.
 ///
 /// Creates a 2D grid with optional diagonal connections. Rows and columns
@@ -260,23 +357,13 @@ pub(super) fn generate_lattice_graph(rng: &mut SmallRng) -> GeneratedGraph {
     let mut edges = Vec::new();
     let mut sequence = 0u64;
 
-    let node_id = |r: usize, c: usize| r * cols + c;
+    let ctx = LatticeContext::new(rows, cols, with_diagonals);
 
     for r in 0..rows {
         for c in 0..cols {
-            let current = node_id(r, c);
-            add_lattice_edges(
-                rng,
-                &mut edges,
-                &mut sequence,
-                current,
-                r,
-                c,
-                rows,
-                cols,
-                with_diagonals,
-                &node_id,
-            );
+            let current = ctx.node_id(r, c);
+            let pos = LatticePosition::new(current, r, c);
+            ctx.add_edges_for_node(rng, &mut edges, &mut sequence, &pos);
         }
     }
 
@@ -290,70 +377,20 @@ pub(super) fn generate_lattice_graph(rng: &mut SmallRng) -> GeneratedGraph {
     }
 }
 
-/// Adds lattice edges for a single node (extracted to reduce nesting).
-#[allow(clippy::too_many_arguments)]
-fn add_lattice_edges(
-    rng: &mut SmallRng,
-    edges: &mut Vec<CandidateEdge>,
-    sequence: &mut u64,
+/// Represents a position in a 2D lattice grid.
+struct LatticePosition {
+    /// Current node index (computed from row and column).
     current: usize,
-    r: usize,
-    c: usize,
-    rows: usize,
-    cols: usize,
-    with_diagonals: bool,
-    node_id: &impl Fn(usize, usize) -> usize,
-) {
-    // Right neighbour.
-    if c + 1 < cols {
-        let distance = rng.gen_range(0.5_f32..2.0);
-        edges.push(CandidateEdge::new(
-            current,
-            node_id(r, c + 1),
-            distance,
-            *sequence,
-        ));
-        *sequence += 1;
-    }
+    /// Row coordinate.
+    row: usize,
+    /// Column coordinate.
+    col: usize,
+}
 
-    // Down neighbour.
-    if r + 1 < rows {
-        let distance = rng.gen_range(0.5_f32..2.0);
-        edges.push(CandidateEdge::new(
-            current,
-            node_id(r + 1, c),
-            distance,
-            *sequence,
-        ));
-        *sequence += 1;
-    }
-
-    // Diagonal neighbours (if enabled).
-    if !with_diagonals {
-        return;
-    }
-
-    // Down-right diagonal.
-    if r + 1 < rows && c + 1 < cols {
-        let distance = rng.gen_range(0.7_f32..2.8);
-        edges.push(CandidateEdge::new(
-            current,
-            node_id(r + 1, c + 1),
-            distance,
-            *sequence,
-        ));
-        *sequence += 1;
-    }
-    // Down-left diagonal.
-    if r + 1 < rows && c > 0 {
-        let distance = rng.gen_range(0.7_f32..2.8);
-        edges.push(CandidateEdge::new(
-            current,
-            node_id(r + 1, c - 1),
-            distance,
-            *sequence,
-        ));
-        *sequence += 1;
+impl LatticePosition {
+    /// Creates a new lattice position.
+    fn new(current: usize, row: usize, col: usize) -> Self {
+        Self { current, row, col }
     }
 }
 
@@ -483,232 +520,4 @@ fn select_by_degree(
         }
     }
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::hnsw::tests::property::graph_topology_tests::validate_edge;
-    use rand::SeedableRng;
-    use rstest::rstest;
-
-    /// Asserts that all edges in a graph are valid using the centralized validation.
-    fn assert_all_edges_valid(graph: &GeneratedGraph) {
-        for (i, edge) in graph.edges.iter().enumerate() {
-            validate_edge(edge, graph.node_count, i)
-                .unwrap_or_else(|e| panic!("edge validation failed: {e}"));
-        }
-    }
-
-    #[rstest]
-    #[case(42)]
-    #[case(123)]
-    #[case(456)]
-    #[case(789)]
-    fn random_graph_has_valid_structure(#[case] seed: u64) {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let graph = generate_random_graph(&mut rng);
-
-        assert!(graph.node_count >= 4);
-        assert!(graph.node_count <= 64);
-
-        assert_all_edges_valid(&graph);
-    }
-
-    #[rstest]
-    #[case(42)]
-    #[case(123)]
-    #[case(456)]
-    #[case(789)]
-    fn scale_free_graph_has_valid_structure(#[case] seed: u64) {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let graph = generate_scale_free_graph(&mut rng);
-
-        assert!(graph.node_count >= 8);
-        assert!(graph.node_count <= 48);
-
-        assert_all_edges_valid(&graph);
-    }
-
-    #[rstest]
-    #[case(42)]
-    #[case(123)]
-    #[case(456)]
-    #[case(789)]
-    fn lattice_graph_has_valid_structure(#[case] seed: u64) {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let graph = generate_lattice_graph(&mut rng);
-
-        assert!(graph.node_count >= 4);
-        assert!(graph.node_count <= 64);
-
-        assert_all_edges_valid(&graph);
-
-        // Lattice should always produce edges.
-        assert!(!graph.edges.is_empty());
-    }
-
-    #[rstest]
-    #[case(42)]
-    #[case(123)]
-    #[case(456)]
-    #[case(789)]
-    fn disconnected_graph_has_valid_structure(#[case] seed: u64) {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let graph = generate_disconnected_graph(&mut rng);
-
-        assert!(graph.node_count >= 6);
-
-        assert_all_edges_valid(&graph);
-
-        // Verify metadata.
-        if let GraphMetadata::Disconnected {
-            component_count,
-            component_sizes,
-        } = &graph.metadata
-        {
-            assert!(*component_count >= 2);
-            assert_eq!(component_sizes.len(), *component_count);
-            assert_eq!(component_sizes.iter().sum::<usize>(), graph.node_count);
-        } else {
-            panic!("expected Disconnected metadata");
-        }
-    }
-
-    #[rstest]
-    fn lattice_metadata_matches_node_count() {
-        let mut rng = SmallRng::seed_from_u64(999);
-        let graph = generate_lattice_graph(&mut rng);
-
-        if let GraphMetadata::Lattice { dimensions, .. } = &graph.metadata {
-            assert_eq!(dimensions.0 * dimensions.1, graph.node_count);
-        } else {
-            panic!("expected Lattice metadata");
-        }
-    }
-
-    #[rstest]
-    fn random_metadata_matches_node_count() {
-        let mut rng = SmallRng::seed_from_u64(888);
-        let graph = generate_random_graph(&mut rng);
-
-        if let GraphMetadata::Random { node_count, .. } = &graph.metadata {
-            assert_eq!(*node_count, graph.node_count);
-        } else {
-            panic!("expected Random metadata");
-        }
-    }
-
-    #[rstest]
-    fn scale_free_metadata_matches_node_count() {
-        let mut rng = SmallRng::seed_from_u64(777);
-        let graph = generate_scale_free_graph(&mut rng);
-
-        if let GraphMetadata::ScaleFree { node_count, .. } = &graph.metadata {
-            assert_eq!(*node_count, graph.node_count);
-        } else {
-            panic!("expected ScaleFree metadata");
-        }
-    }
-
-    #[rstest]
-    fn scale_free_graph_has_hub_nodes() {
-        // Use a larger graph to observe hub formation.
-        let mut rng = SmallRng::seed_from_u64(12345);
-        // Generate multiple times to find one with enough nodes.
-        for _ in 0..10 {
-            let graph = generate_scale_free_graph(&mut rng);
-            if graph.node_count < 20 {
-                continue;
-            }
-
-            let mut degrees = vec![0usize; graph.node_count];
-            for edge in &graph.edges {
-                degrees[edge.source()] += 1;
-                degrees[edge.target()] += 1;
-            }
-
-            let avg_degree: f64 = degrees.iter().sum::<usize>() as f64 / graph.node_count as f64;
-            let max_degree = *degrees.iter().max().unwrap_or(&0);
-
-            // Scale-free graphs should exhibit hub nodes with degree > average.
-            // Relaxed assertion: max should be at least as large as average.
-            assert!(
-                max_degree as f64 >= avg_degree,
-                "scale-free should have at least one hub: max={max_degree}, avg={avg_degree:.1}"
-            );
-            return;
-        }
-    }
-
-    #[rstest]
-    fn disconnected_graph_has_no_cross_component_edges() {
-        let mut rng = SmallRng::seed_from_u64(54321);
-        let graph = generate_disconnected_graph(&mut rng);
-
-        if let GraphMetadata::Disconnected {
-            component_sizes, ..
-        } = &graph.metadata
-        {
-            // Build node-to-component mapping.
-            let mut node_to_component = vec![0usize; graph.node_count];
-            let mut offset = 0;
-            for (comp_idx, &size) in component_sizes.iter().enumerate() {
-                for i in 0..size {
-                    node_to_component[offset + i] = comp_idx;
-                }
-                offset += size;
-            }
-
-            // Verify no edge crosses components.
-            for edge in &graph.edges {
-                assert_eq!(
-                    node_to_component[edge.source()],
-                    node_to_component[edge.target()],
-                    "edge {edge:?} crosses components",
-                );
-            }
-        }
-    }
-
-    #[rstest]
-    fn lattice_with_diagonals_has_more_edges() {
-        // Generate lattices with and without diagonals and compare edge counts.
-        let mut with_diag_edges = 0usize;
-        let mut without_diag_edges = 0usize;
-        let mut with_diag_count = 0usize;
-        let mut without_diag_count = 0usize;
-
-        for seed in 0..20 {
-            let mut rng = SmallRng::seed_from_u64(seed);
-            let graph = generate_lattice_graph(&mut rng);
-
-            if let GraphMetadata::Lattice { with_diagonals, .. } = &graph.metadata {
-                if *with_diagonals {
-                    with_diag_edges += graph.edges.len();
-                    with_diag_count += 1;
-                } else {
-                    without_diag_edges += graph.edges.len();
-                    without_diag_count += 1;
-                }
-            }
-        }
-
-        // Both variants should occur given 20 samples with ~50% probability each.
-        assert!(
-            with_diag_count > 0 && without_diag_count > 0,
-            "expected both diagonal and non-diagonal lattices to be generated; \
-             with_diag_count={with_diag_count}, without_diag_count={without_diag_count}"
-        );
-
-        // On average, diagonal lattices should have at least as many edges as non-diagonal ones.
-        let avg_with_diag = with_diag_edges as f64 / with_diag_count as f64;
-        let avg_without_diag = without_diag_edges as f64 / without_diag_count as f64;
-
-        assert!(
-            avg_with_diag >= avg_without_diag,
-            "expected lattices with diagonals to be at least as dense as those without; \
-             avg_with_diag={avg_with_diag}, avg_without_diag={avg_without_diag}"
-        );
-    }
 }

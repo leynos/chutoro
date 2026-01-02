@@ -231,7 +231,7 @@ pub(super) enum GraphTopology {
 
 /// Metadata describing how a graph topology was synthesised.
 #[derive(Clone, Debug)]
-#[allow(dead_code, reason = "fields used for debugging and future validation")]
+#[expect(dead_code, reason = "fields used for debugging and future validation")]
 pub(super) enum GraphMetadata {
     /// Erdos-Renyi random graph.
     Random {
