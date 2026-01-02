@@ -362,22 +362,8 @@ fn bootstrap_uniform_fixture_remains_reachable() {
         .expect("bootstrap should preserve reachability");
 }
 
-mod fixtures {
-    use serde::Deserialize;
-
-    #[derive(Deserialize)]
-    struct BootstrapVectors(Vec<Vec<f32>>);
-
-    pub(super) fn load_bootstrap_uniform_vectors_from_fixture() -> Vec<Vec<f32>> {
-        const RAW: &str = include_str!("fixtures/bootstrap_uniform_vectors.json");
-        serde_json::from_str::<BootstrapVectors>(RAW)
-            .expect("bootstrap uniform vectors fixture should parse")
-            .0
-    }
-}
-
 fn bootstrap_uniform_vectors() -> Vec<Vec<f32>> {
-    fixtures::load_bootstrap_uniform_vectors_from_fixture()
+    super::fixtures::load_bootstrap_uniform_vectors_from_fixture()
 }
 
 // ============================================================================

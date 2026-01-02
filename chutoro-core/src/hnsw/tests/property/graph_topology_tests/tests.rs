@@ -194,6 +194,9 @@ fn scale_free_hub_detection(#[case] seed: u64) {
             return;
         }
     }
+    panic!(
+        "failed to generate a scale-free graph with node_count >= 20 after 5 attempts (seed={seed})"
+    );
 }
 
 #[rstest]

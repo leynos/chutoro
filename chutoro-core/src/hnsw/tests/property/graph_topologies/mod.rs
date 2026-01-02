@@ -14,73 +14,14 @@ use crate::CandidateEdge;
 
 use super::types::{GeneratedGraph, GraphMetadata};
 
+mod builders;
 #[cfg(test)]
 mod tests;
 
-/// Specifies a component's position and size within a disconnected graph.
-///
-/// Used to reduce parameter count when adding edges within a component.
-struct ComponentSpec {
-    /// Starting node index for this component.
-    node_offset: usize,
-    /// Number of nodes in this component.
-    size: usize,
-}
-
-impl ComponentSpec {
-    /// Creates a new component specification.
-    fn new(node_offset: usize, size: usize) -> Self {
-        Self { node_offset, size }
-    }
-}
-
-/// Mutable state for graph construction during scale-free generation.
-///
-/// Groups together the mutable references needed for adding edges,
-/// reducing parameter count in helper functions.
-struct GraphBuilder<'a> {
-    /// Collection of edges being built.
-    edges: &'a mut Vec<CandidateEdge>,
-    /// Degree count for each node.
-    degrees: &'a mut [usize],
-    /// Monotonic sequence counter for edge ordering.
-    sequence: &'a mut u64,
-}
-
-impl<'a> GraphBuilder<'a> {
-    /// Creates a new graph builder from mutable references.
-    fn new(
-        edges: &'a mut Vec<CandidateEdge>,
-        degrees: &'a mut [usize],
-        sequence: &'a mut u64,
-    ) -> Self {
-        Self {
-            edges,
-            degrees,
-            sequence,
-        }
-    }
-}
-
-/// Parameters for preferential attachment in scale-free graph generation.
-///
-/// Groups algorithm parameters to reduce argument count in helper functions.
-struct PreferentialAttachmentParams {
-    /// Number of edges to add for each new node.
-    edges_per_new_node: usize,
-    /// Exponent for the power-law degree distribution.
-    exponent: f64,
-}
-
-impl PreferentialAttachmentParams {
-    /// Creates new preferential attachment parameters.
-    fn new(edges_per_new_node: usize, exponent: f64) -> Self {
-        Self {
-            edges_per_new_node,
-            exponent,
-        }
-    }
-}
+use builders::{
+    ComponentSpec, GraphBuilder, LatticeContext, LatticeEdgeBuilder, LatticePosition,
+    PreferentialAttachmentParams,
+};
 
 /// Generates an Erdos-Renyi random graph.
 ///
@@ -239,100 +180,6 @@ fn attach_node_preferentially(
     }
 }
 
-/// Context for lattice graph generation.
-///
-/// Groups lattice configuration parameters to reduce argument count in
-/// helper functions.
-struct LatticeContext {
-    /// Number of rows in the grid.
-    rows: usize,
-    /// Number of columns in the grid.
-    cols: usize,
-    /// Whether diagonal edges are included.
-    with_diagonals: bool,
-}
-
-impl LatticeContext {
-    /// Creates a new lattice context.
-    fn new(rows: usize, cols: usize, with_diagonals: bool) -> Self {
-        Self {
-            rows,
-            cols,
-            with_diagonals,
-        }
-    }
-
-    /// Computes the node index for a given row and column.
-    fn node_id(&self, r: usize, c: usize) -> usize {
-        r * self.cols + c
-    }
-
-    /// Adds edges for a single lattice node to the edge collection.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "uses parameter objects for context; remaining args are mutable state and rng"
-    )]
-    fn add_edges_for_node(
-        &self,
-        rng: &mut SmallRng,
-        edges: &mut Vec<CandidateEdge>,
-        sequence: &mut u64,
-        pos: &LatticePosition,
-    ) {
-        // Right neighbour.
-        if pos.col + 1 < self.cols {
-            let distance = rng.gen_range(0.5_f32..2.0);
-            edges.push(CandidateEdge::new(
-                pos.current,
-                self.node_id(pos.row, pos.col + 1),
-                distance,
-                *sequence,
-            ));
-            *sequence += 1;
-        }
-
-        // Down neighbour.
-        if pos.row + 1 < self.rows {
-            let distance = rng.gen_range(0.5_f32..2.0);
-            edges.push(CandidateEdge::new(
-                pos.current,
-                self.node_id(pos.row + 1, pos.col),
-                distance,
-                *sequence,
-            ));
-            *sequence += 1;
-        }
-
-        // Diagonal neighbours (if enabled).
-        if !self.with_diagonals {
-            return;
-        }
-
-        // Down-right diagonal.
-        if pos.row + 1 < self.rows && pos.col + 1 < self.cols {
-            let distance = rng.gen_range(0.7_f32..2.8);
-            edges.push(CandidateEdge::new(
-                pos.current,
-                self.node_id(pos.row + 1, pos.col + 1),
-                distance,
-                *sequence,
-            ));
-            *sequence += 1;
-        }
-        // Down-left diagonal.
-        if pos.row + 1 < self.rows && pos.col > 0 {
-            let distance = rng.gen_range(0.7_f32..2.8);
-            edges.push(CandidateEdge::new(
-                pos.current,
-                self.node_id(pos.row + 1, pos.col - 1),
-                distance,
-                *sequence,
-            ));
-            *sequence += 1;
-        }
-    }
-}
-
 /// Generates a lattice/grid graph.
 ///
 /// Creates a 2D grid with optional diagonal connections. Rows and columns
@@ -358,12 +205,13 @@ pub(super) fn generate_lattice_graph(rng: &mut SmallRng) -> GeneratedGraph {
     let mut sequence = 0u64;
 
     let ctx = LatticeContext::new(rows, cols, with_diagonals);
+    let mut builder = LatticeEdgeBuilder::new(&mut edges, &mut sequence);
 
     for r in 0..rows {
         for c in 0..cols {
             let current = ctx.node_id(r, c);
             let pos = LatticePosition::new(current, r, c);
-            ctx.add_edges_for_node(rng, &mut edges, &mut sequence, &pos);
+            ctx.add_edges_for_node(rng, &mut builder, &pos);
         }
     }
 
@@ -374,23 +222,6 @@ pub(super) fn generate_lattice_graph(rng: &mut SmallRng) -> GeneratedGraph {
             dimensions: (rows, cols),
             with_diagonals,
         },
-    }
-}
-
-/// Represents a position in a 2D lattice grid.
-struct LatticePosition {
-    /// Current node index (computed from row and column).
-    current: usize,
-    /// Row coordinate.
-    row: usize,
-    /// Column coordinate.
-    col: usize,
-}
-
-impl LatticePosition {
-    /// Creates a new lattice position.
-    fn new(current: usize, row: usize, col: usize) -> Self {
-        Self { current, row, col }
     }
 }
 
@@ -513,11 +344,16 @@ fn select_by_degree(
 
     let threshold = rng.gen_range(0.0..1.0) * total;
     let mut cumulative = 0.0;
-    for (i, w) in weights.iter().enumerate() {
+    let mut last_valid = None;
+    for (i, &w) in weights.iter().enumerate() {
+        if w > 0.0 {
+            last_valid = Some(i);
+        }
         cumulative += w;
         if cumulative >= threshold {
             return Some(i);
         }
     }
-    None
+    // Fallback for floating-point precision edge case where threshold == total.
+    last_valid
 }

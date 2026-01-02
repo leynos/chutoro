@@ -158,6 +158,7 @@ fn scale_free_graph_has_hub_nodes() {
         );
         return;
     }
+    panic!("failed to generate a scale-free graph with node_count >= 20 after 10 attempts");
 }
 
 #[rstest]
