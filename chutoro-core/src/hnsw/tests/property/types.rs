@@ -231,13 +231,16 @@ pub(super) enum GraphTopology {
 
 /// Metadata describing how a graph topology was synthesised.
 #[derive(Clone, Debug)]
-#[expect(dead_code, reason = "fields used for debugging and future validation")]
 pub(super) enum GraphMetadata {
     /// Erdos-Renyi random graph.
     Random {
         /// Number of nodes in the graph.
         node_count: usize,
         /// Edge probability used during generation.
+        #[expect(
+            dead_code,
+            reason = "read for debugging and future validation assertions"
+        )]
         edge_probability: f64,
     },
     /// Scale-free graph using Barabasi-Albert preferential attachment.
@@ -245,8 +248,16 @@ pub(super) enum GraphMetadata {
         /// Number of nodes in the graph.
         node_count: usize,
         /// Number of edges to attach from each new node.
+        #[expect(
+            dead_code,
+            reason = "read for debugging and future validation assertions"
+        )]
         edges_per_new_node: usize,
         /// Exponent of the power-law distribution.
+        #[expect(
+            dead_code,
+            reason = "read for debugging and future validation assertions"
+        )]
         exponent: f64,
     },
     /// Grid/lattice structure.

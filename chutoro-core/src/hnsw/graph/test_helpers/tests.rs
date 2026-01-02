@@ -1,13 +1,30 @@
 //! Tests for graph deletion and reconnection helpers.
 
-use rstest::rstest;
+use rstest::{fixture, rstest};
 
 use crate::hnsw::{HnswError, graph::NodeContext, graph::core::Graph, params::HnswParams};
 
+/// Creates default parameters for most deletion tests (max_connections=2, ef_construction=4).
+#[fixture]
+fn basic_params() -> HnswParams {
+    HnswParams::new(2, 4).expect("params must be valid")
+}
+
+/// Creates a graph with capacity 3 using basic params.
+#[fixture]
+fn small_graph(basic_params: HnswParams) -> Graph {
+    Graph::with_capacity(basic_params, 3)
+}
+
+/// Creates restricted parameters for disconnection tests (max_connections=1, ef_construction=1).
+#[fixture]
+fn restricted_params() -> HnswParams {
+    HnswParams::new(1, 1).expect("params must be valid")
+}
+
 #[rstest]
-fn delete_node_reconnects_neighbours_and_preserves_reachability() {
-    let params = HnswParams::new(2, 4).expect("params must be valid");
-    let mut graph = Graph::with_capacity(params, 3);
+fn delete_node_reconnects_neighbours_and_preserves_reachability(mut small_graph: Graph) {
+    let graph = &mut small_graph;
     graph
         .insert_first(NodeContext {
             node: 0,
@@ -47,10 +64,8 @@ fn delete_node_reconnects_neighbours_and_preserves_reachability() {
 }
 
 #[rstest]
-fn delete_node_returns_ok_false_for_missing_node() {
-    let params = HnswParams::new(2, 4).expect("params must be valid");
-    let mut graph = Graph::with_capacity(params, 3);
-
+fn delete_node_returns_ok_false_for_missing_node(mut small_graph: Graph) {
+    let graph = &mut small_graph;
     graph
         .insert_first(NodeContext {
             node: 0,
@@ -79,11 +94,8 @@ fn delete_node_returns_ok_false_for_missing_node() {
 }
 
 #[rstest]
-fn delete_node_returns_invalid_parameters_for_out_of_bounds_index() {
-    let params = HnswParams::new(2, 4).expect("params must be valid");
-    let mut graph = Graph::with_capacity(params, 3);
-
-    let result = graph.delete_node(5);
+fn delete_node_returns_invalid_parameters_for_out_of_bounds_index(mut small_graph: Graph) {
+    let result = small_graph.delete_node(5);
 
     match result {
         Err(HnswError::InvalidParameters { .. }) => {}
@@ -92,9 +104,8 @@ fn delete_node_returns_invalid_parameters_for_out_of_bounds_index() {
 }
 
 #[rstest]
-fn delete_node_reverts_when_it_would_disconnect_graph() {
-    let params = HnswParams::new(1, 1).expect("params must be valid");
-    let mut graph = Graph::with_capacity(params, 5);
+fn delete_node_reverts_when_it_would_disconnect_graph(restricted_params: HnswParams) {
+    let mut graph = Graph::with_capacity(restricted_params, 5);
     graph
         .insert_first(NodeContext {
             node: 0,

@@ -285,7 +285,10 @@ pub(super) fn run_lattice_regularity_property(fixture: &GraphFixture) -> TestCas
 /// where `result[node]` gives the component index that node belongs to.
 /// Components are assigned sequentially: nodes 0..sizes[0] map to component 0,
 /// nodes sizes[0]..sizes[0]+sizes[1] map to component 1, etc.
-fn build_node_to_component_mapping(component_sizes: &[usize], node_count: usize) -> Vec<usize> {
+pub(super) fn build_node_to_component_mapping(
+    component_sizes: &[usize],
+    node_count: usize,
+) -> Vec<usize> {
     let mut node_to_component = vec![0usize; node_count];
     let mut offset = 0;
     for (comp_idx, &size) in component_sizes.iter().enumerate() {

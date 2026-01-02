@@ -3,7 +3,9 @@
 use rand::{SeedableRng, rngs::SmallRng};
 use rstest::rstest;
 
-use crate::hnsw::tests::property::graph_topology_tests::validate_edge;
+use crate::hnsw::tests::property::graph_topology_tests::{
+    build_node_to_component_mapping, validate_edge,
+};
 use crate::hnsw::tests::property::types::{GeneratedGraph, GraphMetadata};
 
 use super::{
@@ -170,15 +172,7 @@ fn disconnected_graph_has_no_cross_component_edges() {
         component_sizes, ..
     } = &graph.metadata
     {
-        // Build node-to-component mapping.
-        let mut node_to_component = vec![0usize; graph.node_count];
-        let mut offset = 0;
-        for (comp_idx, &size) in component_sizes.iter().enumerate() {
-            for i in 0..size {
-                node_to_component[offset + i] = comp_idx;
-            }
-            offset += size;
-        }
+        let node_to_component = build_node_to_component_mapping(component_sizes, graph.node_count);
 
         // Verify no edge crosses components.
         for edge in &graph.edges {
