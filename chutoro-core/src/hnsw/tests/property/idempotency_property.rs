@@ -247,8 +247,7 @@ mod tests {
 
         assert!(
             matches!(result, Err(HnswError::DuplicateNode { node: 0 })),
-            "duplicate insert must return DuplicateNode error, got {:?}",
-            result
+            "duplicate insert must return DuplicateNode error, got {result:?}"
         );
     }
 }

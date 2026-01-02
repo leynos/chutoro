@@ -11,11 +11,16 @@ use proptest::{
 };
 use tracing::debug;
 
+mod mutation_pools;
+#[cfg(test)]
+mod mutation_property_invariant;
+
 use super::{
     support::DenseVectorSource,
     types::{HnswFixture, HnswParamsSeed, MutationOperationSeed, MutationPlan},
 };
 use crate::{CpuHnsw, DataSource, HnswError, HnswParams};
+use mutation_pools::MutationPools;
 
 const MIN_MUTATION_FIXTURE_LEN: usize = 2;
 const MAX_MUTATION_FIXTURE_LEN: usize = 48;
@@ -135,8 +140,7 @@ fn apply_mutation_steps(
                 "invariants failed after mutation step"
             );
             TestCaseError::fail(format!(
-                "invariants failed after step {step} ({:?}): {err}",
-                operation,
+                "invariants failed after step {step} ({operation:?}): {err}"
             ))
         })?;
         debug!(
@@ -246,67 +250,6 @@ fn mutation_fail(action: &str, node: usize, err: HnswError) -> TestCaseError {
     TestCaseError::fail(format!("{action} node {node} failed: {err}"))
 }
 
-#[derive(Default)]
-struct MutationPools {
-    inserted: Vec<usize>,
-    available: Vec<usize>,
-}
-
-impl MutationPools {
-    fn new(capacity: usize) -> Self {
-        Self {
-            inserted: Vec::new(),
-            available: (0..capacity).collect(),
-        }
-    }
-
-    fn bootstrap(&mut self, count: usize) -> Vec<usize> {
-        let take = count.min(self.available.len());
-        let seeded: Vec<usize> = self.available.drain(0..take).collect();
-        self.inserted.extend(&seeded);
-        seeded
-    }
-
-    fn select_available(&self, hint: u16) -> Option<usize> {
-        Self::select_from(&self.available, hint)
-    }
-
-    fn select_inserted(&self, hint: u16) -> Option<usize> {
-        Self::select_from(&self.inserted, hint)
-    }
-
-    fn mark_inserted(&mut self, node: usize) {
-        if Self::remove_value(&mut self.available, node) {
-            self.inserted.push(node);
-        }
-    }
-
-    fn mark_deleted(&mut self, node: usize) {
-        if Self::remove_value(&mut self.inserted, node) {
-            self.available.push(node);
-            self.available.sort_unstable();
-        }
-    }
-
-    fn select_from(list: &[usize], hint: u16) -> Option<usize> {
-        if list.is_empty() {
-            None
-        } else {
-            let idx = usize::from(hint) % list.len();
-            list.get(idx).copied()
-        }
-    }
-
-    fn remove_value(list: &mut Vec<usize>, value: usize) -> bool {
-        if let Some(position) = list.iter().position(|&candidate| candidate == value) {
-            list.remove(position);
-            true
-        } else {
-            false
-        }
-    }
-}
-
 struct OperationOutcome {
     applied: bool,
     summary: String,
@@ -353,79 +296,6 @@ mod tests {
                 "expected 1 initial element for len=1 and hint={hint}",
             );
         }
-    }
-
-    #[rstest]
-    fn mutation_pools_track_membership() {
-        let mut pools = MutationPools::new(4);
-        let seeded = pools.bootstrap(2);
-        assert_eq!(seeded, vec![0, 1]);
-        assert_eq!(pools.select_available(0), Some(2));
-        assert_eq!(pools.select_inserted(0), Some(0));
-        pools.mark_deleted(0);
-        assert_eq!(pools.select_available(0), Some(0));
-        pools.mark_inserted(2);
-        assert!(pools.select_available(0).is_some());
-    }
-
-    #[test]
-    fn graph_invariant_violation_on_delete_is_reported_as_skipped() {
-        use crate::hnsw::graph::NodeContext;
-        use crate::hnsw::tests::property::support::DenseVectorSource;
-
-        let params = HnswParams::new(1, 1).expect("params must be valid");
-        let mut index = CpuHnsw::with_capacity(params.clone(), 3).expect("index must allocate");
-
-        // Build a graph where deleting the entry node strands an isolated vertex,
-        // forcing delete_node_for_test to surface a GraphInvariantViolation.
-        index
-            .write_graph(|graph| {
-                graph.insert_first(NodeContext {
-                    node: 0,
-                    level: 0,
-                    sequence: 0,
-                })?;
-                graph.attach_node(NodeContext {
-                    node: 1,
-                    level: 0,
-                    sequence: 1,
-                })?;
-                graph.attach_node(NodeContext {
-                    node: 2,
-                    level: 0,
-                    sequence: 2,
-                })?;
-                graph.node_mut(0).expect("node 0").neighbours_mut(0).push(1);
-                graph.node_mut(1).expect("node 1").neighbours_mut(0).push(0);
-                Ok(())
-            })
-            .expect("graph construction must succeed");
-
-        let source = DenseVectorSource::new("stub", vec![vec![0.0_f32]]).expect("source");
-        let mut pools = MutationPools::new(3);
-        pools.mark_inserted(0);
-        let mut active_params = params;
-
-        let mut runner = MutationRunner {
-            index: &mut index,
-            pools: &mut pools,
-            source: &source,
-            active_params: &mut active_params,
-        };
-
-        let outcome = runner
-            .apply(&MutationOperationSeed::Delete { slot_hint: 0 })
-            .expect("delete should not hard-fail");
-
-        assert!(
-            !outcome.applied,
-            "GraphInvariantViolation should yield a skipped mutation, not applied"
-        );
-        assert!(
-            outcome.summary.starts_with("delete aborted:"),
-            "expected skip summary to start with 'delete aborted:', got {}",
-            outcome.summary
-        );
     }
 
     #[rstest]

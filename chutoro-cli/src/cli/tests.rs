@@ -62,9 +62,7 @@ fn assert_text_result_summary(
     let clusters = summary.result.cluster_count();
     assert!(
         clusters >= 1 && clusters <= expected_items,
-        "expected 1..={} clusters for a {}-row input",
-        expected_items,
-        expected_items
+        "expected 1..={expected_items} clusters for a {expected_items}-row input"
     );
     Ok(clusters)
 }
@@ -97,9 +95,8 @@ fn run_text_success() -> TestResult {
 
     assert!(
         clusters_min_2 <= clusters_min_1,
-        "expected min_cluster_size=2 to yield no more clusters than min_cluster_size=1 (got {} vs {})",
-        clusters_min_2,
-        clusters_min_1
+        "expected min_cluster_size=2 to yield no more clusters than \
+         min_cluster_size=1 (got {clusters_min_2} vs {clusters_min_1})"
     );
     assert_ne!(
         clusters_min_1, clusters_min_2,

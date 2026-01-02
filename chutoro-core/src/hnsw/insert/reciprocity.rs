@@ -63,8 +63,7 @@ impl<'graph> ReciprocityAuditor<'graph> {
         assert!(
             origin_neighbours.len() <= origin_limit,
             "reciprocity audit: node {origin} exceeds degree limit {origin_limit} at level \
-             {level}; neighbours {:?}",
-            origin_neighbours,
+             {level}; neighbours {origin_neighbours:?}",
         );
 
         for &target in origin_neighbours {
@@ -98,8 +97,7 @@ impl<'graph> ReciprocityAuditor<'graph> {
         assert!(
             neighbours.len() <= limit,
             "reciprocity audit: node {target} exceeds degree limit {limit} at level {level}; \
-             neighbours {:?}",
-            neighbours,
+             neighbours {neighbours:?}",
         );
     }
 }

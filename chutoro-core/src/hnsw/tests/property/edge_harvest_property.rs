@@ -195,8 +195,7 @@ pub(super) fn run_edge_harvest_coverage_property(fixture: HnswFixture) -> TestCa
     for node in 1..num_nodes {
         if !sources.contains(&node) {
             return Err(TestCaseError::fail(format!(
-                "node {} not covered as edge source (num_nodes = {})",
-                node, num_nodes
+                "node {node} not covered as edge source (num_nodes = {num_nodes})"
             )));
         }
     }
@@ -345,9 +344,7 @@ mod tests {
             assert!(
                 prev.sequence() < curr.sequence()
                     || (prev.sequence() == curr.sequence() && prev <= curr),
-                "edges must be sorted by (sequence, natural Ord): {:?} should come before {:?}",
-                prev,
-                curr
+                "edges must be sorted by (sequence, natural Ord): {prev:?} should come before {curr:?}"
             );
         }
     }
