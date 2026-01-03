@@ -9,7 +9,7 @@
 //! # Running Harnesses
 //!
 //! ```bash
-//! cargo kani -p chutoro-core --harness verify_bidirectional_links_3_nodes_1_layer
+//! cargo kani -p chutoro-core --harness verify_bidirectional_links_commit_path_3_nodes
 //! ```
 //!
 //! Or via the Makefile (practical harnesses):
@@ -34,7 +34,10 @@
 
 use crate::hnsw::{
     graph::{Graph, NodeContext},
-    insert::{KaniUpdateContext, apply_reconciled_update_for_kani, ensure_reverse_edge_for_kani},
+    insert::{
+        KaniCommitContext, KaniCommitUpdate, KaniUpdateContext, apply_commit_updates_for_kani,
+        apply_reconciled_update_for_kani, ensure_reverse_edge_for_kani,
+    },
     invariants::is_bidirectional,
     params::HnswParams,
 };
@@ -74,70 +77,83 @@ fn verify_bidirectional_links_smoke_2_nodes_1_layer() {
 
 /// Verifies that HNSW graph edges are bidirectional (symmetric).
 ///
-/// For a bounded graph with 3 nodes and 1 layer, exhaustively checks that
-/// every edge `(source, target)` has a corresponding reverse edge
-/// `(target, source)` at the same layer.
+/// This harness drives the production commit-path reconciliation logic to
+/// ensure that bidirectional edges and deferred scrubs produce a symmetric
+/// graph for a bounded configuration.
 ///
 /// # Verification Bounds
 ///
 /// - **Nodes**: 3 (IDs 0, 1, 2)
-/// - **Layers**: 1 (base layer only, level 0)
-/// - **Edges**: Nondeterministically populated via `kani::any()`
+/// - **Levels**: 2 (levels 0 and 1) to allow capacity-1 eviction on level 1
+/// - **Edges**: Deterministic setup to trigger a deferred scrub
 ///
 /// # Invariant Under Test
 ///
 /// The bidirectional links invariant states that for every directed edge
-/// `(u, v)` at layer `l`, there must exist a reverse edge `(v, u)` at the
-/// same layer. This is essential for HNSW search correctness.
+/// `(u, v)` at level `l`, there must exist a reverse edge `(v, u)` at the
+/// same level. This is essential for HNSW search correctness.
 ///
 /// # What This Proves
 ///
-/// If this harness passes, Kani has verified that for all 2^6 = 64 possible
-/// edge configurations of a 3-node graph, enforcing bidirectionality via
-/// [`enforce_bidirectional_constraint`] produces a graph where the invariant
-/// holds.
+/// If this harness passes, Kani has verified that the commit-path
+/// reconciliation logic (including deferred scrubs) produces a bidirectional
+/// graph for the bounded configuration.
 #[kani::proof]
 #[kani::unwind(10)]
-fn verify_bidirectional_links_3_nodes_1_layer() {
-    // Create minimal valid HNSW parameters (M=2, ef_construction=2)
-    let params = HnswParams::new(2, 2).expect("params must be valid");
+fn verify_bidirectional_links_commit_path_3_nodes() {
+    // Use max_connections = 1 so level 1 has capacity 1 and can evict.
+    let params = HnswParams::new(1, 2).expect("params must be valid");
+    let max_connections = params.max_connections();
     let mut graph = Graph::with_capacity(params, 3);
 
-    // Insert 3 nodes at level 0
     graph
         .insert_first(NodeContext {
             node: 0,
-            level: 0,
+            level: 1,
             sequence: 0,
         })
         .expect("insert node 0");
     graph
         .attach_node(NodeContext {
             node: 1,
-            level: 0,
+            level: 1,
             sequence: 1,
         })
         .expect("attach node 1");
     graph
         .attach_node(NodeContext {
             node: 2,
-            level: 0,
+            level: 1,
             sequence: 2,
         })
         .expect("attach node 2");
 
-    // Nondeterministically populate edges - Kani explores all combinations
-    populate_edges_nondeterministically(&mut graph);
+    // Seed node 0's level-1 neighbour list so it is at capacity with node 2.
+    add_edge_if_missing(&mut graph, 0, 2, 1);
+    add_edge_if_missing(&mut graph, 2, 0, 1);
 
-    // Enforce bidirectionality: for each edge, ensure reverse exists
-    enforce_bidirectional_constraint(&mut graph);
+    let updates = vec![KaniCommitUpdate {
+        node: 1,
+        level: 1,
+        neighbours: vec![0],
+    }];
 
-    // Assert the bidirectional invariant holds for the final graph state
-    // Uses the shared helper from invariants module to ensure alignment
-    // with the production invariant definition.
+    let ctx = KaniCommitContext::new(0, 1, max_connections);
+    apply_commit_updates_for_kani(&mut graph, ctx, updates)
+        .expect("commit-path updates must succeed");
+
     kani::assert(
         is_bidirectional(&graph),
-        "bidirectional invariant violated: missing reverse edge",
+        "bidirectional invariant violated after commit-path reconciliation",
+    );
+
+    let node_two_has_edge = graph
+        .node(2)
+        .map(|node| node.neighbours(1).contains(&0))
+        .unwrap_or(false);
+    kani::assert(
+        !node_two_has_edge,
+        "deferred scrub should remove evicted forward edge",
     );
 }
 
@@ -248,80 +264,6 @@ fn verify_bidirectional_links_reconciliation_3_nodes_1_layer() {
         is_bidirectional(&graph),
         "bidirectional invariant violated after reconciliation",
     );
-}
-
-/// Populates edges nondeterministically using Kani's symbolic execution.
-///
-/// For a 3-node graph, there are 6 potential directed edges (excluding
-/// self-loops). Each edge is independently decided by `kani::any()`,
-/// resulting in 2^6 = 64 possible edge configurations to verify.
-fn populate_edges_nondeterministically(graph: &mut Graph) {
-    const EDGES: [(usize, usize); 6] = [(0, 1), (0, 2), (1, 0), (1, 2), (2, 0), (2, 1)];
-
-    // Explicit degree bound matching the HNSW M parameter (max_connections).
-    // This helps Kani's bounded model checker by constraining Vec growth.
-    const MAX_DEGREE: usize = 2;
-
-    for (source, target) in EDGES {
-        // Skip this edge if Kani decides not to include it
-        if !kani::any::<bool>() {
-            continue;
-        }
-
-        // Get mutable reference to source node, skip if not found
-        let Some(node) = graph.node_mut(source) else {
-            continue;
-        };
-
-        let neighbours = node.neighbours_mut(0);
-
-        // Skip if already at max degree (bounds state space for Kani)
-        if neighbours.len() >= MAX_DEGREE {
-            continue;
-        }
-
-        // Only add if not already present
-        if !neighbours.contains(&target) {
-            neighbours.push(target);
-        }
-    }
-}
-
-/// Enforces bidirectional constraint: for each edge, ensure reverse exists.
-///
-/// This simulates the reciprocity enforcement that the HNSW insertion
-/// algorithm performs. After this function, every edge should have a
-/// corresponding reverse edge.
-fn enforce_bidirectional_constraint(graph: &mut Graph) {
-    // Collect edges first to avoid borrow conflicts
-    let mut edges_to_add: Vec<(usize, usize)> = Vec::new();
-
-    for (source, node) in graph.nodes_iter() {
-        for &target in node.neighbours(0) {
-            edges_to_add.push((target, source));
-        }
-    }
-
-    // Add reverse edges where missing
-    for (source, target) in edges_to_add {
-        add_reverse_edge_if_missing(graph, source, target);
-    }
-}
-
-/// Adds a reverse edge from `source` to `target` if it doesn't already exist.
-///
-/// This helper abstracts the pattern of conditionally adding an edge,
-/// reducing nesting in the calling code. The degree bound is intentionally
-/// not enforced here since reciprocity enforcement may temporarily exceed
-/// the M parameter before trimming occurs in production code.
-fn add_reverse_edge_if_missing(graph: &mut Graph, source: usize, target: usize) {
-    let node = graph
-        .node_mut(source)
-        .expect("add_reverse_edge_if_missing: source node must exist");
-    let neighbours = node.neighbours_mut(0);
-    if !neighbours.contains(&target) {
-        neighbours.push(target);
-    }
 }
 
 fn add_bidirectional_edge(graph: &mut Graph, origin: usize, target: usize, level: usize) {
