@@ -11,9 +11,14 @@ use super::{
         GeneratedDataset, generate_clustered_dataset, generate_duplicate_dataset,
         generate_manifold_dataset, generate_uniform_dataset,
     },
+    graph_topologies::{
+        generate_disconnected_graph, generate_lattice_graph, generate_random_graph,
+        generate_scale_free_graph,
+    },
     types::{
-        EdgeHarvestPlan, HnswFixture, HnswParamsSeed, IdempotencyPlan, MAX_REBUILD_ATTEMPTS,
-        MIN_REBUILD_ATTEMPTS, MutationOperationSeed, MutationPlan, VectorDistribution,
+        EdgeHarvestPlan, GraphFixture, GraphTopology, HnswFixture, HnswParamsSeed, IdempotencyPlan,
+        MAX_REBUILD_ATTEMPTS, MIN_REBUILD_ATTEMPTS, MutationOperationSeed, MutationPlan,
+        VectorDistribution,
     },
 };
 
@@ -172,4 +177,34 @@ pub(super) fn idempotency_plan_strategy() -> impl Strategy<Value = IdempotencyPl
 )]
 pub(super) fn edge_harvest_plan_strategy() -> impl Strategy<Value = EdgeHarvestPlan> {
     (MIN_REBUILD_ATTEMPTS..=MAX_REBUILD_ATTEMPTS).prop_map(EdgeHarvestPlan::new)
+}
+
+/// Generates graph fixtures covering multiple topologies for edge harvest testing.
+///
+/// Produces graphs with random, scale-free, lattice, and disconnected structures
+/// for testing candidate edge harvest algorithms. All generators guarantee at
+/// least one edge, eliminating the need for filtering.
+///
+/// # Examples
+///
+/// ```ignore
+/// use crate::hnsw::tests::property::strategies::graph_fixture_strategy;
+/// use proptest::prelude::*;
+///
+/// let strategy = graph_fixture_strategy();
+/// proptest!(|(fixture in strategy)| {
+///     prop_assert!(!fixture.graph.edges.is_empty());
+/// });
+/// ```
+pub(super) fn graph_fixture_strategy() -> impl Strategy<Value = GraphFixture> {
+    (any::<GraphTopology>(), any::<u64>()).prop_map(|(topology, seed)| {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let graph = match topology {
+            GraphTopology::Random => generate_random_graph(&mut rng),
+            GraphTopology::ScaleFree => generate_scale_free_graph(&mut rng),
+            GraphTopology::Lattice => generate_lattice_graph(&mut rng),
+            GraphTopology::Disconnected => generate_disconnected_graph(&mut rng),
+        };
+        GraphFixture { topology, graph }
+    })
 }

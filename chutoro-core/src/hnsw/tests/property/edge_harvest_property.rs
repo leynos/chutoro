@@ -21,11 +21,30 @@ use proptest::{
     test_runner::{TestCaseError, TestCaseResult},
 };
 
+use super::graph_topology_tests::{validate_no_self_edge, validate_node_in_bounds};
 use super::types::{EdgeHarvestPlan, HnswFixture};
 use crate::{CpuHnsw, DataSource};
 
 const MIN_EDGE_HARVEST_FIXTURE_LEN: usize = 2;
 const MAX_EDGE_HARVEST_FIXTURE_LEN: usize = 100;
+
+/// Validates that a distance value is finite and non-negative.
+///
+/// Note: This differs from graph topology's `validate_distance` which requires
+/// positive distances. Edge harvest allows zero distances for coincident points.
+fn validate_nonnegative_distance(distance: f32, edge_idx: usize) -> TestCaseResult {
+    if !distance.is_finite() {
+        return Err(TestCaseError::fail(format!(
+            "edge {edge_idx}: non-finite distance {distance}"
+        )));
+    }
+    if distance < 0.0 {
+        return Err(TestCaseError::fail(format!(
+            "edge {edge_idx}: negative distance {distance}"
+        )));
+    }
+    Ok(())
+}
 
 /// Runs the edge harvest consistency property: builds an index multiple times
 /// and verifies the harvested edges have similar characteristics.
@@ -79,7 +98,9 @@ pub(super) fn run_edge_harvest_determinism_property(
         // non-deterministic insertion order)
         let min_edges = baseline_edges.len().min(edges.len());
         let max_edges = baseline_edges.len().max(edges.len());
-        let tolerance = ((min_edges as f64) * 0.3).max(3.0) as usize;
+        let base_tolerance = ((min_edges as f64) * 0.3).max(3.0) as usize;
+        // Tiny graphs can swing by a full neighbourhood based on insertion order.
+        let tolerance = base_tolerance.max(params.max_connections());
 
         if max_edges > min_edges + tolerance {
             return Err(TestCaseError::fail(format!(
@@ -118,48 +139,10 @@ pub(super) fn run_edge_harvest_validity_property(fixture: HnswFixture) -> TestCa
     let num_nodes = index.len();
 
     for (i, edge) in edges.iter().enumerate() {
-        // Valid source reference
-        if edge.source() >= num_nodes {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: source {} out of bounds (num_nodes = {})",
-                edge.source(),
-                num_nodes
-            )));
-        }
-
-        // Valid target reference
-        if edge.target() >= num_nodes {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: target {} out of bounds (num_nodes = {})",
-                edge.target(),
-                num_nodes
-            )));
-        }
-
-        // No self-edges
-        if edge.source() == edge.target() {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: self-edge detected ({} -> {})",
-                edge.source(),
-                edge.target()
-            )));
-        }
-
-        // Finite distance
-        if !edge.distance().is_finite() {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: non-finite distance {}",
-                edge.distance()
-            )));
-        }
-
-        // Non-negative distance
-        if edge.distance() < 0.0 {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: negative distance {}",
-                edge.distance()
-            )));
-        }
+        validate_node_in_bounds(edge.source(), num_nodes, "source", i)?;
+        validate_node_in_bounds(edge.target(), num_nodes, "target", i)?;
+        validate_no_self_edge(edge.source(), edge.target(), i)?;
+        validate_nonnegative_distance(edge.distance(), i)?;
     }
 
     Ok(())
@@ -195,7 +178,7 @@ pub(super) fn run_edge_harvest_coverage_property(fixture: HnswFixture) -> TestCa
     for node in 1..num_nodes {
         if !sources.contains(&node) {
             return Err(TestCaseError::fail(format!(
-                "node {node} not covered as edge source (num_nodes = {num_nodes})"
+                "node {node} not covered as edge source (num_nodes = {num_nodes})",
             )));
         }
     }
@@ -344,7 +327,7 @@ mod tests {
             assert!(
                 prev.sequence() < curr.sequence()
                     || (prev.sequence() == curr.sequence() && prev <= curr),
-                "edges must be sorted by (sequence, natural Ord): {prev:?} should come before {curr:?}"
+                "edges must be sorted by (sequence, natural Ord): {prev:?} should come before {curr:?}",
             );
         }
     }

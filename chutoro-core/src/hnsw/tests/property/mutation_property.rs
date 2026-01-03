@@ -140,7 +140,7 @@ fn apply_mutation_steps(
                 "invariants failed after mutation step"
             );
             TestCaseError::fail(format!(
-                "invariants failed after step {step} ({operation:?}): {err}"
+                "invariants failed after step {step} ({operation:?}): {err}",
             ))
         })?;
         debug!(

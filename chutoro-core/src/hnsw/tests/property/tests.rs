@@ -129,11 +129,18 @@ fn run_idempotency_proptest(config: Config) -> TestCaseResult {
 }
 
 use super::{
+    graph_topology_tests::{
+        run_graph_metadata_consistency_property, run_graph_mst_compatibility_property,
+        run_graph_validity_property,
+    },
     idempotency_property::run_idempotency_property,
     mutation_property::derive_initial_population,
     mutation_property::run_mutation_property,
     search_property::run_search_correctness_property,
-    strategies::{hnsw_fixture_strategy, idempotency_plan_strategy, mutation_plan_strategy},
+    strategies::{
+        graph_fixture_strategy, hnsw_fixture_strategy, idempotency_plan_strategy,
+        mutation_plan_strategy,
+    },
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
@@ -355,20 +362,27 @@ fn bootstrap_uniform_fixture_remains_reachable() {
         .expect("bootstrap should preserve reachability");
 }
 
-mod fixtures {
-    use serde::Deserialize;
-
-    #[derive(Deserialize)]
-    struct BootstrapVectors(Vec<Vec<f32>>);
-
-    pub(super) fn load_bootstrap_uniform_vectors_from_fixture() -> Vec<Vec<f32>> {
-        const RAW: &str = include_str!("fixtures/bootstrap_uniform_vectors.json");
-        serde_json::from_str::<BootstrapVectors>(RAW)
-            .expect("bootstrap uniform vectors fixture should parse")
-            .0
-    }
+fn bootstrap_uniform_vectors() -> Vec<Vec<f32>> {
+    super::fixtures::load_bootstrap_uniform_vectors_from_fixture()
 }
 
-fn bootstrap_uniform_vectors() -> Vec<Vec<f32>> {
-    fixtures::load_bootstrap_uniform_vectors_from_fixture()
+// ============================================================================
+// Graph Topology Property Tests
+// ============================================================================
+
+proptest! {
+    #[test]
+    fn generated_graphs_are_valid(fixture in graph_fixture_strategy()) {
+        run_graph_validity_property(&fixture)?;
+    }
+
+    #[test]
+    fn graph_metadata_is_consistent(fixture in graph_fixture_strategy()) {
+        run_graph_metadata_consistency_property(&fixture)?;
+    }
+
+    #[test]
+    fn graphs_are_mst_compatible(fixture in graph_fixture_strategy()) {
+        run_graph_mst_compatibility_property(&fixture)?;
+    }
 }

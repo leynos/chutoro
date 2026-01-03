@@ -1,8 +1,16 @@
 # .config/nextest.toml
 [profile.default]
+# Limit how many test binaries Nextest runs concurrently. When individual tests
+# spawn internal thread pools (e.g., Rayon), tune this with RAYON_NUM_THREADS
+# to avoid oversubscription.
+test-threads = 8
 # Kill any test once it crosses 60s.
 slow-timeout = { period = "60s", terminate-after = 1, grace-period = "5s" }
 
 # Put a hard ceiling on the whole run.
 global-timeout = "10m"
 
+[[profile.default.overrides]]
+# Property suites can run slower under heavy parallel load.
+filter = "test(/hnsw::tests::property::/)"
+slow-timeout = { period = "120s", terminate-after = 1, grace-period = "5s" }
