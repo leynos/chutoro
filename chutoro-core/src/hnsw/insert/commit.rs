@@ -146,3 +146,6 @@ impl<'graph> CommitApplicator<'graph> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

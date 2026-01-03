@@ -102,7 +102,7 @@ ______________________________________________________________________
 - [x] Add HNSW insertion idempotency property: repeated duplicate insertions
   leave graph state unchanged. (See property-testing-design §2.3.3)
 - [ ] Formal verification (Kani) expansion for HNSW and pipeline invariants:
-  - [ ] Replace the 3-node bidirectionality harness with a commit-path harness
+  - [x] Replace the 3-node bidirectionality harness with a commit-path harness
     that drives reconciliation and deferred scrubs via
     `CommitApplicator::apply_neighbour_updates`.
   - [ ] Add an eviction/deferred-scrub scenario: pre-fill a target neighbour

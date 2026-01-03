@@ -103,19 +103,23 @@ explores larger state spaces.
 
 ### Initial Harness Development
 
-The first harness (`verify_bidirectional_links_3_nodes_1_layer`) demonstrates:
+The first harness (`verify_bidirectional_links_commit_path_3_nodes`)
+demonstrates:
 
 1. **Graph construction works**: `Graph::with_capacity` and `attach_node`
    operate correctly under Kani's symbolic execution without modification
 
-2. **Nondeterministic edges**: `kani::any::<bool>()` effectively generates all
-   edge combinations; Kani explores all 2^6 = 64 configurations
+2. **Commit-path reconciliation**: `CommitApplicator::apply_neighbour_updates`
+   exercises removed-edge reconciliation, reverse-edge insertion, and deferred
+   scrubs without requiring a bespoke harness path
 
-3. **Unwind bounds**: `#[kani::unwind(10)]` provides sufficient headroom for
-   3-node iteration with safety margin
+3. **Eviction coverage**: Running the harness at level 1 with
+   `max_connections = 1` ensures the eviction path is exercised with a bounded,
+   3-node setup
 
-4. **Vec operations supported**: `Vec::push`, `Vec::contains`, and iteration
-   work under Kani; more complex operations may require bounded alternatives
+4. **Precondition assumptions**: Guarding against invalid node ids, invalid
+   levels, and duplicate neighbours keeps the solver focused on production
+   inputs while remaining exhaustive within the bounded space
 
 ### Design Observations
 
@@ -146,10 +150,14 @@ The first harness (`verify_bidirectional_links_3_nodes_1_layer`) demonstrates:
   2-node reconciliation harness completes in ~14 seconds (total ~2m 14s,
   excluding compilation).
 
-- The 3-node exhaustive harness still does not complete within 10 minutes
-  (`cargo kani -p chutoro-core --default-unwind 10 --harness \
-  verify_bidirectional_links_3_nodes_1_layer
-  `), so the 64-configuration proof remains aspirational for now.
+- The previous exhaustive 3-node harness did not complete within 10 minutes.
+  It has since been replaced by the commit-path harness:
+
+    cargo kani -p chutoro-core --default-unwind 10 \
+      --harness verify_bidirectional_links_commit_path_3_nodes
+
+  This harness uses tighter assumptions and deterministic setup to keep Kani
+  practical while still exercising eviction and deferred scrubs.
 
 - The reconciliation coverage is split into a practical 2-node harness that
   calls `ensure_reverse_edge_for_kani` (wrapping
@@ -179,6 +187,17 @@ The first harness (`verify_bidirectional_links_3_nodes_1_layer`) demonstrates:
 - Keep `make kani` as the practical local gate and reserve `make kani-full` for
   a nightly "slow" CI run once it is stable; do not add Kani to normal test
   runs.
+
+### 2026-01-03: Commit-Path Harness Replacement
+
+- Replaced the 3-node bidirectionality harness with a commit-path harness that
+  calls `CommitApplicator::apply_neighbour_updates` and
+  `CommitApplicator::apply_new_node_neighbours`, ensuring deferred scrubs are
+  exercised in the formal model.
+- Moved the harness to level 1 with `max_connections = 1` so eviction occurs
+  in a 3-node graph without increasing the node bound.
+- Added explicit `kani::assume` preconditions in the commit-path helper to
+  align with production invariants and keep Kani runtimes manageable.
 
 ### Verification Targets (Next Invariants)
 
