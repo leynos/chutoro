@@ -24,49 +24,47 @@ fn restricted_params() -> HnswParams {
 
 #[rstest]
 fn delete_node_reconnects_neighbours_and_preserves_reachability(mut small_graph: Graph) {
-    let graph = &mut small_graph;
-    graph
+    small_graph
         .insert_first(NodeContext {
             node: 0,
             level: 0,
             sequence: 0,
         })
         .expect("insert entry");
-    graph
+    small_graph
         .attach_node(NodeContext {
             node: 1,
             level: 0,
             sequence: 1,
         })
         .expect("attach first neighbour");
-    graph
+    small_graph
         .attach_node(NodeContext {
             node: 2,
             level: 0,
             sequence: 2,
         })
         .expect("attach second neighbour");
-    graph.try_add_bidirectional_edge(0, 1, 0);
-    graph.try_add_bidirectional_edge(1, 2, 0);
+    small_graph.try_add_bidirectional_edge(0, 1, 0);
+    small_graph.try_add_bidirectional_edge(1, 2, 0);
 
-    let deleted = graph.delete_node(1).expect("delete must succeed");
+    let deleted = small_graph.delete_node(1).expect("delete must succeed");
 
     assert!(deleted, "node should be removed");
     assert!(
-        graph.node(1).is_none(),
+        small_graph.node(1).is_none(),
         "slot 1 must be cleared after deletion"
     );
-    let node0 = graph.node(0).expect("node 0 must remain");
+    let node0 = small_graph.node(0).expect("node 0 must remain");
     assert_eq!(node0.neighbours(0), &[2], "node 0 must connect to node 2");
-    let node2 = graph.node(2).expect("node 2 must remain");
+    let node2 = small_graph.node(2).expect("node 2 must remain");
     assert_eq!(node2.neighbours(0), &[0], "node 2 must connect to node 0");
-    assert_eq!(graph.entry().map(|entry| entry.node), Some(0));
+    assert_eq!(small_graph.entry().map(|entry| entry.node), Some(0));
 }
 
 #[rstest]
 fn delete_node_returns_ok_false_for_missing_node(mut small_graph: Graph) {
-    let graph = &mut small_graph;
-    graph
+    small_graph
         .insert_first(NodeContext {
             node: 0,
             level: 0,
@@ -74,19 +72,19 @@ fn delete_node_returns_ok_false_for_missing_node(mut small_graph: Graph) {
         })
         .expect("insert entry");
 
-    let first_delete = graph.delete_node(0).expect("delete existing node");
+    let first_delete = small_graph.delete_node(0).expect("delete existing node");
     assert!(
         first_delete,
         "expected Ok(true) when deleting an existing node"
     );
 
-    let second_delete = graph.delete_node(0);
+    let second_delete = small_graph.delete_node(0);
     assert!(
         matches!(second_delete, Ok(false)),
         "expected Ok(false) when deleting a missing node, got {second_delete:?}",
     );
 
-    let third_delete = graph.delete_node(0);
+    let third_delete = small_graph.delete_node(0);
     assert!(
         matches!(third_delete, Ok(false)),
         "expected Ok(false) on repeated deletes of a missing node, got {third_delete:?}",
