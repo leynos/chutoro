@@ -1,7 +1,8 @@
 # .config/nextest.toml
 [profile.default]
-# Limit test concurrency to avoid overwhelming the system when tests also use
-# parallelism internally (e.g., Rayon thread pools within each test).
+# Limit how many test binaries Nextest runs concurrently. When individual tests
+# spawn internal thread pools (e.g., Rayon), tune this with RAYON_NUM_THREADS
+# to avoid oversubscription.
 test-threads = 8
 # Kill any test once it crosses 60s.
 slow-timeout = { period = "60s", terminate-after = 1, grace-period = "5s" }
