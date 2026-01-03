@@ -193,9 +193,8 @@ and the command used to run it.
 ## Interfaces and Dependencies
 
 - `chutoro-core/src/hnsw/insert/commit.rs`:
-  `CommitApplicator::apply_neighbour_updates(
-  final_updates, max_connections,
-  new_node)` remains the single commit-path entry point.
+  `CommitApplicator::apply_neighbour_updates( final_updates, max_connections, new_node)`
+   remains the single commit-path entry point.
 - `chutoro-core/src/hnsw/insert/mod.rs`:
   add a `#[cfg(kani)]` helper (for example, `apply_commit_updates_for_kani`)
   that accepts a list of simple update specs, calls

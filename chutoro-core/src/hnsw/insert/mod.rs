@@ -142,6 +142,83 @@ fn is_deduped(list: &[usize]) -> bool {
     true
 }
 
+#[cfg(kani)]
+fn validate_new_node_for_kani(graph: &crate::hnsw::graph::Graph, ctx: &KaniCommitContext) {
+    let new_node_level_valid = graph
+        .node(ctx.new_node)
+        .map(|node| ctx.new_node_level < node.level_count())
+        .unwrap_or(false);
+    debug_assert!(
+        new_node_level_valid,
+        "Kani commit new node must exist and expose the requested level"
+    );
+    kani::assume(new_node_level_valid);
+}
+
+#[cfg(kani)]
+fn validate_update_for_kani(
+    graph: &crate::hnsw::graph::Graph,
+    update: &KaniCommitUpdate,
+    max_connections: usize,
+) {
+    let origin_exists = graph.node(update.node).is_some();
+    debug_assert!(
+        origin_exists,
+        "Kani commit update origin must exist in the graph"
+    );
+    kani::assume(origin_exists);
+    let origin_node = graph
+        .node(update.node)
+        .expect("Kani commit update origin must exist");
+    let origin_level_valid = update.level < origin_node.level_count();
+    debug_assert!(
+        origin_level_valid,
+        "Kani commit update origin must expose the requested level"
+    );
+    kani::assume(origin_level_valid);
+
+    let deduped = is_deduped(update.neighbours.as_slice());
+    debug_assert!(
+        deduped,
+        "Kani commit update neighbour list must be deduplicated"
+    );
+    kani::assume(deduped);
+
+    let no_self_loops = !update.neighbours.contains(&update.node);
+    debug_assert!(
+        no_self_loops,
+        "Kani commit update neighbours must not contain the origin"
+    );
+    kani::assume(no_self_loops);
+
+    let limit = limits::compute_connection_limit(update.level, max_connections);
+    let within_limit = update.neighbours.len() <= limit;
+    debug_assert!(
+        within_limit,
+        "Kani commit update neighbours must respect connection limits"
+    );
+    kani::assume(within_limit);
+
+    let targets_exist = update.neighbours.iter().all(|&id| graph.node(id).is_some());
+    debug_assert!(
+        targets_exist,
+        "Kani commit update neighbours must exist in the graph"
+    );
+    kani::assume(targets_exist);
+
+    let targets_level_valid = update.neighbours.iter().all(|&id| {
+        graph
+            .node(id)
+            .map(|node| update.level < node.level_count())
+            .unwrap_or(false)
+    });
+    debug_assert!(
+        targets_level_valid,
+        "Kani commit update neighbours must expose the requested level"
+    );
+    kani::assume(targets_level_valid);
+}
+
 /// Applies the full commit-path update sequence for Kani harnesses.
 ///
 /// This helper drives the same reconciliation and deferred scrub logic used in
@@ -154,73 +231,10 @@ pub(crate) fn apply_commit_updates_for_kani(
     ctx: KaniCommitContext,
     updates: Vec<KaniCommitUpdate>,
 ) -> Result<(), crate::hnsw::error::HnswError> {
-    let new_node_level_valid = graph
-        .node(ctx.new_node)
-        .map(|node| ctx.new_node_level < node.level_count())
-        .unwrap_or(false);
-    debug_assert!(
-        new_node_level_valid,
-        "Kani commit new node must exist and expose the requested level"
-    );
-    kani::assume(new_node_level_valid);
+    validate_new_node_for_kani(graph, &ctx);
 
     for update in &updates {
-        let origin_exists = graph.node(update.node).is_some();
-        debug_assert!(
-            origin_exists,
-            "Kani commit update origin must exist in the graph"
-        );
-        kani::assume(origin_exists);
-        let origin_node = graph
-            .node(update.node)
-            .expect("Kani commit update origin must exist");
-        let origin_level_valid = update.level < origin_node.level_count();
-        debug_assert!(
-            origin_level_valid,
-            "Kani commit update origin must expose the requested level"
-        );
-        kani::assume(origin_level_valid);
-
-        let deduped = is_deduped(update.neighbours.as_slice());
-        debug_assert!(
-            deduped,
-            "Kani commit update neighbour list must be deduplicated"
-        );
-        kani::assume(deduped);
-
-        let no_self_loops = !update.neighbours.contains(&update.node);
-        debug_assert!(
-            no_self_loops,
-            "Kani commit update neighbours must not contain the origin"
-        );
-        kani::assume(no_self_loops);
-
-        let limit = limits::compute_connection_limit(update.level, ctx.max_connections);
-        let within_limit = update.neighbours.len() <= limit;
-        debug_assert!(
-            within_limit,
-            "Kani commit update neighbours must respect connection limits"
-        );
-        kani::assume(within_limit);
-
-        let targets_exist = update.neighbours.iter().all(|&id| graph.node(id).is_some());
-        debug_assert!(
-            targets_exist,
-            "Kani commit update neighbours must exist in the graph"
-        );
-        kani::assume(targets_exist);
-
-        let targets_level_valid = update.neighbours.iter().all(|&id| {
-            graph
-                .node(id)
-                .map(|node| update.level < node.level_count())
-                .unwrap_or(false)
-        });
-        debug_assert!(
-            targets_level_valid,
-            "Kani commit update neighbours must expose the requested level"
-        );
-        kani::assume(targets_level_valid);
+        validate_update_for_kani(graph, update, ctx.max_connections);
     }
 
     let final_updates: Vec<types::FinalisedUpdate> = updates
