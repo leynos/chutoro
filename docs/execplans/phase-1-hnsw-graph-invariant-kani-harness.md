@@ -59,9 +59,9 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 Contents:
 
 - Module-level `//!` documentation explaining purpose
-- `verify_bidirectional_links_smoke_2_nodes_1_layer` harness with:
+- The `verify_bidirectional_links_smoke_2_nodes_1_layer` harness includes:
   - Deterministic 2-node setup to validate the Kani toolchain
-- `verify_bidirectional_links_commit_path_3_nodes` harness with:
+- The `verify_bidirectional_links_commit_path_3_nodes` harness includes:
   - `#[kani::proof]` attribute
   - `#[kani::unwind(10)]` for loop bounds
   - Graph setup with 3 nodes at level 1 to allow eviction at capacity 1

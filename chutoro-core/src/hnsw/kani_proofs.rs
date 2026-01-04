@@ -33,10 +33,11 @@
 //! verification strategy.
 
 use crate::hnsw::{
-    graph::{Graph, NodeContext},
+    graph::{EdgeContext, Graph, NodeContext},
     insert::{
-        KaniCommitContext, KaniCommitUpdate, KaniUpdateContext, apply_commit_updates_for_kani,
-        apply_reconciled_update_for_kani, ensure_reverse_edge_for_kani,
+        FinalisedUpdate, KaniUpdateContext, NewNodeContext, StagedUpdate,
+        apply_commit_updates_for_kani, apply_reconciled_update_for_kani,
+        ensure_reverse_edge_for_kani,
     },
     invariants::is_bidirectional,
     params::HnswParams,
@@ -132,14 +133,18 @@ fn verify_bidirectional_links_commit_path_3_nodes() {
     add_edge_if_missing(&mut graph, 0, 2, 1);
     add_edge_if_missing(&mut graph, 2, 0, 1);
 
-    let updates = vec![KaniCommitUpdate {
-        node: 1,
+    let update_ctx = EdgeContext {
         level: 1,
-        neighbours: vec![0],
-    }];
-
-    let ctx = KaniCommitContext::new(0, 1, max_connections);
-    apply_commit_updates_for_kani(&mut graph, ctx, updates)
+        max_connections,
+    };
+    let staged = StagedUpdate {
+        node: 1,
+        ctx: update_ctx,
+        candidates: vec![0],
+    };
+    let updates: Vec<FinalisedUpdate> = vec![(staged, vec![0])];
+    let new_node = NewNodeContext { id: 1, level: 1 };
+    apply_commit_updates_for_kani(&mut graph, max_connections, new_node, updates)
         .expect("commit-path updates must succeed");
 
     kani::assert(

@@ -9,11 +9,12 @@ PLANS.md is not present in this repository (checked with
 
 ## Purpose / Big Picture
 
-We want the formal verification harness for bidirectional HNSW edges to follow
-real production behaviour, not a simplified path. The current 3-node harness
-manually enforces reciprocity; the new harness should run the same commit path
-that production code uses, including deferred scrubs and reconciliation. A
-successful change means the Kani harness proves the invariant using
+The goal is for the formal verification harness for bidirectional Hierarchical
+Navigable Small World (HNSW) edges to follow real production behaviour, not a
+simplified path. The current 3-node harness manually enforces reciprocity; the
+new harness should run the same commit path that production code uses,
+including deferred scrubs and reconciliation. A successful change means the
+Kani harness proves the invariant using
 `CommitApplicator::apply_neighbour_updates`, unit tests cover happy/unhappy
 paths for this commit flow, and the Phase 1 roadmap entry is marked as done.
 
@@ -74,13 +75,13 @@ not public, a small Kani-only wrapper in `chutoro-core/src/hnsw/insert/mod.rs`
 is needed to expose the commit path to the harness.
 
 The tests for insertion commit logic live in
-`chutoro-core/src/hnsw/insert/executor/tests/mod.rs`. You may add a new test
-module under `chutoro-core/src/hnsw/insert/commit/` if it keeps files under the
-400-line limit. Use `rstest` fixtures and parameterised cases as described in
+`chutoro-core/src/hnsw/insert/executor/tests/mod.rs`. A new test module may be
+added under `chutoro-core/src/hnsw/insert/commit/` if it keeps files under the
+400-line limit. Use `rstest` fixtures and parameterized cases as described in
 `docs/rust-testing-with-rstest-fixtures.md`. Keep functions small and avoid
 complex conditionals per
-`docs/complexity-antipatterns-and-refactoring-strategies.md`. If you add new
-Rustdoc examples, follow `docs/rust-doctest-dry-guide.md` to avoid brittle
+`docs/complexity-antipatterns-and-refactoring-strategies.md`. If new Rustdoc
+examples are added, follow `docs/rust-doctest-dry-guide.md` to avoid brittle
 doctests.
 
 ## Plan of Work

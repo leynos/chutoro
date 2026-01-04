@@ -20,6 +20,8 @@ mod types;
 
 pub(super) use executor::{InsertionExecutor, TrimJob, TrimResult};
 pub(super) use planner::{InsertionPlanner, PlanningInputs};
+#[cfg(kani)]
+pub(crate) use types::{FinalisedUpdate, NewNodeContext, StagedUpdate};
 
 use crate::hnsw::types::{CandidateEdge, InsertionPlan};
 
@@ -103,35 +105,6 @@ impl KaniUpdateContext {
     }
 }
 
-/// Describes a finalised neighbour update for Kani commit-path harnesses.
-#[cfg(kani)]
-#[derive(Clone, Debug)]
-pub(crate) struct KaniCommitUpdate {
-    pub(crate) node: usize,
-    pub(crate) level: usize,
-    pub(crate) neighbours: Vec<usize>,
-}
-
-/// Captures the new-node context for Kani commit-path harnesses.
-#[cfg(kani)]
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct KaniCommitContext {
-    pub(crate) new_node: usize,
-    pub(crate) new_node_level: usize,
-    pub(crate) max_connections: usize,
-}
-
-#[cfg(kani)]
-impl KaniCommitContext {
-    pub(crate) fn new(new_node: usize, new_node_level: usize, max_connections: usize) -> Self {
-        Self {
-            new_node,
-            new_node_level,
-            max_connections,
-        }
-    }
-}
-
 #[cfg(kani)]
 fn is_deduped(list: &[usize]) -> bool {
     for (idx, value) in list.iter().enumerate() {
@@ -143,10 +116,10 @@ fn is_deduped(list: &[usize]) -> bool {
 }
 
 #[cfg(kani)]
-fn validate_new_node_for_kani(graph: &crate::hnsw::graph::Graph, ctx: &KaniCommitContext) {
+fn validate_new_node_for_kani(graph: &crate::hnsw::graph::Graph, new_node: &types::NewNodeContext) {
     let new_node_level_valid = graph
-        .node(ctx.new_node)
-        .map(|node| ctx.new_node_level < node.level_count())
+        .node(new_node.id)
+        .map(|node| new_node.level < node.level_count())
         .unwrap_or(false);
     debug_assert!(
         new_node_level_valid,
@@ -158,60 +131,65 @@ fn validate_new_node_for_kani(graph: &crate::hnsw::graph::Graph, ctx: &KaniCommi
 #[cfg(kani)]
 fn validate_update_for_kani(
     graph: &crate::hnsw::graph::Graph,
-    update: &KaniCommitUpdate,
+    update: &types::FinalisedUpdate,
     max_connections: usize,
 ) {
-    let origin_exists = graph.node(update.node).is_some();
+    let (staged, neighbours) = update;
+    let origin_node = graph.node(staged.node);
+    let origin_exists = origin_node.is_some();
     debug_assert!(
         origin_exists,
         "Kani commit update origin must exist in the graph"
     );
     kani::assume(origin_exists);
-    let origin_node = graph
-        .node(update.node)
-        .expect("Kani commit update origin must exist");
-    let origin_level_valid = update.level < origin_node.level_count();
+    let origin_level_valid = origin_node
+        .map(|node| staged.ctx.level < node.level_count())
+        .unwrap_or(false);
     debug_assert!(
         origin_level_valid,
         "Kani commit update origin must expose the requested level"
     );
     kani::assume(origin_level_valid);
 
-    let deduped = is_deduped(update.neighbours.as_slice());
+    let deduped = is_deduped(neighbours.as_slice());
     debug_assert!(
         deduped,
         "Kani commit update neighbour list must be deduplicated"
     );
     kani::assume(deduped);
 
-    let no_self_loops = !update.neighbours.contains(&update.node);
+    let no_self_loops = !neighbours.contains(&staged.node);
     debug_assert!(
         no_self_loops,
         "Kani commit update neighbours must not contain the origin"
     );
     kani::assume(no_self_loops);
 
-    let limit = limits::compute_connection_limit(update.level, max_connections);
-    let within_limit = update.neighbours.len() <= limit;
+    let limit = limits::compute_connection_limit(staged.ctx.level, max_connections);
+    let within_limit = neighbours.len() <= limit;
     debug_assert!(
         within_limit,
         "Kani commit update neighbours must respect connection limits"
     );
     kani::assume(within_limit);
 
-    let targets_exist = update.neighbours.iter().all(|&id| graph.node(id).is_some());
+    let mut targets_exist = true;
+    let mut targets_level_valid = true;
+    for &id in neighbours {
+        let candidate = graph.node(id);
+        let exists = candidate.is_some();
+        targets_exist &= exists;
+        let level_valid = candidate
+            .map(|node| staged.ctx.level < node.level_count())
+            .unwrap_or(false);
+        targets_level_valid &= level_valid;
+    }
     debug_assert!(
         targets_exist,
         "Kani commit update neighbours must exist in the graph"
     );
     kani::assume(targets_exist);
 
-    let targets_level_valid = update.neighbours.iter().all(|&id| {
-        graph
-            .node(id)
-            .map(|node| update.level < node.level_count())
-            .unwrap_or(false)
-    });
     debug_assert!(
         targets_level_valid,
         "Kani commit update neighbours must expose the requested level"
@@ -228,40 +206,20 @@ fn validate_update_for_kani(
 #[cfg(kani)]
 pub(crate) fn apply_commit_updates_for_kani(
     graph: &mut crate::hnsw::graph::Graph,
-    ctx: KaniCommitContext,
-    updates: Vec<KaniCommitUpdate>,
+    max_connections: usize,
+    new_node: types::NewNodeContext,
+    updates: Vec<types::FinalisedUpdate>,
 ) -> Result<(), crate::hnsw::error::HnswError> {
-    validate_new_node_for_kani(graph, &ctx);
+    validate_new_node_for_kani(graph, &new_node);
 
     for update in &updates {
-        validate_update_for_kani(graph, update, ctx.max_connections);
+        validate_update_for_kani(graph, update, max_connections);
     }
-
-    let final_updates: Vec<types::FinalisedUpdate> = updates
-        .into_iter()
-        .map(|update| {
-            let ctx = crate::hnsw::graph::EdgeContext {
-                level: update.level,
-                max_connections: ctx.max_connections,
-            };
-            let staged = types::StagedUpdate {
-                node: update.node,
-                ctx,
-                candidates: update.neighbours.clone(),
-            };
-            (staged, update.neighbours)
-        })
-        .collect();
-
-    let new_node = types::NewNodeContext {
-        id: ctx.new_node,
-        level: ctx.new_node_level,
-    };
 
     let mut applicator = commit::CommitApplicator::new(graph);
     let (reciprocated, _touched) =
-        applicator.apply_neighbour_updates(final_updates, ctx.max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(ctx.new_node, ctx.new_node_level, reciprocated)?;
+        applicator.apply_neighbour_updates(updates, max_connections, new_node)?;
+    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
 
     Ok(())
 }

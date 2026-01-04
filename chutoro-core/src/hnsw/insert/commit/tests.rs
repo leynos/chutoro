@@ -1,5 +1,7 @@
 //! Commit-path tests for neighbour updates and deferred scrubs.
 
+use super::super::limits;
+use super::super::test_helpers::{add_edge_if_missing, assert_no_edge};
 use super::CommitApplicator;
 use crate::hnsw::{
     error::HnswError,
@@ -36,16 +38,6 @@ fn insert_node(
     Ok(())
 }
 
-fn add_edge(graph: &mut Graph, from: usize, to: usize, level: usize) {
-    let list = graph
-        .node_mut(from)
-        .unwrap_or_else(|| panic!("node {from} should exist"))
-        .neighbours_mut(level);
-    if !list.contains(&to) {
-        list.push(to);
-    }
-}
-
 fn assert_bidirectional_edge(graph: &Graph, node_a: usize, node_b: usize, level: usize) {
     let a = graph
         .node(node_a)
@@ -65,17 +57,6 @@ fn assert_bidirectional_edge(graph: &Graph, node_a: usize, node_b: usize, level:
         b.neighbours(level).contains(&node_a),
         "expected edge {node_b}->{node_a} at level {level}",
     );
-}
-
-fn assert_no_edge(graph: &Graph, from: usize, to: usize, level: usize) {
-    if let Some(node) = graph.node(from) {
-        if level < node.level_count() {
-            assert!(
-                !node.neighbours(level).contains(&to),
-                "unexpected edge {from}->{to} at level {level}",
-            );
-        }
-    }
 }
 
 fn build_update(
@@ -110,8 +91,8 @@ fn commit_updates_write_reciprocal_edges(
     insert_node(&mut graph, 1, level, 1)?;
     insert_node(&mut graph, 2, level, 2)?;
 
-    add_edge(&mut graph, 0, 1, level);
-    add_edge(&mut graph, 1, 0, level);
+    add_edge_if_missing(&mut graph, 0, 1, level);
+    add_edge_if_missing(&mut graph, 1, 0, level);
 
     let update = build_update(0, level, vec![1, 2], max_connections);
     let new_node = NewNodeContext { id: 2, level };
@@ -138,8 +119,8 @@ fn commit_updates_scrub_evicted_forward_edge() -> Result<(), HnswError> {
     insert_node(&mut graph, 2, 1, 2)?;
     insert_node(&mut graph, 3, 1, 3)?;
 
-    add_edge(&mut graph, 1, 2, 1);
-    add_edge(&mut graph, 2, 1, 1);
+    add_edge_if_missing(&mut graph, 1, 2, 1);
+    add_edge_if_missing(&mut graph, 2, 1, 1);
 
     let update = build_update(0, 1, vec![1], max_connections);
     let new_node = NewNodeContext { id: 3, level: 1 };
@@ -148,6 +129,17 @@ fn commit_updates_scrub_evicted_forward_edge() -> Result<(), HnswError> {
     let (reciprocated, _) =
         applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
     applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+
+    let limit = limits::compute_connection_limit(1, max_connections);
+    for node_id in [0, 1, 2, 3] {
+        let node = graph
+            .node(node_id)
+            .unwrap_or_else(|| panic!("node {node_id} should exist"));
+        assert!(
+            node.neighbours(1).len() <= limit,
+            "expected node {node_id} to respect level-1 connection limit",
+        );
+    }
 
     assert_bidirectional_edge(&graph, 0, 1, 1);
     assert_no_edge(&graph, 2, 1, 1);
