@@ -144,11 +144,15 @@ fn assume_node_has_level(
 }
 
 #[cfg(kani)]
+/// Validates that the new node exists, exposes the level, and has deduplicated
+/// neighbours at that level.
 fn validate_new_node_for_kani(graph: &crate::hnsw::graph::Graph, new_node: &types::NewNodeContext) {
     assume_node_has_level(graph, new_node.id, new_node.level, "Kani commit new node");
 }
 
 #[cfg(kani)]
+/// Validates the origin node state, neighbour list structure, and target nodes
+/// for commit-path updates.
 fn validate_update_for_kani(
     graph: &crate::hnsw::graph::Graph,
     update: &types::FinalisedUpdate,
@@ -184,19 +188,23 @@ fn validate_update_for_kani(
     );
     kani::assume(within_limit);
 
-    let targets_exist = neighbours.iter().all(|&id| graph.node(id).is_some());
+    let mut targets_exist = true;
+    let mut targets_level_valid = true;
+    for &id in neighbours {
+        let candidate = graph.node(id);
+        let exists = candidate.is_some();
+        targets_exist &= exists;
+        let level_valid = candidate
+            .map(|node| staged.ctx.level < node.level_count())
+            .unwrap_or(false);
+        targets_level_valid &= level_valid;
+    }
     debug_assert!(
         targets_exist,
         "Kani commit update neighbours must exist in the graph"
     );
     kani::assume(targets_exist);
 
-    let targets_level_valid = neighbours.iter().all(|&id| {
-        graph
-            .node(id)
-            .map(|node| staged.ctx.level < node.level_count())
-            .unwrap_or(false)
-    });
     debug_assert!(
         targets_level_valid,
         "Kani commit update neighbours must expose the requested level"
@@ -266,9 +274,11 @@ pub(crate) fn apply_reconciled_update_for_kani(
     assume_node_has_level(graph, ctx.origin, ctx.level, "Kani update origin");
     let previous = graph
         .node(ctx.origin)
-        .expect("Kani update origin must exist in the graph")
-        .neighbours(ctx.level)
-        .to_vec();
+        .map(|node| node.neighbours(ctx.level).to_vec())
+        .unwrap_or_else(|| {
+            debug_assert!(false, "Kani update origin must exist in the graph");
+            Vec::new()
+        });
 
     let next_deduped = is_deduped(next);
     debug_assert!(next_deduped, "Kani update next list must be deduplicated");
