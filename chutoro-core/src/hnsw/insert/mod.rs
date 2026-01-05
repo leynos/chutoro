@@ -105,6 +105,9 @@ impl KaniUpdateContext {
     }
 }
 
+/// Checks whether a slice contains no duplicate elements.
+///
+/// Returns `true` if every element appears exactly once.
 #[cfg(kani)]
 fn is_deduped(list: &[usize]) -> bool {
     for (idx, value) in list.iter().enumerate() {
