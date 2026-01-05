@@ -68,9 +68,11 @@ Contents:
   - Commit-path reconciliation via `CommitApplicator::apply_neighbour_updates`
   - Deferred scrub scenario to validate eviction cleanup
   - Invariant assertion using `kani::assert`
-- `verify_bidirectional_links_reconciliation_2_nodes_1_layer` harness with:
+- The `verify_bidirectional_links_reconciliation_2_nodes_1_layer` harness
+  includes:
   - Production reconciliation path via `ensure_reverse_edge_for_kani`
-- `verify_bidirectional_links_reconciliation_3_nodes_1_layer` harness with:
+- The `verify_bidirectional_links_reconciliation_3_nodes_1_layer` harness
+  includes:
   - Heavier reconciliation path via `apply_reconciled_update_for_kani`
 - Helper functions: `add_bidirectional_edge`, `add_edge_if_missing`, and
   `push_if_absent`

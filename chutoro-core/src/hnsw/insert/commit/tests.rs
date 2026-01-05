@@ -39,12 +39,10 @@ fn insert_node(
 }
 
 fn assert_bidirectional_edge(graph: &Graph, node_a: usize, node_b: usize, level: usize) {
-    let a = graph
-        .node(node_a)
-        .unwrap_or_else(|| panic!("node {node_a} should exist"));
-    let b = graph
-        .node(node_b)
-        .unwrap_or_else(|| panic!("node {node_b} should exist"));
+    let a_msg = format!("node {node_a} should exist");
+    let a = graph.node(node_a).expect(&a_msg);
+    let b_msg = format!("node {node_b} should exist");
+    let b = graph.node(node_b).expect(&b_msg);
     assert!(
         a.level_count() > level && b.level_count() > level,
         "both nodes must expose level {level}",
@@ -132,9 +130,8 @@ fn commit_updates_scrub_evicted_forward_edge() -> Result<(), HnswError> {
 
     let limit = limits::compute_connection_limit(1, max_connections);
     for node_id in [0, 1, 2, 3] {
-        let node = graph
-            .node(node_id)
-            .unwrap_or_else(|| panic!("node {node_id} should exist"));
+        let node_msg = format!("node {node_id} should exist");
+        let node = graph.node(node_id).expect(&node_msg);
         assert!(
             node.neighbours(1).len() <= limit,
             "expected node {node_id} to respect level-1 connection limit",

@@ -37,7 +37,7 @@ use crate::hnsw::{
     insert::{
         FinalisedUpdate, KaniUpdateContext, NewNodeContext, StagedUpdate,
         apply_commit_updates_for_kani, apply_reconciled_update_for_kani,
-        ensure_reverse_edge_for_kani,
+        ensure_reverse_edge_for_kani, test_helpers::add_edge_if_missing,
     },
     invariants::is_bidirectional,
     params::HnswParams,
@@ -274,16 +274,6 @@ fn verify_bidirectional_links_reconciliation_3_nodes_1_layer() {
 fn add_bidirectional_edge(graph: &mut Graph, origin: usize, target: usize, level: usize) {
     add_edge_if_missing(graph, origin, target, level);
     add_edge_if_missing(graph, target, origin, level);
-}
-
-fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usize, level: usize) {
-    let node = graph
-        .node_mut(origin)
-        .expect("add_edge_if_missing: origin node must exist in the graph");
-    let neighbours = node.neighbours_mut(level);
-    if !neighbours.contains(&target) {
-        neighbours.push(target);
-    }
 }
 
 fn push_if_absent(list: &mut Vec<usize>, value: usize) {
