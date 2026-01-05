@@ -6,7 +6,11 @@
 mod trimming_fixtures;
 
 use super::*;
-use crate::hnsw::insert::{reconciliation::EdgeReconciler, test_helpers::TestHelpers, types};
+use crate::hnsw::insert::{
+    reconciliation::EdgeReconciler,
+    test_helpers::{TestHelpers, add_edge_if_missing, assert_no_edge},
+    types,
+};
 use crate::hnsw::{
     error::HnswError,
     graph::{ApplyContext, Graph, NodeContext},
@@ -45,16 +49,6 @@ fn attach_test_node(graph: &mut Graph, node: usize, level: usize, sequence: u64)
         .expect("attach node");
 }
 
-fn add_edge(graph: &mut Graph, from: usize, to: usize, level: usize) {
-    let list = graph
-        .node_mut(from)
-        .unwrap_or_else(|| panic!("node {from} should be present"))
-        .neighbours_mut(level);
-    if !list.contains(&to) {
-        list.push(to);
-    }
-}
-
 fn assert_bidirectional_edge(graph: &Graph, node_a: usize, node_b: usize, level: usize) {
     let a = graph
         .node(node_a)
@@ -74,17 +68,6 @@ fn assert_bidirectional_edge(graph: &Graph, node_a: usize, node_b: usize, level:
         b.neighbours(level).contains(&node_a),
         "expected edge {node_b}->{node_a} at level {level}",
     );
-}
-
-fn assert_no_edge(graph: &Graph, from: usize, to: usize, level: usize) {
-    if let Some(node) = graph.node(from) {
-        if level < node.level_count() {
-            assert!(
-                !node.neighbours(level).contains(&to),
-                "unexpected edge {from}->{to} at level {level}",
-            );
-        }
-    }
 }
 
 #[test]
@@ -163,7 +146,7 @@ fn commit_inlines_reciprocity(
 
     attach_test_node(&mut graph, 1, 0, 1);
 
-    add_edge(&mut graph, 0, 1, seed_edge_level);
+    add_edge_if_missing(&mut graph, 0, 1, seed_edge_level);
 
     let mut layers = vec![LayerPlan {
         level: 0,
@@ -226,7 +209,7 @@ fn enforce_bidirectional_all_adds_upper_layer_backlink() {
     insert_entry_node(&mut graph, 1);
     attach_test_node(&mut graph, 1, 1, 1);
 
-    add_edge(&mut graph, 0, 1, 1);
+    add_edge_if_missing(&mut graph, 0, 1, 1);
 
     TestHelpers::new(&mut graph).enforce_bidirectional_all(2);
 
@@ -240,7 +223,7 @@ fn enforce_bidirectional_all_removes_invalid_upper_edge() {
     attach_test_node(&mut graph, 1, 0, 1);
 
     // One-way edge exists at level 1, but target only has level 0.
-    add_edge(&mut graph, 0, 1, 1);
+    add_edge_if_missing(&mut graph, 0, 1, 1);
 
     TestHelpers::new(&mut graph).enforce_bidirectional_all(2);
 

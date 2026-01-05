@@ -118,9 +118,9 @@ fn is_deduped(list: &[usize]) -> bool {
     true
 }
 
-#[cfg(kani)]
 /// Assumes the node exists, exposes the requested level, and has a deduplicated
 /// neighbour list at that level.
+#[cfg(kani)]
 fn assume_node_has_level(
     graph: &crate::hnsw::graph::Graph,
     node_id: usize,
@@ -143,16 +143,16 @@ fn assume_node_has_level(
     kani::assume(neighbours_deduped);
 }
 
-#[cfg(kani)]
 /// Validates that the new node exists, exposes the level, and has deduplicated
 /// neighbours at that level.
+#[cfg(kani)]
 fn validate_new_node_for_kani(graph: &crate::hnsw::graph::Graph, new_node: &types::NewNodeContext) {
     assume_node_has_level(graph, new_node.id, new_node.level, "Kani commit new node");
 }
 
-#[cfg(kani)]
 /// Validates the origin node state, neighbour list structure, and target nodes
 /// for commit-path updates.
+#[cfg(kani)]
 fn validate_update_for_kani(
     graph: &crate::hnsw::graph::Graph,
     update: &types::FinalisedUpdate,
