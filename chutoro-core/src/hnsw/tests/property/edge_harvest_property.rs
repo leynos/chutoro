@@ -195,8 +195,11 @@ mod tests {
     use rayon::ThreadPoolBuilder;
     use rstest::rstest;
 
-    const EDGE_HARVEST_TEST_RAYON_THREADS: usize = 2;
+    const EDGE_HARVEST_TEST_RAYON_THREADS: usize = 2; // Limit Rayon threads to reduce flakiness.
 
+    /// Builds a dedicated Rayon thread pool with EDGE_HARVEST_TEST_RAYON_THREADS
+    /// threads and runs the provided closure on it to limit edge-harvest test
+    /// concurrency for improved stability. Test-only helper.
     fn with_edge_harvest_pool<T: Send>(f: impl FnOnce() -> T + Send) -> T {
         let pool = ThreadPoolBuilder::new()
             .num_threads(EDGE_HARVEST_TEST_RAYON_THREADS)
