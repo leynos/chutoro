@@ -50,9 +50,9 @@ pub(crate) struct PreparedInsertion {
 /// Captures the staged neighbour set for a node at a given level.
 #[derive(Clone, Debug)]
 pub(crate) struct StagedUpdate {
-    pub(super) node: usize,
-    pub(super) ctx: EdgeContext,
-    pub(super) candidates: Vec<usize>,
+    pub(crate) node: usize,
+    pub(crate) ctx: EdgeContext,
+    pub(crate) candidates: Vec<usize>,
 }
 
 /// Stores the final trimmed neighbour list for a node and level.
@@ -63,7 +63,7 @@ pub(crate) struct TrimResult {
     pub(crate) neighbours: Vec<usize>,
 }
 
-pub(super) type FinalisedUpdate = (StagedUpdate, Vec<usize>);
+pub(crate) type FinalisedUpdate = (StagedUpdate, Vec<usize>);
 
 /// Outcome of staging the insertion layers prior to trimming.
 pub(super) struct LayerProcessingOutcome {
@@ -81,9 +81,9 @@ pub(super) struct TrimWork {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct NewNodeContext {
-    pub(super) id: usize,
-    pub(super) level: usize,
+pub(crate) struct NewNodeContext {
+    pub(crate) id: usize,
+    pub(crate) level: usize,
 }
 
 #[derive(Clone, Copy)]

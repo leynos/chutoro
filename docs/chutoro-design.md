@@ -962,6 +962,46 @@ aggregated runs continue collecting reachable failures (e.g., all unreachable
 nodes) while preserving the previous short-circuit behaviour for fail-fast
 callers.
 
+The formal verification harnesses extend these guarantees by exercising the
+commit path under bounded conditions, ensuring reconciliation and deferred
+scrubs still satisfy the bidirectional edge invariant. The sequence below
+illustrates the commit-path harness flow used by Kani.
+
+```mermaid
+sequenceDiagram
+    actor KaniVerifier
+    participant KaniHarness
+    participant HnswGraph
+    participant KaniCommitHelper
+    participant CommitApplicator
+    participant DeferredScrubLogic
+    participant Invariants
+
+    KaniVerifier->>KaniHarness: run_commit_path_harness
+    KaniHarness->>HnswGraph: build_3_node_single_layer_graph
+    KaniHarness->>HnswGraph: seed_neighbour_lists_with_eviction_case
+
+    KaniHarness->>KaniCommitHelper: apply_commit_updates_for_kani(graph, update_specs)
+    KaniCommitHelper->>KaniCommitHelper: kani_assume_preconditions(graph, update_specs)
+    KaniCommitHelper->>CommitApplicator: apply_neighbour_updates(final_updates, max_connections, new_node)
+
+    CommitApplicator->>HnswGraph: apply_trimmed_neighbour_lists
+    CommitApplicator->>HnswGraph: reconcile_reverse_edges
+    CommitApplicator->>DeferredScrubLogic: schedule_deferred_scrubs
+    DeferredScrubLogic->>HnswGraph: remove_one_way_edges
+
+    CommitApplicator-->>KaniCommitHelper: Result
+    KaniCommitHelper-->>KaniHarness: Result
+
+    KaniHarness->>Invariants: is_bidirectional(graph)
+    Invariants-->>KaniHarness: bool
+    KaniHarness-->>KaniVerifier: assert_invariant_holds
+```
+
+_Figure 2: Commit-path Kani harness flow for bidirectional invariant checks,
+using a bounded three-node scenario (the implementation uses level 1 to
+exercise eviction and deferred scrubs)._
+
 #### 6.6. Search correctness property
 
 _Implementation update (2025-11-12)._ The CPU suite now exercises the oracle

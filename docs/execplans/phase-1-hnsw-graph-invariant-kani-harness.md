@@ -30,7 +30,7 @@ formal proofs rather than probabilistic coverage.
 ### In Scope
 
 - Kani harness for bidirectional link invariant
-- 3-node, 1-layer graph configuration
+- 3-node, 2-level commit-path configuration
 - Makefile integration (`make kani`)
 - Architecture Decision Record (ADR) documenting Kani adoption rationale
 
@@ -59,22 +59,23 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 Contents:
 
 - Module-level `//!` documentation explaining purpose
-- `verify_bidirectional_links_smoke_2_nodes_1_layer` harness with:
+- The `verify_bidirectional_links_smoke_2_nodes_1_layer` harness includes:
   - Deterministic 2-node setup to validate the Kani toolchain
-- `verify_bidirectional_links_3_nodes_1_layer` harness with:
+- The `verify_bidirectional_links_commit_path_3_nodes` harness includes:
   - `#[kani::proof]` attribute
   - `#[kani::unwind(10)]` for loop bounds
-  - Graph setup with 3 nodes at level 0
-  - Nondeterministic edge population via `kani::any::<bool>()`
-  - Bidirectional enforcement simulating insertion behaviour
+  - Graph setup with 3 nodes at level 1 to allow eviction at capacity 1
+  - Commit-path reconciliation via `CommitApplicator::apply_neighbour_updates`
+  - Deferred scrub scenario to validate eviction cleanup
   - Invariant assertion using `kani::assert`
-- `verify_bidirectional_links_reconciliation_2_nodes_1_layer` harness with:
+- The `verify_bidirectional_links_reconciliation_2_nodes_1_layer` harness
+  includes:
   - Production reconciliation path via `ensure_reverse_edge_for_kani`
-- `verify_bidirectional_links_reconciliation_3_nodes_1_layer` harness with:
+- The `verify_bidirectional_links_reconciliation_3_nodes_1_layer` harness
+  includes:
   - Heavier reconciliation path via `apply_reconciled_update_for_kani`
-- Helper functions: `populate_edges_nondeterministically`,
-  `enforce_bidirectional_constraint`, `add_bidirectional_edge`,
-  `add_reverse_edge_if_missing`, and `push_if_absent`
+- Helper functions: `add_bidirectional_edge`, `add_edge_if_missing`, and
+  `push_if_absent`
 
 ### 3. Update HNSW Module
 
@@ -119,7 +120,7 @@ make lint
 make kani
 
 # Or run specific harness:
-cargo kani -p chutoro-core --harness verify_bidirectional_links_3_nodes_1_layer
+cargo kani -p chutoro-core --harness verify_bidirectional_links_commit_path_3_nodes
 
 # Or run the full suite:
 make kani-full
