@@ -192,7 +192,18 @@ mod tests {
     use crate::hnsw::tests::property::types::{
         DistributionMetadata, HnswParamsSeed, VectorDistribution,
     };
+    use rayon::ThreadPoolBuilder;
     use rstest::rstest;
+
+    const EDGE_HARVEST_TEST_RAYON_THREADS: usize = 2;
+
+    fn with_edge_harvest_pool<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+        let pool = ThreadPoolBuilder::new()
+            .num_threads(EDGE_HARVEST_TEST_RAYON_THREADS)
+            .build()
+            .expect("edge harvest test pool should build");
+        pool.install(f)
+    }
 
     fn make_fixture(vector_count: usize, seed: u64) -> HnswFixture {
         let vectors: Vec<Vec<f32>> = (0..vector_count)
@@ -224,8 +235,10 @@ mod tests {
     ) {
         let fixture = make_fixture(vector_count, seed);
         let plan = EdgeHarvestPlan::new(rebuild_attempts);
-        run_edge_harvest_determinism_property(fixture, plan)
-            .expect("determinism property must hold");
+        with_edge_harvest_pool(|| {
+            run_edge_harvest_determinism_property(fixture, plan)
+                .expect("determinism property must hold");
+        });
     }
 
     #[rstest]
@@ -236,7 +249,9 @@ mod tests {
     #[case(50, 999)]
     fn edge_harvest_validity_rstest_cases(#[case] vector_count: usize, #[case] seed: u64) {
         let fixture = make_fixture(vector_count, seed);
-        run_edge_harvest_validity_property(fixture).expect("validity property must hold");
+        with_edge_harvest_pool(|| {
+            run_edge_harvest_validity_property(fixture).expect("validity property must hold");
+        });
     }
 
     #[rstest]
@@ -246,7 +261,9 @@ mod tests {
     #[case(20, 789)]
     fn edge_harvest_coverage_rstest_cases(#[case] vector_count: usize, #[case] seed: u64) {
         let fixture = make_fixture(vector_count, seed);
-        run_edge_harvest_coverage_property(fixture).expect("coverage property must hold");
+        with_edge_harvest_pool(|| {
+            run_edge_harvest_coverage_property(fixture).expect("coverage property must hold");
+        });
     }
 
     #[rstest]
@@ -293,10 +310,12 @@ mod tests {
         };
 
         // Run all properties on clustered data
-        run_edge_harvest_validity_property(fixture.clone()).expect("validity must hold");
-        run_edge_harvest_coverage_property(fixture.clone()).expect("coverage must hold");
-        run_edge_harvest_determinism_property(fixture, EdgeHarvestPlan::new(2))
-            .expect("determinism must hold");
+        with_edge_harvest_pool(|| {
+            run_edge_harvest_validity_property(fixture.clone()).expect("validity must hold");
+            run_edge_harvest_coverage_property(fixture.clone()).expect("coverage must hold");
+            run_edge_harvest_determinism_property(fixture, EdgeHarvestPlan::new(2))
+                .expect("determinism must hold");
+        });
     }
 
     #[rstest]
@@ -304,10 +323,12 @@ mod tests {
         let fixture = make_fixture(2, 42);
         let plan = EdgeHarvestPlan::new(3);
 
-        run_edge_harvest_determinism_property(fixture.clone(), plan)
-            .expect("determinism with 2 nodes");
-        run_edge_harvest_validity_property(fixture.clone()).expect("validity with 2 nodes");
-        run_edge_harvest_coverage_property(fixture).expect("coverage with 2 nodes");
+        with_edge_harvest_pool(|| {
+            run_edge_harvest_determinism_property(fixture.clone(), plan)
+                .expect("determinism with 2 nodes");
+            run_edge_harvest_validity_property(fixture.clone()).expect("validity with 2 nodes");
+            run_edge_harvest_coverage_property(fixture).expect("coverage with 2 nodes");
+        });
     }
 
     #[rstest]
@@ -316,7 +337,8 @@ mod tests {
         let params = fixture.params.build().expect("params");
         let source = fixture.into_source().expect("source");
 
-        let (_, edges) = CpuHnsw::build_with_edges(&source, params).expect("build");
+        let (_, edges) =
+            with_edge_harvest_pool(|| CpuHnsw::build_with_edges(&source, params).expect("build"));
 
         // Verify edges are sorted: primary key is sequence, secondary is natural Ord.
         //
