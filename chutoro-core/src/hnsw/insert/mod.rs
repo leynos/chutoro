@@ -140,15 +140,7 @@ fn assume_node_has_level(
 
 #[cfg(kani)]
 fn validate_new_node_for_kani(graph: &crate::hnsw::graph::Graph, new_node: &types::NewNodeContext) {
-    let new_node_level_valid = graph
-        .node(new_node.id)
-        .map(|node| new_node.level < node.level_count())
-        .unwrap_or(false);
-    debug_assert!(
-        new_node_level_valid,
-        "Kani commit new node must exist and expose the requested level"
-    );
-    kani::assume(new_node_level_valid);
+    assume_node_has_level(graph, new_node.id, new_node.level, "Kani commit new node");
 }
 
 #[cfg(kani)]
