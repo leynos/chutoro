@@ -116,6 +116,8 @@ fn is_deduped(list: &[usize]) -> bool {
 }
 
 #[cfg(kani)]
+/// Assumes the node exists, exposes the requested level, and has a deduplicated
+/// neighbour list at that level.
 fn assume_node_has_level(
     graph: &crate::hnsw::graph::Graph,
     node_id: usize,
@@ -150,21 +152,12 @@ fn validate_update_for_kani(
     max_connections: usize,
 ) {
     let (staged, neighbours) = update;
-    let origin_node = graph.node(staged.node);
-    let origin_exists = origin_node.is_some();
-    debug_assert!(
-        origin_exists,
-        "Kani commit update origin must exist in the graph"
+    assume_node_has_level(
+        graph,
+        staged.node,
+        staged.ctx.level,
+        "Kani commit update origin",
     );
-    kani::assume(origin_exists);
-    let origin_level_valid = origin_node
-        .map(|node| staged.ctx.level < node.level_count())
-        .unwrap_or(false);
-    debug_assert!(
-        origin_level_valid,
-        "Kani commit update origin must expose the requested level"
-    );
-    kani::assume(origin_level_valid);
 
     let deduped = is_deduped(neighbours.as_slice());
     debug_assert!(
