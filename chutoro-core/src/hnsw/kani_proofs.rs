@@ -271,38 +271,12 @@ fn verify_bidirectional_links_reconciliation_3_nodes_1_layer() {
     );
 }
 
-/// Verifies that eviction triggers correct deferred scrub behaviour.
+/// Sets up a graph with 4 nodes at level 1 for eviction testing.
 ///
-/// This harness exercises the eviction path in `ensure_reverse_edge` and
-/// verifies that `apply_deferred_scrubs` correctly removes orphaned forward
-/// edges while maintaining the bidirectional invariant.
-///
-/// # Verification Bounds
-///
-/// - **Nodes**: 4 (IDs 0, 1, 2, 3)
-/// - **Levels**: 2 (levels 0 and 1) to allow capacity-1 eviction on level 1
-/// - **Edges**: Deterministic setup to trigger eviction and deferred scrub
-///
-/// # Scenario
-///
-/// 1. Node 1 is seeded at capacity (1 edge) with node 2 at level 1
-/// 2. Node 0 adds node 1 as a neighbour at level 1
-/// 3. `ensure_reverse_edge(origin=0, target=1)` evicts node 2 from node 1
-/// 4. A `DeferredScrub { origin: 2, target: 1, level: 1 }` is created
-/// 5. `apply_deferred_scrubs` removes the orphaned edge 2 → 1
-///
-/// # What This Proves
-///
-/// If this harness passes, Kani has verified that:
-/// - Eviction correctly removes the furthest neighbour
-/// - Deferred scrubs correctly remove orphaned forward edges
-/// - The bidirectional invariant is maintained throughout
-#[kani::proof]
-#[kani::unwind(10)]
-fn verify_eviction_deferred_scrub_reciprocity() {
-    // Use max_connections = 1 so level 1 has capacity 1 and can evict.
-    let params = HnswParams::new(1, 2).expect("params must be valid");
-    let max_connections = params.max_connections();
+/// Returns a graph with nodes 0, 1, 2, 3 all inserted at level 1,
+/// configured with `max_connections = 1` so that level 1 has capacity 1.
+#[cfg(kani)]
+fn setup_eviction_test_graph(params: HnswParams) -> Graph {
     let mut graph = Graph::with_capacity(params, 4);
 
     // Insert 4 nodes at level 1
@@ -335,6 +309,63 @@ fn verify_eviction_deferred_scrub_reciprocity() {
         })
         .expect("attach node 3");
 
+    graph
+}
+
+/// Asserts that source links to target at the given level.
+#[cfg(kani)]
+fn assert_node_link(graph: &Graph, source: u32, target: u32, level: usize, message: &str) {
+    let has_link = graph
+        .node(source as usize)
+        .map(|n| n.neighbours(level).contains(&(target as usize)))
+        .unwrap_or(false);
+    kani::assert(has_link, message);
+}
+
+/// Asserts that source does NOT link to target at the given level.
+#[cfg(kani)]
+fn assert_no_node_link(graph: &Graph, source: u32, target: u32, level: usize, message: &str) {
+    let has_link = graph
+        .node(source as usize)
+        .map(|n| n.neighbours(level).contains(&(target as usize)))
+        .unwrap_or(false);
+    kani::assert(!has_link, message);
+}
+
+/// Verifies that eviction triggers correct deferred scrub behaviour.
+///
+/// This harness exercises the eviction path in `ensure_reverse_edge` and
+/// verifies that `apply_deferred_scrubs` correctly removes orphaned forward
+/// edges while maintaining the bidirectional invariant.
+///
+/// # Verification Bounds
+///
+/// - **Nodes**: 4 (IDs 0, 1, 2, 3)
+/// - **Levels**: 2 (levels 0 and 1) to allow capacity-1 eviction on level 1
+/// - **Edges**: Deterministic setup to trigger eviction and deferred scrub
+///
+/// # Scenario
+///
+/// 1. Node 1 is seeded at capacity (1 edge) with node 2 at level 1
+/// 2. Node 0 adds node 1 as a neighbour at level 1
+/// 3. `ensure_reverse_edge(origin=0, target=1)` evicts node 2 from node 1
+/// 4. A `DeferredScrub { origin: 2, target: 1, level: 1 }` is created
+/// 5. `apply_deferred_scrubs` removes the orphaned edge 2 → 1
+///
+/// # What This Proves
+///
+/// If this harness passes, Kani has verified that:
+/// - Eviction correctly removes the furthest neighbour
+/// - Deferred scrubs correctly remove orphaned forward edges
+/// - The bidirectional invariant is maintained throughout
+#[kani::proof]
+#[kani::unwind(10)]
+fn verify_eviction_deferred_scrub_reciprocity() {
+    // Use max_connections = 1 so level 1 has capacity 1 and can evict.
+    let params = HnswParams::new(1, 2).expect("params must be valid");
+    let max_connections = params.max_connections();
+    let mut graph = setup_eviction_test_graph(params);
+
     // Seed node 1 at capacity with node 2 (bidirectional at level 1).
     // This ensures node 1's level-1 neighbour list is full.
     add_edge_if_missing(&mut graph, 1, 2, 1);
@@ -365,32 +396,29 @@ fn verify_eviction_deferred_scrub_reciprocity() {
     );
 
     // Assert node 1 links to node 0 (the new edge).
-    let node1_has_node0 = graph
-        .node(1)
-        .map(|n| n.neighbours(1).contains(&0))
-        .unwrap_or(false);
-    kani::assert(
-        node1_has_node0,
+    assert_node_link(
+        &graph,
+        1,
+        0,
+        1,
         "node 1 should link to node 0 after eviction",
     );
 
     // Assert node 2's forward edge to node 1 was scrubbed.
-    let node2_has_node1 = graph
-        .node(2)
-        .map(|n| n.neighbours(1).contains(&1))
-        .unwrap_or(false);
-    kani::assert(
-        !node2_has_node1,
+    assert_no_node_link(
+        &graph,
+        2,
+        1,
+        1,
         "deferred scrub should remove node 2's forward edge to node 1",
     );
 
     // Assert node 1 no longer links to node 2 (it was evicted).
-    let node1_has_node2 = graph
-        .node(1)
-        .map(|n| n.neighbours(1).contains(&2))
-        .unwrap_or(false);
-    kani::assert(
-        !node1_has_node2,
+    assert_no_node_link(
+        &graph,
+        1,
+        2,
+        1,
         "node 1 should no longer link to node 2 after eviction",
     );
 }
