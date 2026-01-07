@@ -197,6 +197,54 @@ fn assert_has_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
     );
 }
 
+/// Context for eviction tests with a 4-node graph where node 1 is at capacity.
+struct EvictionTestContext {
+    graph: Graph,
+    max_connections: usize,
+    new_node: NewNodeContext,
+}
+
+impl EvictionTestContext {
+    /// Creates a test graph with 4 nodes at level 1, where node 1 is seeded
+    /// at capacity with a bidirectional edge to node 2.
+    fn new(params: HnswParams) -> Result<Self, HnswError> {
+        let max_connections = params.max_connections();
+        let mut graph = Graph::with_capacity(params, 4);
+
+        insert_node(&mut graph, 0, 1, 0)?;
+        insert_node(&mut graph, 1, 1, 1)?;
+        insert_node(&mut graph, 2, 1, 2)?;
+        insert_node(&mut graph, 3, 1, 3)?;
+
+        // Seed node 1 at capacity with node 2 (bidirectional)
+        add_edge_if_missing(&mut graph, 1, 2, 1);
+        add_edge_if_missing(&mut graph, 2, 1, 1);
+
+        let new_node = NewNodeContext { id: 3, level: 1 };
+        Ok(Self {
+            graph,
+            max_connections,
+            new_node,
+        })
+    }
+
+    /// Applies the given updates and returns the graph for assertions.
+    fn apply_updates(
+        mut self,
+        updates: Vec<(StagedUpdate, Vec<usize>)>,
+    ) -> Result<Graph, HnswError> {
+        let mut applicator = CommitApplicator::new(&mut self.graph);
+        let (reciprocated, _) =
+            applicator.apply_neighbour_updates(updates, self.max_connections, self.new_node)?;
+        applicator.apply_new_node_neighbours(
+            self.new_node.id,
+            self.new_node.level,
+            reciprocated,
+        )?;
+        Ok(self.graph)
+    }
+}
+
 /// Tests that eviction correctly scrubs orphaned forward edges.
 ///
 /// Scenario: Node 1 is at capacity with node 2. When node 0 adds node 1 as a
@@ -206,26 +254,9 @@ fn assert_has_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
 fn eviction_scrubs_orphaned_forward_edge(
     params_one_connection: HnswParams,
 ) -> Result<(), HnswError> {
-    let max_connections = params_one_connection.max_connections();
-    let mut graph = Graph::with_capacity(params_one_connection, 4);
-
-    insert_node(&mut graph, 0, 1, 0)?;
-    insert_node(&mut graph, 1, 1, 1)?;
-    insert_node(&mut graph, 2, 1, 2)?;
-    insert_node(&mut graph, 3, 1, 3)?;
-
-    // Seed node 1 at capacity with node 2 (bidirectional)
-    add_edge_if_missing(&mut graph, 1, 2, 1);
-    add_edge_if_missing(&mut graph, 2, 1, 1);
-
-    // Node 0 adds node 1 as neighbour, triggering eviction of node 2
-    let update = build_update(0, 1, vec![1], max_connections);
-    let new_node = NewNodeContext { id: 3, level: 1 };
-
-    let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    let ctx = EvictionTestContext::new(params_one_connection)?;
+    let update = build_update(0, 1, vec![1], ctx.max_connections);
+    let graph = ctx.apply_updates(vec![update])?;
 
     // Node 0 and node 1 should be linked
     assert_bidirectional_edge(&graph, 0, 1, 1);
@@ -249,28 +280,13 @@ fn eviction_scrubs_orphaned_forward_edge(
 fn eviction_skips_scrub_if_reciprocity_restored(
     params_one_connection: HnswParams,
 ) -> Result<(), HnswError> {
-    let max_connections = params_one_connection.max_connections();
-    let mut graph = Graph::with_capacity(params_one_connection, 4);
-
-    insert_node(&mut graph, 0, 1, 0)?;
-    insert_node(&mut graph, 1, 1, 1)?;
-    insert_node(&mut graph, 2, 1, 2)?;
-    insert_node(&mut graph, 3, 1, 3)?;
-
-    // Seed node 1 at capacity with node 2 (bidirectional)
-    add_edge_if_missing(&mut graph, 1, 2, 1);
-    add_edge_if_missing(&mut graph, 2, 1, 1);
+    let ctx = EvictionTestContext::new(params_one_connection)?;
 
     // First update: node 0 adds node 1 (evicts node 2 from node 1)
     // Second update: node 2 re-adds node 1 (restores the reciprocal edge)
-    let update1 = build_update(0, 1, vec![1], max_connections);
-    let update2 = build_update(2, 1, vec![1], max_connections);
-    let new_node = NewNodeContext { id: 3, level: 1 };
-
-    let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update1, update2], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    let update1 = build_update(0, 1, vec![1], ctx.max_connections);
+    let update2 = build_update(2, 1, vec![1], ctx.max_connections);
+    let graph = ctx.apply_updates(vec![update1, update2])?;
 
     // Node 2 should still have its forward edge to node 1 (scrub was skipped)
     // because the second update re-added node 1 to node 2's neighbour list
