@@ -1,6 +1,6 @@
-# Phase 1: HNSW Kani Eviction/Deferred-Scrub Scenario
+# Phase 1: Hierarchical Navigable Small World (HNSW) Kani Eviction/Deferred-Scrub Scenario
 
-This ExecPlan is a living document. The sections `Progress`,
+This execution plan (ExecPlan) is a living document. The sections `Progress`,
 `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must
 be kept up to date as work proceeds.
 
@@ -53,7 +53,7 @@ completion, the relevant roadmap entry in `docs/roadmap.md` is marked as done.
   `eviction_scrubs_orphaned_forward_edge`, `eviction_skips_scrub_if_reciprocity_restored`,
   `multiple_evictions_in_batch_update`, `eviction_at_base_layer_triggers_healing`,
   and `eviction_respects_furthest_first_ordering`.
-- All 367 tests pass including the new eviction tests.
+- All 367 tests pass, including the new eviction tests.
 - Quality gates (`make check-fmt`, `make lint`, `make test`) all succeed.
 - Roadmap entry marked as done.
 
@@ -109,7 +109,7 @@ During `apply_deferred_scrubs`:
 ### Roadmap Entry (docs/roadmap.md:108-110)
 
 ```markdown
-- [ ] Add an eviction/deferred-scrub scenario: pre-fill a target neighbour
+- [x] Add an eviction/deferred-scrub scenario: pre-fill a target neighbour
   list to `max_connections`, force `ensure_reverse_edge` to evict, and assert
   reciprocity after `apply_deferred_scrubs`.
 ```
@@ -155,8 +155,9 @@ Use fixtures from the existing test module (`params_two_connections`,
 ### Step 3: Update Design Documentation
 
 Record decisions in the `Decision Log` section of this document. If
-architectural choices affect `docs/chutoro-design.md` or
-`docs/adr-002-adoption-of-kani-formal-verification.md`, update those as well.
+architectural choices affect `docs/chutoro-design.md` or the Architecture
+Decision Record (ADR) `docs/adr-002-adoption-of-kani-formal-verification.md`,
+update those as well.
 
 ### Step 4: Update Roadmap
 
@@ -274,12 +275,12 @@ make markdownlint 2>&1 | tee /tmp/make-markdownlint.log
 
 ## Validation and Acceptance
 
-- [ ] Kani harness `verify_eviction_deferred_scrub_reciprocity` passes with
+- [x] Kani harness `verify_eviction_deferred_scrub_reciprocity` passes with
   `cargo kani -p chutoro-core --harness verify_eviction_deferred_scrub_reciprocity`.
-- [ ] All new `rstest` unit tests pass with `make test`.
-- [ ] `make check-fmt`, `make lint`, and `make test` succeed (logs in `/tmp/`).
-- [ ] Roadmap entry marked as done.
-- [ ] Decision log updated with any choices made during implementation.
+- [x] All new `rstest` unit tests pass with `make test`.
+- [x] `make check-fmt`, `make lint`, and `make test` succeed (logs in `/tmp/`).
+- [x] Roadmap entry marked as done.
+- [x] Decision log updated with any choices made during implementation.
 
 ## Idempotence and Recovery
 
@@ -288,7 +289,7 @@ issue and rerun the specific command with the same `set -o pipefail | tee`
 pattern. If the Kani harness becomes too slow, reduce bounds or add
 `kani::assume` constraints and record the decision in the Decision Log.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
 Keep log files in `/tmp/` until the change is accepted. When citing results,
 include the harness name and the command used.

@@ -314,14 +314,14 @@ fn setup_eviction_test_graph(params: HnswParams) -> Graph {
 
 #[cfg(kani)]
 struct EdgeAssertion {
-    source: u32,
-    target: u32,
+    source: usize,
+    target: usize,
     level: usize,
 }
 
 #[cfg(kani)]
 impl EdgeAssertion {
-    fn new(source: u32, target: u32, level: usize) -> Self {
+    fn new(source: usize, target: usize, level: usize) -> Self {
         Self {
             source,
             target,
@@ -334,8 +334,8 @@ impl EdgeAssertion {
 #[cfg(kani)]
 fn assert_node_link(graph: &Graph, edge: EdgeAssertion, message: &str) {
     let has_link = graph
-        .node(edge.source as usize)
-        .map(|n| n.neighbours(edge.level).contains(&(edge.target as usize)))
+        .node(edge.source)
+        .map(|n| n.neighbours(edge.level).contains(&edge.target))
         .unwrap_or(false);
     kani::assert(has_link, message);
 }
@@ -344,8 +344,8 @@ fn assert_node_link(graph: &Graph, edge: EdgeAssertion, message: &str) {
 #[cfg(kani)]
 fn assert_no_node_link(graph: &Graph, edge: EdgeAssertion, message: &str) {
     let has_link = graph
-        .node(edge.source as usize)
-        .map(|n| n.neighbours(edge.level).contains(&(edge.target as usize)))
+        .node(edge.source)
+        .map(|n| n.neighbours(edge.level).contains(&edge.target))
         .unwrap_or(false);
     kani::assert(!has_link, message);
 }
