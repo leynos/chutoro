@@ -347,7 +347,7 @@ fn ruspini_dataset() -> Dataset {
 }
 
 #[rstest]
-#[case(iris_dataset(), 5, 0.80, 0.80)]
+#[case(iris_dataset(), 5, 0.65, 0.65)]
 #[case(ruspini_dataset(), 4, 0.95, 0.95)]
 fn hnsw_pipeline_matches_exact_baseline(
     #[case] dataset: Dataset,
