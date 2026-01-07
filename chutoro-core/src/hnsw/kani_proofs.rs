@@ -312,22 +312,40 @@ fn setup_eviction_test_graph(params: HnswParams) -> Graph {
     graph
 }
 
+#[cfg(kani)]
+struct EdgeAssertion {
+    source: u32,
+    target: u32,
+    level: usize,
+}
+
+#[cfg(kani)]
+impl EdgeAssertion {
+    fn new(source: u32, target: u32, level: usize) -> Self {
+        Self {
+            source,
+            target,
+            level,
+        }
+    }
+}
+
 /// Asserts that source links to target at the given level.
 #[cfg(kani)]
-fn assert_node_link(graph: &Graph, source: u32, target: u32, level: usize, message: &str) {
+fn assert_node_link(graph: &Graph, edge: EdgeAssertion, message: &str) {
     let has_link = graph
-        .node(source as usize)
-        .map(|n| n.neighbours(level).contains(&(target as usize)))
+        .node(edge.source as usize)
+        .map(|n| n.neighbours(edge.level).contains(&(edge.target as usize)))
         .unwrap_or(false);
     kani::assert(has_link, message);
 }
 
 /// Asserts that source does NOT link to target at the given level.
 #[cfg(kani)]
-fn assert_no_node_link(graph: &Graph, source: u32, target: u32, level: usize, message: &str) {
+fn assert_no_node_link(graph: &Graph, edge: EdgeAssertion, message: &str) {
     let has_link = graph
-        .node(source as usize)
-        .map(|n| n.neighbours(level).contains(&(target as usize)))
+        .node(edge.source as usize)
+        .map(|n| n.neighbours(edge.level).contains(&(edge.target as usize)))
         .unwrap_or(false);
     kani::assert(!has_link, message);
 }
@@ -398,27 +416,21 @@ fn verify_eviction_deferred_scrub_reciprocity() {
     // Assert node 1 links to node 0 (the new edge).
     assert_node_link(
         &graph,
-        1,
-        0,
-        1,
+        EdgeAssertion::new(1, 0, 1),
         "node 1 should link to node 0 after eviction",
     );
 
     // Assert node 2's forward edge to node 1 was scrubbed.
     assert_no_node_link(
         &graph,
-        2,
-        1,
-        1,
+        EdgeAssertion::new(2, 1, 1),
         "deferred scrub should remove node 2's forward edge to node 1",
     );
 
     // Assert node 1 no longer links to node 2 (it was evicted).
     assert_no_node_link(
         &graph,
-        1,
-        2,
-        1,
+        EdgeAssertion::new(1, 2, 1),
         "node 1 should no longer link to node 2 after eviction",
     );
 }
