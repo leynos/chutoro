@@ -105,7 +105,7 @@ ______________________________________________________________________
   - [x] Replace the 3-node bidirectionality harness with a commit-path harness
     that drives reconciliation and deferred scrubs via
     `CommitApplicator::apply_neighbour_updates`.
-  - [ ] Add an eviction/deferred-scrub scenario: pre-fill a target neighbour
+  - [x] Add an eviction/deferred-scrub scenario: pre-fill a target neighbour
     list to `max_connections`, force `ensure_reverse_edge` to evict, and assert
     reciprocity after `apply_deferred_scrubs`.
   - [ ] Add bounded Kani harnesses for the following explicit invariants:
