@@ -96,3 +96,83 @@ pub(crate) fn is_bidirectional(graph: &Graph) -> bool {
     }
     true
 }
+
+/// Checks that no node has itself as a neighbour (no self-loops).
+///
+/// Returns `true` if the invariant holds (no node `u` has `u` in its neighbour
+/// list at any layer), `false` otherwise. This simplified predicate is suitable
+/// for use in Kani harnesses where a boolean result is preferred over detailed
+/// violation reporting.
+#[cfg(kani)]
+pub(crate) fn has_no_self_loops(graph: &Graph) -> bool {
+    for (node_id, node) in graph.nodes_iter() {
+        for (_level, neighbour) in node.iter_neighbours() {
+            if neighbour == node_id {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Checks that all neighbour lists contain no duplicates.
+///
+/// Returns `true` if the invariant holds (every neighbour list at every layer
+/// contains unique node identifiers), `false` otherwise. This simplified
+/// predicate is suitable for use in Kani harnesses.
+#[cfg(kani)]
+pub(crate) fn has_unique_neighbours(graph: &Graph) -> bool {
+    for (_node_id, node) in graph.nodes_iter() {
+        for level in 0..node.level_count() {
+            let neighbours = node.neighbours(level);
+            for (i, &id) in neighbours.iter().enumerate() {
+                if neighbours[i + 1..].contains(&id) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Checks entry-point validity and maximality.
+///
+/// Returns `true` if one of the following holds:
+/// - The graph is empty and has no entry point.
+/// - The graph is non-empty, the entry point exists, references a valid node,
+///   and the entry level is at least as high as any other node's level.
+///
+/// This simplified predicate is suitable for use in Kani harnesses.
+#[cfg(kani)]
+pub(crate) fn is_entry_point_valid(graph: &Graph) -> bool {
+    let has_nodes = graph.nodes_iter().next().is_some();
+
+    if !has_nodes {
+        return graph.entry().is_none();
+    }
+
+    let Some(entry) = graph.entry() else {
+        return false;
+    };
+
+    let Some(entry_node) = graph.node(entry.node) else {
+        return false;
+    };
+
+    // Entry level must be within the node's actual level count
+    if entry.level >= entry_node.level_count() {
+        return false;
+    }
+
+    // Entry level must be maximal across all nodes
+    // (level_count() returns levels 0..level_count, so max level = level_count - 1)
+    for (_id, node) in graph.nodes_iter() {
+        // node.level_count() - 1 is the highest level for this node
+        // entry.level must be >= that
+        if node.level_count() > 0 && node.level_count() - 1 > entry.level {
+            return false;
+        }
+    }
+
+    true
+}
