@@ -23,7 +23,9 @@ use self::{
 };
 
 #[cfg(kani)]
-pub(crate) use self::helpers::is_bidirectional;
+pub(crate) use self::helpers::{
+    has_no_self_loops, has_unique_neighbours, is_bidirectional, is_entry_point_valid,
+};
 
 /// Enumerates the structural invariants enforced by the CPU HNSW graph.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

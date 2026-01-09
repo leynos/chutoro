@@ -334,5 +334,158 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
     })
 }
 
+// ============================================================================
+// Kani Formal Verification
+// ============================================================================
+
+/// Validates MST forest structural invariants for Kani verification.
+///
+/// Returns `true` if the forest satisfies:
+/// - Edge count equals `n - c` where `n` is node count and `c` is component count
+/// - No self-loops (source != target for all edges)
+/// - Canonical ordering (source < target for all edges)
+/// - Acyclic structure (no cycles detected via union-find)
+#[cfg(kani)]
+pub(crate) fn is_valid_forest(
+    node_count: usize,
+    edges: &[MstEdge],
+    component_count: usize,
+) -> bool {
+    // Forest must have n - c edges
+    if edges.len() != node_count.saturating_sub(component_count) {
+        return false;
+    }
+
+    // No self-loops and canonical ordering
+    for edge in edges {
+        if edge.source() == edge.target() {
+            return false;
+        }
+        if edge.source() >= edge.target() {
+            return false;
+        }
+    }
+
+    // Acyclic check via union-find
+    let mut parent: Vec<usize> = (0..node_count).collect();
+    for edge in edges {
+        let root_s = kani_find_root(&mut parent, edge.source());
+        let root_t = kani_find_root(&mut parent, edge.target());
+        if root_s == root_t {
+            return false; // Cycle detected
+        }
+        parent[root_t] = root_s;
+    }
+
+    true
+}
+
+/// Simple union-find root finding for Kani verification.
+#[cfg(kani)]
+fn kani_find_root(parent: &mut [usize], node: usize) -> usize {
+    let mut current = node;
+    while parent[current] != current {
+        current = parent[current];
+    }
+    current
+}
+
+#[cfg(kani)]
+mod kani_proofs {
+    use super::{MstEdge, is_valid_forest, parallel_kruskal_from_edges};
+    use crate::CandidateEdge;
+
+    /// Verifies MST structural correctness for bounded graphs.
+    ///
+    /// This harness creates a small graph with nondeterministically selected
+    /// edges and verifies that the resulting MST/forest satisfies structural
+    /// invariants: correct edge count, no cycles, canonical ordering.
+    ///
+    /// # Verification Bounds
+    ///
+    /// - **Nodes**: 4 (to keep solver time reasonable)
+    /// - **Edges**: Up to 6 (complete graph on 4 nodes)
+    /// - **Weights**: Represented as u8 cast to f32 for finite guarantees
+    #[kani::proof]
+    #[kani::unwind(12)]
+    fn verify_mst_structural_correctness_4_nodes() {
+        let node_count = 4usize;
+        let mut edges = Vec::new();
+        let mut seq = 0u64;
+
+        // Nondeterministically select edges from the complete graph
+        // 4 nodes = 6 possible undirected edges
+        let edge_pairs = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+
+        for (source, target) in edge_pairs {
+            if kani::any::<bool>() {
+                let weight: u8 = kani::any();
+                edges.push(CandidateEdge::new(source, target, f32::from(weight), seq));
+                seq = seq.saturating_add(1);
+            }
+        }
+
+        if let Ok(forest) = parallel_kruskal_from_edges(node_count, edges.iter()) {
+            kani::assert(
+                is_valid_forest(node_count, forest.edges(), forest.component_count()),
+                "MST forest invariant violated",
+            );
+
+            // Additional invariant: forest should never have more than n-1 edges
+            kani::assert(
+                forest.edges().len() <= node_count.saturating_sub(1),
+                "MST has too many edges",
+            );
+
+            // If it's a tree (1 component), it must have exactly n-1 edges
+            if forest.component_count() == 1 {
+                kani::assert(
+                    forest.edges().len() == node_count.saturating_sub(1),
+                    "MST tree should have n-1 edges",
+                );
+            }
+        }
+    }
+
+    /// Verifies that MST edge weights are sorted (minimum spanning property).
+    ///
+    /// This harness verifies that the edges in the MST are selected in
+    /// non-decreasing weight order, which is a key property of Kruskal's
+    /// algorithm.
+    #[kani::proof]
+    #[kani::unwind(10)]
+    fn verify_mst_edges_weight_ordering_3_nodes() {
+        let node_count = 3usize;
+        let mut edges = Vec::new();
+
+        // Create edges with distinct weights to verify ordering
+        let weight0: u8 = kani::any();
+        let weight1: u8 = kani::any();
+        let weight2: u8 = kani::any();
+
+        if kani::any::<bool>() {
+            edges.push(CandidateEdge::new(0, 1, f32::from(weight0), 0));
+        }
+        if kani::any::<bool>() {
+            edges.push(CandidateEdge::new(1, 2, f32::from(weight1), 1));
+        }
+        if kani::any::<bool>() {
+            edges.push(CandidateEdge::new(0, 2, f32::from(weight2), 2));
+        }
+
+        if let Ok(forest) = parallel_kruskal_from_edges(node_count, edges.iter()) {
+            let mst_edges = forest.edges();
+
+            // Verify edges are in sorted order by weight
+            for window in mst_edges.windows(2) {
+                kani::assert(
+                    window[0].weight() <= window[1].weight(),
+                    "MST edges should be in non-decreasing weight order",
+                );
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

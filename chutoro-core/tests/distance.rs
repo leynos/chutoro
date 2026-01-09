@@ -137,3 +137,90 @@ fn cosine_distance_rejects_non_finite_values() {
         } if value.is_infinite()
     ));
 }
+
+// ============================================================================
+// Distance Kernel Consistency Tests (Symmetry, Identity, Non-negativity)
+// ============================================================================
+
+#[rstest]
+#[case::unit_vectors(&[1.0_f32, 0.0, 0.0], &[0.0_f32, 1.0, 0.0])]
+#[case::identical_vectors(&[1.0_f32, 2.0, 3.0], &[1.0_f32, 2.0, 3.0])]
+#[case::opposite_vectors(&[1.0_f32, 0.0], &[-1.0_f32, 0.0])]
+#[case::arbitrary_vectors(&[3.5_f32, 2.7, 1.4], &[1.0_f32, 2.0, 3.0])]
+fn euclidean_is_symmetric(#[case] a: &[f32], #[case] b: &[f32]) {
+    let ab = euclidean_distance(a, b).expect("a to b should succeed");
+    let ba = euclidean_distance(b, a).expect("b to a should succeed");
+    assert!(
+        (ab.value() - ba.value()).abs() < 1e-6,
+        "euclidean distance should be symmetric: d(a,b)={} != d(b,a)={}",
+        ab.value(),
+        ba.value()
+    );
+}
+
+#[rstest]
+#[case::zeros(&[0.0_f32, 0.0, 0.0])]
+#[case::unit(&[1.0_f32, 0.0, 0.0])]
+#[case::arbitrary(&[3.5_f32, 2.7, 1.4])]
+fn euclidean_zero_on_identical(#[case] v: &[f32]) {
+    let d = euclidean_distance(v, v).expect("identical vectors should succeed");
+    assert!(
+        d.value().abs() < 1e-6,
+        "euclidean distance to itself should be zero, got {}",
+        d.value()
+    );
+}
+
+#[rstest]
+#[case::different_vectors(&[1.0_f32, 0.0], &[0.0_f32, 1.0])]
+#[case::distant_vectors(&[0.0_f32, 0.0, 0.0], &[10.0_f32, 10.0, 10.0])]
+fn euclidean_is_non_negative(#[case] a: &[f32], #[case] b: &[f32]) {
+    let d = euclidean_distance(a, b).expect("distance should succeed");
+    assert!(
+        d.value() >= 0.0,
+        "euclidean distance should be non-negative, got {}",
+        d.value()
+    );
+}
+
+#[rstest]
+#[case::unit_vectors(&[1.0_f32, 0.0, 0.0], &[0.0_f32, 1.0, 0.0])]
+#[case::identical_vectors(&[1.0_f32, 2.0, 3.0], &[1.0_f32, 2.0, 3.0])]
+#[case::opposite_vectors(&[1.0_f32, 0.0], &[-1.0_f32, 0.0])]
+#[case::arbitrary_vectors(&[3.5_f32, 2.7, 1.4], &[1.0_f32, 2.0, 3.0])]
+fn cosine_is_symmetric(#[case] a: &[f32], #[case] b: &[f32]) {
+    let ab = cosine_distance(a, b, None).expect("a to b should succeed");
+    let ba = cosine_distance(b, a, None).expect("b to a should succeed");
+    assert!(
+        (ab.value() - ba.value()).abs() < 1e-6,
+        "cosine distance should be symmetric: d(a,b)={} != d(b,a)={}",
+        ab.value(),
+        ba.value()
+    );
+}
+
+#[rstest]
+#[case::unit(&[1.0_f32, 0.0, 0.0])]
+#[case::arbitrary(&[3.5_f32, 2.7, 1.4])]
+#[case::negative(&[-1.0_f32, -2.0, -3.0])]
+fn cosine_zero_on_identical(#[case] v: &[f32]) {
+    let d = cosine_distance(v, v, None).expect("identical vectors should succeed");
+    assert!(
+        d.value().abs() < 1e-6,
+        "cosine distance to itself should be zero, got {}",
+        d.value()
+    );
+}
+
+#[rstest]
+#[case::orthogonal(&[1.0_f32, 0.0], &[0.0_f32, 1.0])]
+#[case::parallel(&[1.0_f32, 2.0, 3.0], &[2.0_f32, 4.0, 6.0])]
+#[case::opposite(&[1.0_f32, 0.0], &[-1.0_f32, 0.0])]
+fn cosine_is_bounded_zero_to_two(#[case] a: &[f32], #[case] b: &[f32]) {
+    let d = cosine_distance(a, b, None).expect("distance should succeed");
+    assert!(
+        d.value() >= 0.0 && d.value() <= 2.0,
+        "cosine distance should be in [0, 2], got {}",
+        d.value()
+    );
+}
