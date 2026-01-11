@@ -122,11 +122,14 @@ pub(crate) fn has_no_self_loops(graph: &Graph) -> bool {
 /// predicate is suitable for use in Kani harnesses.
 #[cfg(kani)]
 pub(crate) fn has_unique_neighbours(graph: &Graph) -> bool {
+    use std::collections::HashSet;
+
     for (_node_id, node) in graph.nodes_iter() {
         for level in 0..node.level_count() {
             let neighbours = node.neighbours(level);
-            for (i, &id) in neighbours.iter().enumerate() {
-                if neighbours[i + 1..].contains(&id) {
+            let mut seen = HashSet::with_capacity(neighbours.len());
+            for &id in neighbours {
+                if !seen.insert(id) {
                     return false;
                 }
             }
