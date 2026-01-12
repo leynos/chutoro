@@ -27,7 +27,7 @@ roadmap entry in `docs/roadmap.md` (lines 111-127) is marked as done.
 
 ## Surprises & Discoveries
 
-_(To be updated as work proceeds)_
+No surprises encountered during implementation.
 
 ## Decision Log
 
@@ -42,7 +42,7 @@ _(To be updated as work proceeds)_
 
 ## Outcomes & Retrospective
 
-_(To be updated upon completion)_
+All bounded Kani harnesses implemented successfully. Roadmap entry marked complete.
 
 ## Context and Orientation
 
