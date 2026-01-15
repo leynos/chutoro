@@ -93,6 +93,67 @@ Per `docs/roadmap.md` lines 111-127:
    and GPU implementations agree within a defined tolerance `epsilon` for the
    same inputs.
 
+## MST Verification Flow Diagrams
+
+The following diagrams illustrate the control flow of the MST structural
+correctness Kani harness and its helper functions.
+
+### Figure 1: Main Harness Flow
+
+This diagram shows the top-level flow of `verify_mst_structural_correctness_4_nodes`.
+
+```mermaid
+flowchart TD
+    A[kani_proofs verify_mst_structural_correctness_4_nodes] --> B[Set node_count = 4]
+    B --> C[Define edge_pairs: complete graph on 4 nodes]
+    C --> D[generate_random_edges node_count, edge_pairs]
+    D --> E[parallel_kruskal_from_edges node_count, edges.iter]
+    E --> F{parallel_kruskal_from_edges Ok?}
+    F -- yes --> G[validate_forest_properties node_count, forest]
+    F -- no --> Z[End harness]
+    G --> Z
+```
+
+### Figure 2: Edge Generation Helper
+
+This diagram shows the nondeterministic edge selection in `generate_random_edges`.
+
+```mermaid
+flowchart TD
+    D1[Iterate edge_pairs] --> D2{kani::any bool}
+    D2 -- include --> D3[Pick weight: u8 via kani::any]
+    D3 --> D4[Push CandidateEdge::new source, target, weight, seq]
+    D4 --> D5[Increment seq]
+    D5 --> D1
+    D2 -- skip --> D1
+    D1 --> D6[Return edges Vec]
+```
+
+### Figure 3: Forest Validation Flow
+
+This diagram shows the validation logic in `validate_forest_properties` and
+`is_valid_forest`.
+
+```mermaid
+flowchart TD
+    G[validate_forest_properties] --> H[is_valid_forest node_count, forest.edges, forest.component_count]
+    H --> H1[Check edges.len == node_count - component_count]
+    H1 --> H2[validate_edges_canonical edges]
+    H2 --> H3[Union-find via kani_find_root to detect cycles]
+    H3 --> I{is_valid_forest returns true?}
+    I -- true --> J[kani::assert MST forest invariant holds]
+    I -- false --> K[kani::assert fails: MST forest invariant]
+
+    G --> L[kani::assert forest.edges.len <= node_count - 1]
+    G --> M{forest.component_count == 1?}
+    M -- yes --> N[kani::assert forest.edges.len == node_count - 1]
+    M -- no --> Z[End validation]
+    J --> Z
+    K --> Z
+    L --> Z
+    N --> Z
+```
+
 ## Plan of Work
 
 ### Step 1: Add HNSW Invariant Checker Functions
