@@ -1,3 +1,10 @@
+//! Helper predicates for HNSW graph invariant checking.
+//!
+//! This module provides utility functions for validating structural invariants
+//! of HNSW graphs, including edge traversal helpers and layer validation. Under
+//! the `kani` configuration, additional predicates are exposed for use in
+//! formal verification harnesses.
+
 #[cfg(kani)]
 use std::collections::HashSet;
 
