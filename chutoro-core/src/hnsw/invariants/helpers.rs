@@ -1,3 +1,6 @@
+#[cfg(kani)]
+use std::collections::HashSet;
+
 use crate::hnsw::{graph::Graph, node::Node};
 
 use super::{HnswInvariantViolation, LayerConsistencyDetail};
@@ -121,19 +124,16 @@ pub(crate) fn has_no_self_loops(graph: &Graph) -> bool {
 /// contains unique node identifiers), `false` otherwise. This simplified
 /// predicate is suitable for use in Kani harnesses.
 ///
-/// Uses a simple O(n²) scan suitable for the small slices in bounded harnesses,
-/// avoiding extra allocation from HashSet.
+/// Uses a HashSet for O(n) uniqueness checking per neighbour list.
 #[cfg(kani)]
 pub(crate) fn has_unique_neighbours(graph: &Graph) -> bool {
     for (_node_id, node) in graph.nodes_iter() {
         for level in 0..node.level_count() {
             let neighbours = node.neighbours(level);
-            // Quadratic uniqueness check - suitable for small neighbour lists
-            for i in 0..neighbours.len() {
-                for j in (i + 1)..neighbours.len() {
-                    if neighbours[i] == neighbours[j] {
-                        return false;
-                    }
+            let mut seen = HashSet::with_capacity(neighbours.len());
+            for &id in neighbours {
+                if !seen.insert(id) {
+                    return false;
                 }
             }
         }
@@ -171,11 +171,9 @@ pub(crate) fn is_entry_point_valid(graph: &Graph) -> bool {
     }
 
     // Entry level must be maximal across all nodes
-    // (level_count() returns levels 0..level_count, so max level = level_count - 1)
     for (_id, node) in graph.nodes_iter() {
-        // node.level_count() - 1 is the highest level for this node
-        // entry.level must be >= that
-        if node.level_count() > 0 && node.level_count() - 1 > entry.level {
+        let node_max_level = node.level_count().saturating_sub(1);
+        if node_max_level > entry.level {
             return false;
         }
     }

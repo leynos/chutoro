@@ -338,6 +338,16 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
 // Kani Formal Verification
 // ============================================================================
 
+/// Returns `true` if all edges have canonical ordering and no self-loops.
+///
+/// Canonical ordering requires `source < target` for all edges.
+#[cfg(kani)]
+fn validate_edges_canonical(edges: &[MstEdge]) -> bool {
+    edges
+        .iter()
+        .all(|edge| edge.source() != edge.target() && edge.source() < edge.target())
+}
+
 /// Validates MST forest structural invariants for Kani verification.
 ///
 /// Returns `true` if the forest satisfies:
@@ -356,11 +366,9 @@ pub(crate) fn is_valid_forest(
         return false;
     }
 
-    // No self-loops and canonical ordering (inlined for simplicity)
-    for edge in edges {
-        if edge.source() == edge.target() || edge.source() >= edge.target() {
-            return false;
-        }
+    // No self-loops and canonical ordering
+    if !validate_edges_canonical(edges) {
+        return false;
     }
 
     // Acyclic check via union-find

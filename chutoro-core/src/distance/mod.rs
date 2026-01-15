@@ -27,8 +27,16 @@ mod kani_proofs {
 
     use super::{cosine_distance, euclidean_distance};
 
+    // ------------------------------------------------------------------------
+    // Constants
+    // ------------------------------------------------------------------------
+
     /// Tolerance for floating-point comparisons in distance functions.
     const EPSILON: f32 = 1e-5;
+
+    // ------------------------------------------------------------------------
+    // Helper Functions
+    // ------------------------------------------------------------------------
 
     /// Creates a 3D f32 array with nondeterministic finite values.
     fn make_finite_3d_vector() -> [f32; 3] {
@@ -62,6 +70,30 @@ mod kani_proofs {
         }
     }
 
+    /// Asserts that two distance results are symmetric within tolerance.
+    fn assert_symmetric_distance(d1: super::Result, d2: super::Result, metric_name: &str) {
+        kani::assert(is_symmetric_result(d1, d2), metric_name);
+    }
+
+    /// Asserts that a distance result is zero within tolerance.
+    ///
+    /// Errors are treated as assertion failures since the distance should
+    /// always be computable for valid inputs.
+    fn assert_zero_distance(d: super::Result, metric_name: &str) {
+        match d {
+            Ok(dist) => {
+                kani::assert(dist.value().abs() < EPSILON, metric_name);
+            }
+            Err(_) => {
+                kani::assert(false, metric_name);
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Proof Harnesses
+    // ------------------------------------------------------------------------
+
     /// Verifies Euclidean distance symmetry: d(a, b) = d(b, a).
     ///
     /// This harness uses 3-dimensional vectors with nondeterministic finite
@@ -75,10 +107,7 @@ mod kani_proofs {
         let ab = euclidean_distance(&a, &b);
         let ba = euclidean_distance(&b, &a);
 
-        kani::assert(
-            is_symmetric_result(ab, ba),
-            "euclidean distance symmetry violated",
-        );
+        assert_symmetric_distance(ab, ba, "euclidean distance symmetry violated");
     }
 
     /// Verifies Euclidean distance is zero on identical inputs: d(v, v) = 0.
@@ -91,20 +120,10 @@ mod kani_proofs {
     fn verify_euclidean_zero_on_identical_3d() {
         let v = make_finite_3d_vector();
 
-        match euclidean_distance(&v, &v) {
-            Ok(dist) => {
-                kani::assert(
-                    dist.value().abs() < EPSILON,
-                    "euclidean distance not zero on identical inputs",
-                );
-            }
-            Err(_) => {
-                kani::assert(
-                    false,
-                    "euclidean distance returned error on identical inputs",
-                );
-            }
-        }
+        assert_zero_distance(
+            euclidean_distance(&v, &v),
+            "euclidean distance not zero on identical inputs",
+        );
     }
 
     /// Verifies Euclidean distance is non-negative: d(a, b) >= 0.
@@ -135,10 +154,7 @@ mod kani_proofs {
         let ab = cosine_distance(&a, &b, None);
         let ba = cosine_distance(&b, &a, None);
 
-        kani::assert(
-            is_symmetric_result(ab, ba),
-            "cosine distance symmetry violated",
-        );
+        assert_symmetric_distance(ab, ba, "cosine distance symmetry violated");
     }
 
     /// Verifies cosine distance is zero on identical non-zero inputs: d(v, v) = 0.
@@ -151,20 +167,10 @@ mod kani_proofs {
     fn verify_cosine_zero_on_identical_3d() {
         let v = make_finite_nonzero_3d_vector();
 
-        match cosine_distance(&v, &v, None) {
-            Ok(dist) => {
-                kani::assert(
-                    dist.value().abs() < EPSILON,
-                    "cosine distance not zero on identical inputs",
-                );
-            }
-            Err(_) => {
-                kani::assert(
-                    false,
-                    "cosine distance returned error on identical non-zero inputs",
-                );
-            }
-        }
+        assert_zero_distance(
+            cosine_distance(&v, &v, None),
+            "cosine distance not zero on identical non-zero inputs",
+        );
     }
 
     /// Verifies cosine distance is bounded: 0 <= d(a, b) <= 2.

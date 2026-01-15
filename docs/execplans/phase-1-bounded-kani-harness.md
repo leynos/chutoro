@@ -601,10 +601,10 @@ make test 2>&1 | tee /tmp/make-test.log
 1. **Read** `helpers.rs` to understand existing checker patterns.
 2. **Add** invariant checker functions under `#[cfg(kani)]`.
 3. **Read** `kani_proofs.rs` to confirm harness patterns.
-4. **Add** HNSW Kani harnesses for the three invariants.
-5. **Add** MST forest validation helper and harness.
-6. **Add** distance kernel harnesses.
-7. **Add** unit tests with `rstest` for all invariants.
+4. **Introduce** HNSW Kani harnesses for the three invariants.
+5. **Implement** MST forest validation helper and harness.
+6. **Create** distance kernel harnesses.
+7. **Write** unit tests with `rstest` for all invariants.
 8. **Update** roadmap to mark the entry as done.
 9. **Run** quality gates and capture logs.
 
