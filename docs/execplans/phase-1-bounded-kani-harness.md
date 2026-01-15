@@ -415,12 +415,12 @@ fn verify_mst_structural_correctness_5_nodes() {
     }
 
     let harvest = EdgeHarvest::new(edges);
-    if let Ok(forest) = parallel_kruskal(node_count, &harvest) {
-        kani::assert(
-            is_valid_forest(node_count, forest.edges(), forest.component_count()),
-            "MST forest invariant violated",
-        );
-    }
+    let forest = parallel_kruskal(node_count, &harvest)
+        .expect("MST computation should succeed for valid inputs");
+    kani::assert(
+        is_valid_forest(node_count, forest.edges(), forest.component_count()),
+        "MST forest invariant violated",
+    );
 }
 ```
 
@@ -508,7 +508,7 @@ mod kani_proofs {
         }
     }
 
-    /// Verifies cosine distance is zero on identical inputs.
+    /// Verifies cosine distance is zero on identical non-zero inputs.
     #[kani::proof]
     #[kani::unwind(6)]
     fn verify_cosine_zero_on_identical_3d() {
@@ -516,12 +516,19 @@ mod kani_proofs {
         for &x in &v {
             kani::assume(x.is_finite());
         }
+        // Ensure non-zero norm so cosine distance is defined
+        kani::assume(v[0] != 0.0 || v[1] != 0.0 || v[2] != 0.0);
 
-        if let Ok(d) = cosine_distance(&v, &v, None) {
-            kani::assert(
-                d.value().abs() < 1e-6,
-                "cosine distance not zero on identical inputs",
-            );
+        match cosine_distance(&v, &v, None) {
+            Ok(d) => {
+                kani::assert(
+                    d.value().abs() < 1e-6,
+                    "cosine distance not zero on identical inputs",
+                );
+            }
+            Err(_) => {
+                kani::assert(false, "cosine distance returned error on identical non-zero inputs");
+            }
         }
     }
 }
