@@ -370,13 +370,20 @@ fn forest_is_acyclic(#[case] node_count: usize, #[case] edges: &[(usize, usize, 
 #[case::simple_edge(&[(0, 1, 1.0, 0)])]
 #[case::reversed_edge(&[(1, 0, 1.0, 0)])]
 #[case::mixed_directions(&[(0, 1, 1.0, 0), (2, 1, 2.0, 1)])]
+#[case::self_loop_candidate(&[(0, 0, 1.0, 0), (0, 1, 2.0, 1)])]
 fn edges_are_canonicalized(#[case] edges: &[(usize, usize, f32, u64)]) {
     let node_count = 3;
     let edge_harvest = harvest(edges);
     let result = parallel_kruskal(node_count, &edge_harvest).expect("MST should succeed");
 
     // All edges should be in canonical form: source < target
+    // and no self-loops should be present
     for edge in result.edges() {
+        assert_ne!(
+            edge.source(),
+            edge.target(),
+            "forest must not contain self-loop edges"
+        );
         assert!(
             edge.source() < edge.target(),
             "edge ({}, {}) is not canonical (source should be < target)",

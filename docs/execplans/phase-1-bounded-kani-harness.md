@@ -1,4 +1,4 @@
-# Phase 1: Bounded Kani Harnesses for HNSW and MST Invariants
+# Phase 1: Bounded Kani Harnesses for Hierarchical Navigable Small World (HNSW) and Minimum Spanning Tree (MST) Invariants
 
 This execution plan (ExecPlan) is a living document. The sections `Progress`,
 `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must
@@ -6,8 +6,8 @@ be kept up to date as work proceeds.
 
 ## Purpose / Big Picture
 
-Add bounded Kani harnesses that formally verify five structural invariants for
-the HNSW graph and MST pipeline. These harnesses complement existing
+Add bounded Kani model-checking harnesses that formally verify five structural
+invariants for the HNSW graph and MST pipeline. These harnesses complement existing
 bidirectional link verification with checks for no self-loops, neighbour list
 uniqueness, entry-point validity, MST structural correctness, and distance
 kernel consistency. Companion unit tests with broad parameterized coverage using
@@ -447,7 +447,7 @@ mod kani_proofs {
                 );
             }
             (Err(_), Err(_)) => {} // Both error is acceptable
-            _ => kani::assert(false, "asymmetric error behavior"),
+            _ => kani::assert(false, "asymmetric error behaviour"),
         }
     }
 
@@ -493,7 +493,7 @@ mod kani_proofs {
                 );
             }
             (Err(_), Err(_)) => {}
-            _ => kani::assert(false, "asymmetric error behavior"),
+            _ => kani::assert(false, "asymmetric error behaviour"),
         }
     }
 
