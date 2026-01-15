@@ -118,23 +118,32 @@ pub(crate) fn has_no_self_loops(graph: &Graph) -> bool {
     true
 }
 
+/// Returns `true` if the slice contains no duplicate elements.
+///
+/// Uses a HashSet for O(n) uniqueness checking.
+#[cfg(kani)]
+fn slice_has_unique_elements(slice: &[usize]) -> bool {
+    let mut seen = HashSet::with_capacity(slice.len());
+    for &id in slice {
+        if !seen.insert(id) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Checks that all neighbour lists contain no duplicates.
 ///
 /// Returns `true` if the invariant holds (every neighbour list at every layer
 /// contains unique node identifiers), `false` otherwise. This simplified
 /// predicate is suitable for use in Kani harnesses.
-///
-/// Uses a HashSet for O(n) uniqueness checking per neighbour list.
 #[cfg(kani)]
 pub(crate) fn has_unique_neighbours(graph: &Graph) -> bool {
     for (_node_id, node) in graph.nodes_iter() {
         for level in 0..node.level_count() {
             let neighbours = node.neighbours(level);
-            let mut seen = HashSet::with_capacity(neighbours.len());
-            for &id in neighbours {
-                if !seen.insert(id) {
-                    return false;
-                }
+            if !slice_has_unique_elements(neighbours) {
+                return false;
             }
         }
     }

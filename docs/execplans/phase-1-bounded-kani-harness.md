@@ -67,7 +67,7 @@ The existing harnesses in `kani_proofs.rs` demonstrate:
 1. `#[kani::proof]` and `#[kani::unwind(N)]` attributes (N=4 for smoke, N=10 for
    heavier)
 2. Helper functions under `#[cfg(kani)]` for graph setup and assertions
-3. Deterministic graph setup with 2-4 nodes using `NodeContext`,
+3. Deterministic graph setup with 2–4 nodes using `NodeContext`,
    `Graph::insert_first`, `Graph::attach_node`
 4. Using `kani::any::<bool>()` for nondeterministic choices
 5. `kani::assert()` with descriptive messages
@@ -174,16 +174,26 @@ pub(crate) fn has_no_self_loops(graph: &Graph) -> bool {
     true
 }
 
+/// Returns `true` if the slice contains no duplicate elements.
+#[cfg(kani)]
+fn slice_has_unique_elements(slice: &[usize]) -> bool {
+    let mut seen = HashSet::with_capacity(slice.len());
+    for &id in slice {
+        if !seen.insert(id) {
+            return false;
+        }
+    }
+    true
+}
+
 /// Checks that all neighbour lists contain no duplicates.
 #[cfg(kani)]
 pub(crate) fn has_unique_neighbours(graph: &Graph) -> bool {
     for (_node_id, node) in graph.nodes_iter() {
         for level in 0..node.level_count() {
             let neighbours = node.neighbours(level);
-            for (i, &id) in neighbours.iter().enumerate() {
-                if neighbours[i + 1..].contains(&id) {
-                    return false;
-                }
+            if !slice_has_unique_elements(neighbours) {
+                return false;
             }
         }
     }
@@ -213,7 +223,8 @@ pub(crate) fn is_entry_point_valid(graph: &Graph) -> bool {
 
     // Entry level must be maximal across all nodes
     for (_id, node) in graph.nodes_iter() {
-        if node.level_count() > entry.level + 1 {
+        let node_max_level = node.level_count().saturating_sub(1);
+        if node_max_level > entry.level {
             return false;
         }
     }
