@@ -471,11 +471,16 @@ mod kani_proofs {
             kani::assume(x.is_finite());
         }
 
-        if let Ok(d) = euclidean_distance(&v, &v) {
-            kani::assert(
-                d.value().abs() < 1e-6,
-                "euclidean distance not zero on identical inputs",
-            );
+        match euclidean_distance(&v, &v) {
+            Ok(d) => {
+                kani::assert(
+                    d.value().abs() < 1e-6,
+                    "euclidean distance not zero on identical inputs",
+                );
+            }
+            Err(_) => {
+                kani::assert(false, "euclidean distance returned error on identical finite inputs");
+            }
         }
     }
 
