@@ -1,0 +1,231 @@
+# Phase 1: Nightly slow CI job for Kani full runs
+
+This ExecPlan is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
+`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as
+work proceeds.
+
+Status: DRAFT
+
+PLANS.md is not present in this repository, so no additional plan constraints
+apply.
+
+## Purpose / Big Picture
+
+Provide a nightly GitHub Actions job that runs `make kani-full` only when the
+`main` branch has new commits on the day of the run, while keeping normal
+`make test` usage unchanged so Kani remains opt-in for developers. The job must
+be manually triggerable for verification. Success is observable when the
+scheduled workflow skips on days with no new commits, runs `make kani-full`
+when there are same-day commits (UTC), and a manual dispatch runs the job
+regardless of commit freshness.
+
+## Constraints
+
+- Do not change the behaviour of `make test` or any default developer loop.
+- Do not add Kani to the existing PR CI flow in `.github/workflows/ci.yml`.
+- Keep `make kani-full` as the single source of truth for the full Kani run.
+- Follow workspace lint rules (no new warnings, no clippy suppressions).
+- Every new module must start with a `//!` module doc comment.
+- Documentation edits must follow the Markdown rules and be wrapped at 80
+  columns.
+
+## Tolerances (Exception Triggers)
+
+- Scope: if this requires changes to more than 10 files or more than 400 net
+  lines of code, stop and ask for confirmation.
+- Interfaces: if a public API must change in an existing crate, stop and
+  confirm the intended surface.
+- Dependencies: adding a new external crate beyond adding `rstest` as a
+  dev-dependency is not allowed without explicit approval.
+- CI design: if a GitHub Actions change requires more than one new workflow
+  file or alters the existing `ci.yml` job graph, stop and confirm.
+- Tests: if `make test` still fails after two fix attempts, stop and ask for
+  guidance.
+
+## Risks
+
+- Risk: The definition of "today" can be ambiguous across time zones.
+  Severity: medium. Likelihood: medium.
+  Mitigation: define "today" as the UTC date derived from Unix epoch seconds
+  and document the choice in the design document.
+- Risk: The nightly workflow may skip even though a commit landed just before
+  midnight local time.
+  Severity: low. Likelihood: medium.
+  Mitigation: use UTC and document the behaviour; allow manual override.
+- Risk: Kani runs could exceed the default GitHub Actions timeout.
+  Severity: medium. Likelihood: low.
+  Mitigation: set an explicit timeout and capture logs for analysis.
+
+## Progress
+
+- [x] (2026-01-16 00:00Z) Draft ExecPlan with required sections and scope.
+- [ ] Review existing CI workflow and Kani targets for integration points.
+- [ ] Implement and test the nightly gate logic with `rstest` coverage.
+- [ ] Add the scheduled/manual GitHub Actions workflow for Kani.
+- [ ] Update design documentation and mark the roadmap entry as done.
+- [ ] Run formatting, lint, and tests with logged output.
+
+## Surprises & Discoveries
+
+None so far.
+
+## Decision Log
+
+- Decision: Create a dedicated nightly workflow instead of modifying
+  `.github/workflows/ci.yml`.
+  Rationale: isolates slow Kani runs from PR CI and keeps existing flow
+  unchanged.
+  Date/Author: 2026-01-16 (Codex)
+- Decision: Define "new commits that day" using the UTC day derived from Unix
+  epoch seconds.
+  Rationale: avoids local timezone ambiguity and matches GitHub Actions default
+  time base.
+  Date/Author: 2026-01-16 (Codex)
+- Decision: Implement gating logic as a Rust helper in
+  `chutoro-test-support`, with unit tests using `rstest`.
+  Rationale: enables deterministic, parameterised tests and keeps CI logic
+  versioned with the repo.
+  Date/Author: 2026-01-16 (Codex)
+
+## Outcomes & Retrospective
+
+Not started yet. Record outcomes after implementation and validation.
+
+## Context and Orientation
+
+The current CI workflow lives in `.github/workflows/ci.yml` and runs format,
+lint, tests, and coverage on pull requests and manual dispatch. The Makefile
+already defines `make kani-full` as the full Kani verification command. The
+roadmap entry for this task is in `docs/roadmap.md` under Phase 1. Design
+updates should be recorded in `docs/chutoro-design.md`. Test patterns using
+`rstest` are documented in `docs/rust-testing-with-rstest-fixtures.md`, and
+Markdown rules are defined in `AGENTS.md` and
+`docs/rust-doctest-dry-guide.md`.
+
+## Plan of Work
+
+Stage A: Validate the current CI and Kani entry points. Confirm how
+`.github/workflows/ci.yml` is structured, verify the existing `make kani-full`
+command, and locate the Phase 1 roadmap entry. No code changes in this stage.
+Stop if a dedicated workflow conflicts with existing CI conventions.
+
+Stage B: Add a small, testable Rust helper that decides whether the nightly
+run should proceed. The helper should accept the commit timestamp and the
+current time as inputs so `rstest` can cover same-day, previous-day, and
+future-commit cases, as well as manual override behaviour. A thin binary
+wrapper should expose the decision to GitHub Actions, writing `should_run` and
+`reason` to `$GITHUB_OUTPUT` when present. Validation at this stage is
+`cargo test -p chutoro-test-support` and the new unit tests must fail before
+and pass after the implementation.
+
+Stage C: Create a new workflow (for example,
+`.github/workflows/nightly-kani.yml`) triggered by `schedule` and
+`workflow_dispatch`. The workflow should check out `main`, run the nightly
+helper, and only run `make kani-full` when the helper says to proceed or when a
+manual dispatch explicitly forces the run. Keep permissions minimal and add a
+job timeout suitable for Kani. Validation is a dry run via `workflow_dispatch`
+with a forced run and confirmation that the workflow skips when the helper
+returns `should_run=false`.
+
+Stage D: Update `docs/chutoro-design.md` with an implementation update noting
+the nightly Kani job, the UTC date rule, and the manual override. Mark the
+roadmap entry in `docs/roadmap.md` as done. Run `make fmt`,
+`make markdownlint`, `make nixie`, `make check-fmt`, `make lint`, and
+`make test` with logged output.
+
+## Concrete Steps
+
+1. Read `.github/workflows/ci.yml`, `Makefile`, and the Phase 1 entry in
+   `docs/roadmap.md` to confirm the integration points.
+2. Add a new module under `chutoro-test-support/src/ci/` with a pure function
+   such as:
+
+   `fn should_run_kani_full(commit_epoch: u64, now_epoch: u64, force: bool)
+   -> Result<NightlyDecision, NightlyGateError>`
+
+   The function should compare UTC days using integer division by 86,400 and
+   return a decision plus a reason string.
+3. Add `rstest`-based unit tests in the same module covering:
+
+   - commit date equals now date (run)
+   - commit date is prior day (skip)
+   - commit date is in the future (error)
+   - force override true regardless of date
+   - boundary cases around midnight UTC
+
+4. Add a small binary under `chutoro-test-support/src/bin/` that reads
+   the HEAD commit epoch via `git log -1 --format=%ct`, gets the current epoch
+   via `SystemTime`, applies the helper, and writes outputs for GitHub Actions.
+   Avoid `unwrap`/`expect`; propagate errors via `Result`.
+5. Add a new workflow file for the nightly job that:
+
+   - triggers on a daily cron (pick a UTC time) and `workflow_dispatch`
+   - checks out `main`
+   - runs the helper and sets outputs
+   - runs `make kani-full` only when `should_run=true`
+   - supports an input like `force_run: true` to override the gate
+
+6. Update `docs/chutoro-design.md` with a dated implementation update
+   describing the nightly Kani job, the UTC day rule, and the manual override.
+7. Update `docs/roadmap.md` to mark the nightly Kani entry as done.
+8. Run the required formatting, lint, and test commands with `tee` logging.
+
+Use the following command pattern to preserve exit codes and capture logs:
+
+    set -o pipefail
+    make fmt 2>&1 | tee /tmp/make-fmt.log
+
+    set -o pipefail
+    make markdownlint 2>&1 | tee /tmp/make-markdownlint.log
+
+    set -o pipefail
+    make nixie 2>&1 | tee /tmp/make-nixie.log
+
+    set -o pipefail
+    make check-fmt 2>&1 | tee /tmp/make-check-fmt.log
+
+    set -o pipefail
+    make lint 2>&1 | tee /tmp/make-lint.log
+
+    set -o pipefail
+    make test 2>&1 | tee /tmp/make-test.log
+
+## Validation and Acceptance
+
+The change is complete when all of the following are true:
+
+- The nightly workflow runs `make kani-full` only when the helper indicates a
+  same-day `main` commit, and manual dispatch can force the run.
+- The helper has `rstest` unit coverage for happy paths, unhappy paths, and
+  edge cases.
+- `make check-fmt`, `make lint`, and `make test` succeed.
+- Markdown checks (`make fmt`, `make markdownlint`, `make nixie`) pass.
+- The design document records the gating decision.
+- The Phase 1 roadmap entry is marked as done.
+
+## Idempotence and Recovery
+
+All steps are safe to rerun. If the nightly workflow fails, rerun the helper
+locally to inspect the decision output. If any quality gate fails, fix the
+reported issues and rerun the specific command with the same `pipefail` +
+`tee` pattern.
+
+## Artifacts and Notes
+
+Keep `/tmp/make-*.log` files until the change is accepted. Capture the helper
+stdout and the GitHub Actions job summary as evidence that the gate is working
+as intended.
+
+## Interfaces and Dependencies
+
+- New helper module: `chutoro_test_support::ci::nightly_gate` (exact module
+  name to be finalised), exposing `should_run_kani_full` and a
+  `NightlyDecision` struct containing `should_run: bool` and `reason: String`.
+- New binary: `chutoro-test-support/src/bin/kani_nightly_gate.rs` invoked from
+  the workflow, writing `should_run` and `reason` to `GITHUB_OUTPUT` when
+  present.
+- Workflow inputs: `force_run` boolean (manual only) mapped to an environment
+  variable such as `CHUTORO_KANI_FORCE`.
+- No new dependencies beyond adding `rstest` as a dev-dependency for
+  `chutoro-test-support`.
