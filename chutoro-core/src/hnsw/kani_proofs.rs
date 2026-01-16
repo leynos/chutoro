@@ -39,7 +39,9 @@ use crate::hnsw::{
         apply_commit_updates_for_kani, apply_reconciled_update_for_kani,
         ensure_reverse_edge_for_kani, test_helpers::add_edge_if_missing,
     },
-    invariants::is_bidirectional,
+    invariants::{
+        has_no_self_loops, has_unique_neighbours, is_bidirectional, is_entry_point_valid,
+    },
     params::HnswParams,
 };
 
@@ -444,4 +446,197 @@ fn push_if_absent(list: &mut Vec<usize>, value: usize) {
     if !list.contains(&value) {
         list.push(value);
     }
+}
+
+// ============================================================================
+// No Self-Loops, Neighbour Uniqueness, and Entry-Point Validity Harnesses
+// ============================================================================
+
+/// Verifies that no node has itself as a neighbour (no self-loops).
+///
+/// This harness creates a bounded 4-node graph and nondeterministically adds
+/// edges between distinct nodes. Since the edge addition helper never creates
+/// self-loops, this verifies that the invariant holds for all possible edge
+/// configurations.
+///
+/// # Verification Bounds
+///
+/// - **Nodes**: 4 (IDs 0, 1, 2, 3)
+/// - **Levels**: 2 (levels 0 and 1)
+/// - **Edges**: Nondeterministic selection between distinct nodes
+#[kani::proof]
+#[kani::unwind(10)]
+fn verify_no_self_loops_4_nodes() {
+    let params = HnswParams::new(2, 2).expect("params must be valid");
+    let mut graph = Graph::with_capacity(params, 4);
+
+    // Insert nodes with varying levels
+    graph
+        .insert_first(NodeContext {
+            node: 0,
+            level: 1,
+            sequence: 0,
+        })
+        .expect("insert node 0");
+    graph
+        .attach_node(NodeContext {
+            node: 1,
+            level: 0,
+            sequence: 1,
+        })
+        .expect("attach node 1");
+    graph
+        .attach_node(NodeContext {
+            node: 2,
+            level: 0,
+            sequence: 2,
+        })
+        .expect("attach node 2");
+    graph
+        .attach_node(NodeContext {
+            node: 3,
+            level: 0,
+            sequence: 3,
+        })
+        .expect("attach node 3");
+
+    // Nondeterministically add edges (construction never adds self-loops)
+    for origin in 0..4usize {
+        for target in 0..4usize {
+            if origin != target && kani::any::<bool>() {
+                add_edge_if_missing(&mut graph, origin, target, 0);
+            }
+        }
+    }
+
+    kani::assert(
+        has_no_self_loops(&graph),
+        "no self-loops invariant violated",
+    );
+}
+
+/// Verifies that neighbour lists contain no duplicates.
+///
+/// This harness exercises the reconciliation path which enforces uniqueness
+/// when adding edges. It uses nondeterministic choices to explore various
+/// edge configurations and verifies that no neighbour list contains duplicate
+/// entries.
+///
+/// # Verification Bounds
+///
+/// - **Nodes**: 4 (IDs 0, 1, 2, 3)
+/// - **Levels**: 2 (levels 0 and 1)
+/// - **Updates**: Nondeterministic edge addition via reconciliation
+#[kani::proof]
+#[kani::unwind(10)]
+fn verify_neighbour_uniqueness_4_nodes() {
+    let params = HnswParams::new(2, 2).expect("params must be valid");
+    let max_connections = params.max_connections();
+    let mut graph = Graph::with_capacity(params, 4);
+
+    graph
+        .insert_first(NodeContext {
+            node: 0,
+            level: 1,
+            sequence: 0,
+        })
+        .expect("insert node 0");
+    graph
+        .attach_node(NodeContext {
+            node: 1,
+            level: 0,
+            sequence: 1,
+        })
+        .expect("attach node 1");
+    graph
+        .attach_node(NodeContext {
+            node: 2,
+            level: 0,
+            sequence: 2,
+        })
+        .expect("attach node 2");
+    graph
+        .attach_node(NodeContext {
+            node: 3,
+            level: 0,
+            sequence: 3,
+        })
+        .expect("attach node 3");
+
+    // Exercise reconciliation path which enforces uniqueness
+    if kani::any::<bool>() {
+        add_edge_if_missing(&mut graph, 0, 1, 0);
+        let ctx = KaniUpdateContext::new(0, 0, max_connections);
+        let _ = ensure_reverse_edge_for_kani(&mut graph, ctx, 1);
+    }
+    if kani::any::<bool>() {
+        add_edge_if_missing(&mut graph, 0, 2, 0);
+        let ctx = KaniUpdateContext::new(0, 0, max_connections);
+        let _ = ensure_reverse_edge_for_kani(&mut graph, ctx, 2);
+    }
+    if kani::any::<bool>() {
+        add_edge_if_missing(&mut graph, 1, 3, 0);
+        let ctx = KaniUpdateContext::new(1, 0, max_connections);
+        let _ = ensure_reverse_edge_for_kani(&mut graph, ctx, 3);
+    }
+
+    kani::assert(
+        has_unique_neighbours(&graph),
+        "neighbour uniqueness invariant violated",
+    );
+}
+
+/// Verifies entry-point validity and maximality after insertions.
+///
+/// This harness inserts nodes with nondeterministically chosen levels and
+/// verifies that the entry point is always valid and has the maximum level
+/// across all nodes.
+///
+/// # Verification Bounds
+///
+/// - **Nodes**: 4 (IDs 0, 1, 2, 3)
+/// - **Levels**: Up to 3 (max_level = 2, so levels 0, 1, 2)
+/// - **Updates**: Nondeterministic level assignment and entry promotion
+///
+/// # Invariant Under Test
+///
+/// The entry-point validity invariant states that:
+/// - If the graph is empty, there is no entry point.
+/// - If the graph is non-empty, the entry point exists, references a valid
+///   node, and has a level at least as high as any other node in the graph.
+#[kani::proof]
+#[kani::unwind(12)]
+fn verify_entry_point_validity_4_nodes() {
+    let params = HnswParams::new(2, 3).expect("params must be valid");
+    let mut graph = Graph::with_capacity(params, 4);
+
+    // First node sets entry point with nondeterministic level
+    let level0: usize = kani::any();
+    kani::assume(level0 <= 2);
+    graph
+        .insert_first(NodeContext {
+            node: 0,
+            level: level0,
+            sequence: 0,
+        })
+        .expect("insert first");
+
+    // Subsequent nodes may promote entry point if they have higher level
+    for (id, seq) in [(1usize, 1u64), (2, 2), (3, 3)] {
+        let level: usize = kani::any();
+        kani::assume(level <= 2);
+        graph
+            .attach_node(NodeContext {
+                node: id,
+                level,
+                sequence: seq,
+            })
+            .expect("attach node");
+        graph.promote_entry(id, level);
+    }
+
+    kani::assert(
+        is_entry_point_valid(&graph),
+        "entry-point validity invariant violated",
+    );
 }

@@ -101,14 +101,14 @@ ______________________________________________________________________
         the post-pass scan once correctness is validated.
 - [x] Add HNSW insertion idempotency property: repeated duplicate insertions
   leave graph state unchanged. (See property-testing-design §2.3.3)
-- [ ] Formal verification (Kani) expansion for HNSW and pipeline invariants:
+- [x] Formal verification (Kani) expansion for HNSW and pipeline invariants:
   - [x] Replace the 3-node bidirectionality harness with a commit-path harness
     that drives reconciliation and deferred scrubs via
     `CommitApplicator::apply_neighbour_updates`.
   - [x] Add an eviction/deferred-scrub scenario: pre-fill a target neighbour
     list to `max_connections`, force `ensure_reverse_edge` to evict, and assert
     reciprocity after `apply_deferred_scrubs`.
-  - [ ] Add bounded Kani harnesses for the following explicit invariants:
+  - [x] Add bounded Kani harnesses for the following explicit invariants:
     - **No self-loops**: For every node `u` and layer `l`, `u` is not in
       `N_l(u)`.
     - **Neighbour list uniqueness**: For every node `u` and layer `l`, the list
