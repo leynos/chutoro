@@ -1002,6 +1002,13 @@ _Figure 2: Commit-path Kani harness flow for bidirectional invariant checks,
 using a bounded three-node scenario (the implementation uses level 1 to
 exercise eviction and deferred scrubs)._
 
+_Implementation update (2026-01-17)._ A nightly slow CI job runs
+`make kani-full` only when the `main` branch has a commit on the same UTC day
+as the schedule trigger. Manual `workflow_dispatch` runs may force the job,
+allowing verification without waiting for fresh commits. The default PR CI path
+remains unchanged so formal verification stays opt-in for daily development
+loops.
+
 #### 6.6. Search correctness property
 
 _Implementation update (2025-11-12)._ The CPU suite now exercises the oracle

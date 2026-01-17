@@ -125,7 +125,7 @@ ______________________________________________________________________
       implementation, distances are symmetric and zero on identical inputs, and
       CPU and GPU implementations agree within a defined tolerance `epsilon`
       for the same inputs.
-- [ ] Add a nightly "slow" CI job that runs `make kani-full` only when main has
+- [x] Add a nightly "slow" CI job that runs `make kani-full` only when main has
   new commits that day; keep `make test` unchanged so Kani remains opt-in for
   normal development loops.
 - [x] Implement composite graph strategies (random, scale-free, lattice,
