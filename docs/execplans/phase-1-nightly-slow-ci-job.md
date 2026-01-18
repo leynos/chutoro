@@ -150,7 +150,7 @@ the roadmap entry in `docs/roadmap.md` as done. Run `make fmt`,
            force: bool,
        ) -> Result<NightlyDecision, NightlyGateError>
 
-   The function should compare a rolling 24-hour window using a 86,400-second
+   The function should compare a rolling 24-hour window using an 86,400-second
    cutoff derived from Unix epoch seconds and return a decision plus a reason
    string.
 3. Add `rstest`-based unit tests in the same module covering:
