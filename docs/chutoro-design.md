@@ -1003,11 +1003,12 @@ using a bounded three-node scenario (the implementation uses level 1 to
 exercise eviction and deferred scrubs)._
 
 _Implementation update (2026-01-17)._ A nightly slow CI job runs
-`make kani-full` only when the `main` branch has a commit on the same UTC day
-as the schedule trigger. Manual `workflow_dispatch` runs may force the job,
-allowing verification without waiting for fresh commits. The default PR CI path
-remains unchanged so formal verification stays opt-in for daily development
-loops.
+`make kani-full` only when the `main` branch has a commit within the last 24
+hours (UTC) of the schedule trigger. Manual `workflow_dispatch` runs may force
+the job, allowing verification without waiting for fresh commits. The default
+PR CI path remains unchanged so formal verification stays opt-in for daily
+development loops. Small future timestamp skews (up to 300 seconds) are treated
+as skips rather than failures to avoid false negatives from clock drift.
 
 #### 6.6. Search correctness property
 

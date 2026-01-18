@@ -126,8 +126,8 @@ ______________________________________________________________________
       CPU and GPU implementations agree within a defined tolerance `epsilon`
       for the same inputs.
 - [x] Add a nightly "slow" CI job that runs `make kani-full` only when main has
-  new commits that day; keep `make test` unchanged so Kani remains opt-in for
-  normal development loops.
+  new commits in the last 24 hours (Coordinated Universal Time (UTC)); keep
+  `make test` unchanged so Kani remains opt-in for normal development loops.
 - [x] Implement composite graph strategies (random, scale-free, lattice,
   disconnected) for candidate edge harvest testing. (See
   property-testing-design §3.1)

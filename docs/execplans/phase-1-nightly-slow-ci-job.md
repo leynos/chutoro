@@ -1,4 +1,4 @@
-# Phase 1: Nightly slow CI job for Kani full runs
+# Phase 1: Nightly slow continuous integration (CI) job for Kani full runs
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
@@ -12,12 +12,12 @@ apply.
 ## Purpose / Big Picture
 
 Provide a nightly GitHub Actions job that runs `make kani-full` only when the
-`main` branch has new commits on the day of the run, while keeping normal
-`make test` usage unchanged so Kani remains opt-in for developers. The job must
-be manually triggerable for verification. Success is observable when the
-scheduled workflow skips on days with no new commits, runs `make kani-full`
-when there are same-day commits (UTC), and a manual dispatch runs the job
-regardless of commit freshness.
+`main` branch has new commits in the last 24 hours (Coordinated Universal Time
+(UTC)), while keeping normal `make test` usage unchanged so Kani remains opt-in
+for developers. The job must be manually triggerable for verification. Success
+is observable when the scheduled workflow skips on days with no recent commits,
+runs `make kani-full` when there are commits within the last 24 hours (UTC),
+and a manual dispatch runs the job regardless of commit freshness.
 
 ## Constraints
 
@@ -44,10 +44,10 @@ regardless of commit freshness.
 
 ## Risks
 
-- Risk: The definition of "today" can be ambiguous across time zones.
-  Severity: medium. Likelihood: medium. Mitigation: define "today" as the UTC
-  date derived from Unix epoch seconds and document the choice in the design
-  document.
+- Risk: The definition of "last 24 hours" can be ambiguous across time zones.
+  Severity: medium. Likelihood: medium. Mitigation: define the window using
+  Coordinated Universal Time (UTC) epoch seconds and document the choice in the
+  design document.
 - Risk: The nightly workflow may skip even though a commit landed just before
   midnight local time. Severity: low. Likelihood: medium. Mitigation: use UTC
   and document the behaviour; allow manual override.
@@ -76,21 +76,21 @@ regardless of commit freshness.
 - Decision: Create a dedicated nightly workflow instead of modifying
   `.github/workflows/ci.yml`. Rationale: isolates slow Kani runs from PR CI and
   keeps existing flow unchanged. Date/Author: 2026-01-16 (Codex)
-- Decision: Define "new commits that day" using the UTC day derived from Unix
-  epoch seconds. Rationale: avoids local timezone ambiguity and matches GitHub
-  Actions default time base. Date/Author: 2026-01-16 (Codex)
 - Decision: Implement gating logic as a Rust helper in
   `chutoro-test-support`, with unit tests using `rstest`. Rationale: enables
-  deterministic, parameterised tests and keeps CI logic versioned with the
+  deterministic, parameterized tests and keeps CI logic versioned with the
   repo. Date/Author: 2026-01-16 (Codex)
+- Decision: Gate on commits within the last 24 hours (UTC) instead of strict
+  UTC day boundaries. Rationale: avoids skipping commits that land after the
+  cron trigger. Date/Author: 2026-01-18 (Codex)
 - Decision: Default manual `workflow_dispatch` runs to `force_run = true`.
   Rationale: ensures manual verification runs always execute without requiring
-  a same-day commit. Date/Author: 2026-01-17 (Codex)
+  a recent commit. Date/Author: 2026-01-17 (Codex)
 
 ## Outcomes & Retrospective
 
 Delivered a gated nightly Kani workflow, a Rust-based gate helper with
-parameterised tests, and updated documentation and roadmap entries. The
+parameterized tests, and updated documentation and roadmap entries. The
 required formatting, lint, and test gates passed. Next time, preinstall
 `cargo-nextest` or document the required version alongside the toolchain.
 
@@ -113,10 +113,10 @@ Stop if a dedicated workflow conflicts with existing CI conventions.
 
 Stage B: Add a small, testable Rust helper that decides whether the nightly run
 should proceed. The helper should accept the commit timestamp and the current
-time as inputs so `rstest` can cover same-day, previous-day, and future-commit
-cases, as well as manual override behaviour. A thin binary wrapper should
-expose the decision to GitHub Actions, writing `should_run` and `reason` to
-`$GITHUB_OUTPUT` when present. Validation at this stage is
+time as inputs so `rstest` can cover within-window, outside-window, and
+future-commit cases, as well as manual override behaviour. A thin binary
+wrapper should expose the decision to GitHub Actions, writing `should_run` and
+`reason` to `$GITHUB_OUTPUT` when present. Validation at this stage is
 `cargo test -p chutoro-test-support` and the new unit tests must fail before
 and pass after the implementation.
 
@@ -130,8 +130,8 @@ with a forced run and confirmation that the workflow skips when the helper
 returns `should_run=false`.
 
 Stage D: Update `docs/chutoro-design.md` with an implementation update noting
-the nightly Kani job, the UTC date rule, and the manual override. Mark the
-roadmap entry in `docs/roadmap.md` as done. Run `make fmt`,
+the nightly Kani job, the rolling 24-hour rule, and the manual override. Mark
+the roadmap entry in `docs/roadmap.md` as done. Run `make fmt`,
 `make markdownlint`, `make nixie`, `make check-fmt`, `make lint`, and
 `make test` with logged output.
 
@@ -150,15 +150,16 @@ roadmap entry in `docs/roadmap.md` as done. Run `make fmt`,
            force: bool,
        ) -> Result<NightlyDecision, NightlyGateError>
 
-   The function should compare UTC days using integer division by 86,400 and
-   return a decision plus a reason string.
+   The function should compare a rolling 24-hour window using a 86,400-second
+   cutoff derived from Unix epoch seconds and return a decision plus a reason
+   string.
 3. Add `rstest`-based unit tests in the same module covering:
 
-   - commit date equals now date (run)
-   - commit date is prior day (skip)
-   - commit date is in the future (error)
-   - force override true regardless of date
-   - boundary cases around midnight UTC
+   - commit time equals now time (run)
+   - commit time outside the last 24 hours (skip)
+   - commit time is in the future (error)
+   - force override true regardless of time
+   - boundary cases around the 24-hour cutoff
 
 4. Add a small binary under `chutoro-test-support/src/bin/` that reads
    the HEAD commit epoch via `git log -1 --format=%ct`, gets the current epoch
@@ -173,7 +174,8 @@ roadmap entry in `docs/roadmap.md` as done. Run `make fmt`,
    - supports an input like `force_run: true` to override the gate
 
 6. Update `docs/chutoro-design.md` with a dated implementation update
-   describing the nightly Kani job, the UTC day rule, and the manual override.
+   describing the nightly Kani job, the rolling 24-hour rule, and the manual
+   override.
 7. Update `docs/roadmap.md` to mark the nightly Kani entry as done.
 8. Run the required formatting, lint, and test commands with `tee` logging.
 
@@ -202,7 +204,7 @@ Use the following command pattern to preserve exit codes and capture logs:
 The change is complete when all of the following are true:
 
 - The nightly workflow runs `make kani-full` only when the helper indicates a
-  same-day `main` commit, and manual dispatch can force the run.
+  commit within the last 24 hours, and manual dispatch can force the run.
 - The helper has `rstest` unit coverage for happy paths, unhappy paths, and
   edge cases.
 - `make check-fmt`, `make lint`, and `make test` succeed.
@@ -226,7 +228,7 @@ as intended.
 ## Interfaces and Dependencies
 
 - New helper module: `chutoro_test_support::ci::nightly_gate` (exact module
-  name to be finalised), exposing `should_run_kani_full` and a
+  name to be finalized), exposing `should_run_kani_full` and a
   `NightlyDecision` struct containing `should_run: bool` and `reason: String`.
 - New binary: `chutoro-test-support/src/bin/kani_nightly_gate.rs` invoked from
   the workflow, writing `should_run` and `reason` to `GITHUB_OUTPUT` when
@@ -241,3 +243,8 @@ as intended.
 2026-01-17: Updated status to COMPLETE, recorded progress, discoveries, and
 validation results, and added the `cargo-nextest` installation note. No
 remaining work is pending.
+
+2026-01-17: Expanded acronyms for CI and UTC to follow documentation rules.
+2026-01-18: Adjusted the plan for review feedback covering workflow
+concurrency, gate skew handling, the rolling 24-hour gate, and behavioural test
+coverage.

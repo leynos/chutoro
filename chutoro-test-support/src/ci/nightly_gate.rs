@@ -3,6 +3,7 @@
 use std::fmt;
 
 const SECONDS_PER_DAY: u64 = 86_400;
+const ALLOWED_FUTURE_SKEW_SECONDS: u64 = 300;
 
 /// Decision describing whether the nightly Kani job should run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,8 +53,10 @@ impl std::error::Error for NightlyGateError {}
 
 /// Decide whether the nightly Kani job should run.
 ///
-/// The comparison uses UTC day boundaries derived from Unix epoch seconds. Set
-/// `force` to `true` to bypass the date gate (for manual verification runs).
+/// The comparison uses a rolling 24-hour window derived from Unix epoch
+/// seconds. Small future skews (up to 300 seconds) are treated as a skip
+/// instead of a hard failure. Set `force` to `true` to bypass the date gate
+/// (for manual verification runs).
 ///
 /// # Examples
 ///
@@ -75,30 +78,35 @@ pub fn should_run_kani_full(
     }
 
     if commit_epoch > now_epoch {
+        let skew = commit_epoch - now_epoch;
+        if skew <= ALLOWED_FUTURE_SKEW_SECONDS {
+            return Ok(NightlyDecision::new(
+                false,
+                format!("commit timestamp {commit_epoch} is {skew}s ahead of now; skipping"),
+            ));
+        }
+
         return Err(NightlyGateError::CommitFromFuture {
             commit_epoch,
             now_epoch,
         });
     }
 
-    let commit_day = utc_day(commit_epoch);
-    let now_day = utc_day(now_epoch);
-
-    if commit_day == now_day {
+    if is_within_last_day(commit_epoch, now_epoch) {
         Ok(NightlyDecision::new(
             true,
-            "main updated today (UTC); running Kani",
+            "main updated within last 24 hours (UTC); running Kani",
         ))
     } else {
         Ok(NightlyDecision::new(
             false,
-            "no main commits today (UTC); skipping",
+            "no main commits in last 24 hours (UTC); skipping",
         ))
     }
 }
 
-fn utc_day(epoch_seconds: u64) -> u64 {
-    epoch_seconds / SECONDS_PER_DAY
+fn is_within_last_day(commit_epoch: u64, now_epoch: u64) -> bool {
+    commit_epoch >= now_epoch.saturating_sub(SECONDS_PER_DAY)
 }
 
 #[cfg(test)]
@@ -110,11 +118,11 @@ mod tests {
     const DAY: u64 = SECONDS_PER_DAY;
 
     #[rstest]
-    #[case::same_day(DAY + 1, DAY + 10, true)]
-    #[case::same_day_later(DAY * 2 + 5, DAY * 2 + 50, true)]
-    #[case::previous_day(DAY - 1, DAY + 1, false)]
-    #[case::two_days_ago(DAY, DAY * 3, false)]
-    fn run_decision_by_day(
+    #[case::same_timestamp(DAY, DAY, true)]
+    #[case::within_window(DAY + 10, DAY + 100, true)]
+    #[case::boundary_window(DAY, DAY * 2, true)]
+    #[case::outside_window(DAY - 1, DAY * 2, false)]
+    fn run_decision_by_window(
         #[case] commit_epoch: u64,
         #[case] now_epoch: u64,
         #[case] expected_run: bool,
@@ -160,9 +168,22 @@ mod tests {
     }
 
     #[rstest]
-    #[case::before_midnight(DAY - 1, DAY, false)]
-    #[case::after_midnight(DAY, DAY + 1, true)]
-    fn midnight_boundary_cases(
+    #[case::small_future_skew(DAY + 10, DAY + 9)]
+    #[case::boundary_future_skew(DAY + ALLOWED_FUTURE_SKEW_SECONDS, DAY)]
+    fn small_future_skew_is_skip(#[case] commit_epoch: u64, #[case] now_epoch: u64) {
+        let decision = match should_run_kani_full(commit_epoch, now_epoch, false) {
+            Ok(decision) => decision,
+            Err(error) => panic!("expected small skew to skip, got {error}"),
+        };
+
+        assert!(!decision.should_run);
+        assert!(decision.reason.contains("ahead"));
+    }
+
+    #[rstest]
+    #[case::recent_commit(DAY * 3 - 1, DAY * 3, true)]
+    #[case::stale_commit(DAY * 2 - 1, DAY * 3, false)]
+    fn window_boundary_cases(
         #[case] commit_epoch: u64,
         #[case] now_epoch: u64,
         #[case] expected_run: bool,
