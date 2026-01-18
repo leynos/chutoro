@@ -143,39 +143,31 @@ fn binary_path() -> PathBuf {
 }
 
 fn find_in_deps(deps_dir: &Path) -> Option<PathBuf> {
-    let entries = match fs::read_dir(deps_dir) {
-        Ok(entries) => entries,
-        Err(_) => return None,
-    };
+    fs::read_dir(deps_dir)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .find_map(is_matching_binary)
+}
 
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let metadata = match entry.metadata() {
-            Ok(metadata) => metadata,
-            Err(_) => continue,
-        };
-        if !metadata.is_file() {
-            continue;
-        }
+fn is_matching_binary(entry: fs::DirEntry) -> Option<PathBuf> {
+    let path = entry.path();
+    let metadata = entry.metadata().ok()?;
 
-        let file_name = match path.file_name().and_then(|name| name.to_str()) {
-            Some(name) => name,
-            None => continue,
-        };
-        if !has_expected_suffix(&path, file_name) {
-            continue;
-        }
-
-        let file_stem = match path.file_stem().and_then(|stem| stem.to_str()) {
-            Some(stem) => stem,
-            None => continue,
-        };
-        if file_stem.starts_with("kani_nightly_gate") {
-            return Some(path);
-        }
+    if !metadata.is_file() {
+        return None;
     }
 
-    None
+    let file_name = path.file_name()?.to_str()?;
+    if !has_expected_suffix(&path, file_name) {
+        return None;
+    }
+
+    let file_stem = path.file_stem()?.to_str()?;
+    if file_stem.starts_with("kani_nightly_gate") {
+        Some(path)
+    } else {
+        None
+    }
 }
 
 fn has_expected_suffix(path: &Path, file_name: &str) -> bool {
