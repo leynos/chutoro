@@ -79,36 +79,52 @@ fn count_connected_components(node_count: usize, edges: &[CandidateEdge]) -> usi
         .count()
 }
 
-/// Computes the RNN (Reverse Nearest Neighbour) score.
+/// Generates a graph for the specified topology using the provided RNG.
 ///
-/// The RNN score measures symmetry in neighbour relationships. For each node,
-/// we find its top-k nearest neighbours by distance. The score is the fraction
-/// of (node, neighbour) pairs where the relationship is mutual: if `v` is in
-/// the top-k of `u`, then `u` is also in the top-k of `v`.
-///
-/// Returns a value in [0.0, 1.0] where 1.0 indicates perfect symmetry.
-fn compute_rnn_score(node_count: usize, edges: &[CandidateEdge], k: usize) -> f64 {
-    if edges.is_empty() || k == 0 || node_count == 0 {
-        return 1.0; // Trivially symmetric.
+/// Dispatches to the appropriate topology-specific generator.
+fn generate_graph_for_topology(
+    topology: GraphTopology,
+    rng: &mut SmallRng,
+) -> super::types::GeneratedGraph {
+    match topology {
+        GraphTopology::Random => generate_random_graph(rng),
+        GraphTopology::ScaleFree => generate_scale_free_graph(rng),
+        GraphTopology::Lattice => generate_lattice_graph(rng),
+        GraphTopology::Disconnected => generate_disconnected_graph(rng),
     }
+}
 
-    // Build adjacency lists with distances for each node.
+/// Builds adjacency lists with distances for each node from an edge list.
+///
+/// Returns a vector where `adjacency[i]` contains tuples of `(neighbour_id, distance)`
+/// for all edges incident to node `i`.
+fn build_adjacency_lists(node_count: usize, edges: &[CandidateEdge]) -> Vec<Vec<(usize, f32)>> {
     let mut adjacency: Vec<Vec<(usize, f32)>> = vec![Vec::new(); node_count];
     for edge in edges {
         adjacency[edge.source()].push((edge.target(), edge.distance()));
         adjacency[edge.target()].push((edge.source(), edge.distance()));
     }
+    adjacency
+}
 
-    // Sort each adjacency list by distance and take top-k neighbours.
-    let top_k_neighbours: Vec<HashSet<usize>> = adjacency
+/// Computes the top-k nearest neighbours for each node from adjacency lists.
+///
+/// For each node, sorts neighbours by distance and returns the k closest as a `HashSet`.
+fn compute_top_k_neighbours(adjacency: Vec<Vec<(usize, f32)>>, k: usize) -> Vec<HashSet<usize>> {
+    adjacency
         .into_iter()
         .map(|mut neighbours| {
             neighbours.sort_by(|a, b| a.1.total_cmp(&b.1));
             neighbours.into_iter().take(k).map(|(id, _)| id).collect()
         })
-        .collect();
+        .collect()
+}
 
-    // Count symmetric relationships.
+/// Counts symmetric relationships across all top-k neighbour sets.
+///
+/// Returns a tuple of `(symmetric_count, total_relationships)` where a relationship
+/// is symmetric if `v` is in the top-k of `u` AND `u` is in the top-k of `v`.
+fn count_symmetric_relationships(top_k_neighbours: &[HashSet<usize>]) -> (usize, usize) {
     let mut symmetric_count = 0usize;
     let mut total_relationships = 0usize;
 
@@ -121,11 +137,84 @@ fn compute_rnn_score(node_count: usize, edges: &[CandidateEdge], k: usize) -> f6
         }
     }
 
+    (symmetric_count, total_relationships)
+}
+
+/// Checks whether the RNN score calculation would be trivial.
+///
+/// Returns `true` if any of the inputs indicate an empty or degenerate case
+/// where the RNN score is trivially 1.0 (perfect symmetry).
+fn is_trivial_rnn_case(node_count: usize, edges: &[CandidateEdge], k: usize) -> bool {
+    edges.is_empty() || k == 0 || node_count == 0
+}
+
+/// Computes the RNN (Reverse Nearest Neighbour) score.
+///
+/// The RNN score measures symmetry in neighbour relationships. For each node,
+/// we find its top-k nearest neighbours by distance. The score is the fraction
+/// of (node, neighbour) pairs where the relationship is mutual: if `v` is in
+/// the top-k of `u`, then `u` is also in the top-k of `v`.
+///
+/// Returns a value in [0.0, 1.0] where 1.0 indicates perfect symmetry.
+fn compute_rnn_score(node_count: usize, edges: &[CandidateEdge], k: usize) -> f64 {
+    if is_trivial_rnn_case(node_count, edges, k) {
+        return 1.0; // Trivially symmetric.
+    }
+
+    let adjacency = build_adjacency_lists(node_count, edges);
+    let top_k_neighbours = compute_top_k_neighbours(adjacency, k);
+    let (symmetric_count, total_relationships) = count_symmetric_relationships(&top_k_neighbours);
+
     if total_relationships == 0 {
         1.0
     } else {
         symmetric_count as f64 / total_relationships as f64
     }
+}
+
+/// Validates connectivity expectations based on graph metadata.
+///
+/// Returns `Ok(())` if the actual component count matches expectations for the
+/// topology, or `Err(message)` describing the validation failure.
+fn validate_connectivity_for_metadata(
+    metadata: &GraphMetadata,
+    actual_components: usize,
+) -> Result<(), String> {
+    match metadata {
+        GraphMetadata::Disconnected {
+            component_count, ..
+        } => {
+            // Disconnected graphs should have at least the specified components.
+            // May have more if internal edges fail to connect all nodes within a component.
+            if actual_components < *component_count {
+                return Err(format!(
+                    "disconnected graph has fewer components than expected: {actual_components} < {component_count}"
+                ));
+            }
+        }
+        GraphMetadata::Lattice { .. } => {
+            // Lattice grids are always connected by construction.
+            if actual_components != 1 {
+                return Err(format!(
+                    "lattice should be connected, found {actual_components} components"
+                ));
+            }
+        }
+        GraphMetadata::ScaleFree { node_count, .. } => {
+            // Scale-free graphs built with Barabasi-Albert model are connected
+            // by construction (each new node attaches to existing nodes).
+            if actual_components > 1 && *node_count > 3 {
+                return Err(format!(
+                    "scale-free graph with {node_count} nodes has {actual_components} components (expected 1)"
+                ));
+            }
+        }
+        GraphMetadata::Random { .. } => {
+            // Random graphs may or may not be connected depending on edge probability.
+            // We don't enforce connectivity for random graphs; this is informational.
+        }
+    }
+    Ok(())
 }
 
 // ============================================================================
@@ -140,19 +229,8 @@ pub(super) fn run_graph_determinism_property(seed: u64, topology: GraphTopology)
     let mut rng1 = SmallRng::seed_from_u64(seed);
     let mut rng2 = SmallRng::seed_from_u64(seed);
 
-    let graph1 = match topology {
-        GraphTopology::Random => generate_random_graph(&mut rng1),
-        GraphTopology::ScaleFree => generate_scale_free_graph(&mut rng1),
-        GraphTopology::Lattice => generate_lattice_graph(&mut rng1),
-        GraphTopology::Disconnected => generate_disconnected_graph(&mut rng1),
-    };
-
-    let graph2 = match topology {
-        GraphTopology::Random => generate_random_graph(&mut rng2),
-        GraphTopology::ScaleFree => generate_scale_free_graph(&mut rng2),
-        GraphTopology::Lattice => generate_lattice_graph(&mut rng2),
-        GraphTopology::Disconnected => generate_disconnected_graph(&mut rng2),
-    };
+    let graph1 = generate_graph_for_topology(topology, &mut rng1);
+    let graph2 = generate_graph_for_topology(topology, &mut rng2);
 
     if graph1.node_count != graph2.node_count {
         return Err(TestCaseError::fail(format!(
@@ -241,42 +319,8 @@ pub(super) fn run_connectivity_preservation_property(fixture: &GraphFixture) -> 
     let actual_components =
         count_connected_components(fixture.graph.node_count, &fixture.graph.edges);
 
-    match &fixture.graph.metadata {
-        GraphMetadata::Disconnected {
-            component_count, ..
-        } => {
-            // Disconnected graphs should have at least the specified components.
-            // May have more if internal edges fail to connect all nodes within a component.
-            if actual_components < *component_count {
-                return Err(TestCaseError::fail(format!(
-                    "disconnected graph has fewer components than expected: {actual_components} < {component_count}"
-                )));
-            }
-        }
-        GraphMetadata::Lattice { .. } => {
-            // Lattice grids are always connected by construction.
-            if actual_components != 1 {
-                return Err(TestCaseError::fail(format!(
-                    "lattice should be connected, found {actual_components} components"
-                )));
-            }
-        }
-        GraphMetadata::ScaleFree { node_count, .. } => {
-            // Scale-free graphs built with Barabasi-Albert model are connected
-            // by construction (each new node attaches to existing nodes).
-            if actual_components > 1 && *node_count > 3 {
-                return Err(TestCaseError::fail(format!(
-                    "scale-free graph with {node_count} nodes has {actual_components} components (expected 1)"
-                )));
-            }
-        }
-        GraphMetadata::Random { .. } => {
-            // Random graphs may or may not be connected depending on edge probability.
-            // We don't enforce connectivity for random graphs; this is informational.
-        }
-    }
-
-    Ok(())
+    validate_connectivity_for_metadata(&fixture.graph.metadata, actual_components)
+        .map_err(TestCaseError::fail)
 }
 
 /// Property 4: RNN uplift — measures symmetric neighbour relationships.
