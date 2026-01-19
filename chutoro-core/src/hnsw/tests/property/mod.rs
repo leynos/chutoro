@@ -2,6 +2,7 @@
 
 pub(super) mod datasets;
 pub(super) mod edge_harvest_property;
+pub(super) mod edge_harvest_suite;
 mod fixtures;
 pub(super) mod graph_topologies;
 pub(super) mod graph_topology_tests;

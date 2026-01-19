@@ -131,7 +131,7 @@ ______________________________________________________________________
 - [x] Implement composite graph strategies (random, scale-free, lattice,
   disconnected) for candidate edge harvest testing. (See
   property-testing-design §3.1)
-- [ ] Add candidate edge harvest property suite covering determinism, degree
+- [x] Add candidate edge harvest property suite covering determinism, degree
   ceilings, connectivity preservation, and reverse nearest neighbour uplift
   metrics. (See property-testing-design §3.2)
 - [ ] Build parallel Kruskal property suite: compare against sequential
