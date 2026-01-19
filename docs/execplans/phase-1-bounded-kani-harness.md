@@ -7,12 +7,13 @@ be kept up to date as work proceeds.
 ## Purpose / Big Picture
 
 Add bounded Kani model-checking harnesses that formally verify five structural
-invariants for the HNSW graph and MST pipeline. These harnesses complement existing
-bidirectional link verification with checks for no self-loops, neighbour list
-uniqueness, entry-point validity, MST structural correctness, and distance
-kernel consistency. Companion unit tests with broad parameterized coverage using
-`rstest` validate both happy and unhappy paths. On completion, the relevant
-roadmap entry in `docs/roadmap.md` (lines 111-127) is marked as done.
+invariants for the HNSW graph and MST pipeline. These harnesses complement
+existing bidirectional link verification with checks for no self-loops,
+neighbour list uniqueness, entry-point validity, MST structural correctness,
+and distance kernel consistency. Companion unit tests with broad parameterized
+coverage using `rstest` validate both happy and unhappy paths. On completion,
+the relevant roadmap entry in `docs/roadmap.md` (lines 111-127) is marked as
+done.
 
 ## Progress
 
@@ -31,34 +32,35 @@ No surprises encountered during implementation.
 
 ## Decision Log
 
-| Decision | Rationale | Date/Author |
-|----------|-----------|-------------|
-| Use 4 nodes for HNSW harnesses | Balance between coverage and solver time; matches existing patterns | 2026-01-09 (Codex) |
-| Use 3-dimensional vectors for distance harnesses | Minimum non-trivial geometry while keeping unwind bounds low | 2026-01-09 (Codex) |
+| Decision                                                              | Rationale                                                              | Date/Author        |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------ |
+| Use 4 nodes for HNSW harnesses                                        | Balance between coverage and solver time; matches existing patterns    | 2026-01-09 (Codex) |
+| Use 3-dimensional vectors for distance harnesses                      | Minimum non-trivial geometry while keeping unwind bounds low           | 2026-01-09 (Codex) |
 | Use `#[kani::unwind(10)]` for HNSW, `#[kani::unwind(6)]` for distance | Consistent with existing harness bounds; sufficient for bounded graphs | 2026-01-09 (Codex) |
-| CPU-only for "CPU/GPU" consistency tests | No GPU implementation exists yet; add GPU tests when available | 2026-01-09 (Codex) |
-| Tolerance of 1e-6 for float comparisons | Standard floating-point epsilon for f32 precision | 2026-01-09 (Codex) |
-| Separate harness per invariant | Clearer failure diagnosis; easier to run individual proofs | 2026-01-09 (Codex) |
+| CPU-only for "CPU/GPU" consistency tests                              | No GPU implementation exists yet; add GPU tests when available         | 2026-01-09 (Codex) |
+| Tolerance of 1e-6 for float comparisons                               | Standard floating-point epsilon for f32 precision                      | 2026-01-09 (Codex) |
+| Separate harness per invariant                                        | Clearer failure diagnosis; easier to run individual proofs             | 2026-01-09 (Codex) |
 
 ## Outcomes & Retrospective
 
-All bounded Kani harnesses implemented successfully. Roadmap entry marked complete.
+All bounded Kani harnesses implemented successfully. Roadmap entry marked
+complete.
 
 ## Context and Orientation
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `chutoro-core/src/hnsw/kani_proofs.rs` | Kani harnesses for HNSW invariants (5 existing, add 3 more) |
-| `chutoro-core/src/hnsw/invariants/helpers.rs` | Invariant checker helpers (`is_bidirectional`, add 3 more) |
-| `chutoro-core/src/hnsw/invariants/mod.rs` | Invariant infrastructure and `HnswInvariant` enum |
-| `chutoro-core/src/hnsw/invariants/tests.rs` | Unit tests for invariant checkers |
-| `chutoro-core/src/mst/mod.rs` | Parallel Kruskal MST implementation |
-| `chutoro-core/src/mst/tests.rs` | MST unit tests with `rstest` |
-| `chutoro-core/src/distance/euclidean.rs` | Euclidean distance kernel |
-| `chutoro-core/src/distance/cosine.rs` | Cosine distance kernel |
-| `docs/roadmap.md` | Roadmap entry to mark as done (lines 111-127) |
+| File                                          | Purpose                                                     |
+| --------------------------------------------- | ----------------------------------------------------------- |
+| `chutoro-core/src/hnsw/kani_proofs.rs`        | Kani harnesses for HNSW invariants (5 existing, add 3 more) |
+| `chutoro-core/src/hnsw/invariants/helpers.rs` | Invariant checker helpers (`is_bidirectional`, add 3 more)  |
+| `chutoro-core/src/hnsw/invariants/mod.rs`     | Invariant infrastructure and `HnswInvariant` enum           |
+| `chutoro-core/src/hnsw/invariants/tests.rs`   | Unit tests for invariant checkers                           |
+| `chutoro-core/src/mst/mod.rs`                 | Parallel Kruskal MST implementation                         |
+| `chutoro-core/src/mst/tests.rs`               | MST unit tests with `rstest`                                |
+| `chutoro-core/src/distance/euclidean.rs`      | Euclidean distance kernel                                   |
+| `chutoro-core/src/distance/cosine.rs`         | Cosine distance kernel                                      |
+| `docs/roadmap.md`                             | Roadmap entry to mark as done (lines 111-127)               |
 
 ### Existing Kani Patterns
 
@@ -89,9 +91,9 @@ Per `docs/roadmap.md` lines 111-127:
    connects all nodes. For disconnected graphs with `c` components, the output
    is a forest with `n-c` edges.
 5. **Distance kernel consistency (CPU/GPU)**: For any metric distance
-   implementation, distances are symmetric and zero on identical inputs, and CPU
-   and GPU implementations agree within a defined tolerance `epsilon` for the
-   same inputs.
+   implementation, distances are symmetric and zero on identical inputs, and
+   CPU and GPU implementations agree within a defined tolerance `epsilon` for
+   the same inputs.
 
 ## MST Verification Flow Diagrams
 
@@ -100,7 +102,8 @@ correctness Kani harness and its helper functions.
 
 ### Figure 1: Main Harness Flow
 
-This diagram shows the top-level flow of `verify_mst_structural_correctness_4_nodes`.
+This diagram shows the top-level flow of
+`verify_mst_structural_correctness_4_nodes`.
 
 ```mermaid
 flowchart TD
@@ -116,7 +119,8 @@ flowchart TD
 
 ### Figure 2: Edge Generation Helper
 
-This diagram shows the nondeterministic edge selection in `generate_random_edges`.
+This diagram shows the nondeterministic edge selection in
+`generate_random_edges`.
 
 ```mermaid
 flowchart TD

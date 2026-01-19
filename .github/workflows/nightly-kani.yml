@@ -1,0 +1,39 @@
+name: Nightly Kani
+
+'on':
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: Force Kani run even without last-24-hour commits (UTC).
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: nightly-kani
+  cancel-in-progress: false
+
+jobs:
+  kani-full:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          ref: main
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@b3b75715b965ec6c09984a3cea6a725a17bd4107
+      - name: Decide whether to run Kani
+        id: gate
+        env:
+          CHUTORO_KANI_FORCE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_run || 'false' }}
+        run: cargo run -p chutoro-test-support --bin kani_nightly_gate
+      - name: Run Kani full suite
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        run: make kani-full

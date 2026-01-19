@@ -26,10 +26,10 @@ completion, the relevant roadmap entry in `docs/roadmap.md` is marked as done.
 ## Surprises & Discoveries
 
 - Initial `multiple_evictions_in_batch_update` test failed because both updates
-  used node 0 as origin, but with `max_connections = 1` at level 1 (capacity 1),
-  node 0 could only have one neighbour. The second update evicted the first.
-  Fixed by using different origin nodes (node 0 and node 5) so each update
-  succeeds independently.
+  used node 0 as origin, but with `max_connections = 1` at level 1 (capacity
+  1), node 0 could only have one neighbour. The second update evicted the
+  first. Fixed by using different origin nodes (node 0 and node 5) so each
+  update succeeds independently.
 
 ## Decision Log
 
@@ -50,9 +50,11 @@ completion, the relevant roadmap entry in `docs/roadmap.md` is marked as done.
 - Added Kani harness `verify_eviction_deferred_scrub_reciprocity` with 4 nodes
   and 2 levels that exercises eviction and deferred scrub logic.
 - Added 5 parameterized unit tests covering eviction edge cases:
-  `eviction_scrubs_orphaned_forward_edge`, `eviction_skips_scrub_if_reciprocity_restored`,
-  `multiple_evictions_in_batch_update`, `eviction_at_base_layer_triggers_healing`,
-  and `eviction_respects_furthest_first_ordering`.
+  `eviction_scrubs_orphaned_forward_edge`,
+  `eviction_skips_scrub_if_reciprocity_restored`,
+  `multiple_evictions_in_batch_update`,
+  `eviction_at_base_layer_triggers_healing`, and
+  `eviction_respects_furthest_first_ordering`.
 - All 367 tests pass, including the new eviction tests.
 - Quality gates (`make check-fmt`, `make lint`, `make test`) all succeed.
 - Roadmap entry marked as done.
