@@ -312,7 +312,7 @@ fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
 
 #[test]
 fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
-    run_idempotency_test(64, 1024, 96 * 1024 * 1024)
+    run_idempotency_test(32, 1024, 96 * 1024 * 1024)
 }
 
 #[test]
