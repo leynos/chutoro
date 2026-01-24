@@ -1,11 +1,11 @@
-# ExecPlan: Phase 1 — Candidate Edge Harvest Property Suite
+# ExecPlan: Phase 1 — Candidate edge harvest property suite
 
 **Status**: Complete **Issue**: See `docs/roadmap.md` Phase 1 **Branch**:
 `terragon/add-candidate-edge-harvest-suite-bug81f`
 
 ______________________________________________________________________
 
-## Big Picture
+## Big picture
 
 Add a candidate edge harvest property suite covering the four properties
 specified in `docs/property-testing-design.md` §3.2:
@@ -22,9 +22,9 @@ ______________________________________________________________________
 
 ## Constraints
 
-- Must follow existing test organisation in
+- Must follow existing test organization in
   `/root/repo/chutoro-core/src/hnsw/tests/property/`
-- Use `rstest` for parameterised test cases with `#[case(...)]`
+- Use `rstest` for parameterized test cases with `#[case(...)]`
 - Use proptest strategies where appropriate
 - All code must pass `make check-fmt`, `make lint`, `make test`
 - Document design decisions in this plan
@@ -32,9 +32,9 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## Design Decisions
+## Design decisions
 
-### D1: Scope Clarification
+### D1: Scope clarification
 
 The existing `edge_harvest_property.rs` tests Hierarchical Navigable Small
 World (HNSW) edge harvest during index construction (via `build_with_edges()`).
@@ -47,7 +47,7 @@ candidate edge harvest algorithms across different graph structures. The graph
 generators produce these structures for downstream Minimum Spanning Tree (MST)
 testing.
 
-### D2: Determinism Implementation
+### D2: Determinism implementation
 
 Determinism is verified by:
 
@@ -58,7 +58,7 @@ Determinism is verified by:
 This complements the existing HNSW rebuild tolerance test which allows variance
 due to Rayon's non-deterministic thread scheduling.
 
-### D3: Degree Ceiling Bounds
+### D3: Degree ceiling bounds
 
 Topology-specific ceilings:
 
@@ -69,7 +69,7 @@ Topology-specific ceilings:
 | Random       | `node_count - 1`                  | Complete graph worst case |
 | Disconnected | `max(component_sizes) - 1`        | Within largest component  |
 
-### D4: Connectivity via Union-Find
+### D4: Connectivity via union-find
 
 A simple sequential union-find implementation with path compression counts
 connected components. Assertions by topology:
@@ -86,7 +86,7 @@ connected by construction. Random graphs may be disconnected depending on edge
 probability. Disconnected graphs must have at least the specified number of
 components.
 
-### D5: RNN Uplift Metric
+### D5: RNN uplift metric
 
 RNN score = fraction of top-k neighbours that are mutual. For node `u` with
 neighbour `v` in its top-k, the relationship is symmetric if `u` is also in
@@ -108,22 +108,22 @@ Minimum thresholds by topology:
 
 ______________________________________________________________________
 
-## Implementation Summary
+## Implementation summary
 
-### Files Created
+### Files created
 
-| File                                                         | Purpose                   |
-| ------------------------------------------------------------ | ------------------------- |
-| `chutoro-core/src/hnsw/tests/property/edge_harvest_suite.rs` | New property suite module |
+| File                                                             | Purpose                   |
+| ---------------------------------------------------------------- | ------------------------- |
+| `chutoro-core/src/hnsw/tests/property/edge_harvest_suite/mod.rs` | New property suite module |
 
-### Files Modified
+### Files modified
 
 | File                                          | Change              |
 | --------------------------------------------- | ------------------- |
 | `chutoro-core/src/hnsw/tests/property/mod.rs` | Register new module |
 | `docs/roadmap.md`                             | Mark task complete  |
 
-### Helper Functions Implemented
+### Helper functions implemented
 
 ```rust
 fn compute_node_degrees(node_count: usize, edges: &[CandidateEdge]) -> Vec<usize>
@@ -131,7 +131,7 @@ fn count_connected_components(node_count: usize, edges: &[CandidateEdge]) -> usi
 fn compute_rnn_score(node_count: usize, edges: &[CandidateEdge], k: usize) -> f64
 ```
 
-### Property Functions Implemented
+### Property functions implemented
 
 ```rust
 pub(super) fn run_graph_determinism_property(seed: u64, topology: GraphTopology) -> TestCaseResult
@@ -140,9 +140,9 @@ pub(super) fn run_connectivity_preservation_property(fixture: &GraphFixture) -> 
 pub(super) fn run_rnn_uplift_property(fixture: &GraphFixture) -> TestCaseResult
 ```
 
-### Test Coverage
+### Test coverage
 
-**rstest parameterised cases** (20 total):
+**rstest parameterized cases** (20 total):
 
 - 8 determinism cases (2 seeds × 4 topologies)
 - 4 degree ceiling cases (1 per topology)
