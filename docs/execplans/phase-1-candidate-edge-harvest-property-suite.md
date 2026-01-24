@@ -1,8 +1,7 @@
 # ExecPlan: Phase 1 — Candidate Edge Harvest Property Suite
 
-**Status**: Complete
-**Issue**: See `docs/roadmap.md` Phase 1
-**Branch**: `terragon/add-candidate-edge-harvest-suite-bug81f`
+**Status**: Complete **Issue**: See `docs/roadmap.md` Phase 1 **Branch**:
+`terragon/add-candidate-edge-harvest-suite-bug81f`
 
 ______________________________________________________________________
 
@@ -37,15 +36,16 @@ ______________________________________________________________________
 
 ### D1: Scope Clarification
 
-The existing `edge_harvest_property.rs` tests HNSW edge harvest during
-index construction (via `build_with_edges()`). The new suite tests the
-**graph topology generators** themselves (`generate_random_graph`, etc.)
-as specified in §3.2, which focuses on graph-level properties rather than
-HNSW-specific behaviour.
+The existing `edge_harvest_property.rs` tests Hierarchical Navigable Small
+World (HNSW) edge harvest during index construction (via `build_with_edges()`).
+The new suite tests the **graph topology generators** themselves
+(`generate_random_graph`, etc.) as specified in §3.2, which focuses on
+graph-level properties rather than HNSW-specific behaviour.
 
 **Rationale**: The property-testing-design document §3.2 specifies testing
-candidate edge harvest algorithms across different graph structures. The
-graph generators produce these structures for downstream MST testing.
+candidate edge harvest algorithms across different graph structures. The graph
+generators produce these structures for downstream Minimum Spanning Tree (MST)
+testing.
 
 ### D2: Determinism Implementation
 
@@ -55,36 +55,36 @@ Determinism is verified by:
 2. Calling the same generator twice
 3. Asserting exact edge vector equality (edges are already sorted)
 
-This complements the existing HNSW rebuild tolerance test which allows
-variance due to Rayon's non-deterministic thread scheduling.
+This complements the existing HNSW rebuild tolerance test which allows variance
+due to Rayon's non-deterministic thread scheduling.
 
 ### D3: Degree Ceiling Bounds
 
 Topology-specific ceilings:
 
-| Topology     | Ceiling                           | Rationale                       |
-| ------------ | --------------------------------- | ------------------------------- |
-| Lattice      | 4 (no diagonals) or 8 (diagonals) | Grid connectivity bound         |
-| ScaleFree    | `node_count - 1`                  | Hub worst case                  |
-| Random       | `node_count - 1`                  | Complete graph worst case       |
-| Disconnected | `max(component_sizes) - 1`        | Within largest component        |
+| Topology     | Ceiling                           | Rationale                 |
+| ------------ | --------------------------------- | ------------------------- |
+| Lattice      | 4 (no diagonals) or 8 (diagonals) | Grid connectivity bound   |
+| ScaleFree    | `node_count - 1`                  | Hub worst case            |
+| Random       | `node_count - 1`                  | Complete graph worst case |
+| Disconnected | `max(component_sizes) - 1`        | Within largest component  |
 
 ### D4: Connectivity via Union-Find
 
 A simple sequential union-find implementation with path compression counts
 connected components. Assertions by topology:
 
-| Topology     | Assertion                                     |
-| ------------ | --------------------------------------------- |
-| Lattice      | Exactly 1 component                           |
-| ScaleFree    | Exactly 1 component (for n > 3)               |
-| Random       | Informational only (probabilistic)            |
-| Disconnected | At least `component_count` components         |
+| Topology     | Assertion                             |
+| ------------ | ------------------------------------- |
+| Lattice      | Exactly 1 component                   |
+| ScaleFree    | Exactly 1 component (for n > 3)       |
+| Random       | Informational only (probabilistic)    |
+| Disconnected | At least `component_count` components |
 
 **Rationale**: Lattice grids and Barabasi-Albert scale-free graphs are
-connected by construction. Random graphs may be disconnected depending on
-edge probability. Disconnected graphs must have at least the specified
-number of components.
+connected by construction. Random graphs may be disconnected depending on edge
+probability. Disconnected graphs must have at least the specified number of
+components.
 
 ### D5: RNN Uplift Metric
 
@@ -99,12 +99,12 @@ neighbour `v` in its top-k, the relationship is symmetric if `u` is also in
 
 Minimum thresholds by topology:
 
-| Topology     | Threshold | Rationale                    |
-| ------------ | --------- | ---------------------------- |
-| Lattice      | 0.8       | Highly regular structure     |
-| ScaleFree    | 0.3       | Hubs create asymmetry        |
-| Random       | 0.4       | Moderate symmetry expected   |
-| Disconnected | 0.4       | Within-component symmetry    |
+| Topology     | Threshold | Rationale                     |
+| ------------ | --------- | ----------------------------- |
+| Lattice      | 0.8       | Highly regular structure      |
+| ScaleFree    | 0.05      | Hubs create extreme asymmetry |
+| Random       | 0.3       | Moderate symmetry expected    |
+| Disconnected | 0.3       | Within-component symmetry     |
 
 ______________________________________________________________________
 
@@ -112,16 +112,16 @@ ______________________________________________________________________
 
 ### Files Created
 
-| File                                                               | Purpose                            |
-| ------------------------------------------------------------------ | ---------------------------------- |
-| `chutoro-core/src/hnsw/tests/property/edge_harvest_suite.rs`       | New property suite module          |
+| File                                                         | Purpose                   |
+| ------------------------------------------------------------ | ------------------------- |
+| `chutoro-core/src/hnsw/tests/property/edge_harvest_suite.rs` | New property suite module |
 
 ### Files Modified
 
-| File                                                        | Change                          |
-| ----------------------------------------------------------- | ------------------------------- |
-| `chutoro-core/src/hnsw/tests/property/mod.rs`               | Register new module             |
-| `docs/roadmap.md`                                           | Mark task complete              |
+| File                                          | Change              |
+| --------------------------------------------- | ------------------- |
+| `chutoro-core/src/hnsw/tests/property/mod.rs` | Register new module |
+| `docs/roadmap.md`                             | Mark task complete  |
 
 ### Helper Functions Implemented
 
@@ -142,7 +142,7 @@ pub(super) fn run_rnn_uplift_property(fixture: &GraphFixture) -> TestCaseResult
 
 ### Test Coverage
 
-**Rstest parameterised cases** (20 total):
+**rstest parameterised cases** (20 total):
 
 - 8 determinism cases (2 seeds × 4 topologies)
 - 4 degree ceiling cases (1 per topology)
@@ -155,7 +155,7 @@ pub(super) fn run_rnn_uplift_property(fixture: &GraphFixture) -> TestCaseResult
 - `graph_topology_connectivity_proptest`
 - `graph_topology_rnn_uplift_proptest`
 
-**Helper function unit tests** (9 tests):
+**Helper function unit tests** (11 tests):
 
 - `compute_node_degrees_empty_graph`
 - `compute_node_degrees_simple_chain`
@@ -164,6 +164,8 @@ pub(super) fn run_rnn_uplift_property(fixture: &GraphFixture) -> TestCaseResult
 - `count_connected_components_fully_connected`
 - `count_connected_components_two_components`
 - `compute_rnn_score_empty_graph`
+- `compute_rnn_score_k_zero_is_trivially_one`
+- `compute_rnn_score_zero_nodes_is_trivially_one`
 - `compute_rnn_score_symmetric_pair`
 - `compute_rnn_score_asymmetric_star`
 
@@ -205,9 +207,9 @@ ______________________________________________________________________
 
 ## Progress Log
 
-| Date       | Status   | Notes                                      |
-| ---------- | -------- | ------------------------------------------ |
-| 2026-01-19 | Complete | Implementation finished, tests passing     |
+| Date       | Status   | Notes                                  |
+| ---------- | -------- | -------------------------------------- |
+| 2026-01-19 | Complete | Implementation finished, tests passing |
 
 ______________________________________________________________________
 
@@ -215,6 +217,9 @@ ______________________________________________________________________
 
 - `docs/property-testing-design.md` §3.2 — Property specifications
 - `docs/roadmap.md` Phase 1 — Task entry
-- `chutoro-core/src/hnsw/tests/property/graph_topology_tests/mod.rs` — Existing patterns
-- `chutoro-core/src/hnsw/tests/property/edge_harvest_property.rs` — Related tests
-- `chutoro-core/src/hnsw/tests/property/strategies.rs` — `graph_fixture_strategy()`
+- `chutoro-core/src/hnsw/tests/property/graph_topology_tests/mod.rs` — Existing
+  patterns
+- `chutoro-core/src/hnsw/tests/property/edge_harvest_property.rs` — Related
+  tests
+- `chutoro-core/src/hnsw/tests/property/strategies.rs` —
+  `graph_fixture_strategy()`

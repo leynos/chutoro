@@ -142,10 +142,10 @@ fn count_symmetric_relationships(top_k_neighbours: &[HashSet<usize>]) -> (usize,
 
 /// Checks whether the RNN score calculation would be trivial.
 ///
-/// Returns `true` if any of the inputs indicate an empty or degenerate case
-/// where the RNN score is trivially 1.0 (perfect symmetry).
-fn is_trivial_rnn_case(node_count: usize, edges: &[CandidateEdge], k: usize) -> bool {
-    edges.is_empty() || k == 0 || node_count == 0
+/// Returns `true` if the inputs indicate a degenerate case where the RNN score
+/// is trivially 1.0 (perfect symmetry).
+fn is_trivial_rnn_case(node_count: usize, k: usize) -> bool {
+    k == 0 || node_count == 0
 }
 
 /// Computes the RNN (Reverse Nearest Neighbour) score.
@@ -157,7 +157,7 @@ fn is_trivial_rnn_case(node_count: usize, edges: &[CandidateEdge], k: usize) -> 
 ///
 /// Returns a value in [0.0, 1.0] where 1.0 indicates perfect symmetry.
 fn compute_rnn_score(node_count: usize, edges: &[CandidateEdge], k: usize) -> f64 {
-    if is_trivial_rnn_case(node_count, edges, k) {
+    if is_trivial_rnn_case(node_count, k) {
         return 1.0; // Trivially symmetric.
     }
 
@@ -236,6 +236,13 @@ pub(super) fn run_graph_determinism_property(seed: u64, topology: GraphTopology)
         return Err(TestCaseError::fail(format!(
             "{topology:?}: node_count mismatch: {} vs {}",
             graph1.node_count, graph2.node_count
+        )));
+    }
+
+    if graph1.metadata != graph2.metadata {
+        return Err(TestCaseError::fail(format!(
+            "{topology:?}: metadata mismatch: left={:?} right={:?}",
+            graph1.metadata, graph2.metadata
         )));
     }
 
@@ -328,9 +335,9 @@ pub(super) fn run_connectivity_preservation_property(fixture: &GraphFixture) -> 
 /// Verifies that the Reverse Nearest Neighbour (RNN) score meets minimum
 /// thresholds based on topology characteristics:
 /// - **Lattice**: ≥ 0.8 (highly regular structure implies high symmetry)
-/// - **ScaleFree**: ≥ 0.3 (hub nodes create asymmetry)
-/// - **Random**: ≥ 0.4 (moderate symmetry expected)
-/// - **Disconnected**: ≥ 0.4 (within-component symmetry)
+/// - **ScaleFree**: ≥ 0.05 (hub nodes create extreme asymmetry)
+/// - **Random**: ≥ 0.3 (moderate symmetry expected)
+/// - **Disconnected**: ≥ 0.3 (within-component symmetry)
 ///
 /// Note: Edge canonicality (source < target) is only enforced for topologies
 /// that guarantee it. Scale-free graphs using preferential attachment naturally
@@ -398,6 +405,12 @@ mod tests {
     use proptest::prelude::*;
     use rstest::rstest;
 
+    fn build_fixture(seed: u64, topology: GraphTopology) -> GraphFixture {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let graph = generate_graph_for_topology(topology, &mut rng);
+        GraphFixture { topology, graph }
+    }
+
     // ========================================================================
     // Determinism Property Tests (rstest)
     // ========================================================================
@@ -425,14 +438,7 @@ mod tests {
     #[case::lattice(GraphTopology::Lattice, 42)]
     #[case::disconnected(GraphTopology::Disconnected, 42)]
     fn graph_degree_ceiling_rstest(#[case] topology: GraphTopology, #[case] seed: u64) {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let graph = match topology {
-            GraphTopology::Random => generate_random_graph(&mut rng),
-            GraphTopology::ScaleFree => generate_scale_free_graph(&mut rng),
-            GraphTopology::Lattice => generate_lattice_graph(&mut rng),
-            GraphTopology::Disconnected => generate_disconnected_graph(&mut rng),
-        };
-        let fixture = GraphFixture { topology, graph };
+        let fixture = build_fixture(seed, topology);
         run_degree_ceiling_property(&fixture).expect("degree ceiling property must hold");
     }
 
@@ -446,14 +452,7 @@ mod tests {
     #[case::lattice(GraphTopology::Lattice, 42)]
     #[case::disconnected(GraphTopology::Disconnected, 42)]
     fn graph_connectivity_rstest(#[case] topology: GraphTopology, #[case] seed: u64) {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let graph = match topology {
-            GraphTopology::Random => generate_random_graph(&mut rng),
-            GraphTopology::ScaleFree => generate_scale_free_graph(&mut rng),
-            GraphTopology::Lattice => generate_lattice_graph(&mut rng),
-            GraphTopology::Disconnected => generate_disconnected_graph(&mut rng),
-        };
-        let fixture = GraphFixture { topology, graph };
+        let fixture = build_fixture(seed, topology);
         run_connectivity_preservation_property(&fixture)
             .expect("connectivity preservation property must hold");
     }
@@ -468,14 +467,7 @@ mod tests {
     #[case::lattice(GraphTopology::Lattice, 42)]
     #[case::disconnected(GraphTopology::Disconnected, 42)]
     fn graph_rnn_uplift_rstest(#[case] topology: GraphTopology, #[case] seed: u64) {
-        let mut rng = SmallRng::seed_from_u64(seed);
-        let graph = match topology {
-            GraphTopology::Random => generate_random_graph(&mut rng),
-            GraphTopology::ScaleFree => generate_scale_free_graph(&mut rng),
-            GraphTopology::Lattice => generate_lattice_graph(&mut rng),
-            GraphTopology::Disconnected => generate_disconnected_graph(&mut rng),
-        };
-        let fixture = GraphFixture { topology, graph };
+        let fixture = build_fixture(seed, topology);
         run_rnn_uplift_property(&fixture).expect("RNN uplift property must hold");
     }
 
@@ -533,7 +525,20 @@ mod tests {
 
     #[test]
     fn compute_rnn_score_empty_graph() {
+        // Empty edges should fall back to the total_relationships == 0 path.
         assert_eq!(compute_rnn_score(5, &[], 5), 1.0);
+    }
+
+    #[test]
+    fn compute_rnn_score_k_zero_is_trivially_one() {
+        let edges = vec![CandidateEdge::new(0, 1, 1.0, 0)];
+        assert_eq!(compute_rnn_score(2, &edges, 0), 1.0);
+    }
+
+    #[test]
+    fn compute_rnn_score_zero_nodes_is_trivially_one() {
+        let edges: Vec<CandidateEdge> = Vec::new();
+        assert_eq!(compute_rnn_score(0, &edges, 5), 1.0);
     }
 
     #[test]
