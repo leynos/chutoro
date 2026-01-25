@@ -561,6 +561,49 @@ to probe for weaknesses.
 The following properties will be implemented to verify the parallel Kruskal's
 implementation against the invariants and pathological inputs.
 
+______________________________________________________________________
+
+## Appendix A: Verus candidates for edge harvest proofs
+
+The following edge-harvest behaviours are deterministic and bounded enough to
+be verifiable with Verus at reasonable effort. These proposals complement the
+proptest coverage and focus on pure helpers with well-scoped inputs.
+
+### A1: `extract_candidate_edges` invariants
+
+Location: `chutoro-core/src/hnsw/insert/mod.rs`
+
+Prove that for any `InsertionPlan`:
+
+- All edges have `source == source_node`.
+- No self-edges are emitted (`target != source_node`).
+- The `sequence` field is preserved (`sequence == source_sequence`).
+- Edge count equals total neighbours across layers minus any self-neighbours.
+
+This helper is pure, deterministic, and bounded by the plan input, making it a
+strong Verus target.
+
+### A2: `CandidateEdge::canonicalise` properties
+
+Location: `chutoro-core/src/hnsw/types.rs`
+
+Prove that:
+
+- The returned edge satisfies `source <= target`.
+- `distance` and `sequence` fields are preserved.
+
+### A3: `EdgeHarvest::from_unsorted` ordering
+
+Location: `chutoro-core/src/hnsw/types.rs`
+
+Prove that:
+
+- The output is a permutation of the input.
+- The output is sorted by `(sequence, Ord)`.
+
+This is feasible if a trusted `sort_unstable_by` specification is accepted or
+the sort is replaced with a verified routine.
+
 #### 4.3.1. Property 1: Equivalence with a sequential oracle
 
 This is the primary correctness check for the algorithm.
