@@ -138,11 +138,30 @@ ______________________________________________________________________
   harvested output (edge validity, degree constraints, connectivity
   preservation or bounded destruction, and RNN uplift relative to the input)
   across generated topologies. (See property-testing-design §3.2 additions)
+  - Prerequisites:
+    - Composite topology generators are complete. (See §3.1)
+    - Candidate edge harvest topology suite is complete. (See §3.2)
+  - Acceptance criteria:
+    - Run at least 256 generated fixtures per topology in the proptest suite.
+    - Edge validity passes in 100% of cases (no self-loops, in-bounds
+      endpoints, finite distances).
+    - Degree ceilings are respected in 100% of cases.
+    - Connectivity is preserved for connected topologies in at least 95% of
+      cases, with any remaining cases limited to a +1 component increase.
+    - RNN uplift median delta is ≥ 0.05 for lattice/random/disconnected inputs
+      and ≥ 0.0 for scale-free inputs.
 - [ ] Add Verus proofs for edge harvest primitives:
   - `extract_candidate_edges` invariants (source/target/sequence/count).
   - `CandidateEdge::canonicalise` preserves order and fields.
   - `EdgeHarvest::from_unsorted` permutation + ordering guarantees.
   (See property-testing-design Appendix A)
+  - Prerequisites:
+    - Edge harvest helper signatures are stable.
+    - Verus toolchain version is pinned and documented for contributors.
+  - Acceptance criteria:
+    - Verus proofs cover the Appendix A invariants without `assume` shortcuts.
+    - Proof harnesses pass in CI for the pinned Verus toolchain.
+    - Scope is limited to helper invariants (no concurrency or planner proofs).
 - [ ] Build parallel Kruskal property suite: compare against sequential
   oracle, enforce acyclicity/connectivity/edge-count invariants, and rerun jobs
   to detect race-induced non-determinism. (See property-testing-design §4)

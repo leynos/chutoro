@@ -11,28 +11,13 @@
 
 use rand::{SeedableRng, rngs::SmallRng};
 
-use super::graph_topologies::{
-    generate_disconnected_graph, generate_lattice_graph, generate_random_graph,
-    generate_scale_free_graph,
-};
+use super::graph_topologies::generate_graph_for_topology;
 pub(super) use super::types::{GeneratedGraph, GraphFixture, GraphMetadata, GraphTopology};
 
 mod connectivity;
 mod degree_ceiling;
 mod determinism;
 mod rnn_uplift;
-
-/// Generates a graph for the specified topology using the provided RNG.
-///
-/// Dispatches to the appropriate topology-specific generator.
-fn generate_graph_for_topology(topology: GraphTopology, rng: &mut SmallRng) -> GeneratedGraph {
-    match topology {
-        GraphTopology::Random => generate_random_graph(rng),
-        GraphTopology::ScaleFree => generate_scale_free_graph(rng),
-        GraphTopology::Lattice => generate_lattice_graph(rng),
-        GraphTopology::Disconnected => generate_disconnected_graph(rng),
-    }
-}
 
 #[cfg(test)]
 fn build_fixture(seed: u64, topology: GraphTopology) -> GraphFixture {

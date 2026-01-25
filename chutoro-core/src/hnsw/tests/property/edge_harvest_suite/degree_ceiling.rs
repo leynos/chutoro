@@ -18,18 +18,28 @@ fn compute_node_degrees(node_count: usize, edges: &[CandidateEdge]) -> Vec<usize
     degrees
 }
 
-/// Property 2: Degree ceilings — node degrees within topology-specific bounds.
-///
-/// Verifies that no node exceeds the maximum degree expected for its topology:
-/// - **Lattice**: 4 (without diagonals) or 8 (with diagonals)
-/// - **ScaleFree**: `node_count - 1` (theoretical hub maximum)
-/// - **Random**: `node_count - 1` (complete graph maximum)
-/// - **Disconnected**: `max(component_sizes) - 1` (within largest component)
-pub(super) fn run_degree_ceiling_property(fixture: &GraphFixture) -> TestCaseResult {
-    let degrees = compute_node_degrees(fixture.graph.node_count, &fixture.graph.edges);
-    let max_degree = degrees.iter().copied().max().unwrap_or(0);
+/// Validates edge indices before degree calculations to avoid panics.
+fn validate_edge_indices(node_count: usize, edges: &[CandidateEdge]) -> TestCaseResult {
+    for (i, edge) in edges.iter().enumerate() {
+        if edge.source() >= node_count {
+            return Err(TestCaseError::fail(format!(
+                "edge {i} source {} out of bounds (node_count = {node_count})",
+                edge.source()
+            )));
+        }
+        if edge.target() >= node_count {
+            return Err(TestCaseError::fail(format!(
+                "edge {i} target {} out of bounds (node_count = {node_count})",
+                edge.target()
+            )));
+        }
+    }
+    Ok(())
+}
 
-    let ceiling = match &fixture.graph.metadata {
+/// Computes the degree ceiling for the provided topology metadata.
+fn degree_ceiling_for_metadata(metadata: &GraphMetadata) -> usize {
+    match metadata {
         GraphMetadata::Lattice { with_diagonals, .. } => {
             if *with_diagonals {
                 8
@@ -56,7 +66,22 @@ pub(super) fn run_degree_ceiling_property(fixture: &GraphFixture) -> TestCaseRes
                 .unwrap_or(1)
                 .saturating_sub(1)
         }
-    };
+    }
+}
+
+/// Property 2: Degree ceilings — node degrees within topology-specific bounds.
+///
+/// Verifies that no node exceeds the maximum degree expected for its topology:
+/// - **Lattice**: 4 (without diagonals) or 8 (with diagonals)
+/// - **ScaleFree**: `node_count - 1` (theoretical hub maximum)
+/// - **Random**: `node_count - 1` (complete graph maximum)
+/// - **Disconnected**: `max(component_sizes) - 1` (within largest component)
+pub(super) fn run_degree_ceiling_property(fixture: &GraphFixture) -> TestCaseResult {
+    validate_edge_indices(fixture.graph.node_count, &fixture.graph.edges)?;
+    let degrees = compute_node_degrees(fixture.graph.node_count, &fixture.graph.edges);
+    let max_degree = degrees.iter().copied().max().unwrap_or(0);
+
+    let ceiling = degree_ceiling_for_metadata(&fixture.graph.metadata);
 
     if max_degree > ceiling {
         return Err(TestCaseError::fail(format!(
@@ -204,9 +229,10 @@ mod tests {
         let max_degree = degrees.iter().copied().max().unwrap_or(0);
 
         // Scale-free graphs should have at least one hub with degree above average.
+        let hub_threshold = avg_degree * 1.5;
         assert!(
-            max_degree as f64 >= avg_degree,
-            "scale-free graph lacks hub: max_degree={max_degree}, avg_degree={avg_degree:.1}"
+            max_degree as f64 >= hub_threshold,
+            "scale-free graph lacks hub: max_degree={max_degree}, avg_degree={avg_degree:.1}, threshold={hub_threshold:.1}"
         );
     }
 }

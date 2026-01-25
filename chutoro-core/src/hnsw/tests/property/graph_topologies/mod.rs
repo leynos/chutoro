@@ -12,7 +12,7 @@ use rand::{Rng, rngs::SmallRng};
 
 use crate::CandidateEdge;
 
-use super::types::{GeneratedGraph, GraphMetadata};
+use super::types::{GeneratedGraph, GraphMetadata, GraphTopology};
 
 mod builders;
 #[cfg(test)]
@@ -71,6 +71,21 @@ pub(super) fn generate_random_graph(rng: &mut SmallRng) -> GeneratedGraph {
             node_count,
             edge_probability,
         },
+    }
+}
+
+/// Generates a graph for the specified topology using the provided RNG.
+///
+/// Dispatches to the appropriate topology-specific generator.
+pub(super) fn generate_graph_for_topology(
+    topology: GraphTopology,
+    rng: &mut SmallRng,
+) -> GeneratedGraph {
+    match topology {
+        GraphTopology::Random => generate_random_graph(rng),
+        GraphTopology::ScaleFree => generate_scale_free_graph(rng),
+        GraphTopology::Lattice => generate_lattice_graph(rng),
+        GraphTopology::Disconnected => generate_disconnected_graph(rng),
     }
 }
 

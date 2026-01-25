@@ -583,7 +583,7 @@ Prove that for any `InsertionPlan`:
 This helper is pure, deterministic, and bounded by the plan input, making it a
 strong Verus target.
 
-### A2: `CandidateEdge::canonicalise` properties
+### A2: `CandidateEdge::canonicalise` properties[^canonicalise]
 
 Location: `chutoro-core/src/hnsw/types.rs`
 
@@ -603,6 +603,9 @@ Prove that:
 
 This is feasible if a trusted `sort_unstable_by` specification is accepted or
 the sort is replaced with a verified routine.
+
+[^canonicalise]: The implementation uses "canonicalise" for API compatibility
+even though Oxford spelling prefers the "-ize" suffix for Greek-origin words.
 
 #### 4.3.1. Property 1: Equivalence with a sequential oracle
 

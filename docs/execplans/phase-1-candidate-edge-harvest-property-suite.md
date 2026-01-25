@@ -23,7 +23,7 @@ ______________________________________________________________________
 ## Constraints
 
 - Must follow existing test organization in
-  `/root/repo/chutoro-core/src/hnsw/tests/property/`
+  `chutoro-core/src/hnsw/tests/property/`
 - Use `rstest` for parameterized test cases with `#[case(...)]`
 - Use proptest strategies where appropriate
 - All code must pass `make check-fmt`, `make lint`, `make test`
@@ -55,8 +55,8 @@ Determinism is verified by:
 2. Calling the same generator twice
 3. Asserting exact edge vector equality (edges are already sorted)
 
-This complements the existing HNSW rebuild tolerance test which allows variance
-due to Rayon's non-deterministic thread scheduling.
+This complements the existing HNSW rebuild tolerance test, which allows
+variance due to Rayon's non-deterministic thread scheduling.
 
 ### D3: Degree ceiling bounds
 

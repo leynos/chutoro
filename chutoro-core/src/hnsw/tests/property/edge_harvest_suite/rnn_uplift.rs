@@ -85,6 +85,16 @@ fn compute_rnn_score(node_count: usize, edges: &[CandidateEdge], k: usize) -> f6
     }
 }
 
+/// Returns the minimum acceptable RNN score for the provided topology.
+fn min_rnn_score_for_topology(topology: GraphTopology) -> f64 {
+    match topology {
+        GraphTopology::Lattice => 0.8, // Highly regular, should be very symmetric.
+        GraphTopology::ScaleFree => 0.05, // Hubs with m=1 create extreme asymmetry.
+        GraphTopology::Random => 0.3,  // Moderate symmetry expected.
+        GraphTopology::Disconnected => 0.3, // Within components should be symmetric.
+    }
+}
+
 /// Property 4: RNN uplift — measures symmetric neighbour relationships.
 ///
 /// Verifies that the Reverse Nearest Neighbour (RNN) score meets minimum
@@ -132,12 +142,7 @@ pub(super) fn run_rnn_uplift_property(fixture: &GraphFixture) -> TestCaseResult 
     // Note: Scale-free graphs with edges_per_new_node=1 create extremely star-like
     // structures where most nodes only connect to a single hub, resulting in very
     // low symmetry scores (often 0.1-0.2). We use a permissive threshold.
-    let min_score = match fixture.topology {
-        GraphTopology::Lattice => 0.8, // Highly regular, should be very symmetric.
-        GraphTopology::ScaleFree => 0.05, // Hubs with m=1 create extreme asymmetry.
-        GraphTopology::Random => 0.3,  // Moderate symmetry expected.
-        GraphTopology::Disconnected => 0.3, // Within components should be symmetric.
-    };
+    let min_score = min_rnn_score_for_topology(fixture.topology);
 
     if rnn_score < min_score {
         return Err(TestCaseError::fail(format!(
