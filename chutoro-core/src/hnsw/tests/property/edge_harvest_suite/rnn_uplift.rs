@@ -99,28 +99,6 @@ fn compute_rnn_score(node_count: usize, edges: &[CandidateEdge], k: usize) -> f6
 /// produce edges where the new node is the source (source > target when
 /// connecting to earlier nodes).
 pub(super) fn run_rnn_uplift_property(fixture: &GraphFixture) -> TestCaseResult {
-    // Use k=5 for RNN computation (typical neighbourhood size).
-    let k = 5;
-    let rnn_score = compute_rnn_score(fixture.graph.node_count, &fixture.graph.edges, k);
-
-    // Define minimum acceptable RNN scores by topology.
-    // Note: Scale-free graphs with edges_per_new_node=1 create extremely star-like
-    // structures where most nodes only connect to a single hub, resulting in very
-    // low symmetry scores (often 0.1-0.2). We use a permissive threshold.
-    let min_score = match fixture.topology {
-        GraphTopology::Lattice => 0.8, // Highly regular, should be very symmetric.
-        GraphTopology::ScaleFree => 0.05, // Hubs with m=1 create extreme asymmetry.
-        GraphTopology::Random => 0.3,  // Moderate symmetry expected.
-        GraphTopology::Disconnected => 0.3, // Within components should be symmetric.
-    };
-
-    if rnn_score < min_score {
-        return Err(TestCaseError::fail(format!(
-            "{:?} topology: RNN score {rnn_score:.3} below minimum {min_score:.3}",
-            fixture.topology
-        )));
-    }
-
     // Verify edge validity (no self-loops, valid node indices).
     for (i, edge) in fixture.graph.edges.iter().enumerate() {
         if edge.source() == edge.target() {
@@ -144,6 +122,28 @@ pub(super) fn run_rnn_uplift_property(fixture: &GraphFixture) -> TestCaseResult 
                 fixture.graph.node_count
             )));
         }
+    }
+
+    // Use k=5 for RNN computation (typical neighbourhood size).
+    let k = 5;
+    let rnn_score = compute_rnn_score(fixture.graph.node_count, &fixture.graph.edges, k);
+
+    // Define minimum acceptable RNN scores by topology.
+    // Note: Scale-free graphs with edges_per_new_node=1 create extremely star-like
+    // structures where most nodes only connect to a single hub, resulting in very
+    // low symmetry scores (often 0.1-0.2). We use a permissive threshold.
+    let min_score = match fixture.topology {
+        GraphTopology::Lattice => 0.8, // Highly regular, should be very symmetric.
+        GraphTopology::ScaleFree => 0.05, // Hubs with m=1 create extreme asymmetry.
+        GraphTopology::Random => 0.3,  // Moderate symmetry expected.
+        GraphTopology::Disconnected => 0.3, // Within components should be symmetric.
+    };
+
+    if rnn_score < min_score {
+        return Err(TestCaseError::fail(format!(
+            "{:?} topology: RNN score {rnn_score:.3} below minimum {min_score:.3}",
+            fixture.topology
+        )));
     }
 
     Ok(())

@@ -138,7 +138,7 @@ mod tests {
         let GraphMetadata::Lattice {
             with_diagonals: false,
             dimensions: (rows, cols),
-        } = graph.metadata
+        } = &graph.metadata
         else {
             return;
         };
@@ -160,7 +160,7 @@ mod tests {
     /// Helper to check if a graph is a lattice without diagonals.
     fn is_lattice_without_diagonals(graph: &super::super::GeneratedGraph) -> bool {
         matches!(
-            graph.metadata,
+            &graph.metadata,
             GraphMetadata::Lattice {
                 with_diagonals: false,
                 ..
@@ -178,6 +178,7 @@ mod tests {
                 return;
             }
         }
+        panic!("no lattice without diagonals generated for seed={seed}");
     }
 
     #[test]

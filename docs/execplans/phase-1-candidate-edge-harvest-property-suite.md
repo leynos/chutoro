@@ -1,4 +1,4 @@
-# ExecPlan: Phase 1 — Candidate edge harvest property suite
+# ExecPlan: phase 1 — candidate edge harvest property suite
 
 **Status**: Complete **Issue**: See `docs/roadmap.md` Phase 1 **Branch**:
 `terragon/add-candidate-edge-harvest-suite-bug81f`
@@ -177,7 +177,7 @@ pub(super) fn run_rnn_uplift_property(fixture: &GraphFixture) -> TestCaseResult
 
 ______________________________________________________________________
 
-## Verification Steps
+## Verification steps
 
 1. **Format check**:
 
@@ -205,7 +205,7 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## Progress Log
+## Progress log
 
 | Date       | Status   | Notes                                  |
 | ---------- | -------- | -------------------------------------- |

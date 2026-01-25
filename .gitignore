@@ -3,3 +3,4 @@ target/
 lcov.info
 coverage.xml
 .grepai/
+*.swp
