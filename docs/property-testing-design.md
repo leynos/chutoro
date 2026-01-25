@@ -477,6 +477,23 @@ across thousands of generated graph topologies. This data can then be used to
 make informed, data-driven decisions when tuning the heuristic's internal
 parameters for optimal real-world performance.
 
+#### 3.2.1. Additions (2026-01-25)
+
+**Note:** The initial implementation focused on validating the topology
+generators. The following proposals extend Section 3.2 to cover the *harvested
+output graph* directly and are tracked in the roadmap.
+
+- **Output edge validity:** Assert the harvested graph contains no self-loops
+  and no edges that reference nodes outside the input graph.
+- **Output degree constraints:** Re-check per-topology degree ceilings *after*
+  harvesting to ensure pruning and insertion logic stays within bounds.
+- **Connectivity preservation or bounded destruction:** When the input graph is
+  connected, assert the harvested graph remains connected (or does not exceed a
+  bounded increase in connected components for aggressive modes).
+- **RNN uplift relative to input:** Require the harvested graph to improve
+  symmetric neighbour ratios compared to the input (or exceed a minimum delta),
+  rather than only meeting an absolute floor.
+
 ## Section 4: Ensuring correctness in the parallel Kruskal's MST implementation
 
 This section addresses the verification of the parallel implementation of
