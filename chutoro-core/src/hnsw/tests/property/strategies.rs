@@ -11,10 +11,7 @@ use super::{
         GeneratedDataset, generate_clustered_dataset, generate_duplicate_dataset,
         generate_manifold_dataset, generate_uniform_dataset,
     },
-    graph_topologies::{
-        generate_disconnected_graph, generate_lattice_graph, generate_random_graph,
-        generate_scale_free_graph,
-    },
+    graph_topologies::generate_graph_for_topology,
     types::{
         EdgeHarvestPlan, GraphFixture, GraphTopology, HnswFixture, HnswParamsSeed, IdempotencyPlan,
         MAX_REBUILD_ATTEMPTS, MIN_REBUILD_ATTEMPTS, MutationOperationSeed, MutationPlan,
@@ -199,12 +196,7 @@ pub(super) fn edge_harvest_plan_strategy() -> impl Strategy<Value = EdgeHarvestP
 pub(super) fn graph_fixture_strategy() -> impl Strategy<Value = GraphFixture> {
     (any::<GraphTopology>(), any::<u64>()).prop_map(|(topology, seed)| {
         let mut rng = SmallRng::seed_from_u64(seed);
-        let graph = match topology {
-            GraphTopology::Random => generate_random_graph(&mut rng),
-            GraphTopology::ScaleFree => generate_scale_free_graph(&mut rng),
-            GraphTopology::Lattice => generate_lattice_graph(&mut rng),
-            GraphTopology::Disconnected => generate_disconnected_graph(&mut rng),
-        };
+        let graph = generate_graph_for_topology(topology, &mut rng);
         GraphFixture { topology, graph }
     })
 }

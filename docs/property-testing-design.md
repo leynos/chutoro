@@ -477,6 +477,23 @@ across thousands of generated graph topologies. This data can then be used to
 make informed, data-driven decisions when tuning the heuristic's internal
 parameters for optimal real-world performance.
 
+#### 3.2.1. Additions (2026-01-25)
+
+**Note:** The initial implementation focused on validating the topology
+generators. The following proposals extend Section 3.2 to cover the *harvested
+output graph* directly and are tracked in the roadmap.
+
+- **Output edge validity:** Assert the harvested graph contains no self-loops
+  and no edges that reference nodes outside the input graph.
+- **Output degree constraints:** Re-check per-topology degree ceilings *after*
+  harvesting to ensure pruning and insertion logic stays within bounds.
+- **Connectivity preservation or bounded destruction:** When the input graph is
+  connected, assert the harvested graph remains connected (or does not exceed a
+  bounded increase in connected components for aggressive modes).
+- **RNN uplift relative to input:** Require the harvested graph to improve
+  symmetric neighbour ratios compared to the input (or exceed a minimum delta),
+  rather than only meeting an absolute floor.
+
 ## Section 4: Ensuring correctness in the parallel Kruskal's MST implementation
 
 This section addresses the verification of the parallel implementation of
@@ -543,6 +560,52 @@ to probe for weaknesses.
 
 The following properties will be implemented to verify the parallel Kruskal's
 implementation against the invariants and pathological inputs.
+
+______________________________________________________________________
+
+## Appendix A: Verus candidates for edge harvest proofs
+
+The following edge-harvest behaviours are deterministic and bounded enough to
+be verifiable with Verus at reasonable effort. These proposals complement the
+proptest coverage and focus on pure helpers with well-scoped inputs.
+
+### A1: `extract_candidate_edges` invariants
+
+Location: `chutoro-core/src/hnsw/insert/mod.rs`
+
+Prove that for any `InsertionPlan`:
+
+- All edges have `source == source_node`.
+- No self-edges are emitted (`target != source_node`).
+- The `sequence` field is preserved (`sequence == source_sequence`).
+- Edge count equals total neighbours across layers minus any self-neighbours.
+
+This helper is pure, deterministic, and bounded by the plan input, making it a
+strong Verus target.
+
+### A2: `CandidateEdge::canonicalise` properties[^canonicalise]
+
+Location: `chutoro-core/src/hnsw/types.rs`
+
+Prove that:
+
+- The returned edge satisfies `source <= target`.
+- `distance` and `sequence` fields are preserved.
+
+### A3: `EdgeHarvest::from_unsorted` ordering
+
+Location: `chutoro-core/src/hnsw/types.rs`
+
+Prove that:
+
+- The output is a permutation of the input.
+- The output is sorted by `(sequence, Ord)`.
+
+This is feasible if a trusted `sort_unstable_by` specification is accepted or
+the sort is replaced with a verified routine.
+
+[^canonicalise]: The implementation uses "canonicalise" for API compatibility
+even though Oxford spelling prefers the "-ize" suffix for Greek-origin words.
 
 #### 4.3.1. Property 1: Equivalence with a sequential oracle
 

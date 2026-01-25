@@ -2,3 +2,5 @@ target/
 **/*.rs.bk
 lcov.info
 coverage.xml
+.grepai/
+*.swp
