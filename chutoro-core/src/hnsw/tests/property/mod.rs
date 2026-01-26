@@ -1,9 +1,11 @@
 //! Property-based generators and validation helpers for CPU HNSW tests.
 
 pub(super) mod datasets;
+pub(super) mod edge_harvest_output;
 pub(super) mod edge_harvest_property;
 pub(super) mod edge_harvest_suite;
 mod fixtures;
+pub(super) mod graph_metrics;
 pub(super) mod graph_topologies;
 pub(super) mod graph_topology_tests;
 pub(super) mod idempotency_property;
