@@ -316,7 +316,13 @@ fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
 }
 
 fn idempotency_cases() -> u32 {
-    if std::env::var("CI").is_ok() { 64 } else { 16 }
+    if cfg!(coverage) {
+        16
+    } else if std::env::var("CI").is_ok() {
+        64
+    } else {
+        16
+    }
 }
 
 #[test]
