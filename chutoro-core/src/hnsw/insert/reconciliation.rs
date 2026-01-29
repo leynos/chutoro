@@ -173,12 +173,11 @@ impl<'graph> EdgeReconciler<'graph> {
         }
 
         let neighbours = origin_node.neighbours_mut(ctx.level);
-        if let Some(pos) = neighbours.iter().position(|&id| id == target) {
-            neighbours.remove(pos);
-            if ctx.level == 0 && neighbours.is_empty() {
-                let mut healer = ConnectivityHealer::new(self.graph);
-                healer.ensure_base_connectivity(ctx.origin, ctx.max_connections);
-            }
+        let initial_len = neighbours.len();
+        neighbours.retain(|&id| id != target);
+        if initial_len != neighbours.len() && ctx.level == 0 && neighbours.is_empty() {
+            let mut healer = ConnectivityHealer::new(self.graph);
+            healer.ensure_base_connectivity(ctx.origin, ctx.max_connections);
         }
     }
 }
