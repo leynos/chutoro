@@ -164,6 +164,7 @@ pub(super) fn median(values: &mut [f64]) -> f64 {
 mod tests {
     use super::super::types::GraphMetadata;
     use super::*;
+    use rstest::rstest;
 
     #[test]
     fn compute_node_degrees_empty_graph() {
@@ -280,34 +281,38 @@ mod tests {
         assert_eq!(degree_ceiling_for_metadata(&metadata), 8);
     }
 
-    #[test]
-    fn degree_ceiling_random_small_and_large() {
-        let small = GraphMetadata::Random {
+    #[rstest]
+    #[case(
+        GraphMetadata::Random {
             node_count: 1,
             edge_probability: 0.1,
-        };
-        let large = GraphMetadata::Random {
+        },
+        GraphMetadata::Random {
             node_count: 12,
             edge_probability: 0.4,
-        };
-        assert_eq!(degree_ceiling_for_metadata(&small), 0);
-        assert_eq!(degree_ceiling_for_metadata(&large), 11);
-    }
-
-    #[test]
-    fn degree_ceiling_scale_free_small_and_large() {
-        let small = GraphMetadata::ScaleFree {
+        },
+        11
+    )]
+    #[case(
+        GraphMetadata::ScaleFree {
             node_count: 1,
             edges_per_new_node: 1,
             exponent: 1.0,
-        };
-        let large = GraphMetadata::ScaleFree {
+        },
+        GraphMetadata::ScaleFree {
             node_count: 16,
             edges_per_new_node: 2,
             exponent: 1.4,
-        };
+        },
+        15
+    )]
+    fn degree_ceiling_small_and_large(
+        #[case] small: GraphMetadata,
+        #[case] large: GraphMetadata,
+        #[case] expected_large: usize,
+    ) {
         assert_eq!(degree_ceiling_for_metadata(&small), 0);
-        assert_eq!(degree_ceiling_for_metadata(&large), 15);
+        assert_eq!(degree_ceiling_for_metadata(&large), expected_large);
     }
 
     #[test]
