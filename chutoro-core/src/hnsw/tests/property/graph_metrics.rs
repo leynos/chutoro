@@ -162,6 +162,7 @@ pub(super) fn median(values: &mut [f64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use super::super::types::GraphMetadata;
     use super::*;
 
     #[test]
@@ -253,5 +254,72 @@ mod tests {
     fn median_odd_count() {
         let mut values = vec![3.0, 1.0, 2.0];
         assert!((median(&mut values) - 2.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn degree_ceiling_lattice_without_diagonals() {
+        let metadata = GraphMetadata::Lattice {
+            dimensions: (10, 10),
+            with_diagonals: false,
+        };
+        assert_eq!(degree_ceiling_for_metadata(&metadata), 4);
+    }
+
+    #[test]
+    fn degree_ceiling_lattice_with_diagonals() {
+        let metadata = GraphMetadata::Lattice {
+            dimensions: (10, 10),
+            with_diagonals: true,
+        };
+        assert_eq!(degree_ceiling_for_metadata(&metadata), 8);
+    }
+
+    #[test]
+    fn degree_ceiling_random_small_and_large() {
+        let small = GraphMetadata::Random {
+            node_count: 1,
+            edge_probability: 0.1,
+        };
+        let large = GraphMetadata::Random {
+            node_count: 12,
+            edge_probability: 0.4,
+        };
+        assert_eq!(degree_ceiling_for_metadata(&small), 0);
+        assert_eq!(degree_ceiling_for_metadata(&large), 11);
+    }
+
+    #[test]
+    fn degree_ceiling_scale_free_small_and_large() {
+        let small = GraphMetadata::ScaleFree {
+            node_count: 1,
+            edges_per_new_node: 1,
+            exponent: 1.0,
+        };
+        let large = GraphMetadata::ScaleFree {
+            node_count: 16,
+            edges_per_new_node: 2,
+            exponent: 1.4,
+        };
+        assert_eq!(degree_ceiling_for_metadata(&small), 0);
+        assert_eq!(degree_ceiling_for_metadata(&large), 15);
+    }
+
+    #[test]
+    fn degree_ceiling_disconnected_component_sizes() {
+        let empty = GraphMetadata::Disconnected {
+            component_count: 0,
+            component_sizes: Vec::new(),
+        };
+        let singletons = GraphMetadata::Disconnected {
+            component_count: 2,
+            component_sizes: vec![1, 1],
+        };
+        let mixed = GraphMetadata::Disconnected {
+            component_count: 3,
+            component_sizes: vec![1, 3, 2],
+        };
+        assert_eq!(degree_ceiling_for_metadata(&empty), 0);
+        assert_eq!(degree_ceiling_for_metadata(&singletons), 0);
+        assert_eq!(degree_ceiling_for_metadata(&mixed), 2);
     }
 }

@@ -1,7 +1,7 @@
 # Validate harvested output from candidate edge harvest
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
-`Risks`, `Progress`, `Surprizes & Discoveries`, `Decision Log`, and
+`Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
@@ -90,7 +90,7 @@ entry is marked done.
 - [x] (2026-01-26 02:30Z) Ran `make fmt`, `make check-fmt`,
       `make markdownlint`, `make nixie`, `make lint`, and `make test`.
 
-## Surprizes & discoveries
+## Surprises & Discoveries
 
 - Disconnected fixtures can saturate RNN scores when k exceeds component
   degrees; reducing the cap restored measurable uplift.
@@ -108,10 +108,10 @@ entry is marked done.
   Date/Author: 2026-01-25 (assistant)
 
 - Decision: Define harvested output as the union of mutual top-k neighbour
-  edges and the input MST forest, using top-k derived from the topology degree
-  ceiling. Rationale: Mutual top-k boosts symmetry while the MST edges preserve
-  connectivity without exceeding degree ceilings. Date/Author: 2026-01-26
-  (assistant)
+  edges and the input minimum spanning tree (MST) forest, using top-k derived
+  from the topology degree ceiling. Rationale: Mutual top-k boosts symmetry
+  while the MST edges preserve connectivity without exceeding degree ceilings.
+  Date/Author: 2026-01-26 (assistant)
 
 - Decision: Derive top-k as `min(5, max(2, ceiling - 1))`, clamped to
   `node_count - 1`. Rationale: Avoids saturating RNN scores for low-degree
@@ -136,9 +136,9 @@ entry is marked done.
 ## Context and orientation
 
 The candidate edge harvest algorithm currently emits `CandidateEdge` values via
-the CPU HNSW insertion path (`chutoro-core/src/hnsw/cpu/mod.rs` and
-`chutoro-core/src/hnsw/insert/mod.rs`). The existing property test suites are
-split across:
+the CPU hierarchical navigable small-world (HNSW) insertion path
+(`chutoro-core/src/hnsw/cpu/mod.rs` and `chutoro-core/src/hnsw/insert/mod.rs`).
+The existing property test suites are split across:
 
 - `chutoro-core/src/hnsw/tests/property/edge_harvest_property.rs`, which
   validates candidate edges emitted by HNSW insertion.
@@ -322,7 +322,7 @@ Acceptance criteria mapping:
 - Keep local test logs in `/tmp/check-fmt.log`, `/tmp/lint.log`, and
   `/tmp/test.log` for debugging and attach them to any escalation.
 - Capture any failed proptest seeds and record them in the ExecPlan under
-  `Surprizes & Discoveries`.
+  `Surprises & Discoveries`.
 
 ## Interfaces and dependencies
 
@@ -340,6 +340,6 @@ Acceptance criteria mapping:
 
 ## Revision note (2026-01-26)
 
-Updated status to IN PROGRESS, marked completed milestones, and recorded
-decisions for the harvested-output algorithm and top-k selection so remaining
-work focuses on validation runs only.
+Updated status to COMPLETE, marked completed milestones, and recorded decisions
+for the harvested-output algorithm and top-k selection so remaining work
+focuses on validation runs only.

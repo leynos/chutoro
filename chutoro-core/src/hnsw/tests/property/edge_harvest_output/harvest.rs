@@ -4,7 +4,7 @@
 //! - Mutual top-k neighbour edges (k derived from topology metadata).
 //! - Minimum spanning forest edges from the input graph (to preserve connectivity).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use crate::{CandidateEdge, EdgeHarvest, parallel_kruskal};
 
@@ -41,7 +41,7 @@ fn build_edge_lookup(edges: &[CandidateEdge]) -> BTreeMap<(usize, usize), Candid
     lookup
 }
 
-fn collect_mutual_top_k_pairs(top_k_neighbours: &[Vec<usize>]) -> BTreeSet<(usize, usize)> {
+fn collect_mutual_top_k_pairs(top_k_neighbours: &[HashSet<usize>]) -> BTreeSet<(usize, usize)> {
     let mut selected_pairs = BTreeSet::new();
     for (node, neighbours) in top_k_neighbours.iter().enumerate() {
         for &neighbour in neighbours {
@@ -98,13 +98,70 @@ pub(super) fn harvest_candidate_edges(
 
     let k = harvest_k_for_metadata(&fixture.graph.metadata).min(node_count.saturating_sub(1));
     let top_k_sets = top_k_neighbour_sets(node_count, edges, k);
-    let top_k: Vec<Vec<usize>> = top_k_sets
-        .into_iter()
-        .map(|set| set.into_iter().collect())
-        .collect();
-
-    let mut selected_pairs = collect_mutual_top_k_pairs(&top_k);
+    let mut selected_pairs = collect_mutual_top_k_pairs(&top_k_sets);
     add_mst_edges(node_count, edges, &mut selected_pairs)?;
 
     resolve_candidate_edges(selected_pairs, edges, node_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::super::types::GraphMetadata;
+    use super::harvest_k_for_metadata;
+
+    fn lattice_metadata(with_diagonals: bool) -> GraphMetadata {
+        GraphMetadata::Lattice {
+            dimensions: (10, 10),
+            with_diagonals,
+        }
+    }
+
+    fn random_metadata(node_count: usize) -> GraphMetadata {
+        GraphMetadata::Random {
+            node_count,
+            edge_probability: 0.3,
+        }
+    }
+
+    fn scale_free_metadata(node_count: usize) -> GraphMetadata {
+        GraphMetadata::ScaleFree {
+            node_count,
+            edges_per_new_node: 2,
+            exponent: 2.0,
+        }
+    }
+
+    fn disconnected_metadata(component_sizes: Vec<usize>) -> GraphMetadata {
+        GraphMetadata::Disconnected {
+            component_count: component_sizes.len(),
+            component_sizes,
+        }
+    }
+
+    #[test]
+    fn harvest_k_lattice_respects_diagonals() {
+        assert_eq!(harvest_k_for_metadata(&lattice_metadata(false)), 3);
+        assert_eq!(harvest_k_for_metadata(&lattice_metadata(true)), 5);
+    }
+
+    #[test]
+    fn harvest_k_random_and_scale_free_use_degree_ceiling() {
+        assert_eq!(harvest_k_for_metadata(&random_metadata(1)), 1);
+        assert_eq!(harvest_k_for_metadata(&random_metadata(3)), 2);
+        assert_eq!(harvest_k_for_metadata(&scale_free_metadata(1)), 1);
+        assert_eq!(harvest_k_for_metadata(&scale_free_metadata(8)), 5);
+    }
+
+    #[test]
+    fn harvest_k_disconnected_is_capped() {
+        assert_eq!(harvest_k_for_metadata(&disconnected_metadata(vec![])), 1);
+        assert_eq!(
+            harvest_k_for_metadata(&disconnected_metadata(vec![1, 1])),
+            1
+        );
+        assert_eq!(
+            harvest_k_for_metadata(&disconnected_metadata(vec![5, 1])),
+            2
+        );
+    }
 }
