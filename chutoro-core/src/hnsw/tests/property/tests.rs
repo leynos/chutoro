@@ -319,10 +319,18 @@ fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
     )
 }
 
+fn is_coverage_run() -> bool {
+    cfg!(coverage)
+}
+
+fn is_ci_run() -> bool {
+    std::env::var("CI").is_ok()
+}
+
 fn idempotency_cases() -> u32 {
-    if cfg!(coverage) {
+    if is_coverage_run() {
         4
-    } else if std::env::var("CI").is_ok() {
+    } else if is_ci_run() {
         64
     } else {
         16
@@ -330,7 +338,7 @@ fn idempotency_cases() -> u32 {
 }
 
 fn idempotency_shrink_iters() -> u32 {
-    if cfg!(coverage) { 128 } else { 1024 }
+    if is_coverage_run() { 128 } else { 1024 }
 }
 
 #[test]

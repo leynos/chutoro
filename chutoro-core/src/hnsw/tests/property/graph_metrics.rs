@@ -257,6 +257,12 @@ mod tests {
     }
 
     #[test]
+    fn median_empty_slice_returns_zero() {
+        let mut values: [f64; 0] = [];
+        assert_eq!(median(&mut values), 0.0);
+    }
+
+    #[test]
     fn degree_ceiling_lattice_without_diagonals() {
         let metadata = GraphMetadata::Lattice {
             dimensions: (10, 10),

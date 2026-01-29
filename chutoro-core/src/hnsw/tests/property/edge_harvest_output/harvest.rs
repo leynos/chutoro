@@ -65,7 +65,7 @@ fn add_mst_edges(
     let forest = parallel_kruskal(node_count, &harvest)
         .map_err(|err| format!("harvest MST failed: {err}"))?;
     for edge in forest.edges() {
-        selected_pairs.insert((edge.source(), edge.target()));
+        selected_pairs.insert(canonical_pair(edge.source(), edge.target()));
     }
     Ok(())
 }

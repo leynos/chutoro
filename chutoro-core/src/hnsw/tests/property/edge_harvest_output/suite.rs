@@ -2,7 +2,6 @@
 
 use proptest::{
     prelude::ProptestConfig,
-    strategy::{Strategy, ValueTree},
     test_runner::{TestCaseError, TestCaseResult, TestRunner},
 };
 
@@ -16,10 +15,14 @@ use super::super::types::{GraphFixture, GraphMetadata, GraphTopology};
 use super::harvest::{harvest_candidate_edges, harvest_k_for_metadata};
 use super::{CONNECTIVITY_PRESERVATION_THRESHOLD, HARVEST_CASES_PER_TOPOLOGY};
 
+/// Captures per-fixture metrics for harvested-output property checks.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct HarvestedMetrics {
+    /// Number of connected components in the input graph.
     pub(super) input_components: usize,
+    /// Number of connected components in the harvested output graph.
     pub(super) output_components: usize,
+    /// Output RNN score minus input RNN score.
     pub(super) rnn_delta: f64,
 }
 
@@ -96,37 +99,34 @@ fn min_rnn_delta_for_topology(topology: GraphTopology) -> f64 {
 }
 
 /// Runs the harvested-output suite for a specific topology.
-pub(super) fn run_harvested_output_suite_for_topology(topology: GraphTopology) {
+pub(super) fn run_harvested_output_suite_for_topology(topology: GraphTopology) -> TestCaseResult {
     let mut runner = TestRunner::new(ProptestConfig::with_cases(HARVEST_CASES_PER_TOPOLOGY));
     let cases = runner.config().cases as usize;
     let strategy = graph_fixture_strategy_for_topology(topology);
 
-    let mut metrics = Vec::with_capacity(cases);
-    for case_idx in 0..cases {
-        let value_tree = strategy
-            .new_tree(&mut runner)
-            .unwrap_or_else(|err| panic!("{topology:?} fixture generation failed: {err}"));
-        let fixture = value_tree.current();
-        let case_metrics = evaluate_harvested_output(&fixture).unwrap_or_else(|err| {
-            panic!("{topology:?} case {case_idx} failed: {err}");
-        });
-        metrics.push(case_metrics);
-    }
+    let metrics = std::cell::RefCell::new(Vec::with_capacity(cases));
+    runner.run(&strategy, |fixture| {
+        let case_metrics = evaluate_harvested_output(&fixture)?;
+        metrics.borrow_mut().push(case_metrics);
+        Ok(())
+    })?;
 
-    assert_eq!(
-        metrics.len(),
-        cases,
-        "{topology:?} expected {cases} cases, got {}",
-        metrics.len()
-    );
+    let metrics = metrics.into_inner();
+    if metrics.len() != cases {
+        return Err(TestCaseError::fail(format!(
+            "{topology:?} expected {cases} cases, got {}",
+            metrics.len()
+        )));
+    }
 
     let mut deltas: Vec<f64> = metrics.iter().map(|m| m.rnn_delta).collect();
     let median_delta = median(&mut deltas);
     let min_delta = min_rnn_delta_for_topology(topology);
-    assert!(
-        median_delta >= min_delta,
-        "{topology:?} median RNN delta {median_delta:.3} below minimum {min_delta:.3}"
-    );
+    if median_delta < min_delta {
+        return Err(TestCaseError::fail(format!(
+            "{topology:?} median RNN delta {median_delta:.3} below minimum {min_delta:.3}"
+        )));
+    }
 
     let connected_cases: Vec<&HarvestedMetrics> =
         metrics.iter().filter(|m| m.input_components == 1).collect();
@@ -136,15 +136,18 @@ pub(super) fn run_harvested_output_suite_for_topology(topology: GraphTopology) {
             .filter(|m| m.output_components == 1)
             .count();
         let ratio = preserved as f64 / connected_cases.len() as f64;
-        assert!(
-            ratio >= CONNECTIVITY_PRESERVATION_THRESHOLD,
-            "{topology:?} connectivity preserved in {:.1}% ({} / {}), below {:.1}%",
-            ratio * 100.0,
-            preserved,
-            connected_cases.len(),
-            CONNECTIVITY_PRESERVATION_THRESHOLD * 100.0
-        );
+        if ratio < CONNECTIVITY_PRESERVATION_THRESHOLD {
+            return Err(TestCaseError::fail(format!(
+                "{topology:?} connectivity preserved in {:.1}% ({} / {}), below {:.1}%",
+                ratio * 100.0,
+                preserved,
+                connected_cases.len(),
+                CONNECTIVITY_PRESERVATION_THRESHOLD * 100.0
+            )));
+        }
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -212,23 +215,23 @@ mod tests {
     // ========================================================================
 
     #[test]
-    fn harvested_output_random_proptest() {
-        run_harvested_output_suite_for_topology(GraphTopology::Random);
+    fn harvested_output_random_proptest() -> TestCaseResult {
+        run_harvested_output_suite_for_topology(GraphTopology::Random)
     }
 
     #[test]
-    fn harvested_output_scale_free_proptest() {
-        run_harvested_output_suite_for_topology(GraphTopology::ScaleFree);
+    fn harvested_output_scale_free_proptest() -> TestCaseResult {
+        run_harvested_output_suite_for_topology(GraphTopology::ScaleFree)
     }
 
     #[test]
-    fn harvested_output_lattice_proptest() {
-        run_harvested_output_suite_for_topology(GraphTopology::Lattice);
+    fn harvested_output_lattice_proptest() -> TestCaseResult {
+        run_harvested_output_suite_for_topology(GraphTopology::Lattice)
     }
 
     #[test]
-    fn harvested_output_disconnected_proptest() {
-        run_harvested_output_suite_for_topology(GraphTopology::Disconnected);
+    fn harvested_output_disconnected_proptest() -> TestCaseResult {
+        run_harvested_output_suite_for_topology(GraphTopology::Disconnected)
     }
 
     // ========================================================================

@@ -26,7 +26,7 @@ entry is marked done.
   `chutoro-core/src/hnsw/tests/property/` unless a stronger reason is
   documented in the decision log.
 - Every new Rust module must begin with a `//!` module-level comment.
-- Use `rstest` for parameterised unit coverage and `proptest` for
+- Use `rstest` for parameterized unit coverage and `proptest` for
   stochastic coverage.
 - The proptest suite must execute at least 256 generated fixtures per
   topology (random, scale-free, lattice, disconnected).
@@ -76,12 +76,12 @@ entry is marked done.
 
 - [x] (2026-01-25 00:00Z) Drafted ExecPlan for harvested output validation.
 - [x] (2026-01-26 00:20Z) Approved plan and started implementation.
-- [x] (2026-01-26 01:05Z) Identified harvest algorithm adaptor for generated
+- [x] (2026-01-26 01:05Z) Identified harvest algorithm adapter for generated
       topologies (mutual top-k + MST union) and implemented it in test
       harness.
 - [x] (2026-01-26 01:20Z) Implemented harvested-output property harness and
       shared graph metrics helpers.
-- [x] (2026-01-26 01:25Z) Added unit tests and rstest parameterised cases for
+- [x] (2026-01-26 01:25Z) Added unit tests and rstest parameterized cases for
       happy/unhappy paths.
 - [x] (2026-01-26 01:30Z) Added proptest coverage with 256 cases per topology
       and aggregated metrics (connectivity and RNN uplift).
