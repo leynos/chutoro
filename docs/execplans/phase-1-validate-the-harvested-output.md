@@ -90,7 +90,7 @@ entry is marked done.
 - [x] (2026-01-26 02:30Z) Ran `make fmt`, `make check-fmt`,
       `make markdownlint`, `make nixie`, `make lint`, and `make test`.
 
-## Surprises & Discoveries
+## Surprises and discoveries
 
 - Disconnected fixtures can saturate RNN scores when k exceeds component
   degrees; reducing the cap restored measurable uplift.
@@ -118,7 +118,7 @@ entry is marked done.
   lattices while keeping harvested graphs sparse and symmetric. Date/Author:
   2026-01-26 (assistant)
 
-- Decision: Use a smaller top-k cap (2) for disconnected fixtures while
+- Decision: Use a smaller top-k cap (2) for disconnected fixtures, while
   keeping the 5-edge cap for other topologies. Rationale: Disconnected inputs
   can saturate RNN scores when k exceeds component degrees; lowering the cap
   restores measurable uplift without violating degree ceilings. Date/Author:
