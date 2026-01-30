@@ -314,7 +314,7 @@ Acceptance criteria mapping:
 - Edge validity: enforced per case; no self-loops, all endpoints in bounds,
   all distances finite.
 - Degree ceilings: enforced per case against topology-specific bounds.
-- Connectivity preservation: for connected inputs, ≥95% outputs remain
+- Connectivity preservation: for connected inputs, ≥95% of outputs remain
   connected; any failures must be limited to a +1 component increase.
 - RNN uplift: median delta ≥0.05 for lattice/random/disconnected inputs and
   ≥0.0 for scale-free inputs.
