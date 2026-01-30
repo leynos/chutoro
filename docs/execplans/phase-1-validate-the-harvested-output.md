@@ -1,8 +1,8 @@
 # Validate harvested output from candidate edge harvest
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
-`Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
-`Outcomes & Retrospective` must be kept up to date as work proceeds.
+`Risks`, `Progress`, `Surprises and discoveries`, `Decision log`, and
+`Outcomes and retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -124,7 +124,7 @@ entry is marked done.
   restores measurable uplift without violating degree ceilings. Date/Author:
   2026-01-26 (assistant)
 
-## Outcomes & retrospective
+## Outcomes and retrospective
 
 - Delivered harvested-output property suite with shared graph metrics helpers
   and a topology-aware harvesting adapter.
