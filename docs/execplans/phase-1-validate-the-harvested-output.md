@@ -267,26 +267,36 @@ Stage D: documentation and cleanup
 
    - Format check:
 
-        set -o pipefail && make check-fmt 2>&1 | tee /tmp/check-fmt.log
+     ```bash
+     set -o pipefail && make check-fmt 2>&1 | tee /tmp/check-fmt.log
+     ```
 
    - Lint:
 
-        set -o pipefail && make lint 2>&1 | tee /tmp/lint.log
+     ```bash
+     set -o pipefail && make lint 2>&1 | tee /tmp/lint.log
+     ```
 
    - Tests:
 
-        set -o pipefail && make test 2>&1 | tee /tmp/test.log
+     ```bash
+     set -o pipefail && make test 2>&1 | tee /tmp/test.log
+     ```
 
    - Markdown validation (if docs changed):
 
-        set -o pipefail && make fmt 2>&1 | tee /tmp/fmt.log
-        set -o pipefail && make markdownlint 2>&1 | tee /tmp/markdownlint.log
-        set -o pipefail && make nixie 2>&1 | tee /tmp/nixie.log
+     ```bash
+     set -o pipefail && make fmt 2>&1 | tee /tmp/fmt.log
+     set -o pipefail && make markdownlint 2>&1 | tee /tmp/markdownlint.log
+     set -o pipefail && make nixie 2>&1 | tee /tmp/nixie.log
+     ```
 
 7. Run the harvested-output suite directly for quick feedback (update the
    module path to match the final module name):
 
-        cargo test -p chutoro-core edge_harvest_output
+   ```bash
+   cargo test -p chutoro-core edge_harvest_output
+   ```
 
 ## Validation and acceptance
 
@@ -340,6 +350,6 @@ Acceptance criteria mapping:
 
 ## Revision note (2026-01-26)
 
-Updated status to COMPLETE, marked completed milestones, and recorded decisions
-for the harvested-output algorithm and top-k selection so remaining work
-focuses on validation runs only.
+This revision updates the status to COMPLETE, marks completed milestones, and
+records decisions for the harvested-output algorithm and top-k selection so
+remaining work focuses on validation runs only.

@@ -164,6 +164,17 @@ impl<'graph> EdgeReconciler<'graph> {
         }
     }
 
+    /// Returns true if connectivity healing should be triggered after removing
+    /// a neighbour. Healing is needed when a node becomes isolated at the base
+    /// layer after a successful removal.
+    fn should_heal_connectivity(initial_len: usize, neighbours: &[usize], level: usize) -> bool {
+        let neighbour_was_removed = initial_len != neighbours.len();
+        let is_base_layer = level == 0;
+        let is_now_isolated = neighbours.is_empty();
+
+        neighbour_was_removed && is_base_layer && is_now_isolated
+    }
+
     pub(super) fn remove_forward_edge_from(&mut self, ctx: &UpdateContext, target: usize) {
         let Some(origin_node) = self.graph.node_mut(ctx.origin) else {
             return;
@@ -175,7 +186,7 @@ impl<'graph> EdgeReconciler<'graph> {
         let neighbours = origin_node.neighbours_mut(ctx.level);
         let initial_len = neighbours.len();
         neighbours.retain(|&id| id != target);
-        if initial_len != neighbours.len() && ctx.level == 0 && neighbours.is_empty() {
+        if Self::should_heal_connectivity(initial_len, neighbours, ctx.level) {
             let mut healer = ConnectivityHealer::new(self.graph);
             healer.ensure_base_connectivity(ctx.origin, ctx.max_connections);
         }
