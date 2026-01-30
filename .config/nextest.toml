@@ -12,17 +12,17 @@ global-timeout = "20m"
 
 [[profile.default.overrides]]
 # Edge harvest property suite can run slower under heavy parallel load.
-filter = "test(/chutoro_core::hnsw::tests::property::edge_harvest_suite::/)"
+filter = "test(/edge_harvest_suite::/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
 # Idempotency proptest can exceed the default timeout under parallel load.
-filter = "test(/chutoro_core::hnsw::tests::property::tests::hnsw_idempotency_preserved_proptest/)"
+filter = "test(/hnsw_idempotency_preserved_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
 # Functional ARI/NMI tests can be slow on CI runners under heavy parallel load.
-filter = "test(/functional_ari_nmi::hnsw_pipeline_matches_exact_baseline/)"
+filter = "test(/hnsw_pipeline_matches_exact_baseline/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [profile.ci]
@@ -31,15 +31,15 @@ test-threads = 4
 
 [[profile.ci.overrides]]
 # Edge harvest property suite can run slower under heavy parallel load.
-filter = "test(/chutoro_core::hnsw::tests::property::edge_harvest_suite::/)"
+filter = "test(/edge_harvest_suite::/)"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
 # Idempotency proptest can exceed the default timeout under parallel load.
-filter = "test(/chutoro_core::hnsw::tests::property::tests::hnsw_idempotency_preserved_proptest/)"
+filter = "test(/hnsw_idempotency_preserved_proptest/)"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
 # Functional ARI/NMI tests can be slow on CI runners under heavy parallel load.
-filter = "test(/functional_ari_nmi::hnsw_pipeline_matches_exact_baseline/)"
+filter = "test(/hnsw_pipeline_matches_exact_baseline/)"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }

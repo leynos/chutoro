@@ -2,48 +2,8 @@
 
 use proptest::test_runner::{TestCaseError, TestCaseResult};
 
+use super::super::graph_metrics::count_connected_components;
 use super::{GraphFixture, GraphMetadata, GraphTopology};
-use crate::CandidateEdge;
-
-/// Counts connected components using union-find with path compression.
-///
-/// Returns the number of distinct connected components in the graph.
-fn count_connected_components(node_count: usize, edges: &[CandidateEdge]) -> usize {
-    if node_count == 0 {
-        return 0;
-    }
-
-    let mut parent: Vec<usize> = (0..node_count).collect();
-
-    // Find with path compression (iterative to avoid stack overflow).
-    fn find(parent: &mut [usize], mut node: usize) -> usize {
-        let mut root = node;
-        while parent[root] != root {
-            root = parent[root];
-        }
-        // Path compression: point all visited nodes directly to root.
-        while parent[node] != root {
-            let next = parent[node];
-            parent[node] = root;
-            node = next;
-        }
-        root
-    }
-
-    // Union all edges.
-    for edge in edges {
-        let root_s = find(&mut parent, edge.source());
-        let root_t = find(&mut parent, edge.target());
-        if root_s != root_t {
-            parent[root_t] = root_s;
-        }
-    }
-
-    // Count unique roots.
-    (0..node_count)
-        .filter(|&i| find(&mut parent, i) == i)
-        .count()
-}
 
 /// Validates connectivity expectations based on graph metadata.
 ///
@@ -127,41 +87,6 @@ mod tests {
         let fixture = build_fixture(seed, topology);
         run_connectivity_preservation_property(&fixture)
             .expect("connectivity preservation property must hold");
-    }
-
-    // ========================================================================
-    // Helper Function Unit Tests
-    // ========================================================================
-
-    #[test]
-    fn count_connected_components_empty_graph() {
-        assert_eq!(count_connected_components(0, &[]), 0);
-    }
-
-    #[test]
-    fn count_connected_components_isolated_nodes() {
-        assert_eq!(count_connected_components(5, &[]), 5);
-    }
-
-    #[test]
-    fn count_connected_components_fully_connected() {
-        // Triangle: 0 -- 1 -- 2 -- 0
-        let edges = vec![
-            CandidateEdge::new(0, 1, 1.0, 0),
-            CandidateEdge::new(1, 2, 1.0, 1),
-            CandidateEdge::new(0, 2, 1.0, 2),
-        ];
-        assert_eq!(count_connected_components(3, &edges), 1);
-    }
-
-    #[test]
-    fn count_connected_components_two_components() {
-        // Component 1: 0 -- 1, Component 2: 2 -- 3
-        let edges = vec![
-            CandidateEdge::new(0, 1, 1.0, 0),
-            CandidateEdge::new(2, 3, 1.0, 1),
-        ];
-        assert_eq!(count_connected_components(4, &edges), 2);
     }
 
     // ========================================================================

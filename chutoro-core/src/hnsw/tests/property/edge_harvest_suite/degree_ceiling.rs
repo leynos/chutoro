@@ -2,21 +2,10 @@
 
 use proptest::test_runner::{TestCaseError, TestCaseResult};
 
-use super::{GraphFixture, GraphMetadata, GraphTopology};
+use super::{GraphFixture, GraphTopology};
 use crate::CandidateEdge;
 
-/// Computes the degree of each node from an edge list.
-///
-/// Returns a vector where `degrees[i]` is the number of edges incident to node `i`.
-/// For undirected graphs, each edge contributes 1 to both endpoints' degrees.
-fn compute_node_degrees(node_count: usize, edges: &[CandidateEdge]) -> Vec<usize> {
-    let mut degrees = vec![0usize; node_count];
-    for edge in edges {
-        degrees[edge.source()] += 1;
-        degrees[edge.target()] += 1;
-    }
-    degrees
-}
+use super::super::graph_metrics::{compute_node_degrees, degree_ceiling_for_metadata};
 
 /// Validates edge indices before degree calculations to avoid panics.
 fn validate_edge_indices(node_count: usize, edges: &[CandidateEdge]) -> TestCaseResult {
@@ -35,38 +24,6 @@ fn validate_edge_indices(node_count: usize, edges: &[CandidateEdge]) -> TestCase
         }
     }
     Ok(())
-}
-
-/// Computes the degree ceiling for the provided topology metadata.
-fn degree_ceiling_for_metadata(metadata: &GraphMetadata) -> usize {
-    match metadata {
-        GraphMetadata::Lattice { with_diagonals, .. } => {
-            if *with_diagonals {
-                8
-            } else {
-                4
-            }
-        }
-        GraphMetadata::ScaleFree { node_count, .. } => {
-            // Hub can theoretically connect to all other nodes.
-            node_count.saturating_sub(1)
-        }
-        GraphMetadata::Random { node_count, .. } => {
-            // Complete graph case.
-            node_count.saturating_sub(1)
-        }
-        GraphMetadata::Disconnected {
-            component_sizes, ..
-        } => {
-            // Maximum degree is within the largest component.
-            component_sizes
-                .iter()
-                .copied()
-                .max()
-                .unwrap_or(1)
-                .saturating_sub(1)
-        }
-    }
 }
 
 /// Property 2: Degree ceilings — node degrees within topology-specific bounds.
@@ -104,6 +61,7 @@ mod tests {
         generate_lattice_graph, generate_scale_free_graph,
     };
     use super::super::super::strategies::graph_fixture_strategy;
+    use super::super::super::types::GraphMetadata;
     use super::super::build_fixture;
 
     // ========================================================================
@@ -118,27 +76,6 @@ mod tests {
     fn graph_degree_ceiling_rstest(#[case] topology: GraphTopology, #[case] seed: u64) {
         let fixture = build_fixture(seed, topology);
         run_degree_ceiling_property(&fixture).expect("degree ceiling property must hold");
-    }
-
-    // ========================================================================
-    // Helper Function Unit Tests
-    // ========================================================================
-
-    #[test]
-    fn compute_node_degrees_empty_graph() {
-        let degrees = compute_node_degrees(5, &[]);
-        assert_eq!(degrees, vec![0, 0, 0, 0, 0]);
-    }
-
-    #[test]
-    fn compute_node_degrees_simple_chain() {
-        // Chain: 0 -- 1 -- 2
-        let edges = vec![
-            CandidateEdge::new(0, 1, 1.0, 0),
-            CandidateEdge::new(1, 2, 1.0, 1),
-        ];
-        let degrees = compute_node_degrees(3, &edges);
-        assert_eq!(degrees, vec![1, 2, 1]);
     }
 
     // ========================================================================

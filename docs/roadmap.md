@@ -134,7 +134,7 @@ ______________________________________________________________________
 - [x] Add candidate edge harvest property suite covering determinism, degree
   ceilings, connectivity preservation, and reverse nearest neighbour uplift
   metrics. (See property-testing-design §3.2)
-- [ ] Add candidate edge harvest algorithm property suite that validates the
+- [x] Add candidate edge harvest algorithm property suite that validates the
   harvested output (edge validity, degree constraints, connectivity
   preservation or bounded destruction, and RNN uplift relative to the input)
   across generated topologies. (See property-testing-design §3.2 additions)

@@ -494,6 +494,14 @@ output graph* directly and are tracked in the roadmap.
   symmetric neighbour ratios compared to the input (or exceed a minimum delta),
   rather than only meeting an absolute floor.
 
+Implementation note (2026-01-26): the harvested-output suite defines the
+harvested graph as the union of mutual top-k neighbour edges and the minimum
+spanning forest of the input graph. The top-k value is derived from the
+topology degree ceiling as `min(max_k, max(2, ceiling - 1))`, then clamped to
+`node_count - 1`. `max_k` is 5 for most topologies and 2 for disconnected
+fixtures, keeping degree limits intact while boosting symmetry and preserving
+connectivity.
+
 ## Section 4: Ensuring correctness in the parallel Kruskal's MST implementation
 
 This section addresses the verification of the parallel implementation of

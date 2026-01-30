@@ -312,11 +312,33 @@ fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
 
 #[test]
 fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
-    run_idempotency_test(idempotency_cases(), 1024, 96 * 1024 * 1024)
+    run_idempotency_test(
+        idempotency_cases(),
+        idempotency_shrink_iters(),
+        96 * 1024 * 1024,
+    )
+}
+
+fn is_coverage_run() -> bool {
+    cfg!(coverage)
+}
+
+fn is_ci_run() -> bool {
+    std::env::var("CI").is_ok()
 }
 
 fn idempotency_cases() -> u32 {
-    if std::env::var("CI").is_ok() { 64 } else { 16 }
+    if is_coverage_run() {
+        4
+    } else if is_ci_run() {
+        64
+    } else {
+        16
+    }
+}
+
+fn idempotency_shrink_iters() -> u32 {
+    if is_coverage_run() { 128 } else { 1024 }
 }
 
 #[test]

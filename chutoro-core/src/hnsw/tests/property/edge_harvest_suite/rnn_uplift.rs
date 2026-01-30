@@ -1,89 +1,9 @@
 //! RNN uplift property checks for generated graphs.
 
-use std::collections::HashSet;
-
 use proptest::test_runner::{TestCaseError, TestCaseResult};
 
+use super::super::graph_metrics::compute_rnn_score;
 use super::{GraphFixture, GraphTopology};
-use crate::CandidateEdge;
-
-/// Builds adjacency lists with distances for each node from an edge list.
-///
-/// Returns a vector where `adjacency[i]` contains tuples of `(neighbour_id, distance)`
-/// for all edges incident to node `i`.
-fn build_adjacency_lists(node_count: usize, edges: &[CandidateEdge]) -> Vec<Vec<(usize, f32)>> {
-    let mut adjacency: Vec<Vec<(usize, f32)>> = vec![Vec::new(); node_count];
-    for edge in edges {
-        adjacency[edge.source()].push((edge.target(), edge.distance()));
-        adjacency[edge.target()].push((edge.source(), edge.distance()));
-    }
-    adjacency
-}
-
-/// Computes the top-k nearest neighbours for each node from adjacency lists.
-///
-/// For each node, sorts neighbours by distance and returns the k closest as a `HashSet`.
-fn compute_top_k_neighbours(adjacency: Vec<Vec<(usize, f32)>>, k: usize) -> Vec<HashSet<usize>> {
-    adjacency
-        .into_iter()
-        .map(|mut neighbours| {
-            neighbours.sort_by(|a, b| a.1.total_cmp(&b.1));
-            neighbours.into_iter().take(k).map(|(id, _)| id).collect()
-        })
-        .collect()
-}
-
-/// Counts symmetric relationships across all top-k neighbour sets.
-///
-/// Returns a tuple of `(symmetric_count, total_relationships)` where a relationship
-/// is symmetric if `v` is in the top-k of `u` AND `u` is in the top-k of `v`.
-fn count_symmetric_relationships(top_k_neighbours: &[HashSet<usize>]) -> (usize, usize) {
-    let mut symmetric_count = 0usize;
-    let mut total_relationships = 0usize;
-
-    for (node, neighbours) in top_k_neighbours.iter().enumerate() {
-        for &neighbour in neighbours {
-            total_relationships += 1;
-            if top_k_neighbours[neighbour].contains(&node) {
-                symmetric_count += 1;
-            }
-        }
-    }
-
-    (symmetric_count, total_relationships)
-}
-
-/// Checks whether the RNN score calculation would be trivial.
-///
-/// Returns `true` if the inputs indicate a degenerate case where the RNN score
-/// is trivially 1.0 (perfect symmetry).
-fn is_trivial_rnn_case(node_count: usize, k: usize) -> bool {
-    k == 0 || node_count == 0
-}
-
-/// Computes the RNN (Reverse Nearest Neighbour) score.
-///
-/// The RNN score measures symmetry in neighbour relationships. For each node,
-/// we find its top-k nearest neighbours by distance. The score is the fraction
-/// of (node, neighbour) pairs where the relationship is mutual: if `v` is in
-/// the top-k of `u`, then `u` is also in the top-k of `v`.
-///
-/// Returns a value in [0.0, 1.0] where 1.0 indicates perfect symmetry.
-fn compute_rnn_score(node_count: usize, edges: &[CandidateEdge], k: usize) -> f64 {
-    if is_trivial_rnn_case(node_count, k) {
-        return 1.0; // Trivially symmetric.
-    }
-
-    let adjacency = build_adjacency_lists(node_count, edges);
-    let top_k_neighbours = compute_top_k_neighbours(adjacency, k);
-    let (symmetric_count, total_relationships) = count_symmetric_relationships(&top_k_neighbours);
-
-    if total_relationships == 0 {
-        1.0
-    } else {
-        symmetric_count as f64 / total_relationships as f64
-    }
-}
 
 /// Returns the minimum acceptable RNN score for the provided topology.
 fn min_rnn_score_for_topology(topology: GraphTopology) -> f64 {
@@ -175,59 +95,6 @@ mod tests {
     fn graph_rnn_uplift_rstest(#[case] topology: GraphTopology, #[case] seed: u64) {
         let fixture = build_fixture(seed, topology);
         run_rnn_uplift_property(&fixture).expect("RNN uplift property must hold");
-    }
-
-    // ========================================================================
-    // Helper Function Unit Tests
-    // ========================================================================
-
-    #[test]
-    fn compute_rnn_score_empty_graph() {
-        // Empty edges should fall back to the total_relationships == 0 path.
-        assert_eq!(compute_rnn_score(5, &[], 5), 1.0);
-    }
-
-    #[test]
-    fn compute_rnn_score_k_zero_is_trivially_one() {
-        let edges = vec![CandidateEdge::new(0, 1, 1.0, 0)];
-        assert_eq!(compute_rnn_score(2, &edges, 0), 1.0);
-    }
-
-    #[test]
-    fn compute_rnn_score_zero_nodes_is_trivially_one() {
-        let edges: Vec<CandidateEdge> = Vec::new();
-        assert_eq!(compute_rnn_score(0, &edges, 5), 1.0);
-    }
-
-    #[test]
-    fn compute_rnn_score_symmetric_pair() {
-        // Single edge: 0 -- 1 (perfectly symmetric)
-        let edges = vec![CandidateEdge::new(0, 1, 1.0, 0)];
-        // With k=5, both nodes have each other as their only neighbour.
-        assert_eq!(compute_rnn_score(2, &edges, 5), 1.0);
-    }
-
-    #[test]
-    fn compute_rnn_score_asymmetric_star() {
-        // Star: 0 is connected to 1, 2, 3
-        // Node 0 has neighbours [1, 2, 3], each other node only has [0].
-        let edges = vec![
-            CandidateEdge::new(0, 1, 1.0, 0),
-            CandidateEdge::new(0, 2, 2.0, 1),
-            CandidateEdge::new(0, 3, 3.0, 2),
-        ];
-        let score = compute_rnn_score(4, &edges, 2);
-        // With k=2:
-        // - Node 0's top-2: [1, 2] (distances 1.0, 2.0)
-        // - Node 1's top-2: [0] (only neighbour)
-        // - Node 2's top-2: [0] (only neighbour)
-        // - Node 3's top-2: [0] (only neighbour)
-        // Relationships from node 0: 1 (mutual? 1 has 0: yes), 2 (mutual? 2 has 0: yes)
-        // Relationships from node 1: 0 (mutual? 0 has 1: yes)
-        // Relationships from node 2: 0 (mutual? 0 has 2: yes)
-        // Relationships from node 3: 0 (mutual? 0 has 3: no, 3 not in 0's top-2)
-        // Total: 5 relationships, 4 mutual -> 0.8
-        assert!((score - 0.8).abs() < 0.01);
     }
 
     // ========================================================================

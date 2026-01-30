@@ -200,3 +200,14 @@ pub(super) fn graph_fixture_strategy() -> impl Strategy<Value = GraphFixture> {
         GraphFixture { topology, graph }
     })
 }
+
+/// Generates graph fixtures for a specific topology.
+pub(super) fn graph_fixture_strategy_for_topology(
+    topology: GraphTopology,
+) -> impl Strategy<Value = GraphFixture> {
+    any::<u64>().prop_map(move |seed| {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        let graph = generate_graph_for_topology(topology, &mut rng);
+        GraphFixture { topology, graph }
+    })
+}
