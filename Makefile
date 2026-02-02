@@ -1,4 +1,4 @@
-.PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie kani kani-full
+.PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie kani kani-full verus
 
 APP ?= chutoro-cli
 CARGO ?= cargo
@@ -8,6 +8,7 @@ RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
 MDLINT ?= markdownlint
 NEXTEST_PROFILE ?= $(if $(CI),ci,default)
 NIXIE ?= nixie
+VERUS_BIN ?= verus
 
 build: target/debug/$(APP) ## Build debug binary
 release: target/release/$(APP) ## Build release binary
@@ -46,6 +47,9 @@ kani: ## Run Kani practical harnesses (smoke + 2-node reconciliation)
 
 kani-full: ## Run all Kani formal verification harnesses
 	$(CARGO) kani -p chutoro-core --default-unwind 10
+
+verus: ## Run Verus proofs for edge harvest primitives
+	VERUS_BIN="$(VERUS_BIN)" scripts/run-verus.sh
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \

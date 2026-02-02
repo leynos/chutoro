@@ -150,7 +150,7 @@ ______________________________________________________________________
       cases, with any remaining cases limited to a +1 component increase.
     - RNN uplift median delta is ≥ 0.05 for lattice/random/disconnected inputs
       and ≥ 0.0 for scale-free inputs.
-- [ ] Add Verus proofs for edge harvest primitives:
+- [x] Add Verus proofs for edge harvest primitives:
   - `extract_candidate_edges` invariants (source/target/sequence/count).
   - `CandidateEdge::canonicalise` preserves order and fields.
   - `EdgeHarvest::from_unsorted` permutation + ordering guarantees.

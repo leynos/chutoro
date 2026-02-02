@@ -4,7 +4,7 @@ This execution plan (ExecPlan) is a living document. The sections "Progress",
 "Surprises & Discoveries", "Decision Log", and "Outcomes & Retrospective" must
 be kept up to date as work proceeds.
 
-**Status**: Planned **Issue**: See `docs/roadmap.md` Phase 1 **Branch**: TBD
+**Status**: Complete **Issue**: See `docs/roadmap.md` Phase 1 **Branch**: TBD
 
 ## Purpose / Big Picture
 
@@ -18,14 +18,14 @@ record design decisions in the design document and mark the roadmap entry as
 
 ## Progress
 
-- [ ] Confirm edge harvest helper signatures are stable and document any
+- [x] Confirm edge harvest helper signatures are stable and document any
       required constraints.
-- [ ] Pin and document the Verus toolchain for contributors.
-- [ ] Add Verus proof harnesses for Appendix A invariants.
-- [ ] Add unit tests with `rstest` covering happy/unhappy paths and edge cases.
-- [ ] Update design documentation with decisions taken.
-- [ ] Mark the roadmap entry as done.
-- [ ] Run formatting, linting, and tests with logging.
+- [x] Pin and document the Verus toolchain for contributors.
+- [x] Add Verus proof harnesses for Appendix A invariants.
+- [x] Add unit tests with `rstest` covering happy/unhappy paths and edge cases.
+- [x] Update design documentation with decisions taken.
+- [x] Mark the roadmap entry as done.
+- [x] Run formatting, linting, and tests with logging.
 
 ## Surprises & Discoveries
 
@@ -33,13 +33,16 @@ None so far.
 
 ## Decision Log
 
-| Decision | Rationale | Date/Author |
-| -------- | --------- | ----------- |
-| TBD      | TBD       | TBD         |
+| Decision                                                        | Rationale                                                        | Date/Author        |
+| --------------------------------------------------------------- | ---------------------------------------------------------------- | ------------------ |
+| Store Verus proofs in `verus/edge_harvest_proofs.rs`            | Keep proofs scoped and avoid changing runtime code paths         | 2026-02-02 (Codex) |
+| Pin Verus to `0.2026.01.30.44ebdee` via `tools/verus/VERSION`   | CI repeatability and contributor consistency                     | 2026-02-02 (Codex) |
+| Model distances as `int` and use `Seq::sort_by` with `edge_leq` | Proofs only depend on equality and ordering, not float semantics | 2026-02-02 (Codex) |
 
 ## Outcomes & Retrospective
 
-Pending completion.
+Completed Verus proofs and unit tests, updated CI and documentation, and marked
+the roadmap entry as done.
 
 ## Context and Orientation
 

@@ -1010,6 +1010,20 @@ PR CI path remains unchanged so formal verification stays opt-in for daily
 development loops. Small future timestamp skews (up to 300 seconds) are treated
 as skips rather than failures to avoid false negatives from clock drift.
 
+_Implementation update (2026-02-02)._ Verus proofs now cover the edge harvest
+primitives described in `docs/property-testing-design.md` Appendix A. The
+proofs live in `verus/edge_harvest_proofs.rs` and model
+`extract_candidate_edges`, `CandidateEdge::canonicalise`, and
+`EdgeHarvest::from_unsorted` with spec-only data types mirroring the helper
+signatures. Distances are represented as integers because the proofs only
+depend on equality and ordering, not floating-point semantics. Sorting uses
+`Seq::sort_by` with an explicit total order that matches the production
+ordering by `(sequence, Ord)`, yielding permutation and ordering guarantees.
+The pinned Verus release is recorded in `tools/verus/VERSION` with contributor
+setup instructions in `docs/verus-toolchain.md`, and CI runs `make verus` to
+keep the harnesses green. Scope remains limited to helper invariants, leaving
+concurrency and planner proofs to Kani and property tests.
+
 #### 6.6. Search correctness property
 
 _Implementation update (2025-11-12)._ The CPU suite now exercises the oracle
