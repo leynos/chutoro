@@ -169,9 +169,9 @@ pub open spec fn extract_layer_invariants(
 ) -> bool {
     let edges = extract_from_layer(source_node, source_sequence, neighbours);
     &&& edges.len() == count_non_self(neighbours, source_node)
-    &&& forall|i: int| 0 <= i < edges.len() ==> edges[i].source == source_node
-    &&& forall|i: int| 0 <= i < edges.len() ==> edges[i].target != source_node
-    &&& forall|i: int| 0 <= i < edges.len() ==> edges[i].sequence == source_sequence
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].source == source_node
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].target != source_node
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].sequence == source_sequence
 }
 
 pub open spec fn extract_layers_invariants(
@@ -181,9 +181,9 @@ pub open spec fn extract_layers_invariants(
 ) -> bool {
     let edges = extract_from_layers(source_node, source_sequence, layers);
     &&& edges.len() == count_layers(layers, source_node)
-    &&& forall|i: int| 0 <= i < edges.len() ==> edges[i].source == source_node
-    &&& forall|i: int| 0 <= i < edges.len() ==> edges[i].target != source_node
-    &&& forall|i: int| 0 <= i < edges.len() ==> edges[i].sequence == source_sequence
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].source == source_node
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].target != source_node
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].sequence == source_sequence
 }
 
 pub open spec fn extract_plan_invariants(
@@ -193,9 +193,9 @@ pub open spec fn extract_plan_invariants(
 ) -> bool {
     let edges = extract_candidate_edges(source_node, source_sequence, plan);
     &&& edges.len() == count_layers(plan.layers, source_node)
-    &&& forall|i: int| 0 <= i < edges.len() ==> edges[i].source == source_node
-    &&& forall|i: int| 0 <= i < edges.len() ==> edges[i].target != source_node
-    &&& forall|i: int| 0 <= i < edges.len() ==> edges[i].sequence == source_sequence
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].source == source_node
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].target != source_node
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].sequence == source_sequence
 }
 
 pub struct EdgeHarvestSpec {
@@ -271,13 +271,13 @@ proof fn lemma_extract_from_layer_invariants(
             assert(edges.len() == rest_edges.len());
             assert(count_non_self(neighbours, source_node) == count_non_self(rest, source_node));
 
-            assert forall|i: int| 0 <= i < edges.len() implies edges[i].source == source_node by {
+            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].source == source_node by {
                 assert(edges[i] == rest_edges[i]);
             }
-            assert forall|i: int| 0 <= i < edges.len() implies edges[i].target != source_node by {
+            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].target != source_node by {
                 assert(edges[i] == rest_edges[i]);
             }
-            assert forall|i: int| 0 <= i < edges.len() implies edges[i].sequence == source_sequence by {
+            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].sequence == source_sequence by {
                 assert(edges[i] == rest_edges[i]);
             }
         } else {
@@ -298,7 +298,7 @@ proof fn lemma_extract_from_layer_invariants(
                     == 1 + count_non_self(rest, source_node)
             );
 
-            assert forall|i: int| 0 <= i < edges.len() implies edges[i].source == source_node by {
+            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].source == source_node by {
                 if i == 0 {
                     assert(edges[i] == prefix[i]);
                     assert(prefix[i] == first_edge);
@@ -310,7 +310,7 @@ proof fn lemma_extract_from_layer_invariants(
                 }
             }
 
-            assert forall|i: int| 0 <= i < edges.len() implies edges[i].target != source_node by {
+            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].target != source_node by {
                 if i == 0 {
                     assert(edges[i] == prefix[i]);
                     assert(prefix[i] == first_edge);
@@ -322,7 +322,7 @@ proof fn lemma_extract_from_layer_invariants(
                 }
             }
 
-            assert forall|i: int| 0 <= i < edges.len() implies edges[i].sequence == source_sequence by {
+            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].sequence == source_sequence by {
                 if i == 0 {
                     assert(edges[i] == prefix[i]);
                     assert(prefix[i] == first_edge);
@@ -371,7 +371,7 @@ proof fn lemma_extract_from_layers_invariants(
                     + count_layers(rest, source_node)
         );
 
-        assert forall|i: int| 0 <= i < edges.len() implies edges[i].source == source_node by {
+        assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].source == source_node by {
             if i < head_edges.len() {
                 assert(edges[i] == head_edges[i]);
             } else {
@@ -382,7 +382,7 @@ proof fn lemma_extract_from_layers_invariants(
             }
         }
 
-        assert forall|i: int| 0 <= i < edges.len() implies edges[i].target != source_node by {
+        assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].target != source_node by {
             if i < head_edges.len() {
                 assert(edges[i] == head_edges[i]);
             } else {
@@ -393,7 +393,7 @@ proof fn lemma_extract_from_layers_invariants(
             }
         }
 
-        assert forall|i: int| 0 <= i < edges.len() implies edges[i].sequence == source_sequence by {
+        assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].sequence == source_sequence by {
             if i < head_edges.len() {
                 assert(edges[i] == head_edges[i]);
             } else {
