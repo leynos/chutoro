@@ -36,10 +36,12 @@ check-fmt: ## Verify formatting
 	$(CARGO) fmt --all -- --check
 
 markdownlint: ## Lint Markdown files
-	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 $(MDLINT)
+	find . -type f -name '*.md' -not -path './target/*' -not -path './.verus/*' -print0 | \
+		xargs -0 $(MDLINT)
 
 nixie: ## Validate Mermaid diagrams
-	find . -type f -name '*.md' -not -path './target/*' -print0 | xargs -0 $(NIXIE) --no-sandbox
+	find . -type f -name '*.md' -not -path './target/*' -not -path './.verus/*' -print0 | \
+		xargs -0 $(NIXIE) --no-sandbox
 
 kani: ## Run Kani practical harnesses (smoke + 2-node reconciliation)
 	$(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_smoke_2_nodes_1_layer

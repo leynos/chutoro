@@ -32,7 +32,9 @@ export VERUS_BIN="/path/to/verus/verus"
 
 ## Run Proofs
 
-Use the make target, which respects `VERUS_BIN`:
+Use the make target, which is self-contained and will download Verus and
+install the required Rust toolchain if they are missing. It respects
+`VERUS_BIN` if you want to point at a custom install:
 
 ```bash
 make verus
@@ -40,5 +42,6 @@ make verus
 
 ## Rust Toolchain
 
-The Verus binary will report the exact Rust toolchain it needs. Follow the
-prompted `rustup` instructions if the toolchain is missing.
+The Verus binary reports the exact Rust toolchain it needs. The `make verus`
+target parses the toolchain from `verus --version` and installs it via `rustup`
+when missing.
