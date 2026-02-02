@@ -1010,6 +1010,15 @@ PR CI path remains unchanged so formal verification stays opt-in for daily
 development loops. Small future timestamp skews (up to 300 seconds) are treated
 as skips rather than failures to avoid false negatives from clock drift.
 
+_Implementation plan update (2026-02-02)._ Edge-harvest helper invariants will
+be formally verified with Verus in a dedicated `verus_proofs` module gated
+behind `cfg(verus)`, keeping production code unchanged. Proofs are scoped to
+pure helper behaviour only (no concurrency or planner proofs). Ordering proofs
+for `EdgeHarvest::from_unsorted` will rely on a verified local sort helper so
+the invariants are discharged without `assume` shortcuts. The Verus toolchain
+version will be pinned and documented for contributors to keep CI runs
+reproducible.
+
 #### 6.6. Search correctness property
 
 _Implementation update (2025-11-12)._ The CPU suite now exercises the oracle
