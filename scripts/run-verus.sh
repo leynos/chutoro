@@ -70,7 +70,7 @@ if [[ ! -f "${PROOF_FILE}" ]]; then
   exit 1
 fi
 
-VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version)"
+VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)"
 TOOLCHAIN="$(echo "${VERUS_VERSION_OUTPUT}" | awk -F ':' '/Toolchain:/ {gsub(/^[ \t]+/, "", $2); print $2}')"
 
 if [[ -z "${TOOLCHAIN}" ]]; then
@@ -84,7 +84,7 @@ if ! command -v rustup >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! rustup toolchain list | awk '{print $1}' | grep -Fxq "${TOOLCHAIN}"; then
+if ! rustup which --toolchain "${TOOLCHAIN}" rustc >/dev/null 2>&1; then
   rustup toolchain install "${TOOLCHAIN}"
 fi
 
