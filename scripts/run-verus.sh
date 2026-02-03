@@ -70,7 +70,13 @@ if [[ ! -f "${PROOF_FILE}" ]]; then
   exit 1
 fi
 
-VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)"
+if ! VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)"; then
+  echo "Failed to run ${VERUS_BIN} --version" >&2
+  if [[ -n "${VERUS_VERSION_OUTPUT}" ]]; then
+    echo "${VERUS_VERSION_OUTPUT}" >&2
+  fi
+  exit 1
+fi
 TOOLCHAIN="$(echo "${VERUS_VERSION_OUTPUT}" | awk -F ':' '/Toolchain:/ {gsub(/^[ \t]+/, "", $2); print $2}')"
 
 if [[ -z "${TOOLCHAIN}" ]]; then
@@ -88,4 +94,11 @@ if ! rustup which --toolchain "${TOOLCHAIN}" rustc >/dev/null 2>&1; then
   rustup toolchain install "${TOOLCHAIN}"
 fi
 
-"${VERUS_BIN}" "${PROOF_FILE}"
+if ! "${VERUS_BIN}" "${PROOF_FILE}"; then
+  status=$?
+  echo "Verus proofs failed (exit ${status})." >&2
+  echo "Binary: ${VERUS_BIN}" >&2
+  echo "Proof file: ${PROOF_FILE}" >&2
+  echo "Toolchain: ${TOOLCHAIN}" >&2
+  exit "${status}"
+fi
