@@ -162,16 +162,30 @@ pub open spec fn extract_candidate_edges(
     extract_from_layers(source_node, source_sequence, plan.layers)
 }
 
+pub open spec fn edges_common_invariants(
+    edges: Seq<CandidateEdgeSpec>,
+    expected_len: nat,
+    source_node: NodeId,
+    source_sequence: Sequence,
+) -> bool {
+    &&& edges.len() == expected_len
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].source == source_node
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].target != source_node
+    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].sequence == source_sequence
+}
+
 pub open spec fn extract_layer_invariants(
     neighbours: Seq<NeighbourSpec>,
     source_node: NodeId,
     source_sequence: Sequence,
 ) -> bool {
     let edges = extract_from_layer(source_node, source_sequence, neighbours);
-    &&& edges.len() == count_non_self(neighbours, source_node)
-    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].source == source_node
-    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].target != source_node
-    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].sequence == source_sequence
+    edges_common_invariants(
+        edges,
+        count_non_self(neighbours, source_node),
+        source_node,
+        source_sequence,
+    )
 }
 
 pub open spec fn extract_layers_invariants(
@@ -180,10 +194,12 @@ pub open spec fn extract_layers_invariants(
     source_sequence: Sequence,
 ) -> bool {
     let edges = extract_from_layers(source_node, source_sequence, layers);
-    &&& edges.len() == count_layers(layers, source_node)
-    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].source == source_node
-    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].target != source_node
-    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].sequence == source_sequence
+    edges_common_invariants(
+        edges,
+        count_layers(layers, source_node),
+        source_node,
+        source_sequence,
+    )
 }
 
 pub open spec fn extract_plan_invariants(
@@ -192,10 +208,12 @@ pub open spec fn extract_plan_invariants(
     source_sequence: Sequence,
 ) -> bool {
     let edges = extract_candidate_edges(source_node, source_sequence, plan);
-    &&& edges.len() == count_layers(plan.layers, source_node)
-    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].source == source_node
-    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].target != source_node
-    &&& forall|i: int| #![auto] 0 <= i < edges.len() ==> edges[i].sequence == source_sequence
+    edges_common_invariants(
+        edges,
+        count_layers(plan.layers, source_node),
+        source_node,
+        source_sequence,
+    )
 }
 
 pub struct EdgeHarvestSpec {
