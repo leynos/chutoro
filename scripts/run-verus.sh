@@ -40,6 +40,27 @@ resolve_verus_bin() {
   return 1
 }
 
+parse_verus_toolchain() {
+  local output="$1"
+
+  local toolchain
+  toolchain="$(echo "${output}" | awk -F ':' '/Toolchain:/ {gsub(/^[ \t]+/, "", $2); print $2; exit}')"
+  if [[ -n "${toolchain}" ]]; then
+    echo "${toolchain}"
+    return 0
+  fi
+
+  toolchain="$(
+    echo "${output}" | awk '/required rust toolchain/ {for (i = 1; i <= NF; i++) if ($i == "toolchain") {print $(i + 1); exit}}'
+  )"
+  if [[ -n "${toolchain}" ]]; then
+    echo "${toolchain}"
+    return 0
+  fi
+
+  return 1
+}
+
 RESOLVED_VERUS_BIN="$(resolve_verus_bin "${VERUS_BIN}" || true)"
 if [[ -n "${RESOLVED_VERUS_BIN}" ]]; then
   VERUS_BIN="${RESOLVED_VERUS_BIN}"
@@ -71,14 +92,33 @@ if [[ ! -f "${PROOF_FILE}" ]]; then
 fi
 
 if ! VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)"; then
-  echo "Failed to run ${VERUS_BIN} --version" >&2
-  if [[ -n "${VERUS_VERSION_OUTPUT}" ]]; then
-    echo "${VERUS_VERSION_OUTPUT}" >&2
-  fi
-  exit 1
-fi
-TOOLCHAIN="$(echo "${VERUS_VERSION_OUTPUT}" | awk -F ':' '/Toolchain:/ {gsub(/^[ \t]+/, "", $2); print $2}')"
+  TOOLCHAIN="$(parse_verus_toolchain "${VERUS_VERSION_OUTPUT}" || true)"
+  if [[ -n "${TOOLCHAIN}" ]]; then
+    if ! command -v rustup >/dev/null 2>&1; then
+      echo "rustup is required to install toolchain ${TOOLCHAIN}" >&2
+      echo "${VERUS_VERSION_OUTPUT}" >&2
+      exit 1
+    fi
 
+    if ! rustup which --toolchain "${TOOLCHAIN}" rustc >/dev/null 2>&1; then
+      rustup toolchain install "${TOOLCHAIN}"
+    fi
+
+    if ! VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)"; then
+      echo "Failed to run ${VERUS_BIN} --version after installing toolchain." >&2
+      echo "${VERUS_VERSION_OUTPUT}" >&2
+      exit 1
+    fi
+  else
+    echo "Failed to run ${VERUS_BIN} --version" >&2
+    if [[ -n "${VERUS_VERSION_OUTPUT}" ]]; then
+      echo "${VERUS_VERSION_OUTPUT}" >&2
+    fi
+    exit 1
+  fi
+fi
+
+TOOLCHAIN="$(parse_verus_toolchain "${VERUS_VERSION_OUTPUT}" || true)"
 if [[ -z "${TOOLCHAIN}" ]]; then
   echo "Failed to parse Verus toolchain from output:" >&2
   echo "${VERUS_VERSION_OUTPUT}" >&2
