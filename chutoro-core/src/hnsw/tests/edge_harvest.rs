@@ -308,8 +308,10 @@ fn candidate_edge_ordering_is_deterministic() {
 }
 
 #[rstest]
+#[case::empty_plan(7, 42, vec![], None)]
 #[case::single_layer_no_self(0, 7, vec![vec![(1, 0.2), (2, 0.3)]], None)]
 #[case::filters_self(3, 9, vec![vec![(3, 0.1), (4, 0.2)]], None)]
+#[case::self_edges_only(4, 11, vec![vec![(4, 0.1), (4, 0.2)], vec![]], None)]
 #[case::duplicate_target_across_layers(
     1,
     5,

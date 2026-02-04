@@ -1,7 +1,7 @@
 # Verus Toolchain
 
 The edge harvest proofs use Verus and must run with a pinned toolchain to keep
-CI deterministic.
+continuous integration (CI) deterministic.
 
 ## Pinned Version
 
@@ -11,12 +11,15 @@ The repository pins Verus to the release listed in `tools/verus/VERSION`:
 
 ## Install (Recommended)
 
-Use the helper script, which reads the pinned version file and downloads the
-matching release asset for Linux:
+Use the helper script, which reads the pinned version file, downloads the
+matching release asset for Linux, and verifies its SHA-256 checksum:
 
 ```bash
 scripts/install-verus.sh
 ```
+
+Expected checksums live in `tools/verus/SHA256SUMS` and should be updated when
+the Verus version changes.
 
 Optional environment variables:
 
@@ -32,9 +35,9 @@ export VERUS_BIN="/path/to/verus/verus"
 
 ## Run Proofs
 
-Use the make target, which is self-contained and will download Verus and
-install the required Rust toolchain if they are missing. It respects
-`VERUS_BIN` if you want to point at a custom install:
+The make target is self-contained and downloads Verus with the required Rust
+toolchain installation when missing. It respects `VERUS_BIN`, which may point
+at a Verus binary or installation directory:
 
 ```bash
 make verus

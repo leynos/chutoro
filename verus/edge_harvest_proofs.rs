@@ -1,11 +1,11 @@
 //! Verus proofs for edge harvest primitives.
 
-#![allow(dead_code)]
-
 use vstd::prelude::*;
-use vstd::relations::{sorted_by, total_ordering};
-use vstd::seq::group_seq_axioms;
+use vstd::relations::sorted_by;
 use vstd::seq_lib::*;
+
+mod edge_harvest_extract;
+mod edge_harvest_ordering;
 
 fn main() {}
 
@@ -234,212 +234,11 @@ pub open spec fn edge_harvest_invariants(edges: Seq<CandidateEdgeSpec>) -> bool 
     &&& sorted_by(harvest.edges, |a: CandidateEdgeSpec, b: CandidateEdgeSpec| edge_leq(a, b))
 }
 
-proof fn lemma_edge_leq_total_ordering()
-    ensures
-        total_ordering(|a: CandidateEdgeSpec, b: CandidateEdgeSpec| edge_leq(a, b)),
-{
-    assert(total_ordering(|a: CandidateEdgeSpec, b: CandidateEdgeSpec| edge_leq(a, b)));
-}
-
-proof fn lemma_canonicalise_preserves_fields(edge: CandidateEdgeSpec)
-    ensures
-        edge.canonicalise().distance == edge.distance,
-        edge.canonicalise().sequence == edge.sequence,
-        edge.canonicalise().source <= edge.canonicalise().target,
-        edge.canonicalise().source
-            == if edge.source <= edge.target {
-                edge.source
-            } else {
-                edge.target
-            },
-        edge.canonicalise().target
-            == if edge.source <= edge.target {
-                edge.target
-            } else {
-                edge.source
-            },
-{
-    if edge.source <= edge.target {
-    } else {
-    }
-}
-
-proof fn lemma_extract_from_layer_invariants(
-    neighbours: Seq<NeighbourSpec>,
-    source_node: NodeId,
-    source_sequence: Sequence,
-)
-    ensures
-        extract_layer_invariants(neighbours, source_node, source_sequence),
-    decreases neighbours.len(),
-{
-    if neighbours.len() == 0 {
-        let edges = extract_from_layer(source_node, source_sequence, neighbours);
-        assert(edges.len() == 0);
-    } else {
-        let head = neighbours.first();
-        let rest = neighbours.drop_first();
-        lemma_extract_from_layer_invariants(rest, source_node, source_sequence);
-
-        let edges = extract_from_layer(source_node, source_sequence, neighbours);
-        let rest_edges = extract_from_layer(source_node, source_sequence, rest);
-
-        if head.id == source_node {
-            assert(edges =~= rest_edges);
-            assert(edges.len() == rest_edges.len());
-            assert(count_non_self(neighbours, source_node) == count_non_self(rest, source_node));
-
-            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].source == source_node by {
-                assert(edges[i] == rest_edges[i]);
-            }
-            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].target != source_node by {
-                assert(edges[i] == rest_edges[i]);
-            }
-            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].sequence == source_sequence by {
-                assert(edges[i] == rest_edges[i]);
-            }
-        } else {
-            broadcast use group_seq_axioms;
-
-            let first_edge = CandidateEdgeSpec {
-                source: source_node,
-                target: head.id,
-                distance: head.distance,
-                sequence: source_sequence,
-            };
-            let prefix = Seq::<CandidateEdgeSpec>::empty().push(first_edge);
-            assert(prefix.len() == 1);
-            assert(edges =~= prefix.add(rest_edges));
-            assert(edges.len() == 1 + rest_edges.len());
-            assert(
-                count_non_self(neighbours, source_node)
-                    == 1 + count_non_self(rest, source_node)
-            );
-
-            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].source == source_node by {
-                if i == 0 {
-                    assert(edges[i] == prefix[i]);
-                    assert(prefix[i] == first_edge);
-                } else {
-                    let j = i - 1;
-                    assert(0 <= j < rest_edges.len());
-                    assert(edges[i] == rest_edges[j]);
-                    assert(rest_edges[j].source == source_node);
-                }
-            }
-
-            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].target != source_node by {
-                if i == 0 {
-                    assert(edges[i] == prefix[i]);
-                    assert(prefix[i] == first_edge);
-                } else {
-                    let j = i - 1;
-                    assert(0 <= j < rest_edges.len());
-                    assert(edges[i] == rest_edges[j]);
-                    assert(rest_edges[j].target != source_node);
-                }
-            }
-
-            assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].sequence == source_sequence by {
-                if i == 0 {
-                    assert(edges[i] == prefix[i]);
-                    assert(prefix[i] == first_edge);
-                } else {
-                    let j = i - 1;
-                    assert(0 <= j < rest_edges.len());
-                    assert(edges[i] == rest_edges[j]);
-                    assert(rest_edges[j].sequence == source_sequence);
-                }
-            }
-        }
-    }
-}
-
-proof fn lemma_extract_from_layers_invariants(
-    layers: Seq<LayerPlanSpec>,
-    source_node: NodeId,
-    source_sequence: Sequence,
-)
-    ensures
-        extract_layers_invariants(layers, source_node, source_sequence),
-    decreases layers.len(),
-{
-    if layers.len() == 0 {
-        let edges = extract_from_layers(source_node, source_sequence, layers);
-        assert(edges.len() == 0);
-    } else {
-        broadcast use group_seq_axioms;
-
-        let head = layers.first();
-        let rest = layers.drop_first();
-        let head_edges = extract_from_layer(source_node, source_sequence, head.neighbours);
-        let rest_edges = extract_from_layers(source_node, source_sequence, rest);
-
-        lemma_extract_from_layer_invariants(head.neighbours, source_node, source_sequence);
-        lemma_extract_from_layers_invariants(rest, source_node, source_sequence);
-        assert(head_edges.len() == count_non_self(head.neighbours, source_node));
-        assert(rest_edges.len() == count_layers(rest, source_node));
-
-        let edges = extract_from_layers(source_node, source_sequence, layers);
-        assert(edges =~= head_edges.add(rest_edges));
-        assert(edges.len() == head_edges.len() + rest_edges.len());
-        assert(
-            count_layers(layers, source_node)
-                == count_non_self(head.neighbours, source_node)
-                    + count_layers(rest, source_node)
-        );
-
-        assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].source == source_node by {
-            if i < head_edges.len() {
-                assert(edges[i] == head_edges[i]);
-            } else {
-                let j = i - head_edges.len();
-                assert(0 <= j < rest_edges.len());
-                assert(edges[i] == rest_edges[j]);
-                assert(rest_edges[j].source == source_node);
-            }
-        }
-
-        assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].target != source_node by {
-            if i < head_edges.len() {
-                assert(edges[i] == head_edges[i]);
-            } else {
-                let j = i - head_edges.len();
-                assert(0 <= j < rest_edges.len());
-                assert(edges[i] == rest_edges[j]);
-                assert(rest_edges[j].target != source_node);
-            }
-        }
-
-        assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].sequence == source_sequence by {
-            if i < head_edges.len() {
-                assert(edges[i] == head_edges[i]);
-            } else {
-                let j = i - head_edges.len();
-                assert(0 <= j < rest_edges.len());
-                assert(edges[i] == rest_edges[j]);
-                assert(rest_edges[j].sequence == source_sequence);
-            }
-        }
-    }
-}
-
-proof fn lemma_extract_candidate_edges_invariants(
-    plan: InsertionPlanSpec,
-    source_node: NodeId,
-    source_sequence: Sequence,
-)
-    ensures
-        extract_plan_invariants(plan, source_node, source_sequence),
-{
-    lemma_extract_from_layers_invariants(plan.layers, source_node, source_sequence);
-}
-
 proof fn lemma_edge_harvest_from_unsorted_invariants(edges: Seq<CandidateEdgeSpec>)
     ensures
         edge_harvest_invariants(edges),
 {
-    lemma_edge_leq_total_ordering();
+    edge_harvest_ordering::lemma_edge_leq_total_ordering();
     edges.lemma_sort_by_ensures(|a: CandidateEdgeSpec, b: CandidateEdgeSpec| edge_leq(a, b));
 }
 

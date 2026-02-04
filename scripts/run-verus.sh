@@ -23,13 +23,20 @@ resolve_verus_bin() {
     return 1
   fi
 
+  if [[ -d "${candidate}" ]]; then
+    local bin
+    for bin in "${candidate}/verus" "${candidate}/verus/verus" "${candidate}/bin/verus"; do
+      if [[ -f "${bin}" && -x "${bin}" ]]; then
+        echo "${bin}"
+        return 0
+      fi
+    done
+    return 1
+  fi
+
   if [[ -f "${candidate}" && -x "${candidate}" ]]; then
     echo "${candidate}"
     return 0
-  fi
-
-  if [[ -d "${candidate}" ]]; then
-    return 1
   fi
 
   if command -v "${candidate}" >/dev/null 2>&1; then
@@ -38,6 +45,19 @@ resolve_verus_bin() {
   fi
 
   return 1
+}
+
+ensure_toolchain_installed() {
+  local toolchain="$1"
+
+  if ! command -v rustup >/dev/null 2>&1; then
+    echo "rustup is required to install toolchain ${toolchain}" >&2
+    exit 1
+  fi
+
+  if ! rustup which --toolchain "${toolchain}" rustc >/dev/null 2>&1; then
+    rustup toolchain install "${toolchain}"
+  fi
 }
 
 parse_verus_toolchain() {
@@ -91,33 +111,8 @@ if [[ ! -f "${PROOF_FILE}" ]]; then
   exit 1
 fi
 
-if ! VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)"; then
-  TOOLCHAIN="$(parse_verus_toolchain "${VERUS_VERSION_OUTPUT}" || true)"
-  if [[ -n "${TOOLCHAIN}" ]]; then
-    if ! command -v rustup >/dev/null 2>&1; then
-      echo "rustup is required to install toolchain ${TOOLCHAIN}" >&2
-      echo "${VERUS_VERSION_OUTPUT}" >&2
-      exit 1
-    fi
-
-    if ! rustup which --toolchain "${TOOLCHAIN}" rustc >/dev/null 2>&1; then
-      rustup toolchain install "${TOOLCHAIN}"
-    fi
-
-    if ! VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)"; then
-      echo "Failed to run ${VERUS_BIN} --version after installing toolchain." >&2
-      echo "${VERUS_VERSION_OUTPUT}" >&2
-      exit 1
-    fi
-  else
-    echo "Failed to run ${VERUS_BIN} --version" >&2
-    if [[ -n "${VERUS_VERSION_OUTPUT}" ]]; then
-      echo "${VERUS_VERSION_OUTPUT}" >&2
-    fi
-    exit 1
-  fi
-fi
-
+VERUS_VERSION_STATUS=0
+VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)" || VERUS_VERSION_STATUS=$?
 TOOLCHAIN="$(parse_verus_toolchain "${VERUS_VERSION_OUTPUT}" || true)"
 if [[ -z "${TOOLCHAIN}" ]]; then
   echo "Failed to parse Verus toolchain from output:" >&2
@@ -125,16 +120,19 @@ if [[ -z "${TOOLCHAIN}" ]]; then
   exit 1
 fi
 
-if ! command -v rustup >/dev/null 2>&1; then
-  echo "rustup is required to install toolchain ${TOOLCHAIN}" >&2
-  exit 1
+ensure_toolchain_installed "${TOOLCHAIN}"
+
+if [[ "${VERUS_VERSION_STATUS}" -ne 0 ]]; then
+  if ! VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)"; then
+    echo "Failed to run ${VERUS_BIN} --version after installing toolchain." >&2
+    echo "${VERUS_VERSION_OUTPUT}" >&2
+    exit 1
+  fi
 fi
 
-if ! rustup which --toolchain "${TOOLCHAIN}" rustc >/dev/null 2>&1; then
-  rustup toolchain install "${TOOLCHAIN}"
-fi
-
-if ! "${VERUS_BIN}" "${PROOF_FILE}"; then
+if "${VERUS_BIN}" "${PROOF_FILE}"; then
+  exit 0
+else
   status=$?
   echo "Verus proofs failed (exit ${status})." >&2
   echo "Binary: ${VERUS_BIN}" >&2
