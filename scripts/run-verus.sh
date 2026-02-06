@@ -60,6 +60,8 @@ ensure_toolchain_installed() {
   fi
 }
 
+# parse_verus_toolchain handles "Toolchain: <name>" and
+# "required rust toolchain <name>" outputs from verus --version.
 parse_verus_toolchain() {
   local output="$1"
 
@@ -81,22 +83,36 @@ parse_verus_toolchain() {
   return 1
 }
 
+collect_verus_version_output() {
+  VERUS_VERSION_STATUS=0
+  VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)" || VERUS_VERSION_STATUS=$?
+}
+
+resolve_verus_toolchain() {
+  local output="$1"
+  local toolchain
+
+  toolchain="$(parse_verus_toolchain "${output}" || true)"
+  if [[ -z "${toolchain}" ]]; then
+    echo "Failed to parse Verus toolchain from output:" >&2
+    echo "${output}" >&2
+    exit 1
+  fi
+
+  echo "${toolchain}"
+}
+
 ensure_verus_toolchain() {
   local toolchain
 
-  VERUS_VERSION_STATUS=0
-  VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)" || VERUS_VERSION_STATUS=$?
-  toolchain="$(parse_verus_toolchain "${VERUS_VERSION_OUTPUT}" || true)"
-  if [[ -z "${toolchain}" ]]; then
-    echo "Failed to parse Verus toolchain from output:" >&2
-    echo "${VERUS_VERSION_OUTPUT}" >&2
-    exit 1
-  fi
+  collect_verus_version_output
+  toolchain="$(resolve_verus_toolchain "${VERUS_VERSION_OUTPUT}")"
 
   ensure_toolchain_installed "${toolchain}"
 
   if [[ "${VERUS_VERSION_STATUS}" -ne 0 ]]; then
-    if ! VERUS_VERSION_OUTPUT="$("${VERUS_BIN}" --version 2>&1)"; then
+    collect_verus_version_output
+    if [[ "${VERUS_VERSION_STATUS}" -ne 0 ]]; then
       echo "Failed to run ${VERUS_BIN} --version after installing toolchain." >&2
       echo "${VERUS_VERSION_OUTPUT}" >&2
       exit 1
@@ -111,7 +127,11 @@ if [[ -n "${RESOLVED_VERUS_BIN}" ]]; then
   VERUS_BIN="${RESOLVED_VERUS_BIN}"
 else
   if [[ "${VERUS_BIN}" != "${DEFAULT_VERUS_BIN}" ]]; then
-    echo "VERUS_BIN is not executable: ${VERUS_BIN}" >&2
+    if [[ -d "${VERUS_BIN}" ]]; then
+      echo "VERUS_BIN directory contains no recognised Verus binary: ${VERUS_BIN}" >&2
+    else
+      echo "VERUS_BIN is not executable: ${VERUS_BIN}" >&2
+    fi
     echo "Falling back to ${DEFAULT_VERUS_BIN}" >&2
     VERUS_BIN="${DEFAULT_VERUS_BIN}"
   fi
@@ -141,6 +161,7 @@ ensure_verus_toolchain
 if "${VERUS_BIN}" "${PROOF_FILE}"; then
   exit 0
 else
+  # $? captures the exit status from the Verus invocation above.
   status=$?
   echo "Verus proofs failed (exit ${status})." >&2
   echo "Binary: ${VERUS_BIN}" >&2
