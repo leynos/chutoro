@@ -234,6 +234,12 @@ proof fn lemma_extract_from_layers_invariants(
     }
 }
 
+/// Proves invariants for extracting candidate edges from an insertion plan.
+///
+/// ## Example
+/// ```text
+/// If a plan has only self-neighbours, the extracted edges are empty.
+/// ```
 pub(super) proof fn lemma_extract_candidate_edges_invariants(
     plan: InsertionPlanSpec,
     source_node: NodeId,

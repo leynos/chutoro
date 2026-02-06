@@ -1,16 +1,16 @@
-# Developers Guide
+# Developers guide
 
 This guide collects day-to-day practices for contributors working on the
 Chutoro codebase. It complements the more specialized documents in `docs/` and
 keeps operational guidance in one place.
 
-## Verus Proofs
+## Verus proofs
 
 Verus is used for formal verification of edge harvest primitives. Run proofs
 via `make verus`, which is idempotent and installs the pinned Verus release and
 required Rust toolchain as needed.
 
-### Quantifier Trigger Annotations
+### Quantifier trigger annotations
 
 Verus prints warnings when it selects quantifier triggers automatically. Do not
 ignore these warnings. Prefer explicit annotations so the prover behaviour is

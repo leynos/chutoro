@@ -92,7 +92,7 @@ else
   fi
 
   if [[ -z "$(resolve_verus_bin "${VERUS_BIN}" || true)" ]]; then
-    VERUS_INSTALL_DIR="${DEFAULT_INSTALL_DIR}" scripts/install-verus.sh
+    VERUS_INSTALL_DIR="${DEFAULT_INSTALL_DIR}" "${ROOT_DIR}/scripts/install-verus.sh"
   fi
 
   RESOLVED_VERUS_BIN="$(resolve_verus_bin "${VERUS_BIN}" || true)"

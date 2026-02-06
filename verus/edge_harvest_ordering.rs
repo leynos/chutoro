@@ -7,6 +7,12 @@ verus! {
 
 use super::*;
 
+/// Proves that `edge_leq` is a total ordering for candidate edges.
+///
+/// ## Example
+/// ```text
+/// After calling this lemma, sorting by `edge_leq` is permitted in proofs.
+/// ```
 pub(super) proof fn lemma_edge_leq_total_ordering()
     ensures
         total_ordering(|a: CandidateEdgeSpec, b: CandidateEdgeSpec| edge_leq(a, b)),
@@ -214,6 +220,12 @@ pub(super) proof fn lemma_edge_leq_total_ordering()
     }
 }
 
+/// Proves that endpoint ordering preserves fields.
+///
+/// ## Example
+/// ```text
+/// Edges with source > target yield swapped endpoints.
+/// ```
 pub(super) proof fn lemma_canonicalise_preserves_fields(edge: CandidateEdgeSpec)
     ensures
         edge.canonicalise().distance == edge.distance,
