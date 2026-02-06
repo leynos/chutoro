@@ -1,12 +1,84 @@
 //! Unit tests for candidate edge harvesting during HNSW construction.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use rstest::rstest;
 
-use crate::hnsw::{CpuHnsw, HnswParams};
+use crate::hnsw::insert::extract_candidate_edges;
+use crate::hnsw::types::{InsertionPlan, LayerPlan};
+use crate::hnsw::{CandidateEdge, CpuHnsw, EdgeHarvest, HnswParams, Neighbour};
 
 use super::fixtures::DummySource;
+
+fn build_insertion_plan(layers: Vec<Vec<(usize, f32)>>) -> InsertionPlan {
+    InsertionPlan {
+        layers: layers
+            .into_iter()
+            .enumerate()
+            .map(|(level, neighbours)| LayerPlan {
+                level,
+                neighbours: neighbours
+                    .into_iter()
+                    .map(|(id, distance)| Neighbour { id, distance })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+fn expected_edge_count(plan: &InsertionPlan, source_node: usize) -> usize {
+    plan.layers
+        .iter()
+        .map(|layer| {
+            layer
+                .neighbours
+                .iter()
+                .filter(|neighbour| neighbour.id != source_node)
+                .count()
+        })
+        .sum()
+}
+
+fn edge_key(edge: &CandidateEdge) -> (usize, usize, u32, u64) {
+    (
+        edge.source(),
+        edge.target(),
+        edge.distance().to_bits(),
+        edge.sequence(),
+    )
+}
+
+fn edge_multiset(edges: &[CandidateEdge]) -> HashMap<(usize, usize, u32, u64), usize> {
+    let mut counts = HashMap::new();
+    for edge in edges {
+        *counts.entry(edge_key(edge)).or_insert(0) += 1;
+    }
+    counts
+}
+
+fn assert_edges_sorted_by_sequence_then_ord(edges: &[CandidateEdge]) {
+    for window in edges.windows(2) {
+        let (prev, curr) = (&window[0], &window[1]);
+        let ordering = prev
+            .sequence()
+            .cmp(&curr.sequence())
+            .then_with(|| prev.cmp(curr));
+        assert!(
+            ordering.is_le(),
+            "edges must be sorted by (sequence, natural Ord): {prev:?} should come before {curr:?}",
+        );
+    }
+}
+
+#[derive(Debug)]
+struct CanonicaliseCase {
+    source: usize,
+    target: usize,
+    distance: f32,
+    sequence: u64,
+    expected_source: usize,
+    expected_target: usize,
+}
 
 #[rstest]
 #[case(3, 2, 4, 42)]
@@ -179,52 +251,47 @@ fn build_with_edges_edges_sorted_by_sequence() {
     // Note: CandidateEdge::Ord uses distance as the primary key (not sequence),
     // so we must explicitly compare sequences first, then fall back to the
     // natural Ord only when sequences are equal.
-    for window in edges.windows(2) {
-        let (prev, curr) = (&window[0], &window[1]);
-        let ordering = prev
-            .sequence()
-            .cmp(&curr.sequence())
-            .then_with(|| prev.cmp(curr));
-        assert!(
-            ordering.is_le(),
-            "edges must be sorted by (sequence, natural Ord): {prev:?} should come before {curr:?}",
-        );
-    }
+    let edges_vec: Vec<CandidateEdge> = edges.iter().copied().collect();
+    assert_edges_sorted_by_sequence_then_ord(&edges_vec);
 }
 
 #[rstest]
-fn canonicalise_normalises_edge_direction() {
-    use crate::hnsw::CandidateEdge;
-
-    let edge = CandidateEdge::new(5, 2, 0.5, 10);
+#[case::already_canonical(CanonicaliseCase {
+    source: 1,
+    target: 3,
+    distance: 0.3,
+    sequence: 20,
+    expected_source: 1,
+    expected_target: 3,
+})]
+#[case::reversed(CanonicaliseCase {
+    source: 5,
+    target: 2,
+    distance: 0.5,
+    sequence: 10,
+    expected_source: 2,
+    expected_target: 5,
+})]
+#[case::self_edge(CanonicaliseCase {
+    source: 4,
+    target: 4,
+    distance: 0.7,
+    sequence: 30,
+    expected_source: 4,
+    expected_target: 4,
+})]
+fn canonicalise_preserves_fields(#[case] case: CanonicaliseCase) {
+    let edge = CandidateEdge::new(case.source, case.target, case.distance, case.sequence);
     let canonical = edge.canonicalise();
 
-    assert_eq!(canonical.source(), 2, "canonical source should be min");
-    assert_eq!(canonical.target(), 5, "canonical target should be max");
-    assert!((canonical.distance() - 0.5).abs() < f32::EPSILON);
-    assert_eq!(canonical.sequence(), 10);
-
-    // Already canonical edge should remain unchanged
-    let already_canonical = CandidateEdge::new(1, 3, 0.3, 20);
-    let already_canonical_result = already_canonical.canonicalise();
-    assert_eq!(already_canonical_result.source(), 1);
-    assert_eq!(already_canonical_result.target(), 3);
-    assert!((already_canonical_result.distance() - 0.3).abs() < f32::EPSILON);
-    assert_eq!(already_canonical_result.sequence(), 20);
-
-    // Self edge (source == target) should remain unchanged (idempotent)
-    let self_edge = CandidateEdge::new(4, 4, 0.7, 30);
-    let self_edge_result = self_edge.canonicalise();
-    assert_eq!(self_edge_result.source(), 4);
-    assert_eq!(self_edge_result.target(), 4);
-    assert!((self_edge_result.distance() - 0.7).abs() < f32::EPSILON);
-    assert_eq!(self_edge_result.sequence(), 30);
+    assert_eq!(canonical.source(), case.expected_source);
+    assert_eq!(canonical.target(), case.expected_target);
+    assert!((canonical.distance() - case.distance).abs() < f32::EPSILON);
+    assert_eq!(canonical.sequence(), case.sequence);
 }
 
 #[rstest]
 fn candidate_edge_ordering_is_deterministic() {
-    use crate::hnsw::CandidateEdge;
-
     let e1 = CandidateEdge::new(0, 1, 0.5, 10);
     let e2 = CandidateEdge::new(0, 2, 0.5, 10); // Same distance, different target
     let e3 = CandidateEdge::new(0, 1, 0.5, 11); // Same distance and target, different sequence
@@ -238,6 +305,61 @@ fn candidate_edge_ordering_is_deterministic() {
     // Distance takes priority
     let e4 = CandidateEdge::new(0, 1, 0.3, 100);
     assert!(e4 < e1, "lower distance should sort first");
+}
+
+#[rstest]
+#[case::empty_plan(7, 42, vec![], None)]
+#[case::single_layer_no_self(0, 7, vec![vec![(1, 0.2), (2, 0.3)]], None)]
+#[case::filters_self(3, 9, vec![vec![(3, 0.1), (4, 0.2)]], None)]
+#[case::self_edges_only(4, 11, vec![vec![(4, 0.1), (4, 0.2)], vec![]], None)]
+#[case::duplicate_target_across_layers(
+    1,
+    5,
+    vec![vec![(2, 0.1), (1, 0.2)], vec![(2, 0.3)]],
+    Some((2, 2)),
+)]
+fn extract_candidate_edges_invariants(
+    #[case] source_node: usize,
+    #[case] source_sequence: u64,
+    #[case] layers: Vec<Vec<(usize, f32)>>,
+    #[case] duplicate_expectation: Option<(usize, usize)>,
+) {
+    let plan = build_insertion_plan(layers);
+    let edges = extract_candidate_edges(source_node, source_sequence, &plan);
+
+    assert_eq!(edges.len(), expected_edge_count(&plan, source_node));
+    for edge in &edges {
+        assert_eq!(edge.source(), source_node);
+        assert_ne!(edge.target(), source_node);
+        assert_eq!(edge.sequence(), source_sequence);
+    }
+
+    if let Some((target, expected_count)) = duplicate_expectation {
+        let observed = edges.iter().filter(|edge| edge.target() == target).count();
+        assert_eq!(observed, expected_count);
+    }
+}
+
+#[rstest]
+#[case::unsorted(vec![
+    CandidateEdge::new(2, 0, 0.8, 2),
+    CandidateEdge::new(1, 0, 0.5, 1),
+    CandidateEdge::new(1, 2, 0.5, 1),
+    CandidateEdge::new(2, 0, 0.8, 2),
+])]
+#[case::already_sorted(vec![
+    CandidateEdge::new(0, 1, 0.2, 1),
+    CandidateEdge::new(0, 2, 0.2, 1),
+    CandidateEdge::new(1, 2, 0.3, 2),
+])]
+#[case::empty(Vec::new())]
+fn edge_harvest_from_unsorted_sorts_and_preserves_edges(#[case] edges: Vec<CandidateEdge>) {
+    let original = edges.clone();
+    let harvest = EdgeHarvest::from_unsorted(edges);
+    let sorted = harvest.into_inner();
+
+    assert_edges_sorted_by_sequence_then_ord(&sorted);
+    assert_eq!(edge_multiset(&sorted), edge_multiset(&original));
 }
 
 #[rstest]
