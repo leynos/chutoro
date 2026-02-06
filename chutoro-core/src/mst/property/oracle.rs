@@ -1,0 +1,148 @@
+//! Sequential Kruskal oracle for MST property verification.
+//!
+//! Provides a simple, trusted, sequential implementation of Kruskal's
+//! algorithm for use as a reference oracle in property tests.  The sort
+//! order intentionally mirrors `MstEdge::Ord` so that total-weight
+//! comparisons are valid.
+
+use std::cmp::Ordering;
+
+use crate::CandidateEdge;
+
+/// Result of the sequential Kruskal oracle.
+#[derive(Clone, Debug)]
+pub(super) struct SequentialMstResult {
+    /// Total weight of the MST/forest, accumulated as `f64` for precision.
+    pub total_weight: f64,
+    /// Number of edges in the MST/forest.
+    pub edge_count: usize,
+    /// Number of connected components after MST construction.
+    pub component_count: usize,
+}
+
+/// Computes a minimum spanning forest using sequential Kruskal's algorithm.
+///
+/// The sort order matches `MstEdge::Ord`:
+/// `(weight.total_cmp, source, target, sequence)` after canonicalisation
+/// and deduplication.  This ensures that the sequential oracle accepts the
+/// same edges as the parallel implementation, yielding identical total
+/// weights.
+pub(super) fn sequential_kruskal(
+    node_count: usize,
+    edges: &[CandidateEdge],
+) -> SequentialMstResult {
+    if node_count == 0 || edges.is_empty() {
+        return SequentialMstResult {
+            total_weight: 0.0,
+            edge_count: 0,
+            component_count: node_count,
+        };
+    }
+
+    let mut canon = canonicalise_and_filter(edges, node_count);
+    canon.sort_unstable_by(cmp_canon_edge);
+    dedup_canon_edges(&mut canon);
+
+    let mut parent: Vec<usize> = (0..node_count).collect();
+    let mut rank: Vec<usize> = vec![0; node_count];
+    let mut components = node_count;
+    let mut total_weight: f64 = 0.0;
+    let mut edge_count: usize = 0;
+
+    for edge in &canon {
+        let ra = find_root(&mut parent, edge.source);
+        let rb = find_root(&mut parent, edge.target);
+        if ra != rb {
+            union_by_rank(&mut parent, &mut rank, ra, rb);
+            total_weight += f64::from(edge.weight);
+            edge_count += 1;
+            components -= 1;
+        }
+    }
+
+    SequentialMstResult {
+        total_weight,
+        edge_count,
+        component_count: components,
+    }
+}
+
+// ── Internal types ──────────────────────────────────────────────────────
+
+/// Canonicalised edge for oracle processing, mirroring `MstEdge` fields.
+struct CanonEdge {
+    source: usize,
+    target: usize,
+    weight: f32,
+    sequence: u64,
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────
+
+/// Canonicalises edges to `(min, max)`, filtering out self-loops and
+/// out-of-bounds references.
+fn canonicalise_and_filter(edges: &[CandidateEdge], node_count: usize) -> Vec<CanonEdge> {
+    edges
+        .iter()
+        .filter_map(|e| {
+            let s = e.source();
+            let t = e.target();
+            if s == t || s >= node_count || t >= node_count || !e.distance().is_finite() {
+                return None;
+            }
+            let (lo, hi) = if s <= t { (s, t) } else { (t, s) };
+            Some(CanonEdge {
+                source: lo,
+                target: hi,
+                weight: e.distance(),
+                sequence: e.sequence(),
+            })
+        })
+        .collect()
+}
+
+/// Sort comparator matching `MstEdge::Ord` exactly.
+fn cmp_canon_edge(a: &CanonEdge, b: &CanonEdge) -> Ordering {
+    a.weight
+        .total_cmp(&b.weight)
+        .then_with(|| a.source.cmp(&b.source))
+        .then_with(|| a.target.cmp(&b.target))
+        .then_with(|| a.sequence.cmp(&b.sequence))
+}
+
+/// Removes consecutive duplicate edges sharing the same
+/// `(weight, source, target)`, keeping the one with the lowest sequence.
+///
+/// Mirrors the dedup logic in `prepare_edge_list`.
+fn dedup_canon_edges(edges: &mut Vec<CanonEdge>) {
+    edges.dedup_by(|right, left| {
+        left.weight == right.weight && left.source == right.source && left.target == right.target
+    });
+}
+
+/// Path-compressing find for the sequential union-find.
+fn find_root(parent: &mut [usize], mut node: usize) -> usize {
+    while parent[node] != node {
+        parent[node] = parent[parent[node]];
+        node = parent[node];
+    }
+    node
+}
+
+/// Union by rank, breaking ties by smaller index.
+fn union_by_rank(parent: &mut [usize], rank: &mut [usize], a: usize, b: usize) {
+    let (root, child) = if rank[a] > rank[b] {
+        (a, b)
+    } else if rank[b] > rank[a] {
+        (b, a)
+    } else if a <= b {
+        (a, b)
+    } else {
+        (b, a)
+    };
+
+    parent[child] = root;
+    if rank[root] == rank[child] {
+        rank[root] += 1;
+    }
+}

@@ -511,4 +511,7 @@ mod kani_proofs {
 }
 
 #[cfg(test)]
+mod property;
+
+#[cfg(test)]
 mod tests;
