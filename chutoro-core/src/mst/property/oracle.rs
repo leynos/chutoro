@@ -79,6 +79,19 @@ struct CanonEdge {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
+/// Returns `true` when an edge should be excluded from MST consideration.
+///
+/// An edge is invalid when any of the following hold:
+/// - it is a self-loop,
+/// - either endpoint falls outside the node range, or
+/// - its weight is non-finite (NaN / infinity).
+fn is_invalid_edge(source: usize, target: usize, node_count: usize, weight: f32) -> bool {
+    let is_self_loop = source == target;
+    let is_out_of_bounds = source >= node_count || target >= node_count;
+    let is_non_finite = !weight.is_finite();
+    is_self_loop || is_out_of_bounds || is_non_finite
+}
+
 /// Canonicalises edges to `(min, max)`, filtering out self-loops and
 /// out-of-bounds references.
 fn canonicalise_and_filter(edges: &[CandidateEdge], node_count: usize) -> Vec<CanonEdge> {
@@ -87,7 +100,7 @@ fn canonicalise_and_filter(edges: &[CandidateEdge], node_count: usize) -> Vec<Ca
         .filter_map(|e| {
             let s = e.source();
             let t = e.target();
-            if s == t || s >= node_count || t >= node_count || !e.distance().is_finite() {
+            if is_invalid_edge(s, t, node_count, e.distance()) {
                 return None;
             }
             let (lo, hi) = if s <= t { (s, t) } else { (t, s) };
