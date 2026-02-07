@@ -13,7 +13,7 @@
 
 use proptest::test_runner::{TestCaseError, TestCaseResult};
 
-use crate::{EdgeHarvest, parallel_kruskal};
+use crate::{EdgeHarvest, MstEdge, parallel_kruskal};
 
 use super::types::MstFixture;
 
@@ -31,10 +31,26 @@ pub(super) fn run_structural_invariants_property(fixture: &MstFixture) -> TestCa
     })?;
 
     let mst_edges = result.edges();
-    let node_count = fixture.node_count;
 
-    // Canonical form: source < target (strict, since self-loops are excluded).
-    for (i, edge) in mst_edges.iter().enumerate() {
+    validate_canonical_form(mst_edges)?;
+    validate_no_self_loops(mst_edges)?;
+    validate_finite_weights(mst_edges)?;
+    validate_acyclicity(fixture.node_count, mst_edges)?;
+    validate_edge_count(
+        fixture.node_count,
+        mst_edges.len(),
+        result.component_count(),
+    )?;
+    validate_connectivity(fixture, &result)?;
+
+    Ok(())
+}
+
+// ── Validation helpers ──────────────────────────────────────────────────
+
+/// Verifies that every MST edge is in canonical form (`source < target`).
+fn validate_canonical_form(edges: &[MstEdge]) -> TestCaseResult {
+    for (i, edge) in edges.iter().enumerate() {
         if edge.source() >= edge.target() {
             return Err(TestCaseError::fail(format!(
                 "edge {i}: not canonical ({} >= {})",
@@ -43,9 +59,12 @@ pub(super) fn run_structural_invariants_property(fixture: &MstFixture) -> TestCa
             )));
         }
     }
+    Ok(())
+}
 
-    // No self-loops.
-    for (i, edge) in mst_edges.iter().enumerate() {
+/// Verifies that no MST edge is a self-loop.
+fn validate_no_self_loops(edges: &[MstEdge]) -> TestCaseResult {
+    for (i, edge) in edges.iter().enumerate() {
         if edge.source() == edge.target() {
             return Err(TestCaseError::fail(format!(
                 "edge {i}: self-loop on node {}",
@@ -53,9 +72,12 @@ pub(super) fn run_structural_invariants_property(fixture: &MstFixture) -> TestCa
             )));
         }
     }
+    Ok(())
+}
 
-    // Finite weights.
-    for (i, edge) in mst_edges.iter().enumerate() {
+/// Verifies that all MST edge weights are finite.
+fn validate_finite_weights(edges: &[MstEdge]) -> TestCaseResult {
+    for (i, edge) in edges.iter().enumerate() {
         if !edge.weight().is_finite() {
             return Err(TestCaseError::fail(format!(
                 "edge {i}: non-finite weight {}",
@@ -63,10 +85,13 @@ pub(super) fn run_structural_invariants_property(fixture: &MstFixture) -> TestCa
             )));
         }
     }
+    Ok(())
+}
 
-    // Acyclicity check via union-find.
+/// Detects cycles in the MST output using union-find.
+fn validate_acyclicity(node_count: usize, edges: &[MstEdge]) -> TestCaseResult {
     let mut parent: Vec<usize> = (0..node_count).collect();
-    for (i, edge) in mst_edges.iter().enumerate() {
+    for (i, edge) in edges.iter().enumerate() {
         let ra = find_root(&mut parent, edge.source());
         let rb = find_root(&mut parent, edge.target());
         if ra == rb {
@@ -78,19 +103,25 @@ pub(super) fn run_structural_invariants_property(fixture: &MstFixture) -> TestCa
         }
         parent[rb] = ra;
     }
+    Ok(())
+}
 
-    // Edge count: forest must have n - c edges.
-    let expected_edges = node_count.saturating_sub(result.component_count());
-    if mst_edges.len() != expected_edges {
+/// Verifies that the forest has exactly `n - c` edges for `c` components.
+fn validate_edge_count(node_count: usize, actual: usize, component_count: usize) -> TestCaseResult {
+    let expected = node_count.saturating_sub(component_count);
+    if actual != expected {
         return Err(TestCaseError::fail(format!(
-            "edge count {}, expected n - c = {} (n={node_count}, c={})",
-            mst_edges.len(),
-            expected_edges,
-            result.component_count(),
+            "edge count {actual}, expected n - c = {expected} (n={node_count}, c={component_count})",
         )));
     }
+    Ok(())
+}
 
-    // Connectivity: if the input is connected, the output must be a tree.
+/// Verifies that a connected input produces a spanning tree.
+fn validate_connectivity(
+    fixture: &MstFixture,
+    result: &crate::MinimumSpanningForest,
+) -> TestCaseResult {
     let input_components = count_input_components(fixture);
     if input_components == 1 && !result.is_tree() {
         return Err(TestCaseError::fail(format!(
@@ -98,7 +129,6 @@ pub(super) fn run_structural_invariants_property(fixture: &MstFixture) -> TestCa
             result.component_count(),
         )));
     }
-
     Ok(())
 }
 
@@ -128,7 +158,7 @@ fn count_input_components(fixture: &MstFixture) -> usize {
     for edge in &fixture.edges {
         let s = edge.source();
         let t = edge.target();
-        if s == t || s >= n || t >= n || !edge.distance().is_finite() {
+        if should_skip_edge_for_component_count(s, t, n, edge.distance()) {
             continue;
         }
         let ra = find_root(&mut parent, s);
@@ -140,4 +170,22 @@ fn count_input_components(fixture: &MstFixture) -> usize {
     }
 
     components
+}
+
+/// Returns `true` when an edge should be excluded from component counting.
+///
+/// An edge is skipped when any of the following hold:
+/// - it is a self-loop,
+/// - either endpoint falls outside the node range, or
+/// - its weight is non-finite (NaN / infinity).
+fn should_skip_edge_for_component_count(
+    source: usize,
+    target: usize,
+    node_count: usize,
+    weight: f32,
+) -> bool {
+    let is_self_loop = source == target;
+    let is_out_of_bounds = source >= node_count || target >= node_count;
+    let has_invalid_weight = !weight.is_finite();
+    is_self_loop || is_out_of_bounds || has_invalid_weight
 }

@@ -47,21 +47,38 @@ pub(super) fn generate_fixture(distribution: WeightDistribution, rng: &mut Small
     }
 }
 
-// ── Unique weights ──────────────────────────────────────────────────────
+// ── Probabilistic graph helper ──────────────────────────────────────────
 
-/// Generates a graph where each edge has a distinct weight drawn from a
-/// continuous range. This is the baseline correctness case where the MST
-/// is unique (up to floating-point coincidence).
-fn generate_unique_weights(rng: &mut SmallRng) -> MstFixture {
-    let node_count = rng.gen_range(MIN_NODES..=MAX_NODES);
-    let edge_probability: f64 = rng.gen_range(0.2..=0.6);
+/// Configuration for probabilistic graph generation, grouping the
+/// parameters that vary between weight-distribution strategies.
+struct ProbabilisticGraphConfig {
+    /// Upper bound for the random node count (inclusive).
+    max_nodes: usize,
+    /// Inclusive range from which the per-pair edge probability is sampled.
+    edge_prob_range: (f64, f64),
+    /// Weight distribution label for the resulting fixture.
+    distribution: WeightDistribution,
+}
+
+/// Generates a graph by probabilistically adding edges between all unique
+/// node pairs, using a caller-supplied weight generator.
+///
+/// Encapsulates the common pattern shared by `generate_unique_weights`,
+/// `generate_identical_weights`, and `generate_dense`.
+fn generate_probabilistic_graph(
+    rng: &mut SmallRng,
+    config: ProbabilisticGraphConfig,
+    mut weight_generator: impl FnMut(&mut SmallRng) -> f32,
+) -> MstFixture {
+    let node_count = rng.gen_range(MIN_NODES..=config.max_nodes);
+    let edge_probability: f64 = rng.gen_range(config.edge_prob_range.0..=config.edge_prob_range.1);
     let mut edges = Vec::new();
     let mut seq = 0u64;
 
     for i in 0..node_count {
         for j in (i + 1)..node_count {
             if rng.gen_bool(edge_probability) {
-                let weight = rng.gen_range(0.1_f32..100.0);
+                let weight = weight_generator(rng);
                 edges.push(CandidateEdge::new(i, j, weight, seq));
                 seq += 1;
             }
@@ -73,8 +90,25 @@ fn generate_unique_weights(rng: &mut SmallRng) -> MstFixture {
     MstFixture {
         node_count,
         edges,
-        distribution: WeightDistribution::Unique,
+        distribution: config.distribution,
     }
+}
+
+// ── Unique weights ──────────────────────────────────────────────────────
+
+/// Generates a graph where each edge has a distinct weight drawn from a
+/// continuous range. This is the baseline correctness case where the MST
+/// is unique (up to floating-point coincidence).
+fn generate_unique_weights(rng: &mut SmallRng) -> MstFixture {
+    generate_probabilistic_graph(
+        rng,
+        ProbabilisticGraphConfig {
+            max_nodes: MAX_NODES,
+            edge_prob_range: (0.2, 0.6),
+            distribution: WeightDistribution::Unique,
+        },
+        |r| r.gen_range(0.1_f32..100.0),
+    )
 }
 
 // ── Many identical weights ──────────────────────────────────────────────
@@ -85,33 +119,20 @@ fn generate_unique_weights(rng: &mut SmallRng) -> MstFixture {
 /// parallel tie-breaking logic and exercises deterministic weight-group
 /// processing.
 fn generate_identical_weights(rng: &mut SmallRng) -> MstFixture {
-    let node_count = rng.gen_range(MIN_NODES..=MAX_NODES);
-    let edge_probability: f64 = rng.gen_range(0.3..=0.7);
     let weight_pool_size = rng.gen_range(1..=3);
     let weight_pool: Vec<f32> = (0..weight_pool_size)
         .map(|_| rng.gen_range(1_u8..=10) as f32)
         .collect();
 
-    let mut edges = Vec::new();
-    let mut seq = 0u64;
-
-    for i in 0..node_count {
-        for j in (i + 1)..node_count {
-            if rng.gen_bool(edge_probability) {
-                let weight = weight_pool[rng.gen_range(0..weight_pool.len())];
-                edges.push(CandidateEdge::new(i, j, weight, seq));
-                seq += 1;
-            }
-        }
-    }
-
-    ensure_at_least_one_edge(node_count, &mut edges, &mut seq, rng);
-
-    MstFixture {
-        node_count,
-        edges,
-        distribution: WeightDistribution::ManyIdentical,
-    }
+    generate_probabilistic_graph(
+        rng,
+        ProbabilisticGraphConfig {
+            max_nodes: MAX_NODES,
+            edge_prob_range: (0.3, 0.7),
+            distribution: WeightDistribution::ManyIdentical,
+        },
+        move |r| weight_pool[r.gen_range(0..weight_pool.len())],
+    )
 }
 
 // ── Sparse ──────────────────────────────────────────────────────────────
@@ -159,28 +180,15 @@ fn generate_sparse(rng: &mut SmallRng) -> MstFixture {
 /// Generates a dense graph approaching a complete graph, with node count
 /// capped at [`DENSE_MAX_NODES`] to avoid quadratic edge explosion.
 fn generate_dense(rng: &mut SmallRng) -> MstFixture {
-    let node_count = rng.gen_range(MIN_NODES..=DENSE_MAX_NODES);
-    let edge_probability: f64 = rng.gen_range(0.7..=0.95);
-    let mut edges = Vec::new();
-    let mut seq = 0u64;
-
-    for i in 0..node_count {
-        for j in (i + 1)..node_count {
-            if rng.gen_bool(edge_probability) {
-                let weight = rng.gen_range(0.1_f32..100.0);
-                edges.push(CandidateEdge::new(i, j, weight, seq));
-                seq += 1;
-            }
-        }
-    }
-
-    ensure_at_least_one_edge(node_count, &mut edges, &mut seq, rng);
-
-    MstFixture {
-        node_count,
-        edges,
-        distribution: WeightDistribution::Dense,
-    }
+    generate_probabilistic_graph(
+        rng,
+        ProbabilisticGraphConfig {
+            max_nodes: DENSE_MAX_NODES,
+            edge_prob_range: (0.7, 0.95),
+            distribution: WeightDistribution::Dense,
+        },
+        |r| r.gen_range(0.1_f32..100.0),
+    )
 }
 
 // ── Disconnected ────────────────────────────────────────────────────────
