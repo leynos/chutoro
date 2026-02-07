@@ -21,9 +21,12 @@ filter = "test(/hnsw_idempotency_preserved_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
-# Functional ARI/NMI tests can be slow on CI runners under heavy parallel load.
+# Functional ARI/NMI tests can be slow under coverage instrumentation and on
+# CI runners under heavy parallel load. The 600s ceiling accommodates both
+# local llvm-cov runs and shared-runner overhead without requiring a CI-only
+# nextest profile.
 filter = "test(/hnsw_pipeline_matches_exact_baseline/)"
-slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [profile.ci]
 inherits = "default"
