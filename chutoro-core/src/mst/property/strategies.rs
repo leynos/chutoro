@@ -94,21 +94,32 @@ fn generate_probabilistic_graph(
     }
 }
 
+/// Generates a probabilistic graph with continuous weights drawn from the
+/// range \[0.1, 100.0).
+fn generate_continuous_weight_graph(
+    rng: &mut SmallRng,
+    max_nodes: usize,
+    edge_prob_range: (f64, f64),
+    distribution: WeightDistribution,
+) -> MstFixture {
+    generate_probabilistic_graph(
+        rng,
+        ProbabilisticGraphConfig {
+            max_nodes,
+            edge_prob_range,
+            distribution,
+        },
+        |r| r.gen_range(0.1_f32..100.0),
+    )
+}
+
 // ── Unique weights ──────────────────────────────────────────────────────
 
 /// Generates a graph where each edge has a distinct weight drawn from a
 /// continuous range. This is the baseline correctness case where the MST
 /// is unique (up to floating-point coincidence).
 fn generate_unique_weights(rng: &mut SmallRng) -> MstFixture {
-    generate_probabilistic_graph(
-        rng,
-        ProbabilisticGraphConfig {
-            max_nodes: MAX_NODES,
-            edge_prob_range: (0.2, 0.6),
-            distribution: WeightDistribution::Unique,
-        },
-        |r| r.gen_range(0.1_f32..100.0),
-    )
+    generate_continuous_weight_graph(rng, MAX_NODES, (0.2, 0.6), WeightDistribution::Unique)
 }
 
 // ── Many identical weights ──────────────────────────────────────────────
@@ -180,15 +191,7 @@ fn generate_sparse(rng: &mut SmallRng) -> MstFixture {
 /// Generates a dense graph approaching a complete graph, with node count
 /// capped at [`DENSE_MAX_NODES`] to avoid quadratic edge explosion.
 fn generate_dense(rng: &mut SmallRng) -> MstFixture {
-    generate_probabilistic_graph(
-        rng,
-        ProbabilisticGraphConfig {
-            max_nodes: DENSE_MAX_NODES,
-            edge_prob_range: (0.7, 0.95),
-            distribution: WeightDistribution::Dense,
-        },
-        |r| r.gen_range(0.1_f32..100.0),
-    )
+    generate_continuous_weight_graph(rng, DENSE_MAX_NODES, (0.7, 0.95), WeightDistribution::Dense)
 }
 
 // ── Disconnected ────────────────────────────────────────────────────────
