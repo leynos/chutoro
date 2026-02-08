@@ -46,46 +46,49 @@ pub(super) fn run_structural_invariants_property(fixture: &MstFixture) -> TestCa
     Ok(())
 }
 
+/// Generic edge validator that applies a predicate to each edge, returning
+/// early with an error if the predicate produces a message.
+fn validate_edges<F>(edges: &[MstEdge], mut predicate: F) -> TestCaseResult
+where
+    F: FnMut(usize, &MstEdge) -> Option<String>,
+{
+    for (i, edge) in edges.iter().enumerate() {
+        if let Some(msg) = predicate(i, edge) {
+            return Err(TestCaseError::fail(msg));
+        }
+    }
+    Ok(())
+}
+
 // ── Validation helpers ──────────────────────────────────────────────────
 
 /// Verifies that every MST edge is in canonical form (`source < target`).
 fn validate_canonical_form(edges: &[MstEdge]) -> TestCaseResult {
-    for (i, edge) in edges.iter().enumerate() {
-        if edge.source() >= edge.target() {
-            return Err(TestCaseError::fail(format!(
+    validate_edges(edges, |i, edge| {
+        (edge.source() >= edge.target()).then(|| {
+            format!(
                 "edge {i}: not canonical ({} >= {})",
                 edge.source(),
                 edge.target(),
-            )));
-        }
-    }
-    Ok(())
+            )
+        })
+    })
 }
 
 /// Verifies that no MST edge is a self-loop.
 fn validate_no_self_loops(edges: &[MstEdge]) -> TestCaseResult {
-    for (i, edge) in edges.iter().enumerate() {
-        if edge.source() == edge.target() {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: self-loop on node {}",
-                edge.source(),
-            )));
-        }
-    }
-    Ok(())
+    validate_edges(edges, |i, edge| {
+        (edge.source() == edge.target())
+            .then(|| format!("edge {i}: self-loop on node {}", edge.source()))
+    })
 }
 
 /// Verifies that all MST edge weights are finite.
 fn validate_finite_weights(edges: &[MstEdge]) -> TestCaseResult {
-    for (i, edge) in edges.iter().enumerate() {
-        if !edge.weight().is_finite() {
-            return Err(TestCaseError::fail(format!(
-                "edge {i}: non-finite weight {}",
-                edge.weight(),
-            )));
-        }
-    }
-    Ok(())
+    validate_edges(edges, |i, edge| {
+        (!edge.weight().is_finite())
+            .then(|| format!("edge {i}: non-finite weight {}", edge.weight()))
+    })
 }
 
 /// Detects cycles in the MST output using union-find.
