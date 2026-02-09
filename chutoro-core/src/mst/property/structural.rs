@@ -15,7 +15,7 @@ use proptest::test_runner::{TestCaseError, TestCaseResult};
 
 use crate::{EdgeHarvest, MstEdge, parallel_kruskal};
 
-use super::helpers::find_root;
+use super::helpers::{find_root, is_invalid_edge};
 use super::types::MstFixture;
 
 /// Runs the structural invariant property for the given fixture.
@@ -153,7 +153,7 @@ fn count_input_components(fixture: &MstFixture) -> usize {
     for edge in &fixture.edges {
         let s = edge.source();
         let t = edge.target();
-        if should_skip_edge_for_component_count(s, t, n, edge.distance()) {
+        if is_invalid_edge(s, t, n, edge.distance()) {
             continue;
         }
         let ra = find_root(&mut parent, s);
@@ -165,22 +165,4 @@ fn count_input_components(fixture: &MstFixture) -> usize {
     }
 
     components
-}
-
-/// Returns `true` when an edge should be excluded from component counting.
-///
-/// An edge is skipped when any of the following hold:
-/// - it is a self-loop,
-/// - either endpoint falls outside the node range, or
-/// - its weight is non-finite (NaN / infinity).
-fn should_skip_edge_for_component_count(
-    source: usize,
-    target: usize,
-    node_count: usize,
-    weight: f32,
-) -> bool {
-    let is_self_loop = source == target;
-    let is_out_of_bounds = source >= node_count || target >= node_count;
-    let has_invalid_weight = !weight.is_finite();
-    is_self_loop || is_out_of_bounds || has_invalid_weight
 }

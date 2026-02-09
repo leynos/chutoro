@@ -8,7 +8,6 @@
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
-use rstest::rstest;
 
 use crate::CandidateEdge;
 
@@ -18,6 +17,55 @@ use super::oracle::{SequentialMstResult, sequential_kruskal};
 use super::strategies::{generate_fixture, mst_fixture_strategy};
 use super::structural::run_structural_invariants_property;
 use super::types::WeightDistribution;
+
+/// Canonical set of (distribution, seed, case_name) tuples shared by all
+/// parameterised property tests.  Defined once to eliminate duplication
+/// across oracle equivalence, structural invariants, and concurrency
+/// safety test suites.
+const TEST_CASES: &[(WeightDistribution, u64, &str)] = &[
+    (WeightDistribution::Unique, 42, "unique_42"),
+    (WeightDistribution::Unique, 999, "unique_999"),
+    (WeightDistribution::ManyIdentical, 42, "identical_42"),
+    (WeightDistribution::ManyIdentical, 999, "identical_999"),
+    (WeightDistribution::ManyIdentical, 7777, "identical_7777"),
+    (WeightDistribution::Sparse, 42, "sparse_42"),
+    (WeightDistribution::Sparse, 999, "sparse_999"),
+    (WeightDistribution::Dense, 42, "dense_42"),
+    (WeightDistribution::Dense, 999, "dense_999"),
+    (WeightDistribution::Disconnected, 42, "disconnected_42"),
+    (WeightDistribution::Disconnected, 999, "disconnected_999"),
+];
+
+/// Generates an rstest-parameterised function that exercises a property
+/// runner across every entry in [`TEST_CASES`].
+///
+/// # Arguments
+///
+/// - `$test_name` — identifier for the generated test function.
+/// - `$runner` — property runner function with signature
+///   `fn(&MstFixture) -> TestCaseResult`.
+/// - `$expectation` — panic message passed to `.expect()`.
+macro_rules! parameterised_property_test {
+    ($test_name:ident, $runner:path, $expectation:expr) => {
+        #[rstest::rstest]
+        #[case::unique_42(WeightDistribution::Unique, 42)]
+        #[case::unique_999(WeightDistribution::Unique, 999)]
+        #[case::identical_42(WeightDistribution::ManyIdentical, 42)]
+        #[case::identical_999(WeightDistribution::ManyIdentical, 999)]
+        #[case::identical_7777(WeightDistribution::ManyIdentical, 7777)]
+        #[case::sparse_42(WeightDistribution::Sparse, 42)]
+        #[case::sparse_999(WeightDistribution::Sparse, 999)]
+        #[case::dense_42(WeightDistribution::Dense, 42)]
+        #[case::dense_999(WeightDistribution::Dense, 999)]
+        #[case::disconnected_42(WeightDistribution::Disconnected, 42)]
+        #[case::disconnected_999(WeightDistribution::Disconnected, 999)]
+        fn $test_name(#[case] distribution: WeightDistribution, #[case] seed: u64) {
+            let mut rng = SmallRng::seed_from_u64(seed);
+            let fixture = generate_fixture(distribution, &mut rng);
+            $runner(&fixture).expect($expectation);
+        }
+    };
+}
 
 // ========================================================================
 // Proptest Runners
@@ -43,69 +91,43 @@ proptest! {
 }
 
 // ========================================================================
-// rstest Parameterized Cases — Oracle Equivalence
+// rstest Parameterised Cases
 // ========================================================================
 
-#[rstest]
-#[case::unique_42(WeightDistribution::Unique, 42)]
-#[case::unique_999(WeightDistribution::Unique, 999)]
-#[case::identical_42(WeightDistribution::ManyIdentical, 42)]
-#[case::identical_999(WeightDistribution::ManyIdentical, 999)]
-#[case::identical_7777(WeightDistribution::ManyIdentical, 7777)]
-#[case::sparse_42(WeightDistribution::Sparse, 42)]
-#[case::sparse_999(WeightDistribution::Sparse, 999)]
-#[case::dense_42(WeightDistribution::Dense, 42)]
-#[case::dense_999(WeightDistribution::Dense, 999)]
-#[case::disconnected_42(WeightDistribution::Disconnected, 42)]
-#[case::disconnected_999(WeightDistribution::Disconnected, 999)]
-fn oracle_equivalence_rstest(#[case] distribution: WeightDistribution, #[case] seed: u64) {
-    let mut rng = SmallRng::seed_from_u64(seed);
-    let fixture = generate_fixture(distribution, &mut rng);
-    run_oracle_equivalence_property(&fixture).expect("oracle equivalence must hold");
-}
+parameterised_property_test!(
+    oracle_equivalence_rstest,
+    run_oracle_equivalence_property,
+    "oracle equivalence must hold"
+);
+
+parameterised_property_test!(
+    structural_invariants_rstest,
+    run_structural_invariants_property,
+    "structural invariants must hold"
+);
+
+parameterised_property_test!(
+    concurrency_safety_rstest,
+    run_concurrency_safety_property,
+    "concurrency safety must hold"
+);
 
 // ========================================================================
-// rstest Parameterized Cases — Structural Invariants
+// TEST_CASES Consistency Check
 // ========================================================================
 
-#[rstest]
-#[case::unique_42(WeightDistribution::Unique, 42)]
-#[case::unique_999(WeightDistribution::Unique, 999)]
-#[case::identical_42(WeightDistribution::ManyIdentical, 42)]
-#[case::identical_999(WeightDistribution::ManyIdentical, 999)]
-#[case::identical_7777(WeightDistribution::ManyIdentical, 7777)]
-#[case::sparse_42(WeightDistribution::Sparse, 42)]
-#[case::sparse_999(WeightDistribution::Sparse, 999)]
-#[case::dense_42(WeightDistribution::Dense, 42)]
-#[case::dense_999(WeightDistribution::Dense, 999)]
-#[case::disconnected_42(WeightDistribution::Disconnected, 42)]
-#[case::disconnected_999(WeightDistribution::Disconnected, 999)]
-fn structural_invariants_rstest(#[case] distribution: WeightDistribution, #[case] seed: u64) {
-    let mut rng = SmallRng::seed_from_u64(seed);
-    let fixture = generate_fixture(distribution, &mut rng);
-    run_structural_invariants_property(&fixture).expect("structural invariants must hold");
-}
-
-// ========================================================================
-// rstest Parameterized Cases — Concurrency Safety
-// ========================================================================
-
-#[rstest]
-#[case::unique_42(WeightDistribution::Unique, 42)]
-#[case::unique_999(WeightDistribution::Unique, 999)]
-#[case::identical_42(WeightDistribution::ManyIdentical, 42)]
-#[case::identical_999(WeightDistribution::ManyIdentical, 999)]
-#[case::identical_7777(WeightDistribution::ManyIdentical, 7777)]
-#[case::sparse_42(WeightDistribution::Sparse, 42)]
-#[case::sparse_999(WeightDistribution::Sparse, 999)]
-#[case::dense_42(WeightDistribution::Dense, 42)]
-#[case::dense_999(WeightDistribution::Dense, 999)]
-#[case::disconnected_42(WeightDistribution::Disconnected, 42)]
-#[case::disconnected_999(WeightDistribution::Disconnected, 999)]
-fn concurrency_safety_rstest(#[case] distribution: WeightDistribution, #[case] seed: u64) {
-    let mut rng = SmallRng::seed_from_u64(seed);
-    let fixture = generate_fixture(distribution, &mut rng);
-    run_concurrency_safety_property(&fixture).expect("concurrency safety must hold");
+/// Ensures the macro-generated rstest cases stay in sync with
+/// [`TEST_CASES`].  If a case is added or removed from the constant, this
+/// test will fail until the macro is updated to match.
+#[test]
+fn test_cases_count_matches_macro_expectations() {
+    // The macro generates exactly 11 cases per property test.  If
+    // TEST_CASES grows or shrinks this assertion catches the drift.
+    assert_eq!(
+        TEST_CASES.len(),
+        11,
+        "TEST_CASES length changed — update parameterised_property_test! macro"
+    );
 }
 
 // ========================================================================

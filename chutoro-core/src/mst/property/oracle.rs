@@ -9,7 +9,7 @@ use std::cmp::Ordering;
 
 use crate::CandidateEdge;
 
-use super::helpers::find_root;
+use super::helpers::{find_root, is_invalid_edge};
 
 /// Result of the sequential Kruskal oracle.
 #[derive(Clone, Debug)]
@@ -41,7 +41,7 @@ pub(super) fn sequential_kruskal(
         };
     }
 
-    let mut canon = canonicalise_and_filter(edges, node_count);
+    let mut canon = canonicalize_and_filter(edges, node_count);
     canon.sort_unstable_by(cmp_canon_edge);
     dedup_canon_edges(&mut canon);
 
@@ -81,22 +81,9 @@ struct CanonEdge {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-/// Returns `true` when an edge should be excluded from MST consideration.
-///
-/// An edge is invalid when any of the following hold:
-/// - it is a self-loop,
-/// - either endpoint falls outside the node range, or
-/// - its weight is non-finite (NaN / infinity).
-fn is_invalid_edge(source: usize, target: usize, node_count: usize, weight: f32) -> bool {
-    let is_self_loop = source == target;
-    let is_out_of_bounds = source >= node_count || target >= node_count;
-    let is_non_finite = !weight.is_finite();
-    is_self_loop || is_out_of_bounds || is_non_finite
-}
-
 /// Canonicalizes edges to `(min, max)`, filtering out self-loops and
 /// out-of-bounds references.
-fn canonicalise_and_filter(edges: &[CandidateEdge], node_count: usize) -> Vec<CanonEdge> {
+fn canonicalize_and_filter(edges: &[CandidateEdge], node_count: usize) -> Vec<CanonEdge> {
     edges
         .iter()
         .filter_map(|e| {
