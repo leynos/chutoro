@@ -162,7 +162,7 @@ ______________________________________________________________________
     - Verus proofs cover the Appendix A invariants without `assume` shortcuts.
     - Proof harnesses pass in CI for the pinned Verus toolchain.
     - Scope is limited to helper invariants (no concurrency or planner proofs).
-- [ ] Build parallel Kruskal property suite: compare against sequential
+- [x] Build parallel Kruskal property suite: compare against sequential
   oracle, enforce acyclicity/connectivity/edge-count invariants, and rerun jobs
   to detect race-induced non-determinism. (See property-testing-design §4)
 - [ ] Integrate property-based suites into CI with a path-filtered PR job (250
