@@ -15,6 +15,7 @@ use proptest::test_runner::{TestCaseError, TestCaseResult};
 
 use crate::{EdgeHarvest, MstEdge, parallel_kruskal};
 
+use super::helpers::find_root;
 use super::types::MstFixture;
 
 /// Runs the structural invariant property for the given fixture.
@@ -136,15 +137,6 @@ fn validate_connectivity(
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
-
-/// Path-compressing find for the verification union-find.
-fn find_root(parent: &mut [usize], mut node: usize) -> usize {
-    while parent[node] != node {
-        parent[node] = parent[parent[node]];
-        node = parent[node];
-    }
-    node
-}
 
 /// Counts connected components in the input graph by applying union-find
 /// over the fixture's raw edges (ignoring self-loops, out-of-bounds, and

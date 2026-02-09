@@ -10,6 +10,7 @@ use proptest::test_runner::{TestCaseError, TestCaseResult};
 
 use crate::{EdgeHarvest, parallel_kruskal};
 
+use super::helpers::total_weight_f64;
 use super::oracle::sequential_kruskal;
 use super::types::MstFixture;
 
@@ -70,9 +71,4 @@ pub(super) fn run_oracle_equivalence_property(fixture: &MstFixture) -> TestCaseR
     }
 
     Ok(())
-}
-
-/// Sums edge weights as `f64` for lossless accumulation.
-fn total_weight_f64(edges: &[crate::MstEdge]) -> f64 {
-    edges.iter().map(|e| f64::from(e.weight())).sum()
 }

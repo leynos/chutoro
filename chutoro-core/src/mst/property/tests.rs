@@ -1,7 +1,7 @@
 //! Property-based test runners for the parallel Kruskal MST implementation.
 //!
 //! Hosts proptest runners for all three properties (oracle equivalence,
-//! structural invariants, concurrency safety), rstest parameterised cases
+//! structural invariants, concurrency safety), rstest parameterized cases
 //! for targeted distribution coverage, and unit tests for the sequential
 //! oracle itself.
 
@@ -43,7 +43,7 @@ proptest! {
 }
 
 // ========================================================================
-// rstest Parameterised Cases — Oracle Equivalence
+// rstest Parameterized Cases — Oracle Equivalence
 // ========================================================================
 
 #[rstest]
@@ -65,7 +65,7 @@ fn oracle_equivalence_rstest(#[case] distribution: WeightDistribution, #[case] s
 }
 
 // ========================================================================
-// rstest Parameterised Cases — Structural Invariants
+// rstest Parameterized Cases — Structural Invariants
 // ========================================================================
 
 #[rstest]
@@ -87,7 +87,7 @@ fn structural_invariants_rstest(#[case] distribution: WeightDistribution, #[case
 }
 
 // ========================================================================
-// rstest Parameterised Cases — Concurrency Safety
+// rstest Parameterized Cases — Concurrency Safety
 // ========================================================================
 
 #[rstest]
@@ -198,6 +198,51 @@ fn oracle_self_loops_are_ignored() {
 fn oracle_empty_graph() {
     let result = sequential_kruskal(0, &[]);
     assert_oracle(&result, 0.0, 0, 0);
+}
+
+#[test]
+fn oracle_filters_out_of_bounds_source() {
+    // Edge (5, 1) has source >= node_count=3, so it should be ignored.
+    let edges = vec![
+        CandidateEdge::new(5, 1, 1.0, 0),
+        CandidateEdge::new(0, 1, 2.0, 1),
+    ];
+    let result = sequential_kruskal(3, &edges);
+    assert_oracle(&result, 2.0, 1, 2);
+}
+
+#[test]
+fn oracle_filters_out_of_bounds_target() {
+    // Edge (0, 10) has target >= node_count=3, so it should be ignored.
+    let edges = vec![
+        CandidateEdge::new(0, 10, 1.0, 0),
+        CandidateEdge::new(0, 2, 3.0, 1),
+    ];
+    let result = sequential_kruskal(3, &edges);
+    assert_oracle(&result, 3.0, 1, 2);
+}
+
+#[test]
+fn oracle_filters_nan_weight() {
+    let edges = vec![
+        CandidateEdge::new(0, 1, f32::NAN, 0),
+        CandidateEdge::new(1, 2, 4.0, 1),
+    ];
+    let result = sequential_kruskal(3, &edges);
+    // NaN edge is discarded; only the 1-2 edge survives.
+    assert_oracle(&result, 4.0, 1, 2);
+}
+
+#[test]
+fn oracle_filters_infinite_weight() {
+    let edges = vec![
+        CandidateEdge::new(0, 1, f32::INFINITY, 0),
+        CandidateEdge::new(0, 1, 1.0, 1),
+        CandidateEdge::new(1, 2, 2.0, 2),
+    ];
+    let result = sequential_kruskal(3, &edges);
+    // Infinite edge is discarded; the finite edge (0,1,1.0) and (1,2,2.0) form the MST.
+    assert_oracle(&result, 3.0, 2, 1);
 }
 
 /// Asserts oracle results match expected values.

@@ -11,6 +11,7 @@ use proptest::test_runner::{TestCaseError, TestCaseResult};
 
 use crate::{EdgeHarvest, MstEdge, parallel_kruskal};
 
+use super::helpers::total_weight_f64;
 use super::types::{ConcurrencyConfig, MstFixture};
 
 /// Runs the concurrency safety property for the given fixture.
@@ -90,9 +91,4 @@ pub(super) fn run_concurrency_safety_property(fixture: &MstFixture) -> TestCaseR
     }
 
     Ok(())
-}
-
-/// Sums edge weights as `f64` for lossless accumulation.
-fn total_weight_f64(edges: &[MstEdge]) -> f64 {
-    edges.iter().map(|e| f64::from(e.weight())).sum()
 }

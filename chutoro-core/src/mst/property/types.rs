@@ -47,17 +47,24 @@ pub(super) struct ConcurrencyConfig {
     pub repetitions: usize,
 }
 
+/// Minimum number of repetitions required for a meaningful determinism
+/// check (baseline + at least one comparison run).
+const MIN_CONCURRENCY_REPS: usize = 2;
+
 impl ConcurrencyConfig {
     /// Loads the configuration from environment variables, falling back to
     /// sensible defaults.
     ///
     /// The environment variable `CHUTORO_MST_PBT_CONCURRENCY_REPS` controls
-    /// the repetition count (default: 5).
+    /// the repetition count (default: 5).  Values below
+    /// [`MIN_CONCURRENCY_REPS`] are clamped upward so the property always
+    /// performs at least one comparison run against the baseline.
     pub(super) fn load() -> Self {
         let repetitions = std::env::var("CHUTORO_MST_PBT_CONCURRENCY_REPS")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(5);
+            .unwrap_or(5)
+            .max(MIN_CONCURRENCY_REPS);
         Self { repetitions }
     }
 }

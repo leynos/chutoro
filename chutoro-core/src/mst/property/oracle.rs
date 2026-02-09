@@ -9,6 +9,8 @@ use std::cmp::Ordering;
 
 use crate::CandidateEdge;
 
+use super::helpers::find_root;
+
 /// Result of the sequential Kruskal oracle.
 #[derive(Clone, Debug)]
 pub(super) struct SequentialMstResult {
@@ -23,7 +25,7 @@ pub(super) struct SequentialMstResult {
 /// Computes a minimum spanning forest using sequential Kruskal's algorithm.
 ///
 /// The sort order matches `MstEdge::Ord`:
-/// `(weight.total_cmp, source, target, sequence)` after canonicalisation
+/// `(weight.total_cmp, source, target, sequence)` after canonicalization
 /// and deduplication.  This ensures that the sequential oracle accepts the
 /// same edges as the parallel implementation, yielding identical total
 /// weights.
@@ -69,7 +71,7 @@ pub(super) fn sequential_kruskal(
 
 // ── Internal types ──────────────────────────────────────────────────────
 
-/// Canonicalised edge for oracle processing, mirroring `MstEdge` fields.
+/// Canonicalized edge for oracle processing, mirroring `MstEdge` fields.
 struct CanonEdge {
     source: usize,
     target: usize,
@@ -92,7 +94,7 @@ fn is_invalid_edge(source: usize, target: usize, node_count: usize, weight: f32)
     is_self_loop || is_out_of_bounds || is_non_finite
 }
 
-/// Canonicalises edges to `(min, max)`, filtering out self-loops and
+/// Canonicalizes edges to `(min, max)`, filtering out self-loops and
 /// out-of-bounds references.
 fn canonicalise_and_filter(edges: &[CandidateEdge], node_count: usize) -> Vec<CanonEdge> {
     edges
@@ -133,27 +135,22 @@ fn dedup_canon_edges(edges: &mut Vec<CanonEdge>) {
     });
 }
 
-/// Path-compressing find for the sequential union-find.
-fn find_root(parent: &mut [usize], mut node: usize) -> usize {
-    while parent[node] != node {
-        parent[node] = parent[parent[node]];
-        node = parent[node];
+/// Selects the root and child for a union operation.
+///
+/// Prefers the node with the higher rank; when ranks are equal, the
+/// smaller index becomes root to ensure deterministic tie-breaking.
+fn choose_root(rank: &[usize], a: usize, b: usize) -> (usize, usize) {
+    match rank[a].cmp(&rank[b]) {
+        std::cmp::Ordering::Greater => (a, b),
+        std::cmp::Ordering::Less => (b, a),
+        std::cmp::Ordering::Equal if a <= b => (a, b),
+        std::cmp::Ordering::Equal => (b, a),
     }
-    node
 }
 
 /// Union by rank, breaking ties by smaller index.
 fn union_by_rank(parent: &mut [usize], rank: &mut [usize], a: usize, b: usize) {
-    let (root, child) = if rank[a] > rank[b] {
-        (a, b)
-    } else if rank[b] > rank[a] {
-        (b, a)
-    } else if a <= b {
-        (a, b)
-    } else {
-        (b, a)
-    };
-
+    let (root, child) = choose_root(rank, a, b);
     parent[child] = root;
     if rank[root] == rank[child] {
         rank[root] += 1;
