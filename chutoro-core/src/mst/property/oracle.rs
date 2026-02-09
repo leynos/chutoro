@@ -128,10 +128,10 @@ fn dedup_canon_edges(edges: &mut Vec<CanonEdge>) {
 /// smaller index becomes root to ensure deterministic tie-breaking.
 fn choose_root(rank: &[usize], a: usize, b: usize) -> (usize, usize) {
     match rank[a].cmp(&rank[b]) {
-        std::cmp::Ordering::Greater => (a, b),
-        std::cmp::Ordering::Less => (b, a),
-        std::cmp::Ordering::Equal if a <= b => (a, b),
-        std::cmp::Ordering::Equal => (b, a),
+        Ordering::Greater => (a, b),
+        Ordering::Less => (b, a),
+        Ordering::Equal if a <= b => (a, b),
+        Ordering::Equal => (b, a),
     }
 }
 
