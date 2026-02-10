@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 PLANS.md is not present in this repository, so no additional plan constraints
 apply.
@@ -72,16 +72,19 @@ cases using `rstest`, design decisions are recorded in
 
 - [x] (2026-02-09 20:25Z) Drafted ExecPlan with required sections, file
   targets, and acceptance criteria.
-- [ ] Finalise baseline-driven CI guardrail values (recall floor and
-  max_connections policy).
-- [ ] Implement shared property-run profile support for `PROGTEST_CASES` and
-  fork mode.
-- [ ] Integrate path-filtered PR property workflow (250 cases, 10-minute
-  timeout).
-- [ ] Integrate weekly scheduled property workflow (25,000 cases, `fork=true`).
-- [ ] Add and pass unit tests (`rstest`) for happy/unhappy/edge config paths.
-- [ ] Update design and roadmap docs.
-- [ ] Run full quality gates and verify logs.
+- [x] (2026-02-10 00:25Z) Finalised CI guardrails:
+  `CHUTORO_HNSW_PBT_MIN_RECALL=0.60` and
+  `CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS=12`.
+- [x] (2026-02-10 00:35Z) Implemented shared property-run profile support for
+  `PROGTEST_CASES` and fork mode in `chutoro-test-support`.
+- [x] (2026-02-10 00:45Z) Integrated path-filtered PR property workflow
+  (250 cases, 10-minute timeout).
+- [x] (2026-02-10 00:45Z) Integrated weekly scheduled property workflow
+  (25,000 cases, `fork=true`) with failure artifact upload.
+- [x] (2026-02-10 00:55Z) Added and passed `rstest` coverage for profile and
+  guardrail configuration happy/unhappy/edge cases.
+- [x] (2026-02-10 01:05Z) Updated design and roadmap docs.
+- [x] (2026-02-10 01:15Z) Ran full quality gates and verified logs in `/tmp`.
 
 ## Surprises & Discoveries
 
@@ -114,8 +117,27 @@ cases using `rstest`, design decisions are recorded in
 
 ## Outcomes & Retrospective
 
-Not started. This section will be completed after implementation and validation
-gates pass.
+Implemented the planned property CI integration end-to-end:
+
+- Added `.github/workflows/property-tests.yml` with path-filtered PR runs and
+  weekly deep coverage runs.
+- Centralised property run-profile parsing in
+  `chutoro-test-support/src/ci/property_test_profile.rs`.
+- Wired HNSW, candidate edge harvest, and MST suites to use
+  `PROGTEST_CASES` and fork-mode overrides.
+- Added configurable HNSW max-connection guardrails via
+  `CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS` and recorded guardrail decisions.
+- Updated `docs/chutoro-design.md` and marked the roadmap entry done in
+  `docs/roadmap.md`.
+
+All required gates passed:
+
+- `make fmt`
+- `make markdownlint`
+- `make nixie`
+- `make check-fmt`
+- `make lint`
+- `make test`
 
 ## Context and Orientation
 
@@ -283,3 +305,6 @@ accepted so failure context remains available.
 
 2026-02-09: Initial draft created to scope Phase 1 CI integration for property
 tests, including staged implementation, guardrails, and acceptance criteria.
+
+2026-02-10: Completed implementation. Updated status/progress, recorded the
+final guardrail values, and captured successful validation gates.

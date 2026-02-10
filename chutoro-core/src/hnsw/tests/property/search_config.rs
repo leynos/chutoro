@@ -15,13 +15,17 @@ pub(super) enum RecallThresholdError {
 pub(super) struct SearchPropertyConfig {
     min_recall: f32,
     max_fixture_len: usize,
+    min_max_connections: usize,
 }
 
 impl SearchPropertyConfig {
     pub(super) const ENV_KEY: &'static str = "CHUTORO_HNSW_PBT_MIN_RECALL";
     pub(super) const MAX_FIXTURE_LEN_ENV_KEY: &'static str = "CHUTORO_HNSW_PBT_MAX_FIXTURE_LEN";
+    pub(super) const MIN_MAX_CONNECTIONS_ENV_KEY: &'static str =
+        "CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS";
     pub(super) const DEFAULT_MIN_RECALL: f32 = 0.50;
     pub(super) const DEFAULT_MAX_FIXTURE_LEN: usize = 32;
+    pub(super) const DEFAULT_MIN_MAX_CONNECTIONS: usize = 12;
 
     pub(super) fn load() -> Self {
         let min_recall = Self::read_env_or_default(
@@ -34,10 +38,16 @@ impl SearchPropertyConfig {
             Self::DEFAULT_MAX_FIXTURE_LEN,
             Self::parse_max_fixture_len,
         );
+        let min_max_connections = Self::read_env_or_default(
+            Self::MIN_MAX_CONNECTIONS_ENV_KEY,
+            Self::DEFAULT_MIN_MAX_CONNECTIONS,
+            Self::parse_min_max_connections,
+        );
 
         Self {
             min_recall,
             max_fixture_len,
+            min_max_connections,
         }
     }
 
@@ -47,6 +57,10 @@ impl SearchPropertyConfig {
 
     pub(super) fn max_fixture_len(&self) -> usize {
         self.max_fixture_len
+    }
+
+    pub(super) fn min_max_connections(&self) -> usize {
+        self.min_max_connections
     }
 
     fn read_env_or_default<T, F>(key: &'static str, default: T, parser: F) -> T
@@ -76,6 +90,17 @@ impl SearchPropertyConfig {
     }
 
     fn parse_max_fixture_len(raw: &str) -> Result<usize, String> {
+        let trimmed = raw.trim();
+        let parsed = trimmed
+            .parse::<usize>()
+            .map_err(|err| format!("parse error: {err}"))?;
+        if parsed < 2 {
+            return Err("value must be >= 2".to_string());
+        }
+        Ok(parsed)
+    }
+
+    fn parse_min_max_connections(raw: &str) -> Result<usize, String> {
         let trimmed = raw.trim();
         let parsed = trimmed
             .parse::<usize>()
@@ -126,5 +151,29 @@ mod tests {
     ) {
         let err = parse_recall_threshold(input).expect_err("value should fail");
         assert_eq!(err, expected);
+    }
+
+    #[rstest]
+    #[case("2", 2)]
+    #[case("8", 8)]
+    #[case("16", 16)]
+    fn parse_min_max_connections_accepts_valid_values(
+        #[case] input: &str,
+        #[case] expected: usize,
+    ) {
+        let parsed =
+            SearchPropertyConfig::parse_min_max_connections(input).expect("value should parse");
+        assert_eq!(parsed, expected);
+    }
+
+    #[rstest]
+    #[case("0")]
+    #[case("1")]
+    #[case("-1")]
+    #[case("abc")]
+    fn parse_min_max_connections_rejects_invalid_values(#[case] input: &str) {
+        let err =
+            SearchPropertyConfig::parse_min_max_connections(input).expect_err("value should fail");
+        assert!(!err.is_empty(), "error message should be non-empty");
     }
 }

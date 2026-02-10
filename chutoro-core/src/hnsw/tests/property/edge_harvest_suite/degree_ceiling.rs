@@ -53,6 +53,7 @@ pub(super) fn run_degree_ceiling_property(fixture: &GraphFixture) -> TestCaseRes
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chutoro_test_support::ci::property_test_profile::ProptestRunProfile;
     use proptest::prelude::*;
     use rand::{SeedableRng, rngs::SmallRng};
     use rstest::rstest;
@@ -63,6 +64,15 @@ mod tests {
     use super::super::super::strategies::graph_fixture_strategy;
     use super::super::super::types::GraphMetadata;
     use super::super::build_fixture;
+
+    fn suite_proptest_config(default_cases: u32) -> ProptestConfig {
+        let profile = ProptestRunProfile::load(default_cases, false);
+        ProptestConfig {
+            cases: profile.cases(),
+            fork: profile.fork(),
+            ..ProptestConfig::default()
+        }
+    }
 
     // ========================================================================
     // Degree Ceiling Property Tests (rstest)
@@ -83,7 +93,7 @@ mod tests {
     // ========================================================================
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(64))]
+        #![proptest_config(suite_proptest_config(64))]
 
         #[test]
         fn graph_topology_degree_ceilings_proptest(fixture in graph_fixture_strategy()) {

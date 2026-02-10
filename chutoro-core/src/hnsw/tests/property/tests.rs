@@ -3,6 +3,7 @@
 //! reachability, and the shared proptest runners/helpers used to orchestrate
 //! these scenarios.
 
+use chutoro_test_support::ci::property_test_profile::ProptestRunProfile;
 use proptest::{
     prelude::any,
     prop_assert, prop_assert_eq, proptest,
@@ -52,51 +53,65 @@ fn run_mutation_proptest(config: Config) -> TestCaseResult {
     )
 }
 
-/// Runs a property test with custom configuration parameters and stack size.
-fn run_test_with_config<F>(
+#[derive(Clone, Copy)]
+struct PropertyRunnerConfig {
     cases: u32,
+    fork: bool,
     max_shrink_iters: u32,
     stack_size: usize,
-    runner: F,
-) -> TestCaseResult
+}
+
+/// Runs a property test with custom configuration parameters and stack size.
+fn run_test_with_config<F>(runner_config: PropertyRunnerConfig, runner: F) -> TestCaseResult
 where
     F: FnOnce(Config, usize) -> TestCaseResult,
 {
     runner(
         Config {
-            cases,
-            max_shrink_iters,
+            cases: runner_config.cases,
+            fork: runner_config.fork,
+            max_shrink_iters: runner_config.max_shrink_iters,
             ..Config::default()
         },
-        stack_size,
+        runner_config.stack_size,
     )
 }
 
 /// Runs a mutation property test with custom configuration parameters.
 fn run_mutation_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> TestCaseResult {
+    let profile = property_run_profile(cases);
     run_test_with_config(
-        cases,
-        max_shrink_iters,
-        stack_size,
+        PropertyRunnerConfig {
+            cases: profile.cases(),
+            fork: profile.fork(),
+            max_shrink_iters,
+            stack_size,
+        },
         run_mutation_proptest_with_stack,
     )
 }
 
 /// Runs an idempotency property test with custom configuration parameters.
 fn run_idempotency_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> TestCaseResult {
+    let profile = property_run_profile(cases);
     run_test_with_config(
-        cases,
-        max_shrink_iters,
-        stack_size,
+        PropertyRunnerConfig {
+            cases: profile.cases(),
+            fork: profile.fork(),
+            max_shrink_iters,
+            stack_size,
+        },
         run_idempotency_proptest_with_stack,
     )
 }
 
 /// Runs a search property test with custom configuration parameters.
 fn run_search_test(cases: u32, max_shrink_iters: u32) -> TestCaseResult {
+    let profile = property_run_profile(cases);
     run_proptest(
         Config {
-            cases,
+            cases: profile.cases(),
+            fork: profile.fork(),
             max_shrink_iters,
             ..Config::default()
         },
@@ -328,17 +343,22 @@ fn is_ci_run() -> bool {
 }
 
 fn idempotency_cases() -> u32 {
-    if is_coverage_run() {
+    let default = if is_coverage_run() {
         4
     } else if is_ci_run() {
         64
     } else {
         16
-    }
+    };
+    property_run_profile(default).cases()
 }
 
 fn idempotency_shrink_iters() -> u32 {
     if is_coverage_run() { 128 } else { 1024 }
+}
+
+fn property_run_profile(default_cases: u32) -> ProptestRunProfile {
+    ProptestRunProfile::load(default_cases, false)
 }
 
 #[test]

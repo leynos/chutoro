@@ -1,5 +1,6 @@
 //! Harvested-output property checks for candidate edge harvesting.
 
+use chutoro_test_support::ci::property_test_profile::ProptestRunProfile;
 use proptest::{
     prelude::ProptestConfig,
     test_runner::{TestCaseError, TestCaseResult, TestRunner},
@@ -98,10 +99,20 @@ fn min_rnn_delta_for_topology(topology: GraphTopology) -> f64 {
     }
 }
 
+fn harvested_output_proptest_config(default_cases: u32) -> ProptestConfig {
+    let profile = ProptestRunProfile::load(default_cases, false);
+    ProptestConfig {
+        cases: profile.cases(),
+        fork: profile.fork(),
+        ..ProptestConfig::default()
+    }
+}
+
 /// Runs the harvested-output suite for a specific topology.
 pub(super) fn run_harvested_output_suite_for_topology(topology: GraphTopology) -> TestCaseResult {
-    let mut runner = TestRunner::new(ProptestConfig::with_cases(HARVEST_CASES_PER_TOPOLOGY));
-    let cases = runner.config().cases as usize;
+    let config = harvested_output_proptest_config(HARVEST_CASES_PER_TOPOLOGY);
+    let cases = config.cases as usize;
+    let mut runner = TestRunner::new(config);
     let strategy = graph_fixture_strategy_for_topology(topology);
 
     let metrics = std::cell::RefCell::new(Vec::with_capacity(cases));
