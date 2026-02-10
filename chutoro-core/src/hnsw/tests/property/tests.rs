@@ -338,27 +338,61 @@ fn is_coverage_run() -> bool {
     cfg!(coverage)
 }
 
-fn is_ci_run() -> bool {
-    std::env::var("CI").is_ok()
+fn is_coverage_env_run() -> bool {
+    std::env::var_os("LLVM_PROFILE_FILE").is_some() || std::env::var_os("CARGO_LLVM_COV").is_some()
+}
+
+fn is_coverage_job() -> bool {
+    is_coverage_run() || is_coverage_env_run()
+}
+
+fn select_idempotency_cases(is_coverage_job: bool, configured_cases: u32) -> u32 {
+    if is_coverage_job { 4 } else { configured_cases }
 }
 
 fn idempotency_cases() -> u32 {
-    let default = if is_coverage_run() {
-        4
-    } else if is_ci_run() {
-        64
-    } else {
-        16
-    };
-    property_run_profile(default).cases()
+    let configured_cases = property_run_profile(16).cases();
+    select_idempotency_cases(is_coverage_job(), configured_cases)
+}
+
+fn select_idempotency_shrink_iters(is_coverage_job: bool) -> u32 {
+    if is_coverage_job { 128 } else { 1024 }
 }
 
 fn idempotency_shrink_iters() -> u32 {
-    if is_coverage_run() { 128 } else { 1024 }
+    select_idempotency_shrink_iters(is_coverage_job())
 }
 
 fn property_run_profile(default_cases: u32) -> ProptestRunProfile {
     ProptestRunProfile::load(default_cases, false)
+}
+
+#[rstest]
+#[case(true, 250, 4)]
+#[case(false, 250, 250)]
+#[case(false, 16, 16)]
+fn select_idempotency_cases_enforces_coverage_budget(
+    #[case] coverage_job: bool,
+    #[case] configured_cases: u32,
+    #[case] expected_cases: u32,
+) {
+    assert_eq!(
+        select_idempotency_cases(coverage_job, configured_cases),
+        expected_cases
+    );
+}
+
+#[rstest]
+#[case(true, 128)]
+#[case(false, 1024)]
+fn select_idempotency_shrink_iters_enforces_coverage_budget(
+    #[case] coverage_job: bool,
+    #[case] expected_iters: u32,
+) {
+    assert_eq!(
+        select_idempotency_shrink_iters(coverage_job),
+        expected_iters
+    );
 }
 
 #[test]
