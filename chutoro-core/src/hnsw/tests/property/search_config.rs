@@ -90,23 +90,20 @@ impl SearchPropertyConfig {
     }
 
     fn parse_max_fixture_len(raw: &str) -> Result<usize, String> {
-        let trimmed = raw.trim();
-        let parsed = trimmed
-            .parse::<usize>()
-            .map_err(|err| format!("parse error: {err}"))?;
-        if parsed < 2 {
-            return Err("value must be >= 2".to_string());
-        }
-        Ok(parsed)
+        Self::parse_usize_with_min(raw, 2)
     }
 
     fn parse_min_max_connections(raw: &str) -> Result<usize, String> {
+        Self::parse_usize_with_min(raw, 2)
+    }
+
+    fn parse_usize_with_min(raw: &str, min: usize) -> Result<usize, String> {
         let trimmed = raw.trim();
         let parsed = trimmed
             .parse::<usize>()
             .map_err(|err| format!("parse error: {err}"))?;
-        if parsed < 2 {
-            return Err("value must be >= 2".to_string());
+        if parsed < min {
+            return Err(format!("value must be >= {min}"));
         }
         Ok(parsed)
     }
