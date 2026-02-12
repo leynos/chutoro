@@ -13,6 +13,79 @@ use super::{
     strategies::{hnsw_fixture_strategy, idempotency_plan_strategy, mutation_plan_strategy},
 };
 
+/// Number of test cases to execute in a property test run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct TestCases(u32);
+
+impl TestCases {
+    /// Creates a new TestCases value.
+    ///
+    /// # Panics
+    /// Panics if `cases` is zero (at least one test case is required).
+    pub(super) fn new(cases: u32) -> Self {
+        assert!(cases > 0, "test cases must be > 0");
+        Self(cases)
+    }
+
+    pub(super) fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<TestCases> for u32 {
+    fn from(cases: TestCases) -> u32 {
+        cases.0
+    }
+}
+
+/// Maximum number of shrinking iterations to attempt when minimising a failing test case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ShrinkIterations(u32);
+
+impl ShrinkIterations {
+    pub(super) fn new(iterations: u32) -> Self {
+        Self(iterations)
+    }
+
+    pub(super) fn get(self) -> u32 {
+        self.0
+    }
+}
+
+impl From<ShrinkIterations> for u32 {
+    fn from(iters: ShrinkIterations) -> u32 {
+        iters.0
+    }
+}
+
+/// Stack size in bytes for property test runner threads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct StackSize(usize);
+
+impl StackSize {
+    /// Minimum safe stack size (1 MiB).
+    const MIN_STACK_SIZE: usize = 1024 * 1024;
+
+    pub(super) fn new(size: usize) -> Self {
+        assert!(
+            size >= Self::MIN_STACK_SIZE,
+            "stack size must be >= {} bytes",
+            Self::MIN_STACK_SIZE
+        );
+        Self(size)
+    }
+
+    pub(super) fn get(self) -> usize {
+        self.0
+    }
+}
+
+impl From<StackSize> for usize {
+    fn from(size: StackSize) -> usize {
+        size.0
+    }
+}
+
 /// Coverage jobs use fewer idempotency cases to stay within CI time budgets.
 const COVERAGE_IDEMPOTENCY_CASES: u32 = 4;
 /// Coverage jobs cap shrink iterations to prevent long minimization tails.
@@ -60,33 +133,36 @@ where
 
 /// Runs a mutation property test with custom configuration parameters.
 pub(super) fn run_mutation_test(
-    cases: u32,
-    max_shrink_iters: u32,
-    stack_size: usize,
+    cases: TestCases,
+    max_shrink_iters: ShrinkIterations,
+    stack_size: StackSize,
 ) -> TestCaseResult {
     run_test_with_profile(
-        cases,
-        max_shrink_iters,
-        stack_size,
+        cases.get(),
+        max_shrink_iters.get(),
+        stack_size.get(),
         run_mutation_proptest_with_stack,
     )
 }
 
 /// Runs a search property test with custom configuration parameters.
-pub(super) fn run_search_test(cases: u32, max_shrink_iters: u32) -> TestCaseResult {
-    run_test_with_profile_no_stack(cases, max_shrink_iters, run_search_proptest)
+pub(super) fn run_search_test(
+    cases: TestCases,
+    max_shrink_iters: ShrinkIterations,
+) -> TestCaseResult {
+    run_test_with_profile_no_stack(cases.get(), max_shrink_iters.get(), run_search_proptest)
 }
 
 /// Runs an idempotency property test with custom configuration parameters.
 pub(super) fn run_idempotency_test(
-    cases: u32,
-    max_shrink_iters: u32,
-    stack_size: usize,
+    cases: TestCases,
+    max_shrink_iters: ShrinkIterations,
+    stack_size: StackSize,
 ) -> TestCaseResult {
     run_test_with_profile(
-        cases,
-        max_shrink_iters,
-        stack_size,
+        cases.get(),
+        max_shrink_iters.get(),
+        stack_size.get(),
         run_idempotency_proptest_with_stack,
     )
 }

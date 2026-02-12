@@ -15,8 +15,9 @@ use super::{
     strategies::{graph_fixture_strategy, hnsw_fixture_strategy},
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
     test_runner_support::{
-        idempotency_cases, idempotency_shrink_iters, run_idempotency_test, run_mutation_test,
-        run_search_test, select_idempotency_cases, select_idempotency_shrink_iters,
+        ShrinkIterations, StackSize, TestCases, idempotency_cases, idempotency_shrink_iters,
+        run_idempotency_test, run_mutation_test, run_search_test, select_idempotency_cases,
+        select_idempotency_shrink_iters,
     },
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
@@ -178,20 +179,24 @@ proptest! {
 #[test]
 #[ignore]
 fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
-    run_mutation_test(640, 4096, 32 * 1024 * 1024)
+    run_mutation_test(
+        TestCases::new(640),
+        ShrinkIterations::new(4096),
+        StackSize::new(32 * 1024 * 1024),
+    )
 }
 
 #[test]
 fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
-    run_search_test(64, 1024)
+    run_search_test(TestCases::new(64), ShrinkIterations::new(1024))
 }
 
 #[test]
 fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
     run_idempotency_test(
-        idempotency_cases(),
-        idempotency_shrink_iters(),
-        96 * 1024 * 1024,
+        TestCases::new(idempotency_cases()),
+        ShrinkIterations::new(idempotency_shrink_iters()),
+        StackSize::new(96 * 1024 * 1024),
     )
 }
 
@@ -225,7 +230,11 @@ fn select_idempotency_shrink_iters_enforces_coverage_budget(
 
 #[test]
 fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
-    run_mutation_test(64, 1024, 96 * 1024 * 1024)
+    run_mutation_test(
+        TestCases::new(64),
+        ShrinkIterations::new(1024),
+        StackSize::new(96 * 1024 * 1024),
+    )
 }
 
 #[test]
