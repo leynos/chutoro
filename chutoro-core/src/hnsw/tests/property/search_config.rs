@@ -18,11 +18,28 @@ pub(super) struct SearchPropertyConfig {
     min_max_connections: usize,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct EnvKey(&'static str);
+
+impl EnvKey {
+    const fn as_str(self) -> &'static str {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RawConfigValue<'a>(&'a str);
+
+impl<'a> RawConfigValue<'a> {
+    fn trimmed(self) -> &'a str {
+        self.0.trim()
+    }
+}
+
 impl SearchPropertyConfig {
-    pub(super) const ENV_KEY: &'static str = "CHUTORO_HNSW_PBT_MIN_RECALL";
-    pub(super) const MAX_FIXTURE_LEN_ENV_KEY: &'static str = "CHUTORO_HNSW_PBT_MAX_FIXTURE_LEN";
-    pub(super) const MIN_MAX_CONNECTIONS_ENV_KEY: &'static str =
-        "CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS";
+    const ENV_KEY: EnvKey = EnvKey("CHUTORO_HNSW_PBT_MIN_RECALL");
+    const MAX_FIXTURE_LEN_ENV_KEY: EnvKey = EnvKey("CHUTORO_HNSW_PBT_MAX_FIXTURE_LEN");
+    const MIN_MAX_CONNECTIONS_ENV_KEY: EnvKey = EnvKey("CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS");
     pub(super) const DEFAULT_MIN_RECALL: f32 = 0.50;
     pub(super) const DEFAULT_MAX_FIXTURE_LEN: usize = 32;
     pub(super) const DEFAULT_MIN_MAX_CONNECTIONS: usize = 12;
@@ -63,17 +80,17 @@ impl SearchPropertyConfig {
         self.min_max_connections
     }
 
-    fn read_env_or_default<T, F>(key: &'static str, default: T, parser: F) -> T
+    fn read_env_or_default<T, F>(key: EnvKey, default: T, parser: F) -> T
     where
         T: Copy,
-        F: Fn(&str) -> Result<T, String>,
+        F: for<'a> Fn(RawConfigValue<'a>) -> Result<T, String>,
     {
-        match env::var(key) {
-            Ok(raw) => match parser(&raw) {
+        match env::var(key.as_str()) {
+            Ok(raw) => match parser(RawConfigValue(raw.as_str())) {
                 Ok(value) => value,
                 Err(reason) => {
                     tracing::warn!(
-                        env = key,
+                        env = key.as_str(),
                         raw = %raw,
                         reason = %reason,
                         "invalid config override, falling back to default",
@@ -85,20 +102,20 @@ impl SearchPropertyConfig {
         }
     }
 
-    fn parse_min_recall(raw: &str) -> Result<f32, String> {
+    fn parse_min_recall(raw: RawConfigValue<'_>) -> Result<f32, String> {
         parse_recall_threshold(raw).map_err(|err| format!("{err:?}"))
     }
 
-    fn parse_max_fixture_len(raw: &str) -> Result<usize, String> {
+    fn parse_max_fixture_len(raw: RawConfigValue<'_>) -> Result<usize, String> {
         Self::parse_usize_with_min(raw, 2)
     }
 
-    fn parse_min_max_connections(raw: &str) -> Result<usize, String> {
+    fn parse_min_max_connections(raw: RawConfigValue<'_>) -> Result<usize, String> {
         Self::parse_usize_with_min(raw, 2)
     }
 
-    fn parse_usize_with_min(raw: &str, min: usize) -> Result<usize, String> {
-        let trimmed = raw.trim();
+    fn parse_usize_with_min(raw: RawConfigValue<'_>, min: usize) -> Result<usize, String> {
+        let trimmed = raw.trimmed();
         let parsed = trimmed
             .parse::<usize>()
             .map_err(|err| format!("parse error: {err}"))?;
@@ -109,8 +126,8 @@ impl SearchPropertyConfig {
     }
 }
 
-pub(super) fn parse_recall_threshold(raw: &str) -> Result<f32, RecallThresholdError> {
-    let trimmed = raw.trim();
+fn parse_recall_threshold(raw: RawConfigValue<'_>) -> Result<f32, RecallThresholdError> {
+    let trimmed = raw.trimmed();
     let parsed = trimmed
         .parse::<f32>()
         .map_err(|_| RecallThresholdError::ParseFloat)?;
@@ -130,7 +147,7 @@ mod tests {
     #[case("1.0", 1.0)]
     #[case("0.01", 0.01)]
     fn parse_recall_threshold_accepts_valid_values(#[case] input: &str, #[case] expected: f32) {
-        let parsed = parse_recall_threshold(input).expect("value should parse");
+        let parsed = parse_recall_threshold(RawConfigValue(input)).expect("value should parse");
         assert!(
             (parsed - expected).abs() < f32::EPSILON,
             "parsed {parsed} vs {expected}"
@@ -146,7 +163,7 @@ mod tests {
         #[case] input: &str,
         #[case] expected: RecallThresholdError,
     ) {
-        let err = parse_recall_threshold(input).expect_err("value should fail");
+        let err = parse_recall_threshold(RawConfigValue(input)).expect_err("value should fail");
         assert_eq!(err, expected);
     }
 
@@ -158,8 +175,8 @@ mod tests {
         #[case] input: &str,
         #[case] expected: usize,
     ) {
-        let parsed =
-            SearchPropertyConfig::parse_min_max_connections(input).expect("value should parse");
+        let parsed = SearchPropertyConfig::parse_min_max_connections(RawConfigValue(input))
+            .expect("value should parse");
         assert_eq!(parsed, expected);
     }
 
@@ -169,8 +186,8 @@ mod tests {
     #[case("-1")]
     #[case("abc")]
     fn parse_min_max_connections_rejects_invalid_values(#[case] input: &str) {
-        let err =
-            SearchPropertyConfig::parse_min_max_connections(input).expect_err("value should fail");
+        let err = SearchPropertyConfig::parse_min_max_connections(RawConfigValue(input))
+            .expect_err("value should fail");
         assert!(!err.is_empty(), "error message should be non-empty");
     }
 }
