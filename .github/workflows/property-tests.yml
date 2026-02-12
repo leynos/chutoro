@@ -40,15 +40,6 @@ jobs:
       - &setup_rust_step
         name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
-      - &ensure_cargo_binstall_step
-        name: Ensure cargo-binstall is available
-        run: |
-          set -euo pipefail
-          if ! cargo binstall --version >/dev/null 2>&1; then
-            curl -L --proto '=https' --tlsv1.2 -sSf \
-              https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
-              | bash
-          fi
       - &install_nextest_step
         name: Install cargo-nextest
         run: cargo binstall --no-confirm cargo-nextest
@@ -74,6 +65,10 @@ jobs:
               cargo nextest run --profile ci -p chutoro-core \
                 mst::property::tests:: \
                 2>&1 | tee /tmp/property-${{ matrix.suite }}.log
+              ;;
+            *)
+              echo "unknown property suite: ${{ matrix.suite }}" >&2
+              exit 1
               ;;
           esac
       - &upload_proptest_regressions_step
@@ -108,7 +103,6 @@ jobs:
     steps:
       - *checkout_step
       - *setup_rust_step
-      - *ensure_cargo_binstall_step
       - *install_nextest_step
       - *run_property_suite_step
       - *upload_proptest_regressions_step
