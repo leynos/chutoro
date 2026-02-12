@@ -38,6 +38,14 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
+      - name: Ensure cargo-binstall is available
+        run: |
+          set -euo pipefail
+          if ! cargo binstall --version >/dev/null 2>&1; then
+            curl -L --proto '=https' --tlsv1.2 -sSf \
+              https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
+              | bash
+          fi
       - name: Install cargo-nextest
         run: cargo binstall --no-confirm cargo-nextest
       - name: Run property suite
@@ -87,6 +95,14 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
+      - name: Ensure cargo-binstall is available
+        run: |
+          set -euo pipefail
+          if ! cargo binstall --version >/dev/null 2>&1; then
+            curl -L --proto '=https' --tlsv1.2 -sSf \
+              https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
+              | bash
+          fi
       - name: Install cargo-nextest
         run: cargo binstall --no-confirm cargo-nextest
       - name: Run deep property suite

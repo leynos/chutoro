@@ -13,6 +13,15 @@ use super::{
     strategies::{hnsw_fixture_strategy, idempotency_plan_strategy, mutation_plan_strategy},
 };
 
+/// Coverage jobs use fewer idempotency cases to stay within CI time budgets.
+const COVERAGE_IDEMPOTENCY_CASES: u32 = 4;
+/// Coverage jobs cap shrink iterations to prevent long minimization tails.
+const COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 128;
+/// Non-coverage jobs keep deeper shrinking for better counterexample reduction.
+const DEFAULT_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 1024;
+/// Default idempotency case count when no profile override is configured.
+const DEFAULT_IDEMPOTENCY_CASES: u32 = 16;
+
 fn run_test_with_profile<F>(
     cases: u32,
     max_shrink_iters: u32,
@@ -32,6 +41,23 @@ where
     run_test_with_config(config, test_runner)
 }
 
+fn run_test_with_profile_no_stack<F>(
+    cases: u32,
+    max_shrink_iters: u32,
+    test_runner: F,
+) -> TestCaseResult
+where
+    F: FnOnce(Config) -> TestCaseResult,
+{
+    let profile = property_run_profile(cases);
+    test_runner(Config {
+        cases: profile.cases(),
+        fork: profile.fork(),
+        max_shrink_iters,
+        ..Config::default()
+    })
+}
+
 /// Runs a mutation property test with custom configuration parameters.
 pub(super) fn run_mutation_test(
     cases: u32,
@@ -48,20 +74,7 @@ pub(super) fn run_mutation_test(
 
 /// Runs a search property test with custom configuration parameters.
 pub(super) fn run_search_test(cases: u32, max_shrink_iters: u32) -> TestCaseResult {
-    let profile = property_run_profile(cases);
-    run_proptest(
-        Config {
-            cases: profile.cases(),
-            fork: profile.fork(),
-            max_shrink_iters,
-            ..Config::default()
-        },
-        (hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
-        "hnsw search proptest",
-        |(fixture, query_hint, k_hint)| {
-            run_search_correctness_property(fixture, query_hint, k_hint)
-        },
-    )
+    run_test_with_profile_no_stack(cases, max_shrink_iters, run_search_proptest)
 }
 
 /// Runs an idempotency property test with custom configuration parameters.
@@ -80,18 +93,26 @@ pub(super) fn run_idempotency_test(
 
 /// Selects the idempotency case count for coverage and non-coverage jobs.
 pub(super) fn select_idempotency_cases(is_coverage_job: bool, configured_cases: u32) -> u32 {
-    if is_coverage_job { 4 } else { configured_cases }
+    if is_coverage_job {
+        COVERAGE_IDEMPOTENCY_CASES
+    } else {
+        configured_cases
+    }
 }
 
 /// Returns the idempotency case count using runtime job detection.
 pub(super) fn idempotency_cases() -> u32 {
-    let configured_cases = property_run_profile(16).cases();
+    let configured_cases = property_run_profile(DEFAULT_IDEMPOTENCY_CASES).cases();
     select_idempotency_cases(is_coverage_job(), configured_cases)
 }
 
 /// Selects the max shrink iterations for coverage and non-coverage jobs.
 pub(super) fn select_idempotency_shrink_iters(is_coverage_job: bool) -> u32 {
-    if is_coverage_job { 128 } else { 1024 }
+    if is_coverage_job {
+        COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS
+    } else {
+        DEFAULT_IDEMPOTENCY_MAX_SHRINK_ITERS
+    }
 }
 
 /// Returns idempotency shrink iterations using runtime job detection.
@@ -141,6 +162,18 @@ fn run_mutation_proptest(config: Config) -> TestCaseResult {
     )
 }
 
+fn run_search_proptest(config: Config) -> TestCaseResult {
+    run_proptest(
+        config,
+        (hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
+        "hnsw search proptest",
+        |(fixture, query_hint, k_hint)| {
+            run_search_correctness_property(fixture, query_hint, k_hint)
+        },
+    )
+}
+
+/// Configuration for property runners that execute within dedicated threads.
 #[derive(Clone, Copy)]
 struct PropertyRunnerConfig {
     cases: u32,
