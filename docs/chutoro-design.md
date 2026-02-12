@@ -1067,7 +1067,7 @@ workflow at `.github/workflows/property-tests.yml` with two tiers:
 
 The property runners consume a shared profile parser in `chutoro-test-support`
 so `PROGTEST_CASES` and fork mode are interpreted consistently across suites.
-Weekly failures upload `proptest-regressions` artifacts and suite logs for
+Weekly failures upload `proptest-regressions` artefacts and suite logs for
 replay. To keep coverage jobs within `nextest` timeouts, the idempotency
 property now treats `llvm-cov` environments (`LLVM_PROFILE_FILE` or
 `CARGO_LLVM_COV`) as low-budget runs and falls back to 4 cases unless

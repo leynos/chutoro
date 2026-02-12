@@ -1,10 +1,27 @@
 //! Shared test utilities for `chutoro-core`.
 
+use chutoro_test_support::ci::property_test_profile::ProptestRunProfile;
+use proptest::test_runner::Config as ProptestConfig;
+
 use crate::{datasource::DataSource, error::DataSourceError};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+
+/// Builds a standard proptest configuration from the shared CI profile.
+///
+/// This keeps property suites aligned on the same `PROGTEST_CASES` and
+/// `CHUTORO_PBT_FORK` interpretation.
+#[must_use]
+pub(crate) fn suite_proptest_config(default_cases: u32) -> ProptestConfig {
+    let profile = ProptestRunProfile::load(default_cases, false);
+    ProptestConfig {
+        cases: profile.cases(),
+        fork: profile.fork(),
+        ..ProptestConfig::default()
+    }
+}
 
 /// [`DataSource`] implementation that records distance invocations for tests.
 ///

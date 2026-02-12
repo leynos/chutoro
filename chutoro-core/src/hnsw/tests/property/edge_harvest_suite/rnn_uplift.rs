@@ -77,21 +77,12 @@ pub(super) fn run_rnn_uplift_property(fixture: &GraphFixture) -> TestCaseResult 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chutoro_test_support::ci::property_test_profile::ProptestRunProfile;
+    use crate::test_utils::suite_proptest_config;
     use proptest::prelude::*;
     use rstest::rstest;
 
     use super::super::super::strategies::graph_fixture_strategy;
     use super::super::build_fixture;
-
-    fn suite_proptest_config(default_cases: u32) -> ProptestConfig {
-        let profile = ProptestRunProfile::load(default_cases, false);
-        ProptestConfig {
-            cases: profile.cases(),
-            fork: profile.fork(),
-            ..ProptestConfig::default()
-        }
-    }
 
     // ========================================================================
     // RNN Uplift Property Tests (rstest)

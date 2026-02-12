@@ -5,12 +5,12 @@
 //! for targeted distribution coverage, and unit tests for the sequential
 //! oracle itself.
 
-use chutoro_test_support::ci::property_test_profile::ProptestRunProfile;
 use proptest::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 use crate::CandidateEdge;
+use crate::test_utils::suite_proptest_config;
 
 use super::concurrency::run_concurrency_safety_property;
 use super::equivalence::run_oracle_equivalence_property;
@@ -36,15 +36,6 @@ const TEST_CASES: &[(WeightDistribution, u64, &str)] = &[
     (WeightDistribution::Disconnected, 42, "disconnected_42"),
     (WeightDistribution::Disconnected, 999, "disconnected_999"),
 ];
-
-fn suite_proptest_config(default_cases: u32) -> ProptestConfig {
-    let profile = ProptestRunProfile::load(default_cases, false);
-    ProptestConfig {
-        cases: profile.cases(),
-        fork: profile.fork(),
-        ..ProptestConfig::default()
-    }
-}
 
 /// Generates an rstest-parameterised function that exercises a property
 /// runner across every entry in [`TEST_CASES`].

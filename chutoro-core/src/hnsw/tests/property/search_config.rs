@@ -141,6 +141,14 @@ fn parse_recall_threshold(raw: RawConfigValue<'_>) -> Result<f32, RecallThreshol
 mod tests {
     use super::*;
     use rstest::rstest;
+    use std::{env, sync::Mutex};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn unset_min_max_connections_env() {
+        // SAFETY: tests serialize environment access with ENV_LOCK.
+        unsafe { env::remove_var(SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str()) };
+    }
 
     #[rstest]
     #[case("0.5", 0.5)]
@@ -189,5 +197,59 @@ mod tests {
         let err = SearchPropertyConfig::parse_min_max_connections(RawConfigValue(input))
             .expect_err("value should fail");
         assert!(!err.is_empty(), "error message should be non-empty");
+    }
+
+    #[test]
+    fn load_uses_default_min_max_connections_when_env_unset() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        unset_min_max_connections_env();
+
+        let config = SearchPropertyConfig::load();
+        assert_eq!(
+            config.min_max_connections(),
+            SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS
+        );
+    }
+
+    #[test]
+    fn load_uses_env_min_max_connections_when_valid() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        unset_min_max_connections_env();
+
+        let override_val = SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS + 4;
+        // SAFETY: tests serialize environment access with ENV_LOCK.
+        unsafe {
+            env::set_var(
+                SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(),
+                override_val.to_string(),
+            )
+        };
+
+        let config = SearchPropertyConfig::load();
+        assert_eq!(config.min_max_connections(), override_val);
+
+        unset_min_max_connections_env();
+    }
+
+    #[test]
+    fn load_falls_back_to_default_min_max_connections_on_invalid_env() {
+        let _lock = ENV_LOCK.lock().expect("env lock");
+        unset_min_max_connections_env();
+
+        // SAFETY: tests serialize environment access with ENV_LOCK.
+        unsafe {
+            env::set_var(
+                SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(),
+                "not-a-number",
+            )
+        };
+
+        let config = SearchPropertyConfig::load();
+        assert_eq!(
+            config.min_max_connections(),
+            SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS
+        );
+
+        unset_min_max_connections_env();
     }
 }

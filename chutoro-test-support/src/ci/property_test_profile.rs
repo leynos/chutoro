@@ -30,8 +30,16 @@ impl ProptestRunProfile {
     /// ```
     #[must_use]
     pub fn load(default_cases: u32, default_fork: bool) -> Self {
-        let cases = read_env_or_default(PROGTEST_CASES_ENV_KEY, default_cases, parse_cases);
-        let fork = read_env_or_default(CHUTORO_PBT_FORK_ENV_KEY, default_fork, parse_bool);
+        Self::load_with_lookup(default_cases, default_fork, |key| env::var(key).ok())
+    }
+
+    fn load_with_lookup<F>(default_cases: u32, default_fork: bool, lookup: F) -> Self
+    where
+        F: Fn(&'static str) -> Option<String>,
+    {
+        let cases =
+            read_env_or_default(PROGTEST_CASES_ENV_KEY, default_cases, parse_cases, &lookup);
+        let fork = read_env_or_default(CHUTORO_PBT_FORK_ENV_KEY, default_fork, parse_bool, &lookup);
         Self { cases, fork }
     }
 
@@ -48,13 +56,14 @@ impl ProptestRunProfile {
     }
 }
 
-fn read_env_or_default<T, F>(key: &'static str, default: T, parser: F) -> T
+fn read_env_or_default<T, F, L>(key: &'static str, default: T, parser: F, lookup: &L) -> T
 where
     T: Copy,
     F: Fn(&str) -> Result<T, String>,
+    L: Fn(&'static str) -> Option<String>,
 {
-    match env::var(key) {
-        Ok(raw) => match parser(&raw) {
+    match lookup(key) {
+        Some(raw) => match parser(&raw) {
             Ok(value) => value,
             Err(reason) => {
                 tracing::warn!(
@@ -66,7 +75,7 @@ where
                 default
             }
         },
-        Err(_) => default,
+        None => default,
     }
 }
 
@@ -94,50 +103,30 @@ fn parse_bool(raw: &str) -> Result<bool, String> {
 mod tests {
     use super::*;
     use rstest::rstest;
-    use std::sync::Mutex;
+    use std::collections::HashMap;
 
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    struct EnvGuard {
-        key: &'static str,
-        original: Option<String>,
-    }
-
-    impl EnvGuard {
-        fn set(key: &'static str, value: &str) -> Self {
-            let original = env::var(key).ok();
-            // SAFETY: tests serialize access with ENV_LOCK.
-            unsafe { env::set_var(key, value) };
-            Self { key, original }
+    fn load_with_overrides(
+        default_cases: u32,
+        default_fork: bool,
+        cases_override: Option<&str>,
+        fork_override: Option<&str>,
+    ) -> ProptestRunProfile {
+        let mut env_entries: HashMap<&'static str, String> = HashMap::new();
+        if let Some(raw) = cases_override {
+            env_entries.insert(PROGTEST_CASES_ENV_KEY, raw.to_owned());
+        }
+        if let Some(raw) = fork_override {
+            env_entries.insert(CHUTORO_PBT_FORK_ENV_KEY, raw.to_owned());
         }
 
-        fn unset(key: &'static str) -> Self {
-            let original = env::var(key).ok();
-            // SAFETY: tests serialize access with ENV_LOCK.
-            unsafe { env::remove_var(key) };
-            Self { key, original }
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            if let Some(value) = &self.original {
-                // SAFETY: tests serialize access with ENV_LOCK.
-                unsafe { env::set_var(self.key, value) };
-            } else {
-                // SAFETY: tests serialize access with ENV_LOCK.
-                unsafe { env::remove_var(self.key) };
-            }
-        }
+        ProptestRunProfile::load_with_lookup(default_cases, default_fork, |key| {
+            env_entries.get(key).cloned()
+        })
     }
 
     #[test]
     fn load_defaults_when_no_overrides_exist() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
-        let _cases = EnvGuard::unset(PROGTEST_CASES_ENV_KEY);
-        let _fork = EnvGuard::unset(CHUTORO_PBT_FORK_ENV_KEY);
-
-        let profile = ProptestRunProfile::load(64, false);
+        let profile = load_with_overrides(64, false, None, None);
         assert_eq!(profile.cases(), 64);
         assert!(!profile.fork());
     }
@@ -147,11 +136,7 @@ mod tests {
     #[case("250", 250)]
     #[case("25000", 25_000)]
     fn load_accepts_valid_case_overrides(#[case] raw: &str, #[case] expected: u32) {
-        let _lock = ENV_LOCK.lock().expect("env lock");
-        let _cases = EnvGuard::set(PROGTEST_CASES_ENV_KEY, raw);
-        let _fork = EnvGuard::unset(CHUTORO_PBT_FORK_ENV_KEY);
-
-        let profile = ProptestRunProfile::load(64, false);
+        let profile = load_with_overrides(64, false, Some(raw), None);
         assert_eq!(profile.cases(), expected);
     }
 
@@ -160,11 +145,7 @@ mod tests {
     #[case("-1")]
     #[case("abc")]
     fn load_rejects_invalid_case_overrides(#[case] raw: &str) {
-        let _lock = ENV_LOCK.lock().expect("env lock");
-        let _cases = EnvGuard::set(PROGTEST_CASES_ENV_KEY, raw);
-        let _fork = EnvGuard::unset(CHUTORO_PBT_FORK_ENV_KEY);
-
-        let profile = ProptestRunProfile::load(64, false);
+        let profile = load_with_overrides(64, false, Some(raw), None);
         assert_eq!(profile.cases(), 64);
     }
 
@@ -180,11 +161,7 @@ mod tests {
     #[case("no", false)]
     #[case("off", false)]
     fn load_accepts_valid_fork_overrides(#[case] raw: &str, #[case] expected: bool) {
-        let _lock = ENV_LOCK.lock().expect("env lock");
-        let _cases = EnvGuard::unset(PROGTEST_CASES_ENV_KEY);
-        let _fork = EnvGuard::set(CHUTORO_PBT_FORK_ENV_KEY, raw);
-
-        let profile = ProptestRunProfile::load(64, false);
+        let profile = load_with_overrides(64, false, None, Some(raw));
         assert_eq!(profile.fork(), expected);
     }
 
@@ -193,11 +170,7 @@ mod tests {
     #[case("maybe")]
     #[case("2")]
     fn load_rejects_invalid_fork_overrides(#[case] raw: &str) {
-        let _lock = ENV_LOCK.lock().expect("env lock");
-        let _cases = EnvGuard::unset(PROGTEST_CASES_ENV_KEY);
-        let _fork = EnvGuard::set(CHUTORO_PBT_FORK_ENV_KEY, raw);
-
-        let profile = ProptestRunProfile::load(64, true);
+        let profile = load_with_overrides(64, true, None, Some(raw));
         assert!(profile.fork());
     }
 }
