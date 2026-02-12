@@ -165,8 +165,8 @@ ______________________________________________________________________
 - [x] Build parallel Kruskal property suite: compare against sequential
   oracle, enforce acyclicity/connectivity/edge-count invariants, and rerun jobs
   to detect race-induced non-determinism. (See property-testing-design §4)
-- [x] Integrate property-based suites into CI with a path-filtered PR job (250
-  cases, 10 minute timeout) and scheduled weekly job (25,000 cases,
+- [x] Integrate property-based suites into CI with a path-filtered PR job
+  (250 cases, 10-minute timeout) and scheduled weekly job (25,000 cases,
   `fork = true`, `PROGTEST_CASES` env var). (See property-testing-design §5)
   - [x] CI tuning for property-based guardrails.
     - Decide on the recall floor that CI must enforce by setting

@@ -34,7 +34,7 @@ cases using `rstest`, design decisions are recorded in
   `set -o pipefail` and `tee`.
 - Keep property-test tuning deterministic and explicit via environment-backed
   configuration.
-- Add/extend unit tests with broad `rstest` parameterisation for configuration
+- Add/extend unit tests with broad `rstest` parameterization for configuration
   parsing and guardrail predicates, covering happy and unhappy paths and edge
   cases.
 - Record implementation decisions in `docs/chutoro-design.md`.
@@ -49,14 +49,14 @@ cases using `rstest`, design decisions are recorded in
   confirm.
 - Dependencies: if a new crate is required, stop and confirm before adding it.
 - CI runtime: if the PR property job cannot stay within 10 minutes after two
-  optimisation passes, stop and present options.
+  optimization passes, stop and present options.
 - Flakiness: if guardrail thresholds fail nondeterministically across three
   reruns with identical configuration, stop and escalate with evidence.
 
 ## Risks
 
 - Risk: `PROGTEST_CASES` is not currently wired into all property suites.
-  Severity: high. Likelihood: high. Mitigation: centralise suite profile
+  Severity: high. Likelihood: high. Mitigation: centralize suite profile
   parsing and route all relevant proptest configurations through it.
 - Risk: A strict recall floor causes noisy PR failures.
   Severity: medium. Likelihood: medium. Mitigation: baseline the current recall
@@ -173,8 +173,8 @@ Terminology used in this plan:
 
 ## Plan of Work
 
-Stage A: confirm baseline and finalise guardrails (no code changes). Measure
-current runtime and recall behaviour for existing property suites and finalise
+Stage A: confirm baseline and finalize guardrails (no code changes). Measure
+current runtime and recall behaviour for existing property suites and finalize
 CI values for recall floor and max-connection policy. Go/no-go: do not start
 code edits until thresholds are explicit and documented in this plan.
 

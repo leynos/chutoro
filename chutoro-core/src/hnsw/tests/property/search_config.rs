@@ -19,21 +19,21 @@ pub(super) struct SearchPropertyConfig {
 }
 
 #[derive(Clone, Copy, Debug)]
+/// Newtype wrapper for recognised environment keys used by this config parser.
 struct EnvKey(&'static str);
 
 impl EnvKey {
-    const fn as_str(self) -> &'static str {
-        self.0
-    }
+    #[rustfmt::skip]
+    const fn as_str(self) -> &'static str { self.0 }
 }
 
 #[derive(Clone, Copy, Debug)]
+/// Newtype wrapper for raw environment values consumed by parser helpers.
 struct RawConfigValue<'a>(&'a str);
 
 impl<'a> RawConfigValue<'a> {
-    fn trimmed(self) -> &'a str {
-        self.0.trim()
-    }
+    #[rustfmt::skip]
+    fn trimmed(self) -> &'a str { self.0.trim() }
 }
 
 impl SearchPropertyConfig {
@@ -173,6 +173,27 @@ mod tests {
     ) {
         let err = parse_recall_threshold(RawConfigValue(input)).expect_err("value should fail");
         assert_eq!(err, expected);
+    }
+
+    #[rstest]
+    #[case("2", 2)]
+    #[case("8", 8)]
+    #[case("16", 16)]
+    fn parse_max_fixture_len_accepts_valid_values(#[case] input: &str, #[case] expected: usize) {
+        let parsed = SearchPropertyConfig::parse_max_fixture_len(RawConfigValue(input))
+            .expect("value should parse");
+        assert_eq!(parsed, expected);
+    }
+
+    #[rstest]
+    #[case("0")]
+    #[case("1")]
+    #[case("-1")]
+    #[case("abc")]
+    fn parse_max_fixture_len_rejects_invalid_values(#[case] input: &str) {
+        let err = SearchPropertyConfig::parse_max_fixture_len(RawConfigValue(input))
+            .expect_err("value should fail");
+        assert!(!err.is_empty(), "error message should be non-empty");
     }
 
     #[rstest]

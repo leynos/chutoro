@@ -3,160 +3,21 @@
 //! reachability, and the shared proptest runners/helpers used to orchestrate
 //! these scenarios.
 
-use chutoro_test_support::ci::property_test_profile::ProptestRunProfile;
-use proptest::{
-    prelude::any,
-    prop_assert, prop_assert_eq, proptest,
-    test_runner::{Config, TestCaseError, TestCaseResult, TestError, TestRunner},
-};
+use proptest::{prop_assert, prop_assert_eq, proptest, test_runner::TestCaseResult};
 use rstest::rstest;
-
-/// Runs a property test with the given configuration and strategy.
-fn run_proptest<S, F>(config: Config, strategy: S, test_name: &str, property: F) -> TestCaseResult
-where
-    S: proptest::strategy::Strategy,
-    F: Fn(S::Value) -> TestCaseResult,
-{
-    let mut runner = TestRunner::new(config);
-    runner
-        .run(&strategy, property)
-        .map_err(|err| map_test_error(err, test_name))
-}
-
-/// Maps TestError to TestCaseError with formatted messages.
-fn map_test_error(err: TestError<impl std::fmt::Debug>, test_name: &str) -> TestCaseError {
-    match err {
-        TestError::Abort(reason) => TestCaseError::fail(format!("{test_name} aborted: {reason}")),
-        TestError::Fail(reason, value) => TestCaseError::fail(format!(
-            "{test_name} failed: {reason}; minimal input: {value:#?}"
-        )),
-    }
-}
-
-/// Runs a mutation property test with custom configuration and stack size.
-fn run_mutation_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
-    std::thread::Builder::new()
-        .name("hnsw-mutation".into())
-        .stack_size(stack_size)
-        .spawn(move || run_mutation_proptest(config))
-        .expect("spawn mutation runner")
-        .join()
-        .expect("mutation runner panicked")
-}
-
-fn run_mutation_proptest(config: Config) -> TestCaseResult {
-    run_proptest(
-        config,
-        (hnsw_fixture_strategy(), mutation_plan_strategy()),
-        "hnsw mutation proptest",
-        |(fixture, plan)| run_mutation_property(fixture, plan),
-    )
-}
-
-#[derive(Clone, Copy)]
-struct PropertyRunnerConfig {
-    cases: u32,
-    fork: bool,
-    max_shrink_iters: u32,
-    stack_size: usize,
-}
-
-/// Runs a property test with custom configuration parameters and stack size.
-fn run_test_with_config<F>(runner_config: PropertyRunnerConfig, runner: F) -> TestCaseResult
-where
-    F: FnOnce(Config, usize) -> TestCaseResult,
-{
-    runner(
-        Config {
-            cases: runner_config.cases,
-            fork: runner_config.fork,
-            max_shrink_iters: runner_config.max_shrink_iters,
-            ..Config::default()
-        },
-        runner_config.stack_size,
-    )
-}
-
-/// Runs a mutation property test with custom configuration parameters.
-fn run_mutation_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> TestCaseResult {
-    let profile = property_run_profile(cases);
-    run_test_with_config(
-        PropertyRunnerConfig {
-            cases: profile.cases(),
-            fork: profile.fork(),
-            max_shrink_iters,
-            stack_size,
-        },
-        run_mutation_proptest_with_stack,
-    )
-}
-
-/// Runs an idempotency property test with custom configuration parameters.
-fn run_idempotency_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> TestCaseResult {
-    let profile = property_run_profile(cases);
-    run_test_with_config(
-        PropertyRunnerConfig {
-            cases: profile.cases(),
-            fork: profile.fork(),
-            max_shrink_iters,
-            stack_size,
-        },
-        run_idempotency_proptest_with_stack,
-    )
-}
-
-/// Runs a search property test with custom configuration parameters.
-fn run_search_test(cases: u32, max_shrink_iters: u32) -> TestCaseResult {
-    let profile = property_run_profile(cases);
-    run_proptest(
-        Config {
-            cases: profile.cases(),
-            fork: profile.fork(),
-            max_shrink_iters,
-            ..Config::default()
-        },
-        (hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
-        "hnsw search proptest",
-        |(fixture, query_hint, k_hint)| {
-            run_search_correctness_property(fixture, query_hint, k_hint)
-        },
-    )
-}
-
-/// Runs an idempotency property test with custom configuration and stack size.
-fn run_idempotency_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
-    std::thread::Builder::new()
-        .name("hnsw-idempotency".into())
-        .stack_size(stack_size)
-        .spawn(move || run_idempotency_proptest(config))
-        .expect("spawn idempotency runner")
-        .join()
-        .expect("idempotency runner panicked")
-}
-
-fn run_idempotency_proptest(config: Config) -> TestCaseResult {
-    run_proptest(
-        config,
-        (hnsw_fixture_strategy(), idempotency_plan_strategy()),
-        "hnsw idempotency proptest",
-        |(fixture, plan)| run_idempotency_property(fixture, plan),
-    )
-}
 
 use super::{
     graph_topology_tests::{
         run_graph_metadata_consistency_property, run_graph_mst_compatibility_property,
         run_graph_validity_property,
     },
-    idempotency_property::run_idempotency_property,
     mutation_property::derive_initial_population,
-    mutation_property::run_mutation_property,
-    search_property::run_search_correctness_property,
-    strategies::{
-        graph_fixture_strategy, hnsw_fixture_strategy, idempotency_plan_strategy,
-        mutation_plan_strategy,
-    },
+    strategies::{graph_fixture_strategy, hnsw_fixture_strategy},
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
+    test_runner_support::{
+        idempotency_cases, idempotency_shrink_iters, run_idempotency_test, run_mutation_test,
+        run_search_test, select_idempotency_cases, select_idempotency_shrink_iters,
+    },
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
 use crate::error::DataSourceError;
@@ -332,39 +193,6 @@ fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
         idempotency_shrink_iters(),
         96 * 1024 * 1024,
     )
-}
-
-fn is_coverage_run() -> bool {
-    cfg!(coverage)
-}
-
-fn is_coverage_env_run() -> bool {
-    std::env::var_os("LLVM_PROFILE_FILE").is_some() || std::env::var_os("CARGO_LLVM_COV").is_some()
-}
-
-fn is_coverage_job() -> bool {
-    is_coverage_run() || is_coverage_env_run()
-}
-
-fn select_idempotency_cases(is_coverage_job: bool, configured_cases: u32) -> u32 {
-    if is_coverage_job { 4 } else { configured_cases }
-}
-
-fn idempotency_cases() -> u32 {
-    let configured_cases = property_run_profile(16).cases();
-    select_idempotency_cases(is_coverage_job(), configured_cases)
-}
-
-fn select_idempotency_shrink_iters(is_coverage_job: bool) -> u32 {
-    if is_coverage_job { 128 } else { 1024 }
-}
-
-fn idempotency_shrink_iters() -> u32 {
-    select_idempotency_shrink_iters(is_coverage_job())
-}
-
-fn property_run_profile(default_cases: u32) -> ProptestRunProfile {
-    ProptestRunProfile::load(default_cases, false)
 }
 
 #[rstest]

@@ -6,6 +6,7 @@ name: Property Tests
     types: [opened, synchronize, reopened]
     paths:
       - ".github/workflows/property-tests.yml"
+      - ".config/nextest.toml"
       - "chutoro-core/**"
       - "chutoro-test-support/**"
       - "Cargo.toml"

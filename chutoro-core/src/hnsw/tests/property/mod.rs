@@ -14,5 +14,6 @@ pub(super) mod search_config;
 pub(super) mod search_property;
 pub(super) mod strategies;
 pub(super) mod support;
+mod test_runner_support;
 mod tests;
 pub(super) mod types;
