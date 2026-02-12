@@ -1073,6 +1073,12 @@ property now treats `llvm-cov` environments (`LLVM_PROFILE_FILE` or
 `CARGO_LLVM_COV`) as low-budget runs and falls back to 4 cases unless
 explicitly overridden in the dedicated property workflow.
 
+_Implementation update (2026-02-12)._ The functional ARI/NMI baseline case
+`hnsw_pipeline_matches_exact_baseline::case_2` now runs in isolation in
+`nextest` (`threads-required = 4`) with a 180-second timeout and one retry.
+This replaces the earlier 900-second allowance so a single flaky coverage run
+cannot consume most of the CI budget.
+
 #### 6.7. Stateful mutation property
 
 _Implementation update (2025-11-18)._ The property outlined in

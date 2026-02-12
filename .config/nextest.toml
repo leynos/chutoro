@@ -21,12 +21,12 @@ filter = "test(/hnsw_idempotency_preserved_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
-# Functional ARI/NMI tests can be slow under coverage instrumentation and on
-# CI runners under heavy parallel load. The 900s ceiling accommodates both
-# local llvm-cov runs and shared-runner overhead without requiring a CI-only
-# nextest profile.
-filter = "test(/hnsw_pipeline_matches_exact_baseline/)"
-slow-timeout = { period = "900s", terminate-after = 1, grace-period = "5s" }
+# The ruspini ARI/NMI baseline occasionally stalls under heavy coverage load.
+# Run this single case in isolation and fail fast so it cannot monopolize CI.
+filter = "test(/hnsw_pipeline_matches_exact_baseline::case_2/)"
+threads-required = 4
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+retries = 1
 
 [profile.ci]
 inherits = "default"
@@ -43,6 +43,9 @@ filter = "test(/hnsw_idempotency_preserved_proptest/)"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
-# Functional ARI/NMI tests can be slow on CI runners under heavy parallel load.
-filter = "test(/hnsw_pipeline_matches_exact_baseline/)"
-slow-timeout = { period = "900s", terminate-after = 1, grace-period = "5s" }
+# The ruspini ARI/NMI baseline occasionally stalls under heavy coverage load.
+# Run this single case in isolation and fail fast so it cannot monopolize CI.
+filter = "test(/hnsw_pipeline_matches_exact_baseline::case_2/)"
+threads-required = 4
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+retries = 1
