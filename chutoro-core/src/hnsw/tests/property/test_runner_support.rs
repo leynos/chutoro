@@ -13,20 +13,35 @@ use super::{
     strategies::{hnsw_fixture_strategy, idempotency_plan_strategy, mutation_plan_strategy},
 };
 
+fn run_test_with_profile<F>(
+    cases: u32,
+    max_shrink_iters: u32,
+    stack_size: usize,
+    test_runner: F,
+) -> TestCaseResult
+where
+    F: FnOnce(Config, usize) -> TestCaseResult,
+{
+    let profile = property_run_profile(cases);
+    let config = PropertyRunnerConfig {
+        cases: profile.cases(),
+        fork: profile.fork(),
+        max_shrink_iters,
+        stack_size,
+    };
+    run_test_with_config(config, test_runner)
+}
+
 /// Runs a mutation property test with custom configuration parameters.
 pub(super) fn run_mutation_test(
     cases: u32,
     max_shrink_iters: u32,
     stack_size: usize,
 ) -> TestCaseResult {
-    let profile = property_run_profile(cases);
-    run_test_with_config(
-        PropertyRunnerConfig {
-            cases: profile.cases(),
-            fork: profile.fork(),
-            max_shrink_iters,
-            stack_size,
-        },
+    run_test_with_profile(
+        cases,
+        max_shrink_iters,
+        stack_size,
         run_mutation_proptest_with_stack,
     )
 }
@@ -55,14 +70,10 @@ pub(super) fn run_idempotency_test(
     max_shrink_iters: u32,
     stack_size: usize,
 ) -> TestCaseResult {
-    let profile = property_run_profile(cases);
-    run_test_with_config(
-        PropertyRunnerConfig {
-            cases: profile.cases(),
-            fork: profile.fork(),
-            max_shrink_iters,
-            stack_size,
-        },
+    run_test_with_profile(
+        cases,
+        max_shrink_iters,
+        stack_size,
         run_idempotency_proptest_with_stack,
     )
 }
