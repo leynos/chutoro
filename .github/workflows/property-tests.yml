@@ -35,10 +35,13 @@ jobs:
       CHUTORO_HNSW_PBT_MIN_RECALL: "0.60"
       CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
-      - name: Setup Rust
+      - &checkout_step
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - &setup_rust_step
+        name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
-      - name: Ensure cargo-binstall is available
+      - &ensure_cargo_binstall_step
+        name: Ensure cargo-binstall is available
         run: |
           set -euo pipefail
           if ! cargo binstall --version >/dev/null 2>&1; then
@@ -46,9 +49,11 @@ jobs:
               https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
               | bash
           fi
-      - name: Install cargo-nextest
+      - &install_nextest_step
+        name: Install cargo-nextest
         run: cargo binstall --no-confirm cargo-nextest
-      - name: Run property suite
+      - &run_property_suite_step
+        name: Run property suite
         run: |
           set -o pipefail
           case "${{ matrix.suite }}" in
@@ -71,6 +76,15 @@ jobs:
                 2>&1 | tee /tmp/property-${{ matrix.suite }}.log
               ;;
           esac
+      - &upload_proptest_regressions_step
+        name: Upload proptest regressions
+        if: failure()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: proptest-regressions-${{ matrix.suite }}
+          path: |
+            **/proptest-regressions/**
+            /tmp/property-${{ matrix.suite }}.log
 
   property-tests-weekly:
     if: ${{ github.event_name != 'pull_request' }}
@@ -92,47 +106,9 @@ jobs:
       CHUTORO_HNSW_PBT_MIN_RECALL: "0.60"
       CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
-      - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
-      - name: Ensure cargo-binstall is available
-        run: |
-          set -euo pipefail
-          if ! cargo binstall --version >/dev/null 2>&1; then
-            curl -L --proto '=https' --tlsv1.2 -sSf \
-              https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh \
-              | bash
-          fi
-      - name: Install cargo-nextest
-        run: cargo binstall --no-confirm cargo-nextest
-      - name: Run deep property suite
-        run: |
-          set -o pipefail
-          case "${{ matrix.suite }}" in
-            hnsw)
-              cargo nextest run --profile ci -p chutoro-core \
-                hnsw::tests::property::tests::hnsw_search_matches_brute_force_proptest \
-                hnsw::tests::property::tests::hnsw_mutations_preserve_invariants_proptest \
-                hnsw::tests::property::tests::hnsw_idempotency_preserved_proptest \
-                2>&1 | tee /tmp/property-${{ matrix.suite }}.log
-              ;;
-            edge_harvest)
-              cargo nextest run --profile ci -p chutoro-core \
-                hnsw::tests::property::edge_harvest_suite:: \
-                hnsw::tests::property::edge_harvest_output::suite:: \
-                2>&1 | tee /tmp/property-${{ matrix.suite }}.log
-              ;;
-            mst)
-              cargo nextest run --profile ci -p chutoro-core \
-                mst::property::tests:: \
-                2>&1 | tee /tmp/property-${{ matrix.suite }}.log
-              ;;
-          esac
-      - name: Upload proptest regressions
-        if: failure()
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
-        with:
-          name: proptest-regressions-${{ matrix.suite }}
-          path: |
-            **/proptest-regressions/**
-            /tmp/property-${{ matrix.suite }}.log
+      - *checkout_step
+      - *setup_rust_step
+      - *ensure_cargo_binstall_step
+      - *install_nextest_step
+      - *run_property_suite_step
+      - *upload_proptest_regressions_step

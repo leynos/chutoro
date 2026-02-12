@@ -218,18 +218,22 @@ fn run_idempotency_proptest(config: Config) -> TestCaseResult {
     )
 }
 
+/// Returns `true` when code is compiled with coverage instrumentation enabled.
 fn is_coverage_run() -> bool {
     cfg!(coverage)
 }
 
+/// Returns `true` when the runtime environment indicates a coverage collection run.
 fn is_coverage_env_run() -> bool {
     std::env::var_os("LLVM_PROFILE_FILE").is_some() || std::env::var_os("CARGO_LLVM_COV").is_some()
 }
 
+/// Detects whether the current execution context should use coverage job budgets.
 fn is_coverage_job() -> bool {
     is_coverage_run() || is_coverage_env_run()
 }
 
+/// Loads the proptest run profile for the supplied default case count.
 fn property_run_profile(default_cases: u32) -> ProptestRunProfile {
     ProptestRunProfile::load(default_cases, false)
 }
