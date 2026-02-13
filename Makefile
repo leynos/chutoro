@@ -1,4 +1,4 @@
-.PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie kani kani-full verus
+.PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie kani kani-full verus bench
 
 APP ?= chutoro-cli
 CARGO ?= cargo
@@ -52,6 +52,9 @@ kani-full: ## Run all Kani formal verification harnesses
 
 verus: ## Run Verus proofs for edge harvest primitives
 	VERUS_BIN="$(VERUS_BIN)" scripts/run-verus.sh
+
+bench: ## Run Criterion benchmarks
+	$(CARGO) bench -p chutoro-benches
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \

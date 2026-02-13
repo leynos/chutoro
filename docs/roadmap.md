@@ -238,7 +238,7 @@ ______________________________________________________________________
 
 ### 2.1. Benchmarking infrastructure
 
-- [ ] 2.1.1. Create `chutoro-benches` with Criterion harness for HNSW
+- [x] 2.1.1. Create `chutoro-benches` with Criterion harness for HNSW
   build, edge harvest, MST, and extraction timings. (See §11)
 - [ ] 2.1.2. Add dataset fixtures (synthetic Gaussians, rings; text
   strings) and record footprints vs `M∈{8,12,16,24}`. (See §1.3)
