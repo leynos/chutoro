@@ -45,6 +45,8 @@
 - Documentation must use en-GB-oxendict ("-ize" / "-yse" / "-our") spelling
   and grammar. (EXCEPTION: the naming of the "LICENSE" file, which is to be
   left unchanged for community consistency.)
+- A documentation style guide is provided at
+  `docs/documentation-style-guide.md`.
 
 ## Change Quality & Committing
 
@@ -169,7 +171,6 @@ project:
 - Use `rstest` fixtures for shared setup.
 - Replace duplicated tests with `#[rstest(...)]` parameterised cases.
 - Prefer `mockall` for mocks/stubs.
-- Prefer `.expect()` over `.unwrap()`.
 - Use `concat!()` to combine long string literals rather than escaping newlines
   with a backslash.
 - Prefer single line versions of functions where appropriate. I.e.,
@@ -225,6 +226,17 @@ project:
 - **Never export the opaque type from a library**. Convert to domain enums at
   API boundaries, and to `eyre` only in the main `main()` entrypoint or
   top-level async task.
+- Prefer `.expect()` over `.unwrap()`. `.expect()` is forbidden outside of
+  tests.
+- Make fixtures **fallible**: return `Result` and use `?` to propagate errors.
+- Keep `expect_used` **strict**; do not suppress the lint.
+- Recognise that `allow-expect-in-tests = true` **doesn’t cover** helpers
+  outside `#[cfg(test)]` or `#[test]`; avoid `expect` in such fixtures.
+- Use `anyhow`/`eyre` with `.context(...)` to **preserve backtraces** and
+  provide clear, typed failure paths.
+- Update helpers (e.g., `set_dir`) to **return errors** rather than panicking.
+- Consume fallible fixtures in `rstest` by **making the test return `Result`**
+  and applying `?` to the fixture.
 
 ## Markdown Guidance
 
