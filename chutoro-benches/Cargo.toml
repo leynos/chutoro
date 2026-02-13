@@ -1,22 +1,35 @@
-[workspace]
-resolver = "3"
-members = [
-    "chutoro-core",
-    "chutoro-cli",
-    "chutoro-providers/dense",
-    "chutoro-providers/text",
-    "chutoro-test-support",
-    "chutoro-benches",
-]
-
-[workspace.package]
+[package]
+name = "chutoro-benches"
 version = "0.1.0"
 edition = "2024"
-license = "ISC"
-repository = "https://github.com/leynos/chutoro"
-rust-version = "1.88.0"
+publish = false
 
-[workspace.lints.clippy]
+[dependencies]
+chutoro-core = { path = "../chutoro-core" }
+rand = { version = "0.8.5", features = ["small_rng"] }
+thiserror = "1.0.69"
+
+[dev-dependencies]
+criterion = { version = "0.5.1", features = ["html_reports"] }
+rstest = "0.23"
+
+[[bench]]
+name = "hnsw"
+harness = false
+
+[[bench]]
+name = "edge_harvest"
+harness = false
+
+[[bench]]
+name = "mst"
+harness = false
+
+[[bench]]
+name = "extraction"
+harness = false
+
+[lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 
 # 1. hygiene
@@ -77,12 +90,12 @@ missing_panics_doc                  = "deny"
 error_impl_error                    = "deny"
 result_large_err                    = "deny"
 
-[workspace.lints.rust]
+[lints.rust]
 unknown_lints                       = "deny"
 renamed_and_removed_lints           = "deny"
 missing_docs                        = "deny"
 
-[workspace.lints.rustdoc]
+[lints.rustdoc]
 missing_crate_level_docs            = "deny"
 broken_intra_doc_links              = "deny"
 private_intra_doc_links             = "deny"
