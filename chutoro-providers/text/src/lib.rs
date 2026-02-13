@@ -65,7 +65,7 @@ impl TextProvider {
     /// use chutoro_core::DataSource;
     /// use chutoro_providers_text::TextProvider;
     ///
-    /// let cursor = Cursor::new("alpha\\nbeta\\n");
+    /// let cursor = Cursor::new("alpha\nbeta\n");
     /// let provider = TextProvider::try_from_reader("demo", cursor)
     ///     .expect("provider must build");
     /// assert_eq!(provider.len(), 2);

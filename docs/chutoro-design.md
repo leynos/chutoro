@@ -1047,12 +1047,37 @@ large fixtures are rejected up-front using the
 `CHUTORO_HNSW_PBT_MAX_FIXTURE_LEN` cap (default `32`), ensuring the brute-force
 oracle never dominates CI time; both limits can be overridden per job. To avoid
 asking the graph for more detail than its fan-out allows, the property only
-evaluates fixtures with `max_connections >= 16` and bounds `k` by
-`min(16, len, max_connections)`. The test captures `Instant` timings for both
-the HNSW search and the brute-force scan, logging the microsecond durations and
-the derived speed-up ratio at `DEBUG` solely for observability. Recall falling
-below the configured threshold is the only failure condition today; speed-up
-data helps diagnose regressions but does not gate CI.
+evaluates fixtures with
+`max_connections >= CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS` (default `12`) and
+bounds `k` by `min(16, len, max_connections)`. The test captures `Instant`
+timings for both the HNSW search and the brute-force scan, logging the
+microsecond durations and the derived speed-up ratio at `DEBUG` solely for
+observability. Recall falling below the configured threshold is the only
+failure condition today; speed-up data helps diagnose regressions but does not
+gate CI.
+
+_Implementation update (2026-02-10)._ Property suites now run in a dedicated
+workflow at `.github/workflows/property-tests.yml` with two tiers:
+
+- A path-filtered pull request (PR) run that executes the HNSW, candidate edge
+  harvest, and parallel Kruskal suites with `PROGTEST_CASES=250`, a 10-minute
+  timeout, and `CHUTORO_HNSW_PBT_MIN_RECALL=0.60`.
+- A weekly scheduled deep run with `PROGTEST_CASES=25000` and forked execution
+  (`CHUTORO_PBT_FORK=true`) to isolate case failures.
+
+The property runners consume a shared profile parser in `chutoro-test-support`
+so `PROGTEST_CASES` and fork mode are interpreted consistently across suites.
+Weekly failures upload `proptest-regressions` artefacts and suite logs for
+replay. To keep coverage jobs within `nextest` timeouts, the idempotency
+property now treats `llvm-cov` environments (`LLVM_PROFILE_FILE` or
+`CARGO_LLVM_COV`) as low-budget runs and falls back to 4 cases unless
+explicitly overridden in the dedicated property workflow.
+
+_Implementation update (2026-02-12)._ The functional ARI/NMI baseline case
+`hnsw_pipeline_matches_exact_baseline::case_2` now runs in isolation in
+`nextest` (`threads-required = 4`) with a 180-second timeout and one retry.
+This replaces the earlier 900-second allowance so a single flaky coverage run
+cannot consume most of the CI budget.
 
 #### 6.7. Stateful mutation property
 

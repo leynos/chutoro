@@ -24,6 +24,8 @@ impl DenseSource {
     /// # Examples
     /// ```
     /// use chutoro_providers_dense::DenseSource;
+    /// use chutoro_core::DataSource;
+    ///
     /// let ds = DenseSource::new("demo", vec![vec![0.0], vec![1.0]]);
     /// assert_eq!(ds.len(), 2);
     /// ```

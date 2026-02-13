@@ -10,6 +10,7 @@ use rand::SeedableRng;
 use rand::rngs::SmallRng;
 
 use crate::CandidateEdge;
+use crate::test_utils::suite_proptest_config;
 
 use super::concurrency::run_concurrency_safety_property;
 use super::equivalence::run_oracle_equivalence_property;
@@ -72,7 +73,7 @@ macro_rules! parameterised_property_test {
 // ========================================================================
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
+    #![proptest_config(suite_proptest_config(256))]
 
     #[test]
     fn mst_oracle_equivalence(fixture in mst_fixture_strategy()) {

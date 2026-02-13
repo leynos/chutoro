@@ -1,9 +1,6 @@
 //! Harvested-output property checks for candidate edge harvesting.
 
-use proptest::{
-    prelude::ProptestConfig,
-    test_runner::{TestCaseError, TestCaseResult, TestRunner},
-};
+use proptest::test_runner::{TestCaseError, TestCaseResult, TestRunner};
 
 use super::super::graph_metrics::{
     compute_node_degrees, compute_rnn_score, count_connected_components,
@@ -14,6 +11,7 @@ use super::super::strategies::graph_fixture_strategy_for_topology;
 use super::super::types::{GraphFixture, GraphMetadata, GraphTopology};
 use super::harvest::{harvest_candidate_edges, harvest_k_for_metadata};
 use super::{CONNECTIVITY_PRESERVATION_THRESHOLD, HARVEST_CASES_PER_TOPOLOGY};
+use crate::test_utils::suite_proptest_config;
 
 /// Captures per-fixture metrics for harvested-output property checks.
 #[derive(Clone, Copy, Debug)]
@@ -100,8 +98,9 @@ fn min_rnn_delta_for_topology(topology: GraphTopology) -> f64 {
 
 /// Runs the harvested-output suite for a specific topology.
 pub(super) fn run_harvested_output_suite_for_topology(topology: GraphTopology) -> TestCaseResult {
-    let mut runner = TestRunner::new(ProptestConfig::with_cases(HARVEST_CASES_PER_TOPOLOGY));
-    let cases = runner.config().cases as usize;
+    let config = suite_proptest_config(HARVEST_CASES_PER_TOPOLOGY);
+    let cases = config.cases as usize;
+    let mut runner = TestRunner::new(config);
     let strategy = graph_fixture_strategy_for_topology(topology);
 
     let metrics = std::cell::RefCell::new(Vec::with_capacity(cases));

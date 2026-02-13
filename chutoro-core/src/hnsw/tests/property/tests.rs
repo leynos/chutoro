@@ -3,145 +3,22 @@
 //! reachability, and the shared proptest runners/helpers used to orchestrate
 //! these scenarios.
 
-use proptest::{
-    prelude::any,
-    prop_assert, prop_assert_eq, proptest,
-    test_runner::{Config, TestCaseError, TestCaseResult, TestError, TestRunner},
-};
+use proptest::{prop_assert, prop_assert_eq, proptest, test_runner::TestCaseResult};
 use rstest::rstest;
-
-/// Runs a property test with the given configuration and strategy.
-fn run_proptest<S, F>(config: Config, strategy: S, test_name: &str, property: F) -> TestCaseResult
-where
-    S: proptest::strategy::Strategy,
-    F: Fn(S::Value) -> TestCaseResult,
-{
-    let mut runner = TestRunner::new(config);
-    runner
-        .run(&strategy, property)
-        .map_err(|err| map_test_error(err, test_name))
-}
-
-/// Maps TestError to TestCaseError with formatted messages.
-fn map_test_error(err: TestError<impl std::fmt::Debug>, test_name: &str) -> TestCaseError {
-    match err {
-        TestError::Abort(reason) => TestCaseError::fail(format!("{test_name} aborted: {reason}")),
-        TestError::Fail(reason, value) => TestCaseError::fail(format!(
-            "{test_name} failed: {reason}; minimal input: {value:#?}"
-        )),
-    }
-}
-
-/// Runs a mutation property test with custom configuration and stack size.
-fn run_mutation_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
-    std::thread::Builder::new()
-        .name("hnsw-mutation".into())
-        .stack_size(stack_size)
-        .spawn(move || run_mutation_proptest(config))
-        .expect("spawn mutation runner")
-        .join()
-        .expect("mutation runner panicked")
-}
-
-fn run_mutation_proptest(config: Config) -> TestCaseResult {
-    run_proptest(
-        config,
-        (hnsw_fixture_strategy(), mutation_plan_strategy()),
-        "hnsw mutation proptest",
-        |(fixture, plan)| run_mutation_property(fixture, plan),
-    )
-}
-
-/// Runs a property test with custom configuration parameters and stack size.
-fn run_test_with_config<F>(
-    cases: u32,
-    max_shrink_iters: u32,
-    stack_size: usize,
-    runner: F,
-) -> TestCaseResult
-where
-    F: FnOnce(Config, usize) -> TestCaseResult,
-{
-    runner(
-        Config {
-            cases,
-            max_shrink_iters,
-            ..Config::default()
-        },
-        stack_size,
-    )
-}
-
-/// Runs a mutation property test with custom configuration parameters.
-fn run_mutation_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> TestCaseResult {
-    run_test_with_config(
-        cases,
-        max_shrink_iters,
-        stack_size,
-        run_mutation_proptest_with_stack,
-    )
-}
-
-/// Runs an idempotency property test with custom configuration parameters.
-fn run_idempotency_test(cases: u32, max_shrink_iters: u32, stack_size: usize) -> TestCaseResult {
-    run_test_with_config(
-        cases,
-        max_shrink_iters,
-        stack_size,
-        run_idempotency_proptest_with_stack,
-    )
-}
-
-/// Runs a search property test with custom configuration parameters.
-fn run_search_test(cases: u32, max_shrink_iters: u32) -> TestCaseResult {
-    run_proptest(
-        Config {
-            cases,
-            max_shrink_iters,
-            ..Config::default()
-        },
-        (hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
-        "hnsw search proptest",
-        |(fixture, query_hint, k_hint)| {
-            run_search_correctness_property(fixture, query_hint, k_hint)
-        },
-    )
-}
-
-/// Runs an idempotency property test with custom configuration and stack size.
-fn run_idempotency_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
-    std::thread::Builder::new()
-        .name("hnsw-idempotency".into())
-        .stack_size(stack_size)
-        .spawn(move || run_idempotency_proptest(config))
-        .expect("spawn idempotency runner")
-        .join()
-        .expect("idempotency runner panicked")
-}
-
-fn run_idempotency_proptest(config: Config) -> TestCaseResult {
-    run_proptest(
-        config,
-        (hnsw_fixture_strategy(), idempotency_plan_strategy()),
-        "hnsw idempotency proptest",
-        |(fixture, plan)| run_idempotency_property(fixture, plan),
-    )
-}
 
 use super::{
     graph_topology_tests::{
         run_graph_metadata_consistency_property, run_graph_mst_compatibility_property,
         run_graph_validity_property,
     },
-    idempotency_property::run_idempotency_property,
     mutation_property::derive_initial_population,
-    mutation_property::run_mutation_property,
-    search_property::run_search_correctness_property,
-    strategies::{
-        graph_fixture_strategy, hnsw_fixture_strategy, idempotency_plan_strategy,
-        mutation_plan_strategy,
-    },
+    strategies::{graph_fixture_strategy, hnsw_fixture_strategy},
     support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
+    test_runner_support::{
+        ShrinkIterations, StackSize, TestCases, idempotency_cases, idempotency_shrink_iters,
+        run_idempotency_test, run_mutation_test, run_search_test, select_idempotency_cases,
+        select_idempotency_shrink_iters,
+    },
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
 use crate::error::DataSourceError;
@@ -302,48 +179,62 @@ proptest! {
 #[test]
 #[ignore]
 fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
-    run_mutation_test(640, 4096, 32 * 1024 * 1024)
+    run_mutation_test(
+        TestCases::new(640),
+        ShrinkIterations::new(4096),
+        StackSize::new(32 * 1024 * 1024),
+    )
 }
 
 #[test]
 fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
-    run_search_test(64, 1024)
+    run_search_test(TestCases::new(64), ShrinkIterations::new(1024))
 }
 
 #[test]
 fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
     run_idempotency_test(
-        idempotency_cases(),
-        idempotency_shrink_iters(),
-        96 * 1024 * 1024,
+        TestCases::new(idempotency_cases()),
+        ShrinkIterations::new(idempotency_shrink_iters()),
+        StackSize::new(96 * 1024 * 1024),
     )
 }
 
-fn is_coverage_run() -> bool {
-    cfg!(coverage)
+#[rstest]
+#[case(true, 250, 4)]
+#[case(false, 250, 250)]
+#[case(false, 16, 16)]
+fn select_idempotency_cases_enforces_coverage_budget(
+    #[case] coverage_job: bool,
+    #[case] configured_cases: u32,
+    #[case] expected_cases: u32,
+) {
+    assert_eq!(
+        select_idempotency_cases(coverage_job, configured_cases),
+        expected_cases
+    );
 }
 
-fn is_ci_run() -> bool {
-    std::env::var("CI").is_ok()
-}
-
-fn idempotency_cases() -> u32 {
-    if is_coverage_run() {
-        4
-    } else if is_ci_run() {
-        64
-    } else {
-        16
-    }
-}
-
-fn idempotency_shrink_iters() -> u32 {
-    if is_coverage_run() { 128 } else { 1024 }
+#[rstest]
+#[case(true, 128)]
+#[case(false, 1024)]
+fn select_idempotency_shrink_iters_enforces_coverage_budget(
+    #[case] coverage_job: bool,
+    #[case] expected_iters: u32,
+) {
+    assert_eq!(
+        select_idempotency_shrink_iters(coverage_job),
+        expected_iters
+    );
 }
 
 #[test]
 fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
-    run_mutation_test(64, 1024, 96 * 1024 * 1024)
+    run_mutation_test(
+        TestCases::new(64),
+        ShrinkIterations::new(1024),
+        StackSize::new(96 * 1024 * 1024),
+    )
 }
 
 #[test]

@@ -68,6 +68,7 @@ pub(super) fn run_connectivity_preservation_property(fixture: &GraphFixture) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::suite_proptest_config;
     use proptest::prelude::*;
     use rstest::rstest;
 
@@ -94,7 +95,7 @@ mod tests {
     // ========================================================================
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(64))]
+        #![proptest_config(suite_proptest_config(64))]
 
         #[test]
         fn graph_topology_connectivity_proptest(fixture in graph_fixture_strategy()) {

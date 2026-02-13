@@ -1,0 +1,108 @@
+name: Property Tests
+
+"on":
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/property-tests.yml"
+      - ".config/nextest.toml"
+      - "chutoro-core/**"
+      - "chutoro-test-support/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  schedule:
+    - cron: "0 2 * * 0"
+  workflow_dispatch:
+
+jobs:
+  property-tests-pr:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [hnsw, edge_harvest, mst]
+    env:
+      CARGO_TERM_COLOR: always
+      PROGTEST_CASES: "250"
+      PROPTEST_CASES: "250"
+      CHUTORO_PBT_FORK: "false"
+      PROPTEST_FORK: "false"
+      CHUTORO_HNSW_PBT_MIN_RECALL: "0.60"
+      CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
+    steps:
+      - &checkout_step
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - &setup_rust_step
+        name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
+      - &install_nextest_step
+        name: Install cargo-nextest
+        run: cargo binstall --no-confirm cargo-nextest
+      - &run_property_suite_step
+        name: Run property suite
+        run: |
+          set -o pipefail
+          case "${{ matrix.suite }}" in
+            hnsw)
+              cargo nextest run --profile ci -p chutoro-core \
+                hnsw::tests::property::tests::hnsw_search_matches_brute_force_proptest \
+                hnsw::tests::property::tests::hnsw_mutations_preserve_invariants_proptest \
+                hnsw::tests::property::tests::hnsw_idempotency_preserved_proptest \
+                2>&1 | tee /tmp/property-${{ matrix.suite }}.log
+              ;;
+            edge_harvest)
+              cargo nextest run --profile ci -p chutoro-core \
+                hnsw::tests::property::edge_harvest_suite:: \
+                hnsw::tests::property::edge_harvest_output::suite:: \
+                2>&1 | tee /tmp/property-${{ matrix.suite }}.log
+              ;;
+            mst)
+              cargo nextest run --profile ci -p chutoro-core \
+                mst::property::tests:: \
+                2>&1 | tee /tmp/property-${{ matrix.suite }}.log
+              ;;
+            *)
+              echo "unknown property suite: ${{ matrix.suite }}" >&2
+              exit 1
+              ;;
+          esac
+      - &upload_proptest_regressions_step
+        name: Upload proptest regressions
+        if: failure()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: proptest-regressions-${{ matrix.suite }}
+          path: |
+            **/proptest-regressions/**
+            /tmp/property-${{ matrix.suite }}.log
+
+  property-tests-weekly:
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [hnsw, edge_harvest, mst]
+    env:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: "1"
+      PROGTEST_CASES: "25000"
+      PROPTEST_CASES: "25000"
+      CHUTORO_PBT_FORK: "true"
+      PROPTEST_FORK: "true"
+      CHUTORO_HNSW_PBT_MIN_RECALL: "0.60"
+      CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
+    steps:
+      - *checkout_step
+      - *setup_rust_step
+      - *install_nextest_step
+      - *run_property_suite_step
+      - *upload_proptest_regressions_step

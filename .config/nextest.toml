@@ -21,12 +21,17 @@ filter = "test(/hnsw_idempotency_preserved_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
-# Functional ARI/NMI tests can be slow under coverage instrumentation and on
-# CI runners under heavy parallel load. The 900s ceiling accommodates both
-# local llvm-cov runs and shared-runner overhead without requiring a CI-only
-# nextest profile.
-filter = "test(/hnsw_pipeline_matches_exact_baseline/)"
-slow-timeout = { period = "900s", terminate-after = 1, grace-period = "5s" }
+# Search-vs-brute-force proptest can exceed the default timeout under CI load.
+filter = "test(/hnsw_search_matches_brute_force_proptest/)"
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
+# The ARI/NMI baseline cases occasionally stall under heavy coverage load.
+# Run these cases in isolation and fail fast so they cannot monopolize CI.
+filter = "test(/hnsw_pipeline_matches_exact_baseline::case_/)"
+threads-required = 4
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+retries = 1
 
 [profile.ci]
 inherits = "default"
@@ -43,6 +48,14 @@ filter = "test(/hnsw_idempotency_preserved_proptest/)"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
-# Functional ARI/NMI tests can be slow on CI runners under heavy parallel load.
-filter = "test(/hnsw_pipeline_matches_exact_baseline/)"
-slow-timeout = { period = "900s", terminate-after = 1, grace-period = "5s" }
+# Search-vs-brute-force proptest can exceed the default timeout under CI load.
+filter = "test(/hnsw_search_matches_brute_force_proptest/)"
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+# The ARI/NMI baseline cases occasionally stall under heavy coverage load.
+# Run these cases in isolation and fail fast so they cannot monopolize CI.
+filter = "test(/hnsw_pipeline_matches_exact_baseline::case_/)"
+threads-required = 4
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+retries = 1

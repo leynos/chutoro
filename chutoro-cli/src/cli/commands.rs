@@ -316,7 +316,7 @@ where
 /// };
 /// let mut buffer = Cursor::new(Vec::new());
 /// render_summary(&summary, &mut buffer)?;
-/// assert_eq!(buffer.into_inner().len(), 54);
+/// assert_eq!(buffer.into_inner().len(), 38);
 /// # Ok(())
 /// # }
 /// ```

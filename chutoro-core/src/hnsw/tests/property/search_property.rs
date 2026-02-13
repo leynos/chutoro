@@ -43,8 +43,7 @@ pub(super) fn run_search_correctness_property(
     prop_assume!(len >= MIN_FIXTURE_LEN);
     prop_assume!(len <= config.max_fixture_len());
 
-    const MIN_VALID_CONNECTIONS: usize = 16;
-    prop_assume!(fixture.params.max_connections >= MIN_VALID_CONNECTIONS);
+    prop_assume!(fixture.params.max_connections >= config.min_max_connections());
     let query = (usize::from(query_hint) % len).min(len.saturating_sub(1));
     let fanout_cap = fixture.params.max_connections.max(2);
     let max_k = len.min(16).min(fanout_cap);
@@ -332,7 +331,7 @@ fn brute_force_top_k_handles_empty_source() {
 #[cfg(test)]
 #[test]
 fn search_property_rejects_single_item_fixture() {
-    let fixture = fixture_with_len(1, 1, 16);
+    let fixture = fixture_with_len(1, 1, SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS);
     let result = run_search_correctness_property(fixture, 0, 0);
     assert!(matches!(result, Err(TestCaseError::Reject(_))));
 }
@@ -341,7 +340,7 @@ fn search_property_rejects_single_item_fixture() {
 #[test]
 fn search_property_rejects_fixtures_exceeding_max_len() {
     let len = SearchPropertyConfig::DEFAULT_MAX_FIXTURE_LEN + 1;
-    let fixture = fixture_with_len(len, 2, 16);
+    let fixture = fixture_with_len(len, 2, SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS);
     let result = run_search_correctness_property(fixture, 0, 0);
     assert!(matches!(result, Err(TestCaseError::Reject(_))));
 }
@@ -349,7 +348,7 @@ fn search_property_rejects_fixtures_exceeding_max_len() {
 #[cfg(test)]
 #[test]
 fn search_property_rejects_when_connections_too_low() {
-    let fixture = fixture_with_len(4, 2, 8);
+    let fixture = fixture_with_len(4, 2, SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS - 1);
     let result = run_search_correctness_property(fixture, 0, 0);
     assert!(matches!(result, Err(TestCaseError::Reject(_))));
 }
