@@ -240,10 +240,34 @@ ______________________________________________________________________
 
 - [x] 2.1.1. Create `chutoro-benches` with Criterion harness for HNSW
   build, edge harvest, MST, and extraction timings. (See §11)
-- [ ] 2.1.2. Add dataset fixtures (synthetic Gaussians, rings; text
-  strings) and record footprints vs `M∈{8,12,16,24}`. (See §1.3)
-- [ ] 2.1.3. Implement memory guards (`--max-bytes`) and clear failure
-  messages. (See §5)
+- [ ] 2.1.2. Extend `SyntheticSource` with diverse data generators:
+  Gaussian blobs (configurable separation, cluster count, and anisotropy),
+  ring/manifold patterns for non-linearly-separable data, and text strings
+  exercising Levenshtein distance. Add MNIST (70k ×
+  784) as a real-world baseline via a download-and-cache helper.
+  Document which synthetic patterns stress which pipeline stages. (See §1.3)
+- [ ] 2.1.3. Track memory footprint alongside timing: use Criterion
+  custom measurements or a separate profiler to record peak memory during HNSW
+  build. Report memory/point and memory/edge metrics vs `M∈{8,12,16,24}`.
+  Validate that memory scales as expected (≈ n×M edges). (See §11)
+- [ ] 2.1.4. Expand parameter coverage: add M=12 and M=24 to HNSW
+  benchmarks (current sweep is {8, 16}), and vary `ef_construction` (e.g., 100,
+  200, 400) to show build-time vs recall trade-offs. Document parameter choices
+  and their performance/quality implications. (See §6.2)
+- [ ] 2.1.5. Implement memory guards (`--max-bytes`) in the CLI with
+  clear failure messages when datasets exceed available memory. Ensure
+  benchmarks fail fast on oversized datasets and document expected memory
+  requirements per dataset size. (See §5)
+- [ ] 2.1.6. Add optional clustering quality tracking to benchmarks:
+  for synthetic clustered data (Gaussians), compute Adjusted Rand Index (ARI)
+  and Normalised Mutual Information (NMI) against ground truth as secondary
+  metrics alongside timing. Guards against quality regressions during
+  performance tuning. (See §11)
+- [ ] 2.1.7. Establish a CI regression detection strategy for
+  benchmarks: document whether benchmarks run on every pull request (PR) or on
+  a scheduled nightly/weekly job using Criterion's baseline comparison. If too
+  slow for PR gating, add a scheduled job and document the developer-run
+  workflow. (See §11)
 
 ### 2.2. Single Instruction, Multiple Data (SIMD) distance kernels
 
