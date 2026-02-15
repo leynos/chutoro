@@ -307,7 +307,7 @@ mod tests {
             SyntheticSource::generate(&default_config(5, 4)).expect("generation must succeed");
         let err = source
             .distance(left, right)
-            .expect_err("out-of-bounds {position} index must be rejected");
+            .expect_err(&format!("out-of-bounds {position} index must be rejected"));
         assert!(
             matches!(err, DataSourceError::OutOfBounds { index } if index == expected_index),
             "expected OutOfBounds({expected_index}) for {position} index, got {err:?}",
