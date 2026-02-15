@@ -295,28 +295,22 @@ mod tests {
     // -- unhappy path: out-of-bounds index --------------------------------
 
     #[rstest]
-    fn rejects_out_of_bounds_left_index() {
+    #[case(10, 0, 10, "left")]
+    #[case(0, 10, 10, "right")]
+    fn rejects_out_of_bounds_index(
+        #[case] left: usize,
+        #[case] right: usize,
+        #[case] expected_index: usize,
+        #[case] position: &str,
+    ) {
         let source =
             SyntheticSource::generate(&default_config(5, 4)).expect("generation must succeed");
         let err = source
-            .distance(10, 0)
-            .expect_err("out-of-bounds left index must be rejected");
+            .distance(left, right)
+            .expect_err("out-of-bounds {position} index must be rejected");
         assert!(
-            matches!(err, DataSourceError::OutOfBounds { index: 10 }),
-            "expected OutOfBounds(10), got {err:?}",
-        );
-    }
-
-    #[rstest]
-    fn rejects_out_of_bounds_right_index() {
-        let source =
-            SyntheticSource::generate(&default_config(5, 4)).expect("generation must succeed");
-        let err = source
-            .distance(0, 10)
-            .expect_err("out-of-bounds right index must be rejected");
-        assert!(
-            matches!(err, DataSourceError::OutOfBounds { index: 10 }),
-            "expected OutOfBounds(10), got {err:?}",
+            matches!(err, DataSourceError::OutOfBounds { index } if index == expected_index),
+            "expected OutOfBounds({expected_index}) for {position} index, got {err:?}",
         );
     }
 
