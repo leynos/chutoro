@@ -260,7 +260,7 @@ ______________________________________________________________________
   requirements per dataset size. (See §5)
 - [ ] 2.1.6. Add optional clustering quality tracking to benchmarks:
   for synthetic clustered data (Gaussians), compute Adjusted Rand Index (ARI)
-  and Normalised Mutual Information (NMI) against ground truth as secondary
+  and Normalized Mutual Information (NMI) against ground truth as secondary
   metrics alongside timing. Guards against quality regressions during
   performance tuning. (See §11)
 - [ ] 2.1.7. Establish a CI regression detection strategy for
