@@ -18,7 +18,11 @@ pub struct HnswBenchParams {
 
 impl fmt::Display for HnswBenchParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "n={},M={}", self.point_count, self.max_connections,)
+        write!(
+            f,
+            "n={},M={},ef={}",
+            self.point_count, self.max_connections, self.ef_construction,
+        )
     }
 }
 
@@ -47,5 +51,36 @@ pub struct ExtractionBenchParams {
 impl fmt::Display for ExtractionBenchParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "n={},min={}", self.point_count, self.min_cluster_size,)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    fn hnsw_bench_params_display_includes_ef_construction() {
+        let params = HnswBenchParams {
+            point_count: 1_000,
+            max_connections: 16,
+            ef_construction: 32,
+        };
+        assert_eq!(params.to_string(), "n=1000,M=16,ef=32");
+    }
+
+    #[rstest]
+    fn pipeline_bench_params_display() {
+        let params = PipelineBenchParams { point_count: 500 };
+        assert_eq!(params.to_string(), "n=500");
+    }
+
+    #[rstest]
+    fn extraction_bench_params_display() {
+        let params = ExtractionBenchParams {
+            point_count: 100,
+            min_cluster_size: 5,
+        };
+        assert_eq!(params.to_string(), "n=100,min=5");
     }
 }

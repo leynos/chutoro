@@ -16,6 +16,10 @@ pub enum SyntheticError {
     /// The requested dimension count was zero.
     #[error("dimension count must be greater than zero")]
     ZeroDimensions,
+    /// The total element count (`point_count * dimensions`) overflowed
+    /// `usize`.
+    #[error("point_count * dimensions overflows usize")]
+    Overflow,
 }
 
 /// Configuration for synthetic vector generation.
@@ -58,7 +62,9 @@ impl SyntheticSource {
     /// # Errors
     ///
     /// Returns [`SyntheticError::ZeroPoints`] if `point_count` is zero,
-    /// or [`SyntheticError::ZeroDimensions`] if `dimensions` is zero.
+    /// [`SyntheticError::ZeroDimensions`] if `dimensions` is zero, or
+    /// [`SyntheticError::Overflow`] if `point_count * dimensions`
+    /// overflows `usize`.
     ///
     /// # Examples
     ///
@@ -77,7 +83,10 @@ impl SyntheticSource {
             return Err(SyntheticError::ZeroDimensions);
         }
 
-        let total = config.point_count.saturating_mul(config.dimensions);
+        let total = config
+            .point_count
+            .checked_mul(config.dimensions)
+            .ok_or(SyntheticError::Overflow)?;
         let mut rng = SmallRng::seed_from_u64(config.seed);
         let data: Vec<f32> = (0..total)
             .map(|_| rng.gen_range(0.0_f32..1.0_f32))
@@ -152,15 +161,22 @@ impl DataSource for SyntheticSource {
 }
 
 #[cfg(test)]
-#[expect(
-    clippy::float_arithmetic,
-    reason = "distance comparison assertions require float arithmetic"
-)]
 mod tests {
     use super::*;
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
 
-    fn default_config(point_count: usize, dimensions: usize) -> SyntheticConfig {
+    #[fixture]
+    fn default_config() -> SyntheticConfig {
+        SyntheticConfig {
+            point_count: 10,
+            dimensions: 4,
+            seed: 42,
+        }
+    }
+
+    /// Returns a [`SyntheticConfig`] with the given point count,
+    /// dimensions, and a fixed seed.
+    fn config(point_count: usize, dimensions: usize) -> SyntheticConfig {
         SyntheticConfig {
             point_count,
             dimensions,
@@ -175,7 +191,7 @@ mod tests {
     #[case::medium(100, 16)]
     #[case::large(500, 32)]
     fn generates_correct_point_count(#[case] point_count: usize, #[case] dimensions: usize) {
-        let source = SyntheticSource::generate(&default_config(point_count, dimensions))
+        let source = SyntheticSource::generate(&config(point_count, dimensions))
             .expect("generation must succeed");
         assert_eq!(source.len(), point_count);
         assert_eq!(source.dimensions(), dimensions);
@@ -184,9 +200,12 @@ mod tests {
     // -- happy path: distance properties ----------------------------------
 
     #[rstest]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "symmetry assertion requires subtracting distances"
+    )]
     fn distance_is_symmetric() {
-        let source =
-            SyntheticSource::generate(&default_config(20, 8)).expect("generation must succeed");
+        let source = SyntheticSource::generate(&config(20, 8)).expect("generation must succeed");
         let d_ij = source.distance(3, 7).expect("distance must succeed");
         let d_ji = source.distance(7, 3).expect("distance must succeed");
         assert!(
@@ -197,8 +216,7 @@ mod tests {
 
     #[rstest]
     fn distance_to_self_is_zero() {
-        let source =
-            SyntheticSource::generate(&default_config(10, 4)).expect("generation must succeed");
+        let source = SyntheticSource::generate(&config(10, 4)).expect("generation must succeed");
         for i in 0..source.len() {
             let d = source.distance(i, i).expect("distance must succeed");
             assert!(
@@ -209,9 +227,12 @@ mod tests {
     }
 
     #[rstest]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "triangle inequality check requires adding distances"
+    )]
     fn distance_satisfies_triangle_inequality() {
-        let source =
-            SyntheticSource::generate(&default_config(20, 8)).expect("generation must succeed");
+        let source = SyntheticSource::generate(&config(20, 8)).expect("generation must succeed");
         let d_ab = source.distance(0, 1).expect("distance must succeed");
         let d_bc = source.distance(1, 2).expect("distance must succeed");
         let d_ac = source.distance(0, 2).expect("distance must succeed");
@@ -229,8 +250,7 @@ mod tests {
 
     #[rstest]
     fn distance_is_non_negative() {
-        let source =
-            SyntheticSource::generate(&default_config(10, 4)).expect("generation must succeed");
+        let source = SyntheticSource::generate(&config(10, 4)).expect("generation must succeed");
         for i in 0..source.len() {
             for j in 0..source.len() {
                 let d = source.distance(i, j).expect("distance must succeed");
@@ -242,10 +262,13 @@ mod tests {
     // -- happy path: determinism ------------------------------------------
 
     #[rstest]
-    fn deterministic_with_same_seed() {
-        let config = default_config(50, 8);
-        let a = SyntheticSource::generate(&config).expect("generation must succeed");
-        let b = SyntheticSource::generate(&config).expect("generation must succeed");
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "determinism assertion requires subtracting distances"
+    )]
+    fn deterministic_with_same_seed(default_config: SyntheticConfig) {
+        let a = SyntheticSource::generate(&default_config).expect("generation must succeed");
+        let b = SyntheticSource::generate(&default_config).expect("generation must succeed");
         let d_a = a.distance(0, 1).expect("distance must succeed");
         let d_b = b.distance(0, 1).expect("distance must succeed");
         assert!(
@@ -255,6 +278,10 @@ mod tests {
     }
 
     #[rstest]
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "seed divergence assertion requires subtracting distances"
+    )]
     fn different_seeds_produce_different_data() {
         let a = SyntheticSource::generate(&SyntheticConfig {
             point_count: 50,
@@ -280,16 +307,23 @@ mod tests {
 
     #[rstest]
     fn rejects_zero_points() {
-        let err = SyntheticSource::generate(&default_config(0, 8))
-            .expect_err("zero points must be rejected");
+        let err =
+            SyntheticSource::generate(&config(0, 8)).expect_err("zero points must be rejected");
         assert_eq!(err, SyntheticError::ZeroPoints);
     }
 
     #[rstest]
     fn rejects_zero_dimensions() {
-        let err = SyntheticSource::generate(&default_config(10, 0))
+        let err = SyntheticSource::generate(&config(10, 0))
             .expect_err("zero dimensions must be rejected");
         assert_eq!(err, SyntheticError::ZeroDimensions);
+    }
+
+    #[rstest]
+    fn rejects_overflow() {
+        let err = SyntheticSource::generate(&config(usize::MAX, 2))
+            .expect_err("overflow must be rejected");
+        assert_eq!(err, SyntheticError::Overflow);
     }
 
     // -- unhappy path: out-of-bounds index --------------------------------
@@ -303,8 +337,7 @@ mod tests {
         #[case] expected_index: usize,
         #[case] position: &str,
     ) {
-        let source =
-            SyntheticSource::generate(&default_config(5, 4)).expect("generation must succeed");
+        let source = SyntheticSource::generate(&config(5, 4)).expect("generation must succeed");
         let err = source
             .distance(left, right)
             .expect_err(&format!("out-of-bounds {position} index must be rejected"));
@@ -317,16 +350,14 @@ mod tests {
     // -- edge case: name and metric descriptor ----------------------------
 
     #[rstest]
-    fn source_name_is_synthetic() {
-        let source =
-            SyntheticSource::generate(&default_config(5, 4)).expect("generation must succeed");
+    fn source_name_is_synthetic(default_config: SyntheticConfig) {
+        let source = SyntheticSource::generate(&default_config).expect("generation must succeed");
         assert_eq!(source.name(), "synthetic");
     }
 
     #[rstest]
-    fn source_is_not_empty() {
-        let source =
-            SyntheticSource::generate(&default_config(5, 4)).expect("generation must succeed");
+    fn source_is_not_empty(default_config: SyntheticConfig) {
+        let source = SyntheticSource::generate(&default_config).expect("generation must succeed");
         assert!(!source.is_empty());
     }
 }

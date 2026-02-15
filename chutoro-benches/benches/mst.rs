@@ -1,26 +1,21 @@
-//! MST (parallel Kruskal) benchmarks.
+//! Minimum spanning tree (MST) parallel Kruskal benchmarks.
 //!
 //! Measures the time to compute a minimum spanning forest from an
 //! edge harvest produced by HNSW construction. This isolates the
 //! MST computation from the preceding HNSW build and edge harvest
 //! stages.
-#![allow(missing_docs, reason = "Criterion macros generate undocumented items")]
-#![allow(
-    clippy::expect_used,
-    reason = "benchmark setup is infallible for valid constants"
+#![expect(
+    missing_docs,
+    reason = "Criterion macros generate items without doc comments"
 )]
-#![allow(
+#![expect(
     clippy::shadow_reuse,
     reason = "Criterion bench_with_input closures rebind parameter names"
 )]
-#![allow(
-    clippy::excessive_nesting,
-    reason = "Criterion bench_with_input + b.iter pattern requires deep nesting"
-)]
-
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use chutoro_benches::{
+    error::BenchSetupError,
     params::PipelineBenchParams,
     source::{SyntheticConfig, SyntheticSource},
 };
@@ -38,7 +33,7 @@ const POINT_COUNTS: &[usize] = &[100, 500, 1_000];
 /// HNSW M parameter used for edge generation.
 const M: usize = 16;
 
-fn mst_parallel_kruskal(c: &mut Criterion) {
+fn mst_parallel_kruskal_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("parallel_kruskal");
     group.sample_size(20);
 
@@ -47,15 +42,11 @@ fn mst_parallel_kruskal(c: &mut Criterion) {
             point_count,
             dimensions: DIMENSIONS,
             seed: SEED,
-        })
-        .expect("synthetic source generation must succeed");
+        })?;
 
-        let hnsw_params = HnswParams::new(M, M.saturating_mul(2))
-            .expect("HNSW params must be valid")
-            .with_rng_seed(SEED);
+        let hnsw_params = HnswParams::new(M, M.saturating_mul(2))?.with_rng_seed(SEED);
 
-        let (_index, harvest) = CpuHnsw::build_with_edges(&source, hnsw_params)
-            .expect("HNSW build_with_edges must succeed");
+        let (_index, harvest) = CpuHnsw::build_with_edges(&source, hnsw_params)?;
 
         let bench_params = PipelineBenchParams { point_count };
 
@@ -64,13 +55,20 @@ fn mst_parallel_kruskal(c: &mut Criterion) {
             &(point_count, &harvest),
             |b, &(node_count, harvest)| {
                 b.iter(|| {
-                    parallel_kruskal(node_count, harvest).expect("parallel_kruskal must succeed");
+                    let _forest = parallel_kruskal(node_count, harvest);
                 });
             },
         );
     }
 
     group.finish();
+    Ok(())
+}
+
+fn mst_parallel_kruskal(c: &mut Criterion) {
+    if let Err(err) = mst_parallel_kruskal_impl(c) {
+        panic!("mst_parallel_kruskal benchmark setup failed: {err}");
+    }
 }
 
 criterion_group!(benches, mst_parallel_kruskal);

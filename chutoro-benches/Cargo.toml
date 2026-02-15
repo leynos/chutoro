@@ -29,6 +29,16 @@ harness = false
 name = "extraction"
 harness = false
 
+# This crate does NOT inherit workspace lints.  Criterion's generated code
+# (criterion_group!, criterion_main!, bench_with_input closures) triggers many
+# of the strict workspace denials — most notably `unwrap_used`, `expect_used`,
+# `missing_docs`, `shadow_reuse`, and `excessive_nesting`.  A crate-local lint
+# section mirrors the workspace strictness for hand-written library code while
+# allowing benchmark files to use tightly-scoped `#[expect(…)]` attributes for
+# the lints that Criterion's macro expansions unavoidably trigger.
+#
+# When the workspace lint configuration changes, this section should be reviewed
+# and updated to stay in sync.
 [lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 

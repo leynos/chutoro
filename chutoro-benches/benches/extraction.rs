@@ -3,16 +3,15 @@
 //! Measures the time to extract flat cluster labels from a minimum
 //! spanning tree. This isolates the hierarchy extraction stage from
 //! the preceding HNSW build and MST computation stages.
-#![allow(missing_docs, reason = "Criterion macros generate undocumented items")]
-#![allow(
-    clippy::expect_used,
-    reason = "benchmark setup is infallible for valid constants"
+#![expect(
+    missing_docs,
+    reason = "Criterion macros generate items without doc comments"
 )]
-#![allow(
+#![expect(
     clippy::shadow_reuse,
     reason = "Criterion bench_with_input closures rebind parameter names"
 )]
-#![allow(
+#![expect(
     clippy::excessive_nesting,
     reason = "Criterion bench_with_input + b.iter pattern requires deep nesting"
 )]
@@ -22,6 +21,7 @@ use std::num::NonZeroUsize;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use chutoro_benches::{
+    error::BenchSetupError,
     params::ExtractionBenchParams,
     source::{SyntheticConfig, SyntheticSource},
 };
@@ -44,7 +44,7 @@ const MIN_CLUSTER_SIZES: &[usize] = &[5, 10];
 /// HNSW M parameter used for edge generation.
 const M: usize = 16;
 
-fn extract_labels(c: &mut Criterion) {
+fn extract_labels_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("extract_labels");
     group.sample_size(20);
 
@@ -53,18 +53,13 @@ fn extract_labels(c: &mut Criterion) {
             point_count,
             dimensions: DIMENSIONS,
             seed: SEED,
-        })
-        .expect("synthetic source generation must succeed");
+        })?;
 
-        let hnsw_params = HnswParams::new(M, M.saturating_mul(2))
-            .expect("HNSW params must be valid")
-            .with_rng_seed(SEED);
+        let hnsw_params = HnswParams::new(M, M.saturating_mul(2))?.with_rng_seed(SEED);
 
-        let (_index, harvest) = CpuHnsw::build_with_edges(&source, hnsw_params)
-            .expect("HNSW build_with_edges must succeed");
+        let (_index, harvest) = CpuHnsw::build_with_edges(&source, hnsw_params)?;
 
-        let forest =
-            parallel_kruskal(point_count, &harvest).expect("parallel_kruskal must succeed");
+        let forest = parallel_kruskal(point_count, &harvest)?;
 
         let mst_edges = forest.edges();
 
@@ -74,17 +69,17 @@ fn extract_labels(c: &mut Criterion) {
                 min_cluster_size: min_size,
             };
 
-            let config = HierarchyConfig::new(
-                NonZeroUsize::new(min_size).expect("min_cluster_size must be non-zero"),
-            );
+            let min_cluster = NonZeroUsize::new(min_size).ok_or(BenchSetupError::ZeroValue {
+                context: "min_cluster_size",
+            })?;
+            let config = HierarchyConfig::new(min_cluster);
 
             group.bench_with_input(
                 BenchmarkId::from_parameter(&bench_params),
                 &(point_count, mst_edges, &config),
                 |b, &(node_count, edges, config)| {
                     b.iter(|| {
-                        extract_labels_from_mst(node_count, edges, *config)
-                            .expect("extraction must succeed");
+                        let _result = extract_labels_from_mst(node_count, edges, *config);
                     });
                 },
             );
@@ -92,6 +87,13 @@ fn extract_labels(c: &mut Criterion) {
     }
 
     group.finish();
+    Ok(())
+}
+
+fn extract_labels(c: &mut Criterion) {
+    if let Err(err) = extract_labels_impl(c) {
+        panic!("extract_labels benchmark setup failed: {err}");
+    }
 }
 
 criterion_group!(benches, extract_labels);
