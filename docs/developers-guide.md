@@ -45,7 +45,7 @@ macro expansions (`criterion_group!`, `criterion_main!`, `bench_with_input`
 closures) trigger several of the strict workspace denials — most notably
 `missing_docs`, `shadow_reuse`, and `excessive_nesting`. A crate-local
 `[lints]` section in `chutoro-benches/Cargo.toml` mirrors the workspace
-strictness for hand-written code. Benchmark source files use tightly-scoped
+strictness for handwritten code. Benchmark source files use tightly scoped
 `#![expect(lint, reason = "…")]` attributes for the lints that Criterion's
 macro expansions unavoidably trigger. The rationale is documented in a comment
 at the top of the `[lints.clippy]` section in `chutoro-benches/Cargo.toml`.

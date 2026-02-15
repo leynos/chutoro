@@ -12,6 +12,10 @@
     clippy::shadow_reuse,
     reason = "Criterion bench_with_input closures rebind parameter names"
 )]
+#![expect(
+    clippy::excessive_nesting,
+    reason = "Criterion bench_with_input + error handling requires deep nesting"
+)]
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use chutoro_benches::{
@@ -33,6 +37,10 @@ const POINT_COUNTS: &[usize] = &[100, 500, 1_000];
 /// HNSW M parameter used for edge generation.
 const M: usize = 16;
 
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Criterion measurement closures cannot propagate errors via Result"
+)]
 fn mst_parallel_kruskal_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("parallel_kruskal");
     group.sample_size(20);
@@ -55,7 +63,9 @@ fn mst_parallel_kruskal_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
             &(point_count, &harvest),
             |b, &(node_count, harvest)| {
                 b.iter(|| {
-                    let _forest = parallel_kruskal(node_count, harvest);
+                    if let Err(err) = parallel_kruskal(node_count, harvest) {
+                        panic!("parallel_kruskal failed during benchmark: {err}");
+                    }
                 });
             },
         );

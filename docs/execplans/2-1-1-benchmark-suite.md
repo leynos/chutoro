@@ -62,7 +62,7 @@ pass, including new unit tests for the benchmark support code.
   will define its own `[lints]` section rather than inheriting from the
   workspace, allowing targeted relaxation for benchmark harness code while
   keeping library code strict. Benchmark source files (`benches/*.rs`) will use
-  tightly-scoped `#[expect]` attributes with reasons.
+  tightly scoped `#[expect]` attributes with reasons.
 
 - Risk: The global rustflags `-Dmissing_docs` in `.cargo/config.toml`
   apply to all crates including benchmarks. Severity: medium. Likelihood: high.
@@ -99,7 +99,7 @@ pass, including new unit tests for the benchmark support code.
 - Observation: Criterion 0.5.1 macros generate code that violates
   workspace-level Clippy lints: `missing_docs`, `shadow_reuse`, and
   `excessive_nesting`. Evidence: Clippy errors on bench files without
-  file-level lint suppression. Impact: Each bench file uses tightly-scoped
+  file-level lint suppression. Impact: Each bench file uses tightly scoped
   `#![expect(…)]` attributes with reasons. `.expect()` usage was eliminated via
   fallible `_impl` helpers returning `BenchSetupError`.
 
@@ -126,7 +126,7 @@ _Table 1: Decision log._
 | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
 | Separate `chutoro-benches` crate (not `benches/` in `chutoro-core`)                                                  | Criterion benchmarks are separate binaries; a dedicated crate keeps benchmark support code testable and avoids polluting the core crate's dev-dependencies                                                                                                    | 2026-02-13 (Claude) |
 | `SyntheticSource` lives in `chutoro-benches` (not `chutoro-test-support`)                                            | `chutoro-test-support` has no dependency on `chutoro-core`; adding one would create a circular test dependency. The synthetic source is benchmark-specific.                                                                                                   | 2026-02-13 (Claude) |
-| Crate does NOT inherit workspace lints                                                                               | Criterion's generated code triggers many of the strict workspace denials (`unwrap_used`, `missing_docs` on generated items). A custom lint section allows compliance for hand-written code while accommodating the harness.                                   | 2026-02-13 (Claude) |
+| Crate does NOT inherit workspace lints                                                                               | Criterion's generated code triggers many of the strict workspace denials (`unwrap_used`, `missing_docs` on generated items). A custom lint section allows compliance for handwritten code while accommodating the harness.                                    | 2026-02-13 (Claude) |
 | Uniform random vectors (not Gaussian blobs) for initial benchmarks                                                   | Simpler to generate, reproducible with a seed, sufficient for timing baselines. Gaussian blobs are deferred to roadmap §2.1.2.                                                                                                                                | 2026-02-13 (Claude) |
 | Dataset sizes {100, 500, 1000} for most benchmarks, {100, 500, 1000, 5000} for HNSW build                            | Keeps `make bench` completable in reasonable time while showing scaling behaviour for the dominant pipeline stage                                                                                                                                             | 2026-02-13 (Claude) |
 | Edge harvest benchmarked as `build_with_edges` vs `build` differential, plus standalone `EdgeHarvest::from_unsorted` | The harvest step is integrated into build; timing it separately requires either instrumentation (invasive) or differential measurement (non-invasive). Standalone `EdgeHarvest::from_unsorted` benchmarks the sorting/dedup cost.                             | 2026-02-13 (Claude) |
@@ -146,10 +146,10 @@ quality gates (`make check-fmt`, `make lint`, `make test`) pass. Roadmap entry
 
 The main challenge was accommodating the workspace's strict Clippy lint
 configuration with Criterion's macro-generated code. The solution — a
-crate-local `[lints]` section mirroring workspace strictness plus
-tightly-scoped `#![expect(…)]` attributes on bench files — proved effective and
-keeps the hand-written library code under full lint scrutiny. PR review
-feedback prompted additional improvements: fallible benchmark setup helpers
+crate-local `[lints]` section mirroring workspace strictness plus tightly
+scoped `#![expect(…)]` attributes on bench files — proved effective and keeps
+the handwritten library code under full lint scrutiny. PR review feedback
+prompted additional improvements: fallible benchmark setup helpers
 (`BenchSetupError`) eliminating `.expect()` outside tests, `iter_batched` to
 exclude clone overhead from measurements, shuffled edge-harvest input to avoid
 benchmarking pre-sorted data, and narrowed lint suppression scopes throughout.

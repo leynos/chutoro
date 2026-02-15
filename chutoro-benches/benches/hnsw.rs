@@ -53,6 +53,10 @@ fn make_hnsw_params(m: usize) -> Result<HnswParams, BenchSetupError> {
     Ok(HnswParams::new(m, m.saturating_mul(2))?.with_rng_seed(SEED))
 }
 
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Criterion measurement closures cannot propagate errors via Result"
+)]
 fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("hnsw_build");
     group.sample_size(10);
@@ -75,7 +79,9 @@ fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
                     b.iter_batched(
                         || params.clone(),
                         |cloned_params| {
-                            let _index = CpuHnsw::build(source, cloned_params);
+                            if let Err(err) = CpuHnsw::build(source, cloned_params) {
+                                panic!("CpuHnsw::build failed during benchmark: {err}");
+                            }
                         },
                         BatchSize::SmallInput,
                     );
@@ -94,6 +100,10 @@ fn hnsw_build(c: &mut Criterion) {
     }
 }
 
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Criterion measurement closures cannot propagate errors via Result"
+)]
 fn hnsw_build_with_edges_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("hnsw_build_with_edges");
     group.sample_size(10);
@@ -116,7 +126,9 @@ fn hnsw_build_with_edges_impl(c: &mut Criterion) -> Result<(), BenchSetupError> 
                     b.iter_batched(
                         || params.clone(),
                         |cloned_params| {
-                            let _result = CpuHnsw::build_with_edges(source, cloned_params);
+                            if let Err(err) = CpuHnsw::build_with_edges(source, cloned_params) {
+                                panic!("CpuHnsw::build_with_edges failed during benchmark: {err}");
+                            }
                         },
                         BatchSize::SmallInput,
                     );

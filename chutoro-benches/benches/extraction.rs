@@ -44,6 +44,10 @@ const MIN_CLUSTER_SIZES: &[usize] = &[5, 10];
 /// HNSW M parameter used for edge generation.
 const M: usize = 16;
 
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Criterion measurement closures cannot propagate errors via Result"
+)]
 fn extract_labels_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("extract_labels");
     group.sample_size(20);
@@ -79,7 +83,9 @@ fn extract_labels_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
                 &(point_count, mst_edges, &config),
                 |b, &(node_count, edges, config)| {
                     b.iter(|| {
-                        let _result = extract_labels_from_mst(node_count, edges, *config);
+                        if let Err(err) = extract_labels_from_mst(node_count, edges, *config) {
+                            panic!("extract_labels_from_mst failed during benchmark: {err}");
+                        }
                     });
                 },
             );
