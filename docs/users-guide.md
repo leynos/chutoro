@@ -139,3 +139,24 @@ The crate exposes the following feature flags:
 Choose an `ExecutionStrategy` that matches the compiled features. Allowing
 `Auto` keeps behaviour stable across builds while seamlessly adopting GPU
 support when available.
+
+## Benchmarking
+
+The companion `chutoro-benches` crate ships Criterion benchmarks for the four
+CPU pipeline stages: Hierarchical Navigable Small World (HNSW) index
+construction, edge harvest, minimum spanning tree (MST) computation, and
+hierarchy extraction. These benchmarks use a `SyntheticSource` — a `DataSource`
+implementation that generates random Euclidean vectors from a seeded random
+number generator (RNG) for reproducibility.
+
+Run all benchmarks with:
+
+```sh
+make bench
+```
+
+Criterion writes HTML timing reports to `target/criterion/`. The benchmarks
+cover multiple dataset sizes and parameter combinations so that scaling
+behaviour is visible. Consumers integrating `chutoro-core` into their own
+projects can use `chutoro-benches` as a reference for structuring performance
+tests around the pipeline APIs.

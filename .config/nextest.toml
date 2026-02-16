@@ -11,6 +11,13 @@ slow-timeout = { period = "60s", terminate-after = 1, grace-period = "5s" }
 global-timeout = "20m"
 
 [[profile.default.overrides]]
+# Criterion benchmarks run as test targets and need more than the default 60s
+# timeout.  The HNSW n=5000 cases and extraction benchmarks routinely exceed
+# 60s under parallel load.
+filter = "package(chutoro-benches) & kind(bench)"
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
 # Edge harvest property suite can run slower under heavy parallel load.
 filter = "test(/edge_harvest_suite::/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
@@ -36,6 +43,13 @@ retries = 1
 [profile.ci]
 inherits = "default"
 test-threads = 4
+
+[[profile.ci.overrides]]
+# Criterion benchmarks run as test targets and need more than the default 60s
+# timeout.  The HNSW n=5000 cases and extraction benchmarks routinely exceed
+# 60s under parallel load.
+filter = "package(chutoro-benches) & kind(bench)"
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
 # Edge harvest property suite can run slower under heavy parallel load.
