@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 PLANS.md is not present in this repository, so no additional plan constraints
 apply.
@@ -22,10 +22,10 @@ After this change, benchmark setup code can build:
 - MNIST 70,000 x 784 vectors via a deterministic download-and-cache helper.
 
 Success is observable when benchmark code can construct each generator via
-public APIs, all new unit tests (including parameterized `rstest` cases)
-pass, design decisions are recorded in `docs/chutoro-design.md`, roadmap entry
-2.1.2 is marked done, and quality gates pass:
-`make check-fmt`, `make lint`, `make test`.
+public APIs, all new unit tests (including parameterized `rstest` cases) pass,
+design decisions are recorded in `docs/chutoro-design.md`, roadmap entry 2.1.2
+is marked done, and quality gates pass: `make check-fmt`, `make lint`,
+`make test`.
 
 ## Constraints
 
@@ -58,18 +58,17 @@ pass, design decisions are recorded in `docs/chutoro-design.md`, roadmap entry
 ## Risks
 
 - Risk: `chutoro-benches/src/source.rs` is already near the 400-line limit.
-  Severity: high. Likelihood: high. Mitigation: split into
-  `src/source/` submodules (`numeric`, `text`, `mnist`, `config`, `tests`) and
-  keep each module focused.
+  Severity: high. Likelihood: high. Mitigation: split into `src/source/`
+  submodules (`numeric`, `text`, `mnist`, `config`, `tests`) and keep each
+  module focused.
 - Risk: network-dependent MNIST download logic can make tests flaky.
   Severity: high. Likelihood: medium. Mitigation: isolate downloader behind a
   trait/function parameter, test parsing/cache logic with local fixtures only,
   and keep unit tests offline.
 - Risk: introducing text generators may blur numeric and string source
-  responsibilities.
-  Severity: medium. Likelihood: medium. Mitigation: use explicit source types
-  (for example `SyntheticVectorSource` and `SyntheticTextSource`) with clear
-  metric descriptors.
+  responsibilities. Severity: medium. Likelihood: medium. Mitigation: use
+  explicit source types (for example `SyntheticVectorSource` and
+  `SyntheticTextSource`) with clear metric descriptors.
 - Risk: benchmark regressions from large MNIST allocations.
   Severity: medium. Likelihood: medium. Mitigation: cache parsed MNIST files
   and avoid repeated decode work inside benchmark iteration closures.
@@ -77,57 +76,79 @@ pass, design decisions are recorded in `docs/chutoro-design.md`, roadmap entry
 ## Progress
 
 - [x] (2026-02-16 00:00Z) Draft ExecPlan created for roadmap item 2.1.2.
-- [ ] Confirm final API surface for generator configuration structs.
-- [ ] Implement generator modules and MNIST cache helper.
-- [ ] Add/expand benchmark integration points and stress-pattern docs.
-- [ ] Add unit tests (happy/unhappy/edge, including `rstest` parameterization).
-- [ ] Update design and roadmap docs.
-- [ ] Run and pass quality gates with logged output.
+- [x] (2026-02-16 01:10Z) Finalized source API: numeric `SyntheticSource`,
+  `SyntheticTextSource`, Gaussian/manifold/text configs, and `MnistConfig`.
+- [x] (2026-02-16 02:00Z) Implemented source module split and MNIST
+  download-and-cache helper with offline-testable download client abstraction.
+- [x] (2026-02-16 02:25Z) Added benchmark integration for Gaussian, manifold,
+  and text sources in `benches/hnsw.rs`; kept MNIST benchmark opt-in via
+  `CHUTORO_BENCH_ENABLE_MNIST=1`.
+- [x] (2026-02-16 02:45Z) Added parameterized `rstest` coverage for happy,
+  unhappy, and edge cases including MNIST parse/cache validation.
+- [x] (2026-02-16 02:55Z) Updated `docs/chutoro-design.md` stress mapping and
+  marked roadmap entry 2.1.2 done in `docs/roadmap.md`.
+- [x] (2026-02-16 03:20Z) Passed quality/documentation gates:
+  `make fmt`, `make markdownlint`, `make nixie`, `make check-fmt`, `make lint`,
+  `make test`.
 
 ## Surprises & Discoveries
 
 - Observation: project memory MCP resources are not currently exposed in this
   execution environment (`list_mcp_resources` returned empty), so no historical
-  qdrant notes could be retrieved before drafting.
-  Evidence: tool output contained zero resources and zero templates.
-  Impact: this plan relies on repository docs and existing execplans only.
+  qdrant notes could be retrieved before drafting. Evidence: tool output
+  contained zero resources and zero templates. Impact: this plan relies on
+  repository docs and existing execplans only.
+- Observation: strict Clippy settings in `chutoro-benches` required
+  `numeric/mod.rs` layout and removal of slice/indexing patterns in generator
+  code and tests. Evidence: `self_named_module_files`, `indexing_slicing`,
+  `integer_division_remainder_used`, and related lint failures during
+  `make lint`. Impact: helpers were refactored to iterator/get-based access and
+  explicit cycling logic (without `%`) for cluster assignment.
 
 ## Decision Log
 
 - Decision: treat this as a focused benchmark-support change in
-  `chutoro-benches`, not a `chutoro-core` feature.
-  Rationale: roadmap 2.1.2 is explicitly under benchmarking infrastructure and
-  should not widen the core runtime API.
-  Date/Author: 2026-02-16 (Codex)
+  `chutoro-benches`, not a `chutoro-core` feature. Rationale: roadmap 2.1.2 is
+  explicitly under benchmarking infrastructure and should not widen the core
+  runtime API. Date/Author: 2026-02-16 (Codex)
 - Decision: include MNIST loader as download + on-disk cache helper rather than
-  checking dataset files into git.
-  Rationale: repository size remains small while preserving reproducible
-  benchmark setup.
-  Date/Author: 2026-02-16 (Codex)
+  checking dataset files into git. Rationale: repository size remains small
+  while preserving reproducible benchmark setup. Date/Author: 2026-02-16 (Codex)
 - Decision: require offline unit tests for MNIST parsing/cache behaviour.
   Rationale: keeps CI deterministic and avoids external service dependency.
   Date/Author: 2026-02-16 (Codex)
+- Decision: gate MNIST benchmark execution behind
+  `CHUTORO_BENCH_ENABLE_MNIST=1` instead of running it in the default bench
+  loop. Rationale: keeps `make test` deterministic and avoids network/download
+  cost in standard CI while preserving a real-world baseline path for dedicated
+  profiling runs. Date/Author: 2026-02-16 (Codex)
 
 ## Outcomes & Retrospective
 
-Pending implementation.
+Completed roadmap item 2.1.2 end-to-end.
 
-Completion criteria for retrospective update:
+- Implemented source module split under `chutoro-benches/src/source/` with
+  numeric (`SyntheticSource`), text (`SyntheticTextSource`), and MNIST support.
+- Added Gaussian blob, ring/swiss-roll manifold, and Levenshtein-oriented text
+  generators with typed configs and validation.
+- Added MNIST 70,000 x 784 download-and-cache helper with offline unit tests
+  for malformed/truncated input and cache reuse.
+- Extended HNSW benchmark coverage with diverse synthetic sources and optional
+  MNIST baseline execution.
+- Updated design documentation stress mapping and marked roadmap item 2.1.2 as
+  done.
 
-- confirm all required generators are implemented and documented,
-- summarize test coverage depth and failures found during implementation,
-- record any design trade-offs (API ergonomics vs strict typing, dependency
-  choices, cache layout),
-- include quality gate outcomes and roadmap status update.
+Trade-off: to keep CI/offline loops stable, MNIST benchmarking is opt-in while
+the loader and cache logic remain fully implemented and tested.
 
 ## Context and Orientation
 
 Current benchmark support lives in `chutoro-benches`:
 
-- `chutoro-benches/src/source.rs` provides `SyntheticSource` with only uniform
-  random Euclidean vectors.
+- `chutoro-benches/src/source/mod.rs` now re-exports numeric, text, and MNIST
+  helpers from focused submodules.
 - Benchmarks in `chutoro-benches/benches/*.rs` construct this source via
-  `SyntheticConfig { point_count, dimensions, seed }`.
+  typed configs (uniform, Gaussian/manifold, and text) with deterministic seeds.
 - `chutoro-benches/src/error.rs` aggregates benchmark setup errors.
 
 Roadmap item 2.1.2 in `docs/roadmap.md` requires four additions:
@@ -345,3 +366,7 @@ features.
 2026-02-16: Initial draft created for roadmap item 2.1.2 with explicit module
 split strategy, generator API plan, MNIST cache helper plan, validation gates,
 and documentation update requirements.
+
+2026-02-16: Completed implementation. Updated progress, discoveries, decisions,
+and outcomes to reflect delivered code, documentation changes, and passing
+quality gates.
