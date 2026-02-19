@@ -184,15 +184,19 @@ fn generate_swiss_roll_point(
 ) -> Result<(), SyntheticError> {
     let max_t = config.turns as f32 * 2.0 * PI;
     let t = rng.gen_range(0.0_f32..max_t);
-    let radial = config.major_radius + t;
+    let radial_noise = standard_normal_sample(rng)? * config.thickness;
+    let radial = config.major_radius + t + radial_noise;
+    let x_noise = standard_normal_sample(rng)? * config.noise;
+    let y_noise = standard_normal_sample(rng)? * config.noise;
+    let z_noise = standard_normal_sample(rng)? * config.noise;
     if let Some(value) = point.get_mut(0) {
-        *value = radial * t.cos();
+        *value = radial * t.cos() + x_noise;
     }
     if let Some(value) = point.get_mut(1) {
-        *value = rng.gen_range(-config.major_radius..config.major_radius);
+        *value = rng.gen_range(-config.major_radius..config.major_radius) + y_noise;
     }
     if let Some(value) = point.get_mut(2) {
-        *value = radial * t.sin();
+        *value = radial * t.sin() + z_noise;
     }
     for value in point.iter_mut().skip(3) {
         *value = standard_normal_sample(rng)? * config.noise;
@@ -200,15 +204,10 @@ fn generate_swiss_roll_point(
     Ok(())
 }
 
-#[expect(
-    clippy::float_arithmetic,
-    reason = "sampling manifold coordinates requires floating-point arithmetic"
-)]
 pub(super) fn manifold_point(
     config: &ManifoldConfig,
     rng: &mut SmallRng,
 ) -> Result<Vec<f32>, SyntheticError> {
-    let _ = config.major_radius + config.thickness;
     let mut point = vec![0.0_f32; config.dimensions];
     match config.pattern {
         ManifoldPattern::Ring => generate_ring_point(&mut point, config, rng)?,

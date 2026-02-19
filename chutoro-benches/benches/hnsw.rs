@@ -3,22 +3,8 @@
 //! Measures the time to construct an HNSW index using both the plain
 //! `build` path and the `build_with_edges` path that additionally
 //! harvests candidate edges for MST construction.
-#![expect(
-    missing_docs,
-    reason = "Criterion macros generate items without doc comments"
-)]
-#![expect(
-    clippy::shadow_reuse,
-    reason = "Criterion bench_with_input closures rebind parameter names"
-)]
-#![expect(
-    clippy::excessive_nesting,
-    reason = "Criterion bench_with_input + b.iter pattern requires deep nesting"
-)]
-
 use criterion::{
-    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, criterion_group, criterion_main,
-    measurement::WallTime,
+    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, criterion_main, measurement::WallTime,
 };
 
 use chutoro_benches::{
@@ -104,81 +90,41 @@ fn make_text_source() -> Result<chutoro_benches::source::SyntheticTextSource, Be
     })?)
 }
 
-fn bench_build_numeric_source(
-    group: &mut BenchmarkGroup<'_, WallTime>,
-    label: &str,
-    source: &SyntheticSource,
-    params: &HnswParams,
-) {
-    let bench_params = HnswBenchParams {
-        point_count: DIVERSE_POINT_COUNT,
-        max_connections: 16,
-        ef_construction: 32,
-    };
-    group.bench_with_input(
-        BenchmarkId::new(label, &bench_params),
-        &(source, params),
-        |b, &(source, params)| {
-            b.iter_batched(
-                || params.clone(),
-                |cloned_params| {
-                    if let Err(err) = CpuHnsw::build(source, cloned_params) {
-                        panic!("CpuHnsw::build failed for {label} source: {err}");
-                    }
-                },
-                BatchSize::SmallInput,
-            );
-        },
-    );
+fn panic_on_bench_build_error<B>(result: Result<B, HnswError>, context: &str) {
+    if let Err(err) = result {
+        panic!("{context}: {err}");
+    }
 }
 
-fn bench_build_text_source(
-    group: &mut BenchmarkGroup<'_, WallTime>,
-    source: &chutoro_benches::source::SyntheticTextSource,
-    params: &HnswParams,
-) {
-    let bench_params = HnswBenchParams {
-        point_count: DIVERSE_POINT_COUNT,
-        max_connections: 16,
-        ef_construction: 32,
-    };
-    group.bench_with_input(
-        BenchmarkId::new("text_levenshtein", &bench_params),
-        &(source, params),
-        |b, &(source, params)| {
-            b.iter_batched(
-                || params.clone(),
-                |cloned_params| {
-                    if let Err(err) = CpuHnsw::build(source, cloned_params) {
-                        panic!("CpuHnsw::build failed for text source: {err}");
-                    }
-                },
-                BatchSize::SmallInput,
-            );
-        },
-    );
+#[derive(Clone, Copy)]
+struct SourceBenchSpec<'a> {
+    bench_label: &'a str,
+    fail_label: &'a str,
+    point_count: usize,
 }
 
-fn bench_build_mnist_source(
+fn bench_build_source<S: DataSource + Sync>(
     group: &mut BenchmarkGroup<'_, WallTime>,
-    source: &SyntheticSource,
+    spec: SourceBenchSpec<'_>,
+    source: &S,
     params: &HnswParams,
 ) {
     let bench_params = HnswBenchParams {
-        point_count: source.len(),
+        point_count: spec.point_count,
         max_connections: 16,
         ef_construction: 32,
     };
     group.bench_with_input(
-        BenchmarkId::new("mnist_baseline", &bench_params),
+        BenchmarkId::new(spec.bench_label, &bench_params),
         &(source, params),
-        |b, &(source, params)| {
+        |b, &(bench_source, input_params)| {
             b.iter_batched(
-                || params.clone(),
+                || input_params.clone(),
                 |cloned_params| {
-                    if let Err(err) = CpuHnsw::build(source, cloned_params) {
-                        panic!("CpuHnsw::build failed for MNIST source: {err}");
-                    }
+                    panic_on_bench_build_error(
+                        CpuHnsw::build(bench_source, cloned_params),
+                        &format!("CpuHnsw::build failed for {}", spec.fail_label),
+                    );
                 },
                 BatchSize::SmallInput,
             );
@@ -187,16 +133,16 @@ fn bench_build_mnist_source(
 }
 
 #[expect(
-    clippy::panic_in_result_fn,
-    reason = "Criterion measurement closures cannot propagate errors via Result"
+    clippy::excessive_nesting,
+    reason = "Criterion bench_with_input + b.iter pattern requires deep nesting"
 )]
-fn bench_hnsw_build_generic<B, F>(
+fn bench_hnsw_build_generic<F>(
     c: &mut Criterion,
     group_name: &str,
     mut build_fn: F,
 ) -> Result<(), BenchSetupError>
 where
-    F: FnMut(&SyntheticSource, HnswParams) -> Result<B, HnswError>,
+    F: FnMut(&SyntheticSource, HnswParams) -> Result<(), HnswError>,
 {
     let mut group = c.benchmark_group(group_name);
     group.sample_size(10);
@@ -215,13 +161,14 @@ where
             group.bench_with_input(
                 BenchmarkId::from_parameter(&bench_params),
                 &(&source, &params),
-                |b, &(source, params)| {
+                |b, &(bench_source, input_params)| {
                     b.iter_batched(
-                        || params.clone(),
+                        || input_params.clone(),
                         |cloned_params| {
-                            if let Err(err) = build_fn(source, cloned_params) {
-                                panic!("{group_name} failed during benchmark: {err}");
-                            }
+                            panic_on_bench_build_error(
+                                build_fn(bench_source, cloned_params),
+                                &format!("{group_name} failed during benchmark"),
+                            );
                         },
                         BatchSize::SmallInput,
                     );
@@ -239,8 +186,10 @@ where
     reason = "Criterion measurement closures cannot propagate errors via Result"
 )]
 fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
-    bench_hnsw_build_generic(c, "hnsw_build", CpuHnsw::build)
-        .inspect_err(|err| panic!("hnsw_build benchmark setup failed: {err}"))
+    bench_hnsw_build_generic(c, "hnsw_build", |source, params| {
+        CpuHnsw::build(source, params).map(|_| ())
+    })
+    .inspect_err(|err| panic!("hnsw_build benchmark setup failed: {err}"))
 }
 
 fn hnsw_build(c: &mut Criterion) {
@@ -254,8 +203,10 @@ fn hnsw_build(c: &mut Criterion) {
     reason = "Criterion measurement closures cannot propagate errors via Result"
 )]
 fn hnsw_build_with_edges_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
-    bench_hnsw_build_generic(c, "hnsw_build_with_edges", CpuHnsw::build_with_edges)
-        .inspect_err(|err| panic!("hnsw_build_with_edges benchmark setup failed: {err}"))
+    bench_hnsw_build_generic(c, "hnsw_build_with_edges", |source, params| {
+        CpuHnsw::build_with_edges(source, params).map(|_| ())
+    })
+    .inspect_err(|err| panic!("hnsw_build_with_edges benchmark setup failed: {err}"))
 }
 
 fn hnsw_build_with_edges(c: &mut Criterion) {
@@ -272,13 +223,49 @@ fn hnsw_build_diverse_sources_impl(c: &mut Criterion) -> Result<(), BenchSetupEr
     let gaussian = make_gaussian_source()?;
     let ring = make_ring_source()?;
     let text = make_text_source()?;
-    bench_build_numeric_source(&mut group, "gaussian_blobs", &gaussian, &params);
-    bench_build_numeric_source(&mut group, "ring_manifold", &ring, &params);
-    bench_build_text_source(&mut group, &text, &params);
+    bench_build_source(
+        &mut group,
+        SourceBenchSpec {
+            bench_label: "gaussian_blobs",
+            fail_label: "gaussian source",
+            point_count: DIVERSE_POINT_COUNT,
+        },
+        &gaussian,
+        &params,
+    );
+    bench_build_source(
+        &mut group,
+        SourceBenchSpec {
+            bench_label: "ring_manifold",
+            fail_label: "ring source",
+            point_count: DIVERSE_POINT_COUNT,
+        },
+        &ring,
+        &params,
+    );
+    bench_build_source(
+        &mut group,
+        SourceBenchSpec {
+            bench_label: "text_levenshtein",
+            fail_label: "text source",
+            point_count: DIVERSE_POINT_COUNT,
+        },
+        &text,
+        &params,
+    );
 
     if std::env::var("CHUTORO_BENCH_ENABLE_MNIST").as_deref() == Ok("1") {
         let mnist = SyntheticSource::load_mnist(&MnistConfig::default())?;
-        bench_build_mnist_source(&mut group, &mnist, &params);
+        bench_build_source(
+            &mut group,
+            SourceBenchSpec {
+                bench_label: "mnist_baseline",
+                fail_label: "MNIST source",
+                point_count: mnist.len(),
+            },
+            &mnist,
+            &params,
+        );
     }
 
     group.finish();
@@ -291,10 +278,15 @@ fn hnsw_build_diverse_sources(c: &mut Criterion) {
     }
 }
 
-criterion_group!(
-    benches,
-    hnsw_build,
-    hnsw_build_with_edges,
-    hnsw_build_diverse_sources
-);
-criterion_main!(benches);
+mod generated_benches {
+    use super::{hnsw_build, hnsw_build_diverse_sources, hnsw_build_with_edges};
+    use criterion::criterion_group;
+
+    criterion_group!(
+        benches,
+        hnsw_build,
+        hnsw_build_with_edges,
+        hnsw_build_diverse_sources
+    );
+}
+criterion_main!(generated_benches::benches);

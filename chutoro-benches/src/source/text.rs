@@ -48,8 +48,9 @@ impl SyntheticTextSource {
             let template =
                 templates
                     .get(template_index)
-                    .ok_or(SyntheticError::InvalidFloatParameter {
-                        parameter: "template_index",
+                    .ok_or(SyntheticError::InvalidTemplateIndex {
+                        index: template_index,
+                        template_count: templates.len(),
                     })?;
             let mut current = template.chars().collect::<Vec<char>>();
             let edits = rng.gen_range(0..=config.max_edits_per_item);
@@ -173,12 +174,37 @@ fn random_word(
     Ok(chars.into_iter().collect())
 }
 
+#[derive(Clone, Copy)]
+enum EditOperation {
+    Insert,
+    Delete,
+    Substitute,
+}
+
 fn apply_edit(chars: &mut Vec<char>, alphabet: &[char], rng: &mut SmallRng) {
+    let operation = choose_edit_operation(rng);
+    apply_selected_edit(chars, alphabet, rng, operation);
+}
+
+fn choose_edit_operation(rng: &mut SmallRng) -> EditOperation {
     let operation = rng.gen_range(0..3);
     match operation {
-        0 => insert_char(chars, alphabet, rng),
-        1 => delete_char(chars, rng),
-        _ => substitute_char(chars, alphabet, rng),
+        0 => EditOperation::Insert,
+        1 => EditOperation::Delete,
+        _ => EditOperation::Substitute,
+    }
+}
+
+fn apply_selected_edit(
+    chars: &mut Vec<char>,
+    alphabet: &[char],
+    rng: &mut SmallRng,
+    operation: EditOperation,
+) {
+    match operation {
+        EditOperation::Insert => insert_char(chars, alphabet, rng),
+        EditOperation::Delete => delete_char(chars, rng),
+        EditOperation::Substitute => substitute_char(chars, alphabet, rng),
     }
 }
 

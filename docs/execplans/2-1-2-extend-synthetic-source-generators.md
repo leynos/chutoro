@@ -1,4 +1,4 @@
-# ExecPlan: extend SyntheticSource generators and add MNIST baseline
+# Execution Plan (ExecPlan): extend SyntheticSource generators and add Modified National Institute of Standards and Technology (MNIST) baseline
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
@@ -35,7 +35,8 @@ is marked done, and quality gates pass: `make check-fmt`, `make lint`,
   with a default numeric generator.
 - Preserve `chutoro-core` public API; all work is in benchmark support and
   docs.
-- Use caret SemVer dependencies only; do not use wildcard or open-ended ranges.
+- Use caret Semantic Versioning (SemVer) dependencies only; do not use wildcard
+  or open-ended ranges.
 - Use en-GB-oxendict spelling in comments and documentation updates.
 - Follow doctest guidance for any new rustdoc examples and avoid `unwrap` in
   non-test paths.
@@ -93,11 +94,11 @@ is marked done, and quality gates pass: `make check-fmt`, `make lint`,
 
 ## Surprises & Discoveries
 
-- Observation: project memory MCP resources are not currently exposed in this
-  execution environment (`list_mcp_resources` returned empty), so no historical
-  qdrant notes could be retrieved before drafting. Evidence: tool output
-  contained zero resources and zero templates. Impact: this plan relies on
-  repository docs and existing execplans only.
+- Observation: project memory Model Context Protocol (MCP) resources are not
+  currently exposed in this execution environment (`list_mcp_resources`
+  returned empty), so no historical Qdrant notes could be retrieved before
+  drafting. Evidence: tool output contained zero resources and zero templates.
+  Impact: this plan relies on repository docs and existing execplans only.
 - Observation: strict Clippy settings in `chutoro-benches` required
   `numeric/mod.rs` layout and removal of slice/indexing patterns in generator
   code and tests. Evidence: `self_named_module_files`, `indexing_slicing`,
@@ -220,10 +221,10 @@ source families without duplicating setup logic. Add or update benchmark
 parameter structs if needed. Document pattern-to-pipeline stress mapping in
 `docs/chutoro-design.md`, including at minimum:
 
-- Gaussian blobs: HNSW neighbourhood quality and edge harvest quality under
-  separable vs overlapping clusters.
-- Ring/manifold: non-linear neighbourhoods stressing ANN recall and MST
-  candidate sufficiency.
+- Gaussian blobs: Hierarchical Navigable Small World (HNSW) neighbourhood
+  quality and edge harvest quality under separable vs overlapping clusters.
+- Ring/manifold: non-linear neighbourhoods stressing ANN recall and minimum
+  spanning tree (MST) candidate sufficiency.
 - Text/Levenshtein: expensive non-vector distance path, branch-heavy scoring,
   and non-metric behaviour.
 - MNIST: realistic high-dimensional baseline for end-to-end CPU timings.
@@ -248,7 +249,8 @@ pass.
 
    - Add typed config structs plus validation helpers.
    - Expand `SyntheticError` with generator-specific failure variants.
-   - Keep constructors deterministic by explicit RNG seed threading.
+   - Keep constructors deterministic by explicit random number generator (RNG)
+     seed threading.
 
 3. Implement MNIST helper with cache.
 

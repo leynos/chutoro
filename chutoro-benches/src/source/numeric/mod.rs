@@ -125,22 +125,10 @@ impl SyntheticSource {
         let mut rng = SmallRng::seed_from_u64(config.seed ^ 0xA5A5_A5A5_A5A5_A5A5_u64);
         let total = checked_total(config.point_count, config.dimensions)?;
         let mut data = Vec::with_capacity(total);
-
-        let mut cluster_index = 0_usize;
-        for _ in 0..config.point_count {
-            let centroid =
-                centroids
-                    .get(cluster_index)
-                    .ok_or(SyntheticError::InvalidFloatParameter {
-                        parameter: "cluster_index",
-                    })?;
+        for centroid in centroids.iter().cycle().take(config.point_count) {
             for (centroid_value, scale) in centroid.iter().zip(&scales) {
                 let sample = generation::standard_normal_sample(&mut rng)?;
                 data.push(*centroid_value + sample * *scale);
-            }
-            cluster_index += 1;
-            if cluster_index == config.cluster_count {
-                cluster_index = 0;
             }
         }
 
@@ -189,9 +177,8 @@ impl SyntheticSource {
 
     /// Returns the dimensionality of each vector.
     #[must_use]
-    pub const fn dimensions(&self) -> usize {
-        self.dimensions
-    }
+    #[rustfmt::skip]
+    pub const fn dimensions(&self) -> usize { self.dimensions }
 
     pub(crate) fn from_parts(
         name: &'static str,
@@ -217,17 +204,14 @@ impl SyntheticSource {
 }
 
 impl DataSource for SyntheticSource {
-    fn len(&self) -> usize {
-        self.point_count
-    }
+    #[rustfmt::skip]
+    fn len(&self) -> usize { self.point_count }
 
-    fn name(&self) -> &str {
-        self.name
-    }
+    #[rustfmt::skip]
+    fn name(&self) -> &str { self.name }
 
-    fn metric_descriptor(&self) -> MetricDescriptor {
-        MetricDescriptor::new("euclidean")
-    }
+    #[rustfmt::skip]
+    fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("euclidean") }
 
     #[expect(
         clippy::float_arithmetic,

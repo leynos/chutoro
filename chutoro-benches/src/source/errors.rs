@@ -34,6 +34,14 @@ pub enum SyntheticError {
         /// Maximum configured text length.
         max_length: usize,
     },
+    /// Template lookup index was outside the available template list.
+    #[error("invalid template index {index} for {template_count} templates")]
+    InvalidTemplateIndex {
+        /// Template index requested.
+        index: usize,
+        /// Number of available templates.
+        template_count: usize,
+    },
     /// The configured cluster count exceeded the available points.
     #[error("cluster count ({cluster_count}) must not exceed point count ({point_count})")]
     ClusterCountExceedsPointCount {
