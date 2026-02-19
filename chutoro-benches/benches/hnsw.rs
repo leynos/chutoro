@@ -29,7 +29,7 @@ use chutoro_benches::{
         SyntheticConfig, SyntheticSource, SyntheticTextConfig,
     },
 };
-use chutoro_core::{CpuHnsw, DataSource, HnswParams};
+use chutoro_core::{CpuHnsw, DataSource, HnswError, HnswParams};
 
 /// Seed used for all synthetic data generation in this benchmark.
 const SEED: u64 = 42;
@@ -190,8 +190,15 @@ fn bench_build_mnist_source(
     clippy::panic_in_result_fn,
     reason = "Criterion measurement closures cannot propagate errors via Result"
 )]
-fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
-    let mut group = c.benchmark_group("hnsw_build");
+fn bench_hnsw_build_generic<B, F>(
+    c: &mut Criterion,
+    group_name: &str,
+    mut build_fn: F,
+) -> Result<(), BenchSetupError>
+where
+    F: FnMut(&SyntheticSource, HnswParams) -> Result<B, HnswError>,
+{
+    let mut group = c.benchmark_group(group_name);
     group.sample_size(10);
 
     for &point_count in POINT_COUNTS {
@@ -212,8 +219,8 @@ fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
                     b.iter_batched(
                         || params.clone(),
                         |cloned_params| {
-                            if let Err(err) = CpuHnsw::build(source, cloned_params) {
-                                panic!("CpuHnsw::build failed during benchmark: {err}");
+                            if let Err(err) = build_fn(source, cloned_params) {
+                                panic!("{group_name} failed during benchmark: {err}");
                             }
                         },
                         BatchSize::SmallInput,
@@ -225,6 +232,15 @@ fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
 
     group.finish();
     Ok(())
+}
+
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Criterion measurement closures cannot propagate errors via Result"
+)]
+fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
+    bench_hnsw_build_generic(c, "hnsw_build", CpuHnsw::build)
+        .inspect_err(|err| panic!("hnsw_build benchmark setup failed: {err}"))
 }
 
 fn hnsw_build(c: &mut Criterion) {
@@ -238,40 +254,8 @@ fn hnsw_build(c: &mut Criterion) {
     reason = "Criterion measurement closures cannot propagate errors via Result"
 )]
 fn hnsw_build_with_edges_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
-    let mut group = c.benchmark_group("hnsw_build_with_edges");
-    group.sample_size(10);
-
-    for &point_count in POINT_COUNTS {
-        let source = make_source(point_count)?;
-
-        for &m in MAX_CONNECTIONS {
-            let bench_params = HnswBenchParams {
-                point_count,
-                max_connections: m,
-                ef_construction: m.saturating_mul(2),
-            };
-            let params = make_hnsw_params(m)?;
-
-            group.bench_with_input(
-                BenchmarkId::from_parameter(&bench_params),
-                &(&source, &params),
-                |b, &(source, params)| {
-                    b.iter_batched(
-                        || params.clone(),
-                        |cloned_params| {
-                            if let Err(err) = CpuHnsw::build_with_edges(source, cloned_params) {
-                                panic!("CpuHnsw::build_with_edges failed during benchmark: {err}");
-                            }
-                        },
-                        BatchSize::SmallInput,
-                    );
-                },
-            );
-        }
-    }
-
-    group.finish();
-    Ok(())
+    bench_hnsw_build_generic(c, "hnsw_build_with_edges", CpuHnsw::build_with_edges)
+        .inspect_err(|err| panic!("hnsw_build_with_edges benchmark setup failed: {err}"))
 }
 
 fn hnsw_build_with_edges(c: &mut Criterion) {

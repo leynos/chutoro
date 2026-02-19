@@ -58,70 +58,110 @@ pub(super) fn resolve_axis_scales(
     dimensions: usize,
 ) -> Result<Vec<f32>, SyntheticError> {
     match anisotropy {
-        Anisotropy::Isotropic(scale) => {
-            if !scale.is_finite() || *scale <= 0.0 {
-                return Err(SyntheticError::InvalidFloatParameter {
-                    parameter: "anisotropy.scale",
-                });
-            }
-            Ok(vec![*scale; dimensions])
-        }
-        Anisotropy::AxisScales(scales) => {
-            if scales.len() != dimensions {
-                return Err(SyntheticError::AxisScaleLengthMismatch {
-                    expected: dimensions,
-                    actual: scales.len(),
-                });
-            }
-            for (index, value) in scales.iter().enumerate() {
-                if !value.is_finite() || *value <= 0.0 {
-                    return Err(SyntheticError::InvalidAxisScale { index });
-                }
-            }
-            Ok(scales.clone())
-        }
+        Anisotropy::Isotropic(scale) => validate_isotropic_scale(*scale, dimensions),
+        Anisotropy::AxisScales(scales) => validate_axis_scales(scales, dimensions),
     }
 }
 
+fn validate_isotropic_scale(scale: f32, dimensions: usize) -> Result<Vec<f32>, SyntheticError> {
+    if !scale.is_finite() || scale <= 0.0 {
+        return Err(SyntheticError::InvalidFloatParameter {
+            parameter: "anisotropy.scale",
+        });
+    }
+    Ok(vec![scale; dimensions])
+}
+
+fn validate_axis_scales(scales: &[f32], dimensions: usize) -> Result<Vec<f32>, SyntheticError> {
+    if scales.len() != dimensions {
+        return Err(SyntheticError::AxisScaleLengthMismatch {
+            expected: dimensions,
+            actual: scales.len(),
+        });
+    }
+    for (index, value) in scales.iter().enumerate() {
+        if !value.is_finite() || *value <= 0.0 {
+            return Err(SyntheticError::InvalidAxisScale { index });
+        }
+    }
+    Ok(scales.to_vec())
+}
+
+fn validate_float_param(
+    value: f32,
+    parameter: &'static str,
+    allow_zero: bool,
+) -> Result<(), SyntheticError> {
+    let is_valid = if allow_zero {
+        value.is_finite() && value >= 0.0
+    } else {
+        value.is_finite() && value > 0.0
+    };
+
+    if is_valid {
+        Ok(())
+    } else {
+        Err(SyntheticError::InvalidFloatParameter { parameter })
+    }
+}
+
+const fn validate_ring_pattern(config: &ManifoldConfig) -> Result<(), SyntheticError> {
+    if config.dimensions < 2 {
+        return Err(SyntheticError::InsufficientManifoldDimensions {
+            pattern: "ring",
+            minimum: 2,
+            actual: config.dimensions,
+        });
+    }
+    Ok(())
+}
+
+const fn validate_swiss_roll_pattern(config: &ManifoldConfig) -> Result<(), SyntheticError> {
+    if config.dimensions < 3 {
+        return Err(SyntheticError::InsufficientManifoldDimensions {
+            pattern: "swiss_roll",
+            minimum: 3,
+            actual: config.dimensions,
+        });
+    }
+    if config.turns == 0 {
+        return Err(SyntheticError::ZeroTurns);
+    }
+    Ok(())
+}
+
 pub(super) fn validate_manifold_config(config: &ManifoldConfig) -> Result<(), SyntheticError> {
-    if !config.major_radius.is_finite() || config.major_radius <= 0.0 {
-        return Err(SyntheticError::InvalidFloatParameter {
-            parameter: "major_radius",
-        });
-    }
-    if !config.thickness.is_finite() || config.thickness < 0.0 {
-        return Err(SyntheticError::InvalidFloatParameter {
-            parameter: "thickness",
-        });
-    }
-    if !config.noise.is_finite() || config.noise < 0.0 {
-        return Err(SyntheticError::InvalidFloatParameter { parameter: "noise" });
-    }
+    validate_float_param(config.major_radius, "major_radius", false)?;
+    validate_float_param(config.thickness, "thickness", true)?;
+    validate_float_param(config.noise, "noise", true)?;
 
     match config.pattern {
-        ManifoldPattern::Ring => {
-            if config.dimensions < 2 {
-                return Err(SyntheticError::InsufficientManifoldDimensions {
-                    pattern: "ring",
-                    minimum: 2,
-                    actual: config.dimensions,
-                });
-            }
-        }
-        ManifoldPattern::SwissRoll => {
-            if config.dimensions < 3 {
-                return Err(SyntheticError::InsufficientManifoldDimensions {
-                    pattern: "swiss_roll",
-                    minimum: 3,
-                    actual: config.dimensions,
-                });
-            }
-            if config.turns == 0 {
-                return Err(SyntheticError::ZeroTurns);
-            }
-        }
+        ManifoldPattern::Ring => validate_ring_pattern(config),
+        ManifoldPattern::SwissRoll => validate_swiss_roll_pattern(config),
     }
+}
 
+#[expect(
+    clippy::float_arithmetic,
+    reason = "sampling manifold coordinates requires floating-point arithmetic"
+)]
+fn generate_ring_point(
+    point: &mut [f32],
+    config: &ManifoldConfig,
+    rng: &mut SmallRng,
+) -> Result<(), SyntheticError> {
+    let theta = rng.gen_range(0.0_f32..(2.0 * PI));
+    let radial_noise = standard_normal_sample(rng)? * config.thickness;
+    let radius = config.major_radius + radial_noise;
+    if let Some(value) = point.get_mut(0) {
+        *value = radius * theta.cos();
+    }
+    if let Some(value) = point.get_mut(1) {
+        *value = radius * theta.sin();
+    }
+    for value in point.iter_mut().skip(2) {
+        *value = standard_normal_sample(rng)? * config.noise;
+    }
     Ok(())
 }
 
@@ -133,43 +173,42 @@ pub(super) fn validate_manifold_config(config: &ManifoldConfig) -> Result<(), Sy
     clippy::cast_precision_loss,
     reason = "turn count is converted to f32 for angle calculations"
 )]
+fn generate_swiss_roll_point(
+    point: &mut [f32],
+    config: &ManifoldConfig,
+    rng: &mut SmallRng,
+) -> Result<(), SyntheticError> {
+    let max_t = config.turns as f32 * 2.0 * PI;
+    let t = rng.gen_range(0.0_f32..max_t);
+    let radial = config.major_radius + t;
+    if let Some(value) = point.get_mut(0) {
+        *value = radial * t.cos();
+    }
+    if let Some(value) = point.get_mut(1) {
+        *value = rng.gen_range(-config.major_radius..config.major_radius);
+    }
+    if let Some(value) = point.get_mut(2) {
+        *value = radial * t.sin();
+    }
+    for value in point.iter_mut().skip(3) {
+        *value = standard_normal_sample(rng)? * config.noise;
+    }
+    Ok(())
+}
+
+#[expect(
+    clippy::float_arithmetic,
+    reason = "sampling manifold coordinates requires floating-point arithmetic"
+)]
 pub(super) fn manifold_point(
     config: &ManifoldConfig,
     rng: &mut SmallRng,
 ) -> Result<Vec<f32>, SyntheticError> {
+    let _ = config.major_radius + config.thickness;
     let mut point = vec![0.0_f32; config.dimensions];
     match config.pattern {
-        ManifoldPattern::Ring => {
-            let theta = rng.gen_range(0.0_f32..(2.0 * PI));
-            let radial_noise = standard_normal_sample(rng)? * config.thickness;
-            let radius = config.major_radius + radial_noise;
-            if let Some(value) = point.get_mut(0) {
-                *value = radius * theta.cos();
-            }
-            if let Some(value) = point.get_mut(1) {
-                *value = radius * theta.sin();
-            }
-            for value in point.iter_mut().skip(2) {
-                *value = standard_normal_sample(rng)? * config.noise;
-            }
-        }
-        ManifoldPattern::SwissRoll => {
-            let max_t = config.turns as f32 * 2.0 * PI;
-            let t = rng.gen_range(0.0_f32..max_t);
-            let radial = config.major_radius + t;
-            if let Some(value) = point.get_mut(0) {
-                *value = radial * t.cos();
-            }
-            if let Some(value) = point.get_mut(1) {
-                *value = rng.gen_range(-config.major_radius..config.major_radius);
-            }
-            if let Some(value) = point.get_mut(2) {
-                *value = radial * t.sin();
-            }
-            for value in point.iter_mut().skip(3) {
-                *value = standard_normal_sample(rng)? * config.noise;
-            }
-        }
+        ManifoldPattern::Ring => generate_ring_point(&mut point, config, rng)?,
+        ManifoldPattern::SwissRoll => generate_swiss_roll_point(&mut point, config, rng)?,
     }
 
     Ok(point)

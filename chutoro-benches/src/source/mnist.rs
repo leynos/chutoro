@@ -308,30 +308,38 @@ mod tests {
         }
     }
 
-    #[rstest]
-    fn parse_idx_images_rejects_invalid_magic() {
-        let payload = gzip_idx_images(1, 28, 28, 0_u8);
-        let mut decoded = gunzip_bytes(Path::new("bad"), &payload).expect("decode must succeed");
+    type MutationFn = fn(Vec<u8>) -> Vec<u8>;
+
+    fn mutate_invalid_magic(mut decoded: Vec<u8>) -> Vec<u8> {
         if let Some(byte) = decoded.get_mut(3) {
             *byte = 0;
         }
-        let remade = gzip_bytes(&decoded);
+        decoded
+    }
 
-        let error =
-            parse_idx_images(Path::new("bad"), &remade).expect_err("invalid magic must fail");
-        assert!(matches!(error, SyntheticError::InvalidMnistFile { .. }));
+    fn mutate_truncated_payload(mut decoded: Vec<u8>) -> Vec<u8> {
+        decoded.truncate(decoded.len() - 1);
+        decoded
     }
 
     #[rstest]
-    fn parse_idx_images_rejects_truncated_payload() {
+    #[case::invalid_magic(mutate_invalid_magic, "unexpected IDX magic")]
+    #[case::truncated_payload(mutate_truncated_payload, "payload length mismatch")]
+    fn parse_idx_images_rejects_invalid_data(
+        #[case] mutate: MutationFn,
+        #[case] expected_message: &str,
+    ) {
         let payload = gzip_idx_images(2, 28, 28, 0_u8);
-        let mut decoded = gunzip_bytes(Path::new("bad"), &payload).expect("decode must succeed");
-        decoded.truncate(decoded.len() - 1);
-        let remade = gzip_bytes(&decoded);
+        let decoded_bytes = gunzip_bytes(Path::new("bad"), &payload).expect("decode must succeed");
+        let mutated_bytes = mutate(decoded_bytes);
+        let remade = gzip_bytes(&mutated_bytes);
 
-        let error =
-            parse_idx_images(Path::new("bad"), &remade).expect_err("truncated payload must fail");
-        assert!(matches!(error, SyntheticError::InvalidMnistFile { .. }));
+        let error = parse_idx_images(Path::new("bad"), &remade)
+            .expect_err("invalid IDX image payload should fail");
+        let SyntheticError::InvalidMnistFile { message, .. } = error else {
+            panic!("expected InvalidMnistFile error");
+        };
+        assert!(message.contains(expected_message));
     }
 
     #[rstest]
