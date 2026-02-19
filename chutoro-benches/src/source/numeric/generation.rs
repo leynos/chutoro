@@ -105,24 +105,28 @@ fn validate_float_param(
     }
 }
 
-const fn validate_ring_pattern(config: &ManifoldConfig) -> Result<(), SyntheticError> {
-    if config.dimensions < 2 {
+const fn validate_pattern_dimensions(
+    pattern: &'static str,
+    minimum: usize,
+    actual: usize,
+) -> Result<(), SyntheticError> {
+    if actual < minimum {
         return Err(SyntheticError::InsufficientManifoldDimensions {
-            pattern: "ring",
-            minimum: 2,
-            actual: config.dimensions,
+            pattern,
+            minimum,
+            actual,
         });
     }
     Ok(())
 }
 
+const fn validate_ring_pattern(config: &ManifoldConfig) -> Result<(), SyntheticError> {
+    validate_pattern_dimensions("ring", 2, config.dimensions)
+}
+
 const fn validate_swiss_roll_pattern(config: &ManifoldConfig) -> Result<(), SyntheticError> {
     if config.dimensions < 3 {
-        return Err(SyntheticError::InsufficientManifoldDimensions {
-            pattern: "swiss_roll",
-            minimum: 3,
-            actual: config.dimensions,
-        });
+        return validate_pattern_dimensions("swiss_roll", 3, config.dimensions);
     }
     if config.turns == 0 {
         return Err(SyntheticError::ZeroTurns);
