@@ -111,8 +111,8 @@ fn bench_build_source<S: DataSource + Sync>(
 ) {
     let bench_params = HnswBenchParams {
         point_count: spec.point_count,
-        max_connections: 16,
-        ef_construction: 32,
+        max_connections: params.max_connections(),
+        ef_construction: params.ef_construction(),
     };
     group.bench_with_input(
         BenchmarkId::new(spec.bench_label, &bench_params),
@@ -181,15 +181,10 @@ where
     Ok(())
 }
 
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "Criterion measurement closures cannot propagate errors via Result"
-)]
 fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     bench_hnsw_build_generic(c, "hnsw_build", |source, params| {
         CpuHnsw::build(source, params).map(|_| ())
     })
-    .inspect_err(|err| panic!("hnsw_build benchmark setup failed: {err}"))
 }
 
 fn hnsw_build(c: &mut Criterion) {
@@ -198,15 +193,10 @@ fn hnsw_build(c: &mut Criterion) {
     }
 }
 
-#[expect(
-    clippy::panic_in_result_fn,
-    reason = "Criterion measurement closures cannot propagate errors via Result"
-)]
 fn hnsw_build_with_edges_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     bench_hnsw_build_generic(c, "hnsw_build_with_edges", |source, params| {
         CpuHnsw::build_with_edges(source, params).map(|_| ())
     })
-    .inspect_err(|err| panic!("hnsw_build_with_edges benchmark setup failed: {err}"))
 }
 
 fn hnsw_build_with_edges(c: &mut Criterion) {
