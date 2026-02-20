@@ -240,7 +240,7 @@ ______________________________________________________________________
 
 - [x] 2.1.1. Create `chutoro-benches` with Criterion harness for HNSW
   build, edge harvest, MST, and extraction timings. (See §11)
-- [ ] 2.1.2. Extend `SyntheticSource` with diverse data generators:
+- [x] 2.1.2. Extend `SyntheticSource` with diverse data generators:
   Gaussian blobs (configurable separation, cluster count, and anisotropy),
   ring/manifold patterns for non-linearly-separable data, and text strings
   exercising Levenshtein distance. Add MNIST (70k ×

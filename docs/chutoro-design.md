@@ -1832,6 +1832,33 @@ roadmap, the resulting library will not only be a powerful tool for large-scale
 data analysis but also a showcase of high-performance, concurrent systems
 programming in Rust.
 
+### 11.1. Benchmark synthetic source expansion (roadmap 2.1.2)
+
+To strengthen the CPU benchmark harness and keep synthetic coverage aligned
+with real workloads, `chutoro-benches` extends `SyntheticSource` with
+additional generator families and a cached MNIST baseline:
+
+- **Gaussian blobs** now support configurable cluster count, centroid
+  separation, and anisotropy. These fixtures primarily stress HNSW insertion
+  quality under controllable overlap, then expose edge-harvest sensitivity when
+  clusters are close enough to compete for neighbours.
+- **Ring and manifold patterns** model non-linearly-separable geometry that
+  cannot be captured by axis-aligned cluster assumptions. These fixtures stress
+  approximate nearest-neighbour (ANN) recall, candidate edge sufficiency, and
+  minimum spanning tree (MST) robustness when local neighbourhoods curve.
+- **Synthetic text strings** generated for Levenshtein distance exercise the
+  non-vector distance path with branch-heavy edit-distance scoring. This
+  surfaces CPU costs and pruning behaviour that dense numeric benchmarks do not
+  cover.
+- **MNIST (70,000 × 784)** is available through a download-and-cache helper
+  that stores compressed IDX files locally and reuses them across benchmark
+  runs. This provides a stable, real-world Euclidean baseline for end-to-end
+  CPU pipeline timing.
+
+The benchmark suite keeps MNIST execution opt-in via environment control so the
+default developer loop remains deterministic and offline-friendly while still
+supporting full baseline runs in dedicated performance environments.
+
 #### **Works cited**
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September
