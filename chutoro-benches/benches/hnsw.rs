@@ -268,7 +268,7 @@ fn hnsw_build_diverse_sources(c: &mut Criterion) {
     }
 }
 
-mod generated_benches {
+mod bench_harness {
     use super::{hnsw_build, hnsw_build_diverse_sources, hnsw_build_with_edges};
     use criterion::criterion_group;
 
@@ -279,4 +279,4 @@ mod generated_benches {
         hnsw_build_diverse_sources
     );
 }
-criterion_main!(generated_benches::benches);
+criterion_main!(bench_harness::benches);

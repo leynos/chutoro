@@ -38,7 +38,7 @@ is marked done, and quality gates pass: `make check-fmt`, `make lint`,
 - Use caret Semantic Versioning (SemVer) dependencies only; do not use wildcard
   or open-ended ranges.
 - Use en-GB-oxendict spelling in comments and documentation updates.
-- Follow doctest guidance for any new rustdoc examples and avoid `unwrap` in
+- Follow doctest guidance for any new rustdoc examples, and avoid `unwrap` in
   non-test paths.
 - Use `rstest` parameterized tests where coverage would otherwise duplicate
   assertions.
@@ -77,7 +77,7 @@ is marked done, and quality gates pass: `make check-fmt`, `make lint`,
 ## Progress
 
 - [x] (2026-02-16 00:00Z) Draft ExecPlan created for roadmap item 2.1.2.
-- [x] (2026-02-16 01:10Z) Finalised source API: numeric `SyntheticSource`,
+- [x] (2026-02-16 01:10Z) Finalized source API: numeric `SyntheticSource`,
   `SyntheticTextSource`, Gaussian/manifold/text configs, and `MnistConfig`.
 - [x] (2026-02-16 02:00Z) Implemented source module split and MNIST
   download-and-cache helper with offline-testable download client abstraction.
@@ -345,8 +345,8 @@ For MNIST cache behaviour, capture one short transcript showing:
 
 ## Interfaces and Dependencies
 
-Planned public benchmark-support interfaces (final names may vary, but intent is
-fixed):
+Planned public benchmark-support interfaces (final names may vary, but intent
+is fixed):
 
 - `chutoro_benches::source::SyntheticSource` remains available for numeric
   vectors (backward compatibility).
