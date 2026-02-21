@@ -246,7 +246,7 @@ ______________________________________________________________________
   exercising Levenshtein distance. Add MNIST (70k ×
   784) as a real-world baseline via a download-and-cache helper.
   Document which synthetic patterns stress which pipeline stages. (See §1.3)
-- [ ] 2.1.3. Track memory footprint alongside timing: use Criterion
+- [x] 2.1.3. Track memory footprint alongside timing: use Criterion
   custom measurements or a separate profiler to record peak memory during HNSW
   build. Report memory/point and memory/edge metrics vs `M∈{8,12,16,24}`.
   Validate that memory scales as expected (≈ n×M edges). (See §11)
