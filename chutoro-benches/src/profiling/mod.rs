@@ -205,6 +205,11 @@ impl HnswMemoryRecord {
     }
 }
 
+#[expect(
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "Metrics are intentionally truncated to whole bytes after a non-zero denominator check."
+)]
 fn divide_metric(
     numerator: u64,
     denominator: usize,
@@ -216,11 +221,7 @@ fn divide_metric(
     let denominator_u64 = u64::try_from(denominator).map_err(|_| ProfilingError::Overflow {
         context: "usize_to_u64_denominator",
     })?;
-    numerator
-        .checked_div(denominator_u64)
-        .ok_or(ProfilingError::Overflow {
-            context: "divide_metric",
-        })
+    Ok(numerator / denominator_u64)
 }
 
 fn validate_edge_scaling(
