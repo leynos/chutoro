@@ -13,8 +13,8 @@ use chutoro_benches::{
     error::BenchSetupError,
     params::HnswBenchParams,
     profiling::{
-        EdgeScalingBounds, HnswMemoryInput, HnswMemoryRecord, measure_peak_resident_set_size,
-        write_hnsw_memory_report,
+        EdgeScalingBounds, HnswMemoryInput, HnswMemoryRecord, ProfilingError,
+        measure_peak_resident_set_size, write_hnsw_memory_report,
     },
     source::{
         Anisotropy, GaussianBlobConfig, ManifoldConfig, ManifoldPattern, MnistConfig,
@@ -212,14 +212,29 @@ fn hnsw_build(c: &mut Criterion) {
 }
 
 fn should_collect_memory_profile() -> bool {
+    if let Ok(value) = std::env::var("CHUTORO_BENCH_HNSW_MEMORY_PROFILE") {
+        let normalized = value.trim().to_ascii_lowercase();
+        if matches!(normalized.as_str(), "0" | "false" | "off") {
+            return false;
+        }
+        if matches!(normalized.as_str(), "1" | "true" | "on") {
+            return true;
+        }
+    }
     !std::env::args().any(|arg| arg == "--list" || arg == "--exact")
 }
 
-fn profile_hnsw_memory_impl() -> Result<PathBuf, BenchSetupError> {
+fn memory_report_path() -> PathBuf {
+    std::env::var_os("CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH")
+        .map_or_else(|| PathBuf::from(MEMORY_REPORT_PATH), PathBuf::from)
+}
+
+fn profile_hnsw_memory_impl() -> Result<Option<PathBuf>, BenchSetupError> {
     if !should_collect_memory_profile() {
-        return Ok(PathBuf::from(MEMORY_REPORT_PATH));
+        return Ok(None);
     }
 
+    let report_path = memory_report_path();
     let mut records = Vec::new();
 
     for &point_count in POINT_COUNTS {
@@ -229,9 +244,13 @@ fn profile_hnsw_memory_impl() -> Result<PathBuf, BenchSetupError> {
             let params = make_hnsw_params(m)?;
             let ef_construction = params.ef_construction();
             let (build_result, measurement) =
-                measure_peak_resident_set_size(MEMORY_SAMPLE_INTERVAL, || {
+                match measure_peak_resident_set_size(MEMORY_SAMPLE_INTERVAL, || {
                     CpuHnsw::build_with_edges(&source, params.clone())
-                })?;
+                }) {
+                    Ok(measurement) => measurement,
+                    Err(ProfilingError::UnsupportedPlatform { .. }) => return Ok(None),
+                    Err(err) => return Err(err.into()),
+                };
             let (_index, harvest) = build_result?;
             records.push(HnswMemoryRecord::new(
                 HnswMemoryInput {
@@ -246,11 +265,13 @@ fn profile_hnsw_memory_impl() -> Result<PathBuf, BenchSetupError> {
         }
     }
 
-    write_hnsw_memory_report(MEMORY_REPORT_PATH, &records).map_err(BenchSetupError::from)
+    write_hnsw_memory_report(&report_path, &records)
+        .map(Some)
+        .map_err(BenchSetupError::from)
 }
 
 fn hnsw_build_with_edges_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
-    let _report_path = profile_hnsw_memory_impl()?;
+    let _maybe_report_path = profile_hnsw_memory_impl()?;
     bench_hnsw_build_generic(c, "hnsw_build_with_edges", |source, params| {
         CpuHnsw::build_with_edges(source, params).map(|_| ())
     })

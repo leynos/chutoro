@@ -19,7 +19,7 @@ use super::ProfilingError;
 pub struct PeakRssMeasurement {
     /// Wall-clock duration spent executing the profiled operation.
     pub elapsed: Duration,
-    /// Maximum observed process resident-set size in bytes.
+    /// Peak resident-set-size delta from the run's starting baseline in bytes.
     pub peak_rss_bytes: u64,
 }
 
@@ -55,7 +55,8 @@ fn measure_peak_resident_set_size_linux<T>(
     operation: impl FnOnce() -> T,
 ) -> Result<(T, PeakRssMeasurement), ProfilingError> {
     let running = Arc::new(AtomicBool::new(true));
-    let peak_bytes = Arc::new(AtomicU64::new(read_vm_rss_bytes()?));
+    let starting_rss_bytes = read_vm_rss_bytes()?;
+    let peak_bytes = Arc::new(AtomicU64::new(starting_rss_bytes));
     let background_error = Arc::new(Mutex::new(None::<ProfilingError>));
 
     let running_handle = Arc::clone(&running);
@@ -93,14 +94,21 @@ fn measure_peak_resident_set_size_linux<T>(
     if let Some(err) = maybe_background_error {
         return Err(err);
     }
+    let peak_delta_bytes =
+        compute_peak_rss_delta_bytes(starting_rss_bytes, peak_bytes.load(Ordering::Relaxed));
 
     Ok((
         operation_result,
         PeakRssMeasurement {
             elapsed,
-            peak_rss_bytes: peak_bytes.load(Ordering::Relaxed),
+            peak_rss_bytes: peak_delta_bytes,
         },
     ))
+}
+
+#[cfg(target_os = "linux")]
+const fn compute_peak_rss_delta_bytes(starting_rss_bytes: u64, peak_rss_bytes: u64) -> u64 {
+    peak_rss_bytes.saturating_sub(starting_rss_bytes)
 }
 
 #[cfg(target_os = "linux")]
@@ -200,5 +208,21 @@ mod tests {
         let err = measure_peak_resident_set_size(Duration::from_secs(0), || 1_u8)
             .expect_err("zero interval must fail");
         assert!(matches!(err, ProfilingError::ZeroSamplingInterval));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[rstest]
+    #[case::grows(1_024, 4_096, 3_072)]
+    #[case::unchanged(4_096, 4_096, 0)]
+    #[case::shrinks(8_192, 4_096, 0)]
+    fn compute_peak_rss_delta_bytes_never_reports_negative(
+        #[case] starting_rss_bytes: u64,
+        #[case] peak_rss_bytes: u64,
+        #[case] expected_delta: u64,
+    ) {
+        assert_eq!(
+            compute_peak_rss_delta_bytes(starting_rss_bytes, peak_rss_bytes),
+            expected_delta
+        );
     }
 }

@@ -116,7 +116,7 @@ pub struct HnswMemoryInput {
     pub max_connections: usize,
     /// Configured HNSW `ef_construction`.
     pub ef_construction: usize,
-    /// Measured elapsed time and peak memory.
+    /// Measured elapsed time and peak memory delta from baseline.
     pub measurement: PeakRssMeasurement,
     /// Number of harvested candidate edges.
     pub edge_count: usize,
@@ -218,7 +218,9 @@ fn divide_metric(
     })?;
     numerator
         .checked_div(denominator_u64)
-        .ok_or(ProfilingError::ZeroDenominator { context })
+        .ok_or(ProfilingError::Overflow {
+            context: "divide_metric",
+        })
 }
 
 fn validate_edge_scaling(

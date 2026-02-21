@@ -1,4 +1,4 @@
-# Execution Plan (ExecPlan): track HNSW memory footprint in CPU benchmarks
+# Execution Plan (ExecPlan): track Hierarchical Navigable Small World (HNSW) memory footprint in CPU benchmarks
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
@@ -59,7 +59,7 @@ entry `2.1.3` is marked done, and quality gates pass: `make check-fmt`,
 - Risk: measured memory can include temporary allocations unrelated to graph
   structure. Severity: medium. Likelihood: medium. Mitigation: use a fixed
   benchmark path and report both elapsed time and edge count context.
-- Risk: edge-count scaling may vary due parallel insertion order.
+- Risk: edge-count scaling may vary due to parallel insertion order.
   Severity: medium. Likelihood: medium. Mitigation: validate against tolerance
   bands and monotonic trends instead of exact equality.
 - Risk: benchmark-only code may regress under strict Clippy lints.
@@ -80,10 +80,11 @@ entry `2.1.3` is marked done, and quality gates pass: `make check-fmt`,
 
 ## Surprises & Discoveries
 
-- Observation: project memory MCP resources are not exposed in this
-  environment (`list_mcp_resources` and `list_mcp_resource_templates` returned
-  empty results). Evidence: tool output contained zero resources and zero
-  templates. Impact: this plan relies on repository sources only.
+- Observation: project memory Model Context Protocol (MCP) resources are not
+  exposed in this environment (`list_mcp_resources` and
+  `list_mcp_resource_templates` returned empty results). Evidence: tool output
+  contained zero resources and zero templates. Impact: this plan relies on
+  repository sources only.
 - Observation: current HNSW benchmark sweep still uses `M in {8, 16}` in
   `chutoro-benches/benches/hnsw.rs`. Evidence: `MAX_CONNECTIONS` constant
   currently has two values. Impact: roadmap item 2.1.4 overlap must be managed
@@ -128,7 +129,15 @@ Implemented roadmap item 2.1.3 end-to-end.
 - Added `chutoro-benches/src/profiling/mod.rs` and
   `chutoro-benches/src/profiling/memory_sampler.rs`: Linux `/proc/self/status`
   peak-`VmRSS` sampling, typed profiling errors, edge-scaling validation, and
-  CSV report writing.
+  comma-separated values (CSV) report writing.
+- Updated profiling semantics to report per-run peak RSS deltas from each run's
+  starting baseline so sequential benchmark cases do not inherit prior memory.
+- Added graceful degradation on unsupported platforms so
+  `hnsw_build_with_edges` timing benchmarks still run when RSS profiling is not
+  available.
+- Added `CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH` (report location override) and
+  `CHUTORO_BENCH_HNSW_MEMORY_PROFILE` (explicit profile enable/disable switch)
+  to make benchmark-runner integration less environment-dependent.
 - Added `rstest` coverage for happy/unhappy/edge paths in profiling code:
   valid parsing, missing/invalid proc fields, invalid units, zero denominators,
   scaling bound outcomes, and report persistence.

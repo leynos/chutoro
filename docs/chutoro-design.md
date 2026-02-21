@@ -1866,14 +1866,19 @@ alongside elapsed time for each `(n, M)` configuration. The implementation uses
 a separate in-process profiler rather than a Criterion custom measurement:
 
 - During each `CpuHnsw::build_with_edges` profiling run, a lightweight sampler
-  polls `/proc/self/status` and records the maximum observed `VmRSS` value.
+  polls `/proc/self/status` and records the maximum observed `VmRSS` relative
+  to the run's starting baseline.
 - The sampler emits peak resident-set size in bytes together with elapsed wall
   time.
 - For each run, the benchmark reports:
   `memory_per_point_bytes = peak_rss_bytes / point_count` and
   `memory_per_edge_bytes = peak_rss_bytes / edge_count`.
 - Profiling currently targets `M in {8, 12, 16, 24}` and writes a
-  machine-readable report to `target/benchmarks/hnsw_memory_profile.csv`.
+  machine-readable report to `target/benchmarks/hnsw_memory_profile.csv` by
+  default. `CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH` can override this location.
+- `CHUTORO_BENCH_HNSW_MEMORY_PROFILE` can explicitly enable/disable memory
+  profiling (`1`/`true`/`on` or `0`/`false`/`off`) when benchmark runners need
+  deterministic setup behaviour.
 
 To validate expected scaling, each run computes `expected_edges = n * M` and
 marks whether the harvested edge count remains within a bounded multiplicative
