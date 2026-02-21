@@ -1859,6 +1859,28 @@ The benchmark suite keeps MNIST execution opt-in via environment control so the
 default developer loop remains deterministic and offline-friendly while still
 supporting full baseline runs in dedicated performance environments.
 
+### 11.2. HNSW memory footprint tracking (roadmap 2.1.3)
+
+Roadmap item 2.1.3 extends the CPU HNSW benchmark harness so memory is tracked
+alongside elapsed time for each `(n, M)` configuration. The implementation uses
+a separate in-process profiler rather than a Criterion custom measurement:
+
+- During each `CpuHnsw::build_with_edges` profiling run, a lightweight sampler
+  polls `/proc/self/status` and records the maximum observed `VmRSS` value.
+- The sampler emits peak resident-set size in bytes together with elapsed wall
+  time.
+- For each run, the benchmark reports:
+  `memory_per_point_bytes = peak_rss_bytes / point_count` and
+  `memory_per_edge_bytes = peak_rss_bytes / edge_count`.
+- Profiling currently targets `M in {8, 12, 16, 24}` and writes a
+  machine-readable report to `target/benchmarks/hnsw_memory_profile.csv`.
+
+To validate expected scaling, each run computes `expected_edges = n * M` and
+marks whether the harvested edge count remains within a bounded multiplicative
+tolerance of that expectation. This preserves a robust "same-order" guard in
+the presence of parallel insertion variability while still detecting gross
+regressions in edge growth.
+
 #### **Works cited**
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September

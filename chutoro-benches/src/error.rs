@@ -4,6 +4,7 @@
 //! data preparation so that setup functions can propagate failures
 //! with `?` instead of using `.expect()`.
 
+use crate::profiling::ProfilingError;
 use crate::source::SyntheticError;
 use chutoro_core::{HierarchyError, HnswError, MstError};
 
@@ -28,4 +29,7 @@ pub enum BenchSetupError {
         /// A description of the parameter that was unexpectedly zero.
         context: &'static str,
     },
+    /// Memory profiling failed.
+    #[error("memory profiling failed: {0}")]
+    Profiling(#[from] ProfilingError),
 }

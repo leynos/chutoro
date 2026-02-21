@@ -3,6 +3,8 @@
 //! Measures the time to construct an HNSW index using both the plain
 //! `build` path and the `build_with_edges` path that additionally
 //! harvests candidate edges for MST construction.
+use std::{path::PathBuf, time::Duration};
+
 use criterion::{
     BatchSize, BenchmarkGroup, BenchmarkId, Criterion, criterion_main, measurement::WallTime,
 };
@@ -10,6 +12,10 @@ use criterion::{
 use chutoro_benches::{
     error::BenchSetupError,
     params::HnswBenchParams,
+    profiling::{
+        EdgeScalingBounds, HnswMemoryInput, HnswMemoryRecord, measure_peak_resident_set_size,
+        write_hnsw_memory_report,
+    },
     source::{
         Anisotropy, GaussianBlobConfig, ManifoldConfig, ManifoldPattern, MnistConfig,
         SyntheticConfig, SyntheticSource, SyntheticTextConfig,
@@ -27,10 +33,22 @@ const DIMENSIONS: usize = 16;
 const POINT_COUNTS: &[usize] = &[100, 500, 1_000, 5_000];
 
 /// HNSW M parameter values to benchmark.
-const MAX_CONNECTIONS: &[usize] = &[8, 16];
+const MAX_CONNECTIONS: &[usize] = &[8, 12, 16, 24];
 
 /// Dataset size used for diverse synthetic pattern benchmarks.
 const DIVERSE_POINT_COUNT: usize = 1_000;
+
+/// Sampling cadence for peak resident-set-size profiling.
+const MEMORY_SAMPLE_INTERVAL: Duration = Duration::from_millis(2);
+
+/// Report destination for derived memory metrics.
+const MEMORY_REPORT_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../target/benchmarks/hnsw_memory_profile.csv"
+);
+
+/// Multiplicative edge-scaling tolerance around `expected = n * M`.
+const EDGE_SCALING_BOUNDS: EdgeScalingBounds = EdgeScalingBounds::new(8, 8);
 
 /// Creates a [`SyntheticSource`] with the given point count and the
 /// module-level constants for dimensions and seed.
@@ -193,7 +211,46 @@ fn hnsw_build(c: &mut Criterion) {
     }
 }
 
+fn should_collect_memory_profile() -> bool {
+    !std::env::args().any(|arg| arg == "--list" || arg == "--exact")
+}
+
+fn profile_hnsw_memory_impl() -> Result<PathBuf, BenchSetupError> {
+    if !should_collect_memory_profile() {
+        return Ok(PathBuf::from(MEMORY_REPORT_PATH));
+    }
+
+    let mut records = Vec::new();
+
+    for &point_count in POINT_COUNTS {
+        let source = make_source(point_count)?;
+
+        for &m in MAX_CONNECTIONS {
+            let params = make_hnsw_params(m)?;
+            let ef_construction = params.ef_construction();
+            let (build_result, measurement) =
+                measure_peak_resident_set_size(MEMORY_SAMPLE_INTERVAL, || {
+                    CpuHnsw::build_with_edges(&source, params.clone())
+                })?;
+            let (_index, harvest) = build_result?;
+            records.push(HnswMemoryRecord::new(
+                HnswMemoryInput {
+                    point_count,
+                    max_connections: m,
+                    ef_construction,
+                    measurement,
+                    edge_count: harvest.len(),
+                },
+                EDGE_SCALING_BOUNDS,
+            )?);
+        }
+    }
+
+    write_hnsw_memory_report(MEMORY_REPORT_PATH, &records).map_err(BenchSetupError::from)
+}
+
 fn hnsw_build_with_edges_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
+    let _report_path = profile_hnsw_memory_impl()?;
     bench_hnsw_build_generic(c, "hnsw_build_with_edges", |source, params| {
         CpuHnsw::build_with_edges(source, params).map(|_| ())
     })

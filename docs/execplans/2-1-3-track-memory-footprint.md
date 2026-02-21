@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 PLANS.md is not present in this repository, so no additional plan constraints
 apply.
@@ -69,11 +69,14 @@ entry `2.1.3` is marked done, and quality gates pass: `make check-fmt`,
 ## Progress
 
 - [x] (2026-02-20 20:08Z) Drafted ExecPlan for roadmap item 2.1.3.
-- [ ] Implement memory profiling module and tests in `chutoro-benches`.
-- [ ] Integrate memory metrics into HNSW benchmark reporting for
-      `M in {8, 12, 16, 24}`.
-- [ ] Update design documentation and roadmap state.
-- [ ] Run formatting, linting, and test quality gates.
+- [x] (2026-02-21 11:40Z) Implemented profiling module and tests in
+      `chutoro-benches/src/profiling/`.
+- [x] (2026-02-21 11:55Z) Integrated memory metrics and report generation into
+      `chutoro-benches/benches/hnsw.rs` for `M in {8, 12, 16, 24}`.
+- [x] (2026-02-21 12:05Z) Updated `docs/chutoro-design.md` and marked roadmap
+      item `2.1.3` done in `docs/roadmap.md`.
+- [x] (2026-02-21 12:31Z) Passed quality gates:
+      `make check-fmt`, `make lint`, and `make test`.
 
 ## Surprises & Discoveries
 
@@ -85,6 +88,12 @@ entry `2.1.3` is marked done, and quality gates pass: `make check-fmt`,
   `chutoro-benches/benches/hnsw.rs`. Evidence: `MAX_CONNECTIONS` constant
   currently has two values. Impact: roadmap item 2.1.4 overlap must be managed
   while implementing 2.1.3.
+- Observation: running memory profiling during benchmark registration caused
+  `nextest` timeout failures because bench binaries are invoked with `--exact`
+  and `--list`. Evidence: `make test` timed out at 180 seconds for HNSW bench
+  cases before the guard was added. Impact: profiling now runs only in normal
+  `cargo bench` mode (not listing/exact test mode), restoring test-gate
+  stability.
 
 ## Decision Log
 
@@ -101,22 +110,44 @@ entry `2.1.3` is marked done, and quality gates pass: `make check-fmt`,
   checks, not strict equality. Rationale: parallel insertion order and dataset
   geometry can shift absolute counts while preserving expected growth shape.
   Date/Author: 2026-02-20 (Codex)
+- Decision: compute memory metrics using integer byte counters
+  (`memory_per_point_bytes`, `memory_per_edge_bytes`) instead of floating-point
+  ratios. Rationale: this keeps benchmark support compliant with strict Clippy
+  float/cast lints while still providing actionable scaling metrics.
+  Date/Author: 2026-02-21 (Codex)
+- Decision: skip profiling when benchmark processes are launched with
+  `--list`/`--exact`. Rationale: `nextest` discovers and executes benchmark
+  cases using these flags; profiling during registration made each case exceed
+  timeout limits without improving benchmark fidelity. Date/Author: 2026-02-21
+  (Codex)
 
 ## Outcomes & Retrospective
 
-Pending implementation. At completion this section will summarise:
+Implemented roadmap item 2.1.3 end-to-end.
 
-- achieved memory and timing reporting behaviour,
-- final scaling observations across `M` values,
-- test/lint gate outcomes,
-- follow-up work, if any.
+- Added `chutoro-benches/src/profiling/mod.rs` and
+  `chutoro-benches/src/profiling/memory_sampler.rs`: Linux `/proc/self/status`
+  peak-`VmRSS` sampling, typed profiling errors, edge-scaling validation, and
+  CSV report writing.
+- Added `rstest` coverage for happy/unhappy/edge paths in profiling code:
+  valid parsing, missing/invalid proc fields, invalid units, zero denominators,
+  scaling bound outcomes, and report persistence.
+- Integrated profiling into HNSW benchmark infrastructure and expanded M sweep
+  to `{8, 12, 16, 24}` in `chutoro-benches/benches/hnsw.rs`.
+- Report artifact is written to
+  `target/benchmarks/hnsw_memory_profile.csv` during benchmark runs.
+- Updated design docs (`docs/chutoro-design.md`) with section 11.2 describing
+  methodology and scaling validation approach.
+- Marked roadmap item `2.1.3` done in `docs/roadmap.md`.
+- All required quality gates succeeded after implementation:
+  `make check-fmt`, `make lint`, and `make test`.
 
 ## Context and Orientation
 
 Current benchmark infrastructure lives in `chutoro-benches`:
 
 - `chutoro-benches/benches/hnsw.rs` runs timing benchmarks for HNSW build
-  paths and currently sweeps only `M in {8, 16}`.
+  paths and now sweeps `M in {8, 12, 16, 24}`.
 - `chutoro-benches/src/params.rs` defines benchmark parameter display structs.
 - `chutoro-benches/src/error.rs` aggregates setup errors for benchmark code.
 - `chutoro-benches/src/lib.rs` exports benchmark support modules.
@@ -334,5 +365,10 @@ Dependency intent:
 
 ## Revision Note
 
-Initial draft created for roadmap item `2.1.3`; no implementation has started
-yet.
+Revised from draft to complete implementation status.
+
+- Added concrete outcomes, updated progress timestamps, and recorded new
+  decisions/discoveries from implementation.
+- Documented the `nextest` timeout discovery and the registration-mode profiling
+  guard (`--list`/`--exact`).
+- Confirmed roadmap and quality-gate completion for item `2.1.3`.
