@@ -21,6 +21,10 @@ name = "hnsw"
 harness = false
 
 [[bench]]
+name = "hnsw_ef_sweep"
+harness = false
+
+[[bench]]
 name = "edge_harvest"
 harness = false
 

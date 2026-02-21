@@ -1,0 +1,216 @@
+//! HNSW `ef_construction` sweep benchmarks and recall measurement.
+//!
+//! Varies `ef_construction` independently of `M` to show build-time versus
+//! recall trade-offs. Complements the main HNSW benchmarks in `hnsw.rs`
+//! which hold `ef_construction = M * 2` fixed.
+use std::{num::NonZeroUsize, path::PathBuf, time::Instant};
+
+use criterion::{BatchSize, BenchmarkId, Criterion, criterion_main};
+
+use chutoro_benches::{
+    ef_sweep::{
+        EF_CONSTRUCTION_VALUES, EF_SWEEP_MAX_CONNECTIONS, EF_SWEEP_POINT_COUNTS,
+        make_hnsw_params_with_ef, resolve_ef_construction,
+    },
+    error::BenchSetupError,
+    params::HnswBenchParams,
+    recall::{RecallMeasurement, RecallScore, brute_force_top_k, recall_at_k, write_recall_report},
+    source::{SyntheticConfig, SyntheticSource},
+};
+use chutoro_core::{CpuHnsw, DataSource, HnswError};
+
+/// Seed used for all synthetic data generation (shared with `hnsw.rs`).
+const SEED: u64 = 42;
+
+/// Vector dimensionality (shared with `hnsw.rs`).
+const DIMENSIONS: usize = 16;
+
+/// Dataset size for recall measurement.
+const RECALL_POINT_COUNT: usize = 1_000;
+
+/// Number of deterministic query points for recall measurement.
+const RECALL_QUERY_COUNT: usize = 50;
+
+/// Number of nearest neighbours compared for recall@k.
+const RECALL_K: usize = 10;
+
+/// Search beam width when querying the HNSW index for recall.
+const RECALL_EF_SEARCH: usize = 64;
+
+/// Report destination for recall-versus-ef_construction metrics.
+const RECALL_REPORT_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../target/benchmarks/hnsw_recall_vs_ef.csv"
+);
+
+fn make_source(point_count: usize) -> Result<SyntheticSource, BenchSetupError> {
+    Ok(SyntheticSource::generate(&SyntheticConfig {
+        point_count,
+        dimensions: DIMENSIONS,
+        seed: SEED,
+    })?)
+}
+
+fn panic_on_bench_build_error<B>(result: Result<B, HnswError>, context: &str) {
+    if let Err(err) = result {
+        panic!("{context}: {err}");
+    }
+}
+
+// -- Recall measurement ------------------------------------------------
+
+fn should_collect_recall_report() -> bool {
+    if let Ok(value) = std::env::var("CHUTORO_BENCH_HNSW_RECALL_REPORT") {
+        let normalized = value.trim().to_ascii_lowercase();
+        if matches!(normalized.as_str(), "0" | "false" | "off") {
+            return false;
+        }
+        if matches!(normalized.as_str(), "1" | "true" | "on") {
+            return true;
+        }
+    }
+    !std::env::args().any(|arg| arg == "--list" || arg == "--exact")
+}
+
+fn recall_report_path() -> PathBuf {
+    std::env::var_os("CHUTORO_BENCH_HNSW_RECALL_REPORT_PATH")
+        .map_or_else(|| PathBuf::from(RECALL_REPORT_PATH), PathBuf::from)
+}
+
+/// Evenly-spaced query indices for deterministic recall sampling.
+const fn query_index(qi: usize, len: usize) -> usize {
+    evenly_spaced_index(qi, len, RECALL_QUERY_COUNT)
+}
+
+/// Computes `qi * len / count` without triggering the integer-division lint.
+#[expect(
+    clippy::integer_division,
+    clippy::integer_division_remainder_used,
+    reason = "Intentional truncating division to produce evenly-spaced indices."
+)]
+const fn evenly_spaced_index(qi: usize, len: usize, count: usize) -> usize {
+    qi.saturating_mul(len) / count
+}
+
+fn collect_recall_over_queries(
+    source: &SyntheticSource,
+    index: &CpuHnsw,
+    ef_search: NonZeroUsize,
+) -> Result<RecallScore, BenchSetupError> {
+    let len = source.len();
+    let mut total_hits: usize = 0;
+    let mut total_targets: usize = 0;
+
+    for qi in 0..RECALL_QUERY_COUNT {
+        let query = query_index(qi, len);
+        let mut hnsw_result = index.search(source, query, ef_search)?;
+        hnsw_result.truncate(RECALL_K);
+        let oracle = brute_force_top_k(source, query, RECALL_K)?;
+        let score = recall_at_k(&oracle, &hnsw_result, RECALL_K);
+        total_hits = total_hits.saturating_add(score.hits);
+        total_targets = total_targets.saturating_add(score.total);
+    }
+
+    Ok(RecallScore {
+        hits: total_hits,
+        total: total_targets,
+    })
+}
+
+fn measure_recall_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
+    if !should_collect_recall_report() {
+        return Ok(None);
+    }
+
+    let source = make_source(RECALL_POINT_COUNT)?;
+    let ef_search = NonZeroUsize::new(RECALL_EF_SEARCH).ok_or(BenchSetupError::ZeroValue {
+        context: "RECALL_EF_SEARCH",
+    })?;
+    let mut records = Vec::new();
+
+    for &m in EF_SWEEP_MAX_CONNECTIONS {
+        for &ef_raw in EF_CONSTRUCTION_VALUES {
+            let ef = resolve_ef_construction(m, ef_raw);
+            let params = make_hnsw_params_with_ef(m, ef, SEED)?;
+
+            let started = Instant::now();
+            let index = CpuHnsw::build(&source, params)?;
+            let build_time = started.elapsed();
+
+            let recall = collect_recall_over_queries(&source, &index, ef_search)?;
+
+            records.push(RecallMeasurement {
+                point_count: RECALL_POINT_COUNT,
+                max_connections: m,
+                ef_construction: ef,
+                recall,
+                build_time_millis: build_time.as_millis(),
+            });
+        }
+    }
+
+    write_recall_report(recall_report_path(), &records)
+        .map(Some)
+        .map_err(|err| BenchSetupError::Profiling(err.into()))
+}
+
+// -- Criterion ef_construction sweep -----------------------------------
+
+#[expect(
+    clippy::excessive_nesting,
+    reason = "Criterion bench_with_input + triple parameter loop requires deep nesting"
+)]
+fn hnsw_build_ef_sweep_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
+    let _maybe_report_path = measure_recall_vs_ef_impl()?;
+
+    let mut group = c.benchmark_group("hnsw_build_ef_sweep");
+    group.sample_size(10);
+
+    for &point_count in EF_SWEEP_POINT_COUNTS {
+        let source = make_source(point_count)?;
+        for &m in EF_SWEEP_MAX_CONNECTIONS {
+            for &ef_raw in EF_CONSTRUCTION_VALUES {
+                let ef = resolve_ef_construction(m, ef_raw);
+                let bench_params = HnswBenchParams {
+                    point_count,
+                    max_connections: m,
+                    ef_construction: ef,
+                };
+                let params = make_hnsw_params_with_ef(m, ef, SEED)?;
+                group.bench_with_input(
+                    BenchmarkId::from_parameter(&bench_params),
+                    &(&source, &params),
+                    |b, &(bench_source, input_params)| {
+                        b.iter_batched(
+                            || input_params.clone(),
+                            |cloned_params| {
+                                panic_on_bench_build_error(
+                                    CpuHnsw::build(bench_source, cloned_params),
+                                    "hnsw_build_ef_sweep failed during benchmark",
+                                );
+                            },
+                            BatchSize::SmallInput,
+                        );
+                    },
+                );
+            }
+        }
+    }
+
+    group.finish();
+    Ok(())
+}
+
+fn hnsw_build_ef_sweep(c: &mut Criterion) {
+    if let Err(err) = hnsw_build_ef_sweep_impl(c) {
+        panic!("hnsw_build_ef_sweep benchmark setup failed: {err}");
+    }
+}
+
+mod bench_harness {
+    use super::hnsw_build_ef_sweep;
+    use criterion::criterion_group;
+
+    criterion_group!(benches, hnsw_build_ef_sweep);
+}
+criterion_main!(bench_harness::benches);

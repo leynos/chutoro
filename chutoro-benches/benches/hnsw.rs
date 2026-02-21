@@ -10,6 +10,7 @@ use criterion::{
 };
 
 use chutoro_benches::{
+    ef_sweep::make_hnsw_params_with_ef,
     error::BenchSetupError,
     params::HnswBenchParams,
     profiling::{
@@ -60,10 +61,9 @@ fn make_source(point_count: usize) -> Result<SyntheticSource, BenchSetupError> {
     })?)
 }
 
-/// Creates [`HnswParams`] for the given M value using the
-/// module-level seed.
+/// Creates [`HnswParams`] for the given M value with `ef = M * 2`.
 fn make_hnsw_params(m: usize) -> Result<HnswParams, BenchSetupError> {
-    Ok(HnswParams::new(m, m.saturating_mul(2))?.with_rng_seed(SEED))
+    make_hnsw_params_with_ef(m, m.saturating_mul(2), SEED)
 }
 
 fn make_gaussian_source() -> Result<SyntheticSource, BenchSetupError> {
