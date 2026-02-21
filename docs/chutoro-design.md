@@ -1886,6 +1886,59 @@ tolerance of that expectation. This preserves a robust "same-order" guard in
 the presence of parallel insertion variability while still detecting gross
 regressions in edge growth.
 
+### 11.3. HNSW `ef_construction` parameter coverage (roadmap 2.1.4)
+
+The `ef_construction` parameter controls the search beam width used during HNSW
+index construction. More candidates evaluated per insertion produces a
+higher-quality graph at the cost of longer build time. Prior to this work, all
+benchmarks hardcoded `ef_construction = M * 2`, the cheapest viable setting.
+Varying `ef_construction` independently reveals the build-time versus recall
+trade-off curve that practitioners need when tuning production indices.
+
+**Parameter choices.** The sweep uses `ef_construction` values
+`{M*2, 100, 200, 400}`:
+
+- `M*2` is the minimum value accepted by `HnswParams::new` and the existing
+  baseline. It provides the cheapest build and the lowest-quality graph.
+- `100` is a commonly recommended practical default in the HNSW literature and
+  the value used by the reference `hnswlib` implementation.
+- `200` captures the quality plateau where most applications see diminishing
+  returns from further increases.
+- `400` shows the full diminishing-returns tail, confirming that
+  `ef_construction` beyond ~200 rarely justifies the additional build cost.
+
+**Benchmark structure.** A dedicated Criterion group `hnsw_build_ef_sweep` (in
+`chutoro-benches/benches/hnsw_ef_sweep.rs`) benchmarks build time across
+`n in {500, 5000}`, `M in {8, 24}`, and
+`ef_construction in {M*2, 100, 200, 400}`, yielding 16 benchmark cases. The
+reduced matrix uses the extremes of both dataset size and graph connectivity to
+show interaction effects without combinatorial explosion. Existing benchmark
+groups (`hnsw_build`, `hnsw_build_with_edges`, `hnsw_build_diverse_sources`)
+remain unchanged.
+
+**Recall methodology.** A one-shot recall measurement pass (gated by
+`CHUTORO_BENCH_HNSW_RECALL_REPORT`, defaulting to enabled outside nextest
+discovery) builds an index for each `(M, ef_construction)` pair at `n = 1000`,
+then evaluates recall@10 against a brute-force oracle over `Q = 50`
+deterministic queries with `ef_search = 64`. Results are written to
+`target/benchmarks/hnsw_recall_vs_ef.csv` with columns: `point_count`,
+`max_connections`, `ef_construction`, `recall_hits`, `recall_total`,
+`recall_fraction`, `build_time_ms`. The output path can be overridden via
+`CHUTORO_BENCH_HNSW_RECALL_REPORT_PATH`.
+
+**Performance/quality trade-off guidance:**
+
+- Build time scales roughly linearly with `ef_construction`.
+- Recall improves with diminishing returns: the jump from `M*2` to `100` is
+  typically larger than from `100` to `200` or `200` to `400`.
+- `M` controls graph density (stored edges per node); `ef_construction`
+  controls insertion thoroughness. They are complementary: increasing `M`
+  without sufficient `ef_construction` wastes connectivity, while high
+  `ef_construction` with low `M` is limited by the graph's fan-out capacity.
+- Memory footprint is primarily a function of `M` (not `ef_construction`)
+  since `ef_construction` only affects the construction search beam, not the
+  stored graph structure. Memory scaling is tracked in §11.2.
+
 #### **Works cited**
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September

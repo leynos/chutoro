@@ -250,7 +250,7 @@ ______________________________________________________________________
   custom measurements or a separate profiler to record peak memory during HNSW
   build. Report memory/point and memory/edge metrics vs `M∈{8,12,16,24}`.
   Validate that memory scales as expected (≈ n×M edges). (See §11)
-- [ ] 2.1.4. Expand parameter coverage: add M=12 and M=24 to HNSW
+- [x] 2.1.4. Expand parameter coverage: add M=12 and M=24 to HNSW
   benchmarks (current sweep is {8, 16}), and vary `ef_construction` (e.g., 100,
   200, 400) to show build-time vs recall trade-offs. Document parameter choices
   and their performance/quality implications. (See §6.2)
