@@ -45,10 +45,11 @@ pub const EF_SWEEP_MAX_CONNECTIONS: &[usize] = &[8, 24];
 
 /// `ef_construction` values to sweep.
 ///
-/// `0` is a sentinel meaning "use the M\*2 default" (matching the baseline
-/// used by the existing benchmark groups). The three explicit values
-/// (`100`, `200`, `400`) follow the roadmap guidance for showing
-/// diminishing-returns behaviour at increasing construction search widths.
+/// - `0` — **sentinel**: resolved to `M * 2` by [`resolve_ef_construction`],
+///   matching the baseline used by the existing benchmark groups.
+/// - `100`, `200`, `400` — explicit values following the roadmap guidance for
+///   showing diminishing-returns behaviour at increasing construction search
+///   widths.
 pub const EF_CONSTRUCTION_VALUES: &[usize] = &[0, 100, 200, 400];
 
 /// Resolves the `ef_construction` sentinel value.

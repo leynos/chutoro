@@ -194,7 +194,7 @@ All acceptance criteria met:
 - **Roadmap**: 2.1.4 marked `[x]` in `docs/roadmap.md`.
 - **Quality gates**: `make check-fmt`, `make lint`, `make test` all pass.
 
-Files changed (8 files, well within the 10-file tolerance):
+Files changed (9 files, well within the 10-file tolerance):
 
 1. `chutoro-benches/src/ef_sweep.rs` (new, ~123 lines)
 2. `chutoro-benches/src/recall.rs` (new, ~352 lines)

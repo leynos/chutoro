@@ -28,6 +28,10 @@ pub struct RecallScore {
 /// Returns up to `k` neighbours sorted by ascending distance. When
 /// `k == 0` or the source is empty, returns an empty vector.
 ///
+/// **Note:** the query point itself is included in the result (distance 0).
+/// Callers that need to exclude self-neighbours for recall scoring should
+/// filter the returned list (e.g. `.retain(|n| n.id != query)`).
+///
 /// # Errors
 ///
 /// Returns [`DataSourceError`] if any distance computation fails.

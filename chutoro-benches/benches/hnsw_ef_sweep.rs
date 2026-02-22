@@ -50,6 +50,18 @@ fn unwrap_build(result: Result<CpuHnsw, chutoro_core::HnswError>, context: &str)
 
 // -- Recall measurement ------------------------------------------------
 
+/// Emits a warning to stderr for an unrecognised env var value.
+#[expect(
+    clippy::print_stderr,
+    reason = "Benchmark-only diagnostic for invalid env var; no structured logging available."
+)]
+fn warn_unrecognised_recall_env(value: &str) {
+    eprintln!(
+        "warning: unrecognised value {value:?} for \
+         CHUTORO_BENCH_HNSW_RECALL_REPORT; expected 0/1/true/false/on/off"
+    );
+}
+
 fn should_collect_recall_report() -> bool {
     if let Ok(value) = std::env::var("CHUTORO_BENCH_HNSW_RECALL_REPORT") {
         let normalized = value.trim().to_ascii_lowercase();
@@ -59,6 +71,7 @@ fn should_collect_recall_report() -> bool {
         if matches!(normalized.as_str(), "1" | "true" | "on") {
             return true;
         }
+        warn_unrecognised_recall_env(&value);
     }
     !std::env::args().any(|arg| arg == "--list" || arg == "--exact")
 }
