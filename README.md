@@ -44,11 +44,12 @@ use chutoro_core::{
     ChutoroBuilder, DataSource, DataSourceError, ExecutionStrategy,
 };
 
-struct Points(Vec<f32>);
+/// Each row is one point in 2-D space.
+struct Points(Vec<[f32; 2]>);
 
 impl DataSource for Points {
     fn len(&self) -> usize { self.0.len() }
-    fn name(&self) -> &str { "points" }
+    fn name(&self) -> &str { "points-2d" }
     fn distance(&self, i: usize, j: usize)
         -> Result<f32, DataSourceError>
     {
@@ -56,7 +57,11 @@ impl DataSource for Points {
             .ok_or(DataSourceError::OutOfBounds { index: i })?;
         let b = self.0.get(j)
             .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((a - b).abs())
+        Ok(a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).powi(2))
+            .sum::<f32>()
+            .sqrt())
     }
 }
 
@@ -66,7 +71,8 @@ let chutoro = ChutoroBuilder::new()
     .build()?;
 
 let result = chutoro.run(&Points(vec![
-    1.0, 1.1, 1.2, 5.0, 5.1, 5.2,
+    [0.0, 0.0], [0.1, 0.1], [0.2, 0.0],   // cluster A
+    [5.0, 5.0], [5.1, 4.9], [5.0, 5.2],   // cluster B
 ]))?;
 
 println!("Found {} clusters", result.cluster_count());
@@ -78,17 +84,24 @@ ______________________________________________________________________
 ## Features
 
 - Four-stage CPU pipeline: HNSW construction, candidate edge harvest,
-  Kruskal MST, and stability-based hierarchy extraction.
+  Kruskal MST, and stability-based hierarchy extraction
+  ([design document](docs/chutoro-design.md)).
 - Built-in Euclidean and cosine distance helpers with input validation
-  and pre-computed norm caching.
-- Property-tested and formally verified (Kani, Verus) core
-  primitives.
+  and pre-computed norm caching
+  ([users' guide § distance helpers](docs/users-guide.md#distance-helpers)).
+- Property-tested ([proptest](https://crates.io/crates/proptest)
+  suites) and formally verified — Kani harnesses for HNSW graph
+  invariants and distance-metric properties; Verus proofs for edge
+  harvest ordering and extraction
+  ([developers' guide § verus proofs](docs/developers-guide.md#verus-proofs)).
 - Criterion benchmarks with synthetic data generators (Gaussian
-  blobs, rings, text, MNIST).
-- Optional `metrics` crate integration for cache-hit telemetry on hot
-  paths.
-- CLI tool (`chutoro-cli`) and bundled data-source providers for
-  dense vectors (Parquet/Arrow) and text (string similarity).
+  blobs, ring/Swiss-roll manifolds, text mutation, MNIST download)
+  ([developers' guide § benchmarks](docs/developers-guide.md#benchmarks)).
+- Optional `metrics` crate integration for distance-cache telemetry
+  ([users' guide § feature flags](docs/users-guide.md#feature-flags-and-execution-strategies)).
+- CLI tool (`chutoro-cli`) and bundled data-source providers: dense
+  vectors via Parquet/Arrow (`chutoro-providers-dense`) and text via
+  Levenshtein distance (`chutoro-providers-text`).
 
 ______________________________________________________________________
 
