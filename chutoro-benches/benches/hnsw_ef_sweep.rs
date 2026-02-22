@@ -110,9 +110,7 @@ fn collect_recall_over_queries(
         let mut hnsw_result = index.search(source, query, ef_search)?;
         hnsw_result.retain(|n| n.id != query);
         hnsw_result.truncate(RECALL_K);
-        let mut oracle = brute_force_top_k(source, query, RECALL_K.saturating_add(1))?;
-        oracle.retain(|n| n.id != query);
-        oracle.truncate(RECALL_K);
+        let oracle = brute_force_top_k(source, query, RECALL_K)?;
         let score = recall_at_k(&oracle, &hnsw_result, RECALL_K);
         total_hits = total_hits.saturating_add(score.hits);
         total_targets = total_targets.saturating_add(score.total);

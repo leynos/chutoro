@@ -30,8 +30,8 @@ Success is observable when:
 - A recall measurement pass writes
   `target/benchmarks/hnsw_recall_vs_ef.csv` with 8 rows (2 M × 4 ef).
 - New unit tests in `chutoro-benches` cover recall helpers and ef_construction
-  parameter construction using parametrized `rstest` cases with happy, unhappy,
-  and edge-case coverage.
+  parameter construction using parameterized `rstest` cases with happy,
+  unhappy, and edge-case coverage.
 - `docs/chutoro-design.md` §11.3 documents parameter rationale and trade-offs.
 - `docs/roadmap.md` marks item 2.1.4 as done.
 - `make check-fmt`, `make lint`, and `make test` all succeed.
@@ -47,7 +47,7 @@ Success is observable when:
 - Avoid adding new crate dependencies; all required APIs (`CpuHnsw::search`,
   `Neighbour`, `DataSource`, `HnswParams`) are already public from
   `chutoro-core`, and `rand` is already a dependency of `chutoro-benches`.
-- New behaviour must include unit tests using `rstest` parametrization where
+- New behaviour must include unit tests using `rstest` parameterization where
   repetition would otherwise occur.
 - The existing three benchmark groups (`hnsw_build`, `hnsw_build_with_edges`,
   `hnsw_build_diverse_sources`) must remain structurally unchanged.
@@ -188,7 +188,7 @@ All acceptance criteria met:
   `(n, M, ef) = {500, 5000} × {8, 24} × {M*2, 100, 200, 400}`.
 - **Recall reporting**: recall measurement writes 8-row CSV to
   `target/benchmarks/hnsw_recall_vs_ef.csv`.
-- **Tests**: 717/717 tests pass including new parametrized `rstest` cases in
+- **Tests**: 717/717 tests pass including new parameterized `rstest` cases in
   `ef_sweep.rs` (8 cases) and `recall.rs` (13 cases).
 - **Documentation**: §11.3 added to `docs/chutoro-design.md`.
 - **Roadmap**: 2.1.4 marked `[x]` in `docs/roadmap.md`.
@@ -359,7 +359,7 @@ Done means all of the following are true:
   `target/benchmarks/hnsw_recall_vs_ef.csv` exists with a header and 8 rows.
 
 - Tests:
-  `make test` passes including new parametrized rstest cases in `ef_sweep.rs`
+  `make test` passes including new parameterized rstest cases in `ef_sweep.rs`
   and `recall.rs` covering happy, unhappy, and edge-case paths.
 
 - Documentation:

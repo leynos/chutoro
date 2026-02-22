@@ -28,9 +28,8 @@ pub struct RecallScore {
 /// Returns up to `k` neighbours sorted by ascending distance. When
 /// `k == 0` or the source is empty, returns an empty vector.
 ///
-/// **Note:** the query point itself is included in the result (distance 0).
-/// Callers that need to exclude self-neighbours for recall scoring should
-/// filter the returned list (e.g. `.retain(|n| n.id != query)`).
+/// The query point itself is excluded from the result so that
+/// self-neighbours do not inflate recall scores.
 ///
 /// # Errors
 ///
@@ -46,6 +45,9 @@ pub fn brute_force_top_k<D: DataSource>(
 
     let mut heap: BinaryHeap<Neighbour> = BinaryHeap::with_capacity(k);
     for candidate in 0..source.len() {
+        if candidate == query {
+            continue;
+        }
         let distance = source.distance(query, candidate)?;
         heap.push(Neighbour {
             id: candidate,
@@ -293,9 +295,9 @@ mod tests {
         };
         let result = brute_force_top_k(&source, 0, 2).expect("top-2 must succeed");
         assert_eq!(result.len(), 2);
-        // Nearest to node 0: node 0 (0.0) and node 3 (0.1)
-        assert_eq!(result.first().map(|n| n.id), Some(0));
-        assert_eq!(result.get(1).map(|n| n.id), Some(3));
+        // Nearest to node 0 (excluding self): node 3 (0.1) and node 1 (0.3)
+        assert_eq!(result.first().map(|n| n.id), Some(3));
+        assert_eq!(result.get(1).map(|n| n.id), Some(1));
     }
 
     #[rstest]
@@ -304,7 +306,7 @@ mod tests {
             distances: vec![vec![0.0, 0.4], vec![0.4, 0.0]],
         };
         let result = brute_force_top_k(&source, 0, 10).expect("k>len must return all");
-        assert_eq!(result.len(), 2);
+        assert_eq!(result.len(), 1);
     }
 
     #[rstest]
