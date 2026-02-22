@@ -19,9 +19,9 @@ ______________________________________________________________________
   clustering from a density hierarchy — no need to choose `eps` or
   `k` up front.
 - **Bring your own metric**: implement the `DataSource` trait with any
-  distance function and chutoro handles the rest.
+  distance function, and chutoro handles the rest.
 - **Rust-safe parallelism**: the CPU backend uses Rayon for parallel
-  HNSW insertion and MST construction with zero `unsafe` in user-facing
+  HNSW insertion and MST construction, with zero `unsafe` in user-facing
   code.
 - **Extensible by design**: feature-gated backends (CPU today, GPU
   planned) and a builder API that stays stable as the engine evolves.
