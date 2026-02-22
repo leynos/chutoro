@@ -9,21 +9,15 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_main};
 
 use chutoro_benches::{
     ef_sweep::{
-        EF_CONSTRUCTION_VALUES, EF_SWEEP_MAX_CONNECTIONS, EF_SWEEP_POINT_COUNTS,
-        make_hnsw_params_with_ef, resolve_ef_construction,
+        BENCH_SEED, EF_CONSTRUCTION_VALUES, EF_SWEEP_MAX_CONNECTIONS, EF_SWEEP_POINT_COUNTS,
+        make_bench_source, make_hnsw_params_with_ef, resolve_ef_construction,
     },
     error::BenchSetupError,
     params::HnswBenchParams,
     recall::{RecallMeasurement, RecallScore, brute_force_top_k, recall_at_k, write_recall_report},
-    source::{SyntheticConfig, SyntheticSource},
+    source::SyntheticSource,
 };
-use chutoro_core::{CpuHnsw, DataSource, HnswError};
-
-/// Seed used for all synthetic data generation (shared with `hnsw.rs`).
-const SEED: u64 = 42;
-
-/// Vector dimensionality (shared with `hnsw.rs`).
-const DIMENSIONS: usize = 16;
+use chutoro_core::{CpuHnsw, DataSource};
 
 /// Dataset size for recall measurement.
 const RECALL_POINT_COUNT: usize = 1_000;
@@ -43,15 +37,12 @@ const RECALL_REPORT_PATH: &str = concat!(
     "/../target/benchmarks/hnsw_recall_vs_ef.csv"
 );
 
-fn make_source(point_count: usize) -> Result<SyntheticSource, BenchSetupError> {
-    Ok(SyntheticSource::generate(&SyntheticConfig {
-        point_count,
-        dimensions: DIMENSIONS,
-        seed: SEED,
-    })?)
-}
-
-fn panic_on_bench_build_error<B>(result: Result<B, HnswError>, context: &str) {
+/// Panics on HNSW build failure within a Criterion benchmark closure.
+///
+/// Exists as a separate function (rather than inline `panic!`) because the
+/// enclosing benchmark function returns `Result`, triggering Clippy's
+/// `panic_in_result_fn` lint if a `panic!` appears directly in its body.
+fn unwrap_build(result: Result<CpuHnsw, chutoro_core::HnswError>, context: &str) {
     if let Err(err) = result {
         panic!("{context}: {err}");
     }
@@ -77,19 +68,19 @@ fn recall_report_path() -> PathBuf {
         .map_or_else(|| PathBuf::from(RECALL_REPORT_PATH), PathBuf::from)
 }
 
-/// Evenly-spaced query indices for deterministic recall sampling.
-const fn query_index(qi: usize, len: usize) -> usize {
-    evenly_spaced_index(qi, len, RECALL_QUERY_COUNT)
-}
-
-/// Computes `qi * len / count` without triggering the integer-division lint.
+/// Returns an evenly-spaced query index for deterministic recall sampling.
+///
+/// Maps query ordinal `qi` in `0..RECALL_QUERY_COUNT` to an index in
+/// `0..len` using `(qi + 1) * len / (count + 1)`, which avoids bias
+/// towards lower indices and never returns index 0 or `len - 1` at the
+/// extremes (unless the dataset is very small).
 #[expect(
     clippy::integer_division,
     clippy::integer_division_remainder_used,
     reason = "Intentional truncating division to produce evenly-spaced indices."
 )]
-const fn evenly_spaced_index(qi: usize, len: usize, count: usize) -> usize {
-    qi.saturating_mul(len) / count
+const fn query_index(qi: usize, len: usize) -> usize {
+    qi.saturating_add(1).saturating_mul(len) / RECALL_QUERY_COUNT.saturating_add(1)
 }
 
 fn collect_recall_over_queries(
@@ -104,8 +95,11 @@ fn collect_recall_over_queries(
     for qi in 0..RECALL_QUERY_COUNT {
         let query = query_index(qi, len);
         let mut hnsw_result = index.search(source, query, ef_search)?;
+        hnsw_result.retain(|n| n.id != query);
         hnsw_result.truncate(RECALL_K);
-        let oracle = brute_force_top_k(source, query, RECALL_K)?;
+        let mut oracle = brute_force_top_k(source, query, RECALL_K.saturating_add(1))?;
+        oracle.retain(|n| n.id != query);
+        oracle.truncate(RECALL_K);
         let score = recall_at_k(&oracle, &hnsw_result, RECALL_K);
         total_hits = total_hits.saturating_add(score.hits);
         total_targets = total_targets.saturating_add(score.total);
@@ -122,7 +116,7 @@ fn measure_recall_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
         return Ok(None);
     }
 
-    let source = make_source(RECALL_POINT_COUNT)?;
+    let source = make_bench_source(RECALL_POINT_COUNT)?;
     let ef_search = NonZeroUsize::new(RECALL_EF_SEARCH).ok_or(BenchSetupError::ZeroValue {
         context: "RECALL_EF_SEARCH",
     })?;
@@ -131,7 +125,7 @@ fn measure_recall_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
     for &m in EF_SWEEP_MAX_CONNECTIONS {
         for &ef_raw in EF_CONSTRUCTION_VALUES {
             let ef = resolve_ef_construction(m, ef_raw);
-            let params = make_hnsw_params_with_ef(m, ef, SEED)?;
+            let params = make_hnsw_params_with_ef(m, ef, BENCH_SEED)?;
 
             let started = Instant::now();
             let index = CpuHnsw::build(&source, params)?;
@@ -151,7 +145,7 @@ fn measure_recall_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
 
     write_recall_report(recall_report_path(), &records)
         .map(Some)
-        .map_err(|err| BenchSetupError::Profiling(err.into()))
+        .map_err(BenchSetupError::RecallReport)
 }
 
 // -- Criterion ef_construction sweep -----------------------------------
@@ -167,7 +161,7 @@ fn hnsw_build_ef_sweep_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     group.sample_size(10);
 
     for &point_count in EF_SWEEP_POINT_COUNTS {
-        let source = make_source(point_count)?;
+        let source = make_bench_source(point_count)?;
         for &m in EF_SWEEP_MAX_CONNECTIONS {
             for &ef_raw in EF_CONSTRUCTION_VALUES {
                 let ef = resolve_ef_construction(m, ef_raw);
@@ -176,16 +170,16 @@ fn hnsw_build_ef_sweep_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
                     max_connections: m,
                     ef_construction: ef,
                 };
-                let params = make_hnsw_params_with_ef(m, ef, SEED)?;
+                let params = make_hnsw_params_with_ef(m, ef, BENCH_SEED)?;
                 group.bench_with_input(
                     BenchmarkId::from_parameter(&bench_params),
-                    &(&source, &params),
-                    |b, &(bench_source, input_params)| {
+                    &params,
+                    |b, input_params| {
                         b.iter_batched(
                             || input_params.clone(),
                             |cloned_params| {
-                                panic_on_bench_build_error(
-                                    CpuHnsw::build(bench_source, cloned_params),
+                                unwrap_build(
+                                    CpuHnsw::build(&source, cloned_params),
                                     "hnsw_build_ef_sweep failed during benchmark",
                                 );
                             },

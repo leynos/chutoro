@@ -1,4 +1,4 @@
-# Execution Plan: expand HNSW benchmark `ef_construction` parameter coverage
+# Execution Plan: expand Hierarchical Navigable Small World (HNSW) benchmark `ef_construction` parameter coverage
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
@@ -30,8 +30,8 @@ Success is observable when:
 - A recall measurement pass writes
   `target/benchmarks/hnsw_recall_vs_ef.csv` with 8 rows (2 M × 4 ef).
 - New unit tests in `chutoro-benches` cover recall helpers and ef_construction
-  parameter construction using parameterized `rstest` cases with happy,
-  unhappy, and edge-case coverage.
+  parameter construction using parametrized `rstest` cases with happy, unhappy,
+  and edge-case coverage.
 - `docs/chutoro-design.md` §11.3 documents parameter rationale and trade-offs.
 - `docs/roadmap.md` marks item 2.1.4 as done.
 - `make check-fmt`, `make lint`, and `make test` all succeed.
@@ -47,7 +47,7 @@ Success is observable when:
 - Avoid adding new crate dependencies; all required APIs (`CpuHnsw::search`,
   `Neighbour`, `DataSource`, `HnswParams`) are already public from
   `chutoro-core`, and `rand` is already a dependency of `chutoro-benches`.
-- New behaviour must include unit tests using `rstest` parameterization where
+- New behaviour must include unit tests using `rstest` parametrization where
   repetition would otherwise occur.
 - The existing three benchmark groups (`hnsw_build`, `hnsw_build_with_edges`,
   `hnsw_build_diverse_sources`) must remain structurally unchanged.
@@ -88,7 +88,7 @@ Success is observable when:
 - Risk: brute-force oracle at n=1000 with Q=50 queries is O(50,000) distance
   calls per (M, ef) combination. At 8 combinations this is 400k distance calls
   total. Severity: low. Likelihood: low. Mitigation: n=1000 with 16-dimensional
-  vectors is trivially fast (~milliseconds). No further optimisation needed.
+  vectors is trivially fast (~milliseconds). No further optimization needed.
 
 - Risk: `float_arithmetic` lint deny prevents naive recall computation.
   Severity: medium. Likelihood: certain. Mitigation: use integer-only
@@ -131,9 +131,9 @@ Success is observable when:
 
 - The strict lint policy required several scoped `#[expect]` annotations:
   `float_arithmetic` and `cast_precision_loss` for the recall fraction CSV
-  column, `integer_division` for the evenly-spaced query index computation,
-  and `excessive_nesting` for the triple-parameter Criterion loop. All were
-  tightly scoped with reason strings.
+  column, `integer_division` for the evenly-spaced query index computation, and
+  `excessive_nesting` for the triple-parameter Criterion loop. All were tightly
+  scoped with reason strings.
 
 - The `DataSource` trait method `name()` returns `&str` in the trait
   definition, but Clippy's `unnecessary_literal_bound` lint required the test
@@ -207,8 +207,8 @@ Files changed (8 files, well within the 10-file tolerance):
 9. `docs/roadmap.md` (modified, 1-character change)
 
 The decision to split the ef_sweep into a separate bench binary proved
-beneficial — it kept `hnsw.rs` clean and stable while the new benchmark
-is independently runnable via `cargo bench --bench hnsw_ef_sweep`.
+beneficial — it kept `hnsw.rs` clean and stable while the new benchmark is
+independently runnable via `cargo bench --bench hnsw_ef_sweep`.
 
 ## Context and orientation
 
@@ -237,7 +237,8 @@ Key files and their roles:
   400-line limit — must not be expanded.
 
 - `chutoro-benches/src/error.rs` (36 lines): `BenchSetupError` enum wrapping
-  errors from synthetic sources, HNSW, MST, hierarchy, and profiling.
+  errors from synthetic sources, HNSW, minimum spanning tree (MST), hierarchy,
+  and profiling.
 
 - `chutoro-core/src/hnsw/params.rs` (148 lines): `HnswParams` struct with
   builder pattern. `HnswParams::new(m, ef)` validates `ef >= m` and `m > 0`.
@@ -358,7 +359,7 @@ Done means all of the following are true:
   `target/benchmarks/hnsw_recall_vs_ef.csv` exists with a header and 8 rows.
 
 - Tests:
-  `make test` passes including new parameterized rstest cases in `ef_sweep.rs`
+  `make test` passes including new parametrized rstest cases in `ef_sweep.rs`
   and `recall.rs` covering happy, unhappy, and edge-case paths.
 
 - Documentation:
@@ -374,7 +375,7 @@ Done means all of the following are true:
 ## Idempotence and recovery
 
 - All file writes use atomic overwrite patterns. Re-running benchmark or
-  report generation overwrites previous artifacts cleanly.
+  report generation overwrites previous artefacts cleanly.
 - If a benchmark run fails midway, re-running requires no manual cleanup.
 - The ef_sweep group is additive; removing it only requires reverting changes
   to `hnsw.rs` and the `criterion_group!` macro.
@@ -396,7 +397,7 @@ In `chutoro-benches/src/ef_sweep.rs`:
 In `chutoro-benches/src/recall.rs`:
 
     pub struct RecallScore { pub hits: usize, pub total: usize }
-    pub fn brute_force_top_k<D: DataSource + Sync>(
+    pub fn brute_force_top_k<D: DataSource>(
         source: &D, query: usize, k: usize,
     ) -> Result<Vec<Neighbour>, DataSourceError>
     pub fn recall_at_k(

@@ -32,6 +32,9 @@ pub enum BenchSetupError {
     /// Memory profiling failed.
     #[error("memory profiling failed: {0}")]
     Profiling(#[from] ProfilingError),
+    /// Recall report I/O failed.
+    #[error("recall report failed: {0}")]
+    RecallReport(std::io::Error),
     /// A data-source distance computation failed.
     #[error("data source error: {0}")]
     DataSource(#[from] chutoro_core::DataSourceError),

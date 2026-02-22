@@ -31,7 +31,7 @@ pub struct RecallScore {
 /// # Errors
 ///
 /// Returns [`DataSourceError`] if any distance computation fails.
-pub fn brute_force_top_k<D: DataSource + Sync>(
+pub fn brute_force_top_k<D: DataSource>(
     source: &D,
     query: usize,
     k: usize,
@@ -61,7 +61,7 @@ pub fn brute_force_top_k<D: DataSource + Sync>(
 ///
 /// Measures the overlap between oracle (ground-truth) and observed
 /// (approximate) neighbour lists, each truncated to
-/// `min(k, list.len())`.
+/// `min(k, oracle.len(), observed.len())`.
 ///
 /// # Examples
 ///
@@ -85,7 +85,10 @@ pub fn recall_at_k(oracle: &[Neighbour], observed: &[Neighbour], k: usize) -> Re
     if k == 0 || oracle.is_empty() {
         return RecallScore { hits: 0, total: 0 };
     }
-    let target = k.min(oracle.len());
+    let target = k.min(oracle.len()).min(observed.len());
+    if target == 0 {
+        return RecallScore { hits: 0, total: 0 };
+    }
     let oracle_ids: HashSet<usize> = oracle.iter().take(target).map(|n| n.id).collect();
     let hits = observed
         .iter()
@@ -225,6 +228,8 @@ mod tests {
     #[case::k_zero(vec![0, 1], vec![0, 1], 0, RecallScore { hits: 0, total: 0 })]
     #[case::empty_oracle(vec![], vec![0, 1], 2, RecallScore { hits: 0, total: 0 })]
     #[case::k_exceeds_oracle(vec![0], vec![0, 1], 5, RecallScore { hits: 1, total: 1 })]
+    #[case::observed_shorter(vec![0, 1, 2], vec![0], 3, RecallScore { hits: 1, total: 1 })]
+    #[case::empty_observed(vec![0, 1], vec![], 2, RecallScore { hits: 0, total: 0 })]
     fn recall_at_k_handles_edge_cases(
         #[case] oracle_ids: Vec<usize>,
         #[case] observed_ids: Vec<usize>,

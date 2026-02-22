@@ -6,7 +6,30 @@
 
 use chutoro_core::HnswParams;
 
-use crate::error::BenchSetupError;
+use crate::{
+    error::BenchSetupError,
+    source::{SyntheticConfig, SyntheticSource},
+};
+
+/// Seed used for all synthetic data generation in HNSW benchmarks.
+pub const BENCH_SEED: u64 = 42;
+
+/// Vector dimensionality for all HNSW benchmark datasets.
+pub const BENCH_DIMENSIONS: usize = 16;
+
+/// Creates a [`SyntheticSource`] with the given point count and the
+/// shared benchmark constants for dimensionality and seed.
+///
+/// # Errors
+///
+/// Returns [`BenchSetupError::Synthetic`] if generation fails.
+pub fn make_bench_source(point_count: usize) -> Result<SyntheticSource, BenchSetupError> {
+    Ok(SyntheticSource::generate(&SyntheticConfig {
+        point_count,
+        dimensions: BENCH_DIMENSIONS,
+        seed: BENCH_SEED,
+    })?)
+}
 
 /// Dataset sizes used for the `ef_construction` sweep benchmarks.
 ///
