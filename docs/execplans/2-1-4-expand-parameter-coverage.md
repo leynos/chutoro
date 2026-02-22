@@ -188,7 +188,7 @@ All acceptance criteria met:
   `(n, M, ef) = {500, 5000} × {8, 24} × {M*2, 100, 200, 400}`.
 - **Recall reporting**: recall measurement writes 8-row CSV to
   `target/benchmarks/hnsw_recall_vs_ef.csv`.
-- **Tests**: 717/717 tests pass including new parameterised `rstest` cases in
+- **Tests**: 717/717 tests pass including new parametrized `rstest` cases in
   `ef_sweep.rs` (8 cases) and `recall.rs` (13 cases).
 - **Documentation**: §11.3 added to `docs/chutoro-design.md`.
 - **Roadmap**: 2.1.4 marked `[x]` in `docs/roadmap.md`.
