@@ -26,14 +26,16 @@ pub struct RecallScore {
 /// Computes the exact top-k nearest neighbours by exhaustive scan.
 ///
 /// Returns up to `k` neighbours sorted by ascending distance. When
-/// `k == 0` or the source is empty, returns an empty vector.
+/// `k == 0`, returns an empty vector.
 ///
 /// The query point itself is excluded from the result so that
 /// self-neighbours do not inflate recall scores.
 ///
 /// # Errors
 ///
-/// Returns [`DataSourceError`] if any distance computation fails.
+/// Returns [`DataSourceError::OutOfBounds`] if `query` is not a valid
+/// index in `source`. Returns [`DataSourceError`] if any distance
+/// computation fails.
 pub fn brute_force_top_k<D: DataSource>(
     source: &D,
     query: usize,
@@ -41,6 +43,9 @@ pub fn brute_force_top_k<D: DataSource>(
 ) -> Result<Vec<Neighbour>, DataSourceError> {
     if k == 0 {
         return Ok(Vec::new());
+    }
+    if query >= source.len() {
+        return Err(DataSourceError::OutOfBounds { index: query });
     }
 
     let mut heap: BinaryHeap<Neighbour> = BinaryHeap::with_capacity(k);
@@ -310,12 +315,12 @@ mod tests {
     }
 
     #[rstest]
-    fn brute_force_top_k_handles_empty_source() {
+    fn brute_force_top_k_rejects_out_of_bounds_query() {
         let source = MatrixSource {
             distances: Vec::new(),
         };
-        let result = brute_force_top_k(&source, 0, 1).expect("empty source must succeed");
-        assert!(result.is_empty());
+        let err = brute_force_top_k(&source, 0, 1).expect_err("query into empty source must fail");
+        assert_eq!(err, DataSourceError::OutOfBounds { index: 0 });
     }
 
     // -- write_recall_report -------------------------------------------
