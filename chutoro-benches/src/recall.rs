@@ -322,7 +322,8 @@ mod tests {
 
     #[rstest]
     fn write_recall_report_persists_header_and_rows() {
-        let temp_path = std::env::temp_dir().join("recall_vs_ef_test.csv");
+        let temp_file =
+            tempfile::NamedTempFile::new().expect("failed to create temp file for test");
         let records = vec![RecallMeasurement {
             point_count: 1_000,
             max_connections: 8,
@@ -331,13 +332,12 @@ mod tests {
             build_time_millis: 42,
         }];
         let written_path =
-            write_recall_report(&temp_path, &records).expect("report write must succeed");
+            write_recall_report(temp_file.path(), &records).expect("report write must succeed");
         let contents = fs::read_to_string(&written_path).expect("report must be readable");
         assert!(contents.starts_with("point_count,max_connections"));
         // Header + 1 data row
         assert_eq!(contents.lines().count(), 2);
         assert!(contents.contains("1000,8,100,9,10,0.900000,42"));
-        fs::remove_file(written_path).expect("temp report cleanup must succeed");
     }
 
     // -- recall_fraction -----------------------------------------------
