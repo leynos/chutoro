@@ -160,7 +160,7 @@ fn recall_fraction(score: RecallScore) -> String {
 /// Writes recall measurement records to a CSV report file.
 ///
 /// Creates parent directories if they do not exist. Returns the
-/// canonical path of the written report file.
+/// path of the written report file.
 ///
 /// # Errors
 ///
