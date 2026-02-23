@@ -10,6 +10,7 @@ use criterion::{
 };
 
 use chutoro_benches::{
+    ef_sweep::{BENCH_DIMENSIONS, BENCH_SEED, make_bench_source, make_hnsw_params_with_ef},
     error::BenchSetupError,
     params::HnswBenchParams,
     profiling::{
@@ -18,16 +19,10 @@ use chutoro_benches::{
     },
     source::{
         Anisotropy, GaussianBlobConfig, ManifoldConfig, ManifoldPattern, MnistConfig,
-        SyntheticConfig, SyntheticSource, SyntheticTextConfig,
+        SyntheticSource, SyntheticTextConfig,
     },
 };
 use chutoro_core::{CpuHnsw, DataSource, HnswError, HnswParams};
-
-/// Seed used for all synthetic data generation in this benchmark.
-const SEED: u64 = 42;
-
-/// Vector dimensionality for all benchmark datasets.
-const DIMENSIONS: usize = 16;
 
 /// Dataset sizes to benchmark.
 const POINT_COUNTS: &[usize] = &[100, 500, 1_000, 5_000];
@@ -50,31 +45,20 @@ const MEMORY_REPORT_PATH: &str = concat!(
 /// Multiplicative edge-scaling tolerance around `expected = n * M`.
 const EDGE_SCALING_BOUNDS: EdgeScalingBounds = EdgeScalingBounds::new(8, 8);
 
-/// Creates a [`SyntheticSource`] with the given point count and the
-/// module-level constants for dimensions and seed.
-fn make_source(point_count: usize) -> Result<SyntheticSource, BenchSetupError> {
-    Ok(SyntheticSource::generate(&SyntheticConfig {
-        point_count,
-        dimensions: DIMENSIONS,
-        seed: SEED,
-    })?)
-}
-
-/// Creates [`HnswParams`] for the given M value using the
-/// module-level seed.
+/// Creates [`HnswParams`] for the given M value with `ef = M * 2`.
 fn make_hnsw_params(m: usize) -> Result<HnswParams, BenchSetupError> {
-    Ok(HnswParams::new(m, m.saturating_mul(2))?.with_rng_seed(SEED))
+    make_hnsw_params_with_ef(m, m.saturating_mul(2), BENCH_SEED)
 }
 
 fn make_gaussian_source() -> Result<SyntheticSource, BenchSetupError> {
     Ok(SyntheticSource::generate_gaussian_blobs(
         &GaussianBlobConfig {
             point_count: DIVERSE_POINT_COUNT,
-            dimensions: DIMENSIONS,
+            dimensions: BENCH_DIMENSIONS,
             cluster_count: 8,
             separation: 6.0,
             anisotropy: Anisotropy::Isotropic(0.35),
-            seed: SEED,
+            seed: BENCH_SEED,
         },
     )?)
 }
@@ -82,13 +66,13 @@ fn make_gaussian_source() -> Result<SyntheticSource, BenchSetupError> {
 fn make_ring_source() -> Result<SyntheticSource, BenchSetupError> {
     Ok(SyntheticSource::generate_manifold(&ManifoldConfig {
         point_count: DIVERSE_POINT_COUNT,
-        dimensions: DIMENSIONS,
+        dimensions: BENCH_DIMENSIONS,
         pattern: ManifoldPattern::Ring,
         major_radius: 7.5,
         thickness: 0.25,
         turns: 1,
         noise: 0.15,
-        seed: SEED,
+        seed: BENCH_SEED,
     })?)
 }
 
@@ -97,7 +81,7 @@ fn make_text_source() -> Result<chutoro_benches::source::SyntheticTextSource, Be
         item_count: DIVERSE_POINT_COUNT,
         min_length: 6,
         max_length: 14,
-        seed: SEED,
+        seed: BENCH_SEED,
         alphabet: "acgtxyz".to_owned(),
         template_words: vec![
             "acgtacgt".to_owned(),
@@ -166,7 +150,7 @@ where
     group.sample_size(10);
 
     for &point_count in POINT_COUNTS {
-        let source = make_source(point_count)?;
+        let source = make_bench_source(point_count)?;
 
         for &m in MAX_CONNECTIONS {
             let bench_params = HnswBenchParams {
@@ -238,7 +222,7 @@ fn profile_hnsw_memory_impl() -> Result<Option<PathBuf>, BenchSetupError> {
     let mut records = Vec::new();
 
     for &point_count in POINT_COUNTS {
-        let source = make_source(point_count)?;
+        let source = make_bench_source(point_count)?;
 
         for &m in MAX_CONNECTIONS {
             let params = make_hnsw_params(m)?;

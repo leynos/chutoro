@@ -28,6 +28,11 @@ filter = "test(/hnsw_idempotency_preserved_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
+# Mutation proptest can exceed the default timeout under parallel load.
+filter = "test(/hnsw_mutations_preserve_invariants_proptest/)"
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
 # Search-vs-brute-force proptest can exceed the default timeout under CI load.
 filter = "test(/hnsw_search_matches_brute_force_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
@@ -59,6 +64,11 @@ slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 [[profile.ci.overrides]]
 # Idempotency proptest can exceed the default timeout under parallel load.
 filter = "test(/hnsw_idempotency_preserved_proptest/)"
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+# Mutation proptest can exceed the default timeout under CI load.
+filter = "test(/hnsw_mutations_preserve_invariants_proptest/)"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]

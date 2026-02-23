@@ -87,13 +87,30 @@ impl From<StackSize> for usize {
 }
 
 /// Coverage jobs use fewer idempotency cases to stay within CI time budgets.
-const COVERAGE_IDEMPOTENCY_CASES: u32 = 4;
-/// Coverage jobs cap shrink iterations to prevent long minimization tails.
-const COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 128;
+/// Reduced from 4 to 2 after coverage-instrumented builds exceeded the 180s
+/// nextest timeout in CI (see PR #89).
+const COVERAGE_IDEMPOTENCY_CASES: u32 = 2;
+/// Coverage jobs cap shrink iterations to prevent long minimisation tails.
+/// Reduced from 128 to 32 because shrinking is rarely exercised for the
+/// idempotency property and coverage instrumentation amplifies per-iteration
+/// cost.
+const COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 32;
 /// Non-coverage jobs keep deeper shrinking for better counterexample reduction.
 const DEFAULT_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 1024;
 /// Default idempotency case count when no profile override is configured.
 const DEFAULT_IDEMPOTENCY_CASES: u32 = 16;
+
+/// Coverage jobs use fewer mutation cases to stay within CI time budgets.
+/// Mutation tests build full HNSW indices per case, making each iteration
+/// expensive under coverage instrumentation.
+const COVERAGE_MUTATION_CASES: u32 = 4;
+/// Coverage jobs cap mutation shrink iterations to prevent long minimisation
+/// tails under instrumentation overhead.
+const COVERAGE_MUTATION_MAX_SHRINK_ITERS: u32 = 64;
+/// Non-coverage jobs keep deeper shrinking for better counterexample reduction.
+const DEFAULT_MUTATION_MAX_SHRINK_ITERS: u32 = 1024;
+/// Default mutation case count when no profile override is configured.
+const DEFAULT_MUTATION_CASES: u32 = 64;
 
 fn run_test_with_profile<F>(
     cases: u32,
@@ -194,6 +211,35 @@ pub(super) fn select_idempotency_shrink_iters(is_coverage_job: bool) -> u32 {
 /// Returns idempotency shrink iterations using runtime job detection.
 pub(super) fn idempotency_shrink_iters() -> u32 {
     select_idempotency_shrink_iters(is_coverage_job())
+}
+
+/// Selects the mutation case count for coverage and non-coverage jobs.
+pub(super) fn select_mutation_cases(is_coverage_job: bool, configured_cases: u32) -> u32 {
+    if is_coverage_job {
+        COVERAGE_MUTATION_CASES
+    } else {
+        configured_cases
+    }
+}
+
+/// Returns the mutation case count using runtime job detection.
+pub(super) fn mutation_cases() -> u32 {
+    let configured_cases = property_run_profile(DEFAULT_MUTATION_CASES).cases();
+    select_mutation_cases(is_coverage_job(), configured_cases)
+}
+
+/// Selects the max shrink iterations for mutation coverage and non-coverage jobs.
+pub(super) fn select_mutation_shrink_iters(is_coverage_job: bool) -> u32 {
+    if is_coverage_job {
+        COVERAGE_MUTATION_MAX_SHRINK_ITERS
+    } else {
+        DEFAULT_MUTATION_MAX_SHRINK_ITERS
+    }
+}
+
+/// Returns mutation shrink iterations using runtime job detection.
+pub(super) fn mutation_shrink_iters() -> u32 {
+    select_mutation_shrink_iters(is_coverage_job())
 }
 
 /// Runs a property test with the given configuration and strategy.
