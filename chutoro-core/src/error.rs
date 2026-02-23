@@ -176,6 +176,26 @@ pub enum ChutoroError {
         /// Human-readable description of the failure.
         message: Arc<str>,
     },
+    /// Estimated memory exceeds the configured limit.
+    #[error(
+        "estimated memory for {point_count} points from `{data_source}` \
+         is {estimated_display}, which exceeds the configured limit of \
+         {limit_display}"
+    )]
+    MemoryLimitExceeded {
+        /// Identifier for the data source.
+        data_source: Arc<str>,
+        /// Number of points in the data source.
+        point_count: usize,
+        /// Estimated peak memory in bytes.
+        estimated_bytes: u64,
+        /// Configured memory limit in bytes.
+        max_bytes: u64,
+        /// Human-readable estimated memory (e.g., "2.4 GiB").
+        estimated_display: Arc<str>,
+        /// Human-readable limit (e.g., "1.0 GiB").
+        limit_display: Arc<str>,
+    },
 }
 
 define_error_codes! {
@@ -198,6 +218,8 @@ define_error_codes! {
         CpuMstFailure => CpuMstFailure { .. } => "CHUTORO_CPU_MST_FAILURE",
         /// CPU hierarchy extraction failed.
         CpuHierarchyFailure => CpuHierarchyFailure { .. } => "CHUTORO_CPU_HIERARCHY_FAILURE",
+        /// Estimated memory exceeds the configured limit.
+        MemoryLimitExceeded => MemoryLimitExceeded { .. } => "CHUTORO_MEMORY_LIMIT_EXCEEDED",
     }
 }
 

@@ -48,6 +48,13 @@ pub struct RunCommand {
     )]
     pub min_cluster_size: usize,
 
+    /// Maximum estimated memory (in bytes) allowed for the pipeline.
+    ///
+    /// Supports human-readable suffixes: K, M, G, T (case-insensitive).
+    /// Example: `--max-bytes 2G` or `--max-bytes 2147483648`.
+    #[arg(long = "max-bytes", value_parser = parse_byte_size)]
+    pub max_bytes: Option<u64>,
+
     /// Data source configuration.
     #[command(subcommand)]
     pub source: RunSource,
@@ -165,6 +172,7 @@ pub struct ExecutionSummary {
 /// let cli = Cli {
 ///     command: Command::Run(RunCommand {
 ///         min_cluster_size: 1,
+///         max_bytes: None,
 ///         source: RunSource::Text(TextArgs {
 ///             path: file.path().to_path_buf(),
 ///             metric: TextMetric::Levenshtein,
@@ -194,9 +202,11 @@ pub fn run_cli(cli: Cli) -> Result<ExecutionSummary, CliError> {
     ),
 )]
 pub(super) fn run_command(command: RunCommand) -> Result<ExecutionSummary, CliError> {
-    let chutoro = ChutoroBuilder::new()
-        .with_min_cluster_size(command.min_cluster_size)
-        .build()?;
+    let mut builder = ChutoroBuilder::new().with_min_cluster_size(command.min_cluster_size);
+    if let Some(bytes) = command.max_bytes {
+        builder = builder.with_max_bytes(bytes);
+    }
+    let chutoro = builder.build()?;
 
     let summary = match command.source {
         RunSource::Parquet(args) => run_parquet(&chutoro, args)?,
@@ -274,6 +284,37 @@ pub(super) fn derive_data_source_name(path: &Path, override_name: Option<&str>) 
         .and_then(|value| value.to_str())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| "data_source".to_owned())
+}
+
+/// Parses a human-readable byte size such as `"512M"` or `"2G"` into a `u64`.
+///
+/// Recognised suffixes (case-insensitive): `K`/`KB`/`KiB`, `M`/`MB`/`MiB`,
+/// `G`/`GB`/`GiB`, `T`/`TB`/`TiB`.  Plain integers are treated as bytes.
+pub(super) fn parse_byte_size(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    if s.is_empty() {
+        return Err("byte size must not be empty".to_owned());
+    }
+
+    // Split into leading digits and trailing suffix.
+    let split = s.find(|ch: char| !ch.is_ascii_digit()).unwrap_or(s.len());
+    let (num_part, suffix) = s.split_at(split);
+
+    let base: u64 = num_part
+        .parse()
+        .map_err(|err| format!("invalid byte size `{num_part}`: {err}"))?;
+
+    let multiplier = match suffix.trim().to_ascii_lowercase().as_str() {
+        "" => 1_u64,
+        "k" | "kb" | "kib" => 1024,
+        "m" | "mb" | "mib" => 1024 * 1024,
+        "g" | "gb" | "gib" => 1024 * 1024 * 1024,
+        "t" | "tb" | "tib" => 1024_u64 * 1024 * 1024 * 1024,
+        other => return Err(format!("unknown size suffix: `{other}`")),
+    };
+
+    base.checked_mul(multiplier)
+        .ok_or_else(|| "byte size overflows u64".to_owned())
 }
 
 /// Produce a redacted label for a path that avoids leaking absolute directories.

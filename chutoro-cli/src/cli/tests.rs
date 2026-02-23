@@ -39,6 +39,7 @@ fn run_text_once(path: &Path, min_cluster_size: usize) -> Result<ExecutionSummar
     let cli = Cli {
         command: Command::Run(RunCommand {
             min_cluster_size,
+            max_bytes: None,
             source: RunSource::Text(TextArgs {
                 path: path.to_path_buf(),
                 metric: TextMetric::Levenshtein,
@@ -111,6 +112,7 @@ fn run_text_rejects_insufficient_items() -> TestResult {
     let cli = Cli {
         command: Command::Run(RunCommand {
             min_cluster_size: 3,
+            max_bytes: None,
             source: RunSource::Text(TextArgs {
                 path,
                 metric: TextMetric::Levenshtein,
@@ -133,6 +135,7 @@ fn run_text_rejects_empty_files() -> TestResult {
     let cli = Cli {
         command: Command::Run(RunCommand {
             min_cluster_size: 1,
+            max_bytes: None,
             source: RunSource::Text(TextArgs {
                 path,
                 metric: TextMetric::Levenshtein,
@@ -152,6 +155,7 @@ fn run_parquet_success() -> TestResult {
     let cli = Cli {
         command: Command::Run(RunCommand {
             min_cluster_size: 2,
+            max_bytes: None,
             source: RunSource::Parquet(ParquetArgs {
                 path,
                 column: "features".into(),
@@ -175,6 +179,7 @@ fn run_parquet_rejects_missing_column() -> TestResult {
     let cli = Cli {
         command: Command::Run(RunCommand {
             min_cluster_size: 1,
+            max_bytes: None,
             source: RunSource::Parquet(ParquetArgs {
                 path,
                 column: "unknown".into(),
@@ -197,6 +202,7 @@ fn run_command_rejects_zero_min_cluster_size() -> TestResult {
     let err = run_command_expecting_error(
         RunCommand {
             min_cluster_size: 0,
+            max_bytes: None,
             source: RunSource::Text(TextArgs {
                 path,
                 metric: TextMetric::Levenshtein,
@@ -254,6 +260,7 @@ fn run_command_emits_tracing_fields() -> TestResult {
 
     let command = RunCommand {
         min_cluster_size: 2,
+        max_bytes: None,
         source: RunSource::Text(TextArgs {
             path,
             metric: TextMetric::Levenshtein,
@@ -328,6 +335,7 @@ fn open_text_reader_records_path_on_error() -> TestResult {
 
     let command = RunCommand {
         min_cluster_size: 1,
+        max_bytes: None,
         source: RunSource::Text(TextArgs {
             path: missing_path.clone(),
             metric: TextMetric::Levenshtein,
@@ -361,3 +369,6 @@ fn open_text_reader_records_path_on_error() -> TestResult {
     );
     Ok(())
 }
+
+#[path = "test_memory_guard.rs"]
+mod test_memory_guard;

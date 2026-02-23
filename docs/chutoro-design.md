@@ -1939,6 +1939,59 @@ deterministic queries with `ef_search = 64`. Results are written to
   since `ef_construction` only affects the construction search beam, not the
   stored graph structure. Memory scaling is tracked in §11.2.
 
+### 11.4. Memory guards and estimation (roadmap 2.1.5)
+
+The `--max-bytes` CLI flag (and the corresponding
+`ChutoroBuilder::with_max_bytes` API) provides a pre-flight memory guard that
+rejects datasets whose estimated peak memory exceeds the configured limit.  The
+guard fires before any pipeline allocation, avoiding wasted work and
+out-of-memory crashes.
+
+**Estimation formula.** The function `estimate_peak_bytes(n, M)` computes a
+conservative upper bound on the peak memory that the CPU pipeline will require:
+
+```text
+hnsw_adjacency     = n × (2 × M) × 8       (level-0 neighbour IDs)
+hnsw_node_overhead = n × 80                 (Node structs, Vec headers)
+distance_cache     = min(1 048 576, n) × 80 (bounded cache entries)
+candidate_edges    = n × M × 32             (CandidateEdge structs)
+core_distances     = n × 4                  (f32 per point)
+mutual_edges       = n × M × 32             (recomputed edges)
+mst_forest         = n × 32                 (MstEdge structs)
+
+estimated_bytes = (sum of above) × 1.5      (safety multiplier)
+```
+
+The 1.5× safety multiplier covers heap fragmentation, Rayon thread-local
+buffers, and transient allocations that are difficult to predict statically.
+The estimate is intentionally pessimistic: it is better to reject a dataset
+that might have fit than to begin processing and run out of memory mid-pipeline.
+
+**Expected memory requirements.** The following table shows estimated peak
+memory for common dataset sizes and HNSW `M` values:
+
+| Points     | M = 8     | M = 16    | M = 24    |
+| ---------- | --------- | --------- | --------- |
+| 10,000     | ~12 MiB   | ~21 MiB   | ~30 MiB   |
+| 100,000    | ~120 MiB  | ~211 MiB  | ~303 MiB  |
+| 1,000,000  | ~1.2 GiB  | ~2.1 GiB  | ~3.0 GiB  |
+| 10,000,000 | ~10.7 GiB | ~19.6 GiB | ~28.6 GiB |
+
+_Table: Estimated peak memory by dataset size and `M` parameter.  All values
+include the 1.5× safety multiplier._
+
+**Guidance.** For interactive exploration on a workstation with 16 GiB of RAM,
+datasets up to ~1M points with `M = 16` are practical.  For million-point-scale
+work, ensure at least 4 GiB of headroom above the estimate.  The `--max-bytes`
+flag accepts human-readable suffixes: `--max-bytes 2G`, `--max-bytes 512M`, or
+plain byte counts.
+
+**Limitations.** The estimate assumes the default HNSW `M = 16` and
+`DistanceCacheConfig::DEFAULT_MAX_ENTRIES = 1 048 576`.  Custom HNSW parameters
+or enlarged caches will shift actual memory usage.  The formula does not
+account for the data source's own memory footprint (e.g., the in-memory Parquet
+column or text corpus), which must be added separately for a complete picture.
+
 #### **Works cited**
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September

@@ -254,7 +254,7 @@ ______________________________________________________________________
   benchmarks (current sweep is {8, 16}), and vary `ef_construction` (e.g., 100,
   200, 400) to show build-time vs recall trade-offs. Document parameter choices
   and their performance/quality implications. (See §6.2)
-- [ ] 2.1.5. Implement memory guards (`--max-bytes`) in the CLI with
+- [x] 2.1.5. Implement memory guards (`--max-bytes`) in the CLI with
   clear failure messages when datasets exceed available memory. Ensure
   benchmarks fail fast on oversized datasets and document expected memory
   requirements per dataset size. (See §5)

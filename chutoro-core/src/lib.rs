@@ -11,6 +11,7 @@ mod error;
 mod hierarchy;
 #[cfg(feature = "cpu")]
 mod hnsw;
+mod memory;
 #[cfg(feature = "cpu")]
 mod mst;
 mod result;
@@ -24,6 +25,7 @@ pub use crate::{
         cosine_distance, euclidean_distance,
     },
     error::{ChutoroError, ChutoroErrorCode, DataSourceError, DataSourceErrorCode, Result},
+    memory::{estimate_peak_bytes, format_bytes},
     result::{ClusterId, ClusteringResult, NonContiguousClusterIds},
 };
 
