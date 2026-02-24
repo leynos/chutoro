@@ -49,6 +49,7 @@ pub enum ExecutionStrategy {
 pub struct ChutoroBuilder {
     min_cluster_size: usize,
     execution_strategy: ExecutionStrategy,
+    max_bytes: Option<u64>,
 }
 
 impl Default for ChutoroBuilder {
@@ -56,6 +57,7 @@ impl Default for ChutoroBuilder {
         Self {
             min_cluster_size: 5,
             execution_strategy: ExecutionStrategy::Auto,
+            max_bytes: None,
         }
     }
 }
@@ -131,6 +133,39 @@ impl ChutoroBuilder {
     #[must_use]
     pub fn execution_strategy(&self) -> ExecutionStrategy { self.execution_strategy }
 
+    /// Sets an upper bound on estimated peak memory (in bytes).
+    ///
+    /// When set, [`Chutoro::run`] will compute a pre-flight estimate and
+    /// return [`ChutoroError::MemoryLimitExceeded`] if the estimate exceeds
+    /// this limit.  Omit this call to leave the guard disabled (the default).
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_core::ChutoroBuilder;
+    ///
+    /// let builder = ChutoroBuilder::new().with_max_bytes(1_073_741_824);
+    /// assert_eq!(builder.max_bytes(), Some(1_073_741_824));
+    /// ```
+    #[must_use]
+    pub fn with_max_bytes(mut self, bytes: u64) -> Self {
+        self.max_bytes = Some(bytes);
+        self
+    }
+
+    /// Returns the configured memory limit, if any.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_core::ChutoroBuilder;
+    ///
+    /// assert_eq!(ChutoroBuilder::new().max_bytes(), None);
+    /// ```
+    #[rustfmt::skip]
+    #[must_use]
+    pub fn max_bytes(&self) -> Option<u64> { self.max_bytes }
+
     /// Validates the configuration and constructs a [`Chutoro`] instance.
     ///
     /// # Examples
@@ -155,6 +190,10 @@ impl ChutoroBuilder {
             });
         }
 
-        Ok(Chutoro::new(min_cluster_size, self.execution_strategy))
+        Ok(Chutoro::new(
+            min_cluster_size,
+            self.execution_strategy,
+            self.max_bytes,
+        ))
     }
 }

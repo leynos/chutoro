@@ -55,16 +55,19 @@ enum BackendChoice {
 pub struct Chutoro {
     min_cluster_size: NonZeroUsize,
     execution_strategy: ExecutionStrategy,
+    max_bytes: Option<u64>,
 }
 
 impl Chutoro {
     pub(crate) fn new(
         min_cluster_size: NonZeroUsize,
         execution_strategy: ExecutionStrategy,
+        max_bytes: Option<u64>,
     ) -> Self {
         Self {
             min_cluster_size,
             execution_strategy,
+            max_bytes,
         }
     }
 
@@ -102,13 +105,31 @@ impl Chutoro {
         self.execution_strategy
     }
 
+    /// Returns the optional memory limit in bytes, if configured.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// use chutoro_core::ChutoroBuilder;
+    ///
+    /// let chutoro = ChutoroBuilder::new()
+    ///     .with_max_bytes(1_073_741_824)
+    ///     .build()
+    ///     .expect("builder must succeed");
+    /// assert_eq!(chutoro.max_bytes(), Some(1_073_741_824));
+    /// ```
+    #[rustfmt::skip]
+    #[must_use]
+    pub fn max_bytes(&self) -> Option<u64> { self.max_bytes }
+
     /// Executes the clustering pipeline against the provided [`DataSource`].
     ///
     /// # Errors
     /// Returns [`ChutoroError::EmptySource`] when the [`DataSource`] is empty,
     /// [`ChutoroError::InsufficientItems`] when it does not satisfy
-    /// `min_cluster_size`, and [`ChutoroError::BackendUnavailable`] when the
-    /// requested backend is not compiled in the current build.
+    /// `min_cluster_size`, [`ChutoroError::MemoryLimitExceeded`] when the
+    /// estimated memory exceeds `max_bytes`, and
+    /// [`ChutoroError::BackendUnavailable`] when the requested backend is not
+    /// compiled in the current build.
     ///
     /// # Examples
     /// ```rust,no_run
@@ -177,10 +198,39 @@ impl Chutoro {
             return Err(err);
         }
 
+        self.check_memory_limit(source, items)?;
+
         match self.choose_backend() {
             BackendChoice::Cpu => self.run_cpu(source, items),
             BackendChoice::Gpu => self.run_gpu(source, items),
         }
+    }
+
+    /// Returns an error if the estimated peak memory exceeds `max_bytes`.
+    fn check_memory_limit<D: DataSource>(&self, source: &D, items: usize) -> Result<()> {
+        let limit = match self.max_bytes {
+            Some(limit) => limit,
+            None => return Ok(()),
+        };
+
+        // Use the default HNSW max_connections for estimation.  The pipeline
+        // always constructs params via `HnswParams::default()`, so this is
+        // consistent with actual usage.  Validated by the
+        // `default_max_connections_matches_hnsw_params` test.
+        const DEFAULT_MAX_CONNECTIONS: usize = 16;
+        let estimated = crate::memory::estimate_peak_bytes(items, DEFAULT_MAX_CONNECTIONS);
+
+        if estimated > limit {
+            return Err(ChutoroError::MemoryLimitExceeded {
+                data_source: Arc::from(source.name()),
+                point_count: items,
+                estimated_bytes: estimated,
+                max_bytes: limit,
+                estimated_display: Arc::from(crate::memory::format_bytes(estimated)),
+                limit_display: Arc::from(crate::memory::format_bytes(limit)),
+            });
+        }
+        Ok(())
     }
 
     fn choose_backend(&self) -> BackendChoice {
@@ -248,12 +298,14 @@ impl Chutoro {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ChutoroBuilder;
 
     #[test]
     fn gpu_preferred_requires_gpu_feature() {
         let chutoro = Chutoro::new(
             NonZeroUsize::new(1).expect("literal 1 is non-zero"),
             ExecutionStrategy::GpuPreferred,
+            None,
         );
         let err = chutoro.backend_unavailable_error();
         assert!(matches!(
@@ -271,6 +323,7 @@ mod tests {
                 let chutoro = Chutoro::new(
                     NonZeroUsize::new(1).expect("literal 1 is non-zero"),
                     strategy,
+                    None,
                 );
                 assert!(chutoro.backend_unavailable_error().is_none());
             }
@@ -279,6 +332,7 @@ mod tests {
         let chutoro = Chutoro::new(
             NonZeroUsize::new(1).expect("literal 1 is non-zero"),
             ExecutionStrategy::GpuPreferred,
+            None,
         );
         assert!(matches!(
             chutoro.backend_unavailable_error(),
@@ -286,5 +340,33 @@ mod tests {
                 requested: ExecutionStrategy::GpuPreferred
             })
         ));
+    }
+
+    #[test]
+    fn max_bytes_none_imposes_no_limit() {
+        let chutoro = ChutoroBuilder::new().build().expect("build must succeed");
+        assert_eq!(chutoro.max_bytes(), None);
+    }
+
+    #[test]
+    fn max_bytes_propagates_through_builder() {
+        let chutoro = ChutoroBuilder::new()
+            .with_max_bytes(1_000_000)
+            .build()
+            .expect("build must succeed");
+        assert_eq!(chutoro.max_bytes(), Some(1_000_000));
+    }
+
+    /// Guards against silent drift if `HnswParams::default().max_connections`
+    /// ever changes.  The constant in `check_memory_limit` must stay in sync.
+    #[cfg(feature = "cpu")]
+    #[test]
+    fn default_max_connections_matches_hnsw_params() {
+        let params = crate::HnswParams::default();
+        assert_eq!(
+            params.max_connections(),
+            16,
+            "DEFAULT_MAX_CONNECTIONS in check_memory_limit must be updated to match"
+        );
     }
 }
