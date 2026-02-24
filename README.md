@@ -88,7 +88,7 @@ ______________________________________________________________________
 - Property-tested ([proptest](https://crates.io/crates/proptest)
   suites) and formally verified — Kani harnesses for HNSW graph invariants and
   distance-metric properties; Verus proofs for edge harvest ordering and
-  extraction ([developers' guide § verus
+  extraction ([developers' guide § Verus
   proofs](docs/developers-guide.md#verus-proofs)).
 - Criterion benchmarks with synthetic data generators (Gaussian
   blobs, ring/Swiss-roll manifolds, text mutation, MNIST download)

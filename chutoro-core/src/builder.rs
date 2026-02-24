@@ -133,11 +133,11 @@ impl ChutoroBuilder {
     #[must_use]
     pub fn execution_strategy(&self) -> ExecutionStrategy { self.execution_strategy }
 
-    /// Sets an optional upper bound on estimated peak memory (in bytes).
+    /// Sets an upper bound on estimated peak memory (in bytes).
     ///
     /// When set, [`Chutoro::run`] will compute a pre-flight estimate and
     /// return [`ChutoroError::MemoryLimitExceeded`] if the estimate exceeds
-    /// this limit.  Pass `None` to disable the guard (the default).
+    /// this limit.  Omit this call to leave the guard disabled (the default).
     ///
     /// # Examples
     ///

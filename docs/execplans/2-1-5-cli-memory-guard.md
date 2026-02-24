@@ -40,7 +40,7 @@ Success is observable when:
 - Do not weaken lint policy; any lint exceptions must stay tightly scoped and
   justified.
 - Use en-GB-oxendict spelling in docs/comments.
-- Avoid adding dependencies. The byte-size parser is hand-written (the
+- Avoid adding dependencies. The byte-size parser is handwritten (the
   grammar is trivial: integer + optional suffix).
 - New behaviour must include unit tests using `rstest` parameterization where
   repetition would otherwise occur.
@@ -85,7 +85,7 @@ Success is observable when:
 - [x] (2026-02-23) Drafted ExecPlan for roadmap item 2.1.5.
 - [x] (2026-02-23) Stage A: Memory estimation module
   (`chutoro-core/src/memory.rs`) with `estimate_peak_bytes()`,
-  `format_bytes()`, constants, and rstest-parameterised unit tests.
+  `format_bytes()`, constants, and rstest-parameterized unit tests.
 - [x] (2026-02-23) Stage B: `MemoryLimitExceeded` error variant, builder
   `with_max_bytes()` setter, and pre-flight guard in `Chutoro::run_with_len()`.
 - [x] (2026-02-23) Stage C: CLI `--max-bytes` flag with `parse_byte_size()`
@@ -127,7 +127,7 @@ Success is observable when:
   Date/Author: 2026-02-23 (DevBoxer)
 
 - Decision: **No new dependencies for byte-size parsing.** A simple
-  hand-written parser supporting `K`, `M`, `G`, `T` suffixes (case-insensitive)
+  handwritten parser supporting `K`, `M`, `G`, `T` suffixes (case-insensitive)
   is sufficient. Rationale: the grammar is trivial (integer + optional suffix);
   adding a crate would violate the principle of minimal dependencies.
   Date/Author: 2026-02-23 (DevBoxer)
@@ -142,7 +142,7 @@ Implemented roadmap item 2.1.5 end-to-end.
 
 - Added `chutoro-core/src/memory.rs` (265 lines): `estimate_peak_bytes()`
   with conservative 1.5× safety multiplier, `format_bytes()` for human-readable
-  display (binary units), and rstest-parameterised unit tests covering happy
+  display (binary units), and rstest-parameterized unit tests covering happy
   paths, edge cases, overflow protection, and formatting.
 - Added `MemoryLimitExceeded` error variant to `ChutoroError` in
   `chutoro-core/src/error.rs` with stable code `CHUTORO_MEMORY_LIMIT_EXCEEDED`
@@ -152,7 +152,7 @@ Implemented roadmap item 2.1.5 end-to-end.
   accessor; extended `Chutoro` with `max_bytes` field and pre-flight guard in
   `run_with_len()` that checks `estimate_peak_bytes()` against the configured
   limit before pipeline dispatch.
-- Added `--max-bytes` CLI flag to `RunCommand` with hand-written
+- Added `--max-bytes` CLI flag to `RunCommand` with handwritten
   `parse_byte_size()` parser supporting K/KB/KiB, M/MB/MiB, G/GB/GiB, T/TB/TiB
   suffixes (case-insensitive) with overflow-safe arithmetic.
 - Extracted CLI memory guard tests into
@@ -175,8 +175,9 @@ Implemented roadmap item 2.1.5 end-to-end.
 
 Tracing through `run_cpu_pipeline_with_len()`:
 
-1. **HNSW Graph** — `n` nodes, each with up to `2*M` level-0 neighbours
-   stored as `Vec<usize>`. Dominant cost: `n * 2 * M * sizeof(usize)`.
+1. **Hierarchical Navigable Small World (HNSW) graph** — `n` nodes, each
+   with up to `2*M` level-0 neighbours stored as `Vec<usize>`. Dominant cost:
+   `n * 2 * M * sizeof(usize)`.
 2. **Distance Cache** — bounded by `DEFAULT_MAX_ENTRIES` (1,048,576).
    Estimated ~80 bytes per entry.
 3. **Candidate Edges** — `~n * M` edges, each `CandidateEdge` (32 bytes:
@@ -190,7 +191,7 @@ Tracing through `run_cpu_pipeline_with_len()`:
 ```text
 hnsw_adjacency     = n × (2 × M) × 8
 hnsw_node_overhead = n × 80
-distance_cache     = min(1_048_576, n) × 80
+distance_cache     = 1_048_576 × 80
 candidate_edges    = n × M × 32
 core_distances     = n × 4
 mutual_edges       = n × M × 32
@@ -212,6 +213,8 @@ Default `HnswParams`: `M = 16`, `ef_construction = 64`.
 | `chutoro-cli/src/cli/commands.rs` | 330   | CLI: add `--max-bytes`   |
 | `chutoro-cli/src/cli/tests.rs`    | 363   | CLI tests: add coverage  |
 | New: `chutoro-core/src/memory.rs` | ~0    | Estimation module        |
+
+_Table 1: Key files and pre-change line counts._
 
 All files remain under 400 lines after changes.
 

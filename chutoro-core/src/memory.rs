@@ -40,8 +40,9 @@ const CACHE_ENTRY_BYTES: u64 = 80;
 /// Size of an `f32` — used for the core-distances vector.
 const F32_BYTES: u64 = 4;
 
-/// Size of a `usize` on 64-bit platforms — used for neighbour-list entries.
-const USIZE_BYTES: u64 = 8;
+/// Size of a `usize` — derived at compile time so the estimate adapts to the
+/// target platform (8 bytes on 64-bit, 4 bytes on 32-bit).
+const USIZE_BYTES: u64 = std::mem::size_of::<usize>() as u64;
 
 // ---------------------------------------------------------------------------
 // Estimation
@@ -55,7 +56,7 @@ const USIZE_BYTES: u64 = 8;
 ///
 /// - HNSW level-0 adjacency lists (`2 × M` neighbours per node).
 /// - Per-node struct overhead (Vec headers, sequence counter, alignment).
-/// - Distance cache (bounded by the default maximum of 1,048,576 entries).
+/// - Distance cache (full configured capacity of 1,048,576 entries).
 /// - Candidate edges harvested during HNSW build (`≈ n × M`).
 /// - Core-distance vector (`n × sizeof(f32)`).
 /// - Mutual-reachability edge rewrite (same count as candidate edges).
@@ -90,9 +91,10 @@ pub fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> u64 {
     // Per-node struct overhead (Option<Node>, Vec headers, sequence, etc.).
     let hnsw_nodes = n.saturating_mul(NODE_OVERHEAD_BYTES);
 
-    // Distance cache — bounded by DEFAULT_CACHE_MAX_ENTRIES.
-    let cache_entries = n.min(DEFAULT_CACHE_MAX_ENTRIES);
-    let distance_cache = cache_entries.saturating_mul(CACHE_ENTRY_BYTES);
+    // Distance cache — always allocates up to DEFAULT_CACHE_MAX_ENTRIES
+    // entries regardless of point count, because pairwise lookups during
+    // HNSW construction can fill the cache to capacity even for small n.
+    let distance_cache = DEFAULT_CACHE_MAX_ENTRIES.saturating_mul(CACHE_ENTRY_BYTES);
 
     // Candidate edges: approximately n * M edges from the HNSW build.
     let candidate_edges = n.saturating_mul(m).saturating_mul(CANDIDATE_EDGE_BYTES);
@@ -124,6 +126,24 @@ pub fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> u64 {
 // Formatting
 // ---------------------------------------------------------------------------
 
+const KIB: u64 = 1024;
+const MIB: u64 = 1024 * KIB;
+const GIB: u64 = 1024 * MIB;
+const TIB: u64 = 1024 * GIB;
+
+/// Selects the appropriate binary unit and divisor for a byte count.
+fn binary_unit(bytes: u64) -> (&'static str, u64) {
+    if bytes >= TIB {
+        ("TiB", TIB)
+    } else if bytes >= GIB {
+        ("GiB", GIB)
+    } else if bytes >= MIB {
+        ("MiB", MIB)
+    } else {
+        ("KiB", KIB)
+    }
+}
+
 /// Formats a byte count as a human-readable string using binary units.
 ///
 /// Returns values like `"0 B"`, `"1.0 KiB"`, `"2.4 GiB"`.  The result uses
@@ -141,22 +161,11 @@ pub fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> u64 {
 /// ```
 #[must_use]
 pub fn format_bytes(bytes: u64) -> String {
-    const KIB: u64 = 1024;
-    const MIB: u64 = 1024 * KIB;
-    const GIB: u64 = 1024 * MIB;
-    const TIB: u64 = 1024 * GIB;
-
-    if bytes >= TIB {
-        format!("{:.1} TiB", bytes as f64 / TIB as f64)
-    } else if bytes >= GIB {
-        format!("{:.1} GiB", bytes as f64 / GIB as f64)
-    } else if bytes >= MIB {
-        format!("{:.1} MiB", bytes as f64 / MIB as f64)
-    } else if bytes >= KIB {
-        format!("{:.1} KiB", bytes as f64 / KIB as f64)
-    } else {
-        format!("{bytes} B")
+    if bytes < KIB {
+        return format!("{bytes} B");
     }
+    let (label, divisor) = binary_unit(bytes);
+    format!("{:.1} {label}", bytes as f64 / divisor as f64)
 }
 
 // ---------------------------------------------------------------------------
@@ -226,10 +235,15 @@ mod tests {
     }
 
     #[rstest]
-    fn estimate_one_point_returns_small_positive() {
+    fn estimate_one_point_returns_positive_with_cache_base() {
         let bytes = estimate_peak_bytes(1, 16);
         assert!(bytes > 0, "single point should still have overhead");
-        assert!(bytes < 1_000_000, "single point should be well under 1 MiB");
+        // The estimate includes the full distance cache base cost (~120 MiB),
+        // so even a single point produces a sizeable estimate.
+        assert!(
+            bytes > 100_000_000,
+            "expected cache base cost to dominate for n=1"
+        );
     }
 
     #[rstest]

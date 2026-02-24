@@ -304,17 +304,22 @@ pub(super) fn parse_byte_size(s: &str) -> Result<u64, String> {
         .parse()
         .map_err(|err| format!("invalid byte size `{num_part}`: {err}"))?;
 
-    let multiplier = match suffix.trim().to_ascii_lowercase().as_str() {
-        "" => 1_u64,
-        "k" | "kb" | "kib" => 1024,
-        "m" | "mb" | "mib" => 1024 * 1024,
-        "g" | "gb" | "gib" => 1024 * 1024 * 1024,
-        "t" | "tb" | "tib" => 1024_u64 * 1024 * 1024 * 1024,
-        other => return Err(format!("unknown size suffix: `{other}`")),
-    };
+    let multiplier = suffix_multiplier(suffix)?;
 
     base.checked_mul(multiplier)
         .ok_or_else(|| "byte size overflows u64".to_owned())
+}
+
+/// Maps a byte-size suffix to its multiplier (in bytes).
+fn suffix_multiplier(suffix: &str) -> Result<u64, String> {
+    match suffix.trim().to_ascii_lowercase().as_str() {
+        "" => Ok(1_u64),
+        "k" | "kb" | "kib" => Ok(1024),
+        "m" | "mb" | "mib" => Ok(1024 * 1024),
+        "g" | "gb" | "gib" => Ok(1024 * 1024 * 1024),
+        "t" | "tb" | "tib" => Ok(1024_u64 * 1024 * 1024 * 1024),
+        other => Err(format!("unknown size suffix: `{other}`")),
+    }
 }
 
 /// Produce a redacted label for a path that avoids leaking absolute directories.

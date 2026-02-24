@@ -1953,7 +1953,7 @@ conservative upper bound on the peak memory that the CPU pipeline will require:
 ```text
 hnsw_adjacency     = n × (2 × M) × 8       (level-0 neighbour IDs)
 hnsw_node_overhead = n × 80                 (Node structs, Vec headers)
-distance_cache     = min(1 048 576, n) × 80 (bounded cache entries)
+distance_cache     = 1 048 576 × 80          (full cache capacity)
 candidate_edges    = n × M × 32             (CandidateEdge structs)
 core_distances     = n × 4                  (f32 per point)
 mutual_edges       = n × M × 32             (recomputed edges)
@@ -1972,12 +1972,12 @@ memory for common dataset sizes and HNSW `M` values:
 
 | Points     | M = 8     | M = 16    | M = 24    |
 | ---------- | --------- | --------- | --------- |
-| 10,000     | ~12 MiB   | ~21 MiB   | ~30 MiB   |
-| 100,000    | ~120 MiB  | ~211 MiB  | ~303 MiB  |
+| 10,000     | ~131 MiB  | ~140 MiB  | ~149 MiB  |
+| 100,000    | ~228 MiB  | ~320 MiB  | ~411 MiB  |
 | 1,000,000  | ~1.2 GiB  | ~2.1 GiB  | ~3.0 GiB  |
 | 10,000,000 | ~10.7 GiB | ~19.6 GiB | ~28.6 GiB |
 
-_Table: Estimated peak memory by dataset size and `M` parameter.  All values
+_Table 1: Estimated peak memory by dataset size and `M` parameter.  All values
 include the 1.5× safety multiplier._
 
 **Guidance.** For interactive exploration on a workstation with 16 GiB of RAM,

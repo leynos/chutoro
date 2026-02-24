@@ -215,7 +215,8 @@ impl Chutoro {
 
         // Use the default HNSW max_connections for estimation.  The pipeline
         // always constructs params via `HnswParams::default()`, so this is
-        // consistent with actual usage.
+        // consistent with actual usage.  Validated by the
+        // `default_max_connections_matches_hnsw_params` test.
         const DEFAULT_MAX_CONNECTIONS: usize = 16;
         let estimated = crate::memory::estimate_peak_bytes(items, DEFAULT_MAX_CONNECTIONS);
 
@@ -343,9 +344,8 @@ mod tests {
 
     #[test]
     fn max_bytes_none_imposes_no_limit() {
-        let chutoro = ChutoroBuilder::new().build();
-        assert!(chutoro.is_ok());
-        assert_eq!(chutoro.expect("build must succeed").max_bytes(), None);
+        let chutoro = ChutoroBuilder::new().build().expect("build must succeed");
+        assert_eq!(chutoro.max_bytes(), None);
     }
 
     #[test]
@@ -355,5 +355,18 @@ mod tests {
             .build()
             .expect("build must succeed");
         assert_eq!(chutoro.max_bytes(), Some(1_000_000));
+    }
+
+    /// Guards against silent drift if `HnswParams::default().max_connections`
+    /// ever changes.  The constant in `check_memory_limit` must stay in sync.
+    #[cfg(feature = "cpu")]
+    #[test]
+    fn default_max_connections_matches_hnsw_params() {
+        let params = crate::HnswParams::default();
+        assert_eq!(
+            params.max_connections(),
+            16,
+            "DEFAULT_MAX_CONNECTIONS in check_memory_limit must be updated to match"
+        );
     }
 }
