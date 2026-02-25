@@ -1992,6 +1992,47 @@ or enlarged caches will shift actual memory usage.  The formula does not
 account for the data source's own memory footprint (e.g., the in-memory Parquet
 column or text corpus), which must be added separately for a complete picture.
 
+### 11.5. Optional Gaussian clustering-quality tracking (roadmap 2.1.6)
+
+Benchmark timing alone cannot detect quality regressions when tuning HNSW
+construction parameters. Roadmap item 2.1.6 adds an optional quality pass to
+`hnsw_build_ef_sweep` so every `(M, ef_construction)` pair can be evaluated
+against deterministic Gaussian ground truth.
+
+**Ground-truth source.** `SyntheticSource` now exposes
+`generate_gaussian_blobs_with_labels`, returning both vectors and stable
+labels. Labels follow centroid round-robin assignment, so benchmark runs are
+deterministic under a fixed seed and can be compared across revisions.
+
+**Metrics.** The benchmark support module
+`chutoro-benches/src/clustering_quality.rs` computes:
+
+- **Adjusted Rand Index (ARI):** agreement between predicted and true
+  partitions, adjusted for chance.
+- **Normalized Mutual Information (NMI):** information overlap between
+  partitions, scaled to `[0, 1]`.
+
+The quality pass reuses the same HNSW parameter matrix as the timing sweep and
+writes `target/benchmarks/hnsw_cluster_quality_vs_ef.csv` with columns:
+`point_count`, `max_connections`, `ef_construction`, `min_cluster_size`, `ari`,
+`nmi`, `build_time_ms`.
+
+**Operational controls.** Quality reporting is optional and follows the same
+pattern as recall reporting:
+
+- `CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT`:
+  - `1`/`true`/`on` to force enable,
+  - `0`/`false`/`off` to disable.
+- `CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH` overrides the default output
+  path.
+- During benchmark discovery (`--list` or `--exact`), reporting remains off by
+  default to avoid unnecessary setup overhead.
+
+**Why optional?** ARI/NMI are secondary guardrail metrics, not timing targets.
+Running quality evaluation outside Criterion's measured closure preserves
+timing fidelity while still detecting parameter settings that improve speed at
+the expense of clustering quality.
+
 #### **Works cited**
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September

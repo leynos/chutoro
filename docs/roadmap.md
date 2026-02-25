@@ -258,7 +258,7 @@ ______________________________________________________________________
   clear failure messages when datasets exceed available memory. Ensure
   benchmarks fail fast on oversized datasets and document expected memory
   requirements per dataset size. (See §5)
-- [ ] 2.1.6. Add optional clustering quality tracking to benchmarks:
+- [x] 2.1.6. Add optional clustering quality tracking to benchmarks:
   for synthetic clustered data (Gaussians), compute Adjusted Rand Index (ARI)
   and Normalized Mutual Information (NMI) against ground truth as secondary
   metrics alongside timing. Guards against quality regressions during

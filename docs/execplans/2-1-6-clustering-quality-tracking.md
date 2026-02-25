@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
 `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 PLANS.md is not present in this repository, so no additional plan constraints
 apply.
@@ -69,88 +69,114 @@ Success is observable when:
 ## Risks
 
 - Risk: ARI/NMI formulas are easy to implement incorrectly, especially for edge
-  partitions.
-  Severity: high.
-  Likelihood: medium.
-  Mitigation: add parameterized oracle-style unit tests for identity,
-  permutation invariance, finite bounds, and degenerate partitions.
+  partitions. Severity: high. Likelihood: medium. Mitigation: add parameterized
+  oracle-style unit tests for identity, permutation invariance, finite bounds,
+  and degenerate partitions.
 
 - Risk: Gaussian synthetic data currently does not expose explicit labels,
-  encouraging brittle implicit assumptions.
-  Severity: medium.
-  Likelihood: high.
+  encouraging brittle implicit assumptions. Severity: medium. Likelihood: high.
   Mitigation: add an explicit labelled-generation helper in benchmark source
   code and test its label contract.
 
 - Risk: benchmark files near the 400-line cap can overflow during integration.
-  Severity: medium.
-  Likelihood: medium.
-  Mitigation: place ARI/NMI and reporting logic in a dedicated support module
-  instead of growing bench binaries.
+  Severity: medium. Likelihood: medium. Mitigation: place ARI/NMI and reporting
+  logic in a dedicated support module instead of growing bench binaries.
 
 - Risk: optional quality pass may run during `--list`/`--exact` discovery and
-  slow nextest/bench harness workflows.
-  Severity: medium.
-  Likelihood: medium.
+  slow nextest/bench harness workflows. Severity: medium. Likelihood: medium.
   Mitigation: mirror the existing gating pattern used by memory/recall
   reporting (`--list`, `--exact`, and explicit env var overrides).
 
 ## Progress
 
 - [x] (2026-02-25) Drafted ExecPlan for roadmap item `2.1.6`.
-- [ ] Stage A: add benchmark support module for clustering-quality metrics and
-  report model.
-- [ ] Stage B: expose deterministic Gaussian ground-truth labels for benchmark
-  quality evaluation.
-- [ ] Stage C: integrate optional quality-report pass into benchmark execution
-  without affecting timing loops.
-- [ ] Stage D: add unit tests, update design docs, mark roadmap item done, and
-  run quality gates.
+- [x] (2026-02-25) Stage A complete: added
+  `chutoro-benches/src/clustering_quality.rs` with ARI/NMI computation, typed
+  report rows, and CSV writer.
+- [x] (2026-02-25) Stage B complete: added
+  `SyntheticSource::generate_gaussian_blobs_with_labels(...)` and covered label
+  contracts in `chutoro-benches/src/source/tests.rs`.
+- [x] (2026-02-25) Stage C complete: integrated optional ARI/NMI reporting into
+  `chutoro-benches/benches/hnsw_ef_sweep.rs` as a one-shot setup pass outside
+  Criterion timing closures.
+- [x] (2026-02-25) Stage D complete: added/updated unit tests, documented
+  design decisions in `docs/chutoro-design.md`, marked roadmap item `2.1.6`
+  done in `docs/roadmap.md`, and ran required quality gates.
 
 ## Surprises & Discoveries
 
 - Observation: ARI/NMI implementations already exist in
   `chutoro-core/tests/functional_ari_nmi.rs`, but they are test-local and not
-  reusable from benchmark crates.
-  Evidence: functions are private to the integration test module.
-  Impact: benchmark crate needs its own metric implementation (or a refactor
-  that would expand core API scope).
+  reusable from benchmark crates. Evidence: functions are private to the
+  integration test module. Impact: benchmark crate needs its own metric
+  implementation (or a refactor that would expand core API scope).
 
 - Observation: `chutoro-benches/benches/hnsw.rs` and
   `chutoro-benches/src/recall.rs` are already close to the 400-line policy.
-  Evidence: current line counts are 344 and 357 respectively.
-  Impact: new quality logic should live in a new module.
+  Evidence: current line counts are 344 and 357 respectively. Impact: new
+  quality logic should live in a new module.
+
+- Observation: pure HNSW search labels are not available as a direct benchmark
+  output in this sweep. Evidence: the existing benchmark only measures build
+  timing and optional recall. Impact: quality reporting now runs a dedicated
+  setup-only pipeline (`build_with_edges` -> mutual reachability MST -> label
+  extraction) so timing loops remain unchanged.
 
 ## Decision log
 
 - Decision: implement ARI/NMI in a dedicated benchmark-support module (planned
   `chutoro-benches/src/clustering_quality.rs`) and keep bench binaries as thin
-  orchestrators.
-  Rationale: this protects file-size limits, improves testability, and mirrors
-  the existing `recall` module pattern.
-  Date/Author: 2026-02-25 (Codex)
+  orchestrators. Rationale: this protects file-size limits, improves
+  testability, and mirrors the existing `recall` module pattern. Date/Author:
+  2026-02-25 (Codex)
 
 - Decision: quality reporting will be optional, executed as a one-shot setup
-  pass (not a Criterion measurement target).
-  Rationale: ARI/NMI are correctness/quality signals, not variance-sensitive
-  timing metrics; this avoids distorting benchmark timing measurements.
-  Date/Author: 2026-02-25 (Codex)
+  pass (not a Criterion measurement target). Rationale: ARI/NMI are
+  correctness/quality signals, not variance-sensitive timing metrics; this
+  avoids distorting benchmark timing measurements. Date/Author: 2026-02-25
+  (Codex)
 
 - Decision: Gaussian generators will expose ground truth explicitly through a
   labelled generation helper instead of relying on hidden assumptions in bench
-  code.
-  Rationale: keeps the quality contract explicit and robust against future
-  generator changes.
+  code. Rationale: keeps the quality contract explicit and robust against
+  future generator changes. Date/Author: 2026-02-25 (Codex)
+
+- Decision: benchmark quality reporting uses explicit env vars
+  `CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT` and
+  `CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH`, and defaults to skipping
+  report generation when `--list`/`--exact` is present. Rationale: avoids
+  surprise overhead during benchmark discovery and nextest list-mode flows.
+  Date/Author: 2026-02-25 (Codex)
+
+- Decision: Gaussian ground-truth labels are assigned in round-robin centroid
+  order and returned directly from source generation. Rationale: deterministic
+  labels provide stable ARI/NMI baselines across runs with fixed seeds.
   Date/Author: 2026-02-25 (Codex)
 
 ## Outcomes & retrospective
 
-Pending implementation. Expected outcomes:
+Implemented outcomes:
 
-- Optional ARI/NMI benchmark quality reporting for Gaussian synthetic data.
-- Strong unit-test backstop for metric correctness and report I/O.
-- Updated design documentation and roadmap status for item `2.1.6`.
-- All required quality gates passing.
+- Added optional ARI/NMI benchmark quality reporting for Gaussian synthetic
+  data via `chutoro-benches/src/clustering_quality.rs` and
+  `chutoro-benches/benches/hnsw_ef_sweep.rs`.
+- Added deterministic labelled Gaussian generation and unit tests covering
+  shape, determinism, and round-robin label assignment.
+- Added parameterized `rstest` coverage for metric happy-path and degenerate
+  scenarios, mismatch/unhappy path checks, bounded score checks, and CSV output
+  checks.
+- Updated `docs/chutoro-design.md` (§11.5) with rationale, configuration, and
+  workflow details; marked roadmap item `2.1.6` done in `docs/roadmap.md`.
+- Quality gates passed:
+  `make check-fmt`, `make lint`, and `make test` (`788 passed, 1 skipped` in
+  the final workspace run).
+
+Retrospective:
+
+- Keeping quality scoring in bench support code avoided public `chutoro-core`
+  API expansion while preserving testability.
+- Running quality extraction as setup-only work maintained benchmark timing
+  integrity and met the “secondary metrics” requirement cleanly.
 
 ## Context and orientation
 
@@ -172,8 +198,8 @@ Relevant existing files:
   and behavioural expectations to mirror in benchmark support code.
 
 Roadmap requirement (`docs/roadmap.md`, item `2.1.6`) asks for optional
-clustering quality metrics for synthetic Gaussian data as secondary signals next
-to timing, guarding against quality regressions during performance tuning.
+clustering quality metrics for synthetic Gaussian data as secondary signals
+next to timing, guarding against quality regressions during performance tuning.
 
 ## Plan of work
 
@@ -273,8 +299,7 @@ Done means all of the following are true:
 - ARI/NMI are computed against Gaussian ground truth and emitted with timing
   context.
 - Unit tests cover metric happy paths, mismatch/unhappy paths, and edge cases
-  (identity/permutation/degenerate partitions) using `rstest` where
-  appropriate.
+  (identity/permutation/degenerate partitions) using `rstest` where appropriate.
 - Existing benchmark timing behaviour remains intact.
 - `docs/chutoro-design.md` records design decisions and usage guidance for this
   feature.
@@ -292,16 +317,17 @@ Done means all of the following are true:
 
 ## Interfaces and dependencies
 
-Planned interfaces (final names may vary, intent is fixed):
+Implemented interfaces:
 
 - `chutoro_benches::clustering_quality::adjusted_rand_index(...)`
 - `chutoro_benches::clustering_quality::normalised_mutual_information(...)`
-- `chutoro_benches::clustering_quality::write_quality_report(...)`
+- `chutoro_benches::clustering_quality::clustering_quality_score(...)`
+- `chutoro_benches::clustering_quality::write_clustering_quality_report(...)`
 - `SyntheticSource::generate_gaussian_blobs_with_labels(...)`
 
-Planned environment controls (names may vary, intent is fixed):
+Implemented environment controls:
 
-- enable/disable quality report emission,
-- override default output report path.
+- `CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT`
+- `CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH`
 
-Dependency plan: no new crates.
+Dependencies: no new crates were added.

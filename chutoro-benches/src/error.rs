@@ -4,6 +4,7 @@
 //! data preparation so that setup functions can propagate failures
 //! with `?` instead of using `.expect()`.
 
+use crate::clustering_quality::ClusteringQualityError;
 use crate::profiling::ProfilingError;
 use crate::source::SyntheticError;
 use chutoro_core::{HierarchyError, HnswError, MstError};
@@ -35,6 +36,12 @@ pub enum BenchSetupError {
     /// Recall report I/O failed.
     #[error("recall report failed: {0}")]
     RecallReport(std::io::Error),
+    /// Clustering-quality metric computation failed.
+    #[error("clustering quality computation failed: {0}")]
+    ClusteringQuality(#[from] ClusteringQualityError),
+    /// Clustering-quality report I/O failed.
+    #[error("clustering quality report failed: {0}")]
+    ClusteringQualityReport(std::io::Error),
     /// A data-source distance computation failed.
     #[error("data source error: {0}")]
     DataSource(#[from] chutoro_core::DataSourceError),

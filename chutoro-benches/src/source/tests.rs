@@ -108,6 +108,51 @@ fn gaussian_generator_accepts_axis_anisotropy(gaussian_config: GaussianBlobConfi
 }
 
 #[rstest]
+fn gaussian_generator_with_labels_respects_shape(gaussian_config: GaussianBlobConfig) {
+    let (source, labels) = SyntheticSource::generate_gaussian_blobs_with_labels(&gaussian_config)
+        .expect("labelled Gaussian generation should succeed");
+
+    assert_eq!(source.len(), gaussian_config.point_count);
+    assert_eq!(labels.len(), gaussian_config.point_count);
+    assert!(
+        labels
+            .iter()
+            .all(|&label| label < gaussian_config.cluster_count)
+    );
+}
+
+#[rstest]
+#[case::cluster_count_2(12, 2)]
+#[case::cluster_count_3(12, 3)]
+#[case::cluster_count_5(20, 5)]
+fn gaussian_generator_with_labels_tracks_round_robin_clusters(
+    #[case] point_count: usize,
+    #[case] cluster_count: usize,
+) {
+    let (_source, labels) =
+        SyntheticSource::generate_gaussian_blobs_with_labels(&GaussianBlobConfig {
+            point_count,
+            dimensions: 4,
+            cluster_count,
+            separation: 2.5,
+            anisotropy: Anisotropy::Isotropic(0.3),
+            seed: 99,
+        })
+        .expect("labelled Gaussian generation should succeed");
+
+    let mut expected = Vec::with_capacity(point_count);
+    let mut label = 0usize;
+    for _ in 0..point_count {
+        expected.push(label);
+        label = label.saturating_add(1);
+        if label == cluster_count {
+            label = 0;
+        }
+    }
+    assert_eq!(labels, expected);
+}
+
+#[rstest]
 #[expect(
     clippy::float_arithmetic,
     reason = "test compares generated distances via subtraction"
@@ -126,6 +171,20 @@ fn gaussian_generator_is_deterministic(gaussian_config: GaussianBlobConfig) {
         .expect("distance lookup should succeed for right source");
 
     assert!((left_distance - right_distance).abs() < f32::EPSILON);
+}
+
+#[rstest]
+fn gaussian_generator_with_labels_is_deterministic(gaussian_config: GaussianBlobConfig) {
+    let (left_source, left_labels) =
+        SyntheticSource::generate_gaussian_blobs_with_labels(&gaussian_config)
+            .expect("first labelled Gaussian generation should succeed");
+    let (right_source, right_labels) =
+        SyntheticSource::generate_gaussian_blobs_with_labels(&gaussian_config)
+            .expect("second labelled Gaussian generation should succeed");
+
+    assert_eq!(left_labels, right_labels);
+    assert_eq!(left_source.len(), right_source.len());
+    assert_eq!(left_source.dimensions(), right_source.dimensions());
 }
 
 #[rstest]

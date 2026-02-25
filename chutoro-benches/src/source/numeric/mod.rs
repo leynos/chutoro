@@ -112,11 +112,44 @@ impl SyntheticSource {
     ///
     /// # Errors
     /// Returns [`SyntheticError`] when the configuration is invalid.
+    pub fn generate_gaussian_blobs(config: &GaussianBlobConfig) -> Result<Self, SyntheticError> {
+        let (data, _labels) = Self::generate_gaussian_blob_data(config)?;
+
+        Self::from_parts(
+            "synthetic-gaussian-blobs",
+            data,
+            config.point_count,
+            config.dimensions,
+        )
+    }
+
+    /// Generates Gaussian blobs and returns deterministic ground-truth labels.
+    ///
+    /// Labels are assigned in round-robin centroid order so each generated
+    /// point can be compared against benchmark cluster assignments.
+    ///
+    /// # Errors
+    /// Returns [`SyntheticError`] when the configuration is invalid.
+    pub fn generate_gaussian_blobs_with_labels(
+        config: &GaussianBlobConfig,
+    ) -> Result<(Self, Vec<usize>), SyntheticError> {
+        let (data, labels) = Self::generate_gaussian_blob_data(config)?;
+        let source = Self::from_parts(
+            "synthetic-gaussian-blobs",
+            data,
+            config.point_count,
+            config.dimensions,
+        )?;
+        Ok((source, labels))
+    }
+
     #[expect(
         clippy::float_arithmetic,
         reason = "Gaussian data generation requires floating-point arithmetic"
     )]
-    pub fn generate_gaussian_blobs(config: &GaussianBlobConfig) -> Result<Self, SyntheticError> {
+    fn generate_gaussian_blob_data(
+        config: &GaussianBlobConfig,
+    ) -> Result<(Vec<f32>, Vec<usize>), SyntheticError> {
         validate_basic_numeric_config(config.point_count, config.dimensions)?;
         validate_blob_config(config)?;
 
@@ -125,19 +158,21 @@ impl SyntheticSource {
         let mut rng = SmallRng::seed_from_u64(config.seed ^ 0xA5A5_A5A5_A5A5_A5A5_u64);
         let total = checked_total(config.point_count, config.dimensions)?;
         let mut data = Vec::with_capacity(total);
+        let mut labels = Vec::with_capacity(config.point_count);
+        let mut current_label = 0usize;
         for centroid in centroids.iter().cycle().take(config.point_count) {
+            labels.push(current_label);
+            current_label = current_label.saturating_add(1);
+            if current_label == config.cluster_count {
+                current_label = 0;
+            }
             for (centroid_value, scale) in centroid.iter().zip(&scales) {
                 let sample = generation::standard_normal_sample(&mut rng)?;
                 data.push(*centroid_value + sample * *scale);
             }
         }
 
-        Self::from_parts(
-            "synthetic-gaussian-blobs",
-            data,
-            config.point_count,
-            config.dimensions,
-        )
+        Ok((data, labels))
     }
 
     /// Generates a non-linearly-separable manifold pattern.
