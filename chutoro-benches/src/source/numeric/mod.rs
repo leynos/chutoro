@@ -113,14 +113,8 @@ impl SyntheticSource {
     /// # Errors
     /// Returns [`SyntheticError`] when the configuration is invalid.
     pub fn generate_gaussian_blobs(config: &GaussianBlobConfig) -> Result<Self, SyntheticError> {
-        let (data, _labels) = Self::generate_gaussian_blob_data(config)?;
-
-        Self::from_parts(
-            "synthetic-gaussian-blobs",
-            data,
-            config.point_count,
-            config.dimensions,
-        )
+        let (source, _labels) = Self::generate_gaussian_blobs_with_labels(config)?;
+        Ok(source)
     }
 
     /// Generates Gaussian blobs and returns deterministic ground-truth labels.

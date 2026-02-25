@@ -76,25 +76,29 @@ fn unwrap_build(result: Result<CpuHnsw, chutoro_core::HnswError>, context: &str)
     clippy::print_stderr,
     reason = "Benchmark-only diagnostic for invalid env var; no structured logging available."
 )]
-fn warn_unrecognised_recall_env(value: &str) {
+fn warn_unrecognised_bool_env(env_var_name: &str, value: &str) {
     eprintln!(
         "warning: unrecognised value {value:?} for \
-         CHUTORO_BENCH_HNSW_RECALL_REPORT; expected 0/1/true/false/on/off"
+         {env_var_name}; expected 0/1/true/false/on/off"
     );
 }
 
-fn should_collect_recall_report() -> bool {
-    if let Ok(value) = std::env::var("CHUTORO_BENCH_HNSW_RECALL_REPORT") {
-        let normalized = value.trim().to_ascii_lowercase();
-        if matches!(normalized.as_str(), "0" | "false" | "off") {
-            return false;
-        }
-        if matches!(normalized.as_str(), "1" | "true" | "on") {
-            return true;
-        }
-        warn_unrecognised_recall_env(&value);
+fn parse_bool_env_var(env_var_name: &str) -> Option<bool> {
+    let value = std::env::var(env_var_name).ok()?;
+    let normalized = value.trim().to_ascii_lowercase();
+    if matches!(normalized.as_str(), "0" | "false" | "off") {
+        return Some(false);
     }
-    !std::env::args().any(|arg| arg == "--list" || arg == "--exact")
+    if matches!(normalized.as_str(), "1" | "true" | "on") {
+        return Some(true);
+    }
+    warn_unrecognised_bool_env(env_var_name, &value);
+    None
+}
+
+fn should_collect_recall_report() -> bool {
+    parse_bool_env_var("CHUTORO_BENCH_HNSW_RECALL_REPORT")
+        .unwrap_or_else(|| !std::env::args().any(|arg| arg == "--list" || arg == "--exact"))
 }
 
 fn recall_report_path() -> PathBuf {
@@ -102,29 +106,9 @@ fn recall_report_path() -> PathBuf {
         .map_or_else(|| PathBuf::from(RECALL_REPORT_PATH), PathBuf::from)
 }
 
-#[expect(
-    clippy::print_stderr,
-    reason = "Benchmark-only diagnostic for invalid env var; no structured logging available."
-)]
-fn warn_unrecognised_cluster_quality_env(value: &str) {
-    eprintln!(
-        "warning: unrecognised value {value:?} for \
-         CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT; expected 0/1/true/false/on/off"
-    );
-}
-
 fn should_collect_cluster_quality_report() -> bool {
-    if let Ok(value) = std::env::var("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT") {
-        let normalized = value.trim().to_ascii_lowercase();
-        if matches!(normalized.as_str(), "0" | "false" | "off") {
-            return false;
-        }
-        if matches!(normalized.as_str(), "1" | "true" | "on") {
-            return true;
-        }
-        warn_unrecognised_cluster_quality_env(&value);
-    }
-    !std::env::args().any(|arg| arg == "--list" || arg == "--exact")
+    parse_bool_env_var("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT")
+        .unwrap_or_else(|| !std::env::args().any(|arg| arg == "--list" || arg == "--exact"))
 }
 
 fn cluster_quality_report_path() -> PathBuf {
