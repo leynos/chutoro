@@ -1,6 +1,6 @@
 //! Clustering-quality metric helpers shared across crates and tests.
 //!
-//! This module provides Adjusted Rand Index (ARI) and Normalized Mutual
+//! This module provides Adjusted Rand Index (ARI) and Normalised Mutual
 //! Information (NMI) scoring for partition comparisons.
 
 use std::collections::HashMap;
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 pub struct ClusteringQualityScore {
     /// Adjusted Rand Index in `[-1.0, 1.0]`.
     pub ari: f64,
-    /// Normalized Mutual Information in `[0.0, 1.0]`.
+    /// Normalised Mutual Information in `[0.0, 1.0]`.
     pub nmi: f64,
 }
 
@@ -207,17 +207,10 @@ pub fn adjusted_rand_index(
     ground_truth: &[usize],
     predicted: &[usize],
 ) -> Result<f64, ClusteringQualityError> {
-    let item_count = validate_label_lengths(ground_truth, predicted)?;
-    let (left_counts, right_counts, contingency) = build_contingency_table(ground_truth, predicted);
-    Ok(adjusted_rand_index_from_contingency(
-        item_count,
-        &left_counts,
-        &right_counts,
-        &contingency,
-    ))
+    clustering_quality_score(ground_truth, predicted).map(|score| score.ari)
 }
 
-/// Computes Normalized Mutual Information (NMI) for two cluster labellings.
+/// Computes Normalised Mutual Information (NMI) for two cluster labellings.
 ///
 /// # Errors
 ///
@@ -227,14 +220,7 @@ pub fn normalized_mutual_information(
     ground_truth: &[usize],
     predicted: &[usize],
 ) -> Result<f64, ClusteringQualityError> {
-    let item_count = validate_label_lengths(ground_truth, predicted)?;
-    let (left_counts, right_counts, contingency) = build_contingency_table(ground_truth, predicted);
-    normalized_mutual_information_from_contingency(
-        item_count,
-        &left_counts,
-        &right_counts,
-        &contingency,
-    )
+    clustering_quality_score(ground_truth, predicted).map(|score| score.nmi)
 }
 
 /// Computes ARI and NMI in one pass over contingency statistics.

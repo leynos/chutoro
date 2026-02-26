@@ -2009,7 +2009,7 @@ compute:
 
 - **Adjusted Rand Index (ARI):** agreement between predicted and true
   partitions, adjusted for chance.
-- **Normalized Mutual Information (NMI):** information overlap between
+- **Normalised Mutual Information (NMI):** information overlap between
   partitions, scaled to `[0, 1]`.
 
 Benchmark reporting in `chutoro-benches/src/clustering_quality.rs` delegates to

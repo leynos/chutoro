@@ -1,6 +1,6 @@
 //! Clustering-quality metric helpers for benchmark reporting.
 //!
-//! This module provides Adjusted Rand Index (ARI) and Normalized Mutual
+//! This module provides Adjusted Rand Index (ARI) and Normalised Mutual
 //! Information (NMI) scoring against ground-truth labels, together with a CSV
 //! report writer used by benchmark harnesses.
 
@@ -65,7 +65,7 @@ pub fn adjusted_rand_index(
     chutoro_core::adjusted_rand_index(ground_truth, predicted)
 }
 
-/// Computes Normalized Mutual Information (NMI) for two cluster labellings.
+/// Computes Normalised Mutual Information (NMI) for two cluster labellings.
 ///
 /// # Errors
 ///

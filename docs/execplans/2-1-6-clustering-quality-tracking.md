@@ -14,7 +14,7 @@ apply.
 Implement roadmap item `2.1.6` so benchmark runs can optionally emit clustering
 quality metrics for synthetic Gaussian data in addition to timing metrics.
 Quality is measured against known ground-truth cluster labels using Adjusted
-Rand Index (ARI) and Normalized Mutual Information (NMI).
+Rand Index (ARI) and Normalised Mutual Information (NMI).
 
 Success is observable when:
 
