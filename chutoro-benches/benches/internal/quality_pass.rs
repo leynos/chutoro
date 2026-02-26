@@ -65,6 +65,17 @@ fn compute_core_distances(
                     })
                 })?
         } else {
+            if others.is_empty() {
+                use std::io::Write as _;
+
+                let mut diagnostic_stream = std::io::stderr().lock();
+                let _diagnostic_write = writeln!(
+                    diagnostic_stream,
+                    "[diagnostic] compute_core_distances: point {point} has no non-self \
+                     neighbours (source.len() = {})",
+                    source.len()
+                );
+            }
             others
                 .last()
                 .map_or(0.0, |neighbour| f64::from(neighbour.distance))
@@ -116,6 +127,13 @@ fn build_mutual_edges(
     Ok(mutual_edges)
 }
 
+/// Builds HNSW labels for one parameter set by running:
+/// `CpuHnsw::build_with_edges` -> `compute_core_distances` ->
+/// `build_mutual_edges` -> `parallel_kruskal` -> `extract_labels_from_mst`.
+///
+/// Returns `(labels, build_time_millis)`, where `labels` contains one cluster
+/// label per source item and `build_time_millis` is the HNSW build duration in
+/// milliseconds.
 fn pipeline_labels_with_hnsw_params(
     source: &SyntheticSource,
     params: &HnswParams,
