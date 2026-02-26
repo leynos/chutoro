@@ -193,7 +193,10 @@ pub(super) fn measure_clustering_quality_vs_ef_impl() -> Result<Option<PathBuf>,
             context: "CLUSTERING_QUALITY_MIN_CLUSTER_SIZE",
         },
     )?;
-    let mut records = Vec::new();
+    let expected_record_count = EF_SWEEP_MAX_CONNECTIONS
+        .len()
+        .saturating_mul(EF_CONSTRUCTION_VALUES.len());
+    let mut records = Vec::with_capacity(expected_record_count);
 
     for &m in EF_SWEEP_MAX_CONNECTIONS {
         for &ef_raw in EF_CONSTRUCTION_VALUES {
