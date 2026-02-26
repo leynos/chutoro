@@ -2004,13 +2004,16 @@ against deterministic Gaussian ground truth.
 labels. Labels follow centroid round-robin assignment, so benchmark runs are
 deterministic under a fixed seed and can be compared across revisions.
 
-**Metrics.** The benchmark support module
-`chutoro-benches/src/clustering_quality.rs` computes:
+**Metrics.** Shared metric helpers in `chutoro-core/src/clustering_quality.rs`
+compute:
 
 - **Adjusted Rand Index (ARI):** agreement between predicted and true
   partitions, adjusted for chance.
 - **Normalized Mutual Information (NMI):** information overlap between
   partitions, scaled to `[0, 1]`.
+
+Benchmark reporting in `chutoro-benches/src/clustering_quality.rs` delegates to
+these shared helpers and focuses on CSV row modelling plus report output.
 
 The quality pass reuses the same HNSW parameter matrix as the timing sweep and
 writes `target/benchmarks/hnsw_cluster_quality_vs_ef.csv` with columns:

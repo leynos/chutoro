@@ -36,8 +36,8 @@ Success is observable when:
 
 - Keep all Rust source files under 400 lines. If a file would exceed 400 lines,
   split into a new module.
-- Preserve existing public `chutoro-core` APIs; this work must stay in
-  `chutoro-benches` and docs unless a breaking need is discovered.
+- Prefer bench-local integration in `chutoro-benches`; if shared metric logic
+  is required, keep `chutoro-core` additions additive and backwards-compatible.
 - Keep benchmark timing behaviour stable; quality tracking must be optional and
   must not add overhead to Criterion iteration closures.
 - Use deterministic synthetic generation (fixed seed) so quality changes are
@@ -105,22 +105,24 @@ Success is observable when:
 
 ## Surprises & Discoveries
 
-- Observation: ARI/NMI implementations already exist in
-  `chutoro-core/tests/functional_ari_nmi.rs`, but they are test-local and not
-  reusable from benchmark crates. Evidence: functions are private to the
-  integration test module. Impact: benchmark crate needs its own metric
-  implementation (or a refactor that would expand core API scope).
+- Observation: ARI/NMI logic was originally duplicated between
+  `chutoro-benches/src/clustering_quality.rs` and
+  `chutoro-core/tests/functional_ari_nmi.rs`. Evidence: both modules contained
+  private implementations. Impact: follow-up review work extracted shared
+  metric helpers into `chutoro-core/src/clustering_quality.rs` and rewired both
+  call sites.
 
 - Observation: `chutoro-benches/benches/hnsw.rs` and
   `chutoro-benches/src/recall.rs` are already close to the 400-line policy.
   Evidence: current line counts are 344 and 357 respectively. Impact: new
   quality logic should live in a new module.
 
-- Observation: pure HNSW search labels are not available as a direct benchmark
-  output in this sweep. Evidence: the existing benchmark only measures build
-  timing and optional recall. Impact: quality reporting now runs a dedicated
-  setup-only pipeline (`build_with_edges` -> mutual reachability MST -> label
-  extraction) so timing loops remain unchanged.
+- Observation: pure Hierarchical Navigable Small World (HNSW) search labels
+  are not available as a direct benchmark output in this sweep. Evidence: the
+  existing benchmark only measures build timing and optional recall. Impact:
+  quality reporting now runs a dedicated setup-only pipeline
+  (`build_with_edges` -> mutual reachability MST -> label extraction) so timing
+  loops remain unchanged.
 
 ## Decision log
 
@@ -153,6 +155,12 @@ Success is observable when:
   labels provide stable ARI/NMI baselines across runs with fixed seeds.
   Date/Author: 2026-02-25 (Codex)
 
+- Decision: shared ARI/NMI logic now lives in
+  `chutoro-core/src/clustering_quality.rs`, with benches and core functional
+  tests delegating to that module. Rationale: removes formula drift risk and
+  enables one-pass ARI+NMI computation in `clustering_quality_score`.
+  Date/Author: 2026-02-26 (Codex)
+
 ## Outcomes & retrospective
 
 Implemented outcomes:
@@ -160,6 +168,9 @@ Implemented outcomes:
 - Added optional ARI/NMI benchmark quality reporting for Gaussian synthetic
   data via `chutoro-benches/src/clustering_quality.rs` and
   `chutoro-benches/benches/hnsw_ef_sweep.rs`.
+- Extracted shared ARI/NMI computation into
+  `chutoro-core/src/clustering_quality.rs`; both benchmark quality helpers and
+  `chutoro-core/tests/functional_ari_nmi.rs` now use this shared implementation.
 - Added deterministic labelled Gaussian generation and unit tests covering
   shape, determinism, and round-robin label assignment.
 - Added parameterized `rstest` coverage for metric happy-path and degenerate
@@ -168,13 +179,13 @@ Implemented outcomes:
 - Updated `docs/chutoro-design.md` (§11.5) with rationale, configuration, and
   workflow details; marked roadmap item `2.1.6` done in `docs/roadmap.md`.
 - Quality gates passed:
-  `make check-fmt`, `make lint`, and `make test` (`788 passed, 1 skipped` in
+  `make check-fmt`, `make lint`, and `make test` (`790 passed, 1 skipped` in
   the final workspace run).
 
 Retrospective:
 
-- Keeping quality scoring in bench support code avoided public `chutoro-core`
-  API expansion while preserving testability.
+- Consolidating quality scoring in shared `chutoro-core` helpers eliminated
+  duplicated formulas and reduced future drift risk.
 - Running quality extraction as setup-only work maintained benchmark timing
   integrity and met the “secondary metrics” requirement cleanly.
 

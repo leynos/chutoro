@@ -188,6 +188,19 @@ fn gaussian_generator_with_labels_is_deterministic(gaussian_config: GaussianBlob
 }
 
 #[rstest]
+fn gaussian_generator_matches_labelled_generator_data(gaussian_config: GaussianBlobConfig) {
+    let source = SyntheticSource::generate_gaussian_blobs(&gaussian_config)
+        .expect("Gaussian generation should succeed");
+    let (labelled_source, _labels) =
+        SyntheticSource::generate_gaussian_blobs_with_labels(&gaussian_config)
+            .expect("labelled Gaussian generation should succeed");
+
+    assert_eq!(source.len(), labelled_source.len());
+    assert_eq!(source.dimensions(), labelled_source.dimensions());
+    assert_eq!(source.raw_data(), labelled_source.raw_data());
+}
+
+#[rstest]
 fn manifold_ring_requires_at_least_two_dimensions(ring_config: ManifoldConfig) {
     let error = SyntheticSource::generate_manifold(&ManifoldConfig {
         dimensions: 1,

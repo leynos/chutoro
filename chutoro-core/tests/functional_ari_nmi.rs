@@ -11,7 +11,8 @@ use rstest::rstest;
 
 use chutoro_core::{
     CandidateEdge, DataSource, DataSourceError, EdgeHarvest, HierarchyConfig, MetricDescriptor,
-    extract_labels_from_mst, parallel_kruskal, run_cpu_pipeline,
+    adjusted_rand_index, extract_labels_from_mst, normalized_mutual_information, parallel_kruskal,
+    run_cpu_pipeline,
 };
 
 fn parse_csv_rows(input: &str, dims: usize) -> Vec<Vec<f32>> {
@@ -153,166 +154,45 @@ fn approx_pipeline<D: DataSource + Sync>(source: &D, min_cluster_size: NonZeroUs
         .collect()
 }
 
-fn comb2(value: usize) -> f64 {
-    let v = value as f64;
-    v * (v - 1.0) / 2.0
-}
-
-fn adjusted_rand_index(left: &[usize], right: &[usize]) -> f64 {
-    assert_eq!(left.len(), right.len());
-    let n = left.len();
-    if n < 2 {
-        return 1.0;
-    }
-
-    let (left_counts, right_counts, contingency) = build_ari_contingency(left, right);
-
-    let sum_ij: f64 = contingency.values().copied().map(comb2).sum();
-    let sum_i: f64 = left_counts.iter().copied().map(comb2).sum();
-    let sum_j: f64 = right_counts.iter().copied().map(comb2).sum();
-    let total = comb2(n);
-    if total == 0.0 {
-        return 1.0;
-    }
-
-    let expected = (sum_i * sum_j) / total;
-    let max_index = 0.5 * (sum_i + sum_j);
-    let denom = max_index - expected;
-    if denom == 0.0 {
-        0.0
-    } else {
-        (sum_ij - expected) / denom
-    }
-}
-
-type AriPairCounts = std::collections::HashMap<(usize, usize), usize>;
-type AriContingencyBuild = (Vec<usize>, Vec<usize>, AriPairCounts);
-
-fn build_ari_contingency(left: &[usize], right: &[usize]) -> AriContingencyBuild {
-    use std::collections::HashMap;
-
-    let mut left_ids = HashMap::<usize, usize>::new();
-    let mut right_ids = HashMap::<usize, usize>::new();
-    let mut left_counts = Vec::<usize>::new();
-    let mut right_counts = Vec::<usize>::new();
-    let mut contingency = HashMap::<(usize, usize), usize>::new();
-
-    for (&l, &r) in left.iter().zip(right.iter()) {
-        let li = *left_ids.entry(l).or_insert_with(|| {
-            let id = left_counts.len();
-            left_counts.push(0);
-            id
-        });
-        let ri = *right_ids.entry(r).or_insert_with(|| {
-            let id = right_counts.len();
-            right_counts.push(0);
-            id
-        });
-        left_counts[li] += 1;
-        right_counts[ri] += 1;
-        *contingency.entry((li, ri)).or_insert(0) += 1;
-    }
-
-    (left_counts, right_counts, contingency)
-}
-
-fn normalized_mutual_information(left: &[usize], right: &[usize]) -> f64 {
-    assert_eq!(left.len(), right.len());
-    let n = left.len();
-    if n == 0 {
-        return 1.0;
-    }
-
-    let (left_counts, right_counts, contingency) = build_contingency_table(left, right);
-    let mi = compute_mutual_information(&left_counts, &right_counts, &contingency, n);
-    let h_left = compute_entropy(&left_counts, n);
-    let h_right = compute_entropy(&right_counts, n);
-    normalize_mi(mi, h_left, h_right)
-}
-
-type ClusterCounts = std::collections::HashMap<usize, usize>;
-type PairCounts = std::collections::HashMap<(usize, usize), usize>;
-type ContingencyTableBuild = (ClusterCounts, ClusterCounts, PairCounts);
-fn build_contingency_table(left: &[usize], right: &[usize]) -> ContingencyTableBuild {
-    use std::collections::HashMap;
-
-    let mut left_counts = HashMap::<usize, usize>::new();
-    let mut right_counts = HashMap::<usize, usize>::new();
-    let mut contingency = HashMap::<(usize, usize), usize>::new();
-
-    for (&l, &r) in left.iter().zip(right.iter()) {
-        *left_counts.entry(l).or_insert(0) += 1;
-        *right_counts.entry(r).or_insert(0) += 1;
-        *contingency.entry((l, r)).or_insert(0) += 1;
-    }
-
-    (left_counts, right_counts, contingency)
-}
-
-fn compute_mutual_information(
-    left_counts: &ClusterCounts,
-    right_counts: &ClusterCounts,
-    contingency: &PairCounts,
-    n: usize,
-) -> f64 {
-    let n_f64 = n as f64;
-    let mut mi = 0.0_f64;
-    for (&(l, r), &count) in contingency {
-        let count_f64 = count as f64;
-        let pl = *left_counts
-            .get(&l)
-            .expect("left cluster label must exist in left_counts") as f64;
-        let pr = *right_counts
-            .get(&r)
-            .expect("right cluster label must exist in right_counts") as f64;
-        mi += (count_f64 / n_f64) * ((count_f64 * n_f64) / (pl * pr)).ln();
-    }
-    mi
-}
-
-fn compute_entropy(counts: &ClusterCounts, n: usize) -> f64 {
-    let n_f64 = n as f64;
-    let mut h = 0.0_f64;
-    for &count in counts.values() {
-        let p = (count as f64) / n_f64;
-        h -= p * p.ln();
-    }
-    h
-}
-
-fn normalize_mi(mi: f64, h_left: f64, h_right: f64) -> f64 {
-    if h_left == 0.0 && h_right == 0.0 {
-        1.0
-    } else if h_left == 0.0 || h_right == 0.0 {
-        0.0
-    } else {
-        mi / (h_left * h_right).sqrt()
-    }
-}
-
 #[test]
 fn nmi_is_one_when_both_partitions_have_single_cluster() {
     let labels = vec![0, 0, 0, 0];
-    assert_eq!(normalized_mutual_information(&labels, &labels), 1.0);
+    assert_eq!(
+        normalized_mutual_information(&labels, &labels).expect("NMI should compute"),
+        1.0
+    );
 }
 
 #[test]
 fn metrics_identity_and_permutation_are_one() {
     let labels = vec![0, 0, 1, 1, 2, 2];
-    assert_eq!(adjusted_rand_index(&labels, &labels), 1.0);
-    assert!((normalized_mutual_information(&labels, &labels) - 1.0).abs() < 1e-12);
+    assert_eq!(
+        adjusted_rand_index(&labels, &labels).expect("ARI should compute"),
+        1.0
+    );
+    assert!(
+        (normalized_mutual_information(&labels, &labels).expect("NMI should compute") - 1.0).abs()
+            < 1e-12
+    );
 
     let permuted = vec![1, 1, 2, 2, 0, 0];
-    assert_eq!(adjusted_rand_index(&labels, &permuted), 1.0);
-    assert!((normalized_mutual_information(&labels, &permuted) - 1.0).abs() < 1e-12);
+    assert_eq!(
+        adjusted_rand_index(&labels, &permuted).expect("ARI should compute"),
+        1.0
+    );
+    assert!(
+        (normalized_mutual_information(&labels, &permuted).expect("NMI should compute") - 1.0)
+            .abs()
+            < 1e-12
+    );
 }
 
 #[test]
 fn metrics_are_finite_for_non_trivial_partitions() {
     let left = vec![0, 0, 0, 1, 1, 2];
     let right = vec![0, 1, 0, 1, 2, 2];
-    let ari = adjusted_rand_index(&left, &right);
-    let nmi = normalized_mutual_information(&left, &right);
+    let ari = adjusted_rand_index(&left, &right).expect("ARI should compute");
+    let nmi = normalized_mutual_information(&left, &right).expect("NMI should compute");
 
     assert!(ari.is_finite());
     assert!(ari <= 1.0);
@@ -376,8 +256,8 @@ fn hnsw_pipeline_matches_exact_baseline(
     let exact = exact_pipeline(&source, min_cluster_size);
     let approx = approx_pipeline(&source, min_cluster_size);
 
-    let ari = adjusted_rand_index(&exact, &approx);
-    let nmi = normalized_mutual_information(&exact, &approx);
+    let ari = adjusted_rand_index(&exact, &approx).expect("ARI should compute");
+    let nmi = normalized_mutual_information(&exact, &approx).expect("NMI should compute");
 
     assert!(
         ari >= min_ari,

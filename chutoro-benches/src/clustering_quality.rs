@@ -5,32 +5,11 @@
 //! report writer used by benchmark harnesses.
 
 use std::{
-    collections::HashMap,
     fs,
     path::{Path, PathBuf},
 };
 
-/// Clustering-quality metrics computed for a single benchmark configuration.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ClusteringQualityScore {
-    /// Adjusted Rand Index score in `[-1.0, 1.0]`.
-    pub ari: f64,
-    /// Normalized Mutual Information score in `[0.0, 1.0]`.
-    pub nmi: f64,
-}
-
-/// Errors raised while computing clustering-quality metrics.
-#[derive(Debug, thiserror::Error, Eq, PartialEq)]
-pub enum ClusteringQualityError {
-    /// Ground-truth and predicted labels had different lengths.
-    #[error("label length mismatch: ground_truth={ground_truth_len}, predicted={predicted_len}")]
-    LabelLengthMismatch {
-        /// Number of ground-truth labels.
-        ground_truth_len: usize,
-        /// Number of predicted labels.
-        predicted_len: usize,
-    },
-}
+pub use chutoro_core::{ClusteringQualityError, ClusteringQualityScore};
 
 /// A single row in the ARI/NMI quality report.
 #[derive(Clone, Debug, PartialEq)]
@@ -73,88 +52,6 @@ impl ClusteringQualityMeasurement {
     }
 }
 
-const fn validate_label_lengths(
-    ground_truth: &[usize],
-    predicted: &[usize],
-) -> Result<usize, ClusteringQualityError> {
-    if ground_truth.len() != predicted.len() {
-        return Err(ClusteringQualityError::LabelLengthMismatch {
-            ground_truth_len: ground_truth.len(),
-            predicted_len: predicted.len(),
-        });
-    }
-    Ok(ground_truth.len())
-}
-
-#[expect(
-    clippy::cast_precision_loss,
-    clippy::float_arithmetic,
-    reason = "ARI pair-count formula is defined with floating-point combinatorics."
-)]
-fn comb2(value: usize) -> f64 {
-    let as_float = value as f64;
-    as_float * (as_float - 1.0) / 2.0
-}
-
-type AriPairCounts = HashMap<(usize, usize), usize>;
-type AriContingencyBuild = (Vec<usize>, Vec<usize>, AriPairCounts);
-
-fn build_ari_contingency(left: &[usize], right: &[usize]) -> AriContingencyBuild {
-    let mut left_ids = HashMap::<usize, usize>::new();
-    let mut right_ids = HashMap::<usize, usize>::new();
-    let mut left_counts = Vec::<usize>::new();
-    let mut right_counts = Vec::<usize>::new();
-    let mut contingency = HashMap::<(usize, usize), usize>::new();
-
-    for (&left_label, &right_label) in left.iter().zip(right) {
-        let left_index = *left_ids.entry(left_label).or_insert_with(|| {
-            let id = left_counts.len();
-            left_counts.push(0);
-            id
-        });
-        let right_index = *right_ids.entry(right_label).or_insert_with(|| {
-            let id = right_counts.len();
-            right_counts.push(0);
-            id
-        });
-
-        let Some(left_count) = left_counts.get_mut(left_index) else {
-            continue;
-        };
-        let Some(right_count) = right_counts.get_mut(right_index) else {
-            continue;
-        };
-
-        *left_count += 1;
-        *right_count += 1;
-        *contingency.entry((left_index, right_index)).or_insert(0) += 1;
-    }
-
-    (left_counts, right_counts, contingency)
-}
-
-type ClusterCounts = HashMap<usize, usize>;
-type PairCounts = HashMap<(usize, usize), usize>;
-type ContingencyTableBuild = (ClusterCounts, ClusterCounts, PairCounts);
-
-fn build_contingency_table(left: &[usize], right: &[usize]) -> ContingencyTableBuild {
-    let mut left_counts = HashMap::<usize, usize>::new();
-    let mut right_counts = HashMap::<usize, usize>::new();
-    let mut contingency = HashMap::<(usize, usize), usize>::new();
-
-    for (&left_label, &right_label) in left.iter().zip(right) {
-        *left_counts.entry(left_label).or_insert(0) += 1;
-        *right_counts.entry(right_label).or_insert(0) += 1;
-        *contingency.entry((left_label, right_label)).or_insert(0) += 1;
-    }
-
-    (left_counts, right_counts, contingency)
-}
-
-#[expect(
-    clippy::float_arithmetic,
-    reason = "ARI definition requires floating-point arithmetic."
-)]
 /// Computes Adjusted Rand Index (ARI) for two cluster labellings.
 ///
 /// # Errors
@@ -165,35 +62,9 @@ pub fn adjusted_rand_index(
     ground_truth: &[usize],
     predicted: &[usize],
 ) -> Result<f64, ClusteringQualityError> {
-    let item_count = validate_label_lengths(ground_truth, predicted)?;
-    if item_count < 2 {
-        return Ok(1.0);
-    }
-
-    let (left_counts, right_counts, contingency) = build_ari_contingency(ground_truth, predicted);
-    let sum_pair_counts: f64 = contingency.values().copied().map(comb2).sum();
-    let sum_left_clusters: f64 = left_counts.iter().copied().map(comb2).sum();
-    let sum_right_clusters: f64 = right_counts.iter().copied().map(comb2).sum();
-    let total = comb2(item_count);
-    if total == 0.0 {
-        return Ok(1.0);
-    }
-
-    let expected = (sum_left_clusters * sum_right_clusters) / total;
-    let max_index = 0.5 * (sum_left_clusters + sum_right_clusters);
-    let denominator = max_index - expected;
-    if denominator == 0.0 {
-        Ok(0.0)
-    } else {
-        Ok((sum_pair_counts - expected) / denominator)
-    }
+    chutoro_core::adjusted_rand_index(ground_truth, predicted)
 }
 
-#[expect(
-    clippy::float_arithmetic,
-    clippy::cast_precision_loss,
-    reason = "NMI definition requires floating-point arithmetic."
-)]
 /// Computes Normalized Mutual Information (NMI) for two cluster labellings.
 ///
 /// # Errors
@@ -204,52 +75,7 @@ pub fn normalized_mutual_information(
     ground_truth: &[usize],
     predicted: &[usize],
 ) -> Result<f64, ClusteringQualityError> {
-    let item_count = validate_label_lengths(ground_truth, predicted)?;
-    if item_count == 0 {
-        return Ok(1.0);
-    }
-
-    let (left_counts, right_counts, contingency) = build_contingency_table(ground_truth, predicted);
-
-    let item_count_f64 = item_count as f64;
-    let mut mutual_information = 0.0_f64;
-    for (&(left_label, right_label), &count) in &contingency {
-        let Some(&left_count_usize) = left_counts.get(&left_label) else {
-            continue;
-        };
-        let Some(&right_count_usize) = right_counts.get(&right_label) else {
-            continue;
-        };
-        let count_f64 = count as f64;
-        let left_count = left_count_usize as f64;
-        let right_count = right_count_usize as f64;
-        mutual_information += (count_f64 / item_count_f64)
-            * ((count_f64 * item_count_f64) / (left_count * right_count)).ln();
-    }
-
-    let left_entropy = entropy(&left_counts, item_count_f64);
-    let right_entropy = entropy(&right_counts, item_count_f64);
-    if left_entropy == 0.0 && right_entropy == 0.0 {
-        Ok(1.0)
-    } else if left_entropy == 0.0 || right_entropy == 0.0 {
-        Ok(0.0)
-    } else {
-        Ok(mutual_information / (left_entropy * right_entropy).sqrt())
-    }
-}
-
-#[expect(
-    clippy::float_arithmetic,
-    clippy::cast_precision_loss,
-    reason = "entropy computation requires floating-point arithmetic."
-)]
-fn entropy(counts: &ClusterCounts, item_count_f64: f64) -> f64 {
-    let mut entropy = 0.0_f64;
-    for &count in counts.values() {
-        let probability = (count as f64) / item_count_f64;
-        entropy -= probability * probability.ln();
-    }
-    entropy
+    chutoro_core::normalized_mutual_information(ground_truth, predicted)
 }
 
 /// Computes ARI and NMI in one call.
@@ -262,9 +88,7 @@ pub fn clustering_quality_score(
     ground_truth: &[usize],
     predicted: &[usize],
 ) -> Result<ClusteringQualityScore, ClusteringQualityError> {
-    let ari = adjusted_rand_index(ground_truth, predicted)?;
-    let nmi = normalized_mutual_information(ground_truth, predicted)?;
-    Ok(ClusteringQualityScore { ari, nmi })
+    chutoro_core::clustering_quality_score(ground_truth, predicted)
 }
 
 /// Writes clustering-quality measurements to a CSV report file.
@@ -297,6 +121,8 @@ mod tests {
     #[rstest]
     #[case::identity(vec![0, 0, 1, 1], vec![0, 0, 1, 1], 1.0, 1.0)]
     #[case::permutation(vec![0, 0, 1, 1], vec![3, 3, 2, 2], 1.0, 1.0)]
+    #[case::single_cluster(vec![0, 0, 0, 0], vec![7, 7, 7, 7], 1.0, 1.0)]
+    #[case::all_singletons(vec![0, 1, 2, 3], vec![4, 5, 6, 7], 1.0, 1.0)]
     fn clustering_quality_score_matches_perfect_assignments(
         #[case] ground_truth: Vec<usize>,
         #[case] predicted: Vec<usize>,

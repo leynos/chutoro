@@ -209,6 +209,12 @@ impl SyntheticSource {
     #[rustfmt::skip]
     pub const fn dimensions(&self) -> usize { self.dimensions }
 
+    /// Returns the flattened backing vector for test-only equivalence checks.
+    #[cfg(test)]
+    #[must_use]
+    #[rustfmt::skip]
+    pub(crate) fn raw_data(&self) -> &[f32] { &self.data }
+
     pub(crate) fn from_parts(
         name: &'static str,
         data: Vec<f32>,
