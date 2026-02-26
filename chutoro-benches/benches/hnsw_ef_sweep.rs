@@ -21,7 +21,7 @@ use chutoro_benches::{
     source::{Anisotropy, GaussianBlobConfig, SyntheticSource},
 };
 use chutoro_core::{
-    CandidateEdge, CpuHnsw, DataSource, EdgeHarvest, HierarchyConfig, HnswParams,
+    CandidateEdge, CpuHnsw, DataSource, EdgeHarvest, HierarchyConfig, HnswError, HnswParams,
     extract_labels_from_mst, parallel_kruskal,
 };
 
@@ -250,12 +250,24 @@ fn pipeline_labels_with_hnsw_params(
     for edge in harvested.iter() {
         let left = edge.source();
         let right = edge.target();
-        let Some(&left_core) = core_distances.get(left) else {
-            continue;
-        };
-        let Some(&right_core) = core_distances.get(right) else {
-            continue;
-        };
+        let left_core = *core_distances.get(left).ok_or_else(|| {
+            BenchSetupError::Hnsw(HnswError::GraphInvariantViolation {
+                message: format!(
+                    "CpuHnsw::build_with_edges produced left edge index {left} out of \
+                             bounds for core_distances length {}",
+                    core_distances.len()
+                ),
+            })
+        })?;
+        let right_core = *core_distances.get(right).ok_or_else(|| {
+            BenchSetupError::Hnsw(HnswError::GraphInvariantViolation {
+                message: format!(
+                    "CpuHnsw::build_with_edges produced right edge index {right} out of \
+                             bounds for core_distances length {}",
+                    core_distances.len()
+                ),
+            })
+        })?;
         let mutual_distance = edge.distance().max(left_core).max(right_core);
         mutual_edges.push(CandidateEdge::new(
             left,

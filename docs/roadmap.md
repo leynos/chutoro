@@ -99,7 +99,7 @@ ______________________________________________________________________
 - [x] 1.3.1. Add deterministic tests on tiny datasets (exact
   mutual-reachability path) to sanity-check hierarchy logic. (See §11)
 - [x] 1.3.2. Add functional tests comparing Adjusted Rand Index (ARI)
-  and Normalised Mutual Information (NMI) with HDBSCAN/HNSW baselines on small
+  and Normalized Mutual Information (NMI) with HDBSCAN/HNSW baselines on small
   public sets. (See §11)
 
 ### 1.4. HNSW property testing
@@ -260,7 +260,7 @@ ______________________________________________________________________
   requirements per dataset size. (See §5)
 - [x] 2.1.6. Add optional clustering quality tracking to benchmarks:
   for synthetic clustered data (Gaussians), compute Adjusted Rand Index (ARI)
-  and Normalised Mutual Information (NMI) against ground truth as secondary
+  and Normalized Mutual Information (NMI) against ground truth as secondary
   metrics alongside timing. Guards against quality regressions during
   performance tuning. (See §11)
 - [ ] 2.1.7. Establish a CI regression detection strategy for

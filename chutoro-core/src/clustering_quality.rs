@@ -1,6 +1,6 @@
 //! Clustering-quality metric helpers shared across crates and tests.
 //!
-//! This module provides Adjusted Rand Index (ARI) and Normalised Mutual
+//! This module provides Adjusted Rand Index (ARI) and Normalized Mutual
 //! Information (NMI) scoring for partition comparisons.
 
 use std::collections::HashMap;
@@ -10,7 +10,7 @@ use std::collections::HashMap;
 pub struct ClusteringQualityScore {
     /// Adjusted Rand Index in `[-1.0, 1.0]`.
     pub ari: f64,
-    /// Normalised Mutual Information in `[0.0, 1.0]`.
+    /// Normalized Mutual Information in `[0.0, 1.0]`.
     pub nmi: f64,
 }
 
@@ -210,7 +210,7 @@ pub fn adjusted_rand_index(
     clustering_quality_score(ground_truth, predicted).map(|score| score.ari)
 }
 
-/// Computes Normalised Mutual Information (NMI) for two cluster labellings.
+/// Computes Normalized Mutual Information (NMI) for two cluster labellings.
 ///
 /// # Errors
 ///
