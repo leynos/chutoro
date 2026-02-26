@@ -43,6 +43,7 @@ fn compute_core_distances(
     min_cluster_size: NonZeroUsize,
 ) -> Result<Vec<f64>, BenchSetupError> {
     let mut core_distances = Vec::with_capacity(source.len());
+    let mut empty_neighbours_count = 0_usize;
     for point in 0..source.len() {
         let neighbours = index.search(source, point, ef)?;
         let others: Vec<_> = neighbours
@@ -66,21 +67,24 @@ fn compute_core_distances(
                 })?
         } else {
             if others.is_empty() {
-                use std::io::Write as _;
-
-                let mut diagnostic_stream = std::io::stderr().lock();
-                let _diagnostic_write = writeln!(
-                    diagnostic_stream,
-                    "[diagnostic] compute_core_distances: point {point} has no non-self \
-                     neighbours (source.len() = {})",
-                    source.len()
-                );
+                empty_neighbours_count += 1;
             }
             others
                 .last()
                 .map_or(0.0, |neighbour| f64::from(neighbour.distance))
         };
         core_distances.push(core_distance);
+    }
+    if empty_neighbours_count > 0 {
+        use std::io::Write as _;
+
+        let mut diagnostic_stream = std::io::stderr().lock();
+        let _diagnostic_write = writeln!(
+            diagnostic_stream,
+            "[diagnostic] compute_core_distances: {empty_neighbours_count} point(s) had no \
+             non-self neighbours (source.len() = {})",
+            source.len()
+        );
     }
     Ok(core_distances)
 }
