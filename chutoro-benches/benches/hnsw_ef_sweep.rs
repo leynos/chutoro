@@ -210,6 +210,76 @@ fn make_cluster_quality_source() -> Result<(SyntheticSource, Vec<usize>), BenchS
     .map_err(BenchSetupError::from)
 }
 
+fn compute_core_distances(
+    index: &CpuHnsw,
+    source: &SyntheticSource,
+    ef: NonZeroUsize,
+    min_cluster_size: NonZeroUsize,
+) -> Result<Vec<f64>, BenchSetupError> {
+    let mut core_distances = Vec::with_capacity(source.len());
+    for point in 0..source.len() {
+        let neighbours = index.search(source, point, ef)?;
+        let others: Vec<_> = neighbours
+            .into_iter()
+            .filter(|neighbour| neighbour.id != point)
+            .collect();
+        let core_distance = if others.len() >= min_cluster_size.get() {
+            let core_rank = min_cluster_size.get().saturating_sub(1);
+            others
+                .get(core_rank)
+                .map_or(0.0, |neighbour| f64::from(neighbour.distance))
+        } else {
+            others
+                .last()
+                .map_or(0.0, |neighbour| f64::from(neighbour.distance))
+        };
+        core_distances.push(core_distance);
+    }
+    Ok(core_distances)
+}
+
+fn build_mutual_edges(
+    harvested: &EdgeHarvest,
+    core_distances: &[f64],
+) -> Result<Vec<CandidateEdge>, BenchSetupError> {
+    let mut mutual_edges = Vec::<CandidateEdge>::with_capacity(harvested.len());
+    for edge in harvested.iter() {
+        let left = edge.source();
+        let right = edge.target();
+        let left_core = *core_distances.get(left).ok_or_else(|| {
+            BenchSetupError::Hnsw(HnswError::GraphInvariantViolation {
+                message: format!(
+                    "CpuHnsw::build_with_edges produced left edge index {left} out of \
+                     bounds for core_distances length {}",
+                    core_distances.len()
+                ),
+            })
+        })?;
+        let right_core = *core_distances.get(right).ok_or_else(|| {
+            BenchSetupError::Hnsw(HnswError::GraphInvariantViolation {
+                message: format!(
+                    "CpuHnsw::build_with_edges produced right edge index {right} out of \
+                     bounds for core_distances length {}",
+                    core_distances.len()
+                ),
+            })
+        })?;
+        let mutual_distance_f64 = f64::from(edge.distance()).max(left_core).max(right_core);
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "core_distances values originate from f32 neighbour distances"
+        )]
+        let mutual_distance_f32 = mutual_distance_f64 as f32;
+        mutual_edges.push(CandidateEdge::new(
+            left,
+            right,
+            mutual_distance_f32,
+            edge.sequence(),
+        ));
+    }
+    Ok(mutual_edges)
+}
+
 fn pipeline_labels_with_hnsw_params(
     source: &SyntheticSource,
     params: &HnswParams,
@@ -228,54 +298,8 @@ fn pipeline_labels_with_hnsw_params(
         context: "cluster-quality ef",
     })?;
 
-    let mut core_distances = Vec::with_capacity(source.len());
-    for point in 0..source.len() {
-        let neighbours = index.search(source, point, ef)?;
-        let others: Vec<_> = neighbours
-            .into_iter()
-            .filter(|neighbour| neighbour.id != point)
-            .collect();
-        let core_distance = if others.len() >= min_cluster_size.get() {
-            let core_rank = min_cluster_size.get().saturating_sub(1);
-            others
-                .get(core_rank)
-                .map_or(0.0, |neighbour| neighbour.distance)
-        } else {
-            others.last().map_or(0.0, |neighbour| neighbour.distance)
-        };
-        core_distances.push(core_distance);
-    }
-
-    let mut mutual_edges = Vec::<CandidateEdge>::with_capacity(harvested.len());
-    for edge in harvested.iter() {
-        let left = edge.source();
-        let right = edge.target();
-        let left_core = *core_distances.get(left).ok_or_else(|| {
-            BenchSetupError::Hnsw(HnswError::GraphInvariantViolation {
-                message: format!(
-                    "CpuHnsw::build_with_edges produced left edge index {left} out of \
-                             bounds for core_distances length {}",
-                    core_distances.len()
-                ),
-            })
-        })?;
-        let right_core = *core_distances.get(right).ok_or_else(|| {
-            BenchSetupError::Hnsw(HnswError::GraphInvariantViolation {
-                message: format!(
-                    "CpuHnsw::build_with_edges produced right edge index {right} out of \
-                             bounds for core_distances length {}",
-                    core_distances.len()
-                ),
-            })
-        })?;
-        let mutual_distance = edge.distance().max(left_core).max(right_core);
-        mutual_edges.push(CandidateEdge::new(
-            left,
-            right,
-            mutual_distance,
-            edge.sequence(),
-        ));
-    }
+    let core_distances = compute_core_distances(&index, source, ef, min_cluster_size)?;
+    let mutual_edges = build_mutual_edges(&harvested, &core_distances)?;
     let forest = parallel_kruskal(source.len(), &EdgeHarvest::new(mutual_edges))?;
     let labels = extract_labels_from_mst(
         source.len(),
