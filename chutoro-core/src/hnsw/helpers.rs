@@ -24,7 +24,7 @@ pub(crate) struct EnsureQueryArgs<'a, D: DataSource + Sync> {
 
 /// Orders neighbours by ascending distance and, when distances tie, by the
 /// neighbour identifier to guarantee deterministic ordering.
-pub(crate) fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
+pub(crate) fn normalize_neighbour_order(neighbours: &mut [Neighbour]) {
     neighbours.sort_by(|left, right| {
         left.distance
             .total_cmp(&right.distance)
@@ -42,7 +42,7 @@ pub(crate) fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
 /// use crate::datasource::MetricDescriptor;
 /// use crate::hnsw::distance_cache::DistanceCache;
 /// use crate::hnsw::helpers::{
-///     EnsureQueryArgs, ensure_query_present, normalise_neighbour_order,
+///     EnsureQueryArgs, ensure_query_present, normalize_neighbour_order,
 /// };
 ///
 /// struct Dummy;
@@ -56,7 +56,7 @@ pub(crate) fn normalise_neighbour_order(neighbours: &mut [Neighbour]) {
 ///
 /// let cache = DistanceCache::new(DistanceCacheConfig::default());
 /// let mut neighbours = Vec::new();
-/// normalise_neighbour_order(&mut neighbours);
+/// normalize_neighbour_order(&mut neighbours);
 /// ensure_query_present(
 ///     &cache,
 ///     EnsureQueryArgs {
@@ -87,7 +87,7 @@ pub(crate) fn ensure_query_present<D: DataSource + Sync>(
         id: query,
         distance,
     });
-    normalise_neighbour_order(neighbours);
+    normalize_neighbour_order(neighbours);
     neighbours.truncate(ef.get());
     Ok(())
 }

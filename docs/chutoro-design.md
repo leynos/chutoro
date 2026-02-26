@@ -733,7 +733,7 @@ keeping the write critical section short even when multiple neighbours are
 added.
 
 A process-local `DistanceCache` now backs both search and trimming. The cache
-stores normalised `(min, max)` pairs keyed with the `MetricDescriptor` exposed
+stores normalized `(min, max)` pairs keyed with the `MetricDescriptor` exposed
 by the data source, preventing cross-metric reuse. It uses a `DashMap` for
 concurrent lookups and a set of sharded `LruCache`s behind `Mutex` guards to
 bound entries while avoiding a single hot lock under contention. Optional

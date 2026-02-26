@@ -320,7 +320,7 @@ Done means all of the following are true:
 Implemented interfaces:
 
 - `chutoro_benches::clustering_quality::adjusted_rand_index(...)`
-- `chutoro_benches::clustering_quality::normalised_mutual_information(...)`
+- `chutoro_benches::clustering_quality::normalized_mutual_information(...)`
 - `chutoro_benches::clustering_quality::clustering_quality_score(...)`
 - `chutoro_benches::clustering_quality::write_clustering_quality_report(...)`
 - `SyntheticSource::generate_gaussian_blobs_with_labels(...)`

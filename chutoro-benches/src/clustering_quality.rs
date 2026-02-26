@@ -200,7 +200,7 @@ pub fn adjusted_rand_index(
 ///
 /// Returns [`ClusteringQualityError::LabelLengthMismatch`] when label vectors
 /// have different lengths.
-pub fn normalised_mutual_information(
+pub fn normalized_mutual_information(
     ground_truth: &[usize],
     predicted: &[usize],
 ) -> Result<f64, ClusteringQualityError> {
@@ -263,7 +263,7 @@ pub fn clustering_quality_score(
     predicted: &[usize],
 ) -> Result<ClusteringQualityScore, ClusteringQualityError> {
     let ari = adjusted_rand_index(ground_truth, predicted)?;
-    let nmi = normalised_mutual_information(ground_truth, predicted)?;
+    let nmi = normalized_mutual_information(ground_truth, predicted)?;
     Ok(ClusteringQualityScore { ari, nmi })
 }
 

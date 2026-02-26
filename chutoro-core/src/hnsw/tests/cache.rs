@@ -101,9 +101,9 @@ fn ttl_expiry_forces_refresh() {
 }
 
 /// Ensures cache lookups hit regardless of the operand ordering, verifying key
-/// normalisation for symmetric distance metrics.
+/// normalization for symmetric distance metrics.
 #[rstest]
-fn normalises_pair_order() {
+fn normalizes_pair_order() {
     let cache = cache_with_capacity(2);
     let metric = MetricDescriptor::new("sym");
 
@@ -117,7 +117,7 @@ fn normalises_pair_order() {
 
     match cache.begin_lookup(&metric, 3, 7) {
         LookupOutcome::Hit(value) => assert_eq!(value, 1.23),
-        _ => panic!("normalised (a,b) must hit for (b,a)"),
+        _ => panic!("normalized (a,b) must hit for (b,a)"),
     }
 }
 
