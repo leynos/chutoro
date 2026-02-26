@@ -320,7 +320,7 @@ Done means all of the following are true:
 ## Idempotence and recovery
 
 - Report writing is deterministic and safe to rerun; existing report files are
-  overwritten atomically by a full rewrite.
+  overwritten by a full rewrite.
 - Optional quality pass can be disabled via env var if a benchmark diagnosis
   needs timing-only runs.
 - If quality-gate commands fail, fix only reported issues and rerun failed
