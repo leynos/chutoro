@@ -94,9 +94,12 @@ fn parse_bool_env_var(env_var_name: &str) -> Option<bool> {
     None
 }
 
+fn is_discovery_mode() -> bool {
+    std::env::args().any(|arg| arg == "--list" || arg == "--exact")
+}
+
 fn should_collect_recall_report() -> bool {
-    parse_bool_env_var("CHUTORO_BENCH_HNSW_RECALL_REPORT")
-        .unwrap_or_else(|| !std::env::args().any(|arg| arg == "--list" || arg == "--exact"))
+    parse_bool_env_var("CHUTORO_BENCH_HNSW_RECALL_REPORT").unwrap_or_else(|| !is_discovery_mode())
 }
 
 fn recall_report_path() -> PathBuf {
@@ -106,7 +109,7 @@ fn recall_report_path() -> PathBuf {
 
 fn should_collect_cluster_quality_report() -> bool {
     parse_bool_env_var("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT")
-        .unwrap_or_else(|| !std::env::args().any(|arg| arg == "--list" || arg == "--exact"))
+        .unwrap_or_else(|| !is_discovery_mode())
 }
 
 fn cluster_quality_report_path() -> PathBuf {

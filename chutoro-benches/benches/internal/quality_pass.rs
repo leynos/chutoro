@@ -53,7 +53,17 @@ fn compute_core_distances(
             let core_rank = min_cluster_size.get().saturating_sub(1);
             others
                 .get(core_rank)
-                .map_or(0.0, |neighbour| f64::from(neighbour.distance))
+                .map(|neighbour| f64::from(neighbour.distance))
+                .ok_or_else(|| {
+                    BenchSetupError::Hnsw(HnswError::GraphInvariantViolation {
+                        message: format!(
+                            "core distance neighbour missing at core_rank {core_rank} for \
+                             min_cluster_size {} (others length {})",
+                            min_cluster_size.get(),
+                            others.len()
+                        ),
+                    })
+                })?
         } else {
             others
                 .last()
@@ -136,6 +146,20 @@ fn pipeline_labels_with_hnsw_params(
     Ok((labels, build_time_millis))
 }
 
+/// Runs one optional cluster-quality sweep across configured HNSW `(M, ef)` pairs.
+///
+/// Returns `Ok(Some(PathBuf))` when reporting is enabled and the CSV write
+/// succeeds, `Ok(None)` when reporting is disabled, and `Err(BenchSetupError)`
+/// for setup, pipeline, scoring, or report-write failures.
+///
+/// Side effects:
+/// - Generates synthetic labelled data.
+/// - Builds HNSW indices and computes ARI/NMI measurements.
+/// - Writes a clustering-quality report file when enabled.
+///
+/// Preconditions and guarantees:
+/// - Requires non-zero `CLUSTERING_QUALITY_MIN_CLUSTER_SIZE`.
+/// - Uses deterministic benchmark fixtures/parameters for reproducible output.
 pub(super) fn measure_clustering_quality_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
     if !should_collect_cluster_quality_report() {
         return Ok(None);
