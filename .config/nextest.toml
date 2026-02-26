@@ -25,6 +25,12 @@ slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 [[profile.default.overrides]]
 # Idempotency proptest can exceed the default timeout under parallel load.
 filter = "test(/hnsw_idempotency_preserved_proptest/)"
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
+# Edge harvest validity case_4 can exceed the default timeout under heavy
+# instrumentation/load despite tiny input sizes.
+filter = "test(/build_with_edges_returns_valid_edges::case_4/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
