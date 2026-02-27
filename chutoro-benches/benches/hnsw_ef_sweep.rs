@@ -19,6 +19,10 @@ use chutoro_benches::{
 };
 use chutoro_core::{CpuHnsw, DataSource};
 
+#[path = "internal/quality_pass.rs"]
+mod quality_pass;
+use quality_pass::measure_clustering_quality_vs_ef_impl;
+
 /// Dataset size for recall measurement.
 const RECALL_POINT_COUNT: usize = 1_000;
 
@@ -35,6 +39,21 @@ const RECALL_EF_SEARCH: usize = 64;
 const RECALL_REPORT_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../target/benchmarks/hnsw_recall_vs_ef.csv"
+);
+
+/// Dataset size for clustering-quality measurement.
+const CLUSTERING_QUALITY_POINT_COUNT: usize = 1_000;
+
+/// Number of Gaussian centroids used for clustering-quality measurement.
+const CLUSTERING_QUALITY_CLUSTER_COUNT: usize = 8;
+
+/// Minimum cluster size used for hierarchy extraction in quality measurement.
+const CLUSTERING_QUALITY_MIN_CLUSTER_SIZE: usize = 5;
+
+/// Report destination for ARI/NMI-versus-ef_construction metrics.
+const CLUSTERING_QUALITY_REPORT_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../target/benchmarks/hnsw_cluster_quality_vs_ef.csv"
 );
 
 /// Panics on HNSW build failure within a Criterion benchmark closure.
@@ -55,30 +74,49 @@ fn unwrap_build(result: Result<CpuHnsw, chutoro_core::HnswError>, context: &str)
     clippy::print_stderr,
     reason = "Benchmark-only diagnostic for invalid env var; no structured logging available."
 )]
-fn warn_unrecognised_recall_env(value: &str) {
+fn warn_unrecognised_bool_env(env_var_name: &str, value: &str) {
     eprintln!(
         "warning: unrecognised value {value:?} for \
-         CHUTORO_BENCH_HNSW_RECALL_REPORT; expected 0/1/true/false/on/off"
+         {env_var_name}; expected 0/1/true/false/on/off"
     );
 }
 
-fn should_collect_recall_report() -> bool {
-    if let Ok(value) = std::env::var("CHUTORO_BENCH_HNSW_RECALL_REPORT") {
-        let normalized = value.trim().to_ascii_lowercase();
-        if matches!(normalized.as_str(), "0" | "false" | "off") {
-            return false;
-        }
-        if matches!(normalized.as_str(), "1" | "true" | "on") {
-            return true;
-        }
-        warn_unrecognised_recall_env(&value);
+fn parse_bool_env_var(env_var_name: &str) -> Option<bool> {
+    let value = std::env::var(env_var_name).ok()?;
+    let normalized = value.trim().to_ascii_lowercase();
+    if matches!(normalized.as_str(), "0" | "false" | "off") {
+        return Some(false);
     }
-    !std::env::args().any(|arg| arg == "--list" || arg == "--exact")
+    if matches!(normalized.as_str(), "1" | "true" | "on") {
+        return Some(true);
+    }
+    warn_unrecognised_bool_env(env_var_name, &value);
+    None
+}
+
+fn is_discovery_mode() -> bool {
+    std::env::args().any(|arg| arg == "--list" || arg == "--exact")
+}
+
+fn should_collect_recall_report() -> bool {
+    parse_bool_env_var("CHUTORO_BENCH_HNSW_RECALL_REPORT").unwrap_or_else(|| !is_discovery_mode())
 }
 
 fn recall_report_path() -> PathBuf {
     std::env::var_os("CHUTORO_BENCH_HNSW_RECALL_REPORT_PATH")
         .map_or_else(|| PathBuf::from(RECALL_REPORT_PATH), PathBuf::from)
+}
+
+fn should_collect_cluster_quality_report() -> bool {
+    parse_bool_env_var("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT")
+        .unwrap_or_else(|| !is_discovery_mode())
+}
+
+fn cluster_quality_report_path() -> PathBuf {
+    std::env::var_os("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH").map_or_else(
+        || PathBuf::from(CLUSTERING_QUALITY_REPORT_PATH),
+        PathBuf::from,
+    )
 }
 
 /// Returns an evenly-spaced query index for deterministic recall sampling.
@@ -159,6 +197,8 @@ fn measure_recall_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
         .map_err(BenchSetupError::RecallReport)
 }
 
+// -- Clustering-quality measurement ------------------------------------
+
 // -- Criterion ef_construction sweep -----------------------------------
 
 #[expect(
@@ -166,7 +206,8 @@ fn measure_recall_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
     reason = "Criterion bench_with_input + triple parameter loop requires deep nesting"
 )]
 fn hnsw_build_ef_sweep_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
-    let _maybe_report_path = measure_recall_vs_ef_impl()?;
+    let _maybe_recall_report_path = measure_recall_vs_ef_impl()?;
+    let _maybe_quality_report_path = measure_clustering_quality_vs_ef_impl()?;
 
     let mut group = c.benchmark_group("hnsw_build_ef_sweep");
     group.sample_size(10);

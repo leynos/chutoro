@@ -2,6 +2,7 @@
 
 mod builder;
 mod chutoro;
+mod clustering_quality;
 #[cfg(feature = "cpu")]
 mod cpu_pipeline;
 mod datasource;
@@ -19,6 +20,10 @@ mod result;
 pub use crate::{
     builder::{ChutoroBuilder, ExecutionStrategy},
     chutoro::Chutoro,
+    clustering_quality::{
+        ClusteringQualityError, ClusteringQualityScore, adjusted_rand_index,
+        clustering_quality_score, normalized_mutual_information,
+    },
     datasource::{DataSource, MetricDescriptor},
     distance::{
         CosineNorms, Distance, DistanceError, Norm, Result as DistanceResult, VectorKind,

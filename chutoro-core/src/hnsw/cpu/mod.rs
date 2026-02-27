@@ -27,7 +27,7 @@ use super::{
     distance_cache::DistanceCache,
     error::HnswError,
     graph::{ApplyContext, Graph, NodeContext, SearchContext},
-    helpers::{EnsureQueryArgs, ensure_query_present, normalise_neighbour_order},
+    helpers::{EnsureQueryArgs, ensure_query_present, normalize_neighbour_order},
     insert::{PlanningInputs, extract_candidate_edges},
     invariants::HnswInvariantChecker,
     params::HnswParams,
@@ -419,7 +419,7 @@ impl CpuHnsw {
             }
             .with_ef(ef.get()),
         )?;
-        normalise_neighbour_order(&mut neighbours);
+        normalize_neighbour_order(&mut neighbours);
         ensure_query_present(
             &self.distance_cache,
             EnsureQueryArgs {

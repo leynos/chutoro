@@ -4,6 +4,7 @@
 //! benchmarks for the four CPU pipeline stages: HNSW build, edge harvest,
 //! MST computation, and hierarchy extraction.
 
+pub mod clustering_quality;
 pub mod ef_sweep;
 pub mod error;
 pub mod params;
