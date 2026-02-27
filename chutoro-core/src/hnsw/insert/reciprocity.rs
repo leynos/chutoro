@@ -7,6 +7,7 @@
 
 use std::collections::HashSet;
 
+#[cfg(any(test, debug_assertions))]
 use crate::hnsw::graph::Graph;
 
 use super::{limits::compute_connection_limit, types::FinalisedUpdate};
