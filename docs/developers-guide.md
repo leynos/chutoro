@@ -22,6 +22,42 @@ Criterion writes HTML reports to `target/criterion/`. Open the report for a
 specific group (for example `target/criterion/hnsw_build/report/index.html`) to
 view timing distributions and comparisons against previous runs.
 
+### Benchmark regression workflow
+
+Benchmark regression detection follows a two-tier strategy:
+
+- Pull request (PR) workflows run a fast benchmark smoke check using
+  discovery mode (`--list`) to confirm that benchmark binaries still compile
+  and enumerate benchmark cases.
+- A scheduled weekly workflow (plus manual `workflow_dispatch`) runs
+  Criterion baseline comparison using `--save-baseline` and `--baseline`.
+
+Run the local baseline workflow for one benchmark from the repository root:
+
+```sh
+set -o pipefail
+CHUTORO_BENCH_HNSW_MEMORY_PROFILE=0 \
+CHUTORO_BENCH_HNSW_RECALL_REPORT=0 \
+CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT=0 \
+cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --save-baseline local-reference --noplot \
+  2>&1 | tee /tmp/bench-hnsw-ef-sweep-save.log
+
+set -o pipefail
+CHUTORO_BENCH_HNSW_MEMORY_PROFILE=0 \
+CHUTORO_BENCH_HNSW_RECALL_REPORT=0 \
+CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT=0 \
+cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --baseline local-reference --noplot \
+  2>&1 | tee /tmp/bench-hnsw-ef-sweep-compare.log
+```
+
+Use `--list` when you only need a quick discovery check:
+
+```sh
+set -o pipefail
+cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --list \
+  2>&1 | tee /tmp/bench-hnsw-ef-sweep-list.log
+```
+
 ### Benchmark architecture
 
 Benchmarks live in `chutoro-benches/benches/` as separate Criterion binaries.

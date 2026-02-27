@@ -1,0 +1,111 @@
+name: Benchmark Regressions
+
+'on':
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/workflows/benchmark-regressions.yml'
+      - 'chutoro-benches/**'
+      - 'chutoro-test-support/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Makefile'
+  schedule:
+    - cron: '0 3 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: benchmark-regressions-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  benchmark-policy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.gate.outputs.mode }}
+      should_compare: ${{ steps.gate.outputs.should_compare }}
+      policy: ${{ steps.gate.outputs.policy }}
+      event: ${{ steps.gate.outputs.event }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
+      - name: Resolve benchmark CI mode
+        id: gate
+        env:
+          CHUTORO_BENCH_CI_POLICY: scheduled-baseline
+        run: cargo run -p chutoro-test-support --bin benchmark_regression_gate
+
+  benchmark-smoke:
+    needs: benchmark-policy
+    if: ${{ needs.benchmark-policy.outputs.mode != 'disabled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CARGO_TERM_COLOR: always
+      CHUTORO_BENCH_HNSW_MEMORY_PROFILE: '0'
+      CHUTORO_BENCH_HNSW_RECALL_REPORT: '0'
+      CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT: '0'
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
+      - name: Run benchmark discovery smoke checks
+        run: |
+          set -o pipefail
+          for bench in hnsw hnsw_ef_sweep edge_harvest mst extraction; do
+            cargo bench -p chutoro-benches --bench "${bench}" -- --list \
+              2>&1 | tee "/tmp/bench-smoke-${bench}.log"
+          done
+      - name: Upload benchmark smoke logs
+        if: failure()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: benchmark-smoke-logs
+          path: /tmp/bench-smoke-*.log
+
+  benchmark-baseline-compare:
+    needs: benchmark-policy
+    if: ${{ needs.benchmark-policy.outputs.should_compare == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        bench: [hnsw, hnsw_ef_sweep, edge_harvest, mst, extraction]
+    env:
+      CARGO_TERM_COLOR: always
+      CHUTORO_BENCH_HNSW_MEMORY_PROFILE: '0'
+      CHUTORO_BENCH_HNSW_RECALL_REPORT: '0'
+      CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT: '0'
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
+      - name: Save Criterion baseline
+        run: |
+          set -o pipefail
+          cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
+            --save-baseline ci-reference --noplot \
+            2>&1 | tee "/tmp/bench-${{ matrix.bench }}-save.log"
+      - name: Compare against Criterion baseline
+        run: |
+          set -o pipefail
+          cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
+            --baseline ci-reference --noplot \
+            2>&1 | tee "/tmp/bench-${{ matrix.bench }}-compare.log"
+      - name: Upload baseline comparison logs
+        if: always()
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        with:
+          name: benchmark-baseline-${{ matrix.bench }}
+          path: |
+            /tmp/bench-${{ matrix.bench }}-save.log
+            /tmp/bench-${{ matrix.bench }}-compare.log

@@ -263,7 +263,7 @@ ______________________________________________________________________
   and Normalized Mutual Information (NMI) against ground truth as secondary
   metrics alongside timing. Guards against quality regressions during
   performance tuning. (See §11)
-- [ ] 2.1.7. Establish a CI regression detection strategy for
+- [x] 2.1.7. Establish a CI regression detection strategy for
   benchmarks: document whether benchmarks run on every pull request (PR) or on
   a scheduled nightly/weekly job using Criterion's baseline comparison. If too
   slow for PR gating, add a scheduled job and document the developer-run

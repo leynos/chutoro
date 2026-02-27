@@ -2036,6 +2036,40 @@ Running quality evaluation outside Criterion's measured closure preserves
 timing fidelity while still detecting parameter settings that improve speed at
 the expense of clustering quality.
 
+### 11.6. Benchmark CI regression detection strategy (roadmap 2.1.7)
+
+Roadmap item 2.1.7 is implemented with a two-tier benchmark CI strategy in
+`.github/workflows/benchmark-regressions.yml`:
+
+- A path-filtered pull request (PR) job runs benchmark discovery checks
+  (`cargo bench ... -- --list`) across benchmark binaries. This keeps PR
+  feedback fast while still validating benchmark harness health.
+- A scheduled weekly job (plus manual `workflow_dispatch`) runs Criterion
+  baseline comparison for each benchmark binary using:
+  - `cargo bench ... -- --save-baseline ci-reference --noplot`
+  - `cargo bench ... -- --baseline ci-reference --noplot`
+
+The workflow uses a shared policy parser in
+`chutoro-test-support/src/ci/benchmark_regression_profile.rs`, invoked via the
+`benchmark_regression_gate` binary, so event-to-mode mapping remains explicit,
+testable, and consistent:
+
+- `scheduled-baseline` (default): PR discovery-only, scheduled/manual baseline
+  comparison.
+- `always-baseline`: baseline comparison for all events.
+- `disabled`: skip benchmark CI checks.
+
+To reduce noise and keep comparison costs bounded, scheduled baseline jobs
+disable optional benchmark side reports:
+
+- `CHUTORO_BENCH_HNSW_MEMORY_PROFILE=0`
+- `CHUTORO_BENCH_HNSW_RECALL_REPORT=0`
+- `CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT=0`
+
+This strategy treats baseline comparison as a scheduled regression detector
+rather than a PR merge gate, matching the roadmap allowance for expensive
+benchmarks while preserving a reproducible developer-run workflow.
+
 #### **Works cited**
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September
