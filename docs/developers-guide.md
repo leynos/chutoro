@@ -30,7 +30,8 @@ Benchmark regression detection follows a two-tier strategy:
   discovery mode (`--list`) to confirm that benchmark binaries still compile
   and enumerate benchmark cases.
 - A scheduled weekly workflow (plus manual `workflow_dispatch`) runs
-  Criterion baseline comparison using `--save-baseline` and `--baseline`.
+  Criterion baseline comparison by saving a reference baseline from `HEAD^` and
+  comparing the current revision with `--baseline`.
 
 Run the local baseline workflow for one benchmark from the repository root:
 
@@ -50,7 +51,7 @@ cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --baseline local-referen
   2>&1 | tee /tmp/bench-hnsw-ef-sweep-compare.log
 ```
 
-Use `--list` when you only need a quick discovery check:
+Use `--list` for a quick discovery check only:
 
 ```sh
 set -o pipefail

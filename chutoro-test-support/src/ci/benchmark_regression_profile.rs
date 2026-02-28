@@ -252,12 +252,16 @@ mod tests {
     #[rstest]
     #[case("disabled", BenchmarkCiPolicy::Disabled)]
     #[case("OFF", BenchmarkCiPolicy::Disabled)]
+    #[case("0", BenchmarkCiPolicy::Disabled)]
+    #[case(" 0 ", BenchmarkCiPolicy::Disabled)]
     #[case("scheduled-baseline", BenchmarkCiPolicy::ScheduledBaseline)]
     #[case("scheduled_baseline", BenchmarkCiPolicy::ScheduledBaseline)]
     #[case("weekly", BenchmarkCiPolicy::ScheduledBaseline)]
     #[case("always-baseline", BenchmarkCiPolicy::AlwaysBaseline)]
     #[case("always_baseline", BenchmarkCiPolicy::AlwaysBaseline)]
     #[case("ALL", BenchmarkCiPolicy::AlwaysBaseline)]
+    #[case("1", BenchmarkCiPolicy::AlwaysBaseline)]
+    #[case(" 1 ", BenchmarkCiPolicy::AlwaysBaseline)]
     fn parse_policy_accepts_valid_values(#[case] raw: &str, #[case] expected: BenchmarkCiPolicy) {
         let parsed = parse_policy(raw).expect("valid policy should parse");
         assert_eq!(parsed, expected);

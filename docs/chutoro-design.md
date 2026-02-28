@@ -2045,9 +2045,15 @@ Roadmap item 2.1.7 is implemented with a two-tier benchmark CI strategy in
   (`cargo bench ... -- --list`) across benchmark binaries. This keeps PR
   feedback fast while still validating benchmark harness health.
 - A scheduled weekly job (plus manual `workflow_dispatch`) runs Criterion
-  baseline comparison for each benchmark binary using:
-  - `cargo bench ... -- --save-baseline ci-reference --noplot`
-  - `cargo bench ... -- --baseline ci-reference --noplot`
+  baseline comparison for each benchmark binary using the previous commit on
+  the same branch as the reference:
+  - in a temporary worktree at `HEAD^`, run
+    `cargo bench ... -- --save-baseline ci-reference --noplot`
+  - on the current commit, run
+    `cargo bench ... -- --baseline ci-reference --noplot`
+
+This avoids comparing a benchmark against a baseline generated from the same
+revision.
 
 The workflow uses a shared policy parser in
 `chutoro-test-support/src/ci/benchmark_regression_profile.rs`, invoked via the

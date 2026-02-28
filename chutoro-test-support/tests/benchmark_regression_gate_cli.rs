@@ -76,9 +76,15 @@ fn benchmark_gate_binary_outputs_expected_mode(gate_runner: GateRunner, #[case] 
 }
 
 #[rstest]
-#[case("schedule")]
-#[case("push")]
-fn benchmark_gate_binary_reports_event(gate_runner: GateRunner, #[case] event: &str) {
+#[case("schedule", "schedule")]
+#[case("workflow_dispatch", "workflow_dispatch")]
+#[case("pull_request_target", "pull_request")]
+#[case("push", "other")]
+fn benchmark_gate_binary_reports_event(
+    gate_runner: GateRunner,
+    #[case] event: &str,
+    #[case] expected_event: &str,
+) {
     let output = gate_runner.run(event, None);
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -87,7 +93,7 @@ fn benchmark_gate_binary_reports_event(gate_runner: GateRunner, #[case] event: &
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let printed_event = parse_value(&stdout, "event").unwrap_or("<missing>");
-    assert!(!printed_event.is_empty());
+    assert_eq!(printed_event, expected_event);
 }
 
 #[fixture]

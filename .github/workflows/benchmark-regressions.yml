@@ -29,6 +29,7 @@ jobs:
       should_compare: ${{ steps.gate.outputs.should_compare }}
       policy: ${{ steps.gate.outputs.policy }}
       event: ${{ steps.gate.outputs.event }}
+      bench_matrix: ${{ steps.bench-matrix.outputs.bench_matrix }}
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Setup Rust
@@ -38,12 +39,20 @@ jobs:
         env:
           CHUTORO_BENCH_CI_POLICY: scheduled-baseline
         run: cargo run -p chutoro-test-support --bin benchmark_regression_gate
+      - name: Define benchmark matrix
+        id: bench-matrix
+        run: |
+          echo 'bench_matrix=["hnsw","hnsw_ef_sweep","edge_harvest","mst","extraction"]' >> "$GITHUB_OUTPUT"
 
   benchmark-smoke:
     needs: benchmark-policy
     if: ${{ needs.benchmark-policy.outputs.mode != 'disabled' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        bench: ${{ fromJSON(needs.benchmark-policy.outputs.bench_matrix) }}
     permissions:
       contents: read
     env:
@@ -55,19 +64,17 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
-      - name: Run benchmark discovery smoke checks
+      - name: Run benchmark discovery smoke check
         run: |
           set -o pipefail
-          for bench in hnsw hnsw_ef_sweep edge_harvest mst extraction; do
-            cargo bench -p chutoro-benches --bench "${bench}" -- --list \
-              2>&1 | tee "/tmp/bench-smoke-${bench}.log"
-          done
+          cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- --list \
+            2>&1 | tee "/tmp/bench-smoke-${{ matrix.bench }}.log"
       - name: Upload benchmark smoke logs
         if: failure()
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
-          name: benchmark-smoke-logs
-          path: /tmp/bench-smoke-*.log
+          name: benchmark-smoke-${{ matrix.bench }}
+          path: /tmp/bench-smoke-${{ matrix.bench }}.log
 
   benchmark-baseline-compare:
     needs: benchmark-policy
@@ -79,7 +86,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        bench: [hnsw, hnsw_ef_sweep, edge_harvest, mst, extraction]
+        bench: ${{ fromJSON(needs.benchmark-policy.outputs.bench_matrix) }}
     env:
       CARGO_TERM_COLOR: always
       CHUTORO_BENCH_HNSW_MEMORY_PROFILE: '0'
@@ -89,23 +96,47 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
-      - name: Save Criterion baseline
+      - name: Resolve benchmark reference commit
+        id: reference
+        run: |
+          if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            echo "has_reference=true" >> "$GITHUB_OUTPUT"
+            echo "commit=$(git rev-parse HEAD^)" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_reference=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Compare against reference commit baseline
+        if: ${{ steps.reference.outputs.has_reference == 'true' }}
+        run: |
+          set -o pipefail
+          reference_dir="/tmp/chutoro-reference-${{ matrix.bench }}"
+          reference_commit="${{ steps.reference.outputs.commit }}"
+          trap 'git worktree remove --force "${reference_dir}" >/dev/null 2>&1 || true' EXIT
+          git worktree add "${reference_dir}" "${reference_commit}"
+
+          (
+            cd "${reference_dir}"
+            set -o pipefail
+            cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
+              --save-baseline ci-reference --noplot \
+              2>&1 | tee "/tmp/bench-${{ matrix.bench }}-reference-save.log"
+          )
+
+          cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
+            --baseline ci-reference --noplot \
+            2>&1 | tee "/tmp/bench-${{ matrix.bench }}-compare.log"
+      - name: Save baseline when no reference commit exists
+        if: ${{ steps.reference.outputs.has_reference != 'true' }}
         run: |
           set -o pipefail
           cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
             --save-baseline ci-reference --noplot \
-            2>&1 | tee "/tmp/bench-${{ matrix.bench }}-save.log"
-      - name: Compare against Criterion baseline
-        run: |
-          set -o pipefail
-          cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
-            --baseline ci-reference --noplot \
-            2>&1 | tee "/tmp/bench-${{ matrix.bench }}-compare.log"
+            2>&1 | tee "/tmp/bench-${{ matrix.bench }}-reference-save.log"
       - name: Upload baseline comparison logs
         if: always()
         uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
         with:
           name: benchmark-baseline-${{ matrix.bench }}
           path: |
-            /tmp/bench-${{ matrix.bench }}-save.log
+            /tmp/bench-${{ matrix.bench }}-reference-save.log
             /tmp/bench-${{ matrix.bench }}-compare.log

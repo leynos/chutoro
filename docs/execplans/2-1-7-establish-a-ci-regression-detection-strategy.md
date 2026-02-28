@@ -306,7 +306,7 @@ Quality method:
   local baseline; this is acceptable for iterative development.
 - If baseline data is suspected stale, remove local benchmark output under
   `target/criterion/` and regenerate baseline.
-- If scheduled CI run fails due runner noise, rerun via `workflow_dispatch`
+- If scheduled CI run fails due to runner noise, rerun via `workflow_dispatch`
   before changing thresholds.
 
 ## Artifacts and notes

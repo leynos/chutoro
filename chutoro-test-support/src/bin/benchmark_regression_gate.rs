@@ -10,6 +10,8 @@ use chutoro_test_support::ci::benchmark_regression_profile::{
 };
 
 fn main() -> Result<(), Box<dyn Error>> {
+    init_tracing();
+
     let profile = BenchmarkRegressionProfile::load(BenchmarkCiPolicy::ScheduledBaseline);
     let mode = profile.mode();
     let should_compare = mode.should_compare();
@@ -31,6 +33,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("reason={reason}");
 
     Ok(())
+}
+
+fn init_tracing() {
+    let _subscriber_init_result = tracing_subscriber::fmt()
+        .with_target(false)
+        .without_time()
+        .with_writer(std::io::stderr)
+        .try_init();
 }
 
 fn emit_github_output(
