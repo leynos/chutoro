@@ -25,7 +25,7 @@ path = "../chutoro-providers/text"
 
 [dev-dependencies]
 arrow-array = "56.2.0"
-arrow-schema = "56.2.0"
+arrow-schema = "57.0.0"
 parquet = { version = "56.2.0", features = ["arrow"] }
 rstest = "0.23"
 tempfile = "3.10"
