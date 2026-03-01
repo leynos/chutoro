@@ -7,6 +7,7 @@
 
 use std::collections::HashSet;
 
+#[cfg(any(test, debug_assertions))]
 use crate::hnsw::graph::Graph;
 
 use super::{limits::compute_connection_limit, types::FinalisedUpdate};
@@ -18,7 +19,7 @@ pub(super) struct ReciprocityAuditor<'graph> {
 }
 
 #[cfg(any(test, debug_assertions))]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 struct AuditContext {
     level: usize,
     max_connections: usize,
