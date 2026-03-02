@@ -148,18 +148,18 @@ Provider pricing inputs used:
 
 - AWS S3 Standard (US East): data transfer out to internet `$0.09/GB`
   (first 10 TB), `GET` `$0.0004` per 1,000 requests.[^6]
-- Scaleway Object Storage: requests included; egress `75GB` free every month,
+- Scaleway Object Storage: requests included; egress `75 GB` free every month,
   then `EUR0.01/GB`.[^7]
-- DigitalOcean Spaces: `1,024GiB` outbound included per subscription; outbound
+- DigitalOcean Spaces: `1,024 GiB` outbound included per subscription; outbound
   overage `$0.01/GiB`; no separate standard per-request retrieval fee listed on
   Spaces pricing docs.[^8]
 
 Included-transfer notes:
 
-- AWS lists a `100GB` per month free transfer allowance to internet on the S3
+- AWS lists a `100 GB` per month free transfer allowance to internet on the S3
   pricing page.[^6]
-- Scaleway includes `75GB` per month egress.[^7]
-- DigitalOcean Spaces includes `1,024GiB` per month outbound transfer.[^8]
+- Scaleway includes `75 GB` per month egress.[^7]
+- DigitalOcean Spaces includes `1,024 GiB` per month outbound transfer.[^8]
 
 For matrix jobs, retrieval cost scales approximately with:
 
