@@ -122,6 +122,16 @@ jobs:
               2>&1 | tee "/tmp/bench-${{ matrix.bench }}-reference-save.log"
           )
 
+          baseline_source="${reference_dir}/target/criterion/ci-reference"
+          baseline_destination="./target/criterion/ci-reference"
+          if [ ! -d "${baseline_source}" ]; then
+            echo "missing saved benchmark baseline at ${baseline_source}" >&2
+            exit 1
+          fi
+          mkdir -p "./target/criterion"
+          rm -rf "${baseline_destination}"
+          cp -R "${baseline_source}" "${baseline_destination}"
+
           cargo bench -p chutoro-benches --bench "${{ matrix.bench }}" -- \
             --baseline ci-reference --noplot \
             2>&1 | tee "/tmp/bench-${{ matrix.bench }}-compare.log"

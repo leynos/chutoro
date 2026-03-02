@@ -146,7 +146,7 @@ Implemented outcomes:
 - Quality gates all passed with logs captured under `/tmp/2-1-7-continue-*`:
   - `make check-fmt`
   - `make lint`
-  - `make test` (`830 tests run: 830 passed, 1 skipped`)
+  - `make test` (`831 tests run: 830 passed, 1 skipped`)
 
 ## Context and orientation
 
@@ -251,9 +251,12 @@ set -o pipefail; make test 2>&1 | tee /tmp/2-1-7-test.log
 Expected transcript (abbreviated):
 
 ```plaintext
-... cargo fmt --all -- --check
-... cargo clippy --all-targets --all-features -- -D warnings
-... cargo nextest run --profile ... --all-targets --all-features
+... make check-fmt
+... cargo fmt --workspace -- --check
+... make lint
+... cargo clippy --workspace --all-targets --all-features -- -D warnings
+... make test
+... cargo test --workspace
 ... test result: ok
 ```
 

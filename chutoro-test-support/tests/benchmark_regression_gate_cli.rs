@@ -178,7 +178,9 @@ fn is_matching_binary(entry: fs::DirEntry) -> Option<PathBuf> {
     }
 
     let file_stem = path.file_stem()?.to_str()?;
-    if file_stem.starts_with("benchmark_regression_gate") {
+    if file_stem == "benchmark_regression_gate"
+        || file_stem.starts_with("benchmark_regression_gate-")
+    {
         Some(path)
     } else {
         None
