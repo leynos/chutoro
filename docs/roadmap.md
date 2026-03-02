@@ -496,83 +496,96 @@ ______________________________________________________________________
 
 - [ ] 10.1.1. Introduce `chutoro-bench-datasets` with a `DatasetRecipe`
   trait for fetch, validate, prepare, and publish steps shared across all
-  datasets. See `docs/benchmark-dataset-retrieval.md`.
+  datasets. See `docs/benchmark-dataset-retrieval.md` §3.1.
 - [ ] 10.1.2. Implement shared download primitives: pinned source URLs,
   checksum/signature verification, resumable transfers, and archive extraction
-  (`.gz`, `.bz2`, `.xz`, `.tar`).
-- [ ] 10.1.3. Define canonical prepared artifact contracts
+  (`.gz`, `.bz2`, `.xz`, `.tar`). See `docs/benchmark-dataset-retrieval.md`
+  §3.2.
+- [ ] 10.1.3. Define canonical prepared artefact contracts
   (`features`, `labels`, optional `ground_truth`) plus immutable
   `manifest.json` metadata containing source provenance, schema version, and
-  preprocessing hash.
+  preprocessing hash. See `docs/benchmark-dataset-retrieval.md` §3.1.
 - [ ] 10.1.4. Add `object_store`-based cache adapters for S3-compatible
   endpoints (AWS S3, Scaleway Object Storage, DigitalOcean Spaces), including
-  endpoint overrides, credentials, and server-side encryption settings.
+  endpoint overrides, credentials, and server-side encryption settings. See
+  `docs/benchmark-dataset-retrieval.md` §3.2.
 - [ ] 10.1.5. Add local cache plus lockfile semantics so repeated matrix runs
-  deduplicate downloads and avoid concurrent preparation races.
+  deduplicate downloads and avoid concurrent preparation races. See
+  `docs/benchmark-dataset-retrieval.md` §3.2.
 - [ ] 10.1.6. Add provenance/licence checks that fail fast when a dataset source
-  terms change, requires interactive access, or lacks reproducible checksum
-  coverage.
+  terms change, require interactive access, or lack reproducible checksum
+  coverage. See `docs/benchmark-dataset-retrieval.md` §3.3.
 
 ### 10.2. Matrix benchmark framework and result publication
 
 - [ ] 10.2.1. Define a declarative matrix spec
   (`benchmarks/matrix.toml`) describing dataset, backend, metric, and parameter
-  dimensions, with profile selectors (`smoke`, `cpu`, `scale`).
+  dimensions, with profile selectors (`smoke`, `cpu`, `scale`). See
+  `docs/benchmark-dataset-retrieval.md` §4.1.
 - [ ] 10.2.2. Implement `chutoro-bench-matrix` (Rust binary) to expand matrix
   entries and orchestrate Criterion benchmark invocations per tuple; preserve
-  deterministic seeds and run metadata.
+  deterministic seeds and run metadata. See
+  `docs/benchmark-dataset-retrieval.md` §4.1.
 - [ ] 10.2.3. Add backend capability discovery so unsupported tuples (for
   example GPU-only backends on CPU hosts) are skipped with structured reasons
-  instead of hard failures.
+  instead of hard failures. See `docs/benchmark-dataset-retrieval.md` §4.1.
 - [ ] 10.2.4. Standardize result artefacts (`results.jsonl`,
   `summary.parquet`, `report.md`) with tuple identifiers:
-  dataset/version/backend/metric/profile/git SHA.
+  dataset/version/backend/metric/profile/git SHA. See
+  `docs/benchmark-dataset-retrieval.md` §4.2.
 - [ ] 10.2.5. Add object-store write-back for benchmark results and baselines
   under immutable keys (for example `bench-results/<run-id>/...`) and maintain
-  a mutable pointer to latest baseline per tuple.
+  a mutable pointer to latest baseline per tuple. See
+  `docs/benchmark-dataset-retrieval.md` §4.3.
 - [ ] 10.2.6. Integrate scheduled CI jobs that run matrix profiles, publish
   artefacts, and compare against stored baselines for regression alerts.
-  Requires 2.1.7.
+  Requires 2.1.7. See `docs/benchmark-dataset-retrieval.md` §4.3.
 
 ### 10.3. Dataset-specific enablement backlog
 
 - [ ] 10.3.1. `make_blobs`: add deterministic recipe catalogue (seeded
   separation/noise/imbalance profiles), emit labels, and publish smoke profile
-  manifests.
+  manifests. See `docs/benchmark-dataset-retrieval.md` §7.1.
 - [ ] 10.3.2. MNIST digits: implement pinned IDX fetch + checksum validation,
   convert to canonical dense format, and register `smoke` and `cpu` matrix
-  tuples with ARI/NMI scoring.
+  tuples with ARI/NMI scoring. See `docs/benchmark-dataset-retrieval.md` §7.2.
 - [ ] 10.3.3. Fashion-MNIST: mirror MNIST pipeline with separate provenance and
   checksums, then register as a harder small-scale baseline in matrix profiles.
+  See `docs/benchmark-dataset-retrieval.md` §7.3.
 - [ ] 10.3.4. CIFAR-10/100: add fixed embedding pipeline (frozen model and
   versioned preprocessing), cache vectors + labels, and expose both coarse and
-  fine class evaluation tuples.
+  fine class evaluation tuples. See `docs/benchmark-dataset-retrieval.md` §7.4.
 - [ ] 10.3.5. 20 Newsgroups: add deterministic text normalization and embedding
   recipe, cache vectors + topic labels, and register CPU profile tuples with
-  topic recovery metrics.
+  topic recovery metrics. See `docs/benchmark-dataset-retrieval.md` §7.5.
 - [ ] 10.3.6. RCV1-v2: add multilabel fetch and normalization pipeline with
   sparse-to-dense projection recipe, publish reproducible train/test manifests,
-  and enable long-running CPU matrix tuples.
+  and enable long-running CPU matrix tuples. See
+  `docs/benchmark-dataset-retrieval.md` §7.6.
 - [ ] 10.3.7. SNAP com-Amazon: add graph ingest + node embedding recipe with
   pinned hyperparameters, cache vectors + community labels, and enable graph
-  quality tuple scoring.
+  quality tuple scoring. See `docs/benchmark-dataset-retrieval.md` §7.7.
 - [ ] 10.3.8. SNAP com-DBLP: implement parallel graph pipeline to com-Amazon
   with overlapping-community handling and dedicated matrix tuple definitions.
+  See `docs/benchmark-dataset-retrieval.md` §7.8.
 - [ ] 10.3.9. PBMC 68k (10x): define controlled-source ingestion path from an
   internally mirrored artefact, add PCA/normalization recipe checks, and gate
-  matrix use behind provenance confirmation.
+  matrix use behind provenance confirmation. See
+  `docs/benchmark-dataset-retrieval.md` §7.9.
 - [ ] 10.3.10. GloVe vectors: implement dimension-selectable ingestion
   (`25/50/100/200`), enforce tokenizer/projection invariants, and add angular
-  distance tuples in `cpu` and `scale` profiles.
+  distance tuples in `cpu` and `scale` profiles. See
+  `docs/benchmark-dataset-retrieval.md` §7.10.
 - [ ] 10.3.11. SIFT1M: integrate ANN-Benchmarks HDF5 ingestion, validate
   provided nearest-neighbour ground truth, and register recall@{1,10,100}
-  matrix tuples.
+  matrix tuples. See `docs/benchmark-dataset-retrieval.md` §7.11.
 - [ ] 10.3.12. GIST1M: add high-dimensional ingest validation plus memory guard
   assertions, and gate tuples to hosts that satisfy documented memory
-  thresholds.
+  thresholds. See `docs/benchmark-dataset-retrieval.md` §7.12.
 - [ ] 10.3.13. DEEP1B/BigANN: implement sharded subset ingestion
   (1M/10M/100M/1B), resumable object-store uploads, and profile-aware matrix
-  partitioning so billion-scale jobs run only on dedicated scale runners.
+  partitioning so billion-scale jobs run only on dedicated scale runners. See
+  `docs/benchmark-dataset-retrieval.md` §7.13.
 
 ______________________________________________________________________
 
