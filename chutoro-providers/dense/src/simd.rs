@@ -104,11 +104,29 @@ impl Dimension {
     }
 }
 
+/// Number of rows in a row-major matrix.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct RowCount(usize);
+
+impl RowCount {
+    /// Builds a row count wrapper.
+    #[must_use]
+    pub(crate) fn new(value: usize) -> Self {
+        Self(value)
+    }
+
+    /// Returns the raw row count.
+    #[must_use]
+    pub(crate) fn get(self) -> usize {
+        self.0
+    }
+}
+
 /// Row-major matrix metadata and storage for dense SIMD kernels.
 #[derive(Clone, Copy)]
 pub(crate) struct RowMajorMatrix<'a> {
     values: &'a [f32],
-    rows: usize,
+    rows: RowCount,
     dimension: Dimension,
 }
 
@@ -118,7 +136,7 @@ impl<'a> RowMajorMatrix<'a> {
     pub(crate) fn new(values: &'a [f32], rows: usize, dimension: usize) -> Self {
         Self {
             values,
-            rows,
+            rows: RowCount::new(rows),
             dimension: Dimension::new(dimension),
         }
     }
@@ -166,8 +184,9 @@ pub(crate) fn euclidean_distance_batch_pairs(
 
 fn row_slice(matrix: RowMajorMatrix<'_>, index: RowIndex) -> Result<&[f32], DataSourceError> {
     let raw_index = index.get();
+    let raw_rows = matrix.rows.get();
     let raw_dimension = matrix.dimension.get();
-    if raw_index >= matrix.rows {
+    if raw_index >= raw_rows {
         return Err(DataSourceError::OutOfBounds { index: raw_index });
     }
 
