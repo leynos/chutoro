@@ -24,9 +24,9 @@ version = "0.1.0"
 path = "../chutoro-providers/text"
 
 [dev-dependencies]
-arrow-array = "57.0.0"
-arrow-schema = "57.0.0"
-parquet = { version = "57.0.0", features = ["arrow"] }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+parquet = { workspace = true, features = ["arrow"] }
 rstest = "0.26"
 tempfile = "3.10"
 

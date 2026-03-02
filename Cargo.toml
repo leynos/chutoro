@@ -16,6 +16,11 @@ license = "ISC"
 repository = "https://github.com/leynos/chutoro"
 rust-version = "1.88.0"
 
+[workspace.dependencies]
+arrow-array = "57.0.0"
+arrow-schema = "57.0.0"
+parquet = "57.0.0"
+
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 
