@@ -271,7 +271,7 @@ ______________________________________________________________________
 
 ### 2.2. Single Instruction, Multiple Data (SIMD) distance kernels
 
-- [ ] 2.2.1. Add CPU distance kernels using `std::simd` with
+- [x] 2.2.1. Add CPU distance kernels using `std::simd` with
   AVX2/AVX-512 specializations; make `distance_batch` the default HNSW scoring
   path. (See §6.3)
 - [ ] 2.2.2. Introduce `DensePointView<'a>` for aligned Structure of

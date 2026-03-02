@@ -179,6 +179,89 @@ fn uses_batch_distances_during_scoring() {
 }
 
 #[rstest]
+fn uses_distance_batch_via_default_batch_distances_during_scoring() {
+    #[derive(Clone)]
+    struct DistanceBatchInstrumentedSource {
+        base: CountingSource,
+        batch_calls: Arc<AtomicUsize>,
+    }
+
+    impl DistanceBatchInstrumentedSource {
+        fn new(data: Vec<f32>, batch_calls: Arc<AtomicUsize>) -> Self {
+            let base = CountingSource::with_name(
+                "distance-batch-instrumented",
+                data,
+                Arc::new(AtomicUsize::new(0)),
+            );
+            Self { base, batch_calls }
+        }
+    }
+
+    impl DataSource for DistanceBatchInstrumentedSource {
+        fn len(&self) -> usize {
+            self.base.len()
+        }
+
+        fn name(&self) -> &str {
+            self.base.name()
+        }
+
+        fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
+            self.base.distance(left, right)
+        }
+
+        fn distance_batch(
+            &self,
+            pairs: &[(usize, usize)],
+            out: &mut [f32],
+        ) -> Result<(), DataSourceError> {
+            self.batch_calls.fetch_add(1, Ordering::Relaxed);
+            if pairs.len() != out.len() {
+                return Err(DataSourceError::OutputLengthMismatch {
+                    out: out.len(),
+                    expected: pairs.len(),
+                });
+            }
+
+            for ((left, right), slot) in pairs.iter().copied().zip(out.iter_mut()) {
+                let a = self
+                    .base
+                    .data()
+                    .get(left)
+                    .ok_or(DataSourceError::OutOfBounds { index: left })?;
+                let b = self
+                    .base
+                    .data()
+                    .get(right)
+                    .ok_or(DataSourceError::OutOfBounds { index: right })?;
+                *slot = (a - b).abs();
+            }
+            Ok(())
+        }
+    }
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let source = DistanceBatchInstrumentedSource::new(vec![0.0, 1.0, 2.0, 5.0], Arc::clone(&calls));
+    let params = HnswParams::new(2, 4)
+        .expect("params must be valid")
+        .with_rng_seed(13);
+    let index = CpuHnsw::build(&source, params).expect("build must succeed");
+
+    index
+        .search(
+            &source,
+            1,
+            NonZeroUsize::new(4).expect("ef must be non-zero"),
+        )
+        .expect("search must succeed");
+
+    assert!(
+        calls.load(Ordering::Relaxed) > 0,
+        "distance_batch should be exercised via default batch_distances",
+    );
+}
+
+#[rstest]
 fn duplicate_insert_is_rejected() {
     let source = DummySource::new(vec![0.0, 1.0, 2.0]);
     let params = HnswParams::new(2, 4).expect("params must be valid");

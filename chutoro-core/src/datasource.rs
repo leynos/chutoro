@@ -147,9 +147,10 @@ pub trait DataSource {
 
     /// Computes the distances from `query` to every entry in `candidates`.
     ///
-    /// Implementations can override this method to provide SIMD-optimised
-    /// kernels. The default implementation calls [`Self::distance`] repeatedly and
-    /// collects the results.
+    /// Implementations can override this method to provide query-centric
+    /// kernels. The default implementation delegates to
+    /// [`Self::distance_batch`] so pair-oriented specializations are used by
+    /// default.
     ///
     /// # Errors
     /// Returns any [`DataSourceError`] surfaced by [`Self::distance`]. Implementations
@@ -160,10 +161,14 @@ pub trait DataSource {
         query: usize,
         candidates: &[usize],
     ) -> Result<Vec<f32>, DataSourceError> {
-        candidates
+        let pairs: Vec<(usize, usize)> = candidates
             .iter()
-            .map(|&candidate| self.distance(query, candidate))
-            .collect()
+            .copied()
+            .map(|candidate| (query, candidate))
+            .collect();
+        let mut out = vec![0.0_f32; pairs.len()];
+        self.distance_batch(&pairs, &mut out)?;
+        Ok(out)
     }
 
     /// Computes several distances at once, storing results in `out`.
@@ -204,6 +209,77 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
+    #[derive(Clone)]
+    struct BatchFirstSource {
+        data: Vec<f32>,
+        batch_calls: Arc<AtomicUsize>,
+        distance_calls: Arc<AtomicUsize>,
+    }
+
+    impl BatchFirstSource {
+        fn new(
+            data: Vec<f32>,
+            batch_calls: Arc<AtomicUsize>,
+            distance_calls: Arc<AtomicUsize>,
+        ) -> Self {
+            Self {
+                data,
+                batch_calls,
+                distance_calls,
+            }
+        }
+    }
+
+    impl DataSource for BatchFirstSource {
+        fn len(&self) -> usize {
+            self.data.len()
+        }
+
+        fn name(&self) -> &str {
+            "batch-first"
+        }
+
+        fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
+            self.distance_calls.fetch_add(1, Ordering::Relaxed);
+            let l = self
+                .data
+                .get(left)
+                .ok_or(DataSourceError::OutOfBounds { index: left })?;
+            let r = self
+                .data
+                .get(right)
+                .ok_or(DataSourceError::OutOfBounds { index: right })?;
+            Ok((l - r).abs())
+        }
+
+        fn distance_batch(
+            &self,
+            pairs: &[(usize, usize)],
+            out: &mut [f32],
+        ) -> Result<(), DataSourceError> {
+            self.batch_calls.fetch_add(1, Ordering::Relaxed);
+            if pairs.len() != out.len() {
+                return Err(DataSourceError::OutputLengthMismatch {
+                    out: out.len(),
+                    expected: pairs.len(),
+                });
+            }
+
+            for ((left, right), slot) in pairs.iter().copied().zip(out.iter_mut()) {
+                let l = self
+                    .data
+                    .get(left)
+                    .ok_or(DataSourceError::OutOfBounds { index: left })?;
+                let r = self
+                    .data
+                    .get(right)
+                    .ok_or(DataSourceError::OutOfBounds { index: right })?;
+                *slot = (l - r).abs();
+            }
+            Ok(())
+        }
+    }
+
     #[test]
     fn batch_distances_invokes_scalar_distance() {
         let calls = Arc::new(AtomicUsize::new(0));
@@ -229,6 +305,49 @@ mod tests {
         assert!(
             matches!(err, DataSourceError::OutOfBounds { index: 5 }),
             "expected OutOfBounds with index 5, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn batch_distances_delegates_to_distance_batch() {
+        let batch_calls = Arc::new(AtomicUsize::new(0));
+        let distance_calls = Arc::new(AtomicUsize::new(0));
+        let source = BatchFirstSource::new(
+            vec![0.0, 1.5, 4.0],
+            Arc::clone(&batch_calls),
+            Arc::clone(&distance_calls),
+        );
+
+        let distances = source
+            .batch_distances(0, &[1, 2])
+            .expect("batch distances must succeed");
+
+        assert_eq!(distances, vec![1.5, 4.0]);
+        assert_eq!(
+            batch_calls.load(Ordering::Relaxed),
+            1,
+            "batch override should be called exactly once",
+        );
+        assert_eq!(
+            distance_calls.load(Ordering::Relaxed),
+            0,
+            "scalar distance should not be used when distance_batch is available",
+        );
+    }
+
+    #[test]
+    fn batch_distances_propagates_distance_batch_errors() {
+        let batch_calls = Arc::new(AtomicUsize::new(0));
+        let distance_calls = Arc::new(AtomicUsize::new(0));
+        let source = BatchFirstSource::new(vec![0.0], batch_calls, distance_calls);
+
+        let err = source
+            .batch_distances(0, &[1])
+            .expect_err("out-of-bounds candidate must fail");
+
+        assert!(
+            matches!(err, DataSourceError::OutOfBounds { index: 1 }),
+            "unexpected error: {err:?}",
         );
     }
 }

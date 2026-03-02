@@ -890,7 +890,7 @@ sequenceDiagram
   Note over HNSW: Candidate scoring phase
   HNSW->>DS: batch_distances(query, candidates)
   alt SIMD available
-    DS->>Kern: run std::simd kernel (AVX2/AVX-512/Neon)
+    DS->>Kern: run SIMD kernel (AVX2/AVX-512/Neon)
     Kern-->>DS: distances[]
   else Scalar fallback
     DS-->>DS: for each (i,j): distance(i,j)
@@ -903,6 +903,27 @@ sequenceDiagram
 
 _Figure 1: SIMD-backed candidate scoring via `batch_distances` with scalar
 fallback._
+
+_Implementation update (2026-03-02)._ Roadmap item `2.2.1` is implemented using
+stable Rust primitives on toolchain `1.88.0`. The default
+`DataSource::batch_distances` path now delegates to `distance_batch`, so HNSW
+candidate scoring inherits pair-oriented specializations by default without
+changing query-centric call-sites in `hnsw/validate.rs`.
+
+`DenseMatrixProvider` now routes Euclidean distance batches through a dedicated
+SIMD kernel module (`chutoro-providers/dense/src/simd.rs`) with one-time x86
+runtime dispatch:
+
+- AVX2 specialization using `std::arch` intrinsics and lane-tail scalar
+  handling.
+- AVX-512 detection branch retained for dispatch compatibility; on stable this
+  currently degrades to AVX2 (or scalar if AVX2 is unavailable) because AVX-512
+  intrinsics and `#[target_feature(enable = "avx512f")]` are unstable on
+  `1.88.0`.
+- Scalar fallback for all non-x86 targets and unsupported feature sets.
+
+This keeps the scoring-path contract required by §6.3 while preserving stable
+toolchain compatibility and deterministic error semantics.
 
 #### 6.4. Property-based input generation for CPU HNSW tests
 
