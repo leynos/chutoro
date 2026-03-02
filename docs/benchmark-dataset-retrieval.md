@@ -25,6 +25,39 @@ For each dataset, use this repeatable pipeline:
    (`bench-datasets/<name>/<version>/...`) and publish a manifest file.
 5. Retrieve by manifest in benchmark jobs, with local cache fallback.
 
+For screen readers: The following flowchart shows the benchmark dataset
+retrieval pipeline from canonical fetch through prepared artifact upload,
+manifest publication, and benchmark-side retrieval with cache fallback.
+
+```mermaid
+flowchart TD
+  A_Start["Start: dataset in roadmap benchmark suite"] --> B_Fetch["Fetch from canonical source
+(pinned URL + checksum)"]
+  B_Fetch --> C_Normalize["Normalize to benchmark-ready artifact
+(hdf5, parquet, or npz + metadata)"]
+  C_Normalize --> D_Validate["Run validation checks
+(shape, dtype, labels, distributions)"]
+  D_Validate --> E_Upload["Upload artifact to object storage
+under immutable key
+bench-datasets/name/version/..."]
+  E_Upload --> F_Manifest["Publish manifest file
+(describing location, version, schema)"]
+  F_Manifest --> G_Retrieve["Benchmark job retrieves by manifest
+with local cache fallback"]
+  G_Retrieve --> H_End["End: dataset ready for benchmark run"]
+
+  subgraph Object_Storage
+    E_Upload
+    F_Manifest
+  end
+
+  classDef storage fill:#e3f2fd,stroke:#1565c0,stroke-width:1px;
+  class E_Upload,F_Manifest storage;
+```
+
+_Figure 1: Benchmark dataset retrieval pipeline from source fetch to benchmark
+consumption._
+
 ## Shared implementation and infrastructure tasks
 
 The following tasks are common across most dataset pipelines and should be
