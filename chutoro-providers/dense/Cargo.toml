@@ -16,4 +16,4 @@ features = ["skeleton"]
 
 [dev-dependencies]
 bytes = "1.10"
-rstest = "0.23"
+rstest = "0.26"
