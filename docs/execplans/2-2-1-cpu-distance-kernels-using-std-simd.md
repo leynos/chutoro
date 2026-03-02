@@ -1,4 +1,4 @@
-# Execution Plan (ExecPlan): roadmap 2.2.1 CPU SIMD distance kernels using `std::simd`
+# Execution Plan (ExecPlan): roadmap 2.2.1 CPU SIMD distance kernels using `core::arch` and optional `std::simd`
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
@@ -52,8 +52,9 @@ Success is observable when:
   signatures, stop and escalate with options.
 - Dependencies: if implementation appears to require a new crate dependency,
   stop and escalate.
-- Compatibility: if `std::simd` usage is not available on the pinned
-  toolchain (`1.88.0`), stop and escalate with a fallback plan.
+- Compatibility: stable kernels must compile on MSRV `1.89.0` (AVX-512
+  stabilization baseline), and optional `std::simd` code must stay behind a
+  nightly-only gate.
 - Iterations: if `make lint` or `make test` still fails after 3 repair
   attempts, stop and escalate with logs.
 - Ambiguity: if roadmap wording conflicts materially with §6.3 design wording,
@@ -114,16 +115,16 @@ Success is observable when:
   `chutoro-core/src/hnsw/tests/build.rs` and `chutoro-core/src/datasource.rs`
   tests. Impact: a contract test is needed before path changes.
 
-- Observation: `std::simd` is unavailable on stable toolchain `1.88.0`.
-  Evidence: `rustc` emits
+- Observation: `std::simd` remains unavailable on stable toolchains, including
+  `1.93.1` (latest stable release on 2026-02-12). Evidence: `rustc` emits
   `E0658: use of unstable library feature portable_simd`. Impact: the SIMD
   implementation uses stable `std::arch` AVX2 intrinsics and scalar fallback.
 
-- Observation: AVX-512 intrinsics and `#[target_feature(enable = "avx512f")]`
-  are also unstable on `1.88.0`. Evidence:
-  `cargo test -p chutoro-providers-dense provider::` failed with
-  `E0658: stdarch_x86_avx512`. Impact: AVX-512 detection remains in dispatch,
-  but the stable branch currently degrades to AVX2 (or scalar).
+- Observation: AVX-512 intrinsics and
+  `#[target_feature(enable = "avx512f")]` are stable as of Rust `1.89.0`.
+  Evidence: Rust `1.89.0` release notes and closed tracking issue
+  `rust-lang/rust#111137`. Impact: the stable branch can run a real AVX-512
+  kernel instead of degrading to AVX2/scalar.
 
 ## Decision Log
 
@@ -144,15 +145,15 @@ Success is observable when:
   Date/Author: 2026-03-02 / Codex
 
 - Decision: satisfy roadmap `2.2.1` on stable toolchain by implementing SIMD
-  via `std::arch` instead of `std::simd`. Rationale: `std::simd` is unstable on
-  `1.88.0`, but AVX2 specialization and default `distance_batch` scoring path
-  can still be delivered safely with stable Rust. Date/Author: 2026-03-02 /
-  Codex
+  via `std::arch` instead of `std::simd`. Rationale: `std::simd` remains
+  unstable on stable, but AVX2/AVX-512 specialization and default
+  `distance_batch` scoring path can be delivered safely with stable Rust.
+  Date/Author: 2026-03-02 / Codex
 
-- Decision: retain AVX-512 feature detection but use a stable-compatible
-  entrypoint that currently maps to AVX2/scalar. Rationale: AVX-512 intrinsics
-  are unstable on `1.88.0`; keeping detection semantics now minimizes follow-up
-  churn when AVX-512 intrinsics stabilize. Date/Author: 2026-03-02 / Codex
+- Decision: promote AVX-512 from detect-only fallback to active stable kernel
+  path and bump MSRV to `1.89.0`. Rationale: AVX-512 intrinsics are stabilized,
+  so the stable implementation should take direct advantage of them while
+  preserving scalar fallback. Date/Author: 2026-03-02 / Codex
 
 ## Outcomes & Retrospective
 
@@ -191,8 +192,8 @@ Validation summary:
 
 Retrospective:
 
-- The largest implementation constraint was stable toolchain support: neither
-  `std::simd` nor AVX-512 intrinsics were available.
+- The largest implementation constraint remains stable-toolchain support for
+  `std::simd`, which is still nightly-only.
 - Preserving a narrow kernel-module boundary kept the change coherent and made
   the fallback policy explicit.
 
@@ -455,6 +456,6 @@ explicit staged validation and quality-gate requirements.
 Implementation update on 2026-03-02:
 
 - Marked status `COMPLETE` and updated all stage checkpoints.
-- Documented stable-toolchain constraints (`portable_simd` and AVX-512
-  intrinsic instability) and the implemented fallback decisions.
+- Documented stable-toolchain constraints (`portable_simd` still nightly-only)
+  and AVX-512 stabilization (`rust-lang/rust#111137`) with updated MSRV.
 - Recorded final outcomes, validation evidence, and roadmap/design doc updates.

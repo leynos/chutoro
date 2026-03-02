@@ -271,11 +271,12 @@ impl DistanceCache {
             .usage
             .lock()
             .expect("distance cache usage mutex poisoned");
-        if usage.pop(key).is_some() && self.entries.contains_key(key) {
-            if let Some((evicted, _)) = usage.push(key.clone(), ()) {
-                self.entries.remove(&evicted);
-                self.record_eviction();
-            }
+        if usage.pop(key).is_some()
+            && self.entries.contains_key(key)
+            && let Some((evicted, _)) = usage.push(key.clone(), ())
+        {
+            self.entries.remove(&evicted);
+            self.record_eviction();
         }
     }
 

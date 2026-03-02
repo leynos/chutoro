@@ -16,13 +16,13 @@ pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usiz
 }
 
 pub(super) fn assert_no_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
-    if let Some(node) = graph.node(origin) {
-        if level < node.level_count() {
-            assert!(
-                !node.neighbours(level).contains(&target),
-                "unexpected edge {origin}->{target} at level {level}",
-            );
-        }
+    if let Some(node) = graph.node(origin)
+        && level < node.level_count()
+    {
+        assert!(
+            !node.neighbours(level).contains(&target),
+            "unexpected edge {origin}->{target} at level {level}",
+        );
     }
 }
 
@@ -182,23 +182,19 @@ impl<'graph> TestHelpers<'graph> {
             .collect()
     }
 
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "Test helper keeps explicit fallbacks for clarity"
-    )]
     pub(super) fn heal_or_remove_edge(&mut self, ctx: &UpdateContext, target: usize) {
-        if let Some(target_node) = self.graph.node_mut(target) {
-            if ctx.level < target_node.level_count() {
-                let limit = compute_connection_limit(ctx.level, ctx.max_connections);
-                let neighbours = target_node.neighbours_mut(ctx.level);
-                if neighbours.contains(&ctx.origin) {
-                    return;
-                }
+        if let Some(target_node) = self.graph.node_mut(target)
+            && ctx.level < target_node.level_count()
+        {
+            let limit = compute_connection_limit(ctx.level, ctx.max_connections);
+            let neighbours = target_node.neighbours_mut(ctx.level);
+            if neighbours.contains(&ctx.origin) {
+                return;
+            }
 
-                if neighbours.len() < limit {
-                    neighbours.push(ctx.origin);
-                    return;
-                }
+            if neighbours.len() < limit {
+                neighbours.push(ctx.origin);
+                return;
             }
         }
 

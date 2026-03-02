@@ -113,10 +113,10 @@ const fn compute_peak_rss_delta_bytes(starting_rss_bytes: u64, peak_rss_bytes: u
 
 #[cfg(target_os = "linux")]
 fn store_background_error(error_slot: &Mutex<Option<ProfilingError>>, error: ProfilingError) {
-    if let Ok(mut guard) = error_slot.lock() {
-        if guard.is_none() {
-            *guard = Some(error);
-        }
+    if let Ok(mut guard) = error_slot.lock()
+        && guard.is_none()
+    {
+        *guard = Some(error);
     }
 }
 

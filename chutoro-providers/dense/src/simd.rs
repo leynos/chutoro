@@ -128,10 +128,38 @@ fn euclidean_distance_avx2_entry(left: &[f32], right: &[f32]) -> f32 {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn euclidean_distance_avx512_entry(left: &[f32], right: &[f32]) -> f32 {
-    if std::arch::is_x86_feature_detected!("avx2") {
-        return euclidean_distance_avx2_entry(left, right);
+    // Safety: this entrypoint is selected only after runtime AVX-512F detection.
+    unsafe { euclidean_distance_avx512(left, right) }
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx512f")]
+unsafe fn euclidean_distance_avx512(left: &[f32], right: &[f32]) -> f32 {
+    unsafe { squared_l2_avx512(left, right) }.sqrt()
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "avx512f")]
+unsafe fn squared_l2_avx512(left: &[f32], right: &[f32]) -> f32 {
+    let mut index = 0_usize;
+    let mut acc = arch::_mm512_setzero_ps();
+    while index + 16 <= left.len() {
+        // Safety: `index + 16 <= len` ensures the 16-lane load is in-bounds.
+        let left_chunk = unsafe { arch::_mm512_loadu_ps(left.as_ptr().add(index)) };
+        // Safety: `index + 16 <= len` ensures the 16-lane load is in-bounds.
+        let right_chunk = unsafe { arch::_mm512_loadu_ps(right.as_ptr().add(index)) };
+        let delta = arch::_mm512_sub_ps(left_chunk, right_chunk);
+        let squared = arch::_mm512_mul_ps(delta, delta);
+        acc = arch::_mm512_add_ps(acc, squared);
+        index += 16;
     }
-    euclidean_distance_scalar(left, right)
+
+    let mut lane_sum = [0.0_f32; 16];
+    // Safety: `lane_sum` has exactly 16 `f32` values.
+    unsafe { arch::_mm512_storeu_ps(lane_sum.as_mut_ptr(), acc) };
+    let mut total = lane_sum.iter().sum::<f32>();
+    total += squared_l2_tail(left, right, index);
+    total
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
