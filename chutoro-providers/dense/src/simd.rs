@@ -68,12 +68,48 @@ impl DistancePair {
     }
 }
 
+/// Scalar distance value wrapper for domain-level intent.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Distance(f32);
+
+impl Distance {
+    /// Builds a distance wrapper.
+    #[must_use]
+    pub(crate) fn new(value: f32) -> Self {
+        Self(value)
+    }
+
+    /// Returns the raw distance value.
+    #[must_use]
+    pub(crate) fn get(self) -> f32 {
+        self.0
+    }
+}
+
+/// Matrix row width in scalar elements.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Dimension(usize);
+
+impl Dimension {
+    /// Builds a dimension wrapper.
+    #[must_use]
+    pub(crate) fn new(value: usize) -> Self {
+        Self(value)
+    }
+
+    /// Returns the raw dimension value.
+    #[must_use]
+    pub(crate) fn get(self) -> usize {
+        self.0
+    }
+}
+
 /// Row-major matrix metadata and storage for dense SIMD kernels.
 #[derive(Clone, Copy)]
 pub(crate) struct RowMajorMatrix<'a> {
     values: &'a [f32],
     rows: usize,
-    dimension: usize,
+    dimension: Dimension,
 }
 
 impl<'a> RowMajorMatrix<'a> {
@@ -83,7 +119,7 @@ impl<'a> RowMajorMatrix<'a> {
         Self {
             values,
             rows,
-            dimension,
+            dimension: Dimension::new(dimension),
         }
     }
 }
@@ -121,7 +157,8 @@ pub(crate) fn euclidean_distance_batch_pairs(
         let right = pair.right().get();
         let left_row = row_slice(matrix, RowIndex::new(left))?;
         let right_row = row_slice(matrix, RowIndex::new(right))?;
-        *value = euclidean_distance(left_row, right_row);
+        let distance = Distance::new(euclidean_distance(left_row, right_row));
+        *value = distance.get();
     }
 
     Ok(())
@@ -129,15 +166,16 @@ pub(crate) fn euclidean_distance_batch_pairs(
 
 fn row_slice(matrix: RowMajorMatrix<'_>, index: RowIndex) -> Result<&[f32], DataSourceError> {
     let raw_index = index.get();
+    let raw_dimension = matrix.dimension.get();
     if raw_index >= matrix.rows {
         return Err(DataSourceError::OutOfBounds { index: raw_index });
     }
 
     let start = raw_index
-        .checked_mul(matrix.dimension)
+        .checked_mul(raw_dimension)
         .ok_or(DataSourceError::OutOfBounds { index: raw_index })?;
     let end = start
-        .checked_add(matrix.dimension)
+        .checked_add(raw_dimension)
         .ok_or(DataSourceError::OutOfBounds { index: raw_index })?;
     if end > matrix.values.len() {
         return Err(DataSourceError::OutOfBounds { index: raw_index });
