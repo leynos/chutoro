@@ -150,6 +150,7 @@ impl DataSource for DenseMatrixProvider {
             .iter()
             .map(|&(left, right)| simd::DistancePair::from_raw(left, right))
             .collect::<Vec<_>>();
-        simd::euclidean_distance_batch_pairs(matrix, &distance_pairs, out)
+        let mut out_buffer = simd::DistanceBuffer::new(out);
+        simd::euclidean_distance_batch_pairs(matrix, &distance_pairs, &mut out_buffer)
     }
 }

@@ -122,6 +122,33 @@ impl RowCount {
     }
 }
 
+/// Mutable buffer for batch distance computation results.
+pub(crate) struct DistanceBuffer<'a>(&'a mut [f32]);
+
+impl<'a> DistanceBuffer<'a> {
+    /// Builds a mutable distance output buffer wrapper.
+    pub(crate) fn new(buffer: &'a mut [f32]) -> Self {
+        Self(buffer)
+    }
+
+    /// Returns the number of writable distances.
+    #[must_use]
+    pub(crate) fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Returns the total buffer capacity in distance elements.
+    #[must_use]
+    pub(crate) fn capacity(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Writes a computed distance at `index`.
+    pub(crate) fn write(&mut self, index: usize, distance: Distance) {
+        self.0[index] = distance.get();
+    }
+}
+
 /// Row-major matrix metadata and storage for dense SIMD kernels.
 #[derive(Clone, Copy)]
 pub(crate) struct RowMajorMatrix<'a> {
@@ -161,22 +188,20 @@ pub(crate) fn euclidean_distance(left: &[f32], right: &[f32]) -> f32 {
 pub(crate) fn euclidean_distance_batch_pairs(
     matrix: RowMajorMatrix<'_>,
     pairs: &[DistancePair],
-    out: &mut [f32],
+    out: &mut DistanceBuffer<'_>,
 ) -> Result<(), DataSourceError> {
     if pairs.len() != out.len() {
         return Err(DataSourceError::OutputLengthMismatch {
-            out: out.len(),
+            out: out.capacity(),
             expected: pairs.len(),
         });
     }
 
-    for (pair, value) in pairs.iter().copied().zip(out.iter_mut()) {
-        let left = pair.left().get();
-        let right = pair.right().get();
-        let left_row = row_slice(matrix, RowIndex::new(left))?;
-        let right_row = row_slice(matrix, RowIndex::new(right))?;
+    for (index, pair) in pairs.iter().copied().enumerate() {
+        let left_row = row_slice(matrix, pair.left())?;
+        let right_row = row_slice(matrix, pair.right())?;
         let distance = Distance::new(euclidean_distance(left_row, right_row));
-        *value = distance.get();
+        out.write(index, distance);
     }
 
     Ok(())
@@ -352,7 +377,8 @@ mod tests {
         #[case] mut out: Vec<f32>,
     ) {
         let matrix = RowMajorMatrix::new(&[1.0, 2.0, 3.0, 4.0], 2, 2);
-        let err = euclidean_distance_batch_pairs(matrix, &pairs, &mut out)
+        let mut out_buffer = DistanceBuffer::new(&mut out);
+        let err = euclidean_distance_batch_pairs(matrix, &pairs, &mut out_buffer)
             .expect_err("mismatched outputs must fail");
         assert!(matches!(err, DataSourceError::OutputLengthMismatch { .. }));
     }
@@ -367,8 +393,9 @@ mod tests {
         ];
         let mut out = vec![0.0_f32; pairs.len()];
         let matrix = RowMajorMatrix::new(&values, 3, 2);
+        let mut out_buffer = DistanceBuffer::new(&mut out);
 
-        euclidean_distance_batch_pairs(matrix, &pairs, &mut out)
+        euclidean_distance_batch_pairs(matrix, &pairs, &mut out_buffer)
             .expect("batch computation must succeed");
 
         close(out[0], 5.0_f32);
