@@ -1,6 +1,7 @@
 //! Behavioural tests for the benchmark regression gate binary.
 
 use std::env;
+use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -52,27 +53,41 @@ struct GateCase {
     expected_mode: "discovery_only",
     expected_should_compare: false,
 })]
-fn benchmark_gate_binary_outputs_expected_mode(gate_runner: GateRunner, #[case] case: GateCase) {
-    let output = gate_runner.run(case.event, case.policy);
+fn benchmark_gate_binary_outputs_expected_mode(
+    gate_runner: Result<GateRunner, Box<dyn Error>>,
+    #[case] case: GateCase,
+) -> Result<(), Box<dyn Error>> {
+    let gate_runner = gate_runner?;
+    let output = gate_runner.run(case.event, case.policy)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        panic!("expected success, got failure: {stderr}");
+        return Err(
+            std::io::Error::other(format!("expected success, got failure: {stderr}",)).into(),
+        );
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mode = match parse_value(&stdout, "mode") {
-        Some(value) => value,
-        None => panic!("missing mode output: {stdout}"),
-    };
+    let mode = parse_value(&stdout, "mode")
+        .ok_or_else(|| std::io::Error::other(format!("missing mode output: {stdout}")))?;
     let should_compare = match parse_value(&stdout, "should_compare") {
         Some("true") => true,
         Some("false") => false,
-        Some(other) => panic!("unexpected should_compare value: {other}"),
-        None => panic!("missing should_compare output: {stdout}"),
+        Some(other) => {
+            return Err(std::io::Error::other(
+                format!("unexpected should_compare value: {other}",),
+            )
+            .into());
+        }
+        None => {
+            return Err(
+                std::io::Error::other(format!("missing should_compare output: {stdout}",)).into(),
+            );
+        }
     };
 
     assert_eq!(mode, case.expected_mode);
     assert_eq!(should_compare, case.expected_should_compare);
+    Ok(())
 }
 
 #[rstest]
@@ -81,23 +96,27 @@ fn benchmark_gate_binary_outputs_expected_mode(gate_runner: GateRunner, #[case] 
 #[case("pull_request_target", "pull_request")]
 #[case("push", "other")]
 fn benchmark_gate_binary_reports_event(
-    gate_runner: GateRunner,
+    gate_runner: Result<GateRunner, Box<dyn Error>>,
     #[case] event: &str,
     #[case] expected_event: &str,
-) {
-    let output = gate_runner.run(event, None);
+) -> Result<(), Box<dyn Error>> {
+    let gate_runner = gate_runner?;
+    let output = gate_runner.run(event, None)?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        panic!("expected success, got failure: {stderr}");
+        return Err(
+            std::io::Error::other(format!("expected success, got failure: {stderr}",)).into(),
+        );
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let printed_event = parse_value(&stdout, "event").unwrap_or("<missing>");
     assert_eq!(printed_event, expected_event);
+    Ok(())
 }
 
 #[fixture]
-fn gate_runner() -> GateRunner {
+fn gate_runner() -> Result<GateRunner, Box<dyn Error>> {
     GateRunner::new()
 }
 
@@ -106,13 +125,12 @@ struct GateRunner {
 }
 
 impl GateRunner {
-    fn new() -> Self {
-        Self {
-            binary_path: binary_path(),
-        }
+    fn new() -> Result<Self, Box<dyn Error>> {
+        let binary_path = binary_path().map_err(std::io::Error::other)?;
+        Ok(Self { binary_path })
     }
 
-    fn run(&self, event: &str, policy: Option<&str>) -> std::process::Output {
+    fn run(&self, event: &str, policy: Option<&str>) -> std::io::Result<std::process::Output> {
         let mut command = Command::new(&self.binary_path);
         command
             .env("GITHUB_EVENT_NAME", event)
@@ -123,38 +141,32 @@ impl GateRunner {
             command.env("CHUTORO_BENCH_CI_POLICY", value);
         }
 
-        command
-            .output()
-            .expect("failed to run benchmark_regression_gate")
+        command.output()
     }
 }
 
-fn binary_path() -> PathBuf {
+fn binary_path() -> Result<PathBuf, String> {
     if let Ok(value) = env::var("CARGO_BIN_EXE_benchmark_regression_gate") {
-        return with_exe_suffix(PathBuf::from(value));
+        return Ok(with_exe_suffix(PathBuf::from(value)));
     }
 
-    let current_exe = match env::current_exe() {
-        Ok(path) => path,
-        Err(error) => panic!("failed to locate current test binary: {error}"),
-    };
-    let deps_dir = match current_exe.parent() {
-        Some(dir) => dir.to_path_buf(),
-        None => panic!("failed to resolve deps directory from test binary"),
-    };
-    let target_dir = match deps_dir.parent() {
-        Some(dir) => dir.to_path_buf(),
-        None => panic!("failed to resolve target directory from deps"),
-    };
+    let current_exe = env::current_exe()
+        .map_err(|error| format!("failed to locate current test binary: {error}"))?;
+    let deps_dir = current_exe
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "failed to resolve deps directory from test binary".to_string())?;
+    let target_dir = deps_dir
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "failed to resolve target directory from deps".to_string())?;
     let direct = with_exe_suffix(target_dir.join("benchmark_regression_gate"));
     if direct.exists() {
-        return direct;
+        return Ok(direct);
     }
 
-    match find_in_deps(&deps_dir) {
-        Some(path) => path,
-        None => panic!("failed to locate benchmark_regression_gate binary"),
-    }
+    find_in_deps(&deps_dir)
+        .ok_or_else(|| "failed to locate benchmark_regression_gate binary".to_string())
 }
 
 fn find_in_deps(deps_dir: &Path) -> Option<PathBuf> {
