@@ -103,7 +103,7 @@ Recommended implementation mechanism:
   - reads a declarative matrix spec (`benchmarks/matrix.toml`) across
     dataset/version, chutoro backend, metric, and profile (`smoke`, `cpu`, and
     `scale`),
-  - resolves required prepared dataset artefacts by manifest,
+  - resolves prepared dataset artefacts required by the manifest,
   - executes benchmark tuples with deterministic seeds,
   - records tuple-level run metadata.
 - Use `cargo-criterion --message-format=json`[^5] for machine-consumable
