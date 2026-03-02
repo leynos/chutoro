@@ -17,6 +17,57 @@ type EuclideanKernel = fn(&[f32], &[f32]) -> f32;
 
 static EUCLIDEAN_KERNEL: OnceLock<EuclideanKernel> = OnceLock::new();
 
+/// Logical row index into a row-major matrix.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct RowIndex(usize);
+
+impl RowIndex {
+    /// Builds a row index wrapper.
+    #[must_use]
+    pub(crate) fn new(index: usize) -> Self {
+        Self(index)
+    }
+
+    /// Returns the raw zero-based row index.
+    #[must_use]
+    pub(crate) fn get(self) -> usize {
+        self.0
+    }
+}
+
+/// Pair of row indices used for batch distance computation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct DistancePair {
+    left: RowIndex,
+    right: RowIndex,
+}
+
+impl DistancePair {
+    /// Builds a distance pair from typed row indices.
+    #[must_use]
+    pub(crate) fn new(left: RowIndex, right: RowIndex) -> Self {
+        Self { left, right }
+    }
+
+    /// Builds a distance pair from raw row indices.
+    #[must_use]
+    pub(crate) fn from_raw(left: usize, right: usize) -> Self {
+        Self::new(RowIndex::new(left), RowIndex::new(right))
+    }
+
+    /// Returns the left row index.
+    #[must_use]
+    pub(crate) fn left(self) -> RowIndex {
+        self.left
+    }
+
+    /// Returns the right row index.
+    #[must_use]
+    pub(crate) fn right(self) -> RowIndex {
+        self.right
+    }
+}
+
 /// Row-major matrix metadata and storage for dense SIMD kernels.
 #[derive(Clone, Copy)]
 pub(crate) struct RowMajorMatrix<'a> {
@@ -55,7 +106,7 @@ pub(crate) fn euclidean_distance(left: &[f32], right: &[f32]) -> f32 {
 /// order.
 pub(crate) fn euclidean_distance_batch_pairs(
     matrix: RowMajorMatrix<'_>,
-    pairs: &[(usize, usize)],
+    pairs: &[DistancePair],
     out: &mut [f32],
 ) -> Result<(), DataSourceError> {
     if pairs.len() != out.len() {
@@ -65,28 +116,31 @@ pub(crate) fn euclidean_distance_batch_pairs(
         });
     }
 
-    for ((left, right), value) in pairs.iter().copied().zip(out.iter_mut()) {
-        let left_row = row_slice(matrix, left)?;
-        let right_row = row_slice(matrix, right)?;
+    for (pair, value) in pairs.iter().copied().zip(out.iter_mut()) {
+        let left = pair.left().get();
+        let right = pair.right().get();
+        let left_row = row_slice(matrix, RowIndex::new(left))?;
+        let right_row = row_slice(matrix, RowIndex::new(right))?;
         *value = euclidean_distance(left_row, right_row);
     }
 
     Ok(())
 }
 
-fn row_slice(matrix: RowMajorMatrix<'_>, index: usize) -> Result<&[f32], DataSourceError> {
-    if index >= matrix.rows {
-        return Err(DataSourceError::OutOfBounds { index });
+fn row_slice(matrix: RowMajorMatrix<'_>, index: RowIndex) -> Result<&[f32], DataSourceError> {
+    let raw_index = index.get();
+    if raw_index >= matrix.rows {
+        return Err(DataSourceError::OutOfBounds { index: raw_index });
     }
 
-    let start = index
+    let start = raw_index
         .checked_mul(matrix.dimension)
-        .ok_or(DataSourceError::OutOfBounds { index })?;
+        .ok_or(DataSourceError::OutOfBounds { index: raw_index })?;
     let end = start
         .checked_add(matrix.dimension)
-        .ok_or(DataSourceError::OutOfBounds { index })?;
+        .ok_or(DataSourceError::OutOfBounds { index: raw_index })?;
     if end > matrix.values.len() {
-        return Err(DataSourceError::OutOfBounds { index });
+        return Err(DataSourceError::OutOfBounds { index: raw_index });
     }
 
     Ok(&matrix.values[start..end])
@@ -234,10 +288,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![(0, 1)], vec![])]
-    #[case(vec![(0, 1)], vec![0.0, 1.0])]
+    #[case(vec![DistancePair::from_raw(0, 1)], vec![])]
+    #[case(vec![DistancePair::from_raw(0, 1)], vec![0.0, 1.0])]
     fn batch_pairs_reject_mismatched_output_lengths(
-        #[case] pairs: Vec<(usize, usize)>,
+        #[case] pairs: Vec<DistancePair>,
         #[case] mut out: Vec<f32>,
     ) {
         let matrix = RowMajorMatrix::new(&[1.0, 2.0, 3.0, 4.0], 2, 2);
@@ -249,7 +303,11 @@ mod tests {
     #[test]
     fn batch_pairs_compute_distances() {
         let values = vec![1.0, 2.0, 4.0, 6.0, 2.0, 1.0];
-        let pairs = vec![(0, 1), (0, 2), (2, 1)];
+        let pairs = vec![
+            DistancePair::from_raw(0, 1),
+            DistancePair::from_raw(0, 2),
+            DistancePair::from_raw(2, 1),
+        ];
         let mut out = vec![0.0_f32; pairs.len()];
         let matrix = RowMajorMatrix::new(&values, 3, 2);
 

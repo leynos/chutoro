@@ -18,6 +18,66 @@ use crate::{
 
 use super::fixtures::{DummySource, assert_sorted_by_distance};
 
+#[derive(Clone)]
+struct DistanceBatchInstrumentedSource {
+    base: CountingSource,
+    batch_calls: Arc<AtomicUsize>,
+}
+
+impl DistanceBatchInstrumentedSource {
+    fn new(data: Vec<f32>, batch_calls: Arc<AtomicUsize>) -> Self {
+        let base = CountingSource::with_name(
+            "distance-batch-instrumented",
+            data,
+            Arc::new(AtomicUsize::new(0)),
+        );
+        Self { base, batch_calls }
+    }
+}
+
+impl DataSource for DistanceBatchInstrumentedSource {
+    fn len(&self) -> usize {
+        self.base.len()
+    }
+
+    fn name(&self) -> &str {
+        self.base.name()
+    }
+
+    fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
+        self.base.distance(left, right)
+    }
+
+    fn distance_batch(
+        &self,
+        pairs: &[(usize, usize)],
+        out: &mut [f32],
+    ) -> Result<(), DataSourceError> {
+        self.batch_calls.fetch_add(1, Ordering::Relaxed);
+        if pairs.len() != out.len() {
+            return Err(DataSourceError::OutputLengthMismatch {
+                out: out.len(),
+                expected: pairs.len(),
+            });
+        }
+
+        for ((left, right), slot) in pairs.iter().copied().zip(out.iter_mut()) {
+            let a = self
+                .base
+                .data()
+                .get(left)
+                .ok_or(DataSourceError::OutOfBounds { index: left })?;
+            let b = self
+                .base
+                .data()
+                .get(right)
+                .ok_or(DataSourceError::OutOfBounds { index: right })?;
+            *slot = (a - b).abs();
+        }
+        Ok(())
+    }
+}
+
 #[rstest]
 #[case(2, 8)]
 #[case(4, 16)]
@@ -180,66 +240,6 @@ fn uses_batch_distances_during_scoring() {
 
 #[rstest]
 fn uses_distance_batch_via_default_batch_distances_during_scoring() {
-    #[derive(Clone)]
-    struct DistanceBatchInstrumentedSource {
-        base: CountingSource,
-        batch_calls: Arc<AtomicUsize>,
-    }
-
-    impl DistanceBatchInstrumentedSource {
-        fn new(data: Vec<f32>, batch_calls: Arc<AtomicUsize>) -> Self {
-            let base = CountingSource::with_name(
-                "distance-batch-instrumented",
-                data,
-                Arc::new(AtomicUsize::new(0)),
-            );
-            Self { base, batch_calls }
-        }
-    }
-
-    impl DataSource for DistanceBatchInstrumentedSource {
-        fn len(&self) -> usize {
-            self.base.len()
-        }
-
-        fn name(&self) -> &str {
-            self.base.name()
-        }
-
-        fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
-            self.base.distance(left, right)
-        }
-
-        fn distance_batch(
-            &self,
-            pairs: &[(usize, usize)],
-            out: &mut [f32],
-        ) -> Result<(), DataSourceError> {
-            self.batch_calls.fetch_add(1, Ordering::Relaxed);
-            if pairs.len() != out.len() {
-                return Err(DataSourceError::OutputLengthMismatch {
-                    out: out.len(),
-                    expected: pairs.len(),
-                });
-            }
-
-            for ((left, right), slot) in pairs.iter().copied().zip(out.iter_mut()) {
-                let a = self
-                    .base
-                    .data()
-                    .get(left)
-                    .ok_or(DataSourceError::OutOfBounds { index: left })?;
-                let b = self
-                    .base
-                    .data()
-                    .get(right)
-                    .ok_or(DataSourceError::OutOfBounds { index: right })?;
-                *slot = (a - b).abs();
-            }
-            Ok(())
-        }
-    }
-
     let calls = Arc::new(AtomicUsize::new(0));
     let source = DistanceBatchInstrumentedSource::new(vec![0.0, 1.0, 2.0, 5.0], Arc::clone(&calls));
     let params = HnswParams::new(2, 4)
