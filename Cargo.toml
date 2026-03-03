@@ -19,7 +19,7 @@ rust-version = "1.88.0"
 [workspace.dependencies]
 arrow-array = "57.3.0"
 arrow-schema = "57.3.0"
-parquet = "57.3.0"
+parquet = "58.0.0"
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
