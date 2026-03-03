@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-arrow-array = "56.2.0"
-arrow-schema = "56.2.0"
-parquet = { version = "56.2.0", features = ["arrow"] }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+parquet = { workspace = true, features = ["arrow"] }
 thiserror = "2.0.17"
 [dependencies.chutoro-core]
 version = "0.1.0"
