@@ -149,6 +149,30 @@ impl<'a> DistanceBuffer<'a> {
     }
 }
 
+/// Immutable view of a single row's scalar values.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RowSlice<'a>(&'a [f32]);
+
+impl<'a> RowSlice<'a> {
+    /// Builds a row slice wrapper.
+    #[must_use]
+    pub(crate) fn new(slice: &'a [f32]) -> Self {
+        Self(slice)
+    }
+
+    /// Returns the raw scalar slice.
+    #[must_use]
+    pub(crate) fn as_slice(self) -> &'a [f32] {
+        self.0
+    }
+
+    /// Returns the number of scalar elements in the row.
+    #[must_use]
+    pub(crate) fn len(self) -> usize {
+        self.0.len()
+    }
+}
+
 /// Row-major matrix metadata and storage for dense SIMD kernels.
 #[derive(Clone, Copy)]
 pub(crate) struct RowMajorMatrix<'a> {
@@ -171,14 +195,14 @@ impl<'a> RowMajorMatrix<'a> {
 
 /// Computes Euclidean distance for two equal-length vectors.
 #[must_use]
-pub(crate) fn euclidean_distance(left: &[f32], right: &[f32]) -> f32 {
+pub(crate) fn euclidean_distance(left: RowSlice<'_>, right: RowSlice<'_>) -> Distance {
     debug_assert_eq!(
         left.len(),
         right.len(),
         "distance rows must have matching dimensions",
     );
     let kernel = *EUCLIDEAN_KERNEL.get_or_init(select_euclidean_kernel);
-    kernel(left, right)
+    Distance::new(kernel(left.as_slice(), right.as_slice()))
 }
 
 /// Computes Euclidean distances for `(left, right)` row pairs.
@@ -200,14 +224,14 @@ pub(crate) fn euclidean_distance_batch_pairs(
     for (index, pair) in pairs.iter().copied().enumerate() {
         let left_row = row_slice(matrix, pair.left())?;
         let right_row = row_slice(matrix, pair.right())?;
-        let distance = Distance::new(euclidean_distance(left_row, right_row));
+        let distance = euclidean_distance(left_row, right_row);
         out.write(index, distance);
     }
 
     Ok(())
 }
 
-fn row_slice(matrix: RowMajorMatrix<'_>, index: RowIndex) -> Result<&[f32], DataSourceError> {
+fn row_slice(matrix: RowMajorMatrix<'_>, index: RowIndex) -> Result<RowSlice<'_>, DataSourceError> {
     let raw_index = index.get();
     let raw_rows = matrix.rows.get();
     let raw_dimension = matrix.dimension.get();
@@ -225,7 +249,7 @@ fn row_slice(matrix: RowMajorMatrix<'_>, index: RowIndex) -> Result<&[f32], Data
         return Err(DataSourceError::OutOfBounds { index: raw_index });
     }
 
-    Ok(&matrix.values[start..end])
+    Ok(RowSlice::new(&matrix.values[start..end]))
 }
 
 fn select_euclidean_kernel() -> EuclideanKernel {
@@ -344,7 +368,9 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
-    fn close(left: f32, right: f32) {
+    fn close(left: Distance, right: Distance) {
+        let left = left.get();
+        let right = right.get();
         let tolerance = 1.0e-6_f32;
         assert!(
             (left - right).abs() <= tolerance,
@@ -365,8 +391,8 @@ mod tests {
         #[case] right: Vec<f32>,
     ) {
         let expected = euclidean_distance_scalar(&left, &right);
-        let actual = euclidean_distance(&left, &right);
-        close(actual, expected);
+        let actual = euclidean_distance(RowSlice::new(&left), RowSlice::new(&right));
+        close(actual, Distance::new(expected));
     }
 
     #[rstest]
@@ -398,9 +424,9 @@ mod tests {
         euclidean_distance_batch_pairs(matrix, &pairs, &mut out_buffer)
             .expect("batch computation must succeed");
 
-        close(out[0], 5.0_f32);
-        close(out[1], (2.0_f32).sqrt());
-        close(out[2], (29.0_f32).sqrt());
+        close(Distance::new(out[0]), Distance::new(5.0_f32));
+        close(Distance::new(out[1]), Distance::new((2.0_f32).sqrt()));
+        close(Distance::new(out[2]), Distance::new((29.0_f32).sqrt()));
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -417,7 +443,7 @@ mod tests {
 
         let expected = euclidean_distance_scalar(&left, &right);
         let actual = euclidean_distance_avx2_entry(&left, &right);
-        close(actual, expected);
+        close(Distance::new(actual), Distance::new(expected));
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -434,6 +460,6 @@ mod tests {
 
         let expected = euclidean_distance_scalar(&left, &right);
         let actual = euclidean_distance_avx512_entry(&left, &right);
-        close(actual, expected);
+        close(Distance::new(actual), Distance::new(expected));
     }
 }

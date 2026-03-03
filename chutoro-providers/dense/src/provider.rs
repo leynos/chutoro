@@ -137,7 +137,7 @@ impl DataSource for DenseMatrixProvider {
     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
         let a = self.row_slice(i)?;
         let b = self.row_slice(j)?;
-        Ok(simd::euclidean_distance(a, b))
+        Ok(simd::euclidean_distance(simd::RowSlice::new(a), simd::RowSlice::new(b)).get())
     }
 
     fn distance_batch(
