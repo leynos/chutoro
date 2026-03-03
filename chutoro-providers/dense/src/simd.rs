@@ -173,10 +173,34 @@ impl<'a> RowSlice<'a> {
     }
 }
 
+/// Flat backing store for a row-major matrix.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MatrixValues<'a>(&'a [f32]);
+
+impl<'a> MatrixValues<'a> {
+    /// Builds a matrix backing storage wrapper.
+    #[must_use]
+    pub(crate) fn new(values: &'a [f32]) -> Self {
+        Self(values)
+    }
+
+    /// Returns the raw matrix values slice.
+    #[must_use]
+    pub(crate) fn as_slice(self) -> &'a [f32] {
+        self.0
+    }
+
+    /// Returns the number of scalar values in the matrix backing store.
+    #[must_use]
+    pub(crate) fn len(self) -> usize {
+        self.0.len()
+    }
+}
+
 /// Row-major matrix metadata and storage for dense SIMD kernels.
 #[derive(Clone, Copy)]
 pub(crate) struct RowMajorMatrix<'a> {
-    values: &'a [f32],
+    values: MatrixValues<'a>,
     rows: RowCount,
     dimension: Dimension,
 }
@@ -184,11 +208,11 @@ pub(crate) struct RowMajorMatrix<'a> {
 impl<'a> RowMajorMatrix<'a> {
     /// Builds a row-major matrix view.
     #[must_use]
-    pub(crate) fn new(values: &'a [f32], rows: usize, dimension: usize) -> Self {
+    pub(crate) fn new(values: MatrixValues<'a>, rows: RowCount, dimension: Dimension) -> Self {
         Self {
             values,
-            rows: RowCount::new(rows),
-            dimension: Dimension::new(dimension),
+            rows,
+            dimension,
         }
     }
 }
@@ -249,7 +273,8 @@ fn row_slice(matrix: RowMajorMatrix<'_>, index: RowIndex) -> Result<RowSlice<'_>
         return Err(DataSourceError::OutOfBounds { index: raw_index });
     }
 
-    Ok(RowSlice::new(&matrix.values[start..end]))
+    let values = matrix.values.as_slice();
+    Ok(RowSlice::new(&values[start..end]))
 }
 
 fn select_euclidean_kernel() -> EuclideanKernel {
@@ -402,7 +427,11 @@ mod tests {
         #[case] pairs: Vec<DistancePair>,
         #[case] mut out: Vec<f32>,
     ) {
-        let matrix = RowMajorMatrix::new(&[1.0, 2.0, 3.0, 4.0], 2, 2);
+        let matrix = RowMajorMatrix::new(
+            MatrixValues::new(&[1.0, 2.0, 3.0, 4.0]),
+            RowCount::new(2),
+            Dimension::new(2),
+        );
         let mut out_buffer = DistanceBuffer::new(&mut out);
         let err = euclidean_distance_batch_pairs(matrix, &pairs, &mut out_buffer)
             .expect_err("mismatched outputs must fail");
@@ -418,7 +447,11 @@ mod tests {
             DistancePair::from_raw(2, 1),
         ];
         let mut out = vec![0.0_f32; pairs.len()];
-        let matrix = RowMajorMatrix::new(&values, 3, 2);
+        let matrix = RowMajorMatrix::new(
+            MatrixValues::new(&values),
+            RowCount::new(3),
+            Dimension::new(2),
+        );
         let mut out_buffer = DistanceBuffer::new(&mut out);
 
         euclidean_distance_batch_pairs(matrix, &pairs, &mut out_buffer)

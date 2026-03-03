@@ -145,7 +145,11 @@ impl DataSource for DenseMatrixProvider {
         pairs: &[(usize, usize)],
         out: &mut [f32],
     ) -> Result<(), DataSourceError> {
-        let matrix = simd::RowMajorMatrix::new(&self.values, self.rows, self.dimension);
+        let matrix = simd::RowMajorMatrix::new(
+            simd::MatrixValues::new(&self.values),
+            simd::RowCount::new(self.rows),
+            simd::Dimension::new(self.dimension),
+        );
         let distance_pairs = pairs
             .iter()
             .map(|&(left, right)| simd::DistancePair::from_raw(left, right))
