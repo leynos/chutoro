@@ -1,0 +1,9 @@
+{
+  "code-health-rules": {
+    "Primitive Obsession": {
+      "excluded-files": [
+        "chutoro-providers/dense/src/simd/kernels.rs"
+      ]
+    }
+  }
+}

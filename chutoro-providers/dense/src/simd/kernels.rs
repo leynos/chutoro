@@ -1,4 +1,16 @@
 //! Internal SIMD and scalar squared-L2 kernels for Euclidean distance.
+//!
+//! # Note: Primitive Obsession suppression
+//!
+//! This module is excluded from the CodeScene Primitive Obsession rule
+//! (see `.codescene/code-health-rules.json`). The kernel functions here
+//! operate directly on `&[f32]` slices and `usize` offsets because SIMD
+//! intrinsics require contiguous, unboxed memory and raw index arithmetic.
+//! Introducing domain-type wrappers at this layer would add indirection on
+//! every hot-path invocation, negating the benefit of SIMD acceleration.
+//! Domain-typed wrappers (`RowSlice`, `RowIndex`, `Distance`, etc.) are
+//! enforced at the public API boundary in `simd/mod.rs`; this private
+//! module is intentionally exempted.
 
 use std::sync::OnceLock;
 
