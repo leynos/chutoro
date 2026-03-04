@@ -49,12 +49,6 @@ impl DistancePair {
         Self { left, right }
     }
 
-    /// Builds a distance pair from raw row indices.
-    #[must_use]
-    pub(crate) fn from_raw(left: usize, right: usize) -> Self {
-        Self::new(RowIndex::new(left), RowIndex::new(right))
-    }
-
     /// Returns the left row index.
     #[must_use]
     pub(crate) fn left(self) -> RowIndex {
@@ -143,9 +137,9 @@ impl<'a> DistanceBuffer<'a> {
         self.0.len()
     }
 
-    /// Writes a computed distance at `index`.
-    pub(crate) fn write(&mut self, index: usize, distance: Distance) {
-        self.0[index] = distance.get();
+    /// Returns mutable output slots for batch distance results.
+    pub(crate) fn slots_mut(&mut self) -> impl Iterator<Item = &mut f32> {
+        self.0.iter_mut()
     }
 }
 
@@ -245,11 +239,10 @@ pub(crate) fn euclidean_distance_batch_pairs(
         });
     }
 
-    for (index, pair) in pairs.iter().copied().enumerate() {
+    for (pair, slot) in pairs.iter().copied().zip(out.slots_mut()) {
         let left_row = row_slice(matrix, pair.left())?;
         let right_row = row_slice(matrix, pair.right())?;
-        let distance = euclidean_distance(left_row, right_row);
-        out.write(index, distance);
+        *slot = euclidean_distance(left_row, right_row).get();
     }
 
     Ok(())
@@ -421,8 +414,14 @@ mod tests {
     }
 
     #[rstest]
-    #[case(vec![DistancePair::from_raw(0, 1)], vec![])]
-    #[case(vec![DistancePair::from_raw(0, 1)], vec![0.0, 1.0])]
+    #[case(
+        vec![DistancePair::new(RowIndex::new(0), RowIndex::new(1))],
+        vec![]
+    )]
+    #[case(
+        vec![DistancePair::new(RowIndex::new(0), RowIndex::new(1))],
+        vec![0.0, 1.0]
+    )]
     fn batch_pairs_reject_mismatched_output_lengths(
         #[case] pairs: Vec<DistancePair>,
         #[case] mut out: Vec<f32>,
@@ -442,9 +441,9 @@ mod tests {
     fn batch_pairs_compute_distances() {
         let values = vec![1.0, 2.0, 4.0, 6.0, 2.0, 1.0];
         let pairs = vec![
-            DistancePair::from_raw(0, 1),
-            DistancePair::from_raw(0, 2),
-            DistancePair::from_raw(2, 1),
+            DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
+            DistancePair::new(RowIndex::new(0), RowIndex::new(2)),
+            DistancePair::new(RowIndex::new(2), RowIndex::new(1)),
         ];
         let mut out = vec![0.0_f32; pairs.len()];
         let matrix = RowMajorMatrix::new(
