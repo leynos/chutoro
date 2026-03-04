@@ -145,6 +145,12 @@ impl DataSource for DenseMatrixProvider {
         pairs: &[(usize, usize)],
         out: &mut [f32],
     ) -> Result<(), DataSourceError> {
+        if pairs.len() != out.len() {
+            return Err(DataSourceError::OutputLengthMismatch {
+                out: out.len(),
+                expected: pairs.len(),
+            });
+        }
         let matrix = simd::RowMajorMatrix::new(
             simd::MatrixValues::new(&self.values),
             simd::RowCount::new(self.rows),

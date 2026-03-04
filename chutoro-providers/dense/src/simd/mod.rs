@@ -205,7 +205,7 @@ impl<'a> RowMajorMatrix<'a> {
 /// Computes Euclidean distance for two equal-length vectors.
 #[must_use]
 pub(crate) fn euclidean_distance(left: RowSlice<'_>, right: RowSlice<'_>) -> Distance {
-    debug_assert_eq!(
+    assert_eq!(
         left.len(),
         right.len(),
         "distance rows must have matching dimensions",

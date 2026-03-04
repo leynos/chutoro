@@ -273,7 +273,7 @@ ______________________________________________________________________
 
 - [x] 2.2.1. Add CPU distance kernels using stable `core::arch` x86 intrinsics
   with AVX2/AVX-512 specializations; make `distance_batch` the default HNSW
-  scoring path. Keep `std::simd` optional and nightly-gated while
+  scoring path. Keep `std::simd` optional and nightly gated while
   `portable_simd` remains unstable (`rust-lang/rust#86656`); AVX-512 stable
   intrinsics are available from Rust `1.89.0` (`rust-lang/rust#111137`). (See
   §6.3)
@@ -287,10 +287,10 @@ ______________________________________________________________________
     CPU/GPU parity.
   - Guarantee 64-byte alignment and lane-multiple padding for
     `DensePointView<'a>`; zero-pad tails.
-- [ ] 2.2.4. Add an optional nightly-only `std::simd` backend behind a
-  non-default Cargo feature and nightly CI job; keep stable `core::arch`
-  implementation as default. Track `portable_simd` stabilization
-  (`rust-lang/rust#86656`) and AVX-512 adjunct blockers
+- [ ] 2.2.4. Add an optional nightly only `std::simd` backend behind a
+  non-default Cargo feature and nightly Continuous Integration (CI) job; keep
+  stable `core::arch` implementation as default. Track `portable_simd`
+  stabilization (`rust-lang/rust#86656`) and AVX-512 adjunct blockers
   (`rust-lang/rust#127356` and `rust-lang/rust#127213`). (See §6.3)
 - [ ] 2.2.5. Implement portable-SIMD gating mechanics so stable and nightly
   paths can coexist safely:

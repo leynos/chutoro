@@ -38,17 +38,32 @@ pub(super) fn select_euclidean_kernel() -> EuclideanKernel {
 }
 
 pub(super) fn euclidean_distance_scalar(left: &[f32], right: &[f32]) -> f32 {
+    debug_assert_eq!(
+        left.len(),
+        right.len(),
+        "distance rows must have matching dimensions",
+    );
     squared_l2_tail(left, right, 0).sqrt()
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(super) fn euclidean_distance_avx2_entry(left: &[f32], right: &[f32]) -> f32 {
+    debug_assert_eq!(
+        left.len(),
+        right.len(),
+        "distance rows must have matching dimensions",
+    );
     // Safety: this entrypoint is selected only after runtime AVX2 detection.
     unsafe { euclidean_distance_avx2(left, right) }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 pub(super) fn euclidean_distance_avx512_entry(left: &[f32], right: &[f32]) -> f32 {
+    debug_assert_eq!(
+        left.len(),
+        right.len(),
+        "distance rows must have matching dimensions",
+    );
     // Safety: this entrypoint is selected only after runtime AVX-512F detection.
     unsafe { euclidean_distance_avx512(left, right) }
 }

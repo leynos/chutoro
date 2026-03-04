@@ -907,14 +907,15 @@ fallback._
 
 _Implementation update (2026-03-02)._ Roadmap item `2.2.1` is implemented using
 stable Rust primitives with toolchain `1.93.1` (latest stable, released
-2026-02-12) and MSRV `1.89.0`. The default `DataSource::batch_distances` path
-now delegates to `distance_batch`, so HNSW candidate scoring inherits
-pair-oriented specializations by default without changing query-centric
-call-sites in `hnsw/validate.rs`.
+2026-02-12) and minimum supported Rust version (MSRV) `1.89.0`. The default
+`DataSource::batch_distances` path now delegates to `distance_batch`, so HNSW
+candidate scoring inherits pair-oriented specializations by default without
+changing query-centric call-sites in `hnsw/validate.rs`.
 
 `DenseMatrixProvider` now routes Euclidean distance batches through a dedicated
-SIMD kernel module (`chutoro-providers/dense/src/simd.rs`) with one-time x86
-runtime dispatch:
+SIMD kernel module (`chutoro-providers/dense/src/simd/mod.rs` and
+`chutoro-providers/dense/src/simd/kernels.rs`) with one-time x86 runtime
+dispatch:
 
 - AVX2 specialization using `std::arch` intrinsics and lane-tail scalar
   handling.
@@ -923,9 +924,9 @@ runtime dispatch:
   tracking issue `rust-lang/rust#111137`).
 - Scalar fallback for all non-x86 targets and unsupported feature sets.
 
-`std::simd` remains a nightly-only API (`#![feature(portable_simd)]`; tracking
+`std::simd` remains a nightly only API (`#![feature(portable_simd)]`; tracking
 issue `rust-lang/rust#86656`). The design keeps stable `core::arch` kernels as
-the default path and permits an optional nightly-only implementation behind a
+the default path and permits an optional nightly only implementation behind a
 feature gate for experimentation. AVX-512-specific nightly culprits remain out
 of scope for the stable path (`rust-lang/rust#127356` for `bf16` wrappers and
 `rust-lang/rust#127213` for AVX512_FP16 intrinsics).

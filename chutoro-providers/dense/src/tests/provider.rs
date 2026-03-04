@@ -141,6 +141,11 @@ fn matrix_provider_distance_batch_empty() {
 }
 
 fn scalar_distance(left: &[f32], right: &[f32]) -> f32 {
+    assert_eq!(
+        left.len(),
+        right.len(),
+        "scalar distance inputs must have matching dimensions",
+    );
     left.iter()
         .zip(right.iter())
         .map(|(l, r)| {

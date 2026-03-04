@@ -1,4 +1,4 @@
-# Execution Plan (ExecPlan): roadmap 2.2.1 CPU SIMD distance kernels using `core::arch` and optional `std::simd`
+# Execution Plan (ExecPlan): roadmap 2.2.1 CPU Single Instruction, Multiple Data (SIMD) distance kernels using `core::arch` and optional `std::simd`
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
@@ -8,9 +8,10 @@ Status: COMPLETE
 
 ## Purpose / big picture
 
-Implement roadmap item `2.2.1` by adding CPU SIMD distance kernels with x86
-AVX2/AVX-512-aware dispatch, and make the HNSW scoring path use
-`distance_batch` by default.
+Implement roadmap item `2.2.1` by adding CPU Single Instruction, Multiple Data
+(SIMD) distance kernels with x86 Advanced Vector Extensions 2 (AVX2) and
+AVX-512-aware dispatch, and make the Hierarchical Navigable Small World (HNSW)
+scoring path use `distance_batch` by default.
 
 Success is observable when:
 
@@ -52,9 +53,9 @@ Success is observable when:
   signatures, stop and escalate with options.
 - Dependencies: if implementation appears to require a new crate dependency,
   stop and escalate.
-- Compatibility: stable kernels must compile on MSRV `1.89.0` (AVX-512
-  stabilization baseline), and optional `std::simd` code must stay behind a
-  nightly-only gate.
+- Compatibility: stable kernels must compile on the minimum supported Rust
+  version (MSRV) `1.89.0` (AVX-512 stabilization baseline), and optional
+  `std::simd` code must stay behind a nightly only gate.
 - Iterations: if `make lint` or `make test` still fails after 3 repair
   attempts, stop and escalate with logs.
 - Ambiguity: if roadmap wording conflicts materially with §6.3 design wording,
@@ -89,8 +90,9 @@ Success is observable when:
   `chutoro-core/tests/datasource.rs`, and
   `chutoro-core/src/hnsw/tests/build.rs`.
 - [x] (2026-03-02 00:55Z) Stage B complete: added
-  `chutoro-providers/dense/src/simd.rs` with scalar and AVX2 kernels plus x86
-  runtime dispatch.
+  `chutoro-providers/dense/src/simd/mod.rs` and
+  `chutoro-providers/dense/src/simd/kernels.rs` with scalar and AVX2 kernels
+  plus x86 runtime dispatch.
 - [x] (2026-03-02 01:05Z) Stage C complete: changed
   `DataSource::batch_distances` default to delegate to `distance_batch`, and
   routed dense provider batch scoring through the SIMD module.
@@ -117,13 +119,13 @@ Success is observable when:
 
 - Observation: `std::simd` remains unavailable on stable toolchains, including
   `1.93.1` (latest stable release on 2026-02-12). Evidence: `rustc` emits
-  `E0658: use of unstable library feature portable_simd`. Impact: the SIMD
+  `E0658: use of unstable library feature portable_simd`.[^1] Impact: the SIMD
   implementation uses stable `std::arch` AVX2 intrinsics and scalar fallback.
 
 - Observation: AVX-512 intrinsics and
   `#[target_feature(enable = "avx512f")]` are stable as of Rust `1.89.0`.
-  Evidence: Rust `1.89.0` release notes and closed tracking issue
-  `rust-lang/rust#111137`. Impact: the stable branch can run a real AVX-512
+  Evidence: Rust `1.89.0` release notes[^2] and closed tracking issue
+  `rust-lang/rust#111137`.[^3] Impact: the stable branch can run a real AVX-512
   kernel instead of degrading to AVX2/scalar.
 
 ## Decision Log
@@ -160,7 +162,8 @@ Success is observable when:
 Implemented outcomes:
 
 - Added dense-provider SIMD kernel module
-  (`chutoro-providers/dense/src/simd.rs`) with:
+  (`chutoro-providers/dense/src/simd/mod.rs` and
+  `chutoro-providers/dense/src/simd/kernels.rs`) with:
   - scalar Euclidean kernel,
   - AVX2 specialization via `std::arch`,
   - x86 runtime dispatch with AVX-512 detection and stable fallback semantics.
@@ -193,7 +196,7 @@ Validation summary:
 Retrospective:
 
 - The largest implementation constraint remains stable-toolchain support for
-  `std::simd`, which is still nightly-only.
+  `std::simd`, which is still nightly only.
 - Preserving a narrow kernel-module boundary kept the change coherent and made
   the fallback policy explicit.
 
@@ -255,7 +258,10 @@ scalar fallback and runtime dispatch.
 
 Planned edits:
 
-- `chutoro-providers/dense/src/simd.rs` (new)
+- `chutoro-providers/dense/src/simd/mod.rs` (new)
+  - add module-level docs (`//!`) describing dispatch and safety boundaries.
+  - implement typed wrappers and public kernel boundary APIs.
+- `chutoro-providers/dense/src/simd/kernels.rs` (new)
   - add module-level docs (`//!`) describing dispatch and safety boundaries.
   - implement:
     - scalar kernel
@@ -437,9 +443,11 @@ Public interfaces that must remain stable:
 
 Planned internal interfaces:
 
-- `chutoro-providers/dense/src/simd.rs`
-  - `pub(crate)` kernel entry points for scalar and SIMD Euclidean batch
-    distance computation.
+- `chutoro-providers/dense/src/simd/mod.rs`
+  - `pub(crate)` typed boundary entry points for Euclidean batch distance
+    computation.
+- `chutoro-providers/dense/src/simd/kernels.rs`
+  - internal scalar and SIMD kernel implementations used by `simd/mod.rs`.
 - `chutoro-providers/dense/src/provider.rs`
   - `distance_batch` delegates to kernel entry point and preserves existing
     error contracts.
@@ -456,6 +464,12 @@ explicit staged validation and quality-gate requirements.
 Implementation update on 2026-03-02:
 
 - Marked status `COMPLETE` and updated all stage checkpoints.
-- Documented stable-toolchain constraints (`portable_simd` still nightly-only)
-  and AVX-512 stabilization (`rust-lang/rust#111137`) with updated MSRV.
+- Documented stable-toolchain constraints (`portable_simd` still nightly
+  only)[^1] and AVX-512 stabilization (`rust-lang/rust#111137`)[^3] with
+  updated minimum supported Rust version (MSRV).
 - Recorded final outcomes, validation evidence, and roadmap/design doc updates.
+
+[^1]: <https://github.com/rust-lang/rust/issues/86656>
+[^2]:
+    [Rust 1.89.0 release notes](https://blog.rust-lang.org/2025/08/07/Rust-1.89.0/)
+[^3]: <https://github.com/rust-lang/rust/issues/111137>
