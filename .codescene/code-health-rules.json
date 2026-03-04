@@ -1,9 +1,11 @@
 {
-  "code-health-rules": {
-    "Primitive Obsession": {
-      "excluded-files": [
-        "chutoro-providers/dense/src/simd/kernels.rs"
+  "rule_sets": [
+    {
+      "matching_content_path": "chutoro-providers/dense/src/simd/kernels.rs",
+      "matching_content_path_doc": "Kernel functions operate directly on `&[f32]` slices and `usize` offsets because SIMD intrinsics require contiguous, unboxed memory and raw index arithmetic",
+      "rules": [
+        { "name": "Primitive Obsession", "weight": 0.0 }
       ]
     }
-  }
+  ]
 }
