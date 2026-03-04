@@ -63,8 +63,8 @@ Success is observable when:
 
 ## Risks
 
-- Risk: SIMD and scalar kernels may diverge numerically on borderline floating
-  point inputs. Severity: high. Likelihood: medium. Mitigation: add equivalence
+- Risk: SIMD and scalar kernels may diverge numerically on borderline
+  floating-point inputs. Severity: high. Likelihood: medium. Mitigation: add equivalence
   tests with explicit epsilon, including odd dimensions and tail handling.
 
 - Risk: Runtime dispatch and `#[target_feature]` boundaries can introduce
@@ -134,28 +134,28 @@ Success is observable when:
   through the `distance_batch` contract by default while preserving existing
   `batch_distances(query, candidates)` call-sites for ergonomics. Rationale:
   this aligns roadmap wording with the current query-centric call graph and
-  avoids broad API churn. Date/Author: 2026-03-02 / Codex
+  avoids broad API churn. Date/Author: 2026-03-02 / Codex.
 
 - Decision: implement SIMD kernels first for dense Euclidean distance batches
   and keep non-dense providers on scalar fallback. Rationale: dense numeric
   data is the target for SIMD wins, and this keeps scope bounded to roadmap
-  item `2.2.1`. Date/Author: 2026-03-02 / Codex
+  item `2.2.1`. Date/Author: 2026-03-02 / Codex.
 
 - Decision: keep AVX2/AVX-512 dispatch internal to dense provider internals and
   avoid introducing new Cargo feature flags in this item. Rationale:
   feature-flag gating is separately tracked by roadmap item `2.2.3`.
-  Date/Author: 2026-03-02 / Codex
+  Date/Author: 2026-03-02 / Codex.
 
 - Decision: satisfy roadmap `2.2.1` on stable toolchain by implementing SIMD
   via `std::arch` instead of `std::simd`. Rationale: `std::simd` remains
   unstable on stable, but AVX2/AVX-512 specialization and default
   `distance_batch` scoring path can be delivered safely with stable Rust.
-  Date/Author: 2026-03-02 / Codex
+  Date/Author: 2026-03-02 / Codex.
 
 - Decision: promote AVX-512 from detect-only fallback to active stable kernel
   path and bump MSRV to `1.89.0`. Rationale: AVX-512 intrinsics are stabilized,
   so the stable implementation should take direct advantage of them while
-  preserving scalar fallback. Date/Author: 2026-03-02 / Codex
+  preserving scalar fallback. Date/Author: 2026-03-02 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -163,7 +163,7 @@ Implemented outcomes:
 
 - Added dense-provider SIMD kernel module
   (`chutoro-providers/dense/src/simd/mod.rs` and
-  `chutoro-providers/dense/src/simd/kernels.rs`) with:
+  `chutoro-providers/dense/src/simd/kernels.rs`) with
   - scalar Euclidean kernel,
   - AVX2 specialization via `std::arch`,
   - x86 runtime dispatch with AVX-512 detection and stable fallback semantics.
@@ -172,7 +172,7 @@ Implemented outcomes:
 - Changed default `DataSource::batch_distances` to delegate to
   `distance_batch`, making pair-batch specializations the default HNSW scoring
   path.
-- Added regression coverage for:
+- Added regression coverage for
   - default delegation behaviour in trait unit and integration tests,
   - HNSW scoring path exercising `distance_batch` via default delegation,
   - dense-provider batch parity against scalar references across odd and
@@ -470,7 +470,7 @@ Implementation update on 2026-03-02:
 - Documented stable-toolchain constraints (`portable_simd` still nightly
   only)[^1] and AVX-512 stabilization (`rust-lang/rust#111137`)[^3] with
   updated minimum supported Rust version (MSRV).
-- Recorded final outcomes, validation evidence, and roadmap/design doc updates.
+- Recorded outcomes, validation evidence, and roadmap/design doc updates.
 
 [^1]: <https://github.com/rust-lang/rust/issues/86656>
 [^2]:

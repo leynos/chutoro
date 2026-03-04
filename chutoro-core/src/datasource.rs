@@ -282,28 +282,22 @@ mod tests {
         }
     }
 
-    #[fixture]
-    fn batch_first_setup() -> (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+    fn make_batch_first(data: Vec<f32>) -> (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>) {
         let batch_calls = Arc::new(AtomicUsize::new(0));
         let distance_calls = Arc::new(AtomicUsize::new(0));
-        let source = BatchFirstSource::new(
-            vec![0.0, 1.5, 4.0],
-            Arc::clone(&batch_calls),
-            Arc::clone(&distance_calls),
-        );
+        let source =
+            BatchFirstSource::new(data, Arc::clone(&batch_calls), Arc::clone(&distance_calls));
         (source, batch_calls, distance_calls)
     }
 
     #[fixture]
+    fn batch_first_setup() -> (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+        make_batch_first(vec![0.0, 1.5, 4.0])
+    }
+
+    #[fixture]
     fn batch_first_singleton_setup() -> (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>) {
-        let batch_calls = Arc::new(AtomicUsize::new(0));
-        let distance_calls = Arc::new(AtomicUsize::new(0));
-        let source = BatchFirstSource::new(
-            vec![0.0],
-            Arc::clone(&batch_calls),
-            Arc::clone(&distance_calls),
-        );
-        (source, batch_calls, distance_calls)
+        make_batch_first(vec![0.0])
     }
 
     #[test]
