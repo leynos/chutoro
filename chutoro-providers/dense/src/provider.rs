@@ -156,13 +156,7 @@ impl DataSource for DenseMatrixProvider {
             simd::RowCount::new(self.rows),
             simd::Dimension::new(self.dimension),
         );
-        let distance_pairs = pairs
-            .iter()
-            .map(|&(left, right)| {
-                simd::DistancePair::new(simd::RowIndex::new(left), simd::RowIndex::new(right))
-            })
-            .collect::<Vec<_>>();
         let mut out_buffer = simd::DistanceBuffer::new(out);
-        simd::euclidean_distance_batch_pairs(matrix, &distance_pairs, &mut out_buffer)
+        simd::euclidean_distance_batch_raw_pairs(matrix, pairs, &mut out_buffer)
     }
 }

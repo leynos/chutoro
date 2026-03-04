@@ -205,16 +205,19 @@ Retrospective:
 Relevant current files and behaviour:
 
 - `chutoro-core/src/datasource.rs`:
-  - `batch_distances(query, candidates)` defaults to repeated `distance(...)`.
-  - `distance_batch(pairs, out)` defaults to repeated `distance(...)` with
-    output-length checks and "leave `out` unchanged on error" semantics.
+  - `batch_distances(query, candidates)` now delegates to
+    `distance_batch(pairs, out)` by constructing `(query, candidate)` pairs.
+  - `distance_batch(pairs, out)` still defaults to repeated `distance(...)`,
+    includes output-length checks, and leaves `out` unchanged on error.
 - `chutoro-core/src/hnsw/validate.rs`:
   - HNSW batch scoring validates via `source.batch_distances(...)`.
-  - The no-cache path checks non-finite outputs but currently relies on the
-    `batch_distances` contract.
+  - The no-cache path validates non-finite outputs returned from
+    `source.batch_distances(...)`.
 - `chutoro-providers/dense/src/provider.rs`:
-  - Dense provider currently overrides `distance_batch` with scalar loops and
-    does not override `batch_distances`.
+  - Dense provider overrides `distance_batch` and routes pair batches through
+    `chutoro-providers/dense/src/simd/` kernels.
+  - Dense provider does not override `batch_distances`, so it inherits the
+    datasource default delegation into `distance_batch`.
 - `chutoro-core/src/hnsw/tests/build.rs`:
   - existing regression test confirms HNSW exercises `batch_distances`.
 

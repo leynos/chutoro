@@ -27,12 +27,14 @@ impl RowIndex {
 }
 
 /// Pair of row indices used for batch distance computation.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct DistancePair {
     left: RowIndex,
     right: RowIndex,
 }
 
+#[cfg(test)]
 impl DistancePair {
     /// Builds a distance pair from typed row indices.
     #[must_use]
@@ -218,6 +220,7 @@ pub(crate) fn euclidean_distance(left: RowSlice<'_>, right: RowSlice<'_>) -> Dis
 ///
 /// The `values` slice must encode `rows * dimension` `f32` values in row-major
 /// order.
+#[cfg(test)]
 pub(crate) fn euclidean_distance_batch_pairs(
     matrix: RowMajorMatrix<'_>,
     pairs: &[DistancePair],
@@ -230,13 +233,63 @@ pub(crate) fn euclidean_distance_batch_pairs(
         });
     }
 
-    for (pair, slot) in pairs.iter().copied().zip(out.slots_mut()) {
-        let left_row = row_slice(matrix, pair.left())?;
-        let right_row = row_slice(matrix, pair.right())?;
-        *slot = euclidean_distance(left_row, right_row).get();
+    let results = collect_euclidean_distance_batch(
+        matrix,
+        pairs
+            .iter()
+            .copied()
+            .map(|pair| (pair.left(), pair.right())),
+    )?;
+
+    for (value, slot) in results.into_iter().zip(out.slots_mut()) {
+        *slot = value;
     }
 
     Ok(())
+}
+
+/// Computes Euclidean distances for raw `(left, right)` row index pairs.
+///
+/// The `values` slice must encode `rows * dimension` `f32` values in row-major
+/// order.
+pub(crate) fn euclidean_distance_batch_raw_pairs(
+    matrix: RowMajorMatrix<'_>,
+    pairs: &[(usize, usize)],
+    out: &mut DistanceBuffer<'_>,
+) -> Result<(), DataSourceError> {
+    if pairs.len() != out.len() {
+        return Err(DataSourceError::OutputLengthMismatch {
+            out: out.capacity(),
+            expected: pairs.len(),
+        });
+    }
+
+    let results = collect_euclidean_distance_batch(
+        matrix,
+        pairs
+            .iter()
+            .copied()
+            .map(|(left, right)| (RowIndex::new(left), RowIndex::new(right))),
+    )?;
+
+    for (value, slot) in results.into_iter().zip(out.slots_mut()) {
+        *slot = value;
+    }
+
+    Ok(())
+}
+
+fn collect_euclidean_distance_batch(
+    matrix: RowMajorMatrix<'_>,
+    pairs: impl Iterator<Item = (RowIndex, RowIndex)>,
+) -> Result<Vec<f32>, DataSourceError> {
+    let mut results = Vec::new();
+    for (left, right) in pairs {
+        let left_row = row_slice(matrix, left)?;
+        let right_row = row_slice(matrix, right)?;
+        results.push(euclidean_distance(left_row, right_row).get());
+    }
+    Ok(results)
 }
 
 fn row_slice(matrix: RowMajorMatrix<'_>, index: RowIndex) -> Result<RowSlice<'_>, DataSourceError> {
@@ -340,6 +393,28 @@ mod tests {
         close(Distance::new(out[0]), Distance::new(5.0_f32));
         close(Distance::new(out[1]), Distance::new((2.0_f32).sqrt()));
         close(Distance::new(out[2]), Distance::new((29.0_f32).sqrt()));
+    }
+
+    #[test]
+    fn batch_pairs_leave_output_unmodified_on_error() {
+        let values = vec![1.0, 2.0, 4.0, 6.0, 2.0, 1.0];
+        let pairs = vec![
+            DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
+            DistancePair::new(RowIndex::new(0), RowIndex::new(9)),
+        ];
+        let mut out = vec![10.0_f32, 20.0_f32];
+        let matrix = RowMajorMatrix::new(
+            MatrixValues::new(&values),
+            RowCount::new(3),
+            Dimension::new(2),
+        );
+        let mut out_buffer = DistanceBuffer::new(&mut out);
+
+        let err = euclidean_distance_batch_pairs(matrix, &pairs, &mut out_buffer)
+            .expect_err("out-of-bounds pair must fail");
+
+        assert!(matches!(err, DataSourceError::OutOfBounds { index: 9 }));
+        assert_eq!(out, vec![10.0_f32, 20.0_f32]);
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
