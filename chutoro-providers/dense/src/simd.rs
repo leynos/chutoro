@@ -286,17 +286,7 @@ mod kernels {
     }
 
     pub(super) fn euclidean_distance_scalar(left: &[f32], right: &[f32]) -> f32 {
-        squared_l2_scalar(left, right).sqrt()
-    }
-
-    fn squared_l2_scalar(left: &[f32], right: &[f32]) -> f32 {
-        left.iter()
-            .zip(right.iter())
-            .map(|(l, r)| {
-                let delta = *l - *r;
-                delta * delta
-            })
-            .sum::<f32>()
+        squared_l2_tail(left, right, 0).sqrt()
     }
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
