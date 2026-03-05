@@ -2,7 +2,7 @@
 
 use super::kernels;
 use super::*;
-use rstest::rstest;
+use rstest::{fixture, rstest};
 
 fn close(left: Distance, right: Distance) {
     let left = left.get();
@@ -12,6 +12,16 @@ fn close(left: Distance, right: Distance) {
         (left - right).abs() <= tolerance,
         "left={left}, right={right}, tolerance={tolerance}",
     );
+}
+
+#[fixture]
+fn matrix_3x2() -> RowMajorMatrix<'static> {
+    const VALUES: [f32; 6] = [1.0, 2.0, 4.0, 6.0, 2.0, 1.0];
+    RowMajorMatrix::new(
+        MatrixValues::new(&VALUES),
+        RowCount::new(3),
+        Dimension::new(2),
+    )
 }
 
 #[rstest]
@@ -52,23 +62,17 @@ fn batch_pairs_reject_mismatched_output_lengths(
     assert!(matches!(err, DataSourceError::OutputLengthMismatch { .. }));
 }
 
-#[test]
-fn batch_pairs_compute_distances() {
-    let values = vec![1.0, 2.0, 4.0, 6.0, 2.0, 1.0];
+#[rstest]
+fn batch_pairs_compute_distances(matrix_3x2: RowMajorMatrix<'static>) {
     let pairs = vec![
         DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
         DistancePair::new(RowIndex::new(0), RowIndex::new(2)),
         DistancePair::new(RowIndex::new(2), RowIndex::new(1)),
     ];
     let mut out = vec![0.0_f32; pairs.len()];
-    let matrix = RowMajorMatrix::new(
-        MatrixValues::new(&values),
-        RowCount::new(3),
-        Dimension::new(2),
-    );
     let mut out_buffer = DistanceBuffer::new(&mut out);
 
-    euclidean_distance_batch_pairs(matrix, &pairs, &mut out_buffer)
+    euclidean_distance_batch_pairs(matrix_3x2, &pairs, &mut out_buffer)
         .expect("batch computation must succeed");
 
     close(Distance::new(out[0]), Distance::new(5.0_f32));
@@ -76,22 +80,16 @@ fn batch_pairs_compute_distances() {
     close(Distance::new(out[2]), Distance::new((29.0_f32).sqrt()));
 }
 
-#[test]
-fn batch_pairs_leave_output_unmodified_on_error() {
-    let values = vec![1.0, 2.0, 4.0, 6.0, 2.0, 1.0];
+#[rstest]
+fn batch_pairs_leave_output_unmodified_on_error(matrix_3x2: RowMajorMatrix<'static>) {
     let pairs = vec![
         DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
         DistancePair::new(RowIndex::new(0), RowIndex::new(9)),
     ];
     let mut out = vec![10.0_f32, 20.0_f32];
-    let matrix = RowMajorMatrix::new(
-        MatrixValues::new(&values),
-        RowCount::new(3),
-        Dimension::new(2),
-    );
     let mut out_buffer = DistanceBuffer::new(&mut out);
 
-    let err = euclidean_distance_batch_pairs(matrix, &pairs, &mut out_buffer)
+    let err = euclidean_distance_batch_pairs(matrix_3x2, &pairs, &mut out_buffer)
         .expect_err("out-of-bounds pair must fail");
 
     assert!(matches!(err, DataSourceError::OutOfBounds { index: 9 }));

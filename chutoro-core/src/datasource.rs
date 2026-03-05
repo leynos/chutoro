@@ -282,21 +282,28 @@ mod tests {
         }
     }
 
-    fn make_batch_first(data: Vec<f32>) -> (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+    fn make_batch_first(
+        data: Vec<f32>,
+    ) -> Result<(BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>), DataSourceError> {
+        if data.is_empty() {
+            return Err(DataSourceError::EmptyData);
+        }
         let batch_calls = Arc::new(AtomicUsize::new(0));
         let distance_calls = Arc::new(AtomicUsize::new(0));
         let source =
             BatchFirstSource::new(data, Arc::clone(&batch_calls), Arc::clone(&distance_calls));
-        (source, batch_calls, distance_calls)
+        Ok((source, batch_calls, distance_calls))
     }
 
     #[fixture]
-    fn batch_first_setup() -> (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+    fn batch_first_setup()
+    -> Result<(BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>), DataSourceError> {
         make_batch_first(vec![0.0, 1.5, 4.0])
     }
 
     #[fixture]
-    fn batch_first_singleton_setup() -> (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>) {
+    fn batch_first_singleton_setup()
+    -> Result<(BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>), DataSourceError> {
         make_batch_first(vec![0.0])
     }
 
@@ -330,13 +337,14 @@ mod tests {
 
     #[rstest]
     fn batch_distances_delegates_to_distance_batch(
-        batch_first_setup: (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>),
-    ) {
-        let (source, batch_calls, distance_calls) = batch_first_setup;
+        batch_first_setup: Result<
+            (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>),
+            DataSourceError,
+        >,
+    ) -> Result<(), DataSourceError> {
+        let (source, batch_calls, distance_calls) = batch_first_setup?;
 
-        let distances = source
-            .batch_distances(0, &[1, 2])
-            .expect("batch distances must succeed");
+        let distances = source.batch_distances(0, &[1, 2])?;
 
         assert_eq!(distances, vec![1.5, 4.0]);
         assert_eq!(
@@ -349,13 +357,18 @@ mod tests {
             0,
             "scalar distance should not be used when distance_batch is available",
         );
+
+        Ok(())
     }
 
     #[rstest]
     fn batch_distances_propagates_distance_batch_errors(
-        batch_first_singleton_setup: (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>),
-    ) {
-        let (source, _batch_calls, _distance_calls) = batch_first_singleton_setup;
+        batch_first_singleton_setup: Result<
+            (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>),
+            DataSourceError,
+        >,
+    ) -> Result<(), DataSourceError> {
+        let (source, _batch_calls, _distance_calls) = batch_first_singleton_setup?;
 
         let err = source
             .batch_distances(0, &[1])
@@ -365,5 +378,7 @@ mod tests {
             matches!(err, DataSourceError::OutOfBounds { index: 1 }),
             "unexpected error: {err:?}",
         );
+
+        Ok(())
     }
 }

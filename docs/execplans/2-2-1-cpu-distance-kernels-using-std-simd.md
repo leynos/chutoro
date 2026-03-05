@@ -64,8 +64,9 @@ Success is observable when:
 ## Risks
 
 - Risk: SIMD and scalar kernels may diverge numerically on borderline
-  floating-point inputs. Severity: high. Likelihood: medium. Mitigation: add equivalence
-  tests with explicit epsilon, including odd dimensions and tail handling.
+  floating-point inputs. Severity: high. Likelihood: medium. Mitigation: add
+  equivalence tests with explicit epsilon, including odd dimensions and tail
+  handling.
 
 - Risk: Runtime dispatch and `#[target_feature]` boundaries can introduce
   unsafe call-site mistakes. Severity: high. Likelihood: medium. Mitigation:
@@ -340,7 +341,7 @@ Expected excerpt:
 ... FAILED ... <new SIMD contract test name> ...
 ```
 
-1. Implement Stage B and Stage C changes, then run focused tests.
+2. Implement Stage B and Stage C changes, then run focused tests.
 
 ```bash
 set -o pipefail; cargo test -p chutoro-core datasource:: 2>&1 | tee /tmp/2-2-1-core-datasource.log
@@ -354,7 +355,7 @@ Expected excerpt:
 ... test result: ok. ... passed ...
 ```
 
-1. Run formatting and Markdown gates after documentation updates.
+3. Run formatting and Markdown gates after documentation updates.
 
 ```bash
 set -o pipefail; make fmt 2>&1 | tee /tmp/2-2-1-make-fmt.log
@@ -369,7 +370,7 @@ Expected excerpt:
 ... nixie ... OK ...
 ```
 
-1. Run required repository quality gates.
+4. Run required repository quality gates.
 
 ```bash
 set -o pipefail; make check-fmt 2>&1 | tee /tmp/2-2-1-make-check-fmt.log

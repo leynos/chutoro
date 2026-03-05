@@ -283,7 +283,9 @@ fn collect_euclidean_distance_batch(
     matrix: RowMajorMatrix<'_>,
     pairs: impl Iterator<Item = (RowIndex, RowIndex)>,
 ) -> Result<Vec<f32>, DataSourceError> {
-    let mut results = Vec::new();
+    let pairs = pairs;
+    let (lower_bound, _) = pairs.size_hint();
+    let mut results = Vec::with_capacity(lower_bound);
     for (left, right) in pairs {
         let left_row = row_slice(matrix, left)?;
         let right_row = row_slice(matrix, right)?;
