@@ -341,7 +341,7 @@ Expected excerpt:
 ... FAILED ... <new SIMD contract test name> ...
 ```
 
-2. Implement Stage B and Stage C changes, then run focused tests.
+1. Implement Stage B and Stage C changes, then run focused tests.
 
 ```bash
 set -o pipefail; cargo test -p chutoro-core datasource:: 2>&1 | tee /tmp/2-2-1-core-datasource.log
@@ -355,7 +355,7 @@ Expected excerpt:
 ... test result: ok. ... passed ...
 ```
 
-3. Run formatting and Markdown gates after documentation updates.
+1. Run formatting and Markdown gates after documentation updates.
 
 ```bash
 set -o pipefail; make fmt 2>&1 | tee /tmp/2-2-1-make-fmt.log
@@ -370,7 +370,7 @@ Expected excerpt:
 ... nixie ... OK ...
 ```
 
-4. Run required repository quality gates.
+1. Run required repository quality gates.
 
 ```bash
 set -o pipefail; make check-fmt 2>&1 | tee /tmp/2-2-1-make-check-fmt.log
