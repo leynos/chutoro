@@ -1,4 +1,4 @@
-# Execution Plan (ExecPlan): roadmap 2.2.1 CPU Single Instruction, Multiple Data (SIMD) distance kernels using `core::arch` and optional `std::simd`
+# Execution plan (ExecPlan): roadmap 2.2.1 CPU single instruction, multiple data (SIMD) distance kernels using `core::arch` and optional `std::simd`
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and
@@ -129,7 +129,7 @@ Success is observable when:
   `rust-lang/rust#111137`.[^3] Impact: the stable branch can run a real AVX-512
   kernel instead of degrading to AVX2/scalar.
 
-## Decision Log
+## Decision log
 
 - Decision: interpret roadmap item `2.2.1` as requiring HNSW scoring to flow
   through the `distance_batch` contract by default while preserving existing
@@ -158,7 +158,7 @@ Success is observable when:
   so the stable implementation should take direct advantage of them while
   preserving scalar fallback. Date/Author: 2026-03-02 / Codex.
 
-## Outcomes & Retrospective
+## Outcomes & retrospective
 
 Implemented outcomes:
 
@@ -331,59 +331,59 @@ Run from repository root (`/home/user/project`). Use `set -o pipefail` and
 
 1. Baseline and red tests.
 
-```bash
-set -o pipefail; make test 2>&1 | tee /tmp/2-2-1-prechange-test.log
-```
+   ```bash
+   set -o pipefail; make test 2>&1 | tee /tmp/2-2-1-prechange-test.log
+   ```
 
-Expected excerpt:
+   Expected excerpt:
 
-```plaintext
-... FAILED ... <new SIMD contract test name> ...
-```
+   ```plaintext
+   ... FAILED ... <new SIMD contract test name> ...
+   ```
 
-1. Implement Stage B and Stage C changes, then run focused tests.
+2. Implement Stage B and Stage C changes, then run focused tests.
 
-```bash
-set -o pipefail; cargo test -p chutoro-core datasource:: 2>&1 | tee /tmp/2-2-1-core-datasource.log
-set -o pipefail; cargo test -p chutoro-core hnsw::tests::build:: 2>&1 | tee /tmp/2-2-1-core-hnsw-build.log
-set -o pipefail; cargo test -p chutoro-providers-dense provider:: 2>&1 | tee /tmp/2-2-1-dense-provider.log
-```
+   ```bash
+   set -o pipefail; cargo test -p chutoro-core datasource:: 2>&1 | tee /tmp/2-2-1-core-datasource.log
+   set -o pipefail; cargo test -p chutoro-core hnsw::tests::build:: 2>&1 | tee /tmp/2-2-1-core-hnsw-build.log
+   set -o pipefail; cargo test -p chutoro-providers-dense provider:: 2>&1 | tee /tmp/2-2-1-dense-provider.log
+   ```
 
-Expected excerpt:
+   Expected excerpt:
 
-```plaintext
-... test result: ok. ... passed ...
-```
+   ```plaintext
+   ... test result: ok. ... passed ...
+   ```
 
-1. Run formatting and Markdown gates after documentation updates.
+3. Run formatting and Markdown gates after documentation updates.
 
-```bash
-set -o pipefail; make fmt 2>&1 | tee /tmp/2-2-1-make-fmt.log
-set -o pipefail; make markdownlint 2>&1 | tee /tmp/2-2-1-make-markdownlint.log
-set -o pipefail; make nixie 2>&1 | tee /tmp/2-2-1-make-nixie.log
-```
+   ```bash
+   set -o pipefail; make fmt 2>&1 | tee /tmp/2-2-1-make-fmt.log
+   set -o pipefail; make markdownlint 2>&1 | tee /tmp/2-2-1-make-markdownlint.log
+   set -o pipefail; make nixie 2>&1 | tee /tmp/2-2-1-make-nixie.log
+   ```
 
-Expected excerpt:
+   Expected excerpt:
 
-```plaintext
-... markdownlint ... 0 errors ...
-... nixie ... OK ...
-```
+   ```plaintext
+   ... markdownlint ... 0 errors ...
+   ... nixie ... OK ...
+   ```
 
-1. Run required repository quality gates.
+4. Run required repository quality gates.
 
-```bash
-set -o pipefail; make check-fmt 2>&1 | tee /tmp/2-2-1-make-check-fmt.log
-set -o pipefail; make lint 2>&1 | tee /tmp/2-2-1-make-lint.log
-set -o pipefail; make test 2>&1 | tee /tmp/2-2-1-make-test.log
-```
+   ```bash
+   set -o pipefail; make check-fmt 2>&1 | tee /tmp/2-2-1-make-check-fmt.log
+   set -o pipefail; make lint 2>&1 | tee /tmp/2-2-1-make-lint.log
+   set -o pipefail; make test 2>&1 | tee /tmp/2-2-1-make-test.log
+   ```
 
-Expected excerpt:
+   Expected excerpt:
 
-```plaintext
-... Finished ...
-... test result: ok. ...
-```
+   ```plaintext
+   ... Finished ...
+   ... test result: ok. ...
+   ```
 
 ## Validation and acceptance
 
