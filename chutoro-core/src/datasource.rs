@@ -153,15 +153,19 @@ pub trait DataSource {
     /// default.
     ///
     /// # Errors
-    /// Returns any [`DataSourceError`] surfaced by [`Self::distance_batch`].
+    /// Returns [`DataSourceError::OutOfBounds`] when `query` is not a valid
+    /// index, or any [`DataSourceError`] surfaced by [`Self::distance_batch`].
     /// Implementations must return [`DataSourceError::OutOfBounds`] for invalid
-    /// indices and must not yield non-finite distances; callers may validate and
-    /// fail on NaNs.
+    /// indices and must not yield non-finite distances; callers may validate
+    /// and fail on NaNs.
     fn batch_distances(
         &self,
         query: usize,
         candidates: &[usize],
     ) -> Result<Vec<f32>, DataSourceError> {
+        if query >= self.len() {
+            return Err(DataSourceError::OutOfBounds { index: query });
+        }
         let pairs: Vec<(usize, usize)> = candidates
             .iter()
             .copied()
@@ -332,6 +336,26 @@ mod tests {
         assert!(
             matches!(err, DataSourceError::OutOfBounds { index: 5 }),
             "expected OutOfBounds with index 5, got {err:?}",
+        );
+    }
+
+    #[test]
+    fn batch_distances_rejects_out_of_bounds_query_with_empty_candidates() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let source = CountingSource::new(vec![0.0, 1.0], Arc::clone(&calls));
+
+        let err = source
+            .batch_distances(usize::MAX, &[])
+            .expect_err("invalid query must fail even for empty candidate sets");
+
+        assert!(
+            matches!(err, DataSourceError::OutOfBounds { index } if index == usize::MAX),
+            "expected OutOfBounds with usize::MAX, got {err:?}",
+        );
+        assert_eq!(
+            calls.load(Ordering::Relaxed),
+            0,
+            "query validation should fail before scalar distances are computed",
         );
     }
 

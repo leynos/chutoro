@@ -15,13 +15,13 @@ fn close(left: Distance, right: Distance) {
 }
 
 #[fixture]
-fn matrix_3x2() -> RowMajorMatrix<'static> {
+fn matrix_3x2() -> Result<RowMajorMatrix<'static>, DataSourceError> {
     const VALUES: [f32; 6] = [1.0, 2.0, 4.0, 6.0, 2.0, 1.0];
-    RowMajorMatrix::new(
+    Ok(RowMajorMatrix::new(
         MatrixValues::new(&VALUES),
         RowCount::new(3),
         Dimension::new(2),
-    )
+    ))
 }
 
 #[rstest]
@@ -63,7 +63,10 @@ fn batch_pairs_reject_mismatched_output_lengths(
 }
 
 #[rstest]
-fn batch_pairs_compute_distances(matrix_3x2: RowMajorMatrix<'static>) {
+fn batch_pairs_compute_distances(
+    matrix_3x2: Result<RowMajorMatrix<'static>, DataSourceError>,
+) -> Result<(), DataSourceError> {
+    let matrix_3x2 = matrix_3x2?;
     let pairs = vec![
         DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
         DistancePair::new(RowIndex::new(0), RowIndex::new(2)),
@@ -78,10 +81,14 @@ fn batch_pairs_compute_distances(matrix_3x2: RowMajorMatrix<'static>) {
     close(Distance::new(out[0]), Distance::new(5.0_f32));
     close(Distance::new(out[1]), Distance::new((2.0_f32).sqrt()));
     close(Distance::new(out[2]), Distance::new((29.0_f32).sqrt()));
+    Ok(())
 }
 
 #[rstest]
-fn batch_pairs_leave_output_unmodified_on_error(matrix_3x2: RowMajorMatrix<'static>) {
+fn batch_pairs_leave_output_unmodified_on_error(
+    matrix_3x2: Result<RowMajorMatrix<'static>, DataSourceError>,
+) -> Result<(), DataSourceError> {
+    let matrix_3x2 = matrix_3x2?;
     let pairs = vec![
         DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
         DistancePair::new(RowIndex::new(0), RowIndex::new(9)),
@@ -94,6 +101,7 @@ fn batch_pairs_leave_output_unmodified_on_error(matrix_3x2: RowMajorMatrix<'stat
 
     assert!(matches!(err, DataSourceError::OutOfBounds { index: 9 }));
     assert_eq!(out, vec![10.0_f32, 20.0_f32]);
+    Ok(())
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
