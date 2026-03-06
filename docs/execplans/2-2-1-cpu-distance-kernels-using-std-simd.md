@@ -1,7 +1,7 @@
 # Execution plan (ExecPlan): roadmap 2.2.1 CPU single instruction, multiple data (SIMD) distance kernels using `core::arch` and optional `std::simd`
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
-`Risks`, `Progress`, `Surprises & Discoveries`, `Decision log`, and
+`Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
@@ -102,7 +102,7 @@ Success is observable when:
   `make fmt`, `make markdownlint`, `make nixie`, `make check-fmt`, `make lint`,
   and `make test`.
 
-## Surprises & Discoveries
+## Surprises & discoveries
 
 - Observation: HNSW scoring currently calls `batch_distances` during search
   validation, while `DenseMatrixProvider` currently specializes
@@ -416,7 +416,7 @@ Quality method:
 - If formatting modifies files unexpectedly, rerun `make check-fmt` after
   `make fmt`.
 - If `make test` flakes due to known timeout-sensitive benches, rerun once and
-  record both logs in `Decision log` and `Surprises & Discoveries`.
+  record both logs in `Decision log` and `Surprises & discoveries`.
 - If dispatch changes cause architecture-specific failures, force scalar path
   locally, keep tests green, and escalate before merging specialization.
 
