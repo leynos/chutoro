@@ -33,6 +33,68 @@ fn matrix_provider_distance_batch() {
 }
 
 #[rstest]
+#[case::odd_dimension(
+    vec![
+        vec![1.0, 3.0, 5.0, 7.0, 9.0],
+        vec![2.0, 4.0, 6.0, 8.0, 10.0],
+        vec![0.5, 1.5, 2.5, 3.5, 4.5],
+    ],
+    vec![(0, 1), (0, 2), (2, 1)],
+)]
+#[case::avx2_tail(
+    vec![
+        vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0],
+        vec![1.0, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0, 34.0],
+        vec![2.0, 3.0, 5.0, 7.0, 11.0, 13.0, 17.0, 19.0, 23.0],
+    ],
+    vec![(0, 1), (1, 2), (2, 0), (1, 0)],
+)]
+#[case::avx512_tail(
+    vec![
+        vec![
+            0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0,
+            15.0, 16.0,
+        ],
+        vec![
+            16.0, 15.0, 14.0, 13.0, 12.0, 11.0, 10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0,
+            1.0, 0.0,
+        ],
+        vec![
+            1.0, 1.5, 2.5, 4.0, 6.5, 10.5, 17.0, 27.5, 44.5, 72.0, 116.5, 188.5, 305.0, 493.5,
+            798.5, 1292.0, 2090.5,
+        ],
+    ],
+    vec![(0, 1), (0, 2), (2, 1)],
+)]
+fn matrix_provider_distance_batch_matches_scalar_reference(
+    #[case] rows: Vec<Vec<f32>>,
+    #[case] pairs: Vec<(usize, usize)>,
+) {
+    let dimension = rows
+        .first()
+        .map(Vec::len)
+        .expect("rows must include at least one vector");
+    let flat_values: Vec<f32> = rows.iter().flat_map(|row| row.iter().copied()).collect();
+    let provider = DenseMatrixProvider::from_parts("simd-demo", rows.len(), dimension, flat_values);
+    let mut out = vec![0.0_f32; pairs.len()];
+    provider
+        .distance_batch(&pairs, &mut out)
+        .expect("batch distances should succeed");
+
+    let expected: Vec<f32> = pairs
+        .iter()
+        .map(|(left, right)| scalar_distance(&rows[*left], &rows[*right]))
+        .collect();
+    assert_eq!(out.len(), expected.len());
+    for (actual, expected_value) in out.iter().copied().zip(expected.into_iter()) {
+        assert!(
+            (actual - expected_value).abs() <= 1.0e-6_f32,
+            "actual={actual}, expected={expected_value}",
+        );
+    }
+}
+
+#[rstest]
 fn matrix_provider_distance_out_of_bounds() {
     let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
     let provider =
@@ -76,6 +138,22 @@ fn matrix_provider_distance_batch_empty() {
         .distance_batch(&pairs, &mut out)
         .expect("empty batch must succeed");
     assert!(out.is_empty());
+}
+
+fn scalar_distance(left: &[f32], right: &[f32]) -> f32 {
+    assert_eq!(
+        left.len(),
+        right.len(),
+        "scalar distance inputs must have matching dimensions",
+    );
+    left.iter()
+        .zip(right.iter())
+        .map(|(l, r)| {
+            let delta = l - r;
+            delta * delta
+        })
+        .sum::<f32>()
+        .sqrt()
 }
 
 #[rstest]

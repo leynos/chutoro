@@ -87,14 +87,14 @@ impl From<StackSize> for usize {
 }
 
 /// Coverage jobs use fewer idempotency cases to stay within CI time budgets.
-/// Reduced from 4 to 2 after coverage-instrumented builds exceeded the 180s
-/// nextest timeout in CI (see PR #89).
-const COVERAGE_IDEMPOTENCY_CASES: u32 = 2;
+/// Reduced from 2 to 1 after coverage-instrumented builds occasionally
+/// exceeded the 600s nextest timeout in CI.
+const COVERAGE_IDEMPOTENCY_CASES: u32 = 1;
 /// Coverage jobs cap shrink iterations to prevent long minimisation tails.
-/// Reduced from 128 to 32 because shrinking is rarely exercised for the
+/// Reduced from 32 to 8 because shrinking is rarely exercised for the
 /// idempotency property and coverage instrumentation amplifies per-iteration
 /// cost.
-const COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 32;
+const COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 8;
 /// Non-coverage jobs keep deeper shrinking for better counterexample reduction.
 const DEFAULT_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 1024;
 /// Default idempotency case count when no profile override is configured.

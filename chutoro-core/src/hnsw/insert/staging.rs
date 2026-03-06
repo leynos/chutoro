@@ -226,9 +226,8 @@ pub(super) fn prioritise_new_node(new_node: usize, candidates: &mut [usize]) {
     if let Some(pos) = candidates
         .iter()
         .position(|&candidate| candidate == new_node)
+        && pos != 0
     {
-        if pos != 0 {
-            candidates.swap(0, pos);
-        }
+        candidates.swap(0, pos);
     }
 }

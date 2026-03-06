@@ -271,12 +271,29 @@ impl DistanceCache {
             .usage
             .lock()
             .expect("distance cache usage mutex poisoned");
-        if usage.pop(key).is_some() && self.entries.contains_key(key) {
-            if let Some((evicted, _)) = usage.push(key.clone(), ()) {
-                self.entries.remove(&evicted);
-                self.record_eviction();
-            }
+        if let Some(evicted) = self.try_restore_and_get_evicted(&mut usage, key) {
+            self.entries.remove(&evicted);
+            self.record_eviction();
         }
+    }
+
+    fn try_restore_and_get_evicted(
+        &self,
+        usage: &mut LruCache<DistanceKey, ()>,
+        key: &DistanceKey,
+    ) -> Option<DistanceKey> {
+        let was_in_usage = usage.pop(key).is_some();
+        if !was_in_usage {
+            return None;
+        }
+
+        let should_restore = self.entries.contains_key(key);
+        if !should_restore {
+            return None;
+        }
+
+        let restored = usage.push(key.clone(), ());
+        restored.map(|(evicted, _)| evicted)
     }
 
     fn shard_for_key(&self, key: &DistanceKey) -> &LruShard {

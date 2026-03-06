@@ -13,10 +13,10 @@ pub(super) fn check_layer_consistency(
         }
     })?;
 
-    if let Some(entry) = ctx.graph.entry() {
-        if let Err(err) = validator.ensure(entry.node, entry.node, entry.level) {
-            mode.record(err)?;
-        }
+    if let Some(entry) = ctx.graph.entry()
+        && let Err(err) = validator.ensure(entry.node, entry.node, entry.level)
+    {
+        mode.record(err)?;
     }
     Ok(())
 }

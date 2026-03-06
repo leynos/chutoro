@@ -839,9 +839,10 @@ points are classified as noise and receive label `0`.
 #### 6.3. SIMD utilization
 
 - **Distance kernels (biggest win):** Add a CPU backend that takes contiguous
-structure-of-arrays views of point data and computes distances with `std::simd`
-across lanes. Provide `#[target_feature]` specializations for AVX2 and AVX-512
-on x86, falling back to scalar per pair where metrics are not vectorizable.
+structure-of-arrays views of point data and computes distances with stable
+`core::arch` intrinsics (AVX2/AVX-512 on x86) across lanes, with scalar
+fallback per pair where metrics are not vectorizable. Keep an optional nightly
+`std::simd` path behind a non-default feature while the API remains unstable.
 Expose a query-centric `batch_distances(query, candidates)` helper on the core
 trait and make it the default path for HNSW candidate scoring on CPU: collect
 candidate indices in chunks sized to the SIMD width and evaluate with fused
@@ -890,7 +891,7 @@ sequenceDiagram
   Note over HNSW: Candidate scoring phase
   HNSW->>DS: batch_distances(query, candidates)
   alt SIMD available
-    DS->>Kern: run std::simd kernel (AVX2/AVX-512/Neon)
+    DS->>Kern: run SIMD kernel (AVX2/AVX-512/Neon)
     Kern-->>DS: distances[]
   else Scalar fallback
     DS-->>DS: for each (i,j): distance(i,j)
@@ -903,6 +904,35 @@ sequenceDiagram
 
 _Figure 1: SIMD-backed candidate scoring via `batch_distances` with scalar
 fallback._
+
+_Implementation update (2026-03-02)._ Roadmap item `2.2.1` is implemented using
+stable Rust primitives with toolchain `1.93.1` (latest stable, released
+2026-02-12) and minimum supported Rust version (MSRV) `1.89.0`. The default
+`DataSource::batch_distances` path now delegates to `distance_batch`, so HNSW
+candidate scoring inherits pair-oriented specializations by default without
+changing query-centric call-sites in `hnsw/validate.rs`.
+
+`DenseMatrixProvider` now routes Euclidean distance batches through a dedicated
+SIMD kernel module (`chutoro-providers/dense/src/simd/mod.rs` and
+`chutoro-providers/dense/src/simd/kernels.rs`) with one-time x86 runtime
+dispatch:
+
+- AVX2 specialization using `std::arch` intrinsics and lane-tail scalar
+  handling.
+- AVX-512 specialization using stable `std::arch` intrinsics and
+  `#[target_feature(enable = "avx512f")]` (stabilized in Rust `1.89.0`,
+  tracking issue `rust-lang/rust#111137`).
+- Scalar fallback for all non-x86 targets and unsupported feature sets.
+
+`std::simd` remains a nightly only API (`#![feature(portable_simd)]`; tracking
+issue `rust-lang/rust#86656`). The design keeps stable `core::arch` kernels as
+the default path and permits an optional nightly only implementation behind a
+feature gate for experimentation. AVX-512-specific nightly culprits remain out
+of scope for the stable path (`rust-lang/rust#127356` for `bf16` wrappers and
+`rust-lang/rust#127213` for AVX512_FP16 intrinsics).
+
+This keeps the scoring-path contract required by §6.3 while preserving stable
+toolchain compatibility and deterministic error semantics.
 
 #### 6.4. Property-based input generation for CPU HNSW tests
 

@@ -200,14 +200,13 @@ pub(super) fn run_graph_mst_compatibility_property(fixture: &GraphFixture) -> Te
             if let GraphMetadata::Disconnected {
                 component_count, ..
             } = &graph.metadata
+                && forest.component_count() < *component_count
             {
-                if forest.component_count() < *component_count {
-                    return Err(TestCaseError::fail(format!(
-                        "expected at least {} components, got {}",
-                        component_count,
-                        forest.component_count()
-                    )));
-                }
+                return Err(TestCaseError::fail(format!(
+                    "expected at least {} components, got {}",
+                    component_count,
+                    forest.component_count()
+                )));
             }
             Ok(())
         }

@@ -9,6 +9,7 @@ use parquet::file::reader::ChunkReader;
 
 use crate::errors::DenseMatrixProviderError;
 use crate::ingest::{append_fixed_size_list_values, validate_fixed_size_list_field};
+use crate::simd;
 
 /// Dense matrix provider backed by a contiguous row-major buffer.
 #[derive(Debug)]
@@ -133,19 +134,12 @@ impl DataSource for DenseMatrixProvider {
         &self.name
     }
 
-    #[expect(clippy::float_arithmetic, reason = "vector arithmetic")]
     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
         let a = self.row_slice(i)?;
         let b = self.row_slice(j)?;
-        let mut sum = 0.0_f32;
-        for idx in 0..self.dimension {
-            let diff = a[idx] - b[idx];
-            sum += diff * diff;
-        }
-        Ok(sum.sqrt())
+        Ok(simd::euclidean_distance(simd::RowSlice::new(a), simd::RowSlice::new(b)).get())
     }
 
-    #[expect(clippy::float_arithmetic, reason = "vector arithmetic")]
     fn distance_batch(
         &self,
         pairs: &[(usize, usize)],
@@ -157,17 +151,12 @@ impl DataSource for DenseMatrixProvider {
                 expected: pairs.len(),
             });
         }
-        let dimension = self.dimension;
-        for (idx, &(left, right)) in pairs.iter().enumerate() {
-            let a = self.row_slice(left)?;
-            let b = self.row_slice(right)?;
-            let mut sum = 0.0_f32;
-            for value_index in 0..dimension {
-                let diff = a[value_index] - b[value_index];
-                sum += diff * diff;
-            }
-            out[idx] = sum.sqrt();
-        }
-        Ok(())
+        let matrix = simd::RowMajorMatrix::new(
+            simd::MatrixValues::new(&self.values),
+            simd::RowCount::new(self.rows),
+            simd::Dimension::new(self.dimension),
+        );
+        let mut out_buffer = simd::DistanceBuffer::new(out);
+        simd::euclidean_distance_batch_raw_pairs(matrix, pairs, &mut out_buffer)
     }
 }

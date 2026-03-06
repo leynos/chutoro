@@ -202,7 +202,7 @@ fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
 }
 
 #[rstest]
-#[case(true, 250, 2)]
+#[case(true, 250, 1)]
 #[case(false, 250, 250)]
 #[case(false, 16, 16)]
 fn select_idempotency_cases_enforces_coverage_budget(
@@ -217,7 +217,7 @@ fn select_idempotency_cases_enforces_coverage_budget(
 }
 
 #[rstest]
-#[case(true, 32)]
+#[case(true, 8)]
 #[case(false, 1024)]
 fn select_idempotency_shrink_iters_enforces_coverage_budget(
     #[case] coverage_job: bool,

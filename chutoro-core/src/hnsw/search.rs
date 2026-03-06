@@ -289,11 +289,10 @@ impl<'graph> LayerSearcher<'graph> {
             .copied()
             .zip(distances)
             .min_by(|a, b| a.1.total_cmp(&b.1))
+            && best_dist < ctx.current_dist
         {
-            if best_dist < ctx.current_dist {
-                let sequence = self.sequence_for_node(best_id, "greedy search")?;
-                return Ok(Some(SearchNeighbour::new(best_id, best_dist, sequence)));
-            }
+            let sequence = self.sequence_for_node(best_id, "greedy search")?;
+            return Ok(Some(SearchNeighbour::new(best_id, best_dist, sequence)));
         }
         Ok(None)
     }

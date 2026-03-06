@@ -271,9 +271,12 @@ ______________________________________________________________________
 
 ### 2.2. Single Instruction, Multiple Data (SIMD) distance kernels
 
-- [ ] 2.2.1. Add CPU distance kernels using `std::simd` with
-  AVX2/AVX-512 specializations; make `distance_batch` the default HNSW scoring
-  path. (See §6.3)
+- [x] 2.2.1. Add CPU distance kernels using stable `core::arch` x86 intrinsics
+  with AVX2/AVX-512 specializations; make `distance_batch` the default HNSW
+  scoring path. Keep `std::simd` optional and nightly gated while
+  `portable_simd` remains unstable (`rust-lang/rust#86656`); AVX-512 stable
+  intrinsics are available from Rust `1.89.0` (`rust-lang/rust#111137`). (See
+  §6.3)
 - [ ] 2.2.2. Introduce `DensePointView<'a>` for aligned Structure of
   Arrays (SoA) access with a scalar fallback. (See §6.3)
 - [ ] 2.2.3. Gate SIMD backends behind `simd_avx2`, `simd_avx512`, and
@@ -284,6 +287,18 @@ ______________________________________________________________________
     CPU/GPU parity.
   - Guarantee 64-byte alignment and lane-multiple padding for
     `DensePointView<'a>`; zero-pad tails.
+- [ ] 2.2.4. Add an optional nightly only `std::simd` backend behind a
+  non-default Cargo feature and nightly Continuous Integration (CI) job; keep
+  stable `core::arch` implementation as default. Track `portable_simd`
+  stabilization (`rust-lang/rust#86656`) and AVX-512 adjunct blockers
+  (`rust-lang/rust#127356` and `rust-lang/rust#127213`). (See §6.3)
+- [ ] 2.2.5. Implement portable-SIMD gating mechanics so stable and nightly
+  paths can coexist safely:
+  - add a non-default Cargo feature (for example, `nightly-portable-simd`);
+  - gate crate-level `#![feature(portable_simd)]` with `cfg_attr`;
+  - isolate nightly SIMD modules behind feature `cfg` guards;
+  - add CI checks that verify stable builds with the feature disabled and
+    nightly builds with the feature enabled. (See §6.3)
 
 ### 2.3. Hot-path optimizations
 

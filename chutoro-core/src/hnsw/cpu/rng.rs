@@ -39,13 +39,13 @@ pub(super) fn build_worker_rngs(base_seed: u64) -> Vec<Mutex<SmallRng>> {
 
 impl CpuHnsw {
     pub(super) fn sample_level(&self) -> Result<usize, HnswError> {
-        if let Some(index) = current_thread_index() {
-            if let Some(rng) = self.worker_rngs.get(index) {
-                let mut guard = rng.lock().map_err(|_| HnswError::LockPoisoned {
-                    resource: "worker rng mutex",
-                })?;
-                return Ok(self.sample_level_from_rng(&mut guard));
-            }
+        if let Some(index) = current_thread_index()
+            && let Some(rng) = self.worker_rngs.get(index)
+        {
+            let mut guard = rng.lock().map_err(|_| HnswError::LockPoisoned {
+                resource: "worker rng mutex",
+            })?;
+            return Ok(self.sample_level_from_rng(&mut guard));
         }
 
         let mut rng = self.rng.lock().map_err(|_| HnswError::LockPoisoned {

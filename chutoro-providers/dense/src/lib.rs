@@ -3,6 +3,7 @@
 mod errors;
 mod ingest;
 mod provider;
+mod simd;
 mod source;
 
 pub use errors::DenseMatrixProviderError;
