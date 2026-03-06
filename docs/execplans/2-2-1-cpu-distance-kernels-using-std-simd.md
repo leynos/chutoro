@@ -317,7 +317,7 @@ Planned edits:
     dispatch strategy, fallback semantics, and scoring-path contract.
 - `docs/roadmap.md`
   - mark `2.2.1` as done (`[x]`) once implementation and tests are complete.
-- if needed, add brief operator-facing notes to `docs/developers-guide.md`
+- If needed, add brief operator-facing notes to `docs/developers-guide.md`
   about expected SIMD behaviour and fallback.
 
 Go/no-go:
@@ -326,8 +326,8 @@ Go/no-go:
 
 ## Concrete steps
 
-Run from repository root (`/home/user/project`). Use `set -o pipefail` and
-`tee` for every long-running command.
+Run from repository root (`<repo-root>`). Use `set -o pipefail` and `tee` for
+every long-running command.
 
 1. Baseline and red tests.
 

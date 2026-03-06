@@ -10,6 +10,18 @@ use crate::hnsw::{CandidateEdge, CpuHnsw, EdgeHarvest, HnswParams, Neighbour};
 
 use super::fixtures::DummySource;
 
+/// Detects whether the current test run is coverage-instrumented.
+///
+/// Coverage builds can perturb Rayon scheduling enough to increase edge-count
+/// variance between otherwise equivalent builds.
+fn is_coverage_job() -> bool {
+    cfg!(coverage)
+        || option_env!("CARGO_LLVM_COV").is_some()
+        || option_env!("LLVM_PROFILE_FILE").is_some()
+        || std::env::var_os("LLVM_PROFILE_FILE").is_some()
+        || std::env::var_os("CARGO_LLVM_COV").is_some()
+}
+
 fn build_insertion_plan(layers: Vec<Vec<(usize, f32)>>) -> InsertionPlan {
     InsertionPlan {
         layers: layers
@@ -171,7 +183,13 @@ fn build_with_edges_has_consistent_count(
     // causing more variance in parallel insertion order and thus edge counts.
     let min_edges = edges1.len().min(edges2.len());
     let max_edges = edges1.len().max(edges2.len());
-    let tolerance = (min_edges as f64 * 0.5).max(2.0) as usize;
+    let base_tolerance = (min_edges as f64 * 0.5).max(2.0) as usize;
+    let coverage_tolerance = if is_coverage_job() {
+        max_connections * 2
+    } else {
+        0
+    };
+    let tolerance = base_tolerance + coverage_tolerance;
 
     assert!(
         max_edges <= min_edges + tolerance,
