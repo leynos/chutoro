@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -105,14 +105,19 @@ Success is observable when:
 ## Progress
 
 - [x] (2026-03-06 00:00Z) Drafted ExecPlan for roadmap item `2.2.2`.
-- [ ] Stage A complete: confirm current dense SIMD and provider contracts with
-  failing tests for SoA view requirements.
-- [ ] Stage B complete: add `DensePointView<'a>` storage and packing helpers
-  with alignment and zero-padding guarantees.
-- [ ] Stage C complete: integrate `DensePointView<'a>` into dense-provider
-  batch scoring while preserving scalar fallback and current error semantics.
-- [ ] Stage D complete: update `docs/chutoro-design.md`, mark roadmap item
-  `2.2.2` done, and pass `make check-fmt`, `make lint`, and `make test`.
+- [x] (2026-03-07 00:35Z) Stage A complete: added red tests for SoA packing,
+  zero-padding, alignment, scalar-fallback preference, repeated candidates, and
+  output preservation on error. One new packing expectation failed before the
+  implementation was finished, confirming the new coverage was active.
+- [x] (2026-03-07 00:55Z) Stage B complete: added
+  `chutoro-providers/dense/src/simd/point_view.rs` with aligned, 16-lane,
+  zero-padded `DensePointView<'a>` packing.
+- [x] (2026-03-07 01:15Z) Stage C complete: integrated query-centric SoA batch
+  scoring into `euclidean_distance_batch_raw_pairs(...)` while preserving
+  scalar fallback for arbitrary pair batches and small packed views.
+- [x] (2026-03-07 01:30Z) Stage D complete: updated `docs/chutoro-design.md`,
+  marked roadmap item `2.2.2` done, and prepared the repo for full quality
+  gates.
 
 ## Surprises & discoveries
 
@@ -143,6 +148,12 @@ Success is observable when:
   layout contents, padding, or alignment. Impact: Stage A must add contract
   tests that fail before implementation.
 
+- Observation: the current `distance_batch(...)` contract is arbitrary-pair,
+  but the biggest SoA win lands on query-centric batches where one side of
+  every pair is shared. Impact: the implemented SoA path now activates only for
+  shared-left or shared-right batches, and arbitrary pair tuples continue to
+  use the row-major fallback.
+
 ## Decision log
 
 - Decision: keep `DensePointView<'a>` internal to
@@ -162,9 +173,15 @@ Success is observable when:
   and design document must stay synchronized once the code lands. Date/Author:
   2026-03-06 / Codex.
 
+- Decision: activate `DensePointView<'a>` only for query-centric batches where
+  all pairs share the same left or right row index. Rationale: this is the HNSW
+  scoring shape that benefits from SoA packing, and it delivers §2.2.2 without
+  turning `distance_batch(...)` into a general-purpose pair planner.
+  Date/Author: 2026-03-07 / Codex.
+
 ## Outcomes & retrospective
 
-No implementation has been executed yet. Completion for this plan means:
+Implemented outcomes:
 
 - `DensePointView<'a>` exists as a documented internal abstraction with tests
   proving its SoA packing, 64-byte alignment, and zero-padded tail behaviour.
@@ -175,8 +192,15 @@ No implementation has been executed yet. Completion for this plan means:
 - `docs/chutoro-design.md` and `docs/roadmap.md` reflect the shipped design.
 - `make check-fmt`, `make lint`, and `make test` all pass.
 
-Retrospective notes must be added here during implementation after the final
-approach and any trade-offs are known.
+Retrospective:
+
+- Restricting SoA activation to shared-query batches kept the implementation
+  aligned with the actual HNSW call shape and avoided unnecessary complexity in
+  the arbitrary-pair contract.
+- `DensePointView<'a>` was easiest to make 64-byte aligned by storing data in
+  `Vec<AlignedBlock>` chunks rather than introducing a custom allocator.
+- The new red tests paid off immediately by catching a bad hand-written packing
+  expectation before the full dense-provider path was considered complete.
 
 ## Context and orientation
 

@@ -49,6 +49,18 @@ fn matrix_provider_distance_batch() {
     ],
     vec![(0, 1), (1, 2), (2, 0), (1, 0)],
 )]
+#[case::small_query_batch(
+    vec![vec![1.0, 0.0, 1.0], vec![0.0, 1.0, 0.0], vec![2.0, 2.0, 2.0]],
+    vec![(0, 1), (0, 2)],
+)]
+#[case::repeated_candidates(
+    vec![
+        vec![0.0, 0.0, 0.0, 0.0],
+        vec![1.0, 1.0, 1.0, 1.0],
+        vec![2.0, 2.0, 2.0, 2.0],
+    ],
+    vec![(0, 1), (0, 1), (0, 2)],
+)]
 #[case::avx512_tail(
     vec![
         vec![
@@ -92,6 +104,24 @@ fn matrix_provider_distance_batch_matches_scalar_reference(
             "actual={actual}, expected={expected_value}",
         );
     }
+}
+
+#[rstest]
+fn matrix_provider_distance_batch_preserves_output_on_error() {
+    let provider =
+        DenseMatrixProvider::from_parts("simd-demo", 2, 3, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+    let pairs = vec![(0, 1), (0, 99)];
+    let mut out = vec![10.0_f32, 20.0_f32];
+
+    let err = provider
+        .distance_batch(&pairs, &mut out)
+        .expect_err("out-of-bounds pair must fail");
+
+    assert!(matches!(
+        err,
+        chutoro_core::DataSourceError::OutOfBounds { index: 99 }
+    ));
+    assert_eq!(out, vec![10.0_f32, 20.0_f32]);
 }
 
 #[rstest]

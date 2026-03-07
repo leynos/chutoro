@@ -934,6 +934,33 @@ of scope for the stable path (`rust-lang/rust#127356` for `bf16` wrappers and
 This keeps the scoring-path contract required by §6.3 while preserving stable
 toolchain compatibility and deterministic error semantics.
 
+_Implementation update (2026-03-07)._ Roadmap item `2.2.2` is implemented via
+an internal `DensePointView<'a>` in
+`chutoro-providers/dense/src/simd/point_view.rs`. The type repacks selected
+dense rows into a dimension-major Structure of Arrays layout with:
+
+- 64-byte aligned packed storage;
+- point counts padded to a 16-lane multiple;
+- deterministic `0.0_f32` tail padding for unused packed lanes.
+
+`DenseMatrixProvider::distance_batch(...)` now uses this SoA path when the
+batch is query-centric, meaning all pairs share the same left or right row
+index. In that case the shared row is treated as the query and the varying rows
+are packed into `DensePointView<'a>` before scoring. Arbitrary pair batches
+still fall back to the existing row-major pairwise path, preserving the general
+`distance_batch` contract without widening the scope of §2.2.2 into a full
+arbitrary-pair SoA planner.
+
+Scalar fallback remains explicit:
+
+- empty and single-point packed views prefer the scalar path;
+- non-query-centric pair batches use the existing row-major fallback;
+- non-x86 targets and unsupported CPU feature sets still use scalar kernels.
+
+This keeps the new alignment and SoA preconditions local to dense-provider
+internals while preserving existing `DataSourceError` semantics and
+all-or-nothing output writes.
+
 #### 6.4. Property-based input generation for CPU HNSW tests
 
 The CPU module now ships with dedicated property-based generators that exercise
