@@ -17,8 +17,9 @@ use super::{
     test_runner_support::{
         ShrinkIterations, StackSize, TestCases, idempotency_cases, idempotency_shrink_iters,
         mutation_cases, mutation_shrink_iters, run_idempotency_test, run_mutation_test,
-        run_search_test, select_idempotency_cases, select_idempotency_shrink_iters,
-        select_mutation_cases, select_mutation_shrink_iters,
+        run_search_test, search_cases, search_shrink_iters, select_idempotency_cases,
+        select_idempotency_shrink_iters, select_mutation_cases, select_mutation_shrink_iters,
+        select_search_cases, select_search_shrink_iters,
     },
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
@@ -189,7 +190,10 @@ fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
 
 #[test]
 fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
-    run_search_test(TestCases::new(64), ShrinkIterations::new(1024))
+    run_search_test(
+        TestCases::new(search_cases()),
+        ShrinkIterations::new(search_shrink_iters()),
+    )
 }
 
 #[test]
@@ -252,6 +256,31 @@ fn select_mutation_shrink_iters_enforces_coverage_budget(
     #[case] expected_iters: u32,
 ) {
     assert_eq!(select_mutation_shrink_iters(coverage_job), expected_iters);
+}
+
+#[rstest]
+#[case(true, 250, 4)]
+#[case(false, 250, 250)]
+#[case(false, 64, 64)]
+fn select_search_cases_enforces_coverage_budget(
+    #[case] coverage_job: bool,
+    #[case] configured_cases: u32,
+    #[case] expected_cases: u32,
+) {
+    assert_eq!(
+        select_search_cases(coverage_job, configured_cases),
+        expected_cases
+    );
+}
+
+#[rstest]
+#[case(true, 64)]
+#[case(false, 1024)]
+fn select_search_shrink_iters_enforces_coverage_budget(
+    #[case] coverage_job: bool,
+    #[case] expected_iters: u32,
+) {
+    assert_eq!(select_search_shrink_iters(coverage_job), expected_iters);
 }
 
 #[test]

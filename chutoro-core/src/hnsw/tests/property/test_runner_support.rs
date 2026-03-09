@@ -111,6 +111,17 @@ const COVERAGE_MUTATION_MAX_SHRINK_ITERS: u32 = 64;
 const DEFAULT_MUTATION_MAX_SHRINK_ITERS: u32 = 1024;
 /// Default mutation case count when no profile override is configured.
 const DEFAULT_MUTATION_CASES: u32 = 64;
+/// Coverage jobs use fewer search cases to stay within CI time budgets.
+/// Search correctness builds full HNSW indices and brute-force baselines per
+/// case, so coverage instrumentation amplifies the cost substantially.
+const COVERAGE_SEARCH_CASES: u32 = 4;
+/// Coverage jobs cap search shrink iterations to avoid long minimization tails
+/// under instrumentation overhead.
+const COVERAGE_SEARCH_MAX_SHRINK_ITERS: u32 = 64;
+/// Non-coverage jobs keep deeper shrinking for better counterexample reduction.
+const DEFAULT_SEARCH_MAX_SHRINK_ITERS: u32 = 1024;
+/// Default search case count when no profile override is configured.
+const DEFAULT_SEARCH_CASES: u32 = 64;
 
 fn run_test_with_profile<F>(
     cases: u32,
@@ -240,6 +251,35 @@ pub(super) fn select_mutation_shrink_iters(is_coverage_job: bool) -> u32 {
 /// Returns mutation shrink iterations using runtime job detection.
 pub(super) fn mutation_shrink_iters() -> u32 {
     select_mutation_shrink_iters(is_coverage_job())
+}
+
+/// Selects the search case count for coverage and non-coverage jobs.
+pub(super) fn select_search_cases(is_coverage_job: bool, configured_cases: u32) -> u32 {
+    if is_coverage_job {
+        COVERAGE_SEARCH_CASES
+    } else {
+        configured_cases
+    }
+}
+
+/// Returns the search case count using runtime job detection.
+pub(super) fn search_cases() -> u32 {
+    let configured_cases = property_run_profile(DEFAULT_SEARCH_CASES).cases();
+    select_search_cases(is_coverage_job(), configured_cases)
+}
+
+/// Selects the max shrink iterations for search coverage and non-coverage jobs.
+pub(super) fn select_search_shrink_iters(is_coverage_job: bool) -> u32 {
+    if is_coverage_job {
+        COVERAGE_SEARCH_MAX_SHRINK_ITERS
+    } else {
+        DEFAULT_SEARCH_MAX_SHRINK_ITERS
+    }
+}
+
+/// Returns search shrink iterations using runtime job detection.
+pub(super) fn search_shrink_iters() -> u32 {
+    select_search_shrink_iters(is_coverage_job())
 }
 
 /// Runs a property test with the given configuration and strategy.
