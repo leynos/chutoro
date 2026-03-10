@@ -277,7 +277,7 @@ ______________________________________________________________________
   `portable_simd` remains unstable (`rust-lang/rust#86656`); AVX-512 stable
   intrinsics are available from Rust `1.89.0` (`rust-lang/rust#111137`). (See
   §6.3)
-- [ ] 2.2.2. Introduce `DensePointView<'a>` for aligned Structure of
+- [x] 2.2.2. Introduce `DensePointView<'a>` for aligned Structure of
   Arrays (SoA) access with a scalar fallback. (See §6.3)
 - [ ] 2.2.3. Gate SIMD backends behind `simd_avx2`, `simd_avx512`, and
   `simd_neon` features with CPUID runtime dispatch. (See §6.3)

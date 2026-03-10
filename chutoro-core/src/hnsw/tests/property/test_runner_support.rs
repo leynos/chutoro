@@ -86,6 +86,26 @@ impl From<StackSize> for usize {
     }
 }
 
+/// Whether the current job runs under coverage instrumentation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum JobKind {
+    Coverage,
+    Standard,
+}
+
+impl JobKind {
+    fn detect() -> Self {
+        if is_coverage_job() {
+            Self::Coverage
+        } else {
+            Self::Standard
+        }
+    }
+    fn is_coverage(self) -> bool {
+        self == Self::Coverage
+    }
+}
+
 /// Coverage jobs use fewer idempotency cases to stay within CI time budgets.
 /// Reduced from 2 to 1 after coverage-instrumented builds occasionally
 /// exceeded the 600s nextest timeout in CI.
@@ -111,19 +131,30 @@ const COVERAGE_MUTATION_MAX_SHRINK_ITERS: u32 = 64;
 const DEFAULT_MUTATION_MAX_SHRINK_ITERS: u32 = 1024;
 /// Default mutation case count when no profile override is configured.
 const DEFAULT_MUTATION_CASES: u32 = 64;
+/// Coverage jobs use fewer search cases to stay within CI time budgets.
+/// Search correctness builds full HNSW indices and brute-force baselines per
+/// case, so coverage instrumentation amplifies the cost substantially.
+const COVERAGE_SEARCH_CASES: u32 = 4;
+/// Coverage jobs cap search shrink iterations to avoid long minimization tails
+/// under instrumentation overhead.
+const COVERAGE_SEARCH_MAX_SHRINK_ITERS: u32 = 64;
+/// Non-coverage jobs keep deeper shrinking for better counterexample reduction.
+const DEFAULT_SEARCH_MAX_SHRINK_ITERS: u32 = 1024;
+/// Default search case count when no profile override is configured.
+const DEFAULT_SEARCH_CASES: u32 = 64;
 
 fn run_test_with_profile<F>(
-    cases: u32,
-    max_shrink_iters: u32,
-    stack_size: usize,
+    cases: TestCases,
+    max_shrink_iters: ShrinkIterations,
+    stack_size: StackSize,
     test_runner: F,
 ) -> TestCaseResult
 where
     F: FnOnce(Config, usize) -> TestCaseResult,
 {
-    let profile = property_run_profile(cases);
+    let profile = property_run_profile(cases.get());
     let config = PropertyRunnerConfig {
-        cases: profile.cases(),
+        cases: TestCases::new(profile.cases()),
         fork: profile.fork(),
         max_shrink_iters,
         stack_size,
@@ -132,18 +163,18 @@ where
 }
 
 fn run_test_with_profile_no_stack<F>(
-    cases: u32,
-    max_shrink_iters: u32,
+    cases: TestCases,
+    max_shrink_iters: ShrinkIterations,
     test_runner: F,
 ) -> TestCaseResult
 where
     F: FnOnce(Config) -> TestCaseResult,
 {
-    let profile = property_run_profile(cases);
+    let profile = property_run_profile(cases.get());
     test_runner(Config {
         cases: profile.cases(),
         fork: profile.fork(),
-        max_shrink_iters,
+        max_shrink_iters: max_shrink_iters.get(),
         ..Config::default()
     })
 }
@@ -155,9 +186,9 @@ pub(super) fn run_mutation_test(
     stack_size: StackSize,
 ) -> TestCaseResult {
     run_test_with_profile(
-        cases.get(),
-        max_shrink_iters.get(),
-        stack_size.get(),
+        cases,
+        max_shrink_iters,
+        stack_size,
         run_mutation_proptest_with_stack,
     )
 }
@@ -167,7 +198,7 @@ pub(super) fn run_search_test(
     cases: TestCases,
     max_shrink_iters: ShrinkIterations,
 ) -> TestCaseResult {
-    run_test_with_profile_no_stack(cases.get(), max_shrink_iters.get(), run_search_proptest)
+    run_test_with_profile_no_stack(cases, max_shrink_iters, run_search_proptest)
 }
 
 /// Runs an idempotency property test with custom configuration parameters.
@@ -177,69 +208,98 @@ pub(super) fn run_idempotency_test(
     stack_size: StackSize,
 ) -> TestCaseResult {
     run_test_with_profile(
-        cases.get(),
-        max_shrink_iters.get(),
-        stack_size.get(),
+        cases,
+        max_shrink_iters,
+        stack_size,
         run_idempotency_proptest_with_stack,
     )
 }
 
-/// Selects the idempotency case count for coverage and non-coverage jobs.
-pub(super) fn select_idempotency_cases(is_coverage_job: bool, configured_cases: u32) -> u32 {
-    if is_coverage_job {
-        COVERAGE_IDEMPOTENCY_CASES
+fn select_cases(job: JobKind, configured: TestCases, coverage_cases: u32) -> TestCases {
+    if job.is_coverage() {
+        TestCases::new(coverage_cases)
     } else {
-        configured_cases
+        configured
     }
 }
 
-/// Returns the idempotency case count using runtime job detection.
-pub(super) fn idempotency_cases() -> u32 {
-    let configured_cases = property_run_profile(DEFAULT_IDEMPOTENCY_CASES).cases();
-    select_idempotency_cases(is_coverage_job(), configured_cases)
-}
-
-/// Selects the max shrink iterations for coverage and non-coverage jobs.
-pub(super) fn select_idempotency_shrink_iters(is_coverage_job: bool) -> u32 {
-    if is_coverage_job {
-        COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS
+fn select_shrink_iterations(
+    job: JobKind,
+    coverage_iters: u32,
+    default_iters: u32,
+) -> ShrinkIterations {
+    if job.is_coverage() {
+        ShrinkIterations::new(coverage_iters)
     } else {
-        DEFAULT_IDEMPOTENCY_MAX_SHRINK_ITERS
+        ShrinkIterations::new(default_iters)
     }
 }
 
-/// Returns idempotency shrink iterations using runtime job detection.
-pub(super) fn idempotency_shrink_iters() -> u32 {
-    select_idempotency_shrink_iters(is_coverage_job())
+fn configured_cases(default_cases: u32) -> TestCases {
+    TestCases::new(property_run_profile(default_cases).cases())
 }
 
-/// Selects the mutation case count for coverage and non-coverage jobs.
-pub(super) fn select_mutation_cases(is_coverage_job: bool, configured_cases: u32) -> u32 {
-    if is_coverage_job {
-        COVERAGE_MUTATION_CASES
-    } else {
-        configured_cases
-    }
+pub(super) fn select_idempotency_cases(job: JobKind, configured: TestCases) -> TestCases {
+    select_cases(job, configured, COVERAGE_IDEMPOTENCY_CASES)
 }
 
-/// Returns the mutation case count using runtime job detection.
-pub(super) fn mutation_cases() -> u32 {
-    let configured_cases = property_run_profile(DEFAULT_MUTATION_CASES).cases();
-    select_mutation_cases(is_coverage_job(), configured_cases)
+pub(super) fn idempotency_cases() -> TestCases {
+    select_idempotency_cases(
+        JobKind::detect(),
+        configured_cases(DEFAULT_IDEMPOTENCY_CASES),
+    )
 }
 
-/// Selects the max shrink iterations for mutation coverage and non-coverage jobs.
-pub(super) fn select_mutation_shrink_iters(is_coverage_job: bool) -> u32 {
-    if is_coverage_job {
-        COVERAGE_MUTATION_MAX_SHRINK_ITERS
-    } else {
-        DEFAULT_MUTATION_MAX_SHRINK_ITERS
-    }
+pub(super) fn select_idempotency_shrink_iters(job: JobKind) -> ShrinkIterations {
+    select_shrink_iterations(
+        job,
+        COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS,
+        DEFAULT_IDEMPOTENCY_MAX_SHRINK_ITERS,
+    )
 }
 
-/// Returns mutation shrink iterations using runtime job detection.
-pub(super) fn mutation_shrink_iters() -> u32 {
-    select_mutation_shrink_iters(is_coverage_job())
+pub(super) fn idempotency_shrink_iters() -> ShrinkIterations {
+    select_idempotency_shrink_iters(JobKind::detect())
+}
+
+pub(super) fn select_mutation_cases(job: JobKind, configured: TestCases) -> TestCases {
+    select_cases(job, configured, COVERAGE_MUTATION_CASES)
+}
+
+pub(super) fn mutation_cases() -> TestCases {
+    select_mutation_cases(JobKind::detect(), configured_cases(DEFAULT_MUTATION_CASES))
+}
+
+pub(super) fn select_mutation_shrink_iters(job: JobKind) -> ShrinkIterations {
+    select_shrink_iterations(
+        job,
+        COVERAGE_MUTATION_MAX_SHRINK_ITERS,
+        DEFAULT_MUTATION_MAX_SHRINK_ITERS,
+    )
+}
+
+pub(super) fn mutation_shrink_iters() -> ShrinkIterations {
+    select_mutation_shrink_iters(JobKind::detect())
+}
+
+pub(super) fn select_search_cases(job: JobKind, configured: TestCases) -> TestCases {
+    select_cases(job, configured, COVERAGE_SEARCH_CASES)
+}
+
+pub(super) fn search_cases() -> TestCases {
+    select_search_cases(JobKind::detect(), configured_cases(DEFAULT_SEARCH_CASES))
+}
+
+pub(super) fn select_search_shrink_iters(job: JobKind) -> ShrinkIterations {
+    select_shrink_iterations(
+        job,
+        COVERAGE_SEARCH_MAX_SHRINK_ITERS,
+        DEFAULT_SEARCH_MAX_SHRINK_ITERS,
+    )
+}
+
+pub(super) fn search_shrink_iters() -> ShrinkIterations {
+    select_search_shrink_iters(JobKind::detect())
 }
 
 /// Runs a property test with the given configuration and strategy.
@@ -298,10 +358,10 @@ fn run_search_proptest(config: Config) -> TestCaseResult {
 /// Configuration for property runners that execute within dedicated threads.
 #[derive(Clone, Copy)]
 struct PropertyRunnerConfig {
-    cases: u32,
+    cases: TestCases,
     fork: bool,
-    max_shrink_iters: u32,
-    stack_size: usize,
+    max_shrink_iters: ShrinkIterations,
+    stack_size: StackSize,
 }
 
 /// Runs a property test with custom configuration parameters and stack size.
@@ -311,12 +371,12 @@ where
 {
     runner(
         Config {
-            cases: runner_config.cases,
+            cases: runner_config.cases.get(),
             fork: runner_config.fork,
-            max_shrink_iters: runner_config.max_shrink_iters,
+            max_shrink_iters: runner_config.max_shrink_iters.get(),
             ..Config::default()
         },
-        runner_config.stack_size,
+        runner_config.stack_size.get(),
     )
 }
 
