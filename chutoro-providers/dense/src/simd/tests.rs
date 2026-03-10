@@ -73,6 +73,23 @@ fn dense_point_view_reports_scalar_fallback_preference(
 }
 
 #[rstest]
+#[case(kernels::EuclideanBackend::Scalar, 2, false)]
+#[case(kernels::EuclideanBackend::Avx2, 1, false)]
+#[case(kernels::EuclideanBackend::Avx512, 1, false)]
+#[case(kernels::EuclideanBackend::Avx2, 2, true)]
+#[case(kernels::EuclideanBackend::Avx512, 2, true)]
+fn query_point_packing_requires_simd_backend(
+    #[case] backend: kernels::EuclideanBackend,
+    #[case] candidate_count: usize,
+    #[case] expected: bool,
+) {
+    assert_eq!(
+        should_pack_query_points_for_backend(backend, candidate_count),
+        expected
+    );
+}
+
+#[rstest]
 #[case(vec![0.0], vec![1.0])]
 #[case(vec![1.0, 2.0, 3.0], vec![2.0, 4.0, 8.0])]
 #[case(vec![0.0, 1.0, 2.0, 3.0, 4.0], vec![5.0, 4.0, 3.0, 2.0, 1.0])]
@@ -149,6 +166,23 @@ fn batch_pairs_leave_output_unmodified_on_error(
 
     assert!(matches!(err, DataSourceError::OutOfBounds { index: 9 }));
     assert_eq!(out, vec![10.0_f32, 20.0_f32]);
+    Ok(())
+}
+
+#[rstest]
+fn raw_pairs_preserve_original_validation_order_for_shared_query_batches(
+    matrix_3x2: Result<RowMajorMatrix<'static>, DataSourceError>,
+) -> Result<(), DataSourceError> {
+    let matrix_3x2 = matrix_3x2?;
+    let pairs = vec![(99, 1), (0, 1)];
+    let mut out = vec![10.0_f32; pairs.len()];
+    let mut out_buffer = DistanceBuffer::new(&mut out);
+
+    let err = euclidean_distance_batch_raw_pairs(matrix_3x2, &pairs, &mut out_buffer)
+        .expect_err("out-of-bounds pair must fail");
+
+    assert_eq!(err, DataSourceError::OutOfBounds { index: 99 });
+    assert_eq!(out, vec![10.0_f32; pairs.len()]);
     Ok(())
 }
 

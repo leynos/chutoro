@@ -29,9 +29,11 @@ pub(super) enum EuclideanBackend {
 }
 
 type EuclideanKernel = fn(&[f32], &[f32]) -> f32;
+type EuclideanQueryPointsKernel = fn(&[f32], &DensePointView<'_>, &mut [f32]);
 
 pub(super) static EUCLIDEAN_KERNEL: OnceLock<EuclideanKernel> = OnceLock::new();
 pub(super) static EUCLIDEAN_BACKEND: OnceLock<EuclideanBackend> = OnceLock::new();
+static EUCLIDEAN_QUERY_POINTS_KERNEL: OnceLock<EuclideanQueryPointsKernel> = OnceLock::new();
 
 pub(super) fn select_euclidean_kernel() -> EuclideanKernel {
     match select_euclidean_backend() {
@@ -55,6 +57,10 @@ pub(super) fn select_euclidean_backend() -> EuclideanBackend {
     }
 
     EuclideanBackend::Scalar
+}
+
+pub(super) fn euclidean_backend() -> EuclideanBackend {
+    *EUCLIDEAN_BACKEND.get_or_init(select_euclidean_backend)
 }
 
 pub(super) fn euclidean_distance_scalar(left: &[f32], right: &[f32]) -> f32 {
@@ -93,21 +99,10 @@ pub(super) fn euclidean_distance_query_points(
     points: &DensePointView<'_>,
     out: &mut [f32],
 ) {
-    match *EUCLIDEAN_BACKEND.get_or_init(select_euclidean_backend) {
-        EuclideanBackend::Scalar => euclidean_distance_query_points_scalar(query, points, out),
-        EuclideanBackend::Avx2 => {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            euclidean_distance_query_points_avx2_entry(query, points, out);
-            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-            euclidean_distance_query_points_scalar(query, points, out);
-        }
-        EuclideanBackend::Avx512 => {
-            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-            euclidean_distance_query_points_avx512_entry(query, points, out);
-            #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-            euclidean_distance_query_points_scalar(query, points, out);
-        }
-    }
+    assert_eq!(query.len(), points.dimension().get());
+    assert_eq!(out.len(), points.point_count());
+    let kernel = *EUCLIDEAN_QUERY_POINTS_KERNEL.get_or_init(select_euclidean_query_points_kernel);
+    kernel(query, points, out);
 }
 
 pub(super) fn euclidean_distance_query_points_scalar(
@@ -117,15 +112,8 @@ pub(super) fn euclidean_distance_query_points_scalar(
 ) {
     debug_assert_eq!(query.len(), points.dimension().get());
     debug_assert_eq!(out.len(), points.point_count());
-    for value in out.iter_mut() {
-        *value = 0.0;
-    }
-    for (dimension_index, query_value) in query
-        .iter()
-        .copied()
-        .enumerate()
-        .take(points.dimension().get())
-    {
+    out.fill(0.0);
+    for (dimension_index, query_value) in query.iter().copied().enumerate() {
         for (distance, point_value) in out
             .iter_mut()
             .zip(points.coordinate_block(dimension_index).iter().copied())
@@ -136,6 +124,16 @@ pub(super) fn euclidean_distance_query_points_scalar(
     }
     for value in out.iter_mut() {
         *value = value.sqrt();
+    }
+}
+
+fn select_euclidean_query_points_kernel() -> EuclideanQueryPointsKernel {
+    match euclidean_backend() {
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        EuclideanBackend::Avx512 => euclidean_distance_query_points_avx512_entry,
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        EuclideanBackend::Avx2 => euclidean_distance_query_points_avx2_entry,
+        _ => euclidean_distance_query_points_scalar,
     }
 }
 

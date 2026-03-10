@@ -276,32 +276,20 @@ pub(crate) fn euclidean_distance_batch_raw_pairs(
         });
     }
 
-    let results = match shared_query_candidates(pairs) {
+    let results = match shared_query_candidates(pairs)
+        .filter(|(_, candidates)| should_pack_query_points(candidates.len()))
+    {
         Some((query, candidates)) => {
+            validate_raw_pairs_in_order(matrix, pairs)?;
             let query_row = row_slice(matrix, query)?;
             let point_view = DensePointView::from_row_indices(matrix, &candidates)?;
-            if point_view.prefers_scalar_fallback() {
-                collect_euclidean_distance_batch(
-                    matrix,
-                    pairs
-                        .iter()
-                        .copied()
-                        .map(|(left, right)| (RowIndex::new(left), RowIndex::new(right))),
-                )?
-            } else {
-                debug_assert!(point_view.is_aligned_to(SIMD_ALIGNMENT_BYTES));
-                let mut results = vec![0.0_f32; candidates.len()];
-                euclidean_distance_query_points(query_row, &point_view, &mut results)?;
-                results
-            }
+            debug_assert!(!point_view.prefers_scalar_fallback());
+            debug_assert!(point_view.is_aligned_to(SIMD_ALIGNMENT_BYTES));
+            let mut results = vec![0.0_f32; candidates.len()];
+            euclidean_distance_query_points(query_row, &point_view, &mut results)?;
+            results
         }
-        None => collect_euclidean_distance_batch(
-            matrix,
-            pairs
-                .iter()
-                .copied()
-                .map(|(left, right)| (RowIndex::new(left), RowIndex::new(right))),
-        )?,
+        None => collect_euclidean_distance_batch_from_raw_pairs(matrix, pairs)?,
     };
 
     for (value, slot) in results.into_iter().zip(out.slots_mut()) {
@@ -309,6 +297,19 @@ pub(crate) fn euclidean_distance_batch_raw_pairs(
     }
 
     Ok(())
+}
+
+fn collect_euclidean_distance_batch_from_raw_pairs(
+    matrix: RowMajorMatrix<'_>,
+    pairs: &[(usize, usize)],
+) -> Result<Vec<f32>, DataSourceError> {
+    collect_euclidean_distance_batch(
+        matrix,
+        pairs
+            .iter()
+            .copied()
+            .map(|(left, right)| (RowIndex::new(left), RowIndex::new(right))),
+    )
 }
 
 fn collect_euclidean_distance_batch(
@@ -340,6 +341,37 @@ fn euclidean_distance_query_points(
 
     kernels::euclidean_distance_query_points(query.as_slice(), points, out);
     Ok(())
+}
+
+fn should_pack_query_points(candidate_count: usize) -> bool {
+    should_pack_query_points_for_backend(kernels::euclidean_backend(), candidate_count)
+}
+
+fn should_pack_query_points_for_backend(
+    backend: kernels::EuclideanBackend,
+    candidate_count: usize,
+) -> bool {
+    candidate_count > 1 && !matches!(backend, kernels::EuclideanBackend::Scalar)
+}
+
+fn validate_raw_pairs_in_order(
+    matrix: RowMajorMatrix<'_>,
+    pairs: &[(usize, usize)],
+) -> Result<(), DataSourceError> {
+    let rows = matrix.rows.get();
+    for (left, right) in pairs.iter().copied() {
+        validate_raw_row_index(left, rows)?;
+        validate_raw_row_index(right, rows)?;
+    }
+    Ok(())
+}
+
+fn validate_raw_row_index(index: usize, rows: usize) -> Result<(), DataSourceError> {
+    if index < rows {
+        Ok(())
+    } else {
+        Err(DataSourceError::OutOfBounds { index })
+    }
 }
 
 fn shared_query_candidates(pairs: &[(usize, usize)]) -> Option<(RowIndex, Vec<RowIndex>)> {

@@ -1,4 +1,4 @@
-# Execution plan (ExecPlan): roadmap 2.2.2 introduce `DensePointView<'a>` for aligned Structure of Arrays (SoA) access with a scalar fallback
+# Execution plan (ExecPlan): roadmap 2.2.2 introducing `DensePointView<'a>` for aligned Structure of Arrays (SoA) access with a scalar fallback
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
@@ -397,8 +397,8 @@ Add concise evidence to this document as the work progresses:
 4. Update §6.3 in `docs/chutoro-design.md`.
 5. Mark roadmap item `2.2.2` done only after all gates pass.
 
-## Approval gate
+## Historical note
 
-This file is the draft phase required by the `execplans` workflow. Do not begin
-implementation from this plan until the user explicitly approves it or requests
-specific revisions.
+This ExecPlan began as the draft required by the `execplans` workflow. The
+implementation is now complete, so the document remains as an execution record
+rather than an approval gate.

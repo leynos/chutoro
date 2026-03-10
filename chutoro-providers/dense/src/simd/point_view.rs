@@ -6,8 +6,6 @@
 //! a 16-lane multiple so both AVX2 and AVX-512 paths can safely read full
 //! lanes.
 
-use std::marker::PhantomData;
-
 use chutoro_core::DataSourceError;
 
 use super::{Dimension, MAX_SIMD_LANES, RowIndex, RowMajorMatrix, row_slice};
@@ -19,7 +17,6 @@ struct AlignedBlock([f32; MAX_SIMD_LANES]);
 #[derive(Debug)]
 struct PackedSoaStorage {
     blocks: Vec<AlignedBlock>,
-    len: usize,
 }
 
 impl PackedSoaStorage {
@@ -27,22 +24,32 @@ impl PackedSoaStorage {
         let blocks = len.div_ceil(MAX_SIMD_LANES);
         Self {
             blocks: vec![AlignedBlock([0.0; MAX_SIMD_LANES]); blocks],
-            len,
         }
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.blocks.len() * MAX_SIMD_LANES
     }
 
     fn as_slice(&self) -> &[f32] {
         let ptr = self.blocks.as_ptr().cast::<f32>();
         // Safety: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
         // the blocks are contiguous `f32` values with no interior padding.
-        unsafe { std::slice::from_raw_parts(ptr, self.len) }
+        unsafe { std::slice::from_raw_parts(ptr, self.len()) }
     }
 
     fn as_mut_slice(&mut self) -> &mut [f32] {
         let ptr = self.blocks.as_mut_ptr().cast::<f32>();
         // Safety: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
         // the blocks are contiguous `f32` values with no interior padding.
-        unsafe { std::slice::from_raw_parts_mut(ptr, self.len) }
+        unsafe { std::slice::from_raw_parts_mut(ptr, self.len()) }
+    }
+
+    fn block(&self, dimension_index: usize, padded_point_count: usize) -> &[f32] {
+        let start = dimension_index * padded_point_count;
+        let end = start + padded_point_count;
+        &self.as_slice()[start..end]
     }
 }
 
@@ -53,7 +60,7 @@ pub(crate) struct DensePointView<'a> {
     point_count: usize,
     padded_point_count: usize,
     dimension: Dimension,
-    _marker: PhantomData<&'a [f32]>,
+    _marker: std::marker::PhantomData<&'a [f32]>,
 }
 
 impl<'a> DensePointView<'a> {
@@ -81,7 +88,7 @@ impl<'a> DensePointView<'a> {
             point_count,
             padded_point_count,
             dimension,
-            _marker: PhantomData,
+            _marker: std::marker::PhantomData,
         })
     }
 
@@ -112,9 +119,11 @@ impl<'a> DensePointView<'a> {
     /// Returns the packed values for a single coordinate across all points.
     #[must_use]
     pub(crate) fn coordinate_block(&self, dimension_index: usize) -> &[f32] {
-        let start = dimension_index * self.padded_point_count;
-        let end = start + self.padded_point_count;
-        &self.storage.as_slice()[start..end]
+        debug_assert!(
+            dimension_index < self.dimension.get(),
+            "coordinate block index must be within the packed dimension"
+        );
+        self.storage.block(dimension_index, self.padded_point_count)
     }
 
     /// Returns whether the packed storage base pointer satisfies `alignment`.
@@ -125,9 +134,5 @@ impl<'a> DensePointView<'a> {
 }
 
 fn padded_point_count(point_count: usize) -> usize {
-    if point_count == 0 {
-        0
-    } else {
-        point_count.next_multiple_of(MAX_SIMD_LANES)
-    }
+    point_count.next_multiple_of(MAX_SIMD_LANES)
 }

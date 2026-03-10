@@ -101,7 +101,6 @@ impl JobKind {
             Self::Standard
         }
     }
-
     fn is_coverage(self) -> bool {
         self == Self::Coverage
     }
@@ -216,89 +215,89 @@ pub(super) fn run_idempotency_test(
     )
 }
 
-/// Selects the idempotency case count for coverage and non-coverage jobs.
-pub(super) fn select_idempotency_cases(job: JobKind, configured: TestCases) -> TestCases {
+fn select_cases(job: JobKind, configured: TestCases, coverage_cases: u32) -> TestCases {
     if job.is_coverage() {
-        TestCases::new(COVERAGE_IDEMPOTENCY_CASES)
+        TestCases::new(coverage_cases)
     } else {
         configured
     }
 }
 
-/// Returns the idempotency case count using runtime job detection.
-pub(super) fn idempotency_cases() -> TestCases {
-    let configured = TestCases::new(property_run_profile(DEFAULT_IDEMPOTENCY_CASES).cases());
-    select_idempotency_cases(JobKind::detect(), configured)
-}
-
-/// Selects the max shrink iterations for coverage and non-coverage jobs.
-pub(super) fn select_idempotency_shrink_iters(job: JobKind) -> ShrinkIterations {
+fn select_shrink_iterations(
+    job: JobKind,
+    coverage_iters: u32,
+    default_iters: u32,
+) -> ShrinkIterations {
     if job.is_coverage() {
-        ShrinkIterations::new(COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS)
+        ShrinkIterations::new(coverage_iters)
     } else {
-        ShrinkIterations::new(DEFAULT_IDEMPOTENCY_MAX_SHRINK_ITERS)
+        ShrinkIterations::new(default_iters)
     }
 }
 
-/// Returns idempotency shrink iterations using runtime job detection.
+fn configured_cases(default_cases: u32) -> TestCases {
+    TestCases::new(property_run_profile(default_cases).cases())
+}
+
+pub(super) fn select_idempotency_cases(job: JobKind, configured: TestCases) -> TestCases {
+    select_cases(job, configured, COVERAGE_IDEMPOTENCY_CASES)
+}
+
+pub(super) fn idempotency_cases() -> TestCases {
+    select_idempotency_cases(
+        JobKind::detect(),
+        configured_cases(DEFAULT_IDEMPOTENCY_CASES),
+    )
+}
+
+pub(super) fn select_idempotency_shrink_iters(job: JobKind) -> ShrinkIterations {
+    select_shrink_iterations(
+        job,
+        COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS,
+        DEFAULT_IDEMPOTENCY_MAX_SHRINK_ITERS,
+    )
+}
+
 pub(super) fn idempotency_shrink_iters() -> ShrinkIterations {
     select_idempotency_shrink_iters(JobKind::detect())
 }
 
-/// Selects the mutation case count for coverage and non-coverage jobs.
 pub(super) fn select_mutation_cases(job: JobKind, configured: TestCases) -> TestCases {
-    if job.is_coverage() {
-        TestCases::new(COVERAGE_MUTATION_CASES)
-    } else {
-        configured
-    }
+    select_cases(job, configured, COVERAGE_MUTATION_CASES)
 }
 
-/// Returns the mutation case count using runtime job detection.
 pub(super) fn mutation_cases() -> TestCases {
-    let configured = TestCases::new(property_run_profile(DEFAULT_MUTATION_CASES).cases());
-    select_mutation_cases(JobKind::detect(), configured)
+    select_mutation_cases(JobKind::detect(), configured_cases(DEFAULT_MUTATION_CASES))
 }
 
-/// Selects the max shrink iterations for mutation coverage and non-coverage jobs.
 pub(super) fn select_mutation_shrink_iters(job: JobKind) -> ShrinkIterations {
-    if job.is_coverage() {
-        ShrinkIterations::new(COVERAGE_MUTATION_MAX_SHRINK_ITERS)
-    } else {
-        ShrinkIterations::new(DEFAULT_MUTATION_MAX_SHRINK_ITERS)
-    }
+    select_shrink_iterations(
+        job,
+        COVERAGE_MUTATION_MAX_SHRINK_ITERS,
+        DEFAULT_MUTATION_MAX_SHRINK_ITERS,
+    )
 }
 
-/// Returns mutation shrink iterations using runtime job detection.
 pub(super) fn mutation_shrink_iters() -> ShrinkIterations {
     select_mutation_shrink_iters(JobKind::detect())
 }
 
-/// Selects the search case count for coverage and non-coverage jobs.
 pub(super) fn select_search_cases(job: JobKind, configured: TestCases) -> TestCases {
-    if job.is_coverage() {
-        TestCases::new(COVERAGE_SEARCH_CASES)
-    } else {
-        configured
-    }
+    select_cases(job, configured, COVERAGE_SEARCH_CASES)
 }
 
-/// Returns the search case count using runtime job detection.
 pub(super) fn search_cases() -> TestCases {
-    let configured = TestCases::new(property_run_profile(DEFAULT_SEARCH_CASES).cases());
-    select_search_cases(JobKind::detect(), configured)
+    select_search_cases(JobKind::detect(), configured_cases(DEFAULT_SEARCH_CASES))
 }
 
-/// Selects the max shrink iterations for search coverage and non-coverage jobs.
 pub(super) fn select_search_shrink_iters(job: JobKind) -> ShrinkIterations {
-    if job.is_coverage() {
-        ShrinkIterations::new(COVERAGE_SEARCH_MAX_SHRINK_ITERS)
-    } else {
-        ShrinkIterations::new(DEFAULT_SEARCH_MAX_SHRINK_ITERS)
-    }
+    select_shrink_iterations(
+        job,
+        COVERAGE_SEARCH_MAX_SHRINK_ITERS,
+        DEFAULT_SEARCH_MAX_SHRINK_ITERS,
+    )
 }
 
-/// Returns search shrink iterations using runtime job detection.
 pub(super) fn search_shrink_iters() -> ShrinkIterations {
     select_search_shrink_iters(JobKind::detect())
 }
