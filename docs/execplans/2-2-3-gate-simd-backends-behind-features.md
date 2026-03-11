@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -34,8 +34,7 @@ Success is observable when:
 - `docs/roadmap.md` marks item `2.2.3` done only after implementation and all
   validation commands succeed.
 
-This plan is for the draft phase only. Implementation must not begin until the
-plan is approved.
+Implementation is complete. This document now serves as the execution record.
 
 ## Constraints
 
@@ -118,14 +117,19 @@ plan is approved.
 ## Progress
 
 - [x] (2026-03-10 00:00Z) Drafted ExecPlan for roadmap item `2.2.3`.
-- [ ] Await approval for implementation.
-- [ ] Stage A: add failing tests for dispatch selection, feature-disabled
-  fallback, and non-finite policy.
-- [ ] Stage B: add Cargo features and compile-time backend-mask plumbing.
-- [ ] Stage C: implement runtime dispatch selection under the new feature
-  gates and resolve the `simd_neon` checkpoint.
-- [ ] Stage D: update design documentation, mark the roadmap item done, and
-  pass repository quality gates.
+- [x] (2026-03-11 00:20Z) Implementation approved and started.
+- [x] (2026-03-11 00:55Z) Stage A complete: added selector and non-finite
+  contract coverage in `chutoro-providers/dense/src/simd/tests.rs`.
+- [x] (2026-03-11 01:20Z) Stage B complete: added dense-crate features plus a
+  dedicated dispatch module and split typed wrappers out of the overlong
+  `simd/mod.rs`.
+- [x] (2026-03-11 01:45Z) Stage C complete: wired feature-gated AVX2,
+  AVX-512, and Neon backends through one-time runtime selection and
+  canonicalized non-finite reductions to `f32::NAN`.
+- [x] (2026-03-11 02:10Z) Stage D complete: updated design documentation,
+  marked roadmap item `2.2.3` done, and validated the dense feature matrix.
+- [x] (2026-03-11 02:40Z) Re-ran repository quality gates after the final
+  documentation fix.
 
 ## Surprises & discoveries
 
@@ -159,6 +163,20 @@ plan is approved.
   `chutoro-providers/dense/src/simd/kernels.rs`. Impact: `simd_neon` is the
   only part of this roadmap item with genuine scope ambiguity.
 
+- Observation: `simd/mod.rs` was already above the repository's 400-line target
+  before `2.2.3` work started. Evidence: `wc -l` reported 423 lines before the
+  implementation sweep. Impact: the feature-gating work split typed wrappers
+  into `simd/types.rs` and backend selection into `simd/dispatch.rs` instead of
+  adding more logic to the existing file.
+
+- Observation: single-backend validation builds such as
+  `cargo test -p chutoro-providers-dense --no-default-features --features simd_avx512`
+   triggered dead-code warnings on private backend helpers that are only
+  reached through the runtime dispatch table. Impact: feature-specific internal
+  helpers now carry tightly scoped `#[allow(dead_code)]` annotations with
+  reasons so matrix validation stays warning-free without weakening public lint
+  policy.
+
 ## Decision log
 
 - Decision: plan around feature-gating the dense crate itself first, and avoid
@@ -183,19 +201,62 @@ plan is approved.
   `2.2.2` already delivered the layout contract; `2.2.3` should consume it, not
   reopen it. Date/Author: 2026-03-10 / Codex.
 
+- Decision: keep `simd_avx2`, `simd_avx512`, and `simd_neon` default-enabled in
+  `chutoro-providers-dense`. Rationale: the roadmap item is about gating
+  backend compilation, not silently degrading the current default performance
+  profile for downstream users. Date/Author: 2026-03-11 / Codex.
+
+- Decision: implement a real Neon backend rather than leaving `simd_neon` as a
+  placeholder flag. Rationale: roadmap wording names Neon as a backend, and the
+  stable `std::arch` intrinsics needed for the existing Euclidean kernels were
+  sufficient to stay within scope. Date/Author: 2026-03-11 / Codex.
+
+- Decision: canonicalize any non-finite Euclidean reduction result to
+  `f32::NAN` across scalar and SIMD paths. Rationale: this yields one stable
+  invalid-output class and aligns with the HNSW validator, which already
+  rejects non-finite distances. Date/Author: 2026-03-11 / Codex.
+
 ## Outcomes & retrospective
 
-No implementation work has been performed yet.
-
-The intended outcome of the approved implementation is:
+Implemented outcomes:
 
 - dense SIMD backends are enabled or disabled by Cargo features;
 - runtime selection still happens once and patches function pointers before
   hot-loop execution;
-- scalar and SIMD paths share one documented non-finite policy;
-- roadmap item `2.2.3` is marked done only after tests, docs, and gates pass.
+- scalar and SIMD paths now share one documented non-finite policy:
+  canonicalize invalid reductions to `f32::NAN`;
+- `simd_neon` now maps to a real ARM/AArch64 backend rather than an empty
+  feature slot;
+- `simd/mod.rs` was reduced by moving typed wrappers into `simd/types.rs` and
+  backend selection into `simd/dispatch.rs`;
+- roadmap item `2.2.3` is marked done.
 
-Retrospective notes will be added after implementation completes.
+Validation summary:
+
+- targeted dense validation passed:
+  - workspace-style dense test run
+  - dense all-features Clippy run with warnings denied
+  - dense no-default-features test run
+  - dense `simd_avx2` feature-only test run
+  - dense `simd_avx512` feature-only test run
+  - dense all-features test run
+- repository gates passed:
+  - `make fmt`
+  - `make markdownlint`
+  - `make nixie`
+  - `make check-fmt`
+  - `make lint`
+  - `make test`
+
+Retrospective:
+
+- The pure selector approach kept dispatch behaviour easy to test and let the
+  feature-matrix validation exercise cases that the host CPU could not execute
+  directly.
+- The most pragmatic Neon implementation reused the existing Euclidean kernel
+  shape rather than widening scope into a new packing strategy.
+- Canonical `NaN` outputs provide a clearer contract than leaving scalar and
+  SIMD backends to differ on `NaN` versus `infinity`.
 
 ## Context and orientation
 

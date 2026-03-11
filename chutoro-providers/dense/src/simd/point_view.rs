@@ -99,6 +99,12 @@ impl<'a> DensePointView<'a> {
     }
 
     /// Returns the zero-padded point count used for packed coordinate blocks.
+    #[cfg(any(
+        test,
+        feature = "simd_avx2",
+        feature = "simd_avx512",
+        feature = "simd_neon"
+    ))]
     #[must_use]
     pub(crate) fn padded_point_count(&self) -> usize {
         self.padded_point_count
