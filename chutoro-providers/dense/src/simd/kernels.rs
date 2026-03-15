@@ -48,25 +48,41 @@ type EuclideanQueryPointsKernel = fn(&[f32], &DensePointView<'_>, &mut [f32]);
 pub(super) static EUCLIDEAN_KERNEL: OnceLock<EuclideanKernel> = OnceLock::new();
 static EUCLIDEAN_QUERY_POINTS_KERNEL: OnceLock<EuclideanQueryPointsKernel> = OnceLock::new();
 
+macro_rules! select_backend_fn {
+    (
+        avx512 = $avx512:expr,
+        avx2   = $avx2:expr,
+        neon   = $neon:expr,
+        scalar = $scalar:expr $(,)?
+    ) => {
+        match dispatch::euclidean_backend() {
+            #[cfg(all(
+                feature = "simd_avx512",
+                any(target_arch = "x86", target_arch = "x86_64")
+            ))]
+            dispatch::EuclideanBackend::Avx512 => $avx512,
+            #[cfg(all(
+                feature = "simd_avx2",
+                any(target_arch = "x86", target_arch = "x86_64")
+            ))]
+            dispatch::EuclideanBackend::Avx2 => $avx2,
+            #[cfg(all(
+                feature = "simd_neon",
+                any(target_arch = "arm", target_arch = "aarch64")
+            ))]
+            dispatch::EuclideanBackend::Neon => $neon,
+            _ => $scalar,
+        }
+    };
+}
+
 pub(super) fn select_euclidean_kernel() -> EuclideanKernel {
-    match dispatch::euclidean_backend() {
-        #[cfg(all(
-            feature = "simd_avx512",
-            any(target_arch = "x86", target_arch = "x86_64")
-        ))]
-        dispatch::EuclideanBackend::Avx512 => euclidean_distance_avx512_entry,
-        #[cfg(all(
-            feature = "simd_avx2",
-            any(target_arch = "x86", target_arch = "x86_64")
-        ))]
-        dispatch::EuclideanBackend::Avx2 => euclidean_distance_avx2_entry,
-        #[cfg(all(
-            feature = "simd_neon",
-            any(target_arch = "arm", target_arch = "aarch64")
-        ))]
-        dispatch::EuclideanBackend::Neon => euclidean_distance_neon_entry,
-        _ => euclidean_distance_scalar,
-    }
+    select_backend_fn!(
+        avx512 = euclidean_distance_avx512_entry,
+        avx2   = euclidean_distance_avx2_entry,
+        neon   = euclidean_distance_neon_entry,
+        scalar = euclidean_distance_scalar,
+    )
 }
 
 pub(super) fn euclidean_distance_scalar(left: &[f32], right: &[f32]) -> f32 {
@@ -155,24 +171,12 @@ pub(super) fn euclidean_distance_query_points_scalar(
 }
 
 fn select_euclidean_query_points_kernel() -> EuclideanQueryPointsKernel {
-    match dispatch::euclidean_backend() {
-        #[cfg(all(
-            feature = "simd_avx512",
-            any(target_arch = "x86", target_arch = "x86_64")
-        ))]
-        dispatch::EuclideanBackend::Avx512 => euclidean_distance_query_points_avx512_entry,
-        #[cfg(all(
-            feature = "simd_avx2",
-            any(target_arch = "x86", target_arch = "x86_64")
-        ))]
-        dispatch::EuclideanBackend::Avx2 => euclidean_distance_query_points_avx2_entry,
-        #[cfg(all(
-            feature = "simd_neon",
-            any(target_arch = "arm", target_arch = "aarch64")
-        ))]
-        dispatch::EuclideanBackend::Neon => euclidean_distance_query_points_neon_entry,
-        _ => euclidean_distance_query_points_scalar,
-    }
+    select_backend_fn!(
+        avx512 = euclidean_distance_query_points_avx512_entry,
+        avx2   = euclidean_distance_query_points_avx2_entry,
+        neon   = euclidean_distance_query_points_neon_entry,
+        scalar = euclidean_distance_query_points_scalar,
+    )
 }
 
 #[cfg(all(
