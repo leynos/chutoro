@@ -2137,7 +2137,7 @@ benchmarks while preserving a reproducible developer-run workflow.
 
 The FISHDBC paper explicitly describes its algorithm as incremental: the HNSW
 graph and MST admit lightweight updates when a few items are added, avoiding
-full recomputation.[^5] The reference Python implementation exposes an `add()`
+full recomputation.[^6] The reference Python implementation exposes an `add()`
 method that inserts points into the HNSW graph, harvests candidate edges, runs
 an `update_mst()` step over only the new candidates plus existing MST edges,
 and then re-extracts clusters. This section describes the design for bringing
@@ -2218,6 +2218,11 @@ pub struct ClusteringSession<D: DataSource + Sync> {
     /// Accumulated MST edges from the most recent complete refresh.
     mst_edges: Vec<MstEdge>,
 
+    /// Non-MST edges retained from previous refreshes whose
+    /// mutual-reachability weights may shift when core distances
+    /// change. Bounded by `config.historical_edge_cap`.
+    historical_edges: Vec<CandidateEdge>,
+
     /// Delta candidate edges harvested since the last refresh,
     /// awaiting merge into the MST.
     pending_edges: Vec<CandidateEdge>,
@@ -2239,6 +2244,20 @@ pub struct ClusteringSession<D: DataSource + Sync> {
 _Figure 2: Sketch of `ClusteringSession` state. The session owns the live HNSW
 index, cached core distances, current MST edges, pending delta edges, and the
 latest label snapshot._
+
+**Memory growth and edge retention.** Between refreshes, `pending_edges` grows
+by roughly O(M) entries per appended point (where M is the HNSW connectivity
+parameter), because each insertion discovers up to M candidate edges. On
+refresh, `pending_edges` is drained: the edges are merged into the Kruskal
+candidate set, and the buffer is cleared. After refresh, the session retains
+two edge collections: (a) `mst_edges`, whose size is bounded by n − 1 where n
+is the total point count; and (b) `historical_edges`, a bounded set of non-MST
+edges retained for correctness under core-distance drift (see §12.5). The
+`historical_edges` set is capped at a configurable multiple of the MST edge
+count (default 2×); edges with the highest mutual-reachability weight are
+evicted first when the cap is exceeded. This bounds total edge memory to O(n ×
+cap_factor) regardless of how many refresh cycles the session undergoes. The
+compaction path (§15.3) resets both edge sets by rebuilding from scratch.
 
 The session lifecycle follows four phases:
 
@@ -2284,7 +2303,19 @@ currently recomputes from scratch. Specifically:
   may need to update core distances for existing points whose neighbourhoods
   changed due to new insertions. A pragmatic v1 approach recomputes core
   distances only for new points and for existing points that appear as
-  neighbours of new insertions.
+  neighbours of new insertions. This local recomputation can drift from the
+  true values over many append cycles, because a new insertion may improve a
+  distant point's k-th neighbour without that point appearing as a direct
+  neighbour of the new insert. To bound drift, the session should perform a
+  **full core-distance recomputation** when any of the following conditions
+  hold: (a) the cumulative number of appended points since the last full
+  recomputation exceeds a configurable fraction of the total dataset (default
+  25%); (b) the differential test ARI/NMI against a batch baseline drops below
+  a configurable threshold (default 0.92); or (c) the caller explicitly
+  requests it via `refresh_full()`. Full recomputation searches the HNSW index
+  for every point's `min_cluster_size`-th nearest neighbour, identical to the
+  batch pipeline. This is more expensive than the incremental path but resets
+  drift to zero.
 - **Mutual-reachability weighting.** After core distance updates, the pending
   edges and any affected existing MST edges must be reweighted using the
   mutual-reachability formula:
@@ -2298,22 +2329,38 @@ data structure:
 
 1. Collect the existing `mst_edges` from the previous refresh (already stored
    in the session).
-2. Append the new `pending_edges` (converted to mutual-reachability weights).
-3. Construct a fresh `EdgeHarvest` from the combined edge set.
-4. Run `parallel_kruskal` over the combined harvest. Because the existing MST
-   edges are a subset of the optimal solution and the new edges are a small
-   delta, this Kruskal pass processes a candidate set much smaller than the
-   full O(n × M) edge set that a from-scratch build would produce.
-5. Extract labels via `extract_labels_from_mst` with the current
+2. Collect the `historical_edges` — non-MST edges retained from previous
+   refreshes whose mutual-reachability weights may have changed due to
+   core-distance updates (see §12.4). These edges are necessary because
+   core-distance recomputation changes the mutual-reachability weights of
+   old-old edges; a previously non-MST edge may become lighter than a current
+   MST edge and belong in the true MST. Without retaining these candidates, the
+   refresh candidate set would be incomplete and incremental clustering could
+   silently drift from the batch baseline.
+3. Append the new `pending_edges` (converted to mutual-reachability weights).
+4. Reweight all edges in the combined set using current core distances:
+   `weight = max(distance, core_dist[source], core_dist[target])`.
+5. Construct a fresh `EdgeHarvest` from the combined edge set
+   (`mst_edges` + `historical_edges` + `pending_edges`).
+6. Run `parallel_kruskal` over the combined harvest. The candidate set is
+   larger than `mst_edges + pending_edges` alone but still much smaller than
+   the full O(n × M) edge set that a from-scratch build would produce.
+7. Extract labels via `extract_labels_from_mst` with the current
    `HierarchyConfig`.
-6. Publish the new label snapshot and advance `snapshot_version`.
+8. Partition the Kruskal output: edges selected for the MST become the new
+   `mst_edges`; non-MST edges are retained in `historical_edges` up to the
+   configured cap (default 2× MST edge count, heaviest edges evicted first).
+   Clear `pending_edges`.
+9. Publish the new label snapshot and advance `snapshot_version`.
 
 This strategy is correct because Kruskal's algorithm is exact over its input
-edge set: if the existing MST edges plus the new candidates contain the true
-MST, the output is the true MST. In practice, the HNSW insertion discovers
-high-quality candidate edges for new points, and the existing MST already
-captures the optimal spanning structure for old points, so the combined set is
-a strong superset of the true MST edges.
+edge set: if the combined candidate set contains the true MST edges, the output
+is the true MST. In practice, the HNSW insertion discovers high-quality
+candidate edges for new points, the existing MST captures the optimal spanning
+structure for old points, and the retained historical edges cover the non-MST
+old-old edges whose weights may have shifted due to core-distance updates. The
+historical edge cap bounds memory while preserving correctness for the edges
+most likely to re-enter the MST (those with the lightest weights).
 
 For large datasets where even the combined Kruskal pass becomes expensive, a
 future optimisation could use a cut-based update: identify the MST edges that
@@ -2631,7 +2678,7 @@ datasets change. Points become stale, erroneous entries need retraction, and
 long-running sessions accumulate structural debt. This section defines the
 tombstone-based deletion model, refresh semantics after deletion, compaction,
 and memory-budget instrumentation that bring `ClusteringSession` from
-append-only to a credible long-lived engine.[^5]
+append-only to a credible long-lived engine.[^6]
 
 #### 15.1. Tombstone-based soft deletion
 

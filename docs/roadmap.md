@@ -622,34 +622,59 @@ ______________________________________________________________________
   of new point indices. Each insertion calls the public edge-harvesting path
   and accumulates delta `CandidateEdge` values in the session's `pending_edges`
   buffer. (See `docs/chutoro-design.md` §12.3, §12.4)
-  - Acceptance criteria: after appending N points, `pending_edges.len()`
-    is non-zero and the HNSW index contains all appended points.
+  - Acceptance criteria: after appending N points the HNSW index
+    contains all appended points and `pending_edges` includes every
+    harvested edge produced by those insertions. Zero harvested edges
+    is valid for datasets or stages (e.g. early bootstrap) where
+    inserts produce no harvested edges.
 - [ ] 11.1.4. Implement incremental core-distance computation for newly
   appended points: search the HNSW index for each new point's
   `min_cluster_size`-th nearest neighbour and record its core distance.
   Recompute core distances for existing points that appear as neighbours of new
-  insertions. (See `docs/chutoro-design.md` §12.4)
+  insertions. Requires 11.1.2 (`ClusteringSession`), 11.1.3 (`append` and
+  `pending_edges`). (See `docs/chutoro-design.md` §12.4)
 
 ### 11.2. Incremental MST refresh and label extraction
 
 - [ ] 11.2.1. Implement `ClusteringSession::refresh`: merge
-  `pending_edges` with the existing `mst_edges`, apply mutual-reachability
-  weighting using updated core distances, construct a fresh `EdgeHarvest` from
-  the combined set, run `parallel_kruskal`, and extract labels via
-  `extract_labels_from_mst`. Publish the new label snapshot as
-  `Arc<Vec<usize>>` and advance the snapshot version counter. (See
-  `docs/chutoro-design.md` §12.5)
+  `pending_edges` with the existing `mst_edges` and retained non-MST historical
+  edges (see §12.5), apply mutual-reachability weighting using updated core
+  distances, construct a fresh `EdgeHarvest` from the combined set, run
+  `parallel_kruskal`, and extract labels via `extract_labels_from_mst`. Publish
+  the new label snapshot as `Arc<Vec<usize>>` and advance the
+  `snapshot_version` counter. Requires 11.1.3 (`pending_edges`), 11.1.4 (core
+  distances). (See `docs/chutoro-design.md` §12.5)
   - Acceptance criteria: after refresh, `session.labels()` returns a
     label vector whose length equals the total number of points
     (initial + appended). `snapshot_version` increments by exactly one
     per refresh call.
 - [ ] 11.2.2. Implement `ClusteringSession::labels` returning the
-  latest `Arc<Vec<usize>>` label snapshot without blocking the writer. (See
+  latest `Arc<Vec<usize>>` label snapshot without blocking the writer. Requires
+  11.2.1 (`refresh` publishes the label snapshot). (See
   `docs/chutoro-design.md` §12.6)
 - [ ] 11.2.3. Add count-triggered refresh policy: configure
   `SessionConfig` with an optional `refresh_every_n` threshold so that `append`
-  automatically triggers `refresh` after every N accumulated points. (See
-  `docs/chutoro-design.md` §12.6)
+  automatically triggers `refresh` after every N accumulated points. Requires
+  11.1.3 (`append`), 11.2.1 (`refresh`). (See `docs/chutoro-design.md` §12.6)
+- [ ] 11.2.4. Implement `ClusteringSession::refresh_full`: perform a
+  complete core-distance recomputation for all points before running the
+  standard refresh path. Expose `SessionConfig` options for automatic
+  full-refresh triggers: (a) cumulative appended point fraction exceeding a
+  configurable threshold (default 25% of total dataset); (b) caller request via
+  explicit `refresh_full()` call. Requires 11.2.1. (See
+  `docs/chutoro-design.md` §12.4)
+  - Acceptance criteria: after `refresh_full()`, ARI/NMI against a
+    batch baseline is ≥ 0.98 on a dataset that has undergone ≥ 50
+    incremental refresh cycles.
+- [ ] 11.2.5. Implement bounded `historical_edges` retention: after
+  each refresh, partition Kruskal output into MST and non-MST edges. Retain
+  non-MST edges in `historical_edges` up to a configurable cap (default 2× MST
+  edge count), evicting heaviest edges first. Clear `pending_edges`. Requires
+  11.2.1. (See `docs/chutoro-design.md` §12.5)
+  - Acceptance criteria: `historical_edges.len()` never exceeds the
+    configured cap. After 100 append-refresh cycles, total session
+    edge memory (MST + historical + pending) remains within 4× the
+    MST edge count.
 
 ### 11.3. Seeding and batch bootstrap
 
@@ -723,13 +748,13 @@ ______________________________________________________________________
     `labels.len()` equals the session's total point count.
 - [ ] 12.1.2. Extend the hierarchy extraction pass (§6.2) to emit
   per-point stability-weighted membership scores when the `probabilities`
-  feature is enabled. Propagate scores into `ClusteringSnapshot`. (See
-  `docs/chutoro-design.md` §13.1)
+  feature is enabled. Propagate scores into `ClusteringSnapshot`. Requires
+  12.1.1. (See `docs/chutoro-design.md` §13.1)
 - [ ] 12.1.3. Compute `ClusterStats` for each cluster during snapshot
   construction: size, medoid (via `DataSource::distance`), up to k exemplars,
   cohesion (mean intra-cluster distance), separation (medoid distance to
   nearest neighbouring cluster's medoid), noise ratio (requires
-  `probabilities`), and nearest-cluster identifier. (See
+  `probabilities`), and nearest-cluster identifier. Requires 12.1.1. (See
   `docs/chutoro-design.md` §14.1)
   - Acceptance criteria: medoid is the point minimising average
     intra-cluster distance; cohesion and separation are finite and
@@ -737,8 +762,8 @@ ______________________________________________________________________
 - [ ] 12.1.4. Define a `VectorClusterStats` extension trait providing
   centroid computation for `DataSource` implementations that expose raw vectors
   via `row_slice()`. Keep the generic `ClusterStats` path medoid-only, avoiding
-  Euclidean assumptions in non-metric contexts. (See `docs/chutoro-design.md`
-  §14.1)
+  Euclidean assumptions in non-metric contexts. Requires 12.1.3. (See
+  `docs/chutoro-design.md` §14.1)
 
 ### 12.2. Checkpoint and restore
 
@@ -748,16 +773,17 @@ ______________________________________________________________________
   core distances, current `ClusteringSnapshot`, and `SessionConfig`. (See
   `docs/chutoro-design.md` §13.2)
 - [ ] 12.2.2. Implement `ClusteringSession::checkpoint` serialising
-  session state to the binary format. (See `docs/chutoro-design.md` §13.2)
+  session state to the binary format. Requires 12.2.1. (See
+  `docs/chutoro-design.md` §13.2)
 - [ ] 12.2.3. Implement `ClusteringSession::restore` deserialising from
   a checkpoint file and validating against a supplied `DataSource` (point
-  count, metric descriptor). Return `SessionRestorationError` on mismatch. (See
-  `docs/chutoro-design.md` §13.2)
+  count, metric descriptor). Return `SessionRestorationError` on mismatch.
+  Requires 12.2.1. (See `docs/chutoro-design.md` §13.2)
   - Acceptance criteria: checkpoint → restore round-trip yields a session
     whose `labels()` output is identical to the pre-checkpoint state.
 - [ ] 12.2.4. Add checkpoint integrity tests: corrupt each section of
   the binary format and verify that `restore` returns a specific error variant
-  rather than panicking or producing silent corruption.
+  rather than panicking or producing silent corruption. Requires 12.2.3.
 
 ### 12.3. Stable cluster-identity matching
 
@@ -773,6 +799,7 @@ ______________________________________________________________________
 - [ ] 12.3.2. Add property-based tests verifying that identity matching
   is deterministic, that unmatched clusters receive monotonically increasing
   fresh identifiers, and that Jaccard scores agree with a brute-force oracle.
+  Requires 12.3.1.
 
 ### 12.4. Structural diff API
 
@@ -787,6 +814,7 @@ ______________________________________________________________________
     inserting bridging points produces a `Merge`.
 - [ ] 12.4.2. Add tests for `Birth` and `Death` events triggered by
   topic emergence and decay in a synthetic dataset with known breakpoints.
+  Requires 12.4.1.
 
 **Exit criteria:** snapshots carry labels, optional probabilities, and
 per-cluster stats; checkpoint/restore round-trips succeed; stable cluster
@@ -813,7 +841,7 @@ ______________________________________________________________________
   delegating to `recluster_subset`. Requires 13.1.1.
 - [ ] 13.1.3. Add tests verifying that local reclustering of a known
   bimodal cluster produces two sub-clusters, and that local reclustering of a
-  tight unimodal cluster returns a single cluster.
+  tight unimodal cluster returns a single cluster. Requires 13.1.1.
 
 ### 13.2. Graph and MST slice export
 
@@ -827,7 +855,7 @@ ______________________________________________________________________
   (See `docs/chutoro-design.md` §14.3)
 - [ ] 13.2.3. Add tests verifying that exported slices are read-only
   copies (mutating the returned vectors does not affect session state) and that
-  edge counts are consistent with the global MST.
+  edge counts are consistent with the global MST. Requires 13.2.1, 13.2.2.
 
 ### 13.3. Diagnostic integration
 
@@ -836,7 +864,7 @@ ______________________________________________________________________
   table, optionally formatted as JSON or CSV. Requires 12.1.3, 12.2.3.
 - [ ] 13.3.2. Add Rustdoc documentation for `recluster_subset`,
   `recluster_cluster`, `hnsw_neighbours`, and `mst_edges_for` with examples
-  demonstrating diagnostic workflows.
+  demonstrating diagnostic workflows. Requires 13.1.1, 13.1.2, 13.2.1, 13.2.2.
 
 **Exit criteria:** subset reclustering produces valid local snapshots without
 mutating global state; graph and MST slice exports return consistent read-only
@@ -858,11 +886,11 @@ ______________________________________________________________________
 - [ ] 14.1.2. Extend the refresh path (§12.5) to handle tombstones:
   remove MST edges incident on tombstoned points before the Kruskal pass, mark
   neighbours' core distances as stale for recomputation, and produce a snapshot
-  over the reduced (non-tombstoned) point set. (See `docs/chutoro-design.md`
-  §15.2)
+  over the reduced (non-tombstoned) point set. Requires 14.1.1. (See
+  `docs/chutoro-design.md` §15.2)
 - [ ] 14.1.3. Add differential tests comparing tombstone-refresh
   results against a fresh batch `run()` on only the surviving points, using ARI
-  ≥ 0.90 and NMI ≥ 0.90.
+  ≥ 0.90 and NMI ≥ 0.90. Requires 14.1.2.
 
 ### 14.2. Compaction
 
@@ -873,14 +901,15 @@ ______________________________________________________________________
   HNSW index from scratch over surviving points with full edge harvesting,
   recompute all core distances, run a full `parallel_kruskal` and
   `extract_labels_from_mst` pass, and publish a new snapshot with a fresh
-  lineage root. (See `docs/chutoro-design.md` §15.3)
+  lineage root. Requires 14.2.1. (See `docs/chutoro-design.md` §15.3)
   - Acceptance criteria: after compaction, `session.labels()` matches a
     fresh `Chutoro::run()` on the surviving points (identical labels).
     `tombstone_count` is zero. HNSW index contains only surviving
     points.
 - [ ] 14.2.3. Add regression benchmarks comparing compaction wall-time
   against a full batch `run()` for the same surviving point count. The
-  compaction path should complete within 1.2× of a fresh batch run.
+  compaction path should complete within 1.2× of a fresh batch run. Requires
+  14.2.2.
 
 ### 14.3. Memory-budget instrumentation
 
@@ -894,7 +923,7 @@ ______________________________________________________________________
   `docs/chutoro-design.md` §15.4)
 - [ ] 14.3.2. Add integration tests verifying that metric values are
   consistent with session state after append, delete, refresh, and compact
-  operations.
+  operations. Requires 14.3.1.
 
 **Exit criteria:** tombstone deletion excludes points from snapshots without
 immediate graph detachment; refresh after deletion produces ARI/NMI ≥ 0.90 vs a
@@ -918,10 +947,11 @@ ______________________________________________________________________
   Sentence-BERT checkpoint with a versioned model card, document preprocessing
   steps, and cache the resulting dense vectors alongside the corpus manifest.
   Alternatively, support a direct Levenshtein path over raw text for
-  small-scale non-metric exercises. (See `docs/chutoro-design.md` §16.2)
+  small-scale non-metric exercises. Requires 15.1.1. (See
+  `docs/chutoro-design.md` §16.2)
 - [ ] 15.1.3. Register the streaming text corpus as a benchmark dataset
   recipe in `chutoro-bench-datasets` (§10.1) with `smoke` and `cpu` matrix
-  profiles.
+  profiles. Requires 15.1.1, 15.1.2.
 
 ### 15.2. Streaming benchmark harness
 
@@ -939,7 +969,7 @@ ______________________________________________________________________
 - [ ] 15.2.3. Add CI integration running the streaming text benchmark
   on the `smoke` profile (1,000 initial documents, 200 appended) as a scheduled
   weekly job, publishing metric summaries alongside existing benchmark
-  artefacts (§10.2).
+  artefacts (§10.2). Requires 15.2.1, 15.2.2.
 
 ### 15.3. Acceptance and regression gating
 
@@ -948,7 +978,8 @@ ______________________________________________________________________
   completes; label churn ≤ 5% per refresh when no topic drift occurs in the
   corresponding append window; append p95 latency ≤ 2× mean single-point HNSW
   insertion time; structural diff events align with drift breakpoints at
-  precision ≥ 0.7 and recall ≥ 0.7. (See `docs/chutoro-design.md` §16.4)
+  precision ≥ 0.7 and recall ≥ 0.7. Requires 15.2.1, 15.2.2, 15.2.3. (See
+  `docs/chutoro-design.md` §16.4)
 - [ ] 15.3.2. Add regression alerting: compare streaming benchmark
   metrics against stored baselines (§10.2.5) and surface regressions in CI.
   Requires 15.2.3.
