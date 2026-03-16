@@ -2133,6 +2133,261 @@ This strategy treats baseline comparison as a scheduled regression detector
 rather than a PR merge gate, matching the roadmap allowance for expensive
 benchmarks while preserving a reproducible developer-run workflow.
 
+### 12. Incremental clustering
+
+The FISHDBC paper explicitly describes its algorithm as incremental: the HNSW
+graph and MST admit lightweight updates when a few items are added, avoiding
+full recomputation.[^5] The reference Python implementation exposes an `add()`
+method that inserts points into the HNSW graph, harvests candidate edges, runs
+an `update_mst()` step over only the new candidates plus existing MST edges,
+and then re-extracts clusters. This section describes the design for bringing
+equivalent incremental clustering to chutoro as a first-class capability.
+
+#### 12.1. Gap analysis: batch pipeline versus incremental engine
+
+The current public API surface is `ChutoroBuilder` → `build()` → `run(&source)`
+(§10.1). `Chutoro` itself stores configuration (min cluster size, execution
+strategy) rather than live clustering state, and `run()` dispatches to
+`cpu_pipeline::run_cpu_pipeline_with_len`, which rebuilds the HNSW index,
+recomputes core distances for every point, runs `parallel_kruskal` over the
+harvested edges, and extracts labels from the resulting MST. There is no public
+`add`, `update`, `delete`, `refresh`, or long-lived clustering-session API.
+
+The lower-level primitives are closer to incremental readiness than the public
+API suggests. `CpuHnsw` already exposes `with_capacity()` and a public
+`insert()`, and internally `insert_with_edges()` harvests candidate edges
+during insertion via the `EdgeCollector` trait. The obstacle is that the public
+`insert()` path uses `NoopCollector`, discarding the harvested edges that an
+incremental MST update would need, while the edge-harvesting path remains
+`pub(super)`. The crate also re-exports `CpuHnsw`, `EdgeHarvest`,
+`parallel_kruskal`, and `extract_labels_from_mst` as building blocks. Deletion
+helpers exist in `Graph::delete_node` but are exposed solely to tests (§6.7),
+with production delete semantics explicitly withheld until reachability
+guarantees are fully validated.
+
+The raw ingredients exist; the assembled incremental clustering engine does not.
+
+#### 12.2. Scope and constraints
+
+The incremental clustering feature targets the following scope:
+
+- **In scope (v1):**
+  - Append-only point insertion into a live clustering session.
+  - Incremental edge harvesting during HNSW insertion.
+  - Incremental MST refresh: merge new candidate edges with existing MST edges
+    and rerun Kruskal over the combined candidate set.
+  - Periodic re-extraction of flat cluster labels from the updated MST.
+  - Micro-batched snapshot model: apply a batch of appends, refresh MST, and
+    publish an immutable label snapshot. Single writer, concurrent readers.
+  - Differential testing harness comparing incremental results against full
+    batch `run()` using ARI/NMI rather than raw label identity (cluster IDs
+    are not semantically stable across refreshes).
+
+- **Out of scope (v1):**
+  - Point deletion or in-place mutation. Production delete semantics require
+    safe graph detachment, core-distance invalidation, and relabelling, which
+    are deferred until the test-only delete helpers (§6.7) are promoted to
+    the public API.
+  - Per-point exact relabelling. Flat labels derive from hierarchy extraction
+    over the MST, so a new point can alter existing assignments; this is a
+    global clustering, not a nearest-cluster lookup. Exact per-point streaming
+    labels are a non-goal for v1.
+  - GPU-accelerated incremental MST. The GPU Borůvka path (§8.2) is designed
+    for batch offload; adapting it for incremental delta merges is deferred.
+  - Stable cluster identity across snapshots. Cluster IDs may change between
+    refreshes; semantic stability requires a separate label-alignment layer.
+
+#### 12.3. Proposed architecture: `ClusteringSession`
+
+The incremental engine introduces a stateful session object that owns the live
+clustering state, in contrast to the stateless `Chutoro::run()` path.
+
+```rust,no_run
+/// A live, mutable clustering session that supports incremental point
+/// insertion, MST refresh, and periodic label snapshot extraction.
+pub struct ClusteringSession<D: DataSource + Sync> {
+    /// Configuration inherited from `ChutoroBuilder`.
+    config: SessionConfig,
+
+    /// Live HNSW index, receiving incremental insertions.
+    index: CpuHnsw,
+
+    /// Per-point core distances, extended on each refresh.
+    core_distances: Vec<f32>,
+
+    /// Accumulated MST edges from the most recent complete refresh.
+    mst_edges: Vec<MstEdge>,
+
+    /// Delta candidate edges harvested since the last refresh,
+    /// awaiting merge into the MST.
+    pending_edges: Vec<CandidateEdge>,
+
+    /// Most recent flat label snapshot, published after each refresh.
+    labels: Arc<Vec<usize>>,
+
+    /// Monotonically increasing snapshot version counter.
+    snapshot_version: u64,
+
+    /// Reference to the data source backing the session.
+    source: Arc<D>,
+
+    /// Number of points present at the last completed refresh.
+    last_refresh_len: usize,
+}
+```
+
+_Figure 2: Sketch of `ClusteringSession` state. The session owns the live HNSW
+index, cached core distances, current MST edges, pending delta edges, and the
+latest label snapshot._
+
+The session lifecycle follows four phases:
+
+1. **Seeding.** Create a session from a `ChutoroBuilder` configuration and an
+   initial `DataSource`. Optionally run a full batch pipeline on the initial
+   data to seed the MST and labels, or start empty.
+2. **Appending.** Insert new points via `session.append(indices)`. Each
+   insertion calls the edge-harvesting HNSW insertion path (currently
+   `insert_with_edges`) and accumulates delta candidate edges in
+   `pending_edges`.
+3. **Refreshing.** Call `session.refresh()` to merge `pending_edges` with the
+   existing `mst_edges`, recompute core distances for new points, apply
+   mutual-reachability weighting to the merged edge set, rerun
+   `parallel_kruskal`, extract labels via `extract_labels_from_mst`, and
+   publish a new immutable label snapshot.
+4. **Reading.** Concurrent readers access the latest label snapshot via
+   `session.labels()`, which returns an `Arc<Vec<usize>>` that does not block
+   the writer.
+
+#### 12.4. Edge harvesting for incremental insertion
+
+The current `CpuHnsw::insert()` discards edges via `NoopCollector`. The
+incremental path requires a `VecCollector` (or equivalent) that returns
+harvested `CandidateEdge` values to the caller. Two approaches are available:
+
+1. **Expose `insert_with_edges` publicly.** The method already exists as
+   `pub(super)` and returns `Vec<CandidateEdge>`. Promoting it to `pub` (or
+   adding a public wrapper) is the minimal change.
+2. **Add an `InsertResult` return type** to the public `insert()` method that
+   optionally includes harvested edges, controlled by a configuration flag or a
+   separate method name (for example, `insert_harvesting`).
+
+Option 1 is preferred for v1 because it avoids changing the existing `insert()`
+signature, which external callers may depend on.
+
+In addition to the new edges harvested during insertion, the session must
+maintain the neighbourhood/core-distance state that the batch pipeline
+currently recomputes from scratch. Specifically:
+
+- **Core distances.** The batch pipeline computes core distances by searching
+  the HNSW index for each point's `min_cluster_size`-th nearest neighbour. The
+  incremental path must compute core distances for newly inserted points and
+  may need to update core distances for existing points whose neighbourhoods
+  changed due to new insertions. A pragmatic v1 approach recomputes core
+  distances only for new points and for existing points that appear as
+  neighbours of new insertions.
+- **Mutual-reachability weighting.** After core distance updates, the pending
+  edges and any affected existing MST edges must be reweighted using the
+  mutual-reachability formula:
+  `weight = max(distance, core_dist[source], core_dist[target])`.
+
+#### 12.5. Incremental MST refresh strategy
+
+The v1 MST refresh strategy follows the same pragmatic approach as the
+reference FISHDBC implementation rather than implementing a fully dynamic MST
+data structure:
+
+1. Collect the existing `mst_edges` from the previous refresh (already stored
+   in the session).
+2. Append the new `pending_edges` (converted to mutual-reachability weights).
+3. Construct a fresh `EdgeHarvest` from the combined edge set.
+4. Run `parallel_kruskal` over the combined harvest. Because the existing MST
+   edges are a subset of the optimal solution and the new edges are a small
+   delta, this Kruskal pass processes a candidate set much smaller than the
+   full O(n × M) edge set that a from-scratch build would produce.
+5. Extract labels via `extract_labels_from_mst` with the current
+   `HierarchyConfig`.
+6. Publish the new label snapshot and advance `snapshot_version`.
+
+This strategy is correct because Kruskal's algorithm is exact over its input
+edge set: if the existing MST edges plus the new candidates contain the true
+MST, the output is the true MST. In practice, the HNSW insertion discovers
+high-quality candidate edges for new points, and the existing MST already
+captures the optimal spanning structure for old points, so the combined set is
+a strong superset of the true MST edges.
+
+For large datasets where even the combined Kruskal pass becomes expensive, a
+future optimisation could use a cut-based update: identify the MST edges that
+might be displaced by lighter new edges (those whose weight exceeds the
+lightest new candidate crossing the same cut) and rerun Kruskal only over the
+affected subgraph. This is explicitly out of scope for v1.
+
+#### 12.6. Concurrency model
+
+The `ClusteringSession` uses a single-writer, multiple-reader concurrency model:
+
+- **Writer thread.** A single writer thread (or serialised writer task)
+  performs `append()` and `refresh()` operations. The HNSW `insert_mutex`
+  already serialises insertions, so the writer acquires this lock during
+  appends. During refresh, the writer holds exclusive access to `mst_edges`,
+  `core_distances`, and `pending_edges`.
+- **Reader threads.** Readers access the latest label snapshot via
+  `Arc<Vec<usize>>`. Because the snapshot is immutable and reference-counted,
+  readers never block the writer and vice versa. A new snapshot is published
+  atomically by swapping the `Arc`.
+- **Refresh scheduling.** The session supports two refresh policies:
+  - **Count-triggered:** Refresh after every N appended points.
+  - **Manual:** The caller explicitly invokes `refresh()`.
+  A future extension could add time-triggered refresh (every T seconds) via an
+  async task, but this is out of scope for v1.
+
+#### 12.7. Differential testing and correctness validation
+
+After each incremental refresh, correctness is validated by comparing the
+incremental result against a full batch `run()` on the identical dataset.
+Because cluster label integers are not semantically stable (a relabelling can
+produce different integers for the same partition), comparison uses clustering
+quality metrics rather than raw label equality:
+
+- **Adjusted Rand Index (ARI):** Measures agreement between two partitions,
+  adjusted for chance. The shared helper `chutoro_core::adjusted_rand_index`
+  (§11.5) is used directly.
+- **Normalized Mutual Information (NMI):** Measures mutual information between
+  partitions, scaled to `[0, 1]`. The shared helper
+  `chutoro_core::normalized_mutual_information` (§11.5) is used directly.
+
+The differential test harness:
+
+1. Seeds a `ClusteringSession` with an initial dataset.
+2. Appends a batch of new points and calls `refresh()`.
+3. Runs a full batch `Chutoro::run()` on the complete dataset (initial +
+   appended).
+4. Compares incremental labels against batch labels using ARI and NMI.
+5. Asserts that ARI ≥ 0.95 and NMI ≥ 0.95 (thresholds tuneable per test).
+
+Property-based tests use `proptest` to generate random append sequences and
+verify that incremental results remain within acceptable quality bounds across
+a range of dataset sizes, dimensionalities, and cluster separations.
+
+#### 12.8. Path to delete and edit support
+
+Point deletion and in-place edits are deferred from v1 but are anticipated in
+the architecture. The required steps for future enablement are:
+
+1. **Promote `Graph::delete_node` from test-only to public API.** The existing
+   helper (§6.7) already validates reachability via BFS and rolls back on
+   failure. The remaining work is to define production-grade error semantics
+   and ensure thread-safe deletion under the `insert_mutex`.
+2. **Core-distance invalidation.** When a point is deleted, its former
+   neighbours may have stale core distances. The session must track affected
+   neighbourhoods and recompute their core distances during the next refresh.
+3. **MST edge pruning.** Edges incident on deleted points must be removed from
+   `mst_edges` before the next Kruskal pass. Edges whose mutual-reachability
+   weights depended on invalidated core distances must be reweighted.
+4. **Relabelling semantics.** Deletion can split or merge clusters. The
+   refresh strategy (§12.5) handles this naturally via the full Kruskal +
+   extraction pass, but callers must be prepared for existing points to change
+   cluster assignment after a deletion-triggered refresh.
+
 #### **Works cited**
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September

@@ -604,6 +604,111 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
+## 11. Incremental clustering
+
+### 11.1. Incremental insertion and edge harvesting
+
+- [ ] 11.1.1. Expose the edge-harvesting HNSW insertion path as a public
+  API. The internal `insert_with_edges` already returns `Vec<CandidateEdge>`;
+  promote it (or add a public wrapper such as `insert_harvesting`) so that
+  callers outside `chutoro-core` can insert points and receive candidate edges
+  without discarding them via `NoopCollector`. (See `docs/chutoro-design.md`
+  §12.4)
+- [ ] 11.1.2. Define `SessionConfig` carrying clustering parameters
+  (min cluster size, HNSW params, refresh policy) derived from
+  `ChutoroBuilder`, and add `ChutoroBuilder::build_session` returning a
+  `ClusteringSession`. (See `docs/chutoro-design.md` §12.3)
+- [ ] 11.1.3. Implement `ClusteringSession::append` accepting a slice
+  of new point indices. Each insertion calls the public edge-harvesting path
+  and accumulates delta `CandidateEdge` values in the session's `pending_edges`
+  buffer. (See `docs/chutoro-design.md` §12.3, §12.4)
+  - Acceptance criteria: after appending N points, `pending_edges.len()`
+    is non-zero and the HNSW index contains all appended points.
+- [ ] 11.1.4. Implement incremental core-distance computation for newly
+  appended points: search the HNSW index for each new point's
+  `min_cluster_size`-th nearest neighbour and record its core distance.
+  Recompute core distances for existing points that appear as neighbours of new
+  insertions. (See `docs/chutoro-design.md` §12.4)
+
+### 11.2. Incremental MST refresh and label extraction
+
+- [ ] 11.2.1. Implement `ClusteringSession::refresh`: merge
+  `pending_edges` with the existing `mst_edges`, apply mutual-reachability
+  weighting using updated core distances, construct a fresh `EdgeHarvest` from
+  the combined set, run `parallel_kruskal`, and extract labels via
+  `extract_labels_from_mst`. Publish the new label snapshot as
+  `Arc<Vec<usize>>` and advance the snapshot version counter. (See
+  `docs/chutoro-design.md` §12.5)
+  - Acceptance criteria: after refresh, `session.labels()` returns a
+    label vector whose length equals the total number of points
+    (initial + appended). `snapshot_version` increments by exactly one
+    per refresh call.
+- [ ] 11.2.2. Implement `ClusteringSession::labels` returning the
+  latest `Arc<Vec<usize>>` label snapshot without blocking the writer. (See
+  `docs/chutoro-design.md` §12.6)
+- [ ] 11.2.3. Add count-triggered refresh policy: configure
+  `SessionConfig` with an optional `refresh_every_n` threshold so that `append`
+  automatically triggers `refresh` after every N accumulated points. (See
+  `docs/chutoro-design.md` §12.6)
+
+### 11.3. Seeding and batch bootstrap
+
+- [ ] 11.3.1. Implement `ClusteringSession::from_source`: seed a session
+  from an initial `DataSource` by running the full batch CPU pipeline (HNSW
+  build with edge harvest, core distances, MST, label extraction) and
+  populating all session state from the batch result. Requires 11.1.2. (See
+  `docs/chutoro-design.md` §12.3)
+  - Acceptance criteria: `session.labels()` matches `Chutoro::run()` on
+    the same source (identical label vectors).
+- [ ] 11.3.2. Implement `ClusteringSession::new_empty`: create an empty
+  session with no initial data, ready to receive appends. Requires 11.1.2. (See
+  `docs/chutoro-design.md` §12.3)
+
+### 11.4. Differential testing and correctness validation
+
+- [ ] 11.4.1. Build a differential test harness: seed a
+  `ClusteringSession`, append a batch of new points, call `refresh()`, then run
+  a full batch `Chutoro::run()` on the complete dataset and compare incremental
+  labels against batch labels using ARI ≥ 0.95 and NMI ≥ 0.95 via the shared
+  `chutoro_core::adjusted_rand_index` and
+  `chutoro_core::normalized_mutual_information` helpers. Requires 11.2.1,
+  11.3.1. (See `docs/chutoro-design.md` §12.7)
+- [ ] 11.4.2. Add property-based differential tests using `proptest`:
+  generate random append sequences across varied dataset sizes,
+  dimensionalities, and cluster separations; verify that incremental results
+  remain within quality bounds (ARI ≥ 0.90, NMI ≥ 0.90) for all generated
+  fixtures. Requires 11.4.1. (See `docs/chutoro-design.md` §12.7)
+- [ ] 11.4.3. Add regression benchmarks comparing incremental refresh
+  wall-time against full batch `run()` for equivalent datasets. Incremental
+  refresh on a 1% append (relative to existing data) should complete in
+  measurably less time than a full batch run. Requires 11.2.1, 11.3.1.
+- [ ] 11.4.4. Add snapshot consistency tests: verify that
+  `session.labels()` returned to concurrent readers during a refresh always
+  returns a complete, internally consistent snapshot (correct length, valid
+  label range) and never exposes partially updated state. Requires 11.2.2.
+
+### 11.5. Documentation and API surface
+
+- [ ] 11.5.1. Add Rustdoc documentation for `ClusteringSession`,
+  `SessionConfig`, and all public methods including examples demonstrating the
+  seed → append → refresh → read lifecycle.
+- [ ] 11.5.2. Extend the CLI with an optional `--incremental` mode (or
+  subcommand) that creates a `ClusteringSession`, reads an initial dataset,
+  then accepts appended data from stdin or a secondary file and prints updated
+  labels after each refresh. Requires 11.3.1.
+- [ ] 11.5.3. Document limitations of v1 incremental clustering in the
+  design document: append-only, no stable cluster identity across snapshots,
+  micro-batched rather than per-point, potential relabelling of existing points
+  on refresh.
+
+**Exit criteria:** incremental append + refresh produces clustering quality
+(ARI/NMI ≥ 0.95 vs batch) on synthetic Gaussian datasets; incremental refresh
+on a 1% append completes measurably faster than full batch; the differential
+test harness passes under property-based generation; concurrent readers never
+observe partial snapshots.
+
+______________________________________________________________________
+
 ## Benchmark dataset suite
 
 | Scale        | Dataset                      | Size / Dim.                                 | Labels / "clusters"                    | Why it's useful                                                                                                                            |
