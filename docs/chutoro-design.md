@@ -2353,14 +2353,21 @@ data structure:
    Clear `pending_edges`.
 9. Publish the new label snapshot and advance `snapshot_version`.
 
-This strategy is correct because Kruskal's algorithm is exact over its input
-edge set: if the combined candidate set contains the true MST edges, the output
-is the true MST. In practice, the HNSW insertion discovers high-quality
-candidate edges for new points, the existing MST captures the optimal spanning
-structure for old points, and the retained historical edges cover the non-MST
-old-old edges whose weights may have shifted due to core-distance updates. The
-historical edge cap bounds memory while preserving correctness for the edges
-most likely to re-enter the MST (those with the lightest weights).
+This strategy produces a high-quality approximate MST rather than a universally
+exact one. Kruskal's algorithm is exact over its input edge set, so the output
+is the true MST _of the combined candidate set_. However, the combined set is a
+strict subset of all pairwise mutual-reachability edges: HNSW insertion
+discovers high-quality candidate edges for new points, the existing MST
+captures the optimal spanning structure for old points, and the retained
+historical edges cover non-MST old-old edges whose weights may have shifted due
+to core-distance updates—but the historical edge cap can evict edges that a
+future core-distance shift would promote into the true MST. Empirically, this
+approximation is very close to the exact MST (validated by the ARI/NMI
+differential tests in §12.7), because the lightest non-MST edges —those most
+likely to re-enter the MST—are retained preferentially. The trade-off is
+explicit: the historical edge cap bounds memory at the cost of potentially
+losing true-MST edges, making the result an approximate MST with high empirical
+quality rather than a guaranteed exact one.
 
 For large datasets where even the combined Kruskal pass becomes expensive, a
 future optimisation could use a cut-based update: identify the MST edges that

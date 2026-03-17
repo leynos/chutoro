@@ -660,12 +660,19 @@ ______________________________________________________________________
   complete core-distance recomputation for all points before running the
   standard refresh path. Expose `SessionConfig` options for automatic
   full-refresh triggers: (a) cumulative appended point fraction exceeding a
-  configurable threshold (default 25% of total dataset); (b) caller request via
-  explicit `refresh_full()` call. Requires 11.2.1. (See
-  `docs/chutoro-design.md` §12.4)
+  configurable threshold (default 25% of total dataset); (b) ARI/NMI
+  degradation trigger—add `SessionConfig` fields `ari_threshold` (default
+  0.92), `nmi_threshold` (default 0.92), and `enable_ari_nmi_trigger` (default
+  `false`); when enabled, the refresh decision path computes current ARI/NMI
+  against the baseline snapshot and invokes `refresh_full()` when either metric
+  drops below its configured threshold; (c) caller request via explicit
+  `refresh_full()` call. Requires 11.2.1. (See `docs/chutoro-design.md` §12.4)
   - Acceptance criteria: after `refresh_full()`, ARI/NMI against a
     batch baseline is ≥ 0.98 on a dataset that has undergone ≥ 50
-    incremental refresh cycles.
+    incremental refresh cycles. Unit tests verify that the
+    `ari_threshold`, `nmi_threshold`, and `enable_ari_nmi_trigger`
+    config fields default correctly and that the ARI/NMI trigger fires
+    when degradation exceeds the configured threshold.
 - [ ] 11.2.5. Implement bounded `historical_edges` retention: after
   each refresh, partition Kruskal output into MST and non-MST edges. Retain
   non-MST edges in `historical_edges` up to a configurable cap (default 2× MST
@@ -704,9 +711,10 @@ ______________________________________________________________________
   remain within quality bounds (ARI ≥ 0.90, NMI ≥ 0.90) for all generated
   fixtures. Requires 11.4.1. (See `docs/chutoro-design.md` §12.7)
 - [ ] 11.4.3. Add regression benchmarks comparing incremental refresh
-  wall-time against full batch `run()` for equivalent datasets. Incremental
-  refresh on a 1% append (relative to existing data) should complete in
-  measurably less time than a full batch run. Requires 11.2.1, 11.3.1.
+  wall-time against full batch `run()` for equivalent datasets using the
+  `hnsw_ef_sweep` benchmark profile. Incremental refresh wall-time for a 1%
+  append (relative to existing data) must be ≤ 0.7× the wall-time of a full
+  batch run on the same final dataset. Requires 11.2.1, 11.3.1.
 - [ ] 11.4.4. Add snapshot consistency tests: verify that
   `session.labels()` returned to concurrent readers during a refresh always
   returns a complete, internally consistent snapshot (correct length, valid
