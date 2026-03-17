@@ -2241,7 +2241,7 @@ pub struct ClusteringSession<D: DataSource + Sync> {
 }
 ```
 
-_Figure 2: Sketch of `ClusteringSession` state. The session owns the live HNSW
+_Figure 3: Sketch of `ClusteringSession` state. The session owns the live HNSW
 index, cached core distances, current MST edges, pending delta edges, and the
 latest label snapshot._
 
@@ -2372,9 +2372,9 @@ affected subgraph. This is explicitly out of scope for v1.
 
 The `ClusteringSession` uses a single-writer, multiple-reader concurrency model:
 
-- **Writer thread.** A single writer thread (or serialised writer task)
+- **Writer thread.** A single writer thread (or serialized writer task)
   performs `append()` and `refresh()` operations. The HNSW `insert_mutex`
-  already serialises insertions, so the writer acquires this lock during
+  already serializes insertions, so the writer acquires this lock during
   appends. During refresh, the writer holds exclusive access to `mst_edges`,
   `core_distances`, and `pending_edges`.
 - **Reader threads.** Readers access the latest label snapshot via
@@ -2480,7 +2480,7 @@ pub struct ClusteringSnapshot {
 }
 ```
 
-_Figure 3: Sketch of `ClusteringSnapshot`. Each refresh publishes a new
+_Figure 4: Sketch of `ClusteringSnapshot`. Each refresh publishes a new
 immutable snapshot carrying labels, optional probabilities, per-cluster summary
 statistics, and lineage metadata linking it to its predecessor._
 
@@ -2492,7 +2492,7 @@ not need it.
 
 #### 13.2. Checkpoint and restore
 
-`ClusteringSession` supports serialising its mutable state to a checkpoint and
+`ClusteringSession` supports serializing its mutable state to a checkpoint and
 restoring from one, enabling crash recovery, migration, and long-lived sessions
 that survive process restarts.
 
@@ -2611,7 +2611,7 @@ pub struct ClusterStats {
 }
 ```
 
-_Figure 4: `ClusterStats` summary. Medoid and exemplars are computed over the
+_Figure 5: `ClusterStats` summary. Medoid and exemplars are computed over the
 generic `DataSource::distance` function, avoiding vector-space assumptions.
 Centroids are deliberately absent from the generic API; a vector-only extension
 trait provides them for `DataSource` implementations that expose raw vectors._
@@ -2665,7 +2665,7 @@ subgraph and MST edges incident on a given set of point indices:
 - `hnsw_neighbours(index) -> Vec<Neighbour>`: returns the HNSW neighbours of a
   point at all layers, useful for inspecting local graph density.
 - `mst_edges_for(indices) -> Vec<MstEdge>`: returns MST edges where at least
-  one endpoint belongs to the specified set, useful for visualising the local
+  one endpoint belongs to the specified set, useful for visualizing the local
   spanning structure.
 
 These accessors are intentionally narrow: they expose copies, not references to

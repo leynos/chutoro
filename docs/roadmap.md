@@ -669,8 +669,8 @@ ______________________________________________________________________
 - [ ] 11.2.5. Implement bounded `historical_edges` retention: after
   each refresh, partition Kruskal output into MST and non-MST edges. Retain
   non-MST edges in `historical_edges` up to a configurable cap (default 2× MST
-  edge count), evicting heaviest edges first. Clear `pending_edges`. Requires
-  11.2.1. (See `docs/chutoro-design.md` §12.5)
+  edge count), evicting the heaviest edges first. Clear `pending_edges`.
+  Requires 11.2.1. (See `docs/chutoro-design.md` §12.5)
   - Acceptance criteria: `historical_edges.len()` never exceeds the
     configured cap. After 100 append-refresh cycles, total session
     edge memory (MST + historical + pending) remains within 4× the
@@ -752,11 +752,11 @@ ______________________________________________________________________
   12.1.1. (See `docs/chutoro-design.md` §13.1)
 - [ ] 12.1.3. Compute `ClusterStats` for each cluster during snapshot
   construction: size, medoid (via `DataSource::distance`), up to k exemplars,
-  cohesion (mean intra-cluster distance), separation (medoid distance to
+  cohesion (mean intra-cluster distance), separation (medoid distance to the
   nearest neighbouring cluster's medoid), noise ratio (requires
   `probabilities`), and nearest-cluster identifier. Requires 12.1.1. (See
   `docs/chutoro-design.md` §14.1)
-  - Acceptance criteria: medoid is the point minimising average
+  - Acceptance criteria: medoid is the point minimizing average
     intra-cluster distance; cohesion and separation are finite and
     non-negative for all non-singleton clusters.
 - [ ] 12.1.4. Define a `VectorClusterStats` extension trait providing
@@ -772,10 +772,10 @@ ______________________________________________________________________
   assignments, insertion sequence counter), MST edges, pending delta edges,
   core distances, current `ClusteringSnapshot`, and `SessionConfig`. (See
   `docs/chutoro-design.md` §13.2)
-- [ ] 12.2.2. Implement `ClusteringSession::checkpoint` serialising
+- [ ] 12.2.2. Implement `ClusteringSession::checkpoint` serializing
   session state to the binary format. Requires 12.2.1. (See
   `docs/chutoro-design.md` §13.2)
-- [ ] 12.2.3. Implement `ClusteringSession::restore` deserialising from
+- [ ] 12.2.3. Implement `ClusteringSession::restore` deserializing from
   a checkpoint file and validating against a supplied `DataSource` (point
   count, metric descriptor). Return `SessionRestorationError` on mismatch.
   Requires 12.2.1. (See `docs/chutoro-design.md` §13.2)
