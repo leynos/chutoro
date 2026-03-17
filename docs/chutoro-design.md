@@ -2310,12 +2310,43 @@ currently recomputes from scratch. Specifically:
   **full core-distance recomputation** when any of the following conditions
   hold: (a) the cumulative number of appended points since the last full
   recomputation exceeds a configurable fraction of the total dataset (default
-  25%); (b) the differential test ARI/NMI against a batch baseline drops below
-  a configurable threshold (default 0.92); or (c) the caller explicitly
+  25%); (b) the differential test ARI/NMI against a cached batch baseline drops
+  below a configurable threshold (default 0.92); or (c) the caller explicitly
   requests it via `refresh_full()`. Full recomputation searches the HNSW index
   for every point's `min_cluster_size`-th nearest neighbour, identical to the
   batch pipeline. This is more expensive than the incremental path but resets
   drift to zero.
+
+  **Baseline contract for trigger (b).** The "batch baseline" is a label
+  snapshot produced by a full batch `Chutoro::run()` on the current dataset. To
+  avoid placing a full-batch recompute on the hot refresh path, the baseline is
+  produced offline and cached alongside a version identifier (the
+  `snapshot_version` at which it was computed plus the dataset size at that
+  point). `SessionConfig` exposes a `baseline_mode` field controlling how and
+  when the cached baseline is refreshed:
+
+  - `manual_only` (default) — the baseline is refreshed only when the
+    caller invokes `refresh_full()`, which performs a full batch run and
+    caches the resulting labels as the new baseline. ARI/NMI trigger (b)
+    compares incremental labels against this cached baseline; if no
+    baseline has been cached yet, trigger (b) is inert.
+  - `periodic_sampled` — the session periodically recomputes a
+    lightweight validation metric by running a full batch pipeline on a
+    small randomised holdout (configurable fraction, default 5% of total
+    points) and comparing the holdout's incremental labels against the
+    holdout batch labels. This avoids the cost of a full-dataset batch
+    run while still detecting drift. The cadence is controlled by
+    `baseline_refresh_every_n` (default: same as the append-fraction
+    trigger, i.e. every 25% cumulative appends).
+  - `cached_offline` — an external process supplies the baseline label
+    snapshot via `ClusteringSession::set_baseline(labels, version)`. The
+    session never recomputes the baseline itself; trigger (b) compares
+    against the externally provided snapshot.
+
+  In all modes, the ARI/NMI comparison semantics are identical: if either
+  `adjusted_rand_index(incremental, baseline)` or
+  `normalized_mutual_information(incremental, baseline)` falls below its
+  configured threshold, `refresh_full()` is invoked automatically.
 - **Mutual-reachability weighting.** After core distance updates, the pending
   edges and any affected existing MST edges must be reweighted using the
   mutual-reachability formula:

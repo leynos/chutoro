@@ -736,9 +736,9 @@ ______________________________________________________________________
 
 **Exit criteria:** incremental append + refresh produces clustering quality
 (ARI/NMI ≥ 0.95 vs batch) on synthetic Gaussian datasets; incremental refresh
-on a 1% append completes measurably faster than full batch; the differential
-test harness passes under property-based generation; concurrent readers never
-observe partial snapshots.
+wall-time for a 1% append ≤ 0.7× full batch on the same final dataset (see
+11.4.3); the differential test harness passes under property-based generation;
+concurrent readers never observe partial snapshots.
 
 ______________________________________________________________________
 
