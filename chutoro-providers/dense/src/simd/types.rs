@@ -130,6 +130,12 @@ impl<'a> DistanceBuffer<'a> {
     }
 }
 
+impl AsMut<[f32]> for DistanceBuffer<'_> {
+    fn as_mut(&mut self) -> &mut [f32] {
+        self.0
+    }
+}
+
 /// Immutable view of a single row's scalar values.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RowSlice<'a>(&'a [f32]);
@@ -214,30 +220,27 @@ impl<'a> RowMajorMatrix<'a> {
     pub(crate) fn values(self) -> MatrixValues<'a> {
         self.values
     }
-}
 
-/// Returns the row slice for a typed row index.
-pub(crate) fn row_slice(
-    matrix: RowMajorMatrix<'_>,
-    index: RowIndex,
-) -> Result<RowSlice<'_>, DataSourceError> {
-    let raw_index = index.get();
-    let raw_rows = matrix.rows().get();
-    let raw_dimension = matrix.dimension().get();
-    if raw_index >= raw_rows {
-        return Err(DataSourceError::OutOfBounds { index: raw_index });
+    /// Returns the row slice for a typed row index.
+    pub(crate) fn row(self, index: RowIndex) -> Result<RowSlice<'a>, DataSourceError> {
+        let raw_index = index.get();
+        let raw_rows = self.rows().get();
+        let raw_dimension = self.dimension().get();
+        if raw_index >= raw_rows {
+            return Err(DataSourceError::OutOfBounds { index: raw_index });
+        }
+
+        let start = raw_index
+            .checked_mul(raw_dimension)
+            .ok_or(DataSourceError::OutOfBounds { index: raw_index })?;
+        let end = start
+            .checked_add(raw_dimension)
+            .ok_or(DataSourceError::OutOfBounds { index: raw_index })?;
+        if end > self.values().len() {
+            return Err(DataSourceError::OutOfBounds { index: raw_index });
+        }
+
+        let values = self.values().as_slice();
+        Ok(RowSlice::new(&values[start..end]))
     }
-
-    let start = raw_index
-        .checked_mul(raw_dimension)
-        .ok_or(DataSourceError::OutOfBounds { index: raw_index })?;
-    let end = start
-        .checked_add(raw_dimension)
-        .ok_or(DataSourceError::OutOfBounds { index: raw_index })?;
-    if end > matrix.values().len() {
-        return Err(DataSourceError::OutOfBounds { index: raw_index });
-    }
-
-    let values = matrix.values().as_slice();
-    Ok(RowSlice::new(&values[start..end]))
 }

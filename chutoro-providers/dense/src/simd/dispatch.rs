@@ -45,10 +45,20 @@ impl RuntimeSimdSupport {
 
 static EUCLIDEAN_BACKEND: OnceLock<EuclideanBackend> = OnceLock::new();
 
+/// Returns the initialized Euclidean backend for the current build and host.
+///
+/// This is the public accessor for the backend selected once via
+/// [`choose_euclidean_backend`]. Subsequent calls reuse the cached choice.
 pub(super) fn euclidean_backend() -> EuclideanBackend {
     *EUCLIDEAN_BACKEND.get_or_init(select_euclidean_backend)
 }
 
+/// Returns compile-time SIMD support flags for the current target and features.
+///
+/// The returned mask reports which backend implementations were compiled into
+/// the binary by Cargo features and target architecture:
+/// `simd_avx2`/`simd_avx512` for x86 or x86_64, and `simd_neon` for arm or
+/// aarch64.
 pub(super) fn compiled_simd_support() -> CompiledSimdSupport {
     CompiledSimdSupport::new(
         cfg!(feature = "simd_avx2") && cfg!(any(target_arch = "x86", target_arch = "x86_64")),
@@ -57,6 +67,11 @@ pub(super) fn compiled_simd_support() -> CompiledSimdSupport {
     )
 }
 
+/// Returns runtime SIMD support flags detected on the current machine.
+///
+/// This checks AVX2 and AVX-512F with x86 CPUID helpers, checks NEON at
+/// runtime on 32-bit ARM, and treats AArch64 as NEON-capable because Advanced
+/// SIMD is part of the base architecture.
 pub(super) fn runtime_simd_support() -> RuntimeSimdSupport {
     RuntimeSimdSupport::new(
         runtime_avx2_support(),
@@ -65,6 +80,12 @@ pub(super) fn runtime_simd_support() -> RuntimeSimdSupport {
     )
 }
 
+/// Chooses the best Euclidean backend available to both compile-time and
+/// runtime support masks.
+///
+/// The selection order is deterministic: prefer AVX-512, then AVX2, then
+/// NEON, and fall back to `Scalar` when no SIMD backend is both compiled and
+/// available at runtime.
 #[must_use]
 pub(super) fn choose_euclidean_backend(
     compiled: CompiledSimdSupport,
@@ -112,6 +133,7 @@ fn runtime_neon_support() -> bool {
 
 #[cfg(target_arch = "aarch64")]
 fn runtime_neon_support() -> bool {
+    // AArch64 mandates Advanced SIMD, so there is no separate runtime probe.
     true
 }
 

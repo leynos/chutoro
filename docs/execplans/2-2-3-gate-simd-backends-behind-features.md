@@ -1,4 +1,4 @@
-# Execution plan (ExecPlan): roadmap 2.2.3 gate SIMD backends behind Cargo features with runtime dispatch
+# Execution plan (ExecPlan): roadmap 2.2.3 gate single instruction, multiple data (SIMD) backends behind Cargo features with runtime dispatch
 
 This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
@@ -52,7 +52,7 @@ Implementation is complete. This document now serves as the execution record.
   feature branch inside the per-distance loop.
 - Preserve current scalar fallback behaviour for unsupported targets, disabled
   backend features, empty batches, one-point batches, and arbitrary-pair
-  batches that do not use the SoA query-points path.
+  batches that do not use the Structure of Arrays (SoA) query-points path.
 - Use `rstest` for repeated dispatch, feature-matrix, and non-finite test
   cases.
 - Follow guidance from:
@@ -130,6 +130,9 @@ Implementation is complete. This document now serves as the execution record.
   marked roadmap item `2.2.3` done, and validated the dense feature matrix.
 - [x] (2026-03-11 02:40Z) Re-ran repository quality gates after the final
   documentation fix.
+- [x] (2026-03-18 00:00Z) Follow-up review fixes revalidated the dense
+  `simd_neon`-only feature build with
+  `cargo test -p chutoro-providers-dense --no-default-features --features simd_neon`.
 
 ## Surprises & discoveries
 
@@ -147,12 +150,12 @@ Implementation is complete. This document now serves as the execution record.
   lanes. Impact: this item should preserve and re-test those invariants rather
   than redesign them.
 
-- Observation: the dense crate currently declares no Cargo features at all.
-  Evidence: `chutoro-providers/dense/Cargo.toml`. Impact: this item must make
-  an explicit decision about default-enabled versus opt-in SIMD features.
+- Observation: the dense crate now declares explicit SIMD Cargo features in
+  `chutoro-providers/dense/Cargo.toml`. Impact: this item made an explicit
+  decision to keep them default-enabled rather than opt-in.
 
-- Observation: HNSW already rejects non-finite batch outputs after the data
-  source returns them. Evidence:
+- Observation: Hierarchical Navigable Small World (HNSW) already rejects
+  non-finite batch outputs after the data source returns them. Evidence:
   `chutoro-core/src/hnsw/validate.rs::validate_batch_without_cache`. Impact:
   the dense-provider SIMD contract can canonicalize non-finite results without
   changing the core error surface.
@@ -173,9 +176,9 @@ Implementation is complete. This document now serves as the execution record.
   `cargo test -p chutoro-providers-dense --no-default-features --features simd_avx512`
    triggered dead-code warnings on private backend helpers that are only
   reached through the runtime dispatch table. Impact: feature-specific internal
-  helpers now carry tightly scoped `#[allow(dead_code)]` annotations with
-  reasons so matrix validation stays warning-free without weakening public lint
-  policy.
+  helpers should prefer exact conditional compilation so disabled backends are
+  not compiled at all; if one helper still needs suppression, use the smallest
+  possible `#[expect(dead_code, reason = "...")]` instead of `#[allow]`.
 
 ## Decision log
 
@@ -239,6 +242,7 @@ Validation summary:
   - dense no-default-features test run
   - dense `simd_avx2` feature-only test run
   - dense `simd_avx512` feature-only test run
+  - dense `simd_neon` feature-only test run
   - dense all-features test run
 - repository gates passed:
   - `make fmt`
@@ -263,9 +267,10 @@ Retrospective:
 Relevant current files and behaviour:
 
 - `chutoro-providers/dense/Cargo.toml`
-  - currently has no `[features]` section;
-  - therefore the dense crate cannot yet be built in scalar-only or
-    selectively enabled SIMD modes.
+  - now declares default-enabled `simd_avx2`, `simd_avx512`, and `simd_neon`
+    features;
+  - therefore the dense crate can be built in scalar-only or selectively
+    enabled SIMD modes.
 
 - `chutoro-providers/dense/src/simd/kernels.rs`
   - defines `EuclideanBackend::{Scalar, Avx2, Avx512}`;
@@ -274,9 +279,10 @@ Relevant current files and behaviour:
     desired one-time patching shape for this roadmap item.
 
 - `chutoro-providers/dense/src/simd/mod.rs`
-  - exposes the row-major and SoA batch entrypoints used by
+  - exposes the row-major and Structure of Arrays (SoA) batch entrypoints used
+    by
     `DenseMatrixProvider`;
-  - currently asks `kernels::euclidean_backend()` whether query-point packing
+  - currently asks `dispatch::euclidean_backend()` whether query-point packing
     should be used, but does not distinguish "compiled out" from
     "runtime unavailable".
 
@@ -293,9 +299,8 @@ Relevant current files and behaviour:
 
 - `chutoro-providers/dense/src/simd/tests.rs`
   - already covers SoA packing, output-length mismatches, parity with scalar
-    references, and output preservation on error;
-  - does not yet cover feature-gated backend selection or explicit non-finite
-    reduction rules.
+    references, output preservation on error, feature-gated backend selection,
+    and explicit non-finite reduction rules.
 
 - `chutoro-core/src/hnsw/validate.rs`
   - rejects non-finite results after `batch_distances(...)` returns;

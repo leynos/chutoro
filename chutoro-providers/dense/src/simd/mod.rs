@@ -14,8 +14,7 @@ mod types;
 use dispatch::EuclideanBackend;
 pub(crate) use point_view::DensePointView;
 pub(crate) use types::{
-    Dimension, Distance, DistanceBuffer, MatrixValues, RowCount, RowIndex, RowMajorMatrix,
-    RowSlice, row_slice,
+    Dimension, Distance, DistanceBuffer, MatrixValues, RowCount, RowIndex, RowMajorMatrix, RowSlice,
 };
 
 #[cfg(test)]
@@ -84,12 +83,12 @@ pub(crate) fn euclidean_distance_batch_raw_pairs(
         });
     }
 
-    let results = match shared_query_candidates(pairs)
-        .filter(|(_, candidates)| should_pack_query_points(candidates.len()))
-    {
+    let results = match shared_query_candidates(pairs).filter(|(_, candidates)| {
+        should_pack_query_points(matrix.dimension().get(), candidates.len())
+    }) {
         Some((query, candidates)) => {
             validate_raw_pairs_in_order(matrix, pairs)?;
-            let query_row = row_slice(matrix, query)?;
+            let query_row = matrix.row(query)?;
             let point_view = DensePointView::from_row_indices(matrix, &candidates)?;
             debug_assert!(!point_view.prefers_scalar_fallback());
             debug_assert!(point_view.is_aligned_to(SIMD_ALIGNMENT_BYTES));
@@ -128,8 +127,8 @@ fn collect_euclidean_distance_batch(
     let (lower_bound, _) = pairs.size_hint();
     let mut results = Vec::with_capacity(lower_bound);
     for (left, right) in pairs {
-        let left_row = row_slice(matrix, left)?;
-        let right_row = row_slice(matrix, right)?;
+        let left_row = matrix.row(left)?;
+        let right_row = matrix.row(right)?;
         results.push(euclidean_distance(left_row, right_row).get());
     }
     Ok(results)
@@ -151,12 +150,16 @@ fn euclidean_distance_query_points(
     Ok(())
 }
 
-fn should_pack_query_points(candidate_count: usize) -> bool {
-    should_pack_query_points_for_backend(dispatch::euclidean_backend(), candidate_count)
+fn should_pack_query_points(dimension: usize, candidate_count: usize) -> bool {
+    should_pack_query_points_for_backend(dispatch::euclidean_backend(), dimension, candidate_count)
 }
 
-fn should_pack_query_points_for_backend(backend: EuclideanBackend, candidate_count: usize) -> bool {
-    candidate_count > 1 && !matches!(backend, EuclideanBackend::Scalar)
+fn should_pack_query_points_for_backend(
+    backend: EuclideanBackend,
+    dimension: usize,
+    candidate_count: usize,
+) -> bool {
+    dimension > 0 && candidate_count > 1 && !matches!(backend, EuclideanBackend::Scalar)
 }
 
 fn validate_raw_pairs_in_order(
