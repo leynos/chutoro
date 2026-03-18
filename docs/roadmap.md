@@ -666,13 +666,33 @@ ______________________________________________________________________
   `false`); when enabled, the refresh decision path computes current ARI/NMI
   against the baseline snapshot and invokes `refresh_full()` when either metric
   drops below its configured threshold; (c) caller request via explicit
-  `refresh_full()` call. Requires 11.2.1. (See `docs/chutoro-design.md` §12.4)
+  `refresh_full()` call. In addition, implement the following gating checks in
+  the refresh decision path before computing ARI/NMI or invoking
+  `refresh_full()`: (d) baseline staleness policy—track the baseline snapshot's
+  `snapshot_version` and `dataset_size`; compute a staleness metric
+  (`session.snapshot_version - baseline.snapshot_version`) and compare against
+  `SessionConfig::baseline_max_age_refreshes` (default 50); skip trigger (b)
+  when the baseline is stale or incompatible
+  (`baseline.dataset_size > session.point_count()`); (e) shape
+  compatibility—verify that the baseline label vector's dimensionality and
+  feature schema are compatible with the current dataset before computing
+  ARI/NMI; reject mismatched shapes with a diagnostic; (f) overlap gating—add
+  `SessionConfig::minimum_overlap_fraction` (default 0.50); compute the overlap
+  fraction between baseline and current dataset (shared point-id prefix size
+  divided by current dataset size); only compute ARI/NMI or trigger
+  `refresh_full()` when the overlap fraction ≥ `minimum_overlap_fraction`;
+  otherwise treat the baseline as stale. Requires 11.2.1. (See
+  `docs/chutoro-design.md` §12.4)
   - Acceptance criteria: after `refresh_full()`, ARI/NMI against a
     batch baseline is ≥ 0.98 on a dataset that has undergone ≥ 50
     incremental refresh cycles. Unit tests verify that the
-    `ari_threshold`, `nmi_threshold`, and `enable_ari_nmi_trigger`
-    config fields default correctly and that the ARI/NMI trigger fires
-    when degradation exceeds the configured threshold.
+    `ari_threshold`, `nmi_threshold`, `enable_ari_nmi_trigger`,
+    `baseline_max_age_refreshes`, and `minimum_overlap_fraction`
+    config fields default correctly. Unit tests assert that
+    staleness, shape-mismatch, and insufficient overlap each
+    prevent ARI/NMI-triggered refreshes, and that a compatible,
+    fresh baseline with sufficient overlap allows trigger (b) to
+    fire when degradation exceeds the configured threshold.
 - [ ] 11.2.5. Implement bounded `historical_edges` retention: after
   each refresh, partition Kruskal output into MST and non-MST edges. Retain
   non-MST edges in `historical_edges` up to a configurable cap (default 2× MST

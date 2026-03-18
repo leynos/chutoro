@@ -716,7 +716,7 @@ modern Rust.
   into the map for other threads to use. This mirrors the functionality of the
   `decorated_d()` caching decorator in the Python model.[^8]
 
-_Implementation update (2024-07-02)._ The initial CPU index is now realised in
+_Implementation update (2024-07-02)._ The initial CPU index is now realized in
 `CpuHnsw`, which wraps the shared graph in `Arc<RwLock<_>>`. Insertion follows
 a strict two-phase protocol: worker threads hold a read lock while performing
 the HNSW search, drop it, and then acquire a write lock to apply the insertion
@@ -797,7 +797,7 @@ non-finite weights. Edges are globally sorted using Rayon `par_sort_unstable`
 with `f32::total_cmp` and deterministic tie-breaks (`source`, `target`,
 `sequence`). To preserve Kruskal's correctness guarantees, the scan maintains a
 non-decreasing weight order; within each equal-weight bucket, cycle checks are
-parallelised via a striped-lock union-find so disjoint unions can proceed
+parallelized via a striped-lock union-find so disjoint unions can proceed
 concurrently without deadlocks.
 
 - **Cluster Extraction:** The final stage, which involves processing the MST to
@@ -966,7 +966,7 @@ all-or-nothing output writes.
 The CPU module now ships with dedicated property-based generators that exercise
 the HNSW pipeline under varied input regimes. Using `test-strategy` to derive
 `proptest` strategies keeps the generators declarative whilst providing
-shrinking-friendly seeds. Four dataset distributions are synthesised: uniform
+shrinking-friendly seeds. Four dataset distributions are synthesized: uniform
 hypercubes, tightly clustered clouds, low-dimensional manifolds embedded in
 higher-dimensional ambient space, and datasets with controlled duplicate
 vectors. Each generation path records structural metadata (cluster layout,
@@ -975,7 +975,7 @@ expected geometry during shrinking.
 
 The generator suite also produces sampled `HnswParams` inputs, constraining the
 ranges so `ef_construction` always exceeds `max_connections` and level sampling
-remains numerically stable. The concrete parameters are materialised through a
+remains numerically stable. The concrete parameters are materialized through a
 `HnswParamsSeed` helper that propagates validation errors, enabling explicit
 tests for unhappy paths. To support end-to-end properties a dense in-memory
 `DataSource` fixture wraps generated vectors and enforces dimension checks up
@@ -2332,7 +2332,7 @@ currently recomputes from scratch. Specifically:
     baseline has been cached yet, trigger (b) is inert.
   - `periodic_sampled` — the session periodically recomputes a
     lightweight validation metric by running a full batch pipeline on a
-    small randomised holdout (configurable fraction, default 5% of total
+    small randomized holdout (configurable fraction, default 5% of total
     points) and comparing the holdout's incremental labels against the
     holdout batch labels. This avoids the cost of a full-dataset batch
     run while still detecting drift. The cadence is controlled by
@@ -2344,21 +2344,34 @@ currently recomputes from scratch. Specifically:
     against the externally provided snapshot.
 
   **Staleness detection.** The cached baseline carries the `snapshot_version`
-  and `dataset_size` at which it was produced. A baseline is considered
-  **stale** when either value differs from the current session state (i.e.
-  `baseline.snapshot_version != session.snapshot_version` or
-  `baseline.dataset_size != session.point_count()`). When the baseline is stale:
+  and `dataset_size` at which it was produced. Staleness is determined by two
+  independent checks:
+
+  1. **Point-id compatibility.** The baseline's `dataset_size` must
+     be ≤ `session.point_count()` (because the session is
+     append-only, a baseline produced on a smaller dataset is still
+     compatible — the shared point-id prefix is valid). If
+     `baseline.dataset_size > session.point_count()`, the baseline
+     is **incompatible** (this can occur after a session reset or
+     data-source swap) and trigger (b) is skipped.
+  2. **Age threshold.** `SessionConfig` exposes a
+     `baseline_max_age_refreshes` field (default 50): the baseline
+     is considered **stale** when the number of refresh cycles since
+     the baseline was produced (`session.snapshot_version -
+     baseline.snapshot_version`) exceeds this threshold.
+
+  When the baseline is incompatible or stale:
 
   - In `manual_only` and `cached_offline` modes, trigger (b) is
-    skipped and the session logs a `"baseline stale"` diagnostic.
-    The caller must supply a fresh baseline (via `refresh_full()` or
-    `ClusteringSession::set_baseline(labels, version)`) before
-    trigger (b) becomes active again.
-  - In `periodic_sampled` mode, staleness is expected because the
-    holdout comparison runs on a sample rather than the full dataset.
-    The holdout pipeline always operates on current data, so
-    trigger (b) remains active regardless of cached-baseline
-    staleness.
+    skipped and the session logs a `"baseline stale"` or
+    `"baseline incompatible"` diagnostic. The caller should supply
+    a fresh baseline (via `refresh_full()` or
+    `ClusteringSession::set_baseline(labels, version)`) to
+    reactivate trigger (b). Trigger (b) remains executable when
+    the baseline is compatible and within the allowed age window.
+  - In `periodic_sampled` mode, the holdout pipeline always operates
+    on current data, so trigger (b) remains active regardless of
+    cached-baseline staleness or age.
 
   **Label-length mismatch.** Because appends grow the dataset between baseline
   snapshots, the incremental label vector may be longer than the baseline. When
@@ -2432,7 +2445,7 @@ losing true-MST edges, making the result an approximate MST with high empirical
 quality rather than a guaranteed exact one.
 
 For large datasets where even the combined Kruskal pass becomes expensive, a
-future optimisation could use a cut-based update: identify the MST edges that
+future optimization could use a cut-based update: identify the MST edges that
 might be displaced by lighter new edges (those whose weight exceeds the
 lightest new candidate crossing the same cut) and rerun Kruskal only over the
 affected subgraph. This is explicitly out of scope for v1.
@@ -2575,7 +2588,7 @@ The checkpoint captures:
 - Current `ClusteringSnapshot` (labels, probabilities, stats, lineage).
 - Session configuration (`SessionConfig`).
 
-The serialisation format uses a self-describing binary envelope with a version
+The serialization format uses a self-describing binary envelope with a version
 tag so that future schema changes can be handled via explicit migration rather
 than silent corruption. The initial implementation targets a flat file; an
 `object_store`-backed adapter follows the DataFusion provider pattern (§7).
@@ -2658,7 +2671,7 @@ pub struct ClusterStats {
 
     /// Indices of up to k exemplar points, selected as the most
     /// central members after the medoid. Useful for downstream
-    /// summarisation without requiring vector access.
+    /// summarization without requiring vector access.
     exemplars: Vec<usize>,
 
     /// Intra-cluster cohesion: mean pairwise distance among members.

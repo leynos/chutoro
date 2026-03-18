@@ -72,7 +72,7 @@ cases using `rstest`, design decisions are recorded in
 
 - [x] (2026-02-09 20:25Z) Drafted ExecPlan with required sections, file
   targets, and acceptance criteria.
-- [x] (2026-02-10 00:25Z) Finalised CI guardrails:
+- [x] (2026-02-10 00:25Z) Finalized CI guardrails:
   `CHUTORO_HNSW_PBT_MIN_RECALL=0.60` and
   `CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS=12`.
 - [x] (2026-02-10 00:35Z) Implemented shared property-run profile support for
@@ -121,7 +121,7 @@ Implemented the planned property CI integration end-to-end:
 
 - Added `.github/workflows/property-tests.yml` with path-filtered PR runs and
   weekly deep coverage runs.
-- Centralised property run-profile parsing in
+- Centralized property run-profile parsing in
   `chutoro-test-support/src/ci/property_test_profile.rs`.
 - Wired HNSW, candidate edge harvest, and MST suites to use
   `PROGTEST_CASES` and fork-mode overrides.
