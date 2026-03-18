@@ -716,7 +716,7 @@ modern Rust.
   into the map for other threads to use. This mirrors the functionality of the
   `decorated_d()` caching decorator in the Python model.[^8]
 
-_Implementation update (2024-07-02)._ The initial CPU index is now realised in
+_Implementation update (2024-07-02)._ The initial CPU index is now realized in
 `CpuHnsw`, which wraps the shared graph in `Arc<RwLock<_>>`. Insertion follows
 a strict two-phase protocol: worker threads hold a read lock while performing
 the HNSW search, drop it, and then acquire a write lock to apply the insertion
@@ -797,7 +797,7 @@ non-finite weights. Edges are globally sorted using Rayon `par_sort_unstable`
 with `f32::total_cmp` and deterministic tie-breaks (`source`, `target`,
 `sequence`). To preserve Kruskal's correctness guarantees, the scan maintains a
 non-decreasing weight order; within each equal-weight bucket, cycle checks are
-parallelised via a striped-lock union-find so disjoint unions can proceed
+parallelized via a striped-lock union-find so disjoint unions can proceed
 concurrently without deadlocks.
 
 - **Cluster Extraction:** The final stage, which involves processing the MST to
@@ -966,7 +966,7 @@ all-or-nothing output writes.
 The CPU module now ships with dedicated property-based generators that exercise
 the HNSW pipeline under varied input regimes. Using `test-strategy` to derive
 `proptest` strategies keeps the generators declarative whilst providing
-shrinking-friendly seeds. Four dataset distributions are synthesised: uniform
+shrinking-friendly seeds. Four dataset distributions are synthesized: uniform
 hypercubes, tightly clustered clouds, low-dimensional manifolds embedded in
 higher-dimensional ambient space, and datasets with controlled duplicate
 vectors. Each generation path records structural metadata (cluster layout,
@@ -975,7 +975,7 @@ expected geometry during shrinking.
 
 The generator suite also produces sampled `HnswParams` inputs, constraining the
 ranges so `ef_construction` always exceeds `max_connections` and level sampling
-remains numerically stable. The concrete parameters are materialised through a
+remains numerically stable. The concrete parameters are materialized through a
 `HnswParamsSeed` helper that propagates validation errors, enabling explicit
 tests for unhappy paths. To support end-to-end properties a dense in-memory
 `DataSource` fixture wraps generated vectors and enforces dimension checks up
@@ -2133,6 +2133,797 @@ This strategy treats baseline comparison as a scheduled regression detector
 rather than a PR merge gate, matching the roadmap allowance for expensive
 benchmarks while preserving a reproducible developer-run workflow.
 
+### 12. Incremental clustering
+
+The FISHDBC paper explicitly describes its algorithm as incremental: the HNSW
+graph and MST admit lightweight updates when a few items are added, avoiding
+full recomputation.[^6] The reference Python implementation exposes an `add()`
+method that inserts points into the HNSW graph, harvests candidate edges, runs
+an `update_mst()` step over only the new candidates plus existing MST edges,
+and then re-extracts clusters. This section describes the design for bringing
+equivalent incremental clustering to chutoro as a first-class capability.
+
+#### 12.1. Gap analysis: batch pipeline versus incremental engine
+
+The current public API surface is `ChutoroBuilder` → `build()` → `run(&source)`
+(§10.1). `Chutoro` itself stores configuration (min cluster size, execution
+strategy) rather than live clustering state, and `run()` dispatches to
+`cpu_pipeline::run_cpu_pipeline_with_len`, which rebuilds the HNSW index,
+recomputes core distances for every point, runs `parallel_kruskal` over the
+harvested edges, and extracts labels from the resulting MST. There is no public
+`add`, `update`, `delete`, `refresh`, or long-lived clustering-session API.
+
+The lower-level primitives are closer to incremental readiness than the public
+API suggests. `CpuHnsw` already exposes `with_capacity()` and a public
+`insert()`, and internally `insert_with_edges()` harvests candidate edges
+during insertion via the `EdgeCollector` trait. The obstacle is that the public
+`insert()` path uses `NoopCollector`, discarding the harvested edges that an
+incremental MST update would need, while the edge-harvesting path remains
+`pub(super)`. The crate also re-exports `CpuHnsw`, `EdgeHarvest`,
+`parallel_kruskal`, and `extract_labels_from_mst` as building blocks. Deletion
+helpers exist in `Graph::delete_node` but are exposed solely to tests (§6.7),
+with production delete semantics explicitly withheld until reachability
+guarantees are fully validated.
+
+The raw ingredients exist; the assembled incremental clustering engine does not.
+
+#### 12.2. Scope and constraints
+
+The incremental clustering feature targets the following scope:
+
+- **In scope (v1):**
+  - Append-only point insertion into a live clustering session.
+  - Incremental edge harvesting during HNSW insertion.
+  - Incremental MST refresh: merge new candidate edges with existing MST edges
+    and rerun Kruskal over the combined candidate set.
+  - Periodic re-extraction of flat cluster labels from the updated MST.
+  - Micro-batched snapshot model: apply a batch of appends, refresh MST, and
+    publish an immutable label snapshot. Single writer, concurrent readers.
+  - Differential testing harness comparing incremental results against full
+    batch `run()` using ARI/NMI rather than raw label identity (cluster IDs
+    are not semantically stable across refreshes).
+
+- **Out of scope (v1):**
+  - Point deletion or in-place mutation. Production delete semantics require
+    safe graph detachment, core-distance invalidation, and relabelling, which
+    are deferred until the test-only delete helpers (§6.7) are promoted to
+    the public API.
+  - Per-point exact relabelling. Flat labels derive from hierarchy extraction
+    over the MST, so a new point can alter existing assignments; this is a
+    global clustering, not a nearest-cluster lookup. Exact per-point streaming
+    labels are a non-goal for v1.
+  - GPU-accelerated incremental MST. The GPU Borůvka path (§8.2) is designed
+    for batch offload; adapting it for incremental delta merges is deferred.
+  - Stable cluster identity across snapshots. Cluster IDs may change between
+    refreshes; semantic stability requires a separate label-alignment layer.
+
+#### 12.3. Proposed architecture: `ClusteringSession`
+
+The incremental engine introduces a stateful session object that owns the live
+clustering state, in contrast to the stateless `Chutoro::run()` path.
+
+```rust,no_run
+/// A live, mutable clustering session that supports incremental point
+/// insertion, MST refresh, and periodic label snapshot extraction.
+pub struct ClusteringSession<D: DataSource + Sync> {
+    /// Configuration inherited from `ChutoroBuilder`.
+    config: SessionConfig,
+
+    /// Live HNSW index, receiving incremental insertions.
+    index: CpuHnsw,
+
+    /// Per-point core distances, extended on each refresh.
+    core_distances: Vec<f32>,
+
+    /// Accumulated MST edges from the most recent complete refresh.
+    mst_edges: Vec<MstEdge>,
+
+    /// Non-MST edges retained from previous refreshes whose
+    /// mutual-reachability weights may shift when core distances
+    /// change. Bounded by `config.historical_edge_cap`.
+    historical_edges: Vec<CandidateEdge>,
+
+    /// Delta candidate edges harvested since the last refresh,
+    /// awaiting merge into the MST.
+    pending_edges: Vec<CandidateEdge>,
+
+    /// Most recent flat label snapshot, published after each refresh.
+    labels: Arc<Vec<usize>>,
+
+    /// Monotonically increasing snapshot version counter.
+    snapshot_version: u64,
+
+    /// Reference to the data source backing the session.
+    source: Arc<D>,
+
+    /// Number of points present at the last completed refresh.
+    last_refresh_len: usize,
+}
+```
+
+_Figure 3: Sketch of `ClusteringSession` state. The session owns the live HNSW
+index, cached core distances, current MST edges, pending delta edges, and the
+latest label snapshot._
+
+**Memory growth and edge retention.** Between refreshes, `pending_edges` grows
+by roughly O(M) entries per appended point (where M is the HNSW connectivity
+parameter), because each insertion discovers up to M candidate edges. On
+refresh, `pending_edges` is drained: the edges are merged into the Kruskal
+candidate set, and the buffer is cleared. After refresh, the session retains
+two edge collections: (a) `mst_edges`, whose size is bounded by n − 1 where n
+is the total point count; and (b) `historical_edges`, a bounded set of non-MST
+edges retained for correctness under core-distance drift (see §12.5). The
+`historical_edges` set is capped at a configurable multiple of the MST edge
+count (default 2×); edges with the highest mutual-reachability weight are
+evicted first when the cap is exceeded. This bounds total edge memory to O(n ×
+cap_factor) regardless of how many refresh cycles the session undergoes. The
+compaction path (§15.3) resets both edge sets by rebuilding from scratch.
+
+The session lifecycle follows four phases:
+
+1. **Seeding.** Create a session from a `ChutoroBuilder` configuration and an
+   initial `DataSource`. Optionally run a full batch pipeline on the initial
+   data to seed the MST and labels, or start empty.
+2. **Appending.** Insert new points via `session.append(indices)`. Each
+   insertion calls the edge-harvesting HNSW insertion path (currently
+   `insert_with_edges`) and accumulates delta candidate edges in
+   `pending_edges`.
+3. **Refreshing.** Call `session.refresh()` to merge `pending_edges` with the
+   existing `mst_edges`, recompute core distances for new points, apply
+   mutual-reachability weighting to the merged edge set, rerun
+   `parallel_kruskal`, extract labels via `extract_labels_from_mst`, and
+   publish a new immutable label snapshot.
+4. **Reading.** Concurrent readers access the latest label snapshot via
+   `session.labels()`, which returns an `Arc<Vec<usize>>` that does not block
+   the writer.
+
+#### 12.4. Edge harvesting for incremental insertion
+
+The current `CpuHnsw::insert()` discards edges via `NoopCollector`. The
+incremental path requires a `VecCollector` (or equivalent) that returns
+harvested `CandidateEdge` values to the caller. Two approaches are available:
+
+1. **Expose `insert_with_edges` publicly.** The method already exists as
+   `pub(super)` and returns `Vec<CandidateEdge>`. Promoting it to `pub` (or
+   adding a public wrapper) is the minimal change.
+2. **Add an `InsertResult` return type** to the public `insert()` method that
+   optionally includes harvested edges, controlled by a configuration flag or a
+   separate method name (for example, `insert_harvesting`).
+
+Option 1 is preferred for v1 because it avoids changing the existing `insert()`
+signature, which external callers may depend on.
+
+In addition to the new edges harvested during insertion, the session must
+maintain the neighbourhood/core-distance state that the batch pipeline
+currently recomputes from scratch. Specifically:
+
+- **Core distances.** The batch pipeline computes core distances by searching
+  the HNSW index for each point's `min_cluster_size`-th nearest neighbour. The
+  incremental path must compute core distances for newly inserted points and
+  may need to update core distances for existing points whose neighbourhoods
+  changed due to new insertions. A pragmatic v1 approach recomputes core
+  distances only for new points and for existing points that appear as
+  neighbours of new insertions. This local recomputation can drift from the
+  true values over many append cycles, because a new insertion may improve a
+  distant point's k-th neighbour without that point appearing as a direct
+  neighbour of the new insert. To bound drift, the session should perform a
+  **full core-distance recomputation** when any of the following conditions
+  hold: (a) the cumulative number of appended points since the last full
+  recomputation exceeds a configurable fraction of the total dataset (default
+  25%); (b) the differential test ARI/NMI against a cached batch baseline drops
+  below a configurable threshold (default 0.92); or (c) the caller explicitly
+  requests it via `refresh_full()`. Full recomputation searches the HNSW index
+  for every point's `min_cluster_size`-th nearest neighbour, identical to the
+  batch pipeline. This is more expensive than the incremental path but resets
+  drift to zero.
+
+  **Baseline contract for trigger (b).** The "batch baseline" is a label
+  snapshot produced by a full batch `Chutoro::run()` on the current dataset. To
+  avoid placing a full-batch recompute on the hot refresh path, the baseline is
+  produced offline and cached alongside a version identifier (the
+  `snapshot_version` at which it was computed plus the dataset size at that
+  point). `SessionConfig` exposes a `baseline_mode` field controlling how and
+  when the cached baseline is refreshed:
+
+  - `manual_only` (default) — the baseline is refreshed only when the
+    caller invokes `refresh_full()`, which performs a full batch run and
+    caches the resulting labels as the new baseline. ARI/NMI trigger (b)
+    compares incremental labels against this cached baseline; if no
+    baseline has been cached yet, trigger (b) is inert.
+  - `periodic_sampled` — the session periodically recomputes a
+    lightweight validation metric by running a full batch pipeline on a
+    small randomized holdout (configurable fraction, default 5% of total
+    points) and comparing the holdout's incremental labels against the
+    holdout batch labels. This avoids the cost of a full-dataset batch
+    run while still detecting drift. The cadence is controlled by
+    `baseline_refresh_every_n` (default: same as the append-fraction
+    trigger, i.e. every 25% cumulative appends).
+  - `cached_offline` — an external process supplies the baseline label
+    snapshot via `ClusteringSession::set_baseline(labels, version)`. The
+    session never recomputes the baseline itself; trigger (b) compares
+    against the externally provided snapshot.
+
+  **Staleness detection.** The cached baseline carries the `snapshot_version`
+  and `dataset_size` at which it was produced. Staleness is determined by two
+  independent checks:
+
+  1. **Point-id compatibility.** The baseline's `dataset_size` must
+     be ≤ `session.point_count()` (because the session is
+     append-only, a baseline produced on a smaller dataset is still
+     compatible — the shared point-id prefix is valid). If
+     `baseline.dataset_size > session.point_count()`, the baseline
+     is **incompatible** (this can occur after a session reset or
+     data-source swap) and trigger (b) is skipped.
+  2. **Age threshold.** `SessionConfig` exposes a
+     `baseline_max_age_refreshes` field (default 50): the baseline
+     is considered **stale** when the number of refresh cycles since
+     the baseline was produced (`session.snapshot_version -
+     baseline.snapshot_version`) exceeds this threshold.
+
+  When the baseline is incompatible or stale:
+
+  - In `manual_only` and `cached_offline` modes, trigger (b) is
+    skipped and the session logs a `"baseline stale"` or
+    `"baseline incompatible"` diagnostic. The caller should supply
+    a fresh baseline (via `refresh_full()` or
+    `ClusteringSession::set_baseline(labels, version)`) to
+    reactivate trigger (b). Trigger (b) remains executable when
+    the baseline is compatible and within the allowed age window.
+  - In `periodic_sampled` mode, the holdout pipeline always operates
+    on current data, so trigger (b) remains active regardless of
+    cached-baseline staleness or age.
+
+  **Label-length mismatch.** Because appends grow the dataset between baseline
+  snapshots, the incremental label vector may be longer than the baseline. When
+  lengths differ, comparison is restricted to the **intersection** — the first
+  `min(len(incremental), len(baseline))` point IDs that are present in both
+  vectors. `adjusted_rand_index(incremental, baseline)` and
+  `normalized_mutual_information(incremental, baseline)` are computed over this
+  intersection only. To prevent a near-empty overlap from producing misleading
+  metrics, `SessionConfig` exposes a `minimum_overlap_fraction` field (default
+  0.50): if the overlap size divided by the current dataset size falls below
+  this fraction, the baseline is treated as stale and the same staleness rules
+  above apply. This ensures trigger (b) fires only when the comparison is
+  statistically meaningful.
+
+  **Comparison semantics.** In all modes, when the baseline is fresh and
+  overlap is sufficient, the comparison proceeds identically: if either
+  `adjusted_rand_index(incremental, baseline)` or
+  `normalized_mutual_information(incremental, baseline)` falls below its
+  configured threshold, `refresh_full()` is invoked automatically.
+- **Mutual-reachability weighting.** After core distance updates, the pending
+  edges and any affected existing MST edges must be reweighted using the
+  mutual-reachability formula:
+  `weight = max(distance, core_dist[source], core_dist[target])`.
+
+#### 12.5. Incremental MST refresh strategy
+
+The v1 MST refresh strategy follows the same pragmatic approach as the
+reference FISHDBC implementation rather than implementing a fully dynamic MST
+data structure:
+
+1. Collect the existing `mst_edges` from the previous refresh (already stored
+   in the session).
+2. Collect the `historical_edges` — non-MST edges retained from previous
+   refreshes whose mutual-reachability weights may have changed due to
+   core-distance updates (see §12.4). These edges are necessary because
+   core-distance recomputation changes the mutual-reachability weights of
+   old-old edges; a previously non-MST edge may become lighter than a current
+   MST edge and belong in the true MST. Without retaining these candidates, the
+   refresh candidate set would be incomplete and incremental clustering could
+   silently drift from the batch baseline.
+3. Append the new `pending_edges` (converted to mutual-reachability weights).
+4. Reweight all edges in the combined set using current core distances:
+   `weight = max(distance, core_dist[source], core_dist[target])`.
+5. Construct a fresh `EdgeHarvest` from the combined edge set
+   (`mst_edges` + `historical_edges` + `pending_edges`).
+6. Run `parallel_kruskal` over the combined harvest. The candidate set is
+   larger than `mst_edges + pending_edges` alone but still much smaller than
+   the full O(n × M) edge set that a from-scratch build would produce.
+7. Extract labels via `extract_labels_from_mst` with the current
+   `HierarchyConfig`.
+8. Partition the Kruskal output: edges selected for the MST become the new
+   `mst_edges`; non-MST edges are retained in `historical_edges` up to the
+   configured cap (default 2× MST edge count, heaviest edges evicted first).
+   Clear `pending_edges`.
+9. Publish the new label snapshot and advance `snapshot_version`.
+
+This strategy produces a high-quality approximate MST rather than a universally
+exact one. Kruskal's algorithm is exact over its input edge set, so the output
+is the true MST _of the combined candidate set_. However, the combined set is a
+strict subset of all pairwise mutual-reachability edges: HNSW insertion
+discovers high-quality candidate edges for new points, the existing MST
+captures the optimal spanning structure for old points, and the retained
+historical edges cover non-MST old-old edges whose weights may have shifted due
+to core-distance updates—but the historical edge cap can evict edges that a
+future core-distance shift would promote into the true MST. Empirically, this
+approximation is very close to the exact MST (validated by the ARI/NMI
+differential tests in §12.7), because the lightest non-MST edges —those most
+likely to re-enter the MST—are retained preferentially. The trade-off is
+explicit: the historical edge cap bounds memory at the cost of potentially
+losing true-MST edges, making the result an approximate MST with high empirical
+quality rather than a guaranteed exact one.
+
+For large datasets where even the combined Kruskal pass becomes expensive, a
+future optimization could use a cut-based update: identify the MST edges that
+might be displaced by lighter new edges (those whose weight exceeds the
+lightest new candidate crossing the same cut) and rerun Kruskal only over the
+affected subgraph. This is explicitly out of scope for v1.
+
+#### 12.6. Concurrency model
+
+The `ClusteringSession` uses a single-writer, multiple-reader concurrency model:
+
+- **Writer thread.** A single writer thread (or serialized writer task)
+  performs `append()` and `refresh()` operations. The HNSW `insert_mutex`
+  already serializes insertions, so the writer acquires this lock during
+  appends. During refresh, the writer holds exclusive access to `mst_edges`,
+  `core_distances`, and `pending_edges`.
+- **Reader threads.** Readers access the latest label snapshot via
+  `Arc<Vec<usize>>`. Because the snapshot is immutable and reference-counted,
+  readers never block the writer and vice versa. A new snapshot is published
+  atomically by swapping the `Arc`.
+- **Refresh scheduling.** The session supports two refresh policies:
+  - **Count-triggered:** Refresh after every N appended points.
+  - **Manual:** The caller explicitly invokes `refresh()`.
+  A future extension could add time-triggered refresh (every T seconds) via an
+  async task, but this is out of scope for v1.
+
+#### 12.7. Differential testing and correctness validation
+
+After each incremental refresh, correctness is validated by comparing the
+incremental result against a full batch `run()` on the identical dataset.
+Because cluster label integers are not semantically stable (a relabelling can
+produce different integers for the same partition), comparison uses clustering
+quality metrics rather than raw label equality:
+
+- **Adjusted Rand Index (ARI):** Measures agreement between two partitions,
+  adjusted for chance. The shared helper `chutoro_core::adjusted_rand_index`
+  (§11.5) is used directly.
+- **Normalized Mutual Information (NMI):** Measures mutual information between
+  partitions, scaled to `[0, 1]`. The shared helper
+  `chutoro_core::normalized_mutual_information` (§11.5) is used directly.
+
+The differential test harness:
+
+1. Seeds a `ClusteringSession` with an initial dataset.
+2. Appends a batch of new points and calls `refresh()`.
+3. Runs a full batch `Chutoro::run()` on the complete dataset (initial +
+   appended).
+4. Compares incremental labels against batch labels using ARI and NMI.
+5. Asserts that ARI ≥ 0.95 and NMI ≥ 0.95 (thresholds tuneable per test).
+
+Property-based tests use `proptest` to generate random append sequences and
+verify that incremental results remain within acceptable quality bounds across
+a range of dataset sizes, dimensionalities, and cluster separations.
+
+#### 12.8. Path to delete and edit support
+
+Point deletion and in-place edits are deferred from v1 but are anticipated in
+the architecture. The required steps for future enablement are:
+
+1. **Promote `Graph::delete_node` from test-only to public API.** The existing
+   helper (§6.7) already validates reachability via BFS and rolls back on
+   failure. The remaining work is to define production-grade error semantics
+   and ensure thread-safe deletion under the `insert_mutex`.
+2. **Core-distance invalidation.** When a point is deleted, its former
+   neighbours may have stale core distances. The session must track affected
+   neighbourhoods and recompute their core distances during the next refresh.
+3. **MST edge pruning.** Edges incident on deleted points must be removed from
+   `mst_edges` before the next Kruskal pass. Edges whose mutual-reachability
+   weights depended on invalidated core distances must be reweighted.
+4. **Relabelling semantics.** Deletion can split or merge clusters. The
+   refresh strategy (§12.5) handles this naturally via the full Kruskal +
+   extraction pass, but callers must be prepared for existing points to change
+   cluster assignment after a deletion-triggered refresh.
+
+### 13. Persistent snapshots and lineage
+
+Once clustering becomes incremental (§12), "current labels" stop being a
+sufficient output model. Consumers need a stable read model they can inspect,
+diff, persist, and reason about over time. This section promotes the output
+surface from a bare label vector to a richer `ClusteringSnapshot`, adds
+checkpoint/restore for `ClusteringSession`, introduces stable cluster-identity
+matching across refreshes, and defines a structural diff API that reports
+lifecycle events. These capabilities are prerequisites for downstream systems
+that perform policy-driven maintenance over clustered data, such as the
+theme-management and retrieval pipelines described in the xMemory
+literature.[^32]
+
+#### 13.1. `ClusteringSnapshot`
+
+The `ClusteringSnapshot` replaces the raw `Arc<Vec<usize>>` label vector as the
+primary output of `ClusteringSession::refresh`. It is an immutable,
+self-describing record of one clustering state:
+
+```rust,no_run
+/// An immutable, versioned record of a single clustering state.
+pub struct ClusteringSnapshot {
+    /// Monotonically increasing version, set by the session on publish.
+    version: SnapshotVersion,
+
+    /// Flat cluster labels, one per point (length == total point count).
+    labels: Arc<Vec<ClusterLabel>>,
+
+    /// Per-point outlier/membership scores in [0, 1], derived from
+    /// hierarchy stability during extraction. Points closer to 0 are
+    /// more likely outliers; points closer to 1 are strongly assigned.
+    /// Populated when the `probabilities` feature is enabled.
+    probabilities: Option<Arc<Vec<f32>>>,
+
+    /// Per-cluster summary statistics (size, cohesion, separation,
+    /// noise ratio, nearest-cluster distance).
+    cluster_stats: Arc<Vec<ClusterStats>>,
+
+    /// Lineage metadata: parent snapshot version (if any), point count
+    /// at creation, timestamp, and the set of point indices appended
+    /// (or deleted) since the parent snapshot.
+    lineage: SnapshotLineage,
+}
+```
+
+_Figure 4: Sketch of `ClusteringSnapshot`. Each refresh publishes a new
+immutable snapshot carrying labels, optional probabilities, per-cluster summary
+statistics, and lineage metadata linking it to its predecessor._
+
+The `probabilities` field is gated behind a non-default `probabilities` Cargo
+feature. When enabled, the hierarchy extraction pass (§6.2) records each
+point's stability-weighted membership score and propagates it into the
+snapshot. This avoids the cost of probability computation for callers that do
+not need it.
+
+#### 13.2. Checkpoint and restore
+
+`ClusteringSession` supports serializing its mutable state to a checkpoint and
+restoring from one, enabling crash recovery, migration, and long-lived sessions
+that survive process restarts.
+
+The checkpoint captures:
+
+- HNSW index state (graph adjacency, entry point, level assignments,
+  insertion sequence counter).
+- Accumulated MST edges.
+- Pending delta edges.
+- Per-point core distances.
+- Current `ClusteringSnapshot` (labels, probabilities, stats, lineage).
+- Session configuration (`SessionConfig`).
+
+The serialization format uses a self-describing binary envelope with a version
+tag so that future schema changes can be handled via explicit migration rather
+than silent corruption. The initial implementation targets a flat file; an
+`object_store`-backed adapter follows the DataFusion provider pattern (§7).
+
+Restore validates the checkpoint against a supplied `DataSource` (point count,
+metric descriptor) and returns a `SessionRestorationError` on mismatch,
+preventing silent use of stale or incompatible state.
+
+#### 13.3. Stable cluster-identity matching
+
+Cluster label integers are not semantically stable across refreshes (§12.2).
+The stable-identity layer assigns each cluster a persistent `ClusterId` and
+maintains a mapping from the raw extraction labels in each snapshot to these
+persistent identifiers.
+
+Matching uses a bipartite assignment between the previous snapshot's clusters
+and the new snapshot's clusters, scored by Jaccard overlap of point membership.
+Clusters above a configurable overlap threshold (default 0.5) are matched and
+retain their `ClusterId`. Unmatched new clusters receive fresh identifiers.
+Unmatched old clusters are recorded as extinct.
+
+This layer is explicitly opt-in (enabled via `SessionConfig`) because it
+introduces a dependency on the previous snapshot and adds per-refresh cost
+proportional to the number of clusters. Callers that do not need stable
+identity can continue using raw labels at no extra cost.
+
+#### 13.4. Structural diff API
+
+The diff API compares two `ClusteringSnapshot` values (typically consecutive)
+and emits a stream of `ClusterEvent` values describing structural changes:
+
+- **`Survive { id, size_delta }`**: a cluster persists across snapshots with
+  the same `ClusterId`.
+- **`Split { parent_id, child_ids }`**: a cluster from the old snapshot maps
+  to two or more clusters in the new snapshot.
+- **`Merge { parent_ids, child_id }`**: two or more old clusters merge into a
+  single new cluster.
+- **`Birth { id }`**: a cluster appears with no matched predecessor.
+- **`Death { id }`**: a cluster disappears with no matched successor.
+
+Detection reuses the bipartite Jaccard assignment from §13.3. A split is
+detected when one old cluster has Jaccard overlap above a threshold with
+multiple new clusters. A merge is the reverse. Birth and death are the residual
+unmatched entries.
+
+The diff output is a `Vec<ClusterEvent>`, not a streaming iterator, because the
+number of clusters is typically small relative to the number of points.
+Downstream consumers can use the event stream for observability dashboards,
+drift alerting, or policy-driven restructuring decisions without inspecting raw
+label arrays.
+
+### 14. Local reclustering and diagnostics
+
+Downstream systems performing maintenance over clustered data frequently need
+local operations rather than global reclustering. A theme management layer may
+need to split an overcrowded cluster, merge two related clusters, or inspect a
+cluster's internal quality without triggering a full MST refresh. This section
+defines the generic primitives that `ClusteringSession` exposes for local
+inspection and restructuring.[^32]
+
+#### 14.1. `ClusterStats`
+
+Each cluster in a `ClusteringSnapshot` carries a `ClusterStats` summary:
+
+```rust,no_run
+/// Per-cluster summary statistics, computed during snapshot
+/// construction.
+pub struct ClusterStats {
+    /// Persistent cluster identifier (if stable-identity matching is
+    /// enabled; otherwise mirrors the raw label).
+    id: ClusterLabel,
+
+    /// Number of points assigned to this cluster.
+    size: usize,
+
+    /// Index of the medoid: the point whose average distance to all
+    /// other cluster members is minimal. Computed over the DataSource
+    /// distance function, so it is metric-agnostic.
+    medoid: usize,
+
+    /// Indices of up to k exemplar points, selected as the most
+    /// central members after the medoid. Useful for downstream
+    /// summarization without requiring vector access.
+    exemplars: Vec<usize>,
+
+    /// Intra-cluster cohesion: mean pairwise distance among members.
+    /// Lower values indicate tighter clusters.
+    cohesion: f32,
+
+    /// Inter-cluster separation: distance from medoid to the nearest
+    /// neighbouring cluster's medoid. Higher values indicate more
+    /// distinct clusters.
+    separation: f32,
+
+    /// Fraction of points whose outlier probability (§13.1) falls below
+    /// a configurable threshold. Requires the `probabilities` feature.
+    noise_ratio: Option<f32>,
+
+    /// Identifier of the nearest neighbouring cluster by medoid
+    /// distance.
+    nearest_cluster: ClusterLabel,
+}
+```
+
+_Figure 5: `ClusterStats` summary. Medoid and exemplars are computed over the
+generic `DataSource::distance` function, avoiding vector-space assumptions.
+Centroids are deliberately absent from the generic API; a vector-only extension
+trait provides them for `DataSource` implementations that expose raw vectors._
+
+The decision to use medoids rather than centroids as the generic path is
+deliberate. Centroids require an averaging operation that is undefined for
+non-metric or non-Euclidean distance functions (for example, Levenshtein
+distance over strings). Medoids are defined for any distance function because
+they are actual data points. A separate `VectorClusterStats` extension trait
+can provide centroids for `DataSource` implementations that expose
+`row_slice()` or equivalent vector access (§6.3), keeping Euclidean assumptions
+behind an opt-in surface.
+
+#### 14.2. Subset reclustering
+
+`ClusteringSession` exposes a `recluster_subset` method that reruns the MST +
+hierarchy extraction pipeline over a caller-specified set of point indices,
+without modifying the session's global state:
+
+```rust,no_run
+impl<D: DataSource + Sync> ClusteringSession<D> {
+    /// Recluster a subset of points and return a local snapshot.
+    ///
+    /// The subset is clustered independently using the session's HNSW
+    /// index for neighbour lookup but builds a fresh local MST from
+    /// edges incident on the specified indices. The global session
+    /// state (labels, MST, core distances) is not modified.
+    pub fn recluster_subset(
+        &self,
+        indices: &[usize],
+        config: HierarchyConfig,
+    ) -> Result<ClusteringSnapshot, ClusteringError>;
+}
+```
+
+A convenience wrapper `recluster_cluster(cluster_id)` resolves the cluster's
+member indices from the current snapshot and delegates to `recluster_subset`.
+
+These methods are read-only with respect to the session: they do not alter the
+global MST, labels, or HNSW index. They return a local `ClusteringSnapshot`
+that the caller can inspect, diff against the global state, and use to inform
+restructuring decisions. If the caller decides to accept the local result, a
+separate `apply_local_result` method can merge the local labels back into the
+global snapshot (this is deferred to the mutability phase, §15).
+
+#### 14.3. Graph and MST slice export
+
+For advanced diagnostics, the session exposes read-only accessors for the
+subgraph and MST edges incident on a given set of point indices:
+
+- `hnsw_neighbours(index) -> Vec<Neighbour>`: returns the HNSW neighbours of a
+  point at all layers, useful for inspecting local graph density.
+- `mst_edges_for(indices) -> Vec<MstEdge>`: returns MST edges where at least
+  one endpoint belongs to the specified set, useful for visualizing the local
+  spanning structure.
+
+These accessors are intentionally narrow: they expose copies, not references to
+internal state, and they do not permit mutation.
+
+### 15. Mutability and long-lived maintenance
+
+The incremental MVP (§12) is append-only, which is a sensible start, but real
+datasets change. Points become stale, erroneous entries need retraction, and
+long-running sessions accumulate structural debt. This section defines the
+tombstone-based deletion model, refresh semantics after deletion, compaction,
+and memory-budget instrumentation that bring `ClusteringSession` from
+append-only to a credible long-lived engine.[^6]
+
+#### 15.1. Tombstone-based soft deletion
+
+Rather than immediately removing a point from the HNSW graph and MST, the
+session marks deleted points with a tombstone. Tombstoned points are excluded
+from label snapshots and cluster statistics but remain in the graph until
+compaction removes them.
+
+```rust,no_run
+impl<D: DataSource + Sync> ClusteringSession<D> {
+    /// Mark one or more points as deleted. Tombstoned points are
+    /// excluded from the next snapshot but remain in the HNSW graph
+    /// until compaction.
+    pub fn delete(&mut self, indices: &[usize]) -> Result<(), ClusteringError>;
+}
+```
+
+Tombstoned points are tracked in a `BitVec` or equivalent compact set. During
+`refresh()`, the label extraction pass skips tombstoned points, and
+`ClusterStats` computation excludes them. Tombstoned points are included in the
+lineage delta (§13.2) so that downstream consumers can observe retractions.
+
+This approach avoids the complexity of immediate graph detachment (§12.8) while
+still supporting retractions, churn, and long-running sessions. It is the same
+pragmatic strategy used by many LSM-tree storage engines: mark now, reclaim
+later.
+
+#### 15.2. Refresh after deletion
+
+When tombstoned points exist, the refresh path (§12.5) extends as follows:
+
+1. MST edges incident on tombstoned points are removed from the candidate set
+   before the Kruskal pass.
+2. Core distances for neighbours of tombstoned points are marked stale and
+   recomputed during the refresh.
+3. The label extraction pass operates over the reduced point set (total minus
+   tombstoned).
+4. The resulting snapshot's `labels` vector has entries for all non-tombstoned
+   points, indexed by a mapping from the original point indices to the reduced
+   set.
+
+This is less efficient than exact decremental MST maintenance but far simpler
+and robust. The periodic compaction pass (§15.3) eliminates accumulated
+tombstones and restores optimal index density.
+
+#### 15.3. Compaction
+
+Compaction rebuilds the session state to remove accumulated tombstones and
+structural debt. It is triggered manually or when the tombstone ratio exceeds a
+configurable threshold (for example, 20% of total points):
+
+1. Rebuild the HNSW index from scratch over the surviving (non-tombstoned)
+   points with full edge harvesting.
+2. Recompute all core distances.
+3. Run a full `parallel_kruskal` + `extract_labels_from_mst` pass.
+4. Publish a new snapshot with a fresh lineage root.
+
+Compaction is expensive (equivalent to a full batch `run()`) but restores the
+index to optimal density and eliminates the incremental drift that accumulates
+from append-plus-tombstone cycles. The session exposes
+`compaction_recommended() -> bool` based on the current tombstone ratio, and
+`compact()` to execute the rebuild.
+
+#### 15.4. Memory-budget instrumentation
+
+Long-running sessions must be observable. The session exposes the following
+memory-budget metrics behind the existing `metrics` feature flag:
+
+- `session_point_count`: total points (including tombstoned).
+- `session_live_point_count`: non-tombstoned points.
+- `session_tombstone_count`: tombstoned points.
+- `session_tombstone_ratio`: tombstoned / total.
+- `session_mst_edge_count`: edges in the current MST.
+- `session_pending_edge_count`: delta edges awaiting the next refresh.
+- `session_snapshot_version`: current snapshot version.
+- `session_hnsw_memory_bytes`: estimated HNSW graph memory footprint,
+  extending the per-point memory tracking from §11.2.
+- `session_refresh_duration_seconds`: histogram of refresh wall-times.
+- `session_compaction_duration_seconds`: histogram of compaction wall-times.
+
+These metrics enable operators to set alerting thresholds for tombstone
+accumulation, memory growth, and refresh latency, and to trigger compaction
+proactively.
+
+### 16. Streaming text validation
+
+If chutoro is to serve as a clustering substrate for systems that process
+streaming textual data, such as email intelligence pipelines[^33] and
+agent-memory systems,[^32] the benchmark suite must include a profile that
+reflects that workload shape. This section defines a streaming text corpus
+recipe and the metrics that validate incremental clustering under text-oriented
+streaming conditions.
+
+#### 16.1. Corpus recipe
+
+The streaming text benchmark uses a deterministic synthetic corpus generator
+that produces a sequence of short text documents with controlled properties:
+
+- **Reply-chain growth.** Documents arrive in reply chains of configurable
+  depth (1–10). Each reply quotes a prefix of its parent, simulating the
+  high-correlation/near-duplicate structure that causes similarity-based
+  retrieval to collapse in agent-memory settings.[^32]
+- **Recurring near-duplicates.** A configurable fraction (default 10%) of
+  documents are near-duplicates of earlier documents, differing only in
+  timestamp, salutation, or formatting. This exercises chutoro's ability to
+  place correlated points in the same cluster without creating degenerate
+  singletons.
+- **Newsletters and digests.** Periodic documents aggregate content from
+  multiple topics, simulating multi-topic messages that span cluster
+  boundaries. These documents exercise the outlier/noise detection path (§13.1)
+  and cluster-boundary diagnostics (§14.1).
+- **Topic drift.** The topic distribution shifts over time: new topics emerge,
+  old topics decay, and some topics merge. This validates that incremental
+  refresh (§12.5) and the structural diff API (§13.4) correctly surface
+  `Birth`, `Death`, `Split`, and `Merge` events.
+
+The corpus generator is seeded and fully deterministic. A manifest records
+ground-truth topic labels and topic-drift breakpoints for quality scoring.
+
+#### 16.2. Distance function
+
+The corpus is embedded using a fixed, reproducible text embedding (for example,
+a frozen Sentence-BERT checkpoint with a pinned model card) to produce dense
+vectors. The benchmark pipeline then uses chutoro's dense Euclidean or cosine
+distance path (§6.3) for clustering. Alternatively, a direct Levenshtein path
+over raw text exercises the non-metric distance support (§1.3) at smaller scale.
+
+The embedding model and preprocessing are version-pinned and documented
+alongside the corpus recipe to ensure reproducibility across benchmark runs.
+
+#### 16.3. Streaming benchmark protocol
+
+The benchmark runs the `ClusteringSession` lifecycle:
+
+1. **Seed phase.** Create a session from an initial batch of documents
+   (for example, the first 1,000).
+2. **Streaming phase.** Append documents one-at-a-time or in micro-batches
+   (configurable), triggering periodic refreshes.
+3. **Measurement phase.** After each refresh, record:
+   - **ARI/NMI** against ground-truth topic labels.
+   - **Label churn:** fraction of existing points whose cluster assignment
+     changed since the previous snapshot. High churn without corresponding
+     topic drift indicates instability.
+   - **Append p95 latency:** wall-time for the `append()` call at the 95th
+     percentile.
+   - **Refresh cost:** wall-time for `refresh()`.
+   - **Cluster stability:** fraction of clusters that survive across
+     consecutive snapshots (using the stable-identity matching from §13.3).
+   - **Drift event quality:** precision and recall of `Birth`/`Death`/`Split`/
+     `Merge` events (§13.4) against ground-truth topic-drift breakpoints.
+
+#### 16.4. Acceptance criteria
+
+- ARI ≥ 0.85 and NMI ≥ 0.85 against ground-truth topic labels after the
+  streaming phase completes (lower than the Gaussian threshold in §12.7 because
+  text embeddings introduce more noise).
+- Label churn per refresh ≤ 5% of existing points when no topic drift occurs
+  in the corresponding append window.
+- Append p95 latency ≤ 2× the mean single-point HNSW insertion time measured
+  in the benchmarking phase (§2).
+- Structural diff events align with ground-truth topic-drift breakpoints with
+  precision ≥ 0.7 and recall ≥ 0.7.
+
 #### **Works cited**
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September
@@ -2258,3 +3049,10 @@ benchmarks while preserving a reproducible developer-run workflow.
 [^31]: Codeplay oneAPI plugins for NVIDIA and AMD GPUs, accessed on
        September 6, 2025,
        [https://github.com/codeplaysoftware/oneapi-construction-kit](https://github.com/codeplaysoftware/oneapi-construction-kit)
+[^32]: Hu, Z., Zhu, Q., Yan, H., He, Y. and Gui, L. — Beyond RAG for Agent
+       Memory: Retrieval by Decoupling and Aggregation, arXiv:2602.02007v2,
+       February 2026,
+       [https://arxiv.org/abs/2602.02007](https://arxiv.org/abs/2602.02007)
+[^33]: limela — Development roadmap for the email intelligence pipeline,
+       accessed on March 16, 2026,
+       [https://github.com/leynos/limela/blob/main/docs/roadmap.md](https://github.com/leynos/limela/blob/main/docs/roadmap.md)
