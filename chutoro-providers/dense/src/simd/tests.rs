@@ -275,6 +275,22 @@ fn raw_pairs_preserve_original_validation_order_for_shared_query_batches(
     Ok(())
 }
 
+#[cfg(any(
+    all(
+        feature = "simd_avx2",
+        any(target_arch = "x86", target_arch = "x86_64")
+    ),
+    all(
+        feature = "simd_avx512",
+        any(target_arch = "x86", target_arch = "x86_64")
+    ),
+))]
+fn assert_simd_entry_matches_scalar(entry: fn(&[f32], &[f32]) -> f32, left: &[f32], right: &[f32]) {
+    let expected = kernels::euclidean_distance_scalar(left, right);
+    let actual = entry(left, right);
+    close(Distance::new(actual), Distance::new(expected));
+}
+
 #[cfg(all(
     feature = "simd_avx2",
     any(target_arch = "x86", target_arch = "x86_64")
@@ -290,9 +306,7 @@ fn avx2_kernel_matches_scalar_when_available() {
         .map(|index| (35_u32 - index) as f32 * 0.25)
         .collect();
 
-    let expected = kernels::euclidean_distance_scalar(&left, &right);
-    let actual = kernels::euclidean_distance_avx2_entry(&left, &right);
-    close(Distance::new(actual), Distance::new(expected));
+    assert_simd_entry_matches_scalar(kernels::euclidean_distance_avx2_entry, &left, &right);
 }
 
 #[cfg(all(
@@ -327,9 +341,7 @@ fn avx512_entrypoint_matches_scalar_when_available() {
         .map(|index| (67_u32 - index) as f32 * 0.375)
         .collect();
 
-    let expected = kernels::euclidean_distance_scalar(&left, &right);
-    let actual = kernels::euclidean_distance_avx512_entry(&left, &right);
-    close(Distance::new(actual), Distance::new(expected));
+    assert_simd_entry_matches_scalar(kernels::euclidean_distance_avx512_entry, &left, &right);
 }
 
 #[cfg(all(
