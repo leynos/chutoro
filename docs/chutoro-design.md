@@ -2343,7 +2343,38 @@ currently recomputes from scratch. Specifically:
     session never recomputes the baseline itself; trigger (b) compares
     against the externally provided snapshot.
 
-  In all modes, the ARI/NMI comparison semantics are identical: if either
+  **Staleness detection.** The cached baseline carries the `snapshot_version`
+  and `dataset_size` at which it was produced. A baseline is considered
+  **stale** when either value differs from the current session state (i.e.
+  `baseline.snapshot_version != session.snapshot_version` or
+  `baseline.dataset_size != session.point_count()`). When the baseline is stale:
+
+  - In `manual_only` and `cached_offline` modes, trigger (b) is
+    skipped and the session logs a `"baseline stale"` diagnostic.
+    The caller must supply a fresh baseline (via `refresh_full()` or
+    `ClusteringSession::set_baseline(labels, version)`) before
+    trigger (b) becomes active again.
+  - In `periodic_sampled` mode, staleness is expected because the
+    holdout comparison runs on a sample rather than the full dataset.
+    The holdout pipeline always operates on current data, so
+    trigger (b) remains active regardless of cached-baseline
+    staleness.
+
+  **Label-length mismatch.** Because appends grow the dataset between baseline
+  snapshots, the incremental label vector may be longer than the baseline. When
+  lengths differ, comparison is restricted to the **intersection** — the first
+  `min(len(incremental), len(baseline))` point IDs that are present in both
+  vectors. `adjusted_rand_index(incremental, baseline)` and
+  `normalized_mutual_information(incremental, baseline)` are computed over this
+  intersection only. To prevent a near-empty overlap from producing misleading
+  metrics, `SessionConfig` exposes a `minimum_overlap_fraction` field (default
+  0.50): if the overlap size divided by the current dataset size falls below
+  this fraction, the baseline is treated as stale and the same staleness rules
+  above apply. This ensures trigger (b) fires only when the comparison is
+  statistically meaningful.
+
+  **Comparison semantics.** In all modes, when the baseline is fresh and
+  overlap is sufficient, the comparison proceeds identically: if either
   `adjusted_rand_index(incremental, baseline)` or
   `normalized_mutual_information(incremental, baseline)` falls below its
   configured threshold, `refresh_full()` is invoked automatically.
