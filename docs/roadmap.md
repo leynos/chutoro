@@ -673,10 +673,14 @@ ______________________________________________________________________
   (`session.snapshot_version - baseline.snapshot_version`) and compare against
   `SessionConfig::baseline_max_age_refreshes` (default 50); skip trigger (b)
   when the baseline is stale or incompatible
-  (`baseline.dataset_size > session.point_count()`); (e) shape
-  compatibility—verify that the baseline label vector's dimensionality and
-  feature schema are compatible with the current dataset before computing
-  ARI/NMI; reject mismatched shapes with a diagnostic; (f) overlap gating—add
+  (`baseline.dataset_size > session.point_count()`); (e) label-space
+  compatibility—verify that the baseline label vector is compatible with the
+  current dataset before computing ARI/NMI: check label vector dimensionality
+  (length must equal the respective point count), domain/label-set
+  compatibility (label values must belong to a compatible domain), and exact
+  shape expectations (dtype/encoding must match); reject mismatches with a
+  clear diagnostic identifying which check failed (feature schema is orthogonal
+  and validated elsewhere); (f) overlap gating—add
   `SessionConfig::minimum_overlap_fraction` (default 0.50); compute the overlap
   fraction between baseline and current dataset (shared point-id prefix size
   divided by current dataset size); only compute ARI/NMI or trigger
@@ -710,8 +714,15 @@ ______________________________________________________________________
   build with edge harvest, core distances, MST, label extraction) and
   populating all session state from the batch result. Requires 11.1.2. (See
   `docs/chutoro-design.md` §12.3)
-  - Acceptance criteria: `session.labels()` matches `Chutoro::run()` on
-    the same source (identical label vectors).
+  - Acceptance criteria: the clustering produced by
+    `session.labels()` is partition-equivalent to `Chutoro::run()` on
+    the same source—i.e. the two labellings induce the same
+    partitioning of items (clusters are equal as sets of item indices,
+    ignoring cluster-ID permutations). Concrete comparison options:
+    compare the sets of clusters directly, use a contingency/matching
+    check that verifies every item-pair is co-clustered in both
+    outputs, or compute Adjusted Rand Index (ARI) and confirm it
+    equals 1.0.
 - [ ] 11.3.2. Implement `ClusteringSession::new_empty`: create an empty
   session with no initial data, ready to receive appends. Requires 11.1.2. (See
   `docs/chutoro-design.md` §12.3)
