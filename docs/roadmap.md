@@ -1004,7 +1004,7 @@ ______________________________________________________________________
   against ground-truth topic labels, label churn (fraction of existing points
   whose assignment changed), append p95 latency, refresh wall-time, cluster
   stability (fraction of clusters surviving across consecutive snapshots via
-  §13.3), and drift event quality (precision/recall of structural diff events
+  §12.3), and drift event quality (precision/recall of structural diff events
   against ground-truth drift breakpoints). Requires 12.3.1, 12.4.1. (See
   `docs/chutoro-design.md` §16.3)
 - [ ] 15.2.3. Add CI integration running the streaming text benchmark
