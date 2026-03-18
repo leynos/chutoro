@@ -755,12 +755,13 @@ ______________________________________________________________________
 
 - [ ] 11.5.1. Add Rustdoc documentation for `ClusteringSession`,
   `SessionConfig`, and all public methods including examples demonstrating the
-  seed → append → refresh → read lifecycle. (See `docs/chutoro-design.md` §12.3)
+  seed → append → refresh → read lifecycle. (See `docs/chutoro-design.md`
+  §12.3, §12.6)
 - [ ] 11.5.2. Extend the CLI with an optional `--incremental` mode (or
   subcommand) that creates a `ClusteringSession`, reads an initial dataset,
   then accepts appended data from stdin or a secondary file and prints updated
   labels after each refresh. Requires 11.3.1. (See `docs/chutoro-design.md`
-  §12.3, §12.6)
+  §12.3, §12.6, §12.7)
 - [ ] 11.5.3. Document limitations of v1 incremental clustering in the
   design document: append-only, no stable cluster identity across snapshots,
   micro-batched rather than per-point, potential relabelling of existing points
