@@ -79,8 +79,8 @@ macro_rules! select_backend_fn {
 pub(super) fn select_euclidean_kernel() -> EuclideanKernel {
     select_backend_fn!(
         avx512 = euclidean_distance_avx512_entry,
-        avx2   = euclidean_distance_avx2_entry,
-        neon   = euclidean_distance_neon_entry,
+        avx2 = euclidean_distance_avx2_entry,
+        neon = euclidean_distance_neon_entry,
         scalar = euclidean_distance_scalar,
     )
 }
@@ -173,8 +173,8 @@ pub(super) fn euclidean_distance_query_points_scalar(
 fn select_euclidean_query_points_kernel() -> EuclideanQueryPointsKernel {
     select_backend_fn!(
         avx512 = euclidean_distance_query_points_avx512_entry,
-        avx2   = euclidean_distance_query_points_avx2_entry,
-        neon   = euclidean_distance_query_points_neon_entry,
+        avx2 = euclidean_distance_query_points_avx2_entry,
+        neon = euclidean_distance_query_points_neon_entry,
         scalar = euclidean_distance_query_points_scalar,
     )
 }
