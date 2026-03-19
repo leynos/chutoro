@@ -299,6 +299,16 @@ ______________________________________________________________________
   - isolate nightly SIMD modules behind feature `cfg` guards;
   - add CI checks that verify stable builds with the feature disabled and
     nightly builds with the feature enabled. (See §6.3)
+- [ ] 2.2.6. Add a property-based backend parity suite driven by a shared
+  `DistanceSemantics` contract and scalar oracle reducer: generate vector
+  lengths around lane boundaries, random alignment and padding patterns,
+  duplicate and zero vectors, and non-finite inputs under the declared policy;
+  compare scalar, AVX2, AVX-512, Neon, and optional nightly `std::simd` outputs
+  within epsilon. Requires 2.2.3, 2.2.4, 2.2.5. (See §6.3)
+- [ ] 2.2.7. Add bounded Kani harnesses for SIMD tail padding and runtime
+  dispatch selection: prove that zero-padded tails never read past lane bounds
+  and that the selector never chooses a backend that is absent at compile time
+  or unavailable at runtime. Requires 2.2.3, 2.2.6. (See §6.3)
 
 ### 2.3. Hot-path optimizations
 
@@ -352,6 +362,10 @@ ______________________________________________________________________
   unavailable. (See §7.1, §11)
 - [ ] 3.3.3. Verify correctness vs CPU Kruskal on random graphs;
   benchmark speedup. (See §11)
+- [ ] 3.3.4. Add a property-based differential suite for GPU Boruvka on small
+  connected and disconnected graphs, including equal-weight ties; compare
+  device output against the CPU reference under a canonical edge-equivalence
+  relation and tie-break tuple. Requires 3.3.1, 3.3.2, 3.3.3. (See §8.2, §9.2)
 
 **Exit criteria:** MST wall-time reduced significantly vs CPU on ≥1e6 edges;
 identical MST (or accepted tie-break equivalence) to CPU implementation.
@@ -373,6 +387,11 @@ ______________________________________________________________________
 
 - [ ] 4.2.1. Measure build-time reduction vs CPU-only HNSW; ensure
   identical neighbour selections under deterministic seeds. (See §8.1, §11)
+- [ ] 4.2.2. Add a property-based differential suite for hybrid distance
+  offload: generate batched candidate lists and assert that GPU scoring
+  preserves CPU neighbour selection under fixed seeds and the shared
+  `DistanceSemantics` policy. Requires 4.1.1, 4.1.2, 4.1.3, 4.2.1. (See §8.1,
+  §9.2)
 
 **Exit criteria:** measurable reduction in HNSW insertion time on large batches
 without altering clustering materially.
@@ -394,6 +413,15 @@ ______________________________________________________________________
 
 - [ ] 5.2.1. Add tracing/logging around stream scheduling to validate
   overlap. (See §9.2)
+- [ ] 5.2.2. Add a mocked-stream property suite for the host-side async planner
+  and pinned ring buffer: generate bounded enqueue, completion, cancellation,
+  and error traces; assert no slot reuse before completion, no read-before-
+  ready, and no missed wait edges. Requires 5.1.1, 5.1.2, 5.1.3, 5.2.1. (See
+  §9.2)
+- [ ] 5.2.3. Add bounded Kani harnesses for the host-side buffer and event
+  state machine, including unwind paths, to prove no double release, no stale
+  completion reads, and no illegal slot-state transitions. Requires 5.2.2. (See
+  §9.2)
 
 **Exit criteria:** observed kernel/transfer overlap; reduced end-to-end
 wall-time vs phase 4.
@@ -440,6 +468,14 @@ ______________________________________________________________________
 
 - [ ] 6.3.1. Fuzz and harden FFI boundaries (lengths, nulls, lifetime
   ownership); ensure host remains robust on plugin failure. (See §5.1)
+- [ ] 6.3.2. Add a property-based plugin lifecycle suite: generate synthetic
+  v-tables, capability masks, version mismatches, and load → use → quiesce →
+  destroy → unload traces; verify structured host failures and that unsupported
+  callbacks are never reached. Requires 6.1.1, 6.1.2, 6.2.1, 6.3.1. (See §5.3)
+- [ ] 6.3.3. Add bounded Kani harnesses for the host wrapper state machine and
+  pure `PluginDescriptor` validator: reject nulls and version mismatches before
+  dereference, gate optional callbacks by capability bits, and prove `destroy`
+  is unreachable after the first successful teardown. Requires 6.3.2. (See §5.3)
 
 **Exit criteria:** load/unload plugins at runtime; parity with statically
 linked providers; safe failure semantics.
@@ -530,6 +566,11 @@ ______________________________________________________________________
 - [ ] 10.1.6. Add provenance/licence checks that fail fast when a dataset source
   terms change, require interactive access, or lack reproducible checksum
   coverage. See `docs/benchmark-dataset-retrieval.md` §3.3.
+- [ ] 10.1.7. Add property-based verification for prepared-dataset metadata:
+  manifest canonicalization, preprocessing-hash stability, and local-cache
+  lockfile semantics must remain deterministic across repeated and reordered
+  preparation traces. Requires 10.1.3, 10.1.5, 10.1.6. See
+  `docs/benchmark-dataset-retrieval.md` §3.2, §3.3.
 
 ### 10.2. Matrix benchmark framework and result publication
 
@@ -555,6 +596,11 @@ ______________________________________________________________________
 - [ ] 10.2.6. Integrate scheduled CI jobs that run matrix profiles, publish
   artefacts, and compare against stored baselines for regression alerts.
   Requires 2.1.7. See `docs/benchmark-dataset-retrieval.md` §4.3.
+- [ ] 10.2.7. Add property-based verification for matrix expansion and result
+  publication: tuple identifiers, immutable result keys, and profile-filtered
+  matrix expansion must be deterministic across reordered specs and repeated
+  runs. Requires 10.2.1, 10.2.2, 10.2.4, 10.2.5. See
+  `docs/benchmark-dataset-retrieval.md` §4.1, §4.2, §4.3.
 
 ### 10.3. Dataset-specific enablement backlog
 
@@ -706,6 +752,11 @@ ______________________________________________________________________
     configured cap. After 100 append-refresh cycles, total session
     edge memory (MST + historical + pending) remains within 4× the
     MST edge count.
+- [ ] 11.2.6. Extract refresh-trigger logic into pure helpers returning
+  `BaselineCompatibility` and `RefreshDecision`, then add Verus proofs for the
+  staleness, overlap, label-compatibility, and threshold gates that control
+  automatic `refresh_full()`. Requires 11.2.4. (See `docs/chutoro-design.md`
+  §12.4, §12.6)
 
 ### 11.3. Seeding and batch bootstrap
 
@@ -750,6 +801,13 @@ ______________________________________________________________________
   `session.labels()` returned to concurrent readers during a refresh always
   returns a complete, internally consistent snapshot (correct length, valid
   label range) and never exposes partially updated state. Requires 11.2.2.
+- [ ] 11.4.5. Add a stateful property suite over `append`, `refresh`,
+  `refresh_full`, and `labels()`; verify `snapshot_version` monotonicity,
+  `pending_edges` clearing, `refresh_every_n` behaviour, label/live-point
+  consistency, and ARI/NMI bounds against a tiny batch baseline. Extend the
+  same state machine with checkpoint/restore once 12.2.3 lands. Requires
+  11.2.1, 11.2.2, 11.2.3, 11.2.4, 11.2.5, 11.3.1. (See `docs/chutoro-design.md`
+  §12.7)
 
 ### 11.5. Documentation and API surface
 
@@ -771,7 +829,8 @@ ______________________________________________________________________
 (ARI/NMI ≥ 0.95 vs batch) on synthetic Gaussian datasets; incremental refresh
 wall-time for a 1% append ≤ 0.7× full batch on the same final dataset (see
 11.4.3); the differential test harness passes under property-based generation;
-concurrent readers never observe partial snapshots.
+concurrent readers never observe partial snapshots; refresh-policy helper
+invariants are factored into proof-friendly pure functions.
 
 ______________________________________________________________________
 
@@ -805,6 +864,12 @@ ______________________________________________________________________
   via `row_slice()`. Keep the generic `ClusterStats` path medoid-only, avoiding
   Euclidean assumptions in non-metric contexts. Requires 12.1.3. (See
   `docs/chutoro-design.md` §14.1)
+- [ ] 12.1.5. Add a property-based suite for `ClusteringSnapshot` and
+  `ClusterStats`: generate small partitions and symmetric distance matrices,
+  then verify medoid minimality, exemplar membership, finite and non-negative
+  cohesion and separation, probability bounds, and noise-ratio consistency.
+  Requires 12.1.1, 12.1.2, 12.1.3, 12.1.4. (See `docs/chutoro-design.md` §13.1,
+  §14.1)
 
 ### 12.2. Checkpoint and restore
 
@@ -825,6 +890,15 @@ ______________________________________________________________________
 - [ ] 12.2.4. Add checkpoint integrity tests: corrupt each section of
   the binary format and verify that `restore` returns a specific error variant
   rather than panicking or producing silent corruption. Requires 12.2.3.
+- [ ] 12.2.5. Add a property-based checkpoint suite: random small session
+  states must round-trip canonically, while mutated section lengths, ordering,
+  version tags, checksums, and metric descriptors must fail with specific
+  restoration errors. Requires 12.2.3, 12.2.4. (See `docs/chutoro-design.md`
+  §13.2)
+- [ ] 12.2.6. Add bounded Kani harnesses for the checkpoint envelope parser and
+  section-table decoder so malformed headers cannot cause overflow,
+  out-of-bounds access, or silent acceptance. Requires 12.2.1, 12.2.5. (See
+  `docs/chutoro-design.md` §13.2)
 
 ### 12.3. Stable cluster-identity matching
 
@@ -841,6 +915,11 @@ ______________________________________________________________________
   is deterministic, that unmatched clusters receive monotonically increasing
   fresh identifiers, and that Jaccard scores agree with a brute-force oracle.
   Requires 12.3.1.
+- [ ] 12.3.3. Add Verus proofs for the pure identity-matching helpers:
+  Jaccard-score symmetry and bounds, deterministic tie-break behaviour,
+  injective reuse of persistent identifiers, and monotonic allocation of fresh
+  identifiers over the unmatched partition. Requires 12.3.1. (See
+  `docs/chutoro-design.md` §13.3)
 
 ### 12.4. Structural diff API
 
@@ -856,11 +935,17 @@ ______________________________________________________________________
 - [ ] 12.4.2. Add tests for `Birth` and `Death` events triggered by
   topic emergence and decay in a synthetic dataset with known breakpoints.
   Requires 12.4.1.
+- [ ] 12.4.3. Add Verus proofs for the structural-diff helper layer: the
+  matched and unmatched partition must classify events completely and
+  disjointly, and `Survive`/`Split`/`Merge`/`Birth`/`Death` detection must be
+  deterministic under canonical membership ordering. Requires 12.4.1, 12.3.3.
+  (See `docs/chutoro-design.md` §13.4)
 
 **Exit criteria:** snapshots carry labels, optional probabilities, and
 per-cluster stats; checkpoint/restore round-trips succeed; stable cluster
-identity survives a no-change refresh; structural diffs correctly classify
-synthetic split, merge, birth, and death scenarios.
+identity survives a no-change refresh; checkpoint corruption is rejected with
+structured errors; structural diffs correctly classify synthetic split, merge,
+birth, and death scenarios.
 
 ______________________________________________________________________
 
@@ -932,6 +1017,12 @@ ______________________________________________________________________
 - [ ] 14.1.3. Add differential tests comparing tombstone-refresh
   results against a fresh batch `run()` on only the surviving points, using ARI
   ≥ 0.90 and NMI ≥ 0.90. Requires 14.1.2.
+- [ ] 14.1.4. Add a stateful property suite over `append`, `delete`,
+  `refresh`, and `compact`: compare the resulting live-point partition against
+  a fresh batch run on surviving points, and verify that deleted points never
+  reappear in labels or `ClusterStats` and that lifecycle counters remain
+  consistent. Requires 14.1.2, 14.2.2. (See `docs/chutoro-design.md` §15.2,
+  §15.3)
 
 ### 14.2. Compaction
 
@@ -951,6 +1042,11 @@ ______________________________________________________________________
   against a full batch `run()` for the same surviving point count. The
   compaction path should complete within 1.2× of a fresh batch run. Requires
   14.2.2.
+- [ ] 14.2.4. Introduce an explicit `LiveIndexMap` remap helper and add Verus
+  proofs that `old_to_new` and `new_to_old` form a bijection over surviving
+  points, tombstoned points map nowhere, and compaction publishes a fresh
+  lineage root with zero tombstones. Requires 14.2.2. (See
+  `docs/chutoro-design.md` §15.2, §15.3)
 
 ### 14.3. Memory-budget instrumentation
 
@@ -970,7 +1066,8 @@ ______________________________________________________________________
 immediate graph detachment; refresh after deletion produces ARI/NMI ≥ 0.90 vs a
 fresh batch run on surviving points; compaction restores the index to a state
 equivalent to a fresh build; memory metrics track all session lifecycle
-operations.
+operations; reduced-index remapping stays explicit and verifiable across
+refresh and compaction.
 
 ______________________________________________________________________
 
@@ -993,6 +1090,12 @@ ______________________________________________________________________
 - [ ] 15.1.3. Register the streaming text corpus as a benchmark dataset
   recipe in `chutoro-bench-datasets` (§10.1) with `smoke` and `cpu` matrix
   profiles. Requires 15.1.1, 15.1.2.
+- [ ] 15.1.4. Add property-based tests for the synthetic text generator and
+  manifest: generation is deterministic from seed, reply depth and
+  near-duplicate fractions stay within configured bounds, and emitted drift
+  breakpoints remain consistent with manifest labels and later structural-diff
+  expectations. Requires 15.1.1, 15.1.2, 15.1.3. (See `docs/chutoro-design.md`
+  §16.1, §16.3)
 
 ### 15.2. Streaming benchmark harness
 
@@ -1028,7 +1131,8 @@ ______________________________________________________________________
 **Exit criteria:** the streaming text corpus generator produces reproducible,
 ground-truth-labelled documents; the streaming benchmark harness measures
 quality, churn, latency, stability, and drift detection; acceptance criteria
-are met on the `smoke` profile; CI publishes and compares metric summaries.
+are met on the `smoke` profile; CI publishes and compares metric summaries; the
+corpus manifest and drift breakpoints are deterministic from seed.
 
 ______________________________________________________________________
 
