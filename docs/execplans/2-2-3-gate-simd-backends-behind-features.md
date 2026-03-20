@@ -473,6 +473,7 @@ set -o pipefail; make nixie 2>&1 | tee /tmp/2-2-3-make-nixie.log
 set -o pipefail; cargo test -p chutoro-providers-dense --no-default-features 2>&1 | tee /tmp/2-2-3-dense-no-default-features.log
 set -o pipefail; cargo test -p chutoro-providers-dense --no-default-features --features simd_avx2 2>&1 | tee /tmp/2-2-3-dense-avx2.log
 set -o pipefail; cargo test -p chutoro-providers-dense --no-default-features --features simd_avx512 2>&1 | tee /tmp/2-2-3-dense-avx512.log
+set -o pipefail; cargo test -p chutoro-providers-dense --no-default-features --features simd_neon 2>&1 | tee /tmp/2-2-3-dense-neon.log
 set -o pipefail; cargo test -p chutoro-providers-dense --all-features 2>&1 | tee /tmp/2-2-3-dense-all-features.log
 set -o pipefail; make check-fmt 2>&1 | tee /tmp/2-2-3-make-check-fmt.log
 set -o pipefail; make lint 2>&1 | tee /tmp/2-2-3-make-lint.log

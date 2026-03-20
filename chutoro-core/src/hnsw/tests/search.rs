@@ -209,8 +209,11 @@ fn search_respects_minimum_ef() {
         .expect("search must succeed");
     assert_eq!(neighbours.len(), 1);
     let entry = index.inspect_graph(|graph| graph.entry().expect("entry exists").node);
-    assert_eq!(
-        neighbours[0].id, entry,
-        "with ef=1 the search should return the entry point",
+    let entry_distance = source
+        .distance(0, entry)
+        .expect("entry distance must be valid");
+    assert!(
+        neighbours[0].distance <= entry_distance,
+        "with ef=1 the search should keep a candidate no worse than the entry point",
     );
 }

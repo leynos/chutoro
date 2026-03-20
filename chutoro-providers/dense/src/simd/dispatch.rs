@@ -91,19 +91,35 @@ pub(super) fn choose_euclidean_backend(
     compiled: CompiledSimdSupport,
     runtime: RuntimeSimdSupport,
 ) -> EuclideanBackend {
-    if compiled.avx512 && runtime.avx512 {
-        EuclideanBackend::Avx512
-    } else if compiled.avx2 && runtime.avx2 {
-        EuclideanBackend::Avx2
-    } else if compiled.neon && runtime.neon {
-        EuclideanBackend::Neon
-    } else {
-        EuclideanBackend::Scalar
+    for backend in [
+        EuclideanBackend::Avx512,
+        EuclideanBackend::Avx2,
+        EuclideanBackend::Neon,
+        EuclideanBackend::Scalar,
+    ] {
+        if backend_supported(&compiled, &runtime, backend) {
+            return backend;
+        }
     }
+
+    EuclideanBackend::Scalar
 }
 
 fn select_euclidean_backend() -> EuclideanBackend {
     choose_euclidean_backend(compiled_simd_support(), runtime_simd_support())
+}
+
+fn backend_supported(
+    compiled: &CompiledSimdSupport,
+    runtime: &RuntimeSimdSupport,
+    variant: EuclideanBackend,
+) -> bool {
+    match variant {
+        EuclideanBackend::Avx512 => compiled.avx512 && runtime.avx512,
+        EuclideanBackend::Avx2 => compiled.avx2 && runtime.avx2,
+        EuclideanBackend::Neon => compiled.neon && runtime.neon,
+        EuclideanBackend::Scalar => true,
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
