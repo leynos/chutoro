@@ -961,6 +961,42 @@ This keeps the new alignment and SoA preconditions local to dense-provider
 internals while preserving existing `DataSourceError` semantics and
 all-or-nothing output writes.
 
+_Implementation update (2026-03-11)._ Roadmap item `2.2.3` is implemented via
+Cargo feature gating in `chutoro-providers/dense/Cargo.toml` plus a dedicated
+dispatch helper in `chutoro-providers/dense/src/simd/dispatch.rs`.
+
+The dense provider now exposes three backend features:
+
+- `simd_avx2`
+- `simd_avx512`
+- `simd_neon`
+
+They are enabled by default in the dense crate so the existing performance
+profile is preserved unless a build opts out with `--no-default-features` or a
+selective feature list.
+
+Runtime backend selection remains a one-time patch:
+
+- x86/x86_64 builds use `is_x86_feature_detected!` to choose `Avx512` first,
+  then `Avx2`, then `Scalar`;
+- `arm` builds use `is_arm_feature_detected!("neon")` to enable the Neon
+  backend when both the CPU and `simd_neon` feature allow it;
+- `aarch64` builds treat Neon as baseline and select it whenever
+  `simd_neon` is compiled in;
+- hot loops still call through function pointers cached in `OnceLock`, so the
+  steady-state kernel path remains branch-free.
+
+The dense provider now defines one non-finite reduction rule for scalar and
+SIMD kernels: any non-finite intermediate or final Euclidean reduction result
+is canonicalized to `f32::NAN`. This gives later CPU/GPU parity work a stable
+contract and matches the existing HNSW validation layer, which rejects
+non-finite batch outputs as `NonFiniteDistance`.
+
+`DensePointView<'a>` remains unchanged from `2.2.2`: it still provides 64-byte
+alignment, 16-lane padding, and deterministic `0.0_f32` tail fill. Feature
+gating changes which backend consumes that view; it does not weaken the packed
+layout guarantees.
+
 #### 6.4. Property-based input generation for CPU HNSW tests
 
 The CPU module now ships with dedicated property-based generators that exercise

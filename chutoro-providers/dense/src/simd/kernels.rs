@@ -14,84 +14,113 @@
 
 use std::sync::OnceLock;
 
-use super::DensePointView;
+use super::{DensePointView, dispatch};
 
-#[cfg(target_arch = "x86")]
-use std::arch::x86 as arch;
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64 as arch;
+#[cfg(all(
+    any(target_arch = "x86", target_arch = "x86_64"),
+    any(feature = "simd_avx2", feature = "simd_avx512")
+))]
+mod x86_simd;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum EuclideanBackend {
-    Scalar,
-    Avx2,
-    Avx512,
-}
+#[cfg(all(
+    feature = "simd_neon",
+    any(target_arch = "arm", target_arch = "aarch64")
+))]
+mod neon_simd;
 
 type EuclideanKernel = fn(&[f32], &[f32]) -> f32;
 type EuclideanQueryPointsKernel = fn(&[f32], &DensePointView<'_>, &mut [f32]);
 
 pub(super) static EUCLIDEAN_KERNEL: OnceLock<EuclideanKernel> = OnceLock::new();
-pub(super) static EUCLIDEAN_BACKEND: OnceLock<EuclideanBackend> = OnceLock::new();
 static EUCLIDEAN_QUERY_POINTS_KERNEL: OnceLock<EuclideanQueryPointsKernel> = OnceLock::new();
 
+macro_rules! select_backend_fn {
+    (
+        avx512 = $avx512:expr,
+        avx2 = $avx2:expr,
+        neon = $neon:expr,
+        scalar = $scalar:expr $(,)?
+    ) => {
+        match dispatch::euclidean_backend() {
+            #[cfg(all(
+                feature = "simd_avx512",
+                any(target_arch = "x86", target_arch = "x86_64")
+            ))]
+            dispatch::EuclideanBackend::Avx512 => $avx512,
+            #[cfg(all(
+                feature = "simd_avx2",
+                any(target_arch = "x86", target_arch = "x86_64")
+            ))]
+            dispatch::EuclideanBackend::Avx2 => $avx2,
+            #[cfg(all(
+                feature = "simd_neon",
+                any(target_arch = "arm", target_arch = "aarch64")
+            ))]
+            dispatch::EuclideanBackend::Neon => $neon,
+            _ => $scalar,
+        }
+    };
+}
+
 pub(super) fn select_euclidean_kernel() -> EuclideanKernel {
-    match select_euclidean_backend() {
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        EuclideanBackend::Avx512 => euclidean_distance_avx512_entry,
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        EuclideanBackend::Avx2 => euclidean_distance_avx2_entry,
-        _ => euclidean_distance_scalar,
-    }
-}
-
-pub(super) fn select_euclidean_backend() -> EuclideanBackend {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        if std::arch::is_x86_feature_detected!("avx512f") {
-            return EuclideanBackend::Avx512;
-        }
-        if std::arch::is_x86_feature_detected!("avx2") {
-            return EuclideanBackend::Avx2;
-        }
-    }
-
-    EuclideanBackend::Scalar
-}
-
-pub(super) fn euclidean_backend() -> EuclideanBackend {
-    *EUCLIDEAN_BACKEND.get_or_init(select_euclidean_backend)
+    select_backend_fn!(
+        avx512 = euclidean_distance_avx512_entry,
+        avx2 = euclidean_distance_avx2_entry,
+        neon = euclidean_distance_neon_entry,
+        scalar = euclidean_distance_scalar,
+    )
 }
 
 pub(super) fn euclidean_distance_scalar(left: &[f32], right: &[f32]) -> f32 {
-    debug_assert_eq!(
+    assert_eq!(
         left.len(),
         right.len(),
         "distance rows must have matching dimensions",
     );
-    squared_l2_tail(left, right, 0).sqrt()
+    finalize_distance(squared_l2_tail(left, right, 0).sqrt())
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(all(
+    feature = "simd_avx2",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 pub(super) fn euclidean_distance_avx2_entry(left: &[f32], right: &[f32]) -> f32 {
-    debug_assert_eq!(
+    assert_eq!(
         left.len(),
         right.len(),
         "distance rows must have matching dimensions",
     );
     // Safety: this entrypoint is selected only after runtime AVX2 detection.
-    unsafe { euclidean_distance_avx2(left, right) }
+    unsafe { x86_simd::euclidean_distance_avx2(left, right) }
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[cfg(all(
+    feature = "simd_avx512",
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 pub(super) fn euclidean_distance_avx512_entry(left: &[f32], right: &[f32]) -> f32 {
-    debug_assert_eq!(
+    assert_eq!(
         left.len(),
         right.len(),
         "distance rows must have matching dimensions",
     );
     // Safety: this entrypoint is selected only after runtime AVX-512F detection.
-    unsafe { euclidean_distance_avx512(left, right) }
+    unsafe { x86_simd::euclidean_distance_avx512(left, right) }
+}
+
+#[cfg(all(
+    feature = "simd_neon",
+    any(target_arch = "arm", target_arch = "aarch64")
+))]
+pub(super) fn euclidean_distance_neon_entry(left: &[f32], right: &[f32]) -> f32 {
+    assert_eq!(
+        left.len(),
+        right.len(),
+        "distance rows must have matching dimensions",
+    );
+    // Safety: this entrypoint is selected only after runtime NEON detection on
+    // `arm` or baseline availability on `aarch64`.
+    unsafe { neon_simd::euclidean_distance_neon(left, right) }
 }
 
 pub(super) fn euclidean_distance_query_points(
@@ -123,171 +152,22 @@ pub(super) fn euclidean_distance_query_points_scalar(
         }
     }
     for value in out.iter_mut() {
-        *value = value.sqrt();
+        *value = finalize_distance(value.sqrt());
     }
 }
 
 fn select_euclidean_query_points_kernel() -> EuclideanQueryPointsKernel {
-    match euclidean_backend() {
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        EuclideanBackend::Avx512 => euclidean_distance_query_points_avx512_entry,
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        EuclideanBackend::Avx2 => euclidean_distance_query_points_avx2_entry,
-        _ => euclidean_distance_query_points_scalar,
-    }
+    select_backend_fn!(
+        avx512 = x86_simd::euclidean_distance_query_points_avx512_entry,
+        avx2 = x86_simd::euclidean_distance_query_points_avx2_entry,
+        neon = neon_simd::euclidean_distance_query_points_neon_entry,
+        scalar = euclidean_distance_query_points_scalar,
+    )
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "avx512f")]
-unsafe fn euclidean_distance_avx512(left: &[f32], right: &[f32]) -> f32 {
-    unsafe { squared_l2_avx512(left, right) }.sqrt()
+fn finalize_distance(value: f32) -> f32 {
+    if value.is_finite() { value } else { f32::NAN }
 }
-
-/// Generates a squared-L2 SIMD kernel for a given target feature and lane width.
-macro_rules! impl_squared_l2_simd {
-    (
-        $fn_name:ident,
-        feature = $feature:literal,
-        lanes = $lanes:literal,
-        zero = $zero:ident,
-        load = $load:ident,
-        sub = $sub:ident,
-        mul = $mul:ident,
-        add = $add:ident,
-        store = $store:ident $(,)?
-    ) => {
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        #[target_feature(enable = $feature)]
-        unsafe fn $fn_name(left: &[f32], right: &[f32]) -> f32 {
-            let mut index = 0_usize;
-            let mut acc = arch::$zero();
-            while index + $lanes <= left.len() {
-                // Safety: `index + $lanes <= len` ensures in-bounds load.
-                let left_chunk = unsafe { arch::$load(left.as_ptr().add(index)) };
-                // Safety: `index + $lanes <= len` ensures in-bounds load.
-                let right_chunk = unsafe { arch::$load(right.as_ptr().add(index)) };
-                let delta = arch::$sub(left_chunk, right_chunk);
-                let squared = arch::$mul(delta, delta);
-                acc = arch::$add(acc, squared);
-                index += $lanes;
-            }
-
-            let mut lane_sum = [0.0_f32; $lanes];
-            // Safety: `lane_sum` has exactly `$lanes` `f32` values.
-            unsafe { arch::$store(lane_sum.as_mut_ptr(), acc) };
-            let mut total = lane_sum.iter().sum::<f32>();
-            total += squared_l2_tail(left, right, index);
-            total
-        }
-    };
-}
-
-macro_rules! impl_euclidean_distance_query_points_simd {
-    (
-        $unsafe_fn:ident,
-        $entry_fn:ident,
-        feature = $feature:literal,
-        lanes = $lanes:literal,
-        setzero = $setzero:ident,
-        set1 = $set1:ident,
-        load = $load:ident,
-        sub = $sub:ident,
-        mul = $mul:ident,
-        add = $add:ident,
-        storeu = $storeu:ident $(,)?
-    ) => {
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        fn $entry_fn(query: &[f32], points: &DensePointView<'_>, out: &mut [f32]) {
-            debug_assert_eq!(query.len(), points.dimension().get());
-            debug_assert_eq!(out.len(), points.point_count());
-            // Safety: this entrypoint is selected only after runtime feature
-            // detection for the matching SIMD backend.
-            unsafe { $unsafe_fn(query, points, out) }
-        }
-
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-        #[target_feature(enable = $feature)]
-        unsafe fn $unsafe_fn(query: &[f32], points: &DensePointView<'_>, out: &mut [f32]) {
-            let padded_count = points.padded_point_count();
-            for offset in (0..padded_count).step_by($lanes) {
-                let mut acc = arch::$setzero();
-                for (dimension_index, query_value) in query.iter().copied().enumerate() {
-                    let query_lane = arch::$set1(query_value);
-                    let values = points.coordinate_block(dimension_index);
-                    // Safety: `DensePointView` guarantees aligned blocks and
-                    // lane-multiple padding, so full-lane loads are in bounds.
-                    let point_lane = unsafe { arch::$load(values.as_ptr().add(offset)) };
-                    let delta = arch::$sub(query_lane, point_lane);
-                    acc = arch::$add(acc, arch::$mul(delta, delta));
-                }
-                let mut lane = [0.0_f32; $lanes];
-                unsafe { arch::$storeu(lane.as_mut_ptr(), acc) };
-                let remaining = out.len().saturating_sub(offset).min($lanes);
-                for lane_index in 0..remaining {
-                    out[offset + lane_index] = lane[lane_index].sqrt();
-                }
-            }
-        }
-    };
-}
-
-impl_squared_l2_simd!(
-    squared_l2_avx512,
-    feature = "avx512f",
-    lanes = 16,
-    zero = _mm512_setzero_ps,
-    load = _mm512_loadu_ps,
-    sub = _mm512_sub_ps,
-    mul = _mm512_mul_ps,
-    add = _mm512_add_ps,
-    store = _mm512_storeu_ps,
-);
-
-impl_euclidean_distance_query_points_simd!(
-    euclidean_distance_query_points_avx512,
-    euclidean_distance_query_points_avx512_entry,
-    feature = "avx512f",
-    lanes = 16,
-    setzero = _mm512_setzero_ps,
-    set1 = _mm512_set1_ps,
-    load = _mm512_load_ps,
-    sub = _mm512_sub_ps,
-    mul = _mm512_mul_ps,
-    add = _mm512_add_ps,
-    storeu = _mm512_storeu_ps,
-);
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "avx2")]
-unsafe fn euclidean_distance_avx2(left: &[f32], right: &[f32]) -> f32 {
-    unsafe { squared_l2_avx2(left, right) }.sqrt()
-}
-
-impl_squared_l2_simd!(
-    squared_l2_avx2,
-    feature = "avx2",
-    lanes = 8,
-    zero = _mm256_setzero_ps,
-    load = _mm256_loadu_ps,
-    sub = _mm256_sub_ps,
-    mul = _mm256_mul_ps,
-    add = _mm256_add_ps,
-    store = _mm256_storeu_ps,
-);
-
-impl_euclidean_distance_query_points_simd!(
-    euclidean_distance_query_points_avx2,
-    euclidean_distance_query_points_avx2_entry,
-    feature = "avx2",
-    lanes = 8,
-    setzero = _mm256_setzero_ps,
-    set1 = _mm256_set1_ps,
-    load = _mm256_load_ps,
-    sub = _mm256_sub_ps,
-    mul = _mm256_mul_ps,
-    add = _mm256_add_ps,
-    storeu = _mm256_storeu_ps,
-);
 
 fn squared_l2_tail(left: &[f32], right: &[f32], offset: usize) -> f32 {
     left[offset..]

@@ -279,7 +279,7 @@ ______________________________________________________________________
   §6.3)
 - [x] 2.2.2. Introduce `DensePointView<'a>` for aligned Structure of
   Arrays (SoA) access with a scalar fallback. (See §6.3)
-- [ ] 2.2.3. Gate SIMD backends behind `simd_avx2`, `simd_avx512`, and
+- [x] 2.2.3. Gate SIMD backends behind `simd_avx2`, `simd_avx512`, and
   `simd_neon` features with CPUID runtime dispatch. (See §6.3)
   - Use `is_x86_feature_detected!`/platform equivalents and one-time
     function-pointer patching to avoid hot-path branching.
