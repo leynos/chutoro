@@ -111,7 +111,7 @@ Implementation is complete. This document now serves as the execution record.
 - Risk: `simd_neon` may look complete in Cargo metadata while still lacking a
   real Neon intrinsic implementation. Severity: medium. Likelihood: medium.
   Mitigation: add an explicit checkpoint that determines whether this roadmap
-  item is meant to ship Neon intrinsics now or just the feature/disptach slot,
+  item is meant to ship Neon intrinsics now or just the feature/dispatch slot,
   and document the result in both this plan and `docs/chutoro-design.md`.
 
 ## Progress

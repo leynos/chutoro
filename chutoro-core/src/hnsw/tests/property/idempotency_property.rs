@@ -282,6 +282,24 @@ mod tests {
     }
 
     #[rstest]
+    fn build_idempotency_source_truncates_fixture_for_coverage_jobs() {
+        let fixture = make_fixture(COVERAGE_MAX_IDEMPOTENCY_FIXTURE_LEN + 5, 101);
+
+        let source = build_idempotency_source(fixture, true).expect("source");
+
+        assert_eq!(source.len(), COVERAGE_MAX_IDEMPOTENCY_FIXTURE_LEN);
+    }
+
+    #[rstest]
+    fn build_idempotency_source_truncates_fixture_for_non_coverage_jobs() {
+        let fixture = make_fixture(MAX_IDEMPOTENCY_FIXTURE_LEN + 5, 202);
+
+        let source = build_idempotency_source(fixture, false).expect("source");
+
+        assert_eq!(source.len(), MAX_IDEMPOTENCY_FIXTURE_LEN);
+    }
+
+    #[rstest]
     fn snapshot_detects_graph_structure() {
         let fixture = make_fixture(4, 55);
         let params = fixture.params.build().expect("params");
