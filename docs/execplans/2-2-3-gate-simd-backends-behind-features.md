@@ -52,7 +52,9 @@ Implementation is complete. This document now serves as the execution record.
   feature branch inside the per-distance loop.
 - Preserve current scalar fallback behaviour for unsupported targets, disabled
   backend features, empty batches, one-point batches, and arbitrary-pair
-  batches that do not use the Structure of Arrays (SoA) query-points path.
+  batches that do not use the Structure of Arrays (SoA) query-points path; the
+  upstream Hierarchical Navigable Small World (HNSW) graph validation remains
+  unchanged.
 - Use `rstest` for repeated dispatch, feature-matrix, and non-finite test
   cases.
 - Follow guidance from:
@@ -154,8 +156,8 @@ Implementation is complete. This document now serves as the execution record.
   `chutoro-providers/dense/Cargo.toml`. Impact: this item made an explicit
   decision to keep them default-enabled rather than opt-in.
 
-- Observation: Hierarchical Navigable Small World (HNSW) already rejects
-  non-finite batch outputs after the data source returns them. Evidence:
+- Observation: HNSW already rejects non-finite batch outputs after the data
+  source returns them. Evidence:
   `chutoro-core/src/hnsw/validate.rs::validate_batch_without_cache`. Impact:
   the dense-provider SIMD contract can canonicalize non-finite results without
   changing the core error surface.
@@ -347,7 +349,7 @@ Planned edits:
 - `chutoro-providers/dense/src/tests/provider.rs`
   - add provider-level tests proving that disabling SIMD features falls back to
     scalar behaviour without changing results or error semantics;
-  - add unhappy-path coverage showing non-finite outputs stay non-finite and
+  - add unhappy-path coverage showing non-finite outputs stay non-finite, and
     are not silently clamped.
 
 Go/no-go:
@@ -453,13 +455,10 @@ Record the final design and prove the repository is healthy.
 Planned edits:
 
 - `docs/chutoro-design.md`
-  - update §6.3 with:
-    - the new Cargo features;
-    - the one-time runtime dispatch model;
-    - the canonical non-finite policy;
-    - the final decision on `simd_neon`;
-    - a note that `DensePointView<'a>` alignment and zero-padding invariants are
-      preserved from `2.2.2`.
+  - update §6.3 to include the new Cargo features, the one-time runtime
+    dispatch model, the canonical non-finite policy, the final decision on
+    `simd_neon`, and a note that `DensePointView<'a>` alignment and
+    zero-padding invariants are preserved from `2.2.2`.
 
 - `docs/roadmap.md`
   - mark item `2.2.3` done (`[x]`) only after all validation commands pass.
