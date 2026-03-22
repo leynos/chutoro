@@ -304,11 +304,13 @@ ______________________________________________________________________
   lengths around lane boundaries, random alignment and padding patterns,
   duplicate and zero vectors, and non-finite inputs under the declared policy;
   compare scalar, AVX2, AVX-512, Neon, and optional nightly `std::simd` outputs
-  within epsilon. Requires 2.2.3, 2.2.4, 2.2.5. (See §6.3)
+  within epsilon. Requires 2.2.3, 2.2.4, 2.2.5. (See `docs/chutoro-design.md`
+  §6.3)
 - [ ] 2.2.7. Add bounded Kani harnesses for SIMD tail padding and runtime
   dispatch selection: prove that zero-padded tails never read past lane bounds
   and that the selector never chooses a backend that is absent at compile time
-  or unavailable at runtime. Requires 2.2.3, 2.2.6. (See §6.3)
+  or unavailable at runtime. Requires 2.2.3, 2.2.6. (See
+  `docs/chutoro-design.md` §6.3)
 
 ### 2.3. Hot-path optimizations
 
@@ -362,10 +364,11 @@ ______________________________________________________________________
   unavailable. (See §7.1, §11)
 - [ ] 3.3.3. Verify correctness vs CPU Kruskal on random graphs;
   benchmark speedup. (See §11)
-- [ ] 3.3.4. Add a property-based differential suite for GPU Boruvka on small
+- [ ] 3.3.4. Add a property-based differential suite for GPU Borůvka on small
   connected and disconnected graphs, including equal-weight ties; compare
   device output against the CPU reference under a canonical edge-equivalence
-  relation and tie-break tuple. Requires 3.3.1, 3.3.2, 3.3.3. (See §8.2, §9.2)
+  relation and tie-break tuple. Requires 3.3.1, 3.3.2, 3.3.3. (See
+  `docs/chutoro-design.md` §8.2, §9.2)
 
 **Exit criteria:** MST wall-time reduced significantly vs CPU on ≥1e6 edges;
 identical MST (or accepted tie-break equivalence) to CPU implementation.
@@ -390,8 +393,8 @@ ______________________________________________________________________
 - [ ] 4.2.2. Add a property-based differential suite for hybrid distance
   offload: generate batched candidate lists and assert that GPU scoring
   preserves CPU neighbour selection under fixed seeds and the shared
-  `DistanceSemantics` policy. Requires 4.1.1, 4.1.2, 4.1.3, 4.2.1. (See §8.1,
-  §9.2)
+  `DistanceSemantics` policy. Requires 4.1.1, 4.1.2, 4.1.3, 4.2.1. (See
+  `docs/chutoro-design.md` §8.1, §9.2)
 
 **Exit criteria:** measurable reduction in HNSW insertion time on large batches
 without altering clustering materially.
@@ -417,11 +420,11 @@ ______________________________________________________________________
   and pinned ring buffer: generate bounded enqueue, completion, cancellation,
   and error traces; assert no slot reuse before completion, no read-before-
   ready, and no missed wait edges. Requires 5.1.1, 5.1.2, 5.1.3, 5.2.1. (See
-  §9.2)
+  `docs/chutoro-design.md` §9.2)
 - [ ] 5.2.3. Add bounded Kani harnesses for the host-side buffer and event
   state machine, including unwind paths, to prove no double release, no stale
   completion reads, and no illegal slot-state transitions. Requires 5.2.2. (See
-  §9.2)
+  `docs/chutoro-design.md` §9.2)
 
 **Exit criteria:** observed kernel/transfer overlap; reduced end-to-end
 wall-time vs phase 4.
@@ -471,11 +474,13 @@ ______________________________________________________________________
 - [ ] 6.3.2. Add a property-based plugin lifecycle suite: generate synthetic
   v-tables, capability masks, version mismatches, and load → use → quiesce →
   destroy → unload traces; verify structured host failures and that unsupported
-  callbacks are never reached. Requires 6.1.1, 6.1.2, 6.2.1, 6.3.1. (See §5.3)
+  callbacks are never reached. Requires 6.1.1, 6.1.2, 6.2.1, 6.3.1. (See
+  `docs/chutoro-design.md` §5.3)
 - [ ] 6.3.3. Add bounded Kani harnesses for the host wrapper state machine and
   pure `PluginDescriptor` validator: reject nulls and version mismatches before
   dereference, gate optional callbacks by capability bits, and prove `destroy`
-  is unreachable after the first successful teardown. Requires 6.3.2. (See §5.3)
+  is unreachable after the first successful teardown. Requires 6.3.2. (See
+  `docs/chutoro-design.md` §5.3)
 
 **Exit criteria:** load/unload plugins at runtime; parity with statically
 linked providers; safe failure semantics.

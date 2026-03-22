@@ -627,6 +627,15 @@ creating ambiguity. Using `StatusCode + out-parameter` keeps transport failure,
 unsupported capability, and valid floating-point payloads distinct. The safe
 host wrapper maps status codes into structured `DataSourceError` values.
 
+The ABI contract for `StatusCode` itself should be explicit: it uses
+`#[repr(u32)]`, so the wire format is always one 32-bit unsigned integer with
+the platform C ABI's enum passing rules for that representation. Existing
+numeric values are append-only within `abi_version = 1`; future plugins may add
+new failure codes only at unused discriminants, and hosts must treat unknown
+codes as opaque plugin failures rather than attempting semantic recovery. Any
+change to the representation, size, or meaning of an existing discriminant
+requires a new handshake struct and `abi_version`.
+
 Before any function pointer is dereferenced, the host should copy the untrusted
 v-table into a pure `PluginDescriptor` validator. This helper validates the ABI
 version, capability mask, required-versus-optional callback matrix, and
@@ -1458,7 +1467,7 @@ Verification should not start by attempting to prove raw CUDA kernels. The
 first-class seam is a pure Rust planner or reference layer that canonicalizes
 edge comparisons with a deterministic tie-break tuple
 `(weight, min(u, v), max(u, v), discovery_order)` and can execute on tiny
-graphs. Property-based differential tests can then compare GPU Boruvka output
+graphs. Property-based differential tests can then compare GPU Borůvka output
 against this CPU reference on small connected and disconnected graphs,
 including equal-weight ties, while leaving device code under executable testing
 rather than theorem proving in the first pass.
@@ -1757,17 +1766,32 @@ expose a C function that provides the host with a populated v-table struct.
 
 ```rust
 // In the plugin author's crate (e.g., my_csv_plugin/src/lib.rs)
-use std::os::raw::c_char;
 use std::ffi::c_void;
+use std::os::raw::c_char;
 
 // 1. Define the struct and implement the DataSource trait.
 struct MyCsvDataSource { /*... */ }
 impl DataSource for MyCsvDataSource { /*... implementation... */ }
 
 // 2. Define C-compatible wrapper functions that delegate to the Rust methods.
-unsafe extern "C" fn csv_distance(state: *const c_void, i: usize, j: usize) -> f32 {
+unsafe extern "C" fn csv_distance(
+    state: *const c_void,
+    i: usize,
+    j: usize,
+    out: *mut f32,
+) -> StatusCode {
+    if state.is_null() || out.is_null() {
+        return StatusCode::InvalidArgument;
+    }
+
     let source = &*(state as *const MyCsvDataSource);
-    source.distance(i, j)
+    match source.distance(i, j) {
+        Ok(distance) => {
+            *out = distance;
+            StatusCode::Ok
+        }
+        Err(_err) => StatusCode::BackendFailure,
+    }
 }
 unsafe extern "C" fn csv_len(state: *const c_void) -> usize {
     let source = &*(state as *const MyCsvDataSource);
@@ -1790,16 +1814,16 @@ pub extern "C" fn _plugin_create() -> *mut chutoro_v1 {
     let source = MyCsvDataSource::new();
     let state = Box::into_raw(Box::new(source)) as *mut c_void;
 
-        let vtable = Box::new(chutoro_v1 {
-            abi_version: 1,
-            caps: 0, // No special capabilities
-            state,
-            len: csv_len,
-            name: csv_name,
-            distance: csv_distance,
-            distance_batch: None, // Use default scalar fallback
-            destroy: csv_destroy,
-        });
+    let vtable = Box::new(chutoro_v1 {
+        abi_version: 1,
+        caps: 0, // No special capabilities
+        state,
+        len: csv_len,
+        name: csv_name,
+        distance: csv_distance,
+        distance_batch: None, // Use default scalar fallback
+        destroy: csv_destroy,
+    });
 
     Box::into_raw(vtable)
 }

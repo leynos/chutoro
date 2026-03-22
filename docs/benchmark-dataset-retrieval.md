@@ -83,7 +83,7 @@ consumption._
 - Add local cache index and lockfile controls to prevent duplicate preparation
   work across concurrent matrix jobs.
 - Keep manifest serialization and lock acquisition in pure helpers with
-  canonical field ordering, stable hash inputs, and explicit lock states so
+  canonical field ordering, stable hash inputs, and explicit lock states, so
   property tests can verify manifest canonicalization, duplicate-preparation
   suppression, and lock release after failure.
 
@@ -113,7 +113,7 @@ Recommended implementation mechanism:
 - Use `cargo-criterion --message-format=json`[^5] for machine-consumable
   benchmark events.
 - Keep matrix expansion, tuple-id derivation, and profile filtering as pure
-  functions over the parsed spec so property tests can assert deterministic
+  functions over the parsed spec, so property tests can assert deterministic
   expansion across reordered TOML tables and repeated runs.
 
 ### 4.2. Publishable result schema
@@ -125,7 +125,7 @@ Convert benchmark outputs into:
 - `report.md` (human-readable publishable report)
 
 Tuple identifiers and object keys should be canonicalized from
-dataset/version/backend/metric/profile/git SHA so publication helpers can
+dataset/version/backend/metric/profile/git SHA, so publication helpers can
 reject duplicate or non-canonical keys before upload. This should remain a
 property-tested pure helper rather than ad hoc string concatenation at the
 upload boundary.
