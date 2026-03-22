@@ -17,6 +17,7 @@ use proptest::{
 
 use super::types::{HnswFixture, IdempotencyPlan};
 use crate::hnsw::tests::property::support::DenseVectorSource;
+use crate::hnsw::tests::support::is_coverage_job;
 use crate::{CpuHnsw, DataSource, HnswError, hnsw::types::EntryPoint};
 
 const MIN_IDEMPOTENCY_FIXTURE_LEN: usize = 2;
@@ -130,14 +131,6 @@ fn attempts_per_index_for_job(plan: &IdempotencyPlan, is_coverage_job: bool) -> 
     } else {
         plan.attempts_per_index
     }
-}
-
-fn is_coverage_job() -> bool {
-    cfg!(coverage)
-        || option_env!("CARGO_LLVM_COV").is_some()
-        || option_env!("LLVM_PROFILE_FILE").is_some()
-        || std::env::var_os("CARGO_LLVM_COV").is_some()
-        || std::env::var_os("LLVM_PROFILE_FILE").is_some()
 }
 
 /// Snapshot of a node's structural state.
@@ -282,21 +275,18 @@ mod tests {
     }
 
     #[rstest]
-    fn build_idempotency_source_truncates_fixture_for_coverage_jobs() {
-        let fixture = make_fixture(COVERAGE_MAX_IDEMPOTENCY_FIXTURE_LEN + 5, 101);
+    #[case(true, COVERAGE_MAX_IDEMPOTENCY_FIXTURE_LEN, 101)]
+    #[case(false, MAX_IDEMPOTENCY_FIXTURE_LEN, 202)]
+    fn build_idempotency_source_truncates_fixture(
+        #[case] is_coverage: bool,
+        #[case] expected_len: usize,
+        #[case] seed: u64,
+    ) {
+        let fixture = make_fixture(expected_len + 5, seed);
 
-        let source = build_idempotency_source(fixture, true).expect("source");
+        let source = build_idempotency_source(fixture, is_coverage).expect("source");
 
-        assert_eq!(source.len(), COVERAGE_MAX_IDEMPOTENCY_FIXTURE_LEN);
-    }
-
-    #[rstest]
-    fn build_idempotency_source_truncates_fixture_for_non_coverage_jobs() {
-        let fixture = make_fixture(MAX_IDEMPOTENCY_FIXTURE_LEN + 5, 202);
-
-        let source = build_idempotency_source(fixture, false).expect("source");
-
-        assert_eq!(source.len(), MAX_IDEMPOTENCY_FIXTURE_LEN);
+        assert_eq!(source.len(), expected_len);
     }
 
     #[rstest]

@@ -22,7 +22,7 @@ Success is observable when:
 - x86 builds with enabled SIMD features continue to patch a function pointer
   once and then execute branch-free hot loops;
 - the implementation defines one non-finite policy for scalar and SIMD
-  reductions so CPU behaviour is stable now and GPU parity work has a clear
+  reductions, so CPU behaviour is stable now, and GPU parity work has a clear
   contract later;
 - `DensePointView<'a>` continues to guarantee 64-byte alignment, 16-lane
   padding, and `0.0_f32` tail fill, with regression coverage that proves those
@@ -93,10 +93,10 @@ Implementation is complete. This document now serves as the execution record.
   default builds separately, and record the choice in the design document.
 
 - Risk: dispatch logic may become harder to reason about once compile-time
-  feature masks and runtime CPU capability checks are mixed together. Severity:
-  high. Likelihood: medium. Mitigation: factor selection into a pure helper
-  that accepts "compiled support" and "runtime support" inputs, then cover it
-  with parameterized unit tests.
+  feature masks and runtime CPU capability checks are mixed. Severity: high.
+  Likelihood: medium. Mitigation: factor selection into a pure helper that
+  accepts "compiled support" and "runtime support" inputs, then cover it with
+  parameterized unit tests.
 
 - Risk: non-finite values may behave differently between scalar and SIMD
   reductions, especially for infinities and NaNs. Severity: high. Likelihood:
@@ -313,7 +313,7 @@ Terms used in this plan:
 - Cargo feature: a compile-time switch chosen by the build command, for example
   `--features simd_avx2`.
 - CPUID runtime dispatch: checking CPU capabilities once at runtime and storing
-  the chosen function pointer so future calls jump directly to the selected
+  the chosen function pointer, so future calls jump directly to the selected
   implementation.
 - Non-finite: a floating-point value that is `NaN`, `+infinity`, or
   `-infinity`.

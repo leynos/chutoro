@@ -9,18 +9,7 @@ use crate::hnsw::types::{InsertionPlan, LayerPlan};
 use crate::hnsw::{CandidateEdge, CpuHnsw, EdgeHarvest, HnswParams, Neighbour};
 
 use super::fixtures::DummySource;
-
-/// Detects whether the current test run is coverage-instrumented.
-///
-/// Coverage builds can perturb Rayon scheduling enough to increase edge-count
-/// variance between otherwise equivalent builds.
-fn is_coverage_job() -> bool {
-    cfg!(coverage)
-        || option_env!("CARGO_LLVM_COV").is_some()
-        || option_env!("LLVM_PROFILE_FILE").is_some()
-        || std::env::var_os("LLVM_PROFILE_FILE").is_some()
-        || std::env::var_os("CARGO_LLVM_COV").is_some()
-}
+use super::support::is_coverage_job;
 
 fn build_insertion_plan(layers: Vec<Vec<(usize, f32)>>) -> InsertionPlan {
     InsertionPlan {
