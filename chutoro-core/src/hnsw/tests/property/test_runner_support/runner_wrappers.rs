@@ -107,17 +107,41 @@ fn map_test_error(err: TestError<impl std::fmt::Debug>, test_name: &str) -> Test
     }
 }
 
-/// Runs a mutation property test with custom configuration and stack size.
-fn run_mutation_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
+/// Spawns a property test runner on a dedicated thread with the given stack size.
+///
+/// Downcasts panic payloads to extract meaningful error messages.
+fn spawn_with_stack<F>(
+    name: &str,
+    stack_size: usize,
+    runner: F,
+) -> TestCaseResult
+where
+    F: FnOnce() -> TestCaseResult + Send + 'static,
+{
     let handle = std::thread::Builder::new()
-        .name("hnsw-mutation".into())
+        .name(name.into())
         .stack_size(stack_size)
-        .spawn(move || run_mutation_proptest(config))
-        .map_err(|e| TestCaseError::fail(format!("failed to spawn mutation runner thread: {e}")))?;
+        .spawn(runner)
+        .map_err(|e| TestCaseError::fail(format!("failed to spawn {name} thread: {e}")))?;
 
     handle.join().map_err(|panic_payload| {
-        TestCaseError::fail(format!("mutation runner panicked: {panic_payload:?}"))
+        // Try to downcast the panic payload to extract the actual panic message.
+        let panic_msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+            (*s).to_string()
+        } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+            s.clone()
+        } else {
+            format!("{panic_payload:?}")
+        };
+        TestCaseError::fail(format!("{name} panicked: {panic_msg}"))
     })?
+}
+
+/// Runs a mutation property test with custom configuration and stack size.
+fn run_mutation_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
+    spawn_with_stack("hnsw-mutation", stack_size, move || {
+        run_mutation_proptest(config)
+    })
 }
 
 fn run_mutation_proptest(config: Config) -> TestCaseResult {
@@ -167,17 +191,9 @@ where
 
 /// Runs an idempotency property test with custom configuration and stack size.
 fn run_idempotency_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
-    let handle = std::thread::Builder::new()
-        .name("hnsw-idempotency".into())
-        .stack_size(stack_size)
-        .spawn(move || run_idempotency_proptest(config))
-        .map_err(|e| {
-            TestCaseError::fail(format!("failed to spawn idempotency runner thread: {e}"))
-        })?;
-
-    handle.join().map_err(|panic_payload| {
-        TestCaseError::fail(format!("idempotency runner panicked: {panic_payload:?}"))
-    })?
+    spawn_with_stack("hnsw-idempotency", stack_size, move || {
+        run_idempotency_proptest(config)
+    })
 }
 
 fn run_idempotency_proptest(config: Config) -> TestCaseResult {

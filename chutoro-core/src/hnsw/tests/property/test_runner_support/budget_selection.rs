@@ -8,14 +8,37 @@ use crate::hnsw::tests::support::is_coverage_job;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TestCases(u32);
 
+/// Error returned when test case count is invalid.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct InvalidTestCasesError;
+
+impl std::fmt::Display for InvalidTestCasesError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "test cases must be > 0")
+    }
+}
+
+impl std::error::Error for InvalidTestCasesError {}
+
 impl TestCases {
+    /// Creates a new TestCases value, returning an error if invalid.
+    ///
+    /// # Errors
+    /// Returns `InvalidTestCasesError` if `cases` is zero.
+    pub(crate) fn try_new(cases: u32) -> Result<Self, InvalidTestCasesError> {
+        if cases > 0 {
+            Ok(Self(cases))
+        } else {
+            Err(InvalidTestCasesError)
+        }
+    }
+
     /// Creates a new TestCases value.
     ///
     /// # Panics
     /// Panics if `cases` is zero (at least one test case is required).
     pub(crate) fn new(cases: u32) -> Self {
-        assert!(cases > 0, "test cases must be > 0");
-        Self(cases)
+        Self::try_new(cases).expect("test cases must be > 0")
     }
 
     pub(crate) fn get(self) -> u32 {
@@ -53,17 +76,50 @@ impl From<ShrinkIterations> for u32 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct StackSize(usize);
 
+/// Error returned when stack size is below the minimum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct InvalidStackSizeError {
+    provided: usize,
+    minimum: usize,
+}
+
+impl std::fmt::Display for InvalidStackSizeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "stack size must be >= {} bytes, got {}",
+            self.minimum, self.provided
+        )
+    }
+}
+
+impl std::error::Error for InvalidStackSizeError {}
+
 impl StackSize {
     /// Minimum safe stack size (1 MiB).
     const MIN_STACK_SIZE: usize = 1024 * 1024;
 
+    /// Creates a new StackSize value, returning an error if below minimum.
+    ///
+    /// # Errors
+    /// Returns `InvalidStackSizeError` if `size` is below `MIN_STACK_SIZE`.
+    pub(crate) fn try_new(size: usize) -> Result<Self, InvalidStackSizeError> {
+        if size >= Self::MIN_STACK_SIZE {
+            Ok(Self(size))
+        } else {
+            Err(InvalidStackSizeError {
+                provided: size,
+                minimum: Self::MIN_STACK_SIZE,
+            })
+        }
+    }
+
+    /// Creates a new StackSize value.
+    ///
+    /// # Panics
+    /// Panics if `size` is below `MIN_STACK_SIZE`.
     pub(crate) fn new(size: usize) -> Self {
-        assert!(
-            size >= Self::MIN_STACK_SIZE,
-            "stack size must be >= {} bytes",
-            Self::MIN_STACK_SIZE
-        );
-        Self(size)
+        Self::try_new(size).expect("stack size must be >= minimum")
     }
 
     pub(crate) fn get(self) -> usize {
@@ -159,10 +215,18 @@ fn configured_cases(default_cases: u32) -> TestCases {
     TestCases::new(property_run_profile(default_cases).cases())
 }
 
+/// Selects the number of idempotency test cases based on job kind.
+///
+/// Returns the configured cases for non-coverage jobs, or a reduced count
+/// (`COVERAGE_IDEMPOTENCY_CASES`) for coverage-instrumented runs.
 pub(crate) fn select_idempotency_cases(job: JobKind, configured: TestCases) -> TestCases {
     select_cases(job, configured, COVERAGE_IDEMPOTENCY_CASES)
 }
 
+/// Returns the number of idempotency test cases, auto-detecting the job kind.
+///
+/// Calls `select_idempotency_cases` with the detected `JobKind` and
+/// the default idempotency case count from the property test profile.
 pub(crate) fn idempotency_cases() -> TestCases {
     select_idempotency_cases(
         JobKind::detect(),
@@ -170,6 +234,10 @@ pub(crate) fn idempotency_cases() -> TestCases {
     )
 }
 
+/// Selects the maximum shrink iterations for idempotency tests based on job kind.
+///
+/// Returns a reduced iteration count for coverage jobs to avoid long minimisation
+/// tails under instrumentation overhead.
 pub(crate) fn select_idempotency_shrink_iters(job: JobKind) -> ShrinkIterations {
     select_shrink_iterations(
         job,
@@ -178,18 +246,33 @@ pub(crate) fn select_idempotency_shrink_iters(job: JobKind) -> ShrinkIterations 
     )
 }
 
+/// Returns the maximum shrink iterations for idempotency tests, auto-detecting the job kind.
+///
+/// Calls `select_idempotency_shrink_iters` with the detected `JobKind`.
 pub(crate) fn idempotency_shrink_iters() -> ShrinkIterations {
     select_idempotency_shrink_iters(JobKind::detect())
 }
 
+/// Selects the number of mutation test cases based on job kind.
+///
+/// Returns the configured cases for non-coverage jobs, or a reduced count
+/// (`COVERAGE_MUTATION_CASES`) for coverage-instrumented runs.
 pub(crate) fn select_mutation_cases(job: JobKind, configured: TestCases) -> TestCases {
     select_cases(job, configured, COVERAGE_MUTATION_CASES)
 }
 
+/// Returns the number of mutation test cases, auto-detecting the job kind.
+///
+/// Calls `select_mutation_cases` with the detected `JobKind` and
+/// the default mutation case count from the property test profile.
 pub(crate) fn mutation_cases() -> TestCases {
     select_mutation_cases(JobKind::detect(), configured_cases(DEFAULT_MUTATION_CASES))
 }
 
+/// Selects the maximum shrink iterations for mutation tests based on job kind.
+///
+/// Returns a reduced iteration count for coverage jobs to prevent long minimisation
+/// tails under instrumentation overhead.
 pub(crate) fn select_mutation_shrink_iters(job: JobKind) -> ShrinkIterations {
     select_shrink_iterations(
         job,
@@ -198,18 +281,33 @@ pub(crate) fn select_mutation_shrink_iters(job: JobKind) -> ShrinkIterations {
     )
 }
 
+/// Returns the maximum shrink iterations for mutation tests, auto-detecting the job kind.
+///
+/// Calls `select_mutation_shrink_iters` with the detected `JobKind`.
 pub(crate) fn mutation_shrink_iters() -> ShrinkIterations {
     select_mutation_shrink_iters(JobKind::detect())
 }
 
+/// Selects the number of search property test cases based on job kind.
+///
+/// Returns the configured cases for non-coverage jobs, or a reduced count
+/// (`COVERAGE_SEARCH_CASES`) for coverage-instrumented runs.
 pub(crate) fn select_search_cases(job: JobKind, configured: TestCases) -> TestCases {
     select_cases(job, configured, COVERAGE_SEARCH_CASES)
 }
 
+/// Returns the number of search property test cases, auto-detecting the job kind.
+///
+/// Calls `select_search_cases` with the detected `JobKind` and
+/// the default search case count from the property test profile.
 pub(crate) fn search_cases() -> TestCases {
     select_search_cases(JobKind::detect(), configured_cases(DEFAULT_SEARCH_CASES))
 }
 
+/// Selects the maximum shrink iterations for search property tests based on job kind.
+///
+/// Returns a reduced iteration count for coverage jobs to avoid long minimisation
+/// tails under instrumentation overhead.
 pub(crate) fn select_search_shrink_iters(job: JobKind) -> ShrinkIterations {
     select_shrink_iterations(
         job,
@@ -218,10 +316,17 @@ pub(crate) fn select_search_shrink_iters(job: JobKind) -> ShrinkIterations {
     )
 }
 
+/// Returns the maximum shrink iterations for search property tests, auto-detecting the job kind.
+///
+/// Calls `select_search_shrink_iters` with the detected `JobKind`.
 pub(crate) fn search_shrink_iters() -> ShrinkIterations {
     select_search_shrink_iters(JobKind::detect())
 }
 
+/// Loads the proptest run profile for the given default case count.
+///
+/// Returns a `ProptestRunProfile` loaded from environment overrides with
+/// `fork` disabled, allowing the profile to adjust case counts based on CI configuration.
 pub(crate) fn property_run_profile(default_cases: u32) -> ProptestRunProfile {
     ProptestRunProfile::load(default_cases, false)
 }

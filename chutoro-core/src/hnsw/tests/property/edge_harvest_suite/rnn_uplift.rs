@@ -85,6 +85,46 @@ mod tests {
     use super::super::build_fixture;
 
     // ========================================================================
+    // RNN Score Threshold Unit Tests
+    // ========================================================================
+
+    #[test]
+    fn test_min_rnn_score_for_lattice_threshold() {
+        assert_eq!(
+            min_rnn_score_for_topology(GraphTopology::Lattice),
+            0.79,
+            "Lattice RNN threshold must be 0.79 to account for proptest edge cases"
+        );
+    }
+
+    #[test]
+    fn test_min_rnn_score_for_scale_free_threshold() {
+        assert_eq!(
+            min_rnn_score_for_topology(GraphTopology::ScaleFree),
+            0.05,
+            "ScaleFree RNN threshold must be 0.05 due to hub asymmetry"
+        );
+    }
+
+    #[test]
+    fn test_min_rnn_score_for_random_threshold() {
+        assert_eq!(
+            min_rnn_score_for_topology(GraphTopology::Random),
+            0.3,
+            "Random RNN threshold must be 0.3 for moderate symmetry"
+        );
+    }
+
+    #[test]
+    fn test_min_rnn_score_for_disconnected_threshold() {
+        assert_eq!(
+            min_rnn_score_for_topology(GraphTopology::Disconnected),
+            0.3,
+            "Disconnected RNN threshold must be 0.3 for within-component symmetry"
+        );
+    }
+
+    // ========================================================================
     // RNN Uplift Property Tests (rstest)
     // ========================================================================
 
