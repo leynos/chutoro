@@ -127,7 +127,7 @@ const DEFAULT_MUTATION_CASES: u32 = 64;
 /// Search correctness builds full HNSW indices and brute-force baselines per
 /// case, so coverage instrumentation amplifies the cost substantially.
 const COVERAGE_SEARCH_CASES: u32 = 4;
-/// Coverage jobs cap search shrink iterations to avoid long minimization tails
+/// Coverage jobs cap search shrink iterations to avoid long minimisation tails
 /// under instrumentation overhead.
 const COVERAGE_SEARCH_MAX_SHRINK_ITERS: u32 = 64;
 /// Non-coverage jobs keep deeper shrinking for better counterexample reduction.

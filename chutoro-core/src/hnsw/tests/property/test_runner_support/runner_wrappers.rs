@@ -109,13 +109,21 @@ fn map_test_error(err: TestError<impl std::fmt::Debug>, test_name: &str) -> Test
 
 /// Runs a mutation property test with custom configuration and stack size.
 fn run_mutation_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
-    std::thread::Builder::new()
+    let handle = std::thread::Builder::new()
         .name("hnsw-mutation".into())
         .stack_size(stack_size)
         .spawn(move || run_mutation_proptest(config))
-        .expect("spawn mutation runner")
-        .join()
-        .expect("mutation runner panicked")
+        .map_err(|e| {
+            TestCaseError::fail(format!(
+                "failed to spawn mutation runner thread: {e}"
+            ))
+        })?;
+
+    handle.join().map_err(|panic_payload| {
+        TestCaseError::fail(format!(
+            "mutation runner panicked: {panic_payload:?}"
+        ))
+    })?
 }
 
 fn run_mutation_proptest(config: Config) -> TestCaseResult {
@@ -165,13 +173,21 @@ where
 
 /// Runs an idempotency property test with custom configuration and stack size.
 fn run_idempotency_proptest_with_stack(config: Config, stack_size: usize) -> TestCaseResult {
-    std::thread::Builder::new()
+    let handle = std::thread::Builder::new()
         .name("hnsw-idempotency".into())
         .stack_size(stack_size)
         .spawn(move || run_idempotency_proptest(config))
-        .expect("spawn idempotency runner")
-        .join()
-        .expect("idempotency runner panicked")
+        .map_err(|e| {
+            TestCaseError::fail(format!(
+                "failed to spawn idempotency runner thread: {e}"
+            ))
+        })?;
+
+    handle.join().map_err(|panic_payload| {
+        TestCaseError::fail(format!(
+            "idempotency runner panicked: {panic_payload:?}"
+        ))
+    })?
 }
 
 fn run_idempotency_proptest(config: Config) -> TestCaseResult {
