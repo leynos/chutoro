@@ -41,6 +41,7 @@ impl TestCases {
         Self::try_new(cases).expect("test cases must be > 0")
     }
 
+    /// Returns the number of test cases.
     pub(crate) fn get(self) -> u32 {
         self.0
     }
@@ -131,6 +132,7 @@ impl StackSize {
         Self::try_new(size).expect("stack size must be >= minimum")
     }
 
+    /// Returns the stack size in bytes.
     pub(crate) fn get(self) -> usize {
         self.0
     }
