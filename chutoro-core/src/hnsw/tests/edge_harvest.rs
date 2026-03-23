@@ -246,7 +246,9 @@ fn build_with_edges_two_nodes_produces_edges() {
 
 #[rstest]
 fn build_with_edges_edges_sorted_by_sequence() {
-    let num_nodes = 20;
+    // Coverage instrumentation inflates the cost of parallel HNSW builds;
+    // use a smaller graph to stay well within the nextest timeout.
+    let num_nodes = if is_coverage_job() { 8 } else { 20 };
     let data: Vec<f32> = (0..num_nodes).map(|i| i as f32).collect();
     let source = DummySource::new(data);
     let params = HnswParams::new(4, 16).expect("params").with_rng_seed(42);

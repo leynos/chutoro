@@ -34,6 +34,12 @@ filter = "test(/build_with_edges_returns_valid_edges::case_4/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
+# Edge harvest sort-order test can exceed the default timeout under coverage
+# instrumentation due to the cost of a parallel HNSW build.
+filter = "test(/build_with_edges_edges_sorted_by_sequence/)"
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
 # Mutation proptest can exceed the default timeout under parallel load.
 filter = "test(/hnsw_mutations_preserve_invariants_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
