@@ -110,11 +110,7 @@ fn map_test_error(err: TestError<impl std::fmt::Debug>, test_name: &str) -> Test
 /// Spawns a property test runner on a dedicated thread with the given stack size.
 ///
 /// Downcasts panic payloads to extract meaningful error messages.
-fn spawn_with_stack<F>(
-    name: &str,
-    stack_size: usize,
-    runner: F,
-) -> TestCaseResult
+fn spawn_with_stack<F>(name: &str, stack_size: usize, runner: F) -> TestCaseResult
 where
     F: FnOnce() -> TestCaseResult + Send + 'static,
 {
