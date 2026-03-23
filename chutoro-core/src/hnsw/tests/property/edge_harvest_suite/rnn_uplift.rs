@@ -10,7 +10,7 @@ fn min_rnn_score_for_topology(topology: GraphTopology) -> f64 {
     match topology {
         GraphTopology::Lattice => 0.79, // Highly regular, should be very symmetric; relaxed to 0.79 to account for proptest edge cases.
         GraphTopology::ScaleFree => 0.05, // Hubs with m=1 create extreme asymmetry.
-        GraphTopology::Random => 0.3,  // Moderate symmetry expected.
+        GraphTopology::Random => 0.3,   // Moderate symmetry expected.
         GraphTopology::Disconnected => 0.3, // Within components should be symmetric.
     }
 }

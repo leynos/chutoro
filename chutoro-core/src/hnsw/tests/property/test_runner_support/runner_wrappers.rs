@@ -113,16 +113,10 @@ fn run_mutation_proptest_with_stack(config: Config, stack_size: usize) -> TestCa
         .name("hnsw-mutation".into())
         .stack_size(stack_size)
         .spawn(move || run_mutation_proptest(config))
-        .map_err(|e| {
-            TestCaseError::fail(format!(
-                "failed to spawn mutation runner thread: {e}"
-            ))
-        })?;
+        .map_err(|e| TestCaseError::fail(format!("failed to spawn mutation runner thread: {e}")))?;
 
     handle.join().map_err(|panic_payload| {
-        TestCaseError::fail(format!(
-            "mutation runner panicked: {panic_payload:?}"
-        ))
+        TestCaseError::fail(format!("mutation runner panicked: {panic_payload:?}"))
     })?
 }
 
@@ -178,15 +172,11 @@ fn run_idempotency_proptest_with_stack(config: Config, stack_size: usize) -> Tes
         .stack_size(stack_size)
         .spawn(move || run_idempotency_proptest(config))
         .map_err(|e| {
-            TestCaseError::fail(format!(
-                "failed to spawn idempotency runner thread: {e}"
-            ))
+            TestCaseError::fail(format!("failed to spawn idempotency runner thread: {e}"))
         })?;
 
     handle.join().map_err(|panic_payload| {
-        TestCaseError::fail(format!(
-            "idempotency runner panicked: {panic_payload:?}"
-        ))
+        TestCaseError::fail(format!("idempotency runner panicked: {panic_payload:?}"))
     })?
 }
 
