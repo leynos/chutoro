@@ -573,7 +573,8 @@ stable, language-agnostic contract.
             state: *const std::ffi::c_void,
             idx1: usize,
             idx2: usize,
-        ) -> f32,
+            out: *mut f32,
+        ) -> StatusCode,
 
         // Optional, for high-performance providers
         pub distance_batch: Option<unsafe extern "C" fn(
@@ -581,7 +582,7 @@ stable, language-agnostic contract.
             pairs: *const Pair,
             out: *mut f32,
             n: usize,
-        )>,
+        ) -> StatusCode>,
         // Required: plugin-controlled teardown of `state`
         pub destroy: unsafe extern "C" fn(state: *mut std::ffi::c_void),
     }
@@ -590,6 +591,14 @@ stable, language-agnostic contract.
     pub struct Pair {
         pub i: usize,
         pub j: usize,
+    }
+
+    #[repr(u32)]
+    pub enum StatusCode {
+        Ok = 0,
+        InvalidArgument = 1,
+        Unsupported = 2,
+        BackendFailure = 3,
     }
 
     ```
@@ -611,6 +620,30 @@ release plugin state. Safety contract: the host never calls `destroy` more than
 once; plugins must treat `destroy` as idempotent with internal guards to avoid
 double-free if probed repeatedly.
 
+Returning a raw `f32` directly from the ABI boundary is deliberately avoided.
+The distance path already needs a documented non-finite policy for SIMD and GPU
+parity (§6.3, §8.1), so NaN cannot double as an FFI error channel without
+creating ambiguity. Using `StatusCode + out-parameter` keeps transport failure,
+unsupported capability, and valid floating-point payloads distinct. The safe
+host wrapper maps status codes into structured `DataSourceError` values.
+
+The ABI contract for `StatusCode` itself should be explicit: it uses
+`#[repr(u32)]`, so the wire format is always one 32-bit unsigned integer with
+the platform C ABI's enum passing rules for that representation. Existing
+numeric values are append-only within `abi_version = 1`; future plugins may add
+new failure codes only at unused discriminants, and hosts must treat unknown
+codes as opaque plugin failures rather than attempting semantic recovery. Any
+change to the representation, size, or meaning of an existing discriminant
+requires a new handshake struct and `abi_version`.
+
+Before any function pointer is dereferenced, the host should copy the untrusted
+v-table into a pure `PluginDescriptor` validator. This helper validates the ABI
+version, capability mask, required-versus-optional callback matrix, and
+pointer-nullability rules without performing any FFI calls. Only a validated
+descriptor may be wrapped by the `unsafe` host adapter. This keeps the
+handshake policy executable in ordinary Rust and gives Kani a bounded,
+side-effect-free target for the load-time state machine.
+
 1. **Safe Abstraction in the Host:** After receiving the v-table, the host
    wraps it in a safe Rust struct that implements the internal `DataSource`
    trait. Calls to the trait methods on this wrapper will internally delegate
@@ -627,6 +660,16 @@ double-free if probed repeatedly.
    scenarios, where the burden of safety remains entirely on the developer. If
    `HAS_DISTANCE_BATCH` is absent, the wrapper routes calls to the scalar
    `distance`. If `HAS_DEVICE_VIEW` is missing, host-managed buffers are used.
+
+The wrapper should track an explicit lifecycle
+(`Loaded -> Active -> Quiescing -> Destroyed`) so quiescence, callback gating,
+and teardown are not encoded as informal `bool` flags. Optional callbacks
+become reachable only when both the descriptor and capability bits allow them,
+and `destroy` becomes unreachable after the first successful teardown. This
+host-visible state machine is the right verification target: property tests can
+explore long lifecycle traces, while bounded Kani harnesses can prove that
+nulls and version mismatches are rejected before dereference and that teardown
+is exact-once.
 
 #### 5.4. Walking skeleton dense ingestion
 
@@ -872,6 +915,15 @@ algorithms that require arbitrary tuples.
     parity.
   - Guarantee 64-byte alignment and lane-multiple padding for
     `DensePointView<'a>`; zero-pad tails.
+- **Shared distance semantics and verification seam:** Define a reusable
+  `DistanceSemantics` spec object that fixes zero-vector policy, non-finite
+  handling, epsilon, and deterministic tie-breaking across scalar, SIMD, and
+  GPU backends. Every backend should either reduce through a single scalar
+  oracle helper or prove equivalence to that helper. Verification then splits
+  cleanly: property-based differential suites compare scalar, AVX2, AVX-512,
+  Neon, and optional nightly `std::simd` behaviour around lane boundaries,
+  padding, duplicates, and non-finite cases; bounded Kani harnesses cover the
+  executable Rust hazards, namely tail padding and runtime-dispatch selection.
 - **Testing and performance hygiene:** Ship microbenchmarks for Euclidean and
   cosine kernels (scalar, auto-vectorized, portable-simd, AVX2/512),
   neighbour-set scoring at varying candidate sizes, and batched
@@ -1363,6 +1415,12 @@ GPUs are most effective at batch _searches_.[^17] This approach effectively
 reframes the core of the HNSW insertion process as a series of small, ad-hoc
 batch searches, enabling accelerated construction.
 
+The GPU distance path should consume the same `DistanceSemantics` contract used
+by the CPU backends (§6.3). In particular, zero vectors, duplicate vectors, and
+non-finite intermediate values must be interpreted identically before the CPU
+neighbour-selection heuristics run, otherwise backend parity tests will be
+comparing different semantics rather than different implementations.
+
 #### 8.2. MST on the GPU: Parallel Borůvka's Algorithm
 
 As established, Borůvka's algorithm is the ideal choice for MST construction on
@@ -1404,6 +1462,15 @@ repeatedly launches two main kernels until the MST is complete.
   Kernel 1, wait for it to complete, then launch Kernel 2. It will repeat this
   cycle, checking a flag or the number of components after each iteration,
   until the DSU array indicates that only one component remains.
+
+Verification should not start by attempting to prove raw CUDA kernels. The
+first-class seam is a pure Rust planner or reference layer that canonicalizes
+edge comparisons with a deterministic tie-break tuple
+`(weight, min(u, v), max(u, v), discovery_order)` and can execute on tiny
+graphs. Property-based differential tests can then compare GPU Borůvka output
+against this CPU reference on small connected and disconnected graphs,
+including equal-weight ties, while leaving device code under executable testing
+rather than theorem proving in the first pass.
 
 #### 8.3. Hierarchy Extraction on the GPU
 
@@ -1480,6 +1547,15 @@ data), a continuous flow of work can be maintained, keeping all parts of the
 GPU busy and achieving maximum throughput. This is a cornerstone of
 high-performance GPU programming and is essential for an expert-level
 implementation.
+
+The pinned host-device ring buffer should model each slot with explicit states
+such as `Empty`, `Filling`, `Ready`, `InFlight`, and `Reclaiming`. Doing so
+makes the host orchestration rules executable in ordinary Rust: no slot reuse
+before completion, no read-before-ready, no missing wait edge, and no
+double-release on unwind. Those host-visible transitions are the preferred
+verification target for this phase: property tests can drive mocked-stream
+traces, and Kani can exhaust bounded buffer and event state machines without
+needing to reason about GPU kernel concurrency, which it does not support.
 
 ## Part IV: Implementation Roadmap and Recommendations
 
@@ -1690,17 +1766,32 @@ expose a C function that provides the host with a populated v-table struct.
 
 ```rust
 // In the plugin author's crate (e.g., my_csv_plugin/src/lib.rs)
-use std::os::raw::c_char;
 use std::ffi::c_void;
+use std::os::raw::c_char;
 
 // 1. Define the struct and implement the DataSource trait.
 struct MyCsvDataSource { /*... */ }
 impl DataSource for MyCsvDataSource { /*... implementation... */ }
 
 // 2. Define C-compatible wrapper functions that delegate to the Rust methods.
-unsafe extern "C" fn csv_distance(state: *const c_void, i: usize, j: usize) -> f32 {
+unsafe extern "C" fn csv_distance(
+    state: *const c_void,
+    i: usize,
+    j: usize,
+    out: *mut f32,
+) -> StatusCode {
+    if state.is_null() || out.is_null() {
+        return StatusCode::InvalidArgument;
+    }
+
     let source = &*(state as *const MyCsvDataSource);
-    source.distance(i, j)
+    match source.distance(i, j) {
+        Ok(distance) => {
+            *out = distance;
+            StatusCode::Ok
+        }
+        Err(_err) => StatusCode::BackendFailure,
+    }
 }
 unsafe extern "C" fn csv_len(state: *const c_void) -> usize {
     let source = &*(state as *const MyCsvDataSource);
@@ -1723,16 +1814,16 @@ pub extern "C" fn _plugin_create() -> *mut chutoro_v1 {
     let source = MyCsvDataSource::new();
     let state = Box::into_raw(Box::new(source)) as *mut c_void;
 
-        let vtable = Box::new(chutoro_v1 {
-            abi_version: 1,
-            caps: 0, // No special capabilities
-            state,
-            len: csv_len,
-            name: csv_name,
-            distance: csv_distance,
-            distance_batch: None, // Use default scalar fallback
-            destroy: csv_destroy,
-        });
+    let vtable = Box::new(chutoro_v1 {
+        abi_version: 1,
+        caps: 0, // No special capabilities
+        state,
+        len: csv_len,
+        name: csv_name,
+        distance: csv_distance,
+        distance_batch: None, // Use default scalar fallback
+        destroy: csv_destroy,
+    });
 
     Box::into_raw(vtable)
 }
@@ -2391,6 +2482,16 @@ currently recomputes from scratch. Specifically:
   `adjusted_rand_index(incremental, baseline)` or
   `normalized_mutual_information(incremental, baseline)` falls below its
   configured threshold, `refresh_full()` is invoked automatically.
+
+  The refresh-policy branch structure should be factored into pure helpers
+  rather than buried in the imperative refresh path. Two small enums are
+  sufficient: `BaselineCompatibility`, which captures fresh/stale/incompatible
+  states plus overlap metadata, and `RefreshDecision`, which records whether
+  the next step is `SkipMetrics`, `RefreshIncremental`, or
+  `RefreshFull { reason }`. This keeps the control logic
+  specification-friendly, makes diagnostics precise, and gives Verus a compact
+  target for proving the staleness, overlap, compatibility, and threshold gates.
+
 - **Mutual-reachability weighting.** After core distance updates, the pending
   edges and any affected existing MST edges must be reweighted using the
   mutual-reachability formula:
@@ -2497,6 +2598,15 @@ Property-based tests use `proptest` to generate random append sequences and
 verify that incremental results remain within acceptable quality bounds across
 a range of dataset sizes, dimensionalities, and cluster separations.
 
+The differential harness should be complemented by a stateful property suite
+over the session API itself. That model should explore `append`, `refresh`,
+`refresh_full`, and `labels()` sequences, asserting `snapshot_version`
+monotonicity, `pending_edges` clearing, `refresh_every_n` behaviour, and label
+length consistency. Once checkpoint and restore are implemented (§13.2), the
+same state machine should gain a `checkpoint -> restore` transition so
+round-trip correctness is verified in the same long-lived workflow that will
+exist in production.
+
 #### 12.8. Path to delete and edit support
 
 Point deletion and in-place edits are deferred from v1 but are anticipated in
@@ -2593,6 +2703,14 @@ tag so that future schema changes can be handled via explicit migration rather
 than silent corruption. The initial implementation targets a flat file; an
 `object_store`-backed adapter follows the DataFusion provider pattern (§7).
 
+The envelope should use a canonical section table with explicit section ids,
+ordering, lengths, and checksums. Parsing that table is a small, parser-shaped
+Rust problem with a clean verification split: property tests can generate tiny
+session states and corrupted section permutations to cover round-trip and
+semantic restoration failures, while Kani can exhaust bounded header and
+section-table shapes to rule out overflow, out-of-bounds access, and silent
+acceptance of malformed lengths before the higher-level deserializer runs.
+
 Restore validates the checkpoint against a supplied `DataSource` (point count,
 metric descriptor) and returns a `SessionRestorationError` on mismatch,
 preventing silent use of stale or incompatible state.
@@ -2609,6 +2727,13 @@ and the new snapshot's clusters, scored by Jaccard overlap of point membership.
 Clusters above a configurable overlap threshold (default 0.5) are matched and
 retain their `ClusterId`. Unmatched new clusters receive fresh identifiers.
 Unmatched old clusters are recorded as extinct.
+
+To keep matching deterministic, cluster memberships should be materialized in a
+canonical ordered form before scoring, and the algorithm should return an
+explicit matched/unmatched partition rather than relying on map iteration
+order. That pure helper layer is small enough for Verus proofs covering Jaccard
+bounds and symmetry, deterministic tie-break behaviour, injective reuse of
+persistent identifiers, and monotonic allocation of fresh identifiers.
 
 This layer is explicitly opt-in (enabled via `SessionConfig`) because it
 introduces a dependency on the previous snapshot and adds per-refresh cost
@@ -2633,6 +2758,12 @@ Detection reuses the bipartite Jaccard assignment from §13.3. A split is
 detected when one old cluster has Jaccard overlap above a threshold with
 multiple new clusters. A merge is the reverse. Birth and death are the residual
 unmatched entries.
+
+This classification should also be phrased in terms of the explicit
+matched/unmatched partition from §13.3. That keeps the helper layer pure and
+deterministic, and it gives Verus a tractable proof target for completeness and
+disjointness: every structural change must fall into exactly one of `Survive`,
+`Split`, `Merge`, `Birth`, or `Death`.
 
 The diff output is a `Vec<ClusterEvent>`, not a streaming iterator, because the
 number of clusters is typically small relative to the number of points.
@@ -2706,6 +2837,12 @@ they are actual data points. A separate `VectorClusterStats` extension trait
 can provide centroids for `DataSource` implementations that expose
 `row_slice()` or equivalent vector access (§6.3), keeping Euclidean assumptions
 behind an opt-in surface.
+
+Verification for this layer should be data-source agnostic: generate tiny
+partitions and symmetric distance matrices, then assert medoid minimality,
+exemplar membership, finite and non-negative cohesion and separation, and
+probability-bound or noise-ratio consistency when the optional probability
+surface is enabled.
 
 #### 14.2. Subset reclustering
 
@@ -2802,6 +2939,14 @@ When tombstoned points exist, the refresh path (§12.5) extends as follows:
    points, indexed by a mapping from the original point indices to the reduced
    set.
 
+That reduced-index mapping should be promoted to an explicit `LiveIndexMap`
+helper carried through refresh and compaction rather than left implicit in
+prose. Doing so makes the surviving-point projection executable and
+specification-friendly: stateful property tests can compare append/delete/
+refresh traces against fresh batch runs on the surviving points, and Verus can
+later prove that `old_to_new` and `new_to_old` form a bijection over live
+points while tombstoned points map nowhere.
+
 This is less efficient than exact decremental MST maintenance but far simpler
 and robust. The periodic compaction pass (§15.3) eliminates accumulated
 tombstones and restores optimal index density.
@@ -2823,6 +2968,12 @@ index to optimal density and eliminates the incremental drift that accumulates
 from append-plus-tombstone cycles. The session exposes
 `compaction_recommended() -> bool` based on the current tombstone ratio, and
 `compact()` to execute the rebuild.
+
+The compaction publish step should require a fresh lineage root and an empty
+tombstone set as explicit postconditions, not just emergent behaviour. That
+keeps the `LiveIndexMap` and lineage-reset helpers small enough for proof and
+prevents future maintenance work from reintroducing stale reduced-index state
+after a rebuild.
 
 #### 15.4. Memory-budget instrumentation
 
@@ -2879,6 +3030,12 @@ that produces a sequence of short text documents with controlled properties:
 
 The corpus generator is seeded and fully deterministic. A manifest records
 ground-truth topic labels and topic-drift breakpoints for quality scoring.
+
+That determinism should be treated as a contract, not a convenience. Property
+tests should assert that generation from the same seed is byte-for-byte stable,
+reply depth and near-duplicate rates stay within configured bounds, and the
+manifest's labelled drift breakpoints agree with the generated document stream
+that later feeds the structural-diff metrics.
 
 #### 16.2. Distance function
 

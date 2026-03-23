@@ -51,21 +51,34 @@ with the bidirectional links invariant on bounded graph configurations.
 
 ### Complementary Testing Strategy
 
-The two approaches serve different purposes and complement each other:
+The verification strategy is intentionally split across three tools:
 
-| Aspect                                  | Proptest                      | Kani                 |
-| --------------------------------------- | ----------------------------- | -------------------- |
-| Coverage model                          | Probabilistic sampling        | Exhaustive (bounded) |
-| Typical scale                           | Hundreds of nodes             | 3-10 nodes           |
-| Execution time                          | Seconds                       | Minutes              |
-| Failure output                          | Minimal shrunk counterexample | Full execution trace |
-| Primary use case                        | Regression catching           | Invariant proofs     |
-| Continuous Integration (CI) integration | Every pull request (PR)       | Nightly (planned)    |
+- `Proptest` and differential tests provide probabilistic sampling over
+  realistic integrations, backend parity checks, and external-format
+  behaviours. They scale to dozens or thousands of items, produce shrunk
+  counterexamples, and belong in every pull request (PR) path.
+- `Kani` provides exhaustive bounded exploration for executable Rust with tight
+  state limits. It is the best fit for unsafe wrappers, dispatch selectors,
+  parser-like logic, and bounded state machines, and it belongs in the nightly
+  or other slow-lane verification path.
+- `Verus` provides deductive proofs once logic has been extracted into pure
+  helpers or explicit state transitions. It is the best fit for functional
+  invariants, identity matching, refresh-policy gates, and remap proofs where
+  bounded symbolic execution becomes unwieldy.
 
-Proptest remains the primary testing tool for catching regressions on realistic
-configurations. Kani provides formal guarantees for small configurations,
-increasing confidence that core invariant logic is sound before proptest
-explores larger state spaces.
+Property-based and differential testing remain the primary tools for realistic
+configurations, backend parity, and behaviour dominated by external systems or
+device code. Kani is reserved for bounded executable Rust, especially unsafe
+wrapper layers, dispatch selectors, parser-like checkpoint envelopes, and
+host-side state machines. Verus is the right tool once a helper has been
+factored into a pure, specification-friendly function or transition system,
+such as refresh-policy gating, stable-identity matching, or compaction remap
+logic.
+
+Kani should not be used as the first tool for concurrency-heavy code or raw GPU
+kernels. Its own limitations around concurrency support mean those areas are
+better covered by mocked property suites and CPU-versus-device differential
+tests, with any proof effort focused on the pure host planner around them.
 
 ## Consequences
 
@@ -234,17 +247,25 @@ intended as future formal verification targets:
    including no-self-loops, neighbour uniqueness, entry-point maximality, MST
    structural correctness, and distance kernel consistency.
 
-4. **Increase bounds**: Test 4-node and 2-layer configurations to explore more
+4. **Target bounded state machines**: Add harnesses for executable Rust logic
+   that fits Kani's strengths, including SIMD dispatch selectors, checkpoint
+   envelope parsers, and plugin-wrapper lifecycle transitions.
+
+5. **Increase bounds**: Test 4-node and 2-layer configurations to explore more
    complex interaction patterns once the commit-path harnesses are stable.
 
-5. **CI integration**: Add a nightly "slow" Kani verification job that runs
+6. **CI integration**: Add a nightly "slow" Kani verification job that runs
    `make kani-full` only when main has new commits that day.
 
-6. **Performance tuning**: Investigate C Bounded Model Checker (CBMC)
+7. **Performance tuning**: Investigate C Bounded Model Checker (CBMC)
    timeouts, adjust bounds, and consider smaller harnesses or reduced
    nondeterminism to keep Kani runs practical.
 
-7. **Documentation**: Record verification results, any discovered issues, and
+8. **Coordinate with Verus**: When a bounded harness keeps growing due to
+   control-flow complexity, extract the corresponding pure helper and move the
+   proof obligation to Verus instead of forcing it through symbolic execution.
+
+9. **Documentation**: Record verification results, any discovered issues, and
    update this ADR with findings.
 
 ## Change Control
