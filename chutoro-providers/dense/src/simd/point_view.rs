@@ -8,7 +8,7 @@
 
 use chutoro_core::DataSourceError;
 
-use super::{Dimension, MAX_SIMD_LANES, RowIndex, RowMajorMatrix, row_slice};
+use super::{Dimension, MAX_SIMD_LANES, RowIndex, RowMajorMatrix};
 
 #[repr(C, align(64))]
 #[derive(Clone, Copy, Debug)]
@@ -77,7 +77,7 @@ impl<'a> DensePointView<'a> {
         let packed = storage.as_mut_slice();
 
         for (point_offset, index) in point_indices.iter().copied().enumerate() {
-            let row = row_slice(matrix, index)?;
+            let row = matrix.row(index)?;
             for (dimension_offset, value) in row.as_slice().iter().copied().enumerate() {
                 packed[dimension_offset * padded_point_count + point_offset] = value;
             }
@@ -99,6 +99,21 @@ impl<'a> DensePointView<'a> {
     }
 
     /// Returns the zero-padded point count used for packed coordinate blocks.
+    #[cfg(any(
+        test,
+        all(
+            feature = "simd_avx2",
+            any(target_arch = "x86", target_arch = "x86_64")
+        ),
+        all(
+            feature = "simd_avx512",
+            any(target_arch = "x86", target_arch = "x86_64")
+        ),
+        all(
+            feature = "simd_neon",
+            any(target_arch = "arm", target_arch = "aarch64")
+        )
+    ))]
     #[must_use]
     pub(crate) fn padded_point_count(&self) -> usize {
         self.padded_point_count

@@ -16,10 +16,15 @@ use proptest::{
 };
 
 use super::types::{HnswFixture, IdempotencyPlan};
+use crate::hnsw::tests::property::support::DenseVectorSource;
+use crate::hnsw::tests::support::is_coverage_job;
 use crate::{CpuHnsw, DataSource, HnswError, hnsw::types::EntryPoint};
 
 const MIN_IDEMPOTENCY_FIXTURE_LEN: usize = 2;
 const MAX_IDEMPOTENCY_FIXTURE_LEN: usize = 64;
+const COVERAGE_MAX_IDEMPOTENCY_FIXTURE_LEN: usize = 16;
+const COVERAGE_MAX_DUPLICATE_INDICES: usize = 3;
+const COVERAGE_MAX_ATTEMPTS_PER_INDEX: usize = 2;
 
 /// Runs the idempotency property: builds an index, snapshots its state, attempts
 /// duplicate insertions (which are rejected), and verifies the graph state is
@@ -28,13 +33,12 @@ pub(super) fn run_idempotency_property(
     fixture: HnswFixture,
     plan: IdempotencyPlan,
 ) -> TestCaseResult {
+    let is_coverage_job = is_coverage_job();
     let params = fixture
         .params
         .build()
         .map_err(|err| TestCaseError::fail(format!("invalid params: {err}")))?;
-    let source = fixture
-        .clone()
-        .into_source()
+    let source = build_idempotency_source(fixture, is_coverage_job)
         .map_err(|err| TestCaseError::fail(format!("fixture -> source failed: {err}")))?;
 
     let len = source.len();
@@ -49,9 +53,10 @@ pub(super) fn run_idempotency_property(
     let snapshot = snapshot_graph(&index);
 
     // Attempt duplicate insertions
-    let duplicate_indices = resolve_duplicate_indices(&plan, len);
+    let duplicate_indices = duplicate_indices_for_job(&plan, len, is_coverage_job);
+    let attempts_per_index = attempts_per_index_for_job(&plan, is_coverage_job);
     for &node in &duplicate_indices {
-        for attempt in 0..plan.attempts_per_index {
+        for attempt in 0..attempts_per_index {
             let result = index.insert(node, &source);
             match result {
                 Err(HnswError::DuplicateNode { node: rejected }) if rejected == node => {
@@ -89,6 +94,43 @@ fn resolve_duplicate_indices(plan: &IdempotencyPlan, len: usize) -> Vec<usize> {
         .iter()
         .map(|&hint| usize::from(hint) % len)
         .collect()
+}
+
+fn build_idempotency_source(
+    fixture: HnswFixture,
+    is_coverage_job: bool,
+) -> Result<DenseVectorSource, crate::error::DataSourceError> {
+    let max_fixture_len = if is_coverage_job {
+        COVERAGE_MAX_IDEMPOTENCY_FIXTURE_LEN
+    } else {
+        MAX_IDEMPOTENCY_FIXTURE_LEN
+    };
+    let vectors = fixture.vectors.into_iter().take(max_fixture_len).collect();
+    DenseVectorSource::new("hnsw-fixture", vectors)
+}
+
+fn duplicate_indices_for_job(
+    plan: &IdempotencyPlan,
+    len: usize,
+    is_coverage_job: bool,
+) -> Vec<usize> {
+    let duplicate_indices = resolve_duplicate_indices(plan, len);
+    if is_coverage_job {
+        duplicate_indices
+            .into_iter()
+            .take(COVERAGE_MAX_DUPLICATE_INDICES)
+            .collect()
+    } else {
+        duplicate_indices
+    }
+}
+
+fn attempts_per_index_for_job(plan: &IdempotencyPlan, is_coverage_job: bool) -> usize {
+    if is_coverage_job {
+        plan.attempts_per_index.min(COVERAGE_MAX_ATTEMPTS_PER_INDEX)
+    } else {
+        plan.attempts_per_index
+    }
 }
 
 /// Snapshot of a node's structural state.
@@ -208,6 +250,43 @@ mod tests {
         };
         let resolved = resolve_duplicate_indices(&plan, 4);
         assert_eq!(resolved, vec![0, 1, 2, 0]);
+    }
+
+    #[rstest]
+    fn duplicate_indices_for_job_limits_coverage_workload() {
+        let plan = IdempotencyPlan {
+            duplicate_hints: vec![0, 1, 2, 3, 4],
+            attempts_per_index: 5,
+        };
+        let resolved = duplicate_indices_for_job(&plan, 8, true);
+
+        assert_eq!(resolved, vec![0, 1, 2]);
+    }
+
+    #[rstest]
+    fn attempts_per_index_for_job_limits_coverage_workload() {
+        let plan = IdempotencyPlan {
+            duplicate_hints: vec![0],
+            attempts_per_index: 5,
+        };
+
+        assert_eq!(attempts_per_index_for_job(&plan, true), 2);
+        assert_eq!(attempts_per_index_for_job(&plan, false), 5);
+    }
+
+    #[rstest]
+    #[case(true, COVERAGE_MAX_IDEMPOTENCY_FIXTURE_LEN, 101)]
+    #[case(false, MAX_IDEMPOTENCY_FIXTURE_LEN, 202)]
+    fn build_idempotency_source_truncates_fixture(
+        #[case] is_coverage: bool,
+        #[case] expected_len: usize,
+        #[case] seed: u64,
+    ) {
+        let fixture = make_fixture(expected_len + 5, seed);
+
+        let source = build_idempotency_source(fixture, is_coverage).expect("source");
+
+        assert_eq!(source.len(), expected_len);
     }
 
     #[rstest]

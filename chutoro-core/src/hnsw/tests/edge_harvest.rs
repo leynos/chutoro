@@ -9,18 +9,7 @@ use crate::hnsw::types::{InsertionPlan, LayerPlan};
 use crate::hnsw::{CandidateEdge, CpuHnsw, EdgeHarvest, HnswParams, Neighbour};
 
 use super::fixtures::DummySource;
-
-/// Detects whether the current test run is coverage-instrumented.
-///
-/// Coverage builds can perturb Rayon scheduling enough to increase edge-count
-/// variance between otherwise equivalent builds.
-fn is_coverage_job() -> bool {
-    cfg!(coverage)
-        || option_env!("CARGO_LLVM_COV").is_some()
-        || option_env!("LLVM_PROFILE_FILE").is_some()
-        || std::env::var_os("LLVM_PROFILE_FILE").is_some()
-        || std::env::var_os("CARGO_LLVM_COV").is_some()
-}
+use super::support::is_coverage_job;
 
 fn build_insertion_plan(layers: Vec<Vec<(usize, f32)>>) -> InsertionPlan {
     InsertionPlan {
@@ -257,7 +246,9 @@ fn build_with_edges_two_nodes_produces_edges() {
 
 #[rstest]
 fn build_with_edges_edges_sorted_by_sequence() {
-    let num_nodes = 20;
+    // Coverage instrumentation inflates the cost of parallel HNSW builds;
+    // use a smaller graph to stay well within the nextest timeout.
+    let num_nodes = if is_coverage_job() { 8 } else { 20 };
     let data: Vec<f32> = (0..num_nodes).map(|i| i as f32).collect();
     let source = DummySource::new(data);
     let params = HnswParams::new(4, 16).expect("params").with_rng_seed(42);
