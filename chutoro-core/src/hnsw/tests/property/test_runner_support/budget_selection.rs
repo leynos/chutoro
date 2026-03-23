@@ -53,14 +53,23 @@ impl From<TestCases> for u32 {
 }
 
 /// Maximum number of shrinking iterations to attempt when minimising a failing test case.
+///
+/// A value of 0 disables shrinking entirely. In practice, positive values are used to enable
+/// counterexample minimisation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ShrinkIterations(u32);
 
 impl ShrinkIterations {
+    /// Creates a new ShrinkIterations value.
+    ///
+    /// Setting `iterations` to 0 disables shrinking.
     pub(crate) fn new(iterations: u32) -> Self {
         Self(iterations)
     }
 
+    /// Returns the number of shrink iterations.
+    ///
+    /// A return value of 0 means shrinking is disabled.
     pub(crate) fn get(self) -> u32 {
         self.0
     }

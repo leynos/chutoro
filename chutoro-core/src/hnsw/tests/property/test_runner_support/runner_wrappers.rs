@@ -160,7 +160,16 @@ fn run_search_proptest(config: Config) -> TestCaseResult {
     )
 }
 
-/// Configuration for property runners that execute within dedicated threads.
+/// Configuration for property test runners that execute within dedicated threads.
+///
+/// Controls how property tests are executed, including test case count, forking behavior,
+/// shrinking limits, and thread stack size.
+///
+/// # Fields
+/// - `cases`: Number of test cases to execute in the property test run
+/// - `fork`: Whether to fork each test case into a separate process (for isolation)
+/// - `max_shrink_iters`: Maximum number of shrinking iterations when minimizing failures
+/// - `stack_size`: Stack size in bytes for the dedicated property test runner thread
 #[derive(Clone, Copy)]
 struct PropertyRunnerConfig {
     cases: TestCases,
