@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETED
 
 ## Purpose / big picture
 
@@ -151,20 +151,46 @@ plan delivers the foundation that `2.2.5` will verify.
 
 ## Progress
 
-- [ ] Drafted ExecPlan for roadmap item `2.2.4`.
-- [ ] Plan approved and implementation started.
+- [x] Drafted ExecPlan for roadmap item `2.2.4`.
+- [x] Plan approved and implementation started.
+- [x] Added a non-default `nightly_portable_simd` feature plus build-script
+  nightly detection that keeps stable `--all-features` builds compiling.
+- [x] Implemented a nightly-only `Simd<f32, 16>` Euclidean backend for
+  pairwise and query-to-points dense kernels.
+- [x] Extended dispatch tests and entrypoint parity tests for the portable
+  SIMD backend.
+- [x] Added `.github/workflows/nightly-portable-simd.yml`.
+- [x] Updated `docs/chutoro-design.md` §6.3 and marked roadmap item `2.2.4`
+  complete.
+- [ ] Run all validation commands and record outcomes.
 
 ## Surprises & discoveries
 
-(To be filled as work proceeds.)
+- `cfg(nightly)` needed an explicit `cargo:rustc-check-cfg=cfg(nightly)` line
+  in `build.rs` so stable warning-deny builds would not fail under
+  `unexpected_cfgs`.
+- The existing dense SIMD structure already separated dispatch from kernel
+  implementations, so the nightly backend fit cleanly as a new kernel module
+  and enum variant without widening public APIs.
 
 ## Decision log
 
-(To be filled as work proceeds.)
+- Chose the build-script `cfg(nightly)` approach instead of changing
+  `Makefile` feature lists so stable `make lint` and `make test` can continue
+  to use `--all-features`.
+- Kept `PortableSimd` below AVX-512, AVX2, and NEON in dispatch order to avoid
+  displacing hand-tuned intrinsic kernels on supported machines.
+- Matched the existing SoA packing contract by using `Simd<f32, 16>` rather
+  than a variable lane width.
 
 ## Outcomes & retrospective
 
-(To be filled at completion.)
+- The dense provider now ships an optional nightly-only portable SIMD backend
+  that coexists with stable builds and existing intrinsic backends.
+- The implementation stayed local to the dense crate and preserved all public
+  provider interfaces and error contracts.
+- Final validation results are recorded after the code, lint, test, and
+  documentation gates complete.
 
 ## Context and orientation
 

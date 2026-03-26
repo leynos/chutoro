@@ -1049,6 +1049,39 @@ alignment, 16-lane padding, and deterministic `0.0_f32` tail fill. Feature
 gating changes which backend consumes that view; it does not weaken the packed
 layout guarantees.
 
+_Implementation update (2026-03-26)._ Roadmap item `2.2.4` adds an optional
+nightly-only `std::simd` backend behind the non-default `nightly_portable_simd`
+feature in `chutoro-providers-dense`.
+
+The dense crate now uses `build.rs` to detect whether Cargo is driving a
+nightly compiler and emits `cfg(nightly)` only in that case. The crate root
+then gates `#![feature(portable_simd)]` behind
+`cfg_attr(all(feature = "nightly_portable_simd", nightly), ...)`, which keeps
+stable `--all-features` builds clean while still allowing nightly
+experimentation.
+
+Dispatch priority is now:
+
+- AVX-512
+- AVX2
+- NEON
+- PortableSimd
+- Scalar
+
+The portable SIMD backend uses `Simd<f32, 16>` for pairwise Euclidean distance
+and query-to-points scoring so it matches the existing `DensePointView<'a>`
+packing and padding rules. Results continue to route through the canonical
+`finalize_distance(...)` reducer so any non-finite value is normalized to
+`f32::NAN`.
+
+Unit tests cover dispatch ordering, pairwise parity around the 16-lane
+boundary, query-to-points parity, and non-finite canonicalization. Scheduled
+validation now lives in `.github/workflows/nightly-portable-simd.yml`, which
+installs the nightly toolchain and runs the dense-provider test and Clippy
+passes with `nightly_portable_simd` enabled. The relevant upstream tracking
+issues remain `rust-lang/rust#86656` (`portable_simd`), `rust-lang/rust#127356`
+(`bf16` wrappers), and `rust-lang/rust#127213` (AVX512_FP16 intrinsics).
+
 #### 6.4. Property-based input generation for CPU HNSW tests
 
 The CPU module now ships with dedicated property-based generators that exercise

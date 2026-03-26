@@ -77,33 +77,48 @@ fn dense_point_view_reports_scalar_fallback_preference(
 
 #[rstest]
 #[case(
-    CompiledSimdSupport::new(false, false, false),
-    RuntimeSimdSupport::new(true, true, true),
+    CompiledSimdSupport::new(false, false, false, false),
+    RuntimeSimdSupport::new(true, true, true, true),
     dispatch::EuclideanBackend::Scalar
 )]
 #[case(
-    CompiledSimdSupport::new(true, false, false),
-    RuntimeSimdSupport::new(true, false, false),
+    CompiledSimdSupport::new(true, false, false, false),
+    RuntimeSimdSupport::new(true, false, false, false),
     dispatch::EuclideanBackend::Avx2
 )]
 #[case(
-    CompiledSimdSupport::new(true, true, false),
-    RuntimeSimdSupport::new(true, true, false),
+    CompiledSimdSupport::new(true, true, false, false),
+    RuntimeSimdSupport::new(true, true, false, false),
     dispatch::EuclideanBackend::Avx512
 )]
 #[case(
-    CompiledSimdSupport::new(false, false, true),
-    RuntimeSimdSupport::new(false, false, true),
+    CompiledSimdSupport::new(false, false, true, false),
+    RuntimeSimdSupport::new(false, false, true, false),
     dispatch::EuclideanBackend::Neon
 )]
 #[case(
-    CompiledSimdSupport::new(false, true, false),
-    RuntimeSimdSupport::new(false, false, false),
+    CompiledSimdSupport::new(false, false, false, true),
+    RuntimeSimdSupport::new(false, false, false, true),
+    dispatch::EuclideanBackend::PortableSimd
+)]
+#[case(
+    CompiledSimdSupport::new(true, false, false, true),
+    RuntimeSimdSupport::new(true, false, false, true),
+    dispatch::EuclideanBackend::Avx2
+)]
+#[case(
+    CompiledSimdSupport::new(false, true, false, false),
+    RuntimeSimdSupport::new(false, false, false, false),
     dispatch::EuclideanBackend::Scalar
 )]
 #[case(
-    CompiledSimdSupport::new(false, false, true),
-    RuntimeSimdSupport::new(false, false, false),
+    CompiledSimdSupport::new(false, false, true, false),
+    RuntimeSimdSupport::new(false, false, false, false),
+    dispatch::EuclideanBackend::Scalar
+)]
+#[case(
+    CompiledSimdSupport::new(false, false, false, true),
+    RuntimeSimdSupport::new(false, false, false, false),
     dispatch::EuclideanBackend::Scalar
 )]
 fn choose_euclidean_backend_prefers_best_enabled_supported_backend(
@@ -128,6 +143,8 @@ fn choose_euclidean_backend_prefers_best_enabled_supported_backend(
 #[case(dispatch::EuclideanBackend::Avx2, 2, 2, true)]
 #[case(dispatch::EuclideanBackend::Avx512, 2, 2, true)]
 #[case(dispatch::EuclideanBackend::Neon, 2, 2, true)]
+#[case(dispatch::EuclideanBackend::PortableSimd, 2, 2, true)]
+#[case(dispatch::EuclideanBackend::PortableSimd, 2, 1, false)]
 fn query_point_packing_requires_simd_backend(
     #[case] backend: dispatch::EuclideanBackend,
     #[case] dimension: usize,

@@ -287,7 +287,7 @@ ______________________________________________________________________
     CPU/GPU parity.
   - Guarantee 64-byte alignment and lane-multiple padding for
     `DensePointView<'a>`; zero-pad tails.
-- [ ] 2.2.4. Add an optional nightly only `std::simd` backend behind a
+- [x] 2.2.4. Add an optional nightly only `std::simd` backend behind a
   non-default Cargo feature and nightly Continuous Integration (CI) job; keep
   stable `core::arch` implementation as default. Track `portable_simd`
   stabilization (`rust-lang/rust#86656`) and AVX-512 adjunct blockers
