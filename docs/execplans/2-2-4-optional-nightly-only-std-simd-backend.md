@@ -162,7 +162,7 @@ plan delivers the foundation that `2.2.5` will verify.
 - [x] Added `.github/workflows/nightly-portable-simd.yml`.
 - [x] Updated `docs/chutoro-design.md` §6.3 and marked roadmap item `2.2.4`
   complete.
-- [ ] Run all validation commands and record outcomes.
+- [x] Run all validation commands and record outcomes.
 
 ## Surprises & discoveries
 
@@ -180,8 +180,8 @@ plan delivers the foundation that `2.2.5` will verify.
   to use `--all-features`.
 - Kept `PortableSimd` below AVX-512, AVX2, and NEON in dispatch order to avoid
   displacing hand-tuned intrinsic kernels on supported machines.
-- Matched the existing SoA packing contract by using `Simd<f32, 16>` rather
-  than a variable lane width.
+- Matched the existing structure-of-arrays (SoA) packing contract by using
+  `Simd<f32, 16>` rather than a variable lane width.
 
 ## Outcomes & retrospective
 
@@ -218,8 +218,8 @@ chutoro-providers/dense/src/simd/
 │   │                    using std::arch intrinsics.
 │   └── neon_simd.rs   — ARM NEON squared-L2 + query-points kernels using
 │                        std::arch intrinsics.
-├── point_view.rs      — DensePointView: 64-byte aligned SoA packing with
-│                        16-lane padding and 0.0 tail fill.
+├── point_view.rs      — DensePointView: 64-byte aligned structure-of-arrays
+│                        (SoA) packing with 16-lane padding and 0.0 tail fill.
 ├── types.rs           — Domain wrappers (Distance, RowSlice, RowIndex, etc.)
 │                        for boundary API.
 ├── tests.rs           — Unit tests: SoA packing, dispatch selection, scalar
@@ -847,5 +847,5 @@ jobs:
 
 ## Historical note
 
-This ExecPlan begins as the required draft for roadmap task `2.2.4`. It should
-remain in `DRAFT` status until the user approves implementation.
+This ExecPlan began as the required draft for roadmap task `2.2.4`. The user
+approved implementation, the work shipped, and the status is now `COMPLETED`.

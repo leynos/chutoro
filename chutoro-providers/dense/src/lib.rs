@@ -1,9 +1,9 @@
+//! Dense providers for f32 vectors backed by contiguous storage.
+//!
 #![cfg_attr(
     all(feature = "nightly_portable_simd", nightly),
     feature(portable_simd)
 )]
-
-//! Dense providers for f32 vectors backed by contiguous storage.
 
 mod errors;
 mod ingest;
