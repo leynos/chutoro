@@ -9,6 +9,7 @@ pub(super) enum EuclideanBackend {
     Avx2,
     Avx512,
     Neon,
+    PortableSimd,
 }
 
 /// Backends compiled into the current binary.
@@ -17,13 +18,19 @@ pub(super) struct CompiledSimdSupport {
     avx2: bool,
     avx512: bool,
     neon: bool,
+    portable_simd: bool,
 }
 
 impl CompiledSimdSupport {
     /// Builds a support mask for parameterized tests.
     #[must_use]
-    pub(super) const fn new(avx2: bool, avx512: bool, neon: bool) -> Self {
-        Self { avx2, avx512, neon }
+    pub(super) const fn new(avx2: bool, avx512: bool, neon: bool, portable_simd: bool) -> Self {
+        Self {
+            avx2,
+            avx512,
+            neon,
+            portable_simd,
+        }
     }
 }
 
@@ -33,13 +40,19 @@ pub(super) struct RuntimeSimdSupport {
     avx2: bool,
     avx512: bool,
     neon: bool,
+    portable_simd: bool,
 }
 
 impl RuntimeSimdSupport {
     /// Builds a runtime support mask for parameterized tests.
     #[must_use]
-    pub(super) const fn new(avx2: bool, avx512: bool, neon: bool) -> Self {
-        Self { avx2, avx512, neon }
+    pub(super) const fn new(avx2: bool, avx512: bool, neon: bool, portable_simd: bool) -> Self {
+        Self {
+            avx2,
+            avx512,
+            neon,
+            portable_simd,
+        }
     }
 }
 
@@ -58,12 +71,14 @@ pub(super) fn euclidean_backend() -> EuclideanBackend {
 /// The returned mask reports which backend implementations were compiled into
 /// the binary by Cargo features and target architecture:
 /// `simd_avx2`/`simd_avx512` for x86 or x86_64, and `simd_neon` for arm or
-/// aarch64.
+/// aarch64. The optional `nightly_portable_simd` backend additionally requires
+/// a nightly compiler so stable `--all-features` builds remain valid.
 pub(super) fn compiled_simd_support() -> CompiledSimdSupport {
     CompiledSimdSupport::new(
         cfg!(feature = "simd_avx2") && cfg!(any(target_arch = "x86", target_arch = "x86_64")),
         cfg!(feature = "simd_avx512") && cfg!(any(target_arch = "x86", target_arch = "x86_64")),
         cfg!(feature = "simd_neon") && cfg!(any(target_arch = "arm", target_arch = "aarch64")),
+        cfg!(all(feature = "nightly_portable_simd", nightly)),
     )
 }
 
@@ -71,12 +86,14 @@ pub(super) fn compiled_simd_support() -> CompiledSimdSupport {
 ///
 /// This checks AVX2 and AVX-512F with x86 CPUID helpers, checks NEON at
 /// runtime on 32-bit ARM, and treats AArch64 as NEON-capable because Advanced
-/// SIMD is part of the base architecture.
+/// SIMD is part of the base architecture. Portable SIMD has no separate
+/// runtime probe beyond the compile-time nightly feature gate.
 pub(super) fn runtime_simd_support() -> RuntimeSimdSupport {
     RuntimeSimdSupport::new(
         runtime_avx2_support(),
         runtime_avx512_support(),
         runtime_neon_support(),
+        cfg!(all(feature = "nightly_portable_simd", nightly)),
     )
 }
 
@@ -84,8 +101,8 @@ pub(super) fn runtime_simd_support() -> RuntimeSimdSupport {
 /// runtime support masks.
 ///
 /// The selection order is deterministic: prefer AVX-512, then AVX2, then
-/// NEON, and fall back to `Scalar` when no SIMD backend is both compiled and
-/// available at runtime.
+/// NEON, then portable SIMD, and fall back to `Scalar` when no SIMD backend is
+/// both compiled and available at runtime.
 #[must_use]
 pub(super) fn choose_euclidean_backend(
     compiled: CompiledSimdSupport,
@@ -95,6 +112,7 @@ pub(super) fn choose_euclidean_backend(
         EuclideanBackend::Avx512,
         EuclideanBackend::Avx2,
         EuclideanBackend::Neon,
+        EuclideanBackend::PortableSimd,
         EuclideanBackend::Scalar,
     ] {
         if backend_supported(&compiled, &runtime, backend) {
@@ -118,6 +136,7 @@ fn backend_supported(
         EuclideanBackend::Avx512 => compiled.avx512 && runtime.avx512,
         EuclideanBackend::Avx2 => compiled.avx2 && runtime.avx2,
         EuclideanBackend::Neon => compiled.neon && runtime.neon,
+        EuclideanBackend::PortableSimd => compiled.portable_simd && runtime.portable_simd,
         EuclideanBackend::Scalar => true,
     }
 }

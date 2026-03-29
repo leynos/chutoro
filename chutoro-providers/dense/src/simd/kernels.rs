@@ -28,6 +28,9 @@ mod x86_simd;
 ))]
 mod neon_simd;
 
+#[cfg(all(feature = "nightly_portable_simd", nightly))]
+mod portable_simd;
+
 type EuclideanKernel = fn(&[f32], &[f32]) -> f32;
 type EuclideanQueryPointsKernel = fn(&[f32], &DensePointView<'_>, &mut [f32]);
 
@@ -39,6 +42,7 @@ macro_rules! select_backend_fn {
         avx512 = $avx512:expr,
         avx2 = $avx2:expr,
         neon = $neon:expr,
+        portable_simd = $portable_simd:expr,
         scalar = $scalar:expr $(,)?
     ) => {
         match dispatch::euclidean_backend() {
@@ -57,6 +61,8 @@ macro_rules! select_backend_fn {
                 any(target_arch = "arm", target_arch = "aarch64")
             ))]
             dispatch::EuclideanBackend::Neon => $neon,
+            #[cfg(all(feature = "nightly_portable_simd", nightly))]
+            dispatch::EuclideanBackend::PortableSimd => $portable_simd,
             _ => $scalar,
         }
     };
@@ -67,6 +73,7 @@ pub(super) fn select_euclidean_kernel() -> EuclideanKernel {
         avx512 = euclidean_distance_avx512_entry,
         avx2 = euclidean_distance_avx2_entry,
         neon = euclidean_distance_neon_entry,
+        portable_simd = euclidean_distance_portable_simd_entry,
         scalar = euclidean_distance_scalar,
     )
 }
@@ -123,6 +130,11 @@ pub(super) fn euclidean_distance_neon_entry(left: &[f32], right: &[f32]) -> f32 
     unsafe { neon_simd::euclidean_distance_neon(left, right) }
 }
 
+#[cfg(all(feature = "nightly_portable_simd", nightly))]
+pub(super) fn euclidean_distance_portable_simd_entry(left: &[f32], right: &[f32]) -> f32 {
+    portable_simd::euclidean_distance_portable_simd_entry(left, right)
+}
+
 pub(super) fn euclidean_distance_query_points(
     query: &[f32],
     points: &DensePointView<'_>,
@@ -156,11 +168,21 @@ pub(super) fn euclidean_distance_query_points_scalar(
     }
 }
 
+#[cfg(all(feature = "nightly_portable_simd", nightly))]
+pub(super) fn euclidean_distance_query_points_portable_simd_entry(
+    query: &[f32],
+    points: &DensePointView<'_>,
+    out: &mut [f32],
+) {
+    portable_simd::euclidean_distance_query_points_portable_simd_entry(query, points, out);
+}
+
 fn select_euclidean_query_points_kernel() -> EuclideanQueryPointsKernel {
     select_backend_fn!(
         avx512 = x86_simd::euclidean_distance_query_points_avx512_entry,
         avx2 = x86_simd::euclidean_distance_query_points_avx2_entry,
         neon = neon_simd::euclidean_distance_query_points_neon_entry,
+        portable_simd = euclidean_distance_query_points_portable_simd_entry,
         scalar = euclidean_distance_query_points_scalar,
     )
 }

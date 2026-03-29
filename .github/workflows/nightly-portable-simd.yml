@@ -1,0 +1,56 @@
+name: Nightly Portable SIMD
+
+'on':
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      force_run:
+        description: Force the nightly portable SIMD run without a recent main commit.
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: nightly-portable-simd
+  cancel-in-progress: false
+
+jobs:
+  nightly-portable-simd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - name: Decide whether to run nightly portable SIMD
+        id: gate
+        env:
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_run || 'false' }}
+        run: |
+          if [ "${FORCE_RUN}" = "true" ]; then
+            echo "should_run=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+
+          now_epoch="$(date -u +%s)"
+          commit_epoch="$(git log -1 --format=%ct origin/main)"
+          if [ $((now_epoch - commit_epoch)) -le 86400 ]; then
+            echo "should_run=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "should_run=false" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: Install nightly Rust
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        run: rustup toolchain install nightly --profile minimal --component clippy rustfmt
+      - name: Test dense portable SIMD backend
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        run: cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd
+      - name: Lint dense portable SIMD backend
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        run: cargo +nightly clippy -p chutoro-providers-dense --all-targets --features nightly_portable_simd -- -D warnings

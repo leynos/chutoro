@@ -112,7 +112,8 @@ impl<'a> DensePointView<'a> {
         all(
             feature = "simd_neon",
             any(target_arch = "arm", target_arch = "aarch64")
-        )
+        ),
+        all(feature = "nightly_portable_simd", nightly)
     ))]
     #[must_use]
     pub(crate) fn padded_point_count(&self) -> usize {
