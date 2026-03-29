@@ -92,6 +92,18 @@ fn apply_and_commit(
     Ok(())
 }
 
+fn build_sequential_graph(params: HnswParams, count: usize) -> Result<(Graph, usize), HnswError> {
+    let max_connections = params.max_connections();
+    let mut graph = Graph::with_capacity(params, count);
+    insert_sequential_nodes(&mut graph, count, 1)?;
+    Ok((graph, max_connections))
+}
+
+fn add_bidirectional_edge(graph: &mut Graph, a: usize, b: usize, level: usize) {
+    add_edge_if_missing(graph, a, b, level);
+    add_edge_if_missing(graph, b, a, level);
+}
+
 #[rstest]
 fn eviction_scrubs_orphaned_forward_edge(
     params_one_connection: HnswParams,
@@ -111,21 +123,17 @@ fn eviction_scrubs_orphaned_forward_edge(
 fn benign_deferred_scrub_is_noop_when_edge_already_removed(
     params_one_connection: HnswParams,
 ) -> Result<(), HnswError> {
-    let max_connections = params_one_connection.max_connections();
-    let mut graph = Graph::with_capacity(params_one_connection, 5);
+    let (mut graph, max_connections) = build_sequential_graph(params_one_connection, 5)?;
 
-    insert_sequential_nodes(&mut graph, 5, 1)?;
-
-    add_edge_if_missing(&mut graph, 1, 2, 1);
-    add_edge_if_missing(&mut graph, 2, 1, 1);
-
-    let update1 = build_update(0, 1, vec![1], max_connections);
-    let update2 = build_update(2, 1, vec![3], max_connections);
+    add_bidirectional_edge(&mut graph, 1, 2, 1);
     let new_node = NewNodeContext { id: 4, level: 1 };
 
     apply_and_commit(
         &mut graph,
-        vec![update1, update2],
+        vec![
+            build_update(0, 1, vec![1], max_connections),
+            build_update(2, 1, vec![3], max_connections),
+        ],
         max_connections,
         new_node,
     )?;
@@ -153,23 +161,18 @@ fn eviction_skips_scrub_if_reciprocity_restored(
 
 #[rstest]
 fn multiple_evictions_in_batch_update(params_one_connection: HnswParams) -> Result<(), HnswError> {
-    let max_connections = params_one_connection.max_connections();
-    let mut graph = Graph::with_capacity(params_one_connection, 7);
+    let (mut graph, max_connections) = build_sequential_graph(params_one_connection, 7)?;
 
-    insert_sequential_nodes(&mut graph, 7, 1)?;
-
-    add_edge_if_missing(&mut graph, 1, 2, 1);
-    add_edge_if_missing(&mut graph, 2, 1, 1);
-    add_edge_if_missing(&mut graph, 3, 4, 1);
-    add_edge_if_missing(&mut graph, 4, 3, 1);
-
-    let update1 = build_update(0, 1, vec![1], max_connections);
-    let update2 = build_update(5, 1, vec![3], max_connections);
+    add_bidirectional_edge(&mut graph, 1, 2, 1);
+    add_bidirectional_edge(&mut graph, 3, 4, 1);
     let new_node = NewNodeContext { id: 6, level: 1 };
 
     apply_and_commit(
         &mut graph,
-        vec![update1, update2],
+        vec![
+            build_update(0, 1, vec![1], max_connections),
+            build_update(5, 1, vec![3], max_connections),
+        ],
         max_connections,
         new_node,
     )?;
@@ -185,10 +188,7 @@ fn multiple_evictions_in_batch_update(params_one_connection: HnswParams) -> Resu
 #[rstest]
 fn eviction_respects_furthest_first_ordering() -> Result<(), HnswError> {
     let params = HnswParams::new(2, 4)?;
-    let max_connections = params.max_connections();
-    let mut graph = Graph::with_capacity(params, 5);
-
-    insert_sequential_nodes(&mut graph, 5, 1)?;
+    let (mut graph, max_connections) = build_sequential_graph(params, 5)?;
 
     // Push the neighbours directly so the list preserves the exact pre-eviction
     // ordering this test asserts against.
