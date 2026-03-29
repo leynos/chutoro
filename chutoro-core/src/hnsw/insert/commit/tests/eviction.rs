@@ -67,6 +67,31 @@ impl EvictionTestContext {
     }
 }
 
+fn insert_sequential_nodes(graph: &mut Graph, count: usize, level: usize) -> Result<(), HnswError> {
+    for node_id in 0..count {
+        insert_node(
+            graph,
+            node_id,
+            level,
+            u64::try_from(node_id).expect("test node ids must fit in u64"),
+        )?;
+    }
+    Ok(())
+}
+
+fn apply_and_commit(
+    graph: &mut Graph,
+    updates: Vec<(StagedUpdate, Vec<usize>)>,
+    max_connections: usize,
+    new_node: NewNodeContext,
+) -> Result<(), HnswError> {
+    let mut applicator = CommitApplicator::new(graph);
+    let (reciprocated, _) =
+        applicator.apply_neighbour_updates(updates, max_connections, new_node)?;
+    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    Ok(())
+}
+
 #[rstest]
 fn eviction_scrubs_orphaned_forward_edge(
     params_one_connection: HnswParams,
@@ -89,11 +114,7 @@ fn benign_deferred_scrub_is_noop_when_edge_already_removed(
     let max_connections = params_one_connection.max_connections();
     let mut graph = Graph::with_capacity(params_one_connection, 5);
 
-    insert_node(&mut graph, 0, 1, 0)?;
-    insert_node(&mut graph, 1, 1, 1)?;
-    insert_node(&mut graph, 2, 1, 2)?;
-    insert_node(&mut graph, 3, 1, 3)?;
-    insert_node(&mut graph, 4, 1, 4)?;
+    insert_sequential_nodes(&mut graph, 5, 1)?;
 
     add_edge_if_missing(&mut graph, 1, 2, 1);
     add_edge_if_missing(&mut graph, 2, 1, 1);
@@ -102,10 +123,12 @@ fn benign_deferred_scrub_is_noop_when_edge_already_removed(
     let update2 = build_update(2, 1, vec![3], max_connections);
     let new_node = NewNodeContext { id: 4, level: 1 };
 
-    let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update1, update2], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    apply_and_commit(
+        &mut graph,
+        vec![update1, update2],
+        max_connections,
+        new_node,
+    )?;
 
     assert_bidirectional_edge(&graph, 0, 1, 1);
     assert_no_edge(&graph, 2, 1, 1);
@@ -133,13 +156,7 @@ fn multiple_evictions_in_batch_update(params_one_connection: HnswParams) -> Resu
     let max_connections = params_one_connection.max_connections();
     let mut graph = Graph::with_capacity(params_one_connection, 7);
 
-    insert_node(&mut graph, 0, 1, 0)?;
-    insert_node(&mut graph, 1, 1, 1)?;
-    insert_node(&mut graph, 2, 1, 2)?;
-    insert_node(&mut graph, 3, 1, 3)?;
-    insert_node(&mut graph, 4, 1, 4)?;
-    insert_node(&mut graph, 5, 1, 5)?;
-    insert_node(&mut graph, 6, 1, 6)?;
+    insert_sequential_nodes(&mut graph, 7, 1)?;
 
     add_edge_if_missing(&mut graph, 1, 2, 1);
     add_edge_if_missing(&mut graph, 2, 1, 1);
@@ -150,10 +167,12 @@ fn multiple_evictions_in_batch_update(params_one_connection: HnswParams) -> Resu
     let update2 = build_update(5, 1, vec![3], max_connections);
     let new_node = NewNodeContext { id: 6, level: 1 };
 
-    let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update1, update2], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    apply_and_commit(
+        &mut graph,
+        vec![update1, update2],
+        max_connections,
+        new_node,
+    )?;
 
     assert_no_edge(&graph, 2, 1, 1);
     assert_no_edge(&graph, 4, 3, 1);
@@ -169,12 +188,10 @@ fn eviction_respects_furthest_first_ordering() -> Result<(), HnswError> {
     let max_connections = params.max_connections();
     let mut graph = Graph::with_capacity(params, 5);
 
-    insert_node(&mut graph, 0, 1, 0)?;
-    insert_node(&mut graph, 1, 1, 1)?;
-    insert_node(&mut graph, 2, 1, 2)?;
-    insert_node(&mut graph, 3, 1, 3)?;
-    insert_node(&mut graph, 4, 1, 4)?;
+    insert_sequential_nodes(&mut graph, 5, 1)?;
 
+    // Push the neighbours directly so the list preserves the exact pre-eviction
+    // ordering this test asserts against.
     let node1 = graph.node_mut(1).expect("node 1 should exist");
     node1.neighbours_mut(1).push(2);
     node1.neighbours_mut(1).push(3);
@@ -185,10 +202,7 @@ fn eviction_respects_furthest_first_ordering() -> Result<(), HnswError> {
     let update = build_update(0, 1, vec![1], max_connections);
     let new_node = NewNodeContext { id: 4, level: 1 };
 
-    let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    apply_and_commit(&mut graph, vec![update], max_connections, new_node)?;
 
     assert_no_edge(&graph, 1, 2, 1);
     assert_no_edge(&graph, 2, 1, 1);
