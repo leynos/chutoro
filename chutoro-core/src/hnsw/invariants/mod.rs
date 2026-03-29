@@ -138,6 +138,12 @@ pub enum HnswInvariantViolation {
         /// Layer index containing the asymmetric edge.
         layer: usize,
     },
+    /// The checker could not read the graph because a lock was poisoned.
+    #[error("lock for {resource} is poisoned")]
+    LockPoisoned {
+        /// Name of the locked resource that was poisoned.
+        resource: &'static str,
+    },
 }
 
 /// Helper returned by [`CpuHnsw::invariants`] to run structural checks.
@@ -281,7 +287,13 @@ impl<'index> HnswInvariantChecker<'index> {
         &self,
         f: impl FnOnce(GraphContext<'_>) -> Result<R, HnswInvariantViolation>,
     ) -> Result<R, HnswInvariantViolation> {
-        let guard = self.index.graph.read().expect("graph lock poisoned");
+        let guard = self
+            .index
+            .graph
+            .read()
+            .map_err(|_| HnswInvariantViolation::LockPoisoned {
+                resource: "graph lock",
+            })?;
         let ctx = GraphContext {
             graph: &guard,
             params: &self.index.params,

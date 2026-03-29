@@ -162,7 +162,7 @@ fn set_entry_neighbours(graph: &mut Graph, neighbours: &[usize]) {
 fn link_if_absent(graph: &mut Graph, origin: usize, target: usize) {
     let list = graph
         .node_mut(origin)
-        .unwrap_or_else(|| panic!("node {origin} should be present"))
+        .expect("trim fixture origin node must be present")
         .neighbours_mut(0);
     if !list.contains(&target) {
         list.push(target);

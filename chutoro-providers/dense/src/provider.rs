@@ -1,7 +1,8 @@
 //! Dense matrix provider implementation and ingestion utilities.
-use std::{fs::File, path::Path};
+use std::path::Path;
 
 use arrow_array::{Array, FixedSizeListArray, RecordBatchReader};
+use cap_std::fs::Dir;
 
 use chutoro_core::{DataSource, DataSourceError};
 use parquet::arrow::{ProjectionMask, arrow_reader::ParquetRecordBatchReaderBuilder};
@@ -59,13 +60,15 @@ impl DenseMatrixProvider {
         Ok(Self::from_parts(name, array.len(), dimension, values))
     }
 
-    /// Loads data from a Parquet column containing `FixedSizeList<Float32, D>` rows.
+    /// Loads data from a Parquet column containing `FixedSizeList<Float32, D>`
+    /// rows relative to a capability-scoped directory handle.
     pub fn try_from_parquet_path(
         name: impl Into<String>,
+        dir: &Dir,
         path: impl AsRef<Path>,
         column: &str,
     ) -> Result<Self, DenseMatrixProviderError> {
-        let file = File::open(path)?;
+        let file = dir.open(path)?.into_std();
         Self::try_from_parquet_reader(name, file, column)
     }
 

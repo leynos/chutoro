@@ -136,6 +136,8 @@ impl DataSource for TextProvider {
 
 #[cfg(test)]
 mod tests {
+    //! Tests covering text ingestion and distance calculations.
+
     use super::*;
     use std::io::{self, BufRead, Cursor, Read};
 

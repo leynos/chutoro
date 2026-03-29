@@ -58,10 +58,10 @@ pub enum LoggingError {
 /// failures (for example, when another global logger is already registered)
 /// are reported to `stderr` but do not cause this function to return an error.
 pub fn init_logging() -> Result<(), LoggingError> {
-    let guard = INIT_GUARD
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("logging initialization mutex poisoned");
+    let guard = match INIT_GUARD.get_or_init(|| Mutex::new(())).lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
 
     if INITIALIZED.get().is_some() {
         return Ok(());
@@ -69,15 +69,11 @@ pub fn init_logging() -> Result<(), LoggingError> {
 
     match install_subscriber() {
         Ok(()) => {
-            INITIALIZED
-                .set(())
-                .expect("logging initialization marker already set");
+            mark_initialized();
         }
         Err(LoggingError::InstallFailed { source }) => {
             report_logging_conflict(&source);
-            INITIALIZED
-                .set(())
-                .expect("logging initialization marker already set");
+            mark_initialized();
         }
         Err(err) => {
             drop(guard);
@@ -86,6 +82,10 @@ pub fn init_logging() -> Result<(), LoggingError> {
     }
 
     Ok(())
+}
+
+fn mark_initialized() {
+    let _ = INITIALIZED.set(());
 }
 
 fn install_subscriber() -> Result<(), LoggingError> {
@@ -157,6 +157,8 @@ fn parse_log_format(raw: &str) -> Result<bool, LoggingError> {
 
 #[cfg(test)]
 mod tests {
+    //! Tests for log format parsing and idempotent initialisation.
+
     use super::*;
 
     use rstest::rstest;

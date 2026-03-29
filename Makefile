@@ -3,8 +3,12 @@
 APP ?= chutoro-cli
 CARGO ?= cargo
 BUILD_JOBS ?=
-CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
-RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
+RUST_FLAGS ?=
+RUST_FLAGS := -D warnings $(RUST_FLAGS)
+CLIPPY_FLAGS ?= --all-targets --all-features -- $(RUST_FLAGS)
+RUSTDOC_FLAGS ?= --cfg docsrs
+RUSTDOC_FLAGS := $(RUSTDOC_FLAGS) -D warnings
+WHITAKER_FLAGS ?= --all -- --all-targets --all-features
 MDLINT ?= markdownlint-cli2
 NEXTEST_PROFILE ?= $(if $(CI),ci,default)
 NIXIE ?= nixie
@@ -19,7 +23,7 @@ clean: ## Remove build artifacts
 	$(CARGO) clean
 
 test: ## Run tests with warnings treated as errors
-	RUSTFLAGS="-D warnings" $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS)
+	RUSTFLAGS="$(RUST_FLAGS)" $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS)
 
 target/%/$(APP): ## Build binary in debug or release mode
 	$(CARGO) build $(BUILD_JOBS) $(if $(findstring release,$(@)),--release) --bin $(APP)
@@ -27,6 +31,7 @@ target/%/$(APP): ## Build binary in debug or release mode
 lint: ## Run Clippy with warnings denied
 	RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) doc --workspace --no-deps
 	$(CARGO) clippy $(CLIPPY_FLAGS)
+	RUSTFLAGS="$(RUST_FLAGS)" whitaker $(WHITAKER_FLAGS)
 
 fmt: ## Format Rust and Markdown sources
 	$(CARGO) fmt --all

@@ -98,6 +98,8 @@ pub fn make_hnsw_params_with_ef(
 
 #[cfg(test)]
 mod tests {
+    //! Tests for ef-construction resolution and HNSW parameter construction.
+
     use super::*;
     use rstest::rstest;
 

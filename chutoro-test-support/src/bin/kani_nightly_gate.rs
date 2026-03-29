@@ -2,12 +2,11 @@
 
 use std::env;
 use std::error::Error;
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chutoro_test_support::ci::nightly_gate::should_run_kani_full;
+use chutoro_test_support::github_output::{self, OutputPair};
 
 fn main() -> Result<(), Box<dyn Error>> {
     let force = read_force_flag()?;
@@ -74,41 +73,11 @@ fn read_now_epoch() -> Result<u64, Box<dyn Error>> {
 }
 
 fn emit_github_output(should_run: bool, reason: &str) -> Result<(), Box<dyn Error>> {
-    let output_path = read_optional_env("GITHUB_OUTPUT")?.unwrap_or_default();
-    if output_path.is_empty() {
-        return Ok(());
-    }
-
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(output_path)?;
-
-    writeln!(file, "should_run={should_run}")?;
-    write_github_output_value(&mut file, "reason", reason)?;
-
-    Ok(())
-}
-
-fn write_github_output_value(
-    file: &mut impl Write,
-    key: &str,
-    value: &str,
-) -> Result<(), Box<dyn Error>> {
-    if !value.contains('\n') && !value.contains('\r') {
-        writeln!(file, "{key}={value}")?;
-        return Ok(());
-    }
-
-    let delimiter = "CHUTORO_EOF";
-    if value.contains(delimiter) {
-        return Err(format!("output value for {key} contains {delimiter}").into());
-    }
-
-    writeln!(file, "{key}<<{delimiter}")?;
-    writeln!(file, "{value}")?;
-    writeln!(file, "{delimiter}")?;
-
+    let should_run = should_run.to_string();
+    github_output::append_if_configured(&[
+        OutputPair::new("should_run", &should_run),
+        OutputPair::new("reason", reason),
+    ])?;
     Ok(())
 }
 

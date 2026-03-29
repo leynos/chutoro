@@ -33,10 +33,8 @@ impl Graph {
         let snapshot_entry = self.entry;
         let removed_neighbours = collect_neighbour_layers(existing);
 
-        self.nodes
-            .get_mut(node)
-            .and_then(Option::take)
-            .expect("node presence checked above");
+        let removed = self.nodes.get_mut(node).and_then(Option::take);
+        debug_assert!(removed.is_some(), "node presence checked above");
 
         self.strip_references_to(node);
         self.reconnect_layers(removed_neighbours);

@@ -4,6 +4,27 @@ This guide collects day-to-day practices for contributors working on the
 Chutoro codebase. It complements the more specialized documents in `docs/` and
 keeps operational guidance in one place.
 
+## Quality gates
+
+Run the standard repository quality gates from the repository root:
+
+```sh
+make check-fmt
+make lint
+make test
+```
+
+`make lint` runs Rustdoc, Clippy, and Whitaker. Install the Whitaker standalone
+wrapper once before using the lint target locally:
+
+```sh
+cargo install whitaker-installer
+whitaker-installer
+```
+
+For installation details and optional Whitaker configuration, see the
+[Whitaker user's guide](whitaker-users-guide.md).
+
 ## Benchmarks
 
 The `chutoro-benches` crate provides Criterion benchmarks for the four CPU

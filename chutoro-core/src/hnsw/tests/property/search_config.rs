@@ -139,6 +139,8 @@ fn parse_recall_threshold(raw: RawConfigValue<'_>) -> Result<f32, RecallThreshol
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for environment-driven search property configuration.
+
     use super::*;
     use rstest::rstest;
     use std::{env, sync::Mutex};

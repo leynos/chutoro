@@ -84,9 +84,13 @@ impl DistanceCacheConfig {
 
 impl Default for DistanceCacheConfig {
     fn default() -> Self {
-        let max_entries = NonZeroUsize::new(Self::DEFAULT_MAX_ENTRIES)
-            .expect("default cache size must be non-zero");
-        Self::new(max_entries)
+        Self {
+            max_entries: match NonZeroUsize::new(Self::DEFAULT_MAX_ENTRIES) {
+                Some(value) => value,
+                None => unreachable!("default cache size must be non-zero"),
+            },
+            ttl: None,
+        }
     }
 }
 
@@ -187,36 +191,36 @@ impl DistanceCache {
         metric: &MetricDescriptor,
         left: usize,
         right: usize,
-    ) -> LookupOutcome {
+    ) -> Result<LookupOutcome, HnswError> {
         let started = Instant::now();
         let key = DistanceKey::new(metric.clone(), left, right);
         if let Some(entry) = self.entries.get(&key) {
             if self.is_expired(&entry) {
                 drop(entry);
                 self.entries.remove(&key);
-                self.remove_from_usage(&key);
+                self.remove_from_usage(&key)?;
                 self.record_eviction();
                 self.record_miss();
-                return LookupOutcome::Miss(PendingMiss {
+                return Ok(LookupOutcome::Miss(PendingMiss {
                     key,
                     started,
                     left,
                     right,
-                });
+                }));
             }
             let value = entry.value;
             drop(entry);
-            self.touch(&key);
+            self.touch(&key)?;
             self.record_hit(started.elapsed());
-            LookupOutcome::Hit(value)
+            Ok(LookupOutcome::Hit(value))
         } else {
             self.record_miss();
-            LookupOutcome::Miss(PendingMiss {
+            Ok(LookupOutcome::Miss(PendingMiss {
                 key,
                 started,
                 left,
                 right,
-            })
+            }))
         }
     }
 
@@ -242,7 +246,7 @@ impl DistanceCache {
                 inserted: Instant::now(),
             },
         );
-        self.touch(&key);
+        self.touch(&key)?;
         self.record_lookup_latency(started.elapsed());
         Ok(value)
     }
@@ -253,28 +257,28 @@ impl DistanceCache {
             .is_some_and(|ttl| entry.inserted.elapsed() > ttl)
     }
 
-    fn touch(&self, key: &DistanceKey) {
+    fn touch(&self, key: &DistanceKey) -> Result<(), HnswError> {
         let shard = self.shard_for_key(key);
-        let mut usage = shard
-            .usage
-            .lock()
-            .expect("distance cache usage mutex poisoned");
+        let mut usage = shard.usage.lock().map_err(|_| HnswError::LockPoisoned {
+            resource: "distance cache usage mutex",
+        })?;
         if let Some((evicted, _)) = usage.push(key.clone(), ()) {
             self.entries.remove(&evicted);
             self.record_eviction();
         }
+        Ok(())
     }
 
-    fn remove_from_usage(&self, key: &DistanceKey) {
+    fn remove_from_usage(&self, key: &DistanceKey) -> Result<(), HnswError> {
         let shard = self.shard_for_key(key);
-        let mut usage = shard
-            .usage
-            .lock()
-            .expect("distance cache usage mutex poisoned");
+        let mut usage = shard.usage.lock().map_err(|_| HnswError::LockPoisoned {
+            resource: "distance cache usage mutex",
+        })?;
         if let Some(evicted) = self.try_restore_and_get_evicted(&mut usage, key) {
             self.entries.remove(&evicted);
             self.record_eviction();
         }
+        Ok(())
     }
 
     fn try_restore_and_get_evicted(
@@ -304,9 +308,7 @@ impl DistanceCache {
             key.hash(&mut hasher);
             (hasher.finish() as usize) % self.shards.len()
         };
-        self.shards
-            .get(index)
-            .expect("distance cache shard index must be valid")
+        &self.shards[index]
     }
 
     #[cfg(feature = "metrics")]
@@ -360,7 +362,10 @@ fn lru_shard_capacities(total_capacity: usize) -> Vec<NonZeroUsize> {
         .map(|index| {
             let extra = usize::from(index < remainder);
             let shard_capacity = base + extra;
-            NonZeroUsize::new(shard_capacity).expect("shard capacity must be non-zero")
+            match NonZeroUsize::new(shard_capacity) {
+                Some(capacity) => capacity,
+                None => unreachable!("shard capacity must be non-zero"),
+            }
         })
         .collect()
 }

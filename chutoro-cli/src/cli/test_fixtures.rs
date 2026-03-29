@@ -4,12 +4,12 @@
 //! across CLI tests. Keeping them in one place avoids duplication and keeps the
 //! individual test modules focused on behaviour.
 
-use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
+use cap_std::{ambient_authority, fs::Dir};
 use parquet::arrow::arrow_writer::ArrowWriter;
 use tempfile::TempDir;
 
@@ -31,7 +31,8 @@ pub fn create_parquet_file(
     let path = dir.path().join(name);
     let schema = build_schema();
     let batch = build_record_batch(schema.clone());
-    let file = File::create(&path)?;
+    let dir = Dir::open_ambient_dir(dir.path(), ambient_authority())?;
+    let file = dir.create(name)?;
     let mut writer = ArrowWriter::try_new(file, schema, None)?;
     writer.write(&batch)?;
     writer.close()?;

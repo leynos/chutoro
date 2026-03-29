@@ -32,12 +32,12 @@ impl DenseSource {
     #[track_caller]
     #[must_use]
     pub fn new(name: impl Into<String>, data: Vec<Vec<f32>>) -> Self {
-        #[expect(
-            clippy::expect_used,
-            reason = "constructor panics on empty data, zero-length rows, or inconsistent row lengths"
-        )]
-        Self::try_new(name, data)
-            .expect("data must be non-empty with uniformly positive-dimension rows")
+        match Self::try_new(name, data) {
+            Ok(source) => source,
+            Err(error) => {
+                panic!("data must be non-empty with uniformly positive-dimension rows: {error}")
+            }
+        }
     }
 
     /// Creates a dense source after validating uniform dimensions.

@@ -151,13 +151,15 @@ struct GraphSnapshot {
 
 /// Captures a snapshot of the graph's structural state.
 fn snapshot_graph(index: &CpuHnsw) -> GraphSnapshot {
-    index.inspect_graph(|graph| {
-        let entry = graph.entry();
-        let nodes = (0..graph.capacity())
-            .map(|id| graph.node(id).map(snapshot_node))
-            .collect();
-        GraphSnapshot { entry, nodes }
-    })
+    index
+        .inspect_graph(|graph| {
+            let entry = graph.entry();
+            let nodes = (0..graph.capacity())
+                .map(|id| graph.node(id).map(snapshot_node))
+                .collect();
+            GraphSnapshot { entry, nodes }
+        })
+        .expect("graph snapshot must acquire the test graph lock")
 }
 
 /// Captures a snapshot of a single node's structural state.
@@ -180,6 +182,8 @@ fn graph_matches_snapshot(index: &CpuHnsw, snapshot: &GraphSnapshot) -> bool {
 
 #[cfg(test)]
 mod tests {
+    //! Regression coverage for duplicate-insertion idempotency helpers.
+
     use super::*;
     use crate::hnsw::tests::property::types::{
         DistributionMetadata, HnswParamsSeed, VectorDistribution,

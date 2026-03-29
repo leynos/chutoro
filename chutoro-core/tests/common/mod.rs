@@ -1,3 +1,5 @@
+//! Shared integration-test fixtures for simple in-memory data sources.
+
 use chutoro_core::{DataSource, DataSourceError};
 
 #[derive(Clone)]

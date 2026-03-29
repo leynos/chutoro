@@ -1,3 +1,5 @@
+//! Error conversion coverage for dense matrix providers.
+
 use super::DenseMatrixProviderError;
 use arrow_schema::ArrowError;
 use parquet::errors::ParquetError;

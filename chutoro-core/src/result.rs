@@ -49,8 +49,10 @@ pub enum NonContiguousClusterIds {
 impl ClusteringResult {
     /// Builds a result from explicit cluster assignments.
     ///
-    /// Cluster identifiers must start at zero and be contiguous. Use
-    /// [`Self::try_from_assignments`] to handle arbitrary identifiers.
+    /// This constructor preserves the provided assignment identifiers and
+    /// derives `cluster_count` from the number of distinct cluster ids. Use
+    /// [`Self::try_from_assignments`] when cluster identifiers must be
+    /// contiguous starting at zero.
     ///
     /// # Examples
     /// ```
@@ -61,8 +63,15 @@ impl ClusteringResult {
     /// ```
     #[must_use]
     pub fn from_assignments(assignments: Vec<ClusterId>) -> Self {
-        Self::try_from_assignments(assignments)
-            .expect("cluster identifiers must start at zero and be contiguous")
+        let cluster_count = assignments
+            .iter()
+            .map(|id| id.get())
+            .collect::<HashSet<_>>()
+            .len();
+        Self {
+            assignments,
+            cluster_count,
+        }
     }
 
     /// Attempts to build a result from cluster assignments.

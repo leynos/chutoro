@@ -5,11 +5,12 @@
 //! clustering pipeline.
 
 mod commands;
+mod output;
 
 pub use commands::{
-    Cli, CliError, Command, ExecutionSummary, ParquetArgs, RunCommand, RunSource, TextArgs,
-    TextMetric, render_summary, run_cli,
+    Cli, CliError, Command, ParquetArgs, RunCommand, RunSource, TextArgs, TextMetric, run_cli,
 };
+pub use output::{ExecutionSummary, render_summary};
 
 #[cfg(test)]
 mod tests;

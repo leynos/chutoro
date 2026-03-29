@@ -321,15 +321,17 @@ fn bootstrap_uniform_fixture_remains_reachable() {
             .expect("bootstrap insertion must succeed");
     }
 
-    index.inspect_graph(|graph| {
-        for node in 0..initial_population {
-            let node_ref = graph.node(node).expect("seeded node should exist");
-            assert!(
-                !node_ref.neighbours(0).is_empty(),
-                "seeded node {node} should expose base neighbours",
-            );
-        }
-    });
+    index
+        .inspect_graph(|graph| {
+            for node in 0..initial_population {
+                let node_ref = graph.node(node).expect("seeded node should exist");
+                assert!(
+                    !node_ref.neighbours(0).is_empty(),
+                    "seeded node {node} should expose base neighbours",
+                );
+            }
+        })
+        .expect("graph inspection must succeed");
 
     index
         .invariants()

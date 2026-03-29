@@ -156,7 +156,9 @@ fn apply_mutation_steps(
 
 #[cfg(test)]
 fn heal_graph(index: &CpuHnsw) {
-    index.heal_for_test();
+    index
+        .heal_for_test()
+        .expect("test-only graph healing must acquire the graph lock");
 }
 
 struct MutationRunner<'ctx> {
@@ -172,49 +174,61 @@ impl<'ctx> MutationRunner<'ctx> {
         operation: &MutationOperationSeed,
     ) -> Result<OperationOutcome, TestCaseError> {
         match operation {
-            MutationOperationSeed::Add { slot_hint } => {
-                if let Some(node) = self.pools.select_available(*slot_hint) {
-                    let insert_result = self.index.insert(node, self.source);
-                    insert_result.map_err(|err| mutation_fail("insert", node, err))?;
-                    self.pools.mark_inserted(node);
-                    Ok(OperationOutcome::applied(format!("add node {node}")))
-                } else {
-                    Ok(OperationOutcome::skipped("add skipped: no available nodes"))
-                }
-            }
-            MutationOperationSeed::Delete { slot_hint } => {
-                let Some(node) = self.pools.select_inserted(*slot_hint) else {
-                    return Ok(OperationOutcome::skipped(
-                        "delete skipped: no inserted nodes",
-                    ));
-                };
-                let delete_result = self.index.delete_node_for_test(node);
-                match delete_result {
-                    Ok(true) => {
-                        self.pools.mark_deleted(node);
-                        Ok(OperationOutcome::applied(format!("delete node {node}")))
-                    }
-                    Ok(false) => Ok(OperationOutcome::skipped(format!(
-                        "delete skipped: node {node} missing"
-                    ))),
-                    Err(err @ HnswError::GraphInvariantViolation { .. }) => {
-                        Ok(OperationOutcome::skipped(format!("delete aborted: {err}")))
-                    }
-                    Err(err) => Err(mutation_fail("delete", node, err)),
-                }
-            }
-            MutationOperationSeed::Reconfigure { params } => {
-                let next = next_reconfigure_params(self.active_params, params)?;
-                self.index.reconfigure_for_test(next.clone());
-                let summary = format!(
-                    "reconfigure -> M={} ef={}",
-                    next.max_connections(),
-                    next.ef_construction(),
-                );
-                *self.active_params = next;
-                Ok(OperationOutcome::applied(summary))
-            }
+            MutationOperationSeed::Add { slot_hint } => self.apply_add(*slot_hint),
+            MutationOperationSeed::Delete { slot_hint } => self.apply_delete(*slot_hint),
+            MutationOperationSeed::Reconfigure { params } => self.apply_reconfigure(params),
         }
+    }
+
+    fn apply_add(&mut self, slot_hint: u16) -> Result<OperationOutcome, TestCaseError> {
+        let Some(node) = self.pools.select_available(slot_hint) else {
+            return Ok(OperationOutcome::skipped("add skipped: no available nodes"));
+        };
+
+        self.index
+            .insert(node, self.source)
+            .map_err(|err| mutation_fail("insert", node, err))?;
+        self.pools.mark_inserted(node);
+        Ok(OperationOutcome::applied(format!("add node {node}")))
+    }
+
+    fn apply_delete(&mut self, slot_hint: u16) -> Result<OperationOutcome, TestCaseError> {
+        let Some(node) = self.pools.select_inserted(slot_hint) else {
+            return Ok(OperationOutcome::skipped(
+                "delete skipped: no inserted nodes",
+            ));
+        };
+
+        match self.index.delete_node_for_test(node) {
+            Ok(true) => {
+                self.pools.mark_deleted(node);
+                Ok(OperationOutcome::applied(format!("delete node {node}")))
+            }
+            Ok(false) => Ok(OperationOutcome::skipped(format!(
+                "delete skipped: node {node} missing"
+            ))),
+            Err(err @ HnswError::GraphInvariantViolation { .. }) => {
+                Ok(OperationOutcome::skipped(format!("delete aborted: {err}")))
+            }
+            Err(err) => Err(mutation_fail("delete", node, err)),
+        }
+    }
+
+    fn apply_reconfigure(
+        &mut self,
+        seed: &HnswParamsSeed,
+    ) -> Result<OperationOutcome, TestCaseError> {
+        let next = next_reconfigure_params(self.active_params, seed)?;
+        self.index
+            .reconfigure_for_test(next.clone())
+            .map_err(|err| TestCaseError::fail(format!("reconfigure failed: {err}")))?;
+        let summary = format!(
+            "reconfigure -> M={} ef={}",
+            next.max_connections(),
+            next.ef_construction(),
+        );
+        *self.active_params = next;
+        Ok(OperationOutcome::applied(summary))
     }
 }
 
@@ -273,6 +287,8 @@ impl OperationOutcome {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for mutation-plan helper bounds and reconfiguration.
+
     use super::*;
     use rstest::rstest;
 

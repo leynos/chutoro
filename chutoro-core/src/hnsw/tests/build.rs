@@ -284,7 +284,7 @@ fn cpu_hnsw_initialises_graph_with_params() -> Result<(), HnswError> {
         assert_eq!(graph_params.max_connections(), params.max_connections());
         assert_eq!(graph_params.ef_construction(), params.ef_construction());
         assert_eq!(graph_params.rng_seed(), params.rng_seed());
-    });
+    })?;
     Ok(())
 }
 

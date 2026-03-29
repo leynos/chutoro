@@ -101,6 +101,8 @@ fn parse_bool(raw: &str) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
+    //! Tests for property-test profile parsing and environment overrides.
+
     use super::*;
     use rstest::rstest;
     use std::collections::HashMap;

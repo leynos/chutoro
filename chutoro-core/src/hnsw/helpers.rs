@@ -135,7 +135,7 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
     let mut miss_meta = Vec::new();
 
     for (index, &candidate) in candidates.iter().enumerate() {
-        match cache.begin_lookup(&metric, node, candidate) {
+        match cache.begin_lookup(&metric, node, candidate)? {
             LookupOutcome::Hit(value) => distances[index] = value,
             LookupOutcome::Miss(miss) => {
                 miss_candidates.push(candidate);
@@ -169,6 +169,8 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for neighbour ordering and cached trim-distance helpers.
+
     use super::*;
     use crate::{DataSourceError, DistanceCacheConfig, datasource::MetricDescriptor};
 
@@ -246,7 +248,7 @@ mod tests {
         let metric = source.metric_descriptor();
         assert!(matches!(
             cache.begin_lookup(&metric, 0, 1),
-            LookupOutcome::Hit(value) if (value - 1.0).abs() < f32::EPSILON
+            Ok(LookupOutcome::Hit(value)) if (value - 1.0).abs() < f32::EPSILON
         ));
     }
 

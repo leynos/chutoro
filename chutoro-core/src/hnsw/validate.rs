@@ -1,3 +1,5 @@
+//! Distance validation helpers for HNSW search, insertion, and cache reuse.
+
 use super::{
     distance_cache::{DistanceCache, LookupOutcome, PendingMiss},
     error::HnswError,
@@ -12,7 +14,7 @@ fn lookup_or_compute<D: DataSource + Sync>(
 ) -> Result<f32, HnswError> {
     if let Some(cache) = cache {
         let metric = source.metric_descriptor();
-        match cache.begin_lookup(&metric, left, right) {
+        match cache.begin_lookup(&metric, left, right)? {
             LookupOutcome::Hit(value) => Ok(value),
             LookupOutcome::Miss(pending) => {
                 let value = source.distance(left, right)?;
@@ -34,7 +36,7 @@ fn batch_lookup_or_compute<D: DataSource + Sync>(
     let mut results: Vec<Option<f32>> = vec![None; candidates.len()];
     let mut pending = Vec::new();
 
-    context.populate(&mut results, &mut pending);
+    context.populate(&mut results, &mut pending)?;
 
     if !pending.is_empty() {
         context.resolve(pending, &mut results)?;
@@ -106,13 +108,21 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
         }
     }
 
-    fn populate(&self, results: &mut [Option<f32>], pending: &mut Vec<(usize, PendingMiss)>) {
+    fn populate(
+        &self,
+        results: &mut [Option<f32>],
+        pending: &mut Vec<(usize, PendingMiss)>,
+    ) -> Result<(), HnswError> {
         for (index, &candidate) in self.candidates.iter().enumerate() {
-            match self.cache.begin_lookup(&self.metric, self.query, candidate) {
+            match self
+                .cache
+                .begin_lookup(&self.metric, self.query, candidate)?
+            {
                 LookupOutcome::Hit(value) => results[index] = Some(value),
                 LookupOutcome::Miss(miss) => pending.push((index, miss)),
             }
         }
+        Ok(())
     }
 
     fn resolve(
@@ -179,6 +189,8 @@ fn ensure_all_resolved(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for cached distance validation failure handling.
+
     use super::*;
 
     #[test]

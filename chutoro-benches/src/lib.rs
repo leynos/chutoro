@@ -7,6 +7,7 @@
 pub mod clustering_quality;
 pub mod ef_sweep;
 pub mod error;
+pub(crate) mod fs_support;
 pub mod params;
 pub mod profiling;
 pub mod recall;

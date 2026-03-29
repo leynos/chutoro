@@ -67,6 +67,8 @@ pub(super) fn run_connectivity_preservation_property(fixture: &GraphFixture) -> 
 
 #[cfg(test)]
 mod tests {
+    //! Unit and stochastic checks for topology connectivity expectations.
+
     use super::*;
     use crate::test_utils::suite_proptest_config;
     use proptest::prelude::*;

@@ -12,6 +12,7 @@ simd_neon = []
 [dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+cap-std = "4.0.2"
 parquet = { workspace = true, features = ["arrow"] }
 thiserror = "2.0.17"
 [dependencies.chutoro-core]

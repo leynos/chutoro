@@ -3,7 +3,6 @@
 //! These helpers track peak resident set size (RSS) while an operation runs.
 
 use std::{
-    fs,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -122,7 +121,7 @@ fn store_background_error(error_slot: &Mutex<Option<ProfilingError>>, error: Pro
 
 #[cfg(target_os = "linux")]
 fn read_vm_rss_bytes() -> Result<u64, ProfilingError> {
-    let status = fs::read_to_string("/proc/self/status")?;
+    let status = crate::fs_support::read_proc_status()?;
     parse_vm_rss_bytes(&status)
 }
 
@@ -165,6 +164,8 @@ fn parse_kibibyte_proc_field(line: &str, field: &'static str) -> Result<u64, Pro
 
 #[cfg(test)]
 mod tests {
+    //! Tests for parsing and sampling peak RSS values.
+
     use super::*;
     use rstest::rstest;
 

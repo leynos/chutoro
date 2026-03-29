@@ -297,6 +297,8 @@ impl Chutoro {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests covering backend selection and pre-flight validation.
+
     use super::*;
     use crate::ChutoroBuilder;
 

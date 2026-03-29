@@ -1,5 +1,6 @@
 //! Helpers for ingesting fixed-size list arrays into dense buffers.
 use arrow_array::{Array, FixedSizeListArray, Float32Array};
+use arrow_schema::ArrowError;
 use arrow_schema::{DataType, Field};
 
 use crate::errors::DenseMatrixProviderError;
@@ -60,6 +61,10 @@ pub(crate) fn validate_fixed_size_list(
     })
 }
 
+fn first_null_value_index(floats: &Float32Array, dimension: usize) -> Option<usize> {
+    (0..dimension).find(|&value_index| floats.is_null(value_index))
+}
+
 pub(crate) fn copy_list_values(
     array: &FixedSizeListArray,
     dimension: usize,
@@ -89,14 +94,18 @@ pub(crate) fn copy_list_values(
                 actual: floats.len(),
             });
         }
-        if floats.null_count() > 0 {
-            let value_index = (0..dimension)
-                .find(|&idx| floats.is_null(idx))
-                .expect("null_count > 0 but no null index found");
+        if let Some(value_index) = first_null_value_index(floats, dimension) {
             return Err(DenseMatrixProviderError::NullValue {
                 row: absolute_row,
                 value_index,
             });
+        }
+        if floats.null_count() > 0 {
+            return Err(DenseMatrixProviderError::Arrow(
+                ArrowError::InvalidArgumentError(
+                    "Float32Array reported null values but no null index was found".to_owned(),
+                ),
+            ));
         }
         let values = floats.values().as_ref();
         let start = floats.offset();

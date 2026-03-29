@@ -76,6 +76,8 @@ pub(super) fn run_rnn_uplift_property(fixture: &GraphFixture) -> TestCaseResult 
 
 #[cfg(test)]
 mod tests {
+    //! Threshold and stochastic regression coverage for RNN uplift checks.
+
     use super::*;
     use crate::test_utils::suite_proptest_config;
     use proptest::prelude::*;

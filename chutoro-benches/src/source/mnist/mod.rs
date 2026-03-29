@@ -1,9 +1,10 @@
 //! MNIST download-and-cache helper for benchmark baselines.
 
+use crate::fs_support;
 use crate::source::{SyntheticError, numeric::SyntheticSource};
+use cap_std::{ambient_authority, fs::Dir};
 use flate2::read::GzDecoder;
 use std::env;
-use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -78,7 +79,7 @@ fn load_mnist_with_client(
     config: &MnistConfig,
     client: &dyn MnistDownloadClient,
 ) -> Result<SyntheticSource, SyntheticError> {
-    fs::create_dir_all(&config.cache_dir)?;
+    Dir::create_ambient_dir_all(&config.cache_dir, ambient_authority())?;
 
     let train_path = config.cache_dir.join(TRAIN_IMAGES_FILE);
     let test_path = config.cache_dir.join(TEST_IMAGES_FILE);
@@ -123,8 +124,8 @@ fn ensure_cached_bytes(
     url: &str,
     client: &dyn MnistDownloadClient,
 ) -> Result<Vec<u8>, SyntheticError> {
-    if path.exists() {
-        return fs::read(path).map_err(SyntheticError::from);
+    if fs_support::try_exists(path)? {
+        return fs_support::read(path).map_err(SyntheticError::from);
     }
 
     let payload = client.download_bytes(url)?;
@@ -135,11 +136,11 @@ fn ensure_cached_bytes(
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), SyntheticError> {
     let mut part_path = path.to_path_buf();
     part_path.set_extension("part");
-    if part_path.exists() {
-        fs::remove_file(&part_path)?;
+    if fs_support::try_exists(&part_path)? {
+        fs_support::remove_file(&part_path)?;
     }
-    fs::write(&part_path, bytes)?;
-    fs::rename(&part_path, path)?;
+    fs_support::write(&part_path, bytes)?;
+    fs_support::rename(&part_path, path)?;
     Ok(())
 }
 
