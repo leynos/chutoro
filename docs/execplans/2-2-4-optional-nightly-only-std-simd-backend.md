@@ -508,16 +508,18 @@ Planned edits:
       - `timeout-minutes: 30`
       - Steps:
         1. Checkout `main`.
-        2. Install nightly Rust toolchain (override the pinned stable):
-           `rustup toolchain install nightly && rustup override set nightly`.
-        3. Check for recent commits on `main` in the last 24 hours (reuse
-           the same gating logic as the Kani workflow, or use a simpler
-           inline check).
+        2. Check for recent commits on `main` in the last 24 hours by fetching
+           `origin/main` and comparing `git log -1 --format=%ct origin/main`
+           against the current UTC time; allow `workflow_dispatch` to bypass
+           the age check with `force_run=true`.
+        3. Install nightly Rust with the workflow command:
+           `rustup toolchain install nightly --profile minimal --component`
+           `clippy rustfmt`.
         4. Run
-           `cargo test -p chutoro-providers-dense --features nightly_portable_simd`
-           with `RUSTFLAGS="-D warnings"`.
+           `RUSTFLAGS="-D warnings" cargo +nightly test -p`
+           `chutoro-providers-dense --features nightly_portable_simd`.
         5. Run
-           `cargo clippy -p chutoro-providers-dense --all-targets`
+           `cargo +nightly clippy -p chutoro-providers-dense --all-targets`
            `--features nightly_portable_simd -- -D warnings`.
 
 ### Stage G: update documentation and close roadmap item
@@ -621,9 +623,11 @@ Quality criteria:
 - Markdown: `make markdownlint` exits `0`.
 - Mermaid: `make nixie` exits `0`.
 - Nightly build:
-  `cargo test -p chutoro-providers-dense --features nightly_portable_simd`
-  succeeds on a nightly Rust toolchain (validated in CI or locally if nightly
-  is available).
+  `RUSTFLAGS="-D warnings" cargo +nightly test -p chutoro-providers-dense`
+  `--features nightly_portable_simd` and `cargo +nightly clippy -p`
+  `chutoro-providers-dense --all-targets --features nightly_portable_simd`
+  `-- -D warnings` succeed on a nightly Rust toolchain (validated in CI or
+  locally if nightly is available).
 
 Quality method:
 
