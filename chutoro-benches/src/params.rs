@@ -56,6 +56,8 @@ impl fmt::Display for ExtractionBenchParams {
 
 #[cfg(test)]
 mod tests {
+    //! Tests for benchmark parameter display formatting.
+
     use super::*;
     use rstest::rstest;
 

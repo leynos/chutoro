@@ -254,6 +254,8 @@ fn hnsw_build_ef_sweep(c: &mut Criterion) {
 }
 
 mod bench_harness {
+    //! Criterion harness wiring for the HNSW ef-sweep benchmark entry point.
+
     use super::hnsw_build_ef_sweep;
     use criterion::criterion_group;
 

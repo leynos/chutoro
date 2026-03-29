@@ -3,10 +3,10 @@
 //! The CLI unit tests build temporary input files and assert error handling
 //! behaviour. These helpers keep the test cases concise and consistent.
 
-use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
+use cap_std::{ambient_authority, fs::Dir};
 use tempfile::TempDir;
 
 use super::super::commands::run_command;
@@ -21,7 +21,8 @@ pub(super) fn temp_dir() -> TempDir {
 
 pub(super) fn create_text_file(dir: &TempDir, name: &str, contents: &str) -> io::Result<PathBuf> {
     let path = dir.path().join(name);
-    let mut file = File::create(&path)?;
+    let dir = Dir::open_ambient_dir(dir.path(), ambient_authority())?;
+    let mut file = dir.create(name)?;
     file.write_all(contents.as_bytes())?;
     Ok(path)
 }

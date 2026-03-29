@@ -1,10 +1,10 @@
 //! Behavioural tests for the nightly Kani gate binary.
 
 use std::env;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use cap_std::{ambient_authority, fs::Dir};
 use rstest::{fixture, rstest};
 
 const SECONDS_PER_DAY: u64 = 86_400;
@@ -143,14 +143,16 @@ fn binary_path() -> PathBuf {
 }
 
 fn find_in_deps(deps_dir: &Path) -> Option<PathBuf> {
-    fs::read_dir(deps_dir)
+    let dir = Dir::open_ambient_dir(deps_dir, ambient_authority()).ok()?;
+    dir.entries()
         .ok()?
-        .filter_map(|entry| entry.ok())
-        .find_map(is_matching_binary)
+        .filter_map(Result::ok)
+        .find_map(|entry| is_matching_binary(deps_dir, entry))
 }
 
-fn is_matching_binary(entry: fs::DirEntry) -> Option<PathBuf> {
-    let path = entry.path();
+fn is_matching_binary(deps_dir: &Path, entry: cap_std::fs::DirEntry) -> Option<PathBuf> {
+    let file_name = entry.file_name();
+    let path = PathBuf::from(&file_name);
     let metadata = entry.metadata().ok()?;
 
     if !metadata.is_file() {
@@ -164,7 +166,7 @@ fn is_matching_binary(entry: fs::DirEntry) -> Option<PathBuf> {
 
     let file_stem = path.file_stem()?.to_str()?;
     if file_stem.starts_with("kani_nightly_gate") {
-        Some(path)
+        Some(deps_dir.join(file_name))
     } else {
         None
     }

@@ -132,8 +132,14 @@ fn verify_bidirectional_links_commit_path_3_nodes() {
         .expect("attach node 2");
 
     // Seed node 0's level-1 neighbour list so it is at capacity with node 2.
-    add_edge_if_missing(&mut graph, 0, 2, 1);
-    add_edge_if_missing(&mut graph, 2, 0, 1);
+    assert!(
+        add_edge_if_missing(&mut graph, 0, 2, 1),
+        "node 0 should exist at level 1",
+    );
+    assert!(
+        add_edge_if_missing(&mut graph, 2, 0, 1),
+        "node 2 should exist at level 1",
+    );
 
     let update_ctx = EdgeContext {
         level: 1,
@@ -199,7 +205,10 @@ fn verify_bidirectional_links_reconciliation_2_nodes_1_layer() {
         .expect("attach node 1");
     let should_link = kani::any::<bool>();
     if should_link {
-        add_edge_if_missing(&mut graph, 0, 1, 0);
+        assert!(
+            add_edge_if_missing(&mut graph, 0, 1, 0),
+            "node 0 should exist at level 0",
+        );
         let ctx = KaniUpdateContext::new(0, 0, max_connections);
         let added = ensure_reverse_edge_for_kani(&mut graph, ctx, 1);
         kani::assert(added, "expected reverse edge to be inserted");
@@ -388,8 +397,14 @@ fn verify_eviction_deferred_scrub_reciprocity() {
 
     // Seed node 1 at capacity with node 2 (bidirectional at level 1).
     // This ensures node 1's level-1 neighbour list is full.
-    add_edge_if_missing(&mut graph, 1, 2, 1);
-    add_edge_if_missing(&mut graph, 2, 1, 1);
+    assert!(
+        add_edge_if_missing(&mut graph, 1, 2, 1),
+        "node 1 should exist at level 1",
+    );
+    assert!(
+        add_edge_if_missing(&mut graph, 2, 1, 1),
+        "node 2 should exist at level 1",
+    );
 
     // Update: node 0 adds node 1 as neighbour at level 1.
     // When ensure_reverse_edge(origin=0, target=1) runs, node 1 is at
@@ -438,8 +453,14 @@ fn verify_eviction_deferred_scrub_reciprocity() {
 }
 
 fn add_bidirectional_edge(graph: &mut Graph, origin: usize, target: usize, level: usize) {
-    add_edge_if_missing(graph, origin, target, level);
-    add_edge_if_missing(graph, target, origin, level);
+    assert!(
+        add_edge_if_missing(graph, origin, target, level),
+        "node {origin} should exist at level {level}",
+    );
+    assert!(
+        add_edge_if_missing(graph, target, origin, level),
+        "node {target} should exist at level {level}",
+    );
 }
 
 fn push_if_absent(list: &mut Vec<usize>, value: usize) {
@@ -504,7 +525,10 @@ fn verify_no_self_loops_4_nodes() {
     for origin in 0..4usize {
         for target in 0..4usize {
             if origin != target && kani::any::<bool>() {
-                add_edge_if_missing(&mut graph, origin, target, 0);
+                assert!(
+                    add_edge_if_missing(&mut graph, origin, target, 0),
+                    "node {origin} should exist at level 0",
+                );
             }
         }
     }
@@ -565,17 +589,26 @@ fn verify_neighbour_uniqueness_4_nodes() {
 
     // Exercise reconciliation path which enforces uniqueness
     if kani::any::<bool>() {
-        add_edge_if_missing(&mut graph, 0, 1, 0);
+        assert!(
+            add_edge_if_missing(&mut graph, 0, 1, 0),
+            "node 0 should exist at level 0",
+        );
         let ctx = KaniUpdateContext::new(0, 0, max_connections);
         let _ = ensure_reverse_edge_for_kani(&mut graph, ctx, 1);
     }
     if kani::any::<bool>() {
-        add_edge_if_missing(&mut graph, 0, 2, 0);
+        assert!(
+            add_edge_if_missing(&mut graph, 0, 2, 0),
+            "node 0 should exist at level 0",
+        );
         let ctx = KaniUpdateContext::new(0, 0, max_connections);
         let _ = ensure_reverse_edge_for_kani(&mut graph, ctx, 2);
     }
     if kani::any::<bool>() {
-        add_edge_if_missing(&mut graph, 1, 3, 0);
+        assert!(
+            add_edge_if_missing(&mut graph, 1, 3, 0),
+            "node 1 should exist at level 0",
+        );
         let ctx = KaniUpdateContext::new(1, 0, max_connections);
         let _ = ensure_reverse_edge_for_kani(&mut graph, ctx, 3);
     }

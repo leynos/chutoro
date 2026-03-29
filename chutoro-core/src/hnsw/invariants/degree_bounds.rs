@@ -1,3 +1,5 @@
+//! Degree-bound checks for every HNSW node across each populated layer.
+
 use super::{EvaluationMode, GraphContext, HnswInvariantViolation};
 
 pub(super) fn check_degree_bounds(

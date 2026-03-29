@@ -20,7 +20,10 @@ fn caches_and_reuses_distances() {
     let cache = cache_with_capacity(4);
     let metric = MetricDescriptor::new("test-metric");
 
-    let miss = match cache.begin_lookup(&metric, 0, 1) {
+    let miss = match cache
+        .begin_lookup(&metric, 0, 1)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Hit(_) => panic!("cache should be empty on first lookup"),
         LookupOutcome::Miss(miss) => miss,
     };
@@ -28,7 +31,10 @@ fn caches_and_reuses_distances() {
         .complete_miss(miss, 0.5)
         .expect("completing miss must succeed");
 
-    match cache.begin_lookup(&metric, 0, 1) {
+    match cache
+        .begin_lookup(&metric, 0, 1)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Hit(value) => assert_eq!(value, 0.5),
         LookupOutcome::Miss(_) => panic!("value should have been cached"),
     }
@@ -39,7 +45,10 @@ fn lru_eviction_discards_oldest_entry() {
     let cache = cache_with_capacity(2);
     let metric = MetricDescriptor::new("lru");
 
-    let miss_a = match cache.begin_lookup(&metric, 0, 1) {
+    let miss_a = match cache
+        .begin_lookup(&metric, 0, 1)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Miss(miss) => miss,
         _ => unreachable!(),
     };
@@ -47,7 +56,10 @@ fn lru_eviction_discards_oldest_entry() {
         .complete_miss(miss_a, 1.0)
         .expect("completing miss_a must succeed");
 
-    let miss_b = match cache.begin_lookup(&metric, 0, 2) {
+    let miss_b = match cache
+        .begin_lookup(&metric, 0, 2)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Miss(miss) => miss,
         _ => unreachable!(),
     };
@@ -55,7 +67,10 @@ fn lru_eviction_discards_oldest_entry() {
         .complete_miss(miss_b, 2.0)
         .expect("completing miss_b must succeed");
 
-    let miss_c = match cache.begin_lookup(&metric, 0, 3) {
+    let miss_c = match cache
+        .begin_lookup(&metric, 0, 3)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Miss(miss) => miss,
         _ => unreachable!(),
     };
@@ -63,15 +78,24 @@ fn lru_eviction_discards_oldest_entry() {
         .complete_miss(miss_c, 3.0)
         .expect("completing miss_c must succeed");
 
-    match cache.begin_lookup(&metric, 0, 1) {
+    match cache
+        .begin_lookup(&metric, 0, 1)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Hit(_) => panic!("oldest entry should have been evicted"),
         LookupOutcome::Miss(_) => {}
     }
-    match cache.begin_lookup(&metric, 0, 2) {
+    match cache
+        .begin_lookup(&metric, 0, 2)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Hit(value) => assert_eq!(value, 2.0),
         LookupOutcome::Miss(_) => panic!("recent entry must be retained"),
     }
-    match cache.begin_lookup(&metric, 0, 3) {
+    match cache
+        .begin_lookup(&metric, 0, 3)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Hit(value) => assert_eq!(value, 3.0),
         LookupOutcome::Miss(_) => panic!("new entry must be present"),
     }
@@ -84,7 +108,10 @@ fn ttl_expiry_forces_refresh() {
     let cache = DistanceCache::new(config);
     let metric = MetricDescriptor::new("ttl");
 
-    let miss = match cache.begin_lookup(&metric, 1, 2) {
+    let miss = match cache
+        .begin_lookup(&metric, 1, 2)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Miss(miss) => miss,
         _ => unreachable!(),
     };
@@ -94,7 +121,10 @@ fn ttl_expiry_forces_refresh() {
 
     thread::sleep(Duration::from_millis(100));
 
-    match cache.begin_lookup(&metric, 1, 2) {
+    match cache
+        .begin_lookup(&metric, 1, 2)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Hit(_) => panic!("entry should expire after TTL"),
         LookupOutcome::Miss(_) => {}
     }
@@ -107,7 +137,10 @@ fn normalizes_pair_order() {
     let cache = cache_with_capacity(2);
     let metric = MetricDescriptor::new("sym");
 
-    let miss = match cache.begin_lookup(&metric, 7, 3) {
+    let miss = match cache
+        .begin_lookup(&metric, 7, 3)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Miss(miss) => miss,
         _ => unreachable!(),
     };
@@ -115,7 +148,10 @@ fn normalizes_pair_order() {
         .complete_miss(miss, 1.23)
         .expect("completing miss must succeed");
 
-    match cache.begin_lookup(&metric, 3, 7) {
+    match cache
+        .begin_lookup(&metric, 3, 7)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Hit(value) => assert_eq!(value, 1.23),
         _ => panic!("normalized (a,b) must hit for (b,a)"),
     }
@@ -126,7 +162,10 @@ fn rejects_non_finite_entries() {
     let cache = cache_with_capacity(1);
     let metric = MetricDescriptor::new("nan");
 
-    let miss = match cache.begin_lookup(&metric, 2, 3) {
+    let miss = match cache
+        .begin_lookup(&metric, 2, 3)
+        .expect("lookup must succeed")
+    {
         LookupOutcome::Miss(miss) => miss,
         _ => unreachable!(),
     };

@@ -1,3 +1,5 @@
+//! Provider construction and distance behaviour coverage.
+
 use super::{DenseMatrixProvider, DenseMatrixProviderError, support::*};
 use arrow_array::{ArrayRef, FixedSizeListArray};
 use arrow_schema::{DataType, Field};

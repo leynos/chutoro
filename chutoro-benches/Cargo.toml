@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+cap-std = "4.0.2"
 chutoro-core = { path = "../chutoro-core" }
 flate2 = "1.1.9"
 rand = { version = "0.8.5", features = ["small_rng"] }

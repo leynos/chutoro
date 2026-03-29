@@ -5,10 +5,7 @@
 
 mod memory_sampler;
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 pub use memory_sampler::{PeakRssMeasurement, measure_peak_resident_set_size};
 use thiserror::Error;
@@ -264,24 +261,20 @@ pub fn write_hnsw_memory_report(
     report_path: impl AsRef<Path>,
     records: &[HnswMemoryRecord],
 ) -> Result<PathBuf, ProfilingError> {
-    let report_file_path = report_path.as_ref().to_path_buf();
-    if let Some(parent) = report_file_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
     let mut output = String::from(HnswMemoryRecord::csv_header());
     for record in records {
         output.push_str(&record.to_csv_row());
     }
-    fs::write(&report_file_path, output)?;
-    Ok(report_file_path)
+    crate::fs_support::write_string(report_path.as_ref(), &output).map_err(ProfilingError::from)
 }
 
 #[cfg(test)]
 mod tests {
+    //! Tests for profiling measurements, scaling checks, and CSV output.
+
     use super::*;
     use rstest::rstest;
-    use std::{fs, time::Duration};
+    use std::time::Duration;
 
     #[derive(Debug)]
     struct ScalingCase {
@@ -379,9 +372,10 @@ mod tests {
         ];
         let written_path =
             write_hnsw_memory_report(&temp_path, &records).expect("report write must succeed");
-        let contents = fs::read_to_string(&written_path).expect("report must be readable");
+        let contents =
+            crate::fs_support::read_to_string(&written_path).expect("report must be readable");
         assert!(contents.starts_with("point_count,max_connections"));
         assert!(contents.contains('\n'));
-        fs::remove_file(written_path).expect("temp report cleanup must succeed");
+        crate::fs_support::remove_file(&written_path).expect("temp report cleanup must succeed");
     }
 }

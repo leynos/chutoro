@@ -1,3 +1,5 @@
+//! Layer-consistency checks ensuring neighbour references target valid layers.
+
 use super::helpers::for_each_edge;
 use super::{EvaluationMode, GraphContext, HnswInvariantViolation, helpers::LayerValidator};
 

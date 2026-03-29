@@ -227,6 +227,8 @@ pub fn parse_event_name(raw: &str) -> BenchmarkCiEvent {
 
 #[cfg(test)]
 mod tests {
+    //! Tests for benchmark regression profile parsing and environment loading.
+
     use super::*;
     use rstest::rstest;
     use std::collections::HashMap;

@@ -16,8 +16,7 @@ use super::{
 /// Asserts that all edges in a graph are valid using the centralized validation.
 fn assert_all_edges_valid(graph: &GeneratedGraph) {
     for (i, edge) in graph.edges.iter().enumerate() {
-        validate_edge(edge, graph.node_count, i)
-            .unwrap_or_else(|e| panic!("edge validation failed: {e}"));
+        validate_edge(edge, graph.node_count, i).expect("generated graph edges must be valid");
     }
 }
 

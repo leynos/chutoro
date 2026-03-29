@@ -6,7 +6,6 @@
 
 use std::{
     collections::{BinaryHeap, HashSet},
-    fs,
     path::{Path, PathBuf},
 };
 
@@ -174,21 +173,17 @@ pub fn write_recall_report(
     report_path: impl AsRef<Path>,
     records: &[RecallMeasurement],
 ) -> Result<PathBuf, std::io::Error> {
-    let report_file_path = report_path.as_ref().to_path_buf();
-    if let Some(parent) = report_file_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
     let mut output = String::from(RecallMeasurement::csv_header());
     for record in records {
         output.push_str(&record.to_csv_row());
     }
-    fs::write(&report_file_path, output)?;
-    Ok(report_file_path)
+    crate::fs_support::write_string(report_path.as_ref(), &output)
 }
 
 #[cfg(test)]
 mod tests {
+    //! Tests for recall scoring and CSV report generation.
+
     use super::*;
     use rstest::rstest;
 
@@ -338,7 +333,8 @@ mod tests {
         }];
         let written_path =
             write_recall_report(temp_file.path(), &records).expect("report write must succeed");
-        let contents = fs::read_to_string(&written_path).expect("report must be readable");
+        let contents =
+            crate::fs_support::read_to_string(&written_path).expect("report must be readable");
         assert!(contents.starts_with("point_count,max_connections"));
         // Header + 1 data row
         assert_eq!(contents.lines().count(), 2);

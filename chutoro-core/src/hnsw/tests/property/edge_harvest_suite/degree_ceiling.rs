@@ -52,6 +52,8 @@ pub(super) fn run_degree_ceiling_property(fixture: &GraphFixture) -> TestCaseRes
 
 #[cfg(test)]
 mod tests {
+    //! Unit and proptest coverage for topology-specific degree ceilings.
+
     use super::*;
     use crate::test_utils::suite_proptest_config;
     use proptest::prelude::*;

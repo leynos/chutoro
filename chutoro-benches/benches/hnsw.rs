@@ -331,6 +331,8 @@ fn hnsw_build_diverse_sources(c: &mut Criterion) {
 }
 
 mod bench_harness {
+    //! Criterion harness wiring for the HNSW benchmark entry points.
+
     use super::{hnsw_build, hnsw_build_diverse_sources, hnsw_build_with_edges};
     use criterion::criterion_group;
 

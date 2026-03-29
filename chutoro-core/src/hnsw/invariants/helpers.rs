@@ -5,7 +5,7 @@
 //! the `kani` configuration, additional predicates are exposed for use in
 //! formal verification harnesses.
 
-#[cfg(kani)]
+#[cfg(any(kani, test))]
 use std::collections::HashSet;
 
 use crate::hnsw::{graph::Graph, node::Node};
@@ -113,7 +113,7 @@ pub(crate) fn is_bidirectional(graph: &Graph) -> bool {
 /// list at any layer), `false` otherwise. This simplified predicate is suitable
 /// for use in Kani harnesses where a boolean result is preferred over detailed
 /// violation reporting.
-#[cfg(kani)]
+#[cfg(any(kani, test))]
 pub(crate) fn has_no_self_loops(graph: &Graph) -> bool {
     for (node_id, node) in graph.nodes_iter() {
         for (_level, neighbour) in node.iter_neighbours() {
@@ -128,7 +128,7 @@ pub(crate) fn has_no_self_loops(graph: &Graph) -> bool {
 /// Returns `true` if the slice contains no duplicate elements.
 ///
 /// Uses a HashSet for O(n) uniqueness checking.
-#[cfg(kani)]
+#[cfg(any(kani, test))]
 fn slice_has_unique_elements(slice: &[usize]) -> bool {
     let mut seen = HashSet::with_capacity(slice.len());
     for &id in slice {
@@ -144,7 +144,7 @@ fn slice_has_unique_elements(slice: &[usize]) -> bool {
 /// Returns `true` if the invariant holds (every neighbour list at every layer
 /// contains unique node identifiers), `false` otherwise. This simplified
 /// predicate is suitable for use in Kani harnesses.
-#[cfg(kani)]
+#[cfg(any(kani, test))]
 pub(crate) fn has_unique_neighbours(graph: &Graph) -> bool {
     for (_node_id, node) in graph.nodes_iter() {
         for level in 0..node.level_count() {
@@ -165,7 +165,7 @@ pub(crate) fn has_unique_neighbours(graph: &Graph) -> bool {
 ///   and the entry level is at least as high as any other node's level.
 ///
 /// This simplified predicate is suitable for use in Kani harnesses.
-#[cfg(kani)]
+#[cfg(any(kani, test))]
 pub(crate) fn is_entry_point_valid(graph: &Graph) -> bool {
     let has_nodes = graph.nodes_iter().next().is_some();
 

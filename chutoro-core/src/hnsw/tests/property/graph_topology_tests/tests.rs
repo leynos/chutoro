@@ -271,7 +271,7 @@ fn all_topologies_work_with_mst() {
         let fixture = make_fixture(topology, generate, seed);
         if !fixture.graph.edges.is_empty() {
             run_graph_mst_compatibility_property(&fixture)
-                .unwrap_or_else(|e| panic!("{topology:?} MST failed: {e}"));
+                .expect("generated topology must remain MST-compatible");
         }
     }
 }

@@ -80,22 +80,22 @@ ______________________________________________________________________
 ## Features
 
 - Four-stage CPU pipeline: HNSW construction, candidate edge harvest,
-  Kruskal MST, and stability-based hierarchy extraction ([design
-  document](docs/chutoro-design.md)).
+  Kruskal MST, and stability-based hierarchy extraction
+  ([design document](docs/chutoro-design.md)).
 - Built-in Euclidean and cosine distance helpers with input validation
-  and pre-computed norm caching ([users' guide § distance
-  helpers](docs/users-guide.md#distance-helpers)).
+  and pre-computed norm caching
+  ([users' guide § distance helpers](docs/users-guide.md#distance-helpers)).
 - Property-tested ([proptest](https://crates.io/crates/proptest)
   suites) and formally verified — Kani harnesses for HNSW graph invariants and
   distance-metric properties; Verus proofs for edge harvest ordering and
-  extraction ([developers' guide § Verus
-  proofs](docs/developers-guide.md#verus-proofs)).
+  extraction
+  ([developers' guide § Verus proofs](docs/developers-guide.md#verus-proofs)).
 - Criterion benchmarks with synthetic data generators (Gaussian
   blobs, ring/Swiss-roll manifolds, text mutation, MNIST download)
   ([developers' guide § benchmarks](docs/developers-guide.md#benchmarks)).
 - Optional `metrics` crate integration for distance-cache telemetry
-  ([users' guide § feature
-  flags](docs/users-guide.md#feature-flags-and-execution-strategies)).
+  (
+  [users' guide § feature flags](docs/users-guide.md#feature-flags-and-execution-strategies)).
 - CLI tool (`chutoro-cli`) and bundled data-source providers: dense
   vectors via Parquet/Arrow (`chutoro-providers-dense`) and text via
   Levenshtein distance (`chutoro-providers-text`).

@@ -49,8 +49,10 @@ pub enum NonContiguousClusterIds {
 impl ClusteringResult {
     /// Builds a result from explicit cluster assignments.
     ///
-    /// Cluster identifiers must start at zero and be contiguous. Use
-    /// [`Self::try_from_assignments`] to handle arbitrary identifiers.
+    /// This constructor preserves the provided assignment identifiers and
+    /// derives `cluster_count` from the number of distinct cluster ids. Use
+    /// [`Self::try_from_assignments`] when cluster identifiers must be
+    /// contiguous starting at zero.
     ///
     /// # Examples
     /// ```
@@ -61,8 +63,15 @@ impl ClusteringResult {
     /// ```
     #[must_use]
     pub fn from_assignments(assignments: Vec<ClusterId>) -> Self {
-        Self::try_from_assignments(assignments)
-            .expect("cluster identifiers must start at zero and be contiguous")
+        let cluster_count = assignments
+            .iter()
+            .map(|id| id.get())
+            .collect::<HashSet<_>>()
+            .len();
+        Self {
+            assignments,
+            cluster_count,
+        }
     }
 
     /// Attempts to build a result from cluster assignments.
@@ -205,4 +214,20 @@ impl ClusterId {
     #[rustfmt::skip]
     #[must_use]
     pub fn get(self) -> u64 { self.0 }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Regression coverage for clustering result helpers.
+
+    use super::{ClusterId, ClusteringResult};
+
+    #[test]
+    fn from_assignments_preserves_sparse_ids_and_counts_distinct_clusters() {
+        let assignments = vec![ClusterId::new(7), ClusterId::new(7), ClusterId::new(42)];
+        let result = ClusteringResult::from_assignments(assignments.clone());
+
+        assert_eq!(result.assignments(), assignments);
+        assert_eq!(result.cluster_count(), 2);
+    }
 }

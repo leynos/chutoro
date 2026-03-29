@@ -151,6 +151,8 @@ pub(super) fn run_harvested_output_suite_for_topology(topology: GraphTopology) -
 
 #[cfg(test)]
 mod tests {
+    //! Regression coverage for harvested-output metric validation helpers.
+
     use super::super::super::graph_topologies;
     use super::super::super::types::GraphMetadata;
     use super::*;

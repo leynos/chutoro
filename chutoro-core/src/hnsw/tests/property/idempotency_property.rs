@@ -50,7 +50,7 @@ pub(super) fn run_idempotency_property(
         .map_err(|err| TestCaseError::fail(format!("index build failed: {err}")))?;
 
     // Snapshot the graph state before duplicate attempts
-    let snapshot = snapshot_graph(&index);
+    let snapshot = snapshot_graph(&index)?;
 
     // Attempt duplicate insertions
     let duplicate_indices = duplicate_indices_for_job(&plan, len, is_coverage_job);
@@ -79,7 +79,7 @@ pub(super) fn run_idempotency_property(
     }
 
     // Verify graph state is unchanged
-    if !graph_matches_snapshot(&index, &snapshot) {
+    if !graph_matches_snapshot(&index, &snapshot)? {
         return Err(TestCaseError::fail(
             "graph state changed after duplicate insertion attempts",
         ));
@@ -150,14 +150,16 @@ struct GraphSnapshot {
 }
 
 /// Captures a snapshot of the graph's structural state.
-fn snapshot_graph(index: &CpuHnsw) -> GraphSnapshot {
-    index.inspect_graph(|graph| {
-        let entry = graph.entry();
-        let nodes = (0..graph.capacity())
-            .map(|id| graph.node(id).map(snapshot_node))
-            .collect();
-        GraphSnapshot { entry, nodes }
-    })
+fn snapshot_graph(index: &CpuHnsw) -> Result<GraphSnapshot, TestCaseError> {
+    index
+        .inspect_graph(|graph| {
+            let entry = graph.entry();
+            let nodes = (0..graph.capacity())
+                .map(|id| graph.node(id).map(snapshot_node))
+                .collect();
+            GraphSnapshot { entry, nodes }
+        })
+        .map_err(|err| TestCaseError::fail(format!("graph snapshot failed: {err}")))
 }
 
 /// Captures a snapshot of a single node's structural state.
@@ -173,13 +175,18 @@ fn snapshot_node(node: &crate::hnsw::node::Node) -> NodeSnapshot {
 }
 
 /// Checks whether the current graph state matches a snapshot.
-fn graph_matches_snapshot(index: &CpuHnsw, snapshot: &GraphSnapshot) -> bool {
-    let current = snapshot_graph(index);
-    current == *snapshot
+fn graph_matches_snapshot(
+    index: &CpuHnsw,
+    snapshot: &GraphSnapshot,
+) -> Result<bool, TestCaseError> {
+    let current = snapshot_graph(index)?;
+    Ok(current == *snapshot)
 }
 
 #[cfg(test)]
 mod tests {
+    //! Regression coverage for duplicate-insertion idempotency helpers.
+
     use super::*;
     use crate::hnsw::tests::property::types::{
         DistributionMetadata, HnswParamsSeed, VectorDistribution,
@@ -296,7 +303,7 @@ mod tests {
         let source = fixture.into_source().expect("source");
 
         let index = CpuHnsw::build(&source, params).expect("index");
-        let snapshot = snapshot_graph(&index);
+        let snapshot = snapshot_graph(&index).expect("snapshot");
 
         // Verify snapshot captures entry point
         assert!(
@@ -310,7 +317,7 @@ mod tests {
 
         // Verify snapshot matches itself
         assert!(
-            graph_matches_snapshot(&index, &snapshot),
+            graph_matches_snapshot(&index, &snapshot).expect("snapshot comparison"),
             "graph must match its own snapshot"
         );
     }

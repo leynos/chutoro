@@ -103,7 +103,7 @@ fn load_mnist_uses_cache_after_first_download() {
     assert_eq!(second.len(), MNIST_POINT_COUNT);
     assert_eq!(client.calls(), 2);
 
-    fs::remove_dir_all(cache_dir).expect("test cache dir cleanup must succeed");
+    crate::fs_support::remove_dir_all(&cache_dir).expect("test cache dir cleanup must succeed");
 }
 
 fn test_cache_dir() -> PathBuf {

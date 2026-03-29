@@ -58,8 +58,14 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
         .saturating_add(1)
         .max(params.ef_construction())
         .min(items);
-    let ef = NonZeroUsize::new(desired)
-        .expect("ef_construction is non-zero so the computed ef is non-zero");
+    let ef = NonZeroUsize::new(desired).ok_or_else(|| {
+        map_cpu_hnsw_error(
+            source,
+            HnswError::GraphInvariantViolation {
+                message: "computed search width must be non-zero".into(),
+            },
+        )
+    })?;
 
     let mut core_distances = Vec::with_capacity(items);
     for point in 0..items {
@@ -101,7 +107,12 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
         .map(|label| ClusterId::new(label as u64))
         .collect();
 
-    Ok(ClusteringResult::from_assignments(assignments))
+    ClusteringResult::try_from_assignments(assignments).map_err(|error| {
+        ChutoroError::CpuHierarchyFailure {
+            code: Arc::from("NON_CONTIGUOUS_CLUSTER_IDS"),
+            message: Arc::from(error.to_string()),
+        }
+    })
 }
 
 #[cfg(feature = "cpu")]

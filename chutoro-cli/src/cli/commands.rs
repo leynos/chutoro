@@ -1,15 +1,20 @@
 //! Command implementations and argument parsing for the chutoro CLI.
 
-use std::fs::File;
-use std::io::{self, BufReader, Write};
+use std::io::{self, BufReader};
 use std::path::{Path, PathBuf};
 
-use chutoro_core::{Chutoro, ChutoroBuilder, ChutoroError, ClusteringResult, DataSource};
+use cap_std::{
+    ambient_authority,
+    fs::{Dir, File},
+};
+use chutoro_core::{Chutoro, ChutoroBuilder, ChutoroError, DataSource};
 use chutoro_providers_dense::{DenseMatrixProvider, DenseMatrixProviderError};
 use chutoro_providers_text::{TextProvider, TextProviderError};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use thiserror::Error;
 use tracing::{info, instrument};
+
+use super::output::ExecutionSummary;
 
 const DEFAULT_MIN_CLUSTER_SIZE: usize = 5;
 
@@ -146,15 +151,6 @@ pub enum CliError {
     Core(#[from] ChutoroError),
 }
 
-/// Summarises the outcome of executing a CLI command.
-#[derive(Debug, Clone)]
-pub struct ExecutionSummary {
-    /// Name reported by the data source implementation.
-    pub data_source: String,
-    /// Cluster assignments produced by the clustering pipeline.
-    pub result: ClusteringResult,
-}
-
 /// Executes the CLI command represented by `cli`.
 ///
 /// # Errors
@@ -237,7 +233,11 @@ pub(super) fn run_parquet(
 ) -> Result<ExecutionSummary, CliError> {
     let ParquetArgs { path, column, name } = args;
     let chosen_name = derive_data_source_name(&path, name.as_deref());
-    let provider = DenseMatrixProvider::try_from_parquet_path(chosen_name, &path, &column)?;
+    let provider = DenseMatrixProvider::try_from_parquet_reader(
+        chosen_name,
+        open_input_file(&path)?.into_std(),
+        &column,
+    )?;
     execute_with_provider(chutoro, provider)
 }
 
@@ -268,11 +268,30 @@ pub(super) fn run_text(chutoro: &Chutoro, args: TextArgs) -> Result<ExecutionSum
     fields(path = %path_label(path))
 )]
 pub(super) fn open_text_reader(path: &Path) -> Result<BufReader<File>, CliError> {
-    let file = File::open(path).map_err(|source| CliError::Io {
+    open_input_file(path).map(BufReader::new)
+}
+
+fn open_input_file(path: &Path) -> Result<File, CliError> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let Some(file_name) = path.file_name() else {
+        return Err(CliError::Io {
+            path: path.to_path_buf(),
+            source: io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("input path must name a file: {}", path.display()),
+            ),
+        });
+    };
+
+    let dir =
+        Dir::open_ambient_dir(parent, ambient_authority()).map_err(|source| CliError::Io {
+            path: parent.to_path_buf(),
+            source,
+        })?;
+    dir.open(file_name).map_err(|source| CliError::Io {
         path: path.to_path_buf(),
         source,
-    })?;
-    Ok(BufReader::new(file))
+    })
 }
 
 pub(super) fn derive_data_source_name(path: &Path, override_name: Option<&str>) -> String {
@@ -338,39 +357,4 @@ where
         data_source: provider.name().to_owned(),
         result,
     })
-}
-
-/// Renders `summary` to `writer` in a human-readable text format.
-///
-/// # Errors
-/// Returns [`io::Error`] if writing to the supplied writer fails.
-///
-/// # Examples
-/// ```
-/// # use std::error::Error;
-/// # use std::io::Cursor;
-/// # use chutoro_cli::cli::{ExecutionSummary, render_summary};
-/// # use chutoro_core::{ClusteringResult, ClusterId};
-/// #
-/// # fn main() -> Result<(), Box<dyn Error>> {
-/// let summary = ExecutionSummary {
-///     data_source: "demo".into(),
-///     result: ClusteringResult::from_assignments(vec![
-///         ClusterId::new(0),
-///         ClusterId::new(1),
-///     ]),
-/// };
-/// let mut buffer = Cursor::new(Vec::new());
-/// render_summary(&summary, &mut buffer)?;
-/// assert_eq!(buffer.into_inner().len(), 38);
-/// # Ok(())
-/// # }
-/// ```
-pub fn render_summary(summary: &ExecutionSummary, mut writer: impl Write) -> io::Result<()> {
-    writeln!(writer, "data source: {}", summary.data_source)?;
-    writeln!(writer, "clusters: {}", summary.result.cluster_count())?;
-    for (index, cluster) in summary.result.assignments().iter().enumerate() {
-        writeln!(writer, "{index}\t{}", cluster.get())?;
-    }
-    Ok(())
 }

@@ -124,6 +124,8 @@ impl MutationPools {
 
 #[cfg(test)]
 mod tests {
+    //! Regression coverage for deterministic mutation-pool bookkeeping.
+
     use super::MutationPools;
     use rstest::rstest;
 

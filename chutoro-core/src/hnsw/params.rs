@@ -130,7 +130,10 @@ impl HnswParams {
 
 impl Default for HnswParams {
     fn default() -> Self {
-        Self::new(16, 64).expect("default parameters must be valid")
+        match Self::new(16, 64) {
+            Ok(params) => params,
+            Err(err) => panic!("default HNSW parameters must remain valid: {err}"),
+        }
     }
 }
 

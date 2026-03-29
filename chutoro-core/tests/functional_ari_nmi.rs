@@ -25,9 +25,9 @@ fn parse_csv_rows(input: &str, dims: usize) -> Vec<Vec<f32>> {
             for _ in 0..dims {
                 let value = parts
                     .next()
-                    .unwrap_or_else(|| panic!("missing column in line: {line}"))
+                    .expect("CSV fixture rows must include every expected column")
                     .parse::<f32>()
-                    .unwrap_or_else(|err| panic!("failed to parse float in line '{line}': {err}"));
+                    .expect("CSV fixture values must parse as f32");
                 row.push(value);
             }
             row

@@ -4,10 +4,7 @@
 //! Information (NMI) scoring against ground-truth labels, together with a CSV
 //! report writer used by benchmark harnesses.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 pub use chutoro_core::{ClusteringQualityError, ClusteringQualityScore};
 
@@ -100,21 +97,17 @@ pub fn write_clustering_quality_report(
     report_path: impl AsRef<Path>,
     records: &[ClusteringQualityMeasurement],
 ) -> Result<PathBuf, std::io::Error> {
-    let report_file_path = report_path.as_ref().to_path_buf();
-    if let Some(parent) = report_file_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
     let mut output = String::from(ClusteringQualityMeasurement::csv_header());
     for record in records {
         output.push_str(&record.to_csv_row());
     }
-    fs::write(&report_file_path, output)?;
-    Ok(report_file_path)
+    crate::fs_support::write_string(report_path.as_ref(), &output)
 }
 
 #[cfg(test)]
 mod tests {
+    //! Tests for clustering quality metrics and report generation.
+
     use super::*;
     use rstest::rstest;
 
@@ -190,8 +183,8 @@ mod tests {
 
         let written_path = write_clustering_quality_report(&report_path, &rows)
             .expect("quality report should be written");
-        let written =
-            std::fs::read_to_string(&written_path).expect("quality report should be readable");
+        let written = crate::fs_support::read_to_string(&written_path)
+            .expect("quality report should be readable");
 
         assert!(written.starts_with(
             "point_count,max_connections,ef_construction,min_cluster_size,ari,nmi,build_time_ms"

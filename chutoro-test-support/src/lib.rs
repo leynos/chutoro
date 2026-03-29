@@ -4,7 +4,7 @@ pub mod tracing {
     //! Recording layer utilities for capturing spans and events in tests.
     use std::collections::HashMap;
     use std::fmt;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, MutexGuard};
 
     use tracing::field::{Field, Visit};
     use tracing::{Event, Level, Subscriber};
@@ -35,7 +35,7 @@ pub mod tracing {
         /// ```
         #[must_use]
         pub fn spans(&self) -> Vec<SpanRecord> {
-            self.spans.lock().expect("lock poisoned").clone()
+            lock_or_recover(&self.spans).clone()
         }
 
         /// Returns a snapshot of the emitted events recorded by the layer in
@@ -50,7 +50,7 @@ pub mod tracing {
         /// ```
         #[must_use]
         pub fn events(&self) -> Vec<EventRecord> {
-            self.events.lock().expect("lock poisoned").clone()
+            lock_or_recover(&self.events).clone()
         }
     }
 
@@ -129,7 +129,7 @@ pub mod tracing {
             let Some(data) = span.extensions_mut().remove::<SpanData>() else {
                 return;
             };
-            self.spans.lock().expect("lock poisoned").push(SpanRecord {
+            lock_or_recover(&self.spans).push(SpanRecord {
                 name: data.name,
                 fields: data.fields,
             });
@@ -140,14 +140,18 @@ pub mod tracing {
             event.record(&mut FieldRecorder {
                 fields: &mut fields,
             });
-            self.events
-                .lock()
-                .expect("lock poisoned")
-                .push(EventRecord {
-                    level: *event.metadata().level(),
-                    target: event.metadata().target().to_owned(),
-                    fields,
-                });
+            lock_or_recover(&self.events).push(EventRecord {
+                level: *event.metadata().level(),
+                target: event.metadata().target().to_owned(),
+                fields,
+            });
+        }
+    }
+
+    fn lock_or_recover<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+        match mutex.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
         }
     }
 
@@ -213,3 +217,4 @@ pub mod tracing {
 }
 
 pub mod ci;
+pub mod github_output;
