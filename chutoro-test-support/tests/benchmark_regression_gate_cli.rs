@@ -1,5 +1,6 @@
 //! Behavioural tests for the benchmark regression gate binary.
 
+use anyhow::Context;
 use std::env;
 use std::error::Error;
 use std::path::PathBuf;
@@ -146,63 +147,77 @@ impl GateRunner {
     }
 }
 
-fn binary_path() -> Result<PathBuf, String> {
+fn binary_path() -> anyhow::Result<PathBuf> {
     if let Ok(value) = env::var("CARGO_BIN_EXE_benchmark_regression_gate") {
         return Ok(with_exe_suffix(Utf8PathBuf::from(value)).into_std_path_buf());
     }
 
-    let current_exe = env::current_exe()
-        .map_err(|error| format!("failed to locate current test binary: {error}"))?;
+    let current_exe = env::current_exe().context("failed to locate current test binary")?;
     let current_exe = Utf8PathBuf::from_path_buf(current_exe)
-        .map_err(|path| format!("test binary path must be UTF-8: {}", path.display()))?;
+        .map_err(|path| anyhow::anyhow!("test binary path must be UTF-8: {}", path.display()))?;
     let deps_dir = current_exe
         .parent()
         .map(Utf8Path::to_path_buf)
-        .ok_or_else(|| "failed to resolve deps directory from test binary".to_string())?;
+        .context("failed to resolve deps directory from test binary")?;
     let target_dir = deps_dir
         .parent()
         .map(Utf8Path::to_path_buf)
-        .ok_or_else(|| "failed to resolve target directory from deps".to_string())?;
+        .context("failed to resolve target directory from deps")?;
     let direct = with_exe_suffix(target_dir.join("benchmark_regression_gate"));
     if direct.exists() {
         return Ok(direct.into_std_path_buf());
     }
 
-    find_in_deps(&deps_dir)
+    find_in_deps(&deps_dir)?
         .map(Utf8PathBuf::into_std_path_buf)
-        .ok_or_else(|| "failed to locate benchmark_regression_gate binary".to_string())
+        .context("failed to locate benchmark_regression_gate binary")
 }
 
-fn find_in_deps(deps_dir: &Utf8Path) -> Option<Utf8PathBuf> {
-    let dir = Dir::open_ambient_dir(deps_dir, ambient_authority()).ok()?;
-    dir.entries()
-        .ok()?
-        .filter_map(Result::ok)
-        .find_map(|entry| is_matching_binary(deps_dir, entry))
+fn find_in_deps(deps_dir: &Utf8Path) -> anyhow::Result<Option<Utf8PathBuf>> {
+    let dir = Dir::open_ambient_dir(deps_dir, ambient_authority())
+        .with_context(|| format!("failed to open deps directory `{deps_dir}`"))?;
+    let mut entries = dir
+        .entries()
+        .with_context(|| format!("failed to enumerate deps directory `{deps_dir}`"))?;
+    entries.try_fold(None, |found, entry| {
+        if found.is_some() {
+            return Ok(found);
+        }
+
+        let entry = entry
+            .with_context(|| format!("failed to read entry in deps directory `{deps_dir}`"))?;
+        is_matching_binary(deps_dir, entry)
+    })
 }
 
 fn is_matching_binary(
     deps_dir: &Utf8Path,
     entry: cap_std::fs_utf8::DirEntry,
-) -> Option<Utf8PathBuf> {
-    let file_name = entry.file_name().ok()?;
-    let metadata = entry.metadata().ok()?;
+) -> anyhow::Result<Option<Utf8PathBuf>> {
+    let file_name = entry
+        .file_name()
+        .with_context(|| format!("failed to read file name in `{deps_dir}`"))?;
+    let metadata = entry
+        .metadata()
+        .with_context(|| format!("failed to read metadata for `{file_name}` in `{deps_dir}`"))?;
 
     if !metadata.is_file() {
-        return None;
+        return Ok(None);
     }
 
     if !has_expected_suffix(&file_name) {
-        return None;
+        return Ok(None);
     }
 
-    let file_stem = Utf8Path::new(&file_name).file_stem()?;
+    let Some(file_stem) = Utf8Path::new(&file_name).file_stem() else {
+        return Ok(None);
+    };
     if file_stem == "benchmark_regression_gate"
         || file_stem.starts_with("benchmark_regression_gate-")
     {
-        Some(deps_dir.join(file_name))
+        Ok(Some(deps_dir.join(file_name)))
     } else {
-        None
+        Ok(None)
     }
 }
 

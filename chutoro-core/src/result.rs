@@ -215,3 +215,19 @@ impl ClusterId {
     #[must_use]
     pub fn get(self) -> u64 { self.0 }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Regression coverage for clustering result helpers.
+
+    use super::{ClusterId, ClusteringResult};
+
+    #[test]
+    fn from_assignments_preserves_sparse_ids_and_counts_distinct_clusters() {
+        let assignments = vec![ClusterId::new(7), ClusterId::new(7), ClusterId::new(42)];
+        let result = ClusteringResult::from_assignments(assignments.clone());
+
+        assert_eq!(result.assignments(), assignments);
+        assert_eq!(result.cluster_count(), 2);
+    }
+}

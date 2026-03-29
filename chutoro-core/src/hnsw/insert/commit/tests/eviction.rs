@@ -39,8 +39,14 @@ impl EvictionTestContext {
         insert_node(&mut graph, 2, 1, 2)?;
         insert_node(&mut graph, 3, 1, 3)?;
 
-        add_edge_if_missing(&mut graph, 1, 2, 1);
-        add_edge_if_missing(&mut graph, 2, 1, 1);
+        assert!(
+            add_edge_if_missing(&mut graph, 1, 2, 1),
+            "node 1 should exist at level 1",
+        );
+        assert!(
+            add_edge_if_missing(&mut graph, 2, 1, 1),
+            "node 2 should exist at level 1",
+        );
 
         let new_node = NewNodeContext { id: 3, level: 1 };
         Ok(Self {
@@ -100,8 +106,14 @@ fn build_sequential_graph(params: HnswParams, count: usize) -> Result<(Graph, us
 }
 
 fn add_bidirectional_edge(graph: &mut Graph, a: usize, b: usize, level: usize) {
-    add_edge_if_missing(graph, a, b, level);
-    add_edge_if_missing(graph, b, a, level);
+    assert!(
+        add_edge_if_missing(graph, a, b, level),
+        "node {a} should exist at level {level}",
+    );
+    assert!(
+        add_edge_if_missing(graph, b, a, level),
+        "node {b} should exist at level {level}",
+    );
 }
 
 #[rstest]
@@ -196,8 +208,14 @@ fn eviction_respects_furthest_first_ordering() -> Result<(), HnswError> {
     node1.neighbours_mut(1).push(2);
     node1.neighbours_mut(1).push(3);
 
-    add_edge_if_missing(&mut graph, 2, 1, 1);
-    add_edge_if_missing(&mut graph, 3, 1, 1);
+    assert!(
+        add_edge_if_missing(&mut graph, 2, 1, 1),
+        "node 2 should exist at level 1",
+    );
+    assert!(
+        add_edge_if_missing(&mut graph, 3, 1, 1),
+        "node 3 should exist at level 1",
+    );
 
     let update = build_update(0, 1, vec![1], max_connections);
     let new_node = NewNodeContext { id: 4, level: 1 };

@@ -146,7 +146,10 @@ fn commit_inlines_reciprocity(
 
     attach_test_node(&mut graph, 1, 0, 1);
 
-    add_edge_if_missing(&mut graph, 0, 1, seed_edge_level);
+    assert!(
+        add_edge_if_missing(&mut graph, 0, 1, seed_edge_level),
+        "node 0 should exist at level {seed_edge_level}",
+    );
 
     let mut layers = vec![LayerPlan {
         level: 0,
@@ -209,7 +212,10 @@ fn enforce_bidirectional_all_adds_upper_layer_backlink() {
     insert_entry_node(&mut graph, 1);
     attach_test_node(&mut graph, 1, 1, 1);
 
-    add_edge_if_missing(&mut graph, 0, 1, 1);
+    assert!(
+        add_edge_if_missing(&mut graph, 0, 1, 1),
+        "node 0 should exist at level 1",
+    );
 
     TestHelpers::new(&mut graph).enforce_bidirectional_all(2);
 
@@ -223,7 +229,10 @@ fn enforce_bidirectional_all_removes_invalid_upper_edge() {
     attach_test_node(&mut graph, 1, 0, 1);
 
     // One-way edge exists at level 1, but target only has level 0.
-    add_edge_if_missing(&mut graph, 0, 1, 1);
+    assert!(
+        add_edge_if_missing(&mut graph, 0, 1, 1),
+        "node 0 should exist at level 1",
+    );
 
     TestHelpers::new(&mut graph).enforce_bidirectional_all(2);
 

@@ -22,41 +22,6 @@ use crate::{
 
 use super::CpuHnsw;
 
-/// Trait for collecting candidate edges during insertion.
-///
-/// Enables separation of edge harvesting from insertion logic, allowing
-/// non-harvesting paths to avoid allocation overhead.
-trait EdgeCollector {
-    /// Collects edges discovered during a single node insertion.
-    fn collect(&mut self, edges: Vec<CandidateEdge>);
-}
-
-/// No-op collector that discards edges without allocation.
-struct NoopCollector;
-
-impl EdgeCollector for NoopCollector {
-    fn collect(&mut self, _edges: Vec<CandidateEdge>) {}
-}
-
-/// Collector that accumulates edges into a `Vec`.
-struct VecCollector(Vec<CandidateEdge>);
-
-impl VecCollector {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    fn into_inner(self) -> Vec<CandidateEdge> {
-        self.0
-    }
-}
-
-impl EdgeCollector for VecCollector {
-    fn collect(&mut self, mut edges: Vec<CandidateEdge>) {
-        self.0.append(&mut edges);
-    }
-}
-
 impl EdgeHarvest {
     /// Collects edges from parallel insertions using Rayon `map` → `try_reduce`.
     ///
@@ -227,7 +192,7 @@ impl CpuHnsw {
     /// index.insert(1, &data).expect("insert must succeed");
     /// ```
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
-        self.insert_with_collector(node, source, &mut NoopCollector)
+        self.insert_internal(node, source, None)
     }
 
     /// Inserts a node and returns the candidate edges discovered during planning.
@@ -239,20 +204,17 @@ impl CpuHnsw {
         node: usize,
         source: &D,
     ) -> Result<Vec<CandidateEdge>, HnswError> {
-        let mut collector = VecCollector::new();
-        self.insert_with_collector(node, source, &mut collector)?;
-        Ok(collector.into_inner())
+        let mut edges = Vec::new();
+        self.insert_internal(node, source, Some(&mut edges))?;
+        Ok(edges)
     }
 
-    /// Core insertion logic parameterised by edge collection strategy.
-    ///
-    /// Uses the [`EdgeCollector`] trait to separate edge harvesting from
-    /// insertion, enabling zero-overhead paths when edges are not needed.
-    fn insert_with_collector<D: DataSource + Sync, C: EdgeCollector>(
+    /// Core insertion logic with an optional edge sink for MST harvesting.
+    fn insert_internal<D: DataSource + Sync>(
         &self,
         node: usize,
         source: &D,
-        collector: &mut C,
+        edge_sink: Option<&mut Vec<CandidateEdge>>,
     ) -> Result<(), HnswError> {
         let _insertion_guard = self
             .insert_mutex
@@ -282,8 +244,9 @@ impl CpuHnsw {
             })
         })?;
 
-        let edges = extract_candidate_edges(node, sequence, &plan);
-        collector.collect(edges);
+        if let Some(edges) = edge_sink {
+            edges.extend(extract_candidate_edges(node, sequence, &plan));
+        }
 
         let (prepared, trim_jobs) = self.write_graph(|graph| {
             let mut executor = graph.insertion_executor();

@@ -62,6 +62,10 @@ impl DenseMatrixProvider {
 
     /// Loads data from a Parquet column containing `FixedSizeList<Float32, D>`
     /// rows relative to a capability-scoped directory handle.
+    ///
+    /// Callers migrating from the older path-only API should open the parent
+    /// directory as a [`Dir`] and pass the file name, or another path relative
+    /// to that directory, as `path`.
     pub fn try_from_parquet_path(
         name: impl Into<String>,
         dir: &Dir,

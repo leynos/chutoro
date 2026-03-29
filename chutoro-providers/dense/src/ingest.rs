@@ -94,13 +94,13 @@ pub(crate) fn copy_list_values(
                 actual: floats.len(),
             });
         }
-        if let Some(value_index) = first_null_value_index(floats, dimension) {
-            return Err(DenseMatrixProviderError::NullValue {
-                row: absolute_row,
-                value_index,
-            });
-        }
         if floats.null_count() > 0 {
+            if let Some(value_index) = first_null_value_index(floats, dimension) {
+                return Err(DenseMatrixProviderError::NullValue {
+                    row: absolute_row,
+                    value_index,
+                });
+            }
             return Err(DenseMatrixProviderError::Arrow(
                 ArrowError::InvalidArgumentError(
                     "Float32Array reported null values but no null index was found".to_owned(),

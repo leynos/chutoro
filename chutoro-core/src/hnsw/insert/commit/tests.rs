@@ -89,8 +89,14 @@ fn commit_updates_write_reciprocal_edges(
     insert_node(&mut graph, 1, level, 1)?;
     insert_node(&mut graph, 2, level, 2)?;
 
-    add_edge_if_missing(&mut graph, 0, 1, level);
-    add_edge_if_missing(&mut graph, 1, 0, level);
+    assert!(
+        add_edge_if_missing(&mut graph, 0, 1, level),
+        "node 0 should exist at level {level}",
+    );
+    assert!(
+        add_edge_if_missing(&mut graph, 1, 0, level),
+        "node 1 should exist at level {level}",
+    );
 
     let update = build_update(0, level, vec![1, 2], max_connections);
     let new_node = NewNodeContext { id: 2, level };
@@ -117,8 +123,14 @@ fn commit_updates_scrub_evicted_forward_edge() -> Result<(), HnswError> {
     insert_node(&mut graph, 2, 1, 2)?;
     insert_node(&mut graph, 3, 1, 3)?;
 
-    add_edge_if_missing(&mut graph, 1, 2, 1);
-    add_edge_if_missing(&mut graph, 2, 1, 1);
+    assert!(
+        add_edge_if_missing(&mut graph, 1, 2, 1),
+        "node 1 should exist at level 1",
+    );
+    assert!(
+        add_edge_if_missing(&mut graph, 2, 1, 1),
+        "node 2 should exist at level 1",
+    );
 
     let update = build_update(0, 1, vec![1], max_connections);
     let new_node = NewNodeContext { id: 3, level: 1 };

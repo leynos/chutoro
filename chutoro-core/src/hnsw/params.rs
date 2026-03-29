@@ -130,13 +130,9 @@ impl HnswParams {
 
 impl Default for HnswParams {
     fn default() -> Self {
-        Self {
-            max_connections: 16,
-            ef_construction: 64,
-            level_multiplier: (16.0f64).ln().recip(),
-            max_level: 12,
-            rng_seed: 0x5EED_CAFE,
-            distance_cache: DistanceCacheConfig::default(),
+        match Self::new(16, 64) {
+            Ok(params) => params,
+            Err(err) => panic!("default HNSW parameters must remain valid: {err}"),
         }
     }
 }

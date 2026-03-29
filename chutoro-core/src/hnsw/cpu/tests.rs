@@ -6,6 +6,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering as AtomicOrdering},
+        mpsc,
     },
     thread,
     time::Duration,
@@ -20,20 +21,27 @@ fn insert_waits_for_mutex() {
     let guard = index.insert_mutex.lock().expect("mutex");
     let started = Arc::new(AtomicBool::new(false));
     let finished = Arc::new(AtomicBool::new(false));
+    let (started_tx, started_rx) = mpsc::channel();
 
     let handle = {
         let index = Arc::clone(&index);
         let source = Arc::clone(&source);
         let started = Arc::clone(&started);
         let finished = Arc::clone(&finished);
+        let started_tx = started_tx.clone();
         thread::spawn(move || {
             started.store(true, AtomicOrdering::SeqCst);
+            started_tx
+                .send(())
+                .expect("worker must signal that insert is about to start");
             index.insert(0, &*source).expect("insert must succeed");
             finished.store(true, AtomicOrdering::SeqCst);
         })
     };
 
-    thread::sleep(Duration::from_millis(50));
+    started_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("worker must start within one second");
     assert!(started.load(AtomicOrdering::SeqCst));
     assert!(
         !finished.load(AtomicOrdering::SeqCst),

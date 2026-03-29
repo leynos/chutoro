@@ -91,7 +91,7 @@ fn bootstrap_and_validate(
     }
 
     #[cfg(test)]
-    heal_graph(ctx.index);
+    heal_graph(ctx.index)?;
 
     ctx.index.invariants().check_all().map_err(|err| {
         debug!(len, %err, "invariants failed after bootstrap");
@@ -129,7 +129,7 @@ fn apply_mutation_steps(
             "hnsw mutation step"
         );
         #[cfg(test)]
-        heal_graph(ctx.index);
+        heal_graph(ctx.index)?;
         ctx.index.invariants().check_all().map_err(|err| {
             debug!(
                 step,
@@ -155,10 +155,10 @@ fn apply_mutation_steps(
 }
 
 #[cfg(test)]
-fn heal_graph(index: &CpuHnsw) {
+fn heal_graph(index: &CpuHnsw) -> Result<(), TestCaseError> {
     index
         .heal_for_test()
-        .expect("test-only graph healing must acquire the graph lock");
+        .map_err(|err| TestCaseError::fail(format!("test-only graph healing failed: {err}")))
 }
 
 struct MutationRunner<'ctx> {

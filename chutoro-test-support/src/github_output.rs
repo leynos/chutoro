@@ -147,3 +147,177 @@ fn write_github_output_value(file: &mut impl Write, key: &str, value: &str) -> i
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    //! Regression coverage for GitHub Actions output-file encoding.
+
+    use super::{
+        GITHUB_OUTPUT_DELIMITER, OutputPair, append_if_configured, split_output_path,
+        write_github_output_value,
+    };
+    use cap_std::{ambient_authority, fs::Dir};
+    use std::{
+        env,
+        io::{self, ErrorKind, Read},
+        path::{Path, PathBuf},
+        sync::{Mutex, OnceLock},
+    };
+    use tempfile::tempdir;
+
+    static ENV_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
+
+    fn with_github_output_env(
+        path: Option<&Path>,
+        test: impl FnOnce() -> io::Result<()>,
+    ) -> io::Result<()> {
+        let _guard = ENV_GUARD
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("test environment guard must lock");
+        let previous = env::var_os("GITHUB_OUTPUT");
+        match path {
+            Some(path) => {
+                // SAFETY: Tests serialize environment mutations behind
+                // `ENV_GUARD`, so no concurrent readers or writers exist.
+                unsafe { env::set_var("GITHUB_OUTPUT", path) };
+            }
+            None => {
+                // SAFETY: Tests serialize environment mutations behind
+                // `ENV_GUARD`, so no concurrent readers or writers exist.
+                unsafe { env::remove_var("GITHUB_OUTPUT") };
+            }
+        }
+
+        let result = test();
+
+        match previous {
+            Some(value) => {
+                // SAFETY: Tests serialize environment mutations behind
+                // `ENV_GUARD`, so no concurrent readers or writers exist.
+                unsafe { env::set_var("GITHUB_OUTPUT", value) };
+            }
+            None => {
+                // SAFETY: Tests serialize environment mutations behind
+                // `ENV_GUARD`, so no concurrent readers or writers exist.
+                unsafe { env::remove_var("GITHUB_OUTPUT") };
+            }
+        }
+
+        result
+    }
+
+    fn read_github_output(path: &Path) -> io::Result<String> {
+        let dir_path = path
+            .parent()
+            .expect("temp output path must have a parent directory");
+        let file_name = path
+            .file_name()
+            .expect("temp output path must have a file name");
+        let dir = Dir::open_ambient_dir(dir_path, ambient_authority())?;
+        let mut file = dir.open(file_name)?;
+        let mut buffer = String::new();
+        file.read_to_string(&mut buffer)?;
+        Ok(buffer)
+    }
+
+    #[test]
+    fn append_if_configured_unset_noop() {
+        let temp_dir = tempdir().expect("tempdir must be created");
+        let output_path = temp_dir.path().join("github_output.txt");
+
+        with_github_output_env(None, || {
+            append_if_configured(&[OutputPair::new("mode", "baseline_compare")])
+        })
+        .expect("unset GITHUB_OUTPUT must be a no-op");
+
+        assert!(
+            !output_path.exists(),
+            "unset GITHUB_OUTPUT must not create an output file"
+        );
+    }
+
+    #[test]
+    fn append_if_configured_empty_noop() {
+        let temp_dir = tempdir().expect("tempdir must be created");
+        let output_path = temp_dir.path().join("github_output.txt");
+
+        with_github_output_env(Some(Path::new("")), || {
+            append_if_configured(&[OutputPair::new("mode", "baseline_compare")])
+        })
+        .expect("empty GITHUB_OUTPUT must be a no-op");
+
+        assert!(
+            !output_path.exists(),
+            "empty GITHUB_OUTPUT must not create an output file"
+        );
+    }
+
+    #[test]
+    fn writes_simple_key_value() {
+        let temp_dir = tempdir().expect("tempdir must be created");
+        let output_path = temp_dir.path().join("github_output.txt");
+
+        with_github_output_env(Some(&output_path), || {
+            append_if_configured(&[OutputPair::new("mode", "baseline_compare")])
+        })
+        .expect("single-line output must write successfully");
+
+        let contents = read_github_output(&output_path).expect("output file must be readable");
+        assert_eq!(contents, "mode=baseline_compare\n");
+    }
+
+    #[test]
+    fn writes_multiline_value_with_delimiter() {
+        let temp_dir = tempdir().expect("tempdir must be created");
+        let output_path = temp_dir.path().join("github_output.txt");
+        let multiline = "line1\nline2\nline3";
+
+        with_github_output_env(Some(&output_path), || {
+            append_if_configured(&[OutputPair::new("summary", multiline)])
+        })
+        .expect("multiline output must write successfully");
+
+        let contents = read_github_output(&output_path).expect("output file must be readable");
+        let expected = format!(
+            "summary<<{delimiter}\n{multiline}\n{delimiter}\n",
+            delimiter = GITHUB_OUTPUT_DELIMITER,
+        );
+        assert_eq!(contents, expected);
+    }
+
+    #[test]
+    fn rejects_values_containing_delimiter() {
+        let temp_dir = tempdir().expect("tempdir must be created");
+        let output_path = temp_dir.path().join("github_output.txt");
+        let invalid = format!("line1\ncontains {GITHUB_OUTPUT_DELIMITER}");
+
+        let err = with_github_output_env(Some(&output_path), || {
+            append_if_configured(&[OutputPair::new("bad", &invalid)])
+        })
+        .expect_err("delimiter collision must be rejected");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn split_output_path_uses_parent_directory_and_file_name() {
+        let output_path = PathBuf::from("nested/github_output.txt");
+        let (parent, file_name) =
+            split_output_path(&output_path).expect("path splitting must succeed");
+
+        assert_eq!(parent, Path::new("nested"));
+        assert_eq!(file_name, std::ffi::OsStr::new("github_output.txt"));
+    }
+
+    #[test]
+    fn write_github_output_value_rejects_delimiter() {
+        let mut buffer = Vec::new();
+        let invalid = format!("line1\ncontains {GITHUB_OUTPUT_DELIMITER}");
+
+        let err = write_github_output_value(&mut buffer, "bad", &invalid)
+            .expect_err("delimiter collision must be rejected");
+
+        assert_eq!(err.kind(), ErrorKind::InvalidInput);
+    }
+}

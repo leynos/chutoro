@@ -1,4 +1,5 @@
-//! Error conversion coverage for dense matrix providers.
+//! Error conversion coverage: tests for `From` implementations on
+//! `DenseMatrixProviderError`.
 
 use super::DenseMatrixProviderError;
 use arrow_schema::ArrowError;

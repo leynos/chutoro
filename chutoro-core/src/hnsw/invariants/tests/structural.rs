@@ -40,14 +40,7 @@ fn no_self_loops_after_construction(#[case] node_count: usize) {
         }
     }
 
-    for (node_id, node) in graph.nodes_iter() {
-        for (_level, neighbour) in node.iter_neighbours() {
-            assert_ne!(
-                node_id, neighbour,
-                "node {node_id} should not have itself as neighbour"
-            );
-        }
-    }
+    assert!(helpers::has_no_self_loops(&graph));
 }
 
 #[test]
@@ -72,11 +65,10 @@ fn self_loop_is_detectable() {
 
     graph.node_mut(0).expect("node").neighbours_mut(0).push(0);
 
-    let has_self_loop = graph
-        .node(0)
-        .map(|node| node.neighbours(0).contains(&0))
-        .unwrap_or(false);
-    assert!(has_self_loop, "self-loop should be present for detection");
+    assert!(
+        !helpers::has_no_self_loops(&graph),
+        "self-loop should be present for detection",
+    );
 }
 
 #[rstest]
@@ -112,17 +104,9 @@ fn neighbour_list_is_unique(#[case] neighbours: Vec<usize>) {
             .push(neighbour);
     }
 
-    let actual_neighbours = graph.node(0).expect("node").neighbours(0);
-    let unique_count = {
-        let mut sorted = actual_neighbours.to_vec();
-        sorted.sort_unstable();
-        sorted.dedup();
-        sorted.len()
-    };
-    assert_eq!(
-        unique_count,
-        actual_neighbours.len(),
-        "neighbour list should have no duplicates"
+    assert!(
+        helpers::has_unique_neighbours(&graph),
+        "neighbour list should have no duplicates",
     );
 }
 
@@ -157,9 +141,10 @@ fn duplicate_neighbour_is_detectable() {
     neighbours.push(1);
     neighbours.push(1);
 
-    let neighbour_list = graph.node(0).expect("node").neighbours(0);
-    let count_of_1 = neighbour_list.iter().filter(|&&n| n == 1).count();
-    assert_eq!(count_of_1, 2, "duplicate should be present for detection");
+    assert!(
+        !helpers::has_unique_neighbours(&graph),
+        "duplicate should be present for detection",
+    );
 }
 
 #[rstest]
@@ -199,20 +184,12 @@ fn entry_point_has_max_level(#[case] levels: Vec<usize>, #[case] expected_entry_
         entry.level, expected_entry_level,
         "entry point should have maximum level"
     );
-
-    let entry_node = graph.node(entry.node).expect("entry node should exist");
-    assert!(
-        entry_node.level_count() > entry.level,
-        "entry node should have at least entry.level + 1 levels"
-    );
+    assert!(helpers::is_entry_point_valid(&graph));
 }
 
 #[test]
 fn empty_graph_has_no_entry_point() {
     let params = HnswParams::new(4, 8).expect("params");
     let graph = Graph::with_capacity(params, 4);
-    assert!(
-        graph.entry().is_none(),
-        "empty graph should have no entry point"
-    );
+    assert!(helpers::is_entry_point_valid(&graph));
 }

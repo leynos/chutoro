@@ -1,8 +1,14 @@
 //! Capability-scoped filesystem helpers for benchmark data and reports.
+//!
+//! Paths are validated before use and then resolved by descending from a fixed
+//! capability root: `.` for relative paths and `/` for absolute paths. The
+//! helpers reject parent-directory traversal so callers cannot escape the
+//! chosen root while still allowing benchmark fixtures to use either
+//! repository-relative or absolute scratch paths.
 
 use std::ffi::OsStr;
 use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use cap_std::{
     ambient_authority,
@@ -46,16 +52,14 @@ pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 pub(crate) fn try_exists(path: &Path) -> io::Result<bool> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    validate_scoped_path(path)?;
     let Some(file_name) = path.file_name() else {
         return Err(invalid_path(path));
     };
-
-    match Dir::open_ambient_dir(parent, ambient_authority()) {
-        Ok(dir) => dir.try_exists(file_name),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(error),
-    }
+    let Some(dir) = open_existing_parent_dir(path)? else {
+        return Ok(false);
+    };
+    dir.try_exists(file_name)
 }
 
 pub(crate) fn write(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -81,15 +85,80 @@ fn invalid_path(path: &Path) -> io::Error {
     )
 }
 
-fn open_parent_dir(path: &Path, create_parent: bool) -> io::Result<(Dir, &OsStr)> {
-    let parent = path.parent().unwrap_or_else(|| Path::new("."));
-    if create_parent {
-        Dir::create_ambient_dir_all(parent, ambient_authority())?;
+fn invalid_scoped_path(path: &Path) -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!(
+            "path must not contain parent-directory traversal components: {}",
+            path.display()
+        ),
+    )
+}
+
+fn validate_scoped_path(path: &Path) -> io::Result<()> {
+    if path
+        .components()
+        .any(|component| matches!(component, Component::ParentDir | Component::Prefix(_)))
+    {
+        return Err(invalid_scoped_path(path));
+    }
+    Ok(())
+}
+
+fn split_scope(path: &Path) -> io::Result<(Dir, PathBuf)> {
+    validate_scoped_path(path)?;
+    let root_path = if path.is_absolute() {
+        Path::new("/")
+    } else {
+        Path::new(".")
+    };
+    let root_dir = Dir::open_ambient_dir(root_path, ambient_authority())?;
+    let mut relative = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => relative.push(part),
+            Component::CurDir
+            | Component::RootDir
+            | Component::ParentDir
+            | Component::Prefix(_) => {}
+        }
+    }
+    Ok((root_dir, relative))
+}
+
+fn open_scoped_dir(root_dir: Dir, relative_path: &Path, create_dir: bool) -> io::Result<Dir> {
+    if relative_path.as_os_str().is_empty() {
+        return Ok(root_dir);
     }
 
-    let dir = Dir::open_ambient_dir(parent, ambient_authority())?;
+    if create_dir {
+        root_dir.create_dir_all(relative_path)?;
+    }
+
+    root_dir.open_dir(relative_path)
+}
+
+fn open_existing_parent_dir(path: &Path) -> io::Result<Option<Dir>> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let (root_dir, relative_parent) = split_scope(parent)?;
+    if relative_parent.as_os_str().is_empty() {
+        return Ok(Some(root_dir));
+    }
+
+    match root_dir.open_dir(&relative_parent) {
+        Ok(dir) => Ok(Some(dir)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+fn open_parent_dir(path: &Path, create_parent: bool) -> io::Result<(Dir, &OsStr)> {
+    validate_scoped_path(path)?;
     let Some(file_name) = path.file_name() else {
         return Err(invalid_path(path));
     };
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let (root_dir, relative_parent) = split_scope(parent)?;
+    let dir = open_scoped_dir(root_dir, &relative_parent, create_parent)?;
     Ok((dir, file_name))
 }

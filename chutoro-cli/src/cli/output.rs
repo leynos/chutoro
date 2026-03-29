@@ -35,7 +35,8 @@ pub struct ExecutionSummary {
 /// };
 /// let mut buffer = Cursor::new(Vec::new());
 /// render_summary(&summary, &mut buffer)?;
-/// assert_eq!(buffer.into_inner().len(), 38);
+/// let output = String::from_utf8(buffer.into_inner())?;
+/// assert_eq!(output, "data source: demo\nclusters: 2\n0\t0\n1\t1\n");
 /// # Ok(())
 /// # }
 /// ```

@@ -79,6 +79,12 @@ Empty inputs should be handled by returning `DataSourceError::EmptyData` or
 items, or one with fewer than `min_cluster_size` items, before invoking the
 backend.
 
+Downstream crates using `DenseMatrixProvider::try_from_parquet_path` should now
+open a capability-scoped `cap_std::fs::Dir` and pass a path relative to that
+directory. See the dedicated
+[migration notes](migration-notes.md#dense-parquet-loading) for the exact code
+change.
+
 ## Results and assignments
 
 `Chutoro::run` returns a `ClusteringResult`, which exposes the per-item

@@ -22,10 +22,22 @@ impl HealingTestContext {
         insert_node(&mut graph, 2, 0, 2)?;
         insert_node(&mut graph, 3, 0, 3)?;
 
-        add_edge_if_missing(&mut graph, 1, 2, 0);
-        add_edge_if_missing(&mut graph, 1, 0, 0);
-        add_edge_if_missing(&mut graph, 2, 1, 0);
-        add_edge_if_missing(&mut graph, 0, 1, 0);
+        assert!(
+            add_edge_if_missing(&mut graph, 1, 2, 0),
+            "node 1 should exist at level 0",
+        );
+        assert!(
+            add_edge_if_missing(&mut graph, 1, 0, 0),
+            "node 1 should exist at level 0",
+        );
+        assert!(
+            add_edge_if_missing(&mut graph, 2, 1, 0),
+            "node 2 should exist at level 0",
+        );
+        assert!(
+            add_edge_if_missing(&mut graph, 0, 1, 0),
+            "node 0 should exist at level 0",
+        );
 
         Ok(Self {
             graph,

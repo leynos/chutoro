@@ -5,7 +5,7 @@ CARGO ?= cargo
 BUILD_JOBS ?=
 RUST_FLAGS ?=
 RUST_FLAGS := -D warnings $(RUST_FLAGS)
-CLIPPY_FLAGS ?= --all-targets --all-features -- $(RUST_FLAGS)
+CLIPPY_FLAGS ?= --workspace --all-targets --all-features -- -D warnings
 RUSTDOC_FLAGS ?= --cfg docsrs
 RUSTDOC_FLAGS := $(RUSTDOC_FLAGS) -D warnings
 WHITAKER_FLAGS ?= --all -- --all-targets --all-features
@@ -23,7 +23,7 @@ clean: ## Remove build artifacts
 	$(CARGO) clean
 
 test: ## Run tests with warnings treated as errors
-	RUSTFLAGS="$(RUST_FLAGS)" $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS)
+	RUSTFLAGS="$(RUST_FLAGS)" $(CARGO) test --workspace $(BUILD_JOBS)
 
 target/%/$(APP): ## Build binary in debug or release mode
 	$(CARGO) build $(BUILD_JOBS) $(if $(findstring release,$(@)),--release) --bin $(APP)

@@ -6,15 +6,20 @@ use super::{
 };
 use crate::hnsw::graph::Graph;
 
-pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usize, level: usize) {
+pub(crate) fn add_edge_if_missing(
+    graph: &mut Graph,
+    origin: usize,
+    target: usize,
+    level: usize,
+) -> bool {
     let Some(node) = graph.node_mut(origin) else {
-        debug_assert!(false, "node {origin} should exist");
-        return;
+        return false;
     };
     let neighbours = node.neighbours_mut(level);
     if !neighbours.contains(&target) {
         neighbours.push(target);
     }
+    true
 }
 
 pub(super) fn assert_no_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
