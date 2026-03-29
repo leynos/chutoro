@@ -679,15 +679,24 @@ In `chutoro-providers/dense/build.rs`:
 ```rust
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
-    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
-    let output = std::process::Command::new(rustc)
-        .arg("--version")
-        .output()
-        .expect("failed to run rustc --version");
-    let version = String::from_utf8_lossy(&output.stdout);
-    if version.contains("nightly") {
+    println!("cargo:rerun-if-env-changed=RUSTC");
+    println!("cargo:rustc-check-cfg=cfg(nightly)");
+
+    if is_nightly_compiler() {
         println!("cargo:rustc-cfg=nightly");
     }
+}
+
+fn is_nightly_compiler() -> bool {
+    let rustc = std::env::var_os("RUSTC")
+        .unwrap_or_else(|| std::ffi::OsString::from("rustc"));
+    std::process::Command::new(rustc)
+        .arg("--version")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .is_some_and(|version| version.contains("nightly"))
 }
 ```
 
