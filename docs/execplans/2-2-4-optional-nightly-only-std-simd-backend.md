@@ -15,9 +15,9 @@ implementation using the `portable_simd` API while keeping the stable
 `core::arch` intrinsic backends (AVX2, AVX-512, NEON) as the default path on
 every stable toolchain.
 
-A nightly CI job validates that the nightly feature compiles and produces
-correct results, catching `portable_simd` API breakage before it reaches
-contributors.
+A nightly Continuous Integration (CI) job validates that the nightly feature
+compiles and produces correct results, catching `portable_simd` API breakage
+before it reaches contributors.
 
 Success is observable when:
 
@@ -300,66 +300,62 @@ Stage A.
 
 ## Plan of work
 
-### Stage A: resolve the `--all-features` coexistence strategy (no code changes beyond prototyping)
+- [ ] 1. Deliver roadmap item `2.2.4` end to end while preserving stable
+  builds.
 
-The central technical challenge is that `make lint` and `make test` pass
-`--all-features`, which will enable `nightly_portable_simd`. If
-`#![feature(portable_simd)]` is emitted on stable, the build fails.
+- [ ] 1.1. Resolve the `--all-features` coexistence strategy (no code changes
+  beyond prototyping). The central technical challenge is that `make lint` and
+  `make test` pass `--all-features`, which will enable `nightly_portable_simd`.
+  If `#![feature(portable_simd)]` is emitted on stable, the build fails.
 
-This stage researches and decides the coexistence strategy. Two options are
-evaluated:
+- [ ] 1.1.1. Evaluate Option 1: `cfg_attr` with nightly detection.
+  Use a build script or `rustc_attrs` feature detection to emit
+  `cargo:rustc-cfg=nightly` on nightly compilers. Gate
+  `#![cfg_attr(feature = "nightly_portable_simd", feature(portable_simd))]`
+  behind the `nightly` cfg so the `cfg_attr` expands to nothing on stable even
+  when `--all-features` enables the Cargo feature.
 
-**Option 1: `cfg_attr` with nightly detection.** Use a build script or
-`rustc_attrs` feature detection to emit `cargo:rustc-cfg=nightly` on nightly
-compilers. Gate
-`#![cfg_attr(feature = "nightly_portable_simd", feature(portable_simd))]`
-behind the `nightly` cfg. On stable, the `cfg_attr` expands to nothing even
-when `--all-features` enables the Cargo feature.
+- [ ] 1.1.2. Evaluate Option 2: exclude from `--all-features` via `Makefile`.
+  Adjust the `Makefile` targets to exclude `nightly_portable_simd` by using
+  explicit feature lists instead of `--all-features`, or accept that
+  `--all-features` on stable will fail and add a separate nightly lint/test
+  target.
 
-**Option 2: exclude from `--all-features` via Makefile.** Adjust the `Makefile`
-targets to exclude `nightly_portable_simd` by using explicit feature lists
-instead of `--all-features`, or accept that `--all-features` on stable will
-fail and add a separate nightly lint/test target.
+- [ ] 1.1.3. Prefer Option 1 because it preserves the existing
+  `--all-features` workflow and requires no Makefile changes. A `build.rs` that
+  emits `cargo:rustc-cfg=nightly` when the compiler reports a nightly version
+  string is a well-established pattern.
 
-The recommended approach is **Option 1** because it preserves the existing
-`--all-features` workflow and requires no Makefile changes. A `build.rs` that
-emits `cargo:rustc-cfg=nightly` when the compiler reports a nightly version
-string is a well-established pattern.
+- [ ] 1.1.4. Confirm that `rustc --version` output on nightly includes the
+  string `"nightly"` and on stable does not.
 
-Planned research:
-
-- Confirm that `rustc --version` output on nightly includes the string
-  `"nightly"` and on stable does not.
-- Confirm that `cargo:rustc-cfg=nightly` emitted by `build.rs` makes
+- [ ] 1.1.5. Confirm that `cargo:rustc-cfg=nightly` emitted by `build.rs` makes
   `#[cfg(nightly)]` available to the crate.
-- Prototype the `cfg_attr` gating in a scratch file and verify it compiles
-  cleanly on stable with the feature enabled.
 
-Go/no-go:
+- [ ] 1.1.6. Prototype the `cfg_attr` gating in a scratch file and verify it
+  compiles cleanly on stable with the feature enabled.
 
-- If Option 1 is confirmed feasible, proceed with it.
-- If neither option works within tolerances, stop and escalate.
+- [ ] 1.1.7. Proceed only if Option 1 is confirmed feasible; otherwise stop and
+  escalate if neither option works within tolerances.
 
-### Stage B: add feature flag, build script, and crate-level gating
+- [ ] 1.2. Add the feature flag, build script, and crate-level gating.
+  Add the Cargo feature, build script, and crate-level `#![feature(...)]`
+  gating.
 
-Add the Cargo feature, build script, and crate-level `#![feature(...)]` gating.
+- [ ] 1.2.1. Update
+      [Cargo.toml](/home/user/project/chutoro-providers/dense/Cargo.toml)
+  to add `nightly_portable_simd = []` to the `[features]` table without adding
+  it to `default`.
 
-Planned edits:
+- [ ] 1.2.2. Create
+      [build.rs](/home/user/project/chutoro-providers/dense/build.rs)
+  so it reads `RUSTC` or falls back to `"rustc"`, runs `rustc --version`,
+  checks for `"nightly"`, emits `println!("cargo:rustc-cfg=nightly")` when
+  appropriate, and always emits `println!("cargo:rerun-if-changed=build.rs")`.
 
-- `chutoro-providers/dense/Cargo.toml`
-  - Add `nightly_portable_simd = []` to the `[features]` table. Do not add it
-    to `default`.
-
-- `chutoro-providers/dense/build.rs` (new file)
-  - Create a minimal build script that:
-    1. Reads the `RUSTC` environment variable (set by Cargo) or falls back to
-       `"rustc"`.
-    2. Runs `rustc --version` and checks if the output contains `"nightly"`.
-    3. If nightly, emits `println!("cargo:rustc-cfg=nightly")`.
-    4. Always emits `println!("cargo:rerun-if-changed=build.rs")`.
-
-- `chutoro-providers/dense/src/lib.rs`
-  - Add at the crate root:
+- [ ] 1.2.3. Update
+      [lib.rs](/home/user/project/chutoro-providers/dense/src/lib.rs)
+  to add the crate-root gating:
 
   ```rust
   #![cfg_attr(
@@ -369,195 +365,132 @@ Planned edits:
   ```
 
   This activates `portable_simd` only when both the Cargo feature is enabled
-  AND the compiler is nightly.
+  and the compiler is nightly.
 
-Go/no-go:
+- [ ] 1.2.4. Require `cargo check -p chutoro-providers-dense --features
+  nightly_portable_simd` on stable and `cargo check -p chutoro-providers-dense
+  --all-features
+  ` on stable to succeed without errors or warnings before continuing.
 
-- `cargo check -p chutoro-providers-dense --features nightly_portable_simd` on
-  stable must succeed without errors or warnings.
-- `cargo check -p chutoro-providers-dense --all-features` on stable must
-  succeed without errors or warnings.
-- Do not proceed if either check fails.
+- [ ] 1.3. Implement the portable SIMD kernels.
+  Add the `std::simd` kernel implementations in a new submodule.
 
-### Stage C: implement portable SIMD kernels
+- [ ] 1.3.1. Create
+  [portable_simd.rs](/home/user/project/chutoro-providers/dense/src/simd/kernels/portable_simd.rs)
+   behind `#[cfg(all(feature = "nightly_portable_simd", nightly))]`, import
+  `std::simd::prelude::*` and `std::simd::Simd`, and implement the pairwise
+  kernel `euclidean_distance_portable_simd` plus the query-to-points entrypoint
+  `euclidean_distance_query_points_portable_simd_entry`.
 
-Add the `std::simd` kernel implementations in a new submodule.
+- [ ] 1.3.2. Keep the portable SIMD lane width at 16 so it matches
+  `MAX_SIMD_LANES` and `DensePointView` padding. Rely on the compiler to lower
+  `Simd<f32, 16>` to the best available hardware instruction set.
 
-Planned edits:
+- [ ] 1.3.3. Update
+  [kernels.rs](/home/user/project/chutoro-providers/dense/src/simd/kernels.rs)
+  to add the conditional `portable_simd` module declaration, extend
+  `select_backend_fn!` with a `portable_simd` arm, and add entrypoint
+  references in `select_euclidean_kernel` and
+  `select_euclidean_query_points_kernel`.
 
-- `chutoro-providers/dense/src/simd/kernels/portable_simd.rs` (new file)
-  - Gate the entire module with
-    `#[cfg(all(feature = "nightly_portable_simd", nightly))]`.
-  - Import `std::simd::prelude::*` and `std::simd::Simd`.
-  - Implement:
-    1. `euclidean_distance_portable_simd(left: &[f32], right: &[f32]) -> f32`
-       — Safe pairwise Euclidean distance using `Simd<f32, 16>` for the main
-       loop and `squared_l2_tail` for remainder elements, followed by
-       `finalize_distance`.
-    2. `euclidean_distance_query_points_portable_simd_entry`
-       `(query: &[f32], points: &DensePointView<'_>, out: &mut [f32])`
-       — Safe query-to-points batch kernel using `Simd<f32, 16>` across
-       padded coordinate blocks, with `finalize_distance` per lane.
+- [ ] 1.4. Extend the dispatch model.
+  Add the `PortableSimd` backend variant and wire it into dispatch selection.
 
-  The lane width of 16 matches `MAX_SIMD_LANES` and `DensePointView`'s padding.
-  The compiler will lower `Simd<f32, 16>` to the best available hardware
-  instruction set (AVX-512 if available, AVX2 with two half-width operations
-  otherwise, etc.).
+- [ ] 1.4.1. Update
+  [dispatch.rs](/home/user/project/chutoro-providers/dense/src/simd/dispatch.rs)
+   to add `PortableSimd` to `EuclideanBackend`, add `portable_simd` fields to
+  `CompiledSimdSupport` and `RuntimeSimdSupport`, update their constructors to
+  accept four boolean arguments, report compiled support through
+  `cfg!(all(feature = "nightly_portable_simd", nightly))`, report runtime
+  support unconditionally when compiled in, update backend priority to AVX-512
+  > AVX2 > NEON > PortableSimd > Scalar, and extend `backend_supported`.
 
-- `chutoro-providers/dense/src/simd/kernels.rs`
-  - Add a conditional module declaration:
+- [ ] 1.4.2. Update
+  [mod.rs](/home/user/project/chutoro-providers/dense/src/simd/mod.rs) so
+  `should_pack_query_points_for_backend` treats `PortableSimd` as SIMD-capable
+  and uses the structure-of-arrays query-points path.
 
-  ```rust
-  #[cfg(all(feature = "nightly_portable_simd", nightly))]
-  mod portable_simd;
+- [ ] 1.5. Add comprehensive parameterized unit tests for the new backend.
+
+- [ ] 1.5.1. Extend
+  [tests.rs](/home/user/project/chutoro-providers/dense/src/simd/tests.rs) so
+  `choose_euclidean_backend_prefers_best_enabled_supported_backend` covers
+  `PortableSimd`, including cases where portable SIMD is selected when no
+  platform-specific backend is available, AVX2 wins when present, and portable
+  SIMD wins over scalar when both are available.
+
+- [ ] 1.5.2. Add a `should_pack_query_points_for_backend` case for
+  `PortableSimd` in
+  [tests.rs](/home/user/project/chutoro-providers/dense/src/simd/tests.rs).
+
+- [ ] 1.5.3. Extend
+  [entrypoints.rs](/home/user/project/chutoro-providers/dense/src/simd/tests/entrypoints.rs)
+   with a `#[cfg(all(feature = "nightly_portable_simd", nightly))]` section
+  covering `portable_simd_pairwise_matches_scalar`,
+  `portable_simd_query_points_matches_scalar`,
+  `portable_simd_canonicalizes_non_finite_to_nan`, and `rstest`
+  parameterization for vector lengths 1, 7, 16, 17, 35, 67, and 128.
+
+- [ ] 1.5.4. Add a non-finite canonicalization test case for the portable SIMD
+  backend in
+  [tests.rs](/home/user/project/chutoro-providers/dense/src/simd/tests.rs) if
+  needed.
+
+- [ ] 1.5.5. Require all new tests to pass on nightly with
+  `--features nightly_portable_simd`, all existing tests to pass on stable
+  without the feature, `make lint` to pass under stable `--all-features`, and
+  `make test` to pass before proceeding.
+
+- [ ] 1.6. Add the nightly CI workflow.
+  Create a GitHub Actions workflow for nightly validation.
+
+- [ ] 1.6.1. Follow the pattern from `.github/workflows/nightly-kani.yml`
+  while creating
+  [nightly-portable-simd.yml](/home/user/project/.github/workflows/nightly-portable-simd.yml)
+   with schedule `cron: '0 3 * * *'`, a `workflow_dispatch` `force_run` flag,
+  and concurrency group `nightly-portable-simd` with
+  `cancel-in-progress: false`.
+
+- [ ] 1.6.2. Configure the `nightly-portable-simd` job to run on
+  `ubuntu-latest` with `timeout-minutes: 30`.
+
+- [ ] 1.6.3. Sequence the workflow steps as checkout, recent-commit gate by
+  fetching `origin/main` and comparing `git log -1 --format=%ct origin/main`
+  against current UTC time with `force_run=true` bypass support, nightly
+  toolchain install via
+  `rustup toolchain install nightly --profile minimal --component clippy rustfmt`,
+   and the following commands:
+
+  ```sh
+  RUSTFLAGS="-D warnings" cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd
+  cargo +nightly clippy -p chutoro-providers-dense --all-targets --features nightly_portable_simd -- -D warnings
   ```
 
-  - Extend `select_backend_fn!` macro to include a `portable_simd` arm,
-    gated by `#[cfg(all(feature = "nightly_portable_simd", nightly))]`,
-    mapping `EuclideanBackend::PortableSimd` to the new kernel functions.
-  - Add `portable_simd` entrypoint references in `select_euclidean_kernel`
-    and `select_euclidean_query_points_kernel`.
+- [ ] 1.7. Update documentation and close the roadmap item.
+  Record the design decisions and mark the roadmap item done.
 
-### Stage D: extend dispatch model
+- [ ] 1.7.1. Update
+      [chutoro-design.md](/home/user/project/docs/chutoro-design.md)
+  §6.3 to record the non-default `nightly_portable_simd` feature name, dispatch
+  priority `AVX-512 > AVX2 > NEON > PortableSimd > Scalar`, tracking issues:
+  [^1], [^2], [^3], the build-script nightly detection strategy, and unit-test
+  coverage for pairwise, batch, and non-finite parity with the scalar oracle.
 
-Add the `PortableSimd` backend variant and wire it into dispatch selection.
+- [ ] 1.7.2. Mark [roadmap.md](/home/user/project/docs/roadmap.md) item
+  `2.2.4` done only after all validation commands pass.
 
-Planned edits:
+- [ ] 1.7.3. Run the validation commands:
 
-- `chutoro-providers/dense/src/simd/dispatch.rs`
-  - Add `PortableSimd` variant to `EuclideanBackend`.
-  - Add a `portable_simd` field to `CompiledSimdSupport` and
-    `RuntimeSimdSupport`.
-  - Update `CompiledSimdSupport::new` to accept 4 boolean arguments (add
-    `portable_simd: bool`).
-  - Update `RuntimeSimdSupport::new` to accept 4 boolean arguments (add
-    `portable_simd: bool`).
-  - Update `compiled_simd_support()` to report `true` for portable SIMD when
-    `cfg!(all(feature = "nightly_portable_simd", nightly))`.
-  - Update `runtime_simd_support()` to report `true` for portable SIMD
-    unconditionally when the feature is compiled in (portable SIMD has no
-    runtime detection requirement; the compiler handles target feature
-    selection).
-  - Update `choose_euclidean_backend` priority order to:
-    AVX-512 > AVX2 > NEON > PortableSimd > Scalar.
-    The portable SIMD backend sits below all platform-specific intrinsic
-    backends because the intrinsic backends are hand-tuned and proven faster
-    for their target; portable SIMD serves as a better-than-scalar fallback
-    for platforms without dedicated intrinsic backends.
-  - Update `backend_supported` to handle `PortableSimd`.
+  ```sh
+  set -o pipefail; make check-fmt 2>&1 | tee /tmp/2-2-4-make-check-fmt.log
+  set -o pipefail; make lint 2>&1 | tee /tmp/2-2-4-make-lint.log
+  set -o pipefail; make test 2>&1 | tee /tmp/2-2-4-make-test.log
+  ```
 
-- `chutoro-providers/dense/src/simd/mod.rs`
-  - Update `should_pack_query_points_for_backend` to treat `PortableSimd` as
-    SIMD-capable (the SoA query-points path should be used).
-
-### Stage E: add unit tests
-
-Add comprehensive parameterized tests for the new backend.
-
-Planned edits:
-
-- `chutoro-providers/dense/src/simd/tests.rs`
-  - Extend the `choose_euclidean_backend_prefers_best_enabled_supported_backend`
-    rstest cases to cover `PortableSimd` scenarios:
-    - When `nightly_portable_simd` is compiled and no platform-specific
-      backend is available, portable SIMD is selected.
-    - When AVX2 is available, AVX2 wins over portable SIMD.
-    - When only portable SIMD and scalar are available, portable SIMD wins.
-  - Add `should_pack_query_points_for_backend` case for `PortableSimd`.
-
-- `chutoro-providers/dense/src/simd/tests/entrypoints.rs`
-  - Add a `#[cfg(all(feature = "nightly_portable_simd", nightly))]` test
-    section:
-    - `portable_simd_pairwise_matches_scalar`: generate vectors at multiple
-      lengths (including below, at, and above 16-lane boundary: 1, 7, 16, 17,
-      35, 67, 128), compute distances with both the portable SIMD kernel and
-      the scalar kernel, and assert agreement within `1.0e-6`.
-    - `portable_simd_query_points_matches_scalar`: generate a small matrix
-      and candidate set, compute with both portable SIMD and scalar
-      query-points kernels, and assert agreement.
-    - `portable_simd_canonicalizes_non_finite_to_nan`: test that `INFINITY`
-      input produces `NaN` output.
-    - Use `rstest` `#[case]` parameterization for vector lengths.
-
-- `chutoro-providers/dense/src/simd/tests.rs`
-  - Add non-finite canonicalization test case for the portable SIMD backend
-    if appropriate.
-
-Go/no-go:
-
-- All new tests pass on nightly with `--features nightly_portable_simd`.
-- All existing tests continue to pass on stable without the feature.
-- `make lint` passes (which uses `--all-features` on stable; the `cfg_attr`
-  gating from Stage B ensures this compiles cleanly).
-- `make test` passes.
-
-### Stage F: add nightly CI workflow
-
-Create a GitHub Actions workflow for nightly validation.
-
-Planned edits:
-
-- `.github/workflows/nightly-portable-simd.yml` (new file)
-  - Follow the pattern from `.github/workflows/nightly-kani.yml`:
-    - Schedule: `cron: '0 3 * * *'` (daily at 03:00 UTC, offset from the Kani
-      job at 02:00 UTC).
-    - Manual trigger: `workflow_dispatch` with optional `force_run` flag.
-    - Concurrency group: `nightly-portable-simd`, `cancel-in-progress: false`.
-    - Job `nightly-portable-simd`:
-      - `runs-on: ubuntu-latest`
-      - `timeout-minutes: 30`
-      - Steps:
-        1. Checkout `main`.
-        2. Check for recent commits on `main` in the last 24 hours by fetching
-           `origin/main` and comparing `git log -1 --format=%ct origin/main`
-           against the current UTC time; allow `workflow_dispatch` to bypass
-           the age check with `force_run=true`.
-        3. Install nightly Rust with the workflow command:
-           `rustup toolchain install nightly --profile minimal --component`
-           `clippy rustfmt`.
-        4. Run
-           `RUSTFLAGS="-D warnings" cargo +nightly test -p`
-           `chutoro-providers-dense --features nightly_portable_simd`.
-        5. Run
-           `cargo +nightly clippy -p chutoro-providers-dense --all-targets`
-           `--features nightly_portable_simd -- -D warnings`.
-
-### Stage G: update documentation and close roadmap item
-
-Record the design decisions and mark the roadmap item done.
-
-Planned edits:
-
-- `docs/chutoro-design.md`
-  - Add an implementation update paragraph to §6.3 recording:
-    - The `nightly_portable_simd` feature name and that it is non-default.
-    - The dispatch priority: AVX-512 > AVX2 > NEON > PortableSimd > Scalar.
-    - The tracking issues: `rust-lang/rust#86656` (portable_simd),
-      `rust-lang/rust#127356` (bf16 wrappers), `rust-lang/rust#127213`
-      (AVX512_FP16 intrinsics).
-    - The build script nightly detection strategy.
-    - That unit test coverage validates pairwise, batch, and non-finite
-      parity with the scalar oracle.
-
-- `docs/roadmap.md`
-  - Mark item `2.2.4` done (`[x]`) only after all validation commands pass.
-
-Validation commands:
-
-```sh
-set -o pipefail; make check-fmt 2>&1 | tee /tmp/2-2-4-make-check-fmt.log
-set -o pipefail; make lint 2>&1 | tee /tmp/2-2-4-make-lint.log
-set -o pipefail; make test 2>&1 | tee /tmp/2-2-4-make-test.log
-```
-
-Expected success signals:
-
-- `make check-fmt` exits `0`.
-- `make lint` exits `0` with no Clippy warnings (the `nightly_portable_simd`
-  feature is enabled by `--all-features` but the `cfg_attr` gating prevents
-  `#![feature(portable_simd)]` from appearing on stable).
-- `make test` exits `0` and includes all existing tests in the summary (the
-  nightly-only tests are conditionally compiled out on stable).
+- [ ] 1.7.4. Expect `make check-fmt` to exit `0`, `make lint` to exit `0`
+  without Clippy warnings even though `nightly_portable_simd` is enabled by
+  `--all-features`, and `make test` to exit `0` while keeping nightly-only
+  tests conditionally compiled out on stable.
 
 If the plain local `make test` run hits the known nextest stall, run
 `CI=1 make test` instead, capture the log, and confirm the stall is unrelated
@@ -859,3 +792,7 @@ jobs:
 
 This ExecPlan began as the required draft for roadmap task `2.2.4`. The user
 approved implementation, the work shipped, and the status is now `COMPLETED`.
+
+[^1]: `rust-lang/rust#86656` (portable_simd)
+[^2]: `rust-lang/rust#127356` (bf16 wrappers)
+[^3]: `rust-lang/rust#127213` (AVX512_FP16 intrinsics)
