@@ -36,8 +36,10 @@ jobs:
             exit 0
           fi
 
+          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+
           now_epoch="$(date -u +%s)"
-          commit_epoch="$(git log -1 --format=%ct)"
+          commit_epoch="$(git log -1 --format=%ct origin/main)"
           if [ $((now_epoch - commit_epoch)) -le 86400 ]; then
             echo "should_run=true" >> "${GITHUB_OUTPUT}"
           else
@@ -45,7 +47,7 @@ jobs:
           fi
       - name: Install nightly Rust
         if: ${{ steps.gate.outputs.should_run == 'true' }}
-        run: rustup toolchain install nightly --profile minimal --component clippy
+        run: rustup toolchain install nightly --profile minimal --component clippy rustfmt
       - name: Test dense portable SIMD backend
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd

@@ -41,7 +41,7 @@ Success is observable when:
   query-to-points batch correctness, non-finite canonicalization, and
   `DensePointView` alignment and padding preservation;
 - a new GitHub Actions workflow runs nightly and exercises the feature on a
-  nightly Rust toolchain, reporting results independently from the stable CI;
+  nightly Rust toolchain, reporting results independently of the stable CI;
 - `docs/chutoro-design.md` §6.3 records the shipped feature name, dispatch
   priority, and tracking issue references;
 - `docs/roadmap.md` marks item `2.2.4` done only after all validation commands
@@ -808,37 +808,34 @@ jobs:
       RUSTFLAGS: '-D warnings'
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
-        with:
-          ref: main
       - name: Install nightly Rust
-        run: |
-          rustup toolchain install nightly --profile minimal \
-            --component clippy rustfmt
-          rustup override set nightly
+        if: steps.gate.outputs.should_run == 'true'
+        run: rustup toolchain install nightly --profile minimal --component clippy rustfmt
       - name: Check for recent commits
         id: gate
+        env:
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_run || 'false' }}
         run: |
-          LAST_COMMIT=$(git log -1 --format=%ct)
-          NOW=$(date +%s)
-          AGE=$(( NOW - LAST_COMMIT ))
-          FORCE="${{ github.event_name == 'workflow_dispatch'
-            && github.event.inputs.force_run || 'false' }}"
-          if [ "$AGE" -lt 86400 ] || [ "$FORCE" = "true" ]; then
-            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          if [ "${FORCE_RUN}" = "true" ]; then
+            echo "should_run=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+
+          now_epoch="$(date -u +%s)"
+          commit_epoch="$(git log -1 --format=%ct origin/main)"
+          if [ $((now_epoch - commit_epoch)) -le 86400 ]; then
+            echo "should_run=true" >> "${GITHUB_OUTPUT}"
           else
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "should_run=false" >> "${GITHUB_OUTPUT}"
           fi
       - name: Test portable SIMD backend
         if: steps.gate.outputs.should_run == 'true'
-        run: >-
-          cargo test -p chutoro-providers-dense
-          --features nightly_portable_simd
+        run: cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd
       - name: Clippy portable SIMD backend
         if: steps.gate.outputs.should_run == 'true'
-        run: >-
-          cargo clippy -p chutoro-providers-dense
-          --all-targets --features nightly_portable_simd
-          -- -D warnings
+        run: cargo +nightly clippy -p chutoro-providers-dense --all-targets --features nightly_portable_simd -- -D warnings
 ```
 
 ## Proposed implementation order
