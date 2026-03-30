@@ -6,6 +6,7 @@ use super::*;
 use rstest::{fixture, rstest};
 
 mod entrypoints;
+mod support_masks;
 
 fn close(left: Distance, right: Distance) {
     let left = left.get();

@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETED
 
 ## Purpose / big picture
 
@@ -137,13 +137,17 @@ keep the implementation that small.
   `#![feature(portable_simd)]`, a `build.rs` that emits `cfg(nightly)`,
   nightly-only module guards in `simd/kernels.rs`, and a dedicated nightly
   workflow.
-- [ ] Implement focused gating tests for the actual compiled/runtime helper
-  behaviour and any missing unhappy-path coverage.
-- [ ] Add or tighten CI checks so stable-disabled and nightly-enabled paths are
-  both verified explicitly.
-- [ ] Update `docs/chutoro-design.md` with the final coexistence contract and
-  mark roadmap item `2.2.5` done.
-- [ ] Run formatting, lint, test, and documentation gates and record outcomes.
+- [x] (2026-03-30 00:20Z) Added focused support-mask tests for the actual
+  `compiled_simd_support()`, `runtime_simd_support()`, and cached backend
+  selection behaviour in `chutoro-providers/dense/src/simd/tests/`.
+- [x] (2026-03-30 00:24Z) Tightened CI with an explicit stable dense-provider
+  gating step in `.github/workflows/ci.yml` while retaining the dedicated
+  nightly workflow for `nightly_portable_simd`.
+- [x] (2026-03-30 00:27Z) Updated `docs/chutoro-design.md` with the final
+  coexistence contract and marked roadmap item `2.2.5` done in
+  `docs/roadmap.md`.
+- [x] (2026-03-30 00:41Z) Ran formatting, lint, test, and documentation gates
+  successfully and captured logs under `/tmp/2-2-5-impl-*`.
 
 ## Surprises & discoveries
 
@@ -162,6 +166,11 @@ keep the implementation that small.
   stable `--all-features` behaviour, so `2.2.5` should document and test that
   decision rather than revisiting it.
 
+- Discovery: the selector-order tests already existed, so the missing coverage
+  was not synthetic mask permutations but direct assertions that the real
+  compile-time and runtime helpers report the expected support on the active
+  host and toolchain.
+
 ## Decision log
 
 - Decision: keep the existing feature name `nightly_portable_simd`. Rationale:
@@ -174,23 +183,39 @@ keep the implementation that small.
   shows the backend and most gating mechanics already exist. Date/Author:
   2026-03-29 / Codex.
 
-- Decision: satisfy the roadmap CI requirement by combining:
-  a focused stable-disabled dense-provider check in the main CI workflow, the
-  existing repository-wide stable gates, and the dedicated nightly-enabled
-  workflow. Rationale: this proves both coexistence paths without making
-  nightly instability block normal pull requests. Date/Author: 2026-03-29 /
-  Codex.
+- Decision: satisfy the roadmap CI requirement by combining a focused
+  stable-disabled dense-provider check in the main CI workflow, the existing
+  repository-wide stable gates, and the dedicated nightly-enabled workflow.
+  Rationale: this proves both coexistence paths without making nightly
+  instability block normal pull requests. Date/Author: 2026-03-29 / Codex.
 
 ## Outcomes & retrospective
 
-This section is intentionally incomplete while the plan is in `DRAFT` status.
-When the work is finished, update it with:
-
-- the exact code and CI changes that shipped;
-- the final validation transcript summary;
-- any follow-up work deferred to `2.2.6` or `2.2.7`;
-- whether the implementation required only tests/docs/CI or any additional
-  gating fixes in the dense crate.
+- Shipped changes:
+  - Added `chutoro-providers/dense/src/simd/tests/support_masks.rs` to assert
+    the real compile-time support mask, runtime host detection mask, and
+    cached backend choice.
+  - Added an explicit stable dense-provider gating step to
+    `.github/workflows/ci.yml` using `--no-default-features` plus the stable
+    SIMD feature set.
+  - Updated `docs/chutoro-design.md` and `docs/roadmap.md` to record the final
+    coexistence contract and mark roadmap item `2.2.5` complete.
+- Validation transcript summary:
+  - `set -o pipefail; make fmt 2>&1 | tee /tmp/2-2-5-impl-make-fmt.log`
+  - `set -o pipefail; make markdownlint 2>&1 | tee /tmp/2-2-5-impl-make-markdownlint.log`
+  - `set -o pipefail; make nixie 2>&1 | tee /tmp/2-2-5-impl-make-nixie.log`
+  - `set -o pipefail; make check-fmt 2>&1 | tee /tmp/2-2-5-impl-make-check-fmt.log`
+  - `set -o pipefail; make lint 2>&1 | tee /tmp/2-2-5-impl-make-lint.log`
+  - `set -o pipefail; CI=1 make test 2>&1 | tee /tmp/2-2-5-impl-make-test.log`
+  - Final outcome: all gates passed; `CI=1 make test` finished with
+    `Summary [462.408s] 915 tests run: 915 passed, 1 skipped`.
+- Follow-up work deferred:
+  - `2.2.6` remains the parity-suite item for cross-backend numeric coverage.
+  - `2.2.7` remains the bounded Kani work for selector and tail-padding
+    invariants.
+- Implementation scope:
+  - The audit was correct: no additional dense-crate gating logic was needed.
+    `2.2.5` closed with tests, CI hardening, and documentation only.
 
 ## Context and orientation
 

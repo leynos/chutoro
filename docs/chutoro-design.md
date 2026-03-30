@@ -1049,9 +1049,9 @@ alignment, 16-lane padding, and deterministic `0.0_f32` tail fill. Feature
 gating changes which backend consumes that view; it does not weaken the packed
 layout guarantees.
 
-_Implementation update (2026-03-26)._ Roadmap item `2.2.4` adds an optional
-nightly-only `std::simd` backend behind the non-default `nightly_portable_simd`
-feature in `chutoro-providers-dense`.
+_Implementation update (2026-03-30)._ Roadmap items `2.2.4` and `2.2.5` now
+ship the optional nightly-only `std::simd` backend behind the non-default
+`nightly_portable_simd` feature in `chutoro-providers-dense`.
 
 The dense crate now uses `build.rs` to detect whether Cargo is driving a
 nightly compiler and emits `cfg(nightly)` only in that case. The crate root
@@ -1059,6 +1059,14 @@ then gates `#![feature(portable_simd)]` behind
 `cfg_attr(all(feature = "nightly_portable_simd", nightly), ...)`, which keeps
 stable `--all-features` builds clean while still allowing nightly
 experimentation.
+
+Every portable-SIMD module boundary and entrypoint uses the same
+`all(feature = "nightly_portable_simd", nightly)` predicate, so stable builds
+can compile the dense crate with `--all-features` without attempting to enable
+nightly-only language items. Direct unit tests assert the real
+`compiled_simd_support()` and `runtime_simd_support()` masks and verify that
+the cached backend choice matches
+`Avx512 > Avx2 > Neon > PortableSimd > Scalar`.
 
 Dispatch priority is now:
 
@@ -1074,13 +1082,16 @@ packing and padding rules. Results continue to route through the canonical
 `finalize_distance(...)` reducer so any non-finite value is normalized to
 `f32::NAN`.
 
-Unit tests cover dispatch ordering, pairwise parity around the 16-lane
-boundary, query-to-points parity, and non-finite canonicalization. Scheduled
-validation now lives in `.github/workflows/nightly-portable-simd.yml`, which
-installs the nightly toolchain and runs the dense-provider test and Clippy
-passes with `nightly_portable_simd` enabled. The relevant upstream tracking
-issues remain `rust-lang/rust#86656` (`portable_simd`), `rust-lang/rust#127356`
-(`bf16` wrappers), and `rust-lang/rust#127213` (AVX512_FP16 intrinsics).
+Unit tests cover dispatch ordering, compile-time and runtime support masks,
+pairwise parity around the 16-lane boundary, query-to-points parity, and
+non-finite canonicalization. Stable CI now includes an explicit dense-provider
+gating check that runs Clippy and tests with only the stable SIMD features
+enabled, while scheduled validation in
+`.github/workflows/nightly-portable-simd.yml` installs the nightly toolchain
+and runs the dense-provider test and Clippy passes with `nightly_portable_simd`
+enabled. The relevant upstream tracking issues remain `rust-lang/rust#86656`
+(`portable_simd`), `rust-lang/rust#127356` (`bf16` wrappers), and
+`rust-lang/rust#127213` (AVX512_FP16 intrinsics).
 
 #### 6.4. Property-based input generation for CPU HNSW tests
 
