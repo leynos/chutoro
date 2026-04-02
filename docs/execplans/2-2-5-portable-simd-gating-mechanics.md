@@ -9,13 +9,13 @@ Status: COMPLETED
 ## Purpose / big picture
 
 Complete roadmap item `2.2.5` by proving and hardening the coexistence boundary
-between the stable dense-provider SIMD backends and the optional nightly-only
-portable-SIMD backend. The goal is not to re-implement the portable-SIMD kernel
-work from `2.2.4`; that work already exists. The goal here is to make the
-gating contract explicit, test it directly, add focused Continuous Integration
-(CI) coverage for the stable-disabled and nightly-enabled paths, and then
-record the final design contract in the design document before marking the
-roadmap item done.
+between the stable dense-provider single-instruction multiple-data (SIMD)
+backends and the optional nightly-only portable-SIMD backend. The goal is not
+to re-implement the portable-SIMD kernel work from `2.2.4`; that work already
+exists. The goal here is to make the gating contract explicit, test it
+directly, add focused Continuous Integration (CI) coverage for the
+stable-disabled and nightly-enabled paths, and then record the final design
+contract in the design document before marking the roadmap item done.
 
 Success is observable when:
 
