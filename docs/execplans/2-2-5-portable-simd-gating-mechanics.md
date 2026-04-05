@@ -443,7 +443,7 @@ Success criteria:
 
 ## Evidence to record in the completed plan
 
-When this ExecPlan moves from `DRAFT` to `COMPLETE`, append concise evidence:
+When this ExecPlan moves from `DRAFT` to `COMPLETED`, append concise evidence:
 
 - the exact files changed;
 - the names of any new or expanded `rstest` cases;
