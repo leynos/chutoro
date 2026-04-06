@@ -17,6 +17,16 @@ jobs:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@aebb3f5b831102e2a10ef909c83d7d50ea86c332
+      - name: Dense stable SIMD gating
+        run: |
+          cargo clippy -p chutoro-providers-dense \
+            --all-targets \
+            --no-default-features \
+            --features simd_avx2,simd_avx512,simd_neon \
+            -- -D warnings
+          cargo test -p chutoro-providers-dense \
+            --no-default-features \
+            --features simd_avx2,simd_avx512,simd_neon
       - name: Format
         run: make check-fmt
       - name: Markdown lint

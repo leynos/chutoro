@@ -292,13 +292,15 @@ ______________________________________________________________________
   stable `core::arch` implementation as default. Track `portable_simd`
   stabilization (`rust-lang/rust#86656`) and AVX-512 adjunct blockers
   (`rust-lang/rust#127356` and `rust-lang/rust#127213`). (See §6.3)
-- [ ] 2.2.5. Implement portable-SIMD gating mechanics so stable and nightly
+- [x] 2.2.5. Implement portable-SIMD gating mechanics so stable and nightly
   paths can coexist safely:
-  - add a non-default Cargo feature (for example, `nightly-portable-simd`);
+  - add a non-default Cargo feature (implemented as
+    `nightly_portable_simd`);
   - gate crate-level `#![feature(portable_simd)]` with `cfg_attr`;
   - isolate nightly SIMD modules behind feature `cfg` guards;
   - add CI checks that verify stable builds with the feature disabled and
-    nightly builds with the feature enabled. (See §6.3)
+    nightly builds with the feature enabled. (See `docs/chutoro-design.md`
+    §6.3)
 - [ ] 2.2.6. Add a property-based backend parity suite driven by a shared
   `DistanceSemantics` contract and scalar oracle reducer: generate vector
   lengths around lane boundaries, random alignment and padding patterns,
