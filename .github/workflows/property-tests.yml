@@ -74,7 +74,7 @@ jobs:
       - &upload_proptest_regressions_step
         name: Upload proptest regressions
         if: failure()
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
           name: proptest-regressions-${{ matrix.suite }}
           path: |
