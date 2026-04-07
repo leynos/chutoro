@@ -1,11 +1,10 @@
 # Expose a public edge-harvesting HNSW insertion API
 
 This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises &
-Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be
+`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be
 kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 `PLANS.md` was not found in the repository root at the time of writing,
 so no additional plan-governance file applies.
@@ -99,14 +98,14 @@ succeed.
 - [x] (2026-04-07 15:53Z) Reviewed `docs/roadmap.md`,
   `docs/chutoro-design.md` §12.4, the testing guidance documents,
   and the existing HNSW API and test surface.
-- [ ] Await explicit user approval for this plan.
-- [ ] Add the public harvesting insertion API on `CpuHnsw`.
-- [ ] Add unit tests and Rustdoc coverage for happy paths, unhappy
-  paths, and bootstrap edge cases.
-- [ ] Update `docs/chutoro-design.md` and mark roadmap item `11.1.1`
-  done.
-- [ ] Run formatting, lint, Markdown, and test validators
-  successfully.
+- [x] (2026-04-07 16:30Z) Added public `insert_harvesting()` method to
+  `CpuHnsw` with full Rustdoc and example.
+- [x] (2026-04-07 16:45Z) Added unit tests with `rstest` covering happy
+  paths, unhappy paths, and bootstrap edge cases.
+- [x] (2026-04-07 17:00Z) Updated `docs/chutoro-design.md` §12.4 and
+  marked roadmap item `11.1.1` as done.
+- [x] (2026-04-07 17:15Z) All validators pass: `make fmt`,
+  `make check-fmt`, `make lint`, `make nixie`, and `cargo test`.
 
 ## Surprises & Discoveries
 
@@ -158,11 +157,9 @@ The relevant implementation lives in
 1. `CpuHnsw::insert(...) -> Result<(), HnswError>`, which routes through
    `insert_with_collector(..., &mut NoopCollector)` and intentionally
    discards harvested edges.
-2. `CpuHnsw::build_with_edges(...) -> Result<(CpuHnsw, EdgeHarvest),
-   HnswError>`, which already uses the private harvesting path during
+1. `CpuHnsw::build_with_edges(...) -> Result<(CpuHnsw, EdgeHarvest), HnswError>`, which already uses the private harvesting path during
    batch build.
-3. A private `insert_with_edges(...) -> Result<Vec<CandidateEdge>,
-   HnswError>` helper that creates a `VecCollector`, calls
+1. A private `insert_with_edges(...) -> Result<Vec<CandidateEdge>, HnswError>` helper that creates a `VecCollector`, calls
    `insert_with_collector`, and returns the harvested edges.
 
 The supporting types are already public:
@@ -218,12 +215,12 @@ Before implementation, add or adjust tests so they fail for the missing
 public API and clearly describe the desired behaviour:
 
 1. the first inserted node returns an empty harvested-edge vector;
-2. later inserts return only in-bounds, finite, non-self candidate
+1. later inserts return only in-bounds, finite, non-self candidate
    edges;
-3. duplicate insertion returns `HnswError::DuplicateNode`;
-4. the harvesting path leaves the graph in the same state as the
+1. duplicate insertion returns `HnswError::DuplicateNode`;
+1. the harvesting path leaves the graph in the same state as the
    existing `insert()` path when run on identically seeded twin indices;
-5. source-level failures such as non-finite distances continue to
+1. source-level failures such as non-finite distances continue to
    propagate unchanged.
 
 Stage B: implement the smallest possible API exposure.
@@ -273,10 +270,10 @@ All commands below are run from the repository root:
    leta refs CpuHnsw.insert
    ```
 
-2. Add the new public method and Rustdoc in
+1. Add the new public method and Rustdoc in
    `chutoro-core/src/hnsw/cpu/mod.rs`.
 
-3. Add or update direct tests in:
+1. Add or update direct tests in:
 
    - `chutoro-core/src/hnsw/tests/build.rs`
    - `chutoro-core/src/hnsw/tests/edge_harvest.rs`
@@ -289,7 +286,7 @@ All commands below are run from the repository root:
    - `insert_harvesting_matches_insert_graph_state`
    - `insert_harvesting_propagates_distance_errors`
 
-4. Run quick targeted checks during iteration.
+1. Run quick targeted checks during iteration.
 
    ```bash
    cargo test -p chutoro-core edge_harvest -- --nocapture
@@ -297,10 +294,10 @@ All commands below are run from the repository root:
    cargo test -p chutoro-core insert_harvesting -- --nocapture
    ```
 
-5. Update `docs/chutoro-design.md` and `docs/roadmap.md` after the code
+1. Update `docs/chutoro-design.md` and `docs/roadmap.md` after the code
    and tests are settled.
 
-6. Run the required validators sequentially and keep logs.
+1. Run the required validators sequentially and keep logs.
 
    ```bash
    set -o pipefail && make fmt 2>&1 | tee /tmp/11-1-1-fmt.log
@@ -332,9 +329,9 @@ Observable acceptance criteria:
 
 1. A targeted test for the new method passes and shows that a later
    insert returns at least one candidate edge on a tiny dataset.
-2. A parity test shows the harvesting method mutates the graph exactly as
+1. A parity test shows the harvesting method mutates the graph exactly as
    the existing `insert()` method does on the same insertion sequence.
-3. A duplicate-insert test confirms the new method returns the same
+1. A duplicate-insert test confirms the new method returns the same
    `HnswError::DuplicateNode` failure as `insert()`.
 
 ## Idempotence and recovery

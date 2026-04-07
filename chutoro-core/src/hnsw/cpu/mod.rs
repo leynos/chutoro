@@ -304,6 +304,56 @@ impl CpuHnsw {
         Ok(collector.into_inner())
     }
 
+    /// Inserts a node into the graph and returns harvested candidate edges.
+    ///
+    /// This method performs the same insertion as [`Self::insert`], but returns
+    /// the candidate edges discovered during the HNSW search phase. These edges
+    /// can be used for incremental MST updates in clustering workflows.
+    ///
+    /// The first node inserted into an empty index (node 0) returns an empty
+    /// vector because there are no prior nodes to connect to. Subsequent
+    /// insertions return edges connecting the new node to its nearest neighbours
+    /// at each layer of the HNSW graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HnswError::DuplicateNode`] if the node has already been
+    /// inserted. Returns other [`HnswError`] variants for invalid parameters,
+    /// lock poisoning, or data source failures.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    /// #         Ok((a - b).abs())
+    /// #     }
+    /// #     fn metric_descriptor(&self) -> chutoro_core::MetricDescriptor {
+    /// #         chutoro_core::MetricDescriptor::new("test")
+    /// #     }
+    /// # }
+    /// let params = HnswParams::new(2, 4).expect("params");
+    /// let data = Dummy(vec![0.0, 2.0, 4.0]);
+    /// let index = CpuHnsw::build(&data, params).expect("build must succeed");
+    ///
+    /// // Insert a new node and harvest candidate edges
+    /// let edges = index.insert_harvesting(1, &data).expect("insert must succeed");
+    /// assert!(!edges.is_empty(), "inserted node should have candidate edges");
+    /// ```
+    pub fn insert_harvesting<D: DataSource + Sync>(
+        &self,
+        node: usize,
+        source: &D,
+    ) -> Result<Vec<CandidateEdge>, HnswError> {
+        self.insert_with_edges(node, source)
+    }
+
     /// Core insertion logic parameterised by edge collection strategy.
     ///
     /// Uses the [`EdgeCollector`] trait to separate edge harvesting from

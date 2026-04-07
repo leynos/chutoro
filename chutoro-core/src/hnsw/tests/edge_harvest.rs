@@ -4,9 +4,10 @@ use std::collections::{HashMap, HashSet};
 
 use rstest::rstest;
 
+use crate::DataSource;
 use crate::hnsw::insert::extract_candidate_edges;
 use crate::hnsw::types::{InsertionPlan, LayerPlan};
-use crate::hnsw::{CandidateEdge, CpuHnsw, EdgeHarvest, HnswParams, Neighbour};
+use crate::hnsw::{CandidateEdge, CpuHnsw, EdgeHarvest, HnswError, HnswParams, Neighbour};
 
 use super::fixtures::DummySource;
 use super::support::is_coverage_job;
@@ -383,6 +384,93 @@ fn build_produces_same_index_as_build_with_edges() {
     assert_eq!(
         index1.len(),
         index2.len(),
-        "both build methods should produce same size index"
+        "both build methods should produce same index"
+    );
+}
+
+#[rstest]
+fn insert_harvesting_initial_insert_returns_empty_edges() {
+    let source = DummySource::new(vec![0.0]);
+    let params = HnswParams::new(2, 4).expect("params").with_rng_seed(42);
+    let index =
+        CpuHnsw::with_capacity(params.clone(), source.len()).expect("index should allocate");
+
+    // First insert (entry point) has no prior nodes, so no edges
+    let edges = index
+        .insert_harvesting(0, &source)
+        .expect("insert succeeds");
+    assert!(edges.is_empty(), "initial insert should return empty edges");
+}
+
+#[rstest]
+fn insert_harvesting_returns_valid_edges() {
+    let source = DummySource::new(vec![0.0, 1.0, 2.0, 3.0, 4.0]);
+    let params = HnswParams::new(2, 4).expect("params").with_rng_seed(42);
+    let index =
+        CpuHnsw::with_capacity(params.clone(), source.len()).expect("index should allocate");
+
+    // Insert entry point first
+    index.insert_harvesting(0, &source).expect("first insert");
+
+    // Subsequent inserts should return edges
+    for node in 1..source.len() {
+        let edges = index
+            .insert_harvesting(node, &source)
+            .expect("insert succeeds");
+
+        // Validate edge invariants
+        for edge in &edges {
+            assert_eq!(
+                edge.source(),
+                node,
+                "edge source should match inserted node"
+            );
+            assert!(edge.target() < source.len(), "target should be in bounds");
+            assert_ne!(edge.source(), edge.target(), "no self-edges allowed");
+            assert!(edge.distance().is_finite(), "distance should be finite");
+            assert!(edge.distance() >= 0.0, "distance should be non-negative");
+        }
+    }
+}
+
+#[rstest]
+fn insert_harvesting_duplicate_insert_is_rejected() {
+    let source = DummySource::new(vec![0.0, 1.0, 2.0]);
+    let params = HnswParams::new(2, 4).expect("params must be valid");
+    let index =
+        CpuHnsw::with_capacity(params.clone(), source.len()).expect("index should allocate");
+
+    // First insert succeeds
+    index.insert_harvesting(0, &source).expect("first insert");
+
+    // Duplicate should fail with same error as insert()
+    let err = index
+        .insert_harvesting(0, &source)
+        .expect_err("duplicate insert fails");
+    assert!(matches!(err, HnswError::DuplicateNode { node: 0 }));
+}
+
+#[rstest]
+fn insert_harvesting_matches_insert_graph_state() {
+    let data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+    let source = DummySource::new(data);
+    let params = HnswParams::new(4, 16).expect("params").with_rng_seed(42);
+
+    // Build two identical indices using different methods
+    let index1 = CpuHnsw::build(&source, params.clone()).expect("build");
+    let index2 = CpuHnsw::with_capacity(params.clone(), source.len()).expect("capacity");
+
+    // Insert nodes using insert_harvesting on index2
+    for node in 0..source.len() {
+        index2
+            .insert_harvesting(node, &source)
+            .expect("insert succeeds");
+    }
+
+    // Both indices should have same length
+    assert_eq!(
+        index1.len(),
+        index2.len(),
+        "indices should have same length"
     );
 }
