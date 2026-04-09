@@ -340,15 +340,14 @@ impl CpuHnsw {
     /// # }
     /// let params = HnswParams::new(2, 4).expect("params");
     /// let data = Dummy(vec![0.0, 2.0, 4.0]);
-    /// let index = CpuHnsw::with_capacity(params, 10).expect("create must succeed");
+    /// let index = CpuHnsw::with_capacity(params, data.len()).expect("index must allocate");
     ///
-    /// // Insert a new node and harvest candidate edges
-    /// let edges = index.insert_harvesting(0, &data).expect("insert must succeed");
-    /// assert!(edges.is_empty(), "first inserted node should have no edges");
+    /// // Seed the entry point, then insert a new node and harvest candidate edges.
+    /// let first_edges = index.insert_harvesting(0, &data).expect("first insert must succeed");
+    /// assert!(first_edges.is_empty(), "entry point insert should not harvest edges");
     ///
-    /// // Insert another node - this will have candidate edges
     /// let edges = index.insert_harvesting(1, &data).expect("insert must succeed");
-    /// assert!(!edges.is_empty(), "subsequent node should have candidate edges");
+    /// assert!(!edges.is_empty(), "inserted node should have candidate edges");
     /// ```
     pub fn insert_harvesting<D: DataSource + Sync>(
         &self,

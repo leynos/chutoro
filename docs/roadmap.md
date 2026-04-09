@@ -1202,18 +1202,18 @@ Provenance notes:
 - **Scale and memory (days):** GIST1M, GloVe-200d, DEEP10M/100M, and
   DEEP1B/BigANN for the most demanding scale.
 
-\[^1\]: scikit-learn — make_blobs —
+[^1]: scikit-learn — make_blobs —
 <https://scikit-learn.org/stable/modules/generated/sklearn.datasets.make_blobs.html>
-\[^2\]: MNIST database — <http://yann.lecun.com/exdb/mnist/>
-\[^3\]: Fashion-MNIST — <https://github.com/zalandoresearch/fashion-mnist>
-\[^4\]: CIFAR-10/100 — <https://www.cs.toronto.edu/~kriz/cifar.html>
-\[^5\]: 20 Newsgroups —
+[^2]: MNIST database — <http://yann.lecun.com/exdb/mnist/>
+[^3]: Fashion-MNIST — <https://github.com/zalandoresearch/fashion-mnist>
+[^4]: CIFAR-10/100 — <https://www.cs.toronto.edu/~kriz/cifar.html>
+[^5]: 20 Newsgroups —
 <https://scikit-learn.org/stable/datasets/real_world.html#newsgroups-dataset>
-\[^6\]: RCV1-v2 —
+[^6]: RCV1-v2 —
 <https://scikit-learn.org/stable/modules/generated/sklearn.datasets.fetch_rcv1.html>
-\[^7\]: SNAP datasets — <https://snap.stanford.edu/data/>
-\[^8\]: PBMC 68k —
+[^7]: SNAP datasets — <https://snap.stanford.edu/data/>
+[^8]: PBMC 68k —
 <https://support.10xgenomics.com/single-cell-gene-expression/datasets>
-\[^9\]: GloVe vectors — <https://nlp.stanford.edu/projects/glove/>
-\[^10\]: ANN-Benchmarks datasets —
+[^9]: GloVe vectors — <https://nlp.stanford.edu/projects/glove/>
+[^10]: ANN-Benchmarks datasets —
 <https://github.com/erikbern/ann-benchmarks>
