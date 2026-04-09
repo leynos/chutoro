@@ -5,7 +5,7 @@ use std::{
     num::NonZeroUsize,
 };
 
-use rstest::rstest;
+use rstest::{fixture, rstest};
 
 use crate::DataSource;
 use crate::hnsw::insert::extract_candidate_edges;
@@ -73,6 +73,91 @@ fn assert_edges_sorted_by_sequence_then_ord(edges: &[CandidateEdge]) {
             "edges must be sorted by (sequence, natural Ord): {prev:?} should come before {curr:?}",
         );
     }
+}
+
+#[derive(Clone, Debug)]
+struct HarvestFixtureCase {
+    data: Vec<f32>,
+    max_connections: usize,
+    ef_construction: usize,
+    seed: Option<u64>,
+}
+
+impl HarvestFixtureCase {
+    fn capacity(&self) -> usize {
+        self.data.len()
+    }
+}
+
+#[derive(Clone, Debug)]
+struct InitialInsertCase {
+    fixture: HarvestFixtureCase,
+    first_node: usize,
+}
+
+#[derive(Clone, Debug)]
+struct DuplicateInsertCase {
+    fixture: HarvestFixtureCase,
+    node: usize,
+}
+
+#[fixture]
+fn dummy_source(
+    #[default(HarvestFixtureCase {
+        data: vec![0.0, 1.0, 2.0],
+        max_connections: 2,
+        ef_construction: 4,
+        seed: Some(42),
+    })]
+    fixture: HarvestFixtureCase,
+) -> DummySource {
+    DummySource::new(fixture.data)
+}
+
+#[fixture]
+fn hnsw_params(
+    #[default(HarvestFixtureCase {
+        data: vec![0.0, 1.0, 2.0],
+        max_connections: 2,
+        ef_construction: 4,
+        seed: Some(42),
+    })]
+    fixture: HarvestFixtureCase,
+) -> HnswParams {
+    let params = HnswParams::new(fixture.max_connections, fixture.ef_construction)
+        .expect("params must be valid");
+    if let Some(rng_seed) = fixture.seed {
+        params.with_rng_seed(rng_seed)
+    } else {
+        params
+    }
+}
+
+#[fixture]
+fn cpu_hnsw(
+    #[default(HarvestFixtureCase {
+        data: vec![0.0, 1.0, 2.0],
+        max_connections: 2,
+        ef_construction: 4,
+        seed: Some(42),
+    })]
+    fixture: HarvestFixtureCase,
+) -> CpuHnsw {
+    CpuHnsw::with_capacity(hnsw_params(fixture.clone()), fixture.capacity())
+        .expect("index should allocate")
+}
+
+#[fixture]
+fn comparison_cpu_hnsw(
+    #[default(HarvestFixtureCase {
+        data: vec![0.0, 1.0, 2.0],
+        max_connections: 2,
+        ef_construction: 4,
+        seed: Some(42),
+    })]
+    fixture: HarvestFixtureCase,
+) -> CpuHnsw {
+    cpu_hnsw(fixture)
 }
 
 #[derive(Debug)]
@@ -392,43 +477,72 @@ fn build_produces_same_index_as_build_with_edges() {
 }
 
 #[rstest]
-fn insert_harvesting_initial_insert_returns_empty_edges() {
-    let source = DummySource::new(vec![0.0]);
-    let params = HnswParams::new(2, 4).expect("params").with_rng_seed(42);
-    let index =
-        CpuHnsw::with_capacity(params.clone(), source.len()).expect("index should allocate");
-
-    // First insert (entry point) has no prior nodes, so no edges
-    let edges = index
-        .insert_harvesting(0, &source)
+#[case(InitialInsertCase {
+    fixture: HarvestFixtureCase {
+        data: vec![0.0],
+        max_connections: 2,
+        ef_construction: 4,
+        seed: Some(42),
+    },
+    first_node: 0,
+})]
+#[case(InitialInsertCase {
+    fixture: HarvestFixtureCase {
+        data: vec![1.0, 3.0, 5.0],
+        max_connections: 2,
+        ef_construction: 4,
+        seed: Some(7),
+    },
+    first_node: 2,
+})]
+fn insert_harvesting_initial_insert_returns_empty_edges(
+    #[case] case: InitialInsertCase,
+    #[with(case.fixture.clone())] dummy_source: DummySource,
+    #[with(case.fixture.clone())] cpu_hnsw: CpuHnsw,
+) {
+    let edges = cpu_hnsw
+        .insert_harvesting(case.first_node, &dummy_source)
         .expect("insert succeeds");
     assert!(edges.is_empty(), "initial insert should return empty edges");
 }
 
 #[rstest]
-fn insert_harvesting_returns_valid_edges() {
-    let source = DummySource::new(vec![0.0, 1.0, 2.0, 3.0, 4.0]);
-    let params = HnswParams::new(2, 4).expect("params").with_rng_seed(42);
-    let index =
-        CpuHnsw::with_capacity(params.clone(), source.len()).expect("index should allocate");
+#[case(HarvestFixtureCase {
+    data: vec![0.0, 1.0, 2.0, 3.0, 4.0],
+    max_connections: 2,
+    ef_construction: 4,
+    seed: Some(42),
+})]
+#[case(HarvestFixtureCase {
+    data: vec![0.0, 0.5, 1.5, 3.0, 6.0, 10.0],
+    max_connections: 3,
+    ef_construction: 6,
+    seed: Some(24),
+})]
+fn insert_harvesting_returns_valid_edges(
+    #[case] _case: HarvestFixtureCase,
+    #[with(_case.clone())] dummy_source: DummySource,
+    #[with(_case.clone())] cpu_hnsw: CpuHnsw,
+) {
+    cpu_hnsw
+        .insert_harvesting(0, &dummy_source)
+        .expect("first insert");
 
-    // Insert entry point first
-    index.insert_harvesting(0, &source).expect("first insert");
-
-    // Subsequent inserts should return edges
-    for node in 1..source.len() {
-        let edges = index
-            .insert_harvesting(node, &source)
+    for node in 1..dummy_source.len() {
+        let edges = cpu_hnsw
+            .insert_harvesting(node, &dummy_source)
             .expect("insert succeeds");
 
-        // Validate edge invariants
         for edge in &edges {
             assert_eq!(
                 edge.source(),
                 node,
                 "edge source should match inserted node"
             );
-            assert!(edge.target() < source.len(), "target should be in bounds");
+            assert!(
+                edge.target() < dummy_source.len(),
+                "target should be in bounds"
+            );
             assert_ne!(edge.source(), edge.target(), "no self-edges allowed");
             assert!(edge.distance().is_finite(), "distance should be finite");
             assert!(edge.distance() >= 0.0, "distance should be non-negative");
@@ -437,35 +551,60 @@ fn insert_harvesting_returns_valid_edges() {
 }
 
 #[rstest]
-fn insert_harvesting_duplicate_insert_is_rejected() {
-    let source = DummySource::new(vec![0.0, 1.0, 2.0]);
-    let params = HnswParams::new(2, 4).expect("params must be valid");
-    let index =
-        CpuHnsw::with_capacity(params.clone(), source.len()).expect("index should allocate");
+#[case(DuplicateInsertCase {
+    fixture: HarvestFixtureCase {
+        data: vec![0.0, 1.0, 2.0],
+        max_connections: 2,
+        ef_construction: 4,
+        seed: None,
+    },
+    node: 0,
+})]
+#[case(DuplicateInsertCase {
+    fixture: HarvestFixtureCase {
+        data: vec![0.0, 2.0, 4.0, 6.0],
+        max_connections: 2,
+        ef_construction: 4,
+        seed: Some(42),
+    },
+    node: 2,
+})]
+fn insert_harvesting_duplicate_insert_is_rejected(
+    #[case] case: DuplicateInsertCase,
+    #[with(case.fixture.clone())] dummy_source: DummySource,
+    #[with(case.fixture.clone())] cpu_hnsw: CpuHnsw,
+) {
+    cpu_hnsw
+        .insert_harvesting(case.node, &dummy_source)
+        .expect("first insert");
 
-    // First insert succeeds
-    index.insert_harvesting(0, &source).expect("first insert");
-
-    // Duplicate should fail with same error as insert()
-    let err = index
-        .insert_harvesting(0, &source)
+    let err = cpu_hnsw
+        .insert_harvesting(case.node, &dummy_source)
         .expect_err("duplicate insert fails");
-    assert!(matches!(err, HnswError::DuplicateNode { node: 0 }));
+    assert!(matches!(err, HnswError::DuplicateNode { node: duplicate } if duplicate == case.node));
 }
 
 #[rstest]
-fn insert_harvesting_matches_insert_graph_state() {
-    let data: Vec<f32> = (0..10).map(|i| i as f32).collect();
-    let source = DummySource::new(data);
-    let params = HnswParams::new(4, 16).expect("params").with_rng_seed(42);
-    let ef = NonZeroUsize::new(source.len()).expect("source length must be non-zero");
-    let index1 = CpuHnsw::with_capacity(params.clone(), source.len()).expect("capacity");
-    let index2 = CpuHnsw::with_capacity(params.clone(), source.len()).expect("capacity");
+#[case(HarvestFixtureCase {
+    data: vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
+    max_connections: 4,
+    ef_construction: 16,
+    seed: Some(42),
+})]
+fn insert_harvesting_matches_insert_graph_state(
+    #[case] _case: HarvestFixtureCase,
+    #[with(_case.clone())] dummy_source: DummySource,
+    #[with(_case.clone())] cpu_hnsw: CpuHnsw,
+    #[with(_case.clone())] comparison_cpu_hnsw: CpuHnsw,
+) {
+    let ef = NonZeroUsize::new(dummy_source.len()).expect("source length must be non-zero");
+    let index1 = cpu_hnsw;
+    let index2 = comparison_cpu_hnsw;
 
-    for node in 0..source.len() {
-        index1.insert(node, &source).expect("insert succeeds");
+    for node in 0..dummy_source.len() {
+        index1.insert(node, &dummy_source).expect("insert succeeds");
         index2
-            .insert_harvesting(node, &source)
+            .insert_harvesting(node, &dummy_source)
             .expect("insert succeeds");
     }
 
@@ -475,9 +614,13 @@ fn insert_harvesting_matches_insert_graph_state() {
         "indices should have same length"
     );
 
-    for node in 0..source.len() {
-        let insert_results = index1.search(&source, node, ef).expect("search succeeds");
-        let harvest_results = index2.search(&source, node, ef).expect("search succeeds");
+    for node in 0..dummy_source.len() {
+        let insert_results = index1
+            .search(&dummy_source, node, ef)
+            .expect("search succeeds");
+        let harvest_results = index2
+            .search(&dummy_source, node, ef)
+            .expect("search succeeds");
 
         assert_eq!(
             insert_results, harvest_results,

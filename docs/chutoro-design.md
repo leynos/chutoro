@@ -29,7 +29,7 @@ limitations of its predecessors. Its architecture is a direct response to the
 computational challenges posed by large, high-dimensional, or non-metric
 datasets.
 
-#### 1.1. Lineage and Motivation: From DBSCAN to HDBSCAN\* to FISHDBC
+#### 1.1. Lineage and motivation: from DBSCAN to HDBSCAN\* to FISHDBC
 
 The evolution of density-based clustering algorithms reveals a clear trajectory
 toward greater flexibility and scalability. The journey begins with DBSCAN
@@ -3250,9 +3250,7 @@ clustering, accessed on September 6, 2025,
 School of Computer Science, accessed on September 6, 2025,
 [https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf](https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf)
 [^11]: Here's how you can accelerate your Data Science on GPU | by Practicus AI
-
-- Medium, accessed on September 6, 2025,
-  [https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430](https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430)
+  Medium, accessed on September 6, 2025, via [https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430](https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430)
 
 [^12]: G-OPTICS: Fast ordering density-based cluster objects using graphics
 processing units | Request PDF - ResearchGate, accessed on September 6,
