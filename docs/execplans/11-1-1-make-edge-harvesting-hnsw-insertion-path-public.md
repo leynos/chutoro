@@ -1,4 +1,4 @@
-# Expose a public edge-harvesting HNSW insertion API
+# Expose a public edge-harvesting Hierarchical Navigable Small World (HNSW) insertion API
 
 This ExecPlan (execution plan) is a living document. The sections
 `Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
@@ -146,10 +146,31 @@ succeed.
 
 ## Outcomes & Retrospective
 
-Work has not started yet. The intended completed state is a minimal
-public API addition with broad automated coverage, updated design notes,
-and all required validators passing without widening the task into
-session-level incremental clustering.
+The public `insert_harvesting` API has been successfully exposed. The
+implementation added a thin public wrapper around the existing private
+`insert_with_edges` method, returning `Vec<CandidateEdge>` to callers.
+
+Key outcomes:
+
+- `CpuHnsw::insert_harvesting()` is now public and callable from external
+crates, enabling incremental clustering workflows to access harvested edges.
+- The existing `CpuHnsw::insert()` method remains unchanged, continuing to
+discard edges via `NoopCollector`.
+- Unit tests cover happy paths, bootstrap insertion (empty edges), duplicate
+insertion rejection, and error propagation.
+- Rustdoc example demonstrates proper usage with `with_capacity` and
+sequential insertion.
+- All validators pass: `make check-fmt`, `make lint`, `make test`,
+`make markdownlint`, and `make nixie`.
+
+Retrospective notes:
+
+- The implementation was straightforward due to the existing collector
+abstraction. No new types or dependencies were required.
+- The `CandidateEdge` type was already public, simplifying the API surface
+change to a visibility modification.
+- Test coverage leveraged existing `rstest` patterns, keeping the change
+focused and maintainable.
 
 ## Context and orientation
 
