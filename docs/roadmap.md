@@ -244,7 +244,7 @@ ______________________________________________________________________
   Gaussian blobs (configurable separation, cluster count, and anisotropy),
   ring/manifold patterns for non-linearly-separable data, and text strings
   exercising Levenshtein distance. Add MNIST (70k ×
-  784\) as a real-world baseline via a download-and-cache helper.
+  784) as a real-world baseline via a download-and-cache helper.
   Document which synthetic patterns stress which pipeline stages. (See §1.3)
 - [x] 2.1.3. Track memory footprint alongside timing: use Criterion
   custom measurements or a separate profiler to record peak memory during HNSW
@@ -1203,17 +1203,17 @@ Provenance notes:
   DEEP1B/BigANN for the most demanding scale.
 
 [^1]: scikit-learn — make_blobs —
-<https://scikit-learn.org/stable/modules/generated/sklearn.datasets.make_blobs.html>
+  <https://scikit-learn.org/stable/modules/generated/sklearn.datasets.make_blobs.html>
 [^2]: MNIST database — <http://yann.lecun.com/exdb/mnist/>
 [^3]: Fashion-MNIST — <https://github.com/zalandoresearch/fashion-mnist>
 [^4]: CIFAR-10/100 — <https://www.cs.toronto.edu/~kriz/cifar.html>
 [^5]: 20 Newsgroups —
-<https://scikit-learn.org/stable/datasets/real_world.html#newsgroups-dataset>
+  <https://scikit-learn.org/stable/datasets/real_world.html#newsgroups-dataset>
 [^6]: RCV1-v2 —
-<https://scikit-learn.org/stable/modules/generated/sklearn.datasets.fetch_rcv1.html>
+  <https://scikit-learn.org/stable/modules/generated/sklearn.datasets.fetch_rcv1.html>
 [^7]: SNAP datasets — <https://snap.stanford.edu/data/>
 [^8]: PBMC 68k —
-<https://support.10xgenomics.com/single-cell-gene-expression/datasets>
+  <https://support.10xgenomics.com/single-cell-gene-expression/datasets>
 [^9]: GloVe vectors — <https://nlp.stanford.edu/projects/glove/>
 [^10]: ANN-Benchmarks datasets —
-<https://github.com/erikbern/ann-benchmarks>
+  <https://github.com/erikbern/ann-benchmarks>
