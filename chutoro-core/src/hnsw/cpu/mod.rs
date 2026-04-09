@@ -310,10 +310,10 @@ impl CpuHnsw {
     /// the candidate edges discovered during the HNSW search phase. These edges
     /// can be used for incremental MST updates in clustering workflows.
     ///
-    /// The first node inserted into an empty index (node 0) returns an empty
-    /// vector because there are no prior nodes to connect to. Subsequent
-    /// insertions return edges connecting the new node to its nearest neighbours
-    /// at each layer of the HNSW graph.
+    /// The first node inserted into an empty index returns an empty vector
+    /// because there are no prior nodes to connect to. Subsequent insertions
+    /// return edges connecting the new node to its nearest neighbours at each
+    /// layer of the HNSW graph.
     ///
     /// # Errors
     ///

@@ -1,6 +1,9 @@
 //! Unit tests for candidate edge harvesting during HNSW construction.
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    num::NonZeroUsize,
+};
 
 use rstest::rstest;
 
@@ -455,22 +458,30 @@ fn insert_harvesting_matches_insert_graph_state() {
     let data: Vec<f32> = (0..10).map(|i| i as f32).collect();
     let source = DummySource::new(data);
     let params = HnswParams::new(4, 16).expect("params").with_rng_seed(42);
-
-    // Build two identical indices using different methods
-    let index1 = CpuHnsw::build(&source, params.clone()).expect("build");
+    let ef = NonZeroUsize::new(source.len()).expect("source length must be non-zero");
+    let index1 = CpuHnsw::with_capacity(params.clone(), source.len()).expect("capacity");
     let index2 = CpuHnsw::with_capacity(params.clone(), source.len()).expect("capacity");
 
-    // Insert nodes using insert_harvesting on index2
     for node in 0..source.len() {
+        index1.insert(node, &source).expect("insert succeeds");
         index2
             .insert_harvesting(node, &source)
             .expect("insert succeeds");
     }
 
-    // Both indices should have same length
     assert_eq!(
         index1.len(),
         index2.len(),
         "indices should have same length"
     );
+
+    for node in 0..source.len() {
+        let insert_results = index1.search(&source, node, ef).expect("search succeeds");
+        let harvest_results = index2.search(&source, node, ef).expect("search succeeds");
+
+        assert_eq!(
+            insert_results, harvest_results,
+            "search results diverged for node {node}"
+        );
+    }
 }
