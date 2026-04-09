@@ -581,7 +581,7 @@ stable, language-agnostic contract.
        ) -> StatusCode,
 
        // Optional, for high-performance providers
-      pub distance_pair_batch: Option<unsafe extern "C" fn(
+      pub distance_batch: Option<unsafe extern "C" fn(
            state: *const std::ffi::c_void,
            pairs: *const Pair,
            out: *mut f32,
@@ -891,13 +891,12 @@ points are classified as noise and receive label `0`.
   `core::arch` intrinsics (AVX2/AVX-512 on x86) across lanes, with scalar
   fallback per pair where metrics are not vectorizable. Keep an optional nightly
   `std::simd` path behind a non-default feature while the API remains unstable.
-  Expose a query-centric
-  `distance_batch_query(query, candidates, out)` helper on the core trait and
-  make it the default path for HNSW candidate scoring on CPU: collect candidate
-  indices in chunks sized to the SIMD width and evaluate with fused
-  multiply-adds and vector reductions, exploiting the plugin v-table’s
-  `distance_batch_query` hook while retaining the pair-oriented
-  `distance_pair_batch(pairs, out)` for algorithms that require arbitrary
+  Expose the query-centric `batch_distances(query, candidates)` helper on the
+  core trait and make it the default path for HNSW candidate scoring on CPU:
+  collect candidate indices in chunks sized to the SIMD width and evaluate with
+  fused multiply-adds and vector reductions, exploiting the trait’s
+  `batch_distances` path while retaining the pair-oriented
+  `distance_batch(pairs, out)` API for algorithms that require arbitrary
   tuples.
 - **HNSW search/insert heuristics:** When evaluating neighbours at a level,
   operate on packed indices and a structure-of-arrays layout of coordinates.
@@ -934,9 +933,9 @@ points are classified as noise and receive label `0`.
 - **Testing and performance hygiene:** Ship microbenchmarks for Euclidean and
   cosine kernels (scalar, auto-vectorized, portable-simd, AVX2/512),
   neighbour-set scoring at varying candidate sizes, and batched
-  `distance_batch_query` versus scalar `distance`. Validate that SIMD wins
-  persist under realistic HNSW candidate distributions by bucketing and padding
-  to lane multiples.
+  `batch_distances` versus scalar `distance`. Validate that SIMD wins persist
+  under realistic HNSW candidate distributions by bucketing and padding to lane
+  multiples.
 
 The candidate scoring flow within HNSW search is shown in Figure 1.
 
@@ -948,7 +947,7 @@ sequenceDiagram
   participant Kern as SIMD Kernels
 
   Note over HNSW: Candidate scoring phase
-  HNSW->>DS: distance_batch_query(query, candidates, out)
+  HNSW->>DS: batch_distances(query, candidates)
   alt SIMD available
     DS->>Kern: run SIMD kernel (AVX2/AVX-512/Neon)
     Kern-->>DS: distances[]
@@ -961,18 +960,16 @@ sequenceDiagram
   %% initialization; kernel call-sites remain branch-free.
 ```
 
-_Figure 1: SIMD-backed candidate scoring via `distance_batch_query` with scalar
+_Figure 1: SIMD-backed candidate scoring via `batch_distances` with scalar
 fallback._
 
 _Implementation update (2026-03-02)._ Roadmap item `2.2.1` is implemented using
 stable Rust primitives with toolchain `1.93.1` (latest stable, released
 2026-02-12) and minimum supported Rust version (MSRV) `1.89.0`. The default
-`DataSource::batch_distances` path now delegates to
-`distance_batch_query(query, candidates, out)` when the provider exposes that
-specialization; otherwise it materializes `(query, candidate)` tuples and falls
-back to `distance_pair_batch(pairs, out)`. That keeps HNSW candidate scoring
-query-centric at the call site while still permitting arbitrary-pair
-specializations.
+`DataSource::batch_distances` path remains the query-centric HNSW entry point.
+Providers use `distance_batch(pairs, out)` for arbitrary-pair
+specializations, and `batch_distances(query, candidates)` preserves the
+query-centric call site in `hnsw/validate.rs`.
 
 `DenseMatrixProvider` now routes Euclidean distance batches through a dedicated
 SIMD kernel module (`chutoro-providers/dense/src/simd/mod.rs` and
@@ -1005,12 +1002,12 @@ dense rows into a dimension-major Structure of Arrays layout with:
 - point counts padded to a 16-lane multiple;
 - deterministic `0.0_f32` tail padding for unused packed lanes.
 
-`DenseMatrixProvider::distance_batch_query(...)` now uses this SoA path when
-the batch is query-centric, meaning all candidates share the same query row. In
+`DenseMatrixProvider::batch_distances(...)` now uses this SoA path when the
+batch is query-centric, meaning all candidates share the same query row. In
 that case the shared row is treated as the query and the varying rows are
 packed into `DensePointView<'a>` before scoring. Arbitrary pair batches still
 fall back to the existing row-major pairwise path, preserving the general
-`distance_pair_batch` contract without widening the scope of §2.2.2 into a full
+`distance_batch` contract without widening the scope of §2.2.2 into a full
 arbitrary-pair SoA planner.
 
 Scalar fallback remains explicit:
@@ -1832,7 +1829,7 @@ pub trait DataSource {
     /// - `out` must not alias provider-internal storage.
     /// Error handling: implementations should document behaviour on invalid
     /// indices and treatment of NaNs for non-metric inputs.
-    fn distance_pair_batch(
+    fn distance_batch(
         &self,
         pairs: &[(usize, usize)],
         out: &mut [f32],
@@ -1851,12 +1848,12 @@ pub trait DataSource {
 }
 ```
 
-The default `distance_pair_batch` iterates over each pair and validates the
-output buffer length, returning `DataSourceError::OutputLengthMismatch` on
-mismatch. Distances return `Result` to surface invalid indices without
-panicking. An additional `DimensionMismatch` variant reports attempts to
-compare vectors of differing lengths; providers like `DenseSource::try_new`
-validate row dimensions up front to avoid this at runtime.
+The default `distance_batch` iterates over each pair and validates the output
+buffer length, returning `DataSourceError::OutputLengthMismatch` on mismatch.
+Distances return `Result` to surface invalid indices without panicking. An
+additional `DimensionMismatch` variant reports attempts to compare vectors of
+differing lengths; providers like `DenseSource::try_new` validate row
+dimensions up front to avoid this at runtime.
 
 #### 10.3. Plugin Definition and Handshake
 
@@ -1921,7 +1918,7 @@ pub extern "C" fn _plugin_create() -> *mut chutoro_v1 {
         len: csv_len,
         name: csv_name,
         distance: csv_distance,
-        distance_pair_batch: None, // Use default scalar fallback
+        distance_batch: None, // Use default scalar fallback
         destroy: csv_destroy,
     });
 
