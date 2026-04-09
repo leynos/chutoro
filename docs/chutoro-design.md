@@ -891,11 +891,11 @@ points are classified as noise and receive label `0`.
   `core::arch` intrinsics (AVX2/AVX-512 on x86) across lanes, with scalar
   fallback per pair where metrics are not vectorizable. Keep an optional nightly
   `std::simd` path behind a non-default feature while the API remains unstable.
-  Expose a query-centric `batch_distances(query, candidates)` helper on the core
+  Expose a query-centric `distance_batch(query, candidates)` helper on the core
   trait and make it the default path for HNSW candidate scoring on CPU: collect
   candidate indices in chunks sized to the SIMD width and evaluate with fused
   multiply-adds and vector reductions, exploiting the plugin v-table’s
-  `batch_distances` hook while retaining the pair-oriented `distance_batch` for
+  `distance_batch` hook while retaining the pair-oriented `distance_batch` for
   algorithms that require arbitrary tuples.
 - **HNSW search/insert heuristics:** When evaluating neighbours at a level,
   operate on packed indices and a structure-of-arrays layout of coordinates.
@@ -932,7 +932,7 @@ points are classified as noise and receive label `0`.
 - **Testing and performance hygiene:** Ship microbenchmarks for Euclidean and
   cosine kernels (scalar, auto-vectorized, portable-simd, AVX2/512),
   neighbour-set scoring at varying candidate sizes, and batched
-  `batch_distances` versus scalar `distance`. Validate that SIMD wins persist
+  `distance_batch` versus scalar `distance`. Validate that SIMD wins persist
   under realistic HNSW candidate distributions by bucketing and padding to lane
   multiples.
 
@@ -946,7 +946,7 @@ sequenceDiagram
   participant Kern as SIMD Kernels
 
   Note over HNSW: Candidate scoring phase
-  HNSW->>DS: batch_distances(query, candidates)
+  HNSW->>DS: distance_batch(query, candidates)
   alt SIMD available
     DS->>Kern: run SIMD kernel (AVX2/AVX-512/Neon)
     Kern-->>DS: distances[]
@@ -959,7 +959,7 @@ sequenceDiagram
   %% initialization; kernel call-sites remain branch-free.
 ```
 
-_Figure 1: SIMD-backed candidate scoring via `batch_distances` with scalar
+_Figure 1: SIMD-backed candidate scoring via `distance_batch` with scalar
 fallback._
 
 _Implementation update (2026-03-02)._ Roadmap item `2.2.1` is implemented using

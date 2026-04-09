@@ -2,6 +2,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    error::Error,
     num::NonZeroUsize,
 };
 
@@ -123,14 +124,13 @@ fn hnsw_params(
         seed: Some(42),
     })]
     fixture: HarvestFixtureCase,
-) -> HnswParams {
-    let params = HnswParams::new(fixture.max_connections, fixture.ef_construction)
-        .expect("params must be valid");
-    if let Some(rng_seed) = fixture.seed {
+) -> Result<HnswParams, Box<dyn Error>> {
+    let params = HnswParams::new(fixture.max_connections, fixture.ef_construction)?;
+    Ok(if let Some(rng_seed) = fixture.seed {
         params.with_rng_seed(rng_seed)
     } else {
         params
-    }
+    })
 }
 
 #[fixture]
@@ -142,9 +142,11 @@ fn cpu_hnsw(
         seed: Some(42),
     })]
     fixture: HarvestFixtureCase,
-) -> CpuHnsw {
-    CpuHnsw::with_capacity(hnsw_params(fixture.clone()), fixture.capacity())
-        .expect("index should allocate")
+) -> Result<CpuHnsw, Box<dyn Error>> {
+    Ok(CpuHnsw::with_capacity(
+        hnsw_params(fixture.clone())?,
+        fixture.capacity(),
+    )?)
 }
 
 #[fixture]
@@ -156,7 +158,7 @@ fn comparison_cpu_hnsw(
         seed: Some(42),
     })]
     fixture: HarvestFixtureCase,
-) -> CpuHnsw {
+) -> Result<CpuHnsw, Box<dyn Error>> {
     cpu_hnsw(fixture)
 }
 
@@ -498,12 +500,12 @@ fn build_produces_same_index_as_build_with_edges() {
 fn insert_harvesting_initial_insert_returns_empty_edges(
     #[case] case: InitialInsertCase,
     #[with(case.fixture.clone())] dummy_source: DummySource,
-    #[with(case.fixture.clone())] cpu_hnsw: CpuHnsw,
-) {
-    let edges = cpu_hnsw
-        .insert_harvesting(case.first_node, &dummy_source)
-        .expect("insert succeeds");
+    #[with(case.fixture.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
+) -> Result<(), Box<dyn Error>> {
+    let cpu_hnsw = cpu_hnsw?;
+    let edges = cpu_hnsw.insert_harvesting(case.first_node, &dummy_source)?;
     assert!(edges.is_empty(), "initial insert should return empty edges");
+    Ok(())
 }
 
 #[rstest]
@@ -522,16 +524,13 @@ fn insert_harvesting_initial_insert_returns_empty_edges(
 fn insert_harvesting_returns_valid_edges(
     #[case] _case: HarvestFixtureCase,
     #[with(_case.clone())] dummy_source: DummySource,
-    #[with(_case.clone())] cpu_hnsw: CpuHnsw,
-) {
-    cpu_hnsw
-        .insert_harvesting(0, &dummy_source)
-        .expect("first insert");
+    #[with(_case.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
+) -> Result<(), Box<dyn Error>> {
+    let cpu_hnsw = cpu_hnsw?;
+    cpu_hnsw.insert_harvesting(0, &dummy_source)?;
 
     for node in 1..dummy_source.len() {
-        let edges = cpu_hnsw
-            .insert_harvesting(node, &dummy_source)
-            .expect("insert succeeds");
+        let edges = cpu_hnsw.insert_harvesting(node, &dummy_source)?;
 
         for edge in &edges {
             assert_eq!(
@@ -548,6 +547,7 @@ fn insert_harvesting_returns_valid_edges(
             assert!(edge.distance() >= 0.0, "distance should be non-negative");
         }
     }
+    Ok(())
 }
 
 #[rstest]
@@ -572,16 +572,16 @@ fn insert_harvesting_returns_valid_edges(
 fn insert_harvesting_duplicate_insert_is_rejected(
     #[case] case: DuplicateInsertCase,
     #[with(case.fixture.clone())] dummy_source: DummySource,
-    #[with(case.fixture.clone())] cpu_hnsw: CpuHnsw,
-) {
-    cpu_hnsw
-        .insert_harvesting(case.node, &dummy_source)
-        .expect("first insert");
+    #[with(case.fixture.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
+) -> Result<(), Box<dyn Error>> {
+    let cpu_hnsw = cpu_hnsw?;
+    cpu_hnsw.insert_harvesting(case.node, &dummy_source)?;
 
     let err = cpu_hnsw
         .insert_harvesting(case.node, &dummy_source)
         .expect_err("duplicate insert fails");
     assert!(matches!(err, HnswError::DuplicateNode { node: duplicate } if duplicate == case.node));
+    Ok(())
 }
 
 #[rstest]
@@ -594,18 +594,16 @@ fn insert_harvesting_duplicate_insert_is_rejected(
 fn insert_harvesting_matches_insert_graph_state(
     #[case] _case: HarvestFixtureCase,
     #[with(_case.clone())] dummy_source: DummySource,
-    #[with(_case.clone())] cpu_hnsw: CpuHnsw,
-    #[with(_case.clone())] comparison_cpu_hnsw: CpuHnsw,
-) {
+    #[with(_case.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
+    #[with(_case.clone())] comparison_cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
+) -> Result<(), Box<dyn Error>> {
     let ef = NonZeroUsize::new(dummy_source.len()).expect("source length must be non-zero");
-    let index1 = cpu_hnsw;
-    let index2 = comparison_cpu_hnsw;
+    let index1 = cpu_hnsw?;
+    let index2 = comparison_cpu_hnsw?;
 
     for node in 0..dummy_source.len() {
-        index1.insert(node, &dummy_source).expect("insert succeeds");
-        index2
-            .insert_harvesting(node, &dummy_source)
-            .expect("insert succeeds");
+        index1.insert(node, &dummy_source)?;
+        index2.insert_harvesting(node, &dummy_source)?;
     }
 
     assert_eq!(
@@ -627,4 +625,5 @@ fn insert_harvesting_matches_insert_graph_state(
             "search results diverged for node {node}"
         );
     }
+    Ok(())
 }
