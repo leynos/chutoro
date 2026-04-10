@@ -964,8 +964,8 @@ _Figure 1: SIMD-backed candidate scoring via `batch_distances` with scalar
 fallback._
 
 _Implementation update (2026-03-02)._ Roadmap item `2.2.1` is implemented using
-stable Rust primitives with toolchain `1.93.1` (latest stable, released
-2026-02-12) and minimum supported Rust version (MSRV) `1.89.0`. The default
+stable Rust primitives with toolchain `1.93.1` (stable as of 2026-03-02,
+released 2026-02-12) and minimum supported Rust version (MSRV) `1.89.0`. The default
 `DataSource::batch_distances` path remains the query-centric HNSW entry point.
 Providers use `distance_batch(pairs, out)` for arbitrary-pair
 specializations, and `batch_distances(query, candidates)` preserves the
@@ -2530,9 +2530,11 @@ sequenceDiagram
     activate EdgeCollector
 
     loop HNSW search and insertion
-        CpuHnsw->>EdgeCollector: on_edge(CandidateEdge)
-        EdgeCollector-->>CpuHnsw: ()
+        CpuHnsw->>CpuHnsw: extract_candidate_edges(node, sequence, plan)
     end
+
+    CpuHnsw->>EdgeCollector: collect(edges: Vec~CandidateEdge~)
+    EdgeCollector-->>CpuHnsw: ()
 
     deactivate EdgeCollector
 
@@ -2556,7 +2558,7 @@ supporting `CandidateEdge`, `HnswError`, and `DataSource` relationships.
 classDiagram
     class CpuHnsw {
         +build~D: DataSource, HnswParams~ Result~CpuHnsw, HnswError~
-        +build_with_edges~D: DataSource, HnswParams~ Result~CpuHnsw, HnswError~
+        +build_with_edges~D: DataSource, HnswParams~ Result~(CpuHnsw, EdgeHarvest), HnswError~
         +insert~D: DataSource + Sync~ Result~(), HnswError~
         +insert_harvesting~D: DataSource + Sync~ Result~Vec~CandidateEdge~, HnswError~
         -insert_with_edges~D: DataSource + Sync~ Result~Vec~CandidateEdge~, HnswError~
@@ -2565,35 +2567,39 @@ classDiagram
 
     class EdgeCollector {
         <<trait>>
-        +on_edge(edge: CandidateEdge) void
-        +into_inner() Vec~CandidateEdge~
+        +collect(edges: Vec~CandidateEdge~) void
     }
 
     class VecCollector {
         +new() VecCollector
-        +on_edge(edge: CandidateEdge) void
+        +collect(edges: Vec~CandidateEdge~) void
         +into_inner() Vec~CandidateEdge~
-        -edges: Vec~CandidateEdge~
     }
 
     class NoopCollector {
-        +new() NoopCollector
-        +on_edge(edge: CandidateEdge) void
-        +into_inner() Vec~CandidateEdge~
+        +collect(edges: Vec~CandidateEdge~) void
     }
 
     class CandidateEdge {
-        +from: usize
-        +to: usize
-        +distance: f32
+        +source() usize
+        +target() usize
+        +distance() f32
+        +sequence() u64
+    }
+
+    class EdgeHarvest {
     }
 
     class HnswError {
         <<enum>>
+        EmptyBuild
+        InvalidParameters
         DuplicateNode
-        InvalidParams
-        DataSourceFailure
-        LockPoison
+        GraphEmpty
+        GraphInvariantViolation
+        NonFiniteDistance
+        LockPoisoned
+        DataSource
     }
 
     class DataSource {
@@ -2605,6 +2611,7 @@ classDiagram
     }
 
     CpuHnsw ..> CandidateEdge
+    CpuHnsw ..> EdgeHarvest
     CpuHnsw ..> HnswError
     CpuHnsw ..> DataSource
     CpuHnsw ..> EdgeCollector
