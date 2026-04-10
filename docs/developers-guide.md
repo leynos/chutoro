@@ -4,6 +4,63 @@ This guide collects day-to-day practices for contributors working on the
 Chutoro codebase. It complements the more specialized documents in `docs/` and
 keeps operational guidance in one place.
 
+## CPU HNSW public APIs
+
+`chutoro-core` exposes `CpuHnsw` as the public CPU-resident Hierarchical
+Navigable Small World (HNSW) index. The primary insertion and query entry
+points are:
+
+- `CpuHnsw::build<D: DataSource + Sync>(
+  source: &D,
+  params: HnswParams,
+  ) -> Result<CpuHnsw, HnswError>`
+- `CpuHnsw::build_with_edges<D: DataSource + Sync>(
+  source: &D,
+  params: HnswParams,
+  ) -> Result<(CpuHnsw, EdgeHarvest), HnswError>`
+- `CpuHnsw::with_capacity(
+  params: HnswParams,
+  capacity: usize,
+  ) -> Result<CpuHnsw, HnswError>`
+- `CpuHnsw::insert<D: DataSource + Sync>(
+  &self,
+  node: usize,
+  source: &D,
+  ) -> Result<(), HnswError>`
+- `CpuHnsw::insert_harvesting<D: DataSource + Sync>(
+  &self,
+  node: usize,
+  source: &D,
+  ) -> Result<Vec<CandidateEdge>, HnswError>`
+- `CpuHnsw::search<D: DataSource + Sync>(
+  &self,
+  source: &D,
+  query: usize,
+  ef: NonZeroUsize,
+  ) -> Result<Vec<Neighbour>, HnswError>`
+
+`build` and `build_with_edges` seed the entry point from node `0` and insert
+the remaining nodes in parallel. `build_with_edges` is the preferred path when
+the caller needs the deterministic `EdgeHarvest` used by the MST stage.
+`with_capacity` is the entry point for manual or incremental index population.
+
+`insert` mutates the graph without allocating harvested edge storage.
+`insert_harvesting` performs the same planning and commit sequence, but also
+returns the candidate edges identified during the read-phase search. The first
+insertion into an empty index returns an empty vector, while later insertions
+return edges ordered by insertion sequence. `DuplicateNode` indicates a repeat
+insertion, and other `HnswError` variants cover invalid parameters, poisoned
+locks, non-finite distances, graph invariant failures, and wrapped
+`DataSourceError` values.
+
+`search` is the observable way to compare graph state after different insertion
+paths. The HNSW edge-harvesting tests treat equivalent `search` results as the
+behavioural contract between `insert` and `insert_harvesting`.
+
+Design rationale and deeper implementation notes live in
+[the design document](./chutoro-design.md) and the completed
+[edge-harvesting ExecPlan](./execplans/11-1-1-make-edge-harvesting-hnsw-insertion-path-public.md).
+
 ## Benchmarks
 
 The `chutoro-benches` crate provides Criterion benchmarks for the four CPU

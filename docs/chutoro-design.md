@@ -2502,6 +2502,126 @@ helper. This approach:
 The `insert_harvesting()` method returns `Result<Vec<CandidateEdge>, HnswError>`
 and is fully documented with examples. Unit tests verify that:
 
+For screen readers: The following sequence diagram shows
+`CpuHnsw::insert_harvesting()` creating a `VecCollector`, delegating to
+`insert_with_collector()`, streaming harvested candidate edges through the
+collector, and returning the collected `Vec<CandidateEdge>` to the caller.
+
+```mermaid
+sequenceDiagram
+    actor ExternalCaller
+    participant CpuHnsw
+    participant DataSource
+    participant VecCollector
+    participant EdgeCollector
+
+    ExternalCaller->>CpuHnsw: insert_harvesting(node, source: DataSource)
+    activate CpuHnsw
+
+    CpuHnsw->>CpuHnsw: insert_with_edges(node, source)
+    activate CpuHnsw
+
+    CpuHnsw->>VecCollector: new()
+    activate VecCollector
+    VecCollector-->>CpuHnsw: collector
+    deactivate VecCollector
+
+    CpuHnsw->>CpuHnsw: insert_with_collector(node, source, collector: EdgeCollector)
+    activate EdgeCollector
+
+    loop HNSW search and insertion
+        CpuHnsw->>EdgeCollector: on_edge(CandidateEdge)
+        EdgeCollector-->>CpuHnsw: ()
+    end
+
+    deactivate EdgeCollector
+
+    CpuHnsw->>VecCollector: into_inner()
+    activate VecCollector
+    VecCollector-->>CpuHnsw: Vec~CandidateEdge~
+    deactivate VecCollector
+
+    CpuHnsw-->>ExternalCaller: Result~Vec~CandidateEdge~, HnswError~
+    deactivate CpuHnsw
+```
+
+_Figure 6: `CpuHnsw::insert_harvesting()` delegates through `VecCollector` and
+returns harvested candidate edges to the caller._
+
+For screen readers: The following class diagram summarizes the public and
+internal `CpuHnsw` insertion APIs, the edge-collector strategy types, and the
+supporting `CandidateEdge`, `HnswError`, and `DataSource` relationships.
+
+```mermaid
+classDiagram
+    class CpuHnsw {
+        +build~D: DataSource, HnswParams~ Result~CpuHnsw, HnswError~
+        +build_with_edges~D: DataSource, HnswParams~ Result~CpuHnsw, HnswError~
+        +insert~D: DataSource + Sync~ Result~(), HnswError~
+        +insert_harvesting~D: DataSource + Sync~ Result~Vec~CandidateEdge~, HnswError~
+        -insert_with_edges~D: DataSource + Sync~ Result~Vec~CandidateEdge~, HnswError~
+        -insert_with_collector~D: DataSource + Sync, collector: EdgeCollector~ Result~(), HnswError~
+    }
+
+    class EdgeCollector {
+        <<trait>>
+        +on_edge(edge: CandidateEdge) void
+        +into_inner() Vec~CandidateEdge~
+    }
+
+    class VecCollector {
+        +new() VecCollector
+        +on_edge(edge: CandidateEdge) void
+        +into_inner() Vec~CandidateEdge~
+        -edges: Vec~CandidateEdge~
+    }
+
+    class NoopCollector {
+        +new() NoopCollector
+        +on_edge(edge: CandidateEdge) void
+        +into_inner() Vec~CandidateEdge~
+    }
+
+    class CandidateEdge {
+        +from: usize
+        +to: usize
+        +distance: f32
+    }
+
+    class HnswError {
+        <<enum>>
+        DuplicateNode
+        InvalidParams
+        DataSourceFailure
+        LockPoison
+    }
+
+    class DataSource {
+        <<trait>>
+        +len() usize
+        +name() &str
+        +distance(i: usize, j: usize) Result~f32, DataSourceError~
+        +metric_descriptor() MetricDescriptor
+    }
+
+    CpuHnsw ..> CandidateEdge
+    CpuHnsw ..> HnswError
+    CpuHnsw ..> DataSource
+    CpuHnsw ..> EdgeCollector
+
+    VecCollector ..|> EdgeCollector
+    NoopCollector ..|> EdgeCollector
+
+    EdgeCollector ..> CandidateEdge
+
+    HnswError ..> DataSource
+
+    DataSource <|.. Dummy
+```
+
+_Figure 7: `CpuHnsw` insertion APIs and collector strategy relationships for
+edge-harvesting insertion._
+
 - The initial insert (entry point) returns an empty edge vector.
 - Subsequent inserts return valid, in-bounds, finite-distance edges.
 - Duplicate inserts return `HnswError::DuplicateNode`.
