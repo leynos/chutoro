@@ -29,7 +29,7 @@ limitations of its predecessors. Its architecture is a direct response to the
 computational challenges posed by large, high-dimensional, or non-metric
 datasets.
 
-#### 1.1. Lineage and Motivation: From DBSCAN to HDBSCAN* to FISHDBC
+#### 1.1. Lineage and motivation: from DBSCAN to HDBSCAN\* to FISHDBC
 
 The evolution of density-based clustering algorithms reveals a clear trajectory
 toward greater flexibility and scalability. The journey begins with DBSCAN
@@ -56,10 +56,10 @@ algorithm constructs a minimum spanning tree (MST) of the data points and
 derives a rich cluster hierarchy from it. A stability measure is then applied
 to this hierarchy to extract a flat, optimal clustering without requiring the
 user to specify the number of clusters or a distance scale.[^3] The most robust
-variant, HDBSCAN*, operates on the mutual reachability graph, but this comes at
+variant, HDBSCAN\*, operates on the mutual reachability graph, but this comes at
 a significant computational cost. For arbitrary data types and distance
 functions where no specialized indexing structures exist (e.g., k-d trees for
-Euclidean distance), HDBSCAN* has a computational complexity of
+Euclidean distance), HDBSCAN\* has a computational complexity of
 
 O(n^2), stemming from the need to compute a large number of pairwise distances
 to build its core data structures.[^3] This quadratic complexity renders it
@@ -69,7 +69,7 @@ This is the precise problem that FISHDBC (Flexible, Incremental, Scalable,
 Hierarchical Density-Based Clustering) was designed to solve.[^5] FISHDBC is
 explicitly positioned as a scalable
 
-_approximation_ of HDBSCAN*.[^6] The core philosophy of FISHDBC is to accept a
+_approximation_ of HDBSCAN\*.[^6] The core philosophy of FISHDBC is to accept a
 minor, controlled loss of accuracy in exchange for a massive gain in
 performance and scalability. It achieves this by fundamentally altering how the
 underlying graph structure is built, thereby avoiding the
@@ -80,7 +80,7 @@ too large for traditional methods.
 
 The central innovation of FISHDBC is not the creation of a new clustering
 paradigm, but a critical act of algorithmic substitution. It recognizes that
-the quadratic complexity of HDBSCAN* originates from the need for an all-pairs
+the quadratic complexity of HDBSCAN\* originates from the need for an all-pairs
 (or near all-pairs) distance computation to construct the exact mutual
 reachability graph and, subsequently, the exact minimum spanning tree. FISHDBC
 replaces this computationally intractable step with a highly efficient
@@ -347,11 +347,13 @@ Borůvka's—have vastly different characteristics when parallelized.
   maps perfectly to the Single Instruction, Multiple Data (SIMD) execution
   model of GPUs.
 
-| Algorithm      | Core idea                      | Parallelism characteristics  | Suitability for GPU |
+| Algorithm | Core idea | Parallelism characteristics | Suitability for GPU |
 | -------------- | ------------------------------ | ---------------------------- | ------------------- |
-| **Prim's**     | Grow tree from one component.  | Little parallel work.        | **Poor**            |
-| **Kruskal's**  | Sort edges, add safe edges.    | Sort limits parallelism.     | **Moderate**        |
-| **Borůvka's**  | Components pick cheapest edge. | Highly parallel; log rounds. | **Excellent**       |
+| **Prim's** | Grow tree from one component. | Little parallel work. | **Poor** |
+| **Kruskal's** | Sort edges, add safe edges. | Sort limits parallelism. | **Moderate** |
+| **Borůvka's** | Components pick cheapest edge. | Highly parallel; log rounds. | **Excellent** |
+
+_Table 1: Comparison of MST algorithms for GPU suitability._
 
 The selection of Borůvka's algorithm for the GPU-based MST computation is not
 merely a matter of choosing the fastest option; it represents a decision based
@@ -532,12 +534,14 @@ maximum flexibility, but it requires careful handling of
 
 `unsafe` code at the boundary.
 
-| Approach                    | Pros                        | Cons                          | Suitability |
+| Approach | Pros | Cons | Suitability |
 | --------------------------- | --------------------------- | ----------------------------- | ----------- |
-| **Static link (features)**  | Safe, fast, easy.           | Needs rebuild; not pluggable. | **Low**     |
-| **IPC / WASM**              | Safe and cross-language.    | Serialization overhead.       | **Low**     |
-| **ABI crates**              | Keeps FFI safe.             | Adds complexity; evolving.    | **Medium**  |
-| **Dynamic loading (C ABI)** | Flexible, widely supported. | Requires `unsafe`; ABI risk.  | **High**    |
+| **Static link (features)** | Safe, fast, easy. | Needs rebuild; not pluggable. | **Low** |
+| **IPC / WASM** | Safe and cross-language. | Serialization overhead. | **Low** |
+| **ABI crates** | Keeps FFI safe. | Adds complexity; evolving. | **Medium** |
+| **Dynamic loading (C ABI)** | Flexible, widely supported. | Requires `unsafe`; ABI risk. | **High** |
+
+_Table 2: Comparison of plugin architecture approaches._
 
 #### 5.3. Proposed Design: A Versioned C-ABI V-Table Handshake
 
@@ -554,54 +558,54 @@ stable, language-agnostic contract.
    operations a data source must provide. It also includes versioning and
    capability fields to ensure compatibility and enable feature discovery.
 
-    ```rust
-    // In a shared Rust module (repr C v-table shared with plugins)
-    #[repr(C)]
-    pub struct chutoro_v1 {
-        pub abi_version: u32, // e.g., 1
-        pub caps: u32,        // Bitflags:
-                              // HAS_DISTANCE_BATCH, HAS_DEVICE_VIEW,
-                              // HAS_NATIVE_KERNELS
-        pub state: *mut std::ffi::c_void, // Opaque pointer to plugin's internal state
+   ```rust
+   // In a shared Rust module (repr C v-table shared with plugins)
+   #[repr(C)]
+   pub struct chutoro_v1 {
+       pub abi_version: u32, // e.g., 1
+       pub caps: u32,        // Bitflags:
+                             // HAS_DISTANCE_BATCH, HAS_DEVICE_VIEW,
+                             // HAS_NATIVE_KERNELS
+       pub state: *mut std::ffi::c_void, // Opaque pointer to plugin's internal state
 
-        // Function pointers for the data source API
-        pub len: unsafe extern "C" fn(state: *const std::ffi::c_void) -> usize,
-        pub name: unsafe extern "C" fn(
-            state: *const std::ffi::c_void,
-        ) -> *const std::os::raw::c_char,
-        pub distance: unsafe extern "C" fn(
-            state: *const std::ffi::c_void,
-            idx1: usize,
-            idx2: usize,
-            out: *mut f32,
-        ) -> StatusCode,
+       // Function pointers for the data source API
+       pub len: unsafe extern "C" fn(state: *const std::ffi::c_void) -> usize,
+       pub name: unsafe extern "C" fn(
+           state: *const std::ffi::c_void,
+       ) -> *const std::os::raw::c_char,
+       pub distance: unsafe extern "C" fn(
+           state: *const std::ffi::c_void,
+           idx1: usize,
+           idx2: usize,
+           out: *mut f32,
+       ) -> StatusCode,
 
-        // Optional, for high-performance providers
-        pub distance_batch: Option<unsafe extern "C" fn(
-            state: *const std::ffi::c_void,
-            pairs: *const Pair,
-            out: *mut f32,
-            n: usize,
-        ) -> StatusCode>,
-        // Required: plugin-controlled teardown of `state`
-        pub destroy: unsafe extern "C" fn(state: *mut std::ffi::c_void),
-    }
+       // Optional, for high-performance providers
+      pub distance_batch: Option<unsafe extern "C" fn(
+           state: *const std::ffi::c_void,
+           pairs: *const Pair,
+           out: *mut f32,
+           n: usize,
+       ) -> StatusCode>,
+       // Required: plugin-controlled teardown of `state`
+       pub destroy: unsafe extern "C" fn(state: *mut std::ffi::c_void),
+   }
 
-    #[repr(C)]
-    pub struct Pair {
-        pub i: usize,
-        pub j: usize,
-    }
+   #[repr(C)]
+   pub struct Pair {
+       pub i: usize,
+       pub j: usize,
+   }
 
-    #[repr(u32)]
-    pub enum StatusCode {
-        Ok = 0,
-        InvalidArgument = 1,
-        Unsupported = 2,
-        BackendFailure = 3,
-    }
+   #[repr(u32)]
+   pub enum StatusCode {
+       Ok = 0,
+       InvalidArgument = 1,
+       Unsupported = 2,
+       BackendFailure = 3,
+   }
 
-    ```
+   ```
 
 2. **The Plugin Implementation:** A plugin author implements their data source
    logic in a standard Rust struct. They then expose a single, C-compatible
@@ -610,15 +614,16 @@ stable, language-agnostic contract.
    `chutoro_v1` v-table with pointers to C-compatible wrapper functions, and
    returns the v-table struct to the host. The `state` field will hold the
    pointer to the plugin's Rust object.
+
 3. **The Host Loading Mechanism:** The main application's Plugin Manager uses
    `libloading` to load a dynamic library and resolve the `_plugin_create`
    symbol.[^22] It calls this function to get the
 
-`chutoro_v1` struct. The host checks the `abi_version` to ensure compatibility
-and, on teardown, must call `vtable.destroy(vtable.state)` exactly once to
-release plugin state. Safety contract: the host never calls `destroy` more than
-once; plugins must treat `destroy` as idempotent with internal guards to avoid
-double-free if probed repeatedly.
+   `chutoro_v1` struct. The host checks the `abi_version` to ensure
+   compatibility and, on teardown, must call `vtable.destroy(vtable.state)`
+   exactly once to release plugin state. Safety contract: the host never calls
+   `destroy` more than once; plugins must treat `destroy` as idempotent with
+   internal guards to avoid double-free if probed repeatedly.
 
 Returning a raw `f32` directly from the ABI boundary is deliberately avoided.
 The distance path already needs a documented non-finite policy for SIMD and GPU
@@ -771,9 +776,9 @@ deterministic tests while preserving the geometric tail induced by the
 under the write lock using the caller-provided `DataSource` for distance
 ordering. Trimming now batches by endpoint: each layer collects the nodes whose
 adjacency changed, computes their distance orderings once via
-`batch_distances(query, candidates)`, and reapplies the truncated lists,
-keeping the write critical section short even when multiple neighbours are
-added.
+  `batch_distances(query, candidates)`, and reapplies the truncated lists,
+  keeping the write critical section short even when multiple neighbours are
+  added.
 
 A process-local `DistanceCache` now backs both search and trimming. The cache
 stores normalized `(min, max)` pairs keyed with the `MetricDescriptor` exposed
@@ -882,16 +887,17 @@ points are classified as noise and receive label `0`.
 #### 6.3. SIMD utilization
 
 - **Distance kernels (biggest win):** Add a CPU backend that takes contiguous
-structure-of-arrays views of point data and computes distances with stable
-`core::arch` intrinsics (AVX2/AVX-512 on x86) across lanes, with scalar
-fallback per pair where metrics are not vectorizable. Keep an optional nightly
-`std::simd` path behind a non-default feature while the API remains unstable.
-Expose a query-centric `batch_distances(query, candidates)` helper on the core
-trait and make it the default path for HNSW candidate scoring on CPU: collect
-candidate indices in chunks sized to the SIMD width and evaluate with fused
-multiply-adds and vector reductions, exploiting the plugin v-table’s
-`batch_distances` hook while retaining the pair-oriented `distance_batch` for
-algorithms that require arbitrary tuples.
+  structure-of-arrays views of point data and computes distances with stable
+  `core::arch` intrinsics (AVX2/AVX-512 on x86) across lanes, with scalar
+  fallback per pair where metrics are not vectorizable. Keep an optional nightly
+  `std::simd` path behind a non-default feature while the API remains unstable.
+  Expose the query-centric `batch_distances(query, candidates)` helper on the
+  core trait and make it the default path for HNSW candidate scoring on CPU:
+  collect candidate indices in chunks sized to the SIMD width and evaluate with
+  fused multiply-adds and vector reductions, exploiting the trait’s
+  `batch_distances` path while retaining the pair-oriented
+  `distance_batch(pairs, out)` API for algorithms that require arbitrary
+  tuples.
 - **HNSW search/insert heuristics:** When evaluating neighbours at a level,
   operate on packed indices and a structure-of-arrays layout of coordinates.
   Prefetch upcoming blocks to hide latency. Compute scores in SIMD blocks
@@ -958,11 +964,12 @@ _Figure 1: SIMD-backed candidate scoring via `batch_distances` with scalar
 fallback._
 
 _Implementation update (2026-03-02)._ Roadmap item `2.2.1` is implemented using
-stable Rust primitives with toolchain `1.93.1` (latest stable, released
-2026-02-12) and minimum supported Rust version (MSRV) `1.89.0`. The default
-`DataSource::batch_distances` path now delegates to `distance_batch`, so HNSW
-candidate scoring inherits pair-oriented specializations by default without
-changing query-centric call-sites in `hnsw/validate.rs`.
+stable Rust primitives with toolchain `1.93.1` (stable as of 2026-03-02,
+released 2026-02-12) and minimum supported Rust version (MSRV) `1.89.0`. The default
+`DataSource::batch_distances` path remains the query-centric HNSW entry point.
+Providers use `distance_batch(pairs, out)` for arbitrary-pair
+specializations, and `batch_distances(query, candidates)` preserves the
+query-centric call site in `hnsw/validate.rs`.
 
 `DenseMatrixProvider` now routes Euclidean distance batches through a dedicated
 SIMD kernel module (`chutoro-providers/dense/src/simd/mod.rs` and
@@ -995,11 +1002,11 @@ dense rows into a dimension-major Structure of Arrays layout with:
 - point counts padded to a 16-lane multiple;
 - deterministic `0.0_f32` tail padding for unused packed lanes.
 
-`DenseMatrixProvider::distance_batch(...)` now uses this SoA path when the
-batch is query-centric, meaning all pairs share the same left or right row
-index. In that case the shared row is treated as the query and the varying rows
-are packed into `DensePointView<'a>` before scoring. Arbitrary pair batches
-still fall back to the existing row-major pairwise path, preserving the general
+`DenseMatrixProvider::batch_distances(...)` now uses this SoA path when the
+batch is query-centric, meaning all candidates share the same query row. In
+that case the shared row is treated as the query and the varying rows are
+packed into `DensePointView<'a>` before scoring. Arbitrary pair batches still
+fall back to the existing row-major pairwise path, preserving the general
 `distance_batch` contract without widening the scope of §2.2.2 into a full
 arbitrary-pair SoA planner.
 
@@ -1359,10 +1366,12 @@ used in FISHDBC.[^24]
   the CUDA toolkit installed and to work with specific nightly versions of the
   Rust compiler.[^25]
 
-| Framework   | Pros                                                                                                                                               | Cons                                                                                                                                                 | Recommendation for chutoro                                                                                                                                                                                                                     |
+| Framework | Pros | Cons | Recommendation for chutoro |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wgpu`      | Cross-platform (Vulkan, Metal, DX12). Safe, idiomatic Rust API. Strong community support.                                                          | Higher-level abstraction. Limited access to low-level GPU features (shared memory, warp intrinsics). May not be optimal for complex compute kernels. | **Not Recommended.** The lack of fine-grained control over memory and execution is a significant impediment to optimizing the required graph algorithms.                                                                                       |
-| `rust-cuda` | Direct, low-level access to all CUDA features. Enables writing highly optimized kernels in Rust. Maximum performance potential on NVIDIA hardware. | NVIDIA-only. Requires CUDA toolkit and specific nightly Rust compiler. More complex development experience.                                          | **Recommended.** The performance of HNSW and Borůvka's MST is critically dependent on explicit management of shared memory and thread synchronization. `rust-cuda` provides the necessary control to build a state-of-the-art implementation.  |
+| `wgpu` | Cross-platform (Vulkan, Metal, DX12). Safe, idiomatic Rust API. Strong community support. | Higher-level abstraction. Limited access to low-level GPU features (shared memory, warp intrinsics). May not be optimal for complex compute kernels. | **Not Recommended.** The lack of fine-grained control over memory and execution is a significant impediment to optimizing the required graph algorithms. |
+| `rust-cuda` | Direct, low-level access to all CUDA features. Enables writing highly optimized kernels in Rust. Maximum performance potential on NVIDIA hardware. | NVIDIA-only. Requires CUDA toolkit and specific nightly Rust compiler. More complex development experience. | **Recommended.** The performance of HNSW and Borůvka's MST is critically dependent on explicit management of shared memory and thread synchronization. `rust-cuda` provides the necessary control to build a state-of-the-art implementation. |
+
+_Table 3: Comparison of Rust GPU frameworks for `chutoro`._
 
 For a library where maximum performance is a primary design goal, the
 recommendation is to use `rust-cuda`. The ability to explicitly manage fast
@@ -1513,24 +1522,31 @@ repeatedly launches two main kernels until the MST is complete.
   the edge weight) and a Disjoint-Set Union (DSU) data structure, which can be
   efficiently represented as a simple `parent` array of integers, where
   `parent[i]` stores the representative of the component containing vertex `i`.
+
 - **Kernel 1: Find Minimum Edges:** This kernel will be launched with a grid of
   thread blocks, where the total number of threads is equal to the number of
   vertices in the graph.
 
 - Each thread is assigned to a single vertex.
+
 - The thread iterates through all edges connected to its assigned vertex.
+
 - For each edge, it checks if the two endpoints belong to different components
   by finding their representatives in the global DSU `parent` array.
+
 - The thread keeps track of the minimum-weight edge it has found that connects
   to a different component.
+
 - Finally, each thread atomically writes its best-found edge (or an indicator
   of no edge found) to a global output array. This step is highly parallel,
   with minimal thread divergence or memory contention.
+
 - **Kernel 2: Component Merging (Union-Find):** This kernel processes the list
   of minimum edges generated by the first kernel.
 
 - The list of minimum edges is processed in parallel. Each edge represents a
   "union" operation between two components.
+
 - A parallel union-find algorithm is required to merge the components. This is
   a non-trivial task that requires careful use of atomic operations to update
   the DSU `parent` array concurrently without introducing race conditions. Each
@@ -1538,6 +1554,7 @@ repeatedly launches two main kernels until the MST is complete.
   atomically updating the parent pointer of one component's representative to
   point to the other's, using an atomic compare-and-swap (`atomicCAS`)
   operation to ensure correctness.
+
 - **Host Loop:** The CPU host will orchestrate the process. It will launch
   Kernel 1, wait for it to complete, then launch Kernel 2. It will repeat this
   cycle, checking a flag or the number of components after each iteration,
@@ -1919,27 +1936,37 @@ Rust ecosystem.
 
 - `ndarray`: For efficient, multi-dimensional array manipulation, especially
   for the CPU backend.
+
 - `rayon`: For high-level, data-parallel CPU execution.
+
 - **Plugin System:**
 
 - `libloading`: For low-level, cross-platform dynamic loading of `.so`, `.dll`,
   and `.dylib` files.
+
 - **GPU Backend:**
 
 - `rust-cuda` ecosystem:
 
 - `rustc_codegen_nvvm`: The compiler backend to produce PTX from Rust code.
+
 - `cuda_builder`: A build script helper to automate the compilation of GPU
   crates.
+
 - `cuda_std`: The standard library for GPU kernels, providing access to thread
   indices, etc.
+
 - `cust`: High-level, safe bindings to the CUDA Driver API for managing the GPU
   from the host.
+
 - **Utilities:**
 
 - `log`: A lightweight logging facade.
+
 - `env_logger` or similar: An implementation for the `log` facade.
+
 - `thiserror`: For ergonomic, boilerplate-free error handling.
+
 - `dashmap`: For a high-performance, concurrent hash map for the distance cache.
 
 #### 10.5. Walking skeleton CLI
@@ -2171,7 +2198,7 @@ deterministic queries with `ef_search = 64`. Results are written to
 
 The `--max-bytes` CLI flag (and the corresponding
 `ChutoroBuilder::with_max_bytes` API) provides a pre-flight memory guard that
-rejects datasets whose estimated peak memory exceeds the configured limit.  The
+rejects datasets whose estimated peak memory exceeds the configured limit. The
 guard fires before any pipeline allocation, avoiding wasted work and
 out-of-memory crashes.
 
@@ -2198,25 +2225,25 @@ that might have fit than to begin processing and run out of memory mid-pipeline.
 **Expected memory requirements.** The following table shows estimated peak
 memory for common dataset sizes and HNSW `M` values:
 
-| Points     | M = 8     | M = 16    | M = 24    |
+| Points | M = 8 | M = 16 | M = 24 |
 | ---------- | --------- | --------- | --------- |
-| 10,000     | ~131 MiB  | ~140 MiB  | ~149 MiB  |
-| 100,000    | ~228 MiB  | ~320 MiB  | ~411 MiB  |
-| 1,000,000  | ~1.2 GiB  | ~2.1 GiB  | ~3.0 GiB  |
+| 10,000 | ~131 MiB | ~140 MiB | ~149 MiB |
+| 100,000 | ~228 MiB | ~320 MiB | ~411 MiB |
+| 1,000,000 | ~1.2 GiB | ~2.1 GiB | ~3.0 GiB |
 | 10,000,000 | ~10.7 GiB | ~19.6 GiB | ~28.6 GiB |
 
-_Table 1: Estimated peak memory by dataset size and `M` parameter.  All values
+_Table 4: Estimated peak memory by dataset size and `M` parameter. All values
 include the 1.5× safety multiplier._
 
 **Guidance.** For interactive exploration on a workstation with 16 GiB of RAM,
-datasets up to ~1M points with `M = 16` are practical.  For million-point-scale
-work, ensure at least 4 GiB of headroom above the estimate.  The `--max-bytes`
+datasets up to ~1M points with `M = 16` are practical. For million-point-scale
+work, ensure at least 4 GiB of headroom above the estimate. The `--max-bytes`
 flag accepts human-readable suffixes: `--max-bytes 2G`, `--max-bytes 512M`, or
 plain byte counts.
 
 **Limitations.** The estimate assumes the default HNSW `M = 16` and
-`DistanceCacheConfig::DEFAULT_MAX_ENTRIES = 1 048 576`.  Custom HNSW parameters
-or enlarged caches will shift actual memory usage.  The formula does not
+`DistanceCacheConfig::DEFAULT_MAX_ENTRIES = 1 048 576`. Custom HNSW parameters
+or enlarged caches will shift actual memory usage. The formula does not
 account for the data source's own memory footprint (e.g., the in-memory Parquet
 column or text corpus), which must be added separately for a complete picture.
 
@@ -2343,6 +2370,7 @@ The raw ingredients exist; the assembled incremental clustering engine does not.
 The incremental clustering feature targets the following scope:
 
 - **In scope (v1):**
+
   - Append-only point insertion into a live clustering session.
   - Incremental edge harvesting during HNSW insertion.
   - Incremental MST refresh: merge new candidate edges with existing MST edges
@@ -2355,6 +2383,7 @@ The incremental clustering feature targets the following scope:
     are not semantically stable across refreshes).
 
 - **Out of scope (v1):**
+
   - Point deletion or in-place mutation. Production delete semantics require
     safe graph detachment, core-distance invalidation, and relabelling, which
     are deferred until the test-only delete helpers (§6.7) are promoted to
@@ -2452,7 +2481,7 @@ The session lifecycle follows four phases:
 
 The current `CpuHnsw::insert()` discards edges via `NoopCollector`. The
 incremental path requires a `VecCollector` (or equivalent) that returns
-harvested `CandidateEdge` values to the caller. Two approaches are available:
+harvested `CandidateEdge` values to the caller. Two approaches were considered:
 
 1. **Expose `insert_with_edges` publicly.** The method already exists as
    `pub(super)` and returns `Vec<CandidateEdge>`. Promoting it to `pub` (or
@@ -2461,8 +2490,149 @@ harvested `CandidateEdge` values to the caller. Two approaches are available:
    optionally includes harvested edges, controlled by a configuration flag or a
    separate method name (for example, `insert_harvesting`).
 
-Option 1 is preferred for v1 because it avoids changing the existing `insert()`
-signature, which external callers may depend on.
+**Decision:** Option 1 was implemented via a new public method
+`CpuHnsw::insert_harvesting()`, which wraps the existing `insert_with_edges()`
+helper. This approach:
+
+- Preserves the existing `insert()` signature for backward compatibility.
+- Provides a clear, discoverable API name (`insert_harvesting`) that signals
+  the edge-harvesting behaviour to callers.
+- Reuses the existing `VecCollector` infrastructure without code duplication.
+
+The `insert_harvesting()` method returns `Result<Vec<CandidateEdge>, HnswError>`
+and is fully documented with examples. Unit tests verify that:
+
+For screen readers: The following sequence diagram shows
+`CpuHnsw::insert_harvesting()` creating a `VecCollector`, delegating to
+`insert_with_collector()`, streaming harvested candidate edges through the
+collector, and returning the collected `Vec<CandidateEdge>` to the caller.
+
+```mermaid
+sequenceDiagram
+    actor ExternalCaller
+    participant CpuHnsw
+    participant DataSource
+    participant VecCollector
+    participant EdgeCollector
+
+    ExternalCaller->>CpuHnsw: insert_harvesting(node, source: DataSource)
+    activate CpuHnsw
+
+    CpuHnsw->>CpuHnsw: insert_with_edges(node, source)
+    activate CpuHnsw
+
+    CpuHnsw->>VecCollector: new()
+    activate VecCollector
+    VecCollector-->>CpuHnsw: collector
+    deactivate VecCollector
+
+    CpuHnsw->>CpuHnsw: insert_with_collector(node, source, collector: EdgeCollector)
+    activate EdgeCollector
+
+    loop HNSW search and insertion
+        CpuHnsw->>CpuHnsw: extract_candidate_edges(node, sequence, plan)
+    end
+
+    CpuHnsw->>EdgeCollector: collect(edges: Vec~CandidateEdge~)
+    EdgeCollector-->>CpuHnsw: ()
+
+    deactivate EdgeCollector
+
+    CpuHnsw->>VecCollector: into_inner()
+    activate VecCollector
+    VecCollector-->>CpuHnsw: Vec~CandidateEdge~
+    deactivate VecCollector
+
+    CpuHnsw-->>ExternalCaller: Result~Vec~CandidateEdge~, HnswError~
+    deactivate CpuHnsw
+```
+
+_Figure 6: `CpuHnsw::insert_harvesting()` delegates through `VecCollector` and
+returns harvested candidate edges to the caller._
+
+For screen readers: The following class diagram summarizes the public and
+internal `CpuHnsw` insertion APIs, the edge-collector strategy types, and the
+supporting `CandidateEdge`, `HnswError`, and `DataSource` relationships.
+
+```mermaid
+classDiagram
+    class CpuHnsw {
+        +build~D: DataSource, HnswParams~ Result~CpuHnsw, HnswError~
+        +build_with_edges~D: DataSource, HnswParams~ Result~(CpuHnsw, EdgeHarvest), HnswError~
+        +insert~D: DataSource + Sync~ Result~(), HnswError~
+        +insert_harvesting~D: DataSource + Sync~ Result~Vec~CandidateEdge~, HnswError~
+        -insert_with_edges~D: DataSource + Sync~ Result~Vec~CandidateEdge~, HnswError~
+        -insert_with_collector~D: DataSource + Sync, collector: EdgeCollector~ Result~(), HnswError~
+    }
+
+    class EdgeCollector {
+        <<trait>>
+        +collect(edges: Vec~CandidateEdge~) void
+    }
+
+    class VecCollector {
+        +new() VecCollector
+        +collect(edges: Vec~CandidateEdge~) void
+        +into_inner() Vec~CandidateEdge~
+    }
+
+    class NoopCollector {
+        +collect(edges: Vec~CandidateEdge~) void
+    }
+
+    class CandidateEdge {
+        +source() usize
+        +target() usize
+        +distance() f32
+        +sequence() u64
+    }
+
+    class EdgeHarvest {
+    }
+
+    class HnswError {
+        <<enum>>
+        EmptyBuild
+        InvalidParameters
+        DuplicateNode
+        GraphEmpty
+        GraphInvariantViolation
+        NonFiniteDistance
+        LockPoisoned
+        DataSource
+    }
+
+    class DataSource {
+        <<trait>>
+        +len() usize
+        +name() &str
+        +distance(i: usize, j: usize) Result~f32, DataSourceError~
+        +metric_descriptor() MetricDescriptor
+    }
+
+    CpuHnsw ..> CandidateEdge
+    CpuHnsw ..> EdgeHarvest
+    CpuHnsw ..> HnswError
+    CpuHnsw ..> DataSource
+    CpuHnsw ..> EdgeCollector
+
+    VecCollector ..|> EdgeCollector
+    NoopCollector ..|> EdgeCollector
+
+    EdgeCollector ..> CandidateEdge
+
+    HnswError ..> DataSource
+
+    DataSource <|.. Dummy
+```
+
+_Figure 7: `CpuHnsw` insertion APIs and collector strategy relationships for
+edge-harvesting insertion._
+
+- The initial insert (entry point) returns an empty edge vector.
+- Subsequent inserts return valid, in-bounds, finite-distance edges.
+- Duplicate inserts return `HnswError::DuplicateNode`.
+- The graph state after `insert_harvesting()` matches that of `insert()`.
 
 In addition to the new edges harvested during insertion, the session must
 maintain the neighbourhood/core-distance state that the batch pipeline
@@ -2528,8 +2698,9 @@ currently recomputes from scratch. Specifically:
   2. **Age threshold.** `SessionConfig` exposes a
      `baseline_max_age_refreshes` field (default 50): the baseline
      is considered **stale** when the number of refresh cycles since
-     the baseline was produced (`session.snapshot_version -
-     baseline.snapshot_version`) exceeds this threshold.
+     the baseline was produced
+     (`session.snapshot_version - baseline.snapshot_version`)
+     exceeds this threshold.
 
   When the baseline is incompatible or stale:
 
@@ -2647,8 +2818,8 @@ The `ClusteringSession` uses a single-writer, multiple-reader concurrency model:
 - **Refresh scheduling.** The session supports two refresh policies:
   - **Count-triggered:** Refresh after every N appended points.
   - **Manual:** The caller explicitly invokes `refresh()`.
-  A future extension could add time-triggered refresh (every T seconds) via an
-  async task, but this is out of scope for v1.
+    A future extension could add time-triggered refresh (every T seconds) via an
+    async task, but this is out of scope for v1.
 
 #### 12.7. Differential testing and correctness validation
 
@@ -3164,132 +3335,130 @@ The benchmark runs the `ClusteringSession` lifecycle:
 #### **Works cited**
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September
-      6, 2025,
-      [https://scikit-learn.org/stable/modules/clustering.html](https://scikit-learn.org/stable/modules/clustering.html)
-      [https://en.wikipedia.org/wiki/DBSCAN](https://en.wikipedia.org/wiki/DBSCAN)
+6, 2025,
+[https://scikit-learn.org/stable/modules/clustering.html](https://scikit-learn.org/stable/modules/clustering.html)
+[https://en.wikipedia.org/wiki/DBSCAN](https://en.wikipedia.org/wiki/DBSCAN)
 [^2]: dbscan: Fast Density-based Clustering with R - The Comprehensive R
-      Archive Network, accessed on September 6, 2025,
-      [https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf](https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf)
-       Software, accessed on September 6, 2025,
-      [https://www.jstatsoft.org/article/view/v091i01/1318](https://www.jstatsoft.org/article/view/v091i01/1318)
-[^3]: An Implementation of the HDBSCAN* Clustering Algorithm - MDPI, accessed
-      on September 6, 2025,
-      [https://www.mdpi.com/2076-3417/12/5/2405](https://www.mdpi.com/2076-3417/12/5/2405)
+Archive Network, accessed on September 6, 2025,
+[https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf](https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf)
+Software, accessed on September 6, 2025,
+[https://www.jstatsoft.org/article/view/v091i01/1318](https://www.jstatsoft.org/article/view/v091i01/1318)
+[^3]: An Implementation of the HDBSCAN\* Clustering Algorithm - MDPI, accessed
+on September 6, 2025,
+[https://www.mdpi.com/2076-3417/12/5/2405](https://www.mdpi.com/2076-3417/12/5/2405)
 [^4]: How HDBSCAN Works — hdbscan 0.8.1 documentation, accessed on September 6,
-      2025,
-      [https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html](https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html)
+2025,
+[https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html](https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html)
 [^5]: [PDF] hdbscan: Hierarchical density based clustering - Semantic Scholar,
-      accessed on September 6, 2025,
-      [https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93](https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93)
+accessed on September 6, 2025,
+[https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93](https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93)
 [^6]: FISHDBC: Flexible, Incremental, Scalable, Hierarchical … - arXiv,
-      accessed on September 6, 2025,
-      [https://arxiv.org/pdf/1910.07283](https://arxiv.org/pdf/1910.07283)
-      Semantic Scholar, accessed on September 6, 2025,
-      [https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5](https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5)
-       ResearchGate, accessed on September 6, 2025,
-      [https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908](https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908)
-       Clustering for Arbitrary Data and Distance | DeepAI, accessed on
-      September 6, 2025,
-      [https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance](https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance)
+accessed on September 6, 2025,
+[https://arxiv.org/pdf/1910.07283](https://arxiv.org/pdf/1910.07283)
+Semantic Scholar, accessed on September 6, 2025,
+[https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5](https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5)
+ResearchGate, accessed on September 6, 2025,
+[https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908](https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908)
+Clustering for Arbitrary Data and Distance | DeepAI, accessed on
+September 6, 2025,
+[https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance](https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance)
 [^7]: Sonic: Fast and Transferable Data Poisoning on Clustering Algorithms -
-       arXiv, accessed on September 6, 2025,
-       [https://arxiv.org/html/2408.07558v1](https://arxiv.org/html/2408.07558v1)
+arXiv, accessed on September 6, 2025,
+[https://arxiv.org/html/2408.07558v1](https://arxiv.org/html/2408.07558v1)
 [^8]: Parallel Flexible Clustering Edoardo Pastorino - UniRe - UniGe, accessed
-       on September 6, 2025,
-       [https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1](https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1)
-        2025,
-       [https://unire.unige.it/handle/123456789/7200](https://unire.unige.it/handle/123456789/7200)
+on September 6, 2025,
+[https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1](https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1)
+2025,
+[https://unire.unige.it/handle/123456789/7200](https://unire.unige.it/handle/123456789/7200)
 [^9]: Fast (Correct) Clustering in Time and Space using the GPU - Pure,
-       accessed on September 6, 2025,
-       [https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf](https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf)
-        clustering, accessed on September 6, 2025,
-       [https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering](https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering)
+accessed on September 6, 2025,
+[https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf](https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf)
+clustering, accessed on September 6, 2025,
+[https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering](https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering)
 [^10]: An Experimental Comparison of GPU Techniques for DBSCAN Clustering - OU
-       School of Computer Science, accessed on September 6, 2025,
-       [https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf](https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf)
+School of Computer Science, accessed on September 6, 2025,
+[https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf](https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf)
 [^11]: Here's how you can accelerate your Data Science on GPU | by Practicus AI
-
-- Medium, accessed on September 6, 2025,
-       [https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430](https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430)
+  Medium, accessed on September 6, 2025, via [https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430](https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430)
 
 [^12]: G-OPTICS: Fast ordering density-based cluster objects using graphics
-       processing units | Request PDF - ResearchGate, accessed on September 6,
-       2025,
-       [https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units](https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units)
+processing units | Request PDF - ResearchGate, accessed on September 6,
+2025,
+[https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units](https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units)
 [^13]: Faster HDBSCAN Soft Clustering with RAPIDS cuML | NVIDIA Technical Blog,
-       accessed on September 6, 2025,
-       [https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/](https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/)
-        accelerators, accessed on September 6, 2025,
-       [https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS](https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS)
+accessed on September 6, 2025,
+[https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/](https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/)
+accelerators, accessed on September 6, 2025,
+[https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS](https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS)
 [^14]: Research on the Parallelization of the DBSCAN Clustering Algorithm for
-       Spatial Data Mining Based on the Spark Platform - MDPI, accessed on
-       September 6, 2025,
-       [https://www.mdpi.com/2072-4292/9/12/1301](https://www.mdpi.com/2072-4292/9/12/1301)
+Spatial Data Mining Based on the Spark Platform - MDPI, accessed on
+September 6, 2025,
+[https://www.mdpi.com/2072-4292/9/12/1301](https://www.mdpi.com/2072-4292/9/12/1301)
 [^15]: A High-Performance MST Implementation for GPUs - Computer Science :
-       Texas State University, accessed on September 6, 2025,
-       [https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf](https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf)
-        Parlaylib and CUDA | 15618-Final - GitHub Pages, accessed on September
-       6, 2025,
-       [https://jzaia18.github.io/15618-Final/](https://jzaia18.github.io/15618-Final/)
+Texas State University, accessed on September 6, 2025,
+[https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf](https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf)
+Parlaylib and CUDA | 15618-Final - GitHub Pages, accessed on September
+6, 2025,
+[https://jzaia18.github.io/15618-Final/](https://jzaia18.github.io/15618-Final/)
 [^16]: nmslib/hnswlib: Header-only C++/python library for fast approximate
-       nearest neighbors - GitHub, accessed on September 6, 2025,
-       [https://github.com/nmslib/hnswlib](https://github.com/nmslib/hnswlib)
+nearest neighbors - GitHub, accessed on September 6, 2025,
+[https://github.com/nmslib/hnswlib](https://github.com/nmslib/hnswlib)
 [^17]: js1010/cuhnsw: CUDA implementation of Hierarchical Navigable Small World
-       Graph algorithm - GitHub, accessed on September 6, 2025,
-       [https://github.com/js1010/cuhnsw](https://github.com/js1010/cuhnsw)
+Graph algorithm - GitHub, accessed on September 6, 2025,
+[https://github.com/js1010/cuhnsw](https://github.com/js1010/cuhnsw)
 [^18]: Parallel Privacy-preserving Computation of Minimum Spanning Trees -
-       SciTePress, accessed on September 6, 2025,
-       [https://www.scitepress.org/Papers/2021/102557/102557.pdf](https://www.scitepress.org/Papers/2021/102557/102557.pdf)
+SciTePress, accessed on September 6, 2025,
+[https://www.scitepress.org/Papers/2021/102557/102557.pdf](https://www.scitepress.org/Papers/2021/102557/102557.pdf)
 [^19]: bevy_dynamic_plugin - Rust - [Docs.rs](http://Docs.rs), accessed on
-       September 6, 2025,
-       [https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/](https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/)
+September 6, 2025,
+[https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/](https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/)
 [^20]: Dynamic loading of plugins : r/rust - Reddit, accessed on September 6,
-       2025,
-       [https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/](https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/)
+2025,
+[https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/](https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/)
 [^21]: Designing a Rust -> Rust plugin system : r/rust - Reddit, accessed on
-       September 6, 2025,
-       [https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/](https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/)
-        September 6, 2025,
-       [https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313](https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313)
-        Forum, accessed on September 6, 2025,
-       [https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980](https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980)
+September 6, 2025,
+[https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/](https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/)
+September 6, 2025,
+[https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313](https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313)
+Forum, accessed on September 6, 2025,
+[https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980](https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980)
 [^22]: dynamic-plugin - [crates.io](http://crates.io): Rust Package Registry,
-       accessed on September 6, 2025,
-       [https://crates.io/crates/dynamic-plugin](https://crates.io/crates/dynamic-plugin)
-        accessed on September 6, 2025,
-       [https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad](https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad)
+accessed on September 6, 2025,
+[https://crates.io/crates/dynamic-plugin](https://crates.io/crates/dynamic-plugin)
+accessed on September 6, 2025,
+[https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad](https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad)
 [^23]: gfx-rs/wgpu: A cross-platform, safe, pure-Rust graphics API. - GitHub,
-       accessed on September 6, 2025,
-       [https://github.com/gfx-rs/wgpu](https://github.com/gfx-rs/wgpu)
+accessed on September 6, 2025,
+[https://github.com/gfx-rs/wgpu](https://github.com/gfx-rs/wgpu)
 [^24]: Rust running on every GPU, accessed on September 6, 2025,
-       [https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/](https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/)
+[https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/](https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/)
 [^25]: Frequently Asked Questions - GPU Computing with Rust using CUDA,
-       accessed on September 6, 2025,
-       [https://rust-gpu.github.io/Rust-CUDA/faq.html](https://rust-gpu.github.io/Rust-CUDA/faq.html)
+accessed on September 6, 2025,
+[https://rust-gpu.github.io/Rust-CUDA/faq.html](https://rust-gpu.github.io/Rust-CUDA/faq.html)
 [^26]: Getting Started - GPU Computing with Rust using CUDA, accessed on
-       September 6, 2025,
-       [https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html](https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html)
-        executing fast GPU code fully in Rust. - GitHub, accessed on September
-       6, 2025,
-       [https://github.com/Rust-GPU/Rust-CUDA](https://github.com/Rust-GPU/Rust-CUDA)
-[^27]: ``cust`` crate - Safe CUDA driver bindings for Rust, accessed on
-       September 6, 2025,
-       [https://github.com/denzp/rust-cuda](https://github.com/denzp/rust-cuda)
-[^28]: ``cudarc`` crate - Ergonomic CUDA runtime for Rust, accessed on
-       September 6, 2025,
-       [https://github.com/coreylowman/cudarc](https://github.com/coreylowman/cudarc)
+September 6, 2025,
+[https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html](https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html)
+executing fast GPU code fully in Rust. - GitHub, accessed on September
+6, 2025,
+[https://github.com/Rust-GPU/Rust-CUDA](https://github.com/Rust-GPU/Rust-CUDA)
+[^27]: `cust` crate - Safe CUDA driver bindings for Rust, accessed on
+September 6, 2025,
+[https://github.com/denzp/rust-cuda](https://github.com/denzp/rust-cuda)
+[^28]: `cudarc` crate - Ergonomic CUDA runtime for Rust, accessed on
+September 6, 2025,
+[https://github.com/coreylowman/cudarc](https://github.com/coreylowman/cudarc)
 [^29]: CubeCL - Multi-backend GPU kernel DSL for Rust, accessed on
-       September 6, 2025,
-       [https://github.com/tracel-ai/cubecl](https://github.com/tracel-ai/cubecl)
+September 6, 2025,
+[https://github.com/tracel-ai/cubecl](https://github.com/tracel-ai/cubecl)
 [^30]: oneAPI Level Zero Specification, accessed on September 6, 2025,
-       [https://spec.oneapi.com/level-zero/latest/](https://spec.oneapi.com/level-zero/latest/)
+[https://spec.oneapi.com/level-zero/latest/](https://spec.oneapi.com/level-zero/latest/)
 [^31]: Codeplay oneAPI plugins for NVIDIA and AMD GPUs, accessed on
-       September 6, 2025,
-       [https://github.com/codeplaysoftware/oneapi-construction-kit](https://github.com/codeplaysoftware/oneapi-construction-kit)
+September 6, 2025,
+[https://github.com/codeplaysoftware/oneapi-construction-kit](https://github.com/codeplaysoftware/oneapi-construction-kit)
 [^32]: Hu, Z., Zhu, Q., Yan, H., He, Y. and Gui, L. — Beyond RAG for Agent
-       Memory: Retrieval by Decoupling and Aggregation, arXiv:2602.02007v2,
-       February 2026,
-       [https://arxiv.org/abs/2602.02007](https://arxiv.org/abs/2602.02007)
+Memory: Retrieval by Decoupling and Aggregation, arXiv:2602.02007v2,
+February 2026,
+[https://arxiv.org/abs/2602.02007](https://arxiv.org/abs/2602.02007)
 [^33]: limela — Development roadmap for the email intelligence pipeline,
-       accessed on March 16, 2026,
-       [https://github.com/leynos/limela/blob/main/docs/roadmap.md](https://github.com/leynos/limela/blob/main/docs/roadmap.md)
+accessed on March 16, 2026,
+[https://github.com/leynos/limela/blob/main/docs/roadmap.md](https://github.com/leynos/limela/blob/main/docs/roadmap.md)

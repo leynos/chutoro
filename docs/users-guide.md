@@ -79,6 +79,41 @@ Empty inputs should be handled by returning `DataSourceError::EmptyData` or
 items, or one with fewer than `min_cluster_size` items, before invoking the
 backend.
 
+## Working with `CpuHnsw` directly
+
+Advanced integrations can build and query the Hierarchical Navigable Small
+World (HNSW) index directly through `CpuHnsw` instead of calling
+`Chutoro::run`. This is useful when an application needs to manage index
+construction incrementally or consume harvested candidate edges while building
+its own graph-derived structures.
+
+`CpuHnsw::build(source, params)` constructs a complete index from every item in
+the `DataSource`. `CpuHnsw::build_with_edges(source, params)` performs the same
+build, but also returns an `EdgeHarvest` containing the candidate edges
+discovered during insertion. `CpuHnsw::with_capacity(params, capacity)` creates
+an empty index that can be populated manually with `insert` or
+`insert_harvesting`.
+
+Use `insert(node, source)` when only graph mutation is required. Use
+`insert_harvesting(node, source)` when the insertion must also return the
+candidate edges considered during planning. The first insertion into an empty
+index returns an empty `Vec<CandidateEdge>` because there are no prior nodes to
+connect to. Subsequent insertions return candidate edges that can be consumed
+by incremental minimum spanning tree (MST) or auditing workflows.
+
+`insert_harvesting` follows the same insertion rules as `insert` and returns
+`Result<Vec<CandidateEdge>, HnswError>`. `HnswError::DuplicateNode` is returned
+when the same node identifier is inserted twice. `HnswError::DataSource`
+surfaces failures from `distance` or `distance_batch`, while `EmptyBuild`,
+`InvalidParameters`, `NonFiniteDistance`, and lock-related errors report
+invalid setup or inconsistent runtime state.
+
+After insertion, `search(source, query, ef)` returns the `ef` nearest
+neighbours currently reachable from the HNSW entry point. The query source must
+implement `DataSource + Sync`, matching the requirement for parallel insertion.
+For an end-to-end example, see the Rustdoc for
+`chutoro_core::CpuHnsw::insert_harvesting`.
+
 ## Results and assignments
 
 `Chutoro::run` returns a `ClusteringResult`, which exposes the per-item
