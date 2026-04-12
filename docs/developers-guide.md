@@ -11,33 +11,19 @@ Navigable Small World (HNSW) index. The primary insertion and query entry
 points are:
 
 - `CpuHnsw::build<D: DataSource + Sync>(
-  source: &D,
-  params: HnswParams,
-  ) -> Result<CpuHnsw, HnswError>`
+  source: &D, params: HnswParams, ) -> Result<CpuHnsw, HnswError>`
 - `CpuHnsw::build_with_edges<D: DataSource + Sync>(
-  source: &D,
-  params: HnswParams,
-  ) -> Result<(CpuHnsw, EdgeHarvest), HnswError>`
+  source: &D, params: HnswParams, ) -> Result<(CpuHnsw, EdgeHarvest),
+  HnswError>`
 - `CpuHnsw::with_capacity(
-  params: HnswParams,
-  capacity: usize,
-  ) -> Result<CpuHnsw, HnswError>`
+  params: HnswParams, capacity: usize, ) -> Result<CpuHnsw, HnswError>`
 - `CpuHnsw::insert<D: DataSource + Sync>(
-  &self,
-  node: usize,
-  source: &D,
-  ) -> Result<(), HnswError>`
+  &self, node: usize, source: &D, ) -> Result<(), HnswError>`
 - `CpuHnsw::insert_harvesting<D: DataSource + Sync>(
-  &self,
-  node: usize,
-  source: &D,
-  ) -> Result<Vec<CandidateEdge>, HnswError>`
+  &self, node: usize, source: &D, ) -> Result<Vec<CandidateEdge>, HnswError>`
 - `CpuHnsw::search<D: DataSource + Sync>(
-  &self,
-  source: &D,
-  query: usize,
-  ef: NonZeroUsize,
-  ) -> Result<Vec<Neighbour>, HnswError>`
+  &self, source: &D, query: usize, ef: NonZeroUsize, ) ->
+  Result<Vec<Neighbour>, HnswError>`
 
 `build` and `build_with_edges` seed the entry point from node `0` and insert
 the remaining nodes in parallel. `build_with_edges` is the preferred path when
