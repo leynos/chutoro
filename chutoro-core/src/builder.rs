@@ -311,32 +311,19 @@ impl ChutoroBuilder {
 
     fn validate_for_batch(&self) -> Result<ValidatedBuilderConfig> {
         let min_cluster_size = self.validate_min_cluster_size()?;
-        self.validate_batch_execution_strategy()?;
+        self.validate_execution_strategy(cfg!(feature = "gpu"))?;
         Ok(ValidatedBuilderConfig { min_cluster_size })
     }
 
     #[cfg(feature = "cpu")]
     fn validate_for_session(&self) -> Result<ValidatedBuilderConfig> {
         let min_cluster_size = self.validate_min_cluster_size()?;
-        self.validate_session_execution_strategy()?;
+        self.validate_execution_strategy(false)?;
         Ok(ValidatedBuilderConfig { min_cluster_size })
     }
 
-    fn validate_batch_execution_strategy(&self) -> Result<()> {
-        if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred)
-            && !cfg!(feature = "gpu")
-        {
-            return Err(ChutoroError::BackendUnavailable {
-                requested: ExecutionStrategy::GpuPreferred,
-            });
-        }
-
-        Ok(())
-    }
-
-    #[cfg(feature = "cpu")]
-    fn validate_session_execution_strategy(&self) -> Result<()> {
-        if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred) {
+    fn validate_execution_strategy(&self, gpu_supported: bool) -> Result<()> {
+        if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred) && !gpu_supported {
             return Err(ChutoroError::BackendUnavailable {
                 requested: ExecutionStrategy::GpuPreferred,
             });
