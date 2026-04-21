@@ -3357,125 +3357,125 @@ The benchmark runs the `ClusteringSession` lifecycle:
 #### **Works cited**
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September
-6, 2025,
-[https://scikit-learn.org/stable/modules/clustering.html](https://scikit-learn.org/stable/modules/clustering.html) [https://en.wikipedia.org/wiki/DBSCAN](https://en.wikipedia.org/wiki/DBSCAN)
+      6, 2025,
+      [https://scikit-learn.org/stable/modules/clustering.html](https://scikit-learn.org/stable/modules/clustering.html), [https://en.wikipedia.org/wiki/DBSCAN](https://en.wikipedia.org/wiki/DBSCAN)
 [^2]: dbscan: Fast Density-based Clustering with R - The Comprehensive R
-Archive Network, accessed on September 6, 2025,
-[https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf](https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf)
- Software, accessed on September 6, 2025,
-[https://www.jstatsoft.org/article/view/v091i01/1318](https://www.jstatsoft.org/article/view/v091i01/1318)
+      Archive Network, accessed on September 6, 2025,
+      [https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf](https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf),
+       Journal of Statistical Software, accessed on September 6, 2025,
+      [https://www.jstatsoft.org/article/view/v091i01/1318](https://www.jstatsoft.org/article/view/v091i01/1318)
 [^3]: An Implementation of the HDBSCAN\* Clustering Algorithm - MDPI, accessed
-on September 6, 2025,
-[https://www.mdpi.com/2076-3417/12/5/2405](https://www.mdpi.com/2076-3417/12/5/2405)
+      on September 6, 2025,
+      [https://www.mdpi.com/2076-3417/12/5/2405](https://www.mdpi.com/2076-3417/12/5/2405)
 [^4]: How HDBSCAN Works — hdbscan 0.8.1 documentation, accessed on September 6,
-2025,
-[https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html](https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html)
+      2025,
+      [https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html](https://hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html)
 [^5]: [PDF] hdbscan: Hierarchical density based clustering - Semantic Scholar,
-accessed on September 6, 2025,
-[https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93](https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93)
+      accessed on September 6, 2025,
+      [https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93](https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93)
 [^6]: FISHDBC: Flexible, Incremental, Scalable, Hierarchical … - arXiv,
-accessed on September 6, 2025,
-[https://arxiv.org/pdf/1910.07283](https://arxiv.org/pdf/1910.07283) Semantic
-Scholar, accessed on September 6, 2025,
-[https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5](https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5)
- ResearchGate, accessed on September 6, 2025,
-[https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908](https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908)
- Clustering for Arbitrary Data and Distance | DeepAI, accessed on September 6,
-2025,
-[https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance](https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance)
+      accessed on September 6, 2025,
+      [https://arxiv.org/pdf/1910.07283](https://arxiv.org/pdf/1910.07283),
+      Semantic Scholar figure, accessed on September 6, 2025,
+      [https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5](https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5),
+       ResearchGate figure, accessed on September 6, 2025,
+      [https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908](https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908),
+       DeepAI summary, accessed on September 6, 2025,
+      [https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance](https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance)
 [^7]: Sonic: Fast and Transferable Data Poisoning on Clustering Algorithms -
-arXiv, accessed on September 6, 2025,
-[https://arxiv.org/html/2408.07558v1](https://arxiv.org/html/2408.07558v1)
+      arXiv, accessed on September 6, 2025,
+      [https://arxiv.org/html/2408.07558v1](https://arxiv.org/html/2408.07558v1)
 [^8]: Parallel Flexible Clustering Edoardo Pastorino - UniRe - UniGe, accessed
-on September 6, 2025,
-[https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1](https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1)
- 2025,
-[https://unire.unige.it/handle/123456789/7200](https://unire.unige.it/handle/123456789/7200)
+      on September 6, 2025,
+      [https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1](https://unire.unige.it/bitstream/handle/123456789/7200/tesi26654510.pdf?sequence=1),
+       repository record accessed on September 6, 2025,
+      [https://unire.unige.it/handle/123456789/7200](https://unire.unige.it/handle/123456789/7200)
 [^9]: Fast (Correct) Clustering in Time and Space using the GPU - Pure,
-accessed on September 6, 2025,
-[https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf](https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf)
- clustering, accessed on September 6, 2025,
-[https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering](https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering)
+      accessed on September 6, 2025,
+      [https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf](https://pure.au.dk/portal/files/429062897/Fast_Correct_Clustering_in_Time_and_Space_using_the_GPU-Katrine_Scheel_Killmann.pdf),
+       G-DBSCAN: A GPU accelerated algorithm for density-based clustering,
+      accessed on September 6, 2025,
+      [https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering](https://www.researchgate.net/publication/249642413_G-DBSCAN_A_GPU_accelerated_algorithm_for_density-based_clustering)
 [^10]: An Experimental Comparison of GPU Techniques for DBSCAN Clustering - OU
-School of Computer Science, accessed on September 6, 2025,
-[https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf](https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf)
-[^11]: Here's how you can accelerate your Data Science on GPU | by Practicus AI
-  Medium, accessed on September 6, 2025, via
-  [https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430](https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430)
-
+       School of Computer Science, accessed on September 6, 2025,
+       [https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf](https://www.cs.ou.edu/~database/HIGEST-DB/publications/BPOD%202019.pdf)
+[^11]: Here's how you can accelerate your Data Science on GPU | by Practicus
+       AI, Medium, accessed on September 6, 2025, via
+       [https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430](https://medium.com/data-science/heres-how-you-can-accelerate-your-data-science-on-gpu-4ecf99db3430)
 [^12]: G-OPTICS: Fast ordering density-based cluster objects using graphics
-processing units | Request PDF - ResearchGate, accessed on September 6, 2025,
-[https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units](https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units)
+       processing units | Request PDF - ResearchGate, accessed on September 6,
+       2025,
+       [https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units](https://www.researchgate.net/publication/326000395_G-OPTICS_Fast_ordering_density-based_cluster_objects_using_graphics_processing_units)
 [^13]: Faster HDBSCAN Soft Clustering with RAPIDS cuML | NVIDIA Technical Blog,
-accessed on September 6, 2025,
-[https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/](https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/)
- accelerators, accessed on September 6, 2025,
-[https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS](https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS)
+       accessed on September 6, 2025,
+       [https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/](https://developer.nvidia.com/blog/faster-hdbscan-soft-clustering-with-rapids-cuml/),
+        PARALLEL IMPLEMENTATION OF DBSCAN ALGORITHM USING MULTIPLE GRAPHICS
+       ACCELERATORS, accessed on September 6, 2025,
+       [https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS](https://www.researchgate.net/publication/312344418_PARALLEL_IMPLEMENTATION_OF_DBSCAN_ALGORITHM_USING_MULTIPLE_GRAPHICS_ACCELERATORS)
 [^14]: Research on the Parallelization of the DBSCAN Clustering Algorithm for
-Spatial Data Mining Based on the Spark Platform - MDPI, accessed on September
-6, 2025,
-[https://www.mdpi.com/2072-4292/9/12/1301](https://www.mdpi.com/2072-4292/9/12/1301)
+       Spatial Data Mining Based on the Spark Platform - MDPI, accessed on
+       September 6, 2025,
+       [https://www.mdpi.com/2072-4292/9/12/1301](https://www.mdpi.com/2072-4292/9/12/1301)
 [^15]: A High-Performance MST Implementation for GPUs - Computer Science :
-Texas State University, accessed on September 6, 2025,
-[https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf](https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf)
- Parlaylib and CUDA | 15618-Final - GitHub Pages, accessed on September 6,
-2025,
-[https://jzaia18.github.io/15618-Final/](https://jzaia18.github.io/15618-Final/)
+       Texas State University, accessed on September 6, 2025,
+       [https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf](https://userweb.cs.txstate.edu/~mb92/papers/sc23b.pdf),
+        Parlaylib and CUDA | 15618-Final - GitHub Pages, accessed on September
+       6, 2025,
+       [https://jzaia18.github.io/15618-Final/](https://jzaia18.github.io/15618-Final/)
 [^16]: nmslib/hnswlib: Header-only C++/python library for fast approximate
-nearest neighbors - GitHub, accessed on September 6, 2025,
-[https://github.com/nmslib/hnswlib](https://github.com/nmslib/hnswlib)
+       nearest neighbors - GitHub, accessed on September 6, 2025,
+       [https://github.com/nmslib/hnswlib](https://github.com/nmslib/hnswlib)
 [^17]: js1010/cuhnsw: CUDA implementation of Hierarchical Navigable Small World
-Graph algorithm - GitHub, accessed on September 6, 2025,
-[https://github.com/js1010/cuhnsw](https://github.com/js1010/cuhnsw)
+       Graph algorithm - GitHub, accessed on September 6, 2025,
+       [https://github.com/js1010/cuhnsw](https://github.com/js1010/cuhnsw)
 [^18]: Parallel Privacy-preserving Computation of Minimum Spanning Trees -
-SciTePress, accessed on September 6, 2025,
-[https://www.scitepress.org/Papers/2021/102557/102557.pdf](https://www.scitepress.org/Papers/2021/102557/102557.pdf)
+       SciTePress, accessed on September 6, 2025,
+       [https://www.scitepress.org/Papers/2021/102557/102557.pdf](https://www.scitepress.org/Papers/2021/102557/102557.pdf)
 [^19]: bevy_dynamic_plugin - Rust - [Docs.rs](http://Docs.rs), accessed on
-September 6, 2025,
-[https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/](https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/)
+       September 6, 2025,
+       [https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/](https://docs.rs/bevy_dynamic_plugin/latest/bevy_dynamic_plugin/)
 [^20]: Dynamic loading of plugins : r/rust - Reddit, accessed on September 6,
-2025,
-[https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/](https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/)
+       2025,
+       [https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/](https://www.reddit.com/r/rust/comments/1ap147a/dynamic_loading_of_plugins/)
 [^21]: Designing a Rust -> Rust plugin system : r/rust - Reddit, accessed on
-September 6, 2025,
-[https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/](https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/)
- September 6, 2025,
-[https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313](https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313)
- Forum, accessed on September 6, 2025,
-[https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980](https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980)
+       September 6, 2025,
+       [https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/](https://www.reddit.com/r/rust/comments/sboyb2/designing_a_rust_rust_plugin_system/),
+        Rust Internals thread accessed on September 6, 2025,
+       [https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313](https://internals.rust-lang.org/t/a-plugin-system-for-business-applications/12313),
+        Rust Users Forum thread accessed on September 6, 2025,
+       [https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980](https://users.rust-lang.org/t/writing-a-plugin-system-in-rust/119980)
 [^22]: dynamic-plugin - [crates.io](http://crates.io): Rust Package Registry,
-accessed on September 6, 2025,
-[https://crates.io/crates/dynamic-plugin](https://crates.io/crates/dynamic-plugin)
- accessed on September 6, 2025,
-[https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad](https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad)
+       accessed on September 6, 2025,
+       [https://crates.io/crates/dynamic-plugin](https://crates.io/crates/dynamic-plugin),
+        Medium post accessed on September 6, 2025,
+       [https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad](https://mayer-pu.medium.com/in-a-recent-project-we-encountered-an-issue-that-required-dynamic-loading-of-different-runtime-2b58aab9f6ad)
 [^23]: gfx-rs/wgpu: A cross-platform, safe, pure-Rust graphics API. - GitHub,
-accessed on September 6, 2025,
-[https://github.com/gfx-rs/wgpu](https://github.com/gfx-rs/wgpu)
+       accessed on September 6, 2025,
+       [https://github.com/gfx-rs/wgpu](https://github.com/gfx-rs/wgpu)
 [^24]: Rust running on every GPU, accessed on September 6, 2025,
-[https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/](https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/)
+       [https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/](https://rust-gpu.github.io/blog/2025/07/25/rust-on-every-gpu/)
 [^25]: Frequently Asked Questions - GPU Computing with Rust using CUDA,
-accessed on September 6, 2025,
-[https://rust-gpu.github.io/Rust-CUDA/faq.html](https://rust-gpu.github.io/Rust-CUDA/faq.html)
+       accessed on September 6, 2025,
+       [https://rust-gpu.github.io/Rust-CUDA/faq.html](https://rust-gpu.github.io/Rust-CUDA/faq.html)
 [^26]: Getting Started - GPU Computing with Rust using CUDA, accessed on
-September 6, 2025,
-[https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html](https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html)
- executing fast GPU code fully in Rust. - GitHub, accessed on September 6,
-2025,
-[https://github.com/Rust-GPU/Rust-CUDA](https://github.com/Rust-GPU/Rust-CUDA)
-[^27]: `cust` crate - Safe CUDA driver bindings for Rust, accessed on
-September 6, 2025,
-[https://github.com/denzp/rust-cuda](https://github.com/denzp/rust-cuda)
-[^28]: `cudarc` crate - Ergonomic CUDA runtime for Rust, accessed on
-September 6, 2025,
-[https://github.com/coreylowman/cudarc](https://github.com/coreylowman/cudarc)
-[^29]: CubeCL - Multi-backend GPU kernel DSL for Rust, accessed on
-September 6, 2025,
-[https://github.com/tracel-ai/cubecl](https://github.com/tracel-ai/cubecl)
+       September 6, 2025,
+       [https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html](https://rust-gpu.github.io/Rust-CUDA/guide/getting_started.html),
+        Rust-CUDA repository accessed on September 6, 2025,
+       [https://github.com/Rust-GPU/Rust-CUDA](https://github.com/Rust-GPU/Rust-CUDA)
+[^27]: `cust` crate - Safe CUDA driver bindings for Rust, accessed on September
+       6, 2025,
+       [https://github.com/denzp/rust-cuda](https://github.com/denzp/rust-cuda)
+[^28]: `cudarc` crate - Ergonomic CUDA runtime for Rust, accessed on September
+       6, 2025,
+       [https://github.com/coreylowman/cudarc](https://github.com/coreylowman/cudarc)
+[^29]: CubeCL - Multi-backend GPU kernel DSL for Rust, accessed on September 6,
+       2025,
+       [https://github.com/tracel-ai/cubecl](https://github.com/tracel-ai/cubecl)
 [^30]: oneAPI Level Zero Specification, accessed on September 6, 2025,
-[https://spec.oneapi.com/level-zero/latest/](https://spec.oneapi.com/level-zero/latest/)
-[^31]: Codeplay oneAPI plugins for NVIDIA and AMD GPUs, accessed on
-September 6, 2025,
-[https://github.com/codeplaysoftware/oneapi-construction-kit](https://github.com/codeplaysoftware/oneapi-construction-kit)
+       [https://spec.oneapi.com/level-zero/latest/](https://spec.oneapi.com/level-zero/latest/)
+[^31]: Codeplay oneAPI plugins for NVIDIA and AMD GPUs, accessed on September
+       6, 2025,
+       [https://github.com/codeplaysoftware/oneapi-construction-kit](https://github.com/codeplaysoftware/oneapi-construction-kit)
 [^32]: Hu, Z., Zhu, Q., Yan, H., He, Y. and Gui, L. — Beyond RAG for Agent
 Memory: Retrieval by Decoupling and Aggregation, arXiv:2602.02007v2, February
 2026, [https://arxiv.org/abs/2602.02007](https://arxiv.org/abs/2602.02007)

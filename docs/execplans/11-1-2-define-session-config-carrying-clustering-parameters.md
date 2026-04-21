@@ -128,8 +128,6 @@ Success is visible when:
   implementation work begins.
 - [x] (2026-04-12 00:20Z) Approval received to proceed with
   implementation.
-- [ ] (2026-04-12 00:20Z) Add CPU-gated session configuration and
-  session-construction surfaces to `chutoro-core`.
 - [x] (2026-04-12 01:05Z) Add CPU-gated session configuration and
   session-construction surfaces to `chutoro-core`.
 - [x] (2026-04-12 01:05Z) Add session-focused tests plus Rustdoc and

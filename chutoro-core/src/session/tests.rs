@@ -62,6 +62,17 @@ fn builder_defaults_include_session_configuration() {
     );
 }
 
+#[test]
+fn refresh_policy_threshold_can_be_set_and_cleared() {
+    let threshold = NonZeroUsize::new(10).expect("threshold must be non-zero");
+    let policy = SessionRefreshPolicy::manual().with_refresh_every_n(Some(threshold));
+
+    assert_eq!(policy.refresh_every_n(), Some(threshold));
+
+    let cleared = policy.with_refresh_every_n(None);
+    assert_eq!(cleared.refresh_every_n(), None);
+}
+
 #[rstest]
 #[case(
     HnswParams::new(8, 32).expect("params").with_rng_seed(17),

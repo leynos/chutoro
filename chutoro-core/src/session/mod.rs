@@ -185,11 +185,12 @@ pub struct ClusteringSession<D: DataSource + Sync> {
 
 impl<D: DataSource + Sync> ClusteringSession<D> {
     pub(crate) fn new(config: SessionConfig, source: Arc<D>) -> Result<Self> {
-        let index = CpuHnsw::with_capacity(config.hnsw_params().clone(), source.len().max(1))
-            .map_err(|error| ChutoroError::CpuHnswFailure {
+        let index = CpuHnsw::with_capacity(config.hnsw_params().clone(), 1).map_err(|error| {
+            ChutoroError::CpuHnswFailure {
                 code: Arc::from(error.code().as_str()),
                 message: Arc::from(error.to_string()),
-            })?;
+            }
+        })?;
 
         Ok(Self {
             config,

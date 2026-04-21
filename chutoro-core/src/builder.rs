@@ -75,11 +75,6 @@ impl Default for ChutoroBuilder {
     }
 }
 
-#[derive(Clone, Copy)]
-struct ValidatedBuilderConfig {
-    min_cluster_size: NonZeroUsize,
-}
-
 impl ChutoroBuilder {
     /// Creates a builder populated with default parameters.
     ///
@@ -245,10 +240,11 @@ impl ChutoroBuilder {
     /// assert_eq!(chutoro.min_cluster_size().get(), 5);
     /// ```
     pub fn build(self) -> Result<Chutoro> {
-        let validated = self.validate_for_batch()?;
+        let min_cluster_size = self.validate_min_cluster_size()?;
+        self.validate_execution_strategy(cfg!(feature = "gpu"))?;
 
         Ok(Chutoro::new(
-            validated.min_cluster_size,
+            min_cluster_size,
             self.execution_strategy,
             self.max_bytes,
         ))
@@ -293,9 +289,10 @@ impl ChutoroBuilder {
         self,
         source: Arc<D>,
     ) -> Result<ClusteringSession<D>> {
-        let validated = self.validate_for_session()?;
+        let min_cluster_size = self.validate_min_cluster_size()?;
+        self.validate_execution_strategy(false)?;
         let config = SessionConfig::new(
-            validated.min_cluster_size,
+            min_cluster_size,
             self.hnsw_params,
             self.session_refresh_policy,
         );
@@ -307,19 +304,6 @@ impl ChutoroBuilder {
         NonZeroUsize::new(self.min_cluster_size).ok_or(ChutoroError::InvalidMinClusterSize {
             got: self.min_cluster_size,
         })
-    }
-
-    fn validate_for_batch(&self) -> Result<ValidatedBuilderConfig> {
-        let min_cluster_size = self.validate_min_cluster_size()?;
-        self.validate_execution_strategy(cfg!(feature = "gpu"))?;
-        Ok(ValidatedBuilderConfig { min_cluster_size })
-    }
-
-    #[cfg(feature = "cpu")]
-    fn validate_for_session(&self) -> Result<ValidatedBuilderConfig> {
-        let min_cluster_size = self.validate_min_cluster_size()?;
-        self.validate_execution_strategy(false)?;
-        Ok(ValidatedBuilderConfig { min_cluster_size })
     }
 
     fn validate_execution_strategy(&self, gpu_supported: bool) -> Result<()> {

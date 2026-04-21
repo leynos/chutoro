@@ -143,12 +143,11 @@ that file exposes:
 1. `CpuHnsw::insert(...) -> Result<(), HnswError>`, which routes through
    `insert_with_collector(..., &mut NoopCollector)` and intentionally discards
    harvested edges.
-2. `CpuHnsw::build_with_edges(…) -> Result<(CpuHnsw, EdgeHarvest),
-   HnswError>
-   `, which already uses the private harvesting path during batch build.
-3. A private `insert_with_edges(…) -> Result<Vec<CandidateEdge>,
-   HnswError>` helper that creates a `VecCollector`, calls `
-   insert_with_collector`, and returns the harvested edges.
+2. `CpuHnsw::build_with_edges(...) -> Result<(CpuHnsw, EdgeHarvest), HnswError>`,
+   which already uses the private harvesting path during batch build.
+3. A private `insert_with_edges(...) -> Result<Vec<CandidateEdge>, HnswError>`
+   helper that creates a `VecCollector`, calls `insert_with_collector(...)`,
+   and returns the harvested edges.
 
 The supporting types are already public:
 

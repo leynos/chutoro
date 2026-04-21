@@ -10,20 +10,24 @@ keeps operational guidance in one place.
 Navigable Small World (HNSW) index. The primary insertion and query entry
 points are:
 
-- `CpuHnsw::build<D: DataSource + Sync>(
-  source: &D, params: HnswParams, ) -> Result<CpuHnsw, HnswError>`
-- `CpuHnsw::build_with_edges<D: DataSource + Sync>(
-  source: &D, params: HnswParams, ) -> Result<(CpuHnsw, EdgeHarvest),
-  HnswError>`
-- `CpuHnsw::with_capacity(
-  params: HnswParams, capacity: usize, ) -> Result<CpuHnsw, HnswError>`
-- `CpuHnsw::insert<D: DataSource + Sync>(
-  &self, node: usize, source: &D, ) -> Result<(), HnswError>`
-- `CpuHnsw::insert_harvesting<D: DataSource + Sync>(
-  &self, node: usize, source: &D, ) -> Result<Vec<CandidateEdge>, HnswError>`
-- `CpuHnsw::search<D: DataSource + Sync>(
-  &self, source: &D, query: usize, ef: NonZeroUsize, ) ->
-  Result<Vec<Neighbour>, HnswError>`
+```rust
+pub fn build<D: DataSource + Sync>(source: &D, params: HnswParams)
+    -> Result<CpuHnsw, HnswError>;
+pub fn build_with_edges<D: DataSource + Sync>(source: &D, params: HnswParams)
+    -> Result<(CpuHnsw, EdgeHarvest), HnswError>;
+pub fn with_capacity(params: HnswParams, capacity: usize)
+    -> Result<CpuHnsw, HnswError>;
+pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D)
+    -> Result<(), HnswError>;
+pub fn insert_harvesting<D: DataSource + Sync>(&self, node: usize, source: &D)
+    -> Result<Vec<CandidateEdge>, HnswError>;
+pub fn search<D: DataSource + Sync>(
+    &self,
+    source: &D,
+    query: usize,
+    ef: NonZeroUsize,
+) -> Result<Vec<Neighbour>, HnswError>;
+```
 
 `build` and `build_with_edges` seed the entry point from node `0` and insert
 the remaining nodes in parallel. `build_with_edges` is the preferred path when
