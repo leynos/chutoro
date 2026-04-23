@@ -3,6 +3,7 @@
 use std::{env, path::Path, process::Command, str};
 
 #[test]
+#[cfg(feature = "cpu")]
 fn session_api_compiles_when_cpu_feature_is_enabled() {
     let cases = trybuild::TestCases::new();
     cases.pass("tests/trybuild/session_api_cpu_enabled.rs");

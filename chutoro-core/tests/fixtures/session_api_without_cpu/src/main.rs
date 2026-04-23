@@ -1,3 +1,6 @@
+//! Compile-fail fixture verifying that session APIs stay unavailable without
+//! the `cpu` feature.
+
 use std::sync::Arc;
 
 use chutoro_core::{ChutoroBuilder, DataSource, DataSourceError, MetricDescriptor};

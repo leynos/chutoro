@@ -1,3 +1,6 @@
+//! Compile-pass fixture verifying session API availability when the `cpu`
+//! feature is enabled.
+
 use std::sync::Arc;
 
 use chutoro_core::{
