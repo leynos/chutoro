@@ -152,11 +152,11 @@ Success is visible when:
   yet, but the plan should keep that asymmetry explicit.
 
 - Observation: the project-memory Model Context Protocol (MCP) servers named in
-  `AGENTS.md`
-  were not available in this environment during implementation start. Evidence:
-  `list_mcp_resources` returned `unknown MCP server 'qdrant-find'` and
-  `unknown MCP server 'qdrant-store'`. Impact: repository documentation and the
-  existing ExecPlan remain the working source of truth for this task.
+  `AGENTS.md` were not available in this environment during implementation
+  start. Evidence: `list_mcp_resources` returned
+  `unknown MCP server 'qdrant-find'` and `unknown MCP server 'qdrant-store'`.
+  Impact: repository documentation and the existing ExecPlan remain the working
+  source of truth for this task.
 
 - Observation: the sandbox exposes neither `fd` nor `fdfind` under the
   command names expected by the repository's Markdown formatting tooling.

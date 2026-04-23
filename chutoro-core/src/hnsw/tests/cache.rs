@@ -138,3 +138,21 @@ fn rejects_non_finite_entries() {
         crate::hnsw::HnswError::NonFiniteDistance { .. }
     ));
 }
+
+#[test]
+fn distance_cache_config_equality() {
+    let base = DistanceCacheConfig::new(NonZeroUsize::new(64).expect("non-zero"));
+
+    // Equal: same max_entries, same (default) TTL.
+    let same = DistanceCacheConfig::new(NonZeroUsize::new(64).expect("non-zero"));
+    assert_eq!(base, same);
+
+    // Unequal: different max_entries.
+    let diff_entries = DistanceCacheConfig::new(NonZeroUsize::new(128).expect("non-zero"));
+    assert_ne!(base, diff_entries);
+
+    // Unequal: same max_entries but different TTL.
+    let diff_ttl = DistanceCacheConfig::new(NonZeroUsize::new(64).expect("non-zero"))
+        .with_ttl(Some(Duration::from_secs(1)));
+    assert_ne!(base, diff_ttl);
+}

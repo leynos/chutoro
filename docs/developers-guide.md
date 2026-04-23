@@ -51,6 +51,45 @@ Design rationale and deeper implementation notes live in
 [the design document](./chutoro-design.md) and the completed
 [edge-harvesting ExecPlan](./execplans/11-1-1-make-edge-harvesting-hnsw-insertion-path-public.md).
 
+## Session public APIs
+
+The public session surface is CPU-only. `build_session` constructs an empty
+`ClusteringSession` without seeding HNSW or running the batch bootstrap path.
+The architectural rationale for that split lives in
+[the design document](./chutoro-design.md).
+
+```rust
+// ChutoroBuilder (cpu feature required for session APIs)
+pub fn with_hnsw_params(self, params: HnswParams) -> Self;
+pub fn hnsw_params(&self) -> &HnswParams;
+pub fn with_session_refresh_policy(self, policy: SessionRefreshPolicy) -> Self;
+pub fn session_refresh_policy(&self) -> &SessionRefreshPolicy;
+pub fn build_session<D: DataSource + Sync>(self, source: Arc<D>)
+    -> Result<ClusteringSession<D>>;
+```
+
+```rust
+// SessionRefreshPolicy
+pub fn manual() -> Self;
+pub fn with_refresh_every_n(self, refresh_every_n: Option<NonZeroUsize>) -> Self;
+pub fn refresh_every_n(&self) -> Option<NonZeroUsize>;
+
+// SessionConfig
+pub fn min_cluster_size(&self) -> NonZeroUsize;
+pub fn hnsw_params(&self) -> &HnswParams;
+pub fn refresh_policy(&self) -> &SessionRefreshPolicy;
+
+// ClusteringSession<D: DataSource + Sync>
+pub fn config(&self) -> &SessionConfig;
+pub fn point_count(&self) -> usize;
+pub fn snapshot_version(&self) -> u64;
+```
+
+`build_session` validates `min_cluster_size > 0`, rejects
+`ExecutionStrategy::GpuPreferred`, accepts empty and undersized sources, and
+returns an inert session whose initial observable state is `point_count() == 0`
+and `snapshot_version() == 0`.
+
 ## Benchmarks
 
 The `chutoro-benches` crate provides Criterion benchmarks for the four CPU
