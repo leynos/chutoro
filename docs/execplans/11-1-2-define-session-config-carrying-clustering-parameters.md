@@ -151,7 +151,8 @@ Success is visible when:
   introduced for sessions can land without changing the existing batch pipeline
   yet, but the plan should keep that asymmetry explicit.
 
-- Observation: the project-memory MCP servers named in `AGENTS.md`
+- Observation: the project-memory Model Context Protocol (MCP) servers named in
+  `AGENTS.md`
   were not available in this environment during implementation start. Evidence:
   `list_mcp_resources` returned `unknown MCP server 'qdrant-find'` and
   `unknown MCP server 'qdrant-store'`. Impact: repository documentation and the
