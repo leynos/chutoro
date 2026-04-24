@@ -139,20 +139,26 @@ fn rejects_non_finite_entries() {
     ));
 }
 
-#[test]
-fn distance_cache_config_equality() {
-    let base = DistanceCacheConfig::new(NonZeroUsize::new(64).expect("non-zero"));
+fn cache_config(max_entries: usize) -> DistanceCacheConfig {
+    DistanceCacheConfig::new(NonZeroUsize::new(max_entries).expect("non-zero"))
+}
 
-    // Equal: same max_entries, same (default) TTL.
-    let same = DistanceCacheConfig::new(NonZeroUsize::new(64).expect("non-zero"));
-    assert_eq!(base, same);
-
-    // Unequal: different max_entries.
-    let diff_entries = DistanceCacheConfig::new(NonZeroUsize::new(128).expect("non-zero"));
-    assert_ne!(base, diff_entries);
-
-    // Unequal: same max_entries but different TTL.
-    let diff_ttl = DistanceCacheConfig::new(NonZeroUsize::new(64).expect("non-zero"))
-        .with_ttl(Some(Duration::from_secs(1)));
-    assert_ne!(base, diff_ttl);
+#[rstest]
+#[case(cache_config(64), cache_config(64), true)]
+#[case(cache_config(64), cache_config(128), false)]
+#[case(
+    cache_config(64),
+    cache_config(64).with_ttl(Some(Duration::from_secs(1))),
+    false
+)]
+fn distance_cache_config_equality(
+    #[case] left_config: DistanceCacheConfig,
+    #[case] right_config: DistanceCacheConfig,
+    #[case] expected_equal: bool,
+) {
+    if expected_equal {
+        assert_eq!(left_config, right_config);
+    } else {
+        assert_ne!(left_config, right_config);
+    }
 }

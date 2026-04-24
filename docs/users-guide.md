@@ -106,6 +106,16 @@ Sessions are CPU-only, so `ExecutionStrategy::GpuPreferred` is rejected during
 time because session creation does not seed HNSW or run the batch bootstrap
 path.
 
+### Limitations
+
+- The v1 incremental design is append-oriented; deletion and arbitrary
+  in-place mutation are not part of the public session surface.
+- Stable cluster identity across snapshots is not guaranteed until roadmap item
+  `12.3.1` lands.
+- Refresh is intended to operate as a micro-batched workflow rather than a
+  per-item online relabelling path.
+- A refresh can relabel existing points as well as newly appended points.
+
 Mutation, append, refresh, and full batch bootstrap are not yet available on
 the public session surface. Those workflows remain future roadmap work. The
 `cpu` feature must be enabled to access `build_session()`,
