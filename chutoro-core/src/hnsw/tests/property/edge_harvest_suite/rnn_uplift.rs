@@ -19,7 +19,7 @@ fn min_rnn_score_for_topology(topology: GraphTopology) -> f64 {
 ///
 /// Verifies that the Reverse Nearest Neighbour (RNN) score meets minimum
 /// thresholds based on topology characteristics:
-/// - **Lattice**: ≥ 0.79 (highly regular structure implies high symmetry)
+/// - **Lattice**: ≥ 0.75 (highly regular structure implies high symmetry)
 /// - **ScaleFree**: ≥ 0.05 (hub nodes create extreme asymmetry)
 /// - **Random**: ≥ 0.3 (moderate symmetry expected)
 /// - **Disconnected**: ≥ 0.3 (within-component symmetry)
