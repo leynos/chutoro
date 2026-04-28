@@ -2401,8 +2401,8 @@ The incremental clustering feature targets the following scope:
 The incremental engine introduces a stateful session object that owns the live
 clustering state, in contrast to the stateless `Chutoro::run()` path.
 
-Roadmap item `11.1.2` ships the initial public session scaffold behind the
-`cpu` feature:
+- [x] Roadmap item `11.1.2` ships the initial public session scaffold behind the
+  `cpu` feature:
 
 - `ChutoroBuilder` now carries `HnswParams` and a minimal
   `SessionRefreshPolicy`, both defaulting to the same HNSW configuration used
@@ -3357,7 +3357,7 @@ The benchmark runs the `ClusteringSession` lifecycle:
 #### **Works cited**
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September
-      6, 2025,
+      6, 2025;
       [https://scikit-learn.org/stable/modules/clustering.html](https://scikit-learn.org/stable/modules/clustering.html), [https://en.wikipedia.org/wiki/DBSCAN](https://en.wikipedia.org/wiki/DBSCAN)
 [^2]: dbscan: Fast Density-based Clustering with R - The Comprehensive R
       Archive Network, accessed on September 6, 2025,
@@ -3374,12 +3374,12 @@ The benchmark runs the `ClusteringSession` lifecycle:
       accessed on September 6, 2025,
       [https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93](https://www.semanticscholar.org/paper/hdbscan%3A-Hierarchical-density-based-clustering-McInnes-Healy/d4168c0480bc8e060599fe954de9be1007529c93)
 [^6]: FISHDBC: Flexible, Incremental, Scalable, Hierarchical … - arXiv,
-      accessed on September 6, 2025,
+      accessed on September 6, 2025;
       [https://arxiv.org/pdf/1910.07283](https://arxiv.org/pdf/1910.07283);
       Semantic Scholar figure, accessed on September 6, 2025,
       [https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5](https://www.semanticscholar.org/paper/Accelerated-Hierarchical-Density-Based-Clustering-McInnes-Healy/ddaa43040c2401bf361accac952497e3a58f5a3b/figure/5);
       ResearchGate figure, accessed on September 6, 2025,
-      [https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908](https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908),
+      [https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908](https://www.researchgate.net/figure/Merging-two-connected-components-a-c-d-e-and-f-b-of-primitive-clusters-into-two_fig3_324416908);
       DeepAI summary, accessed on September 6, 2025,
       [https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance](https://deepai.org/publication/fishdbc-flexible-incremental-scalable-hierarchical-density-based-clustering-for-arbitrary-data-and-distance)
 [^7]: Sonic: Fast and Transferable Data Poisoning on Clustering Algorithms -
