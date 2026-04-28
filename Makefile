@@ -9,6 +9,7 @@ MDLINT ?= markdownlint-cli2
 NEXTEST_PROFILE ?= $(if $(CI),ci,default)
 NIXIE ?= nixie
 VERUS_BIN ?= verus
+export PATH := $(HOME)/.cargo/bin:$(HOME)/.bun/bin:$(PATH)
 
 build: target/debug/$(APP) ## Build debug binary
 release: target/release/$(APP) ## Build release binary
