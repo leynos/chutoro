@@ -1,5 +1,7 @@
 .PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie kani kani-full verus bench
 
+export PATH := $(HOME)/.cargo/bin:$(HOME)/.bun/bin:$(PATH)
+
 APP ?= chutoro-cli
 CARGO ?= cargo
 BUILD_JOBS ?=
