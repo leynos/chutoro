@@ -7,7 +7,10 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
-use crate::{CandidateEdge, ChutoroError, CpuHnsw, DataSource, HnswParams, MstEdge, Result};
+use crate::{
+    CandidateEdge, ChutoroError, CpuHnsw, DataSource, DataSourceError, HnswParams,
+    MetricDescriptor, MstEdge, Result,
+};
 
 /// Refresh behaviour for a [`ClusteringSession`].
 ///
@@ -140,6 +143,21 @@ impl SessionConfig {
 /// into the session. Follow-up roadmap items add append, refresh, bootstrap,
 /// and label-snapshot behaviour.
 ///
+/// ## Concurrency model
+///
+/// `ClusteringSession<D>` is `Send + Sync` when `D: Send + Sync`. The current
+/// implementation is read-only (scaffold only): no field mutation occurs
+/// outside construction. `_labels` uses `Arc<Vec<usize>>`, so label snapshots
+/// are already safe for shared-reference access. When append and refresh
+/// operations are introduced in later roadmap items, mutable counters
+/// (`snapshot_version`, `_last_refresh_len`) will be replaced with appropriate
+/// synchronisation primitives (`AtomicU64`, `AtomicUsize`, or a `RwLock`)
+/// before the methods are stabilised.
+///
+/// Do **not** add mutation to `ClusteringSession` without first replacing the
+/// relevant plain fields with synchronisation-safe equivalents and updating
+/// this section.
+///
 /// # Examples
 /// ```rust,no_run
 /// use std::sync::Arc;
@@ -182,6 +200,34 @@ pub struct ClusteringSession<D: DataSource + Sync> {
     _source: Arc<D>,
     _last_refresh_len: usize,
 }
+
+// Verify ClusteringSession is Send + Sync when its DataSource is. This will
+// produce a compile error if future fields break the guarantee.
+const _: fn() = || {
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    struct _DummySrc;
+
+    impl DataSource for _DummySrc {
+        fn len(&self) -> usize {
+            0
+        }
+
+        fn name(&self) -> &str {
+            "_dummy"
+        }
+
+        fn distance(&self, _i: usize, _j: usize) -> std::result::Result<f32, DataSourceError> {
+            Ok(0.0)
+        }
+
+        fn metric_descriptor(&self) -> MetricDescriptor {
+            MetricDescriptor::new("_dummy")
+        }
+    }
+
+    assert_send_sync::<ClusteringSession<_DummySrc>>();
+};
 
 impl<D: DataSource + Sync> ClusteringSession<D> {
     pub(crate) fn new(config: SessionConfig, source: Arc<D>) -> Result<Self> {
