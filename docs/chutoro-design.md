@@ -3360,7 +3360,8 @@ The benchmark runs the `ClusteringSession` lifecycle:
 
 [^1]: 2.3. Clustering — scikit-learn 1.7.1 documentation, accessed on September
       6, 2025;
-      [https://scikit-learn.org/stable/modules/clustering.html](https://scikit-learn.org/stable/modules/clustering.html), [https://en.wikipedia.org/wiki/DBSCAN](https://en.wikipedia.org/wiki/DBSCAN)
+      [https://scikit-learn.org/stable/modules/clustering.html](https://scikit-learn.org/stable/modules/clustering.html);
+      [https://en.wikipedia.org/wiki/DBSCAN](https://en.wikipedia.org/wiki/DBSCAN)
 [^2]: dbscan: Fast Density-based Clustering with R - The Comprehensive R
       Archive Network, accessed on September 6, 2025,
       [https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf](https://cran.r-project.org/web/packages/dbscan/vignettes/dbscan.pdf);
