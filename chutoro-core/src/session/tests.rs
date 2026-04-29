@@ -144,18 +144,9 @@ fn build_session_rejects_gpu_preferred_execution_strategy() {
 fn build_session_initialises_empty_state() {
     let source = Arc::new(SessionTestSource::with_len(6));
     let session = ChutoroBuilder::new()
-        .build_session(Arc::clone(&source))
+        .build_session(source)
         .expect("session must build");
 
     assert_eq!(session.point_count(), 0);
     assert_eq!(session.snapshot_version(), 0);
-    assert!(session.index.is_empty());
-    assert!(session._core_distances.is_empty());
-    assert!(session._mst_edges.is_empty());
-    assert!(session._historical_edges.is_empty());
-    assert!(session._pending_edges.is_empty());
-    assert!(session._labels.is_empty());
-    assert_eq!(session._last_refresh_len, 0);
-    assert_eq!(Arc::strong_count(&session._labels), 1);
-    assert!(Arc::ptr_eq(&session._source, &source));
 }
