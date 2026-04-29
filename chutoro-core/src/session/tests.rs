@@ -109,7 +109,7 @@ fn build_session_derives_config_from_builder(
 #[case(0)]
 #[case(3)]
 #[case(6)]
-fn build_session_accepts_empty_and_undersized_sources(
+fn build_session_does_not_validate_current_source_len(
     session_builder: ChutoroBuilder,
     #[case] len: usize,
 ) {
