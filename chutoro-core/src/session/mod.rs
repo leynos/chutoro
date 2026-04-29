@@ -262,6 +262,34 @@ impl<D: DataSource + Sync> ClusteringSession<D> {
         })
     }
 
+    #[cfg(test)]
+    pub(crate) fn new_failing_for_test(config: SessionConfig, source: Arc<D>) -> Result<Self> {
+        let index = CpuHnsw::with_capacity(config.hnsw_params().clone(), 0).map_err(|error| {
+            let code = Arc::from(error.code().as_str());
+            let message = Arc::from(error.to_string());
+            warn!(
+                code = ?code,
+                message = %message,
+                "CpuHnsw index allocation failed; returning CpuHnswFailure"
+            );
+
+            ChutoroError::CpuHnswFailure { code, message }
+        })?;
+
+        Ok(Self {
+            config,
+            index,
+            _core_distances: Vec::new(),
+            _mst_edges: Vec::new(),
+            _historical_edges: Vec::new(),
+            _pending_edges: Vec::new(),
+            _labels: Arc::new(Vec::new()),
+            snapshot_version: 0,
+            _source: source,
+            _last_refresh_len: 0,
+        })
+    }
+
     /// Returns the validated configuration used by the session.
     #[must_use]
     pub fn config(&self) -> &SessionConfig {

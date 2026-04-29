@@ -6,8 +6,8 @@ use proptest::prelude::*;
 use rstest::{fixture, rstest};
 
 use crate::{
-    ChutoroBuilder, ChutoroError, DataSource, DataSourceError, ExecutionStrategy, HnswParams,
-    MetricDescriptor, SessionRefreshPolicy,
+    ChutoroBuilder, ChutoroError, ClusteringSession, DataSource, DataSourceError,
+    ExecutionStrategy, HnswParams, MetricDescriptor, SessionConfig, SessionRefreshPolicy,
 };
 
 #[derive(Clone, Debug)]
@@ -148,6 +148,23 @@ fn build_session_rejects_gpu_preferred_execution_strategy(session_builder: Chuto
         ChutoroError::BackendUnavailable {
             requested: ExecutionStrategy::GpuPreferred,
         }
+    );
+}
+
+#[test]
+fn build_session_maps_hnsw_construction_failure_to_cpu_hnsw_failure() {
+    let source = Arc::new(SessionTestSource::with_len(0));
+    let config = SessionConfig::new(
+        NonZeroUsize::new(5).expect("minimum cluster size must be non-zero"),
+        HnswParams::default(),
+        SessionRefreshPolicy::manual(),
+    );
+
+    let err = ClusteringSession::new_failing_for_test(config, source)
+        .expect_err("CpuHnsw construction failure must surface as CpuHnswFailure");
+    assert!(
+        matches!(err, ChutoroError::CpuHnswFailure { .. }),
+        "expected CpuHnswFailure, got {err:?}"
     );
 }
 
