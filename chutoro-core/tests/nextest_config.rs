@@ -11,11 +11,15 @@ fn default_override_blocks() -> Vec<&'static str> {
         .collect()
 }
 
-fn workflow_job_block(job: &str) -> &'static str {
-    PROPERTY_TESTS_WORKFLOW
+fn workflow_job_block(job: &str) -> Result<&'static str, String> {
+    let (_, rest) = PROPERTY_TESTS_WORKFLOW
         .split_once(&format!("  {job}:"))
-        .and_then(|(_, rest)| rest.split_once("\n\n  "))
-        .map_or(PROPERTY_TESTS_WORKFLOW, |(block, _)| block)
+        .ok_or_else(|| format!("workflow job '{job}' not found"))?;
+    let (block, _) = rest
+        .split_once("\n\n  ")
+        .ok_or_else(|| format!("workflow job '{job}' terminator not found"))?;
+
+    Ok(block)
 }
 
 #[test]
@@ -58,6 +62,6 @@ fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
          slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }",
     ));
 
-    let pr_job = workflow_job_block("property-tests-pr");
+    let pr_job = workflow_job_block("property-tests-pr").expect("property-tests-pr job must exist");
     assert!(pr_job.contains("timeout-minutes: 20"));
 }
