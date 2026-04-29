@@ -204,7 +204,7 @@ fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
 
 #[rstest]
 #[case(JobKind::Coverage, 250, 1)]
-#[case(JobKind::Standard, 250, 250)]
+#[case(JobKind::Standard, 250, 16)]
 #[case(JobKind::Standard, 16, 16)]
 fn select_idempotency_cases_enforces_coverage_budget(
     #[case] job: JobKind,

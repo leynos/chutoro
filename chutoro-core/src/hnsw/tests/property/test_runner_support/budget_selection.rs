@@ -167,7 +167,8 @@ impl JobKind {
 
 /// Coverage jobs use fewer idempotency cases to stay within CI time budgets.
 /// Reduced from 2 to 1 after coverage-instrumented builds occasionally
-/// exceeded the 600s nextest timeout in CI.
+/// exceeded the 600s nextest timeout in CI. `MAX_IDEMPOTENCY_CASES` is the
+/// Standard-job analogue for non-coverage runs.
 const COVERAGE_IDEMPOTENCY_CASES: u32 = 1;
 /// Coverage jobs cap shrink iterations to prevent long minimisation tails.
 /// Reduced from 32 to 8 because shrinking is rarely exercised for the
@@ -178,6 +179,14 @@ const COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 8;
 const DEFAULT_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 1024;
 /// Default idempotency case count when no profile override is configured.
 const DEFAULT_IDEMPOTENCY_CASES: u32 = 16;
+/// Maximum idempotency case count for non-coverage (standard) runs.
+///
+/// Each idempotency case performs a full `CpuHnsw::build` and a complete
+/// graph snapshot, making it substantially more expensive per iteration than
+/// mutation or search cases. Cap at the default to ensure the test stays
+/// within the 600-second nextest CI budget regardless of the `PROPTEST_CASES`
+/// environment variable.
+const MAX_IDEMPOTENCY_CASES: u32 = DEFAULT_IDEMPOTENCY_CASES;
 
 /// Coverage jobs use fewer mutation cases to stay within CI time budgets.
 /// Mutation tests build full HNSW indices per case, making each iteration
@@ -228,10 +237,14 @@ fn configured_cases(default_cases: u32) -> TestCases {
 
 /// Selects the number of idempotency test cases based on job kind.
 ///
-/// Returns the configured cases for non-coverage jobs, or a reduced count
+/// Returns capped configured cases for non-coverage jobs, or a reduced count
 /// (`COVERAGE_IDEMPOTENCY_CASES`) for coverage-instrumented runs.
 pub(crate) fn select_idempotency_cases(job: JobKind, configured: TestCases) -> TestCases {
-    select_cases(job, configured, COVERAGE_IDEMPOTENCY_CASES)
+    if job.is_coverage() {
+        TestCases::new(COVERAGE_IDEMPOTENCY_CASES)
+    } else {
+        TestCases::new(configured.get().min(MAX_IDEMPOTENCY_CASES))
+    }
 }
 
 /// Returns the number of idempotency test cases, auto-detecting the job kind.
