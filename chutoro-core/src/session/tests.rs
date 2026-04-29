@@ -2,6 +2,7 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
+use proptest::prelude::*;
 use rstest::{fixture, rstest};
 
 use crate::{
@@ -148,4 +149,45 @@ fn build_session_rejects_gpu_preferred_execution_strategy(session_builder: Chuto
             requested: ExecutionStrategy::GpuPreferred,
         }
     );
+}
+
+proptest! {
+    /// Any non-zero `min_cluster_size` in `[1, 1000]` must yield a session whose
+    /// `config().min_cluster_size()` equals the requested value.
+    #[test]
+    fn build_session_preserves_min_cluster_size(size in 1usize..=1000) {
+        let source = Arc::new(SessionTestSource::with_len(0));
+        let session = ChutoroBuilder::new()
+            .with_min_cluster_size(size)
+            .build_session(source)
+            .expect("must build for any non-zero min_cluster_size");
+        prop_assert_eq!(session.config().min_cluster_size().get(), size);
+    }
+
+    /// A freshly-built session must always start with `point_count() == 0` and
+    /// `snapshot_version() == 0`, regardless of source length.
+    #[test]
+    fn build_session_always_starts_empty(len in 0usize..=256) {
+        let source = Arc::new(SessionTestSource::with_len(len));
+        let session = ChutoroBuilder::new()
+            .build_session(source)
+            .expect("must build for any source length");
+        prop_assert_eq!(session.point_count(), 0);
+        prop_assert_eq!(session.snapshot_version(), 0);
+    }
+
+    /// Zero `min_cluster_size` must always return `InvalidMinClusterSize`,
+    /// regardless of any other builder state.
+    #[test]
+    fn build_session_always_rejects_zero_min_cluster_size(len in 0usize..=256) {
+        let source = Arc::new(SessionTestSource::with_len(len));
+        let err = ChutoroBuilder::new()
+            .with_min_cluster_size(0)
+            .build_session(source)
+            .expect_err("zero must always fail");
+        prop_assert!(
+            matches!(err, ChutoroError::InvalidMinClusterSize { got: 0 }),
+            "expected InvalidMinClusterSize {{ got: 0 }}, got {err:?}"
+        );
+    }
 }
