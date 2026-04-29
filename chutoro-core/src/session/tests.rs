@@ -2,7 +2,7 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
-use rstest::rstest;
+use rstest::{fixture, rstest};
 
 use crate::{
     ChutoroBuilder, ChutoroError, DataSource, DataSourceError, ExecutionStrategy, HnswParams,
@@ -50,6 +50,11 @@ impl DataSource for SessionTestSource {
     }
 }
 
+#[fixture]
+fn session_builder() -> ChutoroBuilder {
+    ChutoroBuilder::new()
+}
+
 #[test]
 fn builder_defaults_include_session_configuration() {
     let builder = ChutoroBuilder::new();
@@ -83,11 +88,12 @@ fn refresh_policy_threshold_can_be_set_and_cleared() {
     SessionRefreshPolicy::manual().with_refresh_every_n(NonZeroUsize::new(7))
 )]
 fn build_session_derives_config_from_builder(
+    session_builder: ChutoroBuilder,
     #[case] hnsw_params: HnswParams,
     #[case] refresh_policy: SessionRefreshPolicy,
 ) {
     let source = Arc::new(SessionTestSource::with_len(4));
-    let session = ChutoroBuilder::new()
+    let session = session_builder
         .with_min_cluster_size(9)
         .with_hnsw_params(hnsw_params.clone())
         .with_session_refresh_policy(refresh_policy)
@@ -102,9 +108,13 @@ fn build_session_derives_config_from_builder(
 #[rstest]
 #[case(0)]
 #[case(3)]
-fn build_session_accepts_empty_and_undersized_sources(#[case] len: usize) {
+#[case(6)]
+fn build_session_accepts_empty_and_undersized_sources(
+    session_builder: ChutoroBuilder,
+    #[case] len: usize,
+) {
     let source = Arc::new(SessionTestSource::with_len(len));
-    let session = ChutoroBuilder::new()
+    let session = session_builder
         .with_min_cluster_size(5)
         .build_session(source)
         .expect("session creation must not validate current source length");
@@ -113,10 +123,10 @@ fn build_session_accepts_empty_and_undersized_sources(#[case] len: usize) {
     assert_eq!(session.snapshot_version(), 0);
 }
 
-#[test]
-fn build_session_rejects_zero_min_cluster_size() {
+#[rstest]
+fn build_session_rejects_zero_min_cluster_size(session_builder: ChutoroBuilder) {
     let source = Arc::new(SessionTestSource::with_len(0));
-    let err = ChutoroBuilder::new()
+    let err = session_builder
         .with_min_cluster_size(0)
         .build_session(source)
         .expect_err("zero min_cluster_size must fail");
@@ -124,10 +134,10 @@ fn build_session_rejects_zero_min_cluster_size() {
     assert_eq!(err, ChutoroError::InvalidMinClusterSize { got: 0 });
 }
 
-#[test]
-fn build_session_rejects_gpu_preferred_execution_strategy() {
+#[rstest]
+fn build_session_rejects_gpu_preferred_execution_strategy(session_builder: ChutoroBuilder) {
     let source = Arc::new(SessionTestSource::with_len(2));
-    let err = ChutoroBuilder::new()
+    let err = session_builder
         .with_execution_strategy(ExecutionStrategy::GpuPreferred)
         .build_session(source)
         .expect_err("session creation must remain CPU-only");
@@ -138,15 +148,4 @@ fn build_session_rejects_gpu_preferred_execution_strategy() {
             requested: ExecutionStrategy::GpuPreferred,
         }
     );
-}
-
-#[test]
-fn build_session_initialises_empty_state() {
-    let source = Arc::new(SessionTestSource::with_len(6));
-    let session = ChutoroBuilder::new()
-        .build_session(source)
-        .expect("session must build");
-
-    assert_eq!(session.point_count(), 0);
-    assert_eq!(session.snapshot_version(), 0);
 }
