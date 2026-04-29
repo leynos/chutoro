@@ -10,6 +10,8 @@ use std::sync::Arc;
 #[cfg(feature = "cpu")]
 use crate::{ClusteringSession, DataSource, HnswParams, SessionConfig, SessionRefreshPolicy};
 use crate::{Result, chutoro::Chutoro, error::ChutoroError};
+#[cfg(feature = "cpu")]
+use tracing::debug;
 
 /// Indicates how [`Chutoro`] selects a compute backend when [`Chutoro::run`] is
 /// invoked.
@@ -295,6 +297,10 @@ impl ChutoroBuilder {
             min_cluster_size,
             self.hnsw_params,
             self.session_refresh_policy,
+        );
+        debug!(
+            min_cluster_size = %config.min_cluster_size(),
+            "build_session: constructing empty ClusteringSession"
         );
 
         ClusteringSession::new(config, source)

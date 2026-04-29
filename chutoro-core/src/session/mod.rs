@@ -11,6 +11,7 @@ use crate::{
     CandidateEdge, ChutoroError, CpuHnsw, DataSource, DataSourceError, HnswParams,
     MetricDescriptor, MstEdge, Result,
 };
+use tracing::{debug, warn};
 
 /// Refresh behaviour for a [`ClusteringSession`].
 ///
@@ -232,11 +233,20 @@ const _: fn() = || {
 impl<D: DataSource + Sync> ClusteringSession<D> {
     pub(crate) fn new(config: SessionConfig, source: Arc<D>) -> Result<Self> {
         let index = CpuHnsw::with_capacity(config.hnsw_params().clone(), 1).map_err(|error| {
-            ChutoroError::CpuHnswFailure {
-                code: Arc::from(error.code().as_str()),
-                message: Arc::from(error.to_string()),
-            }
+            let code = Arc::from(error.code().as_str());
+            let message = Arc::from(error.to_string());
+            warn!(
+                code = ?code,
+                message = %message,
+                "CpuHnsw index allocation failed; returning CpuHnswFailure"
+            );
+
+            ChutoroError::CpuHnswFailure { code, message }
         })?;
+        debug!(
+            min_cluster_size = %config.min_cluster_size(),
+            "ClusteringSession allocated: empty HNSW index ready"
+        );
 
         Ok(Self {
             config,
