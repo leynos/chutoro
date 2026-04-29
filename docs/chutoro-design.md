@@ -1255,15 +1255,15 @@ _Implementation update (2026-02-10)._ Property suites now run in a dedicated
 workflow at `.github/workflows/property-tests.yml` with two tiers:
 
 - A path-filtered pull request (PR) run that executes the HNSW, candidate edge
-  harvest, and parallel Kruskal suites with `PROGTEST_CASES=250`, a 20-minute
+  harvest, and parallel Kruskal suites with `PROPTEST_CASES=250`, a 20-minute
   timeout, and `CHUTORO_HNSW_PBT_MIN_RECALL=0.60`. The job timeout deliberately
   exceeds the 600-second `nextest` allowance for the HNSW idempotency property
   so setup and earlier property tests cannot consume the whole job budget.
-- A weekly scheduled deep run with `PROGTEST_CASES=25000` and forked execution
+- A weekly scheduled deep run with `PROPTEST_CASES=25000` and forked execution
   (`CHUTORO_PBT_FORK=true`) to isolate case failures.
 
 The property runners consume a shared profile parser in `chutoro-test-support`
-so `PROGTEST_CASES` and fork mode are interpreted consistently across suites.
+so `PROPTEST_CASES` and fork mode are interpreted consistently across suites.
 Weekly failures upload `proptest-regressions` artefacts and suite logs for
 replay. To keep coverage jobs within `nextest` timeouts, the idempotency
 property now treats `llvm-cov` environments (`LLVM_PROFILE_FILE` or
