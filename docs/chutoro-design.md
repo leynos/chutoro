@@ -1255,8 +1255,10 @@ _Implementation update (2026-02-10)._ Property suites now run in a dedicated
 workflow at `.github/workflows/property-tests.yml` with two tiers:
 
 - A path-filtered pull request (PR) run that executes the HNSW, candidate edge
-  harvest, and parallel Kruskal suites with `PROGTEST_CASES=250`, a 10-minute
-  timeout, and `CHUTORO_HNSW_PBT_MIN_RECALL=0.60`.
+  harvest, and parallel Kruskal suites with `PROGTEST_CASES=250`, a 20-minute
+  timeout, and `CHUTORO_HNSW_PBT_MIN_RECALL=0.60`. The job timeout deliberately
+  exceeds the 600-second `nextest` allowance for the HNSW idempotency property
+  so setup and earlier property tests cannot consume the whole job budget.
 - A weekly scheduled deep run with `PROGTEST_CASES=25000` and forked execution
   (`CHUTORO_PBT_FORK=true`) to isolate case failures.
 

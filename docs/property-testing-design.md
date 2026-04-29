@@ -720,9 +720,11 @@ workflow.
         level of coverage to catch common regressions and simple bugs quickly.
 
   - **Timeout:** A hard timeout will be enforced on the job using
-        `timeout-minutes: 10` in the GitHub Actions workflow configuration.
-        This prevents a misbehaving or non-terminating test from blocking the
-        entire CI queue.
+        `timeout-minutes: 20` in the GitHub Actions workflow configuration.
+        This sits above the longest PR-tier `nextest` slow-timeout so checkout,
+        setup, and earlier property tests cannot exhaust the whole job budget.
+        It still prevents a misbehaving or non-terminating test from blocking
+        the entire CI queue.
 
 - **Optimization via selective execution:** To minimize CI costs and feedback
     time, the workflow will be structured into separate jobs for each major
@@ -738,7 +740,7 @@ workflow.
 | **Trigger**            | `on: pull_request`             | `on: schedule` (e.g., weekly)           |
 | **`Proptest` Cases**   | `250` (default)                | `25,000` (via env var `PROGTEST_CASES`) |
 | **`Proptest` Forking** | `false`                        | `true`                                  |
-| **Job Timeout**        | `10 minutes`                   | `120 minutes`                           |
+| **Job Timeout**        | `20 minutes`                   | `120 minutes`                           |
 | **Execution Scope**    | Path-filtered (selective jobs) | Full repository test suite              |
 | **Failure Action**     | Block PR merge                 | Alert team & upload failure artifact    |
 
@@ -803,7 +805,7 @@ jobs:
       github.event.pull_request.draft == false &&
       (contains(github.event.pull_request.labels.*.name, 'run-ci'))
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v3
       - name: Setup Rust toolchain
@@ -819,7 +821,7 @@ jobs:
       github.event.pull_request.draft == false &&
       (contains(github.event.pull_request.labels.*.name, 'run-ci'))
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v3
       - name: Setup Rust toolchain

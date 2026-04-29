@@ -217,7 +217,7 @@ ______________________________________________________________________
 ### 1.7. Continuous integration
 
 - [x] 1.7.1. Integrate property-based suites into CI with a
-  path-filtered pull request (PR) job (250 cases, 10-minute timeout) and
+  path-filtered pull request (PR) job (250 cases, 20-minute timeout) and
   scheduled weekly job (25,000 cases, `fork = true`, `PROGTEST_CASES` env var).
   (See property-testing-design §5)
   - [x] Define and enforce property-based CI guardrail thresholds

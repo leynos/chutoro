@@ -14,7 +14,7 @@ apply.
 Integrate property-based test suites into Continuous Integration (CI) with a
 path-filtered pull request (PR) job and a weekly deep-coverage job, as required
 by `docs/roadmap.md` Phase 1 and `docs/property-testing-design.md` §5. The PR
-job must run with 250 cases and a 10-minute timeout. The weekly job must run
+job must run with 250 cases and a 20-minute timeout. The weekly job must run
 with 25,000 cases, `fork = true`, and `PROGTEST_CASES` provided by the workflow
 environment.
 
@@ -48,7 +48,7 @@ cases using `rstest`, design decisions are recorded in
 - Interfaces: if public non-test APIs in `chutoro-core` must change, stop and
   confirm.
 - Dependencies: if a new crate is required, stop and confirm before adding it.
-- CI runtime: if the PR property job cannot stay within 10 minutes after two
+- CI runtime: if the PR property job cannot stay within 20 minutes after two
   optimization passes, stop and present options.
 - Flakiness: if guardrail thresholds fail nondeterministically across three
   reruns with identical configuration, stop and escalate with evidence.
@@ -78,13 +78,16 @@ cases using `rstest`, design decisions are recorded in
 - [x] (2026-02-10 00:35Z) Implemented shared property-run profile support for
   `PROGTEST_CASES` and fork mode in `chutoro-test-support`.
 - [x] (2026-02-10 00:45Z) Integrated path-filtered PR property workflow
-  (250 cases, 10-minute timeout).
+  (250 cases, now 20-minute timeout).
 - [x] (2026-02-10 00:45Z) Integrated weekly scheduled property workflow
   (25,000 cases, `fork=true`) with failure artifact upload.
 - [x] (2026-02-10 00:55Z) Added and passed `rstest` coverage for profile and
   guardrail configuration happy/unhappy/edge cases.
 - [x] (2026-02-10 01:05Z) Updated design and roadmap docs.
 - [x] (2026-02-10 01:15Z) Ran full quality gates and verified logs in `/tmp`.
+- [x] (2026-04-29 00:00Z) Raised the PR property workflow timeout to 20 minutes
+  after the HNSW matrix leg hit the previous job-level timeout while the
+  idempotency property was still running.
 
 ## Surprises & Discoveries
 
@@ -99,6 +102,11 @@ cases using `rstest`, design decisions are recorded in
   `max_connections >= 16`. Evidence:
   `chutoro-core/src/hnsw/tests/property/search_property.rs`. Impact: guardrail
   expansion must be staged and documented.
+- Observation: The HNSW PR matrix leg was cancelled by GitHub Actions at the
+  previous 10-minute job timeout while `hnsw_idempotency_preserved_proptest`
+  was still running. Evidence: CI run `25065606799`, job `73431765710`. Impact:
+  the workflow timeout must exceed the 600-second nextest budget for that test
+  plus checkout, setup, build, and earlier property-test runtime.
 
 ## Decision Log
 
@@ -114,6 +122,10 @@ cases using `rstest`, design decisions are recorded in
   with an explicit follow-up to raise it after high-fan-out search work lands.
   Rationale: strengthens enforcement above the current default while remaining
   practical for PR stability. Date/Author: 2026-02-09 (Codex)
+- Decision: Raise the PR property-test job timeout to 20 minutes. Rationale:
+  the HNSW idempotency property has a 600-second nextest timeout, so the
+  workflow-level timeout must leave room for setup, compilation, and the
+  preceding property tests. Date/Author: 2026-04-29 (Codex)
 
 ## Outcomes & Retrospective
 
@@ -187,7 +199,7 @@ all new/changed unit tests pass locally before CI edits.
 Stage C: integrate CI workflows for PR and weekly schedules. Add a
 path-filtered PR job and a scheduled weekly job in
 `.github/workflows/property-tests.yml` using the agreed profiles: PR = 250
-cases, 10-minute timeout; weekly = 25,000 cases, `fork=true`,
+cases, 20-minute timeout; weekly = 25,000 cases, `fork=true`,
 `PROGTEST_CASES=25000`. Include failure artifact upload for proptest
 regressions and logs. Go/no-go: workflow syntax validates and targeted local
 commands match workflow commands.
@@ -224,7 +236,7 @@ pass. Run `make fmt`, `make markdownlint`, `make nixie`, `make check-fmt`,
    cases for: happy paths (valid recall and max-connection policies), unhappy
    paths (invalid env values), and edge conditions (boundary values).
 4. Add `.github/workflows/property-tests.yml` with:
-   PR trigger with path filters, 10-minute timeout, and `PROGTEST_CASES=250`,
+   PR trigger with path filters, 20-minute timeout, and `PROGTEST_CASES=250`,
    `CHUTORO_HNSW_PBT_MIN_RECALL=0.60`; weekly schedule trigger with
    `PROGTEST_CASES=25000` and `fork=true`; artifact upload on failure for
    `**/proptest-regressions/**`.
@@ -255,7 +267,7 @@ pass. Run `make fmt`, `make markdownlint`, `make nixie`, `make check-fmt`,
 Expected signals of success:
 
 - Property workflow appears on PRs that touch targeted paths.
-- PR workflow completes within 10 minutes and runs with 250 cases.
+- PR workflow completes within 20 minutes and runs with 250 cases.
 - Weekly workflow runs with `PROGTEST_CASES=25000` and forking enabled.
 - Roadmap checkbox is updated only at feature completion.
 
@@ -263,7 +275,7 @@ Expected signals of success:
 
 The feature is complete only when all statements below are true:
 
-- Path-filtered PR property job exists and uses 250 cases with a 10-minute
+- Path-filtered PR property job exists and uses 250 cases with a 20-minute
   timeout.
 - Weekly scheduled property job exists and uses 25,000 cases with
   `fork = true` and `PROGTEST_CASES`.
@@ -308,3 +320,7 @@ tests, including staged implementation, guardrails, and acceptance criteria.
 
 2026-02-10: Completed implementation. Updated status/progress, recorded the
 final guardrail values, and captured successful validation gates.
+
+2026-04-29: Raised the PR property workflow timeout from 10 to 20 minutes after
+the HNSW job was cancelled by the workflow budget while the idempotency
+property was still within its configured nextest timeout.
