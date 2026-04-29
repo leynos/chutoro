@@ -252,12 +252,31 @@ impl ChutoroBuilder {
         ))
     }
 
-    /// Validates the configuration and constructs an empty
-    /// [`ClusteringSession`].
+    /// Constructs an empty [`ClusteringSession`] from the current builder
+    /// configuration.
     ///
-    /// The returned session owns the provided data source reference but does
-    /// not seed existing items into the live index yet. Empty and undersized
-    /// data sources are therefore accepted at construction time.
+    /// The session is initialised without seeding the HNSW index or performing
+    /// a batch bootstrap; `point_count()` and `snapshot_version()` will both be
+    /// `0` on the returned session. Empty and undersized sources are accepted -
+    /// source length is not validated against `min_cluster_size` at
+    /// construction time.
+    ///
+    /// Sessions are CPU-only. Calling this method with
+    /// [`ExecutionStrategy::GpuPreferred`] always returns an error regardless
+    /// of compiled features.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ChutoroError::InvalidMinClusterSize`] when `min_cluster_size`
+    /// has been set to `0` via [`ChutoroBuilder::with_min_cluster_size`].
+    ///
+    /// Returns [`ChutoroError::BackendUnavailable`] when the builder's
+    /// execution strategy is [`ExecutionStrategy::GpuPreferred`]; sessions are
+    /// unconditionally CPU-only.
+    ///
+    /// Returns [`ChutoroError::CpuHnswFailure`] when the underlying `CpuHnsw`
+    /// index cannot be allocated (e.g. the HNSW library reports an internal
+    /// construction error).
     ///
     /// # Examples
     /// ```rust,no_run
