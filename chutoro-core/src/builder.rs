@@ -254,11 +254,11 @@ impl ChutoroBuilder {
 
     /// Constructs an empty [`ClusteringSession`] from the current builder configuration.
     ///
-    /// The session is initialised without seeding the HNSW index or performing a batch
-    /// bootstrap; [`ClusteringSession::point_count`] and
-    /// [`ClusteringSession::snapshot_version`] will both be `0` on the returned session.
-    /// Empty and undersized sources are accepted — source length is not validated against
-    /// `min_cluster_size` at construction time.
+    /// The session is initialised without seeding the HNSW index or performing a
+    /// batch bootstrap; [`ClusteringSession::point_count`] and
+    /// [`ClusteringSession::snapshot_version`] will both be `0` on the returned
+    /// session. Empty and undersized sources are accepted — source length is not
+    /// validated against `min_cluster_size` at construction time.
     ///
     /// Sessions are CPU-only. Calling this method with
     /// [`ExecutionStrategy::GpuPreferred`] returns an error regardless of compiled
@@ -266,15 +266,17 @@ impl ChutoroBuilder {
     ///
     /// # Errors
     ///
-    /// Returns [`ChutoroError::InvalidMinClusterSize`] when `min_cluster_size` is `0`
-    /// (i.e. when [`ChutoroBuilder::with_min_cluster_size`] was called with `0`).
+    /// Returns [`ChutoroError::InvalidMinClusterSize`] when `min_cluster_size` is
+    /// `0` (i.e. when [`ChutoroBuilder::with_min_cluster_size`] was called with
+    /// `0`).
     ///
-    /// Returns [`ChutoroError::BackendUnavailable`] when the builder's execution strategy
-    /// is [`ExecutionStrategy::GpuPreferred`]; sessions are unconditionally CPU-only.
+    /// Returns [`ChutoroError::BackendUnavailable`] when the builder's execution
+    /// strategy is [`ExecutionStrategy::GpuPreferred`]; sessions are
+    /// unconditionally CPU-only.
     ///
-    /// Returns [`ChutoroError::CpuHnswFailure`] when the underlying `CpuHnsw` index
-    /// cannot be allocated (e.g. the HNSW library reports an internal construction
-    /// error).
+    /// Returns [`ChutoroError::CpuHnswFailure`] when the underlying `CpuHnsw`
+    /// index cannot be allocated (e.g. the HNSW library reports an internal
+    /// construction error).
     #[cfg(feature = "cpu")]
     pub fn build_session<D: DataSource + Sync>(
         self,
