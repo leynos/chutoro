@@ -231,18 +231,18 @@ const _: fn() = || {
 };
 
 impl<D: DataSource + Sync> ClusteringSession<D> {
-    pub(crate) fn new(config: SessionConfig, source: Arc<D>) -> Result<Self> {
-        let index = CpuHnsw::with_capacity(config.hnsw_params().clone(), 1).map_err(|error| {
-            let code = Arc::from(error.code().as_str());
-            let message = Arc::from(error.to_string());
-            warn!(
-                code = ?code,
-                message = %message,
-                "CpuHnsw index allocation failed; returning CpuHnswFailure"
-            );
-
-            ChutoroError::CpuHnswFailure { code, message }
-        })?;
+    fn new_with_capacity(config: SessionConfig, source: Arc<D>, capacity: usize) -> Result<Self> {
+        let index =
+            CpuHnsw::with_capacity(config.hnsw_params().clone(), capacity).map_err(|error| {
+                let code = Arc::from(error.code().as_str());
+                let message = Arc::from(error.to_string());
+                warn!(
+                    code = ?code,
+                    message = %message,
+                    "CpuHnsw index allocation failed; returning CpuHnswFailure"
+                );
+                ChutoroError::CpuHnswFailure { code, message }
+            })?;
         debug!(
             min_cluster_size = %config.min_cluster_size(),
             "ClusteringSession allocated: empty HNSW index ready"
@@ -262,33 +262,13 @@ impl<D: DataSource + Sync> ClusteringSession<D> {
         })
     }
 
+    pub(crate) fn new(config: SessionConfig, source: Arc<D>) -> Result<Self> {
+        Self::new_with_capacity(config, source, 1)
+    }
+
     #[cfg(test)]
     pub(crate) fn new_failing_for_test(config: SessionConfig, source: Arc<D>) -> Result<Self> {
-        // Capacity 0 is rejected by the HNSW library with an error code.
-        let index = CpuHnsw::with_capacity(config.hnsw_params().clone(), 0).map_err(|error| {
-            let code = Arc::from(error.code().as_str());
-            let message = Arc::from(error.to_string());
-            warn!(
-                code = ?code,
-                message = %message,
-                "CpuHnsw index allocation failed; returning CpuHnswFailure"
-            );
-
-            ChutoroError::CpuHnswFailure { code, message }
-        })?;
-
-        Ok(Self {
-            config,
-            index,
-            _core_distances: Vec::new(),
-            _mst_edges: Vec::new(),
-            _historical_edges: Vec::new(),
-            _pending_edges: Vec::new(),
-            _labels: Arc::new(Vec::new()),
-            snapshot_version: 0,
-            _source: source,
-            _last_refresh_len: 0,
-        })
+        Self::new_with_capacity(config, source, 0)
     }
 
     /// Returns the validated configuration used by the session.
