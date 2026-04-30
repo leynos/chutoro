@@ -264,6 +264,7 @@ impl<D: DataSource + Sync> ClusteringSession<D> {
 
     #[cfg(test)]
     pub(crate) fn new_failing_for_test(config: SessionConfig, source: Arc<D>) -> Result<Self> {
+        // Capacity 0 is rejected by the HNSW library with an error code.
         let index = CpuHnsw::with_capacity(config.hnsw_params().clone(), 0).map_err(|error| {
             let code = Arc::from(error.code().as_str());
             let message = Arc::from(error.to_string());
