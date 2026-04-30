@@ -252,59 +252,29 @@ impl ChutoroBuilder {
         ))
     }
 
-    /// Constructs an empty [`ClusteringSession`] from the current builder
-    /// configuration.
+    /// Constructs an empty [`ClusteringSession`] from the current builder configuration.
     ///
-    /// The session is initialised without seeding the HNSW index or performing
-    /// a batch bootstrap; `point_count()` and `snapshot_version()` will both be
-    /// `0` on the returned session. Empty and undersized sources are accepted -
-    /// source length is not validated against `min_cluster_size` at
-    /// construction time.
+    /// The session is initialised without seeding the HNSW index or performing a batch
+    /// bootstrap; [`ClusteringSession::point_count`] and
+    /// [`ClusteringSession::snapshot_version`] will both be `0` on the returned session.
+    /// Empty and undersized sources are accepted — source length is not validated against
+    /// `min_cluster_size` at construction time.
     ///
     /// Sessions are CPU-only. Calling this method with
-    /// [`ExecutionStrategy::GpuPreferred`] always returns an error regardless
-    /// of compiled features.
+    /// [`ExecutionStrategy::GpuPreferred`] returns an error regardless of compiled
+    /// features.
     ///
     /// # Errors
     ///
-    /// Returns [`ChutoroError::InvalidMinClusterSize`] when `min_cluster_size`
-    /// has been set to `0` via [`ChutoroBuilder::with_min_cluster_size`].
+    /// Returns [`ChutoroError::InvalidMinClusterSize`] when `min_cluster_size` is `0`
+    /// (i.e. when [`ChutoroBuilder::with_min_cluster_size`] was called with `0`).
     ///
-    /// Returns [`ChutoroError::BackendUnavailable`] when the builder's
-    /// execution strategy is [`ExecutionStrategy::GpuPreferred`]; sessions are
-    /// unconditionally CPU-only.
+    /// Returns [`ChutoroError::BackendUnavailable`] when the builder's execution strategy
+    /// is [`ExecutionStrategy::GpuPreferred`]; sessions are unconditionally CPU-only.
     ///
-    /// Returns [`ChutoroError::CpuHnswFailure`] when the underlying `CpuHnsw`
-    /// index cannot be allocated (e.g. the HNSW library reports an internal
-    /// construction error).
-    ///
-    /// # Examples
-    /// ```rust,no_run
-    /// use std::sync::Arc;
-    ///
-    /// use chutoro_core::{
-    ///     ChutoroBuilder, ClusteringSession, DataSource, DataSourceError, MetricDescriptor,
-    /// };
-    ///
-    /// struct Dummy(Vec<f32>);
-    ///
-    /// impl DataSource for Dummy {
-    ///     fn len(&self) -> usize { self.0.len() }
-    ///     fn name(&self) -> &str { "dummy" }
-    ///     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-    ///         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
-    ///         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
-    ///         Ok((a - b).abs())
-    ///     }
-    ///     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("abs") }
-    /// }
-    ///
-    /// let source = Arc::new(Dummy(vec![0.0, 1.0, 2.0]));
-    /// let session: ClusteringSession<Dummy> = ChutoroBuilder::new()
-    ///     .build_session(source)
-    ///     .expect("session configuration must be valid");
-    /// assert_eq!(session.point_count(), 0);
-    /// ```
+    /// Returns [`ChutoroError::CpuHnswFailure`] when the underlying `CpuHnsw` index
+    /// cannot be allocated (e.g. the HNSW library reports an internal construction
+    /// error).
     #[cfg(feature = "cpu")]
     pub fn build_session<D: DataSource + Sync>(
         self,
