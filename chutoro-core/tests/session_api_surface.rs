@@ -7,6 +7,7 @@ use std::{env, path::Path, process::Command, str};
 fn session_api_compiles_when_cpu_feature_is_enabled() {
     let cases = trybuild::TestCases::new();
     cases.pass("tests/trybuild/session_api_cpu_enabled.rs");
+    cases.compile_fail("tests/trybuild/session_api_non_send_sync_source.rs");
 }
 
 #[test]
