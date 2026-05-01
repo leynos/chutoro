@@ -64,6 +64,24 @@ pub struct ChutoroBuilder {
     session_refresh_policy: SessionRefreshPolicy,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GpuRejectionReason {
+    BackendNotCompiled,
+    #[cfg(feature = "cpu")]
+    SessionsCpuOnly,
+}
+
+impl GpuRejectionReason {
+    #[rustfmt::skip]
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::BackendNotCompiled => "GPU backend unavailable",
+            #[cfg(feature = "cpu")]
+            Self::SessionsCpuOnly => "sessions are unconditionally CPU-only",
+        }
+    }
+}
+
 impl Default for ChutoroBuilder {
     fn default() -> Self {
         Self {
@@ -244,7 +262,9 @@ impl ChutoroBuilder {
     /// ```
     pub fn build(self) -> Result<Chutoro> {
         let min_cluster_size = self.validate_min_cluster_size()?;
-        self.validate_execution_strategy(cfg!(feature = "gpu"))?;
+        let gpu_rejection_reason =
+            (!cfg!(feature = "gpu")).then_some(GpuRejectionReason::BackendNotCompiled);
+        self.validate_execution_strategy(gpu_rejection_reason)?;
 
         Ok(Chutoro::new(
             min_cluster_size,
@@ -285,7 +305,7 @@ impl ChutoroBuilder {
         source: Arc<D>,
     ) -> Result<ClusteringSession<D>> {
         let min_cluster_size = self.validate_min_cluster_size()?;
-        self.validate_execution_strategy(false)?;
+        self.validate_execution_strategy(Some(GpuRejectionReason::SessionsCpuOnly))?;
         let config = SessionConfig::new(
             min_cluster_size,
             self.hnsw_params,
@@ -311,12 +331,18 @@ impl ChutoroBuilder {
         })
     }
 
-    fn validate_execution_strategy(&self, gpu_supported: bool) -> Result<()> {
-        if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred) && !gpu_supported {
+    fn validate_execution_strategy(
+        &self,
+        gpu_rejection_reason: Option<GpuRejectionReason>,
+    ) -> Result<()> {
+        if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred)
+            && let Some(reason) = gpu_rejection_reason
+        {
             warn!(
                 requested = ?ExecutionStrategy::GpuPreferred,
-                gpu_supported = gpu_supported,
-                "build rejected: GpuPreferred strategy requested but GPU backend unavailable"
+                rejection_reason = %reason.as_str(),
+                "build rejected: GpuPreferred strategy requested but {}",
+                reason.as_str()
             );
             return Err(ChutoroError::BackendUnavailable {
                 requested: ExecutionStrategy::GpuPreferred,
