@@ -12,6 +12,7 @@ use crate::{ClusteringSession, DataSource, HnswParams, SessionConfig, SessionRef
 use crate::{Result, chutoro::Chutoro, error::ChutoroError};
 #[cfg(feature = "cpu")]
 use tracing::debug;
+use tracing::warn;
 
 /// Indicates how [`Chutoro`] selects a compute backend when [`Chutoro::run`] is
 /// invoked.
@@ -299,13 +300,24 @@ impl ChutoroBuilder {
     }
 
     fn validate_min_cluster_size(&self) -> Result<NonZeroUsize> {
-        NonZeroUsize::new(self.min_cluster_size).ok_or(ChutoroError::InvalidMinClusterSize {
-            got: self.min_cluster_size,
+        NonZeroUsize::new(self.min_cluster_size).ok_or_else(|| {
+            warn!(
+                got = self.min_cluster_size,
+                "build rejected: min_cluster_size must be non-zero"
+            );
+            ChutoroError::InvalidMinClusterSize {
+                got: self.min_cluster_size,
+            }
         })
     }
 
     fn validate_execution_strategy(&self, gpu_supported: bool) -> Result<()> {
         if matches!(self.execution_strategy, ExecutionStrategy::GpuPreferred) && !gpu_supported {
+            warn!(
+                requested = ?ExecutionStrategy::GpuPreferred,
+                gpu_supported = gpu_supported,
+                "build rejected: GpuPreferred strategy requested but GPU backend unavailable"
+            );
             return Err(ChutoroError::BackendUnavailable {
                 requested: ExecutionStrategy::GpuPreferred,
             });

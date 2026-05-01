@@ -202,8 +202,9 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
     _last_refresh_len: usize,
 }
 
-// Verify ClusteringSession is Send + Sync when its DataSource is. This will
-// produce a compile error if future fields break the guarantee.
+// Verify ClusteringSession is Send + Sync when its DataSource is Send + Sync.
+// _DummySrc is Send by default (no non-Send fields); the compiler enforces the
+// bound at the call site of assert_send_sync.
 const _: fn() = || {
     fn assert_send_sync<T: Send + Sync>() {}
 
