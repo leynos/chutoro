@@ -724,7 +724,7 @@ workflow.
 
   - **Timeout:** A hard timeout will be enforced on the job using
         `timeout-minutes: 20` in the GitHub Actions workflow configuration.
-        This sits above the longest PR-tier `nextest` slow-timeout so checkout,
+        This sits above the longest PR-tier `nextest` slow-timeout, so checkout,
         setup, and earlier property tests cannot exhaust the whole job budget.
         It still prevents a misbehaving or non-terminating test from blocking
         the entire CI queue.

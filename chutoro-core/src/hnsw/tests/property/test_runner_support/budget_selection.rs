@@ -203,7 +203,7 @@ const DEFAULT_MUTATION_CASES: u32 = 64;
 ///
 /// Mutation cases can rebuild and revalidate the graph after up to twelve
 /// add/delete/reconfigure steps. Cap pull request runs at the default budget
-/// so `PROGTEST_CASES=250` cannot consume the 600-second nextest allowance,
+/// so `PROPTEST_CASES=250` cannot consume the 600-second nextest allowance,
 /// while still allowing forked scheduled runs to request deeper coverage.
 const MAX_MUTATION_CASES: u32 = DEFAULT_MUTATION_CASES;
 /// Coverage jobs use fewer search cases to stay within CI time budgets.

@@ -3483,8 +3483,9 @@ The benchmark runs the `ClusteringSession` lifecycle:
        6, 2025,
        [https://github.com/codeplaysoftware/oneapi-construction-kit](https://github.com/codeplaysoftware/oneapi-construction-kit)
 [^32]: Hu, Z., Zhu, Q., Yan, H., He, Y. and Gui, L. — Beyond RAG for Agent
-Memory: Retrieval by Decoupling and Aggregation, arXiv:2602.02007v2, February
-2026, [https://arxiv.org/abs/2602.02007](https://arxiv.org/abs/2602.02007)
+       Memory: Retrieval by Decoupling and Aggregation, arXiv:2602.02007v2,
+       February 2026,
+       [https://arxiv.org/abs/2602.02007](https://arxiv.org/abs/2602.02007)
 [^33]: limela — Development roadmap for the email intelligence pipeline,
 accessed on March 16, 2026,
 [https://github.com/leynos/limela/blob/main/docs/roadmap.md](https://github.com/leynos/limela/blob/main/docs/roadmap.md)

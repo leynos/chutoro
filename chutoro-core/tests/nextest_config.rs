@@ -8,8 +8,16 @@ const BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }";
 
 fn default_override_blocks() -> Vec<&'static str> {
+    override_blocks("default")
+}
+
+fn ci_override_blocks() -> Vec<&'static str> {
+    override_blocks("ci")
+}
+
+fn override_blocks(profile_name: &str) -> Vec<&'static str> {
     NEXTEST_CONFIG
-        .split("[[profile.default.overrides]]")
+        .split(&format!("[[profile.{profile_name}.overrides]]"))
         .skip(1)
         .map(str::trim)
         .collect()
@@ -48,7 +56,7 @@ fn nextest_default_profile_keeps_benchmark_timeout_guards(#[case] filter_value: 
 
 #[test]
 fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
-    let override_blocks = default_override_blocks();
+    let override_blocks = ci_override_blocks();
     let idempotency_override_present = override_blocks.into_iter().any(|block| {
         block.contains("filter = \"test(/hnsw_idempotency_preserved_proptest/)\"")
             && block.contains(BENCH_SLOW_TIMEOUT)
