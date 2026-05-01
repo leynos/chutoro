@@ -90,6 +90,23 @@ pub fn snapshot_version(&self) -> u64;
 returns an inert session whose initial observable state is `point_count() == 0`
 and `snapshot_version() == 0`.
 
+## Continuous integration
+
+Property-test CI jobs (`property-tests-pr` and `property-tests-weekly`) run on
+`ubicloud-standard-8`, an 8-core Ubicloud runner, rather than `ubuntu-latest`.
+
+The PR job has a `timeout-minutes: 20` budget, sized to exceed the longest
+`nextest` `slow-timeout` (600 s for HNSW idempotency) so earlier setup and
+property phases do not consume the full budget. The weekly job retains a
+`timeout-minutes: 120` budget for deeper test runs.
+
+All test runs use the `nextest` CI profile (`--profile ci`). Benchmark targets
+require `threads-required = 8`; see `.config/nextest.toml`.
+
+Use `.github/workflows/property-tests.yml` and `.config/nextest.toml` for the
+authoritative configuration, and `docs/property-testing-design.md` for the
+architectural rationale.
+
 ## Benchmarks
 
 The `chutoro-benches` crate provides Criterion benchmarks for the four CPU
