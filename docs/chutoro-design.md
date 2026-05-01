@@ -1256,11 +1256,12 @@ workflow at `.github/workflows/property-tests.yml` with two tiers:
 
 - A path-filtered pull request (PR) run that executes the HNSW, candidate edge
   harvest, and parallel Kruskal suites with `PROPTEST_CASES=250`, a 20-minute
-  timeout, and `CHUTORO_HNSW_PBT_MIN_RECALL=0.60`. The job timeout deliberately
-  exceeds the 600-second `nextest` allowance for the HNSW idempotency property
-  so setup and earlier property tests cannot consume the whole job budget.
+  timeout, `CHUTORO_HNSW_PBT_MIN_RECALL=0.60`, and an 8-core Ubicloud executor.
+  The job timeout deliberately exceeds the 600-second `nextest` allowance for
+  the HNSW idempotency property so setup and earlier property tests cannot
+  consume the whole job budget.
 - A weekly scheduled deep run with `PROPTEST_CASES=25000` and forked execution
-  (`CHUTORO_PBT_FORK=true`) to isolate case failures.
+  (`CHUTORO_PBT_FORK=true`) on the same 8-core runner to isolate case failures.
 
 The property runners consume a shared profile parser in `chutoro-test-support`
 so `PROPTEST_CASES` and fork mode are interpreted consistently across suites.
@@ -1268,7 +1269,10 @@ Weekly failures upload `proptest-regressions` artefacts and suite logs for
 replay. To keep coverage jobs within `nextest` timeouts, the idempotency
 property now treats `llvm-cov` environments (`LLVM_PROFILE_FILE` or
 `CARGO_LLVM_COV`) as low-budget runs and falls back to 4 cases unless
-explicitly overridden in the dedicated property workflow.
+explicitly overridden in the dedicated property workflow. The HNSW mutation
+property also caps non-forked standard runs at its default 64 cases so a
+PR-tier `PROPTEST_CASES=250` run cannot consume the full 600-second `nextest`
+allowance; forked weekly runs keep the requested deep-run budget.
 
 _Implementation update (2026-02-12)._ The functional ARI/NMI baseline case
 `hnsw_pipeline_matches_exact_baseline::case_2` now runs in isolation in

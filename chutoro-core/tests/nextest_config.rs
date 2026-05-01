@@ -58,3 +58,11 @@ fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
     let pr_job = workflow_job_block("property-tests-pr").expect("property-tests-pr job must exist");
     assert!(pr_job.contains("timeout-minutes: 20"));
 }
+
+#[rstest]
+#[case("property-tests-pr")]
+#[case("property-tests-weekly")]
+fn property_tests_use_eight_core_runner(#[case] job: &str) {
+    let job_block = workflow_job_block(job).expect("property test job must exist");
+    assert!(job_block.contains("runs-on: ubicloud-standard-8"));
+}

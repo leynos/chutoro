@@ -19,7 +19,8 @@ use super::{
         idempotency_shrink_iters, mutation_cases, mutation_shrink_iters, run_idempotency_test,
         run_mutation_test, run_search_test, search_cases, search_shrink_iters,
         select_idempotency_cases, select_idempotency_shrink_iters, select_mutation_cases,
-        select_mutation_shrink_iters, select_search_cases, select_search_shrink_iters,
+        select_mutation_cases_for_fork, select_mutation_shrink_iters, select_search_cases,
+        select_search_shrink_iters,
     },
     types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
 };
@@ -232,15 +233,32 @@ fn select_idempotency_shrink_iters_enforces_coverage_budget(
 
 #[rstest]
 #[case(JobKind::Coverage, 250, 4)]
-#[case(JobKind::Standard, 250, 250)]
+#[case(JobKind::Standard, 250, 64)]
 #[case(JobKind::Standard, 64, 64)]
-fn select_mutation_cases_enforces_coverage_budget(
+fn select_mutation_cases_enforces_pr_budget(
     #[case] job: JobKind,
     #[case] configured_cases: u32,
     #[case] expected_cases: u32,
 ) {
     assert_eq!(
         select_mutation_cases(job, TestCases::new(configured_cases)),
+        TestCases::new(expected_cases)
+    );
+}
+
+#[rstest]
+#[case(JobKind::Coverage, true, 250, 4)]
+#[case(JobKind::Coverage, false, 250, 4)]
+#[case(JobKind::Standard, true, 250, 250)]
+#[case(JobKind::Standard, false, 250, 64)]
+fn select_mutation_cases_preserves_forked_deep_run_budget(
+    #[case] job: JobKind,
+    #[case] fork: bool,
+    #[case] configured_cases: u32,
+    #[case] expected_cases: u32,
+) {
+    assert_eq!(
+        select_mutation_cases_for_fork(job, TestCases::new(configured_cases), fork),
         TestCases::new(expected_cases)
     );
 }
