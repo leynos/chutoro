@@ -48,10 +48,12 @@ fn nextest_default_profile_keeps_benchmark_timeout_guards(#[case] filter_value: 
 
 #[test]
 fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
-    assert!(NEXTEST_CONFIG.contains(
-        "filter = \"test(/hnsw_idempotency_preserved_proptest/)\"\n\
-         slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }",
-    ));
+    let override_blocks = default_override_blocks();
+    let idempotency_override_present = override_blocks.into_iter().any(|block| {
+        block.contains("filter = \"test(/hnsw_idempotency_preserved_proptest/)\"")
+            && block.contains(BENCH_SLOW_TIMEOUT)
+    });
+    assert!(idempotency_override_present);
 
     let pr_job = workflow_job_block("property-tests-pr").expect("property-tests-pr job must exist");
     assert!(pr_job.contains("timeout-minutes: 20"));

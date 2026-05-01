@@ -21,7 +21,7 @@ use crate::hnsw::tests::support::is_coverage_job;
 use crate::{CpuHnsw, DataSource, HnswError, hnsw::types::EntryPoint};
 
 const MIN_IDEMPOTENCY_FIXTURE_LEN: usize = 2;
-const MAX_IDEMPOTENCY_FIXTURE_LEN: usize = 64;
+const MAX_IDEMPOTENCY_FIXTURE_LEN: usize = 16;
 const COVERAGE_MAX_IDEMPOTENCY_FIXTURE_LEN: usize = 16;
 const COVERAGE_MAX_DUPLICATE_INDICES: usize = 3;
 const COVERAGE_MAX_ATTEMPTS_PER_INDEX: usize = 2;

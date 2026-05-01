@@ -2405,29 +2405,28 @@ clustering state, in contrast to the stateless `Chutoro::run()` path.
 
 - [x] Roadmap item `11.1.2` ships the initial public session scaffold behind the
   `cpu` feature:
-
-- `ChutoroBuilder` now carries `HnswParams` and a minimal
-  `SessionRefreshPolicy`, both defaulting to the same HNSW configuration used
-  by the batch pipeline and to manual refresh respectively.
-- `ChutoroBuilder::build_session(self, source: Arc<D>)` validates the builder
-  configuration, derives a `SessionConfig`, allocates an empty `CpuHnsw`, and
-  returns a `ClusteringSession<D>`.
-- The returned session does **not** seed existing source items into the index.
-  This keeps `11.1.2` limited to configuration and lifecycle scaffolding while
-  leaving bootstrap behaviour to `11.3.1` and `11.3.2`.
-- `SessionConfig` stores validated types directly:
-  `NonZeroUsize` for `min_cluster_size`, `HnswParams` for HNSW tuning, and the
-  v1 `SessionRefreshPolicy { refresh_every_n: Option<NonZeroUsize> }`. Later
-  roadmap items extend the refresh policy with drift-trigger and
-  baseline-management fields once those semantics are implemented.
-- Session construction is CPU-only in v1. `build_session(...)` therefore
-  rejects `ExecutionStrategy::GpuPreferred` even if batch execution later gains
-  a separate GPU backend.
+  - `ChutoroBuilder` now carries `HnswParams` and a minimal
+    `SessionRefreshPolicy`, both defaulting to the same HNSW configuration used
+    by the batch pipeline and to manual refresh respectively.
+  - `ChutoroBuilder::build_session(self, source: Arc<D>)` validates the builder
+    configuration, derives a `SessionConfig`, allocates an empty `CpuHnsw`, and
+    returns a `ClusteringSession<D>`.
+  - The returned session does **not** seed existing source items into the index.
+    This keeps `11.1.2` limited to configuration and lifecycle scaffolding while
+    leaving bootstrap behaviour to `11.3.1` and `11.3.2`.
+  - `SessionConfig` stores validated types directly:
+    `NonZeroUsize` for `min_cluster_size`, `HnswParams` for HNSW tuning, and the
+    v1 `SessionRefreshPolicy { refresh_every_n: Option<NonZeroUsize> }`. Later
+    roadmap items extend the refresh policy with drift-trigger and
+    baseline-management fields once those semantics are implemented.
+  - Session construction is CPU-only in v1. `build_session(...)` therefore
+    rejects `ExecutionStrategy::GpuPreferred` even if batch execution later gains
+    a separate GPU backend.
 
 ```rust,no_run
 /// A live, mutable clustering session that supports incremental point
 /// insertion, MST refresh, and periodic label snapshot extraction.
-pub struct ClusteringSession<D: DataSource + Sync> {
+pub struct ClusteringSession<D: DataSource + Send + Sync> {
     /// Configuration inherited from `ChutoroBuilder`.
     config: SessionConfig,
 
@@ -3126,7 +3125,7 @@ hierarchy extraction pipeline over a caller-specified set of point indices,
 without modifying the session's global state:
 
 ```rust,no_run
-impl<D: DataSource + Sync> ClusteringSession<D> {
+impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// Recluster a subset of points and return a local snapshot.
     ///
     /// The subset is clustered independently using the session's HNSW
@@ -3182,7 +3181,7 @@ from label snapshots and cluster statistics but remain in the graph until
 compaction removes them.
 
 ```rust,no_run
-impl<D: DataSource + Sync> ClusteringSession<D> {
+impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// Mark one or more points as deleted. Tombstoned points are
     /// excluded from the next snapshot but remain in the HNSW graph
     /// until compaction.

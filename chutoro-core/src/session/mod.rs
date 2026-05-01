@@ -8,7 +8,7 @@
 use std::{num::NonZeroUsize, sync::Arc};
 
 use crate::{
-    CandidateEdge, ChutoroError, CpuHnsw, DataSource, DataSourceError, HnswParams,
+    CandidateEdge, ChutoroError, CpuHnsw, DataSource, DataSourceError, HnswError, HnswParams,
     MetricDescriptor, MstEdge, Result,
 };
 use tracing::{debug, warn};
@@ -189,7 +189,7 @@ impl SessionConfig {
 /// assert_eq!(session.snapshot_version(), 0);
 /// ```
 #[derive(Debug)]
-pub struct ClusteringSession<D: DataSource + Sync> {
+pub struct ClusteringSession<D: DataSource + Send + Sync> {
     config: SessionConfig,
     index: CpuHnsw,
     _core_distances: Vec<f32>,
@@ -230,19 +230,22 @@ const _: fn() = || {
     assert_send_sync::<ClusteringSession<_DummySrc>>();
 };
 
-impl<D: DataSource + Sync> ClusteringSession<D> {
-    fn new_with_capacity(config: SessionConfig, source: Arc<D>, capacity: usize) -> Result<Self> {
-        let index =
-            CpuHnsw::with_capacity(config.hnsw_params().clone(), capacity).map_err(|error| {
-                let code = Arc::from(error.code().as_str());
-                let message = Arc::from(error.to_string());
-                warn!(
-                    code = ?code,
-                    message = %message,
-                    "CpuHnsw index allocation failed; returning CpuHnswFailure"
-                );
-                ChutoroError::CpuHnswFailure { code, message }
-            })?;
+impl<D: DataSource + Send + Sync> ClusteringSession<D> {
+    fn new_with_index_result(
+        config: SessionConfig,
+        source: Arc<D>,
+        index: std::result::Result<CpuHnsw, HnswError>,
+    ) -> Result<Self> {
+        let index = index.map_err(|error| {
+            let code = Arc::from(error.code().as_str());
+            let message = Arc::from(error.to_string());
+            warn!(
+                code = ?code,
+                message = %message,
+                "CpuHnsw index allocation failed; returning CpuHnswFailure"
+            );
+            ChutoroError::CpuHnswFailure { code, message }
+        })?;
         debug!(
             min_cluster_size = %config.min_cluster_size(),
             "ClusteringSession allocated: empty HNSW index ready"
@@ -262,13 +265,24 @@ impl<D: DataSource + Sync> ClusteringSession<D> {
         })
     }
 
+    fn new_with_capacity(config: SessionConfig, source: Arc<D>, capacity: usize) -> Result<Self> {
+        let index = CpuHnsw::with_capacity(config.hnsw_params().clone(), capacity);
+        Self::new_with_index_result(config, source, index)
+    }
+
     pub(crate) fn new(config: SessionConfig, source: Arc<D>) -> Result<Self> {
         Self::new_with_capacity(config, source, 1)
     }
 
     #[cfg(test)]
     pub(crate) fn new_failing_for_test(config: SessionConfig, source: Arc<D>) -> Result<Self> {
-        Self::new_with_capacity(config, source, 0)
+        Self::new_with_index_result(
+            config,
+            source,
+            Err(HnswError::InvalidParameters {
+                reason: "test-injected HNSW construction failure".to_owned(),
+            }),
+        )
     }
 
     /// Returns the validated configuration used by the session.

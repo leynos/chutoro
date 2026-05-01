@@ -279,7 +279,7 @@ impl ChutoroBuilder {
     /// index cannot be allocated (e.g. the HNSW library reports an internal
     /// construction error).
     #[cfg(feature = "cpu")]
-    pub fn build_session<D: DataSource + Sync>(
+    pub fn build_session<D: DataSource + Send + Sync>(
         self,
         source: Arc<D>,
     ) -> Result<ClusteringSession<D>> {

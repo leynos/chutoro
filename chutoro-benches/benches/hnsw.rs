@@ -98,6 +98,18 @@ fn panic_on_bench_build_error<B>(result: Result<B, HnswError>, context: &str) {
     }
 }
 
+fn is_exact_benchmark_probe() -> bool {
+    std::env::args().any(|arg| arg == "--exact")
+}
+
+fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
+    group.sample_size(10);
+    if is_exact_benchmark_probe() {
+        group.warm_up_time(Duration::from_millis(1));
+        group.measurement_time(Duration::from_millis(10));
+    }
+}
+
 #[derive(Clone, Copy)]
 struct SourceBenchSpec<'a> {
     bench_label: &'a str,
@@ -147,7 +159,7 @@ where
     F: FnMut(&SyntheticSource, HnswParams) -> Result<(), HnswError>,
 {
     let mut group = c.benchmark_group(group_name);
-    group.sample_size(10);
+    configure_hnsw_group(&mut group);
 
     for &point_count in POINT_COUNTS {
         let source = make_bench_source(point_count)?;
@@ -269,7 +281,7 @@ fn hnsw_build_with_edges(c: &mut Criterion) {
 
 fn hnsw_build_diverse_sources_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("hnsw_build_diverse_sources");
-    group.sample_size(10);
+    configure_hnsw_group(&mut group);
 
     let params = make_hnsw_params(16)?;
     let gaussian = make_gaussian_source()?;
