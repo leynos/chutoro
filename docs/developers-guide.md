@@ -64,7 +64,7 @@ pub fn with_hnsw_params(self, params: HnswParams) -> Self;
 pub fn hnsw_params(&self) -> &HnswParams;
 pub fn with_session_refresh_policy(self, policy: SessionRefreshPolicy) -> Self;
 pub fn session_refresh_policy(&self) -> &SessionRefreshPolicy;
-pub fn build_session<D: DataSource + Sync>(self, source: Arc<D>)
+pub fn build_session<D: DataSource + Send + Sync>(self, source: Arc<D>)
     -> Result<ClusteringSession<D>>;
 ```
 
@@ -79,7 +79,7 @@ pub fn min_cluster_size(&self) -> NonZeroUsize;
 pub fn hnsw_params(&self) -> &HnswParams;
 pub fn refresh_policy(&self) -> &SessionRefreshPolicy;
 
-// ClusteringSession<D: DataSource + Sync>
+// ClusteringSession<D: DataSource + Send + Sync>
 pub fn config(&self) -> &SessionConfig;
 pub fn point_count(&self) -> usize;
 pub fn snapshot_version(&self) -> u64;
