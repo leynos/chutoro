@@ -5,7 +5,7 @@ use std::{num::NonZeroUsize, time::Duration};
 use crate::hnsw::{distance_cache::DistanceCacheConfig, error::HnswError};
 
 /// Configuration parameters for the CPU HNSW index.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HnswParams {
     max_connections: usize,
     ef_construction: usize,

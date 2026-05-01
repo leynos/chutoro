@@ -57,6 +57,70 @@ assert_eq!(result.cluster_count(), 1);
 orchestration surface for a future accelerator backend; requesting
 `ExecutionStrategy::GpuPreferred` currently yields `BackendUnavailable`.
 
+## Incremental clustering sessions
+
+Prefer `build_session()` over `Chutoro::run()` when the application needs a
+long-lived, incrementally updated index instead of a one-shot batch clustering
+run.
+
+The public session surface exposes three types. `SessionConfig` carries the
+validated `min_cluster_size`, `HnswParams`, and `SessionRefreshPolicy`.
+`SessionRefreshPolicy` represents either manual refresh or an append-threshold
+trigger. `ClusteringSession<D>` owns the live session state.
+
+Construct a session through `ChutoroBuilder`:
+
+```rust
+use std::sync::Arc;
+use chutoro_core::{
+    ChutoroBuilder, DataSource, DataSourceError, MetricDescriptor,
+    SessionRefreshPolicy,
+};
+
+# struct Dummy(Vec<f32>);
+# impl DataSource for Dummy {
+#     fn len(&self) -> usize { self.0.len() }
+#     fn name(&self) -> &str { "dummy" }
+#     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+#         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+#         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+#         Ok((a - b).abs())
+#     }
+#     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("abs") }
+# }
+#
+# fn example(source: Arc<Dummy>) -> Result<(), chutoro_core::ChutoroError> {
+let session = ChutoroBuilder::new()
+    .with_min_cluster_size(10)
+    .with_session_refresh_policy(SessionRefreshPolicy::manual())
+    .build_session(source)?;
+
+assert_eq!(session.point_count(), 0);
+assert_eq!(session.snapshot_version(), 0);
+# Ok(())
+# }
+```
+
+Sessions are CPU-only, so `ExecutionStrategy::GpuPreferred` is rejected during
+`build_session()`. Empty and undersized sources are accepted at construction
+time because session creation does not seed HNSW or run the batch bootstrap
+path.
+
+### Limitations
+
+- The v1 incremental design is append-oriented; deletion and arbitrary
+  in-place mutation are not part of the public session surface.
+- Stable cluster identity across snapshots is not guaranteed until roadmap item
+  `12.3.1` lands.
+- Refresh is intended to operate as a micro-batched workflow rather than a
+  per-item online relabelling path.
+- A refresh can relabel existing points as well as newly appended points.
+
+Mutation, append, refresh, and full batch bootstrap are not yet available on
+the public session surface. Those workflows remain future roadmap work. The
+`cpu` feature must be enabled to access `build_session()`,
+`SessionRefreshPolicy`, `SessionConfig`, and `ClusteringSession<D>`.
+
 ## Implementing data sources
 
 `DataSource` abstracts item storage and distance calculations. Implementations

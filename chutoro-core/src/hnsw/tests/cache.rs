@@ -138,3 +138,27 @@ fn rejects_non_finite_entries() {
         crate::hnsw::HnswError::NonFiniteDistance { .. }
     ));
 }
+
+fn cache_config(max_entries: usize) -> DistanceCacheConfig {
+    DistanceCacheConfig::new(NonZeroUsize::new(max_entries).expect("non-zero"))
+}
+
+#[rstest]
+#[case(cache_config(64), cache_config(64), true)]
+#[case(cache_config(64), cache_config(128), false)]
+#[case(
+    cache_config(64),
+    cache_config(64).with_ttl(Some(Duration::from_secs(1))),
+    false
+)]
+fn distance_cache_config_equality(
+    #[case] left_config: DistanceCacheConfig,
+    #[case] right_config: DistanceCacheConfig,
+    #[case] expected_equal: bool,
+) {
+    if expected_equal {
+        assert_eq!(left_config, right_config);
+    } else {
+        assert_ne!(left_config, right_config);
+    }
+}

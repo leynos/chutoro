@@ -8,14 +8,30 @@ test-threads = 8
 slow-timeout = { period = "60s", terminate-after = 1, grace-period = "5s" }
 
 # Put a hard ceiling on the whole run.
-global-timeout = "20m"
+global-timeout = "40m"
 
 [[profile.default.overrides]]
 # Criterion benchmarks run as test targets and need more than the default 60s
 # timeout.  The HNSW n=5000 cases and extraction benchmarks routinely exceed
 # 60s under parallel load and can occasionally exceed 180s on shared runners.
 filter = "package(chutoro-benches) & kind(bench)"
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+threads-required = 8
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
+# The largest extraction benchmark can exceed the generic 300s bench timeout on
+# slower or more contended developer machines.
+filter = "package(chutoro-benches) & test(/extract_labels\\//)"
+threads-required = 8
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
+# Some Criterion groups hang under nextest when multiple report-writing bench
+# processes overlap on smaller machines, even though the binaries finish
+# immediately when invoked directly.
+filter = "package(chutoro-benches) & test(/edge_harvest_construction\\//)"
+threads-required = 8
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
 # Edge harvest property suite can run slower under heavy parallel load.

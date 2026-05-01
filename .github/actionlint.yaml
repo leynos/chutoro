@@ -1,0 +1,6 @@
+self-hosted-runner:
+  labels:
+    - ubicloud-standard-8
+
+config-variables: null
+paths: {}

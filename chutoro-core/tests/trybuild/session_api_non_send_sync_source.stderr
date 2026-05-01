@@ -1,0 +1,39 @@
+error[E0277]: `Rc<RefCell<Vec<f32>>>` cannot be sent between threads safely
+  --> tests/trybuild/session_api_non_send_sync_source.rs:41:49
+   |
+41 |     let _ = ChutoroBuilder::new().build_session(source);
+   |                                   ------------- ^^^^^^ `Rc<RefCell<Vec<f32>>>` cannot be sent between threads safely
+   |                                   |
+   |                                   required by a bound introduced by this call
+   |
+   = help: within `NonThreadSafeSource`, the trait `Send` is not implemented for `Rc<RefCell<Vec<f32>>>`
+note: required because it appears within the type `NonThreadSafeSource`
+  --> tests/trybuild/session_api_non_send_sync_source.rs:11:8
+   |
+11 | struct NonThreadSafeSource {
+   |        ^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `ChutoroBuilder::build_session`
+  --> src/builder.rs
+   |
+   |     pub fn build_session<D: DataSource + Send + Sync>(
+   |                                          ^^^^ required by this bound in `ChutoroBuilder::build_session`
+
+error[E0277]: `Rc<RefCell<Vec<f32>>>` cannot be shared between threads safely
+  --> tests/trybuild/session_api_non_send_sync_source.rs:41:49
+   |
+41 |     let _ = ChutoroBuilder::new().build_session(source);
+   |                                   ------------- ^^^^^^ `Rc<RefCell<Vec<f32>>>` cannot be shared between threads safely
+   |                                   |
+   |                                   required by a bound introduced by this call
+   |
+   = help: within `NonThreadSafeSource`, the trait `Sync` is not implemented for `Rc<RefCell<Vec<f32>>>`
+note: required because it appears within the type `NonThreadSafeSource`
+  --> tests/trybuild/session_api_non_send_sync_source.rs:11:8
+   |
+11 | struct NonThreadSafeSource {
+   |        ^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `ChutoroBuilder::build_session`
+  --> src/builder.rs
+   |
+   |     pub fn build_session<D: DataSource + Send + Sync>(
+   |                                                 ^^^^ required by this bound in `ChutoroBuilder::build_session`

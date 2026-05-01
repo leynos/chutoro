@@ -18,8 +18,10 @@ name: Property Tests
 jobs:
   property-tests-pr:
     if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+    runs-on: ubicloud-standard-8
+    # Keep this above the 600-second HNSW idempotency nextest timeout so setup
+    # and the earlier property tests do not consume the whole job budget.
+    timeout-minutes: 20
     permissions:
       contents: read
     strategy:
@@ -83,7 +85,7 @@ jobs:
 
   property-tests-weekly:
     if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-8
     timeout-minutes: 120
     permissions:
       contents: read

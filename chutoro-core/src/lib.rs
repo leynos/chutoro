@@ -16,6 +16,8 @@ mod memory;
 #[cfg(feature = "cpu")]
 mod mst;
 mod result;
+#[cfg(feature = "cpu")]
+mod session;
 
 pub use crate::{
     builder::{ChutoroBuilder, ExecutionStrategy},
@@ -53,6 +55,10 @@ pub use crate::mst::{MinimumSpanningForest, MstEdge, MstError, MstErrorCode, par
 pub use crate::hierarchy::{
     HierarchyConfig, HierarchyError, HierarchyErrorCode, extract_labels_from_mst,
 };
+
+#[cfg(feature = "cpu")]
+/// CPU incremental clustering session types; requires the `cpu` feature.
+pub use crate::session::{ClusteringSession, SessionConfig, SessionRefreshPolicy};
 
 #[cfg(test)]
 pub(crate) mod test_utils;

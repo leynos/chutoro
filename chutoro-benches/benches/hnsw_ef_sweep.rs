@@ -3,7 +3,7 @@
 //! Varies `ef_construction` independently of `M` to show build-time versus
 //! recall trade-offs. Complements the main HNSW benchmarks in `hnsw.rs`
 //! which hold `ef_construction = M * 2` fixed.
-use std::{num::NonZeroUsize, path::PathBuf, time::Instant};
+use std::{num::NonZeroUsize, path::PathBuf, time::Duration, time::Instant};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_main};
 
@@ -55,6 +55,7 @@ const CLUSTERING_QUALITY_REPORT_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../target/benchmarks/hnsw_cluster_quality_vs_ef.csv"
 );
+const DISCOVERY_EF_SWEEP_POINT_COUNTS: &[usize] = &[500];
 
 /// Panics on HNSW build failure within a Criterion benchmark closure.
 ///
@@ -96,6 +97,28 @@ fn parse_bool_env_var(env_var_name: &str) -> Option<bool> {
 
 fn is_discovery_mode() -> bool {
     std::env::args().any(|arg| arg == "--list" || arg == "--exact")
+}
+
+fn is_exact_benchmark_probe() -> bool {
+    std::env::args().any(|arg| arg == "--exact")
+}
+
+fn configure_ef_sweep_group(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+) {
+    group.sample_size(10);
+    if is_exact_benchmark_probe() {
+        group.warm_up_time(Duration::from_millis(1));
+        group.measurement_time(Duration::from_millis(10));
+    }
+}
+
+fn ef_sweep_point_counts() -> &'static [usize] {
+    if is_discovery_mode() {
+        DISCOVERY_EF_SWEEP_POINT_COUNTS
+    } else {
+        EF_SWEEP_POINT_COUNTS
+    }
 }
 
 fn should_collect_recall_report() -> bool {
@@ -210,9 +233,9 @@ fn hnsw_build_ef_sweep_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let _maybe_quality_report_path = measure_clustering_quality_vs_ef_impl()?;
 
     let mut group = c.benchmark_group("hnsw_build_ef_sweep");
-    group.sample_size(10);
+    configure_ef_sweep_group(&mut group);
 
-    for &point_count in EF_SWEEP_POINT_COUNTS {
+    for &point_count in ef_sweep_point_counts() {
         let source = make_bench_source(point_count)?;
         for &m in EF_SWEEP_MAX_CONNECTIONS {
             for &ef_raw in EF_CONSTRUCTION_VALUES {

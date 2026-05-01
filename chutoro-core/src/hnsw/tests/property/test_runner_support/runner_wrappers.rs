@@ -24,7 +24,7 @@ where
 {
     let profile = property_run_profile(cases.get());
     let config = PropertyRunnerConfig {
-        cases: TestCases::new(profile.cases()),
+        cases,
         fork: profile.fork(),
         max_shrink_iters,
         stack_size,
@@ -42,7 +42,7 @@ where
 {
     let profile = property_run_profile(cases.get());
     test_runner(Config {
-        cases: profile.cases(),
+        cases: cases.get(),
         fork: profile.fork(),
         max_shrink_iters: max_shrink_iters.get(),
         ..Config::default()

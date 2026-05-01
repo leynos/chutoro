@@ -29,7 +29,7 @@ use crate::{datasource::MetricDescriptor, hnsw::error::HnswError};
 ///     .with_ttl(None);
 /// assert_eq!(config.max_entries().get(), 1024);
 /// ```
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DistanceCacheConfig {
     max_entries: NonZeroUsize,
     ttl: Option<Duration>,

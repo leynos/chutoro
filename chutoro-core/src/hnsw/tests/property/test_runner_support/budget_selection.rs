@@ -167,7 +167,8 @@ impl JobKind {
 
 /// Coverage jobs use fewer idempotency cases to stay within CI time budgets.
 /// Reduced from 2 to 1 after coverage-instrumented builds occasionally
-/// exceeded the 600s nextest timeout in CI.
+/// exceeded the 600s nextest timeout in CI. `MAX_IDEMPOTENCY_CASES` is the
+/// Standard-job analogue for non-coverage runs.
 const COVERAGE_IDEMPOTENCY_CASES: u32 = 1;
 /// Coverage jobs cap shrink iterations to prevent long minimisation tails.
 /// Reduced from 32 to 8 because shrinking is rarely exercised for the
@@ -178,6 +179,14 @@ const COVERAGE_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 8;
 const DEFAULT_IDEMPOTENCY_MAX_SHRINK_ITERS: u32 = 1024;
 /// Default idempotency case count when no profile override is configured.
 const DEFAULT_IDEMPOTENCY_CASES: u32 = 16;
+/// Maximum idempotency case count for non-coverage (standard) runs.
+///
+/// Each idempotency case performs a full `CpuHnsw::build` and a complete
+/// graph snapshot, making it substantially more expensive per iteration than
+/// mutation or search cases. Cap at the default to ensure the test stays
+/// within the 600-second nextest CI budget regardless of the `PROPTEST_CASES`
+/// environment variable.
+const MAX_IDEMPOTENCY_CASES: u32 = DEFAULT_IDEMPOTENCY_CASES;
 
 /// Coverage jobs use fewer mutation cases to stay within CI time budgets.
 /// Mutation tests build full HNSW indices per case, making each iteration
@@ -190,6 +199,13 @@ const COVERAGE_MUTATION_MAX_SHRINK_ITERS: u32 = 64;
 const DEFAULT_MUTATION_MAX_SHRINK_ITERS: u32 = 1024;
 /// Default mutation case count when no profile override is configured.
 const DEFAULT_MUTATION_CASES: u32 = 64;
+/// Maximum mutation case count for non-forked standard runs.
+///
+/// Mutation cases can rebuild and revalidate the graph after up to twelve
+/// add/delete/reconfigure steps. Cap pull request runs at the default budget
+/// so `PROPTEST_CASES=250` cannot consume the 600-second nextest allowance,
+/// while still allowing forked scheduled runs to request deeper coverage.
+const MAX_MUTATION_CASES: u32 = DEFAULT_MUTATION_CASES;
 /// Coverage jobs use fewer search cases to stay within CI time budgets.
 /// Search correctness builds full HNSW indices and brute-force baselines per
 /// case, so coverage instrumentation amplifies the cost substantially.
@@ -228,10 +244,14 @@ fn configured_cases(default_cases: u32) -> TestCases {
 
 /// Selects the number of idempotency test cases based on job kind.
 ///
-/// Returns the configured cases for non-coverage jobs, or a reduced count
+/// Returns capped configured cases for non-coverage jobs, or a reduced count
 /// (`COVERAGE_IDEMPOTENCY_CASES`) for coverage-instrumented runs.
 pub(crate) fn select_idempotency_cases(job: JobKind, configured: TestCases) -> TestCases {
-    select_cases(job, configured, COVERAGE_IDEMPOTENCY_CASES)
+    if job.is_coverage() {
+        TestCases::new(COVERAGE_IDEMPOTENCY_CASES)
+    } else {
+        TestCases::new(configured.get().min(MAX_IDEMPOTENCY_CASES))
+    }
 }
 
 /// Returns the number of idempotency test cases, auto-detecting the job kind.
@@ -266,18 +286,38 @@ pub(crate) fn idempotency_shrink_iters() -> ShrinkIterations {
 
 /// Selects the number of mutation test cases based on job kind.
 ///
-/// Returns the configured cases for non-coverage jobs, or a reduced count
-/// (`COVERAGE_MUTATION_CASES`) for coverage-instrumented runs.
+/// Returns capped configured cases for non-forked non-coverage jobs, or a
+/// reduced count (`COVERAGE_MUTATION_CASES`) for coverage-instrumented runs.
 pub(crate) fn select_mutation_cases(job: JobKind, configured: TestCases) -> TestCases {
-    select_cases(job, configured, COVERAGE_MUTATION_CASES)
+    select_mutation_cases_for_fork(job, configured, false)
+}
+
+/// Selects mutation case count while preserving forked deep-run budgets.
+pub(crate) fn select_mutation_cases_for_fork(
+    job: JobKind,
+    configured: TestCases,
+    fork: bool,
+) -> TestCases {
+    if job.is_coverage() {
+        TestCases::new(COVERAGE_MUTATION_CASES)
+    } else if fork {
+        configured
+    } else {
+        TestCases::new(configured.get().min(MAX_MUTATION_CASES))
+    }
 }
 
 /// Returns the number of mutation test cases, auto-detecting the job kind.
 ///
-/// Calls `select_mutation_cases` with the detected `JobKind` and
-/// the default mutation case count from the property test profile.
+/// Calls `select_mutation_cases_for_fork` with the detected `JobKind` and the
+/// mutation case count from the property test profile.
 pub(crate) fn mutation_cases() -> TestCases {
-    select_mutation_cases(JobKind::detect(), configured_cases(DEFAULT_MUTATION_CASES))
+    let profile = property_run_profile(DEFAULT_MUTATION_CASES);
+    select_mutation_cases_for_fork(
+        JobKind::detect(),
+        TestCases::new(profile.cases()),
+        profile.fork(),
+    )
 }
 
 /// Selects the maximum shrink iterations for mutation tests based on job kind.

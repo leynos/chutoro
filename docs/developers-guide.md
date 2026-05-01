@@ -10,34 +10,24 @@ keeps operational guidance in one place.
 Navigable Small World (HNSW) index. The primary insertion and query entry
 points are:
 
-- `CpuHnsw::build<D: DataSource + Sync>(
-  source: &D,
-  params: HnswParams,
-  ) -> Result<CpuHnsw, HnswError>`
-- `CpuHnsw::build_with_edges<D: DataSource + Sync>(
-  source: &D,
-  params: HnswParams,
-  ) -> Result<(CpuHnsw, EdgeHarvest), HnswError>`
-- `CpuHnsw::with_capacity(
-  params: HnswParams,
-  capacity: usize,
-  ) -> Result<CpuHnsw, HnswError>`
-- `CpuHnsw::insert<D: DataSource + Sync>(
-  &self,
-  node: usize,
-  source: &D,
-  ) -> Result<(), HnswError>`
-- `CpuHnsw::insert_harvesting<D: DataSource + Sync>(
-  &self,
-  node: usize,
-  source: &D,
-  ) -> Result<Vec<CandidateEdge>, HnswError>`
-- `CpuHnsw::search<D: DataSource + Sync>(
-  &self,
-  source: &D,
-  query: usize,
-  ef: NonZeroUsize,
-  ) -> Result<Vec<Neighbour>, HnswError>`
+```rust
+pub fn build<D: DataSource + Sync>(source: &D, params: HnswParams)
+    -> Result<CpuHnsw, HnswError>;
+pub fn build_with_edges<D: DataSource + Sync>(source: &D, params: HnswParams)
+    -> Result<(CpuHnsw, EdgeHarvest), HnswError>;
+pub fn with_capacity(params: HnswParams, capacity: usize)
+    -> Result<CpuHnsw, HnswError>;
+pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D)
+    -> Result<(), HnswError>;
+pub fn insert_harvesting<D: DataSource + Sync>(&self, node: usize, source: &D)
+    -> Result<Vec<CandidateEdge>, HnswError>;
+pub fn search<D: DataSource + Sync>(
+    &self,
+    source: &D,
+    query: usize,
+    ef: NonZeroUsize,
+) -> Result<Vec<Neighbour>, HnswError>;
+```
 
 `build` and `build_with_edges` seed the entry point from node `0` and insert
 the remaining nodes in parallel. `build_with_edges` is the preferred path when
@@ -60,6 +50,69 @@ behavioural contract between `insert` and `insert_harvesting`.
 Design rationale and deeper implementation notes live in
 [the design document](./chutoro-design.md) and the completed
 [edge-harvesting ExecPlan](./execplans/11-1-1-make-edge-harvesting-hnsw-insertion-path-public.md).
+
+## Session public APIs
+
+The public session surface is CPU-only. `build_session` constructs an empty
+`ClusteringSession` without seeding HNSW or running the batch bootstrap path.
+The architectural rationale for that split lives in
+[the design document](./chutoro-design.md).
+
+```rust
+// ChutoroBuilder (cpu feature required for session APIs)
+pub fn with_hnsw_params(self, params: HnswParams) -> Self;
+pub fn hnsw_params(&self) -> &HnswParams;
+pub fn with_session_refresh_policy(self, policy: SessionRefreshPolicy) -> Self;
+pub fn session_refresh_policy(&self) -> &SessionRefreshPolicy;
+pub fn build_session<D: DataSource + Send + Sync>(self, source: Arc<D>)
+    -> Result<ClusteringSession<D>>;
+```
+
+```rust
+// SessionRefreshPolicy
+pub fn manual() -> Self;
+pub fn with_refresh_every_n(self, refresh_every_n: Option<NonZeroUsize>) -> Self;
+pub fn refresh_every_n(&self) -> Option<NonZeroUsize>;
+
+// SessionConfig
+pub fn min_cluster_size(&self) -> NonZeroUsize;
+pub fn hnsw_params(&self) -> &HnswParams;
+pub fn refresh_policy(&self) -> &SessionRefreshPolicy;
+
+// ClusteringSession<D: DataSource + Send + Sync>
+pub fn config(&self) -> &SessionConfig;
+pub fn point_count(&self) -> usize;
+pub fn snapshot_version(&self) -> u64;
+```
+
+`build_session` validates `min_cluster_size > 0`, rejects
+`ExecutionStrategy::GpuPreferred`, accepts empty and undersized sources, and
+returns an inert session whose initial observable state is `point_count() == 0`
+and `snapshot_version() == 0`.
+
+The v1 incremental clustering surface has these limitations:
+
+- Ingestion is append-only; deletions and updates are not supported.
+- Cluster identity is not stable across snapshots, and cluster IDs may change.
+- Refreshes are micro-batched rather than applied per point.
+- Existing points may be relabelled after a refresh.
+
+## Continuous integration
+
+Property-test CI jobs (`property-tests-pr` and `property-tests-weekly`) run on
+`ubicloud-standard-8`, an 8-core Ubicloud runner, rather than `ubuntu-latest`.
+
+The PR job has a `timeout-minutes: 20` budget, sized to exceed the longest
+`nextest` `slow-timeout` (600 s for HNSW idempotency) so earlier setup and
+property phases do not consume the full budget. The weekly job retains a
+`timeout-minutes: 120` budget for deeper test runs.
+
+All test runs use the `nextest` CI profile (`--profile ci`). Benchmark targets
+require `threads-required = 8`; see `.config/nextest.toml`.
+
+Use `.github/workflows/property-tests.yml` and `.config/nextest.toml` for the
+authoritative configuration, and `docs/property-testing-design.md` for the
+architectural rationale.
 
 ## Benchmarks
 
@@ -97,14 +150,18 @@ set -o pipefail
 CHUTORO_BENCH_HNSW_MEMORY_PROFILE=0 \
 CHUTORO_BENCH_HNSW_RECALL_REPORT=0 \
 CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT=0 \
-cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --save-baseline local-reference --noplot \
+cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- \
+  --save-baseline local-reference \
+  --noplot \
   2>&1 | tee /tmp/bench-hnsw-ef-sweep-save.log
 
 set -o pipefail
 CHUTORO_BENCH_HNSW_MEMORY_PROFILE=0 \
 CHUTORO_BENCH_HNSW_RECALL_REPORT=0 \
 CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT=0 \
-cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --baseline local-reference --noplot \
+cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- \
+  --baseline local-reference \
+  --noplot \
   2>&1 | tee /tmp/bench-hnsw-ef-sweep-compare.log
 ```
 
