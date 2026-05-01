@@ -90,6 +90,13 @@ pub fn snapshot_version(&self) -> u64;
 returns an inert session whose initial observable state is `point_count() == 0`
 and `snapshot_version() == 0`.
 
+The v1 incremental clustering surface has these limitations:
+
+- Ingestion is append-only; deletions and updates are not supported.
+- Cluster identity is not stable across snapshots, and cluster IDs may change.
+- Refreshes are micro-batched rather than applied per point.
+- Existing points may be relabelled after a refresh.
+
 ## Continuous integration
 
 Property-test CI jobs (`property-tests-pr` and `property-tests-weekly`) run on
@@ -143,14 +150,18 @@ set -o pipefail
 CHUTORO_BENCH_HNSW_MEMORY_PROFILE=0 \
 CHUTORO_BENCH_HNSW_RECALL_REPORT=0 \
 CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT=0 \
-cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --save-baseline local-reference --noplot \
+cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- \
+  --save-baseline local-reference \
+  --noplot \
   2>&1 | tee /tmp/bench-hnsw-ef-sweep-save.log
 
 set -o pipefail
 CHUTORO_BENCH_HNSW_MEMORY_PROFILE=0 \
 CHUTORO_BENCH_HNSW_RECALL_REPORT=0 \
 CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT=0 \
-cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --baseline local-reference --noplot \
+cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- \
+  --baseline local-reference \
+  --noplot \
   2>&1 | tee /tmp/bench-hnsw-ef-sweep-compare.log
 ```
 

@@ -276,7 +276,7 @@ impl ChutoroBuilder {
     /// Constructs an empty [`ClusteringSession`] from the current builder
     /// configuration.
     ///
-    /// The session is initialised without seeding the HNSW index or performing a
+    /// The session is initialized without seeding the HNSW index or performing a
     /// batch bootstrap; [`ClusteringSession::point_count`] and
     /// [`ClusteringSession::snapshot_version`] will both be `0` on the returned
     /// session. Empty and undersized sources are accepted — source length is not
