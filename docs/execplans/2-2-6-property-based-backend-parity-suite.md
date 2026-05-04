@@ -52,6 +52,17 @@ packing contract, and the non-finite reduction rule (`finalize_distance(value)`
 returns `f32::NAN` for any non-finite input). This plan does not change any of
 those; it only adds verification on top.
 
+This deliverable also unblocks two downstream roadmap items. Roadmap entry
+`2.2.7` (`docs/roadmap.md` line 311) needs a stable `DistanceSemantics`
+contract before it can author bounded Kani harnesses for SIMD tail padding
+and runtime dispatch selection. Roadmap entries under `4.2` (GPU offload
+parity) require the same contract to drive cross-architecture parity — the
+design document explicitly states this at `docs/chutoro-design.md` line
+1512: "The GPU distance path should consume the same `DistanceSemantics`
+contract used by the CPU backends (§6.3)." Keeping the contract crate-internal
+for `2.2.6` is a deliberate scope-limit; promotion to a workspace-shared
+surface is left to the later items that will actually consume it.
+
 ## Constraints
 
 - Keep Rust source files under 400 lines. Split tests, strategies, or helpers
@@ -123,6 +134,19 @@ those; it only adds verification on top.
   than `1e-5` on inputs the suite must cover), stop and escalate rather than
   silently widening epsilon. The contract value matters more than passing the
   test.
+- Real defect surfaced: if the property suite reproducibly fails for a
+  backend that exists today (AVX2, AVX-512, Neon, or portable SIMD) and the
+  failure is not a property-suite or oracle bug, stop. Record the minimal
+  shrunk counterexample under `proptest-regressions/` and escalate so the
+  reviewer can decide whether to fix the kernel, tighten the oracle, or
+  restate the contract. Do not paper over a kernel divergence by relaxing
+  the parity property.
+- Runtime budget: if a single PR-tier invocation
+  (`cargo nextest run -p chutoro-providers-dense simd::tests::parity::`) at
+  `PROPTEST_CASES=250` and `PROPTEST_FORK=false` exceeds 60 seconds on the
+  development host, stop and reduce strategy cardinality before continuing.
+  The PR-tier suite should stay well under the existing chutoro-core
+  property-suite runtime so it does not dominate `make test`.
 
 ## Risks
 
@@ -172,6 +196,20 @@ those; it only adds verification on top.
   `simd::tests` tree so they need no visibility widening; if an integration
   test tier is desired, expose a narrow `pub(crate)` parity facade instead of
   widening every kernel function's visibility.
+- Risk: Choosing the wrong location or visibility for `DistanceSemantics` now
+  forces a churny migration when GPU work in `4.2.x` and the bounded Kani
+  harness in `2.2.7` start consuming it. Severity: medium. Likelihood: medium.
+  Mitigation: keep the type and its policy enums confined to the dense
+  provider's `#[cfg(test)]` tree for this milestone; capture the migration
+  expectation in the `Decision log` so the later items can lift the contract
+  into `chutoro-core` (or an internal shared crate) without redesigning it.
+- Risk: Shrinking interacts poorly with `f32::NAN` and `±∞` because partial
+  ordering and float equality are undefined for non-finite values. Severity:
+  low. Likelihood: high. Mitigation: keep finite and non-finite generators in
+  separate `prop_oneof!` arms so a finite-flavour failure shrinks against
+  finite-only data; assert non-finite parity via `is_nan()` rather than
+  numeric comparison; document this in `assert_close` so the helper itself
+  encodes the rule.
 
 ## Progress
 
@@ -229,6 +267,16 @@ Populate during execution.
   existing chutoro-core suites use). Rationale: matches the established
   two-tier model in `docs/property-testing-design.md` §5 and keeps PR feedback
   fast. Date/Author: 2026-05-02, planning.
+- Decision: do not author a dedicated ADR for `DistanceSemantics` as part of
+  `2.2.6`. Rationale: `docs/chutoro-design.md` §6.3 already specifies the
+  contract in prose, and the implementation update note added in Stage D
+  records the realized shape, the calibrated epsilon, and the policy enums.
+  An ADR is only required if Stage C calibration surfaces a substantive
+  trade-off (for example, an epsilon policy the GPU side cannot honour); in
+  that case, write `docs/adr-003-distance-semantics-contract.md` following
+  the dotted-numbering convention of `adr-001-commit-post-processing.md` and
+  `adr-002-adoption-of-kani-formal-verification.md`, and reference it from
+  §6.3. Date/Author: 2026-05-04, planning.
 
 Append further decisions during execution.
 
@@ -288,6 +336,24 @@ work because it tests a different kind of system, but it shows the project's
 preferred decomposition (`strategies.rs`, dataset generators, property modules
 per invariant). The parity suite should follow the same spirit: one strategies
 module, one or more property modules, and small shared helpers.
+
+The shared property-suite configuration helpers live at:
+
+- `chutoro-core/src/test_utils.rs` — exposes `suite_proptest_config(default)`,
+  which constructs a `proptest::test_runner::Config` honouring
+  `PROPTEST_CASES` and `CHUTORO_PBT_FORK`. The new parity suite should call
+  this helper rather than rolling its own config so PR-tier and weekly-tier
+  budgets stay aligned across the workspace.
+- `chutoro-test-support/src/ci/property_test_profile.rs` — the loader that
+  turns `PROPTEST_CASES` and `CHUTORO_PBT_FORK` into a typed profile. Its
+  defaults are the canonical PR-tier (`cases=250`, `fork=false`) and weekly
+  values, and the parity suite must not override them locally.
+
+`docs/users-guide.md` does not document SIMD backend selection, distance
+semantics, or non-finite policy, and `2.2.6` keeps the dense provider's
+public API unchanged. No user-facing prose change is required for this
+milestone; the implementation-update note in `docs/chutoro-design.md` §6.3
+plus the developers-guide subsection added in Stage D are sufficient.
 
 CI lives in `.github/workflows/`:
 
@@ -492,10 +558,18 @@ compilation passes) and shows the portable-SIMD backend participating.
    - A short implementation update note timestamped with the merge
      date, mirroring the format already used for items `2.2.1` through
      `2.2.5`.
-4. Update `docs/roadmap.md` only after `make test` and `make lint` are
-   clean and the design-doc update has been written: change `[ ]` to `[x]` on
-   item `2.2.6`.
-5. Final validation pass: run `make check-fmt`, `make lint`, and
+4. Update `docs/developers-guide.md` with a short subsection describing
+   how to extend the parity suite when a new backend or kernel is added:
+   where to register a backend in `dispatch.rs::enabled_backends`, how to
+   wire the entry function into `pairwise_entry` and `query_points_entry`,
+   how to add a strategy variant, and how the proptest-regressions file
+   acts as a regression guard. This satisfies the task brief's
+   "internally facing interfaces or practices" requirement and gives a
+   future contributor a concrete, in-tree on-ramp.
+5. Update `docs/roadmap.md` only after `make test` and `make lint` are
+   clean and the design-doc update has been written: change `[ ]` to `[x]`
+   on item `2.2.6` (`docs/roadmap.md` line 304).
+6. Final validation pass: run `make check-fmt`, `make lint`, and
    `make test`, redirecting each to a `tee` log under `/tmp` (see "Concrete
    steps" below). Upload nothing; the logs are local only.
 
