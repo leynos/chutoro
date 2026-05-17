@@ -415,8 +415,11 @@ dependencies = [
  "arrow-schema",
  "bytes",
  "chutoro-core",
+ "chutoro-test-support",
  "parquet",
+ "proptest",
  "rstest",
+ "test-strategy",
  "thiserror",
  "trybuild",
 ]

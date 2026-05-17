@@ -6,6 +6,7 @@ use super::*;
 use rstest::{fixture, rstest};
 
 mod entrypoints;
+mod parity;
 mod support_masks;
 
 fn close(left: Distance, right: Distance) {

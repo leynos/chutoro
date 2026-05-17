@@ -78,6 +78,32 @@ pub(super) fn select_euclidean_kernel() -> EuclideanKernel {
     )
 }
 
+/// Returns the pairwise entrypoint for a test-selected backend.
+#[cfg(test)]
+pub(super) fn pairwise_entry(backend: dispatch::EuclideanBackend) -> Option<EuclideanKernel> {
+    match backend {
+        dispatch::EuclideanBackend::Scalar => Some(euclidean_distance_scalar),
+        #[cfg(all(
+            feature = "simd_avx2",
+            any(target_arch = "x86", target_arch = "x86_64")
+        ))]
+        dispatch::EuclideanBackend::Avx2 => Some(euclidean_distance_avx2_entry),
+        #[cfg(all(
+            feature = "simd_avx512",
+            any(target_arch = "x86", target_arch = "x86_64")
+        ))]
+        dispatch::EuclideanBackend::Avx512 => Some(euclidean_distance_avx512_entry),
+        #[cfg(all(
+            feature = "simd_neon",
+            any(target_arch = "arm", target_arch = "aarch64")
+        ))]
+        dispatch::EuclideanBackend::Neon => Some(euclidean_distance_neon_entry),
+        #[cfg(all(feature = "nightly_portable_simd", nightly))]
+        dispatch::EuclideanBackend::PortableSimd => Some(euclidean_distance_portable_simd_entry),
+        _ => None,
+    }
+}
+
 pub(super) fn euclidean_distance_scalar(left: &[f32], right: &[f32]) -> f32 {
     assert_eq!(
         left.len(),
@@ -144,6 +170,42 @@ pub(super) fn euclidean_distance_query_points(
     assert_eq!(out.len(), points.point_count());
     let kernel = *EUCLIDEAN_QUERY_POINTS_KERNEL.get_or_init(select_euclidean_query_points_kernel);
     kernel(query, points, out);
+}
+
+/// Returns the query-to-points entrypoint for a test-selected backend.
+#[cfg(test)]
+pub(super) fn query_points_entry(
+    backend: dispatch::EuclideanBackend,
+) -> Option<EuclideanQueryPointsKernel> {
+    match backend {
+        dispatch::EuclideanBackend::Scalar => Some(euclidean_distance_query_points_scalar),
+        #[cfg(all(
+            feature = "simd_avx2",
+            any(target_arch = "x86", target_arch = "x86_64")
+        ))]
+        dispatch::EuclideanBackend::Avx2 => {
+            Some(x86_simd::euclidean_distance_query_points_avx2_entry)
+        }
+        #[cfg(all(
+            feature = "simd_avx512",
+            any(target_arch = "x86", target_arch = "x86_64")
+        ))]
+        dispatch::EuclideanBackend::Avx512 => {
+            Some(x86_simd::euclidean_distance_query_points_avx512_entry)
+        }
+        #[cfg(all(
+            feature = "simd_neon",
+            any(target_arch = "arm", target_arch = "aarch64")
+        ))]
+        dispatch::EuclideanBackend::Neon => {
+            Some(neon_simd::euclidean_distance_query_points_neon_entry)
+        }
+        #[cfg(all(feature = "nightly_portable_simd", nightly))]
+        dispatch::EuclideanBackend::PortableSimd => {
+            Some(euclidean_distance_query_points_portable_simd_entry)
+        }
+        _ => None,
+    }
 }
 
 pub(super) fn euclidean_distance_query_points_scalar(

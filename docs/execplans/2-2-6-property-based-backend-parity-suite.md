@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: IN PROGRESS
 
 ## Purpose / big picture
 
@@ -54,14 +54,14 @@ those; it only adds verification on top.
 
 This deliverable also unblocks two downstream roadmap items. Roadmap entry
 `2.2.7` (`docs/roadmap.md` line 311) needs a stable `DistanceSemantics`
-contract before it can author bounded Kani harnesses for SIMD tail padding
-and runtime dispatch selection. Roadmap entries under `4.2` (GPU offload
-parity) require the same contract to drive cross-architecture parity — the
-design document explicitly states this at `docs/chutoro-design.md` line
-1512: "The GPU distance path should consume the same `DistanceSemantics`
-contract used by the CPU backends (§6.3)." Keeping the contract crate-internal
-for `2.2.6` is a deliberate scope-limit; promotion to a workspace-shared
-surface is left to the later items that will actually consume it.
+contract before it can author bounded Kani harnesses for SIMD tail padding and
+runtime dispatch selection. Roadmap entries under `4.2` (GPU offload parity)
+require the same contract to drive cross-architecture parity — the design
+document explicitly states this at `docs/chutoro-design.md` line 1512: "The GPU
+distance path should consume the same `DistanceSemantics` contract used by the
+CPU backends (§6.3)." Keeping the contract crate-internal for `2.2.6` is a
+deliberate scope-limit; promotion to a workspace-shared surface is left to the
+later items that will actually consume it.
 
 ## Constraints
 
@@ -138,15 +138,15 @@ surface is left to the later items that will actually consume it.
   backend that exists today (AVX2, AVX-512, Neon, or portable SIMD) and the
   failure is not a property-suite or oracle bug, stop. Record the minimal
   shrunk counterexample under `proptest-regressions/` and escalate so the
-  reviewer can decide whether to fix the kernel, tighten the oracle, or
-  restate the contract. Do not paper over a kernel divergence by relaxing
-  the parity property.
+  reviewer can decide whether to fix the kernel, tighten the oracle, or restate
+  the contract. Do not paper over a kernel divergence by relaxing the parity
+  property.
 - Runtime budget: if a single PR-tier invocation
   (`cargo nextest run -p chutoro-providers-dense simd::tests::parity::`) at
   `PROPTEST_CASES=250` and `PROPTEST_FORK=false` exceeds 60 seconds on the
-  development host, stop and reduce strategy cardinality before continuing.
-  The PR-tier suite should stay well under the existing chutoro-core
-  property-suite runtime so it does not dominate `make test`.
+  development host, stop and reduce strategy cardinality before continuing. The
+  PR-tier suite should stay well under the existing chutoro-core property-suite
+  runtime so it does not dominate `make test`.
 
 ## Risks
 
@@ -207,23 +207,23 @@ surface is left to the later items that will actually consume it.
   ordering and float equality are undefined for non-finite values. Severity:
   low. Likelihood: high. Mitigation: keep finite and non-finite generators in
   separate `prop_oneof!` arms so a finite-flavour failure shrinks against
-  finite-only data; assert non-finite parity via `is_nan()` rather than
-  numeric comparison; document this in `assert_close` so the helper itself
-  encodes the rule.
+  finite-only data; assert non-finite parity via `is_nan()` rather than numeric
+  comparison; document this in `assert_close` so the helper itself encodes the
+  rule.
 
 ## Progress
 
-- [ ] Draft this ExecPlan and present it for approval.
-- [ ] Stage A: orient and propose. Confirm the placement of the parity
+- [x] Draft this ExecPlan and present it for approval.
+- [x] Stage A: orient and propose. Confirm the placement of the parity
   suite (in-crate `src/simd/tests/parity*.rs` modules), confirm the
   `DistanceSemantics` shape, and confirm the dev-dependency additions.
-- [ ] Stage B: scaffolding. Add `proptest` and `test-strategy` as
+- [x] Stage B: scaffolding. Add `proptest` and `test-strategy` as
   `dev-dependencies`; introduce `DistanceSemantics`; add a backend-iterator
   test seam that returns the set of currently-runnable backends.
-- [ ] Stage C: implement strategies and properties for pairwise distance.
-- [ ] Stage C: implement strategies and properties for query-to-points
+- [x] Stage C: implement strategies and properties for pairwise distance.
+- [x] Stage C: implement strategies and properties for query-to-points
   distance.
-- [ ] Stage C: implement non-finite parity property and zero-vector or
+- [x] Stage C: implement non-finite parity property and zero-vector or
   duplicate-vector property.
 - [ ] Stage D: CI wiring (`property-tests.yml` matrix entry,
   `nightly-portable-simd.yml` invocation), design-doc capture, and roadmap flip
@@ -231,11 +231,57 @@ surface is left to the later items that will actually consume it.
 - [ ] Stage D: validation. Run `make check-fmt`, `make lint`, and
   `make test`, capturing transcripts via `tee`.
 
-Use timestamps once execution begins.
+- 2026-05-17T11:12:35Z: Execution began on branch
+  `2-2-6-property-based-backend-parity-suite`. Loaded `leta`, `rust-router`,
+  and the ExecPlan workflow. Created the `leta` workspace for the worktree.
+  Completed Stage A orientation: scalar and backend pairwise entrypoints
+  already canonicalize through `finalize_distance`; support masks remain the
+  right runtime gate; `DensePointView<'a>` packs 16-lane aligned, zero-padded
+  query-point batches; and the existing query-to-points optimized entrypoints
+  are reachable through `select_euclidean_query_points_kernel`, with AVX2,
+  AVX-512, and Neon implementations kept inside their backend modules.
+- 2026-05-17T11:34:24Z: Completed Stages B and C in the first implementation
+  milestone. Added dense-provider dev dependencies for `proptest`,
+  `test-strategy`, and the existing workspace `chutoro-test-support` helper;
+  introduced a test-only `DistanceSemantics` contract; added support-mask
+  driven backend enumeration and entrypoint mapping; and added pairwise,
+  query-to-points, non-finite, zero-vector, and duplicate-vector property
+  coverage under `chutoro-providers/dense/src/simd/tests/parity/`. Targeted
+  `cargo nextest run -p chutoro-providers-dense simd::tests::parity::` passed
+  with 3 tests. `make check-fmt`, `make lint`, and `make test` passed before
+  CodeRabbit review; `make test` ran 947 tests, all passed, with 1 skipped.
+  CodeRabbit found three issues; all were fixed and the targeted parity suite
+  passed again.
+- 2026-05-17T12:13:45Z: Cleared the remaining CodeRabbit concerns. Final
+  CodeRabbit pass reported 0 findings. Final validation for the first
+  milestone passed: `make check-fmt`, `make lint`, targeted
+  `markdownlint-cli2
+  docs/execplans/2-2-6-property-based-backend-parity-suite.md`, and
+  `make test`. The final `make test` run completed 947 tests with 947 passed
+  and 1 skipped.
 
 ## Surprises & discoveries
 
-Populate during execution.
+- 2026-05-17T11:12:35Z: The existing
+  `chutoro-core::test_utils::suite_proptest_config` helper is `pub(crate)`, so
+  `chutoro-providers-dense` cannot call it directly without changing a
+  crate-internal interface. The public shared surface is
+  `chutoro_test_support::ci::property_test_profile::ProptestRunProfile`.
+- 2026-05-17T11:12:35Z: The historical property-test environment variable is
+  misspelled as `PROGTEST_CASES` in `chutoro-test-support`, while
+  `.github/workflows/property-tests.yml` already sets both `PROGTEST_CASES` and
+  `PROPTEST_CASES`. The dense parity suite should use the shared profile loader
+  so it remains compatible with the current workspace convention.
+- 2026-05-17T11:12:35Z: The dense query-to-points SIMD entry surface is split
+  by module. Portable-SIMD has a top-level
+  `kernels::euclidean_distance_query_points_portable_simd_entry`, while AVX2,
+  AVX-512, and Neon query-to-points entrypoints live inside their backend
+  implementation modules and are currently selected only through
+  `select_euclidean_query_points_kernel`.
+- 2026-05-17T11:34:24Z: `make test` on this repository is intentionally broad
+  because it runs `cargo nextest run --all-targets --all-features`; local
+  validation therefore includes benchmark harness tests and took roughly 10.5
+  minutes on this machine.
 
 ## Decision log
 
@@ -270,13 +316,38 @@ Populate during execution.
 - Decision: do not author a dedicated ADR for `DistanceSemantics` as part of
   `2.2.6`. Rationale: `docs/chutoro-design.md` §6.3 already specifies the
   contract in prose, and the implementation update note added in Stage D
-  records the realized shape, the calibrated epsilon, and the policy enums.
-  An ADR is only required if Stage C calibration surfaces a substantive
-  trade-off (for example, an epsilon policy the GPU side cannot honour); in
-  that case, write `docs/adr-003-distance-semantics-contract.md` following
-  the dotted-numbering convention of `adr-001-commit-post-processing.md` and
+  records the realized shape, the calibrated epsilon, and the policy enums. An
+  ADR is only required if Stage C calibration surfaces a substantive trade-off
+  (for example, an epsilon policy the GPU side cannot honour); in that case,
+  write `docs/adr-003-distance-semantics-contract.md` following the
+  dotted-numbering convention of `adr-001-commit-post-processing.md` and
   `adr-002-adoption-of-kani-formal-verification.md`, and reference it from
   §6.3. Date/Author: 2026-05-04, planning.
+- Decision: build the dense parity suite's proptest `Config` from
+  `chutoro_test_support::ci::property_test_profile::ProptestRunProfile` rather
+  than from `chutoro-core::test_utils::suite_proptest_config`. Rationale: the
+  core helper is intentionally crate-private, while the test-support profile
+  loader is the workspace-shared policy surface. This preserves the public API
+  constraint and avoids coupling the dense provider's tests to `chutoro-core`
+  internals. Date/Author: 2026-05-17, implementation.
+- Decision: keep backend availability enumeration in `dispatch.rs` and place
+  test-only entrypoint mapping helpers in `kernels.rs`. Rationale:
+  `dispatch.rs` owns support-mask logic, while `kernels.rs` can legally refer
+  to private backend implementation modules such as `x86_simd` and `neon_simd`
+  without widening their visibility. Date/Author: 2026-05-17, implementation.
+- Decision: address CodeRabbit's first milestone findings before committing.
+  Rationale: the review identified valid robustness issues in generated fixture
+  failure handling and empty-backend assertions, plus a broad `let _ = self` in
+  the semantics oracle methods. Replacing fixture failure branches with precise
+  `expect(...)`, asserting non-empty entry lists in the non-finite property,
+  and reading policy fields through a small debug contract assertion keeps the
+  test intent explicit. Date/Author: 2026-05-17, implementation.
+- Decision: keep the policy enums in `DistanceSemantics` despite having one
+  variant each today. Rationale: the ExecPlan explicitly calls for named
+  policy fields so the CPU parity suite can document and later migrate the
+  same contract into GPU parity and tie-breaking verification work. A short
+  code comment now records that future extension point. Date/Author:
+  2026-05-17, implementation.
 
 Append further decisions during execution.
 
@@ -340,20 +411,20 @@ module, one or more property modules, and small shared helpers.
 The shared property-suite configuration helpers live at:
 
 - `chutoro-core/src/test_utils.rs` — exposes `suite_proptest_config(default)`,
-  which constructs a `proptest::test_runner::Config` honouring
-  `PROPTEST_CASES` and `CHUTORO_PBT_FORK`. The new parity suite should call
-  this helper rather than rolling its own config so PR-tier and weekly-tier
-  budgets stay aligned across the workspace.
+  which constructs a `proptest::test_runner::Config` honouring `PROPTEST_CASES`
+  and `CHUTORO_PBT_FORK`. The new parity suite should call this helper rather
+  than rolling its own config so PR-tier and weekly-tier budgets stay aligned
+  across the workspace.
 - `chutoro-test-support/src/ci/property_test_profile.rs` — the loader that
   turns `PROPTEST_CASES` and `CHUTORO_PBT_FORK` into a typed profile. Its
   defaults are the canonical PR-tier (`cases=250`, `fork=false`) and weekly
   values, and the parity suite must not override them locally.
 
 `docs/users-guide.md` does not document SIMD backend selection, distance
-semantics, or non-finite policy, and `2.2.6` keeps the dense provider's
-public API unchanged. No user-facing prose change is required for this
-milestone; the implementation-update note in `docs/chutoro-design.md` §6.3
-plus the developers-guide subsection added in Stage D are sufficient.
+semantics, or non-finite policy, and `2.2.6` keeps the dense provider's public
+API unchanged. No user-facing prose change is required for this milestone; the
+implementation-update note in `docs/chutoro-design.md` §6.3 plus the
+developers-guide subsection added in Stage D are sufficient.
 
 CI lives in `.github/workflows/`:
 
@@ -541,10 +612,10 @@ compilation passes) and shows the portable-SIMD backend participating.
      under `chutoro-providers/dense/**`.
 2. Extend `.github/workflows/nightly-portable-simd.yml` to invoke the
    parity suite after the existing dense-provider test step:
-   `cargo +nightly test -p chutoro-providers-dense
-   --features nightly_portable_simd simd::tests::parity`. Keep the
-   existing `--features nightly_portable_simd` flag so the portable-SIMD
-   backend is in the enabled set.
+   `cargo +nightly test -p chutoro-providers-dense --features
+   nightly_portable_simd simd::tests::parity`. Keep the existing
+   `--features nightly_portable_simd` flag so the
+   portable-SIMD backend is in the enabled set.
 3. Update `docs/chutoro-design.md` §6.3 to record:
    - The `DistanceSemantics` value object and its fields.
    - The scalar-oracle reducer as the canonical reference, including
@@ -559,16 +630,16 @@ compilation passes) and shows the portable-SIMD backend participating.
      date, mirroring the format already used for items `2.2.1` through
      `2.2.5`.
 4. Update `docs/developers-guide.md` with a short subsection describing
-   how to extend the parity suite when a new backend or kernel is added:
-   where to register a backend in `dispatch.rs::enabled_backends`, how to
-   wire the entry function into `pairwise_entry` and `query_points_entry`,
-   how to add a strategy variant, and how the proptest-regressions file
-   acts as a regression guard. This satisfies the task brief's
-   "internally facing interfaces or practices" requirement and gives a
-   future contributor a concrete, in-tree on-ramp.
+   how to extend the parity suite when a new backend or kernel is added: where
+   to register a backend in `dispatch.rs::enabled_backends`, how to wire the
+   entry function into `pairwise_entry` and `query_points_entry`, how to add a
+   strategy variant, and how the proptest-regressions file acts as a regression
+   guard. This satisfies the task brief's "internally facing interfaces or
+   practices" requirement and gives a future contributor a concrete, in-tree
+   on-ramp.
 5. Update `docs/roadmap.md` only after `make test` and `make lint` are
-   clean and the design-doc update has been written: change `[ ]` to `[x]`
-   on item `2.2.6` (`docs/roadmap.md` line 304).
+   clean and the design-doc update has been written: change `[ ]` to `[x]` on
+   item `2.2.6` (`docs/roadmap.md` line 304).
 6. Final validation pass: run `make check-fmt`, `make lint`, and
    `make test`, redirecting each to a `tee` log under `/tmp` (see "Concrete
    steps" below). Upload nothing; the logs are local only.
@@ -590,9 +661,12 @@ descriptively-named feature branch such as
 `feature/2-2-6-simd-backend-parity-suite`.
 
 ```bash
-make check-fmt 2>&1 | tee /tmp/check-fmt-chutoro-$(git branch --show-current | tr '/' '-').out
-make lint      2>&1 | tee /tmp/lint-chutoro-$(git branch --show-current | tr '/' '-').out
-make test      2>&1 | tee /tmp/test-chutoro-$(git branch --show-current | tr '/' '-').out
+make check-fmt 2>&1 \
+  | tee /tmp/check-fmt-chutoro-$(git branch --show-current | tr '/' '-').out
+make lint 2>&1 \
+  | tee /tmp/lint-chutoro-$(git branch --show-current | tr '/' '-').out
+make test 2>&1 \
+  | tee /tmp/test-chutoro-$(git branch --show-current | tr '/' '-').out
 ```
 
 Each command must finish with the relevant success line in the tail of its log:

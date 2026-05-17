@@ -9,6 +9,8 @@ use chutoro_core::DataSourceError;
 mod dispatch;
 mod kernels;
 mod point_view;
+#[cfg(test)]
+mod semantics;
 mod types;
 
 use dispatch::EuclideanBackend;
