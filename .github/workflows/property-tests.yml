@@ -8,6 +8,7 @@ name: Property Tests
       - ".github/workflows/property-tests.yml"
       - ".config/nextest.toml"
       - "chutoro-core/**"
+      - "chutoro-providers/dense/**"
       - "chutoro-test-support/**"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -27,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [hnsw, edge_harvest, mst]
+        suite: [hnsw, edge_harvest, mst, dense_simd]
     env:
       CARGO_TERM_COLOR: always
       PROGTEST_CASES: "250"
@@ -68,6 +69,11 @@ jobs:
                 mst::property::tests:: \
                 2>&1 | tee /tmp/property-${{ matrix.suite }}.log
               ;;
+            dense_simd)
+              cargo nextest run --profile ci -p chutoro-providers-dense \
+                simd::tests::parity:: \
+                2>&1 | tee /tmp/property-${{ matrix.suite }}.log
+              ;;
             *)
               echo "unknown property suite: ${{ matrix.suite }}" >&2
               exit 1
@@ -92,7 +98,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        suite: [hnsw, edge_harvest, mst]
+        suite: [hnsw, edge_harvest, mst, dense_simd]
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: "1"

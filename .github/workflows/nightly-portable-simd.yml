@@ -51,6 +51,12 @@ jobs:
       - name: Test dense portable SIMD backend
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd
+      - name: Test dense portable SIMD parity suite
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        run: |
+          cargo +nightly test -p chutoro-providers-dense \
+            --features nightly_portable_simd \
+            simd::tests::parity
       - name: Lint dense portable SIMD backend
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: cargo +nightly clippy -p chutoro-providers-dense --all-targets --features nightly_portable_simd -- -D warnings

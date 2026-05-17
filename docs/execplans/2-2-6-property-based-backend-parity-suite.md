@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -225,10 +225,10 @@ later items that will actually consume it.
   distance.
 - [x] Stage C: implement non-finite parity property and zero-vector or
   duplicate-vector property.
-- [ ] Stage D: CI wiring (`property-tests.yml` matrix entry,
+- [x] Stage D: CI wiring (`property-tests.yml` matrix entry,
   `nightly-portable-simd.yml` invocation), design-doc capture, and roadmap flip
   to done.
-- [ ] Stage D: validation. Run `make check-fmt`, `make lint`, and
+- [x] Stage D: validation. Run `make check-fmt`, `make lint`, and
   `make test`, capturing transcripts via `tee`.
 
 - 2026-05-17T11:12:35Z: Execution began on branch
@@ -259,6 +259,20 @@ later items that will actually consume it.
   docs/execplans/2-2-6-property-based-backend-parity-suite.md`, and
   `make test`. The final `make test` run completed 947 tests with 947 passed
   and 1 skipped.
+- 2026-05-17T12:18:00Z: Started Stage D. Added the `dense_simd` property-test
+  suite to both pull-request and weekly CI matrices, extended the path filter
+  to cover `chutoro-providers/dense/**`, added the nightly portable-SIMD parity
+  invocation, and drafted the design-document and developers-guide updates.
+  The roadmap remains unchecked until the validation gates pass.
+- 2026-05-17T12:29:03Z: Stage D pre-roadmap validation passed. `make
+  check-fmt`, `make lint`, and `make test` all succeeded; the test run
+  completed 947 tests with 947 passed and 1 skipped. Roadmap item `2.2.6` was
+  then flipped to done as required by the plan.
+- 2026-05-17T12:46:17Z: Final Stage D validation passed on the roadmap-done
+  content. Targeted `markdownlint-cli2` passed for the touched Markdown files,
+  `make check-fmt` passed, `make lint` passed, and `make test` completed 947
+  tests with 947 passed and 1 skipped. `coderabbit review --agent` reported 0
+  findings for the milestone.
 
 ## Surprises & discoveries
 
@@ -282,6 +296,11 @@ later items that will actually consume it.
   because it runs `cargo nextest run --all-targets --all-features`; local
   validation therefore includes benchmark harness tests and took roughly 10.5
   minutes on this machine.
+- 2026-05-17T12:18:00Z: The global Markdown formatting target is not suitable
+  for this milestone because existing unrelated documentation violates the
+  repository's 80-column Markdown line-length rule. Stage D uses targeted
+  `markdownlint-cli2` validation for the touched Markdown files, while Rust
+  formatting still uses the workspace Cargo formatter through `make check-fmt`.
 
 ## Decision log
 
@@ -353,9 +372,18 @@ Append further decisions during execution.
 
 ## Outcomes & retrospective
 
-Populate at completion. Compare against the success criteria in
-`Purpose / big picture`. Record what would be done differently next time (test
-placement, strategy decomposition, epsilon choice, CI cost).
+Roadmap item `2.2.6` is complete. The dense provider now has a crate-internal
+`DistanceSemantics` contract, property-based pairwise and query-to-points SIMD
+backend parity coverage, non-finite canonicalization coverage, and CI wiring
+for stable property-test and nightly portable-SIMD tiers. The design document,
+developers guide, and roadmap now describe the implemented contract and
+extension workflow.
+
+The main retrospective item is CI cost visibility. The parity suite itself is
+small, but local `make test` includes benchmark harness tests and repeatedly
+takes around ten minutes. Future ExecPlans should distinguish targeted
+behavioural validation from full workspace gate cost earlier, while still
+retaining the full gate before commit.
 
 ## Context and orientation
 

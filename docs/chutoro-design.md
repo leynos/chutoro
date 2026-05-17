@@ -1099,6 +1099,47 @@ enabled. The relevant upstream tracking issues remain `rust-lang/rust#86656`
 (`portable_simd`), `rust-lang/rust#127356` (`bf16` wrappers), and
 `rust-lang/rust#127213` (AVX512_FP16 intrinsics).
 
+_Implementation update (2026-05-17)._ Roadmap item `2.2.6` now ships a
+property-based backend parity suite for dense Euclidean SIMD kernels. The
+suite lives under `chutoro-providers/dense/src/simd/tests/parity/` and uses a
+test-only `DistanceSemantics` value object in
+`chutoro-providers/dense/src/simd/semantics.rs`.
+
+`DistanceSemantics` records the current Euclidean contract in one place:
+
+- epsilon: `1.0e-5_f32`;
+- non-finite policy: canonicalize any non-finite final distance to
+  `f32::NAN`;
+- zero-vector policy: return `0.0` for equal zero-valued vectors;
+- tie-breaking policy: prefer the lowest row index when future selection logic
+  observes equal distances.
+
+The scalar oracle delegates to the existing scalar reducers:
+`kernels::euclidean_distance_scalar(...)` for pairwise checks and
+`kernels::euclidean_distance_query_points_scalar(...)` for query-to-points
+checks. SIMD entrypoints still funnel final values through
+`finalize_distance(...)`, so every backend applies the same non-finite
+canonicalization rule before comparison.
+
+The parity suite covers:
+
+- vector lengths around 16-lane boundaries, including exact multiples and
+  one-off tails;
+- `DensePointView<'a>` query-to-points batches with padded candidate counts;
+- duplicate rows and all-zero vectors;
+- `NaN`, positive infinity, and negative infinity inputs.
+
+The test seam is deliberately crate-internal. `dispatch.rs::enabled_backends`
+enumerates backends that are both compiled and runtime-supported, while
+test-only helpers in `kernels.rs` map those variants to pairwise and
+query-to-points entry functions without widening backend module visibility.
+
+`.github/workflows/property-tests.yml` now runs the dense SIMD parity suite in
+both pull-request and weekly property-test tiers. The scheduled nightly
+portable-SIMD workflow also invokes `simd::tests::parity` with
+`nightly_portable_simd` enabled so the `std::simd` backend participates when a
+nightly toolchain is available.
+
 #### 6.4. Property-based input generation for CPU HNSW tests
 
 The CPU module now ships with dedicated property-based generators that exercise

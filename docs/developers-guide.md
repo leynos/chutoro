@@ -114,6 +114,30 @@ Use `.github/workflows/property-tests.yml` and `.config/nextest.toml` for the
 authoritative configuration, and `docs/property-testing-design.md` for the
 architectural rationale.
 
+## Dense SIMD parity suite
+
+Dense Euclidean backend parity tests live in
+`chutoro-providers/dense/src/simd/tests/parity/`. The suite compares each
+compiled and runtime-supported backend against the scalar oracle defined by
+the test-only `DistanceSemantics` value object.
+
+When adding a new dense SIMD backend or Euclidean kernel:
+
+1. Add the backend to `dispatch.rs::enabled_backends` so tests can discover it
+   only when it is both compiled and runtime-supported.
+2. Wire pairwise and query-to-points entry functions in the test-only helpers
+   in `kernels.rs`. Keep backend implementation modules private unless a
+   production caller needs wider visibility.
+3. Extend `tests/parity/strategies.rs` only when the new backend has a new
+   layout, lane width, or input hazard that the existing generators do not
+   cover.
+4. Run `cargo nextest run -p chutoro-providers-dense simd::tests::parity::`
+   before the full `make check-fmt`, `make lint`, and `make test` gates.
+
+If proptest records a regression, keep the generated file under the relevant
+`proptest-regressions/` directory. That file is the shrunk counterexample and
+should be treated as a regression guard, not as disposable local output.
+
 ## Benchmarks
 
 The `chutoro-benches` crate provides Criterion benchmarks for the four CPU
