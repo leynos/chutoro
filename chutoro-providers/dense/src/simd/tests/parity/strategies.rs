@@ -77,6 +77,22 @@ pub(super) fn query_points_fixture() -> impl Strategy<Value = QueryPointsFixture
     })
 }
 
+pub(super) fn non_finite_query_points_fixture() -> impl Strategy<Value = QueryPointsFixture> {
+    (lane_dimension(), point_count()).prop_flat_map(|(dimension, point_count)| {
+        let rows = point_count + 1;
+        (
+            finite_values(rows, dimension),
+            0_usize..=point_count,
+            0_usize..dimension,
+            non_finite_value(),
+        )
+            .prop_map(move |(mut values, row_index, column_index, non_finite)| {
+                values[row_index * dimension + column_index] = non_finite;
+                query_fixture(values, rows, dimension, point_count)
+            })
+    })
+}
+
 fn query_fixture_from_rows(
     rows: usize,
     dimension: usize,

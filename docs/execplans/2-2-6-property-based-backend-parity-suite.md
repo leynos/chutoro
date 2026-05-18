@@ -273,6 +273,13 @@ later items that will actually consume it.
   `make check-fmt` passed, `make lint` passed, and `make test` completed 947
   tests with 947 passed and 1 skipped. `coderabbit review --agent` reported 0
   findings for the milestone.
+- 2026-05-18T19:34:48Z: Follow-up review found that non-finite inputs only
+  reached pairwise backend entries. Added a dedicated non-finite
+  query-to-points fixture that injects `NaN` or infinities into either the
+  query row or a candidate point row, plus a property that drives every
+  query-to-points backend entry against the scalar oracle. Targeted
+  `cargo nextest run -p chutoro-providers-dense simd::tests::parity::` now
+  runs 4 parity tests and passes.
 
 ## Surprises & discoveries
 
@@ -301,6 +308,11 @@ later items that will actually consume it.
   repository's 80-column Markdown line-length rule. Stage D uses targeted
   `markdownlint-cli2` validation for the touched Markdown files, while Rust
   formatting still uses the workspace Cargo formatter through `make check-fmt`.
+- 2026-05-18T19:34:48Z: The original non-finite property name was accurate for
+  pairwise entries but too broad for the completed roadmap policy. Batched
+  query-to-points kernels need their own generated non-finite fixture because
+  `query_points_fixture()` intentionally mixes only finite, duplicate, and
+  zero rows.
 
 ## Decision log
 
@@ -367,6 +379,12 @@ later items that will actually consume it.
   same contract into GPU parity and tie-breaking verification work. A short
   code comment now records that future extension point. Date/Author:
   2026-05-17, implementation.
+- Decision: add a separate `non_finite_query_points_fixture()` rather than
+  mixing non-finite values into the existing finite query-to-points fixture.
+  Rationale: the finite fixture still gives focused coverage for ordinary
+  parity, duplicate rows, and zero rows, while the non-finite fixture keeps
+  canonicalization failures shrinkable and makes the batched-kernel policy
+  explicit. Date/Author: 2026-05-18, implementation follow-up.
 
 Append further decisions during execution.
 
@@ -374,10 +392,10 @@ Append further decisions during execution.
 
 Roadmap item `2.2.6` is complete. The dense provider now has a crate-internal
 `DistanceSemantics` contract, property-based pairwise and query-to-points SIMD
-backend parity coverage, non-finite canonicalization coverage, and CI wiring
-for stable property-test and nightly portable-SIMD tiers. The design document,
-developers guide, and roadmap now describe the implemented contract and
-extension workflow.
+backend parity coverage, pairwise and query-to-points non-finite
+canonicalization coverage, and CI wiring for stable property-test and nightly
+portable-SIMD tiers. The design document, developers guide, and roadmap now
+describe the implemented contract and extension workflow.
 
 The main retrospective item is CI cost visibility. The parity suite itself is
 small, but local `make test` includes benchmark harness tests and repeatedly
