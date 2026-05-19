@@ -59,11 +59,16 @@ fn proptest_config(default_cases: u32) -> ProptestConfig {
 ///
 /// Backends come from [`dispatch::enabled_backends`], then
 /// [`kernels::pairwise_entry`] resolves each compiled-and-runtime-available
-/// backend to its pairwise entry point before the pairs are collected.
+/// backend to its pairwise entry point before the pairs are collected. Missing
+/// entry points are programming errors and panic instead of being skipped.
 fn pairwise_entries() -> Vec<(dispatch::EuclideanBackend, PairwiseEntry)> {
     dispatch::enabled_backends()
         .into_iter()
-        .filter_map(|backend| kernels::pairwise_entry(backend).map(|entry| (backend, entry)))
+        .map(|backend| {
+            let entry = kernels::pairwise_entry(backend)
+                .expect("enabled backend must have a pairwise kernel entrypoint");
+            (backend, entry)
+        })
         .collect()
 }
 
@@ -72,10 +77,15 @@ fn pairwise_entries() -> Vec<(dispatch::EuclideanBackend, PairwiseEntry)> {
 /// Backends come from [`dispatch::enabled_backends`], then
 /// [`kernels::query_points_entry`] resolves each
 /// compiled-and-runtime-available backend to its query-to-points entry point
-/// before the pairs are collected.
+/// before the pairs are collected. Missing entry points are programming errors
+/// and panic instead of being skipped.
 fn query_points_entries() -> Vec<(dispatch::EuclideanBackend, QueryPointsEntry)> {
     dispatch::enabled_backends()
         .into_iter()
-        .filter_map(|backend| kernels::query_points_entry(backend).map(|entry| (backend, entry)))
+        .map(|backend| {
+            let entry = kernels::query_points_entry(backend)
+                .expect("enabled backend must have a query-points kernel entrypoint");
+            (backend, entry)
+        })
         .collect()
 }
