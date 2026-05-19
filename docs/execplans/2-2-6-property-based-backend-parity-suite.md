@@ -454,17 +454,22 @@ preferred decomposition (`strategies.rs`, dataset generators, property modules
 per invariant). The parity suite should follow the same spirit: one strategies
 module, one or more property modules, and small shared helpers.
 
-The shared property-suite configuration helpers live at:
+The shared property-suite configuration source of truth lives at
+`chutoro-test-support/src/ci/property_test_profile.rs`.
+`chutoro_test_support::ci::property_test_profile::ProptestRunProfile` turns
+`PROPTEST_CASES` and `CHUTORO_PBT_FORK` into a typed profile. The new parity
+suite should use `ProptestRunProfile::load(default_cases, default_fork)` to
+obtain the case count and fork flag for `proptest::test_runner::Config`, so
+PR-tier and weekly-tier budgets stay aligned across the workspace. For example:
 
-- `chutoro-core/src/test_utils.rs` — exposes `suite_proptest_config(default)`,
-  which constructs a `proptest::test_runner::Config` honouring `PROPTEST_CASES`
-  and `CHUTORO_PBT_FORK`. The new parity suite should call this helper rather
-  than rolling its own config so PR-tier and weekly-tier budgets stay aligned
-  across the workspace.
-- `chutoro-test-support/src/ci/property_test_profile.rs` — the loader that
-  turns `PROPTEST_CASES` and `CHUTORO_PBT_FORK` into a typed profile. Its
-  defaults are the canonical PR-tier (`cases=250`, `fork=false`) and weekly
-  values, and the parity suite must not override them locally.
+```rust
+let profile = ProptestRunProfile::load(default_cases, false);
+ProptestConfig {
+    cases: profile.cases(),
+    fork: profile.fork(),
+    ..ProptestConfig::default()
+}
+```
 
 `docs/users-guide.md` does not document SIMD backend selection, distance
 semantics, or non-finite policy, and `2.2.6` keeps the dense provider's public
@@ -683,14 +688,16 @@ compilation passes) and shows the portable-SIMD backend participating.
    guard. This satisfies the task brief's "internally facing interfaces or
    practices" requirement and gives a future contributor a concrete, in-tree
    on-ramp.
-5. Update `docs/roadmap.md` only after `make test` and `make lint` are
-   clean and the design-doc update has been written: change `[ ]` to `[x]` on
-   item `2.2.6` (`docs/roadmap.md` line 304).
-6. Final validation pass: run `make check-fmt`, `make lint`, and
-   `make test`, redirecting each to a `tee` log under `/tmp` (see "Concrete
-   steps" below). Upload nothing; the logs are local only.
+5. Update `docs/roadmap.md` only after `make test`, `make lint`,
+   `make markdownlint`, `make fmt`, and `make nixie` are clean and the
+   design-doc update has been written: change `[ ]` to `[x]` on item `2.2.6`
+   (`docs/roadmap.md` line 304).
+6. Final validation pass: run `make check-fmt`, `make lint`, `make test`,
+   `make markdownlint`, `make fmt`, and `make nixie`, redirecting each to a
+   `tee` log under `/tmp` (see "Concrete steps" below). Upload nothing; the
+   logs are local only.
 
-Stage D exit gate: all three Make targets succeed; the design document records
+Stage D exit gate: all six Make targets succeed; the design document records
 the contract; the roadmap shows `2.2.6` complete; the working tree contains
 exactly the planned new files plus the targeted edits.
 
@@ -713,6 +720,12 @@ make lint 2>&1 \
   | tee /tmp/lint-chutoro-$(git branch --show-current | tr '/' '-').out
 make test 2>&1 \
   | tee /tmp/test-chutoro-$(git branch --show-current | tr '/' '-').out
+make markdownlint 2>&1 \
+  | tee /tmp/markdownlint-chutoro-$(git branch --show-current | tr '/' '-').out
+make fmt 2>&1 \
+  | tee /tmp/fmt-chutoro-$(git branch --show-current | tr '/' '-').out
+make nixie 2>&1 \
+  | tee /tmp/nixie-chutoro-$(git branch --show-current | tr '/' '-').out
 ```
 
 Each command must finish with the relevant success line in the tail of its log:
@@ -720,6 +733,10 @@ Each command must finish with the relevant success line in the tail of its log:
 - `check-fmt`: no output is success.
 - `lint`: ends with `Finished` from clippy and a clean `cargo doc`.
 - `test`: ends with the cargo-nextest summary indicating zero failures.
+- `markdownlint`: ends without Markdown lint errors.
+- `fmt`: completes without leaving unexpected Markdown or Rust formatting
+  changes.
+- `nixie`: validates Mermaid diagrams without errors.
 
 Targeted parity-suite invocation (handy during development):
 
@@ -737,7 +754,7 @@ cargo +nightly test -p chutoro-providers-dense \
   | tee /tmp/parity-nightly-chutoro-$(git branch --show-current | tr '/' '-').out
 ```
 
-Mark the roadmap done only after the three Make targets pass cleanly.
+Mark the roadmap done only after the six Make targets pass cleanly.
 
 ```bash
 sed -i 's/^- \[ \] 2\.2\.6\./- [x] 2.2.6./' docs/roadmap.md
@@ -768,9 +785,11 @@ Quality criteria (what "done" means):
 
 Quality method (how we check):
 
-- Local: run the three Make targets above with `tee` redirection, inspect
+- Local: run the six Make targets above with `tee` redirection, inspect
   the tails for the success markers, and inspect `git status` to confirm only
-  the planned files changed.
+  the planned files changed. Documentation or diagram changes require
+  `make markdownlint`, `make fmt`, and `make nixie`; `markdownlint-cli2` is not
+  the primary repository gate.
 - CI: `property-tests.yml` PR job exercises `dense_simd`; the merge is
   not eligible until that job is green. The weekly run extends the case budget;
   failures there must be triaged on the following workday.
