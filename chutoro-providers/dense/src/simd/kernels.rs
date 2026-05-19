@@ -78,14 +78,24 @@ pub(super) fn select_euclidean_kernel() -> EuclideanKernel {
     )
 }
 
+/// Holds both kernel function pointers for a single backend.
+///
+/// Used by parity tests to resolve a specific backend's pairwise and
+/// query-to-points kernels in a single dispatch, avoiding the need to
+/// repeat the backend match in every test helper.
 #[cfg(test)]
-struct BackendKernels {
-    pairwise: EuclideanKernel,
-    query_points: EuclideanQueryPointsKernel,
+pub(super) struct BackendKernels {
+    pub(super) pairwise: EuclideanKernel,
+    pub(super) query_points: EuclideanQueryPointsKernel,
 }
 
+/// Returns both kernel entry-points for `backend`, or `None` when the
+/// corresponding compile-time feature gate is not active.
+///
+/// This is the single source of truth for the backend-to-function-pointer
+/// mapping used by [`pairwise_entry`] and [`query_points_entry`].
 #[cfg(test)]
-fn backend_kernels(backend: dispatch::EuclideanBackend) -> Option<BackendKernels> {
+pub(super) fn backend_kernels(backend: dispatch::EuclideanBackend) -> Option<BackendKernels> {
     match backend {
         dispatch::EuclideanBackend::Scalar => Some(BackendKernels {
             pairwise: euclidean_distance_scalar,
@@ -127,7 +137,7 @@ fn backend_kernels(backend: dispatch::EuclideanBackend) -> Option<BackendKernels
 /// Returns the pairwise entrypoint for a test-selected backend.
 #[cfg(test)]
 pub(super) fn pairwise_entry(backend: dispatch::EuclideanBackend) -> Option<EuclideanKernel> {
-    backend_kernels(backend).map(|kernels| kernels.pairwise)
+    backend_kernels(backend).map(|k| k.pairwise)
 }
 
 pub(super) fn euclidean_distance_scalar(left: &[f32], right: &[f32]) -> f32 {
@@ -203,7 +213,7 @@ pub(super) fn euclidean_distance_query_points(
 pub(super) fn query_points_entry(
     backend: dispatch::EuclideanBackend,
 ) -> Option<EuclideanQueryPointsKernel> {
-    backend_kernels(backend).map(|kernels| kernels.query_points)
+    backend_kernels(backend).map(|k| k.query_points)
 }
 
 pub(super) fn euclidean_distance_query_points_scalar(
