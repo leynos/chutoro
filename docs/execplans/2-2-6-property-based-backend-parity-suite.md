@@ -82,7 +82,7 @@ later items that will actually consume it.
 - Preserve the existing `DensePointView<'a>` layout contract introduced by
   `2.2.2`: 64-byte alignment, 16-lane padding, and deterministic `0.0_f32` tail
   fill.
-- Keep nightly-only test code isolated behind
+- Keep nightly only test code isolated behind
   `all(feature = "nightly_portable_simd", nightly)` at every module,
   entrypoint, and test boundary. Avoid one-off predicates unless the audit
   proves a narrower guard is required.
@@ -143,7 +143,7 @@ later items that will actually consume it.
   property.
 - Runtime budget: if a single PR-tier invocation
   (`cargo nextest run -p chutoro-providers-dense simd::tests::parity::`) at
-  `PROPTEST_CASES=250` and `PROPTEST_FORK=false` exceeds 60 seconds on the
+  `PROPTEST_CASES=250` and `CHUTORO_PBT_FORK=false` exceeds 60 seconds on the
   development host, stop and reduce strategy cardinality before continuing. The
   PR-tier suite should stay well under the existing chutoro-core property-suite
   runtime so it does not dominate `make test`.
@@ -156,7 +156,7 @@ later items that will actually consume it.
   function of vector length and magnitude (relative tolerance plus absolute
   floor); document the choice in `DistanceSemantics`; clamp the proptest value
   range so that intermediate squared sums stay within representable `f32`
-  precision; reuse the existing scalar reducer as the reference so parity is
+  precision; reuse the existing scalar reducer as the reference, so parity is
   asymmetric (every backend matches scalar; backends are not compared to each
   other).
 - Risk: CI runners may lack AVX-512 (and certainly lack Neon on x86 hosts),
@@ -165,7 +165,7 @@ later items that will actually consume it.
   compile-time feature and runtime detection, exactly as `tests/entrypoints.rs`
   already does; document expected CI coverage matrix; add a small invariant
   assertion that at least one SIMD backend ran (when any are compiled in and
-  the runtime reports support) so that a silently-empty suite is impossible.
+  the runtime reports support), so that a silently empty suite is impossible.
 - Risk: Non-finite inputs interact unpredictably with vector reductions,
   particularly under AVX-512 fused multiply-add (FMA). Severity: low.
   Likelihood: medium. Mitigation: require only the canonicalization invariant
@@ -187,10 +187,10 @@ later items that will actually consume it.
   the suite re-runs the same generators against multiple backends. Severity:
   medium. Likelihood: medium. Mitigation: factor each property to compute the
   scalar oracle once per generated input and then loop over enabled backends;
-  honour `PROPTEST_CASES` so the PR-tier budget stays small; add a dedicated
+  honour `PROPTEST_CASES`, so the PR-tier budget stays small; add a dedicated
   nextest filter so the suite is easy to run in isolation.
 - Risk: The test seam needed to drive each backend entrypoint independently
-  could leak internals via overly-broad visibility. Severity: low. Likelihood:
+  could leak internals via overly broad visibility. Severity: low. Likelihood:
   medium. Mitigation: keep all entrypoints `pub(super)` (their current
   visibility) and place the parity tests inside the crate's existing
   `simd::tests` tree so they need no visibility widening; if an integration
@@ -219,7 +219,7 @@ later items that will actually consume it.
   `DistanceSemantics` shape, and confirm the dev-dependency additions.
 - [x] Stage B: scaffolding. Add `proptest` and `test-strategy` as
   `dev-dependencies`; introduce `DistanceSemantics`; add a backend-iterator
-  test seam that returns the set of currently-runnable backends.
+  test seam that returns the set of currently runnable backends.
 - [x] Stage C: implement strategies and properties for pairwise distance.
 - [x] Stage C: implement strategies and properties for query-to-points
   distance.
@@ -283,10 +283,7 @@ later items that will actually consume it.
 
 ## Surprises & discoveries
 
-- 2026-05-17T11:12:35Z: The existing
-  `chutoro-core::test_utils::suite_proptest_config` helper is `pub(crate)`, so
-  `chutoro-providers-dense` cannot call it directly without changing a
-  crate-internal interface. The public shared surface is
+- 2026-05-17T11:12:35Z: The public shared surface for proptest configuration is
   `chutoro_test_support::ci::property_test_profile::ProptestRunProfile`.
 - 2026-05-17T11:12:35Z: The historical property-test environment variable is
   misspelled as `PROGTEST_CASES` in `chutoro-test-support`, while
@@ -339,11 +336,11 @@ later items that will actually consume it.
   honest about what dispatch would actually pick. Date/Author: 2026-05-02,
   planning.
 - Decision: implement the new parity suite without proptest forking on PR
-  runs (`PROPTEST_FORK=false`, `PROPTEST_CASES=250`) and with forking on the
-  weekly run (`PROPTEST_FORK=true`, `PROPTEST_CASES` taking the same budget the
-  existing chutoro-core suites use). Rationale: matches the established
-  two-tier model in `docs/property-testing-design.md` §5 and keeps PR feedback
-  fast. Date/Author: 2026-05-02, planning.
+  runs (`CHUTORO_PBT_FORK=false`, `PROPTEST_CASES=250`) and with forking on
+  the weekly run (`CHUTORO_PBT_FORK=true`, `PROPTEST_CASES` taking the same
+  budget the existing chutoro-core suites use). Rationale: matches the
+  established two-tier model in `docs/property-testing-design.md` §5 and
+  keeps PR feedback fast. Date/Author: 2026-05-02, planning.
 - Decision: do not author a dedicated ADR for `DistanceSemantics` as part of
   `2.2.6`. Rationale: `docs/chutoro-design.md` §6.3 already specifies the
   contract in prose, and the implementation update note added in Stage D
@@ -355,12 +352,11 @@ later items that will actually consume it.
   `adr-002-adoption-of-kani-formal-verification.md`, and reference it from
   §6.3. Date/Author: 2026-05-04, planning.
 - Decision: build the dense parity suite's proptest `Config` from
-  `chutoro_test_support::ci::property_test_profile::ProptestRunProfile` rather
-  than from `chutoro-core::test_utils::suite_proptest_config`. Rationale: the
-  core helper is intentionally crate-private, while the test-support profile
-  loader is the workspace-shared policy surface. This preserves the public API
-  constraint and avoids coupling the dense provider's tests to `chutoro-core`
-  internals. Date/Author: 2026-05-17, implementation.
+  `chutoro_test_support::ci::property_test_profile::ProptestRunProfile`.
+  Rationale: the test-support profile loader is the workspace-shared policy
+  surface. This preserves the public API constraint and avoids coupling the
+  dense provider's tests to `chutoro-core` internals. Date/Author:
+  2026-05-17, implementation.
 - Decision: keep backend availability enumeration in `dispatch.rs` and place
   test-only entrypoint mapping helpers in `kernels.rs`. Rationale:
   `dispatch.rs` owns support-mask logic, while `kernels.rs` can legally refer
@@ -375,7 +371,7 @@ later items that will actually consume it.
   test intent explicit. Date/Author: 2026-05-17, implementation.
 - Decision: keep the policy enums in `DistanceSemantics` despite having one
   variant each today. Rationale: the ExecPlan explicitly calls for named
-  policy fields so the CPU parity suite can document and later migrate the
+  policy fields, so the CPU parity suite can document and later migrate the
   same contract into GPU parity and tie-breaking verification work. A short
   code comment now records that future extension point. Date/Author:
   2026-05-17, implementation.
@@ -460,7 +456,7 @@ The shared property-suite configuration source of truth lives at
 `PROPTEST_CASES` and `CHUTORO_PBT_FORK` into a typed profile. The new parity
 suite should use `ProptestRunProfile::load(default_cases, default_fork)` to
 obtain the case count and fork flag for `proptest::test_runner::Config`, so
-PR-tier and weekly-tier budgets stay aligned across the workspace. For example:
+PR-tier and weekly tier budgets stay aligned across the workspace. For example:
 
 ```rust
 let profile = ProptestRunProfile::load(default_cases, false);
@@ -486,7 +482,7 @@ CI lives in `.github/workflows/`:
   weekly tiers. The new parity suite must extend this workflow.
 - `nightly-portable-simd.yml` runs the dense-provider tests with
   `nightly_portable_simd` enabled on a scheduled cadence. The new parity suite
-  must run there too so the portable-SIMD backend is exercised.
+  must run there too, so the portable-SIMD backend is exercised.
 
 The `Makefile` exposes `check-fmt`, `lint`, `test`, `fmt`, `markdownlint`,
 `nixie`, `kani`, `kani-full`, `verus`, and `bench`. Use `make test` and
@@ -710,7 +706,7 @@ git branch --show-current
 ```
 
 Expect a non-`main` branch name, for example `session/e987bf41` or a
-descriptively-named feature branch such as
+descriptively named feature branch such as
 `feature/2-2-6-simd-backend-parity-suite`.
 
 ```bash

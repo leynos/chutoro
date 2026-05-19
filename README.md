@@ -94,11 +94,13 @@ ______________________________________________________________________
   blobs, ring/Swiss-roll manifolds, text mutation, MNIST download)
   ([developers' guide § benchmarks](docs/developers-guide.md#benchmarks)).
 - Optional `metrics` crate integration for distance-cache telemetry
-  ([users' guide § feature flags]\
-  (docs/users-guide.md#feature-flags-and-execution-strategies)).
+  (see [feature flags][users-guide-feature-flags]).
 - CLI tool (`chutoro-cli`) and bundled data-source providers: dense
   vectors via Parquet/Arrow (`chutoro-providers-dense`) and text via
   Levenshtein distance (`chutoro-providers-text`).
+
+[users-guide-feature-flags]:
+  docs/users-guide.md#feature-flags-and-execution-strategies
 
 ______________________________________________________________________
 
