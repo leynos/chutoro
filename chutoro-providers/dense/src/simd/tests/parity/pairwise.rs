@@ -1,4 +1,15 @@
 //! Pairwise dense SIMD backend parity properties.
+//!
+//! This module checks the finite pairwise Euclidean distance property: every
+//! enabled backend must match the scalar oracle produced by
+//! [`DistanceSemantics::oracle_pairwise`].
+//!
+//! Inputs come from [`strategies::finite_vector_pair`], which combines
+//! arbitrary finite vectors, duplicate vectors and all-zero vectors across the
+//! lane-boundary dimensions used by the parity suite.
+//!
+//! A backend output is accepted when [`DistanceSemantics::assert_close`] finds
+//! it within the configured finite-distance epsilon of the scalar result.
 
 use proptest::prelude::*;
 

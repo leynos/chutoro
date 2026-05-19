@@ -1,4 +1,25 @@
-//! Proptest strategies for dense SIMD backend parity.
+//! Proptest strategies for dense SIMD backend parity fixtures.
+//!
+//! The suite has two fixture families. Vector-pair strategies
+//! ([`finite_vector_pair`] and [`non_finite_vector_pair`]) generate direct
+//! pairwise inputs, while [`QueryPointsFixture`] strategies
+//! ([`query_points_fixture`] and [`non_finite_query_points_fixture`]) generate
+//! one query row plus a batch of point rows.
+//!
+//! Lane dimensions are intentionally hard-coded to `1`, `15`, `16`, `17`, `31`,
+//! `32`, `33`, `47`, `48`, `64`, `127`, `128` and `129`. Those sizes exercise
+//! exact SIMD-lane multiples, one-before and one-after boundaries, and tail
+//! handling across the supported backend widths.
+//!
+//! Query-to-points fixtures mix three row patterns: arbitrary finite rows cover
+//! normal numerical variation, duplicate rows force exact zero distances from
+//! repeated values, and all-zero rows exercise the zero-vector policy without
+//! relying on randomly generated values to hit that shape.
+//!
+//! [`QueryPointsFixture`] exposes a [`RowMajorMatrix`], a fixed query index
+//! that always selects row `0`, and point indices derived from
+//! `1..=point_count`. The generated matrix therefore keeps the query separate
+//! from every selected point while preserving a compact row-major layout.
 
 use proptest::prelude::*;
 

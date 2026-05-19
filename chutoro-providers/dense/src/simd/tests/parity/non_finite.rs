@@ -1,4 +1,17 @@
 //! Non-finite dense SIMD backend parity properties.
+//!
+//! This module checks the non-finite Euclidean distance policy: every enabled
+//! backend must follow the scalar oracle's NaN-canonicalisation behaviour for
+//! inputs containing `NaN` or infinity.
+//!
+//! Pairwise inputs come from [`strategies::non_finite_vector_pair`], which
+//! inserts one non-finite lane into otherwise finite vectors. Batched inputs
+//! come from [`strategies::non_finite_query_points_fixture`], which inserts one
+//! non-finite value into the query row or one selected point row.
+//!
+//! A non-finite result is accepted when the scalar oracle and backend both
+//! produce `NaN`; finite query-to-points entries in the same batch are still
+//! compared through [`DistanceSemantics::assert_query_close`].
 
 use proptest::prelude::*;
 

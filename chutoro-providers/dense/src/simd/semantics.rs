@@ -1,4 +1,28 @@
-//! Distance-semantics contract shared by dense SIMD parity tests.
+//! Euclidean distance semantics shared by dense SIMD parity tests.
+//!
+//! The semantics contract is a small value object that records the tolerance
+//! and policy choices every backend must follow: `1.0e-5` epsilon,
+//! `CanonicaliseToNan` for non-finite distances, `ReturnZero` for identical
+//! zero vectors, and `LowestRowIndexFirst` for future equal-distance ordering.
+//! Keeping those decisions in one object makes the parity assertions describe
+//! behaviour rather than re-encoding scattered constants in each property.
+//!
+//! The epsilon is deliberately `1.0e-5` because SIMD implementations may
+//! reduce lanes in a different order from the scalar oracle. That lane-ordering
+//! divergence can produce small rounding differences even when the backend is
+//! correct, so parity checks accept that bounded numerical variation while
+//! still rejecting meaningful drift.
+//!
+//! The scalar oracle delegates directly to
+//! [`kernels::euclidean_distance_scalar`] and
+//! [`kernels::euclidean_distance_query_points_scalar`]. Those functions are the
+//! unvectorised dense Euclidean implementation, so they define the ground truth
+//! used to compare each SIMD entry point.
+//!
+//! This module sits between [`super::dispatch`] and [`super::kernels`]:
+//! dispatch decides which backends are available, kernels resolve concrete
+//! entry points, and the semantics contract defines how their outputs are
+//! compared.
 
 use super::{DensePointView, kernels};
 

@@ -1,4 +1,17 @@
 //! Query-to-points dense SIMD backend parity properties.
+//!
+//! This module checks the finite batched Euclidean distance property: every
+//! enabled query-to-points backend must match the scalar oracle produced by
+//! [`DistanceSemantics::oracle_query_points`].
+//!
+//! Inputs come from [`strategies::query_points_fixture`], which builds a
+//! row-major matrix with row `0` as the query and rows `1..=point_count` as the
+//! selected points. The fixture covers arbitrary finite, duplicate-row and
+//! all-zero row patterns across SIMD boundary dimensions.
+//!
+//! A backend output slice is accepted when
+//! [`DistanceSemantics::assert_query_close`] finds every finite distance within
+//! the configured epsilon of the scalar query-to-points result.
 
 use proptest::prelude::*;
 
