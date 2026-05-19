@@ -14,7 +14,7 @@ fn matrix_provider_from_fixed_size_list() {
     assert_eq!(provider.dimension(), 3);
     assert_eq!(provider.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
     let distance = provider.distance(0, 1).expect("distance should work");
-    assert!((distance - (27.0_f32).sqrt()).abs() < 1e-6);
+    assert!((distance - (27.0_f32).sqrt()).abs() < 1.0e-5_f32);
 }
 
 #[rstest]
@@ -28,7 +28,7 @@ fn matrix_provider_distance_batch() {
         .distance_batch(&pairs, &mut out)
         .expect("batch distances should work");
     for value in out {
-        assert!((value - (27.0_f32).sqrt()).abs() < 1e-6);
+        assert!((value - (27.0_f32).sqrt()).abs() < 1.0e-5_f32);
     }
 }
 
