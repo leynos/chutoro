@@ -141,7 +141,7 @@ fn matrix_provider_distance_batch_matches_scalar_reference(
     assert_eq!(out.len(), expected.len());
     for (actual, expected_value) in out.iter().copied().zip(expected.into_iter()) {
         assert!(
-            (actual - expected_value).abs() <= 1.0e-6_f32,
+            (actual - expected_value).abs() <= 1.0e-5_f32,
             "actual={actual}, expected={expected_value}",
         );
     }

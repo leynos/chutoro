@@ -1,4 +1,21 @@
 //! Tests for SIMD-aware Euclidean distance kernels.
+//!
+//! This module groups the dense SIMD test surface that is small enough to live
+//! beside the implementation. The inline tests cover shared data structures,
+//! public batch entry points, and the snapshots that keep the backend discovery
+//! contract visible.
+//!
+//! The [`entrypoints`] submodule checks the ordinary Euclidean entry points and
+//! backend selection paths used by production code. The [`support_masks`]
+//! submodule verifies the compile-time and runtime support masks, complementing
+//! the trybuild tests that enforce nightly portable-SIMD feature gating. The
+//! [`parity`] submodule is the property-based backend parity suite: it
+//! enumerates backends through [`dispatch::enabled_backends`], resolves concrete
+//! kernels through `kernels`, and compares every enabled backend with the
+//! scalar oracle using the [`semantics::DistanceSemantics`] contract.
+//!
+//! Together these layers keep dispatch, feature gating, and backend numerical
+//! behaviour aligned without requiring tests to assume a particular host CPU.
 
 use super::dispatch::{self, CompiledSimdSupport, RuntimeSimdSupport};
 use super::kernels;
@@ -17,6 +34,83 @@ fn close(left: Distance, right: Distance) {
         (left - right).abs() <= tolerance,
         "left={left}, right={right}, tolerance={tolerance}",
     );
+}
+
+#[test]
+fn distance_semantics_contract_snapshot() {
+    assert_eq!(
+        format!("{:?}", semantics::DistanceSemantics::default_euclidean()),
+        concat!(
+            "DistanceSemantics { epsilon: 1e-5, ",
+            "non_finite_policy: CanonicaliseToNan, ",
+            "zero_vector_policy: ReturnZero, ",
+            "tie_breaking: LowestRowIndexFirst }",
+        ),
+    );
+}
+
+#[test]
+fn enabled_backends_output_matches_support_snapshot() {
+    let mut expected = Vec::new();
+    if cfg!(feature = "simd_avx512")
+        && cfg!(any(target_arch = "x86", target_arch = "x86_64"))
+        && runtime_avx512_expectation()
+    {
+        expected.push(dispatch::EuclideanBackend::Avx512);
+    }
+    if cfg!(feature = "simd_avx2")
+        && cfg!(any(target_arch = "x86", target_arch = "x86_64"))
+        && runtime_avx2_expectation()
+    {
+        expected.push(dispatch::EuclideanBackend::Avx2);
+    }
+    if cfg!(feature = "simd_neon")
+        && cfg!(any(target_arch = "arm", target_arch = "aarch64"))
+        && runtime_neon_expectation()
+    {
+        expected.push(dispatch::EuclideanBackend::Neon);
+    }
+    if cfg!(all(feature = "nightly_portable_simd", nightly)) {
+        expected.push(dispatch::EuclideanBackend::PortableSimd);
+    }
+    expected.push(dispatch::EuclideanBackend::Scalar);
+
+    assert_eq!(dispatch::enabled_backends(), expected);
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn runtime_avx2_expectation() -> bool {
+    std::arch::is_x86_feature_detected!("avx2")
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+fn runtime_avx2_expectation() -> bool {
+    false
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+fn runtime_avx512_expectation() -> bool {
+    std::arch::is_x86_feature_detected!("avx512f")
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+fn runtime_avx512_expectation() -> bool {
+    false
+}
+
+#[cfg(target_arch = "arm")]
+fn runtime_neon_expectation() -> bool {
+    std::arch::is_arm_feature_detected!("neon")
+}
+
+#[cfg(target_arch = "aarch64")]
+fn runtime_neon_expectation() -> bool {
+    true
+}
+
+#[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
+fn runtime_neon_expectation() -> bool {
+    false
 }
 
 #[fixture]
