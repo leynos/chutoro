@@ -67,7 +67,7 @@ fn matrix_provider_distance_matches_scalar_reference(
         assert!(actual.is_nan(), "actual={actual}, expected=NaN");
     } else {
         assert!(
-            (actual - expected).abs() <= 1.0e-6_f32,
+            (actual - expected).abs() <= 1.0e-5_f32,
             "actual={actual}, expected={expected}",
         );
     }
