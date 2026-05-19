@@ -145,12 +145,21 @@ impl DistanceSemantics {
         }
     }
 
+    /// Returns whether a non-finite result satisfies the configured policy.
+    ///
+    /// When the policy is `CanonicaliseToNan`, matching `NaN` values are
+    /// accepted directly so callers can skip the finite-distance epsilon check.
     fn should_accept_non_finite(self, actual: f32, expected: f32) -> bool {
         matches!(self.non_finite_policy, NonFinitePolicy::CanonicaliseToNan)
             && actual.is_nan()
             && expected.is_nan()
     }
 
+    /// Asserts in debug mode that single-variant policy fields are unchanged.
+    ///
+    /// This guards the current `ReturnZero` zero-vector policy and
+    /// `LowestRowIndexFirst` tie-breaking policy while keeping release builds
+    /// free of extra checks.
     fn debug_assert_contract(self) {
         debug_assert!(matches!(
             self.zero_vector_policy,

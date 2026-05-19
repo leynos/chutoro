@@ -98,6 +98,10 @@ pub(super) fn runtime_simd_support() -> RuntimeSimdSupport {
 }
 
 /// Returns every Euclidean backend that can run in the current test process.
+///
+/// The result intersects [`compiled_simd_support`] and
+/// [`runtime_simd_support`], so tests only receive backends present in the
+/// binary and supported by the host CPU.
 #[cfg(test)]
 pub(super) fn enabled_backends() -> Vec<EuclideanBackend> {
     let compiled = compiled_simd_support();

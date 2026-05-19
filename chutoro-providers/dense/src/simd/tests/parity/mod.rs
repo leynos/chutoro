@@ -35,6 +35,12 @@ use crate::simd::{DensePointView, dispatch, kernels};
 type PairwiseEntry = fn(&[f32], &[f32]) -> f32;
 type QueryPointsEntry = fn(&[f32], &DensePointView<'_>, &mut [f32]);
 
+/// Builds a CI-tuned proptest configuration for parity properties.
+///
+/// The run profile is loaded from
+/// `chutoro_test_support::ci::property_test_profile`; `default_cases` is used
+/// when no CI override is present. The returned [`ProptestConfig`] carries the
+/// selected case count and fork flag.
 fn proptest_config(default_cases: u32) -> ProptestConfig {
     const DEFAULT_FORK: bool = false;
 
@@ -49,6 +55,11 @@ fn proptest_config(default_cases: u32) -> ProptestConfig {
     }
 }
 
+/// Enumerates pairwise kernels for every backend available to this process.
+///
+/// Backends come from [`dispatch::enabled_backends`], then
+/// [`kernels::pairwise_entry`] resolves each compiled-and-runtime-available
+/// backend to its pairwise entry point before the pairs are collected.
 fn pairwise_entries() -> Vec<(dispatch::EuclideanBackend, PairwiseEntry)> {
     dispatch::enabled_backends()
         .into_iter()
@@ -56,6 +67,12 @@ fn pairwise_entries() -> Vec<(dispatch::EuclideanBackend, PairwiseEntry)> {
         .collect()
 }
 
+/// Enumerates query-to-points kernels for every backend available here.
+///
+/// Backends come from [`dispatch::enabled_backends`], then
+/// [`kernels::query_points_entry`] resolves each
+/// compiled-and-runtime-available backend to its query-to-points entry point
+/// before the pairs are collected.
 fn query_points_entries() -> Vec<(dispatch::EuclideanBackend, QueryPointsEntry)> {
     dispatch::enabled_backends()
         .into_iter()
