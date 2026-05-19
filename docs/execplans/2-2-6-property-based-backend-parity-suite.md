@@ -394,7 +394,7 @@ Roadmap item `2.2.6` is complete. The dense provider now has a crate-internal
 `DistanceSemantics` contract, property-based pairwise and query-to-points SIMD
 backend parity coverage, pairwise and query-to-points non-finite
 canonicalization coverage, and CI wiring for stable property-test and nightly
-portable-SIMD tiers. The design document, developers guide, and roadmap now
+portable-SIMD tiers. The design document, developers' guide, and roadmap now
 describe the implemented contract and extension workflow.
 
 The main retrospective item is CI cost visibility. The parity suite itself is
