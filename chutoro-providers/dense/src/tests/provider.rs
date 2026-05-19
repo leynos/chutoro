@@ -33,6 +33,47 @@ fn matrix_provider_distance_batch() {
 }
 
 #[rstest]
+#[case::finite_tail(
+    vec![
+        vec![0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0, 34.0],
+        vec![1.0, 1.0, 2.0, 3.0, 4.0, 7.0, 11.0, 18.0, 29.0],
+    ],
+    0,
+    1,
+)]
+#[case::non_finite_canonicalises_to_nan(
+    vec![vec![1.0, f32::NAN, 3.0], vec![1.0, 2.0, 3.0]],
+    0,
+    1,
+)]
+fn matrix_provider_distance_matches_scalar_reference(
+    #[case] rows: Vec<Vec<f32>>,
+    #[case] left: usize,
+    #[case] right: usize,
+) {
+    let dimension = rows
+        .first()
+        .map(Vec::len)
+        .expect("rows must include at least one vector");
+    let flat_values: Vec<f32> = rows.iter().flat_map(|row| row.iter().copied()).collect();
+    let provider = DenseMatrixProvider::from_parts("simd-demo", rows.len(), dimension, flat_values);
+
+    let actual = provider
+        .distance(left, right)
+        .expect("distance should succeed");
+    let expected = scalar_distance(&rows[left], &rows[right]);
+
+    if expected.is_nan() {
+        assert!(actual.is_nan(), "actual={actual}, expected=NaN");
+    } else {
+        assert!(
+            (actual - expected).abs() <= 1.0e-6_f32,
+            "actual={actual}, expected={expected}",
+        );
+    }
+}
+
+#[rstest]
 #[case::odd_dimension(
     vec![
         vec![1.0, 3.0, 5.0, 7.0, 9.0],
