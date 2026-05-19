@@ -616,7 +616,7 @@ The property work in this stage:
    first-mismatch index) so a failure prints something diagnosable.
 3. Query-to-points property (`query_points.rs`): generate a matrix of
    `rows x dimension` `f32` values, plus a candidate row-index list of length
-   1..=`MAX_CANDIDATES` (cover both 1, 16, 17, and a small open range). Build a
+   1..=`MAX_CANDIDATES` (cover 1, 16, 17, and a small open range). Build a
    `DensePointView<'a>` via `DensePointView::from_row_indices`. For each
    enabled backend that has a query-to-points entrypoint, compute the backend
    output and compare to the oracle vector via `assert_query_close`. Use a
