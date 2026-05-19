@@ -97,11 +97,14 @@ pub(super) fn runtime_simd_support() -> RuntimeSimdSupport {
     )
 }
 
-/// Returns every Euclidean backend that can run in the current test process.
+/// Returns every [`EuclideanBackend`] that is both compiled into this build
+/// and available on the current host at runtime.
 ///
-/// The result intersects [`compiled_simd_support`] and
-/// [`runtime_simd_support`], so tests only receive backends present in the
-/// binary and supported by the host CPU.
+/// Intersects [`compiled_simd_support`] with [`runtime_simd_support`] and
+/// filters each variant through [`backend_supported`]. Used by parity tests
+/// to enumerate only the backends that can actually execute in the current
+/// test process, so the property suite adapts automatically to the build
+/// configuration and host CPU.
 #[cfg(test)]
 pub(super) fn enabled_backends() -> Vec<EuclideanBackend> {
     let compiled = compiled_simd_support();

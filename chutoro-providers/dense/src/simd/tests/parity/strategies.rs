@@ -135,7 +135,7 @@ pub(super) fn non_finite_query_points_fixture() -> impl Strategy<Value = QueryPo
     })
 }
 
-/// Generates a fixture from arbitrary finite row-major values.
+/// Builds a `QueryPointsFixture` from arbitrary finite row-major values.
 fn query_fixture_from_rows(
     rows: usize,
     dimension: usize,
@@ -145,7 +145,8 @@ fn query_fixture_from_rows(
         .prop_map(move |values| query_fixture(values, rows, dimension, point_count))
 }
 
-/// Generates a fixture whose query and point rows all contain the same values.
+/// Builds a fixture whose every row repeats the same generated finite row,
+/// forcing exact zero distances between duplicate points.
 fn duplicate_query_fixture(
     rows: usize,
     dimension: usize,
@@ -157,7 +158,7 @@ fn duplicate_query_fixture(
     })
 }
 
-/// Generates a fixture whose query and point rows are all zero vectors.
+/// Builds a fixture whose query row and all point rows are zero vectors.
 fn zero_query_fixture(
     rows: usize,
     dimension: usize,
@@ -171,7 +172,8 @@ fn zero_query_fixture(
     ))
 }
 
-/// Wraps raw row-major values and point-count metadata in a fixture.
+/// Wraps raw row-major `values` and point-count metadata into a
+/// [`QueryPointsFixture`], setting `point_indices` to `1..=point_count`.
 fn query_fixture(
     values: Vec<f32>,
     rows: usize,
@@ -186,7 +188,8 @@ fn query_fixture(
     }
 }
 
-/// Generates lane dimensions that cover SIMD-width boundaries and tails.
+/// Generates lane dimensions covering exact SIMD-width multiples and
+/// one-before/one-after boundaries for all supported backend widths.
 fn lane_dimension() -> impl Strategy<Value = usize> {
     prop_oneof![
         Just(1_usize),
@@ -206,7 +209,7 @@ fn lane_dimension() -> impl Strategy<Value = usize> {
     ]
 }
 
-/// Generates the number of selected point rows for query-to-points tests.
+/// Generates the number of candidate point rows for query-to-points fixtures.
 fn point_count() -> impl Strategy<Value = usize> {
     prop_oneof![
         Just(1_usize),
@@ -218,22 +221,22 @@ fn point_count() -> impl Strategy<Value = usize> {
     ]
 }
 
-/// Generates row-major finite matrix values for the given shape.
+/// Generates a flat `Vec<f32>` of finite values for a `rows × dimension` matrix.
 fn finite_values(rows: usize, dimension: usize) -> impl Strategy<Value = Vec<f32>> {
     proptest::collection::vec(finite_value(), rows * dimension)
 }
 
-/// Generates one finite row with the requested dimension.
+/// Generates one finite row of length `dimension`.
 fn finite_row(dimension: usize) -> impl Strategy<Value = Vec<f32>> {
     proptest::collection::vec(finite_value(), dimension)
 }
 
-/// Generates a single finite `f32` value from the parity input range.
+/// Generates a single finite `f32` drawn from `[-1.0, 1.0)`.
 fn finite_value() -> impl Strategy<Value = f32> {
     -1.0_f32..1.0_f32
 }
 
-/// Generates one non-finite `f32` value used to exercise canonicalisation.
+/// Generates one non-finite `f32` value (`NaN`, `+∞`, or `-∞`).
 fn non_finite_value() -> impl Strategy<Value = f32> {
     prop_oneof![Just(f32::NAN), Just(f32::INFINITY), Just(f32::NEG_INFINITY),]
 }
