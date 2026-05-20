@@ -1,9 +1,9 @@
 //! CPU-backed session types for incremental clustering workflows.
 //!
-//! This module introduces the initial public session scaffolding used by the
-//! roadmap's incremental clustering work. In this phase the session is an
-//! inspectable, empty shell that owns configuration, an allocated HNSW index,
-//! and the backing data source without yet performing append or refresh work.
+//! This module provides the public session surface used by the roadmap's
+//! incremental clustering work. The session owns configuration, an allocated
+//! HNSW index, and the backing data source. It currently supports append-only
+//! insertion and buffers harvested candidate edges for later refresh work.
 
 use std::{num::NonZeroUsize, sync::Arc};
 
@@ -137,34 +137,28 @@ impl SessionConfig {
     }
 }
 
-/// A live clustering session prepared for later incremental operations.
+/// A live clustering session for append-oriented incremental clustering.
 ///
-/// The initial implementation allocates an empty HNSW index and records the
-/// configuration and backing source, but does not seed existing source items
-/// into the session. Follow-up roadmap items add append, refresh, bootstrap,
-/// and label-snapshot behaviour.
+/// The current implementation allocates an empty HNSW index and records the
+/// configuration and backing source. Calls to [`Self::append`] insert point
+/// indices through the public HNSW edge-harvesting path and retain harvested
+/// candidate edges for later refresh work. Follow-up roadmap items add refresh,
+/// bootstrap, and label-snapshot behaviour.
 ///
 /// ## Concurrency model
 ///
-/// `ClusteringSession<D>` is `Send + Sync` when `D: Send + Sync`. The current
-/// implementation is read-only (scaffold only): no field mutation occurs
-/// outside construction. `_labels` uses `Arc<Vec<usize>>`, so label snapshots
-/// are already safe for shared-reference access. When append and refresh
-/// operations are introduced in later roadmap items, mutable counters
-/// (`snapshot_version`, `_last_refresh_len`) will be replaced with appropriate
-/// synchronisation primitives (`AtomicU64`, `AtomicUsize`, or a `RwLock`)
-/// before the methods are stabilised.
-///
-/// Do **not** add mutation to `ClusteringSession` without first replacing the
-/// relevant plain fields with synchronisation-safe equivalents and updating
-/// this section.
+/// `append` requires `&mut self`, giving the caller exclusive access while the
+/// session mutates the live index and pending edge buffer. Read-only accessors
+/// remain available through shared references. `_labels` uses `Arc<Vec<usize>>`,
+/// so later label snapshots can be shared without blocking the writer.
 ///
 /// # Examples
 /// ```rust,no_run
 /// use std::sync::Arc;
 ///
 /// use chutoro_core::{
-///     ChutoroBuilder, ClusteringSession, DataSource, DataSourceError, MetricDescriptor,
+///     ChutoroBuilder, ChutoroError, ClusteringSession, DataSource,
+///     DataSourceError, MetricDescriptor,
 /// };
 ///
 /// struct Dummy(Vec<f32>);
@@ -180,13 +174,17 @@ impl SessionConfig {
 ///     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("abs") }
 /// }
 ///
+/// # fn main() -> Result<(), ChutoroError> {
 /// let source = Arc::new(Dummy(vec![0.0, 1.0]));
-/// let session: ClusteringSession<Dummy> = ChutoroBuilder::new()
-///     .build_session(source)
-///     .expect("session creation must succeed");
+/// let mut session: ClusteringSession<Dummy> = ChutoroBuilder::new()
+///     .build_session(source)?;
 ///
-/// assert_eq!(session.point_count(), 0);
+/// session.append(&[0, 1])?;
+///
+/// assert_eq!(session.point_count(), 2);
 /// assert_eq!(session.snapshot_version(), 0);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug)]
 pub struct ClusteringSession<D: DataSource + Send + Sync> {
@@ -195,10 +193,10 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
     _core_distances: Vec<f32>,
     _mst_edges: Vec<MstEdge>,
     _historical_edges: Vec<CandidateEdge>,
-    _pending_edges: Vec<CandidateEdge>,
+    pending_edges: Vec<CandidateEdge>,
     _labels: Arc<Vec<usize>>,
     snapshot_version: u64,
-    _source: Arc<D>,
+    source: Arc<D>,
     _last_refresh_len: usize,
 }
 
@@ -232,6 +230,26 @@ const _: fn() = || {
 };
 
 impl<D: DataSource + Send + Sync> ClusteringSession<D> {
+    fn append_index_error(&self, index: usize) -> ChutoroError {
+        ChutoroError::DataSource {
+            data_source: Arc::from(self.source.name()),
+            error: DataSourceError::OutOfBounds { index },
+        }
+    }
+
+    fn map_hnsw_error(&self, error: HnswError) -> ChutoroError {
+        match error {
+            HnswError::DataSource(error) => ChutoroError::DataSource {
+                data_source: Arc::from(self.source.name()),
+                error,
+            },
+            other => ChutoroError::CpuHnswFailure {
+                code: Arc::from(other.code().as_str()),
+                message: Arc::from(other.to_string()),
+            },
+        }
+    }
+
     fn new_with_index_result(
         config: SessionConfig,
         source: Arc<D>,
@@ -258,10 +276,10 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             _core_distances: Vec::new(),
             _mst_edges: Vec::new(),
             _historical_edges: Vec::new(),
-            _pending_edges: Vec::new(),
+            pending_edges: Vec::new(),
             _labels: Arc::new(Vec::new()),
             snapshot_version: 0,
-            _source: source,
+            source,
             _last_refresh_len: 0,
         })
     }
@@ -272,7 +290,8 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     }
 
     pub(crate) fn new(config: SessionConfig, source: Arc<D>) -> Result<Self> {
-        Self::new_with_capacity(config, source, 1)
+        let capacity = source.len().max(1);
+        Self::new_with_capacity(config, source, capacity)
     }
 
     #[cfg(test)]
@@ -290,6 +309,34 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     #[must_use]
     pub fn config(&self) -> &SessionConfig {
         &self.config
+    }
+
+    /// Appends new point indices to the live HNSW index.
+    ///
+    /// Each index is inserted with [`CpuHnsw::insert_harvesting`], and every
+    /// harvested [`CandidateEdge`] is retained in the session's pending edge
+    /// buffer for later refresh work. The method is fail-fast: if an insertion
+    /// fails, earlier successful insertions and their pending edges remain in
+    /// the session.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ChutoroError::DataSource`] when the backing source rejects an
+    /// index or distance query. Returns [`ChutoroError::CpuHnswFailure`] for
+    /// duplicate indices, non-finite distances, lock poisoning, or graph
+    /// invariant failures reported by the HNSW index.
+    pub fn append(&mut self, indices: &[usize]) -> Result<()> {
+        for &index in indices {
+            if index >= self.source.len() {
+                return Err(self.append_index_error(index));
+            }
+            let edges = self
+                .index
+                .insert_harvesting(index, self.source.as_ref())
+                .map_err(|error| self.map_hnsw_error(error))?;
+            self.pending_edges.extend(edges);
+        }
+        Ok(())
     }
 
     /// Returns the number of points currently inserted into the session.

@@ -86,16 +86,23 @@ use chutoro_core::{
 #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
 #         Ok((a - b).abs())
 #     }
-#     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("abs") }
+#     fn metric_descriptor(&self) -> MetricDescriptor {
+#         MetricDescriptor::new("abs")
+#     }
 # }
 #
 # fn example(source: Arc<Dummy>) -> Result<(), chutoro_core::ChutoroError> {
-let session = ChutoroBuilder::new()
+let mut session = ChutoroBuilder::new()
     .with_min_cluster_size(10)
     .with_session_refresh_policy(SessionRefreshPolicy::manual())
     .build_session(source)?;
 
 assert_eq!(session.point_count(), 0);
+assert_eq!(session.snapshot_version(), 0);
+
+session.append(&[0, 1])?;
+
+assert_eq!(session.point_count(), 2);
 assert_eq!(session.snapshot_version(), 0);
 # Ok(())
 # }
@@ -105,6 +112,18 @@ Sessions are CPU-only, so `ExecutionStrategy::GpuPreferred` is rejected during
 `build_session()`. Empty and undersized sources are accepted at construction
 time because session creation does not seed HNSW or run the batch bootstrap
 path.
+
+Use `append(&[...])` to insert source indices that already exist in the
+backing `DataSource`. The session does not copy or extend source storage; the
+caller owns that storage contract. Each index is inserted into the live HNSW
+index through the edge-harvesting path, and harvested candidate edges are kept
+internally for the later refresh workflow.
+
+`append` is fail-fast with partial progress. If a slice contains `[0, 1, bad]`
+and the first two inserts succeed, those points remain in the session and their
+harvested edges remain pending when the error for `bad` is returned.
+Out-of-bounds indices surface as `ChutoroError::DataSource`; duplicate indices
+and HNSW structural failures surface as `ChutoroError::CpuHnswFailure`.
 
 ### Limitations
 
@@ -116,10 +135,10 @@ path.
   per-item online relabelling path.
 - A refresh can relabel existing points as well as newly appended points.
 
-Mutation, append, refresh, and full batch bootstrap are not yet available on
-the public session surface. Those workflows remain future roadmap work. The
-`cpu` feature must be enabled to access `build_session()`,
-`SessionRefreshPolicy`, `SessionConfig`, and `ClusteringSession<D>`.
+Refresh and full batch bootstrap are not yet available on the public session
+surface. Those workflows remain future roadmap work. The `cpu` feature must be
+enabled to access `build_session()`, `append(...)`, `SessionRefreshPolicy`,
+`SessionConfig`, and `ClusteringSession<D>`.
 
 ## Implementing data sources
 

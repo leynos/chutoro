@@ -5,9 +5,10 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: IN PROGRESS
 
-Implementation must not begin until this plan is approved.
+Implementation approval was received on 2026-05-20. Keep this plan current as
+the implementation proceeds.
 
 ## Purpose / big picture
 
@@ -156,11 +157,29 @@ cluster identity.
   and `coderabbit review --agent`.
 - [x] (2026-05-20 00:00Z) Revised the dependency and validation gates to
   reflect that `rstest-bdd` was explicitly authorised by the task instructions.
-- [ ] Receive explicit approval to implement this plan.
-- [ ] Implement `ClusteringSession::append` and supporting error mapping.
-- [ ] Add unit and property tests for append behaviour.
-- [ ] Update user, developer, design, and roadmap documentation.
-- [ ] Run formatting, linting, tests, and CodeRabbit review.
+- [x] (2026-05-20 00:00Z) Received explicit approval to implement this plan.
+- [x] (2026-05-20 00:00Z) Rechecked the worktree, current branch, current
+  `ClusteringSession` and `CpuHnsw::insert_harvesting` surfaces, and loaded
+  `rust-errors` for the HNSW-to-session error mapping boundary.
+- [x] (2026-05-20 00:00Z) Added red append tests in
+  `chutoro-core/src/session/tests.rs`; targeted `cargo test -p chutoro-core
+  session::tests::append --all-features` failed on the missing `append` method
+  and `pending_edges` field as expected.
+- [x] (2026-05-20 00:00Z) Implemented `ClusteringSession::append`, direct
+  source-index validation, HNSW error mapping, and source-sized session HNSW
+  capacity.
+- [x] (2026-05-20 00:00Z) Added `rstest` unit coverage, a `proptest` sequence
+  property, and `rstest-bdd` behavioural scenarios for happy, unhappy, empty,
+  and multiple-append paths.
+- [x] (2026-05-20 00:00Z) Updated user, developer, design, and roadmap
+  documentation for `append`.
+- [x] (2026-05-20 00:00Z) Ran CodeRabbit after the implementation milestone.
+  Addressed its BDD findings by expanding scenarios and by mapping malformed
+  Gherkin index lists to a test-only step error.
+- [x] (2026-05-20 00:00Z) Ran validation. `make check-fmt`, `make lint`, and a
+  warm-cache rerun of `make test` passed. The first full `make test` run timed
+  out one existing functional ARI/NMI case; the isolated case then passed in
+  0.838s.
 - [ ] Commit the implementation and push the branch.
 
 ## Surprises & Discoveries
@@ -196,6 +215,41 @@ cluster identity.
   violations in unrelated documentation after running repository-wide Markdown
   formatting. The new ExecPlan itself passes direct `markdownlint-cli2`.
 
+- Observation: the first implementation attempt routed inserts through HNSW
+  correctly but exposed that `build_session` allocated the empty HNSW index
+  with capacity `1`. Appending any source index above `0` failed with
+  `HnswError::InvalidParameters`. Session construction now allocates capacity
+  from `source.len().max(1)` while still leaving the session empty.
+
+- Observation: inserting the first point into an empty HNSW index does not
+  necessarily query the data source, so `append` validates each requested index
+  against `source.len()` before calling `insert_harvesting`.
+
+- Observation: `rstest-bdd` `0.6.0-beta1` exposes runtime helpers through
+  `rstest-bdd` and attribute macros through the companion
+  `rstest-bdd-macros` crate. The behavioural test therefore needs both
+  dev-dependencies.
+
+- Observation: CodeRabbit correctly flagged that malformed Gherkin parameters
+  should not be represented as `ChutoroError::CpuHnswFailure`. The behavioural
+  test now uses a test-only `BddStepError` for parse failures while storing
+  real append errors in the scenario world for assertions.
+
+- Observation: the second CodeRabbit invocation failed with a recoverable
+  rate-limit error and reported a wait time of 5 minutes and 34 seconds. The
+  first review's findings were already addressed before continuing.
+
+- Observation: repository-wide `make fmt` still fails after `cargo fmt` because
+  `markdownlint --fix` reports pre-existing MD013 line-length violations across
+  many unrelated Markdown files. The new `docs/users-guide.md` long hidden
+  Rustdoc line was wrapped, and `make check-fmt` passed.
+
+- Observation: the first full `make test` run reached 956 passing tests before
+  the existing `functional_ari_nmi::hnsw_pipeline_matches_exact_baseline`
+  `case_1` timed out twice at the configured 180 second nextest limit. The
+  isolated nextest run for that exact case passed in 0.838s, and a second full
+  `make test` run passed, indicating a transient full-suite scheduling stall.
+
 ## Decision Log
 
 - Decision: implement `append` as
@@ -223,16 +277,21 @@ cluster identity.
   through `data_source_code()`.
 
 - Decision: use `rstest` and a narrow `proptest` sequence property as the
-  required validation baseline. Add `rstest-bdd` if the implementation can
-  express a useful behavioural append scenario without duplicating unit tests.
-  Rationale: the user explicitly authorised `rstest-bdd`, but append is still a
-  small state mutation best proven by comparing session behaviour to direct
-  HNSW insertion. Kani and Verus remain reserved for bounded structural
-  invariants or pure helper proofs; no such helper is planned.
+  required validation baseline, and add `rstest-bdd` scenarios for externally
+  visible append behaviour. Rationale: the user explicitly authorised
+  `rstest-bdd`, and Gherkin scenarios give reviewers a readable behaviour
+  contract without reaching into private `pending_edges` state. Kani and Verus
+  remain reserved for bounded structural invariants or pure helper proofs; no
+  such helper was introduced.
 
 - Decision: keep automatic `refresh_every_n` triggering out of this item.
   Rationale: roadmap item `11.2.3` explicitly owns automatic refresh behaviour.
   `11.1.3` must accumulate pending edges only.
+
+- Decision: keep the proptest regression file generated by the first failing
+  append property. Rationale: the shrunk case `indices = [1]` captures the
+  source-capacity bug where a session allocated HNSW capacity `1` regardless of
+  source length.
 
 ## Implementation Plan
 

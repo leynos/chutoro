@@ -32,10 +32,11 @@ impl DataSource for Dummy {
 
 fn main() {
     let source = Arc::new(Dummy(vec![0.0, 1.0]));
-    let session: ClusteringSession<Dummy> = ChutoroBuilder::new()
+    let mut session: ClusteringSession<Dummy> = ChutoroBuilder::new()
         .with_session_refresh_policy(SessionRefreshPolicy::manual())
         .build_session(source)
         .expect("cpu-enabled session API must compile");
+    session.append(&[0]).expect("append API must compile");
     let config: &SessionConfig = session.config();
     let _ = config.refresh_policy();
 }

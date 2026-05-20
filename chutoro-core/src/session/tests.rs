@@ -6,8 +6,9 @@ use proptest::prelude::*;
 use rstest::{fixture, rstest};
 
 use crate::{
-    ChutoroBuilder, ChutoroError, ClusteringSession, DataSource, DataSourceError,
-    ExecutionStrategy, HnswParams, MetricDescriptor, SessionConfig, SessionRefreshPolicy,
+    ChutoroBuilder, ChutoroError, ClusteringSession, CpuHnsw, DataSource, DataSourceError,
+    DataSourceErrorCode, ExecutionStrategy, HnswParams, MetricDescriptor, SessionConfig,
+    SessionRefreshPolicy,
 };
 
 #[derive(Clone, Debug)]
@@ -168,6 +169,135 @@ fn build_session_maps_hnsw_construction_failure_to_cpu_hnsw_failure() {
     );
 }
 
+#[rstest]
+fn append_empty_slice_is_noop(session_builder: ChutoroBuilder) {
+    let source = Arc::new(SessionTestSource::with_len(4));
+    let mut session = session_builder
+        .build_session(source)
+        .expect("session must build");
+
+    session.append(&[]).expect("empty append must succeed");
+
+    assert_eq!(session.point_count(), 0);
+    assert_eq!(session.snapshot_version(), 0);
+    assert!(session.pending_edges.is_empty());
+}
+
+#[rstest]
+fn append_single_index_increases_point_count(session_builder: ChutoroBuilder) {
+    let source = Arc::new(SessionTestSource::with_len(4));
+    let mut session = session_builder
+        .build_session(source)
+        .expect("session must build");
+
+    session.append(&[0]).expect("first append must succeed");
+
+    assert_eq!(session.point_count(), 1);
+    assert_eq!(session.snapshot_version(), 0);
+    assert!(session.pending_edges.is_empty());
+}
+
+#[rstest]
+fn append_batch_accumulates_direct_harvested_edges(session_builder: ChutoroBuilder) {
+    let hnsw_params = HnswParams::new(4, 16)
+        .expect("HNSW params must be valid")
+        .with_rng_seed(41);
+    let source = Arc::new(SessionTestSource::with_len(6));
+    let mut session = session_builder
+        .with_hnsw_params(hnsw_params.clone())
+        .build_session(Arc::clone(&source))
+        .expect("session must build");
+    let direct_index =
+        CpuHnsw::with_capacity(hnsw_params, source.len()).expect("direct index must allocate");
+    let mut expected_edges = Vec::new();
+    let indices = [0, 1, 2, 3];
+
+    for index in indices {
+        let edges = direct_index
+            .insert_harvesting(index, source.as_ref())
+            .expect("direct insert must succeed");
+        expected_edges.extend(edges);
+    }
+
+    session.append(&indices).expect("batch append must succeed");
+
+    assert_eq!(session.point_count(), indices.len());
+    assert_eq!(session.snapshot_version(), 0);
+    assert_eq!(session.pending_edges, expected_edges);
+}
+
+#[rstest]
+fn append_rejects_duplicate_index(session_builder: ChutoroBuilder) {
+    let source = Arc::new(SessionTestSource::with_len(2));
+    let mut session = session_builder
+        .build_session(source)
+        .expect("session must build");
+
+    session.append(&[0]).expect("first append must succeed");
+    let err = session
+        .append(&[0])
+        .expect_err("duplicate append must fail");
+
+    assert!(
+        matches!(err, ChutoroError::CpuHnswFailure { .. }),
+        "expected CpuHnswFailure, got {err:?}"
+    );
+    assert_eq!(session.point_count(), 1);
+}
+
+#[rstest]
+fn append_rejects_out_of_bounds_index(session_builder: ChutoroBuilder) {
+    let source = Arc::new(SessionTestSource::with_len(2));
+    let mut session = session_builder
+        .build_session(Arc::clone(&source))
+        .expect("session must build");
+
+    let err = session
+        .append(&[source.len()])
+        .expect_err("out-of-bounds append must fail");
+
+    assert!(
+        matches!(err, ChutoroError::DataSource { .. }),
+        "expected DataSource error, got {err:?}"
+    );
+    assert_eq!(
+        err.data_source_code(),
+        Some(DataSourceErrorCode::OutOfBounds)
+    );
+    assert_eq!(session.point_count(), 0);
+}
+
+#[rstest]
+fn append_failure_preserves_prior_successes(session_builder: ChutoroBuilder) {
+    let source = Arc::new(SessionTestSource::with_len(2));
+    let mut session = session_builder
+        .build_session(Arc::clone(&source))
+        .expect("session must build");
+
+    let err = session
+        .append(&[0, source.len()])
+        .expect_err("second append must fail");
+
+    assert!(
+        matches!(err, ChutoroError::DataSource { .. }),
+        "expected DataSource error, got {err:?}"
+    );
+    assert_eq!(session.point_count(), 1);
+    assert_eq!(session.snapshot_version(), 0);
+}
+
+#[rstest]
+fn append_does_not_publish_label_snapshot(session_builder: ChutoroBuilder) {
+    let source = Arc::new(SessionTestSource::with_len(4));
+    let mut session = session_builder
+        .build_session(source)
+        .expect("session must build");
+
+    session.append(&[0, 1, 2]).expect("append must succeed");
+
+    assert_eq!(session.snapshot_version(), 0);
+}
+
 proptest! {
     /// Any non-zero `min_cluster_size` in `[1, 1000]` must yield a session whose
     /// `config().min_cluster_size()` equals the requested value.
@@ -206,5 +336,30 @@ proptest! {
             matches!(err, ChutoroError::InvalidMinClusterSize { got: 0 }),
             "expected InvalidMinClusterSize {{ got: 0 }}, got {err:?}"
         );
+    }
+
+    /// Appending a generated unique sequence of in-bounds indices must make
+    /// `point_count()` match the number of appended points.
+    #[test]
+    fn append_unique_indices_updates_point_count(
+        indices in proptest::collection::vec(0usize..32, 0..=32)
+            .prop_map(|mut indices| {
+                indices.sort_unstable();
+                indices.dedup();
+                indices
+            })
+    ) {
+        let source = Arc::new(SessionTestSource::with_len(32));
+        let mut session = ChutoroBuilder::new()
+            .with_hnsw_params(HnswParams::default().with_rng_seed(73))
+            .build_session(source)
+            .expect("session must build");
+
+        session
+            .append(&indices)
+            .expect("unique in-bounds append sequence must succeed");
+
+        prop_assert_eq!(session.point_count(), indices.len());
+        prop_assert_eq!(session.snapshot_version(), 0);
     }
 }

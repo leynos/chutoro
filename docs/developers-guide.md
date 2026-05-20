@@ -81,6 +81,7 @@ pub fn refresh_policy(&self) -> &SessionRefreshPolicy;
 
 // ClusteringSession<D: DataSource + Send + Sync>
 pub fn config(&self) -> &SessionConfig;
+pub fn append(&mut self, indices: &[usize]) -> Result<()>;
 pub fn point_count(&self) -> usize;
 pub fn snapshot_version(&self) -> u64;
 ```
@@ -89,6 +90,20 @@ pub fn snapshot_version(&self) -> u64;
 `ExecutionStrategy::GpuPreferred`, accepts empty and undersized sources, and
 returns an inert session whose initial observable state is `point_count() == 0`
 and `snapshot_version() == 0`.
+
+`append` inserts source indices into the live HNSW index by calling
+`CpuHnsw::insert_harvesting` for each index. It must not duplicate HNSW
+insertion logic or inspect private HNSW adapter internals. The session stores
+all returned `CandidateEdge` values in its internal `pending_edges` buffer for
+future refresh work. The method is fail-fast and preserves partial progress:
+insertions completed before the first error remain in the index, and their
+harvested edges remain pending.
+
+Session construction allocates HNSW capacity from `source.len().max(1)` while
+still leaving the index empty. `append` prevalidates each requested index
+against `source.len()` before insertion so early bootstrap cases return a
+`ChutoroError::DataSource` for out-of-bounds indices even when HNSW would not
+need a distance query for the first inserted node.
 
 The v1 incremental clustering surface has these limitations:
 

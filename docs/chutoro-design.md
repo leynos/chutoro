@@ -2467,6 +2467,18 @@ clustering state, in contrast to the stateless `Chutoro::run()` path.
   - Session construction is CPU-only in v1. `build_session(...)` therefore
     rejects `ExecutionStrategy::GpuPreferred` even if batch execution later gains
     a separate GPU backend.
+- [x] Roadmap item `11.1.3` implements
+  `ClusteringSession::append(&mut self, indices: &[usize]) -> Result<()>`:
+  - Session construction allocates HNSW capacity from `source.len().max(1)` but
+    does not insert any source rows until `append` is called.
+  - `append` treats each element as an index that is already valid for the
+    backing `DataSource`; it does not append raw records to the source.
+  - Every insertion calls the public HNSW edge-harvesting method,
+    `CpuHnsw::insert_harvesting`, and extends `pending_edges` with every
+    returned `CandidateEdge`.
+  - The method is fail-fast with partial progress. Earlier successful
+    insertions and their pending edges are retained if a later index is
+    duplicate, out of bounds, or otherwise rejected by HNSW.
 
 ```rust,no_run
 /// A live, mutable clustering session that supports incremental point
@@ -2533,7 +2545,7 @@ The session lifecycle follows four phases:
    constructors.
 2. **Appending.** Insert new points via `session.append(indices)`. Each
    insertion calls the edge-harvesting HNSW insertion path (currently
-   `insert_with_edges`) and accumulates delta candidate edges in
+   `insert_harvesting`) and accumulates delta candidate edges in
    `pending_edges`.
 3. **Refreshing.** Call `session.refresh()` to merge `pending_edges` with the
    existing `mst_edges`, recompute core distances for new points, apply
