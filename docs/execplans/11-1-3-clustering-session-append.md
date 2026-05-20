@@ -182,7 +182,8 @@ cluster identity.
   0.838s.
 - [x] (2026-05-20 00:00Z) Committed the implementation as
   `60c8f3e Implement clustering session append`.
-- [ ] Push the branch.
+- [x] (2026-05-20 00:00Z) Pushed the branch and updated draft PR
+  `https://github.com/leynos/chutoro/pull/128`.
 
 ## Surprises & Discoveries
 
