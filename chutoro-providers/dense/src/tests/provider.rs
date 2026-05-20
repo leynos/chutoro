@@ -1,3 +1,8 @@
+//! Tests for `DenseMatrixProvider`.
+//!
+//! Covers provider behaviour, `DenseMatrixProviderError` cases, and the
+//! shared helper fixtures used by the matrix-provider test cases.
+
 use super::{DenseMatrixProvider, DenseMatrixProviderError, support::*};
 use arrow_array::{ArrayRef, FixedSizeListArray};
 use arrow_schema::{DataType, Field};
