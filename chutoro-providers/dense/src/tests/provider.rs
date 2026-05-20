@@ -1,7 +1,10 @@
 //! Tests for `DenseMatrixProvider`.
 //!
-//! Covers provider behaviour, `DenseMatrixProviderError` cases, and the
-//! shared helper fixtures used by the matrix-provider test cases.
+//! Covers the public `distance` and `distance_batch` APIs, using the scalar
+//! `scalar_distance` helper as the Euclidean reference. The cases exercise
+//! non-finite inputs that canonicalise to `f32::NAN`, compare finite results
+//! within `1.0e-5_f32`, and cover the error paths for out-of-bounds indices,
+//! mismatched output lengths, and rejected input data.
 
 use super::{DenseMatrixProvider, DenseMatrixProviderError, support::*};
 use arrow_array::{ArrayRef, FixedSizeListArray};
@@ -155,10 +158,14 @@ fn matrix_provider_distance_batch_matches_scalar_reference(
         .collect();
     assert_eq!(out.len(), expected.len());
     for (actual, expected_value) in out.iter().copied().zip(expected.into_iter()) {
-        assert!(
-            (actual - expected_value).abs() <= 1.0e-5_f32,
-            "actual={actual}, expected={expected_value}",
-        );
+        if expected_value.is_nan() {
+            assert!(actual.is_nan(), "actual={actual}, expected=NaN");
+        } else {
+            assert!(
+                (actual - expected_value).abs() <= 1.0e-5_f32,
+                "actual={actual}, expected={expected_value}",
+            );
+        }
     }
 }
 
@@ -226,6 +233,11 @@ fn matrix_provider_distance_batch_empty() {
     assert!(out.is_empty());
 }
 
+/// Scalar Euclidean oracle for the matrix-provider tests.
+///
+/// Computes the Euclidean distance for two equal-length slices, canonicalising
+/// any non-finite result to `f32::NAN`. Panics if the inputs do not have
+/// matching lengths.
 fn scalar_distance(left: &[f32], right: &[f32]) -> f32 {
     assert_eq!(
         left.len(),
