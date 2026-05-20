@@ -97,6 +97,30 @@ pub(super) fn runtime_simd_support() -> RuntimeSimdSupport {
     )
 }
 
+/// Returns every [`EuclideanBackend`] that is both compiled into this build
+/// and available on the current host at runtime.
+///
+/// Intersects [`compiled_simd_support`] with [`runtime_simd_support`] and
+/// filters each variant through [`backend_supported`]. Used by parity tests
+/// to enumerate only the backends that can actually execute in the current
+/// test process, so the property suite adapts automatically to the build
+/// configuration and host CPU.
+#[cfg(test)]
+pub(super) fn enabled_backends() -> Vec<EuclideanBackend> {
+    let compiled = compiled_simd_support();
+    let runtime = runtime_simd_support();
+    [
+        EuclideanBackend::Avx512,
+        EuclideanBackend::Avx2,
+        EuclideanBackend::Neon,
+        EuclideanBackend::PortableSimd,
+        EuclideanBackend::Scalar,
+    ]
+    .into_iter()
+    .filter(|backend| backend_supported(&compiled, &runtime, *backend))
+    .collect()
+}
+
 /// Chooses the best Euclidean backend available to both compile-time and
 /// runtime support masks.
 ///

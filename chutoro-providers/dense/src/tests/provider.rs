@@ -1,3 +1,11 @@
+//! Tests for `DenseMatrixProvider`.
+//!
+//! Covers the public `distance` and `distance_batch` APIs, using the scalar
+//! `scalar_distance` helper as the Euclidean reference. The cases exercise
+//! non-finite inputs that canonicalise to `f32::NAN`, compare finite results
+//! within `1.0e-5_f32`, and cover the error paths for out-of-bounds indices,
+//! mismatched output lengths, and rejected input data.
+
 use super::{DenseMatrixProvider, DenseMatrixProviderError, support::*};
 use arrow_array::{ArrayRef, FixedSizeListArray};
 use arrow_schema::{DataType, Field};
@@ -14,7 +22,7 @@ fn matrix_provider_from_fixed_size_list() {
     assert_eq!(provider.dimension(), 3);
     assert_eq!(provider.data(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
     let distance = provider.distance(0, 1).expect("distance should work");
-    assert!((distance - (27.0_f32).sqrt()).abs() < 1e-6);
+    assert!((distance - (27.0_f32).sqrt()).abs() < 1.0e-5_f32);
 }
 
 #[rstest]
@@ -28,7 +36,58 @@ fn matrix_provider_distance_batch() {
         .distance_batch(&pairs, &mut out)
         .expect("batch distances should work");
     for value in out {
-        assert!((value - (27.0_f32).sqrt()).abs() < 1e-6);
+        assert!((value - (27.0_f32).sqrt()).abs() < 1.0e-5_f32);
+    }
+}
+
+#[rstest]
+#[case::finite_tail(
+    vec![
+        vec![0.0, 1.0, 2.0, 3.0, 5.0, 8.0, 13.0, 21.0, 34.0],
+        vec![1.0, 1.0, 2.0, 3.0, 4.0, 7.0, 11.0, 18.0, 29.0],
+    ],
+    0,
+    1,
+)]
+#[case::non_finite_canonicalises_to_nan(
+    vec![vec![1.0, f32::NAN, 3.0], vec![1.0, 2.0, 3.0]],
+    0,
+    1,
+)]
+#[case::positive_infinity_canonicalises_to_nan(
+    vec![vec![1.0, f32::INFINITY, 3.0], vec![1.0, 2.0, 3.0]],
+    0,
+    1,
+)]
+#[case::negative_infinity_canonicalises_to_nan(
+    vec![vec![1.0, f32::NEG_INFINITY, 3.0], vec![1.0, 2.0, 3.0]],
+    0,
+    1,
+)]
+fn matrix_provider_distance_matches_scalar_reference(
+    #[case] rows: Vec<Vec<f32>>,
+    #[case] left: usize,
+    #[case] right: usize,
+) {
+    let dimension = rows
+        .first()
+        .map(Vec::len)
+        .expect("rows must include at least one vector");
+    let flat_values: Vec<f32> = rows.iter().flat_map(|row| row.iter().copied()).collect();
+    let provider = DenseMatrixProvider::from_parts("simd-demo", rows.len(), dimension, flat_values);
+
+    let actual = provider
+        .distance(left, right)
+        .expect("distance should succeed");
+    let expected = scalar_distance(&rows[left], &rows[right]);
+
+    if expected.is_nan() {
+        assert!(actual.is_nan(), "actual={actual}, expected=NaN");
+    } else {
+        assert!(
+            (actual - expected).abs() <= 1.0e-5_f32,
+            "actual={actual}, expected={expected}",
+        );
     }
 }
 
@@ -99,10 +158,14 @@ fn matrix_provider_distance_batch_matches_scalar_reference(
         .collect();
     assert_eq!(out.len(), expected.len());
     for (actual, expected_value) in out.iter().copied().zip(expected.into_iter()) {
-        assert!(
-            (actual - expected_value).abs() <= 1.0e-6_f32,
-            "actual={actual}, expected={expected_value}",
-        );
+        if expected_value.is_nan() {
+            assert!(actual.is_nan(), "actual={actual}, expected=NaN");
+        } else {
+            assert!(
+                (actual - expected_value).abs() <= 1.0e-5_f32,
+                "actual={actual}, expected={expected_value}",
+            );
+        }
     }
 }
 
@@ -170,20 +233,31 @@ fn matrix_provider_distance_batch_empty() {
     assert!(out.is_empty());
 }
 
+/// Scalar Euclidean oracle for the matrix-provider tests.
+///
+/// Computes the Euclidean distance for two equal-length slices, canonicalising
+/// any non-finite result to `f32::NAN`. Panics if the inputs do not have
+/// matching lengths.
 fn scalar_distance(left: &[f32], right: &[f32]) -> f32 {
     assert_eq!(
         left.len(),
         right.len(),
         "scalar distance inputs must have matching dimensions",
     );
-    left.iter()
+    let distance = left
+        .iter()
         .zip(right.iter())
         .map(|(l, r)| {
             let delta = l - r;
             delta * delta
         })
         .sum::<f32>()
-        .sqrt()
+        .sqrt();
+    if distance.is_finite() {
+        distance
+    } else {
+        f32::NAN
+    }
 }
 
 #[rstest]

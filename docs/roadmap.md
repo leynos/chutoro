@@ -301,7 +301,7 @@ ______________________________________________________________________
   - add CI checks that verify stable builds with the feature disabled and
     nightly builds with the feature enabled. (See `docs/chutoro-design.md`
     §6.3)
-- [ ] 2.2.6. Add a property-based backend parity suite driven by a shared
+- [x] 2.2.6. Add a property-based backend parity suite driven by a shared
   `DistanceSemantics` contract and scalar oracle reducer: generate vector
   lengths around lane boundaries, random alignment and padding patterns,
   duplicate and zero vectors, and non-finite inputs under the declared policy;

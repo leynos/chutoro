@@ -1,11 +1,30 @@
 //! Tests for SIMD-aware Euclidean distance kernels.
+//!
+//! This module groups the dense SIMD test surface that is small enough to live
+//! beside the implementation. The inline tests cover shared data structures,
+//! public batch entry points, and the snapshots that keep the backend discovery
+//! contract visible.
+//!
+//! The [`entrypoints`] submodule checks the ordinary Euclidean entry points and
+//! backend selection paths used by production code. The [`support_masks`]
+//! submodule verifies the compile-time and runtime support masks, complementing
+//! the trybuild tests that enforce nightly portable-SIMD feature gating. The
+//! [`parity`] submodule is the property-based backend parity suite: it
+//! enumerates backends through [`dispatch::enabled_backends`], resolves concrete
+//! kernels through `kernels`, and compares every enabled backend with the
+//! scalar oracle using the [`semantics::DistanceSemantics`] contract.
+//!
+//! Together these layers keep dispatch, feature gating, and backend numerical
+//! behaviour aligned without requiring tests to assume a particular host CPU.
 
 use super::dispatch::{self, CompiledSimdSupport, RuntimeSimdSupport};
 use super::kernels;
 use super::*;
 use rstest::{fixture, rstest};
 
+mod backend_expectations;
 mod entrypoints;
+mod parity;
 mod support_masks;
 
 fn close(left: Distance, right: Distance) {

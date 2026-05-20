@@ -78,6 +78,68 @@ pub(super) fn select_euclidean_kernel() -> EuclideanKernel {
     )
 }
 
+/// Holds both kernel function pointers for a single backend.
+///
+/// Used by parity tests to resolve a specific backend's pairwise and
+/// query-to-points kernels in a single dispatch, avoiding the need to
+/// repeat the backend match in every test helper.
+#[cfg(test)]
+pub(super) struct BackendKernels {
+    pub(super) pairwise: EuclideanKernel,
+    pub(super) query_points: EuclideanQueryPointsKernel,
+}
+
+/// Returns both kernel entry-points for `backend`, or `None` when the
+/// corresponding compile-time feature gate is not active.
+///
+/// This is the single source of truth for the backend-to-function-pointer
+/// mapping used by [`pairwise_entry`] and [`query_points_entry`].
+#[cfg(test)]
+pub(super) fn backend_kernels(backend: dispatch::EuclideanBackend) -> Option<BackendKernels> {
+    match backend {
+        dispatch::EuclideanBackend::Scalar => Some(BackendKernels {
+            pairwise: euclidean_distance_scalar,
+            query_points: euclidean_distance_query_points_scalar,
+        }),
+        #[cfg(all(
+            feature = "simd_avx2",
+            any(target_arch = "x86", target_arch = "x86_64")
+        ))]
+        dispatch::EuclideanBackend::Avx2 => Some(BackendKernels {
+            pairwise: euclidean_distance_avx2_entry,
+            query_points: x86_simd::euclidean_distance_query_points_avx2_entry,
+        }),
+        #[cfg(all(
+            feature = "simd_avx512",
+            any(target_arch = "x86", target_arch = "x86_64")
+        ))]
+        dispatch::EuclideanBackend::Avx512 => Some(BackendKernels {
+            pairwise: euclidean_distance_avx512_entry,
+            query_points: x86_simd::euclidean_distance_query_points_avx512_entry,
+        }),
+        #[cfg(all(
+            feature = "simd_neon",
+            any(target_arch = "arm", target_arch = "aarch64")
+        ))]
+        dispatch::EuclideanBackend::Neon => Some(BackendKernels {
+            pairwise: euclidean_distance_neon_entry,
+            query_points: neon_simd::euclidean_distance_query_points_neon_entry,
+        }),
+        #[cfg(all(feature = "nightly_portable_simd", nightly))]
+        dispatch::EuclideanBackend::PortableSimd => Some(BackendKernels {
+            pairwise: euclidean_distance_portable_simd_entry,
+            query_points: euclidean_distance_query_points_portable_simd_entry,
+        }),
+        _ => None,
+    }
+}
+
+/// Returns the pairwise entrypoint for a test-selected backend.
+#[cfg(test)]
+pub(super) fn pairwise_entry(backend: dispatch::EuclideanBackend) -> Option<EuclideanKernel> {
+    backend_kernels(backend).map(|k| k.pairwise)
+}
+
 pub(super) fn euclidean_distance_scalar(left: &[f32], right: &[f32]) -> f32 {
     assert_eq!(
         left.len(),
@@ -144,6 +206,14 @@ pub(super) fn euclidean_distance_query_points(
     assert_eq!(out.len(), points.point_count());
     let kernel = *EUCLIDEAN_QUERY_POINTS_KERNEL.get_or_init(select_euclidean_query_points_kernel);
     kernel(query, points, out);
+}
+
+/// Returns the query-to-points entrypoint for a test-selected backend.
+#[cfg(test)]
+pub(super) fn query_points_entry(
+    backend: dispatch::EuclideanBackend,
+) -> Option<EuclideanQueryPointsKernel> {
+    backend_kernels(backend).map(|k| k.query_points)
 }
 
 pub(super) fn euclidean_distance_query_points_scalar(
