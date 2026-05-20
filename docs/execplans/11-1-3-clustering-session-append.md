@@ -47,8 +47,9 @@ cluster identity.
   HNSW insertion or edge-harvesting logic inside the session module.
 - Keep the session CPU-only behind the existing `cpu` feature gate. Do not add
   a GPU session path in this item.
-- Do not add a new production dependency. A new dev-dependency requires
-  explicit approval before implementation continues.
+- Do not add a new production dependency. The original task instructions
+  authorize `rstest-bdd` where applicable, so adding it as a dev-dependency
+  for a justified behavioural test does not require a separate approval gate.
 - Keep files below 400 lines. If `chutoro-core/src/session/mod.rs` or
   `chutoro-core/src/session/tests.rs` would exceed that limit, split the module
   before adding more code.
@@ -72,8 +73,9 @@ cluster identity.
   alternatives with trade-offs.
 - Semantics: if all-or-nothing rollback is required to satisfy review feedback,
   stop and escalate. The current HNSW mutation API does not expose rollback.
-- Dependencies: if implementation requires adding `rstest-bdd`, another BDD
-  crate, or any production crate, stop and ask for approval.
+- Dependencies: if implementation requires adding any production crate or any
+  test-only crate other than the requested `rstest-bdd`, stop and ask for
+  approval.
 - Error model: if a new public error enum or new `ChutoroError` variant appears
   necessary, stop and justify the compatibility impact before proceeding.
 - Testing: if `append` cannot be validated without a public
@@ -120,9 +122,11 @@ cluster identity.
   session `pending_edges`, rather than inventing hard-coded expected edges.
 
 - Risk: adding BDD infrastructure for a narrow library API could expand scope
-  without improving confidence. Severity: low. Likelihood: high. Mitigation: do
-  not add `rstest-bdd` for this item unless the implementation introduces
-  externally observable workflows that need Gherkin feature files.
+  without improving confidence. Severity: low. Likelihood: medium. Mitigation:
+  because the original instructions explicitly mention `rstest-bdd`, the
+  implementer may add it as a dev-dependency when a behavioural scenario is
+  useful, but should avoid empty Gherkin scaffolding that merely repeats unit
+  tests.
 
 ## Progress
 
@@ -150,6 +154,8 @@ cluster identity.
 - [x] (2026-05-19 00:00Z) Validated the planning-only branch with
   plan-specific Markdown linting, `make check-fmt`, `make lint`, `make test`,
   and `coderabbit review --agent`.
+- [x] (2026-05-20 00:00Z) Revised the dependency and validation gates to
+  reflect that `rstest-bdd` was explicitly authorised by the task instructions.
 - [ ] Receive explicit approval to implement this plan.
 - [ ] Implement `ClusteringSession::append` and supporting error mapping.
 - [ ] Add unit and property tests for append behaviour.
@@ -177,8 +183,9 @@ cluster identity.
 - Observation: there are no `.feature` files and no existing `rstest-bdd`
   dependency or usage in this repository slice. Firecrawl confirmed
   `rstest-bdd` is designed to run under `cargo test` and reuse `rstest`
-  fixtures, but adopting it here would require new feature files and a new
-  dev-dependency. That is disproportionate for this narrow library API change.
+  fixtures. The original task instructions authorize `rstest-bdd`; the
+  implementation should add it only if a behavioural append scenario gives
+  reviewers stronger signal than the unit and property tests.
 
 - Observation: the upstream flexible-clustering HNSW implementation mutates
   the graph as each item is added and does not suggest a transactional append
@@ -215,13 +222,13 @@ cluster identity.
   taxonomy already used by the batch path and keeps source failures inspectable
   through `data_source_code()`.
 
-- Decision: use `rstest` and a narrow `proptest` sequence property for
-  validation, not `rstest-bdd`, Kani, or Verus for the initial implementation.
-  Rationale: append is a small state mutation that can be tested by comparing
-  session behaviour to direct HNSW insertion. Kani and Verus are reserved for
-  bounded structural invariants or pure helper proofs; no such helper is
-  planned. BDD infrastructure is not present and would be a new testing
-  architecture for a non-externally-observable library method.
+- Decision: use `rstest` and a narrow `proptest` sequence property as the
+  required validation baseline. Add `rstest-bdd` if the implementation can
+  express a useful behavioural append scenario without duplicating unit tests.
+  Rationale: the user explicitly authorised `rstest-bdd`, but append is still a
+  small state mutation best proven by comparing session behaviour to direct
+  HNSW insertion. Kani and Verus remain reserved for bounded structural
+  invariants or pure helper proofs; no such helper is planned.
 
 - Decision: keep automatic `refresh_every_n` triggering out of this item.
   Rationale: roadmap item `11.2.3` explicitly owns automatic refresh behaviour.
@@ -274,6 +281,13 @@ in normal `make test` runs, for example source lengths up to 32.
 
 If the tests need deterministic HNSW output, use `HnswParams::with_rng_seed` as
 the existing tests do.
+
+If a behavioural test can add useful reviewer signal, add `rstest-bdd` as a
+dev-dependency and create a small feature file for the append lifecycle. Keep
+the scenario focused on observable behaviour: build an empty session, append a
+slice of valid indices, observe `point_count()`, and verify that append does
+not publish a label snapshot. Do not add BDD steps that only duplicate the
+private `pending_edges` unit assertions.
 
 ### Stage B: implement `append`
 
