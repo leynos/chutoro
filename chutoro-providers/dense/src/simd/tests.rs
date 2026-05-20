@@ -51,31 +51,47 @@ fn distance_semantics_contract_snapshot() {
 
 #[test]
 fn enabled_backends_output_matches_support_snapshot() {
+    assert_eq!(dispatch::enabled_backends(), expected_enabled_backends());
+}
+
+fn expected_enabled_backends() -> Vec<dispatch::EuclideanBackend> {
     let mut expected = Vec::new();
-    if cfg!(feature = "simd_avx512")
-        && cfg!(any(target_arch = "x86", target_arch = "x86_64"))
-        && runtime_avx512_expectation()
-    {
+    if avx512_enabled_predicate() {
         expected.push(dispatch::EuclideanBackend::Avx512);
     }
-    if cfg!(feature = "simd_avx2")
-        && cfg!(any(target_arch = "x86", target_arch = "x86_64"))
-        && runtime_avx2_expectation()
-    {
+    if avx2_enabled_predicate() {
         expected.push(dispatch::EuclideanBackend::Avx2);
     }
-    if cfg!(feature = "simd_neon")
-        && cfg!(any(target_arch = "arm", target_arch = "aarch64"))
-        && runtime_neon_expectation()
-    {
+    if neon_enabled_predicate() {
         expected.push(dispatch::EuclideanBackend::Neon);
     }
-    if cfg!(all(feature = "nightly_portable_simd", nightly)) {
+    if portable_simd_enabled_predicate() {
         expected.push(dispatch::EuclideanBackend::PortableSimd);
     }
     expected.push(dispatch::EuclideanBackend::Scalar);
+    expected
+}
 
-    assert_eq!(dispatch::enabled_backends(), expected);
+fn avx512_enabled_predicate() -> bool {
+    cfg!(feature = "simd_avx512")
+        && cfg!(any(target_arch = "x86", target_arch = "x86_64"))
+        && runtime_avx512_expectation()
+}
+
+fn avx2_enabled_predicate() -> bool {
+    cfg!(feature = "simd_avx2")
+        && cfg!(any(target_arch = "x86", target_arch = "x86_64"))
+        && runtime_avx2_expectation()
+}
+
+fn neon_enabled_predicate() -> bool {
+    cfg!(feature = "simd_neon")
+        && cfg!(any(target_arch = "arm", target_arch = "aarch64"))
+        && runtime_neon_expectation()
+}
+
+fn portable_simd_enabled_predicate() -> bool {
+    cfg!(all(feature = "nightly_portable_simd", nightly))
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

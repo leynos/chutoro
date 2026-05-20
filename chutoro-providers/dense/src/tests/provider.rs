@@ -46,6 +46,16 @@ fn matrix_provider_distance_batch() {
     0,
     1,
 )]
+#[case::positive_infinity_canonicalises_to_nan(
+    vec![vec![1.0, f32::INFINITY, 3.0], vec![1.0, 2.0, 3.0]],
+    0,
+    1,
+)]
+#[case::negative_infinity_canonicalises_to_nan(
+    vec![vec![1.0, f32::NEG_INFINITY, 3.0], vec![1.0, 2.0, 3.0]],
+    0,
+    1,
+)]
 fn matrix_provider_distance_matches_scalar_reference(
     #[case] rows: Vec<Vec<f32>>,
     #[case] left: usize,
@@ -217,14 +227,20 @@ fn scalar_distance(left: &[f32], right: &[f32]) -> f32 {
         right.len(),
         "scalar distance inputs must have matching dimensions",
     );
-    left.iter()
+    let distance = left
+        .iter()
         .zip(right.iter())
         .map(|(l, r)| {
             let delta = l - r;
             delta * delta
         })
         .sum::<f32>()
-        .sqrt()
+        .sqrt();
+    if distance.is_finite() {
+        distance
+    } else {
+        f32::NAN
+    }
 }
 
 #[rstest]
