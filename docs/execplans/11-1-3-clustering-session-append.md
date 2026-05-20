@@ -5,10 +5,10 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: IN PROGRESS
+Status: COMPLETE
 
-Implementation approval was received on 2026-05-20. Keep this plan current as
-the implementation proceeds.
+Implementation approval was received on 2026-05-20. The implementation is
+complete and validated locally.
 
 ## Purpose / big picture
 
@@ -180,7 +180,9 @@ cluster identity.
   warm-cache rerun of `make test` passed. The first full `make test` run timed
   out one existing functional ARI/NMI case; the isolated case then passed in
   0.838s.
-- [ ] Commit the implementation and push the branch.
+- [x] (2026-05-20 00:00Z) Committed the implementation as
+  `60c8f3e Implement clustering session append`.
+- [ ] Push the branch.
 
 ## Surprises & Discoveries
 
@@ -549,5 +551,19 @@ plan or implementation.
 
 ## Outcomes & Retrospective
 
-No implementation has begun. This draft captures the intended behaviour, scope
-boundaries, validation strategy, and approval gate for roadmap item `11.1.3`.
+Roadmap item `11.1.3` is implemented. `ClusteringSession::append` now accepts a
+slice of source indices, validates each index against the backing
+`DataSource`, inserts through `CpuHnsw::insert_harvesting`, and accumulates all
+harvested `CandidateEdge` values in the session's private `pending_edges`
+buffer. Empty appends are no-ops. Duplicate and structural HNSW failures
+surface as `ChutoroError::CpuHnswFailure`; out-of-bounds source indices surface
+as `ChutoroError::DataSource`. The method is intentionally fail-fast with
+partial progress.
+
+Validation covered targeted red/green tests, `rstest` unit tests, one
+`proptest` sequence property with a saved regression seed, `rstest-bdd`
+behavioural scenarios, trybuild session API surface checks, CodeRabbit review,
+`make check-fmt`, `make lint`, and a passing warm-cache `make test` run. The
+only unresolved environmental issue is repository-wide `make fmt`, which still
+fails on pre-existing unrelated Markdown line-length violations after
+successfully running `cargo fmt`.
