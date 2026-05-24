@@ -169,12 +169,20 @@ fn build_session_maps_hnsw_construction_failure_to_cpu_hnsw_failure() {
     );
 }
 
+fn make_session(
+    builder: ChutoroBuilder,
+    source_len: usize,
+) -> (ClusteringSession<SessionTestSource>, Arc<SessionTestSource>) {
+    let source = Arc::new(SessionTestSource::with_len(source_len));
+    let session = builder
+        .build_session(Arc::clone(&source))
+        .expect("session must build");
+    (session, source)
+}
+
 #[rstest]
 fn append_empty_slice_is_noop(session_builder: ChutoroBuilder) {
-    let source = Arc::new(SessionTestSource::with_len(4));
-    let mut session = session_builder
-        .build_session(source)
-        .expect("session must build");
+    let (mut session, _) = make_session(session_builder, 4);
 
     session.append(&[]).expect("empty append must succeed");
 
@@ -185,10 +193,7 @@ fn append_empty_slice_is_noop(session_builder: ChutoroBuilder) {
 
 #[rstest]
 fn append_single_index_increases_point_count(session_builder: ChutoroBuilder) {
-    let source = Arc::new(SessionTestSource::with_len(4));
-    let mut session = session_builder
-        .build_session(source)
-        .expect("session must build");
+    let (mut session, _) = make_session(session_builder, 4);
 
     session.append(&[0]).expect("first append must succeed");
 
@@ -247,10 +252,7 @@ fn append_rejects_duplicate_index(session_builder: ChutoroBuilder) {
 
 #[rstest]
 fn append_rejects_out_of_bounds_index(session_builder: ChutoroBuilder) {
-    let source = Arc::new(SessionTestSource::with_len(2));
-    let mut session = session_builder
-        .build_session(Arc::clone(&source))
-        .expect("session must build");
+    let (mut session, source) = make_session(session_builder, 2);
 
     let err = session
         .append(&[source.len()])
@@ -269,10 +271,7 @@ fn append_rejects_out_of_bounds_index(session_builder: ChutoroBuilder) {
 
 #[rstest]
 fn append_failure_preserves_prior_successes(session_builder: ChutoroBuilder) {
-    let source = Arc::new(SessionTestSource::with_len(2));
-    let mut session = session_builder
-        .build_session(Arc::clone(&source))
-        .expect("session must build");
+    let (mut session, source) = make_session(session_builder, 2);
 
     let err = session
         .append(&[0, source.len()])
