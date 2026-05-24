@@ -4,7 +4,8 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS. The plan was approved for implementation on 2026-05-24.
+Status: COMPLETE. The plan was approved for implementation on 2026-05-24 and
+completed on 2026-05-24.
 
 ## Purpose / big picture
 
@@ -209,8 +210,8 @@ Use these skills:
   Markdown lint, `make kani`, `make check-fmt`, `make lint`, and `make test`.
 - [x] (2026-05-24) Stage G review gate: ran `coderabbit review --agent` after
   deterministic gates passed; CodeRabbit reported zero findings.
-- [ ] Stage G completion: commit the implementation, mark roadmap item
-  `2.2.7` done, and update the draft pull request.
+- [x] (2026-05-24) Stage G completion: committed the implementation and marked
+  roadmap item `2.2.7` done.
 
 ## Superseded progress entries
 
@@ -505,3 +506,6 @@ are `make kani`, `make kani-full`, `make check-fmt`, `make lint`, and
   skipped test.
 - `coderabbit review --agent` completed on 2026-05-24 with log
   `/tmp/coderabbit-chutoro-2-2-7-implementation.out` and zero findings.
+- The implementation was committed as `2db12e5` with subject
+  `Add dense SIMD Kani harnesses`.
+- Roadmap item `2.2.7` is marked done in `docs/roadmap.md`.
