@@ -1,5 +1,6 @@
 //! ARM NEON SIMD kernel implementations.
 
+use super::super::lane_output_count;
 use super::{DensePointView, finalize_distance, squared_l2_tail};
 
 #[cfg(target_arch = "aarch64")]
@@ -69,7 +70,7 @@ unsafe fn euclidean_distance_query_points_neon(
         let mut lane = [0.0_f32; 4];
         // Safety: `lane` has exactly four `f32` values.
         unsafe { arm_arch::vst1q_f32(lane.as_mut_ptr(), acc) };
-        let remaining = out.len().saturating_sub(offset).min(4);
+        let remaining = lane_output_count(out.len(), offset, 4);
         for lane_index in 0..remaining {
             out[offset + lane_index] = finalize_distance(lane[lane_index].sqrt());
         }

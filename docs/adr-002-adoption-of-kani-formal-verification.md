@@ -30,21 +30,25 @@ providing formal proofs of correctness for small configurations.
 
 ## Decision
 
-Kani is adopted for formal verification of HNSW structural invariants, starting
-with the bidirectional links invariant on bounded graph configurations.
+Kani is adopted for formal verification of HNSW structural invariants and dense
+SIMD boundary contracts, starting with the bidirectional links invariant on
+bounded graph configurations and the dense SIMD selector and tail-padding
+invariants.
 
 ### Implementation Approach
 
 1. **Conditional Compilation**: Harnesses use `#[cfg(kani)]` to prevent any
    interference with normal builds or test execution
 
-2. **Module Location**: Harnesses reside in
-   `chutoro-core/src/hnsw/kani_proofs.rs`, enabling access to internal types
-   via `pub(crate)` visibility without exposing them publicly
+2. **Module Location**: Harnesses reside beside the code they verify, such as
+   `chutoro-core/src/hnsw/kani_proofs.rs` and
+   `chutoro-providers/dense/src/simd/kani_proofs.rs`, enabling access to
+   internal types via `pub(crate)` visibility without exposing them publicly
 
 3. **Bounded Verification**: Two tiers are maintained: a practical 2-node
-   smoke/reconciliation harness for quick feedback, and a 3-node exhaustive
-   harness for broader coverage (run via `make kani-full`)
+   smoke/reconciliation harness and small dense SIMD boundary harnesses for
+   quick feedback, and broader harnesses for slower coverage (run via
+   `make kani-full`)
 
 4. **Makefile Integration**: `make kani` runs the practical harnesses, while
    `make kani-full` runs the full suite
@@ -174,8 +178,8 @@ demonstrates:
 
 - The reconciliation coverage is split into a practical 2-node harness that
   calls `ensure_reverse_edge_for_kani` (wrapping
-  `EdgeReconciler::ensure_reverse_edge`) and a heavier 3-node harness that
-  calls `apply_reconciled_update_for_kani` (which exercises removed-edge
+  `EdgeReconciler::ensure_reverse_edge`) and a heavier 3-node harness that calls
+   `apply_reconciled_update_for_kani` (which exercises removed-edge
   reconciliation, added-edge reconciliation, and deferred scrubs).
 - A targeted mutation test that skips inserting the reverse edge causes the
   2-node reconciliation harness to fail with "bidirectional invariant violated

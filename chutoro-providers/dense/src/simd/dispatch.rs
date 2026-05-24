@@ -132,19 +132,17 @@ pub(super) fn choose_euclidean_backend(
     compiled: CompiledSimdSupport,
     runtime: RuntimeSimdSupport,
 ) -> EuclideanBackend {
-    for backend in [
-        EuclideanBackend::Avx512,
-        EuclideanBackend::Avx2,
-        EuclideanBackend::Neon,
-        EuclideanBackend::PortableSimd,
-        EuclideanBackend::Scalar,
-    ] {
-        if backend_supported(&compiled, &runtime, backend) {
-            return backend;
-        }
+    if backend_supported(&compiled, &runtime, EuclideanBackend::Avx512) {
+        EuclideanBackend::Avx512
+    } else if backend_supported(&compiled, &runtime, EuclideanBackend::Avx2) {
+        EuclideanBackend::Avx2
+    } else if backend_supported(&compiled, &runtime, EuclideanBackend::Neon) {
+        EuclideanBackend::Neon
+    } else if backend_supported(&compiled, &runtime, EuclideanBackend::PortableSimd) {
+        EuclideanBackend::PortableSimd
+    } else {
+        EuclideanBackend::Scalar
     }
-
-    EuclideanBackend::Scalar
 }
 
 fn select_euclidean_backend() -> EuclideanBackend {

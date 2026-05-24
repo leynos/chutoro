@@ -52,23 +52,28 @@ use crate::hnsw::{
 #[kani::proof]
 #[kani::unwind(4)]
 fn verify_bidirectional_links_smoke_2_nodes_1_layer() {
-    let params = HnswParams::new(1, 1).expect("params must be valid");
+    let Ok(params) = HnswParams::new(1, 1) else {
+        kani::assert(false, "Kani params must be valid");
+        return;
+    };
     let mut graph = Graph::with_capacity(params, 2);
 
-    graph
+    let inserted = graph
         .insert_first(NodeContext {
             node: 0,
             level: 0,
             sequence: 0,
         })
-        .expect("insert node 0");
-    graph
+        .is_ok();
+    kani::assert(inserted, "Kani smoke insert must succeed");
+    let attached = graph
         .attach_node(NodeContext {
             node: 1,
             level: 0,
             sequence: 1,
         })
-        .expect("attach node 1");
+        .is_ok();
+    kani::assert(attached, "Kani smoke attach must succeed");
 
     add_bidirectional_edge(&mut graph, 0, 1, 0);
 
@@ -179,24 +184,29 @@ fn verify_bidirectional_links_commit_path_3_nodes() {
 #[kani::proof]
 #[kani::unwind(4)]
 fn verify_bidirectional_links_reconciliation_2_nodes_1_layer() {
-    let params = HnswParams::new(1, 1).expect("params must be valid");
+    let Ok(params) = HnswParams::new(1, 1) else {
+        kani::assert(false, "Kani params must be valid");
+        return;
+    };
     let max_connections = params.max_connections();
     let mut graph = Graph::with_capacity(params, 2);
 
-    graph
+    let inserted = graph
         .insert_first(NodeContext {
             node: 0,
             level: 0,
             sequence: 0,
         })
-        .expect("insert node 0");
-    graph
+        .is_ok();
+    kani::assert(inserted, "Kani reconciliation insert must succeed");
+    let attached = graph
         .attach_node(NodeContext {
             node: 1,
             level: 0,
             sequence: 1,
         })
-        .expect("attach node 1");
+        .is_ok();
+    kani::assert(attached, "Kani reconciliation attach must succeed");
     let should_link = kani::any::<bool>();
     if should_link {
         add_edge_if_missing(&mut graph, 0, 1, 0);
@@ -332,24 +342,13 @@ impl EdgeAssertion {
     }
 }
 
-/// Asserts that source links to target at the given level.
+/// Returns `true` when source links to target at the given level.
 #[cfg(kani)]
-fn assert_node_link(graph: &Graph, edge: EdgeAssertion, message: &str) {
-    let has_link = graph
+fn has_node_link(graph: &Graph, edge: EdgeAssertion) -> bool {
+    graph
         .node(edge.source)
         .map(|n| n.neighbours(edge.level).contains(&edge.target))
-        .unwrap_or(false);
-    kani::assert(has_link, message);
-}
-
-/// Asserts that source does NOT link to target at the given level.
-#[cfg(kani)]
-fn assert_no_node_link(graph: &Graph, edge: EdgeAssertion, message: &str) {
-    let has_link = graph
-        .node(edge.source)
-        .map(|n| n.neighbours(edge.level).contains(&edge.target))
-        .unwrap_or(false);
-    kani::assert(!has_link, message);
+        .unwrap_or(false)
 }
 
 /// Verifies that eviction triggers correct deferred scrub behaviour.
@@ -416,23 +415,20 @@ fn verify_eviction_deferred_scrub_reciprocity() {
     );
 
     // Assert node 1 links to node 0 (the new edge).
-    assert_node_link(
-        &graph,
-        EdgeAssertion::new(1, 0, 1),
+    kani::assert(
+        has_node_link(&graph, EdgeAssertion::new(1, 0, 1)),
         "node 1 should link to node 0 after eviction",
     );
 
     // Assert node 2's forward edge to node 1 was scrubbed.
-    assert_no_node_link(
-        &graph,
-        EdgeAssertion::new(2, 1, 1),
+    kani::assert(
+        !has_node_link(&graph, EdgeAssertion::new(2, 1, 1)),
         "deferred scrub should remove node 2's forward edge to node 1",
     );
 
     // Assert node 1 no longer links to node 2 (it was evicted).
-    assert_no_node_link(
-        &graph,
-        EdgeAssertion::new(1, 2, 1),
+    kani::assert(
+        !has_node_link(&graph, EdgeAssertion::new(1, 2, 1)),
         "node 1 should no longer link to node 2 after eviction",
     );
 }

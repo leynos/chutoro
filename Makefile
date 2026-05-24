@@ -11,6 +11,9 @@ MDLINT ?= markdownlint-cli2
 NEXTEST_PROFILE ?= $(if $(CI),ci,default)
 NIXIE ?= nixie
 VERUS_BIN ?= verus
+KANI_VERSION ?= $(shell $(CARGO) kani -V | awk '{print $$2}')
+KANI_LIB_PATH ?= $(HOME)/.kani/kani-$(KANI_VERSION)/toolchain/lib
+KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
 
 build: target/debug/$(APP) ## Build debug binary
 release: target/release/$(APP) ## Build release binary
@@ -45,12 +48,15 @@ nixie: ## Validate Mermaid diagrams
 	find . -type f -name '*.md' -not -path './target/*' -not -path './.verus/*' -print0 | \
 		xargs -0 $(NIXIE) --no-sandbox
 
-kani: ## Run Kani practical harnesses (smoke + 2-node reconciliation)
-	$(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_smoke_2_nodes_1_layer
-	$(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_reconciliation_2_nodes_1_layer
+kani: ## Run Kani practical harnesses
+	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_smoke_2_nodes_1_layer
+	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_reconciliation_2_nodes_1_layer
+	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 4 --harness verify_dense_simd_dispatch_selection_respects_support_masks
+	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 18 --harness verify_dense_simd_tail_padding_lane_bounds
 
 kani-full: ## Run all Kani formal verification harnesses
-	$(CARGO) kani -p chutoro-core --default-unwind 10
+	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 10
+	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 18
 
 verus: ## Run Verus proofs for edge harvest primitives
 	VERUS_BIN="$(VERUS_BIN)" scripts/run-verus.sh

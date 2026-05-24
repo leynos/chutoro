@@ -7,6 +7,8 @@
 use chutoro_core::DataSourceError;
 
 mod dispatch;
+#[cfg(kani)]
+mod kani_proofs;
 mod kernels;
 mod point_view;
 #[cfg(test)]
@@ -24,6 +26,12 @@ pub(crate) use types::DistancePair;
 
 pub(crate) const MAX_SIMD_LANES: usize = 16;
 pub(crate) const SIMD_ALIGNMENT_BYTES: usize = 64;
+
+/// Returns how many logical output lanes belong to a SIMD batch.
+#[must_use]
+pub(crate) fn lane_output_count(point_count: usize, offset: usize, lanes: usize) -> usize {
+    point_count.saturating_sub(offset).min(lanes)
+}
 
 /// Computes Euclidean distance for two equal-length vectors.
 #[must_use]

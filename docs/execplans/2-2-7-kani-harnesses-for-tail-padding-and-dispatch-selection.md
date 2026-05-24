@@ -4,8 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: IN PROGRESS. The plan was approved for implementation on
-2026-05-24.
+Status: IN PROGRESS. The plan was approved for implementation on 2026-05-24.
 
 ## Purpose / big picture
 
@@ -191,22 +190,27 @@ Use these skills:
   implementation of this ExecPlan.
 - [x] (2026-05-24) Stage A: audited current dense SIMD proof seams and updated
   this ExecPlan with exact symbols to edit before making code changes.
-- [ ] Stage A follow-up: commit the ExecPlan status update after focused
-  Markdown validation.
-- [ ] Stage B: add dense-provider Kani proof module and any minimal
+- [x] (2026-05-24) Stage A follow-up: committed the ExecPlan status update
+  after focused Markdown validation.
+- [x] (2026-05-24) Stage B: added dense-provider Kani proof module and minimal
   production-used helper extraction required to avoid proof drift.
-- [ ] Stage C: add or extend `rstest` unit tests for tail padding and selector
-  helper behaviour around happy paths, unhappy paths, and edge cases.
-- [ ] Stage D: wire dense-provider Kani harnesses into `make kani` or
-  `make kani-full` according to observed runtime, keeping `make test` unchanged.
-- [ ] Stage E: update `docs/chutoro-design.md`,
+- [x] (2026-05-24) Stage C: added `rstest` unit tests for tail padding,
+  zero-fill, and lane output-count edge cases; existing selector examples cover
+  happy and unavailable-runtime paths.
+- [x] (2026-05-24) Stage D: wired the dense-provider dispatch and tail-padding
+  harnesses into `make kani` and `make kani-full`; `make test` remains
+  unchanged.
+- [x] (2026-05-24) Stage E: updated `docs/chutoro-design.md`,
   `docs/developers-guide.md`, and
   `docs/adr-002-adoption-of-kani-formal-verification.md`; update
-  `docs/users-guide.md` only if public behaviour changes.
-- [ ] Stage F: run focused proof/test commands, then full gates:
-  `make check-fmt`, `make lint`, and `make test`.
-- [ ] Stage G: run `coderabbit review --agent`, clear concerns, mark roadmap
-  item `2.2.7` done, and commit the implementation.
+  `docs/users-guide.md` was not needed because public behaviour did not
+  change.
+- [x] (2026-05-24) Stage F: ran focused proof/test commands, focused
+  Markdown lint, `make kani`, `make check-fmt`, `make lint`, and `make test`.
+- [x] (2026-05-24) Stage G review gate: ran `coderabbit review --agent` after
+  deterministic gates passed; CodeRabbit reported zero findings.
+- [ ] Stage G completion: commit the implementation, mark roadmap item
+  `2.2.7` done, and update the draft pull request.
 
 ## Superseded progress entries
 
@@ -246,9 +250,49 @@ the timestamped progress entries above:
 - Discovery: The production query-to-points loops all share the same shape:
   iterate by backend lane width across `DensePointView::padded_point_count()`,
   load one full lane from each `coordinate_block`, and write only
-  `out.len().saturating_sub(offset).min(lanes)` logical results. A small
-  helper for this write count can be production-used by each backend and
-  proved by Kani without modelling architecture intrinsics.
+  `out.len().saturating_sub(offset).min(lanes)` logical results. A small helper
+  for this write count can be production-used by each backend and proved by
+  Kani without modelling architecture intrinsics.
+
+- Discovery: `cargo kani setup` was needed for Kani `0.67.0`, and direct Kani
+  runs needed the downloaded toolchain library path in `LD_LIBRARY_PATH`.
+  `make kani` and `make kani-full` now compute the installed Kani version from
+  `cargo kani -V` and prepend
+  `$(HOME)/.kani/kani-$(KANI_VERSION)/toolchain/lib`.
+
+- Discovery: Running the dense Kani crate under strict checked-cfg exposed
+  latent Kani-only compile issues in `chutoro-core`: generic `Result` aliases
+  needed explicit success types, and Kani assertion messages passed through
+  helper functions needed `'static` lifetimes.
+
+- Discovery: A direct Kani harness that constructed `DensePointView<'a>` and
+  asserted zero-filled storage was too heap- and iterator-heavy for a practical
+  proof. The implementation keeps zero-fill coverage in `rstest` unit tests and
+  uses Kani for the bounded lane-bounds invariant.
+
+- Discovery: A symbolic `step_by(lanes)` tail-padding proof caused unnecessary
+  unwind pressure. Rewriting the proof around a fixed bounded batch counter
+  kept the proof small while preserving the same backend lane-width cases:
+  four, eight, and sixteen lanes.
+
+- Discovery: The original selector loop over an array of backends proved more
+  noisily than the equivalent explicit priority chain. The implementation uses
+  the explicit chain in production so the policy remains visible and directly
+  provable.
+
+- Discovery: `make kani-full` currently reaches unrelated pre-existing
+  distance harnesses in `chutoro-core`. Kani `0.67.0` first panicked when those
+  helpers passed assertion messages through function parameters; after that was
+  repaired, the cosine zero-on-identical proof failed for bounded finite
+  non-zero vectors whose norm arithmetic can underflow or otherwise fall
+  outside the proof tolerance. That failure is not caused by the dense SIMD
+  item, and a single core distance harness spent more than eleven minutes in
+  the solver.
+
+- Discovery: `add_edge_if_missing` is a non-Kani test helper as well as a Kani
+  support helper. The Kani path must avoid dynamic panic formatting, but the
+  normal test path should keep the existing fail-fast behaviour when fixture
+  data names a missing origin node.
 
 ## Decision log
 
@@ -276,13 +320,31 @@ the timestamped progress entries above:
   that padded point counts are 16-lane multiples and every backend lane width
   divides 16. Date/Author: 2026-05-24 / Codex.
 
+- Decision: Keep `DensePointView<'a>` zero-fill as concrete `rstest` coverage
+  rather than a Kani heap harness. Rationale: the roadmap invariant is
+  satisfied by proving no logical read/write crosses padded-lane bounds and by
+  testing the production constructor's zero-fill behaviour at tail sizes `15`
+  and `17`. Date/Author: 2026-05-24 / Codex.
+
+- Decision: Register and use `cfg(kani)` through build-script checked-cfg
+  output instead of suppressing `unexpected_cfgs`. Rationale: proof-only code
+  remains invisible to normal builds while strict configuration checking stays
+  useful. Date/Author: 2026-05-24 / Codex.
+
+- Decision: Treat `make kani` as the applicable formal gate for roadmap item
+  `2.2.7` and record the current `make kani-full` core-distance failure as an
+  unrelated pre-existing proof issue. Rationale: the new dense SIMD harnesses
+  run and pass through `make kani`; `kani-full` is a slow-lane aggregate over
+  older core proofs and currently fails outside the dense-provider scope.
+  Date/Author: 2026-05-24 / Codex.
+
 ## Plan of work
 
 1. Re-orient with Leta before editing. Use `leta grep` and `leta show` to
    inspect `DensePointView::from_row_indices`,
    `DensePointView::coordinate_block`, `padded_point_count`,
-   `choose_euclidean_backend`, `backend_supported`, and the current
-   `rstest`-based dense SIMD tests.
+   `choose_euclidean_backend`, `backend_supported`, and the current `rstest`
+   -based dense SIMD tests.
 
 2. Add a dense-provider Kani module, likely
    `chutoro-providers/dense/src/simd/kani_proofs.rs`, and include it from
@@ -399,17 +461,47 @@ The validation strategy is layered:
   implementation changes a public workflow, add the smallest behavioural test
   that demonstrates that change and update this plan before proceeding.
 
-Expected final validation commands, all run with `set -o pipefail` and
-`tee`, are `make kani`, `make kani-full`, `make check-fmt`, `make lint`, and
+Expected final validation commands, all run with `set -o pipefail` and `tee`,
+are `make kani`, `make kani-full`, `make check-fmt`, `make lint`, and
 `make test`.
 
 ## Outcomes & retrospective
 
-This section is intentionally empty in the draft. During implementation, record:
-
-- final harness names and proof bounds;
-- validation command outcomes and log paths;
-- any CodeRabbit review findings and their resolution;
-- whether `make kani` or only `make kani-full` includes the dense-provider
-  harnesses;
-- any deviations from the planned no-public-API-change scope.
+- Harnesses added:
+  `verify_dense_simd_dispatch_selection_respects_support_masks` and
+  `verify_dense_simd_tail_padding_lane_bounds`.
+- Tail proof bounds: point counts `0..=17`, dimensions `0..=3`, lane widths
+  `4`, `8`, and `16`, and eight bounded SIMD batches.
+- `make kani` succeeded on 2026-05-24 with log
+  `/tmp/kani-chutoro-2-2-7-after-core-fmt-removal.out`.
+- `make kani-full` did not pass. Logs:
+  `/tmp/kani-full-chutoro-2-2-7.out`,
+  `/tmp/kani-full-chutoro-2-2-7-rerun.out`, and
+  `/tmp/kani-full-chutoro-2-2-7-second-rerun.out`. The first two attempts hit
+  Kani `0.67.0` compiler panics in existing assertion helpers; those helper
+  patterns were repaired. The final run exposed an unrelated existing
+  `verify_cosine_zero_on_identical_3d` proof failure in `chutoro-core`.
+- Focused Markdown lint for the four changed documentation files succeeded on
+  2026-05-24 with log `/tmp/markdownlint-focused-chutoro-2-2-7.out`.
+- Repository-wide `make fmt` applied formatting but failed during its
+  Markdown lint phase on pre-existing MD013 line-length findings in unrelated
+  documents. The accidental formatter churn in unrelated files was reverted.
+- `make kani` includes both new dense-provider harnesses. `make kani-full`
+  runs all `chutoro-core` harnesses and all dense-provider harnesses.
+- The implementation has no public API or user-observable behaviour change, so
+  `docs/users-guide.md` remains unchanged.
+- CodeRabbit findings, `make kani-full`, `make check-fmt`, `make lint`, and
+- `make kani` succeeded again on 2026-05-24 with log
+  `/tmp/kani-chutoro-2-2-7-final.out`.
+- `make check-fmt` succeeded on 2026-05-24 with log
+  `/tmp/check-fmt-chutoro-2-2-7-final2.out`.
+- Focused Markdown lint for the changed documentation files succeeded on
+  2026-05-24 with log
+  `/tmp/markdownlint-focused-chutoro-2-2-7-final.out`.
+- `make lint` succeeded on 2026-05-24 with log
+  `/tmp/lint-chutoro-2-2-7-final.out`.
+- `make test` succeeded on 2026-05-24 with log
+  `/tmp/test-chutoro-2-2-7-final.out`; nextest reported 969 passed and one
+  skipped test.
+- `coderabbit review --agent` completed on 2026-05-24 with log
+  `/tmp/coderabbit-chutoro-2-2-7-implementation.out` and zero findings.

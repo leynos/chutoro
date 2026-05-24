@@ -7,11 +7,23 @@ use super::{
 use crate::hnsw::graph::Graph;
 
 pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usize, level: usize) {
-    let msg = format!("node {origin} should exist");
-    let node = graph.node_mut(origin).expect(&msg);
-    let neighbours = node.neighbours_mut(level);
-    if !neighbours.contains(&target) {
-        neighbours.push(target);
+    #[cfg(kani)]
+    if let Some(node) = graph.node_mut(origin) {
+        let neighbours = node.neighbours_mut(level);
+        if !neighbours.contains(&target) {
+            neighbours.push(target);
+        }
+    }
+
+    #[cfg(not(kani))]
+    {
+        let node = graph
+            .node_mut(origin)
+            .unwrap_or_else(|| panic!("missing origin node {origin}"));
+        let neighbours = node.neighbours_mut(level);
+        if !neighbours.contains(&target) {
+            neighbours.push(target);
+        }
     }
 }
 

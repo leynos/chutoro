@@ -62,7 +62,10 @@ mod kani_proofs {
     }
 
     /// Returns `true` if two distance results are symmetric.
-    fn is_symmetric_result(d1: super::Result, d2: super::Result) -> bool {
+    fn is_symmetric_result(
+        d1: super::Result<super::Distance>,
+        d2: super::Result<super::Distance>,
+    ) -> bool {
         match (d1, d2) {
             (Ok(dist1), Ok(dist2)) => (dist1.value() - dist2.value()).abs() < EPSILON,
             (Err(_), Err(_)) => true, // Both error is acceptable
@@ -70,24 +73,9 @@ mod kani_proofs {
         }
     }
 
-    /// Asserts that two distance results are symmetric within tolerance.
-    fn assert_symmetric_distance(d1: super::Result, d2: super::Result, metric_name: &str) {
-        kani::assert(is_symmetric_result(d1, d2), metric_name);
-    }
-
-    /// Asserts that a distance result is zero within tolerance.
-    ///
-    /// Errors are treated as assertion failures since the distance should
-    /// always be computable for valid inputs.
-    fn assert_zero_distance(d: super::Result, metric_name: &str) {
-        match d {
-            Ok(dist) => {
-                kani::assert(dist.value().abs() < EPSILON, metric_name);
-            }
-            Err(_) => {
-                kani::assert(false, metric_name);
-            }
-        }
+    /// Returns `true` when a distance result is zero within tolerance.
+    fn is_zero_distance(d: super::Result<super::Distance>) -> bool {
+        d.map(|dist| dist.value().abs() < EPSILON).unwrap_or(false)
     }
 
     // ------------------------------------------------------------------------
@@ -107,7 +95,10 @@ mod kani_proofs {
         let ab = euclidean_distance(&a, &b);
         let ba = euclidean_distance(&b, &a);
 
-        assert_symmetric_distance(ab, ba, "euclidean distance symmetry violated");
+        kani::assert(
+            is_symmetric_result(ab, ba),
+            "euclidean distance symmetry violated",
+        );
     }
 
     /// Verifies Euclidean distance is zero on identical inputs: d(v, v) = 0.
@@ -120,8 +111,8 @@ mod kani_proofs {
     fn verify_euclidean_zero_on_identical_3d() {
         let v = make_finite_3d_vector();
 
-        assert_zero_distance(
-            euclidean_distance(&v, &v),
+        kani::assert(
+            is_zero_distance(euclidean_distance(&v, &v)),
             "euclidean distance not zero on identical inputs",
         );
     }
@@ -154,7 +145,10 @@ mod kani_proofs {
         let ab = cosine_distance(&a, &b, None);
         let ba = cosine_distance(&b, &a, None);
 
-        assert_symmetric_distance(ab, ba, "cosine distance symmetry violated");
+        kani::assert(
+            is_symmetric_result(ab, ba),
+            "cosine distance symmetry violated",
+        );
     }
 
     /// Verifies cosine distance is zero on identical non-zero inputs: d(v, v) = 0.
@@ -167,8 +161,8 @@ mod kani_proofs {
     fn verify_cosine_zero_on_identical_3d() {
         let v = make_finite_nonzero_3d_vector();
 
-        assert_zero_distance(
-            cosine_distance(&v, &v, None),
+        kani::assert(
+            is_zero_distance(cosine_distance(&v, &v, None)),
             "cosine distance not zero on identical non-zero inputs",
         );
     }

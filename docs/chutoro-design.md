@@ -267,18 +267,18 @@ scaling graph algorithms where maintaining a consistent global state is
 computationally expensive or creates a synchronization bottleneck. Parallel
 DBSCAN implementations on distributed clusters exhibit a similar pattern: data
 is partitioned across nodes, local clustering is performed independently on
-each node, and a final step merges the clusters across the partition
-boundaries.[^14] At a finer grain, many parallel MST algorithms, such as
-Borůvka's, operate on the same principle. They begin with trivial local
-components (each vertex is its own MST) and iteratively merge them in parallel
-rounds.[^15] This recurring pattern—decompose the problem, solve subproblems in
-parallel with minimal communication, and perform a final merge or reduction—is
-a cornerstone of parallel algorithm design. This principle can be directly
-applied to a GPU implementation of FISHDBC. The dataset can be partitioned
-among GPU thread blocks, with each block responsible for finding candidate
-edges or even constructing local MST fragments within its fast shared memory. A
-subsequent global kernel can then efficiently merge these fragments into the
-final, complete MST.
+each node, and a final step merges the clusters across the partition boundaries.
+[^14] At a finer grain, many parallel MST algorithms, such as Borůvka's,
+operate on the same principle. They begin with trivial local components (each
+vertex is its own MST) and iteratively merge them in parallel rounds.[^15] This
+recurring pattern—decompose the problem, solve subproblems in parallel with
+minimal communication, and perform a final merge or reduction—is a cornerstone
+of parallel algorithm design. This principle can be directly applied to a GPU
+implementation of FISHDBC. The dataset can be partitioned among GPU thread
+blocks, with each block responsible for finding candidate edges or even
+constructing local MST fragments within its fast shared memory. A subsequent
+global kernel can then efficiently merge these fragments into the final,
+complete MST.
 
 ### 3. Component-Level Survey: High-Performance Primitives
 
@@ -320,8 +320,8 @@ Borůvka's—have vastly different characteristics when parallelized.
 
 - **Prim's Algorithm:** This algorithm is inherently sequential. It grows the
   MST one edge at a time from an arbitrary starting vertex, always adding the
-  cheapest edge that connects a vertex in the tree to a vertex outside the
-  tree.[^15] This greedy, step-by-step growth makes it difficult to parallelize
+  cheapest edge that connects a vertex in the tree to a vertex outside the tree.
+  [^15] This greedy, step-by-step growth makes it difficult to parallelize
   effectively on a massive scale, as the choice of which edge to add next
   depends on all previous choices. While some of its sub-operations (like
   finding the minimum-weight edge from the current tree) can be parallelized,
@@ -347,11 +347,11 @@ Borůvka's—have vastly different characteristics when parallelized.
   maps perfectly to the Single Instruction, Multiple Data (SIMD) execution
   model of GPUs.
 
-| Algorithm      | Core idea                      | Parallelism characteristics  | Suitability for GPU |
-| -------------- | ------------------------------ | ---------------------------- | ------------------- |
-| **Prim's**     | Grow tree from one component.  | Little parallel work.        | **Poor**            |
-| **Kruskal's**  | Sort edges, add safe edges.    | Sort limits parallelism.     | **Moderate**        |
-| **Borůvka's**  | Components pick cheapest edge. | Highly parallel; log rounds. | **Excellent**       |
+| Algorithm     | Core idea                      | Parallelism characteristics  | Suitability for GPU |
+| ------------- | ------------------------------ | ---------------------------- | ------------------- |
+| **Prim's**    | Grow tree from one component.  | Little parallel work.        | **Poor**            |
+| **Kruskal's** | Sort edges, add safe edges.    | Sort limits parallelism.     | **Moderate**        |
+| **Borůvka's** | Components pick cheapest edge. | Highly parallel; log rounds. | **Excellent**       |
 
 _Table 1: Comparison of MST algorithms for GPU suitability._
 
@@ -666,8 +666,8 @@ side-effect-free target for the load-time state machine.
    `HAS_DISTANCE_BATCH` is absent, the wrapper routes calls to the scalar
    `distance`. If `HAS_DEVICE_VIEW` is missing, host-managed buffers are used.
 
-The wrapper should track an explicit lifecycle
-(`Loaded -> Active -> Quiescing -> Destroyed`) so quiescence, callback gating,
+The wrapper should track an explicit lifecycle (
+`Loaded -> Active -> Quiescing -> Destroyed`) so quiescence, callback gating,
 and teardown are not encoded as informal `bool` flags. Optional callbacks
 become reachable only when both the descriptor and capability bits allow them,
 and `destroy` becomes unreachable after the first successful teardown. This
@@ -699,12 +699,12 @@ errors.
 
 Distances are reported using the `strsim` crate's Levenshtein implementation,
 mirroring the DNA/protein use cases outlined in §1.3 without pulling in the
-heavier bioinformatics tooling planned for later phases. The provider
-implements `DataSource` directly so the same type can be handed to
-`Chutoro::run`, keeping the ingestion and computation pathway identical to
-numeric providers. Converting the `usize` Levenshtein score into `f32` matches
-the trait's contract and establishes the precedent that future non-metric
-sources surface distances through the same scalar channel.
+heavier bioinformatics tooling planned for later phases. The provider implements
+ `DataSource` directly so the same type can be handed to `Chutoro::run`,
+keeping the ingestion and computation pathway identical to numeric providers.
+Converting the `usize` Levenshtein score into `f32` matches the trait's
+contract and establishes the precedent that future non-metric sources surface
+distances through the same scalar channel.
 
 #### 5.6. Walking skeleton distance primitives
 
@@ -740,8 +740,8 @@ modern Rust.
 
 - **Parallelism via **`rayon`**:** Instead of using manual process management
   as in the Python example, the implementation will leverage the `rayon` crate
-  for high-level data parallelism. `rayon` provides parallel iterators
-  (`par_iter()`) that can automatically parallelize loops over data slices
+  for high-level data parallelism. `rayon` provides parallel iterators (
+  `par_iter()`) that can automatically parallelize loops over data slices
   across a thread pool, simplifying the code and often leading to better
   performance and load balancing.[^8]
 - **Shared HNSW Graph:** The central HNSW graph structure, which must be
@@ -889,8 +889,8 @@ points are classified as noise and receive label `0`.
 - **Distance kernels (biggest win):** Add a CPU backend that takes contiguous
   structure-of-arrays views of point data and computes distances with stable
   `core::arch` intrinsics (AVX2/AVX-512 on x86) across lanes, with scalar
-  fallback per pair where metrics are not vectorizable. Keep an optional
-  nightly `std::simd` path behind a non-default feature while the API remains
+  fallback per pair where metrics are not vectorizable. Keep an optional nightly
+   `std::simd` path behind a non-default feature while the API remains
   unstable. Expose the query-centric `batch_distances(query, candidates)`
   helper on the core trait and make it the default path for HNSW candidate
   scoring on CPU: collect candidate indices in chunks sized to the SIMD width
@@ -1095,13 +1095,13 @@ gating check that runs Clippy and tests with only the stable SIMD features
 enabled, while scheduled validation in
 `.github/workflows/nightly-portable-simd.yml` installs the nightly toolchain
 and runs the dense-provider test and Clippy passes with `nightly_portable_simd`
-enabled. The relevant upstream tracking issues remain `rust-lang/rust#86656`
-(`portable_simd`), `rust-lang/rust#127356` (`bf16` wrappers), and
+enabled. The relevant upstream tracking issues remain `rust-lang/rust#86656` (
+`portable_simd`), `rust-lang/rust#127356` (`bf16` wrappers), and
 `rust-lang/rust#127213` (AVX512_FP16 intrinsics).
 
 _Implementation update (2026-05-17)._ Roadmap item `2.2.6` now ships a
-property-based backend parity suite for dense Euclidean SIMD kernels. The
-suite lives under `chutoro-providers/dense/src/simd/tests/parity/` and uses a
+property-based backend parity suite for dense Euclidean SIMD kernels. The suite
+lives under `chutoro-providers/dense/src/simd/tests/parity/` and uses a
 test-only `DistanceSemantics` value object in
 `chutoro-providers/dense/src/simd/semantics.rs`.
 
@@ -1139,6 +1139,35 @@ both pull-request and weekly property-test tiers. The scheduled nightly
 portable-SIMD workflow also invokes `simd::tests::parity` with
 `nightly_portable_simd` enabled so the `std::simd` backend participates when a
 nightly toolchain is available.
+
+_Implementation update (2026-05-24)._ Roadmap item `2.2.7` adds bounded Kani
+harnesses for the dense SIMD boundary contracts. The harnesses live in
+`chutoro-providers/dense/src/simd/kani_proofs.rs` behind `#[cfg(kani)]`, so
+normal builds and downstream users do not compile proof-only code.
+
+The dispatch harness proves, for every symbolic compile-time and runtime
+support-mask combination, that the selector never returns a SIMD backend unless
+that backend is both compiled and runtime-supported. It also proves the
+priority order remains:
+
+- AVX-512;
+- AVX2;
+- NEON;
+- portable SIMD;
+- scalar fallback.
+
+The tail-padding harness proves the bounded lane contract used by packed
+query-to-points kernels for lane widths four, eight, and sixteen. It proves
+that the padded point count is a 16-lane multiple, every full lane load stays
+inside the padded coordinate block, every logical write stays inside the
+caller-provided output length, and batches beyond the padded block write no
+outputs. The proof intentionally targets safe arithmetic and selector policy,
+not raw `std::arch` intrinsics.
+
+Concrete `rstest` unit tests keep the proof connected to production storage:
+`DensePointView<'a>` still pads logical point counts around `0`, `1`, `15`,
+`16`, and `17`, and zero-fills unused lanes for tail sizes `15` and `17`. There
+is no public API or user-observable behaviour change.
 
 #### 6.4. Property-based input generation for CPU HNSW tests
 
@@ -1179,8 +1208,8 @@ emit a dedicated `ConfigError` variant whenever the configured fan-out would
 overflow the base-layer bound (an early warning that the chosen `HnswParams`
 are unsound).
 
-The checker can run individual invariants
-(`check(HnswInvariant::Reachability)`), subsets (`check_many`), or the entire
+The checker can run individual invariants (
+`check(HnswInvariant::Reachability)`), subsets (`check_many`), or the entire
 suite (`check_all`). This API keeps properties succinct: generators can insert
 a batch of points and then call `index.invariants().check_all()` at the end of
 each step without cracking open the graph's private representation. The test
@@ -1311,8 +1340,8 @@ replay. To keep coverage jobs within `nextest` timeouts, the idempotency
 property now treats `llvm-cov` environments (`LLVM_PROFILE_FILE` or
 `CARGO_LLVM_COV`) as low-budget runs and falls back to 4 cases unless
 explicitly overridden in the dedicated property workflow. The HNSW mutation
-property also caps non-forked standard runs at its default 64 cases so a
-PR-tier `PROPTEST_CASES=250` run cannot consume the full 600-second `nextest`
+property also caps non-forked standard runs at its default 64 cases so a PR-tier
+ `PROPTEST_CASES=250` run cannot consume the full 600-second `nextest`
 allowance; forked weekly runs keep the requested deep-run budget.
 
 _Implementation update (2026-02-12)._ The functional ARI/NMI baseline case
@@ -1412,10 +1441,10 @@ used in FISHDBC.[^24]
   the CUDA toolkit installed and to work with specific nightly versions of the
   Rust compiler.[^25]
 
-| Framework   | Pros                                                                                                                                               | Cons                                                                                                                                                 | Recommendation for chutoro                                                                                                                                                                                                                     |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `wgpu`      | Cross-platform (Vulkan, Metal, DX12). Safe, idiomatic Rust API. Strong community support.                                                          | Higher-level abstraction. Limited access to low-level GPU features (shared memory, warp intrinsics). May not be optimal for complex compute kernels. | **Not Recommended.** The lack of fine-grained control over memory and execution is a significant impediment to optimizing the required graph algorithms.                                                                                       |
-| `rust-cuda` | Direct, low-level access to all CUDA features. Enables writing highly optimized kernels in Rust. Maximum performance potential on NVIDIA hardware. | NVIDIA-only. Requires CUDA toolkit and specific nightly Rust compiler. More complex development experience.                                          | **Recommended.** The performance of HNSW and Borůvka's MST is critically dependent on explicit management of shared memory and thread synchronization. `rust-cuda` provides the necessary control to build a state-of-the-art implementation.  |
+| Framework   | Pros                                                                                                                                               | Cons                                                                                                                                                 | Recommendation for chutoro                                                                                                                                                                                                                    |
+| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `wgpu`      | Cross-platform (Vulkan, Metal, DX12). Safe, idiomatic Rust API. Strong community support.                                                          | Higher-level abstraction. Limited access to low-level GPU features (shared memory, warp intrinsics). May not be optimal for complex compute kernels. | **Not Recommended.** The lack of fine-grained control over memory and execution is a significant impediment to optimizing the required graph algorithms.                                                                                      |
+| `rust-cuda` | Direct, low-level access to all CUDA features. Enables writing highly optimized kernels in Rust. Maximum performance potential on NVIDIA hardware. | NVIDIA-only. Requires CUDA toolkit and specific nightly Rust compiler. More complex development experience.                                          | **Recommended.** The performance of HNSW and Borůvka's MST is critically dependent on explicit management of shared memory and thread synchronization. `rust-cuda` provides the necessary control to build a state-of-the-art implementation. |
 
 _Table 3: Comparison of Rust GPU frameworks for `chutoro`._
 
@@ -1639,10 +1668,10 @@ the final cluster extraction steps can also be accelerated.
 
 ### 9. Host-Device Orchestration
 
-A naive implementation that performs each step synchronously
-(`copy data to GPU -> launch kernel -> wait -> copy results to CPU`) will
-suffer from severe performance degradation, as the GPU will remain idle during
-all data transfers. An expert-level design must use asynchronous operations to
+A naive implementation that performs each step synchronously (
+`copy data to GPU -> launch kernel -> wait -> copy results to CPU`) will suffer
+from severe performance degradation, as the GPU will remain idle during all
+data transfers. An expert-level design must use asynchronous operations to
 create a true execution pipeline that maximizes hardware utilization.
 
 #### 9.1. Memory Management Strategy
@@ -2956,8 +2985,8 @@ checkpoint/restore for `ClusteringSession`, introduces stable cluster-identity
 matching across refreshes, and defines a structural diff API that reports
 lifecycle events. These capabilities are prerequisites for downstream systems
 that perform policy-driven maintenance over clustered data, such as the
-theme-management and retrieval pipelines described in the xMemory
-literature.[^32]
+theme-management and retrieval pipelines described in the xMemory literature.[
+^32]
 
 #### 13.1. `ClusteringSnapshot`
 
@@ -3344,8 +3373,8 @@ that produces a sequence of short text documents with controlled properties:
   and cluster-boundary diagnostics (§14.1).
 - **Topic drift.** The topic distribution shifts over time: new topics emerge,
   old topics decay, and some topics merge. This validates that incremental
-  refresh (§12.5) and the structural diff API (§13.4) correctly surface
-  `Birth`, `Death`, `Split`, and `Merge` events.
+  refresh (§12.5) and the structural diff API (§13.4) correctly surface `Birth`,
+   `Death`, `Split`, and `Merge` events.
 
 The corpus generator is seeded and fully deterministic. A manifest records
 ground-truth topic labels and topic-drift breakpoints for quality scoring.

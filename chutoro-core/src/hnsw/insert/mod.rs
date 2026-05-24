@@ -125,21 +125,21 @@ fn assume_node_has_level(
     graph: &crate::hnsw::graph::Graph,
     node_id: usize,
     level: usize,
-    msg: &'static str,
+    _msg: &'static str,
 ) {
     let node = graph.node(node_id);
     let node_exists = node.is_some();
-    debug_assert!(node_exists, "{msg}: node must exist");
+    debug_assert!(node_exists, "Kani node must exist");
     kani::assume(node_exists);
 
     let level_valid = node.map(|node| level < node.level_count()).unwrap_or(false);
-    debug_assert!(level_valid, "{msg}: node must expose the requested level");
+    debug_assert!(level_valid, "Kani node must expose the requested level");
     kani::assume(level_valid);
 
     let neighbours_deduped = node
         .map(|node| is_deduped(node.neighbours(level)))
         .unwrap_or(false);
-    debug_assert!(neighbours_deduped, "{msg}: neighbours must be deduplicated");
+    debug_assert!(neighbours_deduped, "Kani neighbours must be deduplicated",);
     kani::assume(neighbours_deduped);
 }
 

@@ -7,6 +7,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=RUSTC");
+    println!("cargo:rustc-check-cfg=cfg(kani)");
     println!("cargo:rustc-check-cfg=cfg(nightly)");
 
     if is_nightly_compiler() {
