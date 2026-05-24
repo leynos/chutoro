@@ -4,7 +4,8 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT. This plan must be approved before implementation starts.
+Status: IN PROGRESS. The plan was approved for implementation on
+2026-05-24.
 
 ## Purpose / big picture
 
@@ -186,9 +187,12 @@ Use these skills:
   reconnaissance over the roadmap, design documents, dense SIMD code, and
   existing Kani patterns.
 - [x] (2026-05-21) Drafted this pre-implementation ExecPlan.
-- [ ] Approval gate: wait for explicit approval before implementation.
-- [ ] Stage A: audit current dense SIMD proof seams and update this ExecPlan
-  with exact symbols to edit before making code changes.
+- [x] (2026-05-24) Approval gate passed when the user explicitly requested
+  implementation of this ExecPlan.
+- [x] (2026-05-24) Stage A: audited current dense SIMD proof seams and updated
+  this ExecPlan with exact symbols to edit before making code changes.
+- [ ] Stage A follow-up: commit the ExecPlan status update after focused
+  Markdown validation.
 - [ ] Stage B: add dense-provider Kani proof module and any minimal
   production-used helper extraction required to avoid proof drift.
 - [ ] Stage C: add or extend `rstest` unit tests for tail padding and selector
@@ -203,6 +207,14 @@ Use these skills:
   `make check-fmt`, `make lint`, and `make test`.
 - [ ] Stage G: run `coderabbit review --agent`, clear concerns, mark roadmap
   item `2.2.7` done, and commit the implementation.
+
+## Superseded progress entries
+
+The following unchecked entries were replaced after implementation approval by
+the timestamped progress entries above:
+
+- Stage A: audit current dense SIMD proof seams and update this ExecPlan
+  with exact symbols to edit before making code changes.
 
 ## Surprises & discoveries
 
@@ -227,6 +239,17 @@ Use these skills:
   fragility without improving the design-level guarantee requested by the
   roadmap.
 
+- Discovery: The current dense crate build script registers only
+  `cfg(nightly)`. Stage B must add `cargo:rustc-check-cfg=cfg(kani)` before
+  introducing the proof module so strict `unexpected_cfgs` checks remain clean.
+
+- Discovery: The production query-to-points loops all share the same shape:
+  iterate by backend lane width across `DensePointView::padded_point_count()`,
+  load one full lane from each `coordinate_block`, and write only
+  `out.len().saturating_sub(offset).min(lanes)` logical results. A small
+  helper for this write count can be production-used by each backend and
+  proved by Kani without modelling architecture intrinsics.
+
 ## Decision log
 
 - Decision: Keep the initial proof scope to safe boundary helpers for
@@ -245,6 +268,13 @@ Use these skills:
   Kani policy substantially. Rationale: extending `ADR-002` avoids creating a
   second decision record for the same verification technique. Date/Author:
   2026-05-21 / Codex.
+
+- Decision: Extract only the lane output-count arithmetic into a production
+  helper, while proving padded load bounds directly against
+  `padded_point_count`. Rationale: the helper is the arithmetic used at every
+  logical output write, while load safety follows from the existing invariant
+  that padded point counts are 16-lane multiples and every backend lane width
+  divides 16. Date/Author: 2026-05-24 / Codex.
 
 ## Plan of work
 
