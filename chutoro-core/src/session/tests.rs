@@ -233,10 +233,7 @@ fn append_batch_accumulates_direct_harvested_edges(session_builder: ChutoroBuild
 
 #[rstest]
 fn append_rejects_duplicate_index(session_builder: ChutoroBuilder) {
-    let source = Arc::new(SessionTestSource::with_len(2));
-    let mut session = session_builder
-        .build_session(source)
-        .expect("session must build");
+    let (mut session, _) = make_session(session_builder, 2);
 
     session.append(&[0]).expect("first append must succeed");
     let err = session
@@ -287,10 +284,7 @@ fn append_failure_preserves_prior_successes(session_builder: ChutoroBuilder) {
 
 #[rstest]
 fn append_does_not_publish_label_snapshot(session_builder: ChutoroBuilder) {
-    let source = Arc::new(SessionTestSource::with_len(4));
-    let mut session = session_builder
-        .build_session(source)
-        .expect("session must build");
+    let (mut session, _) = make_session(session_builder, 4);
 
     session.append(&[0, 1, 2]).expect("append must succeed");
 
