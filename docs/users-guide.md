@@ -137,7 +137,7 @@ and HNSW structural failures surface as `ChutoroError::CpuHnswFailure`.
 
 Refresh and full batch bootstrap are not yet available on the public session
 surface. Those workflows remain future roadmap work. The `cpu` feature must be
-enabled to access `build_session()`, `append(...)`, `SessionRefreshPolicy`,
+enabled to access `build_session()`, `append(&[usize])`, `SessionRefreshPolicy`,
 `SessionConfig`, and `ClusteringSession<D>`.
 
 ## Implementing data sources

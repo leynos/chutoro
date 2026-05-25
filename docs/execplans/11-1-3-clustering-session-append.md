@@ -156,7 +156,7 @@ cluster identity.
   plan-specific Markdown linting, `make check-fmt`, `make lint`, `make test`,
   and `coderabbit review --agent`.
 - [x] (2026-05-20 00:00Z) Revised the dependency and validation gates to
-  reflect that `rstest-bdd` was explicitly authorised by the task instructions.
+  reflect that `rstest-bdd` was explicitly authorized by the task instructions.
 - [x] (2026-05-20 00:00Z) Received explicit approval to implement this plan.
 - [x] (2026-05-20 00:00Z) Rechecked the worktree, current branch, current
   `ClusteringSession` and `CpuHnsw::insert_harvesting` surfaces, and loaded
@@ -281,7 +281,7 @@ cluster identity.
 
 - Decision: use `rstest` and a narrow `proptest` sequence property as the
   required validation baseline, and add `rstest-bdd` scenarios for externally
-  visible append behaviour. Rationale: the user explicitly authorised
+  visible append behaviour. Rationale: the user explicitly authorized
   `rstest-bdd`, and Gherkin scenarios give reviewers a readable behaviour
   contract without reaching into private `pending_edges` state. Kani and Verus
   remain reserved for bounded structural invariants or pure helper proofs; no
