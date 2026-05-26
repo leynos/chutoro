@@ -185,50 +185,59 @@ fn symbolic_lane_width() -> usize {
     }
 }
 
-fn verify_active_lane_bounds(
-    offset: usize,
-    lane_index: usize,
+/// Describes the geometry of a zero-padded SIMD block.
+struct PaddedBlock {
     point_count: usize,
     padded_count: usize,
     lanes: usize,
-) {
+}
+
+fn verify_active_lane_bounds(offset: usize, lane_index: usize, block: &PaddedBlock) {
     kani::assert(
-        lane_index < lanes,
+        lane_index < block.lanes,
         "logical lane index must fit the backend lane",
     );
     kani::assert(
-        offset + lane_index < point_count,
+        offset + lane_index < block.point_count,
         "logical output write must stay inside the output buffer",
     );
     kani::assert(
-        offset + lane_index < padded_count,
+        offset + lane_index < block.padded_count,
         "logical output write must correspond to a padded lane",
     );
 }
 
-fn verify_active_batch(offset: usize, point_count: usize, padded_count: usize, lanes: usize) {
+fn verify_active_batch(offset: usize, block: &PaddedBlock) {
     kani::assert(
-        offset + lanes <= padded_count,
+        offset + block.lanes <= block.padded_count,
         "full SIMD lane load must stay inside the padded block",
     );
 
-    let remaining = lane_output_count(point_count, offset, lanes);
-    kani::assert(remaining <= lanes, "logical output count must fit the lane");
+    let remaining = lane_output_count(block.point_count, offset, block.lanes);
+    kani::assert(
+        remaining <= block.lanes,
+        "logical output count must fit the lane",
+    );
     for lane_index in 0..super::MAX_SIMD_LANES {
         if lane_index < remaining {
-            verify_active_lane_bounds(offset, lane_index, point_count, padded_count, lanes);
+            verify_active_lane_bounds(offset, lane_index, block);
         }
     }
 }
 
 fn verify_lane_loads(point_count: usize, padded_count: usize, lanes: usize) {
+    let block = PaddedBlock {
+        point_count,
+        padded_count,
+        lanes,
+    };
     for batch_index in 0..MAX_PROOF_BATCHES {
-        let offset = batch_index * lanes;
-        if offset < padded_count {
-            verify_active_batch(offset, point_count, padded_count, lanes);
+        let offset = batch_index * block.lanes;
+        if offset < block.padded_count {
+            verify_active_batch(offset, &block);
         } else {
             kani::assert(
-                lane_output_count(point_count, offset, lanes) == 0,
+                lane_output_count(block.point_count, offset, block.lanes) == 0,
                 "batches beyond the padded block must not write outputs",
             );
         }
