@@ -14,76 +14,56 @@ const MAX_PROOF_BATCHES: usize = 8;
 
 #[kani::proof]
 fn verify_dense_simd_dispatch_selection_respects_support_masks() {
-    let compiled_avx2 = kani::any::<bool>();
-    let compiled_avx512 = kani::any::<bool>();
-    let compiled_neon = kani::any::<bool>();
-    let compiled_portable_simd = kani::any::<bool>();
-    let runtime_avx2 = kani::any::<bool>();
-    let runtime_avx512 = kani::any::<bool>();
-    let runtime_neon = kani::any::<bool>();
-    let runtime_portable_simd = kani::any::<bool>();
+    let avx512 = SimdBackendFlag {
+        compiled: kani::any(),
+        runtime: kani::any(),
+    };
+    let avx2 = SimdBackendFlag {
+        compiled: kani::any(),
+        runtime: kani::any(),
+    };
+    let neon = SimdBackendFlag {
+        compiled: kani::any(),
+        runtime: kani::any(),
+    };
+    let psimd = SimdBackendFlag {
+        compiled: kani::any(),
+        runtime: kani::any(),
+    };
 
     let compiled = CompiledSimdSupport::new(
-        compiled_avx2,
-        compiled_avx512,
-        compiled_neon,
-        compiled_portable_simd,
+        avx2.compiled,
+        avx512.compiled,
+        neon.compiled,
+        psimd.compiled,
     );
-    let runtime = RuntimeSimdSupport::new(
-        runtime_avx2,
-        runtime_avx512,
-        runtime_neon,
-        runtime_portable_simd,
-    );
+    let runtime =
+        RuntimeSimdSupport::new(avx2.runtime, avx512.runtime, neon.runtime, psimd.runtime);
 
     match dispatch::choose_euclidean_backend(compiled, runtime) {
         dispatch::EuclideanBackend::Avx512 => {
-            assert_eligible(
-                compiled_avx512,
-                runtime_avx512,
-                "AVX-512 must be compiled",
-                "AVX-512 must be available",
-            );
+            assert_eligible(avx512, EligibleBackend::Avx512);
         }
         dispatch::EuclideanBackend::Avx2 => {
-            assert_not_eligible(compiled_avx512, runtime_avx512, "AVX-512 has priority");
-            assert_eligible(
-                compiled_avx2,
-                runtime_avx2,
-                "AVX2 must be compiled",
-                "AVX2 must be available",
-            );
+            assert_not_eligible(avx512, IneligibleBackend::Avx512Priority);
+            assert_eligible(avx2, EligibleBackend::Avx2);
         }
         dispatch::EuclideanBackend::Neon => {
-            assert_not_eligible(compiled_avx512, runtime_avx512, "AVX-512 has priority");
-            assert_not_eligible(compiled_avx2, runtime_avx2, "AVX2 has priority");
-            assert_eligible(
-                compiled_neon,
-                runtime_neon,
-                "NEON must be compiled",
-                "NEON must be available",
-            );
+            assert_not_eligible(avx512, IneligibleBackend::Avx512Priority);
+            assert_not_eligible(avx2, IneligibleBackend::Avx2Priority);
+            assert_eligible(neon, EligibleBackend::Neon);
         }
         dispatch::EuclideanBackend::PortableSimd => {
-            assert_not_eligible(compiled_avx512, runtime_avx512, "AVX-512 has priority");
-            assert_not_eligible(compiled_avx2, runtime_avx2, "AVX2 has priority");
-            assert_not_eligible(compiled_neon, runtime_neon, "NEON has priority");
-            assert_eligible(
-                compiled_portable_simd,
-                runtime_portable_simd,
-                "portable SIMD must be compiled",
-                "portable SIMD must be available",
-            );
+            assert_not_eligible(avx512, IneligibleBackend::Avx512Priority);
+            assert_not_eligible(avx2, IneligibleBackend::Avx2Priority);
+            assert_not_eligible(neon, IneligibleBackend::NeonPriority);
+            assert_eligible(psimd, EligibleBackend::PortableSimd);
         }
         dispatch::EuclideanBackend::Scalar => {
-            assert_not_eligible(compiled_avx512, runtime_avx512, "AVX-512 must be absent");
-            assert_not_eligible(compiled_avx2, runtime_avx2, "AVX2 must be absent");
-            assert_not_eligible(compiled_neon, runtime_neon, "NEON must be absent");
-            assert_not_eligible(
-                compiled_portable_simd,
-                runtime_portable_simd,
-                "portable SIMD must be absent",
-            );
+            assert_not_eligible(avx512, IneligibleBackend::Avx512Absent);
+            assert_not_eligible(avx2, IneligibleBackend::Avx2Absent);
+            assert_not_eligible(neon, IneligibleBackend::NeonAbsent);
+            assert_not_eligible(psimd, IneligibleBackend::PortableSimdAbsent);
         }
     }
 }
@@ -110,125 +90,81 @@ fn verify_dense_simd_tail_padding_lane_bounds() {
     verify_lane_loads(point_count, padded_count, lanes);
 }
 
-fn eligible(compiled: bool, runtime: bool) -> bool {
-    compiled && runtime
-}
-
-fn assert_not_eligible(compiled: bool, runtime: bool, msg: &'static str) {
-    if same_message(msg, "AVX-512 has priority") {
-        kani::assert(!eligible(compiled, runtime), "AVX-512 has priority");
-    } else if same_message(msg, "AVX2 has priority") {
-        kani::assert(!eligible(compiled, runtime), "AVX2 has priority");
-    } else if same_message(msg, "NEON has priority") {
-        kani::assert(!eligible(compiled, runtime), "NEON has priority");
-    } else if same_message(msg, "AVX-512 must be absent") {
-        kani::assert(!eligible(compiled, runtime), "AVX-512 must be absent");
-    } else if same_message(msg, "AVX2 must be absent") {
-        kani::assert(!eligible(compiled, runtime), "AVX2 must be absent");
-    } else if same_message(msg, "NEON must be absent") {
-        kani::assert(!eligible(compiled, runtime), "NEON must be absent");
-    } else if same_message(msg, "portable SIMD must be absent") {
-        kani::assert(!eligible(compiled, runtime), "portable SIMD must be absent");
-    } else {
-        kani::assume(false);
-    }
-}
-
-fn assert_eligible(
+/// Represents whether a SIMD backend is both compiled-in and available at runtime.
+#[derive(Clone, Copy)]
+struct SimdBackendFlag {
     compiled: bool,
     runtime: bool,
-    compiled_msg: &'static str,
-    runtime_msg: &'static str,
-) {
-    if !assert_x86_eligible(compiled, runtime, compiled_msg, runtime_msg) {
-        assert_fallback_eligible(compiled, runtime, compiled_msg, runtime_msg);
+}
+
+impl SimdBackendFlag {
+    fn eligible(&self) -> bool {
+        self.compiled && self.runtime
     }
 }
 
-fn assert_x86_eligible(
-    compiled: bool,
-    runtime: bool,
-    compiled_msg: &'static str,
-    runtime_msg: &'static str,
-) -> bool {
-    if same_eligible_message(
-        compiled_msg,
-        runtime_msg,
-        "AVX-512 must be compiled",
-        "AVX-512 must be available",
-    ) {
-        assert_avx512_eligible(compiled, runtime);
-        true
-    } else if same_eligible_message(
-        compiled_msg,
-        runtime_msg,
-        "AVX2 must be compiled",
-        "AVX2 must be available",
-    ) {
-        assert_avx2_eligible(compiled, runtime);
-        true
-    } else {
-        false
+enum IneligibleBackend {
+    Avx512Priority,
+    Avx2Priority,
+    NeonPriority,
+    Avx512Absent,
+    Avx2Absent,
+    NeonAbsent,
+    PortableSimdAbsent,
+}
+
+enum EligibleBackend {
+    Avx512,
+    Avx2,
+    Neon,
+    PortableSimd,
+}
+
+fn assert_not_eligible(flag: SimdBackendFlag, backend: IneligibleBackend) {
+    match backend {
+        IneligibleBackend::Avx512Priority => {
+            kani::assert(!flag.eligible(), "AVX-512 has priority");
+        }
+        IneligibleBackend::Avx2Priority => {
+            kani::assert(!flag.eligible(), "AVX2 has priority");
+        }
+        IneligibleBackend::NeonPriority => {
+            kani::assert(!flag.eligible(), "NEON has priority");
+        }
+        IneligibleBackend::Avx512Absent => {
+            kani::assert(!flag.eligible(), "AVX-512 must be absent");
+        }
+        IneligibleBackend::Avx2Absent => {
+            kani::assert(!flag.eligible(), "AVX2 must be absent");
+        }
+        IneligibleBackend::NeonAbsent => {
+            kani::assert(!flag.eligible(), "NEON must be absent");
+        }
+        IneligibleBackend::PortableSimdAbsent => {
+            kani::assert(!flag.eligible(), "portable SIMD must be absent");
+        }
     }
 }
 
-fn assert_fallback_eligible(
-    compiled: bool,
-    runtime: bool,
-    compiled_msg: &'static str,
-    runtime_msg: &'static str,
-) {
-    if same_eligible_message(
-        compiled_msg,
-        runtime_msg,
-        "NEON must be compiled",
-        "NEON must be available",
-    ) {
-        assert_neon_eligible(compiled, runtime);
-    } else if same_eligible_message(
-        compiled_msg,
-        runtime_msg,
-        "portable SIMD must be compiled",
-        "portable SIMD must be available",
-    ) {
-        assert_portable_simd_eligible(compiled, runtime);
-    } else {
-        kani::assume(false);
+fn assert_eligible(flag: SimdBackendFlag, backend: EligibleBackend) {
+    match backend {
+        EligibleBackend::Avx512 => {
+            kani::assert(flag.compiled, "AVX-512 must be compiled");
+            kani::assert(flag.runtime, "AVX-512 must be available");
+        }
+        EligibleBackend::Avx2 => {
+            kani::assert(flag.compiled, "AVX2 must be compiled");
+            kani::assert(flag.runtime, "AVX2 must be available");
+        }
+        EligibleBackend::Neon => {
+            kani::assert(flag.compiled, "NEON must be compiled");
+            kani::assert(flag.runtime, "NEON must be available");
+        }
+        EligibleBackend::PortableSimd => {
+            kani::assert(flag.compiled, "portable SIMD must be compiled");
+            kani::assert(flag.runtime, "portable SIMD must be available");
+        }
     }
-}
-
-fn same_eligible_message(
-    compiled_msg: &'static str,
-    runtime_msg: &'static str,
-    expected_compiled_msg: &'static str,
-    expected_runtime_msg: &'static str,
-) -> bool {
-    same_message(compiled_msg, expected_compiled_msg)
-        && same_message(runtime_msg, expected_runtime_msg)
-}
-
-fn assert_avx512_eligible(compiled: bool, runtime: bool) {
-    kani::assert(compiled, "AVX-512 must be compiled");
-    kani::assert(runtime, "AVX-512 must be available");
-}
-
-fn assert_avx2_eligible(compiled: bool, runtime: bool) {
-    kani::assert(compiled, "AVX2 must be compiled");
-    kani::assert(runtime, "AVX2 must be available");
-}
-
-fn assert_neon_eligible(compiled: bool, runtime: bool) {
-    kani::assert(compiled, "NEON must be compiled");
-    kani::assert(runtime, "NEON must be available");
-}
-
-fn assert_portable_simd_eligible(compiled: bool, runtime: bool) {
-    kani::assert(compiled, "portable SIMD must be compiled");
-    kani::assert(runtime, "portable SIMD must be available");
-}
-
-fn same_message(left: &'static str, right: &'static str) -> bool {
-    left.as_ptr() == right.as_ptr() && left.len() == right.len()
 }
 
 fn bounded_usize(max_inclusive: usize) -> usize {
