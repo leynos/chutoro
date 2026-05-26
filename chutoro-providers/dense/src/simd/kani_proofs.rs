@@ -140,29 +140,91 @@ fn assert_eligible(
     compiled_msg: &'static str,
     runtime_msg: &'static str,
 ) {
-    if same_message(compiled_msg, "AVX-512 must be compiled")
-        && same_message(runtime_msg, "AVX-512 must be available")
-    {
-        kani::assert(compiled, "AVX-512 must be compiled");
-        kani::assert(runtime, "AVX-512 must be available");
-    } else if same_message(compiled_msg, "AVX2 must be compiled")
-        && same_message(runtime_msg, "AVX2 must be available")
-    {
-        kani::assert(compiled, "AVX2 must be compiled");
-        kani::assert(runtime, "AVX2 must be available");
-    } else if same_message(compiled_msg, "NEON must be compiled")
-        && same_message(runtime_msg, "NEON must be available")
-    {
-        kani::assert(compiled, "NEON must be compiled");
-        kani::assert(runtime, "NEON must be available");
-    } else if same_message(compiled_msg, "portable SIMD must be compiled")
-        && same_message(runtime_msg, "portable SIMD must be available")
-    {
-        kani::assert(compiled, "portable SIMD must be compiled");
-        kani::assert(runtime, "portable SIMD must be available");
+    if !assert_x86_eligible(compiled, runtime, compiled_msg, runtime_msg) {
+        assert_fallback_eligible(compiled, runtime, compiled_msg, runtime_msg);
+    }
+}
+
+fn assert_x86_eligible(
+    compiled: bool,
+    runtime: bool,
+    compiled_msg: &'static str,
+    runtime_msg: &'static str,
+) -> bool {
+    if same_eligible_message(
+        compiled_msg,
+        runtime_msg,
+        "AVX-512 must be compiled",
+        "AVX-512 must be available",
+    ) {
+        assert_avx512_eligible(compiled, runtime);
+        true
+    } else if same_eligible_message(
+        compiled_msg,
+        runtime_msg,
+        "AVX2 must be compiled",
+        "AVX2 must be available",
+    ) {
+        assert_avx2_eligible(compiled, runtime);
+        true
+    } else {
+        false
+    }
+}
+
+fn assert_fallback_eligible(
+    compiled: bool,
+    runtime: bool,
+    compiled_msg: &'static str,
+    runtime_msg: &'static str,
+) {
+    if same_eligible_message(
+        compiled_msg,
+        runtime_msg,
+        "NEON must be compiled",
+        "NEON must be available",
+    ) {
+        assert_neon_eligible(compiled, runtime);
+    } else if same_eligible_message(
+        compiled_msg,
+        runtime_msg,
+        "portable SIMD must be compiled",
+        "portable SIMD must be available",
+    ) {
+        assert_portable_simd_eligible(compiled, runtime);
     } else {
         kani::assume(false);
     }
+}
+
+fn same_eligible_message(
+    compiled_msg: &'static str,
+    runtime_msg: &'static str,
+    expected_compiled_msg: &'static str,
+    expected_runtime_msg: &'static str,
+) -> bool {
+    same_message(compiled_msg, expected_compiled_msg)
+        && same_message(runtime_msg, expected_runtime_msg)
+}
+
+fn assert_avx512_eligible(compiled: bool, runtime: bool) {
+    kani::assert(compiled, "AVX-512 must be compiled");
+    kani::assert(runtime, "AVX-512 must be available");
+}
+
+fn assert_avx2_eligible(compiled: bool, runtime: bool) {
+    kani::assert(compiled, "AVX2 must be compiled");
+    kani::assert(runtime, "AVX2 must be available");
+}
+
+fn assert_neon_eligible(compiled: bool, runtime: bool) {
+    kani::assert(compiled, "NEON must be compiled");
+    kani::assert(runtime, "NEON must be available");
+}
+
+fn assert_portable_simd_eligible(compiled: bool, runtime: bool) {
+    kani::assert(compiled, "portable SIMD must be compiled");
+    kani::assert(runtime, "portable SIMD must be available");
 }
 
 fn same_message(left: &'static str, right: &'static str) -> bool {
