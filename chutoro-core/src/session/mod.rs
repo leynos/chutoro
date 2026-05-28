@@ -11,7 +11,7 @@ use crate::{
     CandidateEdge, ChutoroError, CpuHnsw, DataSource, DataSourceError, HnswError, HnswParams,
     MetricDescriptor, MstEdge, Result,
 };
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 /// Refresh behaviour for a [`ClusteringSession`].
 ///
@@ -238,16 +238,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     }
 
     fn map_hnsw_error(&self, error: HnswError) -> ChutoroError {
-        match error {
-            HnswError::DataSource(error) => ChutoroError::DataSource {
-                data_source: Arc::from(self.source.name()),
-                error,
-            },
-            other => ChutoroError::CpuHnswFailure {
-                code: Arc::from(other.code().as_str()),
-                message: Arc::from(other.to_string()),
-            },
-        }
+        crate::cpu_pipeline::map_cpu_hnsw_error(self.source.as_ref(), error)
     }
 
     fn new_with_index_result(
@@ -325,16 +316,35 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// index or distance query. Returns [`ChutoroError::CpuHnswFailure`] for
     /// duplicate indices, non-finite distances, lock poisoning, or graph
     /// invariant failures reported by the HNSW index.
+    #[instrument(skip(self, indices), fields(count = indices.len()), level = "debug")]
     pub fn append(&mut self, indices: &[usize]) -> Result<()> {
         for &index in indices {
             if index >= self.source.len() {
+                warn!(
+                    index,
+                    source_len = self.source.len(),
+                    "append rejected: index out of bounds"
+                );
                 return Err(self.append_index_error(index));
             }
             let edges = self
                 .index
                 .insert_harvesting(index, self.source.as_ref())
-                .map_err(|error| self.map_hnsw_error(error))?;
+                .map_err(|error| {
+                    let chutoro_error = self.map_hnsw_error(error);
+                    warn!(
+                        index,
+                        error = ?chutoro_error,
+                        "append rejected: HNSW insertion failed"
+                    );
+                    chutoro_error
+                })?;
+            let harvested = edges.len();
             self.pending_edges.extend(edges);
+            debug!(
+                index,
+                harvested, "append: point inserted and edges buffered"
+            );
         }
         Ok(())
     }

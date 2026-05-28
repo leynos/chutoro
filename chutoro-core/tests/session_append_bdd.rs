@@ -133,38 +133,28 @@ fn snapshot_version_is(world: &SessionAppendWorld, version: u64) {
     path = "tests/features/session_append.feature",
     name = "Appending valid source indices"
 )]
-fn append_valid_source_indices(world: SessionAppendWorld) {
-    let _ = world;
-}
+fn append_valid_source_indices(_world: SessionAppendWorld) {}
 
 #[scenario(
     path = "tests/features/session_append.feature",
     name = "Duplicate index rejection"
 )]
-fn duplicate_index_rejection(world: SessionAppendWorld) {
-    let _ = world;
-}
+fn duplicate_index_rejection(_world: SessionAppendWorld) {}
 
 #[scenario(
     path = "tests/features/session_append.feature",
     name = "Out-of-bounds index rejection"
 )]
-fn out_of_bounds_index_rejection(world: SessionAppendWorld) {
-    let _ = world;
-}
+fn out_of_bounds_index_rejection(_world: SessionAppendWorld) {}
 
 #[scenario(
     path = "tests/features/session_append.feature",
     name = "Empty index list no-op"
 )]
-fn empty_index_list_no_op(world: SessionAppendWorld) {
-    let _ = world;
-}
+fn empty_index_list_no_op(_world: SessionAppendWorld) {}
 
 #[scenario(
     path = "tests/features/session_append.feature",
     name = "Snapshot version immutability across multiple appends"
 )]
-fn snapshot_version_immutability_across_multiple_appends(world: SessionAppendWorld) {
-    let _ = world;
-}
+fn snapshot_version_immutability_across_multiple_appends(_world: SessionAppendWorld) {}
