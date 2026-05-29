@@ -151,6 +151,9 @@ impl SessionConfig {
 /// session mutates the live index and pending edge buffer. Read-only accessors
 /// remain available through shared references. `_labels` uses `Arc<Vec<usize>>`,
 /// so later label snapshots can be shared without blocking the writer.
+/// Concurrent read-only access through a shared `RwLock` guard is verified by the
+/// `concurrent_readers_observe_consistent_point_count` and
+/// `snapshot_version_is_immutable_under_concurrent_readers` tests in `session/tests.rs`.
 ///
 /// # Examples
 /// ```rust,no_run
