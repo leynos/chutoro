@@ -1,4 +1,12 @@
-//! Behavioural tests for append-oriented clustering sessions.
+//! Behavioural acceptance tests for [`ClusteringSession::append`], defined in
+//! `chutoro-core/src/session/mod.rs`.
+//!
+//! These tests use the [`rstest-bdd`] framework driven by the Gherkin feature
+//! file at `chutoro-core/tests/features/session_append.feature`.  They sit
+//! above the unit-test layer in the testing hierarchy: each scenario exercises
+//! the public `append` API end-to-end through `ChutoroBuilder`, asserting
+//! observable session state (`point_count`, `snapshot_version`, error codes)
+//! without access to internal fields.
 
 use std::{num::ParseIntError, sync::Arc};
 

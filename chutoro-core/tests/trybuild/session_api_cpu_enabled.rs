@@ -1,5 +1,12 @@
-//! Compile-pass fixture verifying session API availability when the `cpu`
-//! feature is enabled.
+//! Compile-pass trybuild fixture verifying the public API surface of
+//! [`ClusteringSession`] (defined in `chutoro-core/src/session/mod.rs`)
+//! when the `cpu` Cargo feature is enabled.
+//!
+//! This file sits at the API-contract layer of the testing hierarchy: it is
+//! compiled (but not executed) by the `trybuild` test harness to assert that
+//! the expected symbols — including `build_session` and `append` — are
+//! accessible and have the correct mutability requirements under the `cpu`
+//! feature gate.  It does not make runtime assertions.
 
 use std::sync::Arc;
 

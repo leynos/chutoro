@@ -1,4 +1,11 @@
-//! Tests for the public incremental session scaffolding.
+//! Unit tests for [`ClusteringSession`] and its supporting session scaffolding,
+//! defined in `chutoro-core/src/session/mod.rs`.
+//!
+//! These are white-box unit tests that live inside the session module and use
+//! [`rstest`] fixtures (`session_builder`) to reduce per-test boilerplate.
+//! They sit at the base of the testing hierarchy and cover the `append` API
+//! at the method level — happy paths, validation failures, partial-progress
+//! semantics, and property-based invariants via [`proptest`].
 
 use std::{num::NonZeroUsize, sync::Arc};
 
