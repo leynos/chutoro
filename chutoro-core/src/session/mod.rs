@@ -261,6 +261,23 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             "ClusteringSession allocated: empty HNSW index ready"
         );
 
+        #[cfg(feature = "metrics")]
+        {
+            metrics::describe_counter!(
+                "chutoro.session.append.errors_total",
+                "Total number of append failures, labelled by reason."
+            );
+            metrics::describe_histogram!(
+                "chutoro.session.append.point_seconds",
+                metrics::Unit::Seconds,
+                "Per-point HNSW insertion latency in seconds."
+            );
+            metrics::describe_gauge!(
+                "chutoro.session.pending_edges",
+                "Current depth of the pending candidate-edge buffer."
+            );
+        }
+
         Ok(Self {
             config,
             index,
@@ -325,8 +342,18 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
                     source_len = self.source.len(),
                     "append rejected: index out of bounds"
                 );
+                #[cfg(feature = "metrics")]
+                metrics::counter!(
+                    "chutoro.session.append.errors_total",
+                    "reason" => "out_of_bounds"
+                )
+                .increment(1);
                 return Err(self.append_index_error(index));
             }
+
+            #[cfg(feature = "metrics")]
+            let t0 = std::time::Instant::now();
+
             let edges = self
                 .index
                 .insert_harvesting(index, self.source.as_ref())
@@ -337,10 +364,25 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
                         error = ?chutoro_error,
                         "append rejected: HNSW insertion failed"
                     );
+                    #[cfg(feature = "metrics")]
+                    metrics::counter!(
+                        "chutoro.session.append.errors_total",
+                        "reason" => "hnsw_failure"
+                    )
+                    .increment(1);
                     chutoro_error
                 })?;
+
+            #[cfg(feature = "metrics")]
+            metrics::histogram!("chutoro.session.append.point_seconds")
+                .record(t0.elapsed().as_secs_f64());
+
             let harvested = edges.len();
             self.pending_edges.extend(edges);
+
+            #[cfg(feature = "metrics")]
+            metrics::gauge!("chutoro.session.pending_edges").set(self.pending_edges.len() as f64);
+
             debug!(
                 index,
                 harvested, "append: point inserted and edges buffered"
