@@ -336,6 +336,35 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// index or distance query. Returns [`ChutoroError::CpuHnswFailure`] for
     /// duplicate indices, non-finite distances, lock poisoning, or graph
     /// invariant failures reported by the HNSW index.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use std::sync::Arc;
+    /// # use chutoro_core::{
+    /// #     ChutoroBuilder, ChutoroError, DataSource, DataSourceError,
+    /// #     MetricDescriptor,
+    /// # };
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    /// #         Ok((a - b).abs())
+    /// #     }
+    /// #     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("abs") }
+    /// # }
+    /// # fn main() -> Result<(), ChutoroError> {
+    /// let source = Arc::new(Dummy(vec![0.0, 1.0]));
+    /// let mut session = ChutoroBuilder::new().build_session(source)?;
+    ///
+    /// session.append(&[0, 1])?;
+    /// assert_eq!(session.point_count(), 2);
+    /// # Ok(())
+    /// # }
+    /// ```
     #[instrument(skip(self, indices), fields(count = indices.len()), level = "debug")]
     pub fn append(&mut self, indices: &[usize]) -> Result<()> {
         for &index in indices {

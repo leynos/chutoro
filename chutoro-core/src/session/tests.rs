@@ -287,6 +287,11 @@ fn append_failure_preserves_prior_successes(session_builder: ChutoroBuilder) {
     );
     assert_eq!(session.point_count(), 1);
     assert_eq!(session.snapshot_version(), 0);
+    assert_eq!(
+        session.pending_edges.len(),
+        0,
+        "no edges are harvested from a single-point insertion into an empty index"
+    );
 }
 
 #[rstest]
