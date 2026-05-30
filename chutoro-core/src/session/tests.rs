@@ -275,22 +275,48 @@ fn append_rejects_out_of_bounds_index(session_builder: ChutoroBuilder) {
 
 #[rstest]
 fn append_failure_preserves_prior_successes(session_builder: ChutoroBuilder) {
-    let (mut session, source) = make_session(session_builder, 2);
+    let hnsw_params = HnswParams::new(4, 16)
+        .expect("HNSW params must be valid")
+        .with_rng_seed(41);
+    let source = Arc::new(SessionTestSource::with_len(6));
+    let mut session = session_builder
+        .with_hnsw_params(hnsw_params.clone())
+        .build_session(Arc::clone(&source))
+        .expect("session must build");
+    let direct_index =
+        CpuHnsw::with_capacity(hnsw_params, source.len()).expect("direct index must allocate");
+    let mut expected_edges = Vec::new();
 
+    // Build expected edges from successful insertions through CpuHnsw.
+    // Indices 0, 1, and 2 all succeed; source.len() is the trailing OOB index.
+    for &index in &[0, 1, 2] {
+        let edges = direct_index
+            .insert_harvesting(index, source.as_ref())
+            .expect("direct insert must succeed");
+        expected_edges.extend(edges);
+    }
+
+    // Perform the same insertions through the session.
+    session.append(&[0, 1]).expect("first append must succeed");
+    assert!(
+        !session.pending_edges.is_empty(),
+        "two insertions must harvest edges"
+    );
+
+    // Trailing out-of-bounds index must fail and leave pending_edges intact.
     let err = session
-        .append(&[0, source.len()])
-        .expect_err("second append must fail");
+        .append(&[2, source.len()])
+        .expect_err("trailing OOB append must fail");
 
     assert!(
         matches!(err, ChutoroError::DataSource { .. }),
         "expected DataSource error, got {err:?}"
     );
-    assert_eq!(session.point_count(), 1);
+    assert_eq!(session.point_count(), 3);
     assert_eq!(session.snapshot_version(), 0);
     assert_eq!(
-        session.pending_edges.len(),
-        0,
-        "no edges are harvested from a single-point insertion into an empty index"
+        session.pending_edges, expected_edges,
+        "pending_edges must be preserved after a trailing failure"
     );
 }
 
