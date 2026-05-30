@@ -155,6 +155,21 @@ impl SessionConfig {
 /// `concurrent_readers_observe_consistent_point_count` and
 /// `snapshot_version_is_immutable_under_concurrent_readers` tests in `session/tests.rs`.
 ///
+/// ## `pending_edges` memory usage
+///
+/// `pending_edges` accumulates [`CandidateEdge`] values as points are
+/// inserted. Each `CandidateEdge` occupies `2 × size_of::<usize>() + 4` bytes
+/// (two endpoint indices and one `f32` distance), typically 20 bytes on
+/// 64-bit targets. In the worst case a session that has inserted *N* points
+/// will hold at most *N* × *M* edges, where *M* is the HNSW `max_connections`
+/// parameter (default 16). For 10 000 points with `M = 16` that is ~3.2 MB —
+/// modest for a transient buffer, but callers must be aware that
+/// `pending_edges` grows without bound until a future `refresh()` call
+/// (roadmap item 11.1.4) drains it. Long-lived sessions inserting very many
+/// points should plan for a periodic refresh cadence or monitor the buffer
+/// depth via the `chutoro.session.pending_edges` gauge metric (enabled with
+/// the `metrics` Cargo feature).
+///
 /// # Examples
 /// ```rust,no_run
 /// use std::sync::Arc;
