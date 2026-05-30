@@ -275,48 +275,58 @@ fn append_rejects_out_of_bounds_index(session_builder: ChutoroBuilder) {
 
 #[rstest]
 fn append_failure_preserves_prior_successes(session_builder: ChutoroBuilder) {
+    // Use ≥3 source points so that inserting index 1 into a graph that
+    // already contains index 0 produces at least one harvested edge.
+    // We mirror append_batch_accumulates_direct_harvested_edges to establish
+    // the expected edge set independently via CpuHnsw::insert_harvesting.
     let hnsw_params = HnswParams::new(4, 16)
         .expect("HNSW params must be valid")
         .with_rng_seed(41);
-    let source = Arc::new(SessionTestSource::with_len(6));
+    let source = Arc::new(SessionTestSource::with_len(4));
     let mut session = session_builder
         .with_hnsw_params(hnsw_params.clone())
         .build_session(Arc::clone(&source))
         .expect("session must build");
+
+    // Build the expected edge set using the direct index as a baseline.
     let direct_index =
         CpuHnsw::with_capacity(hnsw_params, source.len()).expect("direct index must allocate");
     let mut expected_edges = Vec::new();
-
-    // Build expected edges from successful insertions through CpuHnsw.
-    // Indices 0, 1, and 2 all succeed; source.len() is the trailing OOB index.
-    for &index in &[0, 1, 2] {
+    for index in [0usize, 1] {
         let edges = direct_index
             .insert_harvesting(index, source.as_ref())
             .expect("direct insert must succeed");
         expected_edges.extend(edges);
     }
-
-    // Perform the same insertions through the session.
-    session.append(&[0, 1]).expect("first append must succeed");
+    // expected_edges is non-empty at this point because inserting index 1
+    // into a graph that already contains index 0 harvests their mutual edge.
     assert!(
-        !session.pending_edges.is_empty(),
-        "two insertions must harvest edges"
+        !expected_edges.is_empty(),
+        "test precondition: at least one edge must be harvested from the first two insertions"
     );
 
-    // Trailing out-of-bounds index must fail and leave pending_edges intact.
+    // Now append the two valid indices followed by one out-of-bounds index.
     let err = session
-        .append(&[2, source.len()])
-        .expect_err("trailing OOB append must fail");
+        .append(&[0, 1, source.len()])
+        .expect_err("out-of-bounds index must cause failure");
 
     assert!(
         matches!(err, ChutoroError::DataSource { .. }),
         "expected DataSource error, got {err:?}"
     );
-    assert_eq!(session.point_count(), 3);
+    assert_eq!(
+        err.data_source_code(),
+        Some(DataSourceErrorCode::OutOfBounds)
+    );
+    assert_eq!(
+        session.point_count(),
+        2,
+        "the two successful insertions must be preserved"
+    );
     assert_eq!(session.snapshot_version(), 0);
     assert_eq!(
         session.pending_edges, expected_edges,
-        "pending_edges must be preserved after a trailing failure"
+        "harvested edges from successful insertions must survive a later failure"
     );
 }
 
