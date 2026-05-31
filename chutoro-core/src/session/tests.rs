@@ -512,10 +512,11 @@ proptest! {
     #[test]
     fn append_pending_edges_match_direct_harvested_edges(
         indices in proptest::collection::vec(0usize..16, 1..=16)
-            .prop_map(|mut v| {
-                v.sort_unstable();
-                v.dedup();
-                v
+            .prop_map(|v| {
+                let mut seen = std::collections::HashSet::new();
+                v.into_iter()
+                    .filter(|index| seen.insert(*index))
+                    .collect::<Vec<_>>()
             })
     ) {
         let source = Arc::new(SessionTestSource::with_len(16));
