@@ -1,4 +1,10 @@
 //! Append and construction implementation for [`super::ClusteringSession`].
+//!
+//! The session struct and accessors remain in `session/mod.rs`; this module
+//! holds the mutating behaviour that wires [`super::SessionConfig`],
+//! [`crate::CpuHnsw`], the backing [`crate::DataSource`], and optional metrics
+//! timing together. That split keeps the public session surface small while
+//! preserving the same inherent methods for callers.
 
 use std::sync::Arc;
 

@@ -1,4 +1,9 @@
-//! Builder and session configuration tests.
+//! Builder and session configuration tests for [`super::ClusteringSession`].
+//!
+//! These tests verify how `ChutoroBuilder` produces session configuration,
+//! rejects unsupported construction choices, and maps HNSW allocation failures.
+//! They exercise the boundary between builder policy and the session
+//! constructor while reusing data-source fixtures from [`super::common`].
 
 use std::{num::NonZeroUsize, sync::Arc};
 

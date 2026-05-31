@@ -1,4 +1,10 @@
 //! Session configuration types for incremental clustering workflows.
+//!
+//! This module owns the small value types carried by
+//! [`super::ClusteringSession`]. Keeping refresh policy and validated session
+//! parameters here lets `session/mod.rs` expose the public API while the
+//! construction and append implementation consume one coherent
+//! [`SessionConfig`] value.
 
 use std::num::NonZeroUsize;
 

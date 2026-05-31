@@ -1,4 +1,9 @@
-//! Append semantics tests for clustering sessions.
+//! Append semantics tests for [`super::ClusteringSession`].
+//!
+//! This module covers direct `append` outcomes that need access to internal
+//! session state such as `pending_edges`. It sits below the BDD acceptance
+//! scenarios and uses shared fixtures from [`super::common`] to compare session
+//! behaviour with direct HNSW edge harvesting.
 
 use rstest::rstest;
 

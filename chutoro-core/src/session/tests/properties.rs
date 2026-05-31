@@ -1,4 +1,9 @@
-//! Property tests for session invariants.
+//! Property tests for [`super::ClusteringSession`] invariants.
+//!
+//! These proptests cover behaviour that should hold across ranges of builder
+//! inputs and append orderings. They complement the example-based append tests
+//! by comparing accumulated `pending_edges` with direct [`crate::CpuHnsw`]
+//! harvesting for generated index sequences.
 
 use std::sync::Arc;
 

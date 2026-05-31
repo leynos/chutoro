@@ -1,4 +1,9 @@
-//! Metrics-specific session tests.
+//! Metrics-specific tests for [`super::ClusteringSession`].
+//!
+//! This module is compiled only with the `metrics` feature and verifies the
+//! optional observability path around `append`. It uses the test clock seam to
+//! keep latency assertions deterministic without changing the public session
+//! constructor.
 
 use rstest::rstest;
 

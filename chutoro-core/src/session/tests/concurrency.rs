@@ -1,4 +1,9 @@
-//! Concurrency-focused session tests.
+//! Concurrency-focused tests for [`super::ClusteringSession`].
+//!
+//! These tests document the read-only sharing expectations around sessions
+//! wrapped in `RwLock`. They complement append semantics tests by checking that
+//! shared readers observe stable point counts and snapshot versions after the
+//! writer has finished mutating the session.
 
 use std::sync::Arc;
 

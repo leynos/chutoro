@@ -1,4 +1,10 @@
 //! Shared fixtures and data sources for session tests.
+//!
+//! This module provides the small in-memory [`SessionTestSource`], the
+//! `session_builder` fixture, and helper constructors used by the focused
+//! session test modules. Centralizing these fixtures keeps append, builder,
+//! concurrency, metrics, and property tests aligned with production
+//! [`super::ClusteringSession`] construction semantics.
 
 use std::sync::Arc;
 
