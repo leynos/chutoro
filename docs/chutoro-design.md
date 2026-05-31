@@ -2985,8 +2985,8 @@ checkpoint/restore for `ClusteringSession`, introduces stable cluster-identity
 matching across refreshes, and defines a structural diff API that reports
 lifecycle events. These capabilities are prerequisites for downstream systems
 that perform policy-driven maintenance over clustered data, such as the
-theme-management and retrieval pipelines described in the xMemory literature.[
-^32]
+theme-management and retrieval pipelines described in the xMemory
+literature.[^32]
 
 #### 13.1. `ClusteringSnapshot`
 

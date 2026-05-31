@@ -8,7 +8,11 @@ use crate::hnsw::graph::Graph;
 
 pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usize, level: usize) {
     #[cfg(kani)]
-    if let Some(node) = graph.node_mut(origin) {
+    {
+        let Some(node) = graph.node_mut(origin) else {
+            kani::assert(false, "Kani origin node must exist");
+            return;
+        };
         let neighbours = node.neighbours_mut(level);
         if !neighbours.contains(&target) {
             neighbours.push(target);

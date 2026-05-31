@@ -9,7 +9,6 @@ use super::lane_output_count;
 use super::point_view;
 
 const MAX_PROOF_POINTS: usize = 17;
-const MAX_PROOF_DIMENSION: usize = 3;
 const MAX_PROOF_BATCHES: usize = 8;
 
 macro_rules! assert_not_eligible {
@@ -26,6 +25,7 @@ macro_rules! assert_eligible {
 }
 
 #[kani::proof]
+#[kani::unwind(5)]
 fn verify_dense_simd_dispatch_selection_respects_support_masks() {
     let avx512 = SimdBackendFlag {
         compiled: kani::any(),
@@ -93,7 +93,6 @@ fn verify_dense_simd_dispatch_selection_respects_support_masks() {
 #[kani::unwind(20)]
 fn verify_dense_simd_tail_padding_lane_bounds() {
     let point_count = bounded_usize(MAX_PROOF_POINTS);
-    let dimension = bounded_usize(MAX_PROOF_DIMENSION);
     let lanes = symbolic_lane_width();
     let padded_count = point_view::padded_point_count(point_count);
 
@@ -106,8 +105,6 @@ fn verify_dense_simd_tail_padding_lane_bounds() {
         "padded point count must cover logical points",
     );
 
-    let dimension_index = bounded_usize(MAX_PROOF_DIMENSION);
-    kani::assume(dimension == 0 || dimension_index < dimension);
     verify_lane_loads(point_count, padded_count, lanes);
 }
 

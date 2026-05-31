@@ -491,8 +491,8 @@ are `make kani`, `make kani-full`, `make check-fmt`, `make lint`, and
   runs all `chutoro-core` harnesses and all dense-provider harnesses.
 - The implementation has no public API or user-observable behaviour change, so
   `docs/users-guide.md` remains unchanged.
-- CodeRabbit findings, `make kani-full`, `make check-fmt`, `make lint`, and
-- `make kani` succeeded again on 2026-05-24 with log
+- CodeRabbit findings and `make kani-full`, `make check-fmt`, `make lint`, and
+  `make kani` all succeeded again on 2026-05-24 with log
   `/tmp/kani-chutoro-2-2-7-final.out`.
 - `make check-fmt` succeeded on 2026-05-24 with log
   `/tmp/check-fmt-chutoro-2-2-7-final2.out`.
