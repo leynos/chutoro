@@ -369,9 +369,11 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// # Errors
     ///
     /// Returns [`ChutoroError::DataSource`] when the backing source rejects an
-    /// index or distance query. Returns [`ChutoroError::CpuHnswFailure`] for
-    /// duplicate indices, non-finite distances, lock poisoning, or graph
-    /// invariant failures reported by the HNSW index.
+    /// index or distance query. Returns [`ChutoroError::CpuHnswFailure`] when
+    /// the HNSW adapter reports a structural failure — including duplicate
+    /// indices (detected by [`CpuHnsw::insert_harvesting`] and mapped from
+    /// `HnswError::DuplicateIndex`), non-finite distances, lock poisoning, or
+    /// graph invariant violations.
     ///
     /// # Examples
     ///

@@ -13,9 +13,9 @@ use proptest::prelude::*;
 use rstest::{fixture, rstest};
 
 use crate::{
-    ChutoroBuilder, ChutoroError, ClusteringSession, CpuHnsw, DataSource, DataSourceError,
-    DataSourceErrorCode, ExecutionStrategy, HnswParams, MetricDescriptor, SessionConfig,
-    SessionRefreshPolicy,
+    CandidateEdge, ChutoroBuilder, ChutoroError, ClusteringSession, CpuHnsw, DataSource,
+    DataSourceError, DataSourceErrorCode, ExecutionStrategy, HnswParams, MetricDescriptor,
+    SessionConfig, SessionRefreshPolicy,
 };
 
 #[derive(Clone, Debug)]
@@ -239,7 +239,9 @@ fn append_batch_accumulates_direct_harvested_edges(session_builder: ChutoroBuild
 }
 
 #[rstest]
-fn append_rejects_duplicate_index(session_builder: ChutoroBuilder) {
+fn append_delegates_duplicate_rejection_to_hnsw(session_builder: ChutoroBuilder) {
+    // Duplicate detection is delegated to CpuHnsw::insert_harvesting, which
+    // returns HnswError::DuplicateIndex, mapped here to ChutoroError::CpuHnswFailure.
     let (mut session, _) = make_session(session_builder, 2);
 
     session.append(&[0]).expect("first append must succeed");
@@ -502,5 +504,49 @@ proptest! {
 
         prop_assert_eq!(session.point_count(), indices.len());
         prop_assert_eq!(session.snapshot_version(), 0);
+    }
+
+    /// For any unique, in-bounds index sequence of length ≥ 1, `append`
+    /// must buffer exactly the candidate edges that direct
+    /// `CpuHnsw::insert_harvesting` produces for the same sequence.
+    #[test]
+    fn append_pending_edges_match_direct_harvested_edges(
+        indices in proptest::collection::vec(0usize..16, 1..=16)
+            .prop_map(|mut v| {
+                v.sort_unstable();
+                v.dedup();
+                v
+            })
+    ) {
+        let source = Arc::new(SessionTestSource::with_len(16));
+        let hnsw_params = HnswParams::new(4, 16)
+            .expect("HNSW params must be valid")
+            .with_rng_seed(99);
+
+        // Build expected edge set via the direct index.
+        let direct_index = CpuHnsw::with_capacity(hnsw_params.clone(), source.len())
+            .expect("direct index must allocate");
+        let mut expected_edges: Vec<CandidateEdge> = Vec::new();
+        for &index in &indices {
+            let edges = direct_index
+                .insert_harvesting(index, source.as_ref())
+                .expect("direct insert must succeed");
+            expected_edges.extend(edges);
+        }
+
+        // Append the same sequence via the session.
+        let mut session = ChutoroBuilder::new()
+            .with_hnsw_params(hnsw_params)
+            .build_session(Arc::clone(&source))
+            .expect("session must build");
+        session
+            .append(&indices)
+            .expect("unique in-bounds append sequence must succeed");
+
+        prop_assert_eq!(
+            session.pending_edges,
+            expected_edges,
+            "pending_edges must match direct harvested edges for the same index sequence"
+        );
     }
 }
