@@ -71,8 +71,8 @@ pub(super) fn harvest_expected_edges(
     source: &SessionTestSource,
     indices: &[usize],
 ) -> Vec<CandidateEdge> {
-    let direct_index =
-        CpuHnsw::with_capacity(hnsw_params, source.len()).expect("direct index must allocate");
+    let direct_index = CpuHnsw::with_capacity(hnsw_params, source.len().max(1))
+        .expect("direct index must allocate");
     let mut expected_edges = Vec::new();
     for &index in indices {
         let edges = direct_index
