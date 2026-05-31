@@ -1,33 +1,99 @@
 # Repository layout
 
-This document maps important repository paths to their current
-responsibilities. Use it alongside the user's guide, developer's guide, and
-design document when deciding where a change belongs.
+This document explains the repository tree for Chutoro contributors. Use it
+alongside the user's guide, developer's guide, and design document when deciding
+where a change belongs. The tree below is intentionally compact and omits
+generated artefacts such as `target/`.
 
-## Top-level directories
+```plaintext
+.
+├── .cargo/
+├── .codescene/
+├── .config/
+├── .github/
+├── chutoro-benches/
+├── chutoro-cli/
+├── chutoro-core/
+├── chutoro-providers/
+├── chutoro-test-support/
+├── docs/
+├── scripts/
+├── tools/
+├── verus/
+├── AGENTS.md
+├── Cargo.lock
+├── Cargo.toml
+├── Makefile
+├── README.md
+└── rust-toolchain.toml
+```
 
-- `chutoro-core/` contains the library crate: clustering pipeline logic,
-  session state, HNSW graph code, public domain traits, and core test support.
-- `chutoro-cli/` contains the command-line interface and CLI-facing integration
-  tests.
-- `chutoro-providers/` contains optional data providers. `dense/` owns numeric
-  dense-vector providers and kernels; `text/` owns text ingestion and distance
-  support.
-- `chutoro-benches/` contains benchmark harnesses, benchmark data-source
-  helpers, and benchmark report generation.
-- `chutoro-test-support/` contains shared test and CI helper code that is not
-  part of the production library surface.
-- `docs/` contains user-facing, maintainer-facing, design, roadmap, ADR, and
-  ExecPlan documentation. `docs/execplans/` holds living implementation plans.
-- `scripts/` contains repository automation that does not naturally belong in
-  a Makefile target, including proof-runner wrappers.
-- `verus/` contains Verus proof files and proof-facing models for invariants
-  that are checked outside normal Cargo builds.
-- `.github/` contains GitHub Actions workflows and repository automation.
-- `target/` is generated Cargo build output and must not be edited by hand.
-- `.verus/` is generated Verus/tooling output and must not be edited by hand.
-- `.memdb/` is generated Memtrace code-graph output and must not be edited by
-  hand.
+_Figure 1: Compact repository tree for contributor orientation._
+
+## Top-level files
+
+| Path                  | Responsibility                                                                                 |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
+| `AGENTS.md`           | Normative repository instructions for automation agents and maintainers using those workflows. |
+| `Cargo.toml`          | Workspace manifest and shared Cargo configuration for the Rust crates.                         |
+| `Cargo.lock`          | Locked dependency graph for reproducible workspace builds.                                     |
+| `Makefile`            | Canonical command entrypoint for build, format, lint, test, proof, and documentation gates.    |
+| `README.md`           | Project overview and public entrypoint.                                                        |
+| `rust-toolchain.toml` | Rust toolchain selection for the workspace.                                                    |
+
+_Table 1: Top-level file responsibilities._
+
+## Source crates
+
+| Path                    | Responsibility                                                        |
+| ----------------------- | --------------------------------------------------------------------- |
+| `chutoro-core/`         | Core library implementation and its crate-local tests.                |
+| `chutoro-cli/`          | Command-line application crate and user-facing command orchestration. |
+| `chutoro-providers/`    | Provider implementations grouped by provider family.                  |
+| `chutoro-benches/`      | Benchmark crate, benchmark harnesses, and benchmark support code.     |
+| `chutoro-test-support/` | Shared test utilities used by workspace tests.                        |
+
+_Table 2: Workspace crate responsibilities._
+
+## Documentation and planning
+
+| Path                                | Responsibility                                              |
+| ----------------------------------- | ----------------------------------------------------------- |
+| `docs/contents.md`                  | Canonical index for repository documentation.               |
+| `docs/documentation-style-guide.md` | Documentation style, document-type, and formatting rules.   |
+| `docs/chutoro-design.md`            | Primary system design reference.                            |
+| `docs/developers-guide.md`          | Maintainer workflows and development guidance.              |
+| `docs/users-guide.md`               | User-facing operation and integration guidance.             |
+| `docs/roadmap.md`                   | Roadmap phases, steps, tasks, and acceptance criteria.      |
+| `docs/execplans/`                   | Living execution plans for substantial implementation work. |
+
+_Table 3: Documentation and planning responsibilities._
+
+## Tooling and verification
+
+| Path                   | Responsibility                                                         |
+| ---------------------- | ---------------------------------------------------------------------- |
+| `.cargo/`              | Workspace-local Cargo configuration.                                   |
+| `.config/nextest.toml` | `cargo-nextest` profiles and test-runner configuration.                |
+| `.github/`             | GitHub workflows, Dependabot configuration, and repository automation. |
+| `.codescene/`          | CodeScene code health rule configuration.                              |
+| `scripts/`             | Maintainer scripts for proof tooling and operational support.          |
+| `tools/`               | Tool-specific support files that do not belong to a Rust crate.        |
+| `verus/`               | Verus proof sources for formally verified properties.                  |
+
+_Table 4: Tooling and verification path responsibilities._
+
+## Generated artefacts
+
+Cargo build output belongs under `target/` and must not be committed. Temporary
+command logs should be written under `/tmp` using a branch-specific filename,
+as described in `AGENTS.md`, rather than being added to the repository.
+
+Generated tooling directories must not be edited by hand:
+
+- `target/` is generated Cargo build output.
+- `.verus/` is generated Verus/tooling output.
+- `.memdb/` is generated local code-graph state.
 
 ## Test locations
 
