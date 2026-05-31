@@ -159,16 +159,17 @@ impl SessionConfig {
 ///
 /// `pending_edges` accumulates [`CandidateEdge`] values as points are
 /// inserted. Each `CandidateEdge` occupies `2 × size_of::<usize>() + 4` bytes
-/// (two endpoint indices and one `f32` distance), typically 20 bytes on
-/// 64-bit targets. In the worst case a session that has inserted *N* points
+/// (two endpoint indices and one `f32` distance), which is 24 bytes on
+/// 64-bit targets due to `usize` alignment and trailing `f32` padding.
+/// In the worst case a session that has inserted *N* points
 /// will hold at most *N* × *M* edges, where *M* is the HNSW `max_connections`
-/// parameter (default 16). For 10 000 points with `M = 16` that is ~3.2 MB —
+/// parameter (default 16). For 10 000 points with `M = 16` that is ~3.84 MB —
 /// modest for a transient buffer, but callers must be aware that
 /// `pending_edges` grows without bound until a future `refresh()` call
 /// (roadmap item 11.1.4) drains it. Long-lived sessions inserting very many
-/// points should plan for a periodic refresh cadence or monitor the buffer
-/// depth via the `chutoro.session.pending_edges` gauge metric (enabled with
-/// the `metrics` Cargo feature).
+/// points should plan for a periodic refresh cadence or monitor the per-point
+/// harvest volume via the `chutoro.session.harvested_edges` counter (enabled
+/// with the `metrics` Cargo feature).
 ///
 /// # Examples
 /// ```rust,no_run
@@ -290,9 +291,10 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
                 metrics::Unit::Seconds,
                 "Per-point HNSW insertion latency in seconds."
             );
-            metrics::describe_gauge!(
-                "chutoro.session.pending_edges",
-                "Current depth of the pending candidate-edge buffer."
+            metrics::describe_counter!(
+                "chutoro.session.harvested_edges",
+                metrics::Unit::Count,
+                "Total harvested candidate edges buffered for refresh."
             );
         }
 
@@ -428,7 +430,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             self.pending_edges.extend(edges);
 
             #[cfg(feature = "metrics")]
-            metrics::gauge!("chutoro.session.pending_edges").set(self.pending_edges.len() as f64);
+            metrics::counter!("chutoro.session.harvested_edges").increment(harvested as u64);
 
             debug!(
                 index,
