@@ -1,10 +1,8 @@
 //! Append semantics tests for clustering sessions.
 
-use std::sync::Arc;
-
 use rstest::rstest;
 
-use super::common::{SessionTestSource, harvest_expected_edges, make_session, session_builder};
+use super::common::{harvest_expected_edges, make_session, session_builder};
 use crate::{ChutoroBuilder, ChutoroError, DataSource, DataSourceErrorCode, HnswParams};
 
 #[rstest]
@@ -34,11 +32,8 @@ fn append_batch_accumulates_direct_harvested_edges(session_builder: ChutoroBuild
     let hnsw_params = HnswParams::new(4, 16)
         .expect("HNSW params must be valid")
         .with_rng_seed(41);
-    let source = Arc::new(SessionTestSource::with_len(6));
-    let mut session = session_builder
-        .with_hnsw_params(hnsw_params.clone())
-        .build_session(Arc::clone(&source))
-        .expect("session must build");
+    let (mut session, source) =
+        make_session(session_builder.with_hnsw_params(hnsw_params.clone()), 6);
     let indices = [0, 1, 2, 3];
     let expected_edges = harvest_expected_edges(hnsw_params, source.as_ref(), &indices);
 
@@ -95,11 +90,8 @@ fn append_failure_preserves_prior_successes(session_builder: ChutoroBuilder) {
     let hnsw_params = HnswParams::new(4, 16)
         .expect("HNSW params must be valid")
         .with_rng_seed(41);
-    let source = Arc::new(SessionTestSource::with_len(4));
-    let mut session = session_builder
-        .with_hnsw_params(hnsw_params.clone())
-        .build_session(Arc::clone(&source))
-        .expect("session must build");
+    let (mut session, source) =
+        make_session(session_builder.with_hnsw_params(hnsw_params.clone()), 4);
 
     // Build the expected edge set using the direct index as a baseline.
     let expected_edges = harvest_expected_edges(hnsw_params, source.as_ref(), &[0, 1]);
