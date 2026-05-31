@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use rstest::fixture;
 
-use crate::{ChutoroBuilder, ClusteringSession, DataSource, DataSourceError, MetricDescriptor};
+use crate::{
+    CandidateEdge, ChutoroBuilder, ClusteringSession, CpuHnsw, DataSource, DataSourceError,
+    HnswParams, MetricDescriptor,
+};
 
 #[derive(Clone, Debug)]
 pub(super) struct SessionTestSource {
@@ -61,4 +64,21 @@ pub(super) fn make_session(
         .build_session(Arc::clone(&source))
         .expect("session must build");
     (session, source)
+}
+
+pub(super) fn harvest_expected_edges(
+    hnsw_params: HnswParams,
+    source: &SessionTestSource,
+    indices: &[usize],
+) -> Vec<CandidateEdge> {
+    let direct_index =
+        CpuHnsw::with_capacity(hnsw_params, source.len()).expect("direct index must allocate");
+    let mut expected_edges = Vec::new();
+    for &index in indices {
+        let edges = direct_index
+            .insert_harvesting(index, source)
+            .expect("direct insert must succeed");
+        expected_edges.extend(edges);
+    }
+    expected_edges
 }

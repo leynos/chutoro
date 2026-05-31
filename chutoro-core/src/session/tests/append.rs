@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use rstest::rstest;
 
-use super::common::{SessionTestSource, make_session, session_builder};
-use crate::{ChutoroBuilder, ChutoroError, CpuHnsw, DataSource, DataSourceErrorCode, HnswParams};
+use super::common::{SessionTestSource, harvest_expected_edges, make_session, session_builder};
+use crate::{ChutoroBuilder, ChutoroError, DataSource, DataSourceErrorCode, HnswParams};
 
 #[rstest]
 fn append_empty_slice_is_noop(session_builder: ChutoroBuilder) {
@@ -39,17 +39,8 @@ fn append_batch_accumulates_direct_harvested_edges(session_builder: ChutoroBuild
         .with_hnsw_params(hnsw_params.clone())
         .build_session(Arc::clone(&source))
         .expect("session must build");
-    let direct_index =
-        CpuHnsw::with_capacity(hnsw_params, source.len()).expect("direct index must allocate");
-    let mut expected_edges = Vec::new();
     let indices = [0, 1, 2, 3];
-
-    for index in indices {
-        let edges = direct_index
-            .insert_harvesting(index, source.as_ref())
-            .expect("direct insert must succeed");
-        expected_edges.extend(edges);
-    }
+    let expected_edges = harvest_expected_edges(hnsw_params, source.as_ref(), &indices);
 
     session.append(&indices).expect("batch append must succeed");
 
@@ -111,15 +102,7 @@ fn append_failure_preserves_prior_successes(session_builder: ChutoroBuilder) {
         .expect("session must build");
 
     // Build the expected edge set using the direct index as a baseline.
-    let direct_index =
-        CpuHnsw::with_capacity(hnsw_params, source.len()).expect("direct index must allocate");
-    let mut expected_edges = Vec::new();
-    for index in [0usize, 1] {
-        let edges = direct_index
-            .insert_harvesting(index, source.as_ref())
-            .expect("direct insert must succeed");
-        expected_edges.extend(edges);
-    }
+    let expected_edges = harvest_expected_edges(hnsw_params, source.as_ref(), &[0, 1]);
     // expected_edges is non-empty at this point because inserting index 1
     // into a graph that already contains index 0 harvests their mutual edge.
     assert!(

@@ -5,7 +5,6 @@ use rstest::rstest;
 use super::common::{make_session, session_builder};
 use crate::ChutoroBuilder;
 
-#[cfg(feature = "metrics")]
 #[rstest]
 fn append_records_deterministic_latency_via_clock_seam(session_builder: ChutoroBuilder) {
     use std::{sync::Arc, time::Duration};

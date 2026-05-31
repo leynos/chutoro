@@ -39,8 +39,9 @@ pub use config::{SessionConfig, SessionRefreshPolicy};
 /// targets.
 /// In the worst case a session that has inserted *N* points
 /// will hold at most *N* × *M* edges, where *M* is the HNSW `max_connections`
-/// parameter (default 16). For 10 000 points with `M = 16` that is ~3.84 MB —
-/// modest for a transient buffer, but callers must be aware that
+/// parameter (default 16). For 10 000 points with `M = 16`, the
+/// 10 000 × 16 × 32-byte buffer is ~5.12 MB — modest for a transient buffer,
+/// but callers must be aware that
 /// `pending_edges` grows without bound until a future `refresh()` call
 /// (roadmap item 11.1.4) drains it. Long-lived sessions inserting very many
 /// points should plan for a periodic refresh cadence or monitor the per-point
