@@ -219,6 +219,8 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
     snapshot_version: u64,
     source: Arc<D>,
     _last_refresh_len: usize,
+    #[cfg(feature = "metrics")]
+    clock: std::sync::Arc<dyn clock::MonotonicClock>,
 }
 
 // Verify ClusteringSession is Send + Sync when its DataSource is Send + Sync.
@@ -311,6 +313,8 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             snapshot_version: 0,
             source,
             _last_refresh_len: 0,
+            #[cfg(feature = "metrics")]
+            clock: std::sync::Arc::new(clock::StdMonotonicClock),
         })
     }
 
@@ -333,6 +337,19 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
                 reason: "test-injected HNSW construction failure".to_owned(),
             }),
         )
+    }
+
+    /// Replaces the clock used for per-point latency metrics.
+    ///
+    /// Only available under `#[cfg(all(feature = "metrics", test))]` so the
+    /// production constructor signature is unchanged.
+    #[cfg(all(feature = "metrics", test))]
+    pub(crate) fn with_clock_for_test(
+        mut self,
+        clock: std::sync::Arc<dyn clock::MonotonicClock>,
+    ) -> Self {
+        self.clock = clock;
+        self
     }
 
     /// Returns the validated configuration used by the session.
@@ -403,7 +420,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             }
 
             #[cfg(feature = "metrics")]
-            let t0 = std::time::Instant::now();
+            let t0 = self.clock.now();
 
             let edges = self
                 .index
@@ -426,7 +443,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 
             #[cfg(feature = "metrics")]
             metrics::histogram!("chutoro.session.append.point_seconds")
-                .record(t0.elapsed().as_secs_f64());
+                .record(self.clock.now().duration_since(t0).as_secs_f64());
 
             let harvested = edges.len();
             self.pending_edges.extend(edges);
@@ -454,6 +471,9 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         self.snapshot_version
     }
 }
+
+#[cfg(feature = "metrics")]
+mod clock;
 
 #[cfg(test)]
 mod tests;

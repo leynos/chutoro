@@ -29,6 +29,7 @@ proptest = "1.8.0"
 rstest = "0.26"
 test-strategy = "0.4.3"
 tracing-subscriber = { version = "0.3.20", features = ["fmt"] }
+metrics-util = { version = "0.18", features = ["debugging"], optional = false }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 trybuild = "1.0.114"
