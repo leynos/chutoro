@@ -12,6 +12,19 @@ const MAX_PROOF_POINTS: usize = 17;
 const MAX_PROOF_DIMENSION: usize = 3;
 const MAX_PROOF_BATCHES: usize = 8;
 
+macro_rules! assert_not_eligible {
+    ($flag:expr, $msg:literal) => {
+        kani::assert(!$flag.eligible(), $msg);
+    };
+}
+
+macro_rules! assert_eligible {
+    ($flag:expr, $compiled_msg:literal, $runtime_msg:literal $(,)?) => {
+        kani::assert($flag.compiled, $compiled_msg);
+        kani::assert($flag.runtime, $runtime_msg);
+    };
+}
+
 #[kani::proof]
 fn verify_dense_simd_dispatch_selection_respects_support_masks() {
     let avx512 = SimdBackendFlag {
@@ -42,28 +55,36 @@ fn verify_dense_simd_dispatch_selection_respects_support_masks() {
 
     match dispatch::choose_euclidean_backend(compiled, runtime) {
         dispatch::EuclideanBackend::Avx512 => {
-            assert_eligible(avx512, EligibleBackend::Avx512);
+            assert_eligible!(
+                avx512,
+                "AVX-512 must be compiled",
+                "AVX-512 must be available",
+            );
         }
         dispatch::EuclideanBackend::Avx2 => {
-            assert_not_eligible(avx512, IneligibleBackend::Avx512Priority);
-            assert_eligible(avx2, EligibleBackend::Avx2);
+            assert_not_eligible!(avx512, "AVX-512 has priority");
+            assert_eligible!(avx2, "AVX2 must be compiled", "AVX2 must be available");
         }
         dispatch::EuclideanBackend::Neon => {
-            assert_not_eligible(avx512, IneligibleBackend::Avx512Priority);
-            assert_not_eligible(avx2, IneligibleBackend::Avx2Priority);
-            assert_eligible(neon, EligibleBackend::Neon);
+            assert_not_eligible!(avx512, "AVX-512 has priority");
+            assert_not_eligible!(avx2, "AVX2 has priority");
+            assert_eligible!(neon, "NEON must be compiled", "NEON must be available");
         }
         dispatch::EuclideanBackend::PortableSimd => {
-            assert_not_eligible(avx512, IneligibleBackend::Avx512Priority);
-            assert_not_eligible(avx2, IneligibleBackend::Avx2Priority);
-            assert_not_eligible(neon, IneligibleBackend::NeonPriority);
-            assert_eligible(psimd, EligibleBackend::PortableSimd);
+            assert_not_eligible!(avx512, "AVX-512 has priority");
+            assert_not_eligible!(avx2, "AVX2 has priority");
+            assert_not_eligible!(neon, "NEON has priority");
+            assert_eligible!(
+                psimd,
+                "portable SIMD must be compiled",
+                "portable SIMD must be available",
+            );
         }
         dispatch::EuclideanBackend::Scalar => {
-            assert_not_eligible(avx512, IneligibleBackend::Avx512Absent);
-            assert_not_eligible(avx2, IneligibleBackend::Avx2Absent);
-            assert_not_eligible(neon, IneligibleBackend::NeonAbsent);
-            assert_not_eligible(psimd, IneligibleBackend::PortableSimdAbsent);
+            assert_not_eligible!(avx512, "AVX-512 must be absent");
+            assert_not_eligible!(avx2, "AVX2 must be absent");
+            assert_not_eligible!(neon, "NEON must be absent");
+            assert_not_eligible!(psimd, "portable SIMD must be absent");
         }
     }
 }
@@ -91,7 +112,6 @@ fn verify_dense_simd_tail_padding_lane_bounds() {
 }
 
 /// Represents whether a SIMD backend is both compiled-in and available at runtime.
-#[derive(Clone, Copy)]
 struct SimdBackendFlag {
     compiled: bool,
     runtime: bool,
@@ -100,70 +120,6 @@ struct SimdBackendFlag {
 impl SimdBackendFlag {
     fn eligible(&self) -> bool {
         self.compiled && self.runtime
-    }
-}
-
-enum IneligibleBackend {
-    Avx512Priority,
-    Avx2Priority,
-    NeonPriority,
-    Avx512Absent,
-    Avx2Absent,
-    NeonAbsent,
-    PortableSimdAbsent,
-}
-
-enum EligibleBackend {
-    Avx512,
-    Avx2,
-    Neon,
-    PortableSimd,
-}
-
-fn assert_not_eligible(flag: SimdBackendFlag, backend: IneligibleBackend) {
-    match backend {
-        IneligibleBackend::Avx512Priority => {
-            kani::assert(!flag.eligible(), "AVX-512 has priority");
-        }
-        IneligibleBackend::Avx2Priority => {
-            kani::assert(!flag.eligible(), "AVX2 has priority");
-        }
-        IneligibleBackend::NeonPriority => {
-            kani::assert(!flag.eligible(), "NEON has priority");
-        }
-        IneligibleBackend::Avx512Absent => {
-            kani::assert(!flag.eligible(), "AVX-512 must be absent");
-        }
-        IneligibleBackend::Avx2Absent => {
-            kani::assert(!flag.eligible(), "AVX2 must be absent");
-        }
-        IneligibleBackend::NeonAbsent => {
-            kani::assert(!flag.eligible(), "NEON must be absent");
-        }
-        IneligibleBackend::PortableSimdAbsent => {
-            kani::assert(!flag.eligible(), "portable SIMD must be absent");
-        }
-    }
-}
-
-fn assert_eligible(flag: SimdBackendFlag, backend: EligibleBackend) {
-    match backend {
-        EligibleBackend::Avx512 => {
-            kani::assert(flag.compiled, "AVX-512 must be compiled");
-            kani::assert(flag.runtime, "AVX-512 must be available");
-        }
-        EligibleBackend::Avx2 => {
-            kani::assert(flag.compiled, "AVX2 must be compiled");
-            kani::assert(flag.runtime, "AVX2 must be available");
-        }
-        EligibleBackend::Neon => {
-            kani::assert(flag.compiled, "NEON must be compiled");
-            kani::assert(flag.runtime, "NEON must be available");
-        }
-        EligibleBackend::PortableSimd => {
-            kani::assert(flag.compiled, "portable SIMD must be compiled");
-            kani::assert(flag.runtime, "portable SIMD must be available");
-        }
     }
 }
 
@@ -176,11 +132,11 @@ fn bounded_usize(max_inclusive: usize) -> usize {
 fn symbolic_lane_width() -> usize {
     let lane_choice = kani::any::<u8>();
     kani::assume(lane_choice < 3);
-    match lane_choice {
-        0 => 4,
-        1 => 8,
-        _ => 16,
-    }
+    lane_width_for_choice(lane_choice)
+}
+
+fn lane_width_for_choice(lane_choice: u8) -> usize {
+    [4, 8, 16][usize::from(lane_choice)]
 }
 
 /// Describes the geometry of a zero-padded SIMD block.

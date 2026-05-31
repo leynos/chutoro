@@ -121,12 +121,7 @@ fn is_deduped(list: &[usize]) -> bool {
 /// Assumes the node exists, exposes the requested level, and has a deduplicated
 /// neighbour list at that level.
 #[cfg(kani)]
-fn assume_node_has_level(
-    graph: &crate::hnsw::graph::Graph,
-    node_id: usize,
-    level: usize,
-    _msg: &'static str,
-) {
+fn assume_node_has_level(graph: &crate::hnsw::graph::Graph, node_id: usize, level: usize) {
     let node = graph.node(node_id);
     let node_exists = node.is_some();
     debug_assert!(node_exists, "Kani node must exist");
@@ -147,7 +142,7 @@ fn assume_node_has_level(
 /// neighbours at that level.
 #[cfg(kani)]
 fn validate_new_node_for_kani(graph: &crate::hnsw::graph::Graph, new_node: &types::NewNodeContext) {
-    assume_node_has_level(graph, new_node.id, new_node.level, "Kani commit new node");
+    assume_node_has_level(graph, new_node.id, new_node.level);
 }
 
 /// Validates the origin node state, neighbour list structure, and target nodes
@@ -159,12 +154,7 @@ fn validate_update_for_kani(
     max_connections: usize,
 ) {
     let (staged, neighbours) = update;
-    assume_node_has_level(
-        graph,
-        staged.node,
-        staged.ctx.level,
-        "Kani commit update origin",
-    );
+    assume_node_has_level(graph, staged.node, staged.ctx.level);
 
     let deduped = is_deduped(neighbours.as_slice());
     debug_assert!(
@@ -271,7 +261,7 @@ pub(crate) fn apply_reconciled_update_for_kani(
     ctx: KaniUpdateContext,
     next: &mut Vec<usize>,
 ) {
-    assume_node_has_level(graph, ctx.origin, ctx.level, "Kani update origin");
+    assume_node_has_level(graph, ctx.origin, ctx.level);
     let previous = graph
         .node(ctx.origin)
         .map(|node| node.neighbours(ctx.level).to_vec())
@@ -284,7 +274,7 @@ pub(crate) fn apply_reconciled_update_for_kani(
     debug_assert!(next_deduped, "Kani update next list must be deduplicated");
     kani::assume(next_deduped);
     for &target in next.iter() {
-        assume_node_has_level(graph, target, ctx.level, "Kani update target");
+        assume_node_has_level(graph, target, ctx.level);
     }
 
     let update_ctx = types::UpdateContext {
@@ -337,8 +327,8 @@ pub(crate) fn ensure_reverse_edge_for_kani(
     ctx: KaniUpdateContext,
     target: usize,
 ) -> bool {
-    assume_node_has_level(graph, ctx.origin, ctx.level, "Kani update origin");
-    assume_node_has_level(graph, target, ctx.level, "Kani update target");
+    assume_node_has_level(graph, ctx.origin, ctx.level);
+    assume_node_has_level(graph, target, ctx.level);
 
     let update_ctx = types::UpdateContext {
         origin: ctx.origin,

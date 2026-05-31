@@ -308,11 +308,11 @@ the timestamped progress entries above:
   consumers should see no API or behaviour change unless implementation
   uncovers a necessary public contract update. Date/Author: 2026-05-21 / Codex.
 
-- Decision: Use the existing Kani ADR as the place to record dense-provider
-  formal-verification practice unless implementation changes the repository's
-  Kani policy substantially. Rationale: extending `ADR-002` avoids creating a
-  second decision record for the same verification technique. Date/Author:
-  2026-05-21 / Codex.
+- Decision: Use the existing Kani architectural decision record (ADR) as the
+  place to record dense-provider formal-verification practice unless
+  implementation changes the repository's Kani policy substantially. Rationale:
+  extending `ADR-002` avoids creating a second decision record for the same
+  verification technique. Date/Author: 2026-05-21 / Codex.
 
 - Decision: Extract only the lane output-count arithmetic into a production
   helper, while proving padded load bounds directly against

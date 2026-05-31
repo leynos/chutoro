@@ -78,8 +78,13 @@ mod kani_proofs {
         d.map(|dist| dist.value().abs() < EPSILON).unwrap_or(false)
     }
 
+    enum SymmetryProof {
+        Euclidean,
+        Cosine,
+    }
+
     /// Asserts symmetry of a distance function over two nondeterministic 3-D vectors.
-    fn assert_symmetry_3d<F>(distance_fn: F, msg: &'static str)
+    fn assert_symmetry_3d<F>(distance_fn: F, proof: SymmetryProof)
     where
         F: Fn(&[f32; 3], &[f32; 3]) -> super::Result<super::Distance>,
     {
@@ -87,23 +92,15 @@ mod kani_proofs {
         let b = make_finite_3d_vector();
         let ab = distance_fn(&a, &b);
         let ba = distance_fn(&b, &a);
-        if same_message(msg, "euclidean distance symmetry violated") {
-            kani::assert(
-                is_symmetric_result(ab, ba),
-                "euclidean distance symmetry violated",
-            );
-        } else if same_message(msg, "cosine distance symmetry violated") {
-            kani::assert(
-                is_symmetric_result(ab, ba),
-                "cosine distance symmetry violated",
-            );
-        } else {
-            kani::assume(false);
+        let is_symmetric = is_symmetric_result(ab, ba);
+        match proof {
+            SymmetryProof::Euclidean => {
+                kani::assert(is_symmetric, "euclidean distance symmetry violated");
+            }
+            SymmetryProof::Cosine => {
+                kani::assert(is_symmetric, "cosine distance symmetry violated");
+            }
         }
-    }
-
-    fn same_message(left: &'static str, right: &'static str) -> bool {
-        left.as_ptr() == right.as_ptr() && left.len() == right.len()
     }
 
     // ------------------------------------------------------------------------
@@ -117,10 +114,7 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(6)]
     fn verify_euclidean_symmetry_3d() {
-        assert_symmetry_3d(
-            |a, b| euclidean_distance(a, b),
-            "euclidean distance symmetry violated",
-        );
+        assert_symmetry_3d(|a, b| euclidean_distance(a, b), SymmetryProof::Euclidean);
     }
 
     /// Verifies Euclidean distance is zero on identical inputs: d(v, v) = 0.
@@ -161,10 +155,7 @@ mod kani_proofs {
     #[kani::proof]
     #[kani::unwind(6)]
     fn verify_cosine_symmetry_3d() {
-        assert_symmetry_3d(
-            |a, b| cosine_distance(a, b, None),
-            "cosine distance symmetry violated",
-        );
+        assert_symmetry_3d(|a, b| cosine_distance(a, b, None), SymmetryProof::Cosine);
     }
 
     /// Verifies cosine distance is zero on identical non-zero inputs: d(v, v) = 0.

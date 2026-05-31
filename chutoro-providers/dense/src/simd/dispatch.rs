@@ -2,6 +2,15 @@
 
 use std::sync::OnceLock;
 
+#[cfg(test)]
+const EUCLIDEAN_BACKEND_PRIORITY: [EuclideanBackend; 5] = [
+    EuclideanBackend::Avx512,
+    EuclideanBackend::Avx2,
+    EuclideanBackend::Neon,
+    EuclideanBackend::PortableSimd,
+    EuclideanBackend::Scalar,
+];
+
 /// Euclidean distance backend chosen for the current build and machine.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum EuclideanBackend {
@@ -109,16 +118,10 @@ pub(super) fn runtime_simd_support() -> RuntimeSimdSupport {
 pub(super) fn enabled_backends() -> Vec<EuclideanBackend> {
     let compiled = compiled_simd_support();
     let runtime = runtime_simd_support();
-    [
-        EuclideanBackend::Avx512,
-        EuclideanBackend::Avx2,
-        EuclideanBackend::Neon,
-        EuclideanBackend::PortableSimd,
-        EuclideanBackend::Scalar,
-    ]
-    .into_iter()
-    .filter(|backend| backend_supported(&compiled, &runtime, *backend))
-    .collect()
+    EUCLIDEAN_BACKEND_PRIORITY
+        .into_iter()
+        .filter(|backend| backend_supported(&compiled, &runtime, *backend))
+        .collect()
 }
 
 /// Chooses the best Euclidean backend available to both compile-time and
@@ -132,21 +135,28 @@ pub(super) fn choose_euclidean_backend(
     compiled: CompiledSimdSupport,
     runtime: RuntimeSimdSupport,
 ) -> EuclideanBackend {
-    if backend_supported(&compiled, &runtime, EuclideanBackend::Avx512) {
-        EuclideanBackend::Avx512
-    } else if backend_supported(&compiled, &runtime, EuclideanBackend::Avx2) {
-        EuclideanBackend::Avx2
-    } else if backend_supported(&compiled, &runtime, EuclideanBackend::Neon) {
-        EuclideanBackend::Neon
-    } else if backend_supported(&compiled, &runtime, EuclideanBackend::PortableSimd) {
-        EuclideanBackend::PortableSimd
-    } else {
-        EuclideanBackend::Scalar
-    }
+    prioritized_euclidean_backend(&compiled, &runtime)
 }
 
 fn select_euclidean_backend() -> EuclideanBackend {
     choose_euclidean_backend(compiled_simd_support(), runtime_simd_support())
+}
+
+fn prioritized_euclidean_backend(
+    compiled: &CompiledSimdSupport,
+    runtime: &RuntimeSimdSupport,
+) -> EuclideanBackend {
+    if backend_supported(compiled, runtime, EuclideanBackend::Avx512) {
+        EuclideanBackend::Avx512
+    } else if backend_supported(compiled, runtime, EuclideanBackend::Avx2) {
+        EuclideanBackend::Avx2
+    } else if backend_supported(compiled, runtime, EuclideanBackend::Neon) {
+        EuclideanBackend::Neon
+    } else if backend_supported(compiled, runtime, EuclideanBackend::PortableSimd) {
+        EuclideanBackend::PortableSimd
+    } else {
+        EuclideanBackend::Scalar
+    }
 }
 
 fn backend_supported(

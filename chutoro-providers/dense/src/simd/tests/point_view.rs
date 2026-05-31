@@ -63,6 +63,7 @@ fn dense_point_view_pads_point_count_to_lane_boundary(
 #[case(15, 8, 8, 7)]
 #[case(16, 8, 8, 8)]
 #[case(17, 16, 16, 1)]
+#[case(17, 20, 16, 0)]
 #[case(17, 32, 16, 0)]
 fn lane_output_count_limits_writes_to_logical_points(
     #[case] point_count: usize,
