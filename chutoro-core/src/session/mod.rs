@@ -158,9 +158,10 @@ impl SessionConfig {
 /// ## `pending_edges` memory usage
 ///
 /// `pending_edges` accumulates [`CandidateEdge`] values as points are
-/// inserted. Each `CandidateEdge` occupies `2 × size_of::<usize>() + 4` bytes
-/// (two endpoint indices and one `f32` distance), which is 24 bytes on
-/// 64-bit targets due to `usize` alignment and trailing `f32` padding.
+/// inserted. Each `CandidateEdge` has a raw field payload of
+/// `2 × size_of::<usize>() + 4` bytes (two endpoint indices and one `f32`
+/// distance). The struct is then rounded up to its 8-byte alignment, which
+/// makes it 24 bytes on 64-bit targets.
 /// In the worst case a session that has inserted *N* points
 /// will hold at most *N* × *M* edges, where *M* is the HNSW `max_connections`
 /// parameter (default 16). For 10 000 points with `M = 16` that is ~3.84 MB —
