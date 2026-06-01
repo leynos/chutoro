@@ -59,8 +59,8 @@ Use these repository documents as the source of truth while implementing:
 - `docs/rust-testing-with-rstest-fixtures.md`, for parameterized unit-test
   structure.
 - `docs/rust-doctest-dry-guide.md`, if public examples or Rustdoc are touched.
-- `docs/documentation-style-guide.md`, if an architecture note or ADR update is
-  needed.
+- `docs/documentation-style-guide.md`, if an architecture note or architectural
+  decision record (ADR) update is needed.
 
 Use these skills:
 
