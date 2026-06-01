@@ -1,9 +1,10 @@
-//! Concurrency-focused tests for [`super::ClusteringSession`].
+//! Concurrency tests for [`ClusteringSession`], defined in
+//! `chutoro-core/src/session/session_impl.rs`.
 //!
-//! These tests document the read-only sharing expectations around sessions
-//! wrapped in `RwLock`. They complement append semantics tests by checking that
-//! shared readers observe stable point counts and snapshot versions after the
-//! writer has finished mutating the session.
+//! Uses [`rstest`] fixtures and wraps sessions in `Arc<std::sync::RwLock<_>>`
+//! to verify that multiple concurrent reader threads observe consistent
+//! `point_count` and `snapshot_version` values, demonstrating the documented
+//! single-writer, multiple-reader concurrency model.
 
 use std::sync::Arc;
 

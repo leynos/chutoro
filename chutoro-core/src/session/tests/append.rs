@@ -1,9 +1,11 @@
-//! Append semantics tests for [`super::ClusteringSession`].
+//! Unit tests for the [`ClusteringSession::append`] method, defined in
+//! `chutoro-core/src/session/session_impl.rs`.
 //!
-//! This module covers direct `append` outcomes that need access to internal
-//! session state such as `pending_edges`. It sits below the BDD acceptance
-//! scenarios and uses shared fixtures from [`super::common`] to compare session
-//! behaviour with direct HNSW edge harvesting.
+//! Uses [`rstest`] fixtures (`session_builder`, `make_session`) from the
+//! sibling `common` module to reduce per-test boilerplate. Covers the
+//! happy path, validation failures (out-of-bounds, duplicates), partial
+//! fail-fast progress, and the harvested-edge accumulation invariant against
+//! a direct `CpuHnsw::insert_harvesting` baseline.
 
 use rstest::rstest;
 

@@ -1,9 +1,11 @@
-//! Property tests for [`super::ClusteringSession`] invariants.
+//! Property-based tests for [`ClusteringSession`] invariants, defined in
+//! `chutoro-core/src/session/session_impl.rs`.
 //!
-//! These proptests cover behaviour that should hold across ranges of builder
-//! inputs and append orderings. They complement the example-based append tests
-//! by comparing accumulated `pending_edges` with direct [`crate::CpuHnsw`]
-//! harvesting for generated index sequences.
+//! Uses [`proptest`] to verify algebraic properties across arbitrary inputs:
+//! `min_cluster_size` round-trip fidelity, fresh-session postconditions,
+//! zero-size rejection, `append` point-count and snapshot-version invariants,
+//! and `pending_edges` accumulation equivalence against a direct
+//! `CpuHnsw::insert_harvesting` baseline.
 
 use std::sync::Arc;
 
@@ -96,7 +98,7 @@ proptest! {
             .with_rng_seed(99);
 
         // Build expected edge set via the direct index.
-        let direct_index = CpuHnsw::with_capacity(hnsw_params.clone(), source.len())
+        let direct_index = CpuHnsw::with_capacity(hnsw_params.clone(), source.len().max(1))
             .expect("direct index must allocate");
         let mut expected_edges: Vec<CandidateEdge> = Vec::new();
         for &index in &indices {

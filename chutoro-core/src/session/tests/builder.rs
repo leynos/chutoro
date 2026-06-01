@@ -1,9 +1,10 @@
-//! Builder and session configuration tests for [`super::ClusteringSession`].
+//! Unit tests for [`ChutoroBuilder`] session-construction behaviour and the
+//! [`SessionConfig`] / [`SessionRefreshPolicy`] configuration types, all
+//! defined under `chutoro-core/src/session/`.
 //!
-//! These tests verify how `ChutoroBuilder` produces session configuration,
-//! rejects unsupported construction choices, and maps HNSW allocation failures.
-//! They exercise the boundary between builder policy and the session
-//! constructor while reusing data-source fixtures from [`super::common`].
+//! Uses [`rstest`] parametrised test cases to cover builder defaults, policy
+//! accessors, `min_cluster_size` validation, backend-unavailability rejection,
+//! and HNSW construction-failure mapping.
 
 use std::{num::NonZeroUsize, sync::Arc};
 

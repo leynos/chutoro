@@ -1,9 +1,11 @@
-//! Metrics-specific tests for [`super::ClusteringSession`].
+//! Metrics instrumentation tests for [`ClusteringSession::append`], defined
+//! in `chutoro-core/src/session/session_impl.rs`.
 //!
-//! This module is compiled only with the `metrics` feature and verifies the
-//! optional observability path around `append`. It uses the test clock seam to
-//! keep latency assertions deterministic without changing the public session
-//! constructor.
+//! Compiled only under `#[cfg(feature = "metrics")]`. Uses [`rstest`]
+//! fixtures with a [`FixedMonotonicClock`] test double injected via
+//! `with_clock_for_test` to assert deterministic per-point latency values
+//! are recorded to the `chutoro.session.append.point_seconds` histogram
+//! via `metrics-util`'s `DebuggingRecorder`.
 
 use rstest::rstest;
 
