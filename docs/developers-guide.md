@@ -112,6 +112,48 @@ The v1 incremental clustering surface has these limitations:
 - Refreshes are micro-batched rather than applied per point.
 - Existing points may be relabelled after a refresh.
 
+### Session internal architecture
+
+Session code is split by responsibility under `chutoro-core/src/session/`:
+
+- `mod.rs` owns the `ClusteringSession` struct, lightweight read-only
+  accessors, public re-exports, and the high-level Rustdoc contract.
+- `config.rs` owns `SessionRefreshPolicy` and `SessionConfig`, the small value
+  types carried by each session.
+- `session_impl.rs` owns construction, `append`, HNSW error mapping, and the
+  edge-harvesting write path.
+- `clock.rs` is compiled only with the `metrics` feature and owns the
+  monotonic-clock seam used for deterministic latency tests.
+
+Keep this split intact when adding session behaviour. Domain state should stay
+on `ClusteringSession`; configuration-only changes belong in `config.rs`; and
+mutating session workflows belong in `session_impl.rs` unless a later milestone
+introduces a larger component that justifies another focused module.
+
+`ClusteringSession::append` emits tracing through `#[tracing::instrument]` and
+structured `warn!`/`debug!` events, but it must not install tracing subscribers.
+Library code may emit metrics and tracing; application boundaries remain
+responsible for recorder and subscriber installation.
+
+Metrics support is entirely feature-gated behind `metrics`. Production builds
+without that feature must not allocate the clock field or compile metric
+emission code. When `metrics` is enabled, construction describes the append
+error counter, per-point latency histogram, and harvested-edge counter. The
+append path records:
+
+- `chutoro.session.append.errors_total`, labelled by low-cardinality failure
+  reason.
+- `chutoro.session.append.point_seconds`, one histogram sample per inserted
+  point.
+- `chutoro.session.harvested_edges`, counting buffered candidate edges.
+
+The latency histogram reads time through the internal `MonotonicClock` trait.
+`StdMonotonicClock` is the production implementation. Tests may replace it via
+`with_clock_for_test` with `FixedMonotonicClock`, which is available only under
+`#[cfg(all(feature = "metrics", test))]`. Do not expose this seam through the
+public constructor or builder API; it exists solely to make metrics assertions
+deterministic while preserving the public session contract.
+
 ## Continuous integration
 
 Property-test CI jobs (`property-tests-pr` and `property-tests-weekly`) run on
