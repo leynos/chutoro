@@ -98,6 +98,10 @@ ______________________________________________________________________
 - CLI tool (`chutoro-cli`) and bundled data-source providers: dense
   vectors via Parquet/Arrow (`chutoro-providers-dense`) and text via
   Levenshtein distance (`chutoro-providers-text`).
+- Incremental `ClusteringSession` API: append point indices one at a time or
+  in batches via `append(&[usize])` — harvested candidate edges are buffered
+  for later refresh work, and partial failures preserve earlier progress
+  ([users' guide § incremental sessions](docs/users-guide.md#incremental-clustering-sessions)).
 
 [users-guide-feature-flags]:
   docs/users-guide.md#feature-flags-and-execution-strategies

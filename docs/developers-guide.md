@@ -81,6 +81,7 @@ pub fn refresh_policy(&self) -> &SessionRefreshPolicy;
 
 // ClusteringSession<D: DataSource + Send + Sync>
 pub fn config(&self) -> &SessionConfig;
+pub fn append(&mut self, indices: &[usize]) -> Result<()>;
 pub fn point_count(&self) -> usize;
 pub fn snapshot_version(&self) -> u64;
 ```
@@ -90,12 +91,68 @@ pub fn snapshot_version(&self) -> u64;
 returns an inert session whose initial observable state is `point_count() == 0`
 and `snapshot_version() == 0`.
 
+`append` inserts source indices into the live HNSW index by calling
+`CpuHnsw::insert_harvesting` for each index. It must not duplicate HNSW
+insertion logic or inspect private HNSW adapter internals. The session stores
+all returned `CandidateEdge` values in its internal `pending_edges` buffer for
+future refresh work. The method is fail-fast and preserves partial progress:
+insertions completed before the first error remain in the index, and their
+harvested edges remain pending.
+
+Session construction allocates HNSW capacity from `source.len().max(1)` while
+still leaving the index empty. `append` prevalidates each requested index
+against `source.len()` before insertion so early bootstrap cases return a
+`ChutoroError::DataSource` for out-of-bounds indices even when HNSW would not
+need a distance query for the first inserted node.
+
 The v1 incremental clustering surface has these limitations:
 
 - Ingestion is append-only; deletions and updates are not supported.
 - Cluster identity is not stable across snapshots, and cluster IDs may change.
 - Refreshes are micro-batched rather than applied per point.
 - Existing points may be relabelled after a refresh.
+
+### Session internal architecture
+
+Session code is split by responsibility under `chutoro-core/src/session/`:
+
+- `mod.rs` owns the `ClusteringSession` struct, lightweight read-only
+  accessors, public re-exports, and the high-level Rustdoc contract.
+- `config.rs` owns `SessionRefreshPolicy` and `SessionConfig`, the small value
+  types carried by each session.
+- `session_impl.rs` owns construction, `append`, HNSW error mapping, and the
+  edge-harvesting write path.
+- `clock.rs` is compiled only with the `metrics` feature and owns the
+  monotonic-clock seam used for deterministic latency tests.
+
+Keep this split intact when adding session behaviour. Domain state should stay
+on `ClusteringSession`; configuration-only changes belong in `config.rs`; and
+mutating session workflows belong in `session_impl.rs` unless a later milestone
+introduces a larger component that justifies another focused module.
+
+`ClusteringSession::append` emits tracing through `#[tracing::instrument]` and
+structured `warn!`/`debug!` events, but it must not install tracing subscribers.
+Library code may emit metrics and tracing; application boundaries remain
+responsible for recorder and subscriber installation.
+
+Metrics support is entirely feature-gated behind `metrics`. Production builds
+without that feature must not allocate the clock field or compile metric
+emission code. When `metrics` is enabled, construction describes the append
+error counter, per-point latency histogram, and harvested-edge counter. The
+append path records:
+
+- `chutoro.session.append.errors_total`, labelled by low-cardinality failure
+  reason.
+- `chutoro.session.append.point_seconds`, one histogram sample per inserted
+  point.
+- `chutoro.session.harvested_edges`, counting buffered candidate edges.
+
+The latency histogram reads time through the internal `MonotonicClock` trait.
+`StdMonotonicClock` is the production implementation. Tests may replace it via
+`with_clock_for_test` with `FixedMonotonicClock`, which is available only under
+`#[cfg(all(feature = "metrics", test))]`. Do not expose this seam through the
+public constructor or builder API; it exists solely to make metrics assertions
+deterministic while preserving the public session contract.
 
 ## Continuous integration
 

@@ -671,7 +671,7 @@ ______________________________________________________________________
   (min cluster size, HNSW params, refresh policy) derived from
   `ChutoroBuilder`, and add `ChutoroBuilder::build_session` returning a
   `ClusteringSession`. (See `docs/chutoro-design.md` §12.3)
-- [ ] 11.1.3. Implement `ClusteringSession::append` accepting a slice
+- [x] 11.1.3. Implement `ClusteringSession::append` accepting a slice
   of new point indices. Each insertion calls the public edge-harvesting path
   and accumulates delta `CandidateEdge` values in the session's `pending_edges`
   buffer. (See `docs/chutoro-design.md` §12.3, §12.4)
