@@ -1,6 +1,7 @@
 //! Tests for dense SIMD point packing and tail padding.
 
 use super::*;
+use proptest::prelude::*;
 
 #[rstest]
 #[case(vec![RowIndex::new(0), RowIndex::new(2)], vec![vec![1.0, 2.0], vec![2.0, 1.0]])]
@@ -72,6 +73,19 @@ fn lane_output_count_limits_writes_to_logical_points(
     #[case] expected: usize,
 ) {
     assert_eq!(lane_output_count(point_count, offset, lanes), expected);
+}
+
+proptest! {
+    #[test]
+    fn lane_output_count_matches_saturating_tail_formula(
+        point_count in any::<usize>(),
+        offset in any::<usize>(),
+        lanes in any::<usize>(),
+    ) {
+        let expected = point_count.saturating_sub(offset).min(lanes);
+
+        prop_assert_eq!(lane_output_count(point_count, offset, lanes), expected);
+    }
 }
 
 #[rstest]
