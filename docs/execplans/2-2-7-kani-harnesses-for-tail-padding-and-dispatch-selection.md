@@ -234,6 +234,14 @@ Use these skills:
   with zero findings and log `/tmp/coderabbit-chutoro-2-2-7-hnsw-model-fix.out`.
   Markdown lint succeeded with log
   `/tmp/markdownlint-chutoro-2-2-7-hnsw-model-fix-final.out`.
+- [x] (2026-06-03) Follow-up aggregate check: a post-fix `make kani-full` run
+  was stopped after 21 minutes with log
+  `/tmp/kani-full-chutoro-2-2-7-after-hnsw-model-fix.out`. It moved beyond the
+  repaired entry-point and neighbour-uniqueness blockers, then spent the
+  remaining time in `verify_no_self_loops_4_nodes` through heap-backed
+  `has_no_self_loops`, `Node::iter_neighbours`, and `Graph::nodes_iter` paths.
+  The next aggregate blocker is therefore the self-loop proof boundary, not the
+  changes made in this follow-up fix.
 
 ## Superseded progress entries
 
@@ -341,6 +349,14 @@ the timestamped progress entries above:
   still reached `contains` through reconciliation and test-helper edge
   insertion. The practical proof boundary is therefore the add-if-missing
   uniqueness policy rather than heap-backed graph construction.
+
+- Discovery: A post-fix aggregate `make kani-full` run confirmed that the
+  entry-point and neighbour-uniqueness blockers were cleared, then spent the
+  remaining time in `verify_no_self_loops_4_nodes`. The trace repeatedly
+  unwound `hnsw::invariants::helpers::has_no_self_loops`,
+  `Node::iter_neighbours`, and `Graph::nodes_iter`. Any further aggregate Kani
+  work should model the no-self-loop invariant at a fixed-size proof boundary
+  rather than traversing heap-backed graph storage and iterator adapters.
 
 ## Decision log
 
