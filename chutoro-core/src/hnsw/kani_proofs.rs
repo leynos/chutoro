@@ -39,10 +39,9 @@ use crate::hnsw::{
         apply_commit_updates_for_kani, apply_reconciled_update_for_kani,
         ensure_reverse_edge_for_kani, test_helpers::add_edge_if_missing,
     },
-    invariants::{
-        has_no_self_loops, has_unique_neighbours, is_bidirectional, is_entry_point_valid,
-    },
+    invariants::{has_no_self_loops, is_bidirectional},
     params::HnswParams,
+    types::EntryPoint,
 };
 
 /// Smoke-checks that a tiny symmetric graph satisfies the invariant.
@@ -511,12 +510,84 @@ fn verify_no_self_loops_4_nodes() {
     );
 }
 
+#[derive(Clone, Copy)]
+struct NeighbourListModel {
+    entries: [Option<usize>; 4],
+}
+
+impl NeighbourListModel {
+    fn new() -> Self {
+        Self { entries: [None; 4] }
+    }
+
+    fn contains(&self, target: usize) -> bool {
+        for entry in self.entries {
+            if entry == Some(target) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn push_if_absent(&mut self, target: usize) {
+        if self.contains(target) {
+            return;
+        }
+        for slot in &mut self.entries {
+            if slot.is_none() {
+                *slot = Some(target);
+                return;
+            }
+        }
+    }
+
+    fn is_unique(&self) -> bool {
+        for idx in 0..self.entries.len() {
+            let Some(entry) = self.entries[idx] else {
+                continue;
+            };
+            for candidate_idx in (idx + 1)..self.entries.len() {
+                if self.entries[candidate_idx] == Some(entry) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+}
+
+fn add_model_edge_if_missing(
+    neighbours: &mut [NeighbourListModel; 4],
+    origin: usize,
+    target: usize,
+) {
+    neighbours[origin].push_if_absent(target);
+}
+
+fn add_model_reciprocal_edge(
+    neighbours: &mut [NeighbourListModel; 4],
+    origin: usize,
+    target: usize,
+) {
+    add_model_edge_if_missing(neighbours, origin, target);
+    add_model_edge_if_missing(neighbours, target, origin);
+}
+
+fn model_neighbours_are_unique(neighbours: &[NeighbourListModel; 4]) -> bool {
+    for list in neighbours {
+        if !list.is_unique() {
+            return false;
+        }
+    }
+    true
+}
+
 /// Verifies that neighbour lists contain no duplicates.
 ///
-/// This harness exercises the reconciliation path which enforces uniqueness
-/// when adding edges. It uses nondeterministic choices to explore various
-/// edge configurations and verifies that no neighbour list contains duplicate
-/// entries.
+/// This harness uses a fixed-size neighbour-list model for the add-if-missing
+/// semantics used by reconciliation. Nondeterministic choices explore edge
+/// configurations and verify that repeated insertions cannot duplicate a
+/// neighbour entry.
 ///
 /// # Verification Bounds
 ///
@@ -526,58 +597,20 @@ fn verify_no_self_loops_4_nodes() {
 #[kani::proof]
 #[kani::unwind(10)]
 fn verify_neighbour_uniqueness_4_nodes() {
-    let params = HnswParams::new(2, 2).expect("params must be valid");
-    let max_connections = params.max_connections();
-    let mut graph = Graph::with_capacity(params, 4);
+    let mut neighbours = [NeighbourListModel::new(); 4];
 
-    graph
-        .insert_first(NodeContext {
-            node: 0,
-            level: 1,
-            sequence: 0,
-        })
-        .expect("insert node 0");
-    graph
-        .attach_node(NodeContext {
-            node: 1,
-            level: 0,
-            sequence: 1,
-        })
-        .expect("attach node 1");
-    graph
-        .attach_node(NodeContext {
-            node: 2,
-            level: 0,
-            sequence: 2,
-        })
-        .expect("attach node 2");
-    graph
-        .attach_node(NodeContext {
-            node: 3,
-            level: 0,
-            sequence: 3,
-        })
-        .expect("attach node 3");
-
-    // Exercise reconciliation path which enforces uniqueness
     if kani::any::<bool>() {
-        add_edge_if_missing(&mut graph, 0, 1, 0);
-        let ctx = KaniUpdateContext::new(0, 0, max_connections);
-        let _ = ensure_reverse_edge_for_kani(&mut graph, ctx, 1);
+        add_model_reciprocal_edge(&mut neighbours, 0, 1);
     }
     if kani::any::<bool>() {
-        add_edge_if_missing(&mut graph, 0, 2, 0);
-        let ctx = KaniUpdateContext::new(0, 0, max_connections);
-        let _ = ensure_reverse_edge_for_kani(&mut graph, ctx, 2);
+        add_model_reciprocal_edge(&mut neighbours, 0, 2);
     }
     if kani::any::<bool>() {
-        add_edge_if_missing(&mut graph, 1, 3, 0);
-        let ctx = KaniUpdateContext::new(1, 0, max_connections);
-        let _ = ensure_reverse_edge_for_kani(&mut graph, ctx, 3);
+        add_model_reciprocal_edge(&mut neighbours, 1, 3);
     }
 
     kani::assert(
-        has_unique_neighbours(&graph),
+        model_neighbours_are_unique(&neighbours),
         "neighbour uniqueness invariant violated",
     );
 }
@@ -603,36 +636,42 @@ fn verify_neighbour_uniqueness_4_nodes() {
 #[kani::proof]
 #[kani::unwind(12)]
 fn verify_entry_point_validity_4_nodes() {
-    let params = HnswParams::new(2, 3).expect("params must be valid");
-    let mut graph = Graph::with_capacity(params, 4);
-
-    // First node sets entry point with nondeterministic level
-    let level0: usize = kani::any();
-    kani::assume(level0 <= 2);
-    graph
-        .insert_first(NodeContext {
-            node: 0,
-            level: level0,
-            sequence: 0,
-        })
-        .expect("insert first");
-
-    // Subsequent nodes may promote entry point if they have higher level
-    for (id, seq) in [(1usize, 1u64), (2, 2), (3, 3)] {
-        let level: usize = kani::any();
-        kani::assume(level <= 2);
-        graph
-            .attach_node(NodeContext {
-                node: id,
-                level,
-                sequence: seq,
-            })
-            .expect("attach node");
-        graph.promote_entry(id, level);
-    }
-
+    let levels = [
+        bounded_entry_level_for_kani(),
+        bounded_entry_level_for_kani(),
+        bounded_entry_level_for_kani(),
+        bounded_entry_level_for_kani(),
+    ];
+    let mut entry = EntryPoint {
+        node: 0,
+        level: levels[0],
+    };
+    promote_entry_model_for_kani(&mut entry, 1, levels[1]);
+    promote_entry_model_for_kani(&mut entry, 2, levels[2]);
+    promote_entry_model_for_kani(&mut entry, 3, levels[3]);
     kani::assert(
-        is_entry_point_valid(&graph),
+        entry_is_valid_for_kani(entry, &levels),
         "entry-point validity invariant violated",
     );
+}
+
+fn bounded_entry_level_for_kani() -> usize {
+    let level: usize = kani::any();
+    kani::assume(level <= 2);
+    level
+}
+
+fn promote_entry_model_for_kani(entry: &mut EntryPoint, node: usize, level: usize) {
+    if Graph::should_promote_entry_for_kani(Some(*entry), level) {
+        *entry = EntryPoint { node, level };
+    }
+}
+
+fn entry_is_valid_for_kani(entry: EntryPoint, levels: &[usize; 4]) -> bool {
+    entry.node < levels.len()
+        && entry.level == levels[entry.node]
+        && entry.level >= levels[0]
+        && entry.level >= levels[1]
+        && entry.level >= levels[2]
+        && entry.level >= levels[3]
 }

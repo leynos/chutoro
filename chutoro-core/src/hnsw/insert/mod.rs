@@ -110,9 +110,11 @@ impl KaniUpdateContext {
 /// Returns `true` if every element appears exactly once.
 #[cfg(kani)]
 fn is_deduped(list: &[usize]) -> bool {
-    for (idx, value) in list.iter().enumerate() {
-        if list[idx + 1..].contains(value) {
-            return false;
+    for idx in 0..list.len() {
+        for candidate_idx in (idx + 1)..list.len() {
+            if list[idx] == list[candidate_idx] {
+                return false;
+            }
         }
     }
     true

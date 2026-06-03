@@ -170,6 +170,10 @@ pub(crate) struct Graph {
     pub(super) entry: Option<EntryPoint>,
 }
 
+fn should_promote_entry(current: Option<EntryPoint>, level: usize) -> bool {
+    level > current.map(|entry| entry.level).unwrap_or(0)
+}
+
 impl Graph {
     #[must_use]
     #[inline]
@@ -252,9 +256,13 @@ impl Graph {
         Ok(())
     }
 
+    #[cfg(kani)]
+    pub(crate) fn should_promote_entry_for_kani(current: Option<EntryPoint>, level: usize) -> bool {
+        should_promote_entry(current, level)
+    }
+
     pub(crate) fn promote_entry(&mut self, node: usize, level: usize) {
-        let current_level = self.entry.map(|entry| entry.level).unwrap_or(0);
-        if level > current_level {
+        if should_promote_entry(self.entry, level) {
             self.entry = Some(EntryPoint { node, level });
         }
     }

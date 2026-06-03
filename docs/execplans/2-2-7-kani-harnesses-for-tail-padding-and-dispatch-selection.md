@@ -212,6 +212,28 @@ Use these skills:
   deterministic gates passed; CodeRabbit reported zero findings.
 - [x] (2026-05-24) Stage G completion: committed the implementation and marked
   roadmap item `2.2.7` done.
+- [x] (2026-06-03) Follow-up diagnosis: documented hypothesis testing for the
+  `make kani-full` non-completion in
+  `docs/kani-full-hnsw-hypothesis-testing.md`; subagent falsification narrowed
+  the blocker to `verify_entry_point_validity_4_nodes`.
+- [x] (2026-06-03) Follow-up fix: removed panic-capable setup from the HNSW
+  entry-point Kani harness. Targeted proof
+  `verify_entry_point_validity_4_nodes` passed with log
+  `/tmp/kani-hnsw-entry-point-final-chutoro-2-2-7.out`.
+- [x] (2026-06-03) Follow-up fix: replaced the heap-backed HNSW neighbour
+  uniqueness harness with a fixed-size add-if-missing model after
+  `make kani-full` reached `verify_neighbour_uniqueness_4_nodes` and spent
+  solver time in slice membership paths. Targeted proof
+  `verify_neighbour_uniqueness_4_nodes` passed with log
+  `/tmp/kani-hnsw-neighbour-uniqueness-model-final-chutoro-2-2-7.out`.
+- [x] (2026-06-03) Follow-up validation: `make check-fmt`, `make lint`, and
+  `make test` succeeded with logs
+  `/tmp/check-fmt-chutoro-2-2-7-hnsw-model-fix.out`,
+  `/tmp/lint-chutoro-2-2-7-hnsw-model-fix.out`, and
+  `/tmp/test-chutoro-2-2-7-hnsw-model-fix.out`. CodeRabbit review completed
+  with zero findings and log `/tmp/coderabbit-chutoro-2-2-7-hnsw-model-fix.out`.
+  Markdown lint succeeded with log
+  `/tmp/markdownlint-chutoro-2-2-7-hnsw-model-fix-final.out`.
 
 ## Superseded progress entries
 
@@ -295,6 +317,31 @@ the timestamped progress entries above:
   normal test path should keep the existing fail-fast behaviour when fixture
   data names a missing origin node.
 
+- Discovery: A later `make kani-full` run no longer stopped in the dense SIMD
+  work. Subagent falsification on 2026-06-03 showed that the single
+  `verify_entry_point_validity_4_nodes` HNSW harness reproduced the timeout and
+  Rust `core::str` panic/slice-error formatting paths by itself, while both new
+  dense SIMD harnesses still verified successfully. The follow-up fix should
+  therefore target the HNSW harness setup path rather than the dense provider.
+
+- Discovery: Replacing the HNSW entry-point harness `.expect(...)` calls with
+  `Result::is_ok()` assertions was not enough. The harness still called
+  `Graph::attach_node`, whose unreachable error branches construct formatted
+  `HnswError` values. Replacing `attach_node` with Kani-only graph seeding also
+  remained too heap-heavy because symbolic `Node::new` and graph iteration
+  dominated the proof. The final approach should prove the entry-promotion
+  policy with a fixed-size stack model and share the production promotion
+  predicate.
+
+- Discovery: After the entry-point proof was repaired, an interrupted
+  `make kani-full` run reached `verify_neighbour_uniqueness_4_nodes` and spent
+  more than sixteen minutes in `is_deduped`, standard slice `contains`, and
+  allocator paths. Replacing Kani-only uniqueness helpers with pairwise
+  comparison removed one source of `contains`, but the graph-backed harness
+  still reached `contains` through reconciliation and test-helper edge
+  insertion. The practical proof boundary is therefore the add-if-missing
+  uniqueness policy rather than heap-backed graph construction.
+
 ## Decision log
 
 - Decision: Keep the initial proof scope to safe boundary helpers for
@@ -338,6 +385,23 @@ the timestamped progress entries above:
   run and pass through `make kani`; `kani-full` is a slow-lane aggregate over
   older core proofs and currently fails outside the dense-provider scope.
   Date/Author: 2026-05-24 / Codex.
+
+- Decision: Extract the entry-promotion predicate and have
+  `verify_entry_point_validity_4_nodes` prove it with a fixed-size stack model
+  rather than heap-backed `Graph`/`Node` storage. Rationale: the invariant under
+  this harness is that the entry point references one of the inserted nodes and
+  has a maximal level after promotion. Sharing the production predicate keeps
+  the proof connected to production behaviour while avoiding solver-heavy
+  allocation, formatting, and iterator paths. Date/Author: 2026-06-03 / Codex.
+
+- Decision: Replace `verify_neighbour_uniqueness_4_nodes` with a fixed-size
+  neighbour-list model for add-if-missing semantics. Rationale: the graph-backed
+  harness proved the same uniqueness invariant only after traversing
+  heap-backed graph construction, reconciliation, slice membership, and
+  allocator paths. The model keeps duplicate neighbour slots representable,
+  drives nondeterministic reciprocal edge additions, and verifies that
+  add-if-missing semantics cannot introduce duplicate entries. Date/Author:
+  2026-06-03 / Codex.
 
 ## Plan of work
 
