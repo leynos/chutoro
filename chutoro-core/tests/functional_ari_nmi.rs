@@ -10,9 +10,9 @@ use std::num::NonZeroUsize;
 use rstest::rstest;
 
 use chutoro_core::{
-    CandidateEdge, DataSource, DataSourceError, EdgeHarvest, HierarchyConfig, MetricDescriptor,
-    adjusted_rand_index, extract_labels_from_mst, normalized_mutual_information, parallel_kruskal,
-    run_cpu_pipeline,
+    CandidateEdge, CpuHnsw, DataSource, DataSourceError, EdgeHarvest, HierarchyConfig, HnswParams,
+    MetricDescriptor, adjusted_rand_index, extract_labels_from_mst, normalized_mutual_information,
+    parallel_kruskal,
 };
 
 fn parse_csv_rows(input: &str, dims: usize) -> Vec<Vec<f32>> {
@@ -144,14 +144,57 @@ fn exact_pipeline<D: DataSource>(source: &D, min_cluster_size: NonZeroUsize) -> 
     .expect("exact hierarchy extraction should succeed")
 }
 
+fn high_recall_hnsw_params() -> HnswParams {
+    HnswParams::new(32, 128)
+        .expect("functional HNSW parameters must be valid")
+        .with_rng_seed(0x1A11_CE5E)
+}
+
 fn approx_pipeline<D: DataSource + Sync>(source: &D, min_cluster_size: NonZeroUsize) -> Vec<usize> {
-    let result =
-        run_cpu_pipeline(source, min_cluster_size).expect("approx pipeline should succeed");
-    result
-        .assignments()
+    let params = high_recall_hnsw_params();
+    let (index, harvested) = CpuHnsw::build_with_edges(source, params.clone())
+        .expect("approx HNSW build should succeed");
+    let items = source.len();
+    let desired = min_cluster_size
+        .get()
+        .saturating_add(1)
+        .max(params.ef_construction())
+        .min(items);
+    let ef = NonZeroUsize::new(desired).expect("ef must be non-zero");
+
+    let mut core_distances = Vec::with_capacity(items);
+    for point in 0..items {
+        let neighbours = index
+            .search(source, point, ef)
+            .expect("approx HNSW search should succeed");
+        let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
+        let core = if others.len() >= min_cluster_size.get() {
+            others[min_cluster_size.get() - 1].distance
+        } else {
+            others.last().map(|n| n.distance).unwrap_or(0.0)
+        };
+        core_distances.push(core);
+    }
+
+    let mutual_edges: Vec<CandidateEdge> = harvested
         .iter()
-        .map(|id| usize::try_from(id.get()).expect("cluster identifiers fit usize"))
-        .collect()
+        .map(|edge| {
+            let left = edge.source();
+            let right = edge.target();
+            let dist = edge.distance();
+            let weight = dist.max(core_distances[left]).max(core_distances[right]);
+            CandidateEdge::new(left, right, weight, edge.sequence())
+        })
+        .collect();
+    let mutual_harvest = EdgeHarvest::new(mutual_edges);
+
+    let forest = parallel_kruskal(items, &mutual_harvest).expect("approx MST should succeed");
+    extract_labels_from_mst(
+        items,
+        forest.edges(),
+        HierarchyConfig::new(min_cluster_size),
+    )
+    .expect("approx hierarchy extraction should succeed")
 }
 
 #[test]
