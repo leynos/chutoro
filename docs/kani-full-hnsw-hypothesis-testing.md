@@ -9,7 +9,7 @@
 `make kani-full` does not currently complete within the available command
 budget on this branch. The expected behaviour is that the full Kani tier either
 verifies all harnesses or fails with a concrete counter-example. The observed
-run was stopped while CBMC was checking the HNSW
+run was stopped while the Bounded Model Checker for C (CBMC) was checking the HNSW
 `verify_entry_point_validity_4_nodes` harness and repeatedly unwinding Rust
 `core::str` panic/slice-error formatting paths.
 
@@ -126,7 +126,7 @@ panic-capable calls before the invariant assertion.
      -e "is_entry_point_valid" \
      /tmp/kani-full-chutoro-2-2-7-status.out \
      /tmp/kani-h1-entry-point-validity.out \
-     chutoro-core/src/hnsw/kani_proofs.rs \
+     chutoro-core/src/hnsw/kani_proofs/ \
      chutoro-core/src/hnsw/{graph,node,params}.rs \
      chutoro-core/src/hnsw/invariants/helpers.rs
    ```
@@ -141,11 +141,11 @@ panic-path theory, but a surviving result still needs code-level causality.
 
 **Execution status**: Not falsified. The initial inspection command included a
 non-existent `chutoro-core/src/hnsw/graph.rs` path, so Laplace reran the
-inspection against the actual HNSW graph paths. The harness still contains
-panic-capable `.expect(...)` construction at
-`chutoro-core/src/hnsw/kani_proofs.rs:606`, `:618`, and `:630`; the predicate
-at `chutoro-core/src/hnsw/invariants/helpers.rs:169` remains a small boolean
-check. This supports the panic-formatting-path hypothesis but does not by
+inspection against the actual HNSW graph paths. The harness still contained
+panic-capable `.expect(...)` construction in the former monolithic
+`chutoro-core/src/hnsw/kani_proofs.rs`; the predicate at
+`chutoro-core/src/hnsw/invariants/helpers.rs:169` remained a small boolean
+check. This supported the panic-formatting-path hypothesis but did not by
 itself prove causality.
 
 ### H3: Dense SIMD 2.2.7 Changes Cause the Failure

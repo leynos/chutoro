@@ -41,7 +41,7 @@ invariants.
    interference with normal builds or test execution
 
 2. **Module Location**: Harnesses reside beside the code they verify, such as
-   `chutoro-core/src/hnsw/kani_proofs.rs` and
+   `chutoro-core/src/hnsw/kani_proofs/` and
    `chutoro-providers/dense/src/simd/kani_proofs.rs`, enabling access to
    internal types via `pub(crate)` visibility without exposing them publicly
 
