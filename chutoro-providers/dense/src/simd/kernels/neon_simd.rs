@@ -10,6 +10,8 @@ use std::arch::arm as arm_arch;
 
 #[cfg_attr(target_arch = "arm", target_feature(enable = "neon"))]
 pub(super) unsafe fn euclidean_distance_neon(left: &[f32], right: &[f32]) -> f32 {
+    // Safety: callers select this entry point only when NEON is available, and
+    // the safe public entry point validates matching slice lengths.
     finalize_distance(unsafe { squared_l2_neon(left, right) }.sqrt())
 }
 

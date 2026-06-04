@@ -21,9 +21,10 @@ pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usiz
 
     #[cfg(not(kani))]
     {
-        let node = graph
-            .node_mut(origin)
-            .unwrap_or_else(|| panic!("missing origin node {origin}"));
+        let Some(node) = graph.node_mut(origin) else {
+            debug_assert!(false, "missing origin node {origin}");
+            return;
+        };
         let neighbours = node.neighbours_mut(level);
         if !neighbours.contains(&target) {
             neighbours.push(target);
