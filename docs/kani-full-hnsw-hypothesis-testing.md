@@ -1,4 +1,4 @@
-# Debugging Plan: `make kani-full` HNSW Non-Completion
+# Debugging Plan: `make kani-full` Hierarchical Navigable Small World (HNSW) Non-Completion
 
 **Generated**: 2026-06-03  
 **Issue ID**: 2.2.7 follow-up verification  
