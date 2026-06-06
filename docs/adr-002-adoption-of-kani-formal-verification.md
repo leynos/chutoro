@@ -36,8 +36,7 @@ providing formal proofs of correctness for small configurations.
 
 Kani is adopted for formal verification of HNSW structural invariants and dense
 SIMD boundary contracts, starting with the bidirectional links invariant on
-bounded graph configurations and dense SIMD boundary contracts (including
-selector and tail-padding invariants).
+bounded graph configurations and the selector and tail-padding invariants.
 
 ### Implementation Approach
 
@@ -119,7 +118,7 @@ tests, with any proof effort focused on the pure host planner around them.
   planned for a future phase once harness stability is validated
 - **Scope limited**: Focus on the bidirectional links invariant on bounded graph
   configurations and dense SIMD boundary contracts (including selector and
-  tail-padding invariants); other invariants follow after validating the
+  tail-padding invariants); other invariants follow validating the
   approach
 
 ## Findings to Date

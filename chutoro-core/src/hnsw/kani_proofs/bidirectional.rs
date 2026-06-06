@@ -106,6 +106,22 @@ fn verify_bidirectional_links_commit_path_3_nodes() {
     // Seed node 0's level-1 neighbour list so it is at capacity with node 2.
     add_edge_if_missing(&mut graph, 0, 2, 1);
     add_edge_if_missing(&mut graph, 2, 0, 1);
+    let Some(node_zero) = graph.node(0) else {
+        kani::assert(false, "node 0 must exist after seeding commit-path edge");
+        return;
+    };
+    let Some(node_two) = graph.node(2) else {
+        kani::assert(false, "node 2 must exist after seeding commit-path edge");
+        return;
+    };
+    kani::assert(
+        node_zero.neighbours(1).contains(&2),
+        "node 0 must contain seeded level-1 edge to node 2",
+    );
+    kani::assert(
+        node_two.neighbours(1).contains(&0),
+        "node 2 must contain seeded level-1 edge to node 0",
+    );
 
     let update_ctx = EdgeContext {
         level: 1,

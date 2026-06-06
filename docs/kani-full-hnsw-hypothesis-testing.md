@@ -248,7 +248,7 @@ conditions.
 
 ## Termination criteria
 
-- **Root cause narrowed**: One hypothesis survives its falsification test while
+- **Root cause narrowed**: One hypothesis survives its falsification test, while
   the others are eliminated or downgraded.
 - **Escalation trigger**: All hypotheses are falsified, or the single-harness
   run reports a concrete Kani counter-example instead of non-completion.

@@ -1,5 +1,7 @@
 //! Invariant-model Kani harnesses for bounded HNSW graph state.
 
+use std::collections::HashSet;
+
 use crate::hnsw::{
     graph::{Graph, NodeContext},
     insert::{KaniUpdateContext, apply_reconciled_update_for_kani},
@@ -24,7 +26,7 @@ fn setup_four_node_graph(params: HnswParams) -> Option<Graph> {
     if graph
         .attach_node(NodeContext {
             node: 1,
-            level: 0,
+            level: 1,
             sequence: 1,
         })
         .is_err()
@@ -60,17 +62,47 @@ fn setup_four_node_graph(params: HnswParams) -> Option<Graph> {
 fn graph_neighbours_are_unique(graph: &Graph) -> bool {
     for (_node_id, node) in graph.nodes_iter() {
         for level in 0..node.level_count() {
-            let neighbours = node.neighbours(level);
-            for idx in 0..neighbours.len() {
-                for candidate_idx in (idx + 1)..neighbours.len() {
-                    if neighbours[idx] == neighbours[candidate_idx] {
-                        return false;
-                    }
+            let mut seen = HashSet::new();
+            for &neighbour in node.neighbours(level) {
+                if !seen.insert(neighbour) {
+                    return false;
                 }
             }
         }
     }
     true
+}
+
+fn symbolic_update_level() -> usize {
+    let level = kani::any::<usize>();
+    kani::assume(level <= 1);
+    level
+}
+
+fn bounded_level_one_node_for_kani() -> usize {
+    let node = kani::any::<usize>();
+    kani::assume(node < 2);
+    node
+}
+
+fn update_origin_for_level(level: usize) -> usize {
+    if level == 1 {
+        bounded_level_one_node_for_kani()
+    } else {
+        bounded_node_id_for_kani()
+    }
+}
+
+fn upper_layer_peer(origin: usize) -> usize {
+    if origin == 0 { 1 } else { 0 }
+}
+
+fn deduped_targets(first: usize, second: usize) -> Vec<usize> {
+    let mut targets = vec![first, second];
+    if first == second {
+        targets.pop();
+    }
+    targets
 }
 
 /// Verifies that no node has itself as a neighbour (no self-loops).
@@ -97,17 +129,19 @@ fn verify_no_self_loops_4_nodes() {
         return;
     };
 
-    let origin = bounded_node_id_for_kani();
+    let level = symbolic_update_level();
+    let origin = update_origin_for_level(level);
     let target = bounded_node_id_for_kani();
-    let ctx = KaniUpdateContext::new(origin, 0, max_connections);
-    let mut next = vec![target];
+    let ctx = KaniUpdateContext::new(origin, level, max_connections);
+    let mut next = deduped_targets(target, upper_layer_peer(origin));
     apply_reconciled_update_for_kani(&mut graph, ctx, &mut next);
 
     if kani::any::<bool>() {
-        let second_origin = bounded_node_id_for_kani();
+        let second_level = symbolic_update_level();
+        let second_origin = update_origin_for_level(second_level);
         let second_target = bounded_node_id_for_kani();
-        let second_ctx = KaniUpdateContext::new(second_origin, 0, max_connections);
-        let mut second_next = vec![second_target];
+        let second_ctx = KaniUpdateContext::new(second_origin, second_level, max_connections);
+        let mut second_next = deduped_targets(second_target, upper_layer_peer(second_origin));
         apply_reconciled_update_for_kani(&mut graph, second_ctx, &mut second_next);
     }
 
@@ -139,17 +173,15 @@ fn verify_neighbour_uniqueness_4_nodes() {
         return;
     };
 
-    let origin = bounded_node_id_for_kani();
+    let level = symbolic_update_level();
+    let origin = update_origin_for_level(level);
     let first_target = bounded_node_id_for_kani();
     let second_target = bounded_node_id_for_kani();
-    let ctx = KaniUpdateContext::new(origin, 0, max_connections);
-    let mut next = vec![first_target];
+    let ctx = KaniUpdateContext::new(origin, level, max_connections);
+    let mut next = deduped_targets(first_target, upper_layer_peer(origin));
     apply_reconciled_update_for_kani(&mut graph, ctx, &mut next);
 
-    let mut replacement = vec![first_target, second_target];
-    if first_target == second_target {
-        replacement.pop();
-    }
+    let mut replacement = deduped_targets(second_target, upper_layer_peer(origin));
     apply_reconciled_update_for_kani(&mut graph, ctx, &mut replacement);
 
     kani::assert(
