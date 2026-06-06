@@ -264,6 +264,7 @@ pub(crate) fn apply_reconciled_update_for_kani(
     next: &mut Vec<usize>,
 ) {
     assume_node_has_level(graph, ctx.origin, ctx.level);
+    next.retain(|&target| target != ctx.origin);
     let previous = graph
         .node(ctx.origin)
         .map(|node| node.neighbours(ctx.level).to_vec())

@@ -2,6 +2,7 @@
 
 use super::{EdgeAssertion, has_node_link};
 use crate::hnsw::{
+    error::HnswError,
     graph::{EdgeContext, Graph, NodeContext},
     insert::{
         FinalisedUpdate, NewNodeContext, StagedUpdate, apply_commit_updates_for_kani,
@@ -15,40 +16,32 @@ use crate::hnsw::{
 ///
 /// Returns a graph with nodes 0, 1, 2, 3 all inserted at level 1,
 /// configured with `max_connections = 1` so that level 1 has capacity 1.
-fn setup_eviction_test_graph(params: HnswParams) -> Graph {
+fn setup_eviction_test_graph(params: HnswParams) -> Result<Graph, HnswError> {
     let mut graph = Graph::with_capacity(params, 4);
 
     // Insert 4 nodes at level 1
-    graph
-        .insert_first(NodeContext {
-            node: 0,
-            level: 1,
-            sequence: 0,
-        })
-        .expect("insert node 0");
-    graph
-        .attach_node(NodeContext {
-            node: 1,
-            level: 1,
-            sequence: 1,
-        })
-        .expect("attach node 1");
-    graph
-        .attach_node(NodeContext {
-            node: 2,
-            level: 1,
-            sequence: 2,
-        })
-        .expect("attach node 2");
-    graph
-        .attach_node(NodeContext {
-            node: 3,
-            level: 1,
-            sequence: 3,
-        })
-        .expect("attach node 3");
+    graph.insert_first(NodeContext {
+        node: 0,
+        level: 1,
+        sequence: 0,
+    })?;
+    graph.attach_node(NodeContext {
+        node: 1,
+        level: 1,
+        sequence: 1,
+    })?;
+    graph.attach_node(NodeContext {
+        node: 2,
+        level: 1,
+        sequence: 2,
+    })?;
+    graph.attach_node(NodeContext {
+        node: 3,
+        level: 1,
+        sequence: 3,
+    })?;
 
-    graph
+    Ok(graph)
 }
 
 /// Verifies that eviction triggers correct deferred scrub behaviour.
@@ -81,9 +74,19 @@ fn setup_eviction_test_graph(params: HnswParams) -> Graph {
 #[kani::unwind(10)]
 fn verify_eviction_deferred_scrub_reciprocity() {
     // Use max_connections = 1 so level 1 has capacity 1 and can evict.
-    let params = HnswParams::new(1, 2).expect("params must be valid");
+    let Ok(params) = HnswParams::new(1, 2) else {
+        kani::assert(false, "failed to construct eviction HNSW params");
+        return;
+    };
     let max_connections = params.max_connections();
-    let mut graph = setup_eviction_test_graph(params);
+    let setup_result = setup_eviction_test_graph(params);
+    kani::assert(
+        setup_result.is_ok(),
+        "failed to construct eviction test graph",
+    );
+    let Ok(mut graph) = setup_result else {
+        return;
+    };
 
     // Seed node 1 at capacity with node 2 (bidirectional at level 1).
     // This ensures node 1's level-1 neighbour list is full.
@@ -105,8 +108,12 @@ fn verify_eviction_deferred_scrub_reciprocity() {
     let updates: Vec<FinalisedUpdate> = vec![(staged, vec![1])];
     let new_node = NewNodeContext { id: 3, level: 1 };
 
-    apply_commit_updates_for_kani(&mut graph, max_connections, new_node, updates)
-        .expect("commit-path updates must succeed");
+    let commit_result =
+        apply_commit_updates_for_kani(&mut graph, max_connections, new_node, updates);
+    kani::assert(commit_result.is_ok(), "commit-path updates must succeed");
+    if commit_result.is_err() {
+        return;
+    }
 
     // Assert bidirectional invariant holds after eviction and deferred scrub.
     kani::assert(

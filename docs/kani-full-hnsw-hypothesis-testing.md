@@ -1,10 +1,10 @@
-# Debugging Plan: `make kani-full` Hierarchical Navigable Small World (HNSW) Non-Completion
+# Debugging plan: `make kani-full` hierarchical navigable small world (HNSW) non-completion
 
 **Generated**: 2026-06-03  
 **Issue ID**: 2.2.7 follow-up verification  
 **Severity**: Medium
 
-## Problem Statement
+## Problem statement
 
 `make kani-full` does not currently complete within the available command
 budget on this branch. The expected behaviour is that the full Kani tier either
@@ -13,7 +13,7 @@ run was stopped while the Bounded Model Checker for C (CBMC) was checking the HN
 `verify_entry_point_validity_4_nodes` harness and repeatedly unwinding Rust
 `core::str` panic/slice-error formatting paths.
 
-## Context Summary
+## Context summary
 
 - **First observed**: 2026-06-03 on branch
   `2-2-7-kani-harnesses-for-tail-padding-and-dispatch-selection`.
@@ -23,7 +23,7 @@ run was stopped while the Bounded Model Checker for C (CBMC) was checking the HN
 - **Recent changes**: dense SIMD Kani harnesses and lane-output property
   coverage.
 
-## Error Artefacts
+## Error artefacts
 
 The stopped `make kani-full` run wrote
 `/tmp/kani-full-chutoro-2-2-7-status.out`. Relevant log patterns include:
@@ -38,7 +38,7 @@ core::str::<impl str>::floor_char_boundary
 The run had already completed several `chutoro-core` distance harnesses with
 `VERIFICATION:- SUCCESSFUL` before reaching the HNSW entry-point harness.
 
-## Information Gaps
+## Information gaps
 
 - Whether a single-harness run of `verify_entry_point_validity_4_nodes`
   reproduces the same string-unwinding pattern.
@@ -51,7 +51,7 @@ The run had already completed several `chutoro-core` distance harnesses with
 
 ## Hypotheses
 
-### H1: The HNSW Entry-Point Harness Is the Reproducer
+### H1: the HNSW entry-point harness is the reproducer
 
 **Claim**: `make kani-full` is blocked specifically by
 `verify_entry_point_validity_4_nodes`, not merely by aggregate suite scheduling.
@@ -62,7 +62,7 @@ that harness when the command was stopped.
 **Prediction**: If this hypothesis holds, running only the harness will either
 time out or emit the same `core::str` string/panic path patterns.
 
-#### H1 Falsification Plan
+#### H1 falsification plan
 
 1. Run the single HNSW entry-point harness with a bounded timeout:
 
@@ -101,7 +101,7 @@ with a 300-second timeout. The command exited `124` and wrote
 `core::str::slice_error_fail`, `core::str::slice_error_fail_rt`, and
 `core::str::<impl str>::floor_char_boundary`.
 
-### H2: Panic-Capable Harness Construction Drives the Solver Growth
+### H2: panic-capable harness construction drives the solver growth
 
 **Claim**: Kani is exploring panic/error formatting paths reached from
 panic-capable construction in the HNSW harness, such as `.expect(...)`, rather
@@ -115,7 +115,7 @@ boolean predicate.
 panic/string formatting paths, and the harness or construction path will contain
 panic-capable calls before the invariant assertion.
 
-#### H2 Falsification Plan
+#### H2 falsification plan
 
 1. Search logs and code for panic/string paths and harness construction:
 
@@ -148,7 +148,7 @@ panic-capable `.expect(...)` construction in the former monolithic
 check. This supported the panic-formatting-path hypothesis but did not by
 itself prove causality.
 
-### H3: Dense SIMD 2.2.7 Changes Cause the Failure
+### H3: dense SIMD 2.2.7 changes cause the failure
 
 **Claim**: The non-completion is caused by the new dense SIMD Kani harnesses or
 nearby dense-provider changes rather than by the HNSW full-tier harness.
@@ -159,7 +159,7 @@ provider, and the dense harnesses had passed in earlier targeted runs.
 **Prediction**: If this hypothesis holds, at least one targeted dense SIMD
 harness will fail or reproduce the same non-completion pattern.
 
-#### H3 Falsification Plan
+#### H3 falsification plan
 
 1. Run the dense dispatch-selection harness:
 
@@ -195,7 +195,7 @@ toolchain library path on `LD_LIBRARY_PATH`. Both reruns succeeded:
 - `/tmp/kani-h3-dense-dispatch.out`: `VERIFICATION:- SUCCESSFUL`.
 - `/tmp/kani-h3-dense-tail.out`: `VERIFICATION:- SUCCESSFUL`.
 
-### H4: The Non-Completion Is Environmental Contention
+### H4: the non-completion is environmental contention
 
 **Claim**: The non-completion is due to local resource contention, not
 deterministic Kani proof-state growth.
@@ -208,7 +208,7 @@ deterministic proof-shape issue.
 CPU, memory, or disk pressure, and a bounded single-harness run will not
 reproduce the same pattern under adequate resources.
 
-#### H4 Falsification Plan
+#### H4 falsification plan
 
 1. Inspect local resources and active solver/Cargo work:
 
@@ -239,21 +239,21 @@ available memory, and roughly `847 GB` of available disk. The single HNSW
 harness still reproduced the timeout and string-unwinding pattern under those
 conditions.
 
-## Recommended Execution Order
+## Recommended execution order
 
 1. **H1**: cheapest decisive reproduction of the suspected active harness.
 2. **H2**: code and log inspection explains the observed string-unwinding path.
 3. **H3**: verifies whether the recent dense SIMD work is directly implicated.
 4. **H4**: separates deterministic proof growth from local resource pressure.
 
-## Termination Criteria
+## Termination criteria
 
 - **Root cause narrowed**: One hypothesis survives its falsification test while
   the others are eliminated or downgraded.
 - **Escalation trigger**: All hypotheses are falsified, or the single-harness
   run reports a concrete Kani counter-example instead of non-completion.
 
-## Current Conclusion
+## Current conclusion
 
 The likely immediate blocker is the HNSW
 `verify_entry_point_validity_4_nodes` full-tier harness. The dense SIMD 2.2.7
@@ -262,7 +262,7 @@ obvious resource contention. The strongest surviving theory is that the HNSW
 harness construction leaves panic-capable paths available to Kani, causing CBMC
 to spend the budget in Rust `core::str` panic and slice-error formatting.
 
-## Notes for Executing Agent
+## Notes for executing agent
 
 - Run diagnostic commands sequentially; do not run Kani jobs in parallel.
 - Keep logs in `/tmp`, but do not use `/tmp` as a build target.

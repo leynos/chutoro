@@ -242,11 +242,12 @@ Use these skills:
   `has_no_self_loops`, `Node::iter_neighbours`, and `Graph::nodes_iter` paths.
   The next aggregate blocker is therefore the self-loop proof boundary, not the
   changes made in this follow-up fix.
-- [x] (2026-06-03) Follow-up CI fix: investigated an intermittent
-  `functional_ari_nmi` failure where the iris HNSW approximation produced ARI
-  `0.6160260800950458` against the exact baseline under CI coverage. The local
-  fix hardens the functional test with higher-recall deterministic HNSW
-  parameters and targeted coverage repeats passed with log
+- [x] (2026-06-03) Follow-up Continuous Integration (CI) fix: investigated an
+  intermittent `functional_ari_nmi` failure where the iris HNSW approximation
+  produced Adjusted Rand Index (ARI) `0.6160260800950458` against the exact
+  baseline under CI coverage. The local fix hardens the functional test with
+  higher-recall deterministic HNSW parameters and targeted coverage repeats
+  passed with log
   `/tmp/llvm-cov-nextest-functional-ari-nmi-case1-repeat-01fce9a3-5c00-42cb-946f-076de14bd644.out`.
 - [x] (2026-06-03) Follow-up validation: `make check-fmt`, `make lint`, and
   `make test` succeeded with logs
@@ -432,8 +433,9 @@ the timestamped progress entries above:
   2026-06-03 / Codex.
 
 - Decision: Harden the `functional_ari_nmi` approximate path with high-recall
-  HNSW parameters instead of lowering the iris ARI/NMI threshold. Rationale: the
-  CI failure showed a legitimate low-quality approximate graph on the fuzzy iris
+  HNSW parameters instead of lowering the iris ARI/Normalized Mutual Information
+  (NMI) threshold. Rationale: the CI failure showed a legitimate low-quality
+  approximate graph on the fuzzy iris
   dataset, while the test is intended to compare exact and approximate
   clustering quality. Stronger deterministic HNSW parameters preserve that
   quality contract and avoid accepting weaker clustering as success.

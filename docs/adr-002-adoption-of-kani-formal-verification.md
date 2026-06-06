@@ -4,6 +4,10 @@
 
 Accepted
 
+## Date
+
+2026-06-06
+
 ## Context
 
 The chutoro library implements an HNSW (Hierarchical Navigable Small World)
@@ -32,8 +36,8 @@ providing formal proofs of correctness for small configurations.
 
 Kani is adopted for formal verification of HNSW structural invariants and dense
 SIMD boundary contracts, starting with the bidirectional links invariant on
-bounded graph configurations and the dense SIMD selector and tail-padding
-invariants.
+bounded graph configurations and dense SIMD boundary contracts (including
+selector and tail-padding invariants).
 
 ### Implementation Approach
 
@@ -113,8 +117,10 @@ tests, with any proof effort focused on the pure host planner around them.
 
 - **CI integration deferred**: Initially manual invocation only; CI integration
   planned for a future phase once harness stability is validated
-- **Scope limited**: Only bidirectional invariant initially; other invariants
-  follow after validating the approach
+- **Scope limited**: Focus on the bidirectional links invariant on bounded graph
+  configurations and dense SIMD boundary contracts (including selector and
+  tail-padding invariants); other invariants follow after validating the
+  approach
 
 ## Findings to Date
 

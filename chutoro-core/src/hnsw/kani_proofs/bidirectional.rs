@@ -126,10 +126,11 @@ fn verify_bidirectional_links_commit_path_3_nodes() {
         "bidirectional invariant violated after commit-path reconciliation",
     );
 
-    let node_two_has_edge = graph
-        .node(2)
-        .map(|node| node.neighbours(1).contains(&0))
-        .unwrap_or(false);
+    let Some(node_two) = graph.node(2) else {
+        kani::assert(false, "node 2 must exist after commit-path reconciliation");
+        return;
+    };
+    let node_two_has_edge = node_two.neighbours(1).contains(&0);
     kani::assert(
         !node_two_has_edge,
         "deferred scrub should remove evicted forward edge",
