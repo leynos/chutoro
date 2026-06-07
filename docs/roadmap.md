@@ -308,7 +308,7 @@ ______________________________________________________________________
   compare scalar, AVX2, AVX-512, Neon, and optional nightly `std::simd` outputs
   within epsilon. Requires 2.2.3, 2.2.4, 2.2.5. (See `docs/chutoro-design.md`
   §6.3)
-- [ ] 2.2.7. Add bounded Kani harnesses for SIMD tail padding and runtime
+- [x] 2.2.7. Add bounded Kani harnesses for SIMD tail padding and runtime
   dispatch selection: prove that zero-padded tails never read past lane bounds
   and that the selector never chooses a backend that is absent at compile time
   or unavailable at runtime. Requires 2.2.3, 2.2.6. (See

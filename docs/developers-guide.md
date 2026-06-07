@@ -175,8 +175,8 @@ architectural rationale.
 
 Dense Euclidean backend parity tests live in
 `chutoro-providers/dense/src/simd/tests/parity/`. The suite compares each
-compiled and runtime-supported backend against the scalar oracle defined by
-the test-only `DistanceSemantics` value object.
+compiled and runtime-supported backend against the scalar oracle defined by the
+test-only `DistanceSemantics` value object.
 
 When adding a new dense SIMD backend or Euclidean kernel:
 
@@ -194,6 +194,35 @@ When adding a new dense SIMD backend or Euclidean kernel:
 If proptest records a regression, keep the generated file under the relevant
 `proptest-regressions/` directory. That file is the shrunk counterexample and
 should be treated as a regression guard, not as disposable local output.
+
+## Dense SIMD Kani harnesses
+
+Dense SIMD Kani harnesses live in
+`chutoro-providers/dense/src/simd/kani_proofs.rs` and are compiled only under
+`#[cfg(kani)]`. They prove boundary policy for the safe SIMD seams, not raw
+architecture intrinsics.
+
+When changing dense SIMD tail padding, lane batching, or runtime backend
+selection:
+
+1. Keep reusable arithmetic in production-used helpers, then prove those
+   helpers or their immediate call boundary. Avoid proof-only arithmetic that
+   can drift away from the kernels.
+2. Keep selector policy in `dispatch.rs::choose_euclidean_backend`; the Kani
+   harness proves every compile-time and runtime support-mask combination.
+3. Use `rstest` unit tests for concrete storage behaviour, especially
+   `DensePointView<'a>` alignment, 16-lane padding, and zero-filled unused
+   lanes.
+4. Run the practical Kani suite before requesting review:
+
+   ```sh
+   set -o pipefail
+   make kani 2>&1 | tee /tmp/kani-chutoro-$(git branch --show-current).out
+   ```
+
+`make kani-full` runs every Kani harness in `chutoro-core` and
+`chutoro-providers-dense`. Keep new dense harnesses small enough for
+`make kani` unless they are intentionally slow-lane proofs.
 
 ## Benchmarks
 
@@ -293,8 +322,8 @@ at the top of the `[lints.clippy]` section in `chutoro-benches/Cargo.toml`.
 
 ## Verus proofs
 
-Verus is used for formal verification of edge harvest primitives. Run proofs
-via `make verus`, which is idempotent and installs the pinned Verus release and
+Verus is used for formal verification of edge harvest primitives. Run proofs via
+ `make verus`, which is idempotent and installs the pinned Verus release and
 required Rust toolchain as needed.
 
 ### Quantifier trigger annotations

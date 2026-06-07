@@ -110,9 +110,11 @@ impl KaniUpdateContext {
 /// Returns `true` if every element appears exactly once.
 #[cfg(kani)]
 fn is_deduped(list: &[usize]) -> bool {
-    for (idx, value) in list.iter().enumerate() {
-        if list[idx + 1..].contains(value) {
-            return false;
+    for idx in 0..list.len() {
+        for candidate_idx in (idx + 1)..list.len() {
+            if list[idx] == list[candidate_idx] {
+                return false;
+            }
         }
     }
     true
@@ -121,25 +123,20 @@ fn is_deduped(list: &[usize]) -> bool {
 /// Assumes the node exists, exposes the requested level, and has a deduplicated
 /// neighbour list at that level.
 #[cfg(kani)]
-fn assume_node_has_level(
-    graph: &crate::hnsw::graph::Graph,
-    node_id: usize,
-    level: usize,
-    msg: &'static str,
-) {
+fn assume_node_has_level(graph: &crate::hnsw::graph::Graph, node_id: usize, level: usize) {
     let node = graph.node(node_id);
     let node_exists = node.is_some();
-    debug_assert!(node_exists, "{msg}: node must exist");
+    debug_assert!(node_exists, "Kani node must exist");
     kani::assume(node_exists);
 
     let level_valid = node.map(|node| level < node.level_count()).unwrap_or(false);
-    debug_assert!(level_valid, "{msg}: node must expose the requested level");
+    debug_assert!(level_valid, "Kani node must expose the requested level");
     kani::assume(level_valid);
 
     let neighbours_deduped = node
         .map(|node| is_deduped(node.neighbours(level)))
         .unwrap_or(false);
-    debug_assert!(neighbours_deduped, "{msg}: neighbours must be deduplicated");
+    debug_assert!(neighbours_deduped, "Kani neighbours must be deduplicated",);
     kani::assume(neighbours_deduped);
 }
 
@@ -147,7 +144,7 @@ fn assume_node_has_level(
 /// neighbours at that level.
 #[cfg(kani)]
 fn validate_new_node_for_kani(graph: &crate::hnsw::graph::Graph, new_node: &types::NewNodeContext) {
-    assume_node_has_level(graph, new_node.id, new_node.level, "Kani commit new node");
+    assume_node_has_level(graph, new_node.id, new_node.level);
 }
 
 /// Validates the origin node state, neighbour list structure, and target nodes
@@ -159,12 +156,7 @@ fn validate_update_for_kani(
     max_connections: usize,
 ) {
     let (staged, neighbours) = update;
-    assume_node_has_level(
-        graph,
-        staged.node,
-        staged.ctx.level,
-        "Kani commit update origin",
-    );
+    assume_node_has_level(graph, staged.node, staged.ctx.level);
 
     let deduped = is_deduped(neighbours.as_slice());
     debug_assert!(
@@ -271,7 +263,8 @@ pub(crate) fn apply_reconciled_update_for_kani(
     ctx: KaniUpdateContext,
     next: &mut Vec<usize>,
 ) {
-    assume_node_has_level(graph, ctx.origin, ctx.level, "Kani update origin");
+    assume_node_has_level(graph, ctx.origin, ctx.level);
+    next.retain(|&target| target != ctx.origin);
     let previous = graph
         .node(ctx.origin)
         .map(|node| node.neighbours(ctx.level).to_vec())
@@ -284,7 +277,7 @@ pub(crate) fn apply_reconciled_update_for_kani(
     debug_assert!(next_deduped, "Kani update next list must be deduplicated");
     kani::assume(next_deduped);
     for &target in next.iter() {
-        assume_node_has_level(graph, target, ctx.level, "Kani update target");
+        assume_node_has_level(graph, target, ctx.level);
     }
 
     let update_ctx = types::UpdateContext {
@@ -337,8 +330,8 @@ pub(crate) fn ensure_reverse_edge_for_kani(
     ctx: KaniUpdateContext,
     target: usize,
 ) -> bool {
-    assume_node_has_level(graph, ctx.origin, ctx.level, "Kani update origin");
-    assume_node_has_level(graph, target, ctx.level, "Kani update target");
+    assume_node_has_level(graph, ctx.origin, ctx.level);
+    assume_node_has_level(graph, target, ctx.level);
 
     let update_ctx = types::UpdateContext {
         origin: ctx.origin,

@@ -1,5 +1,6 @@
 //! x86 and x86_64 SIMD kernel implementations.
 
+use super::super::lane_output_count;
 use super::{DensePointView, finalize_distance, squared_l2_tail};
 
 #[cfg(target_arch = "x86")]
@@ -87,7 +88,7 @@ macro_rules! impl_euclidean_distance_query_points_x86_simd {
                 }
                 let mut lane = [0.0_f32; $lanes];
                 unsafe { x86_arch::$storeu(lane.as_mut_ptr(), acc) };
-                let remaining = out.len().saturating_sub(offset).min($lanes);
+                let remaining = lane_output_count(out.len(), offset, $lanes);
                 for lane_index in 0..remaining {
                     out[offset + lane_index] = finalize_distance(lane[lane_index].sqrt());
                 }

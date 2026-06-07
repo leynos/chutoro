@@ -101,6 +101,7 @@ impl<'a> DensePointView<'a> {
     /// Returns the zero-padded point count used for packed coordinate blocks.
     #[cfg(any(
         test,
+        kani,
         all(
             feature = "simd_avx2",
             any(target_arch = "x86", target_arch = "x86_64")
@@ -149,6 +150,6 @@ impl<'a> DensePointView<'a> {
     }
 }
 
-fn padded_point_count(point_count: usize) -> usize {
+pub(super) fn padded_point_count(point_count: usize) -> usize {
     point_count.next_multiple_of(MAX_SIMD_LANES)
 }

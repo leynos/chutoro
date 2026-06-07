@@ -2,6 +2,7 @@
 
 use std::simd::Simd;
 
+use super::super::lane_output_count;
 use super::{DensePointView, finalize_distance, squared_l2_tail};
 
 const PORTABLE_SIMD_LANES: usize = 16;
@@ -40,7 +41,7 @@ pub(super) fn euclidean_distance_query_points_portable_simd_entry(
             acc += delta * delta;
         }
 
-        let remaining = out.len().saturating_sub(offset).min(PORTABLE_SIMD_LANES);
+        let remaining = lane_output_count(out.len(), offset, PORTABLE_SIMD_LANES);
         for (lane_index, value) in acc.to_array().into_iter().take(remaining).enumerate() {
             out[offset + lane_index] = finalize_distance(value.sqrt());
         }

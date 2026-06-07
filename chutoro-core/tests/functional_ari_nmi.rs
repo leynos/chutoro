@@ -5,14 +5,16 @@
 //! close to an exact baseline computed from the full mutual-reachability graph
 //! on small public datasets.
 
+use std::error::Error;
+use std::io;
 use std::num::NonZeroUsize;
 
 use rstest::rstest;
 
 use chutoro_core::{
-    CandidateEdge, DataSource, DataSourceError, EdgeHarvest, HierarchyConfig, MetricDescriptor,
-    adjusted_rand_index, extract_labels_from_mst, normalized_mutual_information, parallel_kruskal,
-    run_cpu_pipeline,
+    CandidateEdge, CpuHnsw, DataSource, DataSourceError, EdgeHarvest, HierarchyConfig, HnswParams,
+    MetricDescriptor, adjusted_rand_index, extract_labels_from_mst, normalized_mutual_information,
+    parallel_kruskal,
 };
 
 fn parse_csv_rows(input: &str, dims: usize) -> Vec<Vec<f32>> {
@@ -94,7 +96,10 @@ impl DataSource for DenseVectors {
     }
 }
 
-fn core_distances_exact<D: DataSource>(source: &D, min_cluster_size: usize) -> Vec<f32> {
+fn core_distances_exact<D: DataSource>(
+    source: &D,
+    min_cluster_size: usize,
+) -> Result<Vec<f32>, Box<dyn Error>> {
     let n = source.len();
     let mut core = vec![0.0_f32; n];
     for (i, core_value) in core.iter_mut().enumerate() {
@@ -103,7 +108,7 @@ fn core_distances_exact<D: DataSource>(source: &D, min_cluster_size: usize) -> V
             if i == j {
                 continue;
             }
-            distances.push(source.distance(i, j).expect("distance must succeed"));
+            distances.push(source.distance(i, j)?);
         }
         distances.sort_by(|a, b| a.total_cmp(b));
         *core_value = distances
@@ -114,44 +119,90 @@ fn core_distances_exact<D: DataSource>(source: &D, min_cluster_size: usize) -> V
             .or_else(|| distances.last().copied())
             .unwrap_or(0.0);
     }
-    core
+    Ok(core)
 }
 
-fn complete_mutual_reachability_edges<D: DataSource>(source: &D, core: &[f32]) -> EdgeHarvest {
+fn complete_mutual_reachability_edges<D: DataSource>(
+    source: &D,
+    core: &[f32],
+) -> Result<EdgeHarvest, Box<dyn Error>> {
     let n = source.len();
     let mut edges = Vec::new();
     let mut seq = 0u64;
     for i in 0..n {
         for j in (i + 1)..n {
-            let dist = source.distance(i, j).expect("distance must succeed");
+            let dist = source.distance(i, j)?;
             let weight = dist.max(core[i]).max(core[j]);
             edges.push(CandidateEdge::new(i, j, weight, seq));
             seq += 1;
         }
     }
-    EdgeHarvest::new(edges)
+    Ok(EdgeHarvest::new(edges))
 }
 
-fn exact_pipeline<D: DataSource>(source: &D, min_cluster_size: NonZeroUsize) -> Vec<usize> {
-    let core = core_distances_exact(source, min_cluster_size.get());
-    let edges = complete_mutual_reachability_edges(source, &core);
-    let forest = parallel_kruskal(source.len(), &edges).expect("exact MST should succeed");
-    extract_labels_from_mst(
+fn exact_pipeline<D: DataSource>(
+    source: &D,
+    min_cluster_size: NonZeroUsize,
+) -> Result<Vec<usize>, Box<dyn Error>> {
+    let core = core_distances_exact(source, min_cluster_size.get())?;
+    let edges = complete_mutual_reachability_edges(source, &core)?;
+    let forest = parallel_kruskal(source.len(), &edges)?;
+    Ok(extract_labels_from_mst(
         source.len(),
         forest.edges(),
         HierarchyConfig::new(min_cluster_size),
-    )
-    .expect("exact hierarchy extraction should succeed")
+    )?)
 }
 
-fn approx_pipeline<D: DataSource + Sync>(source: &D, min_cluster_size: NonZeroUsize) -> Vec<usize> {
-    let result =
-        run_cpu_pipeline(source, min_cluster_size).expect("approx pipeline should succeed");
-    result
-        .assignments()
+fn high_recall_hnsw_params() -> Result<HnswParams, Box<dyn Error>> {
+    Ok(HnswParams::new(32, 128)?.with_rng_seed(0x1A11_CE5E))
+}
+
+fn approx_pipeline<D: DataSource + Sync>(
+    source: &D,
+    min_cluster_size: NonZeroUsize,
+) -> Result<Vec<usize>, Box<dyn Error>> {
+    let params = high_recall_hnsw_params()?;
+    let (index, harvested) = CpuHnsw::build_with_edges(source, params.clone())?;
+    let items = source.len();
+    let desired = min_cluster_size
+        .get()
+        .saturating_add(1)
+        .max(params.ef_construction())
+        .min(items);
+    let ef = NonZeroUsize::new(desired)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "ef must be non-zero"))?;
+
+    let mut core_distances = Vec::with_capacity(items);
+    for point in 0..items {
+        let neighbours = index.search(source, point, ef)?;
+        let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
+        let core = if others.len() >= min_cluster_size.get() {
+            others[min_cluster_size.get() - 1].distance
+        } else {
+            others.last().map(|n| n.distance).unwrap_or(0.0)
+        };
+        core_distances.push(core);
+    }
+
+    let mutual_edges: Vec<CandidateEdge> = harvested
         .iter()
-        .map(|id| usize::try_from(id.get()).expect("cluster identifiers fit usize"))
-        .collect()
+        .map(|edge| {
+            let left = edge.source();
+            let right = edge.target();
+            let dist = edge.distance();
+            let weight = dist.max(core_distances[left]).max(core_distances[right]);
+            CandidateEdge::new(left, right, weight, edge.sequence())
+        })
+        .collect();
+    let mutual_harvest = EdgeHarvest::new(mutual_edges);
+
+    let forest = parallel_kruskal(items, &mutual_harvest)?;
+    Ok(extract_labels_from_mst(
+        items,
+        forest.edges(),
+        HierarchyConfig::new(min_cluster_size),
+    )?)
 }
 
 #[test]
@@ -245,16 +296,20 @@ fn hnsw_pipeline_matches_exact_baseline(
     #[case] min_cluster_size: usize,
     #[case] min_ari: f64,
     #[case] min_nmi: f64,
-) {
+) -> Result<(), Box<dyn Error>> {
     let rows = parse_csv_rows(dataset.data, dataset.dims);
     let source = DenseVectors::new("euclidean", rows);
     assert_eq!(source.dim(), dataset.dims);
 
-    let min_cluster_size =
-        NonZeroUsize::new(min_cluster_size).expect("min_cluster_size must be non-zero");
+    let min_cluster_size = NonZeroUsize::new(min_cluster_size).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "min_cluster_size must be non-zero",
+        )
+    })?;
 
-    let exact = exact_pipeline(&source, min_cluster_size);
-    let approx = approx_pipeline(&source, min_cluster_size);
+    let exact = exact_pipeline(&source, min_cluster_size)?;
+    let approx = approx_pipeline(&source, min_cluster_size)?;
 
     let ari = adjusted_rand_index(&exact, &approx).expect("ARI should compute");
     let nmi = normalized_mutual_information(&exact, &approx).expect("NMI should compute");
@@ -277,4 +332,5 @@ fn hnsw_pipeline_matches_exact_baseline(
         exact.iter().copied().max().unwrap_or(0) + 1,
         approx.iter().copied().max().unwrap_or(0) + 1
     );
+    Ok(())
 }

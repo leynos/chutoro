@@ -2,6 +2,13 @@
 
 use std::sync::OnceLock;
 
+const EUCLIDEAN_SIMD_BACKEND_PRIORITY: [EuclideanBackend; 4] = [
+    EuclideanBackend::Avx512,
+    EuclideanBackend::Avx2,
+    EuclideanBackend::Neon,
+    EuclideanBackend::PortableSimd,
+];
+
 /// Euclidean distance backend chosen for the current build and machine.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum EuclideanBackend {
@@ -109,16 +116,11 @@ pub(super) fn runtime_simd_support() -> RuntimeSimdSupport {
 pub(super) fn enabled_backends() -> Vec<EuclideanBackend> {
     let compiled = compiled_simd_support();
     let runtime = runtime_simd_support();
-    [
-        EuclideanBackend::Avx512,
-        EuclideanBackend::Avx2,
-        EuclideanBackend::Neon,
-        EuclideanBackend::PortableSimd,
-        EuclideanBackend::Scalar,
-    ]
-    .into_iter()
-    .filter(|backend| backend_supported(&compiled, &runtime, *backend))
-    .collect()
+    EUCLIDEAN_SIMD_BACKEND_PRIORITY
+        .into_iter()
+        .chain([EuclideanBackend::Scalar])
+        .filter(|backend| backend_supported(&compiled, &runtime, *backend))
+        .collect()
 }
 
 /// Chooses the best Euclidean backend available to both compile-time and
@@ -132,23 +134,24 @@ pub(super) fn choose_euclidean_backend(
     compiled: CompiledSimdSupport,
     runtime: RuntimeSimdSupport,
 ) -> EuclideanBackend {
-    for backend in [
-        EuclideanBackend::Avx512,
-        EuclideanBackend::Avx2,
-        EuclideanBackend::Neon,
-        EuclideanBackend::PortableSimd,
-        EuclideanBackend::Scalar,
-    ] {
-        if backend_supported(&compiled, &runtime, backend) {
+    select_backend(&compiled, &runtime)
+}
+
+fn select_euclidean_backend() -> EuclideanBackend {
+    choose_euclidean_backend(compiled_simd_support(), runtime_simd_support())
+}
+
+fn select_backend(
+    compiled: &CompiledSimdSupport,
+    runtime: &RuntimeSimdSupport,
+) -> EuclideanBackend {
+    for backend in EUCLIDEAN_SIMD_BACKEND_PRIORITY {
+        if backend_supported(compiled, runtime, backend) {
             return backend;
         }
     }
 
     EuclideanBackend::Scalar
-}
-
-fn select_euclidean_backend() -> EuclideanBackend {
-    choose_euclidean_backend(compiled_simd_support(), runtime_simd_support())
 }
 
 fn backend_supported(
