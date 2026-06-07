@@ -2,6 +2,7 @@
 
 use super::{add_bidirectional_edge, push_if_absent};
 use crate::hnsw::{
+    error::HnswError,
     graph::{EdgeContext, Graph, NodeContext},
     insert::{
         FinalisedUpdate, KaniUpdateContext, NewNodeContext, StagedUpdate,
@@ -50,6 +51,37 @@ fn verify_bidirectional_links_smoke_2_nodes_1_layer() {
     );
 }
 
+/// Builds the 3-node, 2-level graph used by the commit-path harness.
+///
+/// Inserts nodes 0, 1, and 2 at level 1 and seeds a bidirectional edge
+/// between nodes 0 and 2 so that node 0's level-1 neighbour list is at
+/// capacity before the commit path runs.
+///
+/// Returns `(graph, max_connections)` on success.
+fn setup_commit_path_graph() -> Result<(Graph, usize), HnswError> {
+    let params = HnswParams::new(1, 2)?;
+    let max_connections = params.max_connections();
+    let mut graph = Graph::with_capacity(params, 3);
+    graph.insert_first(NodeContext {
+        node: 0,
+        level: 1,
+        sequence: 0,
+    })?;
+    graph.attach_node(NodeContext {
+        node: 1,
+        level: 1,
+        sequence: 1,
+    })?;
+    graph.attach_node(NodeContext {
+        node: 2,
+        level: 1,
+        sequence: 2,
+    })?;
+    add_edge_if_missing(&mut graph, 0, 2, 1);
+    add_edge_if_missing(&mut graph, 2, 0, 1);
+    Ok((graph, max_connections))
+}
+
 /// Verifies that HNSW graph edges are bidirectional (symmetric).
 ///
 /// This harness drives the production commit-path reconciliation logic to
@@ -76,36 +108,11 @@ fn verify_bidirectional_links_smoke_2_nodes_1_layer() {
 #[kani::proof]
 #[kani::unwind(10)]
 fn verify_bidirectional_links_commit_path_3_nodes() {
-    // Use max_connections = 1 so level 1 has capacity 1 and can evict.
-    let params = HnswParams::new(1, 2).expect("params must be valid");
-    let max_connections = params.max_connections();
-    let mut graph = Graph::with_capacity(params, 3);
+    let Ok((mut graph, max_connections)) = setup_commit_path_graph() else {
+        kani::assert(false, "commit-path graph setup must succeed");
+        return;
+    };
 
-    graph
-        .insert_first(NodeContext {
-            node: 0,
-            level: 1,
-            sequence: 0,
-        })
-        .expect("insert node 0");
-    graph
-        .attach_node(NodeContext {
-            node: 1,
-            level: 1,
-            sequence: 1,
-        })
-        .expect("attach node 1");
-    graph
-        .attach_node(NodeContext {
-            node: 2,
-            level: 1,
-            sequence: 2,
-        })
-        .expect("attach node 2");
-
-    // Seed node 0's level-1 neighbour list so it is at capacity with node 2.
-    add_edge_if_missing(&mut graph, 0, 2, 1);
-    add_edge_if_missing(&mut graph, 2, 0, 1);
     let Some(node_zero) = graph.node(0) else {
         kani::assert(false, "node 0 must exist after seeding commit-path edge");
         return;
