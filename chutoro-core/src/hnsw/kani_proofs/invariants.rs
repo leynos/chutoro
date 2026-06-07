@@ -1,5 +1,7 @@
 //! Invariant-model Kani harnesses for bounded HNSW graph state.
 
+use std::collections::HashSet;
+
 use crate::hnsw::{
     graph::{Graph, NodeContext},
     insert::{KaniUpdateContext, apply_reconciled_update_for_kani},
@@ -58,11 +60,10 @@ fn setup_four_node_graph(params: HnswParams) -> Option<Graph> {
 }
 
 fn slice_has_no_duplicates(neighbours: &[usize]) -> bool {
-    for idx in 0..neighbours.len() {
-        for candidate_idx in (idx + 1)..neighbours.len() {
-            if neighbours[idx] == neighbours[candidate_idx] {
-                return false;
-            }
+    let mut seen = HashSet::new();
+    for &neighbour in neighbours {
+        if !seen.insert(neighbour) {
+            return false;
         }
     }
     true
