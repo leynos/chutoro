@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: DRAFT (revised after community-of-experts review)
 
 Roadmap item: 2.3.1 (Phase 2.3, Hot-path optimizations). See `docs/roadmap.md`
 lines 319-321 and `docs/chutoro-design.md` §6.3 (lines 887-963).
@@ -16,319 +16,399 @@ chutoro builds a CPU Hierarchical Navigable Small World (HNSW) graph to harvest
 candidate edges for clustering. The hot path is *neighbour evaluation*: for each
 node visited during search and insertion, the engine reads that node's
 neighbour list and computes the distance from a query point to every neighbour,
-then keeps the closest. Roadmap item 2.3.1 asks us to make that evaluation
-cache-friendly and lock-friendly: operate on *packed* candidate indices and a
-*structure-of-arrays* (SoA) coordinate layout, *prefetch* upcoming coordinate
-blocks to hide memory latency, and compute scores *outside the write lock* so
-concurrent readers are not blocked while distances are computed.
+then keeps the closest. Roadmap item 2.3.1 asks that this evaluation use *packed*
+candidate indices and a *structure-of-arrays* (SoA) coordinate layout, *prefetch*
+upcoming coordinate blocks, and score *outside the write lock*.
+
+Reconnaissance (recorded under `Surprises & discoveries`) shows that the
+*structural* intent of 2.3.1 is already realised by Phase 2.2 (SIMD kernels) and
+the existing two-phase locking design — but with one genuinely unrealised seam
+(a pack→unpack→repack round-trip at the port) and a measurement question
+(whether any residual hot-path win actually exists once the distance cache
+fragments batches). This plan therefore reframes 2.3.1 around **evidence**, not
+motion. It has two scopes:
+
+1. **Committed scope (always delivered).** Prove and document the realised
+   intent: a regression guard that distance scoring never runs under the write
+   lock; an implementation-update to `docs/chutoro-design.md` §6.3 explaining
+   how 2.2.x satisfies the layout/locking structure; an Architecture Decision
+   Record (ADR) recording the adapter boundary and the deferred structural
+   alternatives; and a measurement harness (a `neighbour_scoring` Criterion
+   benchmark — also the canonical artefact for roadmap 2.4.1) that quantifies
+   the real candidate-set-size distribution, the cache-miss-subset distribution,
+   the share of build wall-time spent scoring, and distance-cache lock
+   contention.
+2. **Conditional scope (delivered only on evidence).** Three hot-path deltas —
+   core-side allocation hygiene (E1), SoA packing-buffer reuse plus its required
+   query-centric port override (E2), and packing-step prefetch (E3) — each
+   implemented **only if** the committed-scope measurement clears a
+   pre-registered threshold. If the evidence does not clear the bar, the correct
+   and expected outcome is that the committed scope ships and E1-E3 do not. That
+   is a success, not a shortfall.
 
 After this change a developer can:
 
-1. Run `make bench` (or the focused Criterion harness `cargo bench -p
-   chutoro-benches --bench neighbour_scoring`) and see a microbenchmark that
-   buckets neighbour-set scoring by candidate-set size, with a documented
-   before/after comparison captured via `critcmp`.
-2. Run the `hyperfine`-based whole-binary comparison script
-   (`scripts/bench-neighbour-scoring.sh`) and observe end-to-end HNSW build
-   wall-time for the baseline binary versus the optimised binary on a fixed
-   synthetic dataset, with statistical output.
-3. Read `docs/chutoro-design.md` §6.3 and `docs/developers-guide.md` and find
-   the SoA/packed-index/prefetch contract documented, including the invariant
-   that distance scoring never runs while the graph write lock is held, and the
-   regression test that proves it.
+1. Run `cargo bench -p chutoro-benches --bench neighbour_scoring` and see
+   neighbour-set scoring bucketed by the candidate-set sizes that *actually
+   occur* in the HNSW hot path (≈ 8-48), with cycle-count and per-bucket SoA
+   lane-utilisation data, not just wall-time.
+2. Read `docs/chutoro-design.md` §6.3, `docs/developers-guide.md`, and
+   `docs/adr-003-soa-prefetch-adapter-boundary.md` and find documented: how
+   2.2.x satisfies 2.3.1's layout/locking structure, the cache-fragmentation
+   reality, the invariant that scoring never runs under the write lock and the
+   test that proves it, and the deferred structural levers with their
+   trade-offs.
+3. See clustering output **unchanged** under fixed seeds — every delta is
+   behaviour-preserving, proven by the existing search-correctness, idempotency,
+   mutation, and backend-parity suites plus the new write-lock guard.
 
-Crucially, clustering output is **unchanged**: the optimisation is
-behaviour-preserving under fixed seeds. Success is *faster or equal* neighbour
-scoring with *identical* neighbour selection, proven by the existing search
-correctness, idempotency, and backend-parity suites plus a new write-lock
-invariant guard.
+### What is already realised vs genuinely residual (read before estimating)
 
-### Honest scope note (read before estimating)
-
-Much of 2.3.1's headline intent was already delivered by Phase 2.2 (SIMD
-distance kernels) and the existing two-phase locking design. Specifically:
+Confirmed by reading the code (file:line cited in `Surprises & discoveries`):
 
 - **Scoring already happens outside the write lock.** `InsertionPlanner::plan`
-  (`chutoro-core/src/hnsw/insert/planner.rs:78`) scores candidates under the
-  *read* lock; `CpuHnsw::score_trim_jobs`
-  (`chutoro-core/src/hnsw/cpu/trim.rs:65`) scores trim candidates with **no
-  lock held**, in parallel via Rayon, between the two write-lock phases of
-  `insert_with_collector` (`chutoro-core/src/hnsw/cpu/mod.rs:364-419`). No
-  distance computation occurs under the write lock today.
+  (`insert/planner.rs:78`) scores under the *read* lock;
+  `CpuHnsw::score_trim_jobs` (`cpu/trim.rs:65`) scores with **no lock held**, in
+  parallel via Rayon; neither `write_graph` closure in `insert_with_collector`
+  (`cpu/mod.rs:402-416`) computes a distance. This is the plan's strongest,
+  most durable deliverable (committed scope C1).
 - **SoA scoring already exists** as an adapter detail: `DenseMatrixProvider`
-  packs query-centric candidate batches into a 64-byte-aligned, 16-lane-padded,
-  dimension-major SoA `DensePointView`
-  (`chutoro-providers/dense/src/simd/point_view.rs`) inside `batch_distances`,
-  then runs AVX-512/AVX2/Neon/scalar kernels.
-- **Candidate ids are already packed** contiguous `&[usize]` slices at the
-  `DataSource::batch_distances(query, candidates)` port.
+  reaches a 64-byte-aligned, 16-lane-padded, dimension-major SoA `DensePointView`
+  (`dense/src/simd/point_view.rs`) and AVX-512/AVX2/Neon/scalar kernels.
 
-Therefore this plan does **not** re-architect locking or invent a new SoA type.
-The genuine, measurable residual deltas are:
+Genuinely unrealised or unmeasured (the residual the panel surfaced):
 
-- **D1 — Provider-internal prefetch** of upcoming candidate coordinate blocks,
-  `cfg`-gated to x86_64 and behind a non-default `simd_prefetch` feature, with
-  a no-op fallback elsewhere.
-- **D2 — SoA packing-buffer reuse** so `DensePointView::from_row_indices` stops
-  allocating a fresh `PackedSoaStorage` per batch in the hot path.
-- **D3 — Core-side hot-path allocation hygiene**: reuse scratch buffers for the
-  per-node candidate list and distance output in `LayerSearcher::search_layer`
-  and the trim path, keeping candidate ids packed and contiguous.
-- **D4 — Write-lock invariant guard**: a deterministic regression test proving
-  distance scoring never runs while the graph write lock is held, plus
-  documentation of the invariant.
-- **D5 — Benchmark evidence**: a Criterion neighbour-scoring microbenchmark
-  bucketed by candidate-set size and a `hyperfine` whole-binary before/after
-  comparison, proving the win — or honestly reporting its absence at a go/no-go
-  gate.
+- **The "packed indices" round-trip.** The dense provider does **not** override
+  `DataSource::batch_distances` (it overrides only `distance` and
+  `distance_batch`, `provider.rs:137,143`). So core's *default*
+  `batch_distances` (`datasource.rs:161-177`) turns the packed `&[usize]` into a
+  fresh `Vec<(usize,usize)>` of pairs, then `shared_query_candidates`
+  (`dense/src/simd/mod.rs:195-213`) scans those pairs to *re-derive* the shared
+  query and re-collects a fresh candidate `Vec`, before `from_row_indices`
+  (`point_view.rs:68`) allocates `PackedSoaStorage`. The roadmap item is
+  literally titled "use packed indices"; structurally the code packs, unpacks to
+  pairs, then repacks every call. This is the clearest unrealised seam (E2's
+  prerequisite).
+- **The distance cache fragments batches.** The cache is present on *both* the
+  insertion and search paths (`Some(cache)` at `cpu/mod.rs:394,456,466`). So the
+  slice that actually reaches `batch_distances` is the cache-*miss* subset
+  (`validate.rs:123-127`, `helpers.rs:134-151`), not the full ≤ `2M` neighbour
+  list. As the cache warms, miss subsets routinely fall below
+  `should_pack_query_points`'s `candidate_count > 1` threshold
+  (`dense/src/simd/mod.rs:163-173`) and drop to the scalar path. D1/D2/D3 only
+  matter where miss counts are routinely large enough to pack — which must be
+  *measured*, not assumed.
+- **Prefetch has no obvious target in the kernel.** The SoA layout is
+  dimension-major (`point_view.rs:82`), so the kernel already streams contiguous
+  per-dimension blocks (hardware-prefetcher territory). The only scattered
+  gather is `matrix.row(index)` during *packing* (`point_view.rs:79-84`). So
+  prefetch, if it helps anywhere, belongs in the pack step, and is likely a
+  no-op at realistic batch sizes (E3 is conditional and structurally suspect).
 
-If measurement at Milestone 0 shows a delta is not worth its complexity (very
-plausible for D1 prefetch, per the research below), that delta is dropped and
-the decision recorded, not forced through.
+### Deferred to a separate, evidence-first optimisation item (NOT built here)
+
+The strongest measured wins are structural and out of scope for 2.3.1; they are
+recorded in ADR-003 and proposed as a new roadmap item rather than smuggled in:
+
+- **Cross-node "beam" scoring** — accumulate candidates from multiple popped
+  nodes in `search_layer` into one packing+scoring call, widening the window
+  from ≈ `2M` to hundreds. This touches core search *policy* and must preserve
+  deterministic best-first visitation order; larger blast radius.
+- **Secondary dimension-major (SoA) matrix copy** held once at provider
+  construction, so `from_row_indices` becomes a strided gather with no per-call
+  transpose and no packing buffer — trading ~1× memory to eliminate the path E2
+  optimises incrementally.
+- **`batch_distances_into` out-buffer reuse** — only meaningful if a
+  query-centric override exists and the cache's indexed-scatter consumption is
+  redesigned; otherwise it saves nothing on the cached path and penalises
+  non-overriding providers (e.g. text).
 
 ## Constraints
 
-Hard invariants that must hold throughout implementation. Violation requires
-escalation, not a workaround.
+Hard invariants. Violation requires escalation, not a workaround.
 
 1. **Behaviour preservation.** Clustering output and HNSW neighbour selection
-   must be byte-for-byte identical under fixed seeds, before and after. The
-   deterministic tie-break (distance, then lower item id, then insertion
-   sequence; see `docs/roadmap.md` 1.1.2 and `chutoro-core/src/hnsw/search.rs`
-   `compare_neighbours`) must be preserved exactly.
-2. **Hexagonal boundary.** The SoA coordinate layout, SIMD kernels, prefetch
-   intrinsics, and `DensePointView` must remain an *adapter* detail private to
-   `chutoro-providers/dense` (`pub(crate)`). They must **not** be exposed across
-   the crate boundary into `chutoro-core`. Domain/policy logic (which
-   candidates to score, packed-index iteration, deterministic ordering,
-   lock discipline) stays in `chutoro-core`; coordinate packing, prefetch, and
-   vectorisation stay behind the `DataSource` port. See the
-   `hexagonal-architecture` skill.
-3. **Public API stability.** The public `DataSource` trait
-   (`chutoro-core/src/datasource.rs`), `CpuHnsw` public methods, and the CLI
-   surface must remain source-compatible. Any new trait method must be a
-   *defaulted* (non-breaking) addition, and adding one triggers the Tolerances
-   escalation below.
-4. **No scoring under the write lock.** Distance computation must never run
-   while a `RwLockWriteGuard<Graph>` is held. This is both a constraint and a
-   tested invariant (D4).
-5. **MSRV and toolchain.** Stable Rust only on the default build path; MSRV
-   `1.89.0`, pinned toolchain `1.93.1` (`rust-toolchain.toml`). `_mm_prefetch`
-   is stable since 1.27 and safe to call, so D1 needs no `unsafe` for the call
-   itself and no nightly. The optional nightly `std::simd` path is out of scope.
+   must be identical under fixed seeds, before and after. The deterministic
+   tie-break (distance, then lower item id, then insertion sequence;
+   `search.rs` `compare_neighbours`; `docs/roadmap.md` 1.1.2) must be preserved
+   exactly.
+2. **Hexagonal boundary.** The SoA layout, SIMD kernels, prefetch intrinsics,
+   and `DensePointView`/`PackedSoaStorage` remain an *adapter* detail private to
+   `chutoro-providers/dense` (`pub(crate)`). Domain/policy logic (which
+   candidates to score, packed-index iteration, deterministic ordering, lock
+   discipline) stays in `chutoro-core` behind the `DataSource` port. The only
+   sanctioned cross-boundary change is *adding* a defaulted query-centric port
+   method (E2 prerequisite); the adapter's internal SoA types never leak into
+   core. See the `hexagonal-architecture` skill.
+3. **Public API stability.** Any new `DataSource` trait method must be
+   *defaulted* and non-breaking; existing impls (dense, text, synthetic) must
+   keep compiling unchanged. `CpuHnsw` public methods and the CLI surface are
+   unchanged.
+4. **No scoring under the write lock.** Distance computation must never run while
+   a `RwLockWriteGuard<Graph>` is held *on the current thread*. This is both a
+   constraint and a tested invariant (C1).
+5. **MSRV and toolchain.** Stable Rust on the default build path; MSRV `1.89.0`,
+   pinned toolchain `1.93.1`. `_mm_prefetch` is stable since 1.27 and safe to
+   call. The optional nightly `std::simd` path is out of scope.
 6. **Quality gates.** `make check-fmt`, `make lint` (clippy `-D warnings`), and
-   `make test` must pass before every commit. Lints must not be silenced except
-   as a tightly-scoped, justified last resort (see `AGENTS.md`).
-7. **File size.** No source file may exceed 400 lines (`AGENTS.md`); extract
-   helpers and colocate by feature.
+   `make test` pass before every commit; markdown changes also pass
+   `make markdownlint` (and `make nixie` if Mermaid changes). Lints are not
+   silenced except as a tightly-scoped, justified last resort.
+7. **File size.** No source file exceeds 400 lines (`AGENTS.md`). `search.rs` is
+   already 369 lines; any E1 work must first extract a sibling module
+   (Constraint enforced as a milestone validation step).
 
 ## Tolerances (exception triggers)
 
 Stop and escalate (do not work around) when:
 
 1. **Scope.** A milestone requires changing more than ~6 source files or ~400
-   net lines of code beyond what that milestone's plan names.
+   net lines beyond what that milestone names.
 2. **Interface.** Any *non-defaulted* change to the public `DataSource` trait,
-   `CpuHnsw`, or CLI is required. (Adding D2b's optional defaulted
-   `batch_distances_into` is pre-authorised but must still be flagged in the
-   `Decision Log`.)
-3. **Dependencies.** Any new external crate is required. (None is anticipated;
-   prefetch uses `core::arch`.)
-4. **Behaviour drift.** Any existing test that asserts neighbour selection,
-   recall, parity, or determinism changes its expected output. This must never
-   happen; if it does, stop immediately.
-5. **No measurable win.** If Milestone 0 plus a milestone's own benchmark shows
-   that milestone produces no statistically significant improvement (Criterion
-   reports the change within noise, or a regression), stop and present the
-   go/no-go decision rather than merging speculative complexity.
+   `CpuHnsw`, or CLI is required.
+3. **Dependencies.** Any new external crate is required (none anticipated;
+   prefetch uses `core::arch`; cycle counts use the existing toolchain or
+   `perf`/`cachegrind`/`iai` which are dev-time tools, not crate deps — confirm
+   `iai`/`iai-callgrind` policy before adding it as a dev-dependency and flag in
+   the Decision Log if used).
+4. **Behaviour drift.** Any existing test asserting neighbour selection, recall,
+   parity, or determinism changes its expected output. This must never happen.
+5. **Evidence gate not cleared.** If committed-scope measurement (C4) does not
+   clear the pre-registered keep threshold for a conditional delta, that delta is
+   **not implemented**; stop and record the null result (this is an accepted
+   outcome, not an escalation, but it must be documented in `Outcomes`).
 6. **Iterations.** If a milestone's tests still fail after 3 focused attempts,
    stop and escalate.
-7. **Prefetch regression.** If enabling `simd_prefetch` regresses any bucket of
-   the neighbour-scoring microbenchmark on the target host, abandon D1 and
-   record the result (the research predicts this is likely).
+7. **Regression masquerading as noise.** If a conditional delta shows any
+   regression on the cycle-count cross-check at the realistic buckets, drop it;
+   never keep a delta on "within wall-time noise".
 
 ## Risks
 
-1. Risk: **Prefetch yields no win or a regression.**
+1. Risk: **Closed with motion, not measurement** — a feature flag, ADR, bench,
+   and scratch buffers ship but build wall-time is unchanged because batches were
+   always cache-miss-subset-narrow and the distance-cache `Mutex` was the real
+   bound. (Pre-mortem A.)
+   Severity: high. Likelihood: medium.
+   Mitigation: committed scope is C1-C4 only; E1-E3 gate on a pre-registered C4
+   threshold derived from the *measured* miss-subset distribution; pre-author the
+   null-result §6.3 update and Outcomes entry so "committed-scope-only" is a
+   first-class success.
+2. Risk: **Reuse buffer poisons a warm-cache build** — `PackedSoaStorage` reuse
+   leaves NaN/Inf in the padded tail; a later smaller batch reads stale lanes;
+   active-lane output is preserved most of the time, so a naive single-batch
+   test passes and a non-reproducible determinism break ships. (Pre-mortem B.)
+   Severity: high. Likelihood: low-medium.
+   Mitigation: mandate the adversarial large-then-small reuse test with NaN/Inf
+   trailing rows asserting bit-exact `0.0` tails; extend the 2.2.7 tail-padding
+   Kani harness to the reused-buffer path; forbid shared scratch; `debug_assert`
+   scratch is reset before refill.
+3. Risk: **A real regression waved through as noise** on the contended 6-core
+   host. (Pre-mortem C.)
+   Severity: medium. Likelihood: medium.
+   Mitigation: cycle/instruction count is the *primary* keep/drop signal;
+   explicit minimum effect size; pin `RAYON_NUM_THREADS`; a documented
+   load-average gate at capture time; "within noise" = drop-by-default for any
+   code-adding delta.
+4. Risk: **The optimised window is structurally too small** — per-node batches
+   are ≈ `2M` (16-48), fragmented further to cache-miss subsets, with 16-lane
+   padding wasting 30-47% at those sizes — so SoA packing overhead cancels the
+   SIMD win and prefetch has nothing to hide.
    Severity: medium. Likelihood: high.
-   Mitigation: D1 is a prototyping milestone behind a non-default feature with
-   an explicit go/no-go gate; the default build is unaffected if it is dropped.
-   The research (Lemire; parallel-rust-cpp; Algorithmica) shows software
-   prefetch "fails more often than not" against modern hardware prefetchers and
-   deep out-of-order windows, and can perturb the optimizer (register
-   spilling).
-2. Risk: **The allocation deltas (D2/D3) are dwarfed by distance arithmetic** so
-   removing them shows no wall-time change.
+   Mitigation: this is exactly what C4 measures; E1-E3 proceed only if the data
+   contradicts it; the real structural lever (cross-node beam) is deferred to a
+   separate item.
+5. Risk: **Benchmark noise / AVX throttling / denormals** mask effects.
    Severity: medium. Likelihood: medium.
-   Mitigation: Milestone 0 measures allocation cost first (via a Criterion
-   microbenchmark and an allocation-count assertion); proceed only where the
-   cost is real.
-3. Risk: **A scratch-buffer reuse subtly changes ordering or reuses stale data**
-   across iterations, breaking determinism.
-   Severity: high. Likelihood: low.
-   Mitigation: clear/resize scratch explicitly each use; gate every change
-   behind the existing search-correctness, idempotency, mutation, and
-   backend-parity property suites plus new equality tests.
-4. Risk: **Per-node batches are too small to benefit from SoA/SIMD/prefetch.**
-   The best-first search scores one node's neighbour list at a time (≤ `2M`
-   ids), so the prefetch/SIMD window is bounded by `M`.
-   Severity: medium. Likelihood: medium.
-   Mitigation: bucket the microbenchmark by candidate-set size to find the
-   crossover; document where SoA wins and where scalar fallback is retained
-   (the provider already prefers scalar for tiny batches).
-5. Risk: **Benchmark noise on a shared 6-core host** masks real effects (AVX
-   frequency throttling, denormals, other agents' load).
-   Severity: medium. Likelihood: medium.
-   Mitigation: pin with `taskset`, flush-to-zero against denormals, use
-   realistic data, prefer Criterion bootstrap CIs and `critcmp`, and cross-check
-   with an instruction-count measure where feasible. Run on a quiet machine.
-6. Risk: **DensePointView buffer reuse introduces aliasing/`unsafe`.**
-   Severity: high. Likelihood: low.
-   Mitigation: prefer a safe owned scratch buffer (`Vec<f32>` reused via
-   `clear()` + `resize()`); document any `unsafe` with a SAFETY comment and add
-   a Kani or Miri check if `unsafe` proves unavoidable.
+   Mitigation: `taskset` pinning, flush-to-zero, realistic data, Criterion
+   bootstrap CIs, `critcmp`, and the mandatory cycle-count cross-check; quiet
+   host.
+6. Risk: **Scratch reuse interacts badly with Rayon-parallel trim** — a
+   shared `&self` `RefCell`/`Mutex` scratch serialises `score_trim_jobs` (erasing
+   the 2.2 parallel-scoring win) or makes allocation-count assertions
+   nondeterministic across thread counts.
+   Severity: high. Likelihood: medium.
+   Mitigation: forbid shared scratch in the Decision Log; require thread-local or
+   explicit per-call/per-job scratch; reuse buffer is `Vec<AlignedBlock>`
+   (64-byte aligned, 16-lane padded), not `Vec<f32>`; pin `RAYON_NUM_THREADS=1`
+   for allocation-count tests if thread-local is chosen.
 
 ## Progress
 
-- [ ] (DRAFT) Plan authored and submitted for approval.
-- [ ] Milestone 0: baseline measurement harness + go/no-go data.
-- [ ] Milestone 1 (D3): core-side packed-index allocation hygiene.
-- [ ] Milestone 2 (D2): provider SoA packing-buffer reuse.
-- [ ] Milestone 3 (D1): provider-internal prefetch behind `simd_prefetch`
-  (prototyping, go/no-go).
-- [ ] Milestone 4 (D4): write-lock-free-scoring invariant guard + docs.
-- [ ] Milestone 5 (D5): full benchmark evidence, doc updates, ADR, roadmap
-  marked done.
+- [x] (2026-06-09) Draft authored.
+- [x] (2026-06-09) Community-of-experts (Logisphere) review: verdict REVISE;
+  all 12 required revisions folded into this draft.
+- [ ] User approval of the revised plan (required before implementation).
+- [ ] Milestone 0 (C4): measurement harness + cache/scoring/contention data +
+  pre-registered go/no-go thresholds.
+- [ ] Milestone 1 (C1): write-lock-free-scoring invariant guard (same-thread
+  marker).
+- [ ] Milestone 2 (C2/C3): §6.3 implementation-update, developers-guide, ADR-003,
+  roadmap mark — reflecting whatever the evidence supports.
+- [ ] Milestone 3 (E1, conditional): core-side allocation hygiene.
+- [ ] Milestone 4 (E2, conditional): query-centric port override + SoA
+  packing-buffer reuse.
+- [ ] Milestone 5 (E3, conditional): packing-step prefetch behind `simd_prefetch`.
+- [ ] Milestone 6 (D5): final evidence, doc/ADR finalisation, roadmap done.
 
 ## Surprises & discoveries
 
-- Observation: 2.3.1's "score outside the write lock" is already realised.
-  Evidence: `score_trim_jobs` (`chutoro-core/src/hnsw/cpu/trim.rs:65`) runs with
-  no lock held; the planner scores under the read lock
-  (`chutoro-core/src/hnsw/insert/planner.rs:78`). No distance call occurs inside
-  either `write_graph` closure in `insert_with_collector`
-  (`chutoro-core/src/hnsw/cpu/mod.rs:402-416`).
-  Impact: the locking portion of 2.3.1 becomes *verification and
-  documentation* (D4), not re-architecture.
-- Observation: `DensePointView` is `pub(crate)` and never crosses the crate
-  boundary; the dense provider already does query-centric SoA packing in
-  `batch_distances`.
-  Evidence: `chutoro-providers/dense/src/simd/mod.rs:19` re-exports
-  `DensePointView` only within the crate; `should_pack_query_points`
-  gates SoA on `dimension > 0 && candidate_count > 1 && backend != Scalar`.
-  Impact: confirms the hexagonal boundary constraint; rejects the recon
-  suggestion to expose `DensePointView` to core.
-- Observation: `DensePointView::from_row_indices` allocates a fresh packed
-  buffer per batch.
-  Evidence: recon of `point_view.rs:68`.
-  Impact: motivates D2 (packing-buffer reuse), measured at Milestone 0.
+- Observation: scoring already runs outside the write lock.
+  Evidence: `cpu/trim.rs:65` (`score_trim_jobs`, no lock); `insert/planner.rs:78`
+  (planner under read lock); no distance call inside either `write_graph` closure
+  (`cpu/mod.rs:402-416`).
+  Impact: the locking part of 2.3.1 is verification + documentation (C1), not
+  re-architecture.
+- Observation: the dense provider does **not** override `batch_distances`.
+  Evidence: `dense/src/provider.rs:137,143` overrides only `distance` and
+  `distance_batch`; core's default `batch_distances` (`datasource.rs:161-177`)
+  builds a pairs `Vec`; `shared_query_candidates` (`dense/src/simd/mod.rs:195`)
+  re-derives the query and re-collects candidates before
+  `from_row_indices` (`point_view.rs:68`).
+  Impact: "packed indices" is genuinely unrealised at the port; E2's prerequisite
+  is a query-centric override that carries `(query, &[candidate])` intact.
+- Observation: the distance cache is present on both insertion and search paths.
+  Evidence: `Some(cache)` at `cpu/mod.rs:394` (planner), `456`/`466` (search);
+  `validate_batch_distances` forwards only the *miss* subset
+  (`validate.rs:123-127`; `helpers.rs:134-151`).
+  Impact: batches reaching the adapter are warm-cache-narrow; SoA frequently
+  disabled by `should_pack_query_points`. D1/D2/D3 benefit is unproven and
+  must be measured.
+- Observation: the reuse buffer must preserve alignment.
+  Evidence: `PackedSoaStorage { blocks: Vec<AlignedBlock> }`,
+  `AlignedBlock([f32; 16])` `repr(C, align(64))` (`point_view.rs:13-19`).
+  Impact: scratch is `Vec<AlignedBlock>`, not `Vec<f32>`; corrects the original
+  Risk 6 mitigation.
+- Observation: `search.rs` is 369/400 lines.
+  Evidence: `wc -l`.
+  Impact: E1 must extract a sibling module before adding scratch.
 
 ## Decision log
 
-- Decision: Keep `DensePointView`/SoA/prefetch private to
-  `chutoro-providers/dense`; do **not** expose to `chutoro-core`.
-  Rationale: preserves the hexagonal boundary (Constraint 2), keeps future GPU
-  backends free to choose their own layout, and matches the canonical pure-Rust
-  HNSW design (instant-distance keeps coordinates in a separate immutable array
-  behind the scoring call). Exposing it would couple the domain to one CPU
-  layout.
+- Decision: Re-scope 2.3.1 to committed C1-C4 (guard + docs + measurement) with
+  E1-E3 conditional on pre-registered evidence; defer the structural levers
+  (cross-node beam, secondary SoA copy, `batch_distances_into`) to a separate
+  evidence-first roadmap item.
+  Rationale: code reading shows the structural intent is satisfied by 2.2.x; the
+  residual per-call deltas operate inside a window the cache fragments to near
+  nothing; committing speculative complexity would close the item on motion. The
+  Logisphere panel's verdict was REVISE on exactly this point.
+  Date/Author: 2026-06-09, planning agent (post-review).
+- Decision: Keep `DensePointView`/`PackedSoaStorage`/SoA/prefetch private to
+  `chutoro-providers/dense`; the only boundary change permitted is *adding* a
+  defaulted query-centric port method.
+  Rationale: preserves the hexagonal boundary and future GPU/alternate layouts;
+  matches the canonical pure-Rust HNSW design (instant-distance keeps coordinates
+  in a separate immutable array behind the scoring call).
   Date/Author: 2026-06-09, planning agent.
-- Decision: Implement prefetch behind a **non-default** `simd_prefetch` Cargo
-  feature on the dense crate, `cfg(target_arch = "x86_64")`-gated with a no-op
-  elsewhere, rather than unconditionally.
-  Rationale: the evidence strongly predicts prefetch is workload- and
-  CPU-dependent and often a no-op or regression; a feature gate keeps the
-  default build deterministic in performance, makes A/B benchmarking trivial,
-  and matches the existing `simd_avx2`/`simd_avx512`/`simd_neon` convention.
+- Decision: The keep/drop signal for any conditional delta is the
+  cycle/instruction-count cross-check (primary), with `critcmp` wall-time and
+  `hyperfine` as corroboration only; keep requires >5% median improvement AND
+  non-overlapping CIs at the realistic (8-48) buckets; "within noise" drops.
+  Rationale: per-call effects are sub-microsecond on a shared host; wall-time CIs
+  overlap the effect; cycle counts are noise-immune.
   Date/Author: 2026-06-09, planning agent.
-- Decision: Treat 2.3.1 as behaviour-preserving; validate with the *existing*
-  correctness/parity/determinism suites plus equality and write-lock-guard
-  tests, not new clustering-quality thresholds.
-  Rationale: the change is a layout/locking optimisation, not an algorithm
-  change. New quality thresholds would be the wrong acceptance signal.
+- Decision: Forbid shared `Mutex`/`RefCell` SoA scratch; require thread-local or
+  explicit per-call/per-job `Vec<AlignedBlock>` scratch.
+  Rationale: a shared scratch serialises the Rayon-parallel trim and destroys the
+  2.2 parallel-scoring win; alignment/padding must be preserved.
   Date/Author: 2026-06-09, planning agent.
+- Decision: The C1 guard asserts a *same-thread* "not holding a write guard"
+  invariant via a marker set inside `write_graph`'s scope, not a global
+  `try_read().is_ok()` probe.
+  Rationale: a global probe spuriously fails when another Rayon/search thread
+  legitimately holds the write lock; only the same-thread property is meaningful.
+  Date/Author: 2026-06-09, planning agent (corrects the original draft).
 
 ## Outcomes & retrospective
 
-To be completed at milestones and at the end. Compare achieved neighbour-scoring
-throughput and HNSW build wall-time against the Milestone 0 baseline; record
-which deltas were kept, which were dropped at go/no-go, and the measured effect
-of each.
+To be completed at milestones and at the end. Must state, with cited numbers:
+the measured candidate-set-size and cache-miss-subset distributions; the share of
+build wall-time spent scoring vs graph mutation/MST/hierarchy; distance-cache
+lock contention; and, for each of E1/E2/E3, the go/no-go decision with its
+cycle-count evidence. A "committed scope only (C1-C4), E1-E3 dropped on evidence"
+result is an explicitly successful outcome and must be recorded as such, with the
+deferred structural levers carried into the proposed follow-up item.
 
 ## Context and orientation
 
-This section assumes no prior knowledge of the repository.
+Assumes no prior knowledge of the repository.
 
 ### Crates and layout
 
-- `chutoro-core` — domain logic: the `DataSource` trait, the CPU HNSW
-  (`src/hnsw/`), MST, hierarchy extraction, and the clustering session.
-- `chutoro-providers/dense` — the `DenseMatrixProvider` adapter: row-major
-  `f32` storage, SoA packing (`src/simd/point_view.rs`), and SIMD distance
-  kernels (`src/simd/`).
-- `chutoro-providers/text` — a non-metric (Levenshtein) provider.
-- `chutoro-benches` — Criterion benchmark harness and `SyntheticSource`
-  generators.
-- `chutoro-cli` — the `chutoro` binary.
-- `chutoro-test-support` — shared test utilities.
+- `chutoro-core` — domain: the `DataSource` trait, CPU HNSW (`src/hnsw/`), MST,
+  hierarchy extraction, clustering session.
+- `chutoro-providers/dense` — the `DenseMatrixProvider` adapter: row-major `f32`
+  storage, SoA packing (`src/simd/point_view.rs`), SIMD kernels (`src/simd/`).
+- `chutoro-providers/text` — a non-metric (Levenshtein) provider (no SoA
+  override; relevant to Constraint 3).
+- `chutoro-benches` — Criterion harness and `SyntheticSource` generators.
+- `chutoro-cli`, `chutoro-test-support` — binary and shared test utilities.
 
 ### The neighbour-evaluation hot path (current state)
 
-Insertion is orchestrated by `CpuHnsw::insert_with_collector`
-(`chutoro-core/src/hnsw/cpu/mod.rs:364-419`). Its phases:
+Insertion: `CpuHnsw::insert_with_collector` (`cpu/mod.rs:364-419`):
 
-1. **Serialize**: take `insert_mutex` (line 370) so insertions are deterministic.
-2. **Plan (read lock)**: `read_graph(|g| g.insertion_planner().plan(...))` (line
-   389). `InsertionPlanner::plan` (`insert/planner.rs:78`) does greedy descent
-   (`greedy_search_layer`) and per-layer best-first search (`search_layer`),
-   scoring candidates via `DataSource::batch_distances`. Returns an
-   `InsertionPlan` of `LayerPlan { level, neighbours: Vec<Neighbour> }`.
-3. **Apply (write lock #1)**: `write_graph(|g| executor.apply(...))` (lines
-   402-410) stages neighbour updates and produces `Vec<TrimJob>` of nodes whose
-   neighbour lists exceed `max_connections`. *No distance computation here.*
-4. **Score trim jobs (no lock)**: `score_trim_jobs(trim_jobs, source)` (line
-   412; `cpu/trim.rs:65`) computes `batch_distances` in parallel via Rayon and
-   ranks with a bounded `BinaryHeap` using the deterministic tie-break.
-5. **Commit (write lock #2)**: `write_graph(|g| executor.commit(...))` (lines
-   413-416) reconciles reciprocal edges and heals connectivity. *No distance
-   computation here.*
+1. Serialize via `insert_mutex` (line 370).
+2. **Plan (read lock)** `read_graph(|g| g.insertion_planner().plan(...))` (line
+   389): greedy descent + per-layer best-first search scoring via
+   `DataSource::batch_distances`, **with the distance cache present**
+   (`cache: Some(cache)`, line 394). Returns `InsertionPlan`.
+3. **Apply (write lock #1)** (lines 402-410): stage updates, produce
+   `Vec<TrimJob>`. *No distance computation.*
+4. **Score trim jobs (no lock)** `score_trim_jobs` (line 412; `cpu/trim.rs:65`):
+   parallel Rayon scoring of the cache-*miss* subset, deterministic bounded heap.
+5. **Commit (write lock #2)** (lines 413-416): reconcile reciprocity, heal
+   connectivity. *No distance computation.*
 
-Search (`CpuHnsw::search`, `cpu/mod.rs:444`) uses the same `LayerSearcher`
-(`hnsw/search.rs`) under a read guard. `LayerSearcher::search_layer`
-(`search.rs:313`) is the inner loop: it pops a candidate, collects that node's
-*fresh* (not-yet-discovered) neighbour ids into a `Vec<usize>` (line 351),
-scores them with `validate_batch` → `DataSource::batch_distances`, and enqueues.
-The per-iteration `fresh` `Vec` and the returned distances `Vec` are the
-core-side hot-path allocations targeted by D3.
+Search (`cpu/mod.rs:444`) uses the same `LayerSearcher` (`hnsw/search.rs`) under
+a read guard, also with the cache present (lines 456,466).
 
-`DataSource::batch_distances(query, candidates)`
-(`chutoro-core/src/datasource.rs:161`) is the **port**. The dense adapter
-overrides the scoring kernel; for query-centric batches it packs `candidates`
-into a `DensePointView` (SoA) and runs the SIMD kernel, otherwise it falls back
-to scalar pairwise.
+### Cache interaction (critical to all measurement)
+
+The cache sits between core and the port on every production path. On a cache
+hit, no `batch_distances` call is made for that candidate; on a miss,
+`validate.rs` (`CacheBatch::resolve`, lines 118-146) and `helpers.rs`
+(`batch_distances_for_trim`, lines 122-168) forward **only the miss subset** to
+`source.batch_distances`. As the graph warms, miss subsets shrink, frequently
+below the SoA packing threshold (`candidate_count > 1`,
+`dense/src/simd/mod.rs:172`). Therefore:
+
+- The batch size the adapter sees is *not* `2M`; it is the per-call miss count,
+  which Milestone 0 must measure (cold vs warm).
+- The distance cache's own `Mutex<LruCache>` may be the dominant cost under
+  parallel trim; Milestone 0 measures its contention so go/no-go attributes cost
+  honestly.
+
+### The packed-index round-trip (the unrealised seam)
+
+`core &[usize]` → default `batch_distances` builds `Vec<(query, candidate)>`
+(`datasource.rs:169-173`) → `distance_batch` → `euclidean_distance_batch_raw_pairs`
+→ `shared_query_candidates` scans pairs to re-derive the shared query and
+re-collect candidates (`dense/src/simd/mod.rs:195-213`) → `from_row_indices`
+allocates `PackedSoaStorage` (`point_view.rs:68`). The "packed" ids are unpacked
+to pairs then repacked. E2's prerequisite eliminates this by adding a defaulted
+query-centric port method the dense adapter overrides.
 
 ### Key terms
 
-- **SoA (structure-of-arrays)**: storing coordinate dimension `d` for all points
-  contiguously, then dimension `d+1`, etc. (dimension-major), so a SIMD kernel
-  streams one dimension across many points. Contrast array-of-structs (one
-  point's coordinates contiguous).
-- **Packed indices**: candidate node ids held in a single contiguous slice
-  (`&[usize]`/`&[u32]`) rather than chased through per-node heap nodes.
-- **Prefetch**: a CPU hint (`_mm_prefetch`) to begin loading a cache line before
-  it is needed, to hide memory latency for hard-to-predict gathers.
-- **Port / adapter**: in hexagonal architecture, the `DataSource` trait is the
-  port; `DenseMatrixProvider` is an adapter. Domain code depends on the port,
-  never on the adapter's internals.
+- **SoA (structure-of-arrays)**: dimension-major coordinate storage so a SIMD
+  kernel streams one dimension across many points.
+- **Packed indices**: candidate ids in a single contiguous slice carried intact
+  to the scoring kernel (the thing currently lost to the pairs round-trip).
+- **Cache-miss subset**: the candidates for which no cached distance exists; the
+  only ids that reach `batch_distances` on a warm path.
+- **Port / adapter**: `DataSource` is the port; `DenseMatrixProvider` an adapter.
+  Domain depends on the port, never on adapter internals.
 
 ### Documentation and skills to consult
 
-- Design: `docs/chutoro-design.md` §6.3 (SIMD utilization; the 2.3.1 target).
-- Roadmap: `docs/roadmap.md` 2.3.1, 2.4.1; determinism rule 1.1.2.
-- Testing: `docs/property-testing-design.md` (§2.3.1 search correctness oracle),
+- Design: `docs/chutoro-design.md` §6.3. Roadmap: `docs/roadmap.md` 2.3.1, 2.4.1;
+  determinism 1.1.2.
+- Testing: `docs/property-testing-design.md` (§2.3.1 search-correctness oracle),
   `docs/rust-testing-with-rstest-fixtures.md`, `docs/rust-doctest-dry-guide.md`,
-  `docs/reliable-testing-in-rust-via-dependency-injection.md`.
-- Refactoring: `docs/complexity-antipatterns-and-refactoring-strategies.md`.
+  `docs/reliable-testing-in-rust-via-dependency-injection.md`,
+  `docs/complexity-antipatterns-and-refactoring-strategies.md`.
 - ADRs: `docs/adr-001-commit-post-processing.md`,
   `docs/adr-002-adoption-of-kani-formal-verification.md`; this plan adds
   `docs/adr-003-soa-prefetch-adapter-boundary.md`.
@@ -337,219 +417,237 @@ to scalar pairwise.
   `unsafe`), `rust-unit-testing`, `proptest`, `kani`, `nextest`,
   `hexagonal-architecture`, `arch-decision-records`, `execplans`.
 
-### Prior art (from research; cite in the design doc update)
+### Prior art (cite in the §6.3 update and ADR-003)
 
-- **instant-distance** (pure-Rust HNSW): SoA split — `points: Vec<P>`
-  (immutable coordinates) separate from fixed-width sentinel-padded neighbour
-  arrays; per-node `RwLock`; read-snapshot of neighbour ids, lock-free scoring
-  against immutable coordinates, narrow write lock only for topology. This is
-  the canonical pattern and matches chutoro's existing design.
-- **hnswlib** (C++ reference): flat fixed-stride level-0 record
-  `[link-count | ids | optional inline vector | label]` so ids and coordinates
-  sit in adjacent cache lines.
-- **Prefetch**: `_mm_prefetch` stable since Rust 1.27, safe, x86_64-only;
-  `_MM_HINT_T0`/`_MM_HINT_NTA`; tune look-ahead empirically (~20 elements in the
-  parallel-rust-cpp study); expect frequent no-ops/regressions (Lemire;
-  Algorithmica).
-- **Benchmarking**: Criterion `benchmark_group` bucketed by candidate-set size
-  with `Throughput::Elements`; `critcmp` for saved-baseline before/after;
-  `hyperfine --warmup --runs --export-json` for whole-binary timing; beware AVX
-  frequency throttling and denormals.
+- **instant-distance** (pure-Rust HNSW): coordinates in a separate immutable
+  array, fixed-width sentinel-padded neighbour arrays, per-node `RwLock`,
+  read-snapshot → lock-free scoring → narrow write lock. Matches chutoro's
+  existing design and the deferred secondary-SoA-copy alternative.
+- **hnswlib** (C++): flat fixed-stride records placing ids and coordinates in
+  adjacent cache lines.
+- **Prefetch**: `_mm_prefetch` stable since 1.27, safe, x86_64-only;
+  `_MM_HINT_T0`/`_MM_HINT_NTA`; tune look-ahead empirically; expect frequent
+  no-ops/regressions (Lemire; Algorithmica; parallel-rust-cpp).
+- **Benchmarking**: Criterion `benchmark_group` with `Throughput::Elements`;
+  `critcmp` baselines; `hyperfine`; cycle counts via `perf`/`cachegrind`/`iai`;
+  beware AVX throttling and denormals.
 
 ## Plan of work
 
-Work proceeds milestone by milestone. Each milestone ends with its own
-validation; do not proceed if validation fails. Stages within milestones follow
+Milestone by milestone; each ends with its own validation. Stages follow
 Red-Green-Refactor where a test framework applies.
 
-### Milestone 0 — Baseline measurement and go/no-go data (prototyping)
+### Milestone 0 — Measurement and pre-registered go/no-go (C4, prototyping)
 
-Goal: establish the evidence base before changing hot-path code, so every later
-delta is justified by measurement.
+Goal: produce the evidence that decides whether E1-E3 are built at all.
 
-1. Add a Criterion microbenchmark `chutoro-benches/benches/neighbour_scoring.rs`
-   that scores a single query against candidate sets of bucketed sizes
-   straddling cache levels (e.g. 8, 16, 32, 64, 256, 1024, 4096 candidates) over
-   a `DenseMatrixProvider`, across dimensions {32, 128, 768}, using
-   `Throughput::Elements`, `criterion::black_box`, and a fixed seed. Register it
-   in `chutoro-benches/Cargo.toml` as `[[bench]] name = "neighbour_scoring"`.
-2. Add a focused allocation-count test (in `chutoro-core`, `#[cfg(test)]`) that
-   records how many `Vec` allocations `search_layer` performs per inserted node
-   on a small fixture, to quantify D3's target. Use a counting allocator shim
-   scoped to the test, or instrument via a wrapper `DataSource` that counts
-   `batch_distances` invocations and slice lengths.
-3. Capture a Criterion baseline: `cargo bench -p chutoro-benches --bench
-   neighbour_scoring -- --save-baseline before`.
-4. Add `scripts/bench-neighbour-scoring.sh`: a `hyperfine` wrapper that builds
-   the CLI in release and times an HNSW build over a fixed synthetic dataset,
-   with `--warmup 3 --runs 20 --export-json`, `taskset`-pinned, documented in
-   `docs/developers-guide.md`.
+1. Add `chutoro-benches/benches/neighbour_scoring.rs` (registered in
+   `chutoro-benches/Cargo.toml` as `[[bench]] name = "neighbour_scoring"`). This
+   is also the canonical 2.4.1 artefact — cross-reference it in `docs/roadmap.md`
+   2.4.1 so that item consumes rather than rebuilds it. Bucket by candidate-set
+   sizes that *occur*: 8, 16, 24, 32, 48 (straddling `2M` for M∈{8,16,24}); add
+   diagnostic-only buckets {256, 1024} labelled "does not occur in the HNSW hot
+   path". Dimensions {32, 128, 768}. Use `Throughput::Elements`, `black_box`, a
+   fixed seed. Record per-bucket effective SoA lane utilisation *including*
+   16-lane padding waste, and SoA-vs-scalar crossover.
+2. Instrument a real synthetic HNSW build (N ∈ {10k, 100k}) to capture, as data
+   written under `target/benchmarks/`:
+   - the per-call candidate-set-size histogram *after* cache-miss subsetting
+     (cold vs warm graph);
+   - total `batch_distances` call count and aggregate candidates scored per
+     build;
+   - the share of build wall-time in scoring vs graph mutation vs MST vs
+     hierarchy;
+   - distance-cache `Mutex<LruCache>` contention (acquisitions, lock-wait) under
+     parallel trim.
+3. Capture cycle/instruction counts for the `neighbour_scoring` buckets via
+   `perf stat`/`cachegrind` (or `iai`/`iai-callgrind` if its dev-dependency
+   policy is cleared — flag in Decision Log). Save a Criterion baseline
+   (`--save-baseline before`). Pin with `taskset`; record CPU model,
+   `target-cpu`, and 1-min load average at capture.
+4. Add `scripts/bench-neighbour-scoring.sh` (a `hyperfine` whole-binary wrapper,
+   corroboration only) documented in `docs/developers-guide.md`.
 
-Validation: `make bench` builds; the new bench runs and emits per-bucket
-numbers; the baseline is saved under `target/criterion`. Record the numbers and
-the allocation counts in `Progress` and `Surprises & discoveries`.
+Pre-registered thresholds (record in the plan before implementing E1-E3): a
+conditional delta is **built only if** (a) scoring is a non-trivial share of
+build wall-time (e.g. ≥10%), AND (b) the realistic-bucket regime it targets
+actually occurs in the measured histogram, AND (c) a prototype shows ≥5% median
+cycle-count improvement with non-overlapping CIs at those buckets. Otherwise the
+delta is dropped and the null result recorded.
 
-Go/no-go: from these numbers, confirm which of D1/D2/D3 target a real cost. Drop
-any that do not, recording the decision.
+Validation: `make bench` builds; the harness runs; all distributions and the
+contention numbers are captured and written into `Surprises & discoveries` and
+`Outcomes`. Go/no-go for E1/E2/E3 decided and recorded here.
 
-### Milestone 1 — Core-side packed-index allocation hygiene (D3)
+### Milestone 1 — Write-lock-free-scoring invariant guard (C1, committed)
 
-Goal: remove per-iteration heap allocations in the neighbour-evaluation inner
-loop while keeping candidate ids packed and contiguous and output identical.
+Goal: turn "no scoring under the write lock" into a tested, durable invariant.
 
-Files: `chutoro-core/src/hnsw/search.rs` (`SearchState`, `search_layer`,
-`find_better_neighbour`), and the trim path
-(`chutoro-core/src/hnsw/cpu/trim.rs`, `chutoro-core/src/hnsw/helpers.rs`).
+1. Red/Green: add a same-thread marker to `CpuHnsw` — e.g. a thread-local or an
+   `AtomicBool`-per-thread flag set true for the duration of each `write_graph`
+   closure (`cpu/internal.rs:45-51`) and false after. Add an instrumented
+   `DataSource` decorator (test-only) that, on each `distance`/`batch_distances`
+   call, asserts the marker is false (the calling thread is not inside a
+   `write_graph` scope). Build a small index single-threaded (no concurrent
+   search) through the decorator and assert no violation across plan, trim, and
+   commit.
+2. Prove teeth: temporarily move a scoring call inside a `write_graph` closure,
+   confirm the guard fails, then revert.
 
-1. Red: add an rstest equality test asserting that a refactored
-   scratch-reusing `search_layer` yields the *same* `Vec<Neighbour>` as the
-   current implementation on a battery of fixtures (uniform, clustered,
-   duplicate). Add a test asserting allocation count drops versus the Milestone
-   0 measurement.
-2. Green: give `SearchState` (or `LayerSearcher`) a reusable scratch
-   `Vec<usize>` for the per-node `fresh` candidate list and a reusable
-   `Vec<f32>` for distances, cleared (`clear()` + `reserve`) each iteration
-   rather than freshly allocated. Keep the deterministic enqueue/tie-break
-   identical. Mirror the same scratch reuse in `run_trim_job` where applicable.
-3. Refactor: extract a small `ScratchBuffers` helper if it improves clarity;
-   keep files under 400 lines.
+Validation: guard passes on real code, fails on the deliberate mutation;
+`make test` green. (This milestone is independent of Milestone 0's outcome.)
 
-Validation: the equality test passes; allocation-count test shows the drop;
-existing HNSW unit, property (search correctness, idempotency, mutation), and
-backend-parity suites pass unchanged; `neighbour_scoring` bench compared with
-`critcmp before <new>` shows no regression (improvement expected at larger
-buckets). Determinism preserved.
+### Milestone 2 — Documentation, ADR, roadmap reflecting the evidence (C2/C3, committed)
 
-### Milestone 2 — Provider SoA packing-buffer reuse (D2)
+Goal: record what is true regardless of whether E1-E3 are built.
 
-Goal: stop allocating a fresh packed SoA buffer per `batch_distances` call.
+1. `docs/chutoro-design.md` §6.3 implementation-update for 2.3.1: how 2.2.x
+   satisfies the packed-index/SoA/scoring-outside-lock *structure*; the
+   cache-fragmentation reality; the scoring-outside-write-lock invariant and its
+   guard; the measured candidate-size/scoring-share/contention numbers; and a
+   null-result template if E1-E3 are dropped.
+2. `docs/adr-003-soa-prefetch-adapter-boundary.md` (Y-Statement;
+   `arch-decision-records` skill): the decision to keep SoA/prefetch private to
+   the dense adapter; the cross-node-beam and secondary-SoA-copy and
+   `batch_distances_into` alternatives with memory-vs-repack and policy-coupling
+   trade-offs; a recommendation to spin measured-win work into a separate
+   evidence-first roadmap item. Reference it from §6.3.
+3. `docs/developers-guide.md`: the measurement harness and `hyperfine` workflow,
+   the write-lock invariant test, and (if E1-E3 land) the scratch and
+   `simd_prefetch` conventions. Document the `DataSource` length-equality and
+   error-atomicity (output-unmodified-on-error) invariants the cache layer relies
+   on (`validate.rs:129-137`, `helpers.rs:152-160`) directly in the trait docs.
+4. Mark roadmap item 2.3.1 done once committed scope lands (the item's intent is
+   satisfied; any deferred work is a new item).
 
-Files: `chutoro-providers/dense/src/simd/point_view.rs`,
-`chutoro-providers/dense/src/simd/mod.rs`,
-`chutoro-providers/dense/src/provider.rs`.
+Validation: `make markdownlint`, `make nixie` (if Mermaid changes), `make fmt`
+clean.
 
-1. Red: add a dense-crate unit test asserting packed output is identical
-   whether produced fresh or via a reused buffer, and a test/bench showing the
-   per-batch allocation is eliminated.
-2. Green: introduce a reusable `PackedSoaStorage` scratch owned per scoring
-   call site (e.g. a thread-local or an explicit scratch passed into
-   `from_row_indices`/the kernel entry), reset (`clear()` + `resize`) per batch.
-   Preserve 64-byte alignment, 16-lane padding, and deterministic `0.0` tail
-   fill. Keep everything `pub(crate)` — no boundary change.
-3. Optional D2b (managed by exception; pre-authorised but flag in Decision
-   Log): if Milestone 0 shows the `Vec<f32>` returned by `batch_distances` is a
-   material cost, add a *defaulted* `DataSource::batch_distances_into(query,
-   candidates, out: &mut Vec<f32>)` so core can reuse the output buffer. The
-   default impl delegates to `batch_distances`; the dense adapter overrides it.
-   This is the only sanctioned port change and must keep all existing impls
-   compiling.
+### Milestone 3 — Core-side allocation hygiene (E1, conditional on Milestone 0)
 
-Validation: dense unit tests and the backend-parity property suite
-(`docs/chutoro-design.md` §6.3; 2.2.6) pass; the SoA tail-padding/dispatch Kani
-harnesses (2.2.7) still pass under `make kani`; `neighbour_scoring` bench shows
-no regression. Parity within epsilon preserved.
+Proceed only if Milestone 0 clears the threshold for core-side allocations.
 
-### Milestone 3 — Provider-internal prefetch behind `simd_prefetch` (D1, prototyping)
+Files: `chutoro-core/src/hnsw/search.rs` and a NEW sibling module (e.g.
+`hnsw/search/scratch.rs` or `hnsw/search_state.rs`) extracted **first** to stay
+under 400 lines; `cpu/trim.rs`, `helpers.rs`.
 
-Goal: hide coordinate-gather latency by prefetching the next candidate's SoA
-coordinate block, *only* where it measurably helps.
+1. Extract the scratch machinery and `SearchState` scratch fields into the new
+   module before wiring reuse; add a line-budget check to validation.
+2. Red: a **proptest differential** test (reusing the §2.3.1 search-correctness
+   oracle across randomised graphs and `ef` values, not three fixtures) asserting
+   the scratch-reusing path yields identical `Vec<Neighbour>`; assert scratch
+   length is 0 at the top of each iteration; assert the Milestone 0 allocation
+   count drops.
+3. Green: reuse a per-search `Vec<usize>` for the per-node `fresh` list and a
+   `Vec<f32>` for distances, cleared each iteration. Retarget the actual cached
+   path allocations: `missing` (`validate.rs:123-127`),
+   `miss_candidates`/`miss_meta` (`helpers.rs:134-135`), and the `fresh` Vec —
+   plus the `metric_descriptor()` `Arc` clone per batch (`helpers.rs:105,132`;
+   `validate.rs:15`) so the baseline is attributed correctly.
+4. Refactor; keep files < 400 lines.
 
-Files: `chutoro-providers/dense/Cargo.toml` (add `simd_prefetch` feature, off by
-default), `chutoro-providers/dense/src/simd/kernels.rs` (and/or
-`point_view.rs`), plus a small `prefetch` helper module.
+Validation: differential equality passes; allocation-count drops; existing HNSW
+unit/property/parity suites pass unchanged; cycle-count cross-check shows the
+pre-registered improvement; determinism preserved.
 
-1. Add a `prefetch` helper: `#[cfg(all(target_arch = "x86_64", feature =
-   "simd_prefetch"))]` calls `core::arch::x86_64::_mm_prefetch(ptr as *const
-   i8, _MM_HINT_T0)`; every other target/feature combination is an inlined
-   no-op. Document with a comment that prefetch is semantically a no-op, so
-   omitting it is always correct.
-2. Inside the query-centric SoA kernel loop, prefetch the coordinate block of a
-   tunable number of candidates ahead (start at the empirically-cited ~ a few
-   blocks; expose the look-ahead as a small `const`). Keep hot-loop temporaries
-   in scalar locals to avoid the optimizer regression the research observed.
-3. Benchmark `simd_prefetch` on vs off with `critcmp` across all buckets.
+### Milestone 4 — Query-centric port override + SoA buffer reuse (E2, conditional)
 
-Validation and go/no-go: if `simd_prefetch` shows a statistically significant
-improvement on the target host with no bucket regressing, keep the feature
-(off by default, documented). If it is within noise or regresses, **abandon D1**,
-remove the kernel changes (retain only the no-op helper if cheap), and record
-the result in `Decision Log` and `Outcomes`. Behaviour is identical either way.
+Proceed only if Milestone 0 clears the threshold AND E2's prerequisite is
+justified.
 
-### Milestone 4 — Write-lock-free-scoring invariant guard (D4)
+Files: `chutoro-core/src/datasource.rs` (defaulted port method),
+`chutoro-providers/dense/src/{provider.rs,simd/mod.rs,simd/point_view.rs}`.
 
-Goal: turn the existing "no scoring under the write lock" property into a tested,
-documented invariant.
+1. Add a *defaulted* query-centric port method carrying `(query, &[candidate])`
+   intact (e.g. `batch_distances` is already query-centric in signature — the
+   change is for the **dense adapter to override it** directly, bypassing the
+   pairs round-trip, and/or a new defaulted method if a buffer-out form is
+   needed). The default delegates to the existing path so text/synthetic
+   providers are unchanged.
+2. Thread a reusable `PackedSoaStorage` scratch through packing:
+   `from_row_indices(..., scratch: &mut PackedSoaStorage)` (update the
+   `dense/src/simd/mod.rs:102` caller). Scratch is owned per-call or per-job
+   (NOT a shared `Mutex`/`RefCell`); it is `Vec<AlignedBlock>` preserving 64-byte
+   alignment and the 16-lane zero-padded tail.
+3. Red: the adversarial reuse test — pack a large batch (≥17 points, NaN/Inf in
+   trailing rows), then pack a 2-point batch into the SAME storage, asserting
+   `coordinate_block(d)[point_count..padded_point_count]` is bit-exactly `0.0`
+   for every dimension; plus length-equality and output-unmodified-on-error
+   assertions. Extend the 2.2.7 tail-padding Kani harness to the reused-buffer
+   path. `debug_assert` scratch is reset before refill.
+4. Green/Refactor: implement reuse; keep everything `pub(crate)` (no SoA type
+   leaks across the boundary).
 
-1. Red/Green: add a deterministic regression test in `chutoro-core` using an
-   instrumented `DataSource` decorator that, on every `distance`/
-   `batch_distances` call, asserts the graph is **not** write-locked. The probe
-   uses a test-only handle to the graph `RwLock` and asserts
-   `graph.try_read().is_ok()` (a thread holding the write lock — or any
-   writer — makes `try_read` fail). Wire a `#[cfg(test)]` (or `pub(crate)`
-   test-only) accessor on `CpuHnsw` returning `Arc<RwLock<Graph>>` so the
-   decorator can probe it. Build a small index through this decorator and assert
-   no violation is recorded across planning, trim scoring, and commit.
-2. Confirm the guard *fails* if scoring is deliberately moved under the write
-   lock (one-off mutation check, then revert), proving the test has teeth.
+Validation: dense unit tests, backend-parity suite (2.2.6), and the extended
+tail-padding Kani harness (2.2.7) pass; cycle-count cross-check clears the
+threshold; parity within epsilon preserved.
 
-Validation: the guard passes on the real code and fails on the deliberate
-mutation. `make test` green.
+Note: `batch_distances_into` (out-buffer reuse) remains **deferred** — on the
+cached path core never calls `batch_distances` directly, so a reusable `out`
+saves nothing there, and the defaulted impl penalises non-overriding providers.
+Record in ADR-003, do not build here.
 
-### Milestone 5 — Benchmark evidence, documentation, ADR, roadmap (D5)
+### Milestone 5 — Packing-step prefetch behind `simd_prefetch` (E3, conditional)
 
-1. Re-run the Criterion `neighbour_scoring` bench and `critcmp before after`;
-   run `scripts/bench-neighbour-scoring.sh` (hyperfine) for whole-binary
-   before/after. Record both in `Outcomes & retrospective` and in a short
-   results table appended to `docs/chutoro-design.md` §6.3 as an implementation
-   update dated to the merge.
-2. Update `docs/chutoro-design.md` §6.3 with an implementation update for 2.3.1:
-   the packed-index/SoA scoring contract, the scoring-outside-write-lock
-   invariant and its guard, the `simd_prefetch` feature (and whether it was
-   kept), and the cited prior art.
-3. Update `docs/developers-guide.md`: the neighbour-scoring scratch-reuse
-   convention, the `simd_prefetch` feature, the benchmark/`hyperfine` workflow,
-   and the write-lock invariant test.
-4. Update `docs/users-guide.md` *only if* a user-visible change exists (a new
-   non-default feature flag is the likely only candidate; default behaviour is
-   unchanged).
-5. Add `docs/adr-003-soa-prefetch-adapter-boundary.md` (Y-Statement; see the
-   `arch-decision-records` skill) recording the decision to keep SoA/prefetch
-   private to the dense adapter and to gate prefetch behind a non-default
-   feature. Reference it from `docs/chutoro-design.md` §6.3.
-6. Mark roadmap item 2.3.1 as done in `docs/roadmap.md`.
+Proceed only if Milestone 0 shows a large-batch regime that actually occurs and
+a prototype clears the threshold. Given the dimension-major layout, prefetch (if
+anywhere) targets the scattered `matrix.row(index)` gather in the *pack* step
+(`point_view.rs:79-84`), not the kernel scan.
+
+Files: `chutoro-providers/dense/Cargo.toml` (non-default `simd_prefetch`
+feature), a `prefetch` helper module, `point_view.rs` (pack loop).
+
+1. Add a `prefetch_t0` helper: `#[cfg(all(target_arch = "x86_64", feature =
+   "simd_prefetch"))]` calls `core::arch::x86_64::_mm_prefetch::<_MM_HINT_T0>`;
+   every other target/feature is an inlined no-op (prefetch is semantically a
+   no-op, so omitting it is always correct).
+2. In the pack loop, prefetch the next candidate's source row a tunable few rows
+   ahead; keep hot-loop temporaries in scalar locals (avoids the optimizer
+   regression the research observed).
+3. A/B with `critcmp` and cycle counts across the realistic buckets.
+
+Go/no-go: keep only on a statistically significant cycle-count win with no
+bucket regressing; otherwise **revert the entire milestone** (feature flag,
+helper, ADR prefetch clause) rather than leaving a dead flag and an ADR about a
+no-op. If kept, document `simd_prefetch` as host-tuned, off by default, requiring
+re-benchmarking per target, and record the exact CPU model and `target-cpu` in
+Outcomes.
+
+### Milestone 6 — Final evidence and close-out (D5)
+
+1. Re-run `neighbour_scoring` + `critcmp before after` + cycle counts +
+   `hyperfine`; append a results table (or a null-result statement) to §6.3 and
+   `Outcomes`.
+2. Finalise ADR-003 and `developers-guide`; confirm `users-guide.md` needs
+   changes only if a user-visible feature flag was kept.
+3. Confirm roadmap 2.3.1 marked done; ensure any deferred work is filed as a new
+   item.
 
 Validation: `make check-fmt`, `make lint`, `make test`, `make kani`,
-`make markdownlint`, and `make nixie` (if any Mermaid changed) all pass.
+`make markdownlint`, `make nixie` all pass.
 
 ## Concrete steps
 
-Run from the repository root unless stated. Use `tee` to capture long output, per
-the global agent instructions:
+From the repository root; use `tee` for long output (global agent instructions):
 
 ```bash
-# chutoro-core/.. repository root
 make check-fmt 2>&1 | tee "/tmp/check-fmt-chutoro-$(git branch --show-current).out"
 make lint      2>&1 | tee "/tmp/lint-chutoro-$(git branch --show-current).out"
 make test      2>&1 | tee "/tmp/test-chutoro-$(git branch --show-current).out"
 ```
 
-Baseline and comparison:
+Measurement and comparison (Milestone 0; cycle count primary):
 
 ```bash
-# Save a Criterion baseline before changes, then compare after each milestone.
-cargo bench -p chutoro-benches --bench neighbour_scoring -- --save-baseline before
-# ... implement a milestone ...
-cargo bench -p chutoro-benches --bench neighbour_scoring -- --save-baseline after
-critcmp before after
+# Realistic buckets only for keep/drop; >=256 are diagnostic.
+taskset -c 0-3 cargo bench -p chutoro-benches --bench neighbour_scoring -- --save-baseline before
+# Cycle/instruction counts (noise-immune primary signal):
+perf stat -r 20 -- target/release/deps/neighbour_scoring-* --bench 16   # example bucket
+critcmp before after   # corroboration only
+bash scripts/bench-neighbour-scoring.sh   # hyperfine; corroboration only
 ```
 
-Whole-binary timing (after a representative milestone):
-
-```bash
-bash scripts/bench-neighbour-scoring.sh   # wraps hyperfine; see developers-guide
-```
-
-Prefetch A/B (Milestone 3):
+Prefetch A/B (Milestone 5, only if reached):
 
 ```bash
 cargo bench -p chutoro-benches --bench neighbour_scoring -- --save-baseline noprefetch
@@ -558,141 +656,114 @@ cargo bench -p chutoro-benches --features chutoro-providers-dense/simd_prefetch 
 critcmp noprefetch prefetch
 ```
 
-Kani (after Milestone 2):
+Kani (after Milestone 4, if reached):
 
 ```bash
 make kani 2>&1 | tee "/tmp/kani-chutoro-$(git branch --show-current).out"
 ```
 
-Expected: each gate prints a success summary (clippy `0 warnings`, tests
-`... passed`, Kani `VERIFICATION:- SUCCESSFUL`). `critcmp` shows the optimised
-baseline equal-or-faster per bucket with overlapping-or-better confidence
-intervals.
+Expected: clippy `0 warnings`; tests `... passed`; Kani
+`VERIFICATION:- SUCCESSFUL`. Keep decisions cite cycle-count deltas, not
+wall-time alone.
 
 ## Validation and acceptance
 
-Acceptance is behavioural and statistical:
-
-1. **Identical clustering and neighbour selection** under fixed seeds: the
-   existing search-correctness oracle property
-   (`docs/property-testing-design.md` §2.3.1), idempotency, mutation, and
-   backend-parity suites pass unchanged; new equality tests (Milestone 1/2)
-   confirm refactors are output-preserving.
-2. **Write-lock invariant**: the Milestone 4 guard passes on real code and fails
-   on a deliberate "score under write lock" mutation.
-3. **Performance**: `critcmp before after` shows the `neighbour_scoring`
-   microbenchmark is equal-or-faster across buckets (improvement expected at
-   mid/large candidate-set sizes); `hyperfine` shows HNSW build wall-time
-   equal-or-faster. Any milestone with no measurable benefit is dropped at its
-   go/no-go gate, recorded in the `Decision Log` — that is an accepted outcome,
-   not a failure.
+1. **Committed scope always lands**: C1 guard passes (and fails on a deliberate
+   under-lock scoring mutation); C2/C3 docs + ADR-003 merged; C4 measurement
+   captured. Roadmap 2.3.1 marked done on committed scope.
+2. **Identical clustering/neighbour selection** under fixed seeds: existing
+   search-correctness oracle, idempotency, mutation, and backend-parity suites
+   pass unchanged; E1/E2 differential equality tests confirm output-preserving
+   refactors.
+3. **Conditional deltas are evidence-gated**: each of E1/E2/E3 is implemented
+   only on a ≥5% median cycle-count win with non-overlapping CIs at the realistic
+   buckets, on a pinned, low-load host; otherwise dropped with the null result
+   recorded. A committed-scope-only outcome is acceptance, not failure.
 4. **Quality gates**: `make check-fmt`, `make lint`, `make test`, `make kani`,
-   `make markdownlint`, and `make nixie` all pass.
+   `make markdownlint`, `make nixie` pass.
 
-Red-Green-Refactor evidence to record per milestone: the red command and its
-expected failure (e.g. the equality test failing before the scratch refactor is
-wired, or the allocation-count test failing before reuse), the green command and
-its pass, and the refactor command sequence and pass.
+Red-Green-Refactor evidence per implemented milestone: the red command + expected
+failure, the green command + pass, the refactor command + pass.
 
-Quality criteria ("done"):
+Quality criteria ("done"): committed scope merged; any conditional delta backed
+by cycle-count evidence; no bucket regresses on the default feature set; no new
+dependency without a flagged Decision Log entry; no `unsafe` without a SAFETY
+comment plus a Miri/Kani check.
 
-- Tests: all suites above green; new equality, allocation-count, and write-lock
-  guard tests added and passing.
-- Lint/typecheck: `make lint` with `-D warnings` clean.
-- Performance: documented `critcmp` and `hyperfine` evidence; no bucket
-  regresses on the target host with the default feature set.
-- Security: n/a (no new dependencies, no FFI, no `unsafe` unless justified with
-  a SAFETY comment and a Miri/Kani check).
-
-Quality method: run the gates locally with `tee`; run `coderabbit review
---agent` after each major milestone and clear all concerns before the next, but
-only after the deterministic gates above are green.
+Quality method: local gates with `tee`; `coderabbit review --agent` after each
+major milestone with all concerns cleared, run only after the deterministic gates
+are green.
 
 ## Idempotence and recovery
 
-All steps are re-runnable. Criterion baselines are named (`before`/`after`/
-`noprefetch`/`prefetch`) and can be re-saved. The `simd_prefetch` feature is
-additive and off by default, so reverting Milestone 3 is removing a feature and
-its kernel hunk. Commit after each milestone so any milestone can be rolled back
-with `git revert`. No destructive or irreversible step is involved.
+All steps re-runnable. Criterion baselines are named. The `simd_prefetch` feature
+is additive and reverted wholesale if dropped. Commit per milestone for clean
+`git revert`. No destructive step.
 
 ## Artifacts and notes
 
-Record, as concise indented transcripts, at minimum: the Milestone 0 per-bucket
-baseline, the `critcmp before after` table, the `hyperfine` JSON summary, and the
-Kani success line. Keep evidence focused on proving the acceptance criteria.
+Record, as concise indented transcripts: the Milestone 0 candidate-size and
+miss-subset histograms, the scoring-share-of-build-time number, the cache
+contention figures, the `critcmp` and `perf stat` tables, and the Kani success
+line. If E1-E3 are dropped, record the null result and the deferred-item proposal.
 
 ## Interfaces and dependencies
 
-No new external dependencies. Interfaces that must exist at completion:
+No new runtime dependencies. `perf`/`cachegrind` are dev tools; an `iai` dev-dep,
+if used, is flagged in the Decision Log. Interfaces at completion:
 
-- `chutoro-providers/dense` gains a non-default Cargo feature `simd_prefetch`
-  and an internal `prefetch` helper:
+- A test-only same-thread "inside write_graph" marker on `CpuHnsw` and an
+  instrumented `DataSource` decorator (C1).
+- `chutoro-benches` gains `[[bench]] name = "neighbour_scoring"` (C4 / 2.4.1).
+- If E2 lands: a *defaulted*, query-centric override on the dense adapter
+  bypassing the pairs round-trip, and
+  `from_row_indices(..., scratch: &mut PackedSoaStorage)` (internal). No SoA type
+  crosses the crate boundary.
+- If E3 lands: a non-default `simd_prefetch` feature and an internal `prefetch`
+  helper:
 
 ```rust
 // chutoro-providers/dense/src/simd/prefetch.rs
-/// Hints the CPU to begin loading `ptr` into cache. A no-op where unsupported;
-/// prefetch is semantically a hint, so omitting it is always correct.
+/// Hints the CPU to begin loading `ptr`. A no-op where unsupported; prefetch is
+/// semantically a hint, so omitting it is always correct.
 #[inline]
 pub(crate) fn prefetch_t0(ptr: *const f32) {
     #[cfg(all(target_arch = "x86_64", feature = "simd_prefetch"))]
-    // SAFETY: `_mm_prefetch` never dereferences `ptr`; it is a safe hint.
-    unsafe {
-        core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(
-            ptr as *const i8,
-        );
-    }
+    core::arch::x86_64::_mm_prefetch::<{ core::arch::x86_64::_MM_HINT_T0 }>(ptr as *const i8);
     #[cfg(not(all(target_arch = "x86_64", feature = "simd_prefetch")))]
     let _ = ptr;
 }
 ```
 
-(Note: `_mm_prefetch` is itself safe; the `unsafe` block above is only needed if
-the chosen signature requires it — prefer the safe call form and drop the block
-if clippy confirms it is unnecessary.)
-
-- `chutoro-benches` gains `[[bench]] name = "neighbour_scoring"`.
-- Optional, only if Milestone 0 justifies it (D2b), a *defaulted* port method:
-
-```rust
-// chutoro-core/src/datasource.rs (DataSource trait)
-/// Scores `query` against `candidates`, writing into `out` (cleared first) to
-/// let hot-path callers reuse the allocation. Defaults to `batch_distances`.
-fn batch_distances_into(
-    &self,
-    query: usize,
-    candidates: &[usize],
-    out: &mut Vec<f32>,
-) -> Result<(), DataSourceError> {
-    out.clear();
-    out.extend(self.batch_distances(query, candidates)?);
-    Ok(())
-}
-```
-
-- No change to `DataSource::distance`, `DataSource::batch_distances`,
-  `DataSource::distance_batch`, `CpuHnsw`'s public methods, or the CLI.
+- No change to `DataSource::distance`/`distance_batch`, `CpuHnsw` public methods,
+  or the CLI. `batch_distances_into` is **deferred** (ADR-003).
 
 ## Signposted documentation and skills
 
-- Plans/process: `execplans` skill (this document's format).
-- Architecture: `hexagonal-architecture`, `arch-decision-records`,
-  `arch-crate-design`; `docs/chutoro-design.md` §6.3.
-- Rust: `rust-router` → `rust-performance-and-layout`,
-  `rust-memory-and-state`, `rust-types-and-apis`, and `rust-unsafe-and-ffi`
-  (only if prefetch needs `unsafe`).
+- Process: `execplans`. Architecture: `hexagonal-architecture`,
+  `arch-decision-records`, `arch-crate-design`; `docs/chutoro-design.md` §6.3.
+- Rust: `rust-router` → `rust-performance-and-layout`, `rust-memory-and-state`,
+  `rust-types-and-apis`, `rust-unsafe-and-ffi` (only if prefetch needs `unsafe`).
 - Testing/verification: `rust-unit-testing`, `proptest`, `kani`, `nextest`,
   `rust-verification`; `docs/property-testing-design.md`,
-  `docs/rust-testing-with-rstest-fixtures.md`,
-  `docs/rust-doctest-dry-guide.md`,
+  `docs/rust-testing-with-rstest-fixtures.md`, `docs/rust-doctest-dry-guide.md`,
   `docs/reliable-testing-in-rust-via-dependency-injection.md`,
   `docs/complexity-antipatterns-and-refactoring-strategies.md`.
 
 ## Revision note
 
-Initial draft (2026-06-09). Establishes the honest scope (most of 2.3.1's intent
-already delivered by 2.2.x), the hexagonal boundary decision, the five
-measured deltas (D1-D5), milestone structure with go/no-go gates, and the
-validation strategy (behaviour-preserving; Criterion + `critcmp` + `hyperfine`).
-Pending: community-of-experts review and any revisions arising from it, then
-user approval before implementation.
+Revision 2 (2026-06-09): folded the Logisphere community-of-experts review
+(verdict REVISE) — all 12 required revisions. Major changes: split into committed
+scope (C1 guard, C2/C3 docs+ADR, C4 measurement) and evidence-gated conditional
+scope (E1 allocation hygiene, E2 port override + `Vec<AlignedBlock>` scratch
+reuse, E3 packing-step prefetch); named the pack→unpack→repack round-trip and
+made a query-centric override E2's prerequisite; added the cache-fragmentation
+reality and made Milestone 0 measure miss-subset distributions, scoring share of
+build time, and cache-lock contention; re-centred benchmark buckets on the
+realistic 8-48 regime with cycle-count as the primary keep/drop signal; corrected
+the C1 guard to a same-thread marker; corrected the scratch type to
+`Vec<AlignedBlock>` and forbade shared scratch; pre-committed `search.rs` module
+extraction; deferred the structural levers (cross-node beam, secondary SoA copy,
+`batch_distances_into`) to a separate evidence-first item recorded in ADR-003.
+Revision 1 (2026-06-09): initial draft. Pending: user approval before
+implementation.
