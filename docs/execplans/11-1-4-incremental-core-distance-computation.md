@@ -249,6 +249,9 @@ historical-edge retention, or stable cluster identity.
   `coderabbit review --agent`, reporting `findings: 0`. Earlier CodeRabbit
   comments were addressed by removing production `expect` paths and clarifying
   the core-distance test helpers without exceeding the 400-line file limit.
+- [x] (2026-06-16 00:00Z) Stage F committed the implementation as
+  `fa1427b`, pushed the branch, and updated draft PR #133 with the
+  implementation walkthrough and validation log.
 - [x] Stage A: add failing tests that pin the read-only accessor, the
   incremental recompute method, the dirty-bit semantics, the full-recompute
   escape hatch, the monotonicity property, and the batch parity property.
@@ -262,7 +265,7 @@ historical-edge retention, or stable cluster identity.
 - [x] Stage E: run validation (`make fmt`, `make markdownlint`,
   `make check-fmt`, `make lint`, `make test`, optional `make verus`,
   `coderabbit review --agent`).
-- [ ] Stage F: commit, push the branch, and update the draft PR with the
+- [x] Stage F: commit, push the branch, and update the draft PR with the
   validation log.
 
 ## Surprises & Discoveries
@@ -448,10 +451,19 @@ historical-edge retention, or stable cluster identity.
 
 ## Outcomes & Retrospective
 
-To be filled in at completion. Capture: which proptest seeds caught
-regressions, whether the Verus proof took the expected effort, how the
-fan-out histogram looked across the test suite, and any deviations from
-the plan.
+The milestone landed as planned with one scoped deviation: dirty core-distance
+state uses `Vec<bool>` rather than `FixedBitSet` because the workspace did not
+already depend on `fixedbitset`, and the task forbade new production
+dependencies. The more important semantic deviation came from the proof and
+property review: monotonicity only holds once a point has at least
+`min_cluster_size` non-self neighbours. Before saturation, the batch-compatible
+fallback rule can increase as a later neighbour becomes available.
+
+The focused proptests did not reveal additional runtime regressions after that
+scope correction. The Verus proof effort stayed small because the proof covers
+the pure selection and fallback rules rather than the HNSW adapter. CodeRabbit
+review caught clarity and panic-path issues in the final shape, all of which
+were addressed before the implementation commit.
 
 ## Context and orientation
 
