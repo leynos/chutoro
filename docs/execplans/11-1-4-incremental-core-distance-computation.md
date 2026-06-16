@@ -213,6 +213,8 @@ historical-edge retention, or stable cluster identity.
   `rust-unit-testing`, `rust-errors`, `arch-crate-design`,
   `rust-types-and-apis`, `hexagonal-architecture`, `execplans`,
   `commit-message`, and `pr-creation`.
+- [x] (2026-06-16 00:00Z) Started Stage A and rechecked the planned
+  monotonicity property against the batch fallback rule before adding tests.
 - [ ] Stage A: add failing tests that pin the read-only accessor, the
   incremental recompute method, the dirty-bit semantics, the full-recompute
   escape hatch, the monotonicity property, and the batch parity property.
@@ -256,6 +258,19 @@ historical-edge retention, or stable cluster identity.
   Evidence: `chutoro-core/src/session/mod.rs:89`.
   Impact: this milestone renames the field to `core_distances` and adds
   the sibling `dirty_core_distances` field.
+
+- Observation: the planned "core distances are monotonically non-increasing
+  across all appends" property conflicts with the batch fallback rule for
+  under-populated indices. Example: with `min_cluster_size = 2`, point `0`
+  inserted alongside only point `1` has fallback core distance `1.0`; after
+  point `2` is appended, the true second-neighbour core distance becomes
+  `2.0`. Batch parity and the under-populated fallback tests require this
+  increase.
+  Evidence: `chutoro-core/src/cpu_pipeline.rs` uses the last available
+  non-self neighbour when fewer than `min_cluster_size` neighbours exist.
+  Impact: Stage A keeps the explicit fallback tests and narrows the
+  monotonicity property to observations where the point already had at least
+  `min_cluster_size` non-self neighbours before the append.
 
 ## Decision Log
 
@@ -355,6 +370,16 @@ historical-edge retention, or stable cluster identity.
   functionality and repeated the requirement to keep the ExecPlan current.
   This satisfies the draft-to-execution approval gate without changing the
   plan's scope or tolerances.
+  Date/Author: 2026-06-16, implementation.
+
+- Decision: constrain the monotonicity proptest to the saturated regime, where
+  each observed point already has at least `min_cluster_size` non-self
+  neighbours before the append.
+  Rationale: monotonic non-increase is true for the m-th nearest-neighbour
+  statistic once the m-th neighbour exists. It is false while the batch
+  fallback is using "last available neighbour" for under-populated points.
+  Keeping both batch parity and fallback compatibility is more important than
+  proving an over-broad property.
   Date/Author: 2026-06-16, implementation.
 
 ## Outcomes & Retrospective
