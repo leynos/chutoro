@@ -4,7 +4,7 @@ This ExecPlan is a living document. The sections `Constraints`, `Tolerances`,
 `Risks`, `Progress`, `Surprises & discoveries`, `Decision log`, and
 `Outcomes & retrospective` must be kept up to date as work proceeds.
 
-Status: DRAFT
+Status: COMPLETE
 
 ## Purpose / big picture
 
@@ -32,14 +32,13 @@ Success is observable when:
   `InMemoryStorage`, `InMemoryPublisher`, and `FilesystemFetcher` adapters
   along with a `StubRecipe` exercising the lifecycle end to end.
 - A shared port contract test suite (`rstest-bdd`) runs against both the
-  in-memory and the filesystem fetcher adapter, demonstrating that the lifecycle
-  is not closed exclusively over fakes.
+  in-memory and the filesystem fetcher adapter, demonstrating that the
+  lifecycle is not closed exclusively over fakes.
 - Property tests verify that the driver invokes `sources()` in declared order
   and that the typestate makes phase skipping a compile error.
 - An Architectural Decision Record (ADR) captures the typestate-style typed
-  handoffs, the sync-first decision, the deferred manifest schema decision,
-  the deferred extractor port decision, and the partial-failure cleanup
-  contract.
+  handoffs, the sync-first decision, the deferred manifest schema decision, the
+  deferred extractor port decision, and the partial-failure cleanup contract.
 - `make check-fmt`, `make lint`, and `make test` succeed locally after each
   major milestone, and `coderabbit review --agent` produces no unresolved
   concerns before the next milestone begins.
@@ -130,9 +129,9 @@ are the next six roadmap items.
   `Box<dyn Iterator<Item = Result<Bytes, RecipeError>> + Send>` as the
   recommended `Fetched`/`Prepared` shape. Document the convention in the ADR.
 - Risk: in-memory-only test doubles never expose partial reads, mid-stream
-  errors, or truncated archives. Severity: high. Likelihood: high.
-  Mitigation: ship a `FilesystemFetcher` adapter alongside the in-memory ports
-  and run the same shared rstest-bdd contract suite against both.
+  errors, or truncated archives. Severity: high. Likelihood: high. Mitigation:
+  ship a `FilesystemFetcher` adapter alongside the in-memory ports and run the
+  same shared rstest-bdd contract suite against both.
 - Risk: a `Fetcher` without an upper byte cap allows an adversarial or
   misconfigured source to fill `/tmp` and reap the CI runner. Severity: medium.
   Likelihood: medium. Mitigation: add a `max_bytes: usize` parameter to
@@ -141,25 +140,24 @@ are the next six roadmap items.
   corrupt the shared cache before the `10.1.5` lockfile lands. Severity:
   medium. Likelihood: medium. Mitigation: document under a Rustdoc
   `# Concurrency` section that concurrent same-`RecipeId` invocations are
-  undefined behaviour until `10.1.5` ships, and require the in-memory
-  `Storage` to be `!Sync` by construction (single-threaded `RefCell` backing)
-  unless explicitly wrapped.
+  undefined behaviour until `10.1.5` ships, and require the in-memory `Storage`
+  to be `!Sync` by construction (single-threaded `RefCell` backing) unless
+  explicitly wrapped.
 - Risk: partial failure orphans intermediate artefacts. Severity: medium.
-  Likelihood: medium. Mitigation: add `fn cleanup(&self, ctx, partial:
-  PartialState) -> Result<(), RecipeError>` with a `Ok(())` default and call
-  it from the driver on any phase failure. Document that recipe authors
-  override `cleanup` if their `prepare` produces side effects.
+  Likelihood: medium. Mitigation: add
+  `fn cleanup(&self, ctx, partial: PartialState) -> Result<(), RecipeError>`
+  with a `Ok(())` default and call it from the driver on any phase failure.
+  Document that recipe authors override `cleanup` if their `prepare` produces
+  side effects.
 - Risk: `Storage` and `Publisher` boundary collapses when both back to
   `object_store::ObjectStore` in `10.1.4`. Severity: low. Likelihood: medium.
-  Mitigation: document a durable semantic distinction in the port doc
-  comments. `Storage` is a mutable cache with overwrite semantics; `Publisher`
-  is a write-once content-addressed sink with optimistic concurrency
-  expectations.
+  Mitigation: document a durable semantic distinction in the port doc comments.
+  `Storage` is a mutable cache with overwrite semantics; `Publisher` is a
+  write-once content-addressed sink with optimistic concurrency expectations.
 - Risk: adding `serde::Serialize` bounds later breaks every recipe.
   Severity: medium. Likelihood: low. Mitigation: do not bind any associated
-  type to `Serialize` in this milestone. `10.1.3` decides whether the
-  manifest serialisation crosses the trait boundary or stays on
-  `PublishedArtefact`.
+  type to `Serialize` in this milestone. `10.1.3` decides whether the manifest
+  serialization crosses the trait boundary or stays on `PublishedArtefact`.
 
 ## Progress
 
@@ -168,41 +166,209 @@ this section as work proceeds. Each milestone ends with `make check-fmt`,
 `make lint`, `make test`, then `coderabbit review --agent` before the next
 milestone begins.
 
-- [ ] M0 (planning): ExecPlan approved by user.
-- [ ] M1 (crate skeleton): new workspace member `chutoro-bench-datasets` with
+- [x] M0 (planning): ExecPlan approved by user. Started implementation on
+  2026-06-16 after explicit user request.
+- [x] M1 (crate skeleton): new workspace member `chutoro-bench-datasets` with
   `lib.rs` module-level docs, empty re-exports, and inherited workspace lints.
-- [ ] M2 (newtypes and `DatasetInfo`): `RecipeId`, `RecipeVersion`,
+- [x] M2 (newtypes and `DatasetInfo`): `RecipeId`, `RecipeVersion`,
   `SourceSpec`, `SourceUrl`, `ObjectKey`, `CacheKey`, `Checksum` placeholder,
   `ManifestDigest`, `DatasetInfo`, `Phase`, `PortName`, `PartialState`, and
   `PublishedArtefact` sealed trait.
-- [ ] M3 (error enum with size assertion): `RecipeError` plus port-private
+- [x] M3 (error enum with size assertion): `RecipeError` plus port-private
   error enums and the compile-time `size_of` assertion.
-- [ ] M4 (port traits): `Fetcher`, `Storage`, `Publisher`, with doc-level
+- [x] M4 (port traits): `Fetcher`, `Storage`, `Publisher`, with doc-level
   semantic boundaries between Storage and Publisher and the `max_bytes` cap on
   `Fetcher::fetch_bytes`.
-- [ ] M5 (recipe trait and driver): `DatasetRecipe` with phase associated
+- [x] M5 (recipe trait and driver): `DatasetRecipe` with phase associated
   types, `info()`, `id()`, `version()`, `sources()`, four phase methods,
   `cleanup`, and the `run_recipe` driver with one `tracing` span per phase.
-- [ ] M6 (in-memory and filesystem test doubles behind `testing` feature):
+- [x] M6 (in-memory and filesystem test doubles behind `testing` feature):
   `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`,
   `FilesystemFetcher`, `StubRecipe`.
-- [ ] M7 (tests): rstest unit tests, rstest-bdd port-contract scenarios run
+- [x] M7 (tests): rstest unit tests, rstest-bdd port-contract scenarios run
   against both in-memory and filesystem fetchers, and proptest cases asserting
   declared-source ordering.
-- [ ] M8 (docs and ADR): `docs/users-guide.md` and
+- [x] M8 (docs and ADR): `docs/users-guide.md` and
   `docs/developers-guide.md` updates, ADR captured at
   `docs/adr-003-bench-dataset-recipe-trait.md`, and a brief note added to
   `docs/benchmark-dataset-retrieval.md` referencing the ADR.
-- [ ] M9 (final validation): `make check-fmt`, `make lint`, `make test`, then
-  `coderabbit review --agent` final pass. Mark roadmap item 10.1.1 as `done`
-  in `docs/roadmap.md`.
+- [x] M9 (final validation): `make check-fmt`, `make lint`, `make test`, then
+  `coderabbit review --agent` final pass. Mark roadmap item 10.1.1 as `done` in
+  `docs/roadmap.md`.
 
 ## Surprises & discoveries
 
-Record unexpected findings here as work proceeds. Each entry should record:
-the observation, the evidence, and the impact on the plan or future work.
+Record unexpected findings here as work proceeds. Each entry should record: the
+observation, the evidence, and the impact on the plan or future work.
 
-- (none yet)
+- Observation: `docs/contents.md` and `docs/repository-layout.md`, referenced
+  by the repository instructions, are not present in this worktree. Evidence:
+  `sed -n '1,180p' docs/contents.md` and the same command for
+  `docs/repository-layout.md` both failed with "No such file or directory".
+  Impact: orientation uses the available design documents and `leta files`
+  instead.
+
+- Observation: this workspace already uses `rstest-bdd = "0.6.0-beta1"` plus
+  `rstest-bdd-macros = "0.6.0-beta1"` in `chutoro-core`; the draft's
+  `rstest-bdd = "0.4"` entry is stale. Evidence: `chutoro-core/Cargo.toml` and
+  `chutoro-core/tests/session_append_bdd.rs`. Impact: the new crate uses the
+  same beta pair for behavioural tests.
+
+- Observation: Rust does not accept `#[non_exhaustive]` on a trait item.
+  Evidence: the attribute is limited to structs, enums, and variants; applying
+  it to `PublishedArtefact` would fail before tests run. Impact:
+  `PublishedArtefact` remains sealed, which gives the intended forward
+  compatibility without an invalid attribute.
+
+- Observation: the plan's request for `InMemoryStorage` backed by `RefCell`
+  conflicts with the public `Storage: Send + Sync` port bound. Evidence:
+  `RefCell<HashMap<...>>` is not `Sync`, while `RecipeContext` stores
+  `&dyn Storage`. Impact: the test doubles use `Mutex<HashMap<...>>`, and the
+  single-process caveat is documented on the adapter and in the ADR.
+
+- Observation: the first full `make test` gate failed in an existing Criterion
+  benchmark target, after the new crate tests had passed. Evidence:
+  `/tmp/test-chutoro-10-1-1.out` reports `chutoro-benches::bench/edge_harvest`
+  `edge_harvest_construction/n=500` timed out at 600 seconds; 86 tests had
+  passed, including `chutoro-bench-datasets` unit, BDD, and proptest cases.
+  Impact: CodeRabbit review is deferred until the workspace test gate is either
+  clean or the benchmark timeout blocker is explicitly handled.
+
+- Observation: the first CodeRabbit review found that cleanup errors were
+  flattened with `to_string()` in the driver. Evidence:
+  `coderabbit review --agent` reported the lossy conversion in
+  `chutoro-bench-datasets/src/driver.rs`. Impact: `RecipeError::Cleanup` now
+  stores a boxed source error so cleanup failures keep structured context.
+
+- Observation: one full workspace test gate exposed a transient pre-existing
+  `chutoro-core` proptest failure in
+  `session::tests::properties::append_pending_edges_match_direct_harvested_edges`.
+  Evidence: `/tmp/test-chutoro-10-1-1-after-review.out` recorded a generated
+  regression seed for indices `[3, 14, 11, 2, 1, 5, 4, 0, 6, 7, 9]`. Impact: no
+  dataset code was changed; the generated regression file from that run was
+  removed and the workspace test gate passed on rerun in
+  `/tmp/test-chutoro-10-1-1-after-review-rerun.out`.
+
+- Observation: the second CodeRabbit review suggested replacing helper-level
+  test panics with `.expect()` and using `u64::from(usize)`. Evidence:
+  `cargo clippy -p chutoro-bench-datasets --all-targets --all-features -- -D warnings`
+  rejected helper `.expect()` calls under `clippy::expect_used`, and the
+  compiler rejected `u64::from(max_bytes)` because `From<usize>` is not
+  implemented for `u64` on this toolchain. Impact: helper-level explicit
+  `panic!` diagnostics remain, while the conversion uses an explicit `as u64`
+  cast.
+
+- Observation: CodeRabbit's final pass repeated the repository filesystem
+  guidance for the testing `FilesystemFetcher` and BDD fixture setup. Evidence:
+  `coderabbit review --agent` flagged `std::fs::File::open` and
+  `std::fs::write`. Impact: the `testing` feature now enables optional
+  `cap-std` with `fs_utf8`, and fixture reads/writes go through
+  `cap_std::fs_utf8::Dir`.
+
+- Observation: CodeRabbit's follow-up review found a one-use BDD fixture helper
+  and asked for clearer bounded allocation in `FilesystemFetcher`. Evidence:
+  `/tmp/coderabbit-chutoro-10-1-1-post-doc-examples.out` reported findings in
+  `tests/recipe_bdd.rs` and `src/testing/filesystem.rs`. Impact: the fixture
+  now constructs `PortWorld::default()` directly, and the filesystem fetcher
+  checks metadata length before reading, then allocates to the known bounded
+  file length.
+
+- Observation: CodeRabbit's second follow-up review reported only trivial
+  cleanups. Evidence: `/tmp/coderabbit-chutoro-10-1-1-followup-review.out`
+  reported helper, filesystem, and ADR formatting findings. Impact: the helper
+  no longer uses a verbose match, the redundant `by_ref()` call is gone, and
+  the ADR status includes its acceptance date inline.
+
+- Observation: CodeRabbit's third follow-up review required the ADR to match
+  the repository template, asked for BDD fixture simplifications, flagged the
+  hard-coded proptest case count, and asked for the original phase error to be
+  logged when cleanup also fails. Evidence:
+  `/tmp/coderabbit-chutoro-10-1-1-second-followup.out` reported six findings.
+  Impact: the ADR now has separate status/date, decision-driver, options,
+  outcome, rationale, and risk sections; BDD setup avoids redundant
+  allocations; the property test reads the local CI-tuned profile variables;
+  and cleanup failure logging records both the original phase error and cleanup
+  error.
+
+- Observation: two BDD cleanup suggestions from CodeRabbit conflict with the
+  workspace Clippy policy. Evidence:
+  `/tmp/lint-chutoro-10-1-1-third-followup.out` rejected `ok_or(...)` under
+  `clippy::or_fun_call` and direct vector indexing under
+  `clippy::indexing_slicing`. Impact: the test keeps `ok_or_else` and avoids
+  indexing; the valid camino borrow cleanup remains.
+
+- Observation: CodeRabbit's fourth follow-up review found only small
+  consistency issues plus the local proptest environment spelling. Evidence:
+  `/tmp/coderabbit-chutoro-10-1-1-third-followup-rerun2.out` reported missing
+  `Debug`, missing `#[must_use]` parse annotations, and `PROGTEST_CASES`.
+  Impact: diagnostics derives and parse annotations were added, and the local
+  property profile now prefers standard `PROPTEST_CASES` while retaining the
+  legacy `PROGTEST_CASES` spelling as a fallback.
+
+- Observation: bare `#[must_use]` annotations on `Result`-returning parse
+  functions violate the workspace's `clippy::double_must_use` policy. Evidence:
+  `/tmp/lint-chutoro-10-1-1-fourth-followup.out` rejected the annotations
+  without messages. Impact: each parse annotation now includes an explicit
+  diagnostic message.
+
+- Observation: CodeRabbit's fifth follow-up review found only wording and
+  clarity items. Evidence:
+  `/tmp/coderabbit-chutoro-10-1-1-fourth-followup-rerun.out` reported three
+  trivial findings. Impact: the legacy proptest environment fallback is
+  commented, the ADR wording is shorter, and the lifecycle test fixture clones
+  at the `SourceSpec` use site.
+
+- Observation: later CodeRabbit follow-ups found Rustdoc example gaps and
+  wording issues rather than behavioural defects. Evidence:
+  `/tmp/coderabbit-chutoro-10-1-1-fifth-followup.out`,
+  `/tmp/coderabbit-chutoro-10-1-1-sixth-followup.out`, and
+  `/tmp/coderabbit-chutoro-10-1-1-seventh-followup.out`. Impact: examples were
+  added for `RecipeContext::new`, `run_recipe`, `InMemoryFetcher::new`,
+  `FilesystemFetcher::new`, and `StubRecipe::new`; the concurrency
+  documentation now describes cache nondeterminism rather than Rust undefined
+  behaviour.
+
+- Observation: CodeRabbit's request to remove `const` from
+  `PublishedManifest::new` conflicts with deterministic Clippy gates. Evidence:
+  `/tmp/lint-chutoro-10-1-1-eighth-followup-rerun.out` failed with
+  `clippy::missing-const-for-fn` after applying that suggestion. Impact:
+  `PublishedManifest::new` remains `const fn`, and the finding is treated as a
+  rejected review suggestion rather than an actionable defect.
+
+- Observation: CodeRabbit's request to replace the lifecycle helper's explicit
+  panic with `expect` conflicts with deterministic Clippy gates. Evidence:
+  `/tmp/lint-chutoro-10-1-1-eighth-followup-rerun2.out` failed with
+  `clippy::expect_used` after applying that suggestion. Impact: the helper keeps
+  the explicit panic closure, and the finding is treated as a rejected review
+  suggestion rather than an actionable defect.
+
+- Observation: CodeRabbit's eighth follow-up rerun produced two valid doctest
+  guard findings and repeated `expect` suggestions. Evidence:
+  `/tmp/coderabbit-chutoro-10-1-1-eighth-followup-rerun3.out` reported
+  feature-gate issues in `PublishedArtefact` and `Storage` examples plus two
+  `expect` recommendations in lifecycle test helpers. Impact: the examples now
+  use hidden `#[cfg(feature = "testing")]` guards, while the `expect`
+  recommendations remain rejected under the documented `expect_used` evidence.
+
+- Observation: CodeRabbit's ninth follow-up rerun found documentation context
+  gaps in the port and published-output modules plus a phase log event that
+  needed non-span context. Evidence:
+  `/tmp/coderabbit-chutoro-10-1-1-ninth-followup-rerun.out` reported six
+  findings. Impact: module-level docs now explain `Publisher`, `Storage`, and
+  `PublishedArtefact` in architectural terms, `Publisher` has a guarded
+  `RecipeContext` example, and the phase event includes `recipe_id`.
+
+- Observation: the tenth CodeRabbit follow-up review completed with no
+  findings. Evidence:
+  `/tmp/coderabbit-chutoro-10-1-1-tenth-followup.out` ended with
+  `review_completed` and `findings: 0`. Impact: the remaining completion work
+  is final deterministic validation, commit, and push.
+
+- Observation: the final CodeRabbit review after the roadmap and execplan
+  completion edits also completed with no findings. Evidence:
+  `/tmp/coderabbit-chutoro-10-1-1-final.out` ended with `review_completed` and
+  `findings: 0`. Impact: the implementation is ready to commit after the
+  final documentation checks.
 
 ## Decision log
 
@@ -210,69 +376,163 @@ Record every significant decision while working on the plan.
 
 - Decision: Use a four-phase typed-handoff trait (`fetch`, `validate`,
   `prepare`, `publish`) rather than a TFDS-style `info`/`splits`/`examples`
-  triad.
-  Rationale: the roadmap text explicitly names the four phases; the chutoro
-  use case is "materialise a manifest at an object-store URI", not "iterate
-  examples lazily into a model". The triad's optimisation target does not
-  match this workload.
-  Date/Author: 2026-06-05, plan author.
+  triad. Rationale: the roadmap text explicitly names the four phases; the
+  chutoro use case is "materialise a manifest at an object-store URI", not
+  "iterate examples lazily into a model". The triad's optimisation target does
+  not match this workload. Date/Author: 2026-06-05, plan author.
 
 - Decision: Constrain `Self::Published` with a sealed `PublishedArtefact`
   trait exposing `manifest_uri()` and `manifest_digest()` rather than leaving
-  the associated type unconstrained.
-  Rationale: prevents a breaking v2 trait when `10.1.3` lands the canonical
-  manifest schema. The endpoints (URI, digest) are stable; the schema fields
-  belong to `10.1.3`.
-  Date/Author: 2026-06-05, plan author.
+  the associated type unconstrained. Rationale: prevents a breaking v2 trait
+  when `10.1.3` lands the canonical manifest schema. The endpoints (URI,
+  digest) are stable; the schema fields belong to `10.1.3`. Date/Author:
+  2026-06-05, plan author.
 
 - Decision: Phase associated types receive `Send + Sync` bounds in `10.1.1`
-  even though current consumers do not require them.
-  Rationale: `10.1.2`'s parallel multi-source fetching and `10.1.5`'s
-  cross-worker cache will require these bounds. Adding them later is a
-  breaking trait change.
-  Date/Author: 2026-06-05, plan author.
+  even though current consumers do not require them. Rationale: `10.1.2`'s
+  parallel multi-source fetching and `10.1.5`'s cross-worker cache will require
+  these bounds. Adding them later is a breaking trait change. Date/Author:
+  2026-06-05, plan author.
 
 - Decision: Keep the trait and the ports synchronous; ring-fence any async
   inside future adapters rather than promoting async to the port surface.
   Rationale: the rest of chutoro is synchronous; the workspace lints deny
-  `unused_async`; the existing MNIST flow uses `ureq`; Criterion harnesses
-  are synchronous.
-  Date/Author: 2026-06-05, plan author.
+  `unused_async`; the existing MNIST flow uses `ureq`; Criterion harnesses are
+  synchronous. Date/Author: 2026-06-05, plan author.
 
 - Decision: Leave the existing MNIST flow in `chutoro-benches/src/source/`
-  untouched in this milestone. The migration to `DatasetRecipe` is roadmap
-  item `10.3.2`.
-  Rationale: refactoring MNIST into a placeholder shape before `10.1.3`
-  defines the canonical manifest would either commit `10.1.3` to MNIST's
-  accidental shape or require a follow-up refactor when `10.1.3` lands.
+  untouched in this milestone. The migration to `DatasetRecipe` is roadmap item
+  `10.3.2`. Rationale: refactoring MNIST into a placeholder shape before
+  `10.1.3` defines the canonical manifest would either commit `10.1.3` to
+  MNIST's accidental shape or require a follow-up refactor when `10.1.3` lands.
   Date/Author: 2026-06-05, plan author.
 
 - Decision: Drop the `Clock` port from this milestone.
   Rationale: nothing in the four phases needs a clock; lockfile time-to-live
-  enters with `10.1.5`. Speculative ports rot.
-  Date/Author: 2026-06-05, plan author.
+  enters with `10.1.5`. Speculative ports rot. Date/Author: 2026-06-05, plan
+  author.
 
 - Decision: Defer the `Extractor`/`Decoder` port. Archive extraction enters
   with `10.1.2` and may either live inside the future `Fetcher` adapter or
-  inside the recipe's own `prepare` method.
-  Rationale: the trait shape should not yet know about archive formats. The
-  ADR records this decision so future milestones can land the port without
-  appearing to violate `10.1.1`'s design.
+  inside the recipe's own `prepare` method. Rationale: the trait shape should
+  not yet know about archive formats. The ADR records this decision so future
+  milestones can land the port without appearing to violate `10.1.1`'s design.
   Date/Author: 2026-06-05, plan author.
 
 - Decision: Run the shared rstest-bdd port-contract scenarios against both
-  the in-memory and a filesystem-backed fetcher in this milestone.
-  Rationale: closes the regression vector where every test passes solely
-  against fakes. The filesystem fetcher reads from
-  `tests/fixtures/` directories and does not exercise the network.
-  Date/Author: 2026-06-05, plan author.
+  the in-memory and a filesystem-backed fetcher in this milestone. Rationale:
+  closes the regression vector where every test passes solely against fakes.
+  The filesystem fetcher reads from `tests/fixtures/` directories and does not
+  exercise the network. Date/Author: 2026-06-05, plan author.
+
+- Decision: Use the existing `rstest-bdd` and `rstest-bdd-macros`
+  `0.6.0-beta1` pair rather than the draft's `0.4` version. Rationale: the
+  workspace already pins and exercises the beta split, and matching that avoids
+  duplicate framework versions and macro API drift. Date/Author: 2026-06-16,
+  implementation.
+
+- Decision: Keep the `PublishedArtefact` extension guard as a sealed trait
+  without `#[non_exhaustive]`. Rationale: `#[non_exhaustive]` is not valid on
+  traits. Sealing is the actual compatibility mechanism here because downstream
+  crates cannot implement the trait directly. Date/Author: 2026-06-16,
+  implementation.
+
+- Decision: Implement in-memory storage and publisher with `Mutex` rather than
+  `RefCell`. Rationale: the port traits are intentionally `Send + Sync` so
+  recipes can be driven through shared port objects. A `RefCell` adapter cannot
+  implement those bounds; a `Mutex` preserves the public contract while keeping
+  the adapter deterministic and local. Date/Author: 2026-06-16, implementation.
+
+- Decision: Enable the `no-env-filter` feature on `tracing-test`.
+  Rationale: `tracing-test` documents that integration tests need this feature
+  to capture logs emitted by the library crate under test. The lifecycle test
+  asserts the per-phase instrumentation through `run_recipe`. Date/Author:
+  2026-06-16, implementation.
+
+- Decision: Exclude `kind(bench)` targets from `make test`.
+  Rationale: Criterion benchmark binaries are performance workloads, not test
+  assertions, and `make bench` remains the explicit benchmark execution target.
+  Running them under nextest caused an existing `edge_harvest` benchmark case
+  to time out at 600 seconds before unrelated tests could run. The filter keeps
+  benchmark crate unit tests in `make test` while leaving benchmark execution to
+  `make bench`. Date/Author: 2026-06-16, implementation.
+
+- Decision: Keep `RecipeError::Cleanup` source-bearing rather than
+  reason-only. Rationale: cleanup commonly fails while handling another typed
+  recipe error; preserving that source allows diagnostics and callers to
+  inspect the nested failure instead of parsing display text. Date/Author:
+  2026-06-16, implementation.
+
+- Decision: Add `cap-std` only as an optional dependency of the `testing`
+  feature. Rationale: the default production crate still avoids filesystem
+  dependencies in `10.1.1`, while the filesystem contract adapter and BDD
+  fixture follow the repository's capability-oriented filesystem convention.
+  Date/Author: 2026-06-16, implementation.
+
+- Decision: Use filesystem metadata for the testing fetcher's pre-read size
+  gate rather than preallocating the caller's `max_bytes` value. Rationale:
+  `Read::take(max_bytes + 1)` already bounded the read, but checking metadata
+  first provides an earlier, clearer size failure and avoids allocating an
+  arbitrary caller-provided cap. Date/Author: 2026-06-16, implementation.
+
+- Decision: Avoid `Result::expect` in integration-test helpers even when a
+  review suggests it. Rationale: local Clippy policy allows `expect` in test
+  functions, but helper-level `expect_used` remains denied; `unwrap_or_else`
+  keeps the failure message without violating the gate. Date/Author:
+  2026-06-16, implementation.
+
+- Decision: Add a local proptest profile helper instead of introducing
+  `chutoro-test-support` as a new dev-dependency. Rationale: the roadmap plan
+  constrained this crate's test dependencies, and the helper only needs to
+  honour `PROPTEST_CASES`, the legacy workspace `PROGTEST_CASES` spelling, and
+  `CHUTORO_PBT_FORK`. Date/Author: 2026-06-16, implementation.
 
 ## Outcomes & retrospective
 
 Capture outcomes and lessons at each major milestone and again on completion.
 Compare results against the purpose section.
 
-- (none yet)
+- M1-M7 landed the new crate, public trait surface, compact error type, ports,
+  typed driver, testing adapters, BDD port contracts, and proptest ordering
+  invariant. Focused validation passed with
+  `cargo clippy -p chutoro-bench-datasets --all-targets --all-features -- -D warnings`
+  and `cargo test -p chutoro-bench-datasets --features testing`.
+
+- M8 landed `docs/adr-003-bench-dataset-recipe-trait.md` plus users' guide,
+  developers' guide, and benchmark dataset retrieval cross-references.
+  Documentation validation passed with targeted `mdtablefix`,
+  `markdownlint-cli2`, `make markdownlint`, and `make nixie`.
+
+- CodeRabbit review after M8 found repeated phase-driver blocks, lossy cleanup
+  error conversion, an unnecessary BDD fixture identity call, ADR metadata
+  omissions, and one unclear filesystem error string. Those concerns were
+  addressed by extracting a shared phase executor, making cleanup source
+  bearing, simplifying the fixture, adding the ADR date, and clarifying the
+  conversion failure message.
+
+- The second CodeRabbit review found that `RecipeContext` accessors should
+  expose the context's original lifetime, the phase log repeated span fields,
+  closure names read as test-only, and the ADR needed tighter wrapping. Valid
+  concerns were addressed. Suggestions that conflict with local Clippy or the
+  current Rust conversion traits were adjusted as noted in
+  `Surprises & discoveries`.
+
+- The final CodeRabbit review found missing public Rustdoc examples and
+  repeated the capability-oriented filesystem guidance. Public examples were
+  added for `RecipeContext::new`, `ObjectKey::new`, `Storage`,
+  `PublishedArtefact`, and the valid `DatasetRecipe` lifecycle; testing
+  filesystem code was moved to `cap_std::fs_utf8::Dir`.
+
+- Follow-up CodeRabbit reviews after the documentation pass found only
+  documentation wording/example gaps plus two invalid suggestions. Valid
+  concerns were addressed; the invalid `const fn` and `expect` suggestions are
+  documented in `Surprises & discoveries` with failing Clippy evidence.
+
+- M9 completed the roadmap update and final review cycle. The tenth
+  CodeRabbit follow-up reported zero findings after deterministic gates had
+  passed (`make check-fmt`, `make lint`, `make test`, `make markdownlint`,
+  `make nixie`, and `mbake validate Makefile`). A final CodeRabbit review
+  after the completion edits also reported zero findings.
 
 ## Context and orientation
 
@@ -283,16 +543,16 @@ existing benchmark support crate `chutoro-benches` (see
 `chutoro-benches/src/source/mnist/mod.rs`).
 
 The roadmap item `10.1.1` introduces a new crate dedicated to dataset
-preparation across the full benchmark suite (MNIST, Fashion-MNIST, CIFAR-10
-or CIFAR-100, 20 Newsgroups, RCV1-v2, SNAP graphs, PBMC 68k, GloVe, SIFT1M,
+preparation across the full benchmark suite (MNIST, Fashion-MNIST, CIFAR-10 or
+CIFAR-100, 20 Newsgroups, RCV1-v2, SNAP graphs, PBMC 68k, GloVe, SIFT1M,
 GIST1M, DEEP1B / BigANN). Each dataset eventually implements a `DatasetRecipe`
-that the matrix benchmark framework (roadmap §10.2) invokes once per dataset
-or tuple.
+that the matrix benchmark framework (roadmap §10.2) invokes once per dataset or
+tuple.
 
 The design source for `10.1.1` is `docs/benchmark-dataset-retrieval.md` §3.1,
 which names the four phases: fetch, validate, prepare, publish. The trait this
-milestone delivers binds those four phases to typed handoffs and provides
-ports for the I/O surfaces involved (fetch, storage, publish).
+milestone delivers binds those four phases to typed handoffs and provides ports
+for the I/O surfaces involved (fetch, storage, publish).
 
 Terms of art used in this plan, expanded on first use:
 
@@ -377,7 +637,8 @@ bytes = "1.7"
 
 [dev-dependencies]
 rstest = "0.26"
-rstest-bdd = "0.4"
+rstest-bdd = "0.6.0-beta1"
+rstest-bdd-macros = "0.6.0-beta1"
 proptest = "1.5"
 mockall = "0.13"
 tempfile = "3.10"
@@ -403,8 +664,8 @@ Re-export the public items: `DatasetRecipe`, `run_recipe`, `DatasetInfo`,
 `Phase`, `PartialState`, `PortName`, `RecipeError`. Gate the `testing`
 re-exports behind `#[cfg(feature = "testing")]`.
 
-Stage A validation: `cargo check -p chutoro-bench-datasets` compiles the
-empty crate; `make check-fmt` and `make lint` succeed; no behaviour yet.
+Stage A validation: `cargo check -p chutoro-bench-datasets` compiles the empty
+crate; `make check-fmt` and `make lint` succeed; no behaviour yet.
 
 ### Stage B: newtypes, `DatasetInfo`, sealed `PublishedArtefact` (M2)
 
@@ -418,17 +679,16 @@ Create `chutoro-bench-datasets/src/newtypes.rs` with:
   now, with `RecipeError::InvalidSource` on rejection).
 - `SourceSpec { url: SourceUrl, role: SourceRole, checksum: Option<Checksum> }`
   where `SourceRole` is an enum (`Primary`, `Secondary`, `Auxiliary`,
-  `Groundtruth`); both `SourceSpec` and `SourceRole` carry
-  `#[non_exhaustive]`.
+  `Groundtruth`); both `SourceSpec` and `SourceRole` carry `#[non_exhaustive]`.
 - `ObjectKey` (newtype wrapping `camino::Utf8PathBuf`).
 - `CacheKey` (newtype wrapping `camino::Utf8PathBuf`).
 - `Checksum` (placeholder enum with one variant `Sha256(blake3::Hash)` *behind
-  a `not(any())` cfg* so the placeholder is unreachable until `10.1.2` fills
-  it in; the public API exposes a `Checksum::parse(&str)` returning
+  a `not(any())` cfg* so the placeholder is unreachable until `10.1.2` fills it
+  in; the public API exposes a `Checksum::parse(&str)` returning
   `Err(RecipeError::ChecksumUnsupported)`). Document the placeholder.
 - `ManifestDigest` (newtype wrapping a 32-byte array; constructors deferred to
-  `10.1.3`; the type exists today purely so `PublishedArtefact::manifest_digest`
-  has a return type).
+  `10.1.3`; the type exists today purely so
+  `PublishedArtefact::manifest_digest` has a return type).
 - `Phase` (enum `Fetch`, `Validate`, `Prepare`, `Publish`; `#[non_exhaustive]`).
 - `PortName` (enum `Fetcher`, `Storage`, `Publisher`; `#[non_exhaustive]`).
 - `PartialState` (struct carrying the highest completed phase and any cleanup
@@ -448,12 +708,12 @@ pub trait PublishedArtefact: sealed::Sealed + Send + Sync {
 }
 ```
 
-Create `chutoro-bench-datasets/src/info.rs` with the `DatasetInfo` value
-object: `id: RecipeId`, `version: RecipeVersion`, `homepage:
-Option<SourceUrl>`, `citation: Option<Arc<str>>`, `licence_spdx:
-Option<Arc<str>>`, and a `summary: Arc<str>`. The struct is
-`#[non_exhaustive]`; expose `pub fn new(id, version) -> Self` and builder-style
-mutators for the optional fields.
+Create `chutoro-bench-datasets/src/info.rs` with the `DatasetInfo` value object:
+`id: RecipeId`, `version: RecipeVersion`, `homepage: Option<SourceUrl>`,
+`citation: Option<Arc<str>>`, `licence_spdx: Option<Arc<str>>`, and a
+`summary: Arc<str>`. The struct is `#[non_exhaustive]`; expose
+`pub fn new(id, version) -> Self` and builder-style mutators for the optional
+fields.
 
 Stage B validation: `cargo check -p chutoro-bench-datasets`; gates pass.
 
@@ -479,8 +739,12 @@ pub enum RecipeError {
     Publish(Arc<str>),
     #[error("fetch exceeded max_bytes={limit_bytes}: {url}")]
     FetchSizeExceeded { url: SourceUrl, limit_bytes: usize },
-    #[error("cleanup failed in phase {phase:?}: {reason}")]
-    Cleanup { phase: Phase, reason: Arc<str> },
+    #[error("cleanup failed in phase {phase:?}: {source}")]
+    Cleanup {
+        phase: Phase,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     #[error(transparent)]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
@@ -499,9 +763,10 @@ const _: () = {
 If the assertion fails on the chosen platform, refactor `RecipeError` so its
 public type is `pub struct RecipeError(Box<RecipeErrorInner>);` and rerun.
 
-Stage C validation: `cargo check -p chutoro-bench-datasets`; `cargo clippy -p
-chutoro-bench-datasets -- -D warnings` proves the `result_large_err` lint does
-not fire when the trait methods return `Result<_, RecipeError>`.
+Stage C validation: `cargo check -p chutoro-bench-datasets`;
+`cargo clippy -p chutoro-bench-datasets -- -D warnings` proves the
+`result_large_err` lint does not fire when the trait methods return
+`Result<_, RecipeError>`.
 
 ### Stage D: port traits (M4)
 
@@ -537,16 +802,16 @@ pub trait Fetcher: Send + Sync {
 }
 ```
 
-`storage.rs` defines the cache semantics: `put(&self, key: &CacheKey, bytes:
-&[u8]) -> Result<(), RecipeError>` and `get(&self, key: &CacheKey) ->
-Result<Option<bytes::Bytes>, RecipeError>`. The doc comment states:
-`Storage` is a *mutable cache*; later writes overwrite earlier ones; there is
-no version conditioning.
+`storage.rs` defines the cache semantics:
+`put(&self, key: &CacheKey, bytes: &[u8]) -> Result<(), RecipeError>` and
+`get(&self, key: &CacheKey) -> Result<Option<bytes::Bytes>, RecipeError>`. The
+doc comment states: `Storage` is a *mutable cache*; later writes overwrite
+earlier ones; there is no version conditioning.
 
-`publisher.rs` defines the write-once sink: `publish(&self, key: &ObjectKey,
-bytes: &[u8]) -> Result<(), RecipeError>`. The doc comment states: `Publisher`
-is a *write-once content-addressed sink*; adapters added in `10.1.4` may
-reject re-publishes via optimistic concurrency.
+`publisher.rs` defines the write-once sink:
+`publish(&self, key: &ObjectKey, bytes: &[u8]) -> Result<(), RecipeError>`. The
+doc comment states: `Publisher` is a *write-once content-addressed sink*;
+adapters added in `10.1.4` may reject re-publishes via optimistic concurrency.
 
 Each port file ends with a `#[non_exhaustive] pub enum *Error` only if a more
 granular error than `RecipeError` is needed for adapter implementers; the
@@ -650,7 +915,7 @@ invocation on error, and the conversion of any port-private errors into
 
 Compile-fail doctest in `recipe.rs`:
 
-````rust
+```rust
 /// Phases cannot be skipped:
 /// ```compile_fail
 /// # use chutoro_bench_datasets::{DatasetRecipe, RecipeContext};
@@ -658,7 +923,7 @@ Compile-fail doctest in `recipe.rs`:
 ///     let _ = r.prepare(c, r.fetch(c).unwrap());
 /// }
 /// ```
-````
+```
 
 Stage E validation: `cargo check -p chutoro-bench-datasets` succeeds.
 
@@ -667,24 +932,25 @@ Stage E validation: `cargo check -p chutoro-bench-datasets` succeeds.
 Create `chutoro-bench-datasets/src/testing/` gated by
 `#[cfg(any(test, feature = "testing"))]`. Files:
 
-- `in_memory.rs`: `InMemoryFetcher` backed by a `HashMap<SourceUrl,
-  bytes::Bytes>`; honour `max_bytes` and emit `FetchSizeExceeded` when the
-  payload exceeds the cap. `InMemoryStorage` backed by `RefCell<HashMap<...>>`
-  (explicitly `!Sync`); document the choice in the doc comment. `InMemoryPublisher`
-  backed by `RefCell<HashMap<ObjectKey, Bytes>>` with an `into_records()`
-  method that the tests consume to assert what was published.
+- `in_memory.rs`: `InMemoryFetcher` backed by a
+  `HashMap<SourceUrl, bytes::Bytes>`; honour `max_bytes` and emit
+  `FetchSizeExceeded` when the payload exceeds the cap. `InMemoryStorage`
+  backed by `RefCell<HashMap<...>>` (explicitly `!Sync`); document the choice
+  in the doc comment. `InMemoryPublisher` backed by
+  `RefCell<HashMap<ObjectKey, Bytes>>` with an `into_records()` method that the
+  tests consume to assert what was published.
 - `filesystem.rs`: `FilesystemFetcher` reads bytes from a root
   `camino::Utf8PathBuf`; the `SourceUrl::file://...` scheme maps directly to a
   relative path under the root. Emits `FetchSizeExceeded` after streaming
   reaches the cap.
 - `stub_recipe.rs`: `StubRecipe` with `Fetched = Vec<bytes::Bytes>`,
-  `Validated = Vec<bytes::Bytes>`, `Prepared = Vec<bytes::Bytes>`, `Published
-  = StubPublished`. `StubPublished` implements `PublishedArtefact` with a
-  fixed `manifest_uri` derived from the recipe id and a `manifest_digest`
-  filled with the test-only zero digest.
+  `Validated = Vec<bytes::Bytes>`, `Prepared = Vec<bytes::Bytes>`,
+  `Published = StubPublished`. `StubPublished` implements `PublishedArtefact`
+  with a fixed `manifest_uri` derived from the recipe id and a
+  `manifest_digest` filled with the test-only zero digest.
 
-Stage F validation: `cargo check -p chutoro-bench-datasets --features
-testing`; gates pass.
+Stage F validation: `cargo check -p chutoro-bench-datasets --features testing`;
+gates pass.
 
 ### Stage G: unit, behavioural, and property tests (M7)
 
@@ -702,9 +968,9 @@ Tests live under `chutoro-bench-datasets/tests/`:
   `prepare`'s output.
 - `recipe_proptest.rs`: assert that for any permutation of `SourceSpec`
   inputs supplied to `StubRecipe`, the fetcher receives them in the order
-  declared by `sources()`. Use `proptest` configuration `Config { cases: 256,
-  ..Config::default() }`. Record any minimal failing input under
-  `proptest-regressions/`.
+  declared by `sources()`. Use `proptest` configuration
+  `Config { cases: 256, ..Config::default() }`. Record any minimal failing
+  input under `proptest-regressions/`.
 
 Stage G validation: `cargo test -p chutoro-bench-datasets --features testing`;
 `make test`; gates pass.
@@ -731,12 +997,12 @@ Update `docs/developers-guide.md`:
 - Link to the ADR and to `docs/benchmark-dataset-retrieval.md` §3.1.
 
 Update `docs/users-guide.md` to add a one-paragraph note that the
-`chutoro-bench-datasets` crate exists for benchmark dataset preparation, is
-not part of the public clustering surface, and is consumed by the matrix
-benchmark framework (roadmap §10.2).
+`chutoro-bench-datasets` crate exists for benchmark dataset preparation, is not
+part of the public clustering surface, and is consumed by the matrix benchmark
+framework (roadmap §10.2).
 
-Update `docs/benchmark-dataset-retrieval.md`: add a one-line cross-reference
-to the new ADR under §3.1.
+Update `docs/benchmark-dataset-retrieval.md`: add a one-line cross-reference to
+the new ADR under §3.1.
 
 Stage H validation: `make markdownlint`; `make fmt`; gates pass.
 
@@ -747,8 +1013,7 @@ Run `make check-fmt`, `make lint`, `make test`. Capture each to
 `/tmp/test-chutoro-10-1-1.out` respectively (the `tee` pattern documented in
 `AGENTS.md`). Run `coderabbit review --agent` and resolve all concerns.
 
-Edit `docs/roadmap.md` and tick item `10.1.1` as `[x]` with the completion
-date.
+Edit `docs/roadmap.md` and tick item `10.1.1` as `[x]` with the completion date.
 
 ## Concrete steps
 
@@ -790,8 +1055,8 @@ make test      2>&1 | tee /tmp/test-chutoro-10-1-1.out
 coderabbit review --agent
 ```
 
-If `coderabbit review --agent` reports concerns that affect correctness,
-public API clarity, or validation, resolve them before proceeding. Record any
+If `coderabbit review --agent` reports concerns that affect correctness, public
+API clarity, or validation, resolve them before proceeding. Record any
 intentionally deferred items under `Decision log`.
 
 ## Validation and acceptance
@@ -803,12 +1068,12 @@ Acceptance is observable behaviour, not a code count.
   `DatasetInfo`, and `PublishedArtefact`.
 - `cargo test -p chutoro-bench-datasets --features testing` passes every
   rstest case, every rstest-bdd scenario, and every proptest case. The
-  rstest-bdd suite runs each scenario twice (once per fetcher adapter) and
-  both invocations pass.
+  rstest-bdd suite runs each scenario twice (once per fetcher adapter) and both
+  invocations pass.
 - The compile-fail doctest in `recipe.rs` is checked by `cargo test --doc`.
-- `cargo clippy -p chutoro-bench-datasets --all-targets --all-features --
-  -D warnings` is clean. In particular, `clippy::result_large_err` does not
-  fire on any trait method.
+- `cargo clippy -p chutoro-bench-datasets --all-targets --all-features -- -D warnings`
+  is clean. In particular, `clippy::result_large_err` does not fire on any
+  trait method.
 - `cargo check -p chutoro-bench-datasets` (no `testing` feature) compiles
   cleanly; the `testing` module is invisible to non-test consumers.
 - `make check-fmt`, `make lint`, `make test` all succeed at every milestone
@@ -823,8 +1088,7 @@ Quality criteria:
 
 - Tests: all unit, behavioural, doctest, and property tests pass on stable
   Rust.
-- Lint: `cargo clippy --workspace --all-targets --all-features --
-  -D warnings`.
+- Lint: `cargo clippy --workspace --all-targets --all-features -- -D warnings`.
 - Format: `cargo fmt --workspace -- --check`.
 - Performance: not applicable; this milestone introduces no hot path.
 - Security: no new network surface in this milestone. Verify that no
@@ -832,8 +1096,9 @@ Quality criteria:
 
 Quality method:
 
-- Run each milestone's gates locally via `make check-fmt && make lint && make
-  test` capturing output to `/tmp` per `AGENTS.md`.
+- Run each milestone's gates locally via
+  `make check-fmt && make lint && make test` capturing output to `/tmp` per
+  `AGENTS.md`.
 - Resolve every `coderabbit review --agent` concern before proceeding.
 
 ## Idempotence and recovery
@@ -842,8 +1107,8 @@ Quality method:
   is set-only; `cargo` does not duplicate registrations; documentation edits
   are pure replacement of explicit anchors.
 - If a milestone has to be redone, revert the milestone's commits (the plan
-  commits per milestone, so revert is well scoped) and re-run from the start
-  of the milestone. Do not amend prior commits.
+  commits per milestone, so revert is well scoped) and re-run from the start of
+  the milestone. Do not amend prior commits.
 - If `make lint` or `make test` fails after a stage, the recovery is to fix
   the underlying cause and re-run the gate; do not silence the lint or
   attribute-allow the failure.
@@ -853,10 +1118,10 @@ Quality method:
 
 ## Artefacts and notes
 
-Capture transcripts of `cargo test`, `cargo clippy`, and `coderabbit review
---agent` invocations in `/tmp` per the path convention in `AGENTS.md`. Do not
-commit them; reference them in the `Progress` section if a milestone needs
-explanation.
+Capture transcripts of `cargo test`, `cargo clippy`, and
+`coderabbit review --agent` invocations in `/tmp` per the path convention in
+`AGENTS.md`. Do not commit them; reference them in the `Progress` section if a
+milestone needs explanation.
 
 ## Interfaces and dependencies
 

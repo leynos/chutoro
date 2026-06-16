@@ -613,7 +613,7 @@ ______________________________________________________________________
 
 ### 10.1. Shared dataset retrieval and preparation infrastructure
 
-- [ ] 10.1.1. Introduce `chutoro-bench-datasets` with a `DatasetRecipe`
+- [x] 10.1.1. Introduce `chutoro-bench-datasets` with a `DatasetRecipe`
   trait for fetch, validate, prepare, and publish steps shared across all
   datasets. See `docs/benchmark-dataset-retrieval.md` §3.1.
 - [ ] 10.1.2. Implement shared download primitives: pinned source URLs,

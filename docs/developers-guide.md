@@ -347,6 +347,33 @@ at the top of the `[lints.clippy]` section in `chutoro-benches/Cargo.toml`.
    suppressions, with a reason string.
 5. Run `make bench` to verify the new benchmark appears in the output.
 
+
+## Benchmark dataset recipes
+
+The `chutoro-bench-datasets` crate defines the shared recipe surface for
+benchmark dataset preparation. A `DatasetRecipe` fetches source inputs,
+validates them, prepares benchmark-ready bytes, and publishes a manifest handle
+through typed phase handoffs. The type returned by each phase is consumed by
+the next one, so callers cannot publish fetched data that has not passed
+validation and preparation.
+
+Recipes receive infrastructure through `RecipeContext`. `Fetcher` reads source
+bytes with a mandatory `max_bytes` cap, `Storage` is a mutable cache with
+overwrite semantics, and `Publisher` is the final write-once sink. Network
+download, archive extraction, object-store adapters, lockfiles, checksum
+verification, and licence gates are deferred to later roadmap items.
+
+Enable the crate's `testing` feature for adapter contract tests. It exposes
+`InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,
+and `StubRecipe`. The behavioural tests in
+`chutoro-bench-datasets/tests/recipe_bdd.rs` run the same fetcher contract
+against both in-memory and filesystem-backed adapters.
+
+The design rationale is recorded in
+[`ADR-003`](adr-003-bench-dataset-recipe-trait.md). The broader dataset
+pipeline is described in
+[`benchmark-dataset-retrieval.md`](benchmark-dataset-retrieval.md) §3.1.
+
 ## Verus proofs
 
 Verus is used for formal verification of edge harvest primitives. Run proofs via

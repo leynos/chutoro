@@ -292,3 +292,8 @@ cover multiple dataset sizes and parameter combinations so that scaling
 behaviour is visible. Consumers integrating `chutoro-core` into their own
 projects can use `chutoro-benches` as a reference for structuring performance
 tests around the pipeline APIs.
+
+The internal `chutoro-bench-datasets` crate provides the recipe contracts used
+to prepare benchmark datasets for the future matrix benchmark framework. It is
+not part of the public clustering API; it exists so benchmark jobs can share
+the same fetch, validate, prepare, and publish lifecycle for external datasets.
