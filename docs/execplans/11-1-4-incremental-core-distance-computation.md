@@ -5,10 +5,9 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: DRAFT
+Status: IN PROGRESS
 
-This plan is awaiting explicit approval. Implementation must not start until the
-plan is approved.
+This plan was approved for implementation by the user on 2026-06-16.
 
 ## Purpose / big picture
 
@@ -207,6 +206,13 @@ historical-edge retention, or stable cluster identity.
   single accessor that treats `INFINITY` as unset).
 - [x] (2026-06-05 00:00Z) Drafted this ExecPlan for approval before
   implementation begins.
+- [x] (2026-06-16 00:00Z) Received explicit implementation approval in the
+  task request and moved this ExecPlan to `IN PROGRESS`.
+- [x] (2026-06-16 00:00Z) Loaded the implementation skills named by the plan:
+  `leta`, `rust-router`, `verus`, `proptest`, `rust-verification`, `kani`,
+  `rust-unit-testing`, `rust-errors`, `arch-crate-design`,
+  `rust-types-and-apis`, `hexagonal-architecture`, `execplans`,
+  `commit-message`, and `pr-creation`.
 - [ ] Stage A: add failing tests that pin the read-only accessor, the
   incremental recompute method, the dirty-bit semantics, the full-recompute
   escape hatch, the monotonicity property, and the batch parity property.
@@ -342,6 +348,14 @@ historical-edge retention, or stable cluster identity.
   the better long-term option; that is deferred to the public-surface
   hardening pass in roadmap item `11.5.1`.
   Date/Author: 2026-06-05, planning.
+
+- Decision: treat the 2026-06-16 user request to proceed with implementation
+  as the explicit approval gate for this ExecPlan.
+  Rationale: the request directly instructed implementation of the planned
+  functionality and repeated the requirement to keep the ExecPlan current.
+  This satisfies the draft-to-execution approval gate without changing the
+  plan's scope or tolerances.
+  Date/Author: 2026-06-16, implementation.
 
 ## Outcomes & Retrospective
 
