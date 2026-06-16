@@ -101,8 +101,10 @@ assert_eq!(session.point_count(), 0);
 assert_eq!(session.snapshot_version(), 0);
 
 session.append(&[0, 1])?;
+session.recompute_core_distances()?;
 
 assert_eq!(session.point_count(), 2);
+assert!(session.core_distance(0).is_some());
 assert_eq!(session.snapshot_version(), 0);
 # Ok(())
 # }
@@ -113,10 +115,18 @@ Sessions are CPU-only, so `ExecutionStrategy::GpuPreferred` is rejected during
 time because session creation does not seed HNSW or run the batch bootstrap
 path.
 
-Use `append(&[...])` to insert source indices that already exist in the
-backing `DataSource`. The session does not copy or extend source storage; the
-caller owns that storage contract. Each index is inserted into the live HNSW
-index through the edge-harvesting path, and harvested candidate edges are kept
+After `append`, newly inserted points have dirty core distances. Calling
+`core_distance(i)` before a recompute returns `None` for those points. Call
+`recompute_core_distances()` after append batches to compute core distances for
+new points and for existing points that appeared near those new points in HNSW.
+Call `recompute_core_distances_full()` when the session must re-establish
+parity with a from-scratch batch core-distance pass; it searches every inserted
+point and is more expensive than the incremental path.
+
+Use `append(&[...])` to insert source indices that already exist in the backing
+`DataSource`. The session does not copy or extend source storage; the caller
+owns that storage contract. Each index is inserted into the live HNSW index
+through the edge-harvesting path, and harvested candidate edges are kept
 internally for the later refresh workflow.
 
 `append` is fail-fast with partial progress. If a slice contains `[0, 1, bad]`

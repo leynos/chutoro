@@ -215,17 +215,51 @@ historical-edge retention, or stable cluster identity.
   `commit-message`, and `pr-creation`.
 - [x] (2026-06-16 00:00Z) Started Stage A and rechecked the planned
   monotonicity property against the batch fallback rule before adding tests.
-- [ ] Stage A: add failing tests that pin the read-only accessor, the
+- [x] (2026-06-16 00:00Z) Stage A red test run captured the intended missing
+  API/module failures in
+  `/tmp/red-core-distance-chutoro-11-1-4-incremental-core-distance-computation.out`.
+- [x] (2026-06-16 00:00Z) Stage A added unit, BDD, and proptest coverage for
+  dirty core-distance reads, incremental recompute, full recompute, fallback
+  semantics, pure recompute targets, saturated monotonicity, and batch parity.
+- [x] (2026-06-16 00:00Z) Stage B implemented
+  `chutoro-core/src/session/core_distance.rs` with the pure helper functions
+  and added `verus/session_core_distance.rs`.
+- [x] (2026-06-16 00:00Z) Stage B validation passed with `make verus`; the
+  existing edge-harvest proof reported `21 verified, 0 errors` and the new
+  session core-distance proof reported `4 verified, 0 errors`.
+- [x] (2026-06-16 00:00Z) Stage C implemented source-indexed core-distance
+  storage, dirty tracking, the `core_distance` accessor,
+  `recompute_core_distances`, `recompute_core_distances_full`, and metrics
+  instrumentation.
+- [x] (2026-06-16 00:00Z) Stage C focused validation passed:
+  `cargo test -p chutoro-core session::tests::core_distance --all-features`
+  ran 15 core-distance tests successfully.
+- [x] (2026-06-16 00:00Z) Stage D updated the BDD lifecycle scenario, the
+  CPU-enabled trybuild API fixture, `docs/users-guide.md`,
+  `docs/developers-guide.md`, and `docs/chutoro-design.md`. The roadmap
+  checkbox remains unchecked until the full validation gates pass.
+- [x] (2026-06-16 00:00Z) Stage E full validation passed with `make fmt`,
+  `make markdownlint`, `make check-fmt`, `make lint`, `make test`, and
+  `make verus`. `make test` reported `987 passed, 1 skipped`, and Verus
+  reported `21 verified, 0 errors` for edge harvest plus `4 verified,
+  0 errors` for session core-distance proofs.
+- [x] (2026-06-16 00:00Z) Stage D marked `docs/roadmap.md` §11.1.4 complete
+  after the full validation gates passed.
+- [x] (2026-06-16 00:00Z) Stage E CodeRabbit review passed with
+  `coderabbit review --agent`, reporting `findings: 0`. Earlier CodeRabbit
+  comments were addressed by removing production `expect` paths and clarifying
+  the core-distance test helpers without exceeding the 400-line file limit.
+- [x] Stage A: add failing tests that pin the read-only accessor, the
   incremental recompute method, the dirty-bit semantics, the full-recompute
   escape hatch, the monotonicity property, and the batch parity property.
-- [ ] Stage B: implement the pure `core_distance_from_neighbours` helper
+- [x] Stage B: implement the pure `core_distance_from_neighbours` helper
   in `chutoro-core/src/session/core_distance.rs` and prove it in Verus.
-- [ ] Stage C: implement the recompute engine and the public methods in
+- [x] Stage C: implement the recompute engine and the public methods in
   `chutoro-core/src/session/session_impl.rs`, route the accessor through
   the dirty bitset, and wire telemetry.
-- [ ] Stage D: update the trybuild fixture, the public session-API surface
+- [x] Stage D: update the trybuild fixture, the public session-API surface
   test, and `docs/{users-guide,developers-guide,chutoro-design,roadmap}.md`.
-- [ ] Stage E: run validation (`make fmt`, `make markdownlint`,
+- [x] Stage E: run validation (`make fmt`, `make markdownlint`,
   `make check-fmt`, `make lint`, `make test`, optional `make verus`,
   `coderabbit review --agent`).
 - [ ] Stage F: commit, push the branch, and update the draft PR with the
@@ -271,6 +305,19 @@ historical-edge retention, or stable cluster identity.
   Impact: Stage A keeps the explicit fallback tests and narrows the
   monotonicity property to observations where the point already had at least
   `min_cluster_size` non-self neighbours before the append.
+
+- Observation: the repository guidance points new work at `docs/contents.md`
+  and `docs/repository-layout.md`, but neither file exists in this branch.
+  Evidence: direct reads of both files returned "No such file or directory".
+  Impact: orientation used `AGENTS.md`, this ExecPlan, semantic `leta` queries,
+  and the local session, CPU pipeline, HNSW, users-guide, developers-guide,
+  design, and roadmap files instead.
+
+- Observation: the workspace does not currently depend on `fixedbitset`.
+  Evidence: `rg "fixedbitset|FixedBitSet" Cargo.toml chutoro-core/Cargo.toml
+  chutoro-core/src` found no dependency or use.
+  Impact: dirty core-distance state is implemented with `Vec<bool>` to satisfy
+  the no-new-production-dependency constraint.
 
 ## Decision Log
 
@@ -380,6 +427,23 @@ historical-edge retention, or stable cluster identity.
   fallback is using "last available neighbour" for under-populated points.
   Keeping both batch parity and fallback compatibility is more important than
   proving an over-broad property.
+  Date/Author: 2026-06-16, implementation.
+
+- Decision: implement dirty core-distance tracking with `Vec<bool>` rather
+  than `FixedBitSet`.
+  Rationale: `fixedbitset` is not already in the workspace dependency graph,
+  and this milestone explicitly forbids new production dependencies. The
+  `Vec<bool>` representation preserves the same source-indexed invariant:
+  `true` means stale or never computed; `false` plus a finite stored distance
+  means `core_distance(i)` may return `Some(_)`.
+  Date/Author: 2026-06-16, implementation.
+
+- Decision: store core distances by source index rather than dense insertion
+  ordinal.
+  Rationale: `append` accepts source indices and does not require contiguous
+  insertion order. Source-indexed storage lets `core_distance(i)` use the same
+  identifier that callers passed to `append`, including sessions that append
+  `[5]` before lower source indices.
   Date/Author: 2026-06-16, implementation.
 
 ## Outcomes & Retrospective

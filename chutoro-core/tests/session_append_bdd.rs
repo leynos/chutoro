@@ -82,6 +82,7 @@ fn world() -> SessionAppendWorld {
         values: vec![0.0, 1.0, 4.0],
     });
     let session = ChutoroBuilder::new()
+        .with_min_cluster_size(1)
         .build_session(source)
         .expect("behavioural session fixture must build");
 
@@ -117,6 +118,11 @@ fn append_source_indices(
     Ok(())
 }
 
+#[when("I recompute core distances")]
+fn recompute_core_distances(world: &mut SessionAppendWorld) {
+    world.last_error = world.session.recompute_core_distances().err();
+}
+
 #[then("the append succeeds")]
 fn append_succeeds(world: &SessionAppendWorld) {
     assert!(world.last_error.is_none());
@@ -135,6 +141,11 @@ fn session_contains_points(world: &SessionAppendWorld, count: usize) {
 #[then("the snapshot version is {version:u64}")]
 fn snapshot_version_is(world: &SessionAppendWorld, version: u64) {
     assert_eq!(world.session.snapshot_version(), version);
+}
+
+#[then("source index {index:usize} has core distance {distance:f32}")]
+fn source_index_has_core_distance(world: &SessionAppendWorld, index: usize, distance: f32) {
+    assert_eq!(world.session.core_distance(index), Some(distance));
 }
 
 #[scenario(
@@ -166,3 +177,9 @@ fn empty_index_list_no_op(_world: SessionAppendWorld) {}
     name = "Snapshot version immutability across multiple appends"
 )]
 fn snapshot_version_immutability_across_multiple_appends(_world: SessionAppendWorld) {}
+
+#[scenario(
+    path = "tests/features/session_append.feature",
+    name = "Recomputing core distances after append"
+)]
+fn recomputing_core_distances_after_append(_world: SessionAppendWorld) {}

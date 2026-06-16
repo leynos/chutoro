@@ -86,7 +86,8 @@ pub use config::{SessionConfig, SessionRefreshPolicy};
 pub struct ClusteringSession<D: DataSource + Send + Sync> {
     config: SessionConfig,
     index: CpuHnsw,
-    _core_distances: Vec<f32>,
+    core_distances: Vec<f32>,
+    dirty_core_distances: Vec<bool>,
     _mst_edges: Vec<MstEdge>,
     _historical_edges: Vec<CandidateEdge>,
     pending_edges: Vec<CandidateEdge>,
@@ -145,11 +146,65 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     pub fn snapshot_version(&self) -> u64 {
         self.snapshot_version
     }
+
+    /// Returns the recomputed core distance for `point`.
+    ///
+    /// Returns `None` when `point` has not been inserted into the session,
+    /// when it is out of range for the internal source-indexed storage, or
+    /// when its dirty bit is set because a recompute has not filled the cell
+    /// since insertion.
+    ///
+    /// # Examples
+    /// ```rust,no_run
+    /// # use std::sync::Arc;
+    /// # use chutoro_core::{
+    /// #     ChutoroBuilder, ChutoroError, DataSource, DataSourceError,
+    /// #     MetricDescriptor,
+    /// # };
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    /// #         Ok((a - b).abs())
+    /// #     }
+    /// #     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("abs") }
+    /// # }
+    /// # fn main() -> Result<(), ChutoroError> {
+    /// let source = Arc::new(Dummy(vec![0.0, 1.0, 2.0]));
+    /// let mut session = ChutoroBuilder::new().build_session(source)?;
+    ///
+    /// session.append(&[0, 1, 2])?;
+    /// assert_eq!(session.core_distance(0), None);
+    ///
+    /// session.recompute_core_distances()?;
+    /// assert_eq!(session.core_distance(0), Some(1.0));
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[must_use]
+    pub fn core_distance(&self, point: usize) -> Option<f32> {
+        if self
+            .dirty_core_distances
+            .get(point)
+            .copied()
+            .unwrap_or(false)
+        {
+            return None;
+        }
+        self.core_distances
+            .get(point)
+            .copied()
+            .filter(|distance| distance.is_finite())
+    }
 }
 
 #[cfg(feature = "metrics")]
 mod clock;
 mod config;
+mod core_distance;
 mod session_impl;
 
 #[cfg(test)]

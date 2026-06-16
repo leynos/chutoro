@@ -196,9 +196,8 @@ FISHDBC algorithm.
 
 Profiling of the sequential FISHDBC algorithm reveals two primary performance
 bottlenecks: the creation of the HNSW graph (specifically, the `add()`
-function, which is called for every point) and the subsequent computation of
-the MST.[^8] The parallel implementation focuses on accelerating these two
-stages.
+function, which is called for every point) and the subsequent computation of the
+MST.[^8] The parallel implementation focuses on accelerating these two stages.
 
 The architecture employs a multi-process model to circumvent Python's Global
 Interpreter Lock (GIL), which would otherwise prevent true parallelism in a
@@ -700,7 +699,7 @@ errors.
 Distances are reported using the `strsim` crate's Levenshtein implementation,
 mirroring the DNA/protein use cases outlined in §1.3 without pulling in the
 heavier bioinformatics tooling planned for later phases. The provider implements
- `DataSource` directly so the same type can be handed to `Chutoro::run`,
+`DataSource` directly so the same type can be handed to `Chutoro::run`,
 keeping the ingestion and computation pathway identical to numeric providers.
 Converting the `usize` Levenshtein score into `f32` matches the trait's
 contract and establishes the precedent that future non-metric sources surface
@@ -890,7 +889,7 @@ points are classified as noise and receive label `0`.
   structure-of-arrays views of point data and computes distances with stable
   `core::arch` intrinsics (AVX2/AVX-512 on x86) across lanes, with scalar
   fallback per pair where metrics are not vectorizable. Keep an optional nightly
-   `std::simd` path behind a non-default feature while the API remains
+  `std::simd` path behind a non-default feature while the API remains
   unstable. Expose the query-centric `batch_distances(query, candidates)`
   helper on the core trait and make it the default path for HNSW candidate
   scoring on CPU: collect candidate indices in chunks sized to the SIMD width
@@ -1341,7 +1340,7 @@ property now treats `llvm-cov` environments (`LLVM_PROFILE_FILE` or
 `CARGO_LLVM_COV`) as low-budget runs and falls back to 4 cases unless
 explicitly overridden in the dedicated property workflow. The HNSW mutation
 property also caps non-forked standard runs at its default 64 cases so a PR-tier
- `PROPTEST_CASES=250` run cannot consume the full 600-second `nextest`
+`PROPTEST_CASES=250` run cannot consume the full 600-second `nextest`
 allowance; forked weekly runs keep the requested deep-run budget.
 
 _Implementation update (2026-02-12)._ The functional ARI/NMI baseline case
@@ -2522,6 +2521,9 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
     /// Per-point core distances, extended on each refresh.
     core_distances: Vec<f32>,
 
+    /// Source-indexed dirty state for core-distance cells.
+    dirty_core_distances: Vec<bool>,
+
     /// Accumulated MST edges from the most recent complete refresh.
     mst_edges: Vec<MstEdge>,
 
@@ -2766,6 +2768,27 @@ currently recomputes from scratch. Specifically:
   for every point's `min_cluster_size`-th nearest neighbour, identical to the
   batch pipeline. This is more expensive than the incremental path but resets
   drift to zero.
+
+  **v1 implemented behaviour.** Roadmap item `11.1.4` ships the core-distance
+  portion of this design before MST refresh. After `append`, the session marks
+  successfully inserted source indices dirty. `core_distance(i)` returns `None`
+  while a cell is dirty, unset, or outside the source-indexed storage. Calling
+  `recompute_core_distances()` searches HNSW for every dirty newly inserted
+  point, filters out the self-hit, computes its core distance, and also
+  recomputes existing points that appeared in those new points' non-self
+  neighbour lists. Calling `recompute_core_distances_full()` searches every
+  inserted point and mirrors the batch core-distance loop. This full path is
+  the escape hatch later `refresh_full()` work will reuse. Dirty state is a
+  `Vec<bool>` rather than `FixedBitSet` because the workspace did not already
+  carry `fixedbitset` and this milestone avoids new production dependencies.
+
+  The v1 incremental recompute set is intentionally local, so it can miss an
+  existing point whose true k-th neighbour improved without that point
+  appearing as a neighbour of a new insertion. The full recompute path bounds
+  that drift. The implementation also diverges benignly from the FISHDBC
+  reference, which piggy-backs on insertion-time HNSW distance-cache state
+  rather than running a fresh k-nearest-neighbour search; the Chutoro path can
+  therefore move core distances downward relative to a literal FISHDBC port.
 
   **Baseline contract for trigger (b).** The "batch baseline" is a label
   snapshot produced by a full batch `Chutoro::run()` on the current dataset. To
@@ -3386,7 +3409,7 @@ that produces a sequence of short text documents with controlled properties:
 - **Topic drift.** The topic distribution shifts over time: new topics emerge,
   old topics decay, and some topics merge. This validates that incremental
   refresh (§12.5) and the structural diff API (§13.4) correctly surface `Birth`,
-   `Death`, `Split`, and `Merge` events.
+  `Death`, `Split`, and `Merge` events.
 
 The corpus generator is seeded and fully deterministic. A manifest records
 ground-truth topic labels and topic-drift breakpoints for quality scoring.

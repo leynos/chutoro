@@ -13,6 +13,7 @@ mod append;
 mod builder;
 mod common;
 mod concurrency;
+mod core_distance;
 #[cfg(feature = "metrics")]
 mod metrics;
 mod properties;

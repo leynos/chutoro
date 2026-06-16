@@ -33,3 +33,10 @@ Feature: Clustering session append
     Then the append succeeds
     And the session contains 3 points
     And the snapshot version is 0
+
+  Scenario: Recomputing core distances after append
+    Given an empty clustering session
+    When I append source indices "0,1,2"
+    And I recompute core distances
+    Then the append succeeds
+    And source index 0 has core distance 1

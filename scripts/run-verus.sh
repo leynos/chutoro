@@ -3,7 +3,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PROOF_FILE="${VERUS_PROOF_FILE:-${ROOT_DIR}/verus/edge_harvest_proofs.rs}"
+if [[ -n "${VERUS_PROOF_FILE:-}" ]]; then
+  PROOF_FILES=("${VERUS_PROOF_FILE}")
+else
+  PROOF_FILES=(
+    "${ROOT_DIR}/verus/edge_harvest_proofs.rs"
+    "${ROOT_DIR}/verus/session_core_distance.rs"
+  )
+fi
 VERSION_FILE="${ROOT_DIR}/tools/verus/VERSION"
 
 if [[ ! -f "${VERSION_FILE}" ]]; then
@@ -151,21 +158,24 @@ if [[ ! -f "${VERUS_BIN}" || ! -x "${VERUS_BIN}" ]]; then
   exit 1
 fi
 
-if [[ ! -f "${PROOF_FILE}" ]]; then
-  echo "Verus proof file not found: ${PROOF_FILE}" >&2
-  exit 1
-fi
+for proof_file in "${PROOF_FILES[@]}"; do
+  if [[ ! -f "${proof_file}" ]]; then
+    echo "Verus proof file not found: ${proof_file}" >&2
+    exit 1
+  fi
+done
 
 ensure_verus_toolchain
 
-if "${VERUS_BIN}" "${PROOF_FILE}"; then
-  exit 0
-else
-  # $? captures the exit status from the Verus invocation above.
-  status=$?
-  echo "Verus proofs failed (exit ${status})." >&2
-  echo "Binary: ${VERUS_BIN}" >&2
-  echo "Proof file: ${PROOF_FILE}" >&2
-  echo "Toolchain: ${TOOLCHAIN}" >&2
-  exit "${status}"
-fi
+for proof_file in "${PROOF_FILES[@]}"; do
+  if "${VERUS_BIN}" "${proof_file}"; then
+    continue
+  else
+    status=$?
+    echo "Verus proofs failed (exit ${status})." >&2
+    echo "Binary: ${VERUS_BIN}" >&2
+    echo "Proof file: ${proof_file}" >&2
+    echo "Toolchain: ${TOOLCHAIN}" >&2
+    exit "${status}"
+  fi
+done
