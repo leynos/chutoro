@@ -3,5 +3,6 @@ target/
 lcov.info
 coverage.xml
 .grepai/
+.memdb/
 .verus/
 *.swp
