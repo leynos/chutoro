@@ -105,23 +105,37 @@ Genuinely unrealised or unmeasured (the residual the panel surfaced):
   prefetch, if it helps anywhere, belongs in the pack step, and is likely a
   no-op at realistic batch sizes (E3 is conditional and structurally suspect).
 
-### Deferred to a separate, evidence-first optimisation item (NOT built here)
+### Deferred to separate, evidence-first optimisation items (NOT built here)
 
-The strongest measured wins are structural and out of scope for 2.3.1; they are
-recorded in ADR-003 and proposed as a new roadmap item rather than smuggled in:
+The strongest measured wins are structural and out of scope for 2.3.1. They are
+recorded in ADR-003 and **must be created as new roadmap items in
+`docs/roadmap.md` during implementation of this plan** (a required step of
+Milestone 2; see the Plan of work), rather than smuggled into 2.3.1. Creating
+the roadmap entries is mandatory and is not contingent on the Milestone 0
+go/no-go — the go/no-go decides whether the *conditional* deltas (E1-E3) of
+2.3.1 are built, whereas these three structural levers are deferred work that
+must be tracked openly whatever the measurement shows. File each as its own
+checkbox item under Phase 2.3 (suggested numbers 2.3.3, 2.3.4, 2.3.5, after the
+existing 2.3.1 and 2.3.2), each cross-referencing ADR-003 and this execplan, and
+each marked as gated on its own evidence:
 
-- **Cross-node "beam" scoring** — accumulate candidates from multiple popped
-  nodes in `search_layer` into one packing+scoring call, widening the window
-  from ≈ `2M` to hundreds. This touches core search *policy* and must preserve
-  deterministic best-first visitation order; larger blast radius.
-- **Secondary dimension-major (SoA) matrix copy** held once at provider
-  construction, so `from_row_indices` becomes a strided gather with no per-call
-  transpose and no packing buffer — trading ~1× memory to eliminate the path E2
-  optimises incrementally.
-- **`batch_distances_into` out-buffer reuse** — only meaningful if a
-  query-centric override exists and the cache's indexed-scatter consumption is
-  redesigned; otherwise it saves nothing on the cached path and penalises
-  non-overriding providers (e.g. text).
+- **Cross-node "beam" scoring** (suggested roadmap item 2.3.3) — accumulate
+  candidates from multiple popped nodes in `search_layer` into one
+  packing+scoring call, widening the window from ≈ `2M` to hundreds. This
+  touches core search *policy* and must preserve deterministic best-first
+  visitation order; larger blast radius.
+- **Secondary dimension-major (SoA) matrix copy** (suggested roadmap item
+  2.3.4) — held once at provider construction, so `from_row_indices` becomes a
+  strided gather with no per-call transpose and no packing buffer — trading ~1×
+  memory to eliminate the path E2 optimises incrementally.
+- **`batch_distances_into` out-buffer reuse** (suggested roadmap item 2.3.5) —
+  only meaningful if a query-centric override exists and the cache's
+  indexed-scatter consumption is redesigned; otherwise it saves nothing on the
+  cached path and penalises non-overriding providers (e.g. text).
+
+The suggested numbering is provisional: at implementation time, reconcile it
+with the current state of `docs/roadmap.md` (renumber if 2.3.3+ are already
+taken) and record the assigned numbers in this plan's `Decision Log`.
 
 ## Constraints
 
@@ -510,15 +524,23 @@ Goal: record what is true regardless of whether E1-E3 are built.
    `arch-decision-records` skill): the decision to keep SoA/prefetch private to
    the dense adapter; the cross-node-beam and secondary-SoA-copy and
    `batch_distances_into` alternatives with memory-vs-repack and policy-coupling
-   trade-offs; a recommendation to spin measured-win work into a separate
-   evidence-first roadmap item. Reference it from §6.3.
-3. `docs/developers-guide.md`: the measurement harness and `hyperfine` workflow,
+   trade-offs; a recommendation to spin measured-win work into separate
+   evidence-first roadmap items. Reference it from §6.3.
+3. **Create the deferred roadmap items.** Add the three deferred structural
+   levers (cross-node beam scoring, secondary dimension-major SoA copy,
+   `batch_distances_into` out-buffer reuse) as explicit, unchecked items under
+   Phase 2.3 in `docs/roadmap.md` (suggested 2.3.3-2.3.5; reconcile numbering
+   with the live roadmap), each referencing ADR-003 and this execplan and each
+   gated on its own evidence. Record the assigned numbers in the `Decision Log`.
+   This step is mandatory and independent of the Milestone 0 go/no-go outcome.
+4. `docs/developers-guide.md`: the measurement harness and `hyperfine` workflow,
    the write-lock invariant test, and (if E1-E3 land) the scratch and
    `simd_prefetch` conventions. Document the `DataSource` length-equality and
    error-atomicity (output-unmodified-on-error) invariants the cache layer relies
    on (`validate.rs:129-137`, `helpers.rs:152-160`) directly in the trait docs.
-4. Mark roadmap item 2.3.1 done once committed scope lands (the item's intent is
-   satisfied; any deferred work is a new item).
+5. Mark roadmap item 2.3.1 done once committed scope lands (the item's intent is
+   satisfied; the deferred levers are now their own tracked roadmap items per
+   step 3).
 
 Validation: `make markdownlint`, `make nixie` (if Mermaid changes), `make fmt`
 clean.
@@ -751,6 +773,12 @@ pub(crate) fn prefetch_t0(ptr: *const f32) {
   `docs/complexity-antipatterns-and-refactoring-strategies.md`.
 
 ## Revision note
+
+Revision 3 (2026-06-09): made it explicit that the three deferred structural
+levers must be **created as roadmap items in `docs/roadmap.md` during
+implementation** (a mandatory Milestone 2 step, independent of the Milestone 0
+go/no-go), with suggested numbers 2.3.3-2.3.5 to be reconciled with the live
+roadmap and recorded in the Decision Log.
 
 Revision 2 (2026-06-09): folded the Logisphere community-of-experts review
 (verdict REVISE) — all 12 required revisions. Major changes: split into committed
