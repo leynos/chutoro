@@ -427,6 +427,7 @@ dependencies = [
  "bytes",
  "camino",
  "cap-std",
+ "chutoro-bench-datasets",
  "mockall",
  "proptest",
  "rstest",

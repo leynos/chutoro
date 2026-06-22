@@ -84,7 +84,7 @@ fn failure_invokes_cleanup_with_partial_state(
     );
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum FailingPhase {
     Fetch,
     Validate,
@@ -136,6 +136,19 @@ impl FailingRecipe {
             Err(error) => panic!("cleanup state lock should not be poisoned: {error}"),
         }
     }
+
+    fn fail_or_pass<T>(
+        &self,
+        target: FailingPhase,
+        make_error: impl FnOnce(&'static str) -> RecipeError,
+        value: T,
+    ) -> Result<T, RecipeError> {
+        if self.failing_phase == target {
+            Err(make_error(self.failing_phase.message()))
+        } else {
+            Ok(value)
+        }
+    }
 }
 
 impl DatasetRecipe for FailingRecipe {
@@ -176,11 +189,7 @@ impl DatasetRecipe for FailingRecipe {
         _ctx: &RecipeContext<'_>,
         fetched: Self::Fetched,
     ) -> Result<Self::Validated, RecipeError> {
-        if matches!(self.failing_phase, FailingPhase::Validate) {
-            Err(RecipeError::validate(self.failing_phase.message()))
-        } else {
-            Ok(fetched)
-        }
+        self.fail_or_pass(FailingPhase::Validate, RecipeError::validate, fetched)
     }
 
     fn prepare(
@@ -188,11 +197,7 @@ impl DatasetRecipe for FailingRecipe {
         _ctx: &RecipeContext<'_>,
         validated: Self::Validated,
     ) -> Result<Self::Prepared, RecipeError> {
-        if matches!(self.failing_phase, FailingPhase::Prepare) {
-            Err(RecipeError::prepare(self.failing_phase.message()))
-        } else {
-            Ok(validated)
-        }
+        self.fail_or_pass(FailingPhase::Prepare, RecipeError::prepare, validated)
     }
 
     fn publish(

@@ -15,7 +15,7 @@ use crate::{DatasetRecipe, PartialState, Phase, RecipeContext, RecipeError};
 /// use chutoro_bench_datasets::testing::{
 ///     InMemoryFetcher, InMemoryPublisher, InMemoryStorage, StubRecipe,
 /// };
-/// use chutoro_bench_datasets::{RecipeContext, SourceUrl, run_recipe};
+/// use chutoro_bench_datasets::{PublishedArtefact, RecipeContext, SourceUrl, run_recipe};
 ///
 /// # fn main() -> Result<(), chutoro_bench_datasets::RecipeError> {
 /// let source = SourceUrl::parse("https://example.test/dataset.bin")?;
