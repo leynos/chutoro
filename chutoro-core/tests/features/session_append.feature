@@ -40,3 +40,4 @@ Feature: Clustering session append
     And I recompute core distances
     Then the append succeeds
     And source index 0 has core distance 1
+    And the snapshot version is 0

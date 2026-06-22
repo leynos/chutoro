@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections
 `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
 proceeds.
 
-Status: IN PROGRESS
+Status: COMPLETED
 
 This plan was approved for implementation by the user on 2026-06-16.
 
@@ -34,12 +34,12 @@ Success is observable in three ways:
    distance from point `0` to its `m`-th nearest neighbour, where `m =
    min_cluster_size`.
 2. A `proptest` property shows that under an arbitrary append sequence,
-   `core_distance(i)` for any previously-inserted `i` is monotonically
-   non-increasing across appends (HDBSCAN core distance can only shrink as the
-   dataset grows).
+   `core_distance(i)` is monotonically non-increasing only after `i` has at
+   least `min_cluster_size` non-self neighbours. Before that saturation point,
+   the batch-compatible fallback rule can increase.
 3. A `proptest` parity property shows that `recompute_core_distances_full`
-   produces, up to a small tolerance, the same vector as the batch
-   `cpu_pipeline.rs` path on the same dataset.
+   produces the same vector as the batch `cpu_pipeline.rs` path on the same
+   dataset.
 
 This plan only authorizes incremental core-distance computation and a
 full-recompute escape hatch. It does **not** authorize MST refresh, label
@@ -134,8 +134,9 @@ historical-edge retention, or stable cluster identity.
   the `core_distance(i)` accessor, which returns `None` when the cell is
   `INFINITY` and `None` when `i >= point_count()`. Document the convention
   in `chutoro-core/src/session/core_distance.rs`. Also maintain a
-  `dirty_core_distances: FixedBitSet` whose bits are clear iff the
-  corresponding cell holds a real value; the accessor consults the bitset,
+  `dirty_core_distances: Vec<bool>` whose cells are clear iff the
+  corresponding cell holds a real value; the accessor consults the dirty
+  vector,
   not the sentinel, so future refactors cannot accidentally treat
   `INFINITY` as a real distance.
 
@@ -156,12 +157,13 @@ historical-edge retention, or stable cluster identity.
   `refresh`. Expose the fan-out as
   `chutoro.session.core_distance.touched_existing_per_recompute`.
 
-- Risk: monotonic non-increasing only holds against the *true* core distance,
-  not against a possibly-stale cached value. Severity: low. Likelihood: low.
-  Mitigation: the proptest invariant compares values *only across paths that
-  call `recompute_core_distances_full` between observations*, removing the
-  staleness confound. A separate proptest checks the incremental-vs-full
-  divergence directly with a permissive tolerance.
+- Risk: monotonic non-increasing only holds once a point has at least
+  `min_cluster_size` non-self neighbours, not against the under-populated
+  fallback value. Severity: low. Likelihood: medium. Mitigation: the proptest
+  invariant compares values only after saturation and only across paths that
+  call `recompute_core_distances_full` between observations, removing both the
+  fallback and staleness confounds. A separate proptest checks exact
+  incremental-vs-full parity for the first append.
 
 - Risk: HNSW `search` returns a vector of `Neighbour` that includes the
   query if the index already contains it; the batch path filters this out.
@@ -201,13 +203,13 @@ historical-edge retention, or stable cluster identity.
   reachability, hnswlib's self-hit behaviour, and Rust HNSW crate options.
 - [x] (2026-06-05 00:00Z) Ran a Logisphere community-of-experts design review
   on the initial sketch and incorporated the recommendations (separate
-  recompute method, dirty bitset, full recompute escape hatch, pure
+  recompute method, dirty vector, full recompute escape hatch, pure
   recompute-set decision helper, fan-out histogram, mandatory Verus proof,
   single accessor that treats `INFINITY` as unset).
 - [x] (2026-06-05 00:00Z) Drafted this ExecPlan for approval before
   implementation begins.
 - [x] (2026-06-16 00:00Z) Received explicit implementation approval in the
-  task request and moved this ExecPlan to `IN PROGRESS`.
+  task request and moved this ExecPlan into implementation.
 - [x] (2026-06-16 00:00Z) Loaded the implementation skills named by the plan:
   `leta`, `rust-router`, `verus`, `proptest`, `rust-verification`, `kani`,
   `rust-unit-testing`, `rust-errors`, `arch-crate-design`,
@@ -259,7 +261,7 @@ historical-edge retention, or stable cluster identity.
   in `chutoro-core/src/session/core_distance.rs` and prove it in Verus.
 - [x] Stage C: implement the recompute engine and the public methods in
   `chutoro-core/src/session/session_impl.rs`, route the accessor through
-  the dirty bitset, and wire telemetry.
+  the dirty vector, and wire telemetry.
 - [x] Stage D: update the trybuild fixture, the public session-API surface
   test, and `docs/{users-guide,developers-guide,chutoro-design,roadmap}.md`.
 - [x] Stage E: run validation (`make fmt`, `make markdownlint`,
@@ -348,7 +350,7 @@ historical-edge retention, or stable cluster identity.
   `11.2.4` will reuse the same method body.
   Date/Author: 2026-06-05, planning.
 
-- Decision: maintain a `dirty_core_distances: FixedBitSet` indexed by
+- Decision: maintain a `dirty_core_distances: Vec<bool>` indexed by
   source index. A clear bit means the cell holds a real value; a set bit
   means the cell is stale or never computed.
   Rationale: enforces the invariant "every successfully inserted point
@@ -356,20 +358,20 @@ historical-edge retention, or stable cluster identity.
   succeed before `append` returns. `append` sets dirty bits for newly
   inserted points; `recompute_core_distances` clears them as it
   processes points; future `refresh` (roadmap `11.2.1`) will refuse to
-  proceed while any dirty bit is set. The bitset is cheaper than
-  `Option<f32>` storage and keeps `core_distances` densely indexable for
+  proceed while any dirty bit is set. The `Vec<bool>` storage avoids a new
+  production dependency while keeping `core_distances` densely indexable for
   later mutual-reachability work.
   Date/Author: 2026-06-05, planning.
 
 - Decision: use `f32::INFINITY` as the storage sentinel but route every
-  read through the `core_distance(i)` accessor, which consults the
-  `dirty_core_distances` bitset rather than the sentinel.
+  read through the `core_distance(i)` accessor, which consults
+  `dirty_core_distances` rather than the sentinel.
   Rationale: dense `Vec<f32>` storage is simpler than
-  `Vec<Option<f32>>`; the bitset is the authoritative "is this real?"
+  `Vec<Option<f32>>`; the dirty vector is the authoritative "is this real?"
   source; the sentinel is a debugging aid (if you ever observe
-  `INFINITY` in mutual-reachability output, the bitset was not
+  `INFINITY` in mutual-reachability output, the dirty vector was not
   consulted). The community review recommended a single guarded
-  accessor; this design enforces that with the bitset.
+  accessor; this design enforces that with the dirty vector.
   Date/Author: 2026-06-05, planning.
 
 - Decision: factor the "which existing points need recompute?" step into
@@ -495,7 +497,7 @@ effective `ef` used by the batch path is
 `max(min_cluster_size + 1, ef_construction).min(items)`. The
 incremental work in this plan mirrors that rule so that
 `recompute_core_distances_full` produces the same vector as
-`cpu_pipeline.rs` on the same dataset, up to floating-point tolerance.
+`cpu_pipeline.rs` on the same dataset.
 
 The HNSW public surface in `chutoro-core/src/hnsw/cpu/mod.rs`:
 
@@ -592,13 +594,13 @@ change:
 
 Add a `proptest` battery with these properties:
 
-- `prop_core_distance_monotonically_non_increasing`: generate a
-  `min_cluster_size` between 1 and 4 inclusive and a sequence of
-  disjoint append batches; after each batch invoke
-  `recompute_core_distances_full()`; assert that for every previously
-  inserted point `i`, the new `core_distance(i)` is less than or
-  equal to its previous value (with `f32::total_cmp`). Source length
-  bounded to 24.
+- `prop_core_distance_monotonically_non_increasing_after_saturation`:
+  generate a `min_cluster_size` between 1 and 4 inclusive and an append
+  sequence; after each append invoke `recompute_core_distances_full()`; assert
+  monotonic non-increase only for points that have at least `min_cluster_size`
+  non-self neighbours before the comparison. Source length is bounded to 24.
+  The guard is required because the fallback value can increase before
+  saturation.
 - `prop_recompute_full_matches_batch`: generate a four-to-twelve
   point source and a `min_cluster_size` between 1 and 3; build an
   empty session, append every index, call
@@ -691,12 +693,11 @@ obligations:
    neighbours[neighbours.len() - 1].distance`.
 3. `lemma_core_distance_empty`:
    `core_distance_from_neighbours(&[], m) == 0.0`.
-4. `lemma_core_distance_monotone_under_prefix_shrink`: if `prefix`
-   is a prefix of `extended` whose elements are sorted ascending,
-   then `core_distance_from_neighbours(extended, m) <=
-   core_distance_from_neighbours(prefix, m)` (informally: more
-   neighbours never raise the m-th-NN distance once self-hits are
-   excluded).
+4. `lemma_core_distance_monotone_under_saturated_prefix`: if `prefix`
+   is a prefix of `extended` and `prefix` already has at least `m`
+   neighbours, then the extended core distance is less than or equal to the
+   prefix core distance. The saturation precondition is required because the
+   fallback rule can increase before the m-th non-self neighbour exists.
 
 Use the `vstd::seq` primitives and follow the project layout in the
 `verus` skill. Register the proof file with `make verus` by adding
@@ -709,9 +710,7 @@ Work in `chutoro-core/src/session/mod.rs` and
 
 In `mod.rs`, rename `_core_distances: Vec<f32>` to
 `core_distances: Vec<f32>` and add a sibling field
-`dirty_core_distances: fixedbitset::FixedBitSet` (the workspace
-already depends on `fixedbitset` for HNSW; if it does not, fall
-back to a `Vec<bool>` and revisit). Update the
+`dirty_core_distances: Vec<bool>`. Update the
 `assert_send_sync` compile-time check if needed.
 
 Add three public methods on `ClusteringSession`:
@@ -817,7 +816,7 @@ Update:
     re-establishes parity with a from-scratch batch run; this is
     the path future drift-correction work will use.
 - `docs/developers-guide.md` "Session public APIs" section: add
-  the three new methods, the dirty-bitset invariant, and the
+  the three new methods, the dirty-vector invariant, and the
   pure-helper layout in `session/core_distance.rs`. Note that
   `core_distance(i)` returns `None` for both out-of-range and
   dirty cells, and direct callers should disambiguate with
@@ -883,7 +882,7 @@ HDBSCAN core distances for newly appended points and for the
 existing points that appeared as neighbours of those new
 points. Add the read-only `core_distance(point)` accessor.
 
-Track stale and freshly-inserted cells in a dirty bitset so
+Track stale and freshly-inserted cells in a dirty vector so
 that callers reading core distances before recompute see
 `None` rather than a sentinel, and so that a future refresh
 can refuse to proceed while dirty cells remain.
@@ -999,7 +998,7 @@ materially improved the plan:
 
 1. Shipping `recompute_core_distances_full` in this milestone so
    the proptest battery includes a batch-parity property.
-2. Tracking a `dirty_core_distances` bitset so the fail-fast
+2. Tracking a `dirty_core_distances` vector so the fail-fast
    append contract does not leave half-initialized sessions
    masquerading as healthy.
 
@@ -1043,7 +1042,7 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
     config: SessionConfig,
     index: CpuHnsw,
     core_distances: Vec<f32>,
-    dirty_core_distances: fixedbitset::FixedBitSet,
+    dirty_core_distances: Vec<bool>,
     _mst_edges: Vec<MstEdge>,
     _historical_edges: Vec<CandidateEdge>,
     pending_edges: Vec<CandidateEdge>,
@@ -1066,10 +1065,9 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 }
 ```
 
-No external dependency changes are expected. If `fixedbitset`
-is not already a workspace dependency at the time of
-implementation, fall back to `Vec<bool>` for the dirty set and
-record the deviation in `Decision Log`.
+No external dependency changes were made. The dirty set uses `Vec<bool>`
+because `fixedbitset` was not already a workspace dependency and this milestone
+forbids new production dependencies.
 
 ## References
 

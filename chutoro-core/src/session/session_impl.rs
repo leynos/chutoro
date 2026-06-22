@@ -72,6 +72,10 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
                 "chutoro.session.core_distance.appends_left_dirty_total",
                 "Recompute calls that started with one or more dirty core distances."
             );
+            metrics::describe_counter!(
+                "chutoro.session.core_distance.errors_total",
+                "Total number of core-distance recompute failures, labelled by reason."
+            );
             metrics::describe_histogram!(
                 "chutoro.session.core_distance.touched_existing_per_recompute",
                 metrics::Unit::Count,
@@ -87,8 +91,8 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         Ok(Self {
             config,
             index,
-            core_distances: Vec::new(),
-            dirty_core_distances: Vec::new(),
+            core_distances: Vec::with_capacity(source.len()),
+            dirty_core_distances: Vec::with_capacity(source.len()),
             _mst_edges: Vec::new(),
             _historical_edges: Vec::new(),
             pending_edges: Vec::new(),

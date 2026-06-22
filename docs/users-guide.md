@@ -119,9 +119,13 @@ After `append`, newly inserted points have dirty core distances. Calling
 `core_distance(i)` before a recompute returns `None` for those points. Call
 `recompute_core_distances()` after append batches to compute core distances for
 new points and for existing points that appeared near those new points in HNSW.
-Call `recompute_core_distances_full()` when the session must re-establish
-parity with a from-scratch batch core-distance pass; it searches every inserted
-point and is more expensive than the incremental path.
+Treat these recomputed values as provisional until each point has at least
+`min_cluster_size` non-self neighbours. Before that neighbourhood saturation
+point, the fallback core-distance rule can still increase; monotonic
+non-increase only applies after saturation. Call
+`recompute_core_distances_full()` when the session must re-establish parity
+with a from-scratch batch core-distance pass; it searches every inserted point
+and is more expensive than the incremental path.
 
 Use `append(&[...])` to insert source indices that already exist in the backing
 `DataSource`. The session does not copy or extend source storage; the caller

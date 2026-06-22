@@ -152,7 +152,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// Returns `None` when `point` has not been inserted into the session,
     /// when it is out of range for the internal source-indexed storage, or
     /// when its dirty bit is set because a recompute has not filled the cell
-    /// since insertion.
+    /// since insertion. Non-finite cells are also treated as unavailable.
     ///
     /// # Examples
     /// ```rust,no_run
@@ -186,11 +186,12 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// ```
     #[must_use]
     pub fn core_distance(&self, point: usize) -> Option<f32> {
+        debug_assert_eq!(self.dirty_core_distances.len(), self.core_distances.len());
         if self
             .dirty_core_distances
             .get(point)
             .copied()
-            .unwrap_or(false)
+            .unwrap_or(true)
         {
             return None;
         }

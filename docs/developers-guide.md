@@ -48,8 +48,10 @@ paths. The HNSW edge-harvesting tests treat equivalent `search` results as the
 behavioural contract between `insert` and `insert_harvesting`.
 
 Design rationale and deeper implementation notes live in
-[the design document](./chutoro-design.md) and the completed
-[edge-harvesting ExecPlan](./execplans/11-1-1-make-edge-harvesting-hnsw-insertion-path-public.md).
+[the design document](./chutoro-design.md), the completed
+[edge-harvesting ExecPlan](./execplans/11-1-1-make-edge-harvesting-hnsw-insertion-path-public.md),
+and the completed
+[incremental core-distance ExecPlan](./execplans/11-1-4-incremental-core-distance-computation.md).
 
 ## Session public APIs
 
@@ -127,24 +129,12 @@ The v1 incremental clustering surface has these limitations:
 
 ### Session internal architecture
 
-Session code is split by responsibility under `chutoro-core/src/session/`:
-
-- `mod.rs` owns the `ClusteringSession` struct, lightweight read-only
-  accessors, public re-exports, and the high-level Rustdoc contract.
-- `config.rs` owns `SessionRefreshPolicy` and `SessionConfig`, the small value
-  types carried by each session.
-- `session_impl.rs` owns construction, `append`, HNSW error mapping, and the
-  edge-harvesting write path.
-- `core_distance.rs` owns the pure core-distance helpers and the recompute
-  workflow. The pure helpers must not depend on HNSW adapter internals beyond
-  the public `Neighbour` value.
-- `clock.rs` is compiled only with the `metrics` feature and owns the
-  monotonic-clock seam used for deterministic latency tests.
-
-Keep this split intact when adding session behaviour. Domain state should stay
-on `ClusteringSession`; configuration-only changes belong in `config.rs`;
-append construction work belongs in `session_impl.rs`; and core-distance work
-belongs in `core_distance.rs` until it grows a clearer sub-boundary.
+Keep the session responsibility split intact when adding behaviour. Domain
+state should stay on `ClusteringSession`; configuration-only changes belong
+with session configuration; append construction work belongs with the append
+implementation; and core-distance work should stay in the core-distance
+subsystem until it grows a clearer sub-boundary. The path-level breakdown lives
+in [the repository layout](./repository-layout.md).
 
 Core-distance storage is indexed by source index, not by dense insertion
 ordinal. `core_distances: Vec<f32>` stores finite values after recompute and

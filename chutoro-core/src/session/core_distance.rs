@@ -9,7 +9,7 @@ use std::{collections::BTreeSet, num::NonZeroUsize};
 
 use super::ClusteringSession;
 use crate::{DataSource, Neighbour, Result};
-use tracing::instrument;
+use tracing::{instrument, warn};
 
 /// Computes a core distance from sorted non-self neighbours.
 ///
@@ -113,7 +113,21 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         let neighbours = self
             .index
             .search(self.source.as_ref(), point, ef)
-            .map_err(|error| self.map_hnsw_error(error))?;
+            .map_err(|error| {
+                let chutoro_error = self.map_hnsw_error(error);
+                warn!(
+                    point,
+                    error = ?chutoro_error,
+                    "core-distance recompute failed during HNSW search"
+                );
+                #[cfg(feature = "metrics")]
+                metrics::counter!(
+                    "chutoro.session.core_distance.errors_total",
+                    "reason" => core_distance_error_reason(&chutoro_error)
+                )
+                .increment(1);
+                chutoro_error
+            })?;
         Ok(neighbours
             .into_iter()
             .filter(|neighbour| neighbour.id != point)
@@ -227,5 +241,14 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             .record(self.clock.now().duration_since(t0).as_secs_f64());
 
         Ok(())
+    }
+}
+
+#[cfg(feature = "metrics")]
+fn core_distance_error_reason(error: &crate::ChutoroError) -> &'static str {
+    match error {
+        crate::ChutoroError::DataSource { .. } => "data_source",
+        crate::ChutoroError::CpuHnswFailure { .. } => "hnsw_failure",
+        _ => "other",
     }
 }

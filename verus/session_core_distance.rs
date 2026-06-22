@@ -48,6 +48,10 @@ pub proof fn lemma_core_distance_selection(neighbours: Seq<Distance>, min_cluste
         core_distance(neighbours, min_cluster_size)
             == neighbours[(min_cluster_size - 1) as int],
 {
+    let selected = (min_cluster_size - 1) as int;
+    assert(0 <= selected < neighbours.len());
+    assert(neighbours.len() >= min_cluster_size);
+    assert(core_distance(neighbours, min_cluster_size) == neighbours[selected]);
 }
 
 /// Proves fallback to the last available neighbour for under-populated input.
@@ -58,6 +62,9 @@ pub proof fn lemma_core_distance_fallback(neighbours: Seq<Distance>, min_cluster
     ensures
         core_distance(neighbours, min_cluster_size) == neighbours[neighbours.len() - 1],
 {
+    assert(neighbours.len() < min_cluster_size);
+    assert(neighbours.len() > 0);
+    assert(core_distance(neighbours, min_cluster_size) == neighbours[neighbours.len() - 1]);
 }
 
 /// Proves the empty-neighbour fallback.
@@ -67,6 +74,11 @@ pub proof fn lemma_core_distance_empty(min_cluster_size: nat)
     ensures
         core_distance(Seq::<Distance>::empty(), min_cluster_size) == 0,
 {
+    let empty = Seq::<Distance>::empty();
+    assert(empty.len() == 0);
+    assert(empty.len() < min_cluster_size);
+    assert(!(empty.len() > 0));
+    assert(core_distance(empty, min_cluster_size) == 0);
 }
 
 /// Proves saturated core distances cannot increase when appending a suffix.
