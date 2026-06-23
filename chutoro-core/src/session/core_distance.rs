@@ -192,12 +192,17 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         metrics::histogram!("chutoro.session.core_distance.touched_existing_per_recompute")
             .record(existing_targets.len() as f64);
 
+        let mut existing_neighbour_lists = Vec::with_capacity(existing_targets.len());
+        for point in existing_targets {
+            let neighbours = self.search_non_self_neighbours(point, ef)?;
+            existing_neighbour_lists.push((point, neighbours));
+        }
+
         for (point, neighbours) in new_indices.iter().copied().zip(&neighbour_lists) {
             self.write_core_distance(point, neighbours);
         }
 
-        for point in existing_targets {
-            let neighbours = self.search_non_self_neighbours(point, ef)?;
+        for (point, neighbours) in existing_neighbour_lists {
             self.write_core_distance(point, &neighbours);
 
             #[cfg(feature = "metrics")]

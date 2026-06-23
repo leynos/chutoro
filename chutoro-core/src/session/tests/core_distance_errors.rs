@@ -64,6 +64,43 @@ fn recompute_core_distances_propagates_hnsw_errors() {
     );
 }
 
+#[test]
+fn recompute_core_distances_keeps_new_points_dirty_when_existing_search_fails() {
+    let source = Arc::new(FailableSource::new(FailureMode::PairDataSource {
+        left: 0,
+        right: 2,
+    }));
+    let mut session = build_failable_session(Arc::clone(&source));
+
+    session.append(&[0, 2]).expect("first append must succeed");
+    session
+        .recompute_core_distances_full()
+        .expect("first recompute must succeed");
+    session.append(&[1]).expect("second append must succeed");
+
+    source.fail();
+    let err = session
+        .recompute_core_distances()
+        .expect_err("touched existing search must fail");
+
+    assert!(
+        matches!(err, ChutoroError::DataSource { .. }),
+        "expected data source error, got {err:?}"
+    );
+    assert_eq!(
+        session.core_distance(1),
+        None,
+        "new point must remain dirty so retry recomputes touched existing points"
+    );
+
+    source.recover();
+    session
+        .recompute_core_distances()
+        .expect("retry must recompute the still-dirty new point");
+
+    assert!(session.core_distance(1).is_some());
+}
+
 fn build_failable_session(source: Arc<FailableSource>) -> crate::ClusteringSession<FailableSource> {
     let cache_entries = NonZeroUsize::new(1).expect("cache size must be non-zero");
     let hnsw_params = HnswParams::new(2, 4)
@@ -98,6 +135,10 @@ impl FailableSource {
     fn fail(&self) {
         self.should_fail.store(true, Ordering::SeqCst);
     }
+
+    fn recover(&self) {
+        self.should_fail.store(false, Ordering::SeqCst);
+    }
 }
 
 impl DataSource for FailableSource {
@@ -114,6 +155,10 @@ impl DataSource for FailableSource {
             return match self.mode {
                 FailureMode::DataSource => Err(DataSourceError::OutOfBounds { index: i.max(j) }),
                 FailureMode::NonFinite => Ok(f32::NAN),
+                FailureMode::PairDataSource { left, right } if is_pair(i, j, left, right) => {
+                    Err(DataSourceError::OutOfBounds { index: i.max(j) })
+                }
+                FailureMode::PairDataSource { .. } => Ok((self.values[i] - self.values[j]).abs()),
             };
         }
 
@@ -137,4 +182,9 @@ impl DataSource for FailableSource {
 enum FailureMode {
     DataSource,
     NonFinite,
+    PairDataSource { left: usize, right: usize },
+}
+
+fn is_pair(i: usize, j: usize, left: usize, right: usize) -> bool {
+    (i == left && j == right) || (i == right && j == left)
 }
