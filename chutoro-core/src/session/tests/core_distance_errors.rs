@@ -28,9 +28,14 @@ fn core_distance_asserts_storage_alignment(session_builder: ChutoroBuilder) {
     let _ = session.core_distance(0);
 }
 
-#[test]
-fn recompute_core_distances_propagates_data_source_errors() {
-    let source = Arc::new(FailableSource::new(FailureMode::DataSource));
+#[rstest]
+#[case(FailureMode::DataSource, "data source failure")]
+#[case(FailureMode::NonFinite, "HNSW failure")]
+fn recompute_core_distances_propagates_errors(
+    #[case] mode: FailureMode,
+    #[case] failure_description: &str,
+) {
+    let source = Arc::new(FailableSource::new(mode));
     let mut session = build_failable_session(Arc::clone(&source));
 
     session.append(&[0, 1, 2]).expect("append must succeed");
@@ -38,30 +43,19 @@ fn recompute_core_distances_propagates_data_source_errors() {
 
     let err = session
         .recompute_core_distances_full()
-        .expect_err("recompute must propagate data source failure");
+        .expect_err(&format!("recompute must propagate {failure_description}"));
 
-    assert!(
-        matches!(err, ChutoroError::DataSource { .. }),
-        "expected data source error, got {err:?}"
-    );
-}
-
-#[test]
-fn recompute_core_distances_propagates_hnsw_errors() {
-    let source = Arc::new(FailableSource::new(FailureMode::NonFinite));
-    let mut session = build_failable_session(Arc::clone(&source));
-
-    session.append(&[0, 1, 2]).expect("append must succeed");
-    source.fail();
-
-    let err = session
-        .recompute_core_distances_full()
-        .expect_err("recompute must propagate HNSW failure");
-
-    assert!(
-        matches!(err, ChutoroError::CpuHnswFailure { .. }),
-        "expected HNSW error, got {err:?}"
-    );
+    match mode {
+        FailureMode::DataSource => assert!(
+            matches!(err, ChutoroError::DataSource { .. }),
+            "expected data source error, got {err:?}"
+        ),
+        FailureMode::NonFinite => assert!(
+            matches!(err, ChutoroError::CpuHnswFailure { .. }),
+            "expected HNSW error, got {err:?}"
+        ),
+        FailureMode::PairDataSource { .. } => unreachable!("pair failure is not a test case"),
+    }
 }
 
 #[test]
