@@ -136,6 +136,10 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 
     fn write_core_distance(&mut self, point: usize, neighbours: &[Neighbour]) {
         let core = core_distance_from_neighbours(neighbours, self.config.min_cluster_size());
+        self.write_core_distance_value(point, core);
+    }
+
+    fn write_core_distance_value(&mut self, point: usize, core: f32) {
         self.core_distances[point] = core;
         self.dirty_core_distances[point] = false;
     }
@@ -146,6 +150,44 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// recomputed when they appear in a newly appended point's non-self
     /// neighbour list, which is the cheap incremental approximation used by
     /// roadmap item 11.1.4.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use std::sync::Arc;
+    /// # use chutoro_core::{
+    /// #     ChutoroBuilder, ChutoroError, DataSource, DataSourceError,
+    /// #     MetricDescriptor,
+    /// # };
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    /// #         Ok((a - b).abs())
+    /// #     }
+    /// #     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("abs") }
+    /// # }
+    /// # fn main() -> Result<(), ChutoroError> {
+    /// let source = Arc::new(Dummy(vec![0.0, 1.0, 2.0, 10.0]));
+    /// let mut session = ChutoroBuilder::new()
+    ///     .with_min_cluster_size(1)
+    ///     .build_session(source)?;
+    ///
+    /// session.append(&[0, 1, 2])?;
+    /// assert_eq!(session.core_distance(2), None);
+    ///
+    /// session.recompute_core_distances()?;
+    /// assert!(session.core_distance(2).is_some());
+    ///
+    /// session.append(&[3])?;
+    /// session.recompute_core_distances()?;
+    /// assert!(session.core_distance(3).is_some());
+    /// # Ok(())
+    /// # }
+    /// ```
     ///
     /// # Errors
     ///
@@ -192,20 +234,26 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         metrics::histogram!("chutoro.session.core_distance.touched_existing_per_recompute")
             .record(existing_targets.len() as f64);
 
-        let mut existing_neighbour_lists = Vec::with_capacity(existing_targets.len());
+        let mut pending_updates = Vec::with_capacity(new_indices.len() + existing_targets.len());
+        for (point, neighbours) in new_indices.iter().copied().zip(&neighbour_lists) {
+            let core = core_distance_from_neighbours(neighbours, self.config.min_cluster_size());
+            pending_updates.push((point, core));
+        }
+
+        #[cfg(feature = "metrics")]
+        let recomputed_existing = existing_targets.len();
         for point in existing_targets {
             let neighbours = self.search_non_self_neighbours(point, ef)?;
-            existing_neighbour_lists.push((point, neighbours));
+            let core = core_distance_from_neighbours(&neighbours, self.config.min_cluster_size());
+            pending_updates.push((point, core));
         }
 
-        for (point, neighbours) in new_indices.iter().copied().zip(&neighbour_lists) {
-            self.write_core_distance(point, neighbours);
+        for (point, core) in pending_updates {
+            self.write_core_distance_value(point, core);
         }
 
-        for (point, neighbours) in existing_neighbour_lists {
-            self.write_core_distance(point, &neighbours);
-
-            #[cfg(feature = "metrics")]
+        #[cfg(feature = "metrics")]
+        for _ in 0..recomputed_existing {
             metrics::counter!("chutoro.session.core_distance.recomputed_existing").increment(1);
         }
 
@@ -220,6 +268,44 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     ///
     /// This mirrors the batch CPU pipeline's core-distance loop and clears all
     /// dirty cells that correspond to inserted points.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,no_run
+    /// # use std::sync::Arc;
+    /// # use chutoro_core::{
+    /// #     ChutoroBuilder, ChutoroError, DataSource, DataSourceError,
+    /// #     MetricDescriptor,
+    /// # };
+    /// # struct Dummy(Vec<f32>);
+    /// # impl DataSource for Dummy {
+    /// #     fn len(&self) -> usize { self.0.len() }
+    /// #     fn name(&self) -> &str { "dummy" }
+    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    /// #         Ok((a - b).abs())
+    /// #     }
+    /// #     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("abs") }
+    /// # }
+    /// # fn main() -> Result<(), ChutoroError> {
+    /// let source = Arc::new(Dummy(vec![0.0, 1.0, 2.0, 10.0]));
+    /// let mut session = ChutoroBuilder::new()
+    ///     .with_min_cluster_size(2)
+    ///     .build_session(source)?;
+    ///
+    /// session.append(&[0, 1, 2])?;
+    /// session.recompute_core_distances()?;
+    /// let incremental = session.core_distance(0);
+    ///
+    /// session.append(&[3])?;
+    /// session.recompute_core_distances_full()?;
+    /// assert!(session.core_distance(0).is_some());
+    /// assert!(session.core_distance(3).is_some());
+    /// assert_ne!(incremental, session.core_distance(3));
+    /// # Ok(())
+    /// # }
+    /// ```
     ///
     /// # Errors
     ///

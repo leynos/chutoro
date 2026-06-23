@@ -314,10 +314,11 @@ historical-edge retention, or stable cluster identity.
   monotonicity property to observations where the point already had at least
   `min_cluster_size` non-self neighbours before the append.
 
-- Observation: the repository guidance points new work at `docs/contents.md`
-  and `docs/repository-layout.md`, but neither file exists in this branch.
-  Evidence: direct reads of both files returned "No such file or directory".
-  Impact: orientation used `AGENTS.md`, this ExecPlan, semantic `leta` queries,
+- Observation: the repository guidance points new work at `docs/contents.md`,
+  but that file does not exist in this branch. `docs/repository-layout.md`
+  has since been added. Evidence: a direct read of `docs/contents.md`
+  returned "No such file or directory". Impact: orientation used `AGENTS.md`,
+  this ExecPlan, semantic `leta` queries,
   and the local session, CPU pipeline, HNSW, users-guide, developers-guide,
   design, and roadmap files instead.
 
@@ -743,11 +744,10 @@ non-finite cells; otherwise return `Some(core_distances[point])`.
 
 Modify `ClusteringSession::append` in `session_impl.rs` to:
 
-1. Before inserting, resize `core_distances` to
-   `point_count() + indices.len()` with `f32::INFINITY`-filled
-   new slots.
-2. Likewise grow `dirty_core_distances`.
-3. For each successful insertion at source index `i`, set bit `i`
+1. Before inserting, resize `core_distances` and `dirty_core_distances`
+   together to cover the highest requested source index, filling new
+   `core_distances` cells with `f32::INFINITY`.
+2. For each successful insertion at source index `i`, set bit `i`
    in `dirty_core_distances`. This must happen even on the path
    that ultimately returns an error for a later index (the
    community-review pre-mortem fix).

@@ -231,13 +231,19 @@ proptest! {
             .expect("session must build");
         let mut previous: Vec<Option<f32>> = vec![None; source.len()];
 
+        let mut inserted_set = BTreeSet::new();
         for index in inserted {
             session.append(&[index]).expect("append must succeed");
+            inserted_set.insert(index);
             session
                 .recompute_core_distances_full()
                 .expect("full recompute must succeed");
 
-            for point in saturated_points(&session, min_cluster_size) {
+            if inserted_set.len().saturating_sub(1) < min_cluster_size {
+                continue;
+            }
+
+            for &point in &inserted_set {
                 if let Some(before) = previous[point] {
                     let after = session
                         .core_distance(point)
@@ -383,17 +389,4 @@ fn monotonic_append_order(min_cluster_size: usize, tail: Vec<usize>) -> Vec<usiz
     prefix
         .chain(tail.into_iter().filter(|index| seen.insert(*index)))
         .collect()
-}
-
-/// Yields all points only once each has at least min_cluster_size non-self neighbours.
-fn saturated_points<D: DataSource + Send + Sync>(
-    session: &crate::ClusteringSession<D>,
-    min_cluster_size: usize,
-) -> impl Iterator<Item = usize> {
-    let inserted = session.point_count();
-    if inserted.saturating_sub(1) >= min_cluster_size {
-        0..inserted
-    } else {
-        0..0
-    }
 }

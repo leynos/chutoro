@@ -133,8 +133,7 @@ Keep the session responsibility split intact when adding behaviour. Domain
 state should stay on `ClusteringSession`; configuration-only changes belong
 with session configuration; append construction work belongs with the append
 implementation; and core-distance work should stay in the core-distance
-subsystem until it grows a clearer sub-boundary. The path-level breakdown lives
-in [the repository layout](./repository-layout.md).
+subsystem until it grows a clearer sub-boundary.
 
 Core-distance storage is indexed by source index, not by dense insertion
 ordinal. `core_distances: Vec<f32>` stores finite values after recompute and

@@ -174,7 +174,9 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// # }
     /// # fn main() -> Result<(), ChutoroError> {
     /// let source = Arc::new(Dummy(vec![0.0, 1.0, 2.0]));
-    /// let mut session = ChutoroBuilder::new().build_session(source)?;
+    /// let mut session = ChutoroBuilder::new()
+    ///     .with_min_cluster_size(1)
+    ///     .build_session(source)?;
     ///
     /// session.append(&[0, 1, 2])?;
     /// assert_eq!(session.core_distance(0), None);
