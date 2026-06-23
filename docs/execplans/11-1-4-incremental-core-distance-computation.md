@@ -175,9 +175,12 @@ historical-edge retention, or stable cluster identity.
 - Risk: divergence from the FISHDBC reference implementation, which
   piggy-backs on the HNSW distance cache rather than running a fresh k-NN
   search. Severity: low. Likelihood: high. Mitigation: this divergence
-  produces *more accurate* core distances than the reference, monotonically.
+  can produce *more accurate* core distances than the reference after
+  saturation. Before a point has at least `min_cluster_size` non-self
+  neighbours, the batch-compatible fallback rule can still increase.
   Document it in `docs/chutoro-design.md` §12.4 so the parity work in
-  roadmap item `2.2.6` knows to expect benign drift downward.
+  roadmap item `2.2.6` knows to expect benign drift only in the saturated
+  regime.
 
 - Risk: the new `core_distance(point) -> Option<f32>` API conflates "out of
   range" with "not yet computed". Severity: low. Likelihood: medium.
@@ -734,9 +737,9 @@ pub fn recompute_core_distances(&mut self) -> Result<()>;
 pub fn recompute_core_distances_full(&mut self) -> Result<()>;
 ```
 
-`core_distance` consults `dirty_core_distances` first; if the bit
-is set or `point >= point_count()`, return `None`; otherwise
-return `Some(core_distances[point])`.
+`core_distance` consults `dirty_core_distances` first; if the bit is set or
+missing, return `None`. It also returns `None` for unset, out-of-range, or
+non-finite cells; otherwise return `Some(core_distances[point])`.
 
 Modify `ClusteringSession::append` in `session_impl.rs` to:
 
