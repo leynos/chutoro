@@ -574,7 +574,7 @@ Stop and escalate (do not work around) when:
     138,569,605,046 instructions, IPC 4.35, and 0.17% cache misses.
   - [x] (2026-06-25) CodeRabbit review for the Milestone 0 evidence update
     completed with zero findings after `make markdownlint` passed.
-- [ ] Milestone 1 (C1): write-lock-free-scoring invariant guard (same-thread
+- [x] Milestone 1 (C1): write-lock-free-scoring invariant guard (same-thread
   marker).
   - [x] (2026-06-25) Added a test-only thread-local write-graph depth marker
     around `CpuHnsw::write_graph`, exposed only through `CpuHnsw` test helpers,
