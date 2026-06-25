@@ -16,7 +16,7 @@
     reason = "Criterion bench_with_input + b.iter pattern requires deep nesting"
 )]
 
-use std::num::NonZeroUsize;
+use std::{num::NonZeroUsize, time::Duration};
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
@@ -44,13 +44,27 @@ const MIN_CLUSTER_SIZES: &[usize] = &[5, 10];
 /// HNSW M parameter used for edge generation.
 const M: usize = 16;
 
+fn is_exact_benchmark_probe() -> bool {
+    std::env::args().any(|arg| arg == "--exact")
+}
+
+fn configure_extraction_group(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+) {
+    group.sample_size(20);
+    if is_exact_benchmark_probe() {
+        group.warm_up_time(Duration::from_millis(1));
+        group.measurement_time(Duration::from_millis(10));
+    }
+}
+
 #[expect(
     clippy::panic_in_result_fn,
     reason = "Criterion measurement closures cannot propagate errors via Result"
 )]
 fn extract_labels_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("extract_labels");
-    group.sample_size(20);
+    configure_extraction_group(&mut group);
 
     for &point_count in POINT_COUNTS {
         let source = SyntheticSource::generate(&SyntheticConfig {

@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+camino = "1.2.2"
 chutoro-core = { path = "../chutoro-core" }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 flate2 = "1.1.9"
@@ -14,6 +15,12 @@ thiserror = "2.0.17"
 ureq = "3.2.0"
 
 [dev-dependencies]
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+cap-std = { version = "3.4.5", features = ["fs_utf8"] }
+chutoro-providers-dense = { path = "../chutoro-providers/dense" }
+chutoro-test-support = { path = "../chutoro-test-support" }
+proptest = "1.8.0"
 rstest = "0.26"
 tempfile = "3.10"
 
@@ -35,6 +42,10 @@ harness = false
 
 [[bench]]
 name = "extraction"
+harness = false
+
+[[bench]]
+name = "neighbour_scoring"
 harness = false
 
 # This crate does NOT inherit workspace lints.  Criterion's generated code

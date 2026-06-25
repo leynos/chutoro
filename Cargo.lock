@@ -445,9 +445,16 @@ dependencies = [
 name = "chutoro-benches"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "camino",
+ "cap-std",
  "chutoro-core",
+ "chutoro-providers-dense",
+ "chutoro-test-support",
  "criterion",
  "flate2",
+ "proptest",
  "rand 0.8.5",
  "rstest",
  "strsim",

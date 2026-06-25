@@ -1,5 +1,3 @@
-//! Shared test utilities used across chutoro crates.
-
 pub mod tracing {
     //! Recording layer utilities for capturing spans and events in tests.
     use std::collections::HashMap;
@@ -222,3 +220,110 @@ pub mod tracing {
 }
 
 pub mod ci;
+
+//! Shared test utilities used across chutoro crates.
+
+pub mod env {
+    //! Process environment guards for tests.
+
+    use std::{
+        env,
+        ffi::OsString,
+        sync::{Mutex, MutexGuard},
+    };
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Guard that serializes process environment mutation and restores the
+    /// previous value when dropped.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_test_support::env::EnvVarGuard;
+    ///
+    /// let _guard = EnvVarGuard::set("CHUTORO_TEST_SUPPORT_EXAMPLE", "1");
+    /// assert_eq!(
+    ///     std::env::var("CHUTORO_TEST_SUPPORT_EXAMPLE").as_deref(),
+    ///     Ok("1")
+    /// );
+    /// ```
+    pub struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<OsString>,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl EnvVarGuard {
+        /// Sets an environment variable for the lifetime of the guard.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use chutoro_test_support::env::EnvVarGuard;
+        ///
+        /// let _guard = EnvVarGuard::set("CHUTORO_TEST_SUPPORT_SET", "yes");
+        /// assert_eq!(std::env::var("CHUTORO_TEST_SUPPORT_SET").as_deref(), Ok("yes"));
+        /// ```
+        #[must_use]
+        pub fn set(key: &'static str, value: &str) -> Self {
+            let lock = env_lock();
+            let guard = Self {
+                key,
+                previous: env::var_os(key),
+                _lock: lock,
+            };
+            // SAFETY: all test environment mutations through this helper are
+            // serialized by ENV_LOCK and restored while holding the lock.
+            unsafe { env::set_var(key, value) };
+            guard
+        }
+
+        /// Removes an environment variable for the lifetime of the guard.
+        ///
+        /// # Examples
+        ///
+        /// ```
+        /// use chutoro_test_support::env::EnvVarGuard;
+        ///
+        /// let _guard = EnvVarGuard::remove("CHUTORO_TEST_SUPPORT_REMOVE");
+        /// assert!(std::env::var_os("CHUTORO_TEST_SUPPORT_REMOVE").is_none());
+        /// ```
+        #[must_use]
+        pub fn remove(key: &'static str) -> Self {
+            let lock = env_lock();
+            let guard = Self {
+                key,
+                previous: env::var_os(key),
+                _lock: lock,
+            };
+            // SAFETY: all test environment mutations through this helper are
+            // serialized by ENV_LOCK and restored while holding the lock.
+            unsafe { env::remove_var(key) };
+            guard
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => {
+                    // SAFETY: this restores the previous value while the guard
+                    // still holds ENV_LOCK.
+                    unsafe { env::set_var(self.key, value) };
+                }
+                None => {
+                    // SAFETY: this restores the previous missing state while
+                    // the guard still holds ENV_LOCK.
+                    unsafe { env::remove_var(self.key) };
+                }
+            }
+        }
+    }
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
