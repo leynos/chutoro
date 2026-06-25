@@ -283,8 +283,9 @@ historical-edge retention, or stable cluster identity.
   Evidence: `matteodellamico/flexible-clustering/fishdbc.py` lines 116–156
   and the HDBSCAN core distance definition in
   `hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html`.
-  Impact: roadmap item `2.2.6` (property-based backend parity suite) will
-  need to allow for benign downward drift relative to a reference port.
+  Impact: the incremental core-distance workstream in roadmap item `11.1.4`
+  and `docs/chutoro-design.md` section 12.4 record the drift caveat relative
+  to a reference port.
 
 - Observation: HNSW `search(source, query, ef)` returns the query itself
   among its neighbours when the query is already in the index. The batch
