@@ -65,33 +65,35 @@ fn recompute_core_distances_matches_batch_per_point(session_builder: ChutoroBuil
 }
 
 #[rstest]
-fn core_distance_uses_min_cluster_size_minus_one_offset(session_builder: ChutoroBuilder) {
-    let (mut session, source) = make_session(session_builder.with_min_cluster_size(3), 6);
-
-    session
-        .append(&[0, 1, 2, 3, 4, 5])
-        .expect("append must succeed");
-    session
-        .recompute_core_distances_full()
-        .expect("full recompute must succeed");
-
-    let expected = expected_batch_cores(source.as_ref(), &session);
-    assert_eq!(session.core_distance(0), Some(expected[0]));
-}
-
-#[rstest]
-fn core_distance_fallback_when_index_smaller_than_min_cluster_size(
+#[case(6, true, "full recompute with enough neighbours")]
+#[case(2, false, "incremental recompute with fallback path")]
+fn core_distance_matches_expected_batch_result_across_selection_and_fallback_cases(
     session_builder: ChutoroBuilder,
+    #[case] point_count: usize,
+    #[case] use_full_recompute: bool,
+    #[case] failure_description: &str,
 ) {
-    let (mut session, source) = make_session(session_builder.with_min_cluster_size(3), 2);
+    let (mut session, source) = make_session(session_builder.with_min_cluster_size(3), point_count);
 
-    session.append(&[0, 1]).expect("append must succeed");
-    session
-        .recompute_core_distances()
-        .expect("incremental recompute must succeed");
+    let points: Vec<usize> = (0..point_count).collect();
+    session.append(&points).expect("append must succeed");
+
+    if use_full_recompute {
+        session
+            .recompute_core_distances_full()
+            .expect("full recompute must succeed");
+    } else {
+        session
+            .recompute_core_distances()
+            .expect("incremental recompute must succeed");
+    }
 
     let expected = expected_batch_cores(source.as_ref(), &session);
-    assert_eq!(session.core_distance(0), Some(expected[0]));
+    assert_eq!(
+        session.core_distance(0),
+        Some(expected[0]),
+        "unexpected core distance for {failure_description}"
+    );
 }
 
 #[rstest]
