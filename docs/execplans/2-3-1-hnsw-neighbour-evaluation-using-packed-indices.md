@@ -249,7 +249,7 @@ Stop and escalate (do not work around) when:
 - [x] (2026-06-24) User approval received via implementation request; branch,
   PR title, upstream tracking, Lody session title, and PR reference link
   aligned.
-- [ ] Milestone 0 (C4): measurement harness + cache/scoring/contention data +
+- [x] Milestone 0 (C4): measurement harness + cache/scoring/contention data +
   pre-registered go/no-go thresholds.
   - [x] (2026-06-24) Red stage captured:
     `cargo bench -p chutoro-benches --bench neighbour_scoring -- --list`
@@ -563,8 +563,17 @@ Stop and escalate (do not work around) when:
     to `chutoro-benches/src/neighbour_scoring/mod.rs`, and
     `median_matches_sorted_middle_values` already lives beside `median`,
     `lane_utilisation_basis_points`, and `duration_basis_points` there.
-  - [ ] Capture full Criterion baseline, cycle/instruction counts, optional
-    HNSW build profile CSV, and CodeRabbit review after deterministic gates.
+  - [x] (2026-06-25) Captured full Criterion baseline, optional HNSW build
+    profile CSV, Hyperfine corroboration, and `perf stat` counters. Criterion
+    baseline `before` was saved for all 21 cases; the lane-utilisation report
+    was written to `target/benchmarks/neighbour_scoring_lane_utilisation.csv`;
+    the build-profile report was written to
+    `target/benchmarks/neighbour_scoring_build_profile.csv`; Hyperfine reported
+    `30.776 s +/- 0.297 s`; and `perf stat -r 20` over the 128-dimensional
+    realistic bucket group reported 31,819,791,060 cycles,
+    138,569,605,046 instructions, IPC 4.35, and 0.17% cache misses.
+  - [x] (2026-06-25) CodeRabbit review for the Milestone 0 evidence update
+    completed with zero findings after `make markdownlint` passed.
 - [ ] Milestone 1 (C1): write-lock-free-scoring invariant guard (same-thread
   marker).
 - [ ] Milestone 2 (C2/C3): §6.3 implementation-update, developers-guide,
@@ -765,6 +774,14 @@ Stop and escalate (do not work around) when:
   `chutoro-test-support::env::EnvVarGuard` serializes mutation process-wide,
   restores the previous value on drop, and centralizes the required unsafe
   environment calls behind documented safety comments.
+- Observation: Milestone 0 shows the measured packed-index batch-scoring window
+  is a small share of complete HNSW build time on the synthetic profile. Evidence:
+  `target/benchmarks/neighbour_scoring_build_profile.csv` reports accumulated
+  batch-scoring time at 1.678 seconds of a 20.208-second 10k-point build
+  (8.30%) and 28.197 seconds of a 781.631-second 100k-point build (3.61%).
+  Impact: any E1-E3 optimisation must still clear the pre-registered cycle
+  threshold in realistic buckets; the profile does not justify speculative
+  structural churn by itself.
 
 ## Decision log
 
@@ -829,11 +846,11 @@ Stop and escalate (do not work around) when:
   easy to property-test in the normal library harness; the wrapper still owns
   the benchmark-only `DataSource` instrumentation and error plumbing.
   Date/Author: 2026-06-25, implementation agent.
-- Decision: Keep temporary `hyperfine` wrapper logs in a `mktemp`-created path
-  with an exit cleanup trap. Rationale: the wrapper's log is only needed while
-  the command is running, and avoiding predictable `/tmp` filenames removes
-  collision and symlink risk without changing benchmark output. Date/Author:
-  2026-06-25, implementation agent.
+- Decision: Keep `hyperfine` wrapper logs in a stable branch-specific file under
+  a user-owned private `/tmp/chutoro-benches-${UID}` directory. Rationale: the
+  wrapper's output must survive successful script exit for measurement review,
+  while the private directory avoids cross-user collisions and symlink risk.
+  Date/Author: 2026-06-25, implementation agent.
 - Decision: The benchmark setup validates each fixed query/candidate scoring
   case before Criterion timing, while the timed loop still calls
   `batch_distances` so the benchmark measures scoring work rather than cached
@@ -862,20 +879,38 @@ evidence" result is an explicitly successful outcome and must be recorded as
 such, with the deferred structural levers carried into the proposed follow-up
 item.
 
-Milestone 0 partial outcome (2026-06-24): the benchmark harness exists and is
-registered.
-`cargo bench -p chutoro-benches --bench neighbour_scoring -- --list` now
-reports 21 benchmark cases: realistic candidate counts 8, 16, 24, 32, and 48
-plus diagnostic counts 256 and 1024 for dimensions 32, 128, and 768. The
-lane-utilisation report shows the pre-registered realistic buckets waste 8 of
-16 lanes at candidate count 8, 8 of 32 lanes at candidate count 24, and no
-lanes at 16, 32, or 48. The harness is split into a 116-line benchmark entry
-point, a 400-line support module, and a tested 265-line library helper module
-plus 398-line report submodule, so the file-size constraint remains satisfied.
-The deterministic milestone gates pass, including the full workspace test suite
-after CodeRabbit fixes (1033 passed, 1 skipped). Full Criterion, cycle-count,
-build-profile, and contention evidence is still pending; no E1/E2/E3 go/no-go
-decision has been made.
+Milestone 0 outcome (2026-06-25): the benchmark harness exists, is registered,
+and has baseline evidence. `cargo bench -p chutoro-benches --bench
+neighbour_scoring -- --list` reports 21 benchmark cases: realistic candidate
+counts 8, 16, 24, 32, and 48 plus diagnostic counts 256 and 1024 for dimensions
+32, 128, and 768. The lane-utilisation report shows the pre-registered
+realistic buckets waste 8 of 16 lanes at candidate count 8, 8 of 32 lanes at
+candidate count 24, and no lanes at 16, 32, or 48.
+
+The full Criterion baseline was saved as `before`. For the central
+128-dimensional realistic bucket group, Criterion reported medians of
+906.45 ns (8 candidates), 1.2741 us (16), 1.9291 us (24), 2.2409 us (32), and
+3.2663 us (48). Diagnostic 128-dimensional medians were 80.638 us at 256
+candidates and 910.20 us at 1024 candidates. Hyperfine corroboration over the
+full benchmark binary reported `30.776 s +/- 0.297 s` over ten runs.
+
+The optional HNSW build profile reported:
+
+- 10,000 points, dimension 128: build 20.208 seconds, accumulated batch scoring
+  1.678 seconds (8.30%), 612,507 batch calls, 14,939,510 total batch candidates,
+  min/max/median batch 1/33/27.
+- 100,000 points, dimension 128: build 781.631 seconds, accumulated batch
+  scoring 28.197 seconds (3.61%), 6,969,245 batch calls, 176,427,818 total
+  batch candidates, min/max/median batch 1/33/29.
+
+`perf stat -r 20` over the 128-dimensional realistic bucket group reported
+31,819,791,060 cycles, 138,569,605,046 instructions, IPC 4.35,
+927,935,251 cache references, 1,605,048 cache misses, a 0.17% cache-miss rate,
+and 7.3746 +/- 0.0898 seconds elapsed. Exact distance-cache LRU lock-wait
+contention remains unavailable without widening core telemetry, so Milestone 0
+records batch miss-subset sizes and `DataSource` scoring time at the adapter
+boundary instead. No E1/E2/E3 go/no-go decision has been made yet because no
+candidate delta has been measured against this baseline.
 
 ## Context and orientation
 
