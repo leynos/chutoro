@@ -608,9 +608,32 @@ Stop and escalate (do not work around) when:
     `chutoro-benches/src/neighbour_scoring.rs`; `test -e` returned `1`, and the
     actual module root remains `chutoro-benches/src/neighbour_scoring/mod.rs`.
     No valid Milestone 1 findings remained.
-- [ ] Milestone 2 (C2/C3): §6.3 implementation-update, developers-guide,
+- [x] Milestone 2 (C2/C3): §6.3 implementation-update, developers-guide,
       ADR-003,
   roadmap mark — reflecting whatever the evidence supports.
+  - [x] (2026-06-25) Drafted the Milestone 2 documentation update:
+    `docs/chutoro-design.md` §6.3 now records the 2.3.1 implementation
+    evidence and points to ADR-003; `docs/adr-003-soa-prefetch-adapter-boundary.md`
+    records the adapter-boundary decision and deferred alternatives;
+    `docs/roadmap.md` now carries deferred items 2.3.3-2.3.5 for cross-node
+    beam scoring, persistent dimension-major SoA storage, and
+    `batch_distances_into`; and `docs/developers-guide.md` documents the
+    neighbour-scoring workflow plus the write-lock and `DataSource` scoring
+    contracts.
+  - [x] (2026-06-25) Deterministic documentation gates for the Milestone 2 draft
+    pass: `make markdownlint` and `make nixie`.
+  - [x] (2026-06-25) First CodeRabbit review for Milestone 2 returned three
+    valid ADR-003 documentation findings. Fixes applied: the accepted status
+    now includes a short decision summary; the date uses bare `YYYY-MM-DD`
+    formatting; the policy relationship says "independent of"; and ADR-003 uses
+    `optimization` spelling consistently.
+  - [x] (2026-06-25) Follow-up CodeRabbit review for Milestone 2 returned no
+    valid findings. Invalid findings: the request to switch ADR-003 from
+    `optimization` to `optimisation` conflicts with the repository's
+    en-GB-oxendict `-ize` guidance and the prior CodeRabbit finding; the
+    repeated `chutoro-benches/src/neighbour_scoring.rs` finding targets an
+    absent file (`test -e` returns `1`) rather than the real
+    `chutoro-benches/src/neighbour_scoring/mod.rs` module root.
 - [ ] Milestone 3 (E1, conditional): core-side allocation hygiene.
 - [ ] Milestone 4 (E2, conditional): query-centric port override + SoA
   packing-buffer reuse.
@@ -861,6 +884,11 @@ Stop and escalate (do not work around) when:
   property and benchmark-backed tests, and a reference count preserves the
   marker when several opt-in tests overlap under the test runner. Date/Author:
   2026-06-25, implementation.
+- Decision: Assign deferred structural optimization work to roadmap items
+  2.3.3, 2.3.4, and 2.3.5. Rationale: ADR-003 keeps SoA and prefetch private to
+  dense adapters while allowing cross-node beam scoring, persistent
+  dimension-major SoA storage, and `batch_distances_into` to return only with
+  their own evidence gates. Date/Author: 2026-06-25, implementation.
 - Decision: The first Milestone 0 artefact uses the public dense-provider Arrow
   ingestion path instead of adding a constructor solely for benchmarks.
   Rationale: this preserves the adapter boundary and avoids adding public API

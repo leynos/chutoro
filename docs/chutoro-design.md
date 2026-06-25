@@ -890,7 +890,7 @@ points are classified as noise and receive label `0`.
   structure-of-arrays views of point data and computes distances with stable
   `core::arch` intrinsics (AVX2/AVX-512 on x86) across lanes, with scalar
   fallback per pair where metrics are not vectorizable. Keep an optional nightly
-  `std::simd` path behind a non-default feature while the API remains
+   `std::simd` path behind a non-default feature while the API remains
   unstable. Expose the query-centric `batch_distances(query, candidates)`
   helper on the core trait and make it the default path for HNSW candidate
   scoring on CPU: collect candidate indices in chunks sized to the SIMD width
@@ -1168,6 +1168,40 @@ Concrete `rstest` unit tests keep the proof connected to production storage:
 `DensePointView<'a>` still pads logical point counts around `0`, `1`, `15`,
 `16`, and `17`, and zero-fills unused lanes for tail sizes `15` and `17`. There
 is no public API or user-observable behaviour change.
+
+_Implementation update (2026-06-25)._ Roadmap item `2.3.1` is being resolved as
+an evidence-backed verification and boundary decision rather than a speculative
+rewrite. The `2.2.x` SIMD work already provides the structural pieces requested
+by §6.3:
+
+- HNSW scoring calls the query-centric
+  `DataSource::batch_distances(query, candidates)` path, preserving packed
+  candidate indices at the adapter boundary.
+- `DenseMatrixProvider::batch_distances(...)` owns the dense SoA packing through
+  private `DensePointView<'a>` storage and SIMD dispatch.
+- HNSW insert planning and trim scoring run distance evaluation before graph
+  write-lock mutation. A focused `hnsw::tests::write_lock` guard now asserts
+  that scoring does not run while the current thread holds the write graph
+  scope, and includes a deliberate inside-lock scoring panic to prove the guard
+  has teeth.
+
+The Milestone 0 neighbour-scoring profile for
+`docs/execplans/2-3-1-hnsw-neighbour-evaluation-using-packed-indices.md`
+recorded realistic candidate buckets of 8, 16, 24, 32, and 48 plus diagnostic
+256 and 1024 buckets. On the synthetic HNSW build profile, accumulated batch
+scoring accounted for 1.678 seconds of a 20.208-second 10k-point build (8.30%)
+and 28.197 seconds of a 781.631-second 100k-point build (3.61%). The
+distance-cache miss subset means batches reaching the dense adapter are often
+smaller than the logical graph beam, so any extra packing, prefetch, or scratch
+reuse must prove itself against this fragmented workload.
+
+ADR-003 (`docs/adr-003-soa-prefetch-adapter-boundary.md`) records the boundary
+decision: keep SoA and prefetch policy private to dense adapters; defer
+cross-node beam aggregation, persistent dimension-major SoA storage, and a
+public `batch_distances_into` buffer-reuse API into separate evidence-gated
+roadmap items. If a later item fails its benchmark threshold, record the null
+result beside that item rather than widening the core `DataSource` trait or HNSW
+graph policy speculatively.
 
 #### 6.4. Property-based input generation for CPU HNSW tests
 

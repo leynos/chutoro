@@ -399,6 +399,21 @@ ______________________________________________________________________
 - [ ] 2.3.2. Vectorize edge-weight transforms and candidate filtering
   before union-find in parallel Kruskal; keep union-find cache-friendly. (See
   §6.3)
+- [ ] 2.3.3. Prototype cross-node HNSW beam scoring that aggregates candidate
+  evaluations across insertion or search jobs only if a dedicated benchmark
+  shows a clear cycle-count win without changing deterministic neighbour
+  selection. Requires ADR-003 and an evidence update in
+  `docs/execplans/2-3-1-hnsw-neighbour-evaluation-using-packed-indices.md`.
+- [ ] 2.3.4. Evaluate a persistent dimension-major SoA copy for dense datasets,
+  including resident-memory cost, update cost, and repacking reduction. Adopt
+  only if the memory trade-off beats the current private `DensePointView<'a>`
+  packing path under measured HNSW workloads. Requires ADR-003 and a benchmark
+  gate.
+- [ ] 2.3.5. Evaluate a `batch_distances_into` output-buffer-reuse extension for
+  `DataSource`, including length-equality and output-unmodified-on-error
+  contracts for every provider. Adopt only if allocation profiling shows the
+  public trait expansion is justified. Requires ADR-003 and compatibility
+  tests for existing providers.
 
 ### 2.4. Performance validation
 

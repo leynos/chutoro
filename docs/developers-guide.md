@@ -346,6 +346,35 @@ cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --list \
   2>&1 | tee /tmp/bench-hnsw-ef-sweep-list.log
 ```
 
+
+### Neighbour scoring measurements
+
+The `neighbour_scoring` Criterion benchmark isolates HNSW candidate scoring
+from full graph construction. It reports realistic candidate buckets (`8`, `16`,
+`24`, `32`, `48`) and diagnostic buckets (`256`, `1024`) for dense dimensions
+`32`, `128`, and `768`.
+
+Run the benchmark directly when comparing code changes:
+
+```sh
+set -o pipefail
+cargo bench -p chutoro-benches --bench neighbour_scoring -- --save-baseline before \
+  2>&1 | tee /tmp/bench-neighbour-scoring-save.log
+```
+
+Use the helper script for whole-binary corroboration with `hyperfine`:
+
+```sh
+scripts/bench-neighbour-scoring.sh
+```
+
+Set `CHUTORO_BENCH_NEIGHBOUR_SCORING_PROFILE_BUILD=1` to add the optional HNSW
+build profile CSV at
+`target/benchmarks/neighbour_scoring_build_profile.csv`. The lane-utilisation
+CSV is written to `target/benchmarks/neighbour_scoring_lane_utilisation.csv`.
+Treat `hyperfine` as corroboration; cycle-count and Criterion evidence remain
+the primary signal for keeping a structural optimization.
+
 ### Benchmark architecture
 
 Benchmarks live in `chutoro-benches/benches/` as separate Criterion binaries.
@@ -382,6 +411,28 @@ at the top of the `[lints.clippy]` section in `chutoro-benches/Cargo.toml`.
 4. Use `#![expect(…)]` (not `#![allow(…)]`) for any Criterion-triggered lint
    suppressions, with a reason string.
 5. Run `make bench` to verify the new benchmark appears in the output.
+
+
+## HNSW scoring invariants
+
+HNSW distance scoring must not run while the current thread holds the graph
+write lock. The focused `hnsw::tests::write_lock` module enables a test-only
+`CpuHnsw` write-graph marker, wraps a `DataSource`, and asserts every
+`distance`, `batch_distances`, and `distance_batch` call happens outside the
+write scope. Keep new insertion, trimming, and search code compatible with that
+guard.
+
+`DataSource::batch_distances(query, candidates)` has the following cache-layer
+contracts:
+
+- the returned distance vector length must equal `candidates.len()`;
+- non-finite distances are rejected by validation before they enter HNSW
+  scoring;
+- `distance_batch(pairs, out)` implementations must leave `out` unmodified on
+  error.
+
+These contracts let `hnsw/validate.rs` and `hnsw/helpers.rs` merge cache hits
+and misses without corrupting caller buffers after a provider error.
 
 ## Benchmark dataset recipes
 
