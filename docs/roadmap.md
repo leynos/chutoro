@@ -393,9 +393,10 @@ ______________________________________________________________________
 
 ### 2.3. Hot-path optimizations
 
-- [ ] 2.3.1. Restructure HNSW neighbour evaluation to use packed
-  indices and an SoA layout, prefetching blocks and scoring outside the write
-  lock. (See §6.3)
+- [x] 2.3.1. Verify and document HNSW neighbour evaluation's packed-index
+  adapter path and write-lock-free scoring invariant; keep SoA layout and
+  prefetch policy private to dense adapters, with structural follow-ups
+  deferred to 2.3.3-2.3.5. (See §6.3 and ADR-003)
 - [ ] 2.3.2. Vectorize edge-weight transforms and candidate filtering
   before union-find in parallel Kruskal; keep union-find cache-friendly. (See
   §6.3)

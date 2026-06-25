@@ -634,12 +634,27 @@ Stop and escalate (do not work around) when:
     repeated `chutoro-benches/src/neighbour_scoring.rs` finding targets an
     absent file (`test -e` returns `1`) rather than the real
     `chutoro-benches/src/neighbour_scoring/mod.rs` module root.
-- [ ] Milestone 3 (E1, conditional): core-side allocation hygiene.
-- [ ] Milestone 4 (E2, conditional): query-centric port override + SoA
-  packing-buffer reuse.
-- [ ] Milestone 5 (E3, conditional): packing-step prefetch behind
-      `simd_prefetch`.
-- [ ] Milestone 6 (D5): final evidence, doc/ADR finalisation, roadmap done.
+- [x] Milestone 3 (E1, conditional): core-side allocation hygiene (dropped).
+  - [x] (2026-06-25) Dropped E1 before implementation. The prerequisite
+    scoring-share gate was not met: accumulated batch scoring was 8.30% of the
+    10k-point build and 3.61% of the 100k-point build, below the
+    pre-registered >=10% build-share threshold.
+- [x] Milestone 4 (E2, conditional): query-centric port override + SoA
+  packing-buffer reuse (dropped).
+  - [x] (2026-06-25) Dropped E2 before implementation for the same threshold
+    miss. ADR-003 and roadmap 2.3.5 preserve `batch_distances_into` as a
+    separate evidence-gated item if allocation profiling later justifies a
+    public trait change.
+- [x] Milestone 5 (E3, conditional): packing-step prefetch behind
+      `simd_prefetch` (dropped).
+  - [x] (2026-06-25) Dropped E3 before implementation for the same threshold
+    miss. ADR-003 keeps prefetch policy private to the dense adapter and defers
+    any prefetch experiment to a measured follow-up.
+- [x] Milestone 6 (D5): final evidence, doc/ADR finalisation, roadmap done.
+  - [x] (2026-06-25) Final documentation gates pass after recording the E1-E3
+    no-go decision and marking roadmap 2.3.1 complete: `make markdownlint` and
+    `make nixie`.
+  - [x] (2026-06-25) Final CodeRabbit review completed with zero findings.
 
 ## Surprises & discoveries
 
@@ -889,6 +904,11 @@ Stop and escalate (do not work around) when:
   dense adapters while allowing cross-node beam scoring, persistent
   dimension-major SoA storage, and `batch_distances_into` to return only with
   their own evidence gates. Date/Author: 2026-06-25, implementation.
+- Decision: Drop E1, E2, and E3 from this execplan without implementation.
+  Rationale: the pre-registered gate required batch scoring to account for at
+  least 10% of HNSW build time before speculative structural changes were
+  built; the measured shares were 8.30% for 10k points and 3.61% for 100k
+  points. Date/Author: 2026-06-25, implementation.
 - Decision: The first Milestone 0 artefact uses the public dense-provider Arrow
   ingestion path instead of adding a constructor solely for benchmarks.
   Rationale: this preserves the adapter boundary and avoids adding public API
@@ -981,8 +1001,16 @@ The optional HNSW build profile reported:
 and 7.3746 +/- 0.0898 seconds elapsed. Exact distance-cache LRU lock-wait
 contention remains unavailable without widening core telemetry, so Milestone 0
 records batch miss-subset sizes and `DataSource` scoring time at the adapter
-boundary instead. No E1/E2/E3 go/no-go decision has been made yet because no
-candidate delta has been measured against this baseline.
+boundary instead.
+
+E1, E2, and E3 are dropped without implementation. The pre-registered gate
+required the measured scoring window to account for at least 10% of build
+wall-clock before building speculative structural deltas; the observed 8.30%
+and 3.61% shares did not clear that prerequisite. No candidate delta or
+post-change cycle-count table exists because the candidate changes were not
+built. The accepted outcome is committed scope only: C1-C4 land, ADR-003 records
+the adapter-boundary decision, and roadmap items 2.3.3-2.3.5 carry the deferred
+structural levers.
 
 ## Context and orientation
 

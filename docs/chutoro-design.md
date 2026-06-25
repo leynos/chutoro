@@ -1169,8 +1169,8 @@ Concrete `rstest` unit tests keep the proof connected to production storage:
 `16`, and `17`, and zero-fills unused lanes for tail sizes `15` and `17`. There
 is no public API or user-observable behaviour change.
 
-_Implementation update (2026-06-25)._ Roadmap item `2.3.1` is being resolved as
-an evidence-backed verification and boundary decision rather than a speculative
+_Implementation update (2026-06-25)._ Roadmap item `2.3.1` is resolved as an
+evidence-backed verification and boundary decision rather than a speculative
 rewrite. The `2.2.x` SIMD work already provides the structural pieces requested
 by §6.3:
 
