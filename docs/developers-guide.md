@@ -48,8 +48,10 @@ paths. The HNSW edge-harvesting tests treat equivalent `search` results as the
 behavioural contract between `insert` and `insert_harvesting`.
 
 Design rationale and deeper implementation notes live in
-[the design document](./chutoro-design.md) and the completed
-[edge-harvesting ExecPlan](./execplans/11-1-1-make-edge-harvesting-hnsw-insertion-path-public.md).
+[the design document](./chutoro-design.md), the completed
+[edge-harvesting ExecPlan](./execplans/11-1-1-make-edge-harvesting-hnsw-insertion-path-public.md),
+and the completed
+[incremental core-distance ExecPlan](./execplans/11-1-4-incremental-core-distance-computation.md).
 
 ## Session public APIs
 
@@ -82,6 +84,9 @@ pub fn refresh_policy(&self) -> &SessionRefreshPolicy;
 // ClusteringSession<D: DataSource + Send + Sync>
 pub fn config(&self) -> &SessionConfig;
 pub fn append(&mut self, indices: &[usize]) -> Result<()>;
+pub fn recompute_core_distances(&mut self) -> Result<()>;
+pub fn recompute_core_distances_full(&mut self) -> Result<()>;
+pub fn core_distance(&self, point: usize) -> Option<f32>;
 pub fn point_count(&self) -> usize;
 pub fn snapshot_version(&self) -> u64;
 ```
@@ -99,6 +104,16 @@ future refresh work. The method is fail-fast and preserves partial progress:
 insertions completed before the first error remain in the index, and their
 harvested edges remain pending.
 
+`recompute_core_distances` computes core distances for dirty newly inserted
+source indices and for existing points that appear in those new points'
+non-self HNSW neighbour lists. `recompute_core_distances_full` searches every
+inserted point and mirrors the batch CPU core-distance loop. The
+`core_distance(i)` accessor returns `None` for cells that are dirty, unset, or
+outside the source-indexed storage, and it also treats non-finite cells as
+unavailable. Callers that need to distinguish an out-of-range read from a dirty
+inserted point should check their own source index bookkeeping; `point_count()`
+reports the number of inserted points, not a maximum source index.
+
 Session construction allocates HNSW capacity from `source.len().max(1)` while
 still leaving the index empty. `append` prevalidates each requested index
 against `source.len()` before insertion so early bootstrap cases return a
@@ -114,26 +129,25 @@ The v1 incremental clustering surface has these limitations:
 
 ### Session internal architecture
 
-Session code is split by responsibility under `chutoro-core/src/session/`:
+Keep the session responsibility split intact when adding behaviour. Domain
+state should stay on `ClusteringSession`; configuration-only changes belong
+with session configuration; append construction work belongs with the append
+implementation; and core-distance work should stay in the core-distance
+subsystem until it grows a clearer sub-boundary.
 
-- `mod.rs` owns the `ClusteringSession` struct, lightweight read-only
-  accessors, public re-exports, and the high-level Rustdoc contract.
-- `config.rs` owns `SessionRefreshPolicy` and `SessionConfig`, the small value
-  types carried by each session.
-- `session_impl.rs` owns construction, `append`, HNSW error mapping, and the
-  edge-harvesting write path.
-- `clock.rs` is compiled only with the `metrics` feature and owns the
-  monotonic-clock seam used for deterministic latency tests.
-
-Keep this split intact when adding session behaviour. Domain state should stay
-on `ClusteringSession`; configuration-only changes belong in `config.rs`; and
-mutating session workflows belong in `session_impl.rs` unless a later milestone
-introduces a larger component that justifies another focused module.
+Core-distance storage is indexed by source index, not by dense insertion
+ordinal. `core_distances: Vec<f32>` stores finite values after recompute and
+uses `f32::INFINITY` only as an internal unset sentinel.
+`dirty_core_distances: Vec<bool>` is authoritative: `true` means the
+corresponding cell is stale or never computed, and `false` means a finite cell
+may be read through `core_distance(i)`. The dirty state uses `Vec<bool>`
+because the workspace does not already depend on `fixedbitset`, and roadmap
+item 11.1.4 forbids new production dependencies.
 
 `ClusteringSession::append` emits tracing through `#[tracing::instrument]` and
-structured `warn!`/`debug!` events, but it must not install tracing subscribers.
-Library code may emit metrics and tracing; application boundaries remain
-responsible for recorder and subscriber installation.
+structured `warn!`/`debug!` events, but it must not install tracing
+subscribers. Library code may emit metrics and tracing; application boundaries
+remain responsible for recorder and subscriber installation.
 
 Metrics support is entirely feature-gated behind `metrics`. Production builds
 without that feature must not allocate the clock field or compile metric
@@ -146,6 +160,19 @@ append path records:
 - `chutoro.session.append.point_seconds`, one histogram sample per inserted
   point.
 - `chutoro.session.harvested_edges`, counting buffered candidate edges.
+
+Core-distance recompute helpers record:
+
+- `chutoro.session.core_distance.queries_total`, counting HNSW searches used
+  for core-distance recompute.
+- `chutoro.session.core_distance.recomputed_existing`, counting existing
+  points recomputed after incremental neighbour discovery.
+- `chutoro.session.core_distance.appends_left_dirty_total`, counting recompute
+  calls that began with dirty core distances.
+- `chutoro.session.core_distance.touched_existing_per_recompute`, recording
+  incremental recompute fan-out.
+- `chutoro.session.core_distance.recompute_seconds`, recording recompute
+  duration.
 
 The latency histogram reads time through the internal `MonotonicClock` trait.
 `StdMonotonicClock` is the production implementation. Tests may replace it via
@@ -323,7 +350,7 @@ at the top of the `[lints.clippy]` section in `chutoro-benches/Cargo.toml`.
 ## Verus proofs
 
 Verus is used for formal verification of edge harvest primitives. Run proofs via
- `make verus`, which is idempotent and installs the pinned Verus release and
+`make verus`, which is idempotent and installs the pinned Verus release and
 required Rust toolchain as needed.
 
 ### Quantifier trigger annotations

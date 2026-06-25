@@ -4,9 +4,10 @@
 //!
 //! This file sits at the API-contract layer of the testing hierarchy: it is
 //! compiled (but not executed) by the `trybuild` test harness to assert that
-//! the expected symbols — including `build_session` and `append` — are
-//! accessible and have the correct mutability requirements under the `cpu`
-//! feature gate.  It does not make runtime assertions.
+//! the expected symbols — including `build_session`, `append`, and core
+//! distance recompute — are accessible and have the correct mutability
+//! requirements under the `cpu` feature gate. It does not make runtime
+//! assertions.
 
 use std::sync::Arc;
 
@@ -44,6 +45,13 @@ fn main() {
         .build_session(source)
         .expect("cpu-enabled session API must compile");
     session.append(&[0]).expect("append API must compile");
+    session
+        .recompute_core_distances()
+        .expect("incremental core-distance recompute API must compile");
+    session
+        .recompute_core_distances_full()
+        .expect("full core-distance recompute API must compile");
+    let _ = session.core_distance(0);
     let config: &SessionConfig = session.config();
     let _ = config.refresh_policy();
 }

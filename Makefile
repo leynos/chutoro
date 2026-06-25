@@ -1,4 +1,4 @@
-.PHONY: help all clean test build release lint fmt check-fmt markdownlint nixie kani kani-full verus bench
+.PHONY: help all clean test build release typecheck lint fmt check-fmt markdownlint nixie kani kani-full verus bench
 
 export PATH := $(HOME)/.cargo/bin:$(HOME)/.bun/bin:$(PATH)
 
@@ -22,6 +22,9 @@ all: release ## Default target builds release binary
 
 clean: ## Remove build artifacts
 	$(CARGO) clean
+
+typecheck: ## Typecheck workspace targets
+	$(CARGO) check --workspace --all-targets --all-features $(BUILD_JOBS)
 
 test: ## Run tests with warnings treated as errors
 	RUSTFLAGS="-D warnings" $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS)

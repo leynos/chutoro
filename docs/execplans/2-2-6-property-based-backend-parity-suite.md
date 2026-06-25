@@ -659,9 +659,12 @@ compilation passes) and shows the portable-SIMD backend participating.
      under `chutoro-providers/dense/**`.
 2. Extend `.github/workflows/nightly-portable-simd.yml` to invoke the
    parity suite after the existing dense-provider test step:
-   `cargo +nightly test -p chutoro-providers-dense --features
-   nightly_portable_simd simd::tests::parity`. Keep the existing
-   `--features nightly_portable_simd` flag so the
+
+   ```sh
+   cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd simd::tests::parity
+   ```
+
+   Keep the existing `--features nightly_portable_simd` flag so the
    portable-SIMD backend is in the enabled set.
 3. Update `docs/chutoro-design.md` §6.3 to record:
    - The `DistanceSemantics` value object and its fields.

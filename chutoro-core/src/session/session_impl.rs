@@ -20,7 +20,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         }
     }
 
-    fn map_hnsw_error(&self, error: HnswError) -> ChutoroError {
+    pub(super) fn map_hnsw_error(&self, error: HnswError) -> ChutoroError {
         crate::cpu_pipeline::map_cpu_hnsw_error(self.source.as_ref(), error)
     }
 
@@ -60,12 +60,39 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
                 metrics::Unit::Count,
                 "Total harvested candidate edges buffered for refresh."
             );
+            metrics::describe_counter!(
+                "chutoro.session.core_distance.queries_total",
+                "Total HNSW searches used for session core-distance recompute."
+            );
+            metrics::describe_counter!(
+                "chutoro.session.core_distance.recomputed_existing",
+                "Total existing points recomputed after appearing near new points."
+            );
+            metrics::describe_counter!(
+                "chutoro.session.core_distance.appends_left_dirty_total",
+                "Recompute calls that started with one or more dirty core distances."
+            );
+            metrics::describe_counter!(
+                "chutoro.session.core_distance.errors_total",
+                "Total number of core-distance recompute failures, labelled by reason."
+            );
+            metrics::describe_histogram!(
+                "chutoro.session.core_distance.touched_existing_per_recompute",
+                metrics::Unit::Count,
+                "Existing-point fan-out touched by incremental core-distance recompute."
+            );
+            metrics::describe_histogram!(
+                "chutoro.session.core_distance.recompute_seconds",
+                metrics::Unit::Seconds,
+                "Session core-distance recompute duration in seconds."
+            );
         }
 
         Ok(Self {
             config,
             index,
-            _core_distances: Vec::new(),
+            core_distances: Vec::with_capacity(source.len()),
+            dirty_core_distances: Vec::with_capacity(source.len()),
             _mst_edges: Vec::new(),
             _historical_edges: Vec::new(),
             pending_edges: Vec::new(),
@@ -203,6 +230,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 
             let harvested = edges.len();
             self.pending_edges.extend(edges);
+            self.mark_core_distance_dirty(index);
 
             #[cfg(feature = "metrics")]
             metrics::counter!("chutoro.session.harvested_edges").increment(harvested as u64);

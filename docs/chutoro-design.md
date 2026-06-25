@@ -196,9 +196,8 @@ FISHDBC algorithm.
 
 Profiling of the sequential FISHDBC algorithm reveals two primary performance
 bottlenecks: the creation of the HNSW graph (specifically, the `add()`
-function, which is called for every point) and the subsequent computation of
-the MST.[^8] The parallel implementation focuses on accelerating these two
-stages.
+function, which is called for every point) and the subsequent computation of the
+MST.[^8] The parallel implementation focuses on accelerating these two stages.
 
 The architecture employs a multi-process model to circumvent Python's Global
 Interpreter Lock (GIL), which would otherwise prevent true parallelism in a
@@ -267,18 +266,18 @@ scaling graph algorithms where maintaining a consistent global state is
 computationally expensive or creates a synchronization bottleneck. Parallel
 DBSCAN implementations on distributed clusters exhibit a similar pattern: data
 is partitioned across nodes, local clustering is performed independently on
-each node, and a final step merges the clusters across the partition boundaries.
-[^14] At a finer grain, many parallel MST algorithms, such as Borůvka's,
-operate on the same principle. They begin with trivial local components (each
-vertex is its own MST) and iteratively merge them in parallel rounds.[^15] This
-recurring pattern—decompose the problem, solve subproblems in parallel with
-minimal communication, and perform a final merge or reduction—is a cornerstone
-of parallel algorithm design. This principle can be directly applied to a GPU
-implementation of FISHDBC. The dataset can be partitioned among GPU thread
-blocks, with each block responsible for finding candidate edges or even
-constructing local MST fragments within its fast shared memory. A subsequent
-global kernel can then efficiently merge these fragments into the final,
-complete MST.
+each node, and a final step merges the clusters across the partition
+boundaries.[^14] At a finer grain, many parallel MST algorithms, such as
+Borůvka's, operate on the same principle. They begin with trivial local
+components (each vertex is its own MST) and iteratively merge them in parallel
+rounds.[^15] This recurring pattern—decompose the problem, solve subproblems in
+parallel with minimal communication, and perform a final merge or reduction—is
+a cornerstone of parallel algorithm design. This principle can be directly
+applied to a GPU implementation of FISHDBC. The dataset can be partitioned
+among GPU thread blocks, with each block responsible for finding candidate
+edges or even constructing local MST fragments within its fast shared memory. A
+subsequent global kernel can then efficiently merge these fragments into the
+final, complete MST.
 
 ### 3. Component-Level Survey: High-Performance Primitives
 
@@ -320,8 +319,8 @@ Borůvka's—have vastly different characteristics when parallelized.
 
 - **Prim's Algorithm:** This algorithm is inherently sequential. It grows the
   MST one edge at a time from an arbitrary starting vertex, always adding the
-  cheapest edge that connects a vertex in the tree to a vertex outside the tree.
-  [^15] This greedy, step-by-step growth makes it difficult to parallelize
+  cheapest edge that connects a vertex in the tree to a vertex outside the
+  tree.[^15] This greedy, step-by-step growth makes it difficult to parallelize
   effectively on a massive scale, as the choice of which edge to add next
   depends on all previous choices. While some of its sub-operations (like
   finding the minimum-weight edge from the current tree) can be parallelized,
@@ -700,11 +699,12 @@ errors.
 Distances are reported using the `strsim` crate's Levenshtein implementation,
 mirroring the DNA/protein use cases outlined in §1.3 without pulling in the
 heavier bioinformatics tooling planned for later phases. The provider implements
- `DataSource` directly so the same type can be handed to `Chutoro::run`,
-keeping the ingestion and computation pathway identical to numeric providers.
-Converting the `usize` Levenshtein score into `f32` matches the trait's
-contract and establishes the precedent that future non-metric sources surface
-distances through the same scalar channel.
+`DataSource` directly and is `Sync`, so the same type satisfies the
+`Chutoro::run<D: DataSource + Sync>` API bound and can be handed to
+`Chutoro::run`, keeping the ingestion and computation pathway identical to
+numeric providers. Converting the `usize` Levenshtein score into `f32` matches
+the trait's contract and establishes the precedent that future non-metric
+sources surface distances through the same scalar channel.
 
 #### 5.6. Walking skeleton distance primitives
 
@@ -890,7 +890,7 @@ points are classified as noise and receive label `0`.
   structure-of-arrays views of point data and computes distances with stable
   `core::arch` intrinsics (AVX2/AVX-512 on x86) across lanes, with scalar
   fallback per pair where metrics are not vectorizable. Keep an optional nightly
-   `std::simd` path behind a non-default feature while the API remains
+  `std::simd` path behind a non-default feature while the API remains
   unstable. Expose the query-centric `batch_distances(query, candidates)`
   helper on the core trait and make it the default path for HNSW candidate
   scoring on CPU: collect candidate indices in chunks sized to the SIMD width
@@ -1341,7 +1341,7 @@ property now treats `llvm-cov` environments (`LLVM_PROFILE_FILE` or
 `CARGO_LLVM_COV`) as low-budget runs and falls back to 4 cases unless
 explicitly overridden in the dedicated property workflow. The HNSW mutation
 property also caps non-forked standard runs at its default 64 cases so a PR-tier
- `PROPTEST_CASES=250` run cannot consume the full 600-second `nextest`
+`PROPTEST_CASES=250` run cannot consume the full 600-second `nextest`
 allowance; forked weekly runs keep the requested deep-run budget.
 
 _Implementation update (2026-02-12)._ The functional ARI/NMI baseline case
@@ -2522,6 +2522,9 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
     /// Per-point core distances, extended on each refresh.
     core_distances: Vec<f32>,
 
+    /// Source-indexed dirty state for core-distance cells.
+    dirty_core_distances: Vec<bool>,
+
     /// Accumulated MST edges from the most recent complete refresh.
     mst_edges: Vec<MstEdge>,
 
@@ -2766,6 +2769,32 @@ currently recomputes from scratch. Specifically:
   for every point's `min_cluster_size`-th nearest neighbour, identical to the
   batch pipeline. This is more expensive than the incremental path but resets
   drift to zero.
+
+  **v1 implemented behaviour.** Roadmap item `11.1.4` ships the core-distance
+  portion of this design before MST refresh. After `append`, the session marks
+  successfully inserted source indices dirty. `core_distance(i)` returns `None`
+  while a cell is dirty, unset, outside the source-indexed storage, or
+  non-finite. Calling `recompute_core_distances()` searches HNSW for every
+  dirty newly inserted point, filters out the self-hit, computes its core
+  distance, and also recomputes existing points that appeared in those new
+  points' non-self neighbour lists. Calling `recompute_core_distances_full()`
+  searches every inserted point and mirrors only the batch core-distance loop.
+  It does not rebuild the minimum spanning tree (MST), labels, or snapshots;
+  later `refresh_full()` work will call this core-distance step and then
+  separately rebuild the MST and publish a new snapshot. Dirty state is a
+  `Vec<bool>` rather than `FixedBitSet` because the workspace did not already
+  carry `fixedbitset` and this milestone avoids new production dependencies.
+
+  The v1 incremental recompute set is intentionally local, so it can miss an
+  existing point whose true k-th neighbour improved without that point
+  appearing as a neighbour of a new insertion. The full recompute path bounds
+  that drift. The implementation also diverges benignly from the FISHDBC
+  reference, which piggy-backs on insertion-time HNSW distance-cache state
+  rather than running a fresh k-nearest-neighbour search; the Chutoro path can
+  therefore move core distances downward relative to a literal FISHDBC port.
+  This is not a blanket monotonicity guarantee: the batch-compatible fallback
+  rule can increase before a point has at least `min_cluster_size` non-self
+  neighbours. Monotonic non-increase applies only after that saturation point.
 
   **Baseline contract for trigger (b).** The "batch baseline" is a label
   snapshot produced by a full batch `Chutoro::run()` on the current dataset. To
@@ -3386,7 +3415,7 @@ that produces a sequence of short text documents with controlled properties:
 - **Topic drift.** The topic distribution shifts over time: new topics emerge,
   old topics decay, and some topics merge. This validates that incremental
   refresh (§12.5) and the structural diff API (§13.4) correctly surface `Birth`,
-   `Death`, `Split`, and `Merge` events.
+  `Death`, `Split`, and `Merge` events.
 
 The corpus generator is seeded and fully deterministic. A manifest records
 ground-truth topic labels and topic-drift breakpoints for quality scoring.

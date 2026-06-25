@@ -680,7 +680,7 @@ ______________________________________________________________________
     harvested edge produced by those insertions. Zero harvested edges
     is valid for datasets or stages (e.g. early bootstrap) where
     inserts produce no harvested edges.
-- [ ] 11.1.4. Implement incremental core-distance computation for newly
+- [x] 11.1.4. Implement incremental core-distance computation for newly
   appended points: search the HNSW index for each new point's
   `min_cluster_size`-th nearest neighbour and record its core distance.
   Recompute core distances for existing points that appear as neighbours of new
