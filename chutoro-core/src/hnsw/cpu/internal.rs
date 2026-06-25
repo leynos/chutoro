@@ -2,6 +2,12 @@
 
 use std::sync::{RwLockReadGuard, RwLockWriteGuard, atomic::Ordering};
 
+#[cfg(test)]
+use std::cell::Cell;
+
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
+
 use crate::{
     DataSource,
     hnsw::{
@@ -12,6 +18,51 @@ use crate::{
 };
 
 use super::CpuHnsw;
+
+#[cfg(test)]
+thread_local! {
+    static WRITE_GRAPH_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+#[cfg(test)]
+static WRITE_GRAPH_MARKER_ENABLE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+#[cfg(test)]
+pub(super) fn enable_write_graph_marker() {
+    WRITE_GRAPH_MARKER_ENABLE_COUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+pub(super) fn disable_write_graph_marker() {
+    let previous = WRITE_GRAPH_MARKER_ENABLE_COUNT.fetch_sub(1, Ordering::Relaxed);
+    debug_assert!(previous > 0, "write graph marker disable must match enable");
+}
+
+#[cfg(test)]
+pub(super) fn current_thread_holds_write_graph() -> bool {
+    WRITE_GRAPH_DEPTH.with(|depth| depth.get() > 0)
+}
+
+#[cfg(test)]
+struct WriteGraphScope;
+
+#[cfg(test)]
+impl WriteGraphScope {
+    fn enter_if_enabled() -> Option<Self> {
+        if WRITE_GRAPH_MARKER_ENABLE_COUNT.load(Ordering::Relaxed) == 0 {
+            return None;
+        }
+        WRITE_GRAPH_DEPTH.with(|depth| depth.set(depth.get().saturating_add(1)));
+        Some(Self)
+    }
+}
+
+#[cfg(test)]
+impl Drop for WriteGraphScope {
+    fn drop(&mut self) {
+        WRITE_GRAPH_DEPTH.with(|depth| depth.set(depth.get().saturating_sub(1)));
+    }
+}
 
 impl CpuHnsw {
     pub(super) fn insert_initial(
@@ -47,6 +98,8 @@ impl CpuHnsw {
         f: impl FnOnce(&mut Graph) -> Result<R, HnswError>,
     ) -> Result<R, HnswError> {
         let mut guard = self.write_graph_guard()?;
+        #[cfg(test)]
+        let _write_graph_scope = WriteGraphScope::enter_if_enabled();
         f(&mut guard)
     }
 

@@ -8,9 +8,8 @@ use crate::hnsw::{
     distance_cache::DistanceCache, error::HnswError, graph::Graph, params::HnswParams,
 };
 
-use super::{CpuHnsw, rng::build_worker_rngs};
+use super::{CpuHnsw, internal, rng::build_worker_rngs};
 
-#[cfg(test)]
 impl CpuHnsw {
     /// Test-only healing hook that re-enforces reachability and bidirectionality.
     ///
@@ -35,6 +34,15 @@ impl CpuHnsw {
         }
     }
 
+    pub(crate) fn current_thread_holds_write_graph_for_test() -> bool {
+        internal::current_thread_holds_write_graph()
+    }
+
+    pub(crate) fn enable_write_graph_marker_for_test() -> WriteGraphMarkerGuard {
+        internal::enable_write_graph_marker();
+        WriteGraphMarkerGuard {}
+    }
+
     pub(crate) fn delete_node_for_test(&mut self, node: usize) -> Result<bool, HnswError> {
         let deleted = self.write_graph(|graph| graph.delete_node(node))?;
         if deleted {
@@ -56,5 +64,13 @@ impl CpuHnsw {
         if let Err(err) = reconfigured {
             panic!("graph lock during reconfigure_for_test: {err}");
         }
+    }
+}
+
+pub(crate) struct WriteGraphMarkerGuard {}
+
+impl Drop for WriteGraphMarkerGuard {
+    fn drop(&mut self) {
+        internal::disable_write_graph_marker();
     }
 }

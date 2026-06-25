@@ -576,6 +576,38 @@ Stop and escalate (do not work around) when:
     completed with zero findings after `make markdownlint` passed.
 - [ ] Milestone 1 (C1): write-lock-free-scoring invariant guard (same-thread
   marker).
+  - [x] (2026-06-25) Added a test-only thread-local write-graph depth marker
+    around `CpuHnsw::write_graph`, exposed only through `CpuHnsw` test helpers,
+    and added a focused `hnsw::tests::write_lock` module. The guard is
+    deliberately default-off outside tests that opt in: an always-on first pass
+    made the full suite time out in the existing HNSW idempotency property
+    test, while the opt-in marker still proves the invariant and avoids
+    broad-suite overhead. The guard passes real HNSW build/search scoring and
+    has teeth: an intentional `DataSource::batch_distances` call inside
+    `write_graph` panics with the guard message.
+  - [x] (2026-06-25) Deterministic gates for the Milestone 1 guard pass:
+    `cargo test -p chutoro-core hnsw::tests::write_lock` (3 passed), `cargo
+    test -p chutoro-core
+    hnsw::tests::property::tests::hnsw_idempotency_preserved_proptest`, `make
+    check-fmt`, `make lint`, and `make test` (1054 passed, 1 skipped).
+  - [x] (2026-06-25) First CodeRabbit review for Milestone 1 returned one
+    stale finding against absent `chutoro-benches/src/neighbour_scoring.rs` and
+    two valid findings against `hnsw::tests::write_lock`. Fixes applied: the
+    opt-in write-graph marker now uses a reference count so parallel tests
+    cannot disable it out from under each other; the fixed tests share rstest
+    fixtures for marker/source/params/index setup; and a proptest case now
+    varies source order, graph size, `M`, `ef`, seed, and query while asserting
+    scoring calls remain outside the write-graph scope. Targeted validation
+    passes: `cargo test -p chutoro-core hnsw::tests::write_lock` (4 passed).
+  - [x] (2026-06-25) Post-review deterministic gates for the Milestone 1 guard
+    pass: `cargo test -p chutoro-core hnsw::tests::write_lock` (4 passed),
+    `make check-fmt`, `make lint`, `make test` (1055 passed, 1 skipped), and
+    `make markdownlint`.
+  - [x] (2026-06-25) Follow-up CodeRabbit review for Milestone 1 completed
+    with one stale finding against absent
+    `chutoro-benches/src/neighbour_scoring.rs`; `test -e` returned `1`, and the
+    actual module root remains `chutoro-benches/src/neighbour_scoring/mod.rs`.
+    No valid Milestone 1 findings remained.
 - [ ] Milestone 2 (C2/C3): §6.3 implementation-update, developers-guide,
       ADR-003,
   roadmap mark — reflecting whatever the evidence supports.
@@ -593,6 +625,13 @@ Stop and escalate (do not work around) when:
   `insert/planner.rs:78` (planner under read lock); no distance call inside
   either `write_graph` closure (`cpu/mod.rs:402-416`). Impact: the locking part
   of 2.3.1 is verification + documentation (C1), not re-architecture.
+- Observation: the write-lock marker must be opt-in for tests that exercise the
+  invariant. Evidence: an always-on test-only marker introduced enough overhead
+  for the full `make test` suite to time out while running
+  `hnsw_idempotency_preserved_proptest`; after switching the marker to a
+  default-off guard enabled only by the focused write-lock tests, the direct
+  idempotency property test and full suite both passed. Impact: C1 can enforce
+  the invariant without taxing unrelated property and benchmark-backed tests.
 - Observation: the dense provider does **not** override `batch_distances`.
   Evidence: `dense/src/provider.rs:137,143` overrides only `distance` and
   `distance_batch`; core's default `batch_distances` (`datasource.rs:161-177`)
@@ -817,6 +856,11 @@ Stop and escalate (do not work around) when:
   another Rayon/search thread legitimately holds the write lock; only the
   same-thread property is meaningful. Date/Author: 2026-06-09, planning agent
   (corrects the original draft).
+- Decision: The C1 write-graph marker is default-off and reference-counted
+  behind test helpers. Rationale: default-off avoids overhead in unrelated
+  property and benchmark-backed tests, and a reference count preserves the
+  marker when several opt-in tests overlap under the test runner. Date/Author:
+  2026-06-25, implementation.
 - Decision: The first Milestone 0 artefact uses the public dense-provider Arrow
   ingestion path instead of adding a constructor solely for benchmarks.
   Rationale: this preserves the adapter boundary and avoids adding public API
