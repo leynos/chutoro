@@ -152,7 +152,7 @@ fn core_distance_out_of_range_returns_none(session_builder: ChutoroBuilder) {
 
 #[rstest]
 fn recompute_core_distances_full_recomputes_all_points(session_builder: ChutoroBuilder) {
-    let (mut session, _) = make_session(session_builder, 10);
+    let (mut session, source) = make_session(session_builder, 10);
 
     session
         .append(&(0..8).collect::<Vec<_>>())
@@ -165,9 +165,8 @@ fn recompute_core_distances_full_recomputes_all_points(session_builder: ChutoroB
         .recompute_core_distances_full()
         .expect("full recompute must succeed");
 
-    for point in 0..10 {
-        assert!(session.core_distance(point).is_some());
-    }
+    let expected = expected_batch_cores(source.as_ref(), &session);
+    assert_core_distances_eq(&session, &expected);
 }
 
 #[test]
