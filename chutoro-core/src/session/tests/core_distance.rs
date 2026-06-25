@@ -65,13 +65,13 @@ fn recompute_core_distances_matches_batch_per_point(session_builder: ChutoroBuil
 }
 
 #[rstest]
-#[case(6, true, "full recompute with enough neighbours")]
+#[case(6, true, "full recompute with saturated neighbour selection")]
 #[case(2, false, "incremental recompute with fallback path")]
-fn core_distance_matches_expected_batch_result_across_selection_and_fallback_cases(
+fn core_distance_matches_expected_batch_result_for_selection_and_fallback(
     session_builder: ChutoroBuilder,
     #[case] point_count: usize,
     #[case] use_full_recompute: bool,
-    #[case] failure_description: &str,
+    #[case] scenario: &str,
 ) {
     let (mut session, source) = make_session(session_builder.with_min_cluster_size(3), point_count);
 
@@ -92,7 +92,7 @@ fn core_distance_matches_expected_batch_result_across_selection_and_fallback_cas
     assert_eq!(
         session.core_distance(0),
         Some(expected[0]),
-        "unexpected core distance for {failure_description}"
+        "unexpected core distance for {scenario}"
     );
 }
 
