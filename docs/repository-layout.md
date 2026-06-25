@@ -26,6 +26,8 @@ design document when deciding where a change belongs.
 - `.github/` contains GitHub Actions workflows and repository automation.
 - `target/` is generated Cargo build output and must not be edited by hand.
 - `.verus/` is generated Verus/tooling output and must not be edited by hand.
+- `.memdb/` is generated Memtrace code-graph output and must not be edited by
+  hand.
 
 ## Test locations
 
@@ -34,8 +36,9 @@ design document when deciding where a change belongs.
   directories, such as `chutoro-core/tests/`.
 - Feature files for BDD tests live under `tests/features/` in the crate that
   owns the behaviour.
-- Compile-surface tests use dedicated integration-test binaries under the
-  relevant crate's `tests/` directory.
+- Compile-surface tests use dedicated integration-test binaries with fixtures
+  under the relevant crate's `tests/trybuild/` directory, such as
+  `chutoro-core/tests/trybuild/`.
 
 ## Core session module
 

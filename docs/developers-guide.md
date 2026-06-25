@@ -109,10 +109,10 @@ source indices and for existing points that appear in those new points'
 non-self HNSW neighbour lists. `recompute_core_distances_full` searches every
 inserted point and mirrors the batch CPU core-distance loop. The
 `core_distance(i)` accessor returns `None` for cells that are dirty, unset, or
-outside the source-indexed storage. Callers that need to distinguish an
-out-of-range read from a dirty inserted point should check their own source
-index bookkeeping; `point_count()` reports the number of inserted points, not a
-maximum source index.
+outside the source-indexed storage, and it also treats non-finite cells as
+unavailable. Callers that need to distinguish an out-of-range read from a dirty
+inserted point should check their own source index bookkeeping; `point_count()`
+reports the number of inserted points, not a maximum source index.
 
 Session construction allocates HNSW capacity from `source.len().max(1)` while
 still leaving the index empty. `append` prevalidates each requested index
@@ -160,6 +160,9 @@ append path records:
 - `chutoro.session.append.point_seconds`, one histogram sample per inserted
   point.
 - `chutoro.session.harvested_edges`, counting buffered candidate edges.
+
+Core-distance recompute helpers record:
+
 - `chutoro.session.core_distance.queries_total`, counting HNSW searches used
   for core-distance recompute.
 - `chutoro.session.core_distance.recomputed_existing`, counting existing

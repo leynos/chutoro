@@ -178,9 +178,9 @@ historical-edge retention, or stable cluster identity.
   can produce *more accurate* core distances than the reference after
   saturation. Before a point has at least `min_cluster_size` non-self
   neighbours, the batch-compatible fallback rule can still increase.
-  Document it in `docs/chutoro-design.md` §12.4 so the parity work in
-  roadmap item `2.2.6` knows to expect benign drift only in the saturated
-  regime.
+  Document it in `docs/chutoro-design.md` §12.4 and the roadmap item `11.1.4`
+  monotonicity property so core-distance reviewers expect benign drift only in
+  the saturated regime.
 
 - Risk: the new `core_distance(point) -> Option<f32>` API conflates "out of
   range" with "not yet computed". Severity: low. Likelihood: medium.
@@ -372,9 +372,9 @@ historical-edge retention, or stable cluster identity.
   `dirty_core_distances` rather than the sentinel.
   Rationale: dense `Vec<f32>` storage is simpler than
   `Vec<Option<f32>>`; the dirty vector is the authoritative "is this real?"
-  source; the sentinel is a debugging aid (if you ever observe
-  `INFINITY` in mutual-reachability output, the dirty vector was not
-  consulted). The community review recommended a single guarded
+  source; the sentinel is a debugging aid: observing `INFINITY` in
+  mutual-reachability output means the dirty vector was not consulted. The
+  community review recommended a single guarded
   accessor; this design enforces that with the dirty vector.
   Date/Author: 2026-06-05, planning.
 
@@ -1009,9 +1009,9 @@ The Firecrawl prior-art sweep clarified that the FISHDBC
 reference implementation does not do a fresh k-NN search at all
 during `add()`. The roadmap-specified k-NN-based path produces
 *more accurate* core distances than the reference,
-monotonically. The parity suite in roadmap item `2.2.6` may
-need to allow benign downward drift relative to a literal
-reference port.
+monotonically after saturation. The roadmap item `11.1.4`
+monotonicity property records that benign downward drift is limited to
+the saturated regime relative to a literal reference port.
 
 ## Interfaces and dependencies
 
