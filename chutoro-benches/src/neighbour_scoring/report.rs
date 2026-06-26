@@ -42,8 +42,14 @@ pub struct BuildProfileReportRow {
     pub median_batch: usize,
 }
 
+fn csv_requires_quotes(field: &str) -> bool {
+    field
+        .chars()
+        .any(|ch| matches!(ch, ',' | '"' | '\n' | '\r'))
+}
+
 fn csv_escape(field: &str) -> Cow<'_, str> {
-    if field.contains(',') || field.contains('"') || field.contains('\n') || field.contains('\r') {
+    if csv_requires_quotes(field) {
         let escaped = field.replace('"', "\"\"");
         Cow::Owned(format!("\"{escaped}\""))
     } else {
@@ -173,13 +179,8 @@ mod tests {
         write_lane_utilisation_report_csv,
     };
     use proptest::prelude::*;
-    use rstest::{fixture, rstest};
+    use rstest::rstest;
     use std::time::Duration;
-
-    #[fixture]
-    fn csv_buffer() -> Vec<u8> {
-        Vec::new()
-    }
 
     #[rstest]
     #[case::multiple_rows(
@@ -203,21 +204,21 @@ mod tests {
     #[case::escaped_bucket_kind(
         vec![
             LaneUtilisationReportRow {
-                bucket_kind: "diagnostic,\"quoted\"",
+                bucket_kind: "diagnostic,\n\"quoted\"\r",
                 candidate_count: 16,
             },
         ],
         concat!(
             "bucket_kind,candidate_count,padded_lanes,wasted_lanes,",
             "lane_utilisation_basis_points\n",
-            "\"diagnostic,\"\"quoted\"\"\",16,16,0,10000\n",
+            "\"diagnostic,\n\"\"quoted\"\"\r\",16,16,0,10000\n",
         )
     )]
     fn write_lane_utilisation_report_csv_renders_schema_and_rows(
-        mut csv_buffer: Vec<u8>,
         #[case] rows: Vec<LaneUtilisationReportRow<'static>>,
         #[case] expected: &str,
     ) {
+        let mut csv_buffer = Vec::new();
         let result = write_lane_utilisation_report_csv(&mut csv_buffer, rows);
 
         result.expect("render lane-utilisation CSV report");
@@ -258,10 +259,10 @@ mod tests {
         )
     )]
     fn write_build_profile_report_csv_renders_schema_and_rows(
-        mut csv_buffer: Vec<u8>,
         #[case] rows: Vec<BuildProfileReportRow>,
         #[case] expected: &str,
     ) {
+        let mut csv_buffer = Vec::new();
         let result = write_build_profile_report_csv(&mut csv_buffer, rows);
 
         result.expect("render build-profile CSV report");
