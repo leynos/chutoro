@@ -20,7 +20,7 @@ pub use report::{
 };
 
 /// Number of candidate lanes represented by one dense-provider `SoA` block.
-pub const SIMD_LANES: usize = 16;
+const SIMD_LANES: usize = 16;
 
 /// Calculate active-lane utilisation in basis points for one candidate bucket.
 ///
@@ -102,7 +102,7 @@ pub fn duration_basis_points(part: Duration, whole: Duration) -> usize {
     usize::try_from(rounded_basis_points.min(10_000)).unwrap_or(10_000)
 }
 
-/// Return the integer median of sorted diagnostic values.
+/// Return the integer median of diagnostic values sorted in ascending order.
 ///
 /// Empty input returns `0`. Even-length input returns the midpoint between the
 /// two central values, rounded down.
@@ -110,10 +110,10 @@ pub fn duration_basis_points(part: Duration, whole: Duration) -> usize {
 /// # Examples
 ///
 /// ```
-/// use chutoro_benches::neighbour_scoring::median;
+/// use chutoro_benches::neighbour_scoring::sorted_median;
 ///
-/// assert_eq!(median(&[8, 16, 24]), 16);
-/// assert_eq!(median(&[8, 16, 24, 32]), 20);
+/// assert_eq!(sorted_median(&[8, 16, 24]), 16);
+/// assert_eq!(sorted_median(&[8, 16, 24, 32]), 20);
 /// ```
 #[expect(
     clippy::integer_division,
@@ -124,7 +124,7 @@ pub fn duration_basis_points(part: Duration, whole: Duration) -> usize {
     reason = "integer median is an integer diagnostic report"
 )]
 #[must_use]
-pub fn median(values: &[usize]) -> usize {
+pub fn sorted_median(values: &[usize]) -> usize {
     if values.is_empty() {
         return 0;
     }
@@ -145,12 +145,14 @@ pub fn median(values: &[usize]) -> usize {
 
 #[cfg(test)]
 mod tests {
+    //! Example and property checks for neighbour-scoring diagnostics.
+
     use std::time::Duration;
 
     use proptest::prelude::*;
     use rstest::rstest;
 
-    use super::{SIMD_LANES, duration_basis_points, lane_utilisation_basis_points, median};
+    use super::{SIMD_LANES, duration_basis_points, lane_utilisation_basis_points, sorted_median};
 
     #[rstest]
     #[case(0, 0)]
@@ -166,6 +168,44 @@ mod tests {
     }
 
     #[rstest]
+    #[case(&[], 0)]
+    #[case(&[8, 16, 24], 16)]
+    #[case(&[8, 16, 24, 32], 20)]
+    #[case(&[usize::MIN, usize::MIN], usize::MIN)]
+    #[case(&[8, 8, 8, 8], 8)]
+    #[case(&[usize::MAX - 2, usize::MAX], usize::MAX - 1)]
+    fn sorted_median_returns_expected_value(#[case] values: &[usize], #[case] expected: usize) {
+        assert_eq!(sorted_median(values), expected);
+    }
+
+    proptest! {
+        #[test]
+        fn sorted_median_respects_sorted_slice_contract(
+            mut values in prop::collection::vec(any::<usize>(), 0..64),
+        ) {
+            values.sort_unstable();
+            let result = sorted_median(&values);
+
+            if values.is_empty() {
+                prop_assert_eq!(result, 0);
+            } else {
+                let upper_index = values.len() >> 1;
+                let upper = *values.get(upper_index).expect("upper median value exists");
+                if values.len().is_multiple_of(2) {
+                    let lower = *values
+                        .get(upper_index.saturating_sub(1))
+                        .expect("lower median value exists");
+                    prop_assert!(lower <= result);
+                    prop_assert!(result <= upper);
+                    prop_assert_eq!(result, lower + ((upper - lower) >> 1));
+                } else {
+                    prop_assert_eq!(result, upper);
+                }
+            }
+        }
+    }
+
+    #[rstest]
     #[case(Duration::from_nanos(1), Duration::ZERO, 0)]
     #[case(Duration::from_millis(1), Duration::from_millis(4), 2_500)]
     #[case(Duration::from_millis(1), Duration::from_millis(6), 1_667)]
@@ -176,15 +216,6 @@ mod tests {
         #[case] expected: usize,
     ) {
         assert_eq!(duration_basis_points(part, whole), expected);
-    }
-
-    #[rstest]
-    #[case(&[], 0)]
-    #[case(&[8, 16, 24], 16)]
-    #[case(&[8, 16, 24, 32], 20)]
-    #[case(&[usize::MAX - 2, usize::MAX], usize::MAX - 1)]
-    fn median_returns_expected_value(#[case] values: &[usize], #[case] expected: usize) {
-        assert_eq!(median(values), expected);
     }
 
     proptest! {
@@ -247,29 +278,6 @@ mod tests {
                 duration_basis_points(Duration::from_nanos(lower), whole)
                     <= duration_basis_points(Duration::from_nanos(upper), whole)
             );
-        }
-
-        #[test]
-        fn median_matches_sorted_middle_values(mut values in prop::collection::vec(any::<usize>(), 0..64)) {
-            values.sort_unstable();
-            let result = median(&values);
-
-            if values.is_empty() {
-                prop_assert_eq!(result, 0);
-            } else {
-                let upper_index = values.len() >> 1;
-                let upper = *values.get(upper_index).expect("upper median value exists");
-                if values.len().is_multiple_of(2) {
-                    let lower = *values
-                        .get(upper_index.saturating_sub(1))
-                        .expect("lower median value exists");
-                    prop_assert!(lower <= result);
-                    prop_assert!(result <= upper);
-                    prop_assert_eq!(result, lower + ((upper - lower) >> 1));
-                } else {
-                    prop_assert_eq!(result, upper);
-                }
-            }
         }
     }
 }

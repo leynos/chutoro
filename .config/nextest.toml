@@ -72,6 +72,11 @@ filter = "test(/hnsw_search_matches_brute_force_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
+# Write-lock proptest can exceed the default timeout under parallel load.
+filter = "test(/generated_hnsw_scoring_does_not_run_inside_write_graph_scope/)"
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
 # The ARI/NMI baseline cases occasionally stall under heavy coverage load.
 # Run these cases in isolation and fail fast so they cannot monopolize CI.
 filter = "test(/hnsw_pipeline_matches_exact_baseline::case_/)"
@@ -130,6 +135,11 @@ slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 [[profile.ci.overrides]]
 # Search-vs-brute-force proptest can exceed the default timeout under CI load.
 filter = "test(/hnsw_search_matches_brute_force_proptest/)"
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+# Write-lock proptest can exceed the default timeout under CI load.
+filter = "test(/generated_hnsw_scoring_does_not_run_inside_write_graph_scope/)"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]

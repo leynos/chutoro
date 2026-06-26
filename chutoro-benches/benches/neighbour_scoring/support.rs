@@ -11,7 +11,7 @@ use camino::Utf8PathBuf;
 use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_benches::neighbour_scoring::{
     BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilisationReportRow,
-    build_profile_report_target, median, report_parent_dir, write_build_profile_report_csv,
+    build_profile_report_target, report_parent_dir, sorted_median, write_build_profile_report_csv,
     write_lane_utilisation_report_csv,
 };
 use chutoro_benches::source::{SyntheticConfig, SyntheticError, SyntheticSource};
@@ -234,7 +234,7 @@ pub(super) fn write_build_profile_report_for_point_counts(
         batch_sizes.sort_unstable();
         let min_batch = batch_sizes.first().copied().unwrap_or(0);
         let max_batch = batch_sizes.last().copied().unwrap_or(0);
-        let median_batch = median(&batch_sizes);
+        let median_batch = sorted_median(&batch_sizes);
         report_rows.push(BuildProfileReportRow {
             point_count,
             dimension,

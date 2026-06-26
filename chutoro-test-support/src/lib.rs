@@ -255,6 +255,17 @@ pub mod env {
     }
 
     impl EnvVarGuard {
+        fn with_env_mutation(key: &'static str, mutate: impl FnOnce()) -> Self {
+            let lock = env_lock();
+            let guard = Self {
+                key,
+                previous: env::var_os(key),
+                _lock: lock,
+            };
+            mutate();
+            guard
+        }
+
         /// Sets an environment variable for the lifetime of the guard.
         ///
         /// # Examples
@@ -267,16 +278,12 @@ pub mod env {
         /// ```
         #[must_use]
         pub fn set(key: &'static str, value: &str) -> Self {
-            let lock = env_lock();
-            let guard = Self {
-                key,
-                previous: env::var_os(key),
-                _lock: lock,
-            };
-            // SAFETY: all test environment mutations through this helper are
-            // serialized by ENV_LOCK and restored while holding the lock.
-            unsafe { env::set_var(key, value) };
-            guard
+            Self::with_env_mutation(key, || {
+                // SAFETY: all test environment mutations through this helper
+                // are serialized by ENV_LOCK and restored while holding the
+                // lock.
+                unsafe { env::set_var(key, value) };
+            })
         }
 
         /// Removes an environment variable for the lifetime of the guard.
@@ -291,16 +298,12 @@ pub mod env {
         /// ```
         #[must_use]
         pub fn remove(key: &'static str) -> Self {
-            let lock = env_lock();
-            let guard = Self {
-                key,
-                previous: env::var_os(key),
-                _lock: lock,
-            };
-            // SAFETY: all test environment mutations through this helper are
-            // serialized by ENV_LOCK and restored while holding the lock.
-            unsafe { env::remove_var(key) };
-            guard
+            Self::with_env_mutation(key, || {
+                // SAFETY: all test environment mutations through this helper
+                // are serialized by ENV_LOCK and restored while holding the
+                // lock.
+                unsafe { env::remove_var(key) };
+            })
         }
     }
 
