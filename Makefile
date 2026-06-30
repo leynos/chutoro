@@ -23,9 +23,6 @@ all: release ## Default target builds release binary
 clean: ## Remove build artifacts
 	$(CARGO) clean
 
-typecheck: ## Typecheck workspace targets
-	$(CARGO) check --workspace --all-targets --all-features $(BUILD_JOBS)
-
 test: ## Run tests with warnings treated as errors
 	RUSTFLAGS="-D warnings" $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS)
 

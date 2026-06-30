@@ -1,9 +1,9 @@
 # Repository layout
 
 This document explains the repository tree for Chutoro contributors. Use it
-alongside the user's guide, developer's guide, and design document when deciding
-where a change belongs. The tree below is intentionally compact and omits
-generated artefacts such as `target/`.
+alongside the user's guide, developer's guide, and design document when
+deciding where a change belongs. The tree below is intentionally compact and
+omits generated artefacts such as `target/`.
 
 ```plaintext
 .
