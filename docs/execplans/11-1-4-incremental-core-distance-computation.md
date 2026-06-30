@@ -167,7 +167,7 @@ historical-edge retention, or stable cluster identity.
   The filtering rule lives in the adapter, not in the pure helper.
 
 - Risk: divergence from the FISHDBC reference implementation, which
-  piggy-backs on the HNSW distance cache rather than running a fresh k-NN
+  piggybacks on the HNSW distance cache rather than running a fresh k-NN
   search. Severity: low. Likelihood: high. Mitigation: this divergence can
   produce *more accurate* core distances than the reference after saturation.
   Before a point has at least `min_cluster_size` non-self neighbours, the
@@ -270,9 +270,9 @@ historical-edge retention, or stable cluster identity.
 ## Surprises & Discoveries
 
 - Observation: the FISHDBC reference does *not* implement the cleaner
-  spec in roadmap `11.1.4`. Reference behaviour piggy-backs on the HNSW
-  distance cache populated during insertion. Implementing the roadmap-specified
-  k-NN search produces more accurate core distances than the reference,
+  spec in roadmap `11.1.4`. Reference behaviour piggybacks on the HNSW distance
+  cache populated during insertion. Implementing the roadmap-specified k-NN
+  search produces more accurate core distances than the reference,
   monotonically. Evidence: `matteodellamico/flexible-clustering/fishdbc.py`
   lines 116–156 and the HDBSCAN core distance definition in
   `hdbscan.readthedocs.io/en/latest/how_hdbscan_works.html`. Impact: the
@@ -1049,4 +1049,4 @@ forbids new production dependencies.
   `github.com/nmslib/hnswlib`.
 - Community design review: a Logisphere community-of-experts
   pre-implementation review was run on this design sketch; the full report is
-  summarised in `Decision Log` and folded into the plan body.
+  summarized in `Decision Log` and folded into the plan body.
