@@ -6,6 +6,8 @@ const NEXTEST_CONFIG: &str = include_str!("../../.config/nextest.toml");
 const PROPERTY_TESTS_WORKFLOW: &str = include_str!("../../.github/workflows/property-tests.yml");
 const BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }";
+const TRYBUILD_SLOW_TIMEOUT: &str =
+    "slow-timeout = { period = \"300s\", terminate-after = 1, grace-period = \"5s\" }";
 
 fn default_override_blocks() -> Vec<&'static str> {
     override_blocks("default")
@@ -65,6 +67,20 @@ fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
 
     let pr_job = workflow_job_block("property-tests-pr").expect("property-tests-pr job must exist");
     assert!(pr_job.contains("timeout-minutes: 20"));
+}
+
+#[rstest]
+#[case("default")]
+#[case("ci")]
+fn nextest_profiles_keep_trybuild_timeout_guards(#[case] profile_name: &str) {
+    let override_blocks = override_blocks(profile_name);
+    let override_present = override_blocks.into_iter().any(|block| {
+        block.contains(
+            "filter = \"test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled/)\"",
+        ) && block.contains("threads-required = 4")
+            && block.contains(TRYBUILD_SLOW_TIMEOUT)
+    });
+    assert!(override_present);
 }
 
 #[rstest]

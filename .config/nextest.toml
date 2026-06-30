@@ -73,6 +73,13 @@ threads-required = 4
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 retries = 1
 
+[[profile.default.overrides]]
+# Trybuild compile checks build fixture crates in isolated target directories
+# and can exceed the generic 60s timeout on shared developer machines.
+filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled/)"
+threads-required = 4
+slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+
 [profile.ci]
 inherits = "default"
 test-threads = 4
@@ -111,3 +118,10 @@ filter = "test(/hnsw_pipeline_matches_exact_baseline::case_/)"
 threads-required = 4
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 retries = 1
+
+[[profile.ci.overrides]]
+# Trybuild compile checks build fixture crates in isolated target directories
+# and can exceed the generic 60s timeout on shared runners.
+filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled/)"
+threads-required = 4
+slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }

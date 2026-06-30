@@ -1,9 +1,8 @@
 # Expose a public edge-harvesting Hierarchical Navigable Small World (HNSW) insertion API
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -19,8 +18,8 @@ be able to insert a point into `CpuHnsw` and receive the harvested
 
 Success is visible when a caller can use the new public API from outside
 `chutoro-core`, the behaviour is covered by unit tests and Rustdoc, the design
-document records the final API choice, roadmap item `11.1.1` is marked done,
-and `make check-fmt`, `make lint`, and `make test` succeed.
+document records the final API choice, roadmap item `11.1.1` is marked done, and
+`make check-fmt`, `make lint`, and `make test` succeed.
 
 ## Constraints
 

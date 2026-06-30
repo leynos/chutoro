@@ -367,10 +367,10 @@ Stage A.
   This activates `portable_simd` only when both the Cargo feature is enabled
   and the compiler is nightly.
 
-- [x] 1.2.4. Require `cargo check -p chutoro-providers-dense --features
-  nightly_portable_simd` on stable and `cargo check -p chutoro-providers-dense
-  --all-features
-  ` on stable to succeed without errors or warnings before continuing.
+- [x] 1.2.4. Require
+      `cargo check -p chutoro-providers-dense --features nightly_portable_simd`
+      on stable and `cargo check -p chutoro-providers-dense --all-features` on
+      stable to succeed without errors or warnings before continuing.
 
 - [x] 1.3. Implement the portable SIMD kernels.
   Add the `std::simd` kernel implementations in a new submodule.
@@ -422,8 +422,8 @@ Stage A.
   `PortableSimd` in [tests.rs](chutoro-providers/dense/src/simd/tests.rs).
 
 - [x] 1.5.3. Extend
-  [entrypoints.rs](chutoro-providers/dense/src/simd/tests/entrypoints.rs) with
-  a `#[cfg(all(feature = "nightly_portable_simd", nightly))]` section covering
+  [entrypoints.rs](chutoro-providers/dense/src/simd/tests/entrypoints.rs) with a
+  `#[cfg(all(feature = "nightly_portable_simd", nightly))]` section covering
   `portable_simd_pairwise_matches_scalar`,
   `portable_simd_query_points_matches_scalar`,
   `portable_simd_canonicalizes_non_finite_to_nan`, and `rstest`
@@ -454,7 +454,7 @@ Stage A.
   against current UTC time with `force_run=true` bypass support, nightly
   toolchain install via
   `rustup toolchain install nightly --profile minimal --component clippy rustfmt`,
-   and the following commands:
+  and the following commands:
 
   ```sh
   RUSTFLAGS="-D warnings" cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd
@@ -467,9 +467,10 @@ Stage A.
 - [x] 1.7.1. Update
       [chutoro-design.md](docs/chutoro-design.md)
   §6.3 to record the non-default `nightly_portable_simd` feature name, dispatch
-  priority `AVX-512 > AVX2 > NEON > PortableSimd > Scalar`, tracking issues:
-  [^1], [^2], [^3], the build-script nightly detection strategy, and unit-test
-  coverage for pairwise, batch, and non-finite parity with the scalar oracle.
+  priority `AVX-512 > AVX2 > NEON > PortableSimd > Scalar`, tracking
+  issues:[^1],[^2],[^3], the build-script nightly detection strategy, and
+  unit-test coverage for pairwise, batch, and non-finite parity with the scalar
+  oracle.
 
 - [x] 1.7.2. Mark [roadmap.md](docs/roadmap.md) item
   `2.2.4` done only after all validation commands pass.

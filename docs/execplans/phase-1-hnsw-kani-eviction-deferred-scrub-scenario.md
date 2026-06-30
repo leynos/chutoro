@@ -122,8 +122,9 @@ During `apply_deferred_scrubs`:
 
 Create `verify_eviction_deferred_scrub_reciprocity` in `kani_proofs.rs`:
 
-- **Graph configuration**: 4 nodes (IDs 0, 1, 2, 3), 2 levels, `max_connections
-  = 1` so level-1 capacity is 1 (triggers eviction with 2+ edges).
+- **Graph configuration**: 4 nodes (IDs 0, 1, 2, 3), 2 levels,
+  `max_connections = 1` so level-1 capacity is 1 (triggers eviction with 2+
+  edges).
 - **Initial state**: Seed node 1's level-1 neighbour list with node 2
   (bidirectional). This fills node 1 to capacity.
 - **Update**: Node 0 adds node 1 as a neighbour at level 1. When

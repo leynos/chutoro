@@ -48,7 +48,7 @@ Accepted
 - `hnsw_mutations_preserve_invariants_proptest` still fails intermittently. The
   most recent run aborted with a stack overflow after reporting
   `proptest: FileFailurePersistence::SourceParallel set, but no source file known`,
-   suggesting uncontrolled recursion while attempting to heal the graph after
+  suggesting uncontrolled recursion while attempting to heal the graph after
   staged insertions.
 - Another failing seed flagged a missing reverse edge after the bootstrap
   insert stage (`edge exists 13 -> 0 at level 0 but no reverse edge`), which
@@ -65,10 +65,10 @@ Accepted
 - A later seed showed a bootstrap failure, with `edge 11 -> 8` missing a reverse
   link at layer 0. Hypothesis: one-way edges can survive when a reverse-link
   insertion evicts a neighbour, but the new node keeps the forward edge.
-  Mitigation: after every commit, a reciprocity pass runs over all touched
-  nodes (`ensure_reciprocity_for_touched`) that either adds the missing
-  back-link (evicting and scrubbing as needed) or removes the forward edge. New
-  unit tests cover both reverse-edge eviction scrubbing and healing an existing
+  Mitigation: after every commit, a reciprocity pass runs over all touched nodes
+  (`ensure_reciprocity_for_touched`) that either adds the missing back-link
+  (evicting and scrubbing as needed) or removes the forward edge. New unit
+  tests cover both reverse-edge eviction scrubbing and healing an existing
   one-way edge.
 
 - Intermittent failure (`edge 4 -> 0` missing backlink at layer 0) was

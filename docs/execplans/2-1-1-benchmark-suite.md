@@ -113,8 +113,8 @@ pass, including new unit tests for the benchmark support code.
 - Observation: `thiserror` was needed as a direct dependency for
   `SyntheticError` despite being a transitive dependency of `chutoro-core`.
   Evidence: Compilation error
-  `failed to resolve: use of unresolved module or unlinked crate`. Impact:
-  Added `thiserror = "1.0.69"` to `[dependencies]`. This was anticipated as a
+  `failed to resolve: use of unresolved module or unlinked crate`. Impact: Added
+  `thiserror = "1.0.69"` to `[dependencies]`. This was anticipated as a
   tolerance risk but did not require escalation since `thiserror` is already in
   the workspace dependency graph.
 
@@ -122,19 +122,19 @@ pass, including new unit tests for the benchmark support code.
 
 _Table 1: Decision log._
 
-| Decision                                                                                                             | Rationale                                                                                                                                                                                                                                                     | Date/Author         |
-| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| Separate `chutoro-benches` crate (not `benches/` in `chutoro-core`)                                                  | Criterion benchmarks are separate binaries; a dedicated crate keeps benchmark support code testable and avoids polluting the core crate's dev-dependencies                                                                                                    | 2026-02-13 (Claude) |
-| `SyntheticSource` lives in `chutoro-benches` (not `chutoro-test-support`)                                            | `chutoro-test-support` has no dependency on `chutoro-core`; adding one would create a circular test dependency. The synthetic source is benchmark-specific.                                                                                                   | 2026-02-13 (Claude) |
-| Crate does NOT inherit workspace lints                                                                               | Criterion's generated code triggers many of the strict workspace denials (`unwrap_used`, `missing_docs` on generated items). A custom lint section allows compliance for handwritten code while accommodating the harness.                                    | 2026-02-13 (Claude) |
-| Uniform random vectors (not Gaussian blobs) for initial benchmarks                                                   | Simpler to generate, reproducible with a seed, sufficient for timing baselines. Gaussian blobs are deferred to roadmap §2.1.2.                                                                                                                                | 2026-02-13 (Claude) |
-| Dataset sizes {100, 500, 1000} for most benchmarks, {100, 500, 1000, 5000} for HNSW build                            | Keeps `make bench` completable in reasonable time while showing scaling behaviour for the dominant pipeline stage                                                                                                                                             | 2026-02-13 (Claude) |
-| Edge harvest benchmarked as `build_with_edges` vs `build` differential, plus standalone `EdgeHarvest::from_unsorted` | The harvest step is integrated into build; timing it separately requires either instrumentation (invasive) or differential measurement (non-invasive). Standalone `EdgeHarvest::from_unsorted` benchmarks the sorting/dedup cost.                             | 2026-02-13 (Claude) |
-| Added `thiserror` as direct dependency for `SyntheticError` and `BenchSetupError`                                    | Transitive availability is not guaranteed by Cargo; the derive macro requires the crate in scope. Already in the workspace dependency graph so no new external code is pulled in.                                                                             | 2026-02-13 (Claude) |
-| File-level `#![expect]` on bench files for Criterion-triggered lints                                                 | Criterion's `bench_with_input` + `b.iter` pattern inherently triggers `missing_docs`, `shadow_reuse`, and `excessive_nesting`. File-level `#![expect(…)]` with reasons is the narrowest practical scope since every bench function exhibits these patterns.   | 2026-02-15 (Claude) |
-| Fallible benchmark setup helpers with `BenchSetupError`                                                              | Eliminates `.expect()` outside tests by propagating errors with `?` in `_impl` functions. The thin `criterion_group!` wrappers panic on setup failure only at the entrypoint.                                                                                 | 2026-02-15 (Claude) |
-| Edge harvest input shuffled before benchmarking                                                                      | `build_with_edges` returns pre-sorted edges; benchmarking `from_unsorted` on sorted data would under-report the sorting cost. A seeded shuffle produces a realistic unsorted distribution.                                                                    | 2026-02-15 (Claude) |
-| `iter_batched` for clone-heavy benchmarks                                                                            | Moves `Vec::clone()` (edge harvest) and `HnswParams::clone()` (HNSW build) out of the measured path so that benchmarks reflect only the target operation's cost.                                                                                              | 2026-02-15 (Claude) |
+| Decision                                                                                                             | Rationale                                                                                                                                                                                                                                                   | Date/Author         |
+| -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| Separate `chutoro-benches` crate (not `benches/` in `chutoro-core`)                                                  | Criterion benchmarks are separate binaries; a dedicated crate keeps benchmark support code testable and avoids polluting the core crate's dev-dependencies                                                                                                  | 2026-02-13 (Claude) |
+| `SyntheticSource` lives in `chutoro-benches` (not `chutoro-test-support`)                                            | `chutoro-test-support` has no dependency on `chutoro-core`; adding one would create a circular test dependency. The synthetic source is benchmark-specific.                                                                                                 | 2026-02-13 (Claude) |
+| Crate does NOT inherit workspace lints                                                                               | Criterion's generated code triggers many of the strict workspace denials (`unwrap_used`, `missing_docs` on generated items). A custom lint section allows compliance for handwritten code while accommodating the harness.                                  | 2026-02-13 (Claude) |
+| Uniform random vectors (not Gaussian blobs) for initial benchmarks                                                   | Simpler to generate, reproducible with a seed, sufficient for timing baselines. Gaussian blobs are deferred to roadmap §2.1.2.                                                                                                                              | 2026-02-13 (Claude) |
+| Dataset sizes {100, 500, 1000} for most benchmarks, {100, 500, 1000, 5000} for HNSW build                            | Keeps `make bench` completable in reasonable time while showing scaling behaviour for the dominant pipeline stage                                                                                                                                           | 2026-02-13 (Claude) |
+| Edge harvest benchmarked as `build_with_edges` vs `build` differential, plus standalone `EdgeHarvest::from_unsorted` | The harvest step is integrated into build; timing it separately requires either instrumentation (invasive) or differential measurement (non-invasive). Standalone `EdgeHarvest::from_unsorted` benchmarks the sorting/dedup cost.                           | 2026-02-13 (Claude) |
+| Added `thiserror` as direct dependency for `SyntheticError` and `BenchSetupError`                                    | Transitive availability is not guaranteed by Cargo; the derive macro requires the crate in scope. Already in the workspace dependency graph so no new external code is pulled in.                                                                           | 2026-02-13 (Claude) |
+| File-level `#![expect]` on bench files for Criterion-triggered lints                                                 | Criterion's `bench_with_input` + `b.iter` pattern inherently triggers `missing_docs`, `shadow_reuse`, and `excessive_nesting`. File-level `#![expect(…)]` with reasons is the narrowest practical scope since every bench function exhibits these patterns. | 2026-02-15 (Claude) |
+| Fallible benchmark setup helpers with `BenchSetupError`                                                              | Eliminates `.expect()` outside tests by propagating errors with `?` in `_impl` functions. The thin `criterion_group!` wrappers panic on setup failure only at the entrypoint.                                                                               | 2026-02-15 (Claude) |
+| Edge harvest input shuffled before benchmarking                                                                      | `build_with_edges` returns pre-sorted edges; benchmarking `from_unsorted` on sorted data would under-report the sorting cost. A seeded shuffle produces a realistic unsorted distribution.                                                                  | 2026-02-15 (Claude) |
+| `iter_batched` for clone-heavy benchmarks                                                                            | Moves `Vec::clone()` (edge harvest) and `HnswParams::clone()` (HNSW build) out of the measured path so that benchmarks reflect only the target operation's cost.                                                                                            | 2026-02-15 (Claude) |
 
 ## Outcomes & retrospective
 
@@ -146,13 +146,13 @@ quality gates (`make check-fmt`, `make lint`, `make test`) pass. Roadmap entry
 
 The main challenge was accommodating the workspace's strict Clippy lint
 configuration with Criterion's macro-generated code. The solution — a
-crate-local `[lints]` section mirroring workspace strictness plus tightly
-scoped `#![expect(…)]` attributes on bench files — proved effective and keeps
-the handwritten library code under full lint scrutiny. PR review feedback
-prompted additional improvements: fallible benchmark setup helpers
-(`BenchSetupError`) eliminating `.expect()` outside tests, `iter_batched` to
-exclude clone overhead from measurements, shuffled edge-harvest input to avoid
-benchmarking pre-sorted data, and narrowed lint suppression scopes throughout.
+crate-local `[lints]` section mirroring workspace strictness plus tightly scoped
+`#![expect(…)]` attributes on bench files — proved effective and keeps the
+handwritten library code under full lint scrutiny. PR review feedback prompted
+additional improvements: fallible benchmark setup helpers (`BenchSetupError`)
+eliminating `.expect()` outside tests, `iter_batched` to exclude clone overhead
+from measurements, shuffled edge-harvest input to avoid benchmarking pre-sorted
+data, and narrowed lint suppression scopes throughout.
 
 Files created: 9 new files in `chutoro-benches/` (4 library, 4 benchmark, 1
 manifest). Files modified: 3 (root `Cargo.toml`, `Makefile`, `docs/roadmap.md`).

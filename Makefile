@@ -36,6 +36,9 @@ lint: ## Run Clippy with warnings denied
 	RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) doc --workspace --no-deps
 	$(CARGO) clippy $(CLIPPY_FLAGS)
 
+typecheck: ## Type-check all workspace targets and features
+	$(CARGO) check --workspace --all-targets --all-features $(BUILD_JOBS)
+
 fmt: ## Format Rust and Markdown sources
 	$(CARGO) fmt --all
 	mdformat-all

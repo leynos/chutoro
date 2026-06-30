@@ -81,8 +81,8 @@ Success is observable when:
 - Risk: recall measurement adds non-trivial wall-clock time during benchmark
   registration, causing nextest timeouts (as seen during 2.1.3 memory profiling
   work). Severity: high. Likelihood: medium. Mitigation: gate recall
-  measurement behind `should_collect_recall_report()` using the same
-  `--list`/`--exact` guard pattern established in 2.1.3. Add env var
+  measurement behind `should_collect_recall_report()` using the same `--list`/
+  `--exact` guard pattern established in 2.1.3. Add env var
   `CHUTORO_BENCH_HNSW_RECALL_REPORT` for explicit enable/disable.
 
 - Risk: brute-force oracle at n=1000 with Q=50 queries is O(50,000) distance
@@ -166,8 +166,8 @@ Success is observable when:
 - Decision: reimplement `brute_force_top_k` and `recall_at_k` in
   `chutoro-benches` rather than exporting them from `chutoro-core`. Rationale:
   the existing implementations in
-  `chutoro-core/src/hnsw/tests/property/search_property.rs` are `pub(super)`
-  and `fn` (not `pub`), making them inaccessible outside the test module.
+  `chutoro-core/src/hnsw/tests/property/search_property.rs` are `pub(super)` and
+  `fn` (not `pub`), making them inaccessible outside the test module.
   Promoting them to public API would expand `chutoro-core`'s surface area for a
   benchmark-only need, violating the "no public API changes" constraint. The
   reimplementation is ~30 lines and follows the same algorithm. Date/Author:

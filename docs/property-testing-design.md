@@ -157,8 +157,8 @@ graph (seed: 12345)," the developer receives a report like "Test failed on a
 3-node graph where two nodes are disconnected from the third." This minimal
 counterexample is vastly easier to reason about and allows the developer to
 quickly pinpoint the logical flaw in the code. The `ProptestConfig` struct
-allows for the configuration of test execution parameters, such as the number
-of `cases` to run. While increasing the number of cases improves the *coverage*
+allows for the configuration of test execution parameters, such as the number of
+`cases` to run. While increasing the number of cases improves the *coverage*
 of the input space, it is the shrinking mechanism that makes that coverage
 *practical* from a debugging and maintenance perspective. Without effective
 shrinking, property-based testing in complex domains would be far less viable.

@@ -176,7 +176,7 @@ Implementation is complete. This document now serves as the execution record.
 
 - Observation: single-backend validation builds such as
   `cargo test -p chutoro-providers-dense --no-default-features --features simd_avx512`
-   triggered dead-code warnings on private backend helpers that are only
+  triggered dead-code warnings on private backend helpers that are only
   reached through the runtime dispatch table. Impact: feature-specific internal
   helpers should prefer exact conditional compilation so disabled backends are
   not compiled at all; if one helper still needs suppression, use the smallest

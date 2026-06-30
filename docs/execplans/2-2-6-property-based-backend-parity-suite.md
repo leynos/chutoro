@@ -253,21 +253,20 @@ later items that will actually consume it.
   CodeRabbit found three issues; all were fixed and the targeted parity suite
   passed again.
 - 2026-05-17T12:13:45Z: Cleared the remaining CodeRabbit concerns. Final
-  CodeRabbit pass reported 0 findings. Final validation for the first
-  milestone passed: `make check-fmt`, `make lint`, targeted
-  `markdownlint-cli2
-  docs/execplans/2-2-6-property-based-backend-parity-suite.md`, and
-  `make test`. The final `make test` run completed 947 tests with 947 passed
-  and 1 skipped.
+  CodeRabbit pass reported 0 findings. Final validation for the first milestone
+  passed: `make check-fmt`, `make lint`, targeted
+  `markdownlint-cli2 docs/execplans/2-2-6-property-based-backend-parity-suite.md`,
+  and `make test`. The final `make test` run completed 947 tests with 947
+  passed and 1 skipped.
 - 2026-05-17T12:18:00Z: Started Stage D. Added the `dense_simd` property-test
   suite to both pull-request and weekly CI matrices, extended the path filter
   to cover `chutoro-providers/dense/**`, added the nightly portable-SIMD parity
-  invocation, and drafted the design-document and developers-guide updates.
-  The roadmap remains unchecked until the validation gates pass.
-- 2026-05-17T12:29:03Z: Stage D pre-roadmap validation passed. `make
-  check-fmt`, `make lint`, and `make test` all succeeded; the test run
-  completed 947 tests with 947 passed and 1 skipped. Roadmap item `2.2.6` was
-  then flipped to done as required by the plan.
+  invocation, and drafted the design-document and developers-guide updates. The
+  roadmap remains unchecked until the validation gates pass.
+- 2026-05-17T12:29:03Z: Stage D pre-roadmap validation passed. `make check-fmt`,
+  `make lint`, and `make test` all succeeded; the test run completed 947 tests
+  with 947 passed and 1 skipped. Roadmap item `2.2.6` was then flipped to done
+  as required by the plan.
 - 2026-05-17T12:46:17Z: Final Stage D validation passed on the roadmap-done
   content. Targeted `markdownlint-cli2` passed for the touched Markdown files,
   `make check-fmt` passed, `make lint` passed, and `make test` completed 947
@@ -278,8 +277,8 @@ later items that will actually consume it.
   query-to-points fixture that injects `NaN` or infinities into either the
   query row or a candidate point row, plus a property that drives every
   query-to-points backend entry against the scalar oracle. Targeted
-  `cargo nextest run -p chutoro-providers-dense simd::tests::parity::` now
-  runs 4 parity tests and passes.
+  `cargo nextest run -p chutoro-providers-dense simd::tests::parity::` now runs
+  4 parity tests and passes.
 
 ## Surprises & discoveries
 
@@ -308,8 +307,8 @@ later items that will actually consume it.
 - 2026-05-18T19:34:48Z: The original non-finite property name was accurate for
   pairwise entries but too broad for the completed roadmap policy. Batched
   query-to-points kernels need their own generated non-finite fixture because
-  `query_points_fixture()` intentionally mixes only finite, duplicate, and
-  zero rows.
+  `query_points_fixture()` intentionally mixes only finite, duplicate, and zero
+  rows.
 
 ## Decision log
 
@@ -336,11 +335,11 @@ later items that will actually consume it.
   honest about what dispatch would actually pick. Date/Author: 2026-05-02,
   planning.
 - Decision: implement the new parity suite without proptest forking on PR
-  runs (`CHUTORO_PBT_FORK=false`, `PROPTEST_CASES=250`) and with forking on
-  the weekly run (`CHUTORO_PBT_FORK=true`, `PROPTEST_CASES` taking the same
-  budget the existing chutoro-core suites use). Rationale: matches the
-  established two-tier model in `docs/property-testing-design.md` §5 and
-  keeps PR feedback fast. Date/Author: 2026-05-02, planning.
+  runs (`CHUTORO_PBT_FORK=false`, `PROPTEST_CASES=250`) and with forking on the
+  weekly run (`CHUTORO_PBT_FORK=true`, `PROPTEST_CASES` taking the same budget
+  the existing chutoro-core suites use). Rationale: matches the established
+  two-tier model in `docs/property-testing-design.md` §5 and keeps PR feedback
+  fast. Date/Author: 2026-05-02, planning.
 - Decision: do not author a dedicated ADR for `DistanceSemantics` as part of
   `2.2.6`. Rationale: `docs/chutoro-design.md` §6.3 already specifies the
   contract in prose, and the implementation update note added in Stage D
@@ -355,8 +354,8 @@ later items that will actually consume it.
   `chutoro_test_support::ci::property_test_profile::ProptestRunProfile`.
   Rationale: the test-support profile loader is the workspace-shared policy
   surface. This preserves the public API constraint and avoids coupling the
-  dense provider's tests to `chutoro-core` internals. Date/Author:
-  2026-05-17, implementation.
+  dense provider's tests to `chutoro-core` internals. Date/Author: 2026-05-17,
+  implementation.
 - Decision: keep backend availability enumeration in `dispatch.rs` and place
   test-only entrypoint mapping helpers in `kernels.rs`. Rationale:
   `dispatch.rs` owns support-mask logic, while `kernels.rs` can legally refer
@@ -370,11 +369,11 @@ later items that will actually consume it.
   and reading policy fields through a small debug contract assertion keeps the
   test intent explicit. Date/Author: 2026-05-17, implementation.
 - Decision: keep the policy enums in `DistanceSemantics` despite having one
-  variant each today. Rationale: the ExecPlan explicitly calls for named
-  policy fields, so the CPU parity suite can document and later migrate the
-  same contract into GPU parity and tie-breaking verification work. A short
-  code comment now records that future extension point. Date/Author:
-  2026-05-17, implementation.
+  variant each today. Rationale: the ExecPlan explicitly calls for named policy
+  fields, so the CPU parity suite can document and later migrate the same
+  contract into GPU parity and tie-breaking verification work. A short code
+  comment now records that future extension point. Date/Author: 2026-05-17,
+  implementation.
 - Decision: add a separate `non_finite_query_points_fixture()` rather than
   mixing non-finite values into the existing finite query-to-points fixture.
   Rationale: the finite fixture still gives focused coverage for ordinary
@@ -560,11 +559,11 @@ tests-only scope; no source changes have been made yet.
 3. Introduce a small backend-iterator test seam in
    `chutoro-providers/dense/src/simd/dispatch.rs` (still `pub(super)`) that
    yields the `EuclideanBackend` variants currently both compiled and
-   runtime-supported. Use the existing
-   `compiled_simd_support`/`runtime_simd_support` accessors. Provide a matching
-   helper that maps a backend variant to its pairwise entry function pointer
-   and to its query-to-points entry function pointer, each returning
-   `Option<...>` so the test can skip absent backends.
+   runtime-supported. Use the existing `compiled_simd_support`/
+   `runtime_simd_support` accessors. Provide a matching helper that maps a
+   backend variant to its pairwise entry function pointer and to its
+   query-to-points entry function pointer, each returning `Option<...>` so the
+   test can skip absent backends.
 4. Wire `mod semantics;` into `simd/mod.rs` under `#[cfg(test)]` so the
    semantics surface is available only to the in-crate test tree. If the
    reviewer prefers semantics to be part of the released crate API, the gate
@@ -642,7 +641,7 @@ The property work in this stage:
 
 Stage C exit gate: `make test` is clean on the default feature set;
 `cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd`
- runs the parity suite locally (or, if a nightly compiler is unavailable on the
+runs the parity suite locally (or, if a nightly compiler is unavailable on the
 development machine, the gating `tests/portable_simd_gating.rs` proof of
 compilation passes) and shows the portable-SIMD backend participating.
 
@@ -661,7 +660,9 @@ compilation passes) and shows the portable-SIMD backend participating.
    parity suite after the existing dense-provider test step:
 
    ```sh
-   cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd simd::tests::parity
+   cargo +nightly test -p chutoro-providers-dense \
+     --features nightly_portable_simd \
+     simd::tests::parity
    ```
 
    Keep the existing `--features nightly_portable_simd` flag so the
