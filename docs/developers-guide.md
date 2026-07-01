@@ -347,7 +347,6 @@ at the top of the `[lints.clippy]` section in `chutoro-benches/Cargo.toml`.
    suppressions, with a reason string.
 5. Run `make bench` to verify the new benchmark appears in the output.
 
-
 ## Benchmark dataset recipes
 
 The `chutoro-bench-datasets` crate defines the shared recipe surface for
