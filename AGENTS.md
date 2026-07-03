@@ -191,7 +191,6 @@ project:
 - Document public APIs using Rustdoc comments (`///`) so documentation can be
   generated with cargo doc.
 - Prefer immutable data and avoid unnecessary `mut` bindings.
-- Use explicit version ranges in `Cargo.toml` and keep dependencies up-to-date.
 - Avoid `unsafe` code unless absolutely necessary, and document any usage
   clearly with a "SAFETY" comment.
 - Place function attributes **after** doc comments.
@@ -320,14 +319,9 @@ project:
 
 ## Project documentation
 
-Record design decisions in the design document. Where a decision is
-substantive, record it in an ADR document following the documentation style
-guide, then reference that ADR from the design document.
-
-Update `docs/users-guide.md` for any change to application behaviour or user
-interface that a user should know about. Document internally facing interfaces
-or practices in the relevant component architecture document. Document
-internally facing conventions or practices in `docs/developers-guide.md`.
+Follow the [documentation maintenance](#documentation-maintenance) rules above
+for design decisions, user-facing behaviour, internal interfaces, and
+documentation style.
 
 ## Additional tooling
 

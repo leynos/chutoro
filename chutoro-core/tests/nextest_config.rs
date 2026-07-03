@@ -4,6 +4,7 @@ use rstest::rstest;
 
 const NEXTEST_CONFIG: &str = include_str!("../../.config/nextest.toml");
 const PROPERTY_TESTS_WORKFLOW: &str = include_str!("../../.github/workflows/property-tests.yml");
+const MAKEFILE: &str = include_str!("../../Makefile");
 const BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }";
 const TRYBUILD_SLOW_TIMEOUT: &str =
@@ -30,6 +31,18 @@ fn workflow_job_block(job: &str) -> Result<&'static str, String> {
         .split_once(&format!("  {job}:"))
         .ok_or_else(|| format!("workflow job '{job}' not found"))?;
     let block = match rest.split_once("\n\n  ") {
+        Some((block, _)) => block,
+        None => rest,
+    };
+
+    Ok(block)
+}
+
+fn make_target_block(target: &str) -> Result<&'static str, String> {
+    let (_, rest) = MAKEFILE
+        .split_once(&format!("\n{target}:"))
+        .ok_or_else(|| format!("Makefile target '{target}' not found"))?;
+    let block = match rest.split_once("\n\n") {
         Some((block, _)) => block,
         None => rest,
     };
@@ -75,12 +88,21 @@ fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
 fn nextest_profiles_keep_trybuild_timeout_guards(#[case] profile_name: &str) {
     let override_blocks = override_blocks(profile_name);
     let override_present = override_blocks.into_iter().any(|block| {
-        block.contains(
-            "filter = \"test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled/)\"",
-        ) && block.contains("threads-required = 4")
+        block.contains("portable_simd_gating_compile_checks")
+            && block.contains("session_api_compiles_when_cpu_feature_is_enabled")
+            && block.contains("threads-required = 4")
             && block.contains(TRYBUILD_SLOW_TIMEOUT)
     });
     assert!(override_present);
+}
+
+#[test]
+fn makefile_exposes_typecheck_gate() {
+    let typecheck_block = make_target_block("typecheck").expect("typecheck target must exist");
+    assert!(MAKEFILE.contains(" typecheck "));
+    assert!(typecheck_block.contains("cargo") || typecheck_block.contains("$(CARGO)"));
+    assert!(typecheck_block.contains("check --workspace --all-targets --all-features"));
+    assert!(typecheck_block.contains("$(BUILD_JOBS)"));
 }
 
 #[rstest]
