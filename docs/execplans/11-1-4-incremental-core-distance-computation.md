@@ -96,8 +96,8 @@ historical-edge retention, or stable cluster identity.
 - Public type: if a new public error variant or new public type other than
   the read-only accessor and the two methods above appears necessary, stop and
   justify the compatibility impact before proceeding.
-- Semantics: if the dirty-set fail-fast contract has to weaken to
-  silently-skip stale points, stop and present alternatives with trade-offs.
+- Semantics: if the dirty-set fail-fast contract has to weaken to silently skip
+  stale points, stop and present alternatives with trade-offs.
 - Dependencies: if implementation requires adding any production crate, stop
   and ask for approval.
 - Formal verification: if the Verus proof for
