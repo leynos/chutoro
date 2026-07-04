@@ -9,8 +9,8 @@ mod report;
 #[doc(hidden)]
 pub use build_profile::{
     BUILD_PROFILE_ENV, BUILD_PROFILE_REPORT, build_profile_report_target,
-    build_profile_report_target_value, report_parent_dir, report_path,
-    should_collect_build_profile, should_collect_build_profile_value,
+    build_profile_report_target_value, report_parent_dir, report_parent_dir_value, report_path,
+    report_path_value, should_collect_build_profile, should_collect_build_profile_value,
 };
 #[doc(hidden)]
 pub use profiling::{duration_nanos, saturating_add_u64, saturating_add_usize};

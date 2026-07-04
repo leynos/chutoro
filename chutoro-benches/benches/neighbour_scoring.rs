@@ -6,6 +6,9 @@
 
 use std::time::Duration;
 
+use chutoro_benches::neighbour_scoring::{
+    BUILD_PROFILE_ENV, build_profile_report_target_value, report_parent_dir,
+};
 use chutoro_core::DataSource;
 use criterion::{
     BenchmarkGroup, BenchmarkId, Criterion, Throughput, black_box, criterion_main,
@@ -32,15 +35,17 @@ fn configure_group(group: &mut BenchmarkGroup<'_, WallTime>) {
     }
 }
 
+fn should_use_short_measurement_value(value: Option<&str>) -> bool {
+    value.is_some_and(|raw| {
+        matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "on" | "yes"
+        )
+    })
+}
+
 fn should_use_short_measurement() -> bool {
-    std::env::var(SHORT_MEASUREMENT_ENV)
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "on" | "yes"
-            )
-        })
-        .unwrap_or(false)
+    should_use_short_measurement_value(std::env::var(SHORT_MEASUREMENT_ENV).ok().as_deref())
 }
 
 fn score_candidates(
@@ -87,8 +92,13 @@ fn bench_case(
 }
 
 fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
-    let _lane_report = write_lane_utilisation_report()?;
-    let _build_profile = write_build_profile_report()?;
+    let report_parent_dir = report_parent_dir();
+    let build_profile_target = build_profile_report_target_value(
+        std::env::var(BUILD_PROFILE_ENV).ok().as_deref(),
+        &report_parent_dir,
+    );
+    let _lane_report = write_lane_utilisation_report(&report_parent_dir)?;
+    let _build_profile = write_build_profile_report(&report_parent_dir, build_profile_target)?;
     let mut group = c.benchmark_group("neighbour_scoring");
     configure_group(&mut group);
     for &dimension in DIMENSIONS {

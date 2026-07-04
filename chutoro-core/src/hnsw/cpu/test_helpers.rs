@@ -40,7 +40,7 @@ impl CpuHnsw {
 
     pub(crate) fn enable_write_graph_marker_for_test() -> WriteGraphMarkerGuard {
         internal::enable_write_graph_marker();
-        WriteGraphMarkerGuard {}
+        WriteGraphMarkerGuard
     }
 
     pub(crate) fn delete_node_for_test(&mut self, node: usize) -> Result<bool, HnswError> {
@@ -67,7 +67,7 @@ impl CpuHnsw {
     }
 }
 
-pub(crate) struct WriteGraphMarkerGuard {}
+pub(crate) struct WriteGraphMarkerGuard;
 
 impl Drop for WriteGraphMarkerGuard {
     fn drop(&mut self) {

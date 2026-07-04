@@ -21,17 +21,20 @@ use super::CpuHnsw;
 
 #[cfg(test)]
 thread_local! {
-    // The depth stays thread-local so tests can observe whether the current
-    // thread is inside `write_graph` without leaking nesting state across
-    // worker threads.
+    // `current_thread_holds_write_graph` and `WriteGraphScope` use TLS depth
+    // so only the thread executing the write closure reports ownership. A
+    // process-wide boolean would make one Rayon worker look like every worker
+    // holds the write lock, creating cross-thread false positives and hiding
+    // same-thread false negatives.
     static WRITE_GRAPH_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
 #[cfg(test)]
-// The enable count is process-wide because the test hook is a global switch:
-// once enabled, every thread should emit the marker until the final disable.
-// Collapsing this with the thread-local depth would lose either the global
-// enable/disable semantics or the per-thread nesting visibility.
+// `enable_write_graph_marker`/`disable_write_graph_marker` are process-wide so
+// any Rayon worker entering `write_graph` is tracked once a test opts in.
+// Collapsing this enable flag and the TLS depth into one global boolean would
+// lose either cross-worker opt-in or same-thread ownership accuracy, creating
+// cross-thread false positives or false negatives.
 static WRITE_GRAPH_MARKER_ENABLE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(test)]

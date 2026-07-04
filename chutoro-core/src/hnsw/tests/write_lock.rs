@@ -103,7 +103,6 @@ impl DataSource for WriteLockAssertingSource {
         pairs: &[(usize, usize)],
         out: &mut [f32],
     ) -> Result<(), DataSourceError> {
-        self.assert_not_writing_graph();
         if pairs.len() != out.len() {
             return Err(DataSourceError::OutputLengthMismatch {
                 out: out.len(),
@@ -111,6 +110,7 @@ impl DataSource for WriteLockAssertingSource {
             });
         }
 
+        self.assert_not_writing_graph();
         for ((left, right), slot) in pairs.iter().copied().zip(out.iter_mut()) {
             *slot = self.distance_value(left, right)?;
         }
@@ -202,7 +202,7 @@ fn assert_write_lock_property(case: WriteLockPropertyCase) -> TestCaseResult {
     let params = HnswParams::new(case.max_connections, case.ef_construction)
         .map_err(|error| TestCaseError::fail(format!("invalid generated params: {error}")))?
         .with_rng_seed(case.rng_seed);
-    let index = CpuHnsw::build(&source, params)
+    let index = build_generated_index(&source, params)
         .map_err(|error| TestCaseError::fail(format!("generated build failed: {error}")))?;
 
     index
@@ -219,6 +219,17 @@ fn assert_write_lock_property(case: WriteLockPropertyCase) -> TestCaseResult {
     );
     prop_assert!(!CpuHnsw::current_thread_holds_write_graph_for_test());
     Ok(())
+}
+
+fn build_generated_index(
+    source: &WriteLockAssertingSource,
+    params: HnswParams,
+) -> Result<CpuHnsw, HnswError> {
+    let index = CpuHnsw::with_capacity(params, source.len())?;
+    for node in 0..source.len() {
+        index.insert(node, source)?;
+    }
+    Ok(index)
 }
 
 #[rstest]

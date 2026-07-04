@@ -7,12 +7,11 @@ use std::{io, num::TryFromIntError, sync::Arc, time::Instant};
 
 use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array};
 use arrow_schema::{DataType, Field};
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_benches::neighbour_scoring::{
-    BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilisationReportRow,
-    build_profile_report_target, report_parent_dir, sorted_median, write_build_profile_report_csv,
-    write_lane_utilisation_report_csv,
+    BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilisationReportRow, report_path_value,
+    sorted_median, write_build_profile_report_csv, write_lane_utilisation_report_csv,
 };
 use chutoro_benches::source::{SyntheticConfig, SyntheticError, SyntheticSource};
 use chutoro_core::{CpuHnsw, DataSourceError, HnswError, HnswParams};
@@ -122,9 +121,8 @@ pub(super) fn all_buckets() -> impl Iterator<Item = CandidateBucket> {
         )
 }
 
-fn open_report_dir() -> BenchResult<Dir> {
-    let parent_dir = report_parent_dir();
-    let target_dir = Dir::open_ambient_dir(&parent_dir, ambient_authority())?;
+fn open_report_dir(report_parent_dir: &Utf8Path) -> BenchResult<Dir> {
+    let target_dir = Dir::open_ambient_dir(report_parent_dir, ambient_authority())?;
     target_dir.create_dir_all(REPORT_DIR_NAME)?;
     Ok(target_dir.open_dir(REPORT_DIR_NAME)?)
 }
@@ -179,9 +177,11 @@ pub(super) fn make_fixture(
     })
 }
 
-pub(super) fn write_lane_utilisation_report() -> BenchResult<Utf8PathBuf> {
-    let report_dir = open_report_dir()?;
-    let path = chutoro_benches::neighbour_scoring::report_path(LANE_REPORT);
+pub(super) fn write_lane_utilisation_report(
+    report_parent_dir: &Utf8Path,
+) -> BenchResult<Utf8PathBuf> {
+    let report_dir = open_report_dir(report_parent_dir)?;
+    let path = report_path_value(report_parent_dir, LANE_REPORT);
     let mut file = report_dir.create(LANE_REPORT)?;
     write_lane_utilisation_report_csv(
         &mut file,
@@ -209,15 +209,25 @@ fn profile_source(
     Ok(ProfilingSource::new(source))
 }
 
-pub(super) fn write_build_profile_report() -> BenchResult<Option<Utf8PathBuf>> {
-    write_build_profile_report_for_point_counts(&[10_000_usize, 100_000_usize], 128)
+pub(super) fn write_build_profile_report(
+    report_parent_dir: &Utf8Path,
+    report_target: Option<Utf8PathBuf>,
+) -> BenchResult<Option<Utf8PathBuf>> {
+    write_build_profile_report_for_point_counts(
+        report_parent_dir,
+        report_target,
+        &[10_000_usize, 100_000_usize],
+        128,
+    )
 }
 
 pub(super) fn write_build_profile_report_for_point_counts(
+    report_parent_dir: &Utf8Path,
+    report_target: Option<Utf8PathBuf>,
     point_counts: &[usize],
     dimension: usize,
 ) -> BenchResult<Option<Utf8PathBuf>> {
-    let Some(path) = build_profile_report_target() else {
+    let Some(path) = report_target else {
         return Ok(None);
     };
     let mut report_rows = Vec::new();
@@ -248,7 +258,7 @@ pub(super) fn write_build_profile_report_for_point_counts(
             median_batch,
         });
     }
-    let report_dir = open_report_dir()?;
+    let report_dir = open_report_dir(report_parent_dir)?;
     let mut file = report_dir.create(BUILD_PROFILE_REPORT)?;
     write_build_profile_report_csv(&mut file, report_rows)?;
     Ok(Some(path))

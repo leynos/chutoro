@@ -237,9 +237,10 @@ pub mod env {
     /// Guard that serializes process environment mutation and restores the
     /// previous value when dropped.
     ///
-    /// The guard is intentionally non-reentrant: it holds `ENV_LOCK` for its
-    /// entire lifetime, so trying to create another `EnvVarGuard` while one is
-    /// alive on the same thread will deadlock.
+    /// The guard is intentionally non-reentrant: it holds the `env_lock()`
+    /// mutex for its entire lifetime, so trying to create another
+    /// `EnvVarGuard` while one is alive on the same thread will deadlock or
+    /// hang rather than being supported.
     ///
     /// # Examples
     ///
@@ -263,8 +264,9 @@ pub mod env {
         /// requested mutation under that lock.
         ///
         /// This helper inherits the same non-reentrancy as `EnvVarGuard`:
-        /// nested environment mutations on the same thread will block because
-        /// the mutex remains held until the returned guard is dropped.
+        /// nested environment mutations on the same thread will deadlock or
+        /// hang because `env_lock()` remains held until the returned guard is
+        /// dropped.
         fn with_env_mutation(key: &'static str, mutate: impl FnOnce()) -> Self {
             let lock = env_lock();
             let guard = Self {
@@ -278,9 +280,9 @@ pub mod env {
 
         /// Sets an environment variable for the lifetime of the guard.
         ///
-        /// The mutation is serialised with all other `EnvVarGuard` operations
+        /// The mutation is serialized with all other `EnvVarGuard` operations
         /// and must not be nested with another environment guard on the same
-        /// thread.
+        /// thread; a nested acquisition will deadlock or hang.
         ///
         /// # Examples
         ///
@@ -302,9 +304,9 @@ pub mod env {
 
         /// Removes an environment variable for the lifetime of the guard.
         ///
-        /// The mutation is serialised with all other `EnvVarGuard` operations
+        /// The mutation is serialized with all other `EnvVarGuard` operations
         /// and must not be nested with another environment guard on the same
-        /// thread.
+        /// thread; a nested acquisition will deadlock or hang.
         ///
         /// # Examples
         ///
@@ -361,13 +363,13 @@ pub mod env {
 
         #[test]
         fn env_var_guard_restores_previous_value() {
-            let _initial = EnvVarGuard::set(RESTORE_KEY, "before");
+            let previous = std::env::var_os(RESTORE_KEY);
             {
                 let _guard = EnvVarGuard::set(RESTORE_KEY, "during");
                 assert_eq!(std::env::var(RESTORE_KEY).as_deref(), Ok("during"));
             }
 
-            assert_eq!(std::env::var(RESTORE_KEY).as_deref(), Ok("before"));
+            assert_eq!(std::env::var_os(RESTORE_KEY), previous);
         }
 
         #[test]

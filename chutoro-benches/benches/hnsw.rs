@@ -34,6 +34,8 @@ const MAX_CONNECTIONS: &[usize] = &[8, 12, 16, 24];
 /// Dataset size used for diverse synthetic pattern benchmarks.
 const DIVERSE_POINT_COUNT: usize = 1_000;
 
+/// Dataset size used when nextest probes one Criterion case with `--exact`.
+const DIVERSE_EXACT_PROBE_POINT_COUNT: usize = 100;
 /// Sampling cadence for peak resident-set-size profiling.
 const MEMORY_SAMPLE_INTERVAL: Duration = Duration::from_millis(2);
 
@@ -54,7 +56,7 @@ fn make_hnsw_params(m: usize) -> Result<HnswParams, BenchSetupError> {
 fn make_gaussian_source() -> Result<SyntheticSource, BenchSetupError> {
     Ok(SyntheticSource::generate_gaussian_blobs(
         &GaussianBlobConfig {
-            point_count: DIVERSE_POINT_COUNT,
+            point_count: diverse_source_point_count(),
             dimensions: BENCH_DIMENSIONS,
             cluster_count: 8,
             separation: 6.0,
@@ -66,7 +68,7 @@ fn make_gaussian_source() -> Result<SyntheticSource, BenchSetupError> {
 
 fn make_ring_source() -> Result<SyntheticSource, BenchSetupError> {
     Ok(SyntheticSource::generate_manifold(&ManifoldConfig {
-        point_count: DIVERSE_POINT_COUNT,
+        point_count: diverse_source_point_count(),
         dimensions: BENCH_DIMENSIONS,
         pattern: ManifoldPattern::Ring,
         major_radius: 7.5,
@@ -79,7 +81,7 @@ fn make_ring_source() -> Result<SyntheticSource, BenchSetupError> {
 
 fn make_text_source() -> Result<chutoro_benches::source::SyntheticTextSource, BenchSetupError> {
     Ok(SyntheticSource::generate_text(&SyntheticTextConfig {
-        item_count: DIVERSE_POINT_COUNT,
+        item_count: diverse_source_point_count(),
         min_length: 6,
         max_length: 14,
         seed: BENCH_SEED,
@@ -103,6 +105,16 @@ fn is_exact_benchmark_probe() -> bool {
     is_cli_flag_present("--exact")
 }
 
+fn diverse_source_point_count() -> usize {
+    // Nextest discovers Criterion case names without `--exact`, so the
+    // benchmark IDs still advertise the real matrix size. Only the exact probe
+    // input is shortened to keep test gating bounded.
+    if is_exact_benchmark_probe() {
+        DIVERSE_EXACT_PROBE_POINT_COUNT
+    } else {
+        DIVERSE_POINT_COUNT
+    }
+}
 fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.sample_size(10);
     if is_exact_benchmark_probe() {

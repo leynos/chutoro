@@ -1,8 +1,9 @@
 //! Integration coverage for neighbour-scoring build-profile support seams.
 
+use camino::Utf8Path;
 use chutoro_benches::neighbour_scoring::{
-    BUILD_PROFILE_ENV, BUILD_PROFILE_REPORT, build_profile_report_target, report_path,
-    should_collect_build_profile, should_collect_build_profile_value,
+    BUILD_PROFILE_ENV, build_profile_report_target, build_profile_report_target_value,
+    report_parent_dir_value, should_collect_build_profile, should_collect_build_profile_value,
 };
 use chutoro_test_support::env::EnvVarGuard;
 use rstest::rstest;
@@ -41,8 +42,24 @@ fn build_profile_report_target_tracks_env(#[case] value: Option<&str>, #[case] e
 #[test]
 fn build_profile_report_target_uses_expected_filename() {
     let _profile_env = EnvVarGuard::set(BUILD_PROFILE_ENV, "yes");
-    let expected_path = report_path(BUILD_PROFILE_REPORT);
+    let expected_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../target/benchmarks/neighbour_scoring_build_profile.csv",
+    );
     let actual_path = build_profile_report_target();
 
-    assert_eq!(actual_path, Some(expected_path));
+    assert_eq!(actual_path.as_deref(), Some(Utf8Path::new(expected_path)));
+}
+
+#[test]
+fn build_profile_report_target_honours_cargo_target_dir() {
+    let report_parent_dir = report_parent_dir_value(Some("/tmp/chutoro-target-dir"));
+    let actual_path = build_profile_report_target_value(Some("yes"), &report_parent_dir);
+
+    assert_eq!(
+        actual_path.as_deref(),
+        Some(Utf8Path::new(
+            "/tmp/chutoro-target-dir/benchmarks/neighbour_scoring_build_profile.csv",
+        )),
+    );
 }

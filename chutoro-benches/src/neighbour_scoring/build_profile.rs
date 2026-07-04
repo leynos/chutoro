@@ -1,6 +1,6 @@
 //! Build-profile report path and environment helpers.
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 
 /// Environment variable that enables HNSW build-profile report generation.
 pub const BUILD_PROFILE_ENV: &str = "CHUTORO_BENCH_NEIGHBOUR_PROFILE";
@@ -52,16 +52,52 @@ pub fn should_collect_build_profile() -> bool {
 /// # Examples
 ///
 /// ```
+/// use chutoro_benches::neighbour_scoring::report_parent_dir_value;
+///
+/// assert_eq!(report_parent_dir_value(Some("target")).as_str(), "target");
+/// ```
+#[must_use]
+pub fn report_parent_dir_value(cargo_target_dir: Option<&str>) -> Utf8PathBuf {
+    cargo_target_dir.map_or_else(
+        || Utf8PathBuf::from(DEFAULT_REPORT_PARENT_DIR),
+        Utf8PathBuf::from,
+    )
+}
+
+/// Reads the process environment and returns the parent directory used for
+/// benchmark reports.
+///
+/// # Examples
+///
+/// ```
 /// use chutoro_benches::neighbour_scoring::report_parent_dir;
 ///
 /// assert!(!report_parent_dir().as_str().is_empty());
 /// ```
 #[must_use]
 pub fn report_parent_dir() -> Utf8PathBuf {
-    std::env::var(CARGO_TARGET_DIR_ENV).map_or_else(
-        |_| Utf8PathBuf::from(DEFAULT_REPORT_PARENT_DIR),
-        Utf8PathBuf::from,
-    )
+    report_parent_dir_value(std::env::var(CARGO_TARGET_DIR_ENV).ok().as_deref())
+}
+
+/// Returns the full path for a benchmark report filename below the supplied
+/// report parent directory.
+///
+/// # Examples
+///
+/// ```
+/// use camino::Utf8Path;
+/// use chutoro_benches::neighbour_scoring::{
+///     BUILD_PROFILE_REPORT, report_path_value,
+/// };
+///
+/// assert_eq!(
+///     report_path_value(Utf8Path::new("target"), BUILD_PROFILE_REPORT).file_name(),
+///     Some(BUILD_PROFILE_REPORT)
+/// );
+/// ```
+#[must_use]
+pub fn report_path_value(report_parent_dir: &Utf8Path, filename: &str) -> Utf8PathBuf {
+    report_parent_dir.join(REPORT_DIR_NAME).join(filename)
 }
 
 /// Returns the full path for a benchmark report filename.
@@ -78,7 +114,7 @@ pub fn report_parent_dir() -> Utf8PathBuf {
 /// ```
 #[must_use]
 pub fn report_path(filename: &str) -> Utf8PathBuf {
-    report_parent_dir().join(REPORT_DIR_NAME).join(filename)
+    report_path_value(&report_parent_dir(), filename)
 }
 
 /// Returns the build-profile report target when collection is enabled.
@@ -86,14 +122,20 @@ pub fn report_path(filename: &str) -> Utf8PathBuf {
 /// # Examples
 ///
 /// ```
+/// use camino::Utf8Path;
 /// use chutoro_benches::neighbour_scoring::build_profile_report_target_value;
 ///
-/// assert!(build_profile_report_target_value(Some("true")).is_some());
-/// assert!(build_profile_report_target_value(Some("false")).is_none());
+/// let report_parent_dir = Utf8Path::new("target");
+/// assert!(build_profile_report_target_value(Some("true"), report_parent_dir).is_some());
+/// assert!(build_profile_report_target_value(Some("false"), report_parent_dir).is_none());
 /// ```
 #[must_use]
-pub fn build_profile_report_target_value(value: Option<&str>) -> Option<Utf8PathBuf> {
-    should_collect_build_profile_value(value).then(|| report_path(BUILD_PROFILE_REPORT))
+pub fn build_profile_report_target_value(
+    value: Option<&str>,
+    report_parent_dir: &Utf8Path,
+) -> Option<Utf8PathBuf> {
+    should_collect_build_profile_value(value)
+        .then(|| report_path_value(report_parent_dir, BUILD_PROFILE_REPORT))
 }
 
 /// Reads the process environment and returns the build-profile report target
@@ -108,5 +150,9 @@ pub fn build_profile_report_target_value(value: Option<&str>) -> Option<Utf8Path
 /// ```
 #[must_use]
 pub fn build_profile_report_target() -> Option<Utf8PathBuf> {
-    build_profile_report_target_value(std::env::var(BUILD_PROFILE_ENV).ok().as_deref())
+    let report_parent_dir = report_parent_dir();
+    build_profile_report_target_value(
+        std::env::var(BUILD_PROFILE_ENV).ok().as_deref(),
+        &report_parent_dir,
+    )
 }

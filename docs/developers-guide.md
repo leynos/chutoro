@@ -373,7 +373,7 @@ CSV at `target/benchmarks/neighbour_scoring_build_profile.csv`. The
 lane-utilisation CSV is written to
 `target/benchmarks/neighbour_scoring_lane_utilisation.csv`. Treat `hyperfine`
 as corroboration; cycle-count and Criterion evidence remain the primary signal
-for keeping a structural optimisation.
+for keeping a structural optimization.
 
 ### Benchmark architecture
 
