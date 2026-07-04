@@ -4,6 +4,8 @@ use rstest::rstest;
 
 const NEXTEST_CONFIG: &str = include_str!("../../.config/nextest.toml");
 const PROPERTY_TESTS_WORKFLOW: &str = include_str!("../../.github/workflows/property-tests.yml");
+const BENCHMARK_REGRESSIONS_WORKFLOW: &str =
+    include_str!("../../.github/workflows/benchmark-regressions.yml");
 const MAKEFILE: &str = include_str!("../../Makefile");
 const BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }";
@@ -49,6 +51,15 @@ fn workflow_job_block(job: &str) -> Result<&'static str, String> {
         &format!("  {job}:"),
         "\n\n  ",
         &format!("workflow job '{job}'"),
+    )
+}
+
+fn benchmark_workflow_job_block(job: &str) -> Result<&'static str, String> {
+    extract_block(
+        BENCHMARK_REGRESSIONS_WORKFLOW,
+        &format!("  {job}:"),
+        "\n\n  ",
+        &format!("benchmark workflow job '{job}'"),
     )
 }
 
@@ -114,6 +125,21 @@ fn makefile_exposes_typecheck_gate() {
     assert!(typecheck_block.contains("cargo") || typecheck_block.contains("$(CARGO)"));
     assert!(typecheck_block.contains("check --workspace --all-targets --all-features"));
     assert!(typecheck_block.contains("$(BUILD_JOBS)"));
+}
+
+#[test]
+fn benchmark_smoke_job_covers_hnsw_exact_probe() {
+    let smoke_job =
+        benchmark_workflow_job_block("benchmark-smoke").expect("benchmark-smoke job must exist");
+
+    assert!(
+        smoke_job
+            .contains("cargo bench -p chutoro-benches --bench \"${{ matrix.bench }}\" -- --list")
+    );
+    assert!(smoke_job.contains("if: ${{ matrix.bench == 'hnsw' }}"));
+    assert!(smoke_job.contains(
+        "cargo bench -p chutoro-benches --bench hnsw -- hnsw_build/n=5000,M=12,ef=24 --exact"
+    ));
 }
 
 #[rstest]
