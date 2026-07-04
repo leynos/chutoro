@@ -19,6 +19,7 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use chutoro_benches::{
+    criterion_support::{is_cli_flag_present, register_noop_benches},
     error::BenchSetupError,
     params::PipelineBenchParams,
     source::{SyntheticConfig, SyntheticSource},
@@ -81,18 +82,15 @@ fn mst_parallel_kruskal_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
 }
 
 fn is_list_mode() -> bool {
-    std::env::args().any(|arg| arg == "--list")
+    is_cli_flag_present("--list")
 }
 
 fn register_mst_discovery_benches(c: &mut Criterion) {
-    let mut group = c.benchmark_group("parallel_kruskal");
-    for &point_count in POINT_COUNTS {
-        let bench_params = PipelineBenchParams { point_count };
-        group.bench_function(BenchmarkId::from_parameter(&bench_params), |b| {
-            b.iter(|| ());
-        });
-    }
-    group.finish();
+    let params = POINT_COUNTS
+        .iter()
+        .copied()
+        .map(|point_count| PipelineBenchParams { point_count });
+    register_noop_benches(c, "parallel_kruskal", params, |_| {});
 }
 
 fn mst_parallel_kruskal(c: &mut Criterion) {

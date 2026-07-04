@@ -10,6 +10,7 @@ use criterion::{
 };
 
 use chutoro_benches::{
+    criterion_support::{is_cli_flag_present, register_noop_benches},
     ef_sweep::{BENCH_DIMENSIONS, BENCH_SEED, make_bench_source, make_hnsw_params_with_ef},
     error::BenchSetupError,
     params::HnswBenchParams,
@@ -99,7 +100,7 @@ fn panic_on_bench_build_error<B>(result: Result<B, HnswError>, context: &str) {
 }
 
 fn is_exact_benchmark_probe() -> bool {
-    std::env::args().any(|arg| arg == "--exact")
+    is_cli_flag_present("--exact")
 }
 
 fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
@@ -201,23 +202,17 @@ where
 }
 
 fn register_hnsw_build_probe_benches(c: &mut Criterion, group_name: &str) {
-    let mut group = c.benchmark_group(group_name);
-    configure_hnsw_group(&mut group);
-
-    for &point_count in POINT_COUNTS {
-        for &m in MAX_CONNECTIONS {
-            let bench_params = HnswBenchParams {
+    let params = POINT_COUNTS.iter().copied().flat_map(|point_count| {
+        MAX_CONNECTIONS
+            .iter()
+            .copied()
+            .map(move |m| HnswBenchParams {
                 point_count,
                 max_connections: m,
                 ef_construction: m.saturating_mul(2),
-            };
-            group.bench_function(BenchmarkId::from_parameter(&bench_params), |b| {
-                b.iter(|| ());
-            });
-        }
-    }
-
-    group.finish();
+            })
+    });
+    register_noop_benches(c, group_name, params, configure_hnsw_group);
 }
 
 fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
@@ -242,7 +237,7 @@ fn should_collect_memory_profile() -> bool {
             return true;
         }
     }
-    !std::env::args().any(|arg| arg == "--list" || arg == "--exact")
+    !is_cli_flag_present("--list") && !is_exact_benchmark_probe()
 }
 
 fn memory_report_path() -> PathBuf {
