@@ -158,6 +158,11 @@ fn bench_hnsw_build_generic<F>(
 where
     F: FnMut(&SyntheticSource, HnswParams) -> Result<(), HnswError>,
 {
+    if is_exact_benchmark_probe() {
+        register_hnsw_build_probe_benches(c, group_name);
+        return Ok(());
+    }
+
     let mut group = c.benchmark_group(group_name);
     configure_hnsw_group(&mut group);
 
@@ -193,6 +198,26 @@ where
 
     group.finish();
     Ok(())
+}
+
+fn register_hnsw_build_probe_benches(c: &mut Criterion, group_name: &str) {
+    let mut group = c.benchmark_group(group_name);
+    configure_hnsw_group(&mut group);
+
+    for &point_count in POINT_COUNTS {
+        for &m in MAX_CONNECTIONS {
+            let bench_params = HnswBenchParams {
+                point_count,
+                max_connections: m,
+                ef_construction: m.saturating_mul(2),
+            };
+            group.bench_function(BenchmarkId::from_parameter(&bench_params), |b| {
+                b.iter(|| ());
+            });
+        }
+    }
+
+    group.finish();
 }
 
 fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {

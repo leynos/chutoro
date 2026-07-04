@@ -42,6 +42,11 @@ const M: usize = 16;
     reason = "Criterion measurement closures cannot propagate errors via Result"
 )]
 fn mst_parallel_kruskal_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
+    if is_list_mode() {
+        register_mst_discovery_benches(c);
+        return Ok(());
+    }
+
     let mut group = c.benchmark_group("parallel_kruskal");
     group.sample_size(20);
 
@@ -73,6 +78,21 @@ fn mst_parallel_kruskal_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
 
     group.finish();
     Ok(())
+}
+
+fn is_list_mode() -> bool {
+    std::env::args().any(|arg| arg == "--list")
+}
+
+fn register_mst_discovery_benches(c: &mut Criterion) {
+    let mut group = c.benchmark_group("parallel_kruskal");
+    for &point_count in POINT_COUNTS {
+        let bench_params = PipelineBenchParams { point_count };
+        group.bench_function(BenchmarkId::from_parameter(&bench_params), |b| {
+            b.iter(|| ());
+        });
+    }
+    group.finish();
 }
 
 fn mst_parallel_kruskal(c: &mut Criterion) {
