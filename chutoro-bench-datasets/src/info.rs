@@ -46,6 +46,19 @@ impl DatasetInfo {
     }
 
     /// Set the dataset homepage.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{DatasetInfo, RecipeId, RecipeVersion, SourceUrl};
+    ///
+    /// let homepage = SourceUrl::parse("https://example.test/datasets/mnist")?;
+    /// let info = DatasetInfo::new(RecipeId::new("mnist"), RecipeVersion::new(1, 0, 0))
+    ///     .with_homepage(homepage.clone());
+    ///
+    /// assert_eq!(info.homepage, Some(homepage));
+    /// # Ok::<(), chutoro_bench_datasets::RecipeError>(())
+    /// ```
     #[must_use]
     pub fn with_homepage(mut self, homepage: SourceUrl) -> Self {
         self.homepage = Some(homepage);
@@ -53,6 +66,17 @@ impl DatasetInfo {
     }
 
     /// Set the citation text.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{DatasetInfo, RecipeId, RecipeVersion};
+    ///
+    /// let info = DatasetInfo::new(RecipeId::new("mnist"), RecipeVersion::new(1, 0, 0))
+    ///     .with_citation("LeCun et al., 1998");
+    ///
+    /// assert_eq!(info.citation.as_deref(), Some("LeCun et al., 1998"));
+    /// ```
     #[must_use]
     pub fn with_citation(mut self, citation: impl Into<Arc<str>>) -> Self {
         self.citation = Some(citation.into());
@@ -60,6 +84,17 @@ impl DatasetInfo {
     }
 
     /// Set the SPDX licence identifier.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{DatasetInfo, RecipeId, RecipeVersion};
+    ///
+    /// let info = DatasetInfo::new(RecipeId::new("mnist"), RecipeVersion::new(1, 0, 0))
+    ///     .with_licence_spdx("CC-BY-4.0");
+    ///
+    /// assert_eq!(info.licence_spdx.as_deref(), Some("CC-BY-4.0"));
+    /// ```
     #[must_use]
     pub fn with_licence_spdx(mut self, licence_spdx: impl Into<Arc<str>>) -> Self {
         self.licence_spdx = Some(licence_spdx.into());
@@ -67,6 +102,17 @@ impl DatasetInfo {
     }
 
     /// Set the short summary.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{DatasetInfo, RecipeId, RecipeVersion};
+    ///
+    /// let info = DatasetInfo::new(RecipeId::new("mnist"), RecipeVersion::new(1, 0, 0))
+    ///     .with_summary("Hand-written digit images");
+    ///
+    /// assert_eq!(info.summary.as_ref(), "Hand-written digit images");
+    /// ```
     #[must_use]
     pub fn with_summary(mut self, summary: impl Into<Arc<str>>) -> Self {
         self.summary = summary.into();

@@ -7,29 +7,67 @@ use chutoro_bench_datasets::{
     run_recipe,
     testing::{InMemoryFetcher, InMemoryPublisher, InMemoryStorage, StubRecipe},
 };
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use tracing_test::traced_test;
 
-fn source_url() -> SourceUrl {
+#[fixture]
+fn source() -> SourceUrl {
     SourceUrl::parse("https://example.test/data.bin")
         .unwrap_or_else(|error| panic!("test source URL should parse: {error}"))
 }
 
-#[traced_test]
-#[test]
-fn run_recipe_publishes_prepared_bytes() {
-    let source = source_url();
-    let fetcher = InMemoryFetcher::new([(source.clone(), Bytes::from_static(b"abc"))]);
-    let storage = InMemoryStorage::default();
-    let publish_sink = InMemoryPublisher::default();
-    let ctx = RecipeContext::new(&fetcher, &storage, &publish_sink);
-    let recipe = StubRecipe::new("stub", vec![source]);
+#[fixture]
+fn fetcher(source: SourceUrl) -> InMemoryFetcher {
+    InMemoryFetcher::new([(source, Bytes::from_static(b"abc"))])
+}
 
-    let artefact = run_recipe(&recipe, &ctx).expect("stub recipe should run");
+#[fixture]
+fn storage() -> InMemoryStorage {
+    InMemoryStorage::default()
+}
+
+#[fixture]
+fn publisher() -> InMemoryPublisher {
+    InMemoryPublisher::default()
+}
+
+struct RecipeSetup {
+    fetcher: InMemoryFetcher,
+    storage: InMemoryStorage,
+    publisher: InMemoryPublisher,
+}
+
+impl RecipeSetup {
+    fn context(&self) -> RecipeContext<'_> {
+        RecipeContext::new(&self.fetcher, &self.storage, &self.publisher)
+    }
+}
+
+#[fixture]
+fn ctx(
+    fetcher: InMemoryFetcher,
+    storage: InMemoryStorage,
+    publisher: InMemoryPublisher,
+) -> RecipeSetup {
+    RecipeSetup {
+        fetcher,
+        storage,
+        publisher,
+    }
+}
+
+#[traced_test]
+#[rstest]
+fn run_recipe_publishes_prepared_bytes(source: SourceUrl, ctx: RecipeSetup) {
+    let recipe = StubRecipe::new("stub", vec![source]);
+    let context = ctx.context();
+
+    let artefact = run_recipe(&recipe, &context).expect("stub recipe should run");
 
     assert_eq!(artefact.manifest_uri().as_str(), "manifests/stub.json");
     assert!(logs_contain("executing dataset recipe phase"));
-    let records = publish_sink
+    let records = ctx
+        .publisher
         .records()
         .expect("published records should be readable");
     assert_eq!(
@@ -38,22 +76,18 @@ fn run_recipe_publishes_prepared_bytes() {
     );
 }
 
-#[test]
-fn fetch_size_limit_is_propagated() {
-    let source = source_url();
-    let fetcher = InMemoryFetcher::new([(source.clone(), Bytes::from_static(b"abcd"))]);
-    let storage = InMemoryStorage::default();
-    let publisher = InMemoryPublisher::default();
-    let ctx = RecipeContext::new(&fetcher, &storage, &publisher);
-    let recipe = StubRecipe::new("stub", vec![source]).with_max_bytes(3);
+#[rstest]
+fn fetch_size_limit_is_propagated(source: SourceUrl, ctx: RecipeSetup) {
+    let recipe = StubRecipe::new("stub", vec![source]).with_max_bytes(2);
+    let context = ctx.context();
 
-    let Err(error) = run_recipe(&recipe, &ctx) else {
+    let Err(error) = run_recipe(&recipe, &context) else {
         panic!("oversized source should fail");
     };
 
     assert!(matches!(
         error,
-        RecipeError::FetchSizeExceeded { limit_bytes: 3, .. }
+        RecipeError::FetchSizeExceeded { limit_bytes: 2, .. }
     ));
 }
 
@@ -63,17 +97,15 @@ fn fetch_size_limit_is_propagated() {
 #[case::prepare(FailingPhase::Prepare, Some(chutoro_bench_datasets::Phase::Validate))]
 #[case::publish(FailingPhase::Publish, Some(chutoro_bench_datasets::Phase::Prepare))]
 fn failure_invokes_cleanup_with_partial_state(
+    source: SourceUrl,
+    ctx: RecipeSetup,
     #[case] failing_phase: FailingPhase,
     #[case] expected_completed_phase: Option<chutoro_bench_datasets::Phase>,
 ) {
-    let source = source_url();
-    let fetcher = InMemoryFetcher::new([(source.clone(), Bytes::from_static(b"abc"))]);
-    let storage = InMemoryStorage::default();
-    let publisher = InMemoryPublisher::default();
-    let ctx = RecipeContext::new(&fetcher, &storage, &publisher);
     let recipe = FailingRecipe::new(source, failing_phase);
+    let context = ctx.context();
 
-    let Err(error) = run_recipe(&recipe, &ctx) else {
+    let Err(error) = run_recipe(&recipe, &context) else {
         panic!("configured phase should fail");
     };
 
@@ -81,6 +113,33 @@ fn failure_invokes_cleanup_with_partial_state(
     assert_eq!(
         recipe.cleanup_state(),
         Some(PartialState::new(expected_completed_phase)),
+    );
+}
+
+#[rstest]
+fn cleanup_failure_reports_failed_phase_and_cleanup_source(source: SourceUrl, ctx: RecipeSetup) {
+    let recipe =
+        FailingRecipe::new(source, FailingPhase::Validate).with_cleanup_error("cleanup failed");
+    let context = ctx.context();
+
+    let Err(error) = run_recipe(&recipe, &context) else {
+        panic!("cleanup failure should replace the original phase error");
+    };
+
+    let RecipeError::Cleanup {
+        phase,
+        source: cleanup_source,
+    } = error
+    else {
+        panic!("cleanup failure should return RecipeError::Cleanup");
+    };
+    assert_eq!(phase, chutoro_bench_datasets::Phase::Validate);
+    assert!(cleanup_source.to_string().contains("cleanup failed"));
+    assert_eq!(
+        recipe.cleanup_state(),
+        Some(PartialState::new(Some(
+            chutoro_bench_datasets::Phase::Fetch
+        ))),
     );
 }
 
@@ -117,6 +176,7 @@ struct FailingRecipe {
     source: SourceUrl,
     sources: Vec<SourceSpec>,
     failing_phase: FailingPhase,
+    cleanup_error: Option<&'static str>,
     cleanup_state: std::sync::Mutex<Option<PartialState>>,
 }
 
@@ -126,8 +186,14 @@ impl FailingRecipe {
             sources: vec![SourceSpec::primary(source.clone())],
             source,
             failing_phase,
+            cleanup_error: None,
             cleanup_state: std::sync::Mutex::new(None),
         }
+    }
+
+    const fn with_cleanup_error(mut self, cleanup_error: &'static str) -> Self {
+        self.cleanup_error = Some(cleanup_error);
+        self
     }
 
     fn cleanup_state(&self) -> Option<PartialState> {
@@ -222,6 +288,14 @@ impl DatasetRecipe for FailingRecipe {
                 RecipeError::port(chutoro_bench_datasets::PortName::Storage, "lock poisoned"),
             )
         })? = Some(partial);
-        Ok(())
+        self.cleanup_error.map_or_else(
+            || Ok(()),
+            |cleanup_error| {
+                Err(RecipeError::port(
+                    chutoro_bench_datasets::PortName::Storage,
+                    cleanup_error,
+                ))
+            },
+        )
     }
 }

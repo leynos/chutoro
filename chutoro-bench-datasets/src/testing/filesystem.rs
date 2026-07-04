@@ -52,8 +52,13 @@ impl Fetcher for FilesystemFetcher {
         let capacity = usize::try_from(file_len)
             .map_err(|error| RecipeError::port(PortName::Fetcher, error.to_string()))?;
         let mut buffer = Vec::with_capacity(capacity);
-        file.read_to_end(&mut buffer)
+        file.by_ref()
+            .take(limit.saturating_add(1))
+            .read_to_end(&mut buffer)
             .map_err(|error| RecipeError::port(PortName::Fetcher, error.to_string()))?;
+        if buffer.len() > max_bytes {
+            return Err(RecipeError::fetch_size_exceeded(url.clone(), max_bytes));
+        }
         Ok(Bytes::from(buffer))
     }
 }

@@ -24,13 +24,14 @@ impl StubRecipe {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust,no_run
     /// use chutoro_bench_datasets::{SourceUrl, testing::StubRecipe};
     ///
     /// # fn main() -> Result<(), chutoro_bench_datasets::RecipeError> {
     /// let source = SourceUrl::parse("file://example-dataset.bin")?;
     /// let recipe = StubRecipe::new("example-dataset", vec![source]);
-    /// # let _ = recipe;
+    ///
+    /// assert_eq!(recipe.object_key().as_ref(), "prepared/example-dataset.bin");
     /// # Ok(())
     /// # }
     /// ```
@@ -45,6 +46,18 @@ impl StubRecipe {
     }
 
     /// Set the per-source fetch byte cap.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{SourceUrl, testing::StubRecipe};
+    ///
+    /// let source = SourceUrl::parse("file://example-dataset.bin")?;
+    /// let recipe = StubRecipe::new("example-dataset", vec![source]).with_max_bytes(128);
+    ///
+    /// assert_eq!(recipe.object_key().as_ref(), "prepared/example-dataset.bin");
+    /// # Ok::<(), chutoro_bench_datasets::RecipeError>(())
+    /// ```
     #[must_use]
     pub const fn with_max_bytes(mut self, max_bytes: usize) -> Self {
         self.max_bytes = max_bytes;
@@ -52,6 +65,18 @@ impl StubRecipe {
     }
 
     /// Return the object key the stub recipe publishes to.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{SourceUrl, testing::StubRecipe};
+    ///
+    /// let source = SourceUrl::parse("file://example-dataset.bin")?;
+    /// let recipe = StubRecipe::new("example-dataset", vec![source]);
+    ///
+    /// assert_eq!(recipe.object_key().as_ref(), "prepared/example-dataset.bin");
+    /// # Ok::<(), chutoro_bench_datasets::RecipeError>(())
+    /// ```
     #[must_use]
     pub fn object_key(&self) -> ObjectKey {
         ObjectKey::new(format!("prepared/{}.bin", self.id.as_ref()))

@@ -62,10 +62,11 @@ are the next six roadmap items.
   milestone. The MNIST migration onto `DatasetRecipe` is roadmap item `10.3.2`
   and lands after `10.1.3` defines the canonical manifest schema.
 - Do not add any production crate to `chutoro-bench-datasets` beyond
-  `thiserror`, `tracing`, `camino`, and `bytes`. Reject the temptation to bring
-  in `object_store`, `reqwest`, `ureq`, `serde`, `sha2`, or `tokio` in this
-  milestone. The test-only dependencies are `rstest`, `rstest-bdd`, `proptest`,
-  `mockall`, and `tempfile`.
+  `thiserror`, `tracing`, `camino`, `bytes`, and the optional `cap-std`
+  testing dependency. Reject the temptation to bring in `object_store`,
+  `reqwest`, `ureq`, `serde`, `sha2`, or `tokio` in this milestone. The
+  test-only dependencies are `rstest`, `rstest-bdd`, `proptest`, `mockall`,
+  `tempfile`, and `tracing-test`.
 - Inherit `[workspace.lints]` for the new crate. Do not mirror
   `chutoro-benches`' crate-local lint deviations; those exist solely for
   Criterion macro expansions and are not needed here.
@@ -140,9 +141,9 @@ are the next six roadmap items.
   corrupt the shared cache before the `10.1.5` lockfile lands. Severity:
   medium. Likelihood: medium. Mitigation: document under a Rustdoc
   `# Concurrency` section that concurrent same-`RecipeId` invocations are
-  undefined behaviour until `10.1.5` ships, and require the in-memory `Storage`
-  to be `!Sync` by construction (single-threaded `RefCell` backing) unless
-  explicitly wrapped.
+  undefined behaviour until `10.1.5` ships, and keep the in-memory storage and
+  publisher adapters backed by `Mutex` so they satisfy the public `Send + Sync`
+  port bounds.
 - Risk: partial failure orphans intermediate artefacts. Severity: medium.
   Likelihood: medium. Mitigation: add
   `fn cleanup(&self, ctx, partial: PartialState) -> Result<(), RecipeError>`
@@ -412,12 +413,12 @@ Record every significant decision while working on the plan.
   enters with `10.1.5`. Speculative ports rot. Date/Author: 2026-06-05, plan
   author.
 
-- Decision: Defer the `Extractor`/`Decoder` port. Archive extraction enters
-  with `10.1.2` and may either live inside the future `Fetcher` adapter or
-  inside the recipe's own `prepare` method. Rationale: the trait shape should
-  not yet know about archive formats. The ADR records this decision so future
-  milestones can land the port without appearing to violate `10.1.1`'s design.
-  Date/Author: 2026-06-05, plan author.
+- Decision: Defer archive extraction. `10.1.1` does not introduce a public
+  `Extractor` port; archive-specific work stays inside the recipe's own
+  `prepare` method until `10.1.2` defines the extraction surface. Rationale:
+  the trait shape should not yet know about archive formats. The ADR records
+  this decision so future milestones can add extraction without appearing to
+  violate `10.1.1`'s design. Date/Author: 2026-06-05, plan author.
 
 - Decision: Run the shared rstest-bdd port-contract scenarios against both
   the in-memory and a filesystem-backed fetcher in this milestone. Rationale:
@@ -682,7 +683,7 @@ Create `chutoro-bench-datasets/src/newtypes.rs` with:
   `Groundtruth`); both `SourceSpec` and `SourceRole` carry `#[non_exhaustive]`.
 - `ObjectKey` (newtype wrapping `camino::Utf8PathBuf`).
 - `CacheKey` (newtype wrapping `camino::Utf8PathBuf`).
-- `Checksum` (placeholder enum with one variant `Sha256(blake3::Hash)` *behind
+- `Checksum` (placeholder enum with one variant `Sha256([u8; 32])` *behind
   a `not(any())` cfg* so the placeholder is unreachable until `10.1.2` fills it
   in; the public API exposes a `Checksum::parse(&str)` returning
   `Err(RecipeError::ChecksumUnsupported)`). Document the placeholder.

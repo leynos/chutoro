@@ -131,10 +131,11 @@ impl SourceUrl {
     /// # Errors
     ///
     /// Returns [`RecipeError::InvalidSource`] when the URL does not start with
-    /// `https://`, `s3://`, or `file://`.
+    /// `https://`, `s3://`, or `file://`, or when the URL has no content after
+    /// the scheme separator.
     #[must_use = "handle the parsed source URL or its validation error"]
     pub fn parse(value: &str) -> Result<Self, RecipeError> {
-        if is_supported_source_scheme(value) {
+        if is_supported_source_scheme(value) && has_non_empty_source_remainder(value) {
             Ok(Self(Arc::from(value)))
         } else {
             Err(RecipeError::invalid_source(value))
@@ -156,6 +157,12 @@ impl Display for SourceUrl {
 
 fn is_supported_source_scheme(value: &str) -> bool {
     value.starts_with("https://") || value.starts_with("s3://") || value.starts_with("file://")
+}
+
+fn has_non_empty_source_remainder(value: &str) -> bool {
+    value
+        .split_once("://")
+        .is_some_and(|(_scheme, remainder)| !remainder.is_empty())
 }
 
 /// Role played by a source within a dataset recipe.

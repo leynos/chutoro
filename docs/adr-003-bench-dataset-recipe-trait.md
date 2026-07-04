@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted - 2026-06-16: Synchronous `DatasetRecipe` trait with typed phase
+handoffs and sealed publication contract.
 
 ## Date
 
@@ -57,8 +58,9 @@ A sealed `PublishedArtefact` trait exposes only manifest URI and digest until
 10.1.3 defines the canonical manifest schema. External crates use the concrete
 `PublishedManifest` type until then.
 
-The `Extractor` port is deferred. Archive formats are not modelled in 10.1.1,
-so early recipes express preparation logic inside their own `prepare` method.
+Archive extraction is deferred. 10.1.1 does not introduce a public `Extractor`
+port, so early recipes express archive-specific preparation logic inside their
+own `prepare` method.
 
 Partial failures are handled through a `cleanup` hook that receives
 `PartialState`. Automatic cache deletion is not performed by the driver because
