@@ -26,11 +26,16 @@ fn override_blocks(profile_name: &str) -> Vec<&'static str> {
         .collect()
 }
 
-fn workflow_job_block(job: &str) -> Result<&'static str, String> {
-    let (_, rest) = PROPERTY_TESTS_WORKFLOW
-        .split_once(&format!("  {job}:"))
-        .ok_or_else(|| format!("workflow job '{job}' not found"))?;
-    let block = match rest.split_once("\n\n  ") {
+fn extract_block(
+    haystack: &'static str,
+    header: &str,
+    terminator: &str,
+    label: &str,
+) -> Result<&'static str, String> {
+    let (_, rest) = haystack
+        .split_once(header)
+        .ok_or_else(|| format!("{label} not found"))?;
+    let block = match rest.split_once(terminator) {
         Some((block, _)) => block,
         None => rest,
     };
@@ -38,16 +43,22 @@ fn workflow_job_block(job: &str) -> Result<&'static str, String> {
     Ok(block)
 }
 
-fn make_target_block(target: &str) -> Result<&'static str, String> {
-    let (_, rest) = MAKEFILE
-        .split_once(&format!("\n{target}:"))
-        .ok_or_else(|| format!("Makefile target '{target}' not found"))?;
-    let block = match rest.split_once("\n\n") {
-        Some((block, _)) => block,
-        None => rest,
-    };
+fn workflow_job_block(job: &str) -> Result<&'static str, String> {
+    extract_block(
+        PROPERTY_TESTS_WORKFLOW,
+        &format!("  {job}:"),
+        "\n\n  ",
+        &format!("workflow job '{job}'"),
+    )
+}
 
-    Ok(block)
+fn make_target_block(target: &str) -> Result<&'static str, String> {
+    extract_block(
+        MAKEFILE,
+        &format!("\n{target}:"),
+        "\n\n",
+        &format!("Makefile target '{target}'"),
+    )
 }
 
 #[test]
