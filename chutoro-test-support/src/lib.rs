@@ -237,6 +237,10 @@ pub mod env {
     /// Guard that serializes process environment mutation and restores the
     /// previous value when dropped.
     ///
+    /// The guard is intentionally non-reentrant: it holds `ENV_LOCK` for its
+    /// entire lifetime, so trying to create another `EnvVarGuard` while one is
+    /// alive on the same thread will deadlock.
+    ///
     /// # Examples
     ///
     /// ```
@@ -255,6 +259,12 @@ pub mod env {
     }
 
     impl EnvVarGuard {
+        /// Acquires `ENV_LOCK`, snapshots the current value, and performs the
+        /// requested mutation under that lock.
+        ///
+        /// This helper inherits the same non-reentrancy as `EnvVarGuard`:
+        /// nested environment mutations on the same thread will block because
+        /// the mutex remains held until the returned guard is dropped.
         fn with_env_mutation(key: &'static str, mutate: impl FnOnce()) -> Self {
             let lock = env_lock();
             let guard = Self {
@@ -267,6 +277,10 @@ pub mod env {
         }
 
         /// Sets an environment variable for the lifetime of the guard.
+        ///
+        /// The mutation is serialised with all other `EnvVarGuard` operations
+        /// and must not be nested with another environment guard on the same
+        /// thread.
         ///
         /// # Examples
         ///
@@ -287,6 +301,10 @@ pub mod env {
         }
 
         /// Removes an environment variable for the lifetime of the guard.
+        ///
+        /// The mutation is serialised with all other `EnvVarGuard` operations
+        /// and must not be nested with another environment guard on the same
+        /// thread.
         ///
         /// # Examples
         ///
@@ -328,5 +346,53 @@ pub mod env {
         ENV_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        //! Tests for process environment guard behaviour.
+
+        use super::EnvVarGuard;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        const RESTORE_KEY: &str = "CHUTORO_TEST_SUPPORT_ENV_GUARD_RESTORE";
+        const SERIAL_KEY: &str = "CHUTORO_TEST_SUPPORT_ENV_GUARD_SERIAL";
+
+        #[test]
+        fn env_var_guard_restores_previous_value() {
+            let _initial = EnvVarGuard::set(RESTORE_KEY, "before");
+            {
+                let _guard = EnvVarGuard::set(RESTORE_KEY, "during");
+                assert_eq!(std::env::var(RESTORE_KEY).as_deref(), Ok("during"));
+            }
+
+            assert_eq!(std::env::var(RESTORE_KEY).as_deref(), Ok("before"));
+        }
+
+        #[test]
+        fn env_var_guard_serializes_parallel_mutation() {
+            let guard = EnvVarGuard::set(SERIAL_KEY, "held");
+            let (started_tx, started_rx) = mpsc::channel();
+            let (acquired_tx, acquired_rx) = mpsc::channel();
+
+            let worker = std::thread::spawn(move || {
+                started_tx.send(()).expect("signal guard attempt started");
+                let _guard = EnvVarGuard::set(SERIAL_KEY, "worker");
+                acquired_tx.send(()).expect("signal guard acquired");
+            });
+
+            started_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("worker started guard acquisition");
+            assert!(acquired_rx.recv_timeout(Duration::from_millis(50)).is_err());
+
+            drop(guard);
+
+            acquired_rx
+                .recv_timeout(Duration::from_secs(1))
+                .expect("worker acquired guard after release");
+            worker.join().expect("worker joined");
+        }
     }
 }

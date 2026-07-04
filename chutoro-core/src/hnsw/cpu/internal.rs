@@ -21,10 +21,17 @@ use super::CpuHnsw;
 
 #[cfg(test)]
 thread_local! {
+    // The depth stays thread-local so tests can observe whether the current
+    // thread is inside `write_graph` without leaking nesting state across
+    // worker threads.
     static WRITE_GRAPH_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
 #[cfg(test)]
+// The enable count is process-wide because the test hook is a global switch:
+// once enabled, every thread should emit the marker until the final disable.
+// Collapsing this with the thread-local depth would lose either the global
+// enable/disable semantics or the per-thread nesting visibility.
 static WRITE_GRAPH_MARKER_ENABLE_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 #[cfg(test)]
