@@ -82,7 +82,7 @@ jobs:
           name: benchmark-smoke-${{ matrix.bench }}
           path: |
             /tmp/bench-smoke-${{ matrix.bench }}.log
-            /tmp/bench-smoke-hnsw-exact.log
+            ${{ matrix.bench == 'hnsw' && '/tmp/bench-smoke-hnsw-exact.log' || '' }}
 
   benchmark-baseline-compare:
     needs: benchmark-policy

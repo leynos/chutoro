@@ -147,9 +147,13 @@ fn benchmark_smoke_job_covers_hnsw_exact_probe() {
             .contains("cargo bench -p chutoro-benches --bench \"${{ matrix.bench }}\" -- --list")
     );
     assert!(smoke_job.contains("if: ${{ matrix.bench == 'hnsw' }}"));
-    assert!(smoke_job.contains(
-        "cargo bench -p chutoro-benches --bench hnsw -- hnsw_build/n=100,M=8,ef=16 --exact"
-    ));
+    assert!(smoke_job.contains("cargo bench -p chutoro-benches --bench hnsw --"));
+    assert!(smoke_job.contains("--exact"));
+    assert!(smoke_job.contains("/tmp/bench-smoke-${{ matrix.bench }}.log"));
+    assert!(
+        smoke_job
+            .contains("${{ matrix.bench == 'hnsw' && '/tmp/bench-smoke-hnsw-exact.log' || '' }}")
+    );
 }
 
 #[rstest]

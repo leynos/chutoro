@@ -10,7 +10,7 @@ use criterion::{
 };
 
 use chutoro_benches::{
-    criterion_support::{is_cli_flag_present, register_noop_benches},
+    criterion_support::{is_benchmark_discovery, is_cli_flag_present, register_noop_benches},
     ef_sweep::{BENCH_DIMENSIONS, BENCH_SEED, make_bench_source, make_hnsw_params_with_ef},
     error::BenchSetupError,
     params::HnswBenchParams,
@@ -101,10 +101,6 @@ fn panic_on_bench_build_error<B>(result: Result<B, HnswError>, context: &str) {
 
 fn is_exact_benchmark_probe() -> bool {
     is_cli_flag_present("--exact")
-}
-
-fn is_benchmark_discovery() -> bool {
-    is_cli_flag_present("--list")
 }
 
 fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {

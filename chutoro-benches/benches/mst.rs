@@ -19,7 +19,7 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use chutoro_benches::{
-    criterion_support::{is_cli_flag_present, register_noop_benches},
+    criterion_support::{is_benchmark_discovery, register_noop_benches},
     error::BenchSetupError,
     params::PipelineBenchParams,
     source::{SyntheticConfig, SyntheticSource},
@@ -43,7 +43,7 @@ const M: usize = 16;
     reason = "Criterion measurement closures cannot propagate errors via Result"
 )]
 fn mst_parallel_kruskal_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
-    if is_list_mode() {
+    if is_benchmark_discovery() {
         register_mst_discovery_benches(c);
         return Ok(());
     }
@@ -79,10 +79,6 @@ fn mst_parallel_kruskal_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
 
     group.finish();
     Ok(())
-}
-
-fn is_list_mode() -> bool {
-    is_cli_flag_present("--list")
 }
 
 fn register_mst_discovery_benches(c: &mut Criterion) {
