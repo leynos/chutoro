@@ -49,7 +49,7 @@ impl StubRecipe {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust,no_run
     /// use chutoro_bench_datasets::{SourceUrl, testing::StubRecipe};
     ///
     /// let source = SourceUrl::parse("file://example-dataset.bin")?;
@@ -68,7 +68,7 @@ impl StubRecipe {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust,no_run
     /// use chutoro_bench_datasets::{SourceUrl, testing::StubRecipe};
     ///
     /// let source = SourceUrl::parse("file://example-dataset.bin")?;

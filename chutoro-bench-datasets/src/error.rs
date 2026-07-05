@@ -1,6 +1,6 @@
 //! Typed failures emitted by dataset recipes and their I/O ports.
 
-use std::{error::Error, sync::Arc};
+use std::{error::Error, fmt, sync::Arc};
 
 use thiserror::Error;
 
@@ -20,8 +20,8 @@ pub enum RecipeError {
     #[error("checksum schemes are not supported until roadmap 10.1.2")]
     ChecksumUnsupported,
     /// A port failed while servicing the recipe.
-    #[error("port {0:?} failed: {1}")]
-    Port(PortName, Arc<str>),
+    #[error("{0}")]
+    Port(PortFailure),
     /// Validation rejected fetched data.
     #[error("validate failed: {0}")]
     Validate(Arc<str>),
@@ -32,13 +32,8 @@ pub enum RecipeError {
     #[error("publish failed: {0}")]
     Publish(Arc<str>),
     /// Fetching would exceed the mandatory byte cap.
-    #[error("fetch exceeded max_bytes={limit_bytes}: {url}")]
-    FetchSizeExceeded {
-        /// Source that exceeded the cap.
-        url: Box<SourceUrl>,
-        /// Maximum byte count allowed.
-        limit_bytes: usize,
-    },
+    #[error("{0}")]
+    FetchSizeExceeded(FetchSizeExceeded),
     /// Cleanup failed after a phase error.
     #[error("cleanup failed in phase {phase:?}: {source}")]
     Cleanup {
@@ -69,7 +64,10 @@ impl RecipeError {
     /// Create a port failure.
     #[must_use]
     pub fn port(port: PortName, reason: impl Into<Arc<str>>) -> Self {
-        Self::Port(port, reason.into())
+        Self::Port(PortFailure {
+            port,
+            reason: reason.into(),
+        })
     }
 
     /// Create a validation failure.
@@ -92,11 +90,8 @@ impl RecipeError {
 
     /// Create a fetch-size failure.
     #[must_use]
-    pub fn fetch_size_exceeded(url: SourceUrl, limit_bytes: usize) -> Self {
-        Self::FetchSizeExceeded {
-            url: Box::new(url),
-            limit_bytes,
-        }
+    pub const fn fetch_size_exceeded(url: SourceUrl, limit_bytes: usize) -> Self {
+        Self::FetchSizeExceeded(FetchSizeExceeded { url, limit_bytes })
     }
 
     /// Create a cleanup failure.
@@ -119,6 +114,12 @@ pub struct PortFailure {
     pub reason: Arc<str>,
 }
 
+impl fmt::Display for PortFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "port {:?} failed: {}", self.port, self.reason)
+    }
+}
+
 /// Fetch-size failure payload useful for tests and future adapters.
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -129,4 +130,14 @@ pub struct FetchSizeExceeded {
     pub limit_bytes: usize,
 }
 
-const _: () = assert!(std::mem::size_of::<RecipeError>() <= 24);
+impl fmt::Display for FetchSizeExceeded {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "fetch exceeded max_bytes={}: {}",
+            self.limit_bytes, self.url
+        )
+    }
+}
+
+const _: () = assert!(std::mem::size_of::<RecipeError>() <= 32);

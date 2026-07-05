@@ -12,6 +12,8 @@ use camino::{Utf8Path, Utf8PathBuf};
 use crate::ManifestDigest;
 
 mod sealed {
+    //! Seals `PublishedArtefact` so only crate-owned artefact types implement it.
+
     pub trait Sealed {}
 }
 

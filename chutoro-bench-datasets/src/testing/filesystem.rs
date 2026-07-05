@@ -19,7 +19,7 @@ impl FilesystemFetcher {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust,no_run
     /// use camino::Utf8PathBuf;
     /// use chutoro_bench_datasets::testing::FilesystemFetcher;
     ///

@@ -15,15 +15,12 @@ impl<'a> RecipeContext<'a> {
     /// # Examples
     ///
     /// ```
-    /// # #[cfg(feature = "testing")]
-    /// # {
     /// use bytes::Bytes;
     /// use chutoro_bench_datasets::{
     ///     RecipeContext, RecipeError, SourceUrl,
     ///     testing::{InMemoryFetcher, InMemoryPublisher, InMemoryStorage},
     /// };
     ///
-    /// # fn main() -> Result<(), RecipeError> {
     /// let source = SourceUrl::parse("https://example.test/data.bin")?;
     /// let fetcher = InMemoryFetcher::new([(source, Bytes::from_static(b"abc"))]);
     /// let storage = InMemoryStorage::default();
@@ -31,9 +28,7 @@ impl<'a> RecipeContext<'a> {
     ///
     /// let ctx = RecipeContext::new(&fetcher, &storage, &publisher);
     /// let _fetcher = ctx.fetcher();
-    /// # Ok(())
-    /// # }
-    /// # }
+    /// # Ok::<(), RecipeError>(())
     /// ```
     #[must_use]
     pub const fn new(

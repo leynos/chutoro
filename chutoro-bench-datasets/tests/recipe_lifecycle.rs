@@ -2,9 +2,9 @@
 
 use bytes::Bytes;
 use chutoro_bench_datasets::{
-    DatasetInfo, DatasetRecipe, ManifestDigest, ObjectKey, PartialState, PublishedArtefact,
-    PublishedManifest, RecipeContext, RecipeError, RecipeId, RecipeVersion, SourceSpec, SourceUrl,
-    run_recipe,
+    DatasetInfo, DatasetRecipe, FetchSizeExceeded, ManifestDigest, ObjectKey, PartialState,
+    PublishedArtefact, PublishedManifest, RecipeContext, RecipeError, RecipeId, RecipeVersion,
+    SourceSpec, SourceUrl, run_recipe,
     testing::{InMemoryFetcher, InMemoryPublisher, InMemoryStorage, StubRecipe},
 };
 use rstest::{fixture, rstest};
@@ -87,7 +87,7 @@ fn fetch_size_limit_is_propagated(source: SourceUrl, ctx: RecipeSetup) {
 
     assert!(matches!(
         error,
-        RecipeError::FetchSizeExceeded { limit_bytes: 2, .. }
+        RecipeError::FetchSizeExceeded(FetchSizeExceeded { limit_bytes: 2, .. })
     ));
 }
 

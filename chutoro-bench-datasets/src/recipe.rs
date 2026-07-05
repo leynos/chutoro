@@ -108,6 +108,11 @@ pub trait DatasetRecipe: Send + Sync {
     ///
     /// Recipes whose prepare phase writes intermediates to [`crate::Storage`]
     /// should override this method to clean those entries up.
+    /// [`crate::driver::run_recipe`] invokes cleanup only when a phase returns
+    /// [`Err`]. It does not run cleanup when a phase panics, because phase
+    /// execution currently attaches cleanup with `Result::map_err` and does
+    /// not catch unwinds. Do not rely on this hook for panic recovery when
+    /// rolling back partial storage writes.
     ///
     /// # Errors
     ///

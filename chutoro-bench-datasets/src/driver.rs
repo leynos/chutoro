@@ -9,15 +9,12 @@ use crate::{DatasetRecipe, PartialState, Phase, RecipeContext, RecipeError};
 /// # Examples
 ///
 /// ```
-/// # #[cfg(feature = "testing")]
-/// # {
 /// use bytes::Bytes;
 /// use chutoro_bench_datasets::testing::{
 ///     InMemoryFetcher, InMemoryPublisher, InMemoryStorage, StubRecipe,
 /// };
 /// use chutoro_bench_datasets::{PublishedArtefact, RecipeContext, SourceUrl, run_recipe};
 ///
-/// # fn main() -> Result<(), chutoro_bench_datasets::RecipeError> {
 /// let source = SourceUrl::parse("https://example.test/dataset.bin")?;
 /// let fetcher = InMemoryFetcher::new([(source.clone(), Bytes::from_static(b"abc"))]);
 /// let storage = InMemoryStorage::default();
@@ -27,9 +24,7 @@ use crate::{DatasetRecipe, PartialState, Phase, RecipeContext, RecipeError};
 ///
 /// let published = run_recipe(&recipe, &ctx)?;
 /// assert_eq!(published.manifest_uri().as_str(), "manifests/example.json");
-/// # Ok(())
-/// # }
-/// # }
+/// # Ok::<(), chutoro_bench_datasets::RecipeError>(())
 /// ```
 ///
 /// # Errors

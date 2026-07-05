@@ -227,86 +227,66 @@ impl SourceSpec {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CacheKey(Utf8PathBuf);
 
-impl CacheKey {
-    /// Create a cache key from a UTF-8 path.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use chutoro_bench_datasets::CacheKey;
-    ///
-    /// let key = CacheKey::new("mnist/raw.gz");
-    /// assert_eq!(key.as_ref().as_str(), "mnist/raw.gz");
-    /// ```
-    #[must_use]
-    pub fn new(value: impl Into<Utf8PathBuf>) -> Self {
-        Self(value.into())
-    }
-
-    /// Return an owned copy of the wrapped path.
-    #[must_use]
-    pub fn to_path_buf(&self) -> Utf8PathBuf {
-        self.0.clone()
-    }
-
-    /// Consume the key and return the wrapped path.
-    #[must_use]
-    pub fn into_inner(self) -> Utf8PathBuf {
-        self.0
-    }
-}
-
-impl AsRef<Utf8Path> for CacheKey {
-    fn as_ref(&self) -> &Utf8Path {
-        &self.0
-    }
-}
-
 /// Object-store key used by the publish sink.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ObjectKey(Utf8PathBuf);
 
-impl ObjectKey {
-    /// Create an object key from a UTF-8 path.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use chutoro_bench_datasets::ObjectKey;
-    ///
-    /// let key = ObjectKey::new("manifests/mnist.json");
-    /// assert_eq!(key.as_ref().as_str(), "manifests/mnist.json");
-    /// ```
-    #[must_use]
-    pub fn new(value: impl Into<Utf8PathBuf>) -> Self {
-        Self(value.into())
-    }
+macro_rules! impl_path_key {
+    ($name:ident, $create_doc:literal, $example_path:literal) => {
+        impl $name {
+            #[doc = $create_doc]
+            ///
+            /// # Examples
+            ///
+            /// ```
+            #[doc = concat!("use chutoro_bench_datasets::", stringify!($name), ";")]
+            ///
+            #[doc = concat!("let key = ", stringify!($name), "::new(\"", $example_path, "\");")]
+            #[doc = concat!("assert_eq!(key.as_ref().as_str(), \"", $example_path, "\");")]
+            /// ```
+            #[must_use]
+            pub fn new(value: impl Into<Utf8PathBuf>) -> Self {
+                Self(value.into())
+            }
 
-    /// Return an owned copy of the wrapped path.
-    #[must_use]
-    pub fn to_path_buf(&self) -> Utf8PathBuf {
-        self.0.clone()
-    }
+            /// Return an owned copy of the wrapped path.
+            #[must_use]
+            pub fn to_path_buf(&self) -> Utf8PathBuf {
+                self.0.clone()
+            }
 
-    /// Consume the key and return the wrapped path.
-    #[must_use]
-    pub fn into_inner(self) -> Utf8PathBuf {
-        self.0
-    }
+            /// Consume the key and return the wrapped path.
+            #[must_use]
+            pub fn into_inner(self) -> Utf8PathBuf {
+                self.0
+            }
+        }
+
+        impl AsRef<Utf8Path> for $name {
+            fn as_ref(&self) -> &Utf8Path {
+                &self.0
+            }
+        }
+    };
 }
 
-impl AsRef<Utf8Path> for ObjectKey {
-    fn as_ref(&self) -> &Utf8Path {
-        &self.0
-    }
-}
+impl_path_key!(
+    CacheKey,
+    "Create a cache key from a UTF-8 path.",
+    "mnist/raw.gz"
+);
+impl_path_key!(
+    ObjectKey,
+    "Create an object key from a UTF-8 path.",
+    "manifests/mnist.json"
+);
 
 /// Placeholder checksum type for future source validation.
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum Checksum {
-    #[cfg(any())]
     /// Unreachable placeholder until roadmap item `10.1.2` selects hashing.
+    #[cfg(any())]
     Sha256([u8; 32]),
 }
 
