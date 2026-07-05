@@ -346,7 +346,6 @@ cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --list \
   2>&1 | tee /tmp/bench-hnsw-ef-sweep-list.log
 ```
 
-
 ### Neighbour scoring measurements
 
 The `neighbour_scoring` Criterion benchmark isolates HNSW candidate scoring
@@ -411,7 +410,6 @@ at the top of the `[lints.clippy]` section in `chutoro-benches/Cargo.toml`.
 4. Use `#![expect(…)]` (not `#![allow(…)]`) for any Criterion-triggered lint
    suppressions, with a reason string.
 5. Run `make bench` to verify the new benchmark appears in the output.
-
 
 ## HNSW scoring invariants
 

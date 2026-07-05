@@ -450,7 +450,6 @@ behaviour is visible. Consumers integrating `chutoro-core` into their own
 projects can use `chutoro-benches` as a reference for structuring performance
 tests around the pipeline APIs.
 
-
 ### Neighbour-scoring diagnostics
 
 The `neighbour_scoring` benchmark is a contributor diagnostic for HNSW
