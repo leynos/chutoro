@@ -19,6 +19,7 @@ tracing = "0.1"
 
 [dev-dependencies]
 chutoro-bench-datasets = { path = ".", features = ["testing"] }
+chutoro-test-support = { path = "../chutoro-test-support" }
 mockall = "0.13"
 proptest = "1.5"
 rstest = "0.26"

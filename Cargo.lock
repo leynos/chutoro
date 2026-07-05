@@ -428,6 +428,7 @@ dependencies = [
  "camino",
  "cap-std",
  "chutoro-bench-datasets",
+ "chutoro-test-support",
  "mockall",
  "proptest",
  "rstest",

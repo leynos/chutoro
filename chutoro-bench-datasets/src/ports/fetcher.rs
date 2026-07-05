@@ -5,6 +5,22 @@ use bytes::Bytes;
 use crate::{RecipeError, SourceUrl};
 
 /// Source-byte retrieval port.
+///
+/// # Examples
+///
+/// ```
+/// use bytes::Bytes;
+/// use chutoro_bench_datasets::{
+///     Fetcher, RecipeError, SourceUrl,
+///     testing::InMemoryFetcher,
+/// };
+///
+/// let source = SourceUrl::parse("https://example.test/data.bin")?;
+/// let fetcher = InMemoryFetcher::new([(source.clone(), Bytes::from_static(b"abc"))]);
+///
+/// assert_eq!(fetcher.fetch_bytes(&source, 1024)?, Bytes::from_static(b"abc"));
+/// # Ok::<(), RecipeError>(())
+/// ```
 pub trait Fetcher: Send + Sync {
     /// Fetch `url` and return the bytes read.
     ///

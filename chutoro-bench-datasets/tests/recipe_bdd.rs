@@ -4,7 +4,7 @@ use bytes::Bytes;
 use camino::Utf8Path;
 use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_bench_datasets::{
-    Fetcher, RecipeError, SourceUrl,
+    Fetcher, PortName, RecipeError, SourceUrl,
     testing::{FilesystemFetcher, InMemoryFetcher},
 };
 use rstest::fixture;
@@ -50,24 +50,18 @@ fn in_memory_fetcher_has_two_sources(world: &mut PortWorld) -> StepResult<(), Re
 
 #[given("the filesystem fetcher has two sources")]
 fn filesystem_fetcher_has_two_sources(world: &mut PortWorld) -> StepResult<(), RecipeError> {
-    let tempdir = tempfile::tempdir().map_err(|error| {
-        RecipeError::port(chutoro_bench_datasets::PortName::Fetcher, error.to_string())
-    })?;
+    let tempdir = tempfile::tempdir().map_err(fetcher_port_error)?;
     let root = Utf8Path::from_path(tempdir.path()).ok_or_else(|| {
-        RecipeError::port(
-            chutoro_bench_datasets::PortName::Fetcher,
-            format!("non-UTF-8 path: {}", tempdir.path().display()),
-        )
+        fetcher_port_error(format!("non-UTF-8 path: {}", tempdir.path().display()))
     })?;
-    let fixture_dir = Dir::open_ambient_dir(root, ambient_authority()).map_err(|error| {
-        RecipeError::port(chutoro_bench_datasets::PortName::Fetcher, error.to_string())
-    })?;
-    fixture_dir.write("one.bin", b"one").map_err(|error| {
-        RecipeError::port(chutoro_bench_datasets::PortName::Fetcher, error.to_string())
-    })?;
-    fixture_dir.write("two.bin", b"two").map_err(|error| {
-        RecipeError::port(chutoro_bench_datasets::PortName::Fetcher, error.to_string())
-    })?;
+    let fixture_dir =
+        Dir::open_ambient_dir(root, ambient_authority()).map_err(fetcher_port_error)?;
+    fixture_dir
+        .write("one.bin", b"one")
+        .map_err(fetcher_port_error)?;
+    fixture_dir
+        .write("two.bin", b"two")
+        .map_err(fetcher_port_error)?;
     world.fetcher = Some(Box::new(FilesystemFetcher::new(root.to_path_buf())));
     world.tempdir = Some(tempdir);
     world.sources = vec![
@@ -75,6 +69,12 @@ fn filesystem_fetcher_has_two_sources(world: &mut PortWorld) -> StepResult<(), R
         SourceUrl::parse("file://two.bin")?,
     ];
     Ok(())
+}
+
+fn fetcher_port_error(error: impl ToString) -> RecipeError {
+    let reason = error.to_string();
+    drop(error);
+    RecipeError::port(PortName::Fetcher, reason)
 }
 
 #[when("the recipe fetches the declared sources")]

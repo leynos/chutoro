@@ -21,8 +21,6 @@
 //! The `testing` feature exposes a complete in-memory recipe and adapters:
 //!
 //! ```rust
-//! # #[cfg(feature = "testing")]
-//! # {
 //! use bytes::Bytes;
 //! use chutoro_bench_datasets::testing::{
 //!     InMemoryFetcher, InMemoryPublisher, InMemoryStorage, StubRecipe,
@@ -38,7 +36,6 @@
 //!
 //! let published = run_recipe(&recipe, &ctx)?;
 //! assert_eq!(published.manifest_uri().as_str(), "manifests/example.json");
-//! # }
 //! # Ok::<(), chutoro_bench_datasets::RecipeError>(())
 //! ```
 //!

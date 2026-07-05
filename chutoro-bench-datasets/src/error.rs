@@ -102,6 +102,12 @@ impl RecipeError {
             source: Box::new(source),
         }
     }
+
+    /// Create an opaque adapter-specific failure while preserving its source.
+    #[must_use]
+    pub fn other(source: impl Error + Send + Sync + 'static) -> Self {
+        Self::Other(Box::new(source))
+    }
 }
 
 /// Port failure payload useful for tests and future adapters.

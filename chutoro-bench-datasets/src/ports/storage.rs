@@ -21,15 +21,12 @@ use crate::{CacheKey, RecipeError};
 /// # Examples
 ///
 /// ```
-/// # #[cfg(feature = "testing")]
-/// # {
 /// use bytes::Bytes;
 /// use chutoro_bench_datasets::{
 ///     CacheKey, RecipeError, Storage,
 ///     testing::InMemoryStorage,
 /// };
 ///
-/// # fn main() -> Result<(), RecipeError> {
 /// let storage = InMemoryStorage::default();
 /// let key = CacheKey::new("cache/mnist/raw.gz");
 ///
@@ -37,9 +34,7 @@ use crate::{CacheKey, RecipeError};
 /// storage.put(&key, b"first")?;
 /// storage.put(&key, b"second")?;
 /// assert_eq!(storage.get(&key)?, Some(Bytes::from_static(b"second")));
-/// # Ok(())
-/// # }
-/// # }
+/// # Ok::<(), RecipeError>(())
 /// ```
 pub trait Storage: Send + Sync {
     /// Store bytes at `key`, overwriting any previous value.
