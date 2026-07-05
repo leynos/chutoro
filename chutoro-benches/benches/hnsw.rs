@@ -103,6 +103,10 @@ fn is_exact_benchmark_probe() -> bool {
     is_cli_flag_present("--exact")
 }
 
+fn is_benchmark_discovery() -> bool {
+    is_cli_flag_present("--list")
+}
+
 fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
     group.sample_size(10);
     if is_exact_benchmark_probe() {
@@ -116,6 +120,14 @@ struct SourceBenchSpec<'a> {
     bench_label: &'a str,
     fail_label: &'a str,
     point_count: usize,
+}
+
+const fn hnsw_bench_params(point_count: usize, m: usize) -> HnswBenchParams {
+    HnswBenchParams {
+        point_count,
+        max_connections: m,
+        ef_construction: m.saturating_mul(2),
+    }
 }
 
 fn bench_build_source<S: DataSource + Sync>(
@@ -159,7 +171,7 @@ fn bench_hnsw_build_generic<F>(
 where
     F: FnMut(&SyntheticSource, HnswParams) -> Result<(), HnswError>,
 {
-    if is_exact_benchmark_probe() {
+    if is_benchmark_discovery() {
         register_hnsw_build_probe_benches(c, group_name);
         return Ok(());
     }
@@ -171,11 +183,7 @@ where
         let source = make_bench_source(point_count)?;
 
         for &m in MAX_CONNECTIONS {
-            let bench_params = HnswBenchParams {
-                point_count,
-                max_connections: m,
-                ef_construction: m.saturating_mul(2),
-            };
+            let bench_params = hnsw_bench_params(point_count, m);
             let params = make_hnsw_params(m)?;
 
             group.bench_with_input(
@@ -206,11 +214,7 @@ fn register_hnsw_build_probe_benches(c: &mut Criterion, group_name: &str) {
         MAX_CONNECTIONS
             .iter()
             .copied()
-            .map(move |m| HnswBenchParams {
-                point_count,
-                max_connections: m,
-                ef_construction: m.saturating_mul(2),
-            })
+            .map(move |m| hnsw_bench_params(point_count, m))
     });
     register_noop_benches(c, group_name, params, configure_hnsw_group);
 }
@@ -237,7 +241,7 @@ fn should_collect_memory_profile() -> bool {
             return true;
         }
     }
-    !is_cli_flag_present("--list") && !is_exact_benchmark_probe()
+    !is_benchmark_discovery() && !is_exact_benchmark_probe()
 }
 
 fn memory_report_path() -> PathBuf {

@@ -73,7 +73,7 @@ jobs:
         if: ${{ matrix.bench == 'hnsw' }}
         run: |
           set -o pipefail
-          cargo bench -p chutoro-benches --bench hnsw -- hnsw_build/n=5000,M=12,ef=24 --exact \
+          cargo bench -p chutoro-benches --bench hnsw -- hnsw_build/n=100,M=8,ef=16 --exact \
             2>&1 | tee /tmp/bench-smoke-hnsw-exact.log
       - name: Upload benchmark smoke logs
         if: failure()
