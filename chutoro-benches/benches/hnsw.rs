@@ -6,7 +6,8 @@
 use std::{path::PathBuf, time::Duration};
 
 use criterion::{
-    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, criterion_main, measurement::WallTime,
+    measurement::WallTime,
+    BatchSize, BenchmarkGroup, BenchmarkId, Criterion, black_box, criterion_main,
 };
 
 use chutoro_benches::{
@@ -14,9 +15,9 @@ use chutoro_benches::{
     ef_sweep::{BENCH_DIMENSIONS, BENCH_SEED, make_bench_source, make_hnsw_params_with_ef},
     error::BenchSetupError,
     params::HnswBenchParams,
-    profiling::{
-        EdgeScalingBounds, HnswMemoryInput, HnswMemoryRecord, ProfilingError,
-        measure_peak_resident_set_size, write_hnsw_memory_report,
+    profiling::{,
+    EdgeScalingBounds, HnswMemoryInput, HnswMemoryRecord, ProfilingError,
+    measure_peak_resident_set_size, write_hnsw_memory_report,
     },
     source::{
         Anisotropy, GaussianBlobConfig, ManifoldConfig, ManifoldPattern, MnistConfig,
@@ -35,7 +36,9 @@ const MAX_CONNECTIONS: &[usize] = &[8, 12, 16, 24];
 const DIVERSE_POINT_COUNT: usize = 1_000;
 
 /// Dataset size used when nextest probes one Criterion case with `--exact`.
-const DIVERSE_EXACT_PROBE_POINT_COUNT: usize = 100;
+const EXACT_PROBE_POINT_COUNT: usize = 100;
+/// Dataset size used when nextest probes one Criterion case with `--exact`.
+const EXACT_PROBE_POINT_COUNT: usize = 100;
 /// Sampling cadence for peak resident-set-size profiling.
 const MEMORY_SAMPLE_INTERVAL: Duration = Duration::from_millis(2);
 
@@ -110,9 +113,18 @@ fn diverse_source_point_count() -> usize {
     // benchmark IDs still advertise the real matrix size. Only the exact probe
     // input is shortened to keep test gating bounded.
     if is_exact_benchmark_probe() {
-        DIVERSE_EXACT_PROBE_POINT_COUNT
+        EXACT_PROBE_POINT_COUNT
     } else {
         DIVERSE_POINT_COUNT
+    }
+}
+
+fn hnsw_source_point_count(point_count: usize) -> usize {
+    // Keep Criterion benchmark IDs stable while bounding nextest's exact probes.
+    if is_exact_benchmark_probe() {
+        EXACT_PROBE_POINT_COUNT
+    } else {
+        point_count
     }
 }
 fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
@@ -123,7 +135,9 @@ fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
     }
 }
 
-#[derive(Clone, Copy)]
+fn should_short_circuit_exact_text_probe(bench_label: &str) -> bool {
+    is_exact_benchmark_probe() && bench_label == "text_levenshtein"
+}
 struct SourceBenchSpec<'a> {
     bench_label: &'a str,
     fail_label: &'a str,
@@ -153,16 +167,20 @@ fn bench_build_source<S: DataSource + Sync>(
         BenchmarkId::new(spec.bench_label, &bench_params),
         &(source, params),
         |b, &(bench_source, input_params)| {
-            b.iter_batched(
-                || input_params.clone(),
-                |cloned_params| {
-                    panic_on_bench_build_error(
-                        CpuHnsw::build(bench_source, cloned_params),
-                        &format!("CpuHnsw::build failed for {}", spec.fail_label),
-                    );
-                },
-                BatchSize::SmallInput,
-            );
+            if should_short_circuit_exact_text_probe(spec.bench_label) {
+                b.iter(|| black_box(()));
+            } else {
+                b.iter_batched(
+                    || input_params.clone(),
+                    |cloned_params| {
+                        panic_on_bench_build_error(
+                            CpuHnsw::build(bench_source, cloned_params),
+                            &format!("CpuHnsw::build failed for {}", spec.fail_label),
+                        );
+                    },
+                    BatchSize::SmallInput,
+                );
+            }
         },
     );
 }
@@ -188,7 +206,7 @@ where
     configure_hnsw_group(&mut group);
 
     for &point_count in POINT_COUNTS {
-        let source = make_bench_source(point_count)?;
+        let source = make_bench_source(hnsw_source_point_count(point_count))?;
 
         for &m in MAX_CONNECTIONS {
             let bench_params = hnsw_bench_params(point_count, m);

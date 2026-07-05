@@ -3,7 +3,8 @@
 use camino::Utf8Path;
 use chutoro_benches::neighbour_scoring::{
     BUILD_PROFILE_ENV, build_profile_report_target, build_profile_report_target_value,
-    report_parent_dir_value, should_collect_build_profile, should_collect_build_profile_value,
+    report_parent_dir, report_parent_dir_value, should_collect_build_profile,
+    should_collect_build_profile_value,
 };
 use chutoro_test_support::env::EnvVarGuard;
 use rstest::rstest;
@@ -41,14 +42,29 @@ fn build_profile_report_target_tracks_env(#[case] value: Option<&str>, #[case] e
 
 #[test]
 fn build_profile_report_target_uses_expected_filename() {
-    let _profile_env = EnvVarGuard::set(BUILD_PROFILE_ENV, "yes");
+    let _target_dir = EnvVarGuard::remove("CARGO_TARGET_DIR");
     let expected_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../target/benchmarks/neighbour_scoring_build_profile.csv",
     );
-    let actual_path = build_profile_report_target();
+    let report_parent_dir = report_parent_dir();
+    let actual_path = build_profile_report_target_value(Some("yes"), &report_parent_dir);
 
     assert_eq!(actual_path.as_deref(), Some(Utf8Path::new(expected_path)));
+}
+
+#[test]
+fn build_profile_report_target_reads_cargo_target_dir_env() {
+    let _target_dir = EnvVarGuard::set("CARGO_TARGET_DIR", "/tmp/chutoro-target-dir");
+    let report_parent_dir = report_parent_dir();
+    let actual_path = build_profile_report_target_value(Some("yes"), &report_parent_dir);
+
+    assert_eq!(
+        actual_path.as_deref(),
+        Some(Utf8Path::new(
+            "/tmp/chutoro-target-dir/benchmarks/neighbour_scoring_build_profile.csv",
+        )),
+    );
 }
 
 #[test]
