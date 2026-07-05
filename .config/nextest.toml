@@ -56,6 +56,12 @@ filter = "test(/build_with_edges_edges_sorted_by_sequence/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
+# Idempotency rstest case_4 can exceed 60s under llvm-cov instrumentation
+# despite a tiny 16-vector fixture, matching the edge harvest case_4 precedent.
+filter = "test(/idempotency_rstest_cases::case_4/)"
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
 # Mutation proptest can exceed the default timeout under parallel load.
 filter = "test(/hnsw_mutations_preserve_invariants_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }

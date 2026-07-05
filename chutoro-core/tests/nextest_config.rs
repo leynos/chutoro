@@ -104,6 +104,16 @@ fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
     assert!(pr_job.contains("timeout-minutes: 20"));
 }
 
+#[test]
+fn default_profile_covers_idempotency_rstest_case_4_timeout() {
+    let override_blocks = default_override_blocks();
+    let override_present = override_blocks.into_iter().any(|block| {
+        block.contains("filter = \"test(/idempotency_rstest_cases::case_4/)\"")
+            && block.contains("period = \"180s\"")
+    });
+    assert!(override_present);
+}
+
 #[rstest]
 #[case("default")]
 #[case("ci")]
