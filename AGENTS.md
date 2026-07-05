@@ -247,8 +247,8 @@ project:
 
 - **Mandate caret requirements for all dependencies.** All crate versions
   specified in `Cargo.toml` must use SemVer-compatible caret requirements (e.g.,
-  `some-crate = "1.2.3"` (equivalent to `^1.2.3`)). This is Cargo's default and
-  allows for safe, non-breaking updates to minor and patch versions while
+  `some-crate = "1.2.3"` (equivalent to `^1.2.3`)). This is Cargo's default
+  and allows for safe, non-breaking updates to minor and patch versions while
   preventing breaking changes from new major versions. This approach is
   critical for ensuring build stability and reproducibility.
 - **Prohibit unstable version specifiers.** The use of wildcard (`*`) or

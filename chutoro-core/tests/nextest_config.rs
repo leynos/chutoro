@@ -11,6 +11,8 @@ const BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }";
 const TRYBUILD_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"300s\", terminate-after = 1, grace-period = \"5s\" }";
+const NESTED_BENCH_SMOKE_TIMEOUT: &str =
+    "slow-timeout = { period = \"300s\", terminate-after = 1, grace-period = \"5s\" }";
 
 fn default_override_blocks() -> Vec<&'static str> {
     override_blocks("default")
@@ -124,6 +126,17 @@ fn nextest_profiles_keep_trybuild_timeout_guards(#[case] profile_name: &str) {
             && block.contains("session_api_compiles_when_cpu_feature_is_enabled")
             && block.contains("threads-required = 4")
             && block.contains(TRYBUILD_SLOW_TIMEOUT)
+    });
+    assert!(override_present);
+}
+
+#[test]
+fn default_profile_serializes_nested_benchmark_smoke_test() {
+    let override_blocks = default_override_blocks();
+    let override_present = override_blocks.into_iter().any(|block| {
+        block.contains("benchmark_binaries_cover_discovery_and_exact_smoke_paths")
+            && block.contains("threads-required = 8")
+            && block.contains(NESTED_BENCH_SMOKE_TIMEOUT)
     });
     assert!(override_present);
 }

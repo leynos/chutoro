@@ -86,6 +86,13 @@ filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cp
 threads-required = 4
 slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 
+[[profile.default.overrides]]
+# Benchmark smoke integration coverage runs nested cargo bench commands and
+# should not overlap with other expensive benchmark targets.
+filter = "test(/benchmark_binaries_cover_discovery_and_exact_smoke_paths/)"
+threads-required = 8
+slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+
 [profile.ci]
 inherits = "default"
 test-threads = 4
