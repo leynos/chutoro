@@ -19,7 +19,10 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use chutoro_benches::{
-    criterion_support::{is_benchmark_discovery, register_noop_benches},
+    criterion_support::{
+        configure_short_measurement_group, is_benchmark_discovery, is_exact_benchmark_probe,
+        register_noop_benches,
+    },
     error::BenchSetupError,
     params::PipelineBenchParams,
     source::{SyntheticConfig, SyntheticSource},
@@ -49,7 +52,7 @@ fn mst_parallel_kruskal_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     }
 
     let mut group = c.benchmark_group("parallel_kruskal");
-    group.sample_size(20);
+    configure_short_measurement_group(&mut group, 20, is_exact_benchmark_probe());
 
     for &point_count in POINT_COUNTS {
         let source = SyntheticSource::generate(&SyntheticConfig {

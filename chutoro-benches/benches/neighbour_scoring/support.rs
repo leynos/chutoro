@@ -93,6 +93,15 @@ impl CandidateBucket {
         Self { size, kind }
     }
 
+    #[cfg(test)]
+    #[expect(
+        dead_code,
+        reason = "Criterion harness=false bench tests compile as ordinary code"
+    )]
+    pub(super) const fn realistic_for_test(size: usize) -> Self {
+        Self::new(size, BucketKind::Realistic)
+    }
+
     pub(super) const fn size(self) -> usize {
         self.size
     }
@@ -262,4 +271,75 @@ pub(super) fn write_build_profile_report_for_point_counts(
     let mut file = report_dir.create(BUILD_PROFILE_REPORT)?;
     write_build_profile_report_csv(&mut file, report_rows)?;
     Ok(Some(path))
+}
+
+#[cfg(test)]
+#[expect(
+    unused_imports,
+    reason = "Criterion harness=false bench tests compile as ordinary code"
+)]
+mod tests {
+    use camino::Utf8Path;
+    use chutoro_benches::neighbour_scoring::{BUILD_PROFILE_REPORT, REPORT_DIR_NAME};
+    use chutoro_core::DataSource;
+    use tempfile::tempdir;
+
+    use super::{
+        LANE_REPORT, make_fixture, write_build_profile_report_for_point_counts,
+        write_lane_utilisation_report,
+    };
+
+    #[test]
+    fn fixture_contains_provider_rows_and_one_based_candidates() {
+        let candidate_count = 8;
+        let fixture = make_fixture(32, candidate_count).expect("fixture must be created");
+
+        assert!(fixture.provider.len() >= candidate_count + 1);
+        assert_eq!(
+            fixture.candidates,
+            (1..=candidate_count).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn lane_utilisation_report_writes_expected_file() {
+        let temp_dir = tempdir().expect("temp dir must be created");
+        let report_parent_dir =
+            Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
+
+        let report_path = write_lane_utilisation_report(report_parent_dir)
+            .expect("lane utilisation report must be written");
+
+        assert_eq!(
+            report_path,
+            report_parent_dir.join(REPORT_DIR_NAME).join(LANE_REPORT),
+        );
+        assert!(report_path.exists());
+    }
+
+    #[test]
+    fn build_profile_report_respects_optional_target_and_writes_file() {
+        let temp_dir = tempdir().expect("temp dir must be created");
+        let report_parent_dir =
+            Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
+        let report_target = report_parent_dir
+            .join(REPORT_DIR_NAME)
+            .join(BUILD_PROFILE_REPORT);
+
+        let skipped =
+            write_build_profile_report_for_point_counts(report_parent_dir, None, &[16], 8)
+                .expect("disabled build profile report must succeed");
+        assert!(skipped.is_none());
+
+        let written = write_build_profile_report_for_point_counts(
+            report_parent_dir,
+            Some(report_target.clone()),
+            &[16],
+            8,
+        )
+        .expect("enabled build profile report must succeed");
+
+        assert_eq!(written.as_deref(), Some(report_target.as_path()));
+        assert!(report_target.exists());
+    }
 }

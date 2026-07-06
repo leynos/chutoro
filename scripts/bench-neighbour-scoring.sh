@@ -16,13 +16,7 @@ require_command hyperfine
 
 branch_name="$(git branch --show-current 2>/dev/null || printf 'unknown')"
 branch_name="${branch_name//\//-}"
-log_dir="${TMPDIR:-/tmp}/chutoro-benches-${UID}"
-mkdir -p "${log_dir}"
-if [[ ! -O "${log_dir}" ]]; then
-  printf 'log directory is not owned by the current user: %s\n' "${log_dir}" >&2
-  exit 1
-fi
-chmod 700 "${log_dir}"
+log_dir="$(mktemp -d "${TMPDIR:-/tmp}/chutoro-benches-${UID}.XXXXXXXXXX")"
 log_path="${log_dir}/hyperfine-neighbour-scoring-${branch_name}.out"
 
 if ! build_messages="$(

@@ -45,7 +45,7 @@ pub(super) fn enable_write_graph_marker() {
 #[cfg(test)]
 pub(super) fn disable_write_graph_marker() {
     let previous = WRITE_GRAPH_MARKER_ENABLE_COUNT.fetch_sub(1, Ordering::Relaxed);
-    debug_assert!(previous > 0, "write graph marker disable must match enable");
+    assert!(previous > 0, "write graph marker disable must match enable");
 }
 
 #[cfg(test)]

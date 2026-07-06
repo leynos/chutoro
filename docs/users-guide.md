@@ -452,15 +452,5 @@ tests around the pipeline APIs.
 
 ### Neighbour-scoring diagnostics
 
-The `neighbour_scoring` benchmark is a contributor diagnostic for HNSW
-candidate-scoring work rather than a public runtime interface. Run it with:
-
-```sh
-cargo bench -p chutoro-benches --bench neighbour_scoring
-```
-
-The benchmark writes Criterion reports under `target/criterion/` and writes a
-lane-utilisation CSV to
-`target/benchmarks/neighbour_scoring_lane_utilisation.csv`. Set
-`CHUTORO_BENCH_NEIGHBOUR_PROFILE=1` to also emit the HNSW build-profile CSV at
-`target/benchmarks/neighbour_scoring_build_profile.csv`.
+This contributor-only benchmark is documented in
+[Neighbour scoring measurements](./developers-guide.md#neighbour-scoring-measurements).

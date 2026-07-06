@@ -4,10 +4,11 @@
 //! HNSW candidate bucket sizes and emits small diagnostic CSV reports under
 //! `target/benchmarks/` so roadmap item 2.3.1 can be closed on evidence.
 
-use std::time::Duration;
-
-use chutoro_benches::neighbour_scoring::{
-    BUILD_PROFILE_ENV, build_profile_report_target_value, report_parent_dir, truthy_env_value,
+use chutoro_benches::{
+    criterion_support::configure_short_measurement_group,
+    neighbour_scoring::{
+        BUILD_PROFILE_ENV, build_profile_report_target_value, report_parent_dir, truthy_env_value,
+    },
 };
 use chutoro_core::DataSource;
 use criterion::{
@@ -28,11 +29,7 @@ const QUERY_INDEX: usize = 0;
 const SHORT_MEASUREMENT_ENV: &str = "CHUTORO_BENCH_NEIGHBOUR_SHORT_MEASUREMENT";
 
 fn configure_group(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.sample_size(10);
-    if should_use_short_measurement() {
-        group.warm_up_time(Duration::from_millis(1));
-        group.measurement_time(Duration::from_millis(10));
-    }
+    configure_short_measurement_group(group, 10, should_use_short_measurement());
 }
 
 fn should_use_short_measurement_value(value: Option<&str>) -> bool {
@@ -50,6 +47,22 @@ fn score_candidates(
     scoring_fixture
         .provider
         .batch_distances(black_box(QUERY_INDEX), black_box(candidates))
+}
+
+fn throughput_for(bucket: CandidateBucket) -> BenchResult<Throughput> {
+    let throughput =
+        u64::try_from(bucket.size()).map_err(|source| BenchError::CandidateCountConversion {
+            candidate_count: bucket.size(),
+            source,
+        })?;
+    Ok(Throughput::Elements(throughput))
+}
+
+fn bench_id_for(bucket: CandidateBucket, dimension: usize) -> BenchmarkId {
+    BenchmarkId::new(
+        bucket.kind_name(),
+        format!("dim_{dimension}_candidates_{}", bucket.size()),
+    )
 }
 
 fn run_scoring_iteration(scoring_fixture: &ScoringFixture, candidates: &[usize]) {
@@ -70,16 +83,8 @@ fn bench_case(
 ) -> BenchResult<()> {
     let fixture = make_fixture(dimension, bucket.size())?;
     score_candidates(&fixture, &fixture.candidates)?;
-    let throughput =
-        u64::try_from(bucket.size()).map_err(|source| BenchError::CandidateCountConversion {
-            candidate_count: bucket.size(),
-            source,
-        })?;
-    group.throughput(Throughput::Elements(throughput));
-    let id = BenchmarkId::new(
-        bucket.kind_name(),
-        format!("dim_{dimension}_candidates_{}", bucket.size()),
-    );
+    group.throughput(throughput_for(bucket)?);
+    let id = bench_id_for(bucket, dimension);
     group.bench_with_input(id, &fixture, |b, scoring_fixture| {
         b.iter(|| run_scoring_iteration(scoring_fixture, &scoring_fixture.candidates));
     });
@@ -121,3 +126,66 @@ mod bench_harness {
 }
 
 criterion_main!(bench_harness::benches);
+
+#[cfg(test)]
+#[expect(
+    unused_imports,
+    reason = "Criterion harness=false bench tests compile as ordinary code"
+)]
+mod tests {
+    use super::{
+        bench_id_for, score_candidates, should_use_short_measurement_value, throughput_for,
+    };
+    use criterion::Throughput;
+    use rstest::rstest;
+
+    use super::support::{CandidateBucket, all_buckets, make_fixture};
+
+    #[rstest]
+    #[case::unset(None, false)]
+    #[case::empty(Some(""), false)]
+    #[case::false_word(Some("false"), false)]
+    #[case::zero(Some("0"), false)]
+    #[case::mixed_case_true(Some(" TrUe "), true)]
+    #[case::one(Some("1"), true)]
+    #[case::on(Some("on"), true)]
+    #[case::yes(Some("yes"), true)]
+    fn short_measurement_parser_recognizes_env_values(
+        #[case] value: Option<&str>,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(should_use_short_measurement_value(value), expected);
+    }
+
+    #[test]
+    fn score_candidates_returns_one_distance_per_candidate() {
+        let candidate_count = 8;
+        let fixture = make_fixture(32, candidate_count).expect("fixture must be created");
+        let distances =
+            score_candidates(&fixture, &fixture.candidates).expect("scoring must succeed");
+
+        assert_eq!(distances.len(), candidate_count);
+    }
+
+    #[test]
+    fn throughput_conversion_uses_candidate_count() {
+        let bucket = all_buckets()
+            .next()
+            .expect("neighbour scoring buckets must be non-empty");
+
+        assert!(matches!(
+            throughput_for(bucket).expect("throughput conversion must succeed"),
+            Throughput::Elements(8),
+        ));
+    }
+
+    #[test]
+    fn benchmark_id_uses_kind_dimension_and_candidate_count() {
+        let bucket = CandidateBucket::realistic_for_test(8);
+
+        assert_eq!(
+            bench_id_for(bucket, 32).to_string(),
+            "realistic/dim_32_candidates_8",
+        );
+    }
+}

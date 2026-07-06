@@ -11,8 +11,8 @@ use chutoro_benches::neighbour_scoring::{
 };
 use chutoro_test_support::env::EnvVarGuard;
 use rstest::rstest;
-use std::time::Duration;
-use tempfile::tempdir;
+use std::{io::Write, process::Command, time::Duration};
+use tempfile::{NamedTempFile, tempdir};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -61,10 +61,26 @@ fn report_path_uses_shared_report_directory_name() {
 #[test]
 fn neighbour_scoring_script_wires_expected_benchmark_binary() {
     let script = include_str!("../../scripts/bench-neighbour-scoring.sh");
+    let mut script_file = NamedTempFile::new().expect("temp script file must be created");
+    script_file
+        .write_all(script.as_bytes())
+        .expect("temp script file must be written");
+
+    let shellcheck_output = Command::new("shellcheck")
+        .arg("-s")
+        .arg("bash")
+        .arg(script_file.path())
+        .output()
+        .expect("shellcheck must run");
 
     assert!(script.contains("cargo bench -p chutoro-benches --bench neighbour_scoring --no-run"));
     assert!(script.contains(".target.name == \"neighbour_scoring\""));
     assert!(script.contains("${escaped_bench_binary} --bench --profile-time 1"));
+    assert!(
+        shellcheck_output.status.success(),
+        "shellcheck failed: {}",
+        String::from_utf8_lossy(&shellcheck_output.stderr),
+    );
 }
 
 #[test]

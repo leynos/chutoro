@@ -107,3 +107,105 @@ impl<S: DataSource> DataSource for ProfilingSource<S> {
         result
     }
 }
+
+#[cfg(test)]
+#[expect(
+    dead_code,
+    reason = "Criterion harness=false bench tests compile as ordinary code"
+)]
+mod tests {
+    use chutoro_core::{DataSource, DataSourceError, MetricDescriptor};
+
+    use super::ProfilingSource;
+
+    #[derive(Debug)]
+    struct StubSource {
+        len: usize,
+        distances_from_zero: Vec<f32>,
+    }
+
+    impl DataSource for StubSource {
+        fn len(&self) -> usize {
+            self.len
+        }
+
+        fn name(&self) -> &'static str {
+            "stub"
+        }
+
+        fn metric_descriptor(&self) -> MetricDescriptor {
+            MetricDescriptor::new("stub:absolute")
+        }
+
+        fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+            if i >= self.len {
+                return Err(DataSourceError::OutOfBounds { index: i });
+            }
+            self.distances_from_zero
+                .get(j)
+                .copied()
+                .ok_or(DataSourceError::OutOfBounds { index: j })
+        }
+
+        fn batch_distances(
+            &self,
+            query: usize,
+            candidates: &[usize],
+        ) -> Result<Vec<f32>, DataSourceError> {
+            candidates
+                .iter()
+                .map(|&candidate| self.distance(query, candidate))
+                .collect()
+        }
+    }
+
+    fn source() -> ProfilingSource<StubSource> {
+        ProfilingSource::new(StubSource {
+            len: 4,
+            distances_from_zero: vec![0.0, 1.5, 3.0, 7.0],
+        })
+    }
+
+    #[test]
+    fn new_initialises_counters_to_zero() {
+        let source = source();
+        let stats = source.take_snapshot().expect("snapshot must be available");
+
+        assert_eq!(stats.batch_calls, 0);
+        assert_eq!(stats.scalar_calls, 0);
+        assert_eq!(stats.total_batch_candidates, 0);
+        assert!(stats.batch_scoring_time.is_zero());
+        assert!(stats.batch_sizes.is_empty());
+    }
+
+    #[test]
+    fn distance_records_scalar_call_and_delegates_to_inner_source() {
+        let source = source();
+
+        assert_eq!(source.distance(0, 2).expect("distance must succeed"), 3.0);
+        let stats = source.take_snapshot().expect("snapshot must be available");
+
+        assert_eq!(stats.scalar_calls, 1);
+        assert_eq!(stats.batch_calls, 0);
+    }
+
+    #[test]
+    fn batch_distances_records_metrics_and_snapshot_resets_counters() {
+        let source = source();
+
+        let distances = source
+            .batch_distances(0, &[1, 2, 3])
+            .expect("batch distances must succeed");
+        assert_eq!(distances, vec![1.5, 3.0, 7.0]);
+
+        let stats = source.take_snapshot().expect("snapshot must be available");
+        assert_eq!(stats.batch_calls, 1);
+        assert_eq!(stats.total_batch_candidates, 3);
+        assert_eq!(stats.batch_sizes, vec![3]);
+
+        let reset = source.take_snapshot().expect("snapshot must be available");
+        assert_eq!(reset.batch_calls, 0);
+        assert_eq!(reset.total_batch_candidates, 0);
+        assert!(reset.batch_sizes.is_empty());
+    }
+}
