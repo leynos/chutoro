@@ -6,3 +6,4 @@ coverage.xml
 .memdb/
 .verus/
 *.swp
+__pycache__/

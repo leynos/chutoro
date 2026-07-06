@@ -1,4 +1,4 @@
-.PHONY: help all clean test build release typecheck lint fmt check-fmt markdownlint nixie kani kani-full verus bench
+.PHONY: help all clean test build release typecheck lint fmt check-fmt markdownlint nixie kani kani-full verus bench test-workflow-contracts
 
 export PATH := $(HOME)/.cargo/bin:$(HOME)/.bun/bin:$(PATH)
 
@@ -66,6 +66,9 @@ verus: ## Run Verus proofs for edge harvest primitives
 
 bench: ## Run Criterion benchmarks
 	$(CARGO) bench -p chutoro-benches
+
+test-workflow-contracts: ## Validate the mutation-testing caller contract
+	uv run --with 'pytest>=8' --with 'pyyaml>=6' pytest tests/workflow_contracts -q
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
