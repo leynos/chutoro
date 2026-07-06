@@ -6,18 +6,22 @@
 use std::{path::PathBuf, time::Duration};
 
 use criterion::{
-    measurement::WallTime,
     BatchSize, BenchmarkGroup, BenchmarkId, Criterion, black_box, criterion_main,
+    measurement::WallTime,
 };
 
 use chutoro_benches::{
-    criterion_support::{is_benchmark_discovery, is_cli_flag_present, register_noop_benches},
+    criterion_support::{
+        configure_short_measurement_group, is_benchmark_discovery, is_exact_benchmark_probe,
+        register_noop_benches,
+        should_short_circuit_exact_label_probe_args,
+    },
     ef_sweep::{BENCH_DIMENSIONS, BENCH_SEED, make_bench_source, make_hnsw_params_with_ef},
     error::BenchSetupError,
     params::HnswBenchParams,
-    profiling::{,
-    EdgeScalingBounds, HnswMemoryInput, HnswMemoryRecord, ProfilingError,
-    measure_peak_resident_set_size, write_hnsw_memory_report,
+    profiling::{
+        EdgeScalingBounds, HnswMemoryInput, HnswMemoryRecord, ProfilingError,
+        measure_peak_resident_set_size, write_hnsw_memory_report,
     },
     source::{
         Anisotropy, GaussianBlobConfig, ManifoldConfig, ManifoldPattern, MnistConfig,
@@ -37,8 +41,7 @@ const DIVERSE_POINT_COUNT: usize = 1_000;
 
 /// Dataset size used when nextest probes one Criterion case with `--exact`.
 const EXACT_PROBE_POINT_COUNT: usize = 100;
-/// Dataset size used when nextest probes one Criterion case with `--exact`.
-const EXACT_PROBE_POINT_COUNT: usize = 100;
+
 /// Sampling cadence for peak resident-set-size profiling.
 const MEMORY_SAMPLE_INTERVAL: Duration = Duration::from_millis(2);
 
@@ -50,6 +53,8 @@ const MEMORY_REPORT_PATH: &str = concat!(
 
 /// Multiplicative edge-scaling tolerance around `expected = n * M`.
 const EDGE_SCALING_BOUNDS: EdgeScalingBounds = EdgeScalingBounds::new(8, 8);
+
+const TEXT_LEVENSHTEIN_BENCH_LABEL: &str = "text_levenshtein";
 
 /// Creates [`HnswParams`] for the given M value with `ef = M * 2`.
 fn make_hnsw_params(m: usize) -> Result<HnswParams, BenchSetupError> {
@@ -104,10 +109,6 @@ fn panic_on_bench_build_error<B>(result: Result<B, HnswError>, context: &str) {
     }
 }
 
-fn is_exact_benchmark_probe() -> bool {
-    is_cli_flag_present("--exact")
-}
-
 fn diverse_source_point_count() -> usize {
     // Nextest discovers Criterion case names without `--exact`, so the
     // benchmark IDs still advertise the real matrix size. Only the exact probe
@@ -127,29 +128,24 @@ fn hnsw_source_point_count(point_count: usize) -> usize {
         point_count
     }
 }
+
 fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
-    group.sample_size(10);
-    if is_exact_benchmark_probe() {
-        group.warm_up_time(Duration::from_millis(1));
-        group.measurement_time(Duration::from_millis(10));
-    }
+    configure_short_measurement_group(group, 10, is_exact_benchmark_probe());
 }
 
 fn should_short_circuit_exact_text_probe(bench_label: &str) -> bool {
-    is_exact_benchmark_probe() && bench_label == "text_levenshtein"
+    should_short_circuit_exact_label_probe_args(
+        std::env::args(),
+        bench_label,
+        TEXT_LEVENSHTEIN_BENCH_LABEL,
+    )
 }
+
+#[derive(Clone, Copy)]
 struct SourceBenchSpec<'a> {
     bench_label: &'a str,
     fail_label: &'a str,
     point_count: usize,
-}
-
-const fn hnsw_bench_params(point_count: usize, m: usize) -> HnswBenchParams {
-    HnswBenchParams {
-        point_count,
-        max_connections: m,
-        ef_construction: m.saturating_mul(2),
-    }
 }
 
 fn bench_build_source<S: DataSource + Sync>(
@@ -197,11 +193,6 @@ fn bench_hnsw_build_generic<F>(
 where
     F: FnMut(&SyntheticSource, HnswParams) -> Result<(), HnswError>,
 {
-    if is_benchmark_discovery() {
-        register_hnsw_build_probe_benches(c, group_name);
-        return Ok(());
-    }
-
     let mut group = c.benchmark_group(group_name);
     configure_hnsw_group(&mut group);
 
@@ -209,7 +200,11 @@ where
         let source = make_bench_source(hnsw_source_point_count(point_count))?;
 
         for &m in MAX_CONNECTIONS {
-            let bench_params = hnsw_bench_params(point_count, m);
+            let bench_params = HnswBenchParams {
+                point_count,
+                max_connections: m,
+                ef_construction: m.saturating_mul(2),
+            };
             let params = make_hnsw_params(m)?;
 
             group.bench_with_input(
@@ -235,16 +230,6 @@ where
     Ok(())
 }
 
-fn register_hnsw_build_probe_benches(c: &mut Criterion, group_name: &str) {
-    let params = POINT_COUNTS.iter().copied().flat_map(|point_count| {
-        MAX_CONNECTIONS
-            .iter()
-            .copied()
-            .map(move |m| hnsw_bench_params(point_count, m))
-    });
-    register_noop_benches(c, group_name, params, configure_hnsw_group);
-}
-
 fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     bench_hnsw_build_generic(c, "hnsw_build", |source, params| {
         CpuHnsw::build(source, params).map(|_| ())
@@ -267,7 +252,7 @@ fn should_collect_memory_profile() -> bool {
             return true;
         }
     }
-    !is_benchmark_discovery() && !is_exact_benchmark_probe()
+    !std::env::args().any(|arg| arg == "--list" || arg == "--exact")
 }
 
 fn memory_report_path() -> PathBuf {
@@ -360,7 +345,7 @@ fn hnsw_build_diverse_sources_impl(c: &mut Criterion) -> Result<(), BenchSetupEr
     bench_build_source(
         &mut group,
         SourceBenchSpec {
-            bench_label: "text_levenshtein",
+            bench_label: TEXT_LEVENSHTEIN_BENCH_LABEL,
             fail_label: "text source",
             point_count: DIVERSE_POINT_COUNT,
         },
@@ -393,8 +378,6 @@ fn hnsw_build_diverse_sources(c: &mut Criterion) {
 }
 
 mod bench_harness {
-    //! Criterion entrypoint wiring for the HNSW benchmark groups.
-
     use super::{hnsw_build, hnsw_build_diverse_sources, hnsw_build_with_edges};
     use criterion::criterion_group;
 

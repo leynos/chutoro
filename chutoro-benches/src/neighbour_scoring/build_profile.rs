@@ -10,7 +10,28 @@ pub const BUILD_PROFILE_REPORT: &str = "neighbour_scoring_build_profile.csv";
 
 const CARGO_TARGET_DIR_ENV: &str = "CARGO_TARGET_DIR";
 const DEFAULT_REPORT_PARENT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target");
-const REPORT_DIR_NAME: &str = "benchmarks";
+/// Directory below the report parent where benchmark diagnostics are written.
+pub const REPORT_DIR_NAME: &str = "benchmarks";
+
+/// Returns whether an environment value is a truthy benchmark flag.
+///
+/// # Examples
+///
+/// ```
+/// use chutoro_benches::neighbour_scoring::truthy_env_value;
+///
+/// assert!(truthy_env_value(Some(" yes ")));
+/// assert!(!truthy_env_value(Some("false")));
+/// ```
+#[must_use]
+pub fn truthy_env_value(value: Option<&str>) -> bool {
+    value.is_some_and(|raw| {
+        matches!(
+            raw.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "on" | "yes"
+        )
+    })
+}
 
 /// Returns whether optional build-profile collection is enabled.
 ///
@@ -24,12 +45,7 @@ const REPORT_DIR_NAME: &str = "benchmarks";
 /// ```
 #[must_use]
 pub fn should_collect_build_profile_value(value: Option<&str>) -> bool {
-    value.is_some_and(|raw| {
-        matches!(
-            raw.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "on" | "yes"
-        )
-    })
+    truthy_env_value(value)
 }
 
 /// Reads the process environment and returns whether build-profile collection

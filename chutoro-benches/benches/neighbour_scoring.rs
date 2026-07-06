@@ -7,7 +7,7 @@
 use std::time::Duration;
 
 use chutoro_benches::neighbour_scoring::{
-    BUILD_PROFILE_ENV, build_profile_report_target_value, report_parent_dir,
+    BUILD_PROFILE_ENV, build_profile_report_target_value, report_parent_dir, truthy_env_value,
 };
 use chutoro_core::DataSource;
 use criterion::{
@@ -36,12 +36,7 @@ fn configure_group(group: &mut BenchmarkGroup<'_, WallTime>) {
 }
 
 fn should_use_short_measurement_value(value: Option<&str>) -> bool {
-    value.is_some_and(|raw| {
-        matches!(
-            raw.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "on" | "yes"
-        )
-    })
+    truthy_env_value(value)
 }
 
 fn should_use_short_measurement() -> bool {

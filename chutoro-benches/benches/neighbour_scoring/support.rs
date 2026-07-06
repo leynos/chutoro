@@ -10,8 +10,9 @@ use arrow_schema::{DataType, Field};
 use camino::{Utf8Path, Utf8PathBuf};
 use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_benches::neighbour_scoring::{
-    BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilisationReportRow, report_path_value,
-    sorted_median, write_build_profile_report_csv, write_lane_utilisation_report_csv,
+    BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilisationReportRow, REPORT_DIR_NAME,
+    report_path_value, sorted_median, write_build_profile_report_csv,
+    write_lane_utilisation_report_csv,
 };
 use chutoro_benches::source::{SyntheticConfig, SyntheticError, SyntheticSource};
 use chutoro_core::{CpuHnsw, DataSourceError, HnswError, HnswParams};
@@ -26,7 +27,6 @@ const DIAGNOSTIC_BUCKETS: &[usize] = &[256, 1_024];
 const BENCH_ROW_COUNT: usize = 1_025;
 const BENCH_SEED: u64 = 0xC4A7_0203_0000_0231;
 const LANE_REPORT: &str = "neighbour_scoring_lane_utilisation.csv";
-const REPORT_DIR_NAME: &str = "benchmarks";
 
 pub(super) const DIMENSIONS: &[usize] = &[32, 128, 768];
 
