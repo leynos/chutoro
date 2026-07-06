@@ -3,6 +3,7 @@
 use std::{error::Error, io, process::Command, str};
 
 const HNSW_EXACT_BENCH: &str = "hnsw_build/n=100,M=8,ef=16";
+const MST_EXACT_BENCH: &str = "parallel_kruskal/n=100";
 
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 
@@ -67,6 +68,13 @@ fn benchmark_binaries_cover_discovery_and_exact_smoke_paths() -> TestResult {
         &format!("Benchmarking {HNSW_EXACT_BENCH}"),
     );
     assert_contains(&hnsw_exact_output, "time:");
+
+    let mst_exact_output = cargo_bench_output("mst", &[MST_EXACT_BENCH, "--exact"])?;
+    assert_contains(
+        &mst_exact_output,
+        &format!("Benchmarking {MST_EXACT_BENCH}"),
+    );
+    assert_contains(&mst_exact_output, "time:");
 
     Ok(())
 }
