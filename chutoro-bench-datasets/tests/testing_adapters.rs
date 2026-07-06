@@ -2,6 +2,7 @@
 
 use bytes::Bytes;
 use camino::Utf8PathBuf;
+use cap_std::fs_utf8::Dir;
 use chutoro_bench_datasets::{
     CacheKey, FetchSizeExceeded, Fetcher, RecipeError, SourceUrl, Storage,
     testing::{FilesystemFetcher, InMemoryStorage},
@@ -53,11 +54,13 @@ fn filesystem_fetcher_rejects_invalid_file_sources(#[case] value: &str) {
 #[test]
 fn filesystem_fetcher_enforces_size_limit_during_read() {
     let root = tempfile::tempdir().expect("temporary fixture root should be created");
-    std::fs::write(root.path().join("dataset.bin"), b"abcd")
+    let root_path = utf8_path_buf(root.path()).expect("temporary path should be valid UTF-8");
+    let fixture_dir = Dir::open_ambient_dir(&root_path, cap_std::ambient_authority())
+        .expect("fixture directory should open");
+    fixture_dir
+        .write("dataset.bin", b"abcd")
         .expect("fixture file should be writable");
-    let fetcher = FilesystemFetcher::new(
-        utf8_path_buf(root.path()).expect("temporary path should be valid UTF-8"),
-    );
+    let fetcher = FilesystemFetcher::new(root_path);
     let source = SourceUrl::parse("file://dataset.bin").expect("fixture source URL should parse");
     let error = fetcher
         .fetch_bytes(&source, 3)

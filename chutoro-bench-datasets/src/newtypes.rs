@@ -310,6 +310,16 @@ impl Checksum {
     /// # Errors
     ///
     /// Always returns [`RecipeError::ChecksumUnsupported`] in this milestone.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{Checksum, RecipeError};
+    ///
+    /// let error = Checksum::parse("sha256:abc123")
+    ///     .expect_err("checksums are deferred to roadmap item 10.1.2");
+    /// assert!(matches!(error, RecipeError::ChecksumUnsupported));
+    /// ```
     #[must_use = "handle the checksum parse result"]
     pub const fn parse(_value: &str) -> Result<Self, RecipeError> {
         Err(RecipeError::ChecksumUnsupported)
@@ -373,6 +383,16 @@ pub struct PartialState {
 
 impl PartialState {
     /// Create partial state with the highest completed phase.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{PartialState, Phase};
+    ///
+    /// let state = PartialState::new(Some(Phase::Validate));
+    /// assert_eq!(state.highest_completed_phase, Some(Phase::Validate));
+    /// assert!(state.orphaned_cache_key.is_none());
+    /// ```
     #[must_use]
     pub const fn new(highest_completed_phase: Option<Phase>) -> Self {
         Self {
