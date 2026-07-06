@@ -168,11 +168,8 @@ fn build_profile_report_target_uses_expected_filename() {
     assert_eq!(actual_path.as_deref(), Some(Utf8Path::new(expected_path)));
 }
 
-#[test]
-fn build_profile_report_target_reads_cargo_target_dir_env() {
-    let _target_dir = EnvVarGuard::set("CARGO_TARGET_DIR", "/tmp/chutoro-target-dir");
-    let report_parent_dir = report_parent_dir();
-    let actual_path = build_profile_report_target_value(Some("yes"), &report_parent_dir);
+fn assert_target_path_for_dir(report_parent_dir: &Utf8Path) {
+    let actual_path = build_profile_report_target_value(Some("yes"), report_parent_dir);
 
     assert_eq!(
         actual_path.as_deref(),
@@ -183,14 +180,14 @@ fn build_profile_report_target_reads_cargo_target_dir_env() {
 }
 
 #[test]
+fn build_profile_report_target_reads_cargo_target_dir_env() {
+    let _target_dir = EnvVarGuard::set("CARGO_TARGET_DIR", "/tmp/chutoro-target-dir");
+    let report_parent_dir = report_parent_dir();
+    assert_target_path_for_dir(&report_parent_dir);
+}
+
+#[test]
 fn build_profile_report_target_honours_cargo_target_dir() {
     let report_parent_dir = report_parent_dir_value(Some("/tmp/chutoro-target-dir"));
-    let actual_path = build_profile_report_target_value(Some("yes"), &report_parent_dir);
-
-    assert_eq!(
-        actual_path.as_deref(),
-        Some(Utf8Path::new(
-            "/tmp/chutoro-target-dir/benchmarks/neighbour_scoring_build_profile.csv",
-        )),
-    );
+    assert_target_path_for_dir(&report_parent_dir);
 }
