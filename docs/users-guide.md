@@ -272,6 +272,71 @@ Choose an `ExecutionStrategy` that matches the compiled features. Allowing
 `Auto` keeps behaviour stable across builds while seamlessly adopting GPU
 support when available.
 
+## Preparing benchmark datasets
+
+The `chutoro-bench-datasets` crate provides a typed lifecycle for benchmark
+dataset preparation. It is intended for benchmark and evaluation tooling that
+needs to fetch source data, validate it, prepare benchmark-ready bytes, and
+publish a final artefact through explicit infrastructure ports.
+
+### Dataset audience and scope
+
+Use this crate when writing benchmark dataset recipes or tests around dataset
+adapters. It is not required for normal clustering with `chutoro-core`.
+
+### Adding the dataset crate
+
+Add `chutoro-bench-datasets` when the application owns dataset preparation.
+Enable the `testing` feature in tests to use in-memory and filesystem adapters.
+
+```toml
+[dependencies]
+chutoro-bench-datasets = "0.1.0"
+
+[dev-dependencies]
+chutoro-bench-datasets = { version = "0.1.0", features = ["testing"] }
+```
+
+### Dataset recipe usage pattern
+
+Implement `DatasetRecipe` for each dataset. Its associated types model the four
+ordered phases: `Fetched`, `Validated`, `Prepared`, and `Published`. Each phase
+consumes the previous phase output, so callers cannot skip validation before
+preparation at compile time.
+
+Recipes access I/O through `RecipeContext` instead of storing infrastructure
+state directly:
+
+- `Fetcher` reads declared source bytes.
+- `Storage` caches mutable intermediate artefacts.
+- `Publisher` writes the final prepared artefact.
+
+The `testing` feature exposes `InMemoryFetcher`, `InMemoryStorage`,
+`InMemoryPublisher`, `FilesystemFetcher`, and `StubRecipe` for adapter contract
+tests and lifecycle tests.
+
+```rust
+use bytes::Bytes;
+use chutoro_bench_datasets::{
+    PublishedArtefact, RecipeContext, SourceUrl, run_recipe,
+    testing::{InMemoryFetcher, InMemoryPublisher, InMemoryStorage, StubRecipe},
+};
+
+let source = SourceUrl::parse("https://example.test/dataset.bin")?;
+let fetcher = InMemoryFetcher::new([(source.clone(), Bytes::from_static(b"abc"))]);
+let storage = InMemoryStorage::default();
+let publisher = InMemoryPublisher::default();
+let ctx = RecipeContext::new(&fetcher, &storage, &publisher);
+let recipe = StubRecipe::new("example", vec![source]);
+
+let published = run_recipe(&recipe, &ctx)?;
+assert_eq!(published.manifest_uri().as_str(), "manifests/example.json");
+# Ok::<(), chutoro_bench_datasets::RecipeError>(())
+```
+
+For the design rationale behind the four-phase trait and port split, see
+[ADR-003: Benchmark dataset recipe trait](adr-003-bench-dataset-recipe-trait.md).
+
 ## Benchmarking
 
 The companion `chutoro-benches` crate ships Criterion benchmarks for the four

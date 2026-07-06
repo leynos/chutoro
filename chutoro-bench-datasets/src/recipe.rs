@@ -13,17 +13,6 @@ use crate::{
 
 /// Fetch, validate, prepare, and publish a benchmark dataset.
 ///
-/// Phases cannot be skipped because each phase consumes the previous phase's
-/// associated type:
-///
-/// ```compile_fail
-/// # use chutoro_bench_datasets::{DatasetRecipe, RecipeContext};
-/// fn assert_skip_fails<R: DatasetRecipe>(recipe: &R, ctx: &RecipeContext<'_>) {
-///     let fetched = recipe.fetch(ctx).unwrap();
-///     let _prepared = recipe.prepare(ctx, fetched);
-/// }
-/// ```
-///
 /// The valid lifecycle passes each phase output to the next phase:
 ///
 /// ```

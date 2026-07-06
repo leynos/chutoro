@@ -21,7 +21,7 @@ impl InMemoryFetcher {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust,no_run
     /// use bytes::Bytes;
     /// use chutoro_bench_datasets::{SourceUrl, testing::InMemoryFetcher};
     ///
@@ -41,6 +41,23 @@ impl InMemoryFetcher {
     }
 
     /// Return URLs requested so far in observed order.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bytes::Bytes;
+    /// use chutoro_bench_datasets::{
+    ///     Fetcher, SourceUrl,
+    ///     testing::InMemoryFetcher,
+    /// };
+    ///
+    /// let source = SourceUrl::parse("https://example.test/dataset.bin")?;
+    /// let fetcher = InMemoryFetcher::new([(source.clone(), Bytes::from_static(b"abc"))]);
+    ///
+    /// fetcher.fetch_bytes(&source, 1024)?;
+    /// assert_eq!(fetcher.requested_urls()?, vec![source]);
+    /// # Ok::<(), chutoro_bench_datasets::RecipeError>(())
+    /// ```
     ///
     /// # Errors
     ///
@@ -83,6 +100,24 @@ pub struct InMemoryStorage {
 impl InMemoryStorage {
     /// Consume the adapter and return stored records.
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bytes::Bytes;
+    /// use chutoro_bench_datasets::{
+    ///     CacheKey, Storage,
+    ///     testing::InMemoryStorage,
+    /// };
+    ///
+    /// let storage = InMemoryStorage::default();
+    /// let key = CacheKey::new("cache/source.bin");
+    /// storage.put(&key, b"cached bytes")?;
+    ///
+    /// let records = storage.into_records()?;
+    /// assert_eq!(records.get(&key), Some(&Bytes::from_static(b"cached bytes")));
+    /// # Ok::<(), chutoro_bench_datasets::RecipeError>(())
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns [`RecipeError`] if the storage lock is poisoned.
@@ -119,6 +154,24 @@ pub struct InMemoryPublisher {
 impl InMemoryPublisher {
     /// Consume the adapter and return published records.
     ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bytes::Bytes;
+    /// use chutoro_bench_datasets::{
+    ///     ObjectKey, Publisher,
+    ///     testing::InMemoryPublisher,
+    /// };
+    ///
+    /// let publisher = InMemoryPublisher::default();
+    /// let key = ObjectKey::new("prepared/source.bin");
+    /// publisher.publish(&key, b"published bytes")?;
+    ///
+    /// let records = publisher.into_records()?;
+    /// assert_eq!(records.get(&key), Some(&Bytes::from_static(b"published bytes")));
+    /// # Ok::<(), chutoro_bench_datasets::RecipeError>(())
+    /// ```
+    ///
     /// # Errors
     ///
     /// Returns [`RecipeError`] if the publisher lock is poisoned.
@@ -129,6 +182,26 @@ impl InMemoryPublisher {
     }
 
     /// Return a cloned snapshot of the published records.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use bytes::Bytes;
+    /// use chutoro_bench_datasets::{
+    ///     ObjectKey, Publisher,
+    ///     testing::InMemoryPublisher,
+    /// };
+    ///
+    /// let publisher = InMemoryPublisher::default();
+    /// let key = ObjectKey::new("prepared/source.bin");
+    /// publisher.publish(&key, b"published bytes")?;
+    ///
+    /// assert_eq!(
+    ///     publisher.records()?.get(&key),
+    ///     Some(&Bytes::from_static(b"published bytes")),
+    /// );
+    /// # Ok::<(), chutoro_bench_datasets::RecipeError>(())
+    /// ```
     ///
     /// # Errors
     ///

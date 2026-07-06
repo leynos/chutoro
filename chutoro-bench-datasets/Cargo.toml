@@ -27,6 +27,7 @@ rstest-bdd = "0.6.0-beta1"
 rstest-bdd-macros = "0.6.0-beta1"
 tempfile = "3.10"
 tracing-test = { version = "0.2", features = ["no-env-filter"] }
+trybuild = "1.0.114"
 
 [lints]
 workspace = true

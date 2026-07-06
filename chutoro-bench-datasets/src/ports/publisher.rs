@@ -19,28 +19,24 @@ use crate::{ObjectKey, RecipeError};
 /// # Examples
 ///
 /// ```
-/// # #[cfg(feature = "testing")]
-/// # {
 /// use chutoro_bench_datasets::{
-///     ObjectKey, Publisher, RecipeContext, RecipeError,
-///     testing::{InMemoryFetcher, InMemoryPublisher, InMemoryStorage},
+///     ObjectKey, Publisher, RecipeError,
 /// };
 ///
-/// # fn main() -> Result<(), RecipeError> {
-/// let fetcher = InMemoryFetcher::default();
-/// let storage = InMemoryStorage::default();
-/// let publisher = InMemoryPublisher::default();
-/// let ctx = RecipeContext::new(&fetcher, &storage, &publisher);
+/// #[derive(Debug)]
+/// struct NoopPublisher;
+///
+/// impl Publisher for NoopPublisher {
+///     fn publish(&self, _key: &ObjectKey, _bytes: &[u8]) -> Result<(), RecipeError> {
+///         Ok(())
+///     }
+/// }
+///
+/// let publisher = NoopPublisher;
 /// let key = ObjectKey::new("prepared/mnist.bin");
 ///
-/// ctx.publisher().publish(&key, b"prepared bytes")?;
-/// assert_eq!(
-///     publisher.records()?.get(&key),
-///     Some(&bytes::Bytes::from_static(b"prepared bytes")),
-/// );
-/// # Ok(())
-/// # }
-/// # }
+/// publisher.publish(&key, b"prepared bytes")?;
+/// # Ok::<(), RecipeError>(())
 /// ```
 pub trait Publisher: Send + Sync {
     /// Publish bytes at `key`.

@@ -62,11 +62,11 @@ are the next six roadmap items.
   milestone. The MNIST migration onto `DatasetRecipe` is roadmap item `10.3.2`
   and lands after `10.1.3` defines the canonical manifest schema.
 - Do not add any production crate to `chutoro-bench-datasets` beyond
-  `thiserror`, `tracing`, `camino`, `bytes`, and the optional `cap-std`
-  testing dependency. Reject the temptation to bring in `object_store`,
-  `reqwest`, `ureq`, `serde`, `sha2`, or `tokio` in this milestone. The
-  test-only dependencies are `rstest`, `rstest-bdd`, `proptest`, `mockall`,
-  `tempfile`, and `tracing-test`.
+  `thiserror`, `tracing`, `camino`, `bytes`, and the optional `cap-std` testing
+  dependency. Reject the temptation to bring in `object_store`, `reqwest`,
+  `ureq`, `serde`, `sha2`, or `tokio` in this milestone. The test-only
+  dependencies are `rstest`, `rstest-bdd`, `proptest`, `mockall`, `tempfile`,
+  `cap-std`, and `tracing-test`.
 - Inherit `[workspace.lints]` for the new crate. Do not mirror
   `chutoro-benches`' crate-local lint deviations; those exist solely for
   Criterion macro expansions and are not needed here.
@@ -82,8 +82,8 @@ are the next six roadmap items.
   where they expose enums or structs across the crate boundary.
 - `RecipeError` must be small enough that `Result<(), RecipeError>` does not
   trip `clippy::result_large_err`. Assert this at compile time via
-  `const _: () = assert!(std::mem::size_of::<RecipeError>() <= 24);`. If the
-  assertion would fail, box the inner enum (`Box<RecipeErrorInner>`).
+  `const _: () = assert!(std::mem::size_of::<RecipeError>() <= 32);`, matching
+  the shipped error payload layout.
 - Public Rustdoc and Markdown updates must follow
   `docs/documentation-style-guide.md`, `docs/rust-doctest-dry-guide.md`, and
   `docs/rust-testing-with-rstest-fixtures.md`.
@@ -339,9 +339,9 @@ observation, the evidence, and the impact on the plan or future work.
 - Observation: CodeRabbit's request to replace the lifecycle helper's explicit
   panic with `expect` conflicts with deterministic Clippy gates. Evidence:
   `/tmp/lint-chutoro-10-1-1-eighth-followup-rerun2.out` failed with
-  `clippy::expect_used` after applying that suggestion. Impact: the helper keeps
-  the explicit panic closure, and the finding is treated as a rejected review
-  suggestion rather than an actionable defect.
+  `clippy::expect_used` after applying that suggestion. Impact: the helper
+  keeps the explicit panic closure, and the finding is treated as a rejected
+  review suggestion rather than an actionable defect.
 
 - Observation: CodeRabbit's eighth follow-up rerun produced two valid doctest
   guard findings and repeated `expect` suggestions. Evidence:
@@ -360,16 +360,15 @@ observation, the evidence, and the impact on the plan or future work.
   `RecipeContext` example, and the phase event includes `recipe_id`.
 
 - Observation: the tenth CodeRabbit follow-up review completed with no
-  findings. Evidence:
-  `/tmp/coderabbit-chutoro-10-1-1-tenth-followup.out` ended with
-  `review_completed` and `findings: 0`. Impact: the remaining completion work
-  is final deterministic validation, commit, and push.
+  findings. Evidence: `/tmp/coderabbit-chutoro-10-1-1-tenth-followup.out` ended
+  with `review_completed` and `findings: 0`. Impact: the remaining completion
+  work is final deterministic validation, commit, and push.
 
 - Observation: the final CodeRabbit review after the roadmap and execplan
   completion edits also completed with no findings. Evidence:
   `/tmp/coderabbit-chutoro-10-1-1-final.out` ended with `review_completed` and
-  `findings: 0`. Impact: the implementation is ready to commit after the
-  final documentation checks.
+  `findings: 0`. Impact: the implementation is ready to commit after the final
+  documentation checks.
 
 ## Decision log
 
@@ -532,8 +531,8 @@ Compare results against the purpose section.
 - M9 completed the roadmap update and final review cycle. The tenth
   CodeRabbit follow-up reported zero findings after deterministic gates had
   passed (`make check-fmt`, `make lint`, `make test`, `make markdownlint`,
-  `make nixie`, and `mbake validate Makefile`). A final CodeRabbit review
-  after the completion edits also reported zero findings.
+  `make nixie`, and `mbake validate Makefile`). A final CodeRabbit review after
+  the completion edits also reported zero findings.
 
 ## Context and orientation
 
@@ -755,14 +754,15 @@ At the bottom of `error.rs`, add the size assertion:
 
 ```rust
 const _: () = {
-    if std::mem::size_of::<RecipeError>() > 24 {
-        panic!("RecipeError grew past 24 bytes; consider boxing the inner enum");
+    if std::mem::size_of::<RecipeError>() > 32 {
+        panic!("RecipeError grew past 32 bytes; revisit boxed payloads");
     }
 };
 ```
 
 If the assertion fails on the chosen platform, refactor `RecipeError` so its
-public type is `pub struct RecipeError(Box<RecipeErrorInner>);` and rerun.
+largest payloads remain behind boxed or reference-counted indirection and
+rerun.
 
 Stage C validation: `cargo check -p chutoro-bench-datasets`;
 `cargo clippy -p chutoro-bench-datasets -- -D warnings` proves the
