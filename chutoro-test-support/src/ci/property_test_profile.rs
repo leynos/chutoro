@@ -198,6 +198,20 @@ mod tests {
         assert_eq!(profile.cases(), 128);
     }
 
+    #[test]
+    fn load_does_not_fall_back_to_legacy_when_standard_override_is_invalid() {
+        let profile = load_with_overrides(
+            64,
+            false,
+            ProfileOverrides {
+                cases: Some("0"),
+                legacy_cases: Some("512"),
+                ..ProfileOverrides::default()
+            },
+        );
+        assert_eq!(profile.cases(), 64);
+    }
+
     #[rstest]
     #[case("0")]
     #[case("-1")]

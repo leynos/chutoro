@@ -213,6 +213,20 @@ impl SourceSpec {
     }
 
     /// Create a source specification with an explicit role.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_bench_datasets::{SourceRole, SourceSpec, SourceUrl};
+    ///
+    /// let source = SourceSpec::with_role(
+    ///     SourceUrl::parse("file://mnist-labels.bin")?,
+    ///     SourceRole::Secondary,
+    /// );
+    /// assert_eq!(source.role, SourceRole::Secondary);
+    /// assert!(source.checksum.is_none());
+    /// # Ok::<(), chutoro_bench_datasets::RecipeError>(())
+    /// ```
     #[must_use]
     pub const fn with_role(url: SourceUrl, role: SourceRole) -> Self {
         Self {
