@@ -77,12 +77,8 @@ pub(crate) fn run_idempotency_test(
     max_shrink_iters: ShrinkIterations,
     stack_size: StackSize,
 ) -> TestCaseResult {
-    run_test_with_profile(
-        cases,
-        max_shrink_iters,
-        stack_size,
-        run_idempotency_proptest_with_stack,
-    )
+    let config = idempotency_runner_config(cases, max_shrink_iters, stack_size);
+    run_test_with_config(config, run_idempotency_proptest_with_stack)
 }
 
 /// Runs a property test with the given configuration and strategy.
@@ -178,6 +174,30 @@ struct PropertyRunnerConfig {
     stack_size: StackSize,
 }
 
+/// Builds idempotency runner configuration without per-case process forking.
+///
+/// Idempotency cases are always capped at `MAX_IDEMPOTENCY_CASES` in
+/// `chutoro-core/src/hnsw/tests/property/test_runner_support/budget_selection.rs`
+/// regardless of the `PROPTEST_CASES` environment variable. Proptest's
+/// fork-based per-case process isolation therefore provides no benefit for
+/// this test while multiplying process re-exec and the 96 MiB thread-respawn
+/// cost from `spawn_with_stack` by the case count. That overhead caused
+/// `hnsw_idempotency_preserved_proptest` to exceed the 600s nextest
+/// slow-timeout override in the `property-tests-weekly` job when
+/// `CHUTORO_PBT_FORK=true`.
+fn idempotency_runner_config(
+    cases: TestCases,
+    max_shrink_iters: ShrinkIterations,
+    stack_size: StackSize,
+) -> PropertyRunnerConfig {
+    PropertyRunnerConfig {
+        cases,
+        fork: false,
+        max_shrink_iters,
+        stack_size,
+    }
+}
+
 /// Runs a property test with custom configuration parameters and stack size.
 fn run_test_with_config<F>(runner_config: PropertyRunnerConfig, runner: F) -> TestCaseResult
 where
@@ -208,4 +228,20 @@ fn run_idempotency_proptest(config: Config) -> TestCaseResult {
         "hnsw idempotency proptest",
         |(fixture, plan)| run_idempotency_property(fixture, plan),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn idempotency_runner_config_disables_forking() {
+        let config = idempotency_runner_config(
+            TestCases::new(25000),
+            ShrinkIterations::new(1024),
+            StackSize::new(96 * 1024 * 1024),
+        );
+
+        assert!(!config.fork);
+    }
 }
