@@ -236,12 +236,15 @@ mod tests {
 
     #[test]
     fn idempotency_runner_config_disables_forking() {
-        let config = idempotency_runner_config(
-            TestCases::new(25000),
-            ShrinkIterations::new(1024),
-            StackSize::new(96 * 1024 * 1024),
-        );
+        let cases = TestCases::new(25000);
+        let max_shrink_iters = ShrinkIterations::new(1024);
+        let stack_size = StackSize::new(96 * 1024 * 1024);
 
+        let config = idempotency_runner_config(cases, max_shrink_iters, stack_size);
+
+        assert_eq!(config.cases, cases);
         assert!(!config.fork);
+        assert_eq!(config.max_shrink_iters, max_shrink_iters);
+        assert_eq!(config.stack_size, stack_size);
     }
 }
