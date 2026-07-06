@@ -335,8 +335,8 @@ Done means all of the following are true:
   HNSW benchmark reporting includes elapsed time plus peak memory, memory per
   point, and memory per edge for each `M` value in `{8, 12, 16, 24}`.
 - Scaling behaviour:
-  reported edge-growth checks pass and indicate approximately linear growth
-  with `n * M`, with explicit tolerance documented in code and design docs.
+  reported edge-growth checks pass and indicate approximately linear growth with
+  `n * M`, with explicit tolerance documented in code and design docs.
 - Tests:
   new profiling tests pass, including parameterized `rstest` happy/unhappy/edge
   cases.
@@ -361,8 +361,9 @@ Planned interfaces (names may vary, intent is fixed):
 
 - A profiling entrypoint in `chutoro-benches` that executes a closure and
   returns: `elapsed_duration`, `peak_memory_bytes`, and derived metrics.
-- A scaling-validation helper that accepts `(point_count, max_connections,
-  edge_count)` and returns a pass/fail verdict with deviation detail.
+- A scaling-validation helper that accepts
+  `(point_count, max_connections, edge_count)` and returns a pass/fail verdict
+  with deviation detail.
 - Benchmark reporting that prints and/or serializes memory metrics per run in a
   stable shape for later comparison.
 

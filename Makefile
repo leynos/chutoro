@@ -23,9 +23,6 @@ all: release ## Default target builds release binary
 clean: ## Remove build artifacts
 	$(CARGO) clean
 
-typecheck: ## Typecheck workspace targets
-	$(CARGO) check --workspace --all-targets --all-features $(BUILD_JOBS)
-
 test: ## Run tests with warnings treated as errors
 	RUSTFLAGS="-D warnings" $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS)
 
@@ -35,6 +32,9 @@ target/%/$(APP): ## Build binary in debug or release mode
 lint: ## Run Clippy with warnings denied
 	RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) doc --workspace --no-deps
 	$(CARGO) clippy $(CLIPPY_FLAGS)
+
+typecheck: ## Type-check all workspace targets and features
+	$(CARGO) check --workspace --all-targets --all-features $(BUILD_JOBS)
 
 fmt: ## Format Rust and Markdown sources
 	$(CARGO) fmt --all

@@ -4,8 +4,14 @@ use rstest::rstest;
 
 const NEXTEST_CONFIG: &str = include_str!("../../.config/nextest.toml");
 const PROPERTY_TESTS_WORKFLOW: &str = include_str!("../../.github/workflows/property-tests.yml");
+const BENCHMARK_REGRESSIONS_WORKFLOW: &str =
+    include_str!("../../.github/workflows/benchmark-regressions.yml");
+const MAKEFILE: &str = include_str!("../../Makefile");
 const BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }";
+const TRYBUILD_SLOW_TIMEOUT: &str =
+    "slow-timeout = { period = \"300s\", terminate-after = 1, grace-period = \"5s\" }";
+const NESTED_BENCH_SMOKE_TIMEOUT: &str = TRYBUILD_SLOW_TIMEOUT;
 
 fn default_override_blocks() -> Vec<&'static str> {
     override_blocks("default")
@@ -23,16 +29,48 @@ fn override_blocks(profile_name: &str) -> Vec<&'static str> {
         .collect()
 }
 
-fn workflow_job_block(job: &str) -> Result<&'static str, String> {
-    let (_, rest) = PROPERTY_TESTS_WORKFLOW
-        .split_once(&format!("  {job}:"))
-        .ok_or_else(|| format!("workflow job '{job}' not found"))?;
-    let block = match rest.split_once("\n\n  ") {
+fn extract_block(
+    haystack: &'static str,
+    header: &str,
+    terminator: &str,
+    label: &str,
+) -> Result<&'static str, String> {
+    let (_, rest) = haystack
+        .split_once(header)
+        .ok_or_else(|| format!("{label} not found"))?;
+    let block = match rest.split_once(terminator) {
         Some((block, _)) => block,
         None => rest,
     };
 
     Ok(block)
+}
+
+fn workflow_job_block(job: &str) -> Result<&'static str, String> {
+    extract_block(
+        PROPERTY_TESTS_WORKFLOW,
+        &format!("  {job}:"),
+        "\n\n  ",
+        &format!("workflow job '{job}'"),
+    )
+}
+
+fn benchmark_workflow_job_block(job: &str) -> Result<&'static str, String> {
+    extract_block(
+        BENCHMARK_REGRESSIONS_WORKFLOW,
+        &format!("  {job}:"),
+        "\n\n  ",
+        &format!("benchmark workflow job '{job}'"),
+    )
+}
+
+fn make_target_block(target: &str) -> Result<&'static str, String> {
+    extract_block(
+        MAKEFILE,
+        &format!("\n{target}:"),
+        "\n\n",
+        &format!("Makefile target '{target}'"),
+    )
 }
 
 #[test]
@@ -65,6 +103,69 @@ fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
 
     let pr_job = workflow_job_block("property-tests-pr").expect("property-tests-pr job must exist");
     assert!(pr_job.contains("timeout-minutes: 20"));
+}
+
+#[test]
+fn default_profile_covers_idempotency_rstest_case_4_timeout() {
+    let override_blocks = default_override_blocks();
+    let override_present = override_blocks.into_iter().any(|block| {
+        block.contains("filter = \"test(/idempotency_rstest_cases::case_4/)\"")
+            && block.contains("period = \"180s\"")
+    });
+    assert!(override_present);
+}
+
+#[rstest]
+#[case("default")]
+#[case("ci")]
+fn nextest_profiles_keep_trybuild_timeout_guards(#[case] profile_name: &str) {
+    let override_blocks = override_blocks(profile_name);
+    let override_present = override_blocks.into_iter().any(|block| {
+        block.contains("portable_simd_gating_compile_checks")
+            && block.contains("session_api_compiles_when_cpu_feature_is_enabled")
+            && block.contains("threads-required = 4")
+            && block.contains(TRYBUILD_SLOW_TIMEOUT)
+    });
+    assert!(override_present);
+}
+
+#[test]
+fn default_profile_serializes_nested_benchmark_smoke_test() {
+    let override_blocks = default_override_blocks();
+    let override_present = override_blocks.into_iter().any(|block| {
+        block.contains("benchmark_binaries_cover_discovery_and_exact_smoke_paths")
+            && block.contains("threads-required = 8")
+            && block.contains(NESTED_BENCH_SMOKE_TIMEOUT)
+    });
+    assert!(override_present);
+}
+
+#[test]
+fn makefile_exposes_typecheck_gate() {
+    let typecheck_block = make_target_block("typecheck").expect("typecheck target must exist");
+    assert!(MAKEFILE.contains(" typecheck "));
+    assert!(typecheck_block.contains("cargo") || typecheck_block.contains("$(CARGO)"));
+    assert!(typecheck_block.contains("check --workspace --all-targets --all-features"));
+    assert!(typecheck_block.contains("$(BUILD_JOBS)"));
+}
+
+#[test]
+fn benchmark_smoke_job_covers_hnsw_exact_probe() {
+    let smoke_job =
+        benchmark_workflow_job_block("benchmark-smoke").expect("benchmark-smoke job must exist");
+
+    assert!(
+        smoke_job
+            .contains("cargo bench -p chutoro-benches --bench \"${{ matrix.bench }}\" -- --list")
+    );
+    assert!(smoke_job.contains("if: ${{ matrix.bench == 'hnsw' }}"));
+    assert!(smoke_job.contains("cargo bench -p chutoro-benches --bench hnsw --"));
+    assert!(smoke_job.contains("--exact"));
+    assert!(smoke_job.contains("/tmp/bench-smoke-${{ matrix.bench }}.log"));
+    assert!(
+        smoke_job
+            .contains("${{ matrix.bench == 'hnsw' && '/tmp/bench-smoke-hnsw-exact.log' || '' }}")
+    );
 }
 
 #[rstest]

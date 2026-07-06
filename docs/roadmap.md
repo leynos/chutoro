@@ -7,39 +7,39 @@ ______________________________________________________________________
 
 ## Benchmark dataset suite
 
-| Scale        | Dataset                                                                                                        | Size / Dim.                                | Labels / "clusters"                    | Why it's useful                                                                                                                            |
-| ------------ | -------------------------------------------------------------------------------------------------------------- | -----------------------------------------: | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Toy-Small    | [`make_blobs`](https://scikit-learn.org/stable/modules/generated/sklearn.datasets.make_blobs.html) (synthetic) | configurable                               | exact cluster IDs                      | Sanity-check end-to-end behaviour; control separation, anisotropy, imbalance, and noise.                                                   |
-| Small        | [MNIST digits](http://yann.lecun.com/exdb/mnist/)                                                              | 70k × 784                                  | 10 classes                             | Easy, well-behaved baseline for Euclidean space; also available prepackaged for ANN-Benchmarks.                                            |
-| Small        | [Fashion-MNIST](https://github.com/zalandoresearch/fashion-mnist)                                              | 70k × 784                                  | 10 classes                             | Slightly harder clusters than MNIST; drop-in replacement; HDF5 splits exist in ANN-Benchmarks.                                             |
-| Small-Medium | [CIFAR-10 / CIFAR-100](https://www.cs.toronto.edu/~kriz/cifar.html)                                            | 60k × 3×32×32                              | 10 / 100 classes                       | Labels enable testing both "coarse" and "fine" cluster granularity; embedding via a fixed CNN yields vectors.                              |
-| Medium       | [20 Newsgroups](https://scikit-learn.org/stable/datasets/real_world.html#newsgroups-dataset)                   | 18,846 docs                                | 20 topics                              | Text with clear topic labels; create vectors (e.g., TF-IDF, SBERT) then test cluster recovery.                                             |
-| Medium-Large | [RCV1-v2](https://scikit-learn.org/stable/modules/generated/sklearn.datasets.fetch_rcv1.html)                  | 804,414 docs, 103 topics                   | multilabel topics                      | Large, messy, real text; multilabel enables probing overlapping clusters; scikit-learn fetcher provides canonical split.                   |
-| Medium       | [SNAP com-Amazon](https://snap.stanford.edu/data/)                                                             | 334,863 nodes                              | product categories = communities       | Real graph with ground-truth communities for community/cluster evaluation after k-NN graph build.                                          |
-| Medium       | [SNAP com-DBLP](https://snap.stanford.edu/data/)                                                               | 317,080 nodes                              | venue-based communities                | Overlapping scientific communities; good stress for cluster quality on graph structures.                                                   |
-| Medium (bio) | [PBMC 68k (10x Genomics)](https://support.10xgenomics.com/single-cell-gene-expression/datasets)                | ~68k cells, ≫10k genes → 50d (PCA)         | cell-type labels                       | Classic scRNA-seq clustering benchmark with annotated cell types; strong test for high-dimensional distances.                              |
-| Large (ANN)  | [GloVe word vectors](https://nlp.stanford.edu/projects/glove/)                                                 | 1.18M × {25,50,100,200}                    | none (but lexical categories possible) | Covers angular distance regimes; turnkey HDF5 in ANN-Benchmarks.                                                                           |
-| Large (ANN)  | [SIFT1M](https://github.com/erikbern/ann-benchmarks)                                                           | 1,000,000 × 128                            | nn ground truth (no classes)           | De-facto Euclidean Approximate Nearest Neighbour (ANN) baseline with exact k-NN ground truth; great for graph/MST quality via k-NN recall. |
-| Large (ANN)  | [GIST1M](https://github.com/erikbern/ann-benchmarks)                                                           | 1,000,000 × 960                            | nn ground truth                        | Very high-dimensional Euclidean stress test; in ANN-Benchmarks.                                                                            |
-| XL-Billion   | [DEEP1B / BigANN](https://github.com/erikbern/ann-benchmarks)                                                  | up to 1B × 96 (Deep1B) / 128 (SIFT BigANN) | nn ground truth                        | For scale limits, memory pressure, sharding; official subsets (1M/10M/100M) and GT available.                                              |
+| Scale        | Dataset                      | Size / Dim.                                | Labels / "clusters"                    | Why it's useful                                                                                                                            |
+| ------------ | ---------------------------- | -----------------------------------------: | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Toy-Small    | `make_blobs` (synthetic)[^1] | configurable                               | exact cluster IDs                      | Sanity-check end-to-end behaviour; control separation, anisotropy, imbalance, and noise.                                                   |
+| Small        | MNIST digits[^2]             | 70k × 784                                  | 10 classes                             | Easy, well-behaved baseline for Euclidean space; also available prepackaged for ANN-Benchmarks.                                            |
+| Small        | Fashion-MNIST[^3]            | 70k × 784                                  | 10 classes                             | Slightly harder clusters than MNIST; drop-in replacement; HDF5 splits exist in ANN-Benchmarks.                                             |
+| Small-Medium | CIFAR-10 / CIFAR-100[^4]     | 60k × 3×32×32                              | 10 / 100 classes                       | Labels enable testing both "coarse" and "fine" cluster granularity; embedding via a fixed CNN yields vectors.                              |
+| Medium       | 20 Newsgroups[^5]            | 18,846 docs                                | 20 topics                              | Text with clear topic labels; create vectors (e.g., TF-IDF, SBERT) then test cluster recovery.                                             |
+| Medium-Large | RCV1-v2[^6]                  | 804,414 docs, 103 topics                   | multilabel topics                      | Large, messy, real text; multilabel enables probing overlapping clusters; scikit-learn fetcher provides canonical split.                   |
+| Medium       | SNAP com-Amazon[^7]          | 334,863 nodes                              | product categories = communities       | Real graph with ground-truth communities for community/cluster evaluation after k-NN graph build.                                          |
+| Medium       | SNAP com-DBLP[^7]            | 317,080 nodes                              | venue-based communities                | Overlapping scientific communities; good stress for cluster quality on graph structures.                                                   |
+| Medium (bio) | PBMC 68k (10x Genomics)[^8]  | ~68k cells, ≫10k genes → 50d (PCA)         | cell-type labels                       | Classic scRNA-seq clustering benchmark with annotated cell types; strong test for high-dimensional distances.                              |
+| Large (ANN)  | GloVe word vectors[^9]       | 1.18M × {25,50,100,200}                    | none (but lexical categories possible) | Covers angular distance regimes; turnkey HDF5 in ANN-Benchmarks.                                                                           |
+| Large (ANN)  | SIFT1M[^10]                  | 1,000,000 × 128                            | nn ground truth (no classes)           | De-facto Euclidean Approximate Nearest Neighbour (ANN) baseline with exact k-NN ground truth; great for graph/MST quality via k-NN recall. |
+| Large (ANN)  | GIST1M[^10]                  | 1,000,000 × 960                            | nn ground truth                        | Very high-dimensional Euclidean stress test; in ANN-Benchmarks.                                                                            |
+| XL-Billion   | DEEP1B / BigANN[^10]         | up to 1B × 96 (Deep1B) / 128 (SIFT BigANN) | nn ground truth                        | For scale limits, memory pressure, sharding; official subsets (1M/10M/100M) and GT available.                                              |
 
 _Table 1: Benchmark datasets by scale, with dimensions, labels, and rationale._
 
 Provenance notes:
 
-- `make_blobs`: BSD-3 via scikit-learn.
-- MNIST digits: Yann LeCun; permissive distribution.
-- Fashion-MNIST: MIT licence from Zalando.
-- CIFAR-10/100: MIT licence; provided by Krizhevsky et al.
-- 20 Newsgroups: by Ken Lang; available via scikit-learn fetcher.
-- RCV1-v2: Reuters licence; fetched with scikit-learn.
-- SNAP com-Amazon: Stanford SNAP dataset under CC BY-SA.
-- SNAP com-DBLP: Stanford SNAP dataset under CC BY-SA.
-- PBMC 68k: 10x Genomics, CC BY 4.0.
-- GloVe word vectors: Stanford NLP, public domain.
-- SIFT1M: ANN-Benchmarks HDF5 package.
-- GIST1M: ANN-Benchmarks HDF5 package.
-- DEEP1B/BigANN: ANN-Benchmarks HDF5 package.
+- `make_blobs`: BSD-3 via scikit-learn.[^1]
+- MNIST digits: Yann LeCun; permissive distribution.[^2]
+- Fashion-MNIST: MIT licence from Zalando.[^3]
+- CIFAR-10/100: MIT licence; provided by Krizhevsky et al.[^4]
+- 20 Newsgroups: by Ken Lang; available via scikit-learn fetcher.[^5]
+- RCV1-v2: Reuters licence; fetched with scikit-learn.[^6]
+- SNAP com-Amazon: Stanford SNAP dataset under CC BY-SA.[^7]
+- SNAP com-DBLP: Stanford SNAP dataset under CC BY-SA.[^7]
+- PBMC 68k: 10x Genomics, CC BY 4.0.[^8]
+- GloVe word vectors: Stanford NLP, public domain.[^9]
+- SIFT1M: ANN-Benchmarks HDF5 package.[^10]
+- GIST1M: ANN-Benchmarks HDF5 package.[^10]
+- DEEP1B/BigANN: ANN-Benchmarks HDF5 package.[^10]
 
 ### How to use them (minimal ceremony)
 
@@ -63,6 +63,22 @@ Provenance notes:
   SNAP com-Amazon/com-DBLP, SIFT1M.
 - **Scale and memory (days):** GIST1M, GloVe-200d, DEEP10M/100M, and
   DEEP1B/BigANN for the most demanding scale.
+
+[^1]: scikit-learn — make_blobs —
+  <https://scikit-learn.org/stable/modules/generated/sklearn.datasets.make_blobs.html>
+[^2]: MNIST database — <http://yann.lecun.com/exdb/mnist/>
+[^3]: Fashion-MNIST — <https://github.com/zalandoresearch/fashion-mnist>
+[^4]: CIFAR-10/100 — <https://www.cs.toronto.edu/~kriz/cifar.html>
+[^5]: 20 Newsgroups —
+  <https://scikit-learn.org/stable/datasets/real_world.html#newsgroups-dataset>
+[^6]: RCV1-v2 —
+  <https://scikit-learn.org/stable/modules/generated/sklearn.datasets.fetch_rcv1.html>
+[^7]: SNAP datasets — <https://snap.stanford.edu/data/>
+[^8]: PBMC 68k —
+  <https://support.10xgenomics.com/single-cell-gene-expression/datasets>
+[^9]: GloVe vectors — <https://nlp.stanford.edu/projects/glove/>
+[^10]: ANN-Benchmarks datasets —
+  <https://github.com/erikbern/ann-benchmarks>
 
 ______________________________________________________________________
 
@@ -290,8 +306,8 @@ ______________________________________________________________________
       lands so that the current `max_connections >= 16` guard can be
       tightened.
 
-**Exit criteria:** 100k × D vectors complete in minutes on CPU; memory bounded
-≈ `n*M` edges; ARI/NMI within acceptable band vs reference. (See §6.2)
+**Exit criteria:** 100k × D vectors complete in minutes on CPU; memory bounded ≈
+`n*M` edges; ARI/NMI within acceptable band vs reference. (See §6.2)
 
 ______________________________________________________________________
 
@@ -775,8 +791,8 @@ ______________________________________________________________________
   standard refresh path. Expose `SessionConfig` options for automatic
   full-refresh triggers: (a) cumulative appended point fraction exceeding a
   configurable threshold (default 25% of total dataset); (b) ARI/NMI
-  degradation trigger—add `SessionConfig` fields `ari_threshold` (default
-  0.92), `nmi_threshold` (default 0.92), and `enable_ari_nmi_trigger` (default
+  degradation trigger—add `SessionConfig` fields `ari_threshold` (default 0.92),
+  `nmi_threshold` (default 0.92), and `enable_ari_nmi_trigger` (default
   `false`); when enabled, the refresh decision path computes current ARI/NMI
   against the baseline snapshot and invokes `refresh_full()` when either metric
   drops below its configured threshold; (c) caller request via explicit
@@ -1045,8 +1061,8 @@ ______________________________________________________________________
   `docs/chutoro-design.md` §14.3)
 - [ ] 13.2.2. Implement `mst_edges_for` on `ClusteringSession`,
   accepting a slice of point indices and returning a `Vec<MstEdge>` containing
-  MST edges where at least one endpoint belongs to the specified index set.
-  (See `docs/chutoro-design.md` §14.3)
+  MST edges where at least one endpoint belongs to the specified index set. (See
+  `docs/chutoro-design.md` §14.3)
 - [ ] 13.2.3. Add tests verifying that exported slices are read-only
   copies (mutating the returned vectors does not affect session state) and that
   edge counts are consistent with the global MST. Requires 13.2.1, 13.2.2.

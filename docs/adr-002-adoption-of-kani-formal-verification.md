@@ -118,8 +118,7 @@ tests, with any proof effort focused on the pure host planner around them.
   planned for a future phase once harness stability is validated
 - **Scope limited**: Focus on the bidirectional links invariant on bounded graph
   configurations and dense SIMD boundary contracts (including selector and
-  tail-padding invariants); other invariants follow validating the
-  approach
+  tail-padding invariants); other invariants follow validating the approach
 
 ## Findings to Date
 
@@ -184,7 +183,7 @@ demonstrates:
 - The reconciliation coverage is split into a practical 2-node harness that
   calls `ensure_reverse_edge_for_kani` (wrapping
   `EdgeReconciler::ensure_reverse_edge`) and a heavier 3-node harness that calls
-   `apply_reconciled_update_for_kani` (which exercises removed-edge
+  `apply_reconciled_update_for_kani` (which exercises removed-edge
   reconciliation, added-edge reconciliation, and deferred scrubs).
 - A targeted mutation test that skips inserting the reverse edge causes the
   2-node reconciliation harness to fail with "bidirectional invariant violated

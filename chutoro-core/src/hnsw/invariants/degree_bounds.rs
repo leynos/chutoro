@@ -1,3 +1,11 @@
+//! Node degree-bound checks for the HNSW invariants suite.
+//!
+//! This module exports `check_degree_bounds`, which validates each node's
+//! neighbour count against the base-layer and upper-layer limits from
+//! `HnswParams`. It complements `layer_consistency.rs`, which validates
+//! whether those neighbours refer to valid layers, and `tests.rs`, which
+//! exercises both invariant checks through shared graph fixtures.
+
 use super::{EvaluationMode, GraphContext, HnswInvariantViolation};
 
 pub(super) fn check_degree_bounds(

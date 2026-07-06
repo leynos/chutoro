@@ -1,9 +1,8 @@
 # Implement `ClusteringSession::append`
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -49,8 +48,8 @@ cluster identity.
 - Keep the session CPU-only behind the existing `cpu` feature gate. Do not add
   a GPU session path in this item.
 - Do not add a new production dependency. The original task instructions
-  authorize `rstest-bdd` where applicable, so adding it as a dev-dependency
-  for a justified behavioural test does not require a separate approval gate.
+  authorize `rstest-bdd` where applicable, so adding it as a dev-dependency for
+  a justified behavioural test does not require a separate approval gate.
 - Keep files below 400 lines. If `chutoro-core/src/session/mod.rs` or
   `chutoro-core/src/session/tests.rs` would exceed that limit, split the module
   before adding more code.
@@ -141,8 +140,7 @@ cluster identity.
 - [x] (2026-05-19 00:00Z) Reviewed `AGENTS.md`, `Makefile`,
   `docs/roadmap.md`, `docs/chutoro-design.md` §12.3-§12.4,
   `docs/property-testing-design.md`,
-  `docs/rust-testing-with-rstest-fixtures.md`,
-  `docs/rust-doctest-dry-guide.md`,
+  `docs/rust-testing-with-rstest-fixtures.md`, `docs/rust-doctest-dry-guide.md`,
   `docs/complexity-antipatterns-and-refactoring-strategies.md`,
   `docs/users-guide.md`, and `docs/developers-guide.md`.
 - [x] (2026-05-19 00:00Z) Used a Wyvern agent team to inspect the implementation
@@ -162,9 +160,9 @@ cluster identity.
   `ClusteringSession` and `CpuHnsw::insert_harvesting` surfaces, and loaded
   `rust-errors` for the HNSW-to-session error mapping boundary.
 - [x] (2026-05-20 00:00Z) Added red append tests in
-  `chutoro-core/src/session/tests.rs`; targeted `cargo test -p chutoro-core
-  session::tests::append --all-features` failed on the missing `append` method
-  and `pending_edges` field as expected.
+  `chutoro-core/src/session/tests.rs`; targeted
+  `cargo test -p chutoro-core session::tests::append --all-features` failed on
+  the missing `append` method and `pending_edges` field as expected.
 - [x] (2026-05-20 00:00Z) Implemented `ClusteringSession::append`, direct
   source-index validation, HNSW error mapping, and source-sized session HNSW
   capacity.
@@ -229,9 +227,8 @@ cluster identity.
   against `source.len()` before calling `insert_harvesting`.
 
 - Observation: `rstest-bdd` `0.6.0-beta1` exposes runtime helpers through
-  `rstest-bdd` and attribute macros through the companion
-  `rstest-bdd-macros` crate. The behavioural test therefore needs both
-  dev-dependencies.
+  `rstest-bdd` and attribute macros through the companion `rstest-bdd-macros`
+  crate. The behavioural test therefore needs both dev-dependencies.
 
 - Observation: CodeRabbit correctly flagged that malformed Gherkin parameters
   should not be represented as `ChutoroError::CpuHnswFailure`. The behavioural
@@ -553,13 +550,13 @@ plan or implementation.
 ## Outcomes & Retrospective
 
 Roadmap item `11.1.3` is implemented. `ClusteringSession::append` now accepts a
-slice of source indices, validates each index against the backing
-`DataSource`, inserts through `CpuHnsw::insert_harvesting`, and accumulates all
-harvested `CandidateEdge` values in the session's private `pending_edges`
-buffer. Empty appends are no-ops. Duplicate and structural HNSW failures
-surface as `ChutoroError::CpuHnswFailure`; out-of-bounds source indices surface
-as `ChutoroError::DataSource`. The method is intentionally fail-fast with
-partial progress.
+slice of source indices, validates each index against the backing `DataSource`,
+inserts through `CpuHnsw::insert_harvesting`, and accumulates all harvested
+`CandidateEdge` values in the session's private `pending_edges` buffer. Empty
+appends are no-ops. Duplicate and structural HNSW failures surface as
+`ChutoroError::CpuHnswFailure`; out-of-bounds source indices surface as
+`ChutoroError::DataSource`. The method is intentionally fail-fast with partial
+progress.
 
 Validation covered targeted red/green tests, `rstest` unit tests, one
 `proptest` sequence property with a saved regression seed, `rstest-bdd`

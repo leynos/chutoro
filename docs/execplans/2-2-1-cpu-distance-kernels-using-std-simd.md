@@ -139,8 +139,8 @@ Success is observable when:
 
 - Decision: implement SIMD kernels first for dense Euclidean distance batches
   and keep non-dense providers on scalar fallback. Rationale: dense numeric
-  data is the target for SIMD wins, and this keeps scope bounded to roadmap
-  item `2.2.1`. Date/Author: 2026-03-02 / Codex.
+  data is the target for SIMD wins, and this keeps scope bounded to roadmap item
+  `2.2.1`. Date/Author: 2026-03-02 / Codex.
 
 - Decision: keep AVX2/AVX-512 dispatch internal to dense provider internals and
   avoid introducing new Cargo feature flags in this item. Rationale:

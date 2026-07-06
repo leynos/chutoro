@@ -204,8 +204,7 @@ Use these skills:
 - [x] (2026-05-24) Stage E: updated `docs/chutoro-design.md`,
   `docs/developers-guide.md`, and
   `docs/adr-002-adoption-of-kani-formal-verification.md`; update
-  `docs/users-guide.md` was not needed because public behaviour did not
-  change.
+  `docs/users-guide.md` was not needed because public behaviour did not change.
 - [x] (2026-05-24) Stage F: ran focused proof/test commands, focused
   Markdown lint, `make kani`, `make check-fmt`, `make lint`, and `make test`.
 - [x] (2026-05-24) Stage G review gate: ran `coderabbit review --agent` after
@@ -231,9 +230,9 @@ Use these skills:
   `/tmp/check-fmt-chutoro-2-2-7-hnsw-model-fix.out`,
   `/tmp/lint-chutoro-2-2-7-hnsw-model-fix.out`, and
   `/tmp/test-chutoro-2-2-7-hnsw-model-fix.out`. CodeRabbit review completed
-  with zero findings and log `/tmp/coderabbit-chutoro-2-2-7-hnsw-model-fix.out`.
-  Markdown lint succeeded with log
-  `/tmp/markdownlint-chutoro-2-2-7-hnsw-model-fix-final.out`.
+  with zero findings and log
+  `/tmp/coderabbit-chutoro-2-2-7-hnsw-model-fix.out`. Markdown lint succeeded
+  with log `/tmp/markdownlint-chutoro-2-2-7-hnsw-model-fix-final.out`.
 - [x] (2026-06-03) Follow-up aggregate check: a post-fix `make kani-full` run
   was stopped after 21 minutes with log
   `/tmp/kani-full-chutoro-2-2-7-after-hnsw-model-fix.out`. It moved beyond the
@@ -250,8 +249,7 @@ Use these skills:
   passed with log
   `/tmp/llvm-cov-nextest-functional-ari-nmi-case1-repeat-01fce9a3-5c00-42cb-946f-076de14bd644.out`.
 - [x] (2026-06-03) Follow-up validation: `make check-fmt`, `make lint`, and
-  `make test` succeeded with logs
-  `/tmp/check-fmt-chutoro-2-2-7-ci-ari-fix.out`,
+  `make test` succeeded with logs `/tmp/check-fmt-chutoro-2-2-7-ci-ari-fix.out`,
   `/tmp/lint-chutoro-2-2-7-ci-ari-fix.out`, and
   `/tmp/test-chutoro-2-2-7-ci-ari-fix.out`. CodeRabbit review completed with
   zero findings and log `/tmp/coderabbit-chutoro-2-2-7-ci-ari-fix.out`.
@@ -365,11 +363,11 @@ the timestamped progress entries above:
 
 - Discovery: A post-fix aggregate `make kani-full` run confirmed that the
   entry-point and neighbour-uniqueness blockers were cleared, then spent the
-  remaining time in `verify_no_self_loops_4_nodes`. The trace repeatedly
-  unwound `hnsw::invariants::helpers::has_no_self_loops`,
-  `Node::iter_neighbours`, and `Graph::nodes_iter`. Any further aggregate Kani
-  work should model the no-self-loop invariant at a fixed-size proof boundary
-  rather than traversing heap-backed graph storage and iterator adapters.
+  remaining time in `verify_no_self_loops_4_nodes`. The trace repeatedly unwound
+  `hnsw::invariants::helpers::has_no_self_loops`, `Node::iter_neighbours`, and
+  `Graph::nodes_iter`. Any further aggregate Kani work should model the
+  no-self-loop invariant at a fixed-size proof boundary rather than traversing
+  heap-backed graph storage and iterator adapters.
 
 ## Decision log
 
@@ -417,29 +415,29 @@ the timestamped progress entries above:
 
 - Decision: Extract the entry-promotion predicate and have
   `verify_entry_point_validity_4_nodes` prove it with a fixed-size stack model
-  rather than heap-backed `Graph`/`Node` storage. Rationale: the invariant under
-  this harness is that the entry point references one of the inserted nodes and
-  has a maximal level after promotion. Sharing the production predicate keeps
-  the proof connected to production behaviour while avoiding solver-heavy
-  allocation, formatting, and iterator paths. Date/Author: 2026-06-03 / Codex.
+  rather than heap-backed `Graph`/`Node` storage. Rationale: the invariant
+  under this harness is that the entry point references one of the inserted
+  nodes and has a maximal level after promotion. Sharing the production
+  predicate keeps the proof connected to production behaviour while avoiding
+  solver-heavy allocation, formatting, and iterator paths. Date/Author:
+  2026-06-03 / Codex.
 
 - Decision: Replace `verify_neighbour_uniqueness_4_nodes` with a fixed-size
-  neighbour-list model for add-if-missing semantics. Rationale: the graph-backed
-  harness proved the same uniqueness invariant only after traversing
-  heap-backed graph construction, reconciliation, slice membership, and
-  allocator paths. The model keeps duplicate neighbour slots representable,
+  neighbour-list model for add-if-missing semantics. Rationale: the
+  graph-backed harness proved the same uniqueness invariant only after
+  traversing heap-backed graph construction, reconciliation, slice membership,
+  and allocator paths. The model keeps duplicate neighbour slots representable,
   drives nondeterministic reciprocal edge additions, and verifies that
   add-if-missing semantics cannot introduce duplicate entries. Date/Author:
   2026-06-03 / Codex.
 
 - Decision: Harden the `functional_ari_nmi` approximate path with high-recall
-  HNSW parameters instead of lowering the iris ARI/Normalized Mutual Information
-  (NMI) threshold. Rationale: the CI failure showed a legitimate low-quality
-  approximate graph on the fuzzy iris
-  dataset, while the test is intended to compare exact and approximate
-  clustering quality. Stronger deterministic HNSW parameters preserve that
-  quality contract and avoid accepting weaker clustering as success.
-  Date/Author: 2026-06-03 / Codex.
+  HNSW parameters instead of lowering the iris ARI/Normalized Mutual
+  Information (NMI) threshold. Rationale: the CI failure showed a legitimate
+  low-quality approximate graph on the fuzzy iris dataset, while the test is
+  intended to compare exact and approximate clustering quality. Stronger
+  deterministic HNSW parameters preserve that quality contract and avoid
+  accepting weaker clustering as success. Date/Author: 2026-06-03 / Codex.
 
 ## Plan of work
 
@@ -578,10 +576,9 @@ are `make kani`, `make kani-full`, `make check-fmt`, `make lint`, and
 - `make kani` succeeded on 2026-05-24 with log
   `/tmp/kani-chutoro-2-2-7-after-core-fmt-removal.out`.
 - `make kani-full` did not pass. Logs:
-  `/tmp/kani-full-chutoro-2-2-7.out`,
-  `/tmp/kani-full-chutoro-2-2-7-rerun.out`, and
-  `/tmp/kani-full-chutoro-2-2-7-second-rerun.out`. The first two attempts hit
-  Kani `0.67.0` compiler panics in existing assertion helpers; those helper
+  `/tmp/kani-full-chutoro-2-2-7.out`, `/tmp/kani-full-chutoro-2-2-7-rerun.out`,
+  and `/tmp/kani-full-chutoro-2-2-7-second-rerun.out`. The first two attempts
+  hit Kani `0.67.0` compiler panics in existing assertion helpers; those helper
   patterns were repaired. The final run exposed an unrelated existing
   `verify_cosine_zero_on_identical_3d` proof failure in `chutoro-core`.
 - Focused Markdown lint for the four changed documentation files succeeded on
@@ -599,8 +596,7 @@ are `make kani`, `make kani-full`, `make check-fmt`, `make lint`, and
 - `make check-fmt` succeeded on 2026-05-24 with log
   `/tmp/check-fmt-chutoro-2-2-7-final2.out`.
 - Focused Markdown lint for the changed documentation files succeeded on
-  2026-05-24 with log
-  `/tmp/markdownlint-focused-chutoro-2-2-7-final.out`.
+  2026-05-24 with log `/tmp/markdownlint-focused-chutoro-2-2-7-final.out`.
 - `make lint` succeeded on 2026-05-24 with log
   `/tmp/lint-chutoro-2-2-7-final.out`.
 - `make test` succeeded on 2026-05-24 with log

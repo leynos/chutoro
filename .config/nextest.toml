@@ -56,6 +56,12 @@ filter = "test(/build_with_edges_edges_sorted_by_sequence/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
+# Idempotency rstest case_4 can exceed 60s under llvm-cov instrumentation
+# despite a tiny 16-vector fixture, matching the edge harvest case_4 precedent.
+filter = "test(/idempotency_rstest_cases::case_4/)"
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
 # Mutation proptest can exceed the default timeout under parallel load.
 filter = "test(/hnsw_mutations_preserve_invariants_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
@@ -72,6 +78,20 @@ filter = "test(/hnsw_pipeline_matches_exact_baseline::case_/)"
 threads-required = 4
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 retries = 1
+
+[[profile.default.overrides]]
+# Trybuild compile checks build fixture crates in isolated target directories
+# and can exceed the generic 60s timeout on shared developer machines.
+filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled/)"
+threads-required = 4
+slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
+# Benchmark smoke integration coverage runs nested cargo bench commands and
+# should not overlap with other expensive benchmark targets.
+filter = "test(/benchmark_binaries_cover_discovery_and_exact_smoke_paths/)"
+threads-required = 8
+slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 
 [profile.ci]
 inherits = "default"
@@ -111,3 +131,10 @@ filter = "test(/hnsw_pipeline_matches_exact_baseline::case_/)"
 threads-required = 4
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 retries = 1
+
+[[profile.ci.overrides]]
+# Trybuild compile checks build fixture crates in isolated target directories
+# and can exceed the generic 60s timeout on shared runners.
+filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled/)"
+threads-required = 4
+slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }

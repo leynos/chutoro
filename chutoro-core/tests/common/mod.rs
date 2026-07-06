@@ -1,3 +1,10 @@
+//! Shared fixtures for `chutoro-core` integration tests.
+//!
+//! This module exports the `Dummy` `DataSource` fixture used by integration
+//! tests to supply small in-memory scalar datasets with deterministic absolute
+//! distance semantics. It keeps common test scaffolding beside the integration
+//! test crates that exercise the public `chutoro-core` API.
+
 use chutoro_core::{DataSource, DataSourceError};
 
 #[derive(Clone)]

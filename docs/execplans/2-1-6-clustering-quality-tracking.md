@@ -84,8 +84,8 @@ Success is observable when:
 
 - Risk: optional quality pass may run during `--list`/`--exact` discovery and
   slow nextest/bench harness workflows. Severity: medium. Likelihood: medium.
-  Mitigation: mirror the existing gating pattern used by memory/recall
-  reporting (`--list`, `--exact`, and explicit env var overrides).
+  Mitigation: mirror the existing gating pattern used by memory/recall reporting
+  (`--list`, `--exact`, and explicit env var overrides).
 
 ## Progress
 

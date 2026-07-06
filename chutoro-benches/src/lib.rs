@@ -5,6 +5,7 @@
 //! MST computation, and hierarchy extraction.
 
 pub mod clustering_quality;
+pub mod criterion_support;
 pub mod ef_sweep;
 pub mod error;
 pub mod params;

@@ -1,9 +1,8 @@
 # Define `SessionConfig` and add `ChutoroBuilder::build_session`
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work
-proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 Status: COMPLETE
 
@@ -18,8 +17,8 @@ Deliver roadmap item `11.1.2` by introducing a public session-oriented
 configuration surface for incremental clustering. After this change,
 `ChutoroBuilder` will be able to derive a validated `SessionConfig` containing
 the session-relevant clustering knobs, and `ChutoroBuilder::build_session(...)`
-will return an empty `ClusteringSession` that is ready for later roadmap work
-on `append`, `refresh`, and batch bootstrap.
+will return an empty `ClusteringSession` that is ready for later roadmap work on
+`append`, `refresh`, and batch bootstrap.
 
 Success is visible when:
 
@@ -368,8 +367,8 @@ pub struct ClusteringSession<D: DataSource + Sync> {
 
 For `11.1.2`, initialize it in an empty state:
 
-- `index` via `CpuHnsw::with_capacity(config.hnsw_params().clone(),
-  source.len().max(1))`;
+- `index` via
+  `CpuHnsw::with_capacity(config.hnsw_params().clone(), source.len().max(1))`;
 - all edge/core-distance vectors empty;
 - `labels` empty;
 - `snapshot_version == 0`;
@@ -386,8 +385,8 @@ Do not add append, refresh, or source-mutation methods yet.
 
 ### Stage C: document and test the API thoroughly
 
-Add integration tests in a dedicated session-focused file instead of
-overloading `chutoro-core/tests/chutoro.rs`. The expected coverage is:
+Add integration tests in a dedicated session-focused file instead of overloading
+`chutoro-core/tests/chutoro.rs`. The expected coverage is:
 
 1. builder defaults now include default session/HNSW values;
 2. `build_session` derives `SessionConfig` correctly from parameterized

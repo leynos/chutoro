@@ -216,7 +216,8 @@ When adding a new dense SIMD backend or Euclidean kernel:
    layout, lane width, or input hazard that the existing generators do not
    cover.
 4. Run `cargo nextest run -p chutoro-providers-dense simd::tests::parity::`
-   before the full `make check-fmt`, `make lint`, and `make test` gates.
+   before the full `make check-fmt`, `make lint`, `make typecheck`, and
+   `make test` gates.
 
 If proptest records a regression, keep the generated file under the relevant
 `proptest-regressions/` directory. That file is the shrunk counterexample and

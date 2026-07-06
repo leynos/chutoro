@@ -1,7 +1,6 @@
 # Debugging plan: `make kani-full` hierarchical navigable small world (HNSW) non-completion
 
-**Generated**: 2026-06-03  
-**Issue ID**: 2.2.7 follow-up verification  
+**Generated**: 2026-06-03 **Issue ID**: 2.2.7 follow-up verification
 **Severity**: Medium
 
 ## Problem statement
@@ -9,8 +8,8 @@
 `make kani-full` does not currently complete within the available command
 budget on this branch. The expected behaviour is that the full Kani tier either
 verifies all harnesses or fails with a concrete counter-example. The observed
-run was stopped while the Bounded Model Checker for C (CBMC) was checking the HNSW
-`verify_entry_point_validity_4_nodes` harness and repeatedly unwinding Rust
+run was stopped while the Bounded Model Checker for C (CBMC) was checking the
+HNSW `verify_entry_point_validity_4_nodes` harness and repeatedly unwinding Rust
 `core::str` panic/slice-error formatting paths.
 
 ## Context summary
@@ -112,8 +111,8 @@ slice-error and panic formatting paths, while `is_entry_point_valid` is a small
 boolean predicate.
 
 **Prediction**: If this hypothesis holds, the H1 or full-run logs will contain
-panic/string formatting paths, and the harness or construction path will contain
-panic-capable calls before the invariant assertion.
+panic/string formatting paths, and the harness or construction path will
+contain panic-capable calls before the invariant assertion.
 
 #### H2 falsification plan
 
@@ -153,8 +152,8 @@ itself prove causality.
 **Claim**: The non-completion is caused by the new dense SIMD Kani harnesses or
 nearby dense-provider changes rather than by the HNSW full-tier harness.
 
-**Plausibility**: Low. The stopped full run was in `chutoro-core`, not the dense
-provider, and the dense harnesses had passed in earlier targeted runs.
+**Plausibility**: Low. The stopped full run was in `chutoro-core`, not the
+dense provider, and the dense harnesses had passed in earlier targeted runs.
 
 **Prediction**: If this hypothesis holds, at least one targeted dense SIMD
 harness will fail or reproduce the same non-completion pattern.
@@ -188,9 +187,9 @@ not rule out every possible branch interaction, but it would rule out the
 targeted dense harnesses as the immediate failing checks.
 
 **Execution status**: Falsified for the targeted dense SIMD harnesses. The bare
-Kani command first failed before verification because `kani-compiler` could
-not load `libLLVM.so.21.1-rust-1.93.0-nightly`; Laplace reran with Kani's
-toolchain library path on `LD_LIBRARY_PATH`. Both reruns succeeded:
+Kani command first failed before verification because `kani-compiler` could not
+load `libLLVM.so.21.1-rust-1.93.0-nightly`; Laplace reran with Kani's toolchain
+library path on `LD_LIBRARY_PATH`. Both reruns succeeded:
 
 - `/tmp/kani-h3-dense-dispatch.out`: `VERIFICATION:- SUCCESSFUL`.
 - `/tmp/kani-h3-dense-tail.out`: `VERIFICATION:- SUCCESSFUL`.
@@ -255,12 +254,12 @@ conditions.
 
 ## Current conclusion
 
-The likely immediate blocker is the HNSW
-`verify_entry_point_validity_4_nodes` full-tier harness. The dense SIMD 2.2.7
-harnesses are not the direct cause, and the run does not appear to be blocked by
-obvious resource contention. The strongest surviving theory is that the HNSW
-harness construction leaves panic-capable paths available to Kani, causing CBMC
-to spend the budget in Rust `core::str` panic and slice-error formatting.
+The likely immediate blocker is the HNSW `verify_entry_point_validity_4_nodes`
+full-tier harness. The dense SIMD 2.2.7 harnesses are not the direct cause, and
+the run does not appear to be blocked by obvious resource contention. The
+strongest surviving theory is that the HNSW harness construction leaves
+panic-capable paths available to Kani, causing CBMC to spend the budget in Rust
+`core::str` panic and slice-error formatting.
 
 ## Notes for executing agent
 
