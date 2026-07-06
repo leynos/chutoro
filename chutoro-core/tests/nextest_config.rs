@@ -11,8 +11,7 @@ const BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }";
 const TRYBUILD_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"300s\", terminate-after = 1, grace-period = \"5s\" }";
-const NESTED_BENCH_SMOKE_TIMEOUT: &str =
-    "slow-timeout = { period = \"300s\", terminate-after = 1, grace-period = \"5s\" }";
+const NESTED_BENCH_SMOKE_TIMEOUT: &str = TRYBUILD_SLOW_TIMEOUT;
 
 fn default_override_blocks() -> Vec<&'static str> {
     override_blocks("default")

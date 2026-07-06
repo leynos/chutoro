@@ -46,12 +46,15 @@ fn assert_absent(haystack: &str, needle: &str) {
 #[test]
 fn benchmark_binaries_cover_discovery_and_exact_smoke_paths() -> TestResult {
     let hnsw_list_output = cargo_bench_output("hnsw", &["--list"])?;
-    assert_contains(&hnsw_list_output, "hnsw_build/n=100,M=8,ef=16: benchmark");
+    assert_contains(&hnsw_list_output, &format!("{HNSW_EXACT_BENCH}: benchmark"));
     assert_contains(
         &hnsw_list_output,
         "hnsw_build_with_edges/n=5000,M=24,ef=48: benchmark",
     );
-    assert_absent(&hnsw_list_output, "Benchmarking hnsw_build/n=100,M=8,ef=16");
+    assert_absent(
+        &hnsw_list_output,
+        &format!("Benchmarking {HNSW_EXACT_BENCH}"),
+    );
 
     let mst_list_output = cargo_bench_output("mst", &["--list"])?;
     assert_contains(&mst_list_output, "parallel_kruskal/n=100: benchmark");
@@ -61,7 +64,7 @@ fn benchmark_binaries_cover_discovery_and_exact_smoke_paths() -> TestResult {
     let hnsw_exact_output = cargo_bench_output("hnsw", &[HNSW_EXACT_BENCH, "--exact"])?;
     assert_contains(
         &hnsw_exact_output,
-        "Benchmarking hnsw_build/n=100,M=8,ef=16",
+        &format!("Benchmarking {HNSW_EXACT_BENCH}"),
     );
     assert_contains(&hnsw_exact_output, "time:");
 
