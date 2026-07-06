@@ -73,6 +73,8 @@ pub fn register_noop_benches<P>(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for Criterion command-line helper behaviour.
+
     use super::args_contain_flag;
 
     #[test]
