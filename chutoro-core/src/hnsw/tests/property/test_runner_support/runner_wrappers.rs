@@ -185,6 +185,18 @@ struct PropertyRunnerConfig {
 /// `hnsw_idempotency_preserved_proptest` to exceed the 600s nextest
 /// slow-timeout override in the `property-tests-weekly` job when
 /// `CHUTORO_PBT_FORK=true`.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let config = idempotency_runner_config(
+///     TestCases::new(25000),
+///     ShrinkIterations::new(1024),
+///     StackSize::new(96 * 1024 * 1024),
+/// );
+///
+/// assert!(!config.fork);
+/// ```
 fn idempotency_runner_config(
     cases: TestCases,
     max_shrink_iters: ShrinkIterations,
