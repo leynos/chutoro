@@ -44,23 +44,39 @@ fn assert_absent(haystack: &str, needle: &str) {
     );
 }
 
+fn assert_list_discovery(
+    bench: &str,
+    expected_entries: &[String],
+    absent_benchmark: &str,
+) -> TestResult {
+    let output = cargo_bench_output(bench, &["--list"])?;
+    for entry in expected_entries {
+        assert_contains(&output, entry);
+    }
+    assert_absent(&output, absent_benchmark);
+
+    Ok(())
+}
+
 #[test]
 fn benchmark_binaries_cover_discovery_and_exact_smoke_paths() -> TestResult {
-    let hnsw_list_output = cargo_bench_output("hnsw", &["--list"])?;
-    assert_contains(&hnsw_list_output, &format!("{HNSW_EXACT_BENCH}: benchmark"));
-    assert_contains(
-        &hnsw_list_output,
-        "hnsw_build_with_edges/n=5000,M=24,ef=48: benchmark",
-    );
-    assert_absent(
-        &hnsw_list_output,
+    assert_list_discovery(
+        "hnsw",
+        &[
+            format!("{HNSW_EXACT_BENCH}: benchmark"),
+            "hnsw_build_with_edges/n=5000,M=24,ef=48: benchmark".to_owned(),
+        ],
         &format!("Benchmarking {HNSW_EXACT_BENCH}"),
-    );
+    )?;
 
-    let mst_list_output = cargo_bench_output("mst", &["--list"])?;
-    assert_contains(&mst_list_output, "parallel_kruskal/n=100: benchmark");
-    assert_contains(&mst_list_output, "parallel_kruskal/n=1000: benchmark");
-    assert_absent(&mst_list_output, "Benchmarking parallel_kruskal/n=100");
+    assert_list_discovery(
+        "mst",
+        &[
+            format!("{MST_EXACT_BENCH}: benchmark"),
+            "parallel_kruskal/n=1000: benchmark".to_owned(),
+        ],
+        &format!("Benchmarking {MST_EXACT_BENCH}"),
+    )?;
 
     let hnsw_exact_output = cargo_bench_output("hnsw", &[HNSW_EXACT_BENCH, "--exact"])?;
     assert_contains(
