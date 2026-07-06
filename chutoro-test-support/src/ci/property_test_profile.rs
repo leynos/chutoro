@@ -6,6 +6,8 @@
 use std::env;
 
 /// Environment variable controlling proptest case counts.
+pub const PROPTEST_CASES_ENV_KEY: &str = "PROPTEST_CASES";
+/// Legacy environment variable controlling proptest case counts.
 pub const PROGTEST_CASES_ENV_KEY: &str = "PROGTEST_CASES";
 /// Environment variable controlling proptest process forking.
 pub const CHUTORO_PBT_FORK_ENV_KEY: &str = "CHUTORO_PBT_FORK";
@@ -37,8 +39,7 @@ impl ProptestRunProfile {
     where
         F: Fn(&'static str) -> Option<String>,
     {
-        let cases =
-            read_env_or_default(PROGTEST_CASES_ENV_KEY, default_cases, parse_cases, &lookup);
+        let cases = read_cases_or_default(default_cases, &lookup);
         let fork = read_env_or_default(CHUTORO_PBT_FORK_ENV_KEY, default_fork, parse_bool, &lookup);
         Self { cases, fork }
     }
@@ -56,27 +57,41 @@ impl ProptestRunProfile {
     }
 }
 
+fn read_cases_or_default<L>(default: u32, lookup: &L) -> u32
+where
+    L: Fn(&'static str) -> Option<String>,
+{
+    match read_env(PROPTEST_CASES_ENV_KEY, parse_cases, lookup) {
+        Some(cases) => cases.unwrap_or(default),
+        None => read_env_or_default(PROGTEST_CASES_ENV_KEY, default, parse_cases, lookup),
+    }
+}
+
 fn read_env_or_default<T, F, L>(key: &'static str, default: T, parser: F, lookup: &L) -> T
 where
     T: Copy,
     F: Fn(&str) -> Result<T, String>,
     L: Fn(&'static str) -> Option<String>,
 {
-    match lookup(key) {
-        Some(raw) => match parser(&raw) {
-            Ok(value) => value,
-            Err(reason) => {
-                tracing::warn!(
-                    env = key,
-                    raw = %raw,
-                    reason = %reason,
-                    "invalid property-test profile override; using default",
-                );
-                default
-            }
-        },
-        None => default,
-    }
+    read_env(key, parser, lookup).map_or(default, |value| value.unwrap_or(default))
+}
+
+fn read_env<T, F, L>(key: &'static str, parser: F, lookup: &L) -> Option<Result<T, String>>
+where
+    F: Fn(&str) -> Result<T, String>,
+    L: Fn(&'static str) -> Option<String>,
+{
+    lookup(key).map(|raw| {
+        parser(&raw).map_err(|reason| {
+            tracing::warn!(
+                env = key,
+                raw = %raw,
+                reason = %reason,
+                "invalid property-test profile override; using default",
+            );
+            reason
+        })
+    })
 }
 
 fn parse_cases(raw: &str) -> Result<u32, String> {
@@ -105,17 +120,26 @@ mod tests {
     use rstest::rstest;
     use std::collections::HashMap;
 
+    #[derive(Clone, Copy, Default)]
+    struct ProfileOverrides<'a> {
+        cases: Option<&'a str>,
+        legacy_cases: Option<&'a str>,
+        fork: Option<&'a str>,
+    }
+
     fn load_with_overrides(
         default_cases: u32,
         default_fork: bool,
-        cases_override: Option<&str>,
-        fork_override: Option<&str>,
+        overrides: ProfileOverrides<'_>,
     ) -> ProptestRunProfile {
         let mut env_entries: HashMap<&'static str, String> = HashMap::new();
-        if let Some(raw) = cases_override {
+        if let Some(raw) = overrides.cases {
+            env_entries.insert(PROPTEST_CASES_ENV_KEY, raw.to_owned());
+        }
+        if let Some(raw) = overrides.legacy_cases {
             env_entries.insert(PROGTEST_CASES_ENV_KEY, raw.to_owned());
         }
-        if let Some(raw) = fork_override {
+        if let Some(raw) = overrides.fork {
             env_entries.insert(CHUTORO_PBT_FORK_ENV_KEY, raw.to_owned());
         }
 
@@ -126,7 +150,7 @@ mod tests {
 
     #[test]
     fn load_defaults_when_no_overrides_exist() {
-        let profile = load_with_overrides(64, false, None, None);
+        let profile = load_with_overrides(64, false, ProfileOverrides::default());
         assert_eq!(profile.cases(), 64);
         assert!(!profile.fork());
     }
@@ -136,8 +160,56 @@ mod tests {
     #[case("250", 250)]
     #[case("25000", 25_000)]
     fn load_accepts_valid_case_overrides(#[case] raw: &str, #[case] expected: u32) {
-        let profile = load_with_overrides(64, false, Some(raw), None);
+        let profile = load_with_overrides(
+            64,
+            false,
+            ProfileOverrides {
+                cases: Some(raw),
+                ..ProfileOverrides::default()
+            },
+        );
         assert_eq!(profile.cases(), expected);
+    }
+
+    #[test]
+    fn load_falls_back_to_legacy_case_override() {
+        let profile = load_with_overrides(
+            64,
+            false,
+            ProfileOverrides {
+                legacy_cases: Some("512"),
+                ..ProfileOverrides::default()
+            },
+        );
+        assert_eq!(profile.cases(), 512);
+    }
+
+    #[test]
+    fn load_prefers_standard_case_override_over_legacy() {
+        let profile = load_with_overrides(
+            64,
+            false,
+            ProfileOverrides {
+                cases: Some("128"),
+                legacy_cases: Some("512"),
+                ..ProfileOverrides::default()
+            },
+        );
+        assert_eq!(profile.cases(), 128);
+    }
+
+    #[test]
+    fn load_does_not_fall_back_to_legacy_when_standard_override_is_invalid() {
+        let profile = load_with_overrides(
+            64,
+            false,
+            ProfileOverrides {
+                cases: Some("0"),
+                legacy_cases: Some("512"),
+                ..ProfileOverrides::default()
+            },
+        );
+        assert_eq!(profile.cases(), 64);
     }
 
     #[rstest]
@@ -145,7 +217,14 @@ mod tests {
     #[case("-1")]
     #[case("abc")]
     fn load_rejects_invalid_case_overrides(#[case] raw: &str) {
-        let profile = load_with_overrides(64, false, Some(raw), None);
+        let profile = load_with_overrides(
+            64,
+            false,
+            ProfileOverrides {
+                cases: Some(raw),
+                ..ProfileOverrides::default()
+            },
+        );
         assert_eq!(profile.cases(), 64);
     }
 
@@ -161,7 +240,14 @@ mod tests {
     #[case("no", false)]
     #[case("off", false)]
     fn load_accepts_valid_fork_overrides(#[case] raw: &str, #[case] expected: bool) {
-        let profile = load_with_overrides(64, false, None, Some(raw));
+        let profile = load_with_overrides(
+            64,
+            false,
+            ProfileOverrides {
+                fork: Some(raw),
+                ..ProfileOverrides::default()
+            },
+        );
         assert_eq!(profile.fork(), expected);
     }
 
@@ -170,7 +256,14 @@ mod tests {
     #[case("maybe")]
     #[case("2")]
     fn load_rejects_invalid_fork_overrides(#[case] raw: &str) {
-        let profile = load_with_overrides(64, true, None, Some(raw));
+        let profile = load_with_overrides(
+            64,
+            true,
+            ProfileOverrides {
+                fork: Some(raw),
+                ..ProfileOverrides::default()
+            },
+        );
         assert!(profile.fork());
     }
 }

@@ -1,0 +1,33 @@
+[package]
+name = "chutoro-bench-datasets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = []
+testing = ["dep:cap-std"]
+
+[dependencies]
+bytes = "1.7"
+camino = "1.1"
+cap-std = { version = "3.4.5", optional = true, features = ["fs_utf8"] }
+thiserror = "2.0"
+tracing = "0.1"
+
+[dev-dependencies]
+chutoro-bench-datasets = { path = ".", features = ["testing"] }
+chutoro-test-support = { path = "../chutoro-test-support" }
+mockall = "0.13"
+proptest = "1.5"
+rstest = "0.26"
+rstest-bdd = "0.6.0-beta1"
+rstest-bdd-macros = "0.6.0-beta1"
+tempfile = "3.10"
+tracing-test = { version = "0.2", features = ["no-env-filter"] }
+trybuild = "1.0.114"
+
+[lints]
+workspace = true

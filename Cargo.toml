@@ -7,6 +7,7 @@ members = [
     "chutoro-providers/text",
     "chutoro-test-support",
     "chutoro-benches",
+    "chutoro-bench-datasets",
 ]
 
 [workspace.package]

@@ -1,0 +1,13 @@
+error[E0308]: mismatched types
+  --> tests/trybuild/dataset_recipe_skip_phase.rs:14:42
+   |
+14 |     let _prepared = recipe.prepare(&ctx, fetched)?;
+   |                            -------       ^^^^^^^ expected `Validated`, found `Fetched`
+   |                            |
+   |                            arguments to this method are incorrect
+   |
+note: method defined here
+  --> src/recipe.rs
+   |
+   |     fn prepare(
+   |        ^^^^^^^
