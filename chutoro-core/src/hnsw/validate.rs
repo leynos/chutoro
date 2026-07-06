@@ -1,3 +1,12 @@
+//! Distance validation helpers for HNSW operations.
+//!
+//! This module exports `validate_distance`, `validate_batch_distances`, and
+//! `validate_batch_without_cache` for checked single and batched distance
+//! lookups. Their shared `lookup_or_compute` helper consults an optional
+//! `DistanceCache` before falling back to `DataSource::distance` using the
+//! source's `metric_descriptor`, bridging `distance_cache.rs` cache state with
+//! `error.rs` failure reporting through `HnswError`.
+
 use super::{
     distance_cache::{DistanceCache, LookupOutcome, PendingMiss},
     error::HnswError,

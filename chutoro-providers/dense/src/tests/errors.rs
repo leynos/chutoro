@@ -1,3 +1,10 @@
+//! Error-conversion tests for the dense provider.
+//!
+//! This module exercises `DenseMatrixProviderError` conversions from Arrow,
+//! Parquet, and I/O failures. It forms the error-handling slice of the
+//! `chutoro-providers-dense` test module alongside neighbouring tests for data
+//! loading, dense matrix construction, and distance-source behaviour.
+
 use super::DenseMatrixProviderError;
 use arrow_schema::ArrowError;
 use parquet::errors::ParquetError;

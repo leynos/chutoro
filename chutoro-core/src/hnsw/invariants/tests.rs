@@ -1,3 +1,10 @@
+//! Tests for HNSW invariant validation helpers.
+//!
+//! This module exercises the invariant checks exported by `degree_bounds.rs`
+//! and `layer_consistency.rs`, using local graph fixtures to cover valid
+//! indices and representative violations. It sits beside those implementation
+//! modules so invariant behaviour and regression coverage stay close together.
+
 use super::{
     EvaluationMode, GraphContext, HnswInvariant, HnswInvariantViolation, check_degree_bounds,
     check_reachability, helpers,

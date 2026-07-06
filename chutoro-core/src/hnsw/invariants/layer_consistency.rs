@@ -1,3 +1,11 @@
+//! Cross-layer consistency checks for the HNSW invariants suite.
+//!
+//! This module exports `check_layer_consistency`, which validates that graph
+//! edges and the entry point reference nodes and layers that exist in the HNSW
+//! graph. It works alongside `degree_bounds.rs`, which checks neighbour-list
+//! cardinality, and `tests.rs`, which covers both invariant families with
+//! valid and intentionally corrupted graph fixtures.
+
 use super::helpers::for_each_edge;
 use super::{EvaluationMode, GraphContext, HnswInvariantViolation, helpers::LayerValidator};
 
