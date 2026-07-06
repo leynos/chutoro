@@ -26,7 +26,7 @@ jobs:
     permissions:
       contents: read
       id-token: write # OIDC workflow-source resolution
-    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@47aea18960d24f33aedc4782ec6b73e365418313
+    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@2b09d10192627fd6e1034e7c12625dd266b45503
     with:
       # Workspace crates live in top-level directories, not a root
       # src/. chutoro-test-support (test scaffolding) and the root
@@ -38,6 +38,7 @@ jobs:
       # scaffolding, and the session_api_without_cpu fixture crate sits
       # outside the workspace; mutants in any of them are noise.
       exclude-globs: "chutoro-core/src/hnsw/kani_proofs/**,chutoro-providers/dense/src/simd/kani_proofs.rs,chutoro-core/src/hnsw/insert/test_helpers.rs,chutoro-core/tests/fixtures/**"
-      # Match the CI baseline (`make test` runs --all-features) so
-      # feature-gated tests run against mutants.
-      extra-args: "--all-features"
+      # Match the CI baseline (`make test` runs nextest workspace-wide
+      # with --all-features) so feature-gated tests run against mutants
+      # and dependent crates' tests catch cross-crate survivors.
+      extra-args: "--all-features --test-workspace=true"

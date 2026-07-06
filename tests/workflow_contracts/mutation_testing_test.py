@@ -21,10 +21,10 @@ WORKFLOW_PATH = (
     Path(__file__).resolve().parents[2] / ".github" / "workflows" / "mutation-testing.yml"
 )
 
-#: The commit SHA of the shared workflow pin (the merge commit of
-#: leynos/shared-actions PR #319). Bump the workflow and this test
-#: together.
-PINNED_SHA = "47aea18960d24f33aedc4782ec6b73e365418313"
+#: The commit SHA of the shared workflow pin (leynos/shared-actions
+#: main, adding artefact preservation on timeout). Bump the workflow
+#: and this test together.
+PINNED_SHA = "2b09d10192627fd6e1034e7c12625dd266b45503"
 
 EXPECTED_USES = (
     "leynos/shared-actions/.github/workflows/mutation-cargo.yml@" + PINNED_SHA
@@ -33,7 +33,8 @@ EXPECTED_USES = (
 #: The exact caller configuration: workspace crate paths (the repo has
 #: no root src/; chutoro-test-support and verus/ stay outside), the
 #: Kani-proof and scaffolding exclusions, and the --all-features
-#: baseline mirrored from `make test`.
+#: --test-workspace=true baseline: `make test` runs the whole workspace,
+#: so dependent crates' tests must also run against each mutant.
 EXPECTED_WITH = {
     "paths": "chutoro-core/,chutoro-cli/,chutoro-providers/,chutoro-benches/",
     "exclude-globs": (
@@ -42,7 +43,7 @@ EXPECTED_WITH = {
         "chutoro-core/src/hnsw/insert/test_helpers.rs,"
         "chutoro-core/tests/fixtures/**"
     ),
-    "extra-args": "--all-features",
+    "extra-args": "--all-features --test-workspace=true",
 }
 
 
