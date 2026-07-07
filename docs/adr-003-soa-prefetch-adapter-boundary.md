@@ -45,8 +45,8 @@ move packed-index, SoA, prefetch, and scratch-buffer details into core HNSW, we
 decided for a private dense-adapter implementation boundary, and against
 cross-node beam scoring in core, a secondary dimension-major SoA copy, and a
 public `batch_distances_into` buffer-reuse API, to achieve adapter independence
-and evidence-led optimization, accepting that each future structural win needs a
-separate benchmark-backed roadmap item.
+and evidence-led optimization, accepting that each future structural win needs
+a separate benchmark-backed roadmap item.
 
 ## Options considered
 
@@ -73,8 +73,8 @@ determinism checks.
 
 The dense provider could maintain a persistent dimension-major copy in addition
 to the current row-major data. This would avoid repeated packing for query
-batches, but it increases resident memory and update complexity for every
-dense dataset, including workloads where HNSW scoring is not the dominant cost.
+batches, but it increases resident memory and update complexity for every dense
+dataset, including workloads where HNSW scoring is not the dominant cost.
 
 This option is deferred until measurements prove the memory trade-off is
 worthwhile.

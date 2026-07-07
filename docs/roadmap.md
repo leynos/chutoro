@@ -413,8 +413,8 @@ ______________________________________________________________________
 - [ ] 2.3.5. Evaluate a `batch_distances_into` output-buffer-reuse extension for
   `DataSource`, including length-equality and output-unmodified-on-error
   contracts for every provider. Adopt only if allocation profiling shows the
-  public trait expansion is justified. Requires ADR-003 and compatibility
-  tests for existing providers.
+  public trait expansion is justified. Requires ADR-003 and compatibility tests
+  for existing providers.
 
 ### 2.4. Performance validation
 

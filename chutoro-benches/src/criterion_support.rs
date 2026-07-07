@@ -71,6 +71,30 @@ pub fn is_exact_benchmark_probe() -> bool {
     is_exact_benchmark_probe_args(std::env::args())
 }
 
+/// Returns whether nextest is running one Criterion exact benchmark case.
+///
+/// ```no_run
+/// # use chutoro_benches::criterion_support::is_nextest_exact_benchmark_probe;
+/// if is_nextest_exact_benchmark_probe() {
+///     // Register bounded probe cases without running expensive setup.
+/// }
+/// ```
+#[must_use]
+pub fn is_nextest_exact_benchmark_probe() -> bool {
+    is_nextest_exact_benchmark_probe_args(
+        std::env::args(),
+        std::env::var_os("NEXTEST_TEST_NAME").is_some(),
+    )
+}
+
+fn is_nextest_exact_benchmark_probe_args<I, S>(args: I, has_nextest_test_name: bool) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    is_exact_benchmark_probe_args(args) && has_nextest_test_name
+}
+
 /// Returns whether an exact Criterion probe should use a labelled short path.
 ///
 /// # Examples
@@ -167,7 +191,7 @@ mod tests {
     use rstest::rstest;
 
     use super::{
-        args_contain_flag, is_exact_benchmark_probe_args,
+        args_contain_flag, is_exact_benchmark_probe_args, is_nextest_exact_benchmark_probe_args,
         should_short_circuit_exact_label_probe_args,
     };
 
@@ -192,6 +216,21 @@ mod tests {
         #[case] expected: bool,
     ) {
         assert_eq!(is_exact_benchmark_probe_args(args), expected);
+    }
+
+    #[rstest]
+    #[case::nextest_exact(["bench", "--exact"], true, true)]
+    #[case::ordinary_exact(["bench", "--exact"], false, false)]
+    #[case::nextest_list(["bench", "--list"], true, false)]
+    fn nextest_exact_probe_requires_exact_arg_and_nextest_marker(
+        #[case] args: [&str; 2],
+        #[case] has_nextest_test_name: bool,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(
+            is_nextest_exact_benchmark_probe_args(args, has_nextest_test_name),
+            expected,
+        );
     }
 
     #[rstest]

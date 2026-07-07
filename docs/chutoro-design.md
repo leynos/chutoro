@@ -890,7 +890,7 @@ points are classified as noise and receive label `0`.
   structure-of-arrays views of point data and computes distances with stable
   `core::arch` intrinsics (AVX2/AVX-512 on x86) across lanes, with scalar
   fallback per pair where metrics are not vectorizable. Keep an optional nightly
-   `std::simd` path behind a non-default feature while the API remains
+  `std::simd` path behind a non-default feature while the API remains
   unstable. Expose the query-centric `batch_distances(query, candidates)`
   helper on the core trait and make it the default path for HNSW candidate
   scoring on CPU: collect candidate indices in chunks sized to the SIMD width
@@ -1200,8 +1200,8 @@ decision: keep SoA and prefetch policy private to dense adapters; defer
 cross-node beam aggregation, persistent dimension-major SoA storage, and a
 public `batch_distances_into` buffer-reuse API into separate evidence-gated
 roadmap items. If a later item fails its benchmark threshold, record the null
-result beside that item rather than widening the core `DataSource` trait or HNSW
-graph policy speculatively.
+result beside that item rather than widening the core `DataSource` trait or
+HNSW graph policy speculatively.
 
 #### 6.4. Property-based input generation for CPU HNSW tests
 

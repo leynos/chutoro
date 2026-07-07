@@ -819,10 +819,10 @@ Stop and escalate (do not work around) when:
 - Observation: property tests placed only in Criterion bench modules are not
   part of the normal unit-test harness when the bench is registered with
   `harness = false`. Evidence: after the nineteenth CodeRabbit request for
-  generated coverage around profiling arithmetic, `cargo test -p
-  chutoro-benches --bench neighbour_scoring profiling` built and ran the
-  Criterion binary without executing those unit tests. Impact: the profiling
-  arithmetic now lives in `chutoro-benches::neighbour_scoring`, where
+  generated coverage around profiling arithmetic,
+  `cargo test -p chutoro-benches --bench neighbour_scoring profiling` built and
+  ran the Criterion binary without executing those unit tests. Impact: the
+  profiling arithmetic now lives in `chutoro-benches::neighbour_scoring`, where
   `cargo test -p chutoro-benches neighbour_scoring --lib` and `make test`
   execute its property tests.
 - Observation: sequential atomic helper properties do not exercise
@@ -833,12 +833,12 @@ Stop and escalate (do not work around) when:
 - Observation: executable coverage should target a narrow library seam rather
   than include broad Criterion support modules from an integration test.
   Evidence: the twenty-first and twenty-second CodeRabbit reviews asked for
-  build-profile environment/report-path coverage, then identified that
-  importing `benches/neighbour_scoring/support.rs` forced a broad
-  `#[expect(dead_code)]` allowance. Impact: build-profile env/path helpers now
-  live in `chutoro-benches::neighbour_scoring::build_profile`; the integration
-  test covers those helpers directly, and mutable environment tests use the
-  shared `chutoro-test-support::env::EnvVarGuard`.
+  build-profile environment/report-path coverage, then identified that importing
+  `benches/neighbour_scoring/support.rs` forced a broad `#[expect(dead_code)]`
+  allowance. Impact: build-profile env/path helpers now live in
+  `chutoro-benches::neighbour_scoring::build_profile`; the integration test
+  covers those helpers directly, and mutable environment tests use the shared
+  `chutoro-test-support::env::EnvVarGuard`.
 - Observation: atomics plus a side-vector need an explicit snapshot boundary.
   Evidence: the twenty-first CodeRabbit review noted that updating atomics
   before pushing `batch_sizes` could split one batch across two snapshots.
@@ -852,13 +852,13 @@ Stop and escalate (do not work around) when:
   restores the previous value on drop, and centralizes the required unsafe
   environment calls behind documented safety comments.
 - Observation: Milestone 0 shows the measured packed-index batch-scoring window
-  is a small share of complete HNSW build time on the synthetic profile. Evidence:
-  `target/benchmarks/neighbour_scoring_build_profile.csv` reports accumulated
-  batch-scoring time at 1.678 seconds of a 20.208-second 10k-point build
-  (8.30%) and 28.197 seconds of a 781.631-second 100k-point build (3.61%).
-  Impact: any E1-E3 optimisation must still clear the pre-registered cycle
-  threshold in realistic buckets; the profile does not justify speculative
-  structural churn by itself.
+  is a small share of complete HNSW build time on the synthetic profile.
+  Evidence: `target/benchmarks/neighbour_scoring_build_profile.csv` reports
+  accumulated batch-scoring time at 1.678 seconds of a 20.208-second 10k-point
+  build (8.30%) and 28.197 seconds of a 781.631-second 100k-point build
+  (3.61%). Impact: any E1-E3 optimisation must still clear the pre-registered
+  cycle threshold in realistic buckets; the profile does not justify
+  speculative structural churn by itself.
 
 ## Decision log
 
@@ -972,45 +972,46 @@ such, with the deferred structural levers carried into the proposed follow-up
 item.
 
 Milestone 0 outcome (2026-06-25): the benchmark harness exists, is registered,
-and has baseline evidence. `cargo bench -p chutoro-benches --bench
-neighbour_scoring -- --list` reports 21 benchmark cases: realistic candidate
-counts 8, 16, 24, 32, and 48 plus diagnostic counts 256 and 1024 for dimensions
-32, 128, and 768. The lane-utilisation report shows the pre-registered
-realistic buckets waste 8 of 16 lanes at candidate count 8, 8 of 32 lanes at
-candidate count 24, and no lanes at 16, 32, or 48.
+and has baseline evidence.
+`cargo bench -p chutoro-benches --bench neighbour_scoring -- --list` reports 21
+benchmark cases: realistic candidate counts 8, 16, 24, 32, and 48 plus
+diagnostic counts 256 and 1024 for dimensions 32, 128, and 768. The
+lane-utilisation report shows the pre-registered realistic buckets waste 8 of
+16 lanes at candidate count 8, 8 of 32 lanes at candidate count 24, and no
+lanes at 16, 32, or 48.
 
 The full Criterion baseline was saved as `before`. For the central
-128-dimensional realistic bucket group, Criterion reported medians of
-906.45 ns (8 candidates), 1.2741 us (16), 1.9291 us (24), 2.2409 us (32), and
-3.2663 us (48). Diagnostic 128-dimensional medians were 80.638 us at 256
-candidates and 910.20 us at 1024 candidates. Hyperfine corroboration over the
-full benchmark binary reported `30.776 s +/- 0.297 s` over ten runs.
+128-dimensional realistic bucket group, Criterion reported medians of 906.45 ns
+(8 candidates), 1.2741 us (16), 1.9291 us (24), 2.2409 us (32), and 3.2663 us
+(48). Diagnostic 128-dimensional medians were 80.638 us at 256 candidates and
+910.20 us at 1024 candidates. Hyperfine corroboration over the full benchmark
+binary reported `30.776 s +/- 0.297 s` over ten runs.
 
 The optional HNSW build profile reported:
 
 - 10,000 points, dimension 128: build 20.208 seconds, accumulated batch scoring
-  1.678 seconds (8.30%), 612,507 batch calls, 14,939,510 total batch candidates,
-  min/max/median batch 1/33/27.
+  1.678 seconds (8.30%), 612,507 batch calls, 14,939,510 total batch
+  candidates, min/max/median batch 1/33/27.
 - 100,000 points, dimension 128: build 781.631 seconds, accumulated batch
   scoring 28.197 seconds (3.61%), 6,969,245 batch calls, 176,427,818 total
   batch candidates, min/max/median batch 1/33/29.
 
 `perf stat -r 20` over the 128-dimensional realistic bucket group reported
-31,819,791,060 cycles, 138,569,605,046 instructions, IPC 4.35,
-927,935,251 cache references, 1,605,048 cache misses, a 0.17% cache-miss rate,
-and 7.3746 +/- 0.0898 seconds elapsed. Exact distance-cache LRU lock-wait
-contention remains unavailable without widening core telemetry, so Milestone 0
-records batch miss-subset sizes and `DataSource` scoring time at the adapter
-boundary instead.
+31,819,791,060 cycles, 138,569,605,046 instructions, IPC 4.35, 927,935,251
+cache references, 1,605,048 cache misses, a 0.17% cache-miss rate, and 7.3746
++/- 0.0898 seconds elapsed. Exact distance-cache LRU lock-wait contention
+remains unavailable without widening core telemetry, so Milestone 0 records
+batch miss-subset sizes and `DataSource` scoring time at the adapter boundary
+instead.
 
 E1, E2, and E3 are dropped without implementation. The pre-registered gate
 required the measured scoring window to account for at least 10% of build
 wall-clock before building speculative structural deltas; the observed 8.30%
 and 3.61% shares did not clear that prerequisite. No candidate delta or
 post-change cycle-count table exists because the candidate changes were not
-built. The accepted outcome is committed scope only: C1-C4 land, ADR-003 records
-the adapter-boundary decision, and roadmap items 2.3.3-2.3.5 carry the deferred
-structural levers.
+built. The accepted outcome is committed scope only: C1-C4 land, ADR-003
+records the adapter-boundary decision, and roadmap items 2.3.3-2.3.5 carry the
+deferred structural levers.
 
 ## Context and orientation
 

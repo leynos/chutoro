@@ -13,7 +13,7 @@ use criterion::{
 use chutoro_benches::{
     criterion_support::{
         configure_short_measurement_group, is_benchmark_discovery, is_exact_benchmark_probe,
-        register_noop_benches,
+        is_nextest_exact_benchmark_probe, register_noop_benches,
         should_short_circuit_exact_label_probe_args,
     },
     ef_sweep::{BENCH_DIMENSIONS, BENCH_SEED, make_bench_source, make_hnsw_params_with_ef},
@@ -127,6 +127,7 @@ where
         DIVERSE_POINT_COUNT
     }
 }
+
 fn hnsw_source_point_count(point_count: usize) -> usize {
     hnsw_source_point_count_for_args(std::env::args(), point_count)
 }
@@ -143,6 +144,7 @@ where
         point_count
     }
 }
+
 fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
     configure_short_measurement_group(group, 10, is_exact_benchmark_probe());
 }
@@ -158,6 +160,8 @@ where
 {
     should_short_circuit_exact_label_probe_args(args, bench_label, TEXT_LEVENSHTEIN_BENCH_LABEL)
 }
+
+#[derive(Clone, Copy)]
 struct SourceBenchSpec<'a> {
     bench_label: &'a str,
     fail_label: &'a str,
@@ -209,6 +213,11 @@ fn bench_hnsw_build_generic<F>(
 where
     F: FnMut(&SyntheticSource, HnswParams) -> Result<(), HnswError>,
 {
+    if is_benchmark_discovery() || is_nextest_exact_benchmark_probe() {
+        register_hnsw_build_probe_benches(c, group_name);
+        return Ok(());
+    }
+
     let mut group = c.benchmark_group(group_name);
     configure_hnsw_group(&mut group);
 
@@ -246,6 +255,20 @@ where
     Ok(())
 }
 
+fn register_hnsw_build_probe_benches(c: &mut Criterion, group_name: &str) {
+    let params = POINT_COUNTS.iter().copied().flat_map(|point_count| {
+        MAX_CONNECTIONS
+            .iter()
+            .copied()
+            .map(move |m| HnswBenchParams {
+                point_count,
+                max_connections: m,
+                ef_construction: m.saturating_mul(2),
+            })
+    });
+    register_noop_benches(c, group_name, params, configure_hnsw_group);
+}
+
 fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     bench_hnsw_build_generic(c, "hnsw_build", |source, params| {
         CpuHnsw::build(source, params).map(|_| ())
@@ -268,7 +291,7 @@ fn should_collect_memory_profile() -> bool {
             return true;
         }
     }
-    !std::env::args().any(|arg| arg == "--list" || arg == "--exact")
+    !is_benchmark_discovery() && !is_exact_benchmark_probe()
 }
 
 fn memory_report_path() -> PathBuf {
@@ -404,7 +427,13 @@ mod bench_harness {
         hnsw_build_diverse_sources
     );
 }
+criterion_main!(bench_harness::benches);
 
+#[cfg(test)]
+#[expect(
+    unused_imports,
+    reason = "Criterion harness=false bench tests compile as ordinary code"
+)]
 mod tests {
     use rstest::rstest;
 
