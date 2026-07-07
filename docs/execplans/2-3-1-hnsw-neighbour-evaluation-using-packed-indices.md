@@ -959,6 +959,14 @@ Stop and escalate (do not work around) when:
   support module. Rationale: the report schemas are reviewable artefacts and
   need deterministic unit-test coverage, while `harness = false` bench modules
   do not expose ordinary tests. Date/Author: 2026-06-25, implementation agent.
+- Decision: Do not port the `neighbour_scoring` diagnostic harness to the new
+  `chutoro-bench-datasets::DatasetRecipe` infrastructure introduced by
+  roadmap item 10.1.1. Rationale: this harness measures fixed synthetic
+  candidate scoring, lane utilisation, and HNSW build-profile timing rather
+  than fetched or prepared benchmark datasets; adopting the recipe lifecycle
+  here would broaden 2.3.1 without improving the packed-index evidence. Future
+  dataset-backed benchmark matrix work should use `DatasetRecipe`.
+  Date/Author: 2026-07-07, rebase review.
 
 ## Outcomes & retrospective
 
