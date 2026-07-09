@@ -58,38 +58,16 @@ jobs:
           # but fails under plain cargo test, so coverage stays on nextest.
           use-cargo-nextest: 'true'
           with-ratchet: 'true'
-      # `cs-coverage check` fails hard when the CodeScene project has no
-      # gates configuration (set once in CodeScene's UI, not from CI).
-      # Estate policy wires the repository first and enables the
-      # CodeScene-side gate second, so probe the project config and skip
-      # the gate until it exists; the gate becomes enforcing on its own
-      # once the configuration is saved in CodeScene.
-      - name: Detect CodeScene coverage gates
-        id: cs-gates
-        env:
-          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-        if: env.CS_ACCESS_TOKEN != ''
-        run: |
-          set -euo pipefail
-          body=$(curl -fsS -H "Authorization: Bearer ${CS_ACCESS_TOKEN}" \
-            https://api.codescene.io/v2/code-coverage/projects/71838/config)
-          if [ -n "$body" ]; then
-            echo "configured=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::CodeScene project 71838 has no coverage gates configuration; skipping the coverage gate."
-          fi
-      - name: Check coverage against CodeScene gates
-        env:
-          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-        if: env.CS_ACCESS_TOKEN != '' && steps.cs-gates.outputs.configured == 'true'
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@927edd45ae77be4251a8a18ca9eb5613a2e32cbd
-        with:
-          format: lcov
-          mode: check
-          project-url: https://api.codescene.io/v2/projects/71838
-          access-token: ${{ env.CS_ACCESS_TOKEN }}
-          installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
+      # The `mode: check` step is deliberately not wired in yet: CodeScene
+      # project 71838 has no coverage-gates configuration, so
+      # `cs-coverage check` fails every run with "HTTP call succeeded,
+      # but the received project-config isn't valid. Lacks the gates
+      # configuration." — a CodeScene-side per-project setting, not a CI
+      # defect (ddlint's project hit the byte-identical error). Add the
+      # check step in a fast-follow PR once coverage-main.yml has
+      # uploaded to main at least once and the gate is confirmed to
+      # resolve, or once CodeScene confirms the project's coverage gate
+      # is enabled.
 
   verus-proofs:
     runs-on: ubuntu-latest
