@@ -165,6 +165,8 @@ fn parse_kibibyte_proc_field(line: &str, field: &'static str) -> Result<u64, Pro
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for the memory sampler.
+
     use super::*;
     use rstest::rstest;
 

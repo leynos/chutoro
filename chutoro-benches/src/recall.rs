@@ -189,6 +189,8 @@ pub fn write_recall_report(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for recall computation.
+
     use super::*;
     use rstest::rstest;
 

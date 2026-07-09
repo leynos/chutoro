@@ -98,6 +98,8 @@ pub fn make_hnsw_params_with_ef(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for the ef parameter sweep.
+
     use super::*;
     use rstest::rstest;
 

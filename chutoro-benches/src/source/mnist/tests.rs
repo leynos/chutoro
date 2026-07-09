@@ -107,17 +107,23 @@ fn load_mnist_uses_cache_after_first_download() {
 }
 
 fn test_cache_dir() -> PathBuf {
+    // A clock before the epoch degrades to zero nanoseconds; the prefix
+    // still keeps the path unique enough for test scratch space.
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("time should be monotonic in tests")
+        .unwrap_or_default()
         .as_nanos();
     env::temp_dir().join(format!("chutoro-mnist-test-{nanos}"))
 }
 
 fn gzip_idx_images(count: usize, rows: usize, cols: usize, fill: u8) -> Vec<u8> {
-    let count_u32 = u32::try_from(count).expect("count should fit u32 in tests");
-    let rows_u32 = u32::try_from(rows).expect("rows should fit u32 in tests");
-    let cols_u32 = u32::try_from(cols).expect("cols should fit u32 in tests");
+    let (Ok(count_u32), Ok(rows_u32), Ok(cols_u32)) = (
+        u32::try_from(count),
+        u32::try_from(rows),
+        u32::try_from(cols),
+    ) else {
+        panic!("count, rows, and cols should fit u32 in tests");
+    };
 
     let mut raw = Vec::new();
     append_u32_be(&mut raw, IDX_IMAGE_MAGIC);
@@ -129,19 +135,21 @@ fn gzip_idx_images(count: usize, rows: usize, cols: usize, fill: u8) -> Vec<u8> 
 }
 
 fn append_u32_be(buffer: &mut Vec<u8>, value: u32) {
-    let first = u8::try_from((value >> 24) & 0xFF).expect("byte must fit u8");
-    let second = u8::try_from((value >> 16) & 0xFF).expect("byte must fit u8");
-    let third = u8::try_from((value >> 8) & 0xFF).expect("byte must fit u8");
-    let fourth = u8::try_from(value & 0xFF).expect("byte must fit u8");
-    buffer.extend([first, second, third, fourth]);
+    for shift in [24u32, 16, 8, 0] {
+        let Ok(byte) = u8::try_from((value >> shift) & 0xFF) else {
+            panic!("masked byte must fit u8");
+        };
+        buffer.push(byte);
+    }
 }
 
 fn gzip_bytes(raw: &[u8]) -> Vec<u8> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    encoder
-        .write_all(raw)
-        .expect("gzip payload writing must succeed in tests");
-    encoder
-        .finish()
-        .expect("gzip payload finalization must succeed in tests")
+    if let Err(err) = encoder.write_all(raw) {
+        panic!("gzip payload writing must succeed in tests: {err}");
+    }
+    match encoder.finish() {
+        Ok(bytes) => bytes,
+        Err(err) => panic!("gzip payload finalization must succeed in tests: {err}"),
+    }
 }

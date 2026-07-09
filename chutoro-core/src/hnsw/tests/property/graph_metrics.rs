@@ -162,6 +162,8 @@ pub(super) fn median(values: &mut [f64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for graph metric computation.
+
     use super::super::types::GraphMetadata;
     use super::*;
     use rstest::rstest;

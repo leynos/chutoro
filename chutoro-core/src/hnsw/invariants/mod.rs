@@ -279,7 +279,13 @@ impl<'index> HnswInvariantChecker<'index> {
         &self,
         f: impl FnOnce(GraphContext<'_>) -> Result<R, HnswInvariantViolation>,
     ) -> Result<R, HnswInvariantViolation> {
-        let guard = self.index.graph.read().expect("graph lock poisoned");
+        // Recover from a poisoned lock: invariant checks only read the
+        // graph, so a poisoned writer cannot corrupt this validation pass.
+        let guard = self
+            .index
+            .graph
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let ctx = GraphContext {
             graph: &guard,
             params: &self.index.params,

@@ -23,16 +23,17 @@ impl Node {
             level < self.neighbours.len(),
             "levels are initialised during construction"
         );
-        self.neighbours
-            .get(level)
-            .expect("levels are initialised during construction")
-            .as_slice()
+        let Some(neighbours) = self.neighbours.get(level) else {
+            unreachable!("levels are initialised during construction");
+        };
+        neighbours.as_slice()
     }
 
     pub(crate) fn neighbours_mut(&mut self, level: usize) -> &mut Vec<usize> {
-        self.neighbours
-            .get_mut(level)
-            .expect("levels are initialised during construction")
+        let Some(neighbours) = self.neighbours.get_mut(level) else {
+            unreachable!("levels are initialised during construction");
+        };
+        neighbours
     }
 
     pub(crate) fn sequence(&self) -> u64 {

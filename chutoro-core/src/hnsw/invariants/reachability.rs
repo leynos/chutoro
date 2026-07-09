@@ -186,36 +186,42 @@ mod tests {
 
     use super::*;
     use crate::hnsw::{
+        error::HnswError,
         graph::{Graph, NodeContext},
         params::HnswParams,
     };
     use rstest::*;
 
     #[fixture]
-    fn demo_graph() -> Graph {
-        let params = HnswParams::new(1, 4).expect("params must be valid");
+    fn demo_graph() -> Result<Graph, HnswError> {
+        let params = HnswParams::new(1, 4)?;
         let mut graph = Graph::with_capacity(params, 4);
-        graph
-            .insert_first(NodeContext {
-                node: 0,
-                level: 0,
-                sequence: 0,
-            })
-            .expect("insert entry");
-        graph
-            .attach_node(NodeContext {
-                node: 1,
-                level: 0,
-                sequence: 1,
-            })
-            .expect("attach neighbour");
-        graph.node_mut(0).expect("node 0").neighbours_mut(0).push(1);
-        graph.node_mut(1).expect("node 1").neighbours_mut(0).push(0);
-        graph
+        graph.insert_first(NodeContext {
+            node: 0,
+            level: 0,
+            sequence: 0,
+        })?;
+        graph.attach_node(NodeContext {
+            node: 1,
+            level: 0,
+            sequence: 1,
+        })?;
+        let Some(node_zero) = graph.node_mut(0) else {
+            panic!("node 0 should exist");
+        };
+        node_zero.neighbours_mut(0).push(1);
+        let Some(node_one) = graph.node_mut(1) else {
+            panic!("node 1 should exist");
+        };
+        node_one.neighbours_mut(0).push(0);
+        Ok(graph)
     }
 
     #[rstest]
-    fn process_neighbour_visits_unseen_targets(demo_graph: Graph) {
+    fn process_neighbour_visits_unseen_targets(
+        demo_graph: Result<Graph, HnswError>,
+    ) -> Result<(), HnswError> {
+        let demo_graph = demo_graph?;
         let validator = LayerValidator::new(&demo_graph);
         let traversal = TraversalContext {
             graph: &demo_graph,
@@ -234,10 +240,14 @@ mod tests {
 
         assert!(context.visited[1], "expected node 1 to be marked visited");
         assert_eq!(context.queue.pop_front(), Some(1));
+        Ok(())
     }
 
     #[rstest]
-    fn process_neighbour_skips_already_visited_targets(demo_graph: Graph) {
+    fn process_neighbour_skips_already_visited_targets(
+        demo_graph: Result<Graph, HnswError>,
+    ) -> Result<(), HnswError> {
+        let demo_graph = demo_graph?;
         let validator = LayerValidator::new(&demo_graph);
         let traversal = TraversalContext {
             graph: &demo_graph,
@@ -264,10 +274,14 @@ mod tests {
             context.queue.is_empty(),
             "no duplicate visits should be queued"
         );
+        Ok(())
     }
 
     #[rstest]
-    fn process_neighbour_records_layer_consistency_violations(demo_graph: Graph) {
+    fn process_neighbour_records_layer_consistency_violations(
+        demo_graph: Result<Graph, HnswError>,
+    ) -> Result<(), HnswError> {
+        let demo_graph = demo_graph?;
         let validator = LayerValidator::new(&demo_graph);
         let traversal = TraversalContext {
             graph: &demo_graph,
@@ -296,5 +310,6 @@ mod tests {
             violations.as_slice(),
             [HnswInvariantViolation::LayerConsistency { target: 3, .. }]
         ));
+        Ok(())
     }
 }

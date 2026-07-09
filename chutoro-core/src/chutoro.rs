@@ -297,6 +297,8 @@ impl Chutoro {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for the Chutoro builder facade.
+
     use super::*;
     use crate::ChutoroBuilder;
 

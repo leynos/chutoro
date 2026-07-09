@@ -188,6 +188,8 @@ pub(super) fn run_edge_harvest_coverage_property(fixture: HnswFixture) -> TestCa
 
 #[cfg(test)]
 mod tests {
+    //! Property tests for edge-harvest behaviour.
+
     use super::*;
     use crate::hnsw::tests::property::types::{
         DistributionMetadata, HnswParamsSeed, VectorDistribution,

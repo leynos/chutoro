@@ -50,12 +50,12 @@ fn attach_test_node(graph: &mut Graph, node: usize, level: usize, sequence: u64)
 }
 
 fn assert_bidirectional_edge(graph: &Graph, node_a: usize, node_b: usize, level: usize) {
-    let a = graph
-        .node(node_a)
-        .unwrap_or_else(|| panic!("node {node_a} should be present"));
-    let b = graph
-        .node(node_b)
-        .unwrap_or_else(|| panic!("node {node_b} should be present"));
+    let Some(a) = graph.node(node_a) else {
+        panic!("node {node_a} should be present");
+    };
+    let Some(b) = graph.node(node_b) else {
+        panic!("node {node_b} should be present");
+    };
     assert!(
         a.level_count() > level && b.level_count() > level,
         "both nodes must expose level {level}",

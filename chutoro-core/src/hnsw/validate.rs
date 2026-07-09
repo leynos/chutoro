@@ -188,6 +188,8 @@ fn ensure_all_resolved(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for distance validation.
+
     use super::*;
 
     #[test]

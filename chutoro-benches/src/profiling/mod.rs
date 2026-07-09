@@ -279,6 +279,8 @@ pub fn write_hnsw_memory_report(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for profiling output.
+
     use super::*;
     use rstest::rstest;
     use std::{fs, time::Duration};
