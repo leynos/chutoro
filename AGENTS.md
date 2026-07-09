@@ -143,14 +143,22 @@ project:
     ```
 
     validating formatting across the entire workspace without modifying files.
-  - `make lint` executes:
+  - `make lint` executes rustdoc and Clippy followed by the Whitaker Dylint
+    suite:
 
     ```sh
-    cargo clippy --workspace --all-targets --all-features -- -D warnings
+    cargo doc --workspace --no-deps
+    cargo clippy --all-targets --all-features -- -D warnings
+    RUSTFLAGS="-D warnings" whitaker --all -- --all-targets --all-features
     ```
 
-    linting every target with all features enabled and denying all Clippy
-    warnings.
+    linting every target with all features enabled and denying all warnings.
+    Install the `whitaker` wrapper with
+    `cargo install --locked whitaker-installer --version 0.2.5` followed by
+    `whitaker-installer`. Per-lint configuration (including
+    `no_std_fs_operations` exclusions, each with a rationale comment) lives
+    in the root `dylint.toml`. Use `make lint-clippy` for a Clippy-only pass
+    where Whitaker is unavailable.
   - `make test` executes:
 
     ```sh

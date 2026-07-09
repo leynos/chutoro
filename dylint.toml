@@ -1,0 +1,29 @@
+# Configuration for the Whitaker Dylint suite (see `make lint-whitaker`).
+
+[no_std_fs_operations]
+excluded_crates = [
+    # Benchmark harness: downloads, caches, and reads benchmark datasets
+    # (for example MNIST) from ambient cache directories and writes
+    # profiling output where Criterion and CI expect it.
+    "chutoro_benches",
+    # Test support utilities: the CI gate binaries and helpers read
+    # workflow-provided files from ambient runner paths by design.
+    "chutoro_test_support",
+    # Integration test crates for the CI gate binaries: they stage gate
+    # input files in ambient temp directories and spawn the binaries
+    # against them.
+    "kani_nightly_gate_cli",
+    "benchmark_regression_gate_cli",
+    # CI gate binaries (chutoro-test-support/src/bin): read gate input
+    # files from workflow-provided ambient runner paths by design.
+    "kani_nightly_gate",
+    "benchmark_regression_gate",
+    # Dense matrix provider: `try_from_parquet_path` is a convenience
+    # constructor whose contract is opening a caller-supplied ambient
+    # path; `try_from_parquet_reader` is the capability-clean surface.
+    "chutoro_providers_dense",
+    # Command-line interface: opens input files at paths supplied by the
+    # user on the command line, the ambient contract of a CLI; its test
+    # fixtures stage matching files in ambient temp directories.
+    "chutoro_cli",
+]
