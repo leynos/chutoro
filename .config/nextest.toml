@@ -93,6 +93,14 @@ filter = "test(/benchmark_binaries_cover_discovery_and_exact_smoke_paths/)"
 threads-required = 8
 slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 
+
+[[profile.default.overrides]]
+# Trybuild tests compile fixture crates with a nested cargo invocation; under
+# a cold coverage target directory the dependency rebuild can exceed the
+# generic 60s timeout.
+filter = "test(/dataset_recipe_phase_order/)"
+slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+
 [profile.ci]
 inherits = "default"
 test-threads = 4
@@ -137,4 +145,10 @@ retries = 1
 # and can exceed the generic 60s timeout on shared runners.
 filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled/)"
 threads-required = 4
+slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.ci.overrides]]
+# Trybuild tests compile fixture crates with a nested cargo invocation; the
+# rebuild can exceed the generic 60s timeout on shared runners.
+filter = "test(/dataset_recipe_phase_order/)"
 slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
