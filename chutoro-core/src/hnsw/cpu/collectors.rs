@@ -42,7 +42,10 @@ impl EdgeCollector for VecCollector {
 }
 
 impl EdgeHarvest {
-    /// Collects edges from parallel insertions using Rayon `map` → `try_reduce`.
+    /// Collects edges from Rayon-dispatched insertions using `map` → `try_reduce`.
+    ///
+    /// Each insertion is serialized by the index's insert mutex; Rayon
+    /// provides worker dispatch rather than concurrent graph mutation.
     ///
     /// Inserts nodes `1..items` in parallel, accumulating discovered edges into
     /// a single sorted harvest. The returned edges are sorted by insertion

@@ -125,9 +125,9 @@ fn returns_empty_forest_when_no_edges_are_usable() {
 }
 
 #[test]
-fn undirected_edges_are_canonicalised_and_deduplicated() {
+fn undirected_edges_are_canonicalized_and_deduplicated() {
     // Two nodes (0 and 1) with two parallel undirected edges between them:
-    // (0, 1, w, s1) and (1, 0, w, s2). These should canonicalise to the same
+    // (0, 1, w, s1) and (1, 0, w, s2). These should canonicalize to the same
     // undirected edge and be deduplicated down to a single MST edge.
     let node_count = 2;
     let edges = harvest(&[(0, 1, 1.0, 10), (1, 0, 1.0, 20)]);

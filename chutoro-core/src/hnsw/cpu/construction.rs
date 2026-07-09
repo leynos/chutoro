@@ -5,27 +5,30 @@ use super::*;
 impl CpuHnsw {
     /// Builds a new HNSW index from the provided [`DataSource`].
     ///
-    /// The first item seeds the entry point; remaining items are inserted in
-    /// parallel with Rayon workers. This method uses a non-harvesting path
-    /// that avoids edge allocation overhead.
+    /// The first item seeds the entry point; remaining items are dispatched
+    /// across Rayon workers, with each insertion serialized by the internal
+    /// insert mutex (single-writer semantics). This method uses a
+    /// non-harvesting path that avoids edge allocation overhead.
     ///
     /// Use [`Self::build_with_edges`] if you need candidate edges for MST
     /// construction.
     ///
     /// # Examples
-    /// ```rust,ignore
-    /// use crate::{CpuHnsw, DataSource, DataSourceError, HnswParams};
+    /// ```
+    /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams, MetricDescriptor};
     ///
-    /// # struct Dummy(Vec<f32>);
-    /// # impl DataSource for Dummy {
-    /// #     fn len(&self) -> usize { self.0.len() }
-    /// #     fn name(&self) -> &str { "dummy" }
-    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
-    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
-    /// #         Ok((a - b).abs())
-    /// #     }
-    /// # }
+    /// struct Dummy(Vec<f32>);
+    /// impl DataSource for Dummy {
+    ///     fn len(&self) -> usize { self.0.len() }
+    ///     fn name(&self) -> &str { "dummy" }
+    ///     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+    ///         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+    ///         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+    ///         Ok((a - b).abs())
+    ///     }
+    ///     fn metric_descriptor(&self) -> MetricDescriptor { MetricDescriptor::new("test") }
+    /// }
+    ///
     /// let params = HnswParams::new(2, 4).expect("params must be valid");
     /// let index = CpuHnsw::build(&Dummy(vec![0.0, 1.0, 2.0]), params)
     ///     .expect("build must succeed");
@@ -48,8 +51,9 @@ impl CpuHnsw {
     /// Builds an HNSW index and returns candidate edges for MST construction.
     ///
     /// The first item seeds the entry point (no edges harvested for it).
-    /// Remaining items are inserted in parallel using Rayon, with edges
-    /// accumulated via `map` → `reduce` into a global edge list.
+    /// Remaining items are dispatched across Rayon workers (each insertion
+    /// is serialized by the internal insert mutex), with edges accumulated
+    /// via `map` → `reduce` into a global edge list.
     ///
     /// The returned edges are sorted by insertion sequence for deterministic
     /// ordering, then by the natural `Ord` (distance, source, target, sequence).

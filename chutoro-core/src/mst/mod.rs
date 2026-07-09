@@ -335,7 +335,6 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
 }
 
 #[cfg(kani)]
-#[path = "kani_harness.rs"]
 mod kani_harness;
 
 #[cfg(test)]

@@ -1,4 +1,8 @@
-//! Path-backed key newtypes for cache and object storage.
+//! Path-backed key newtypes and recipe lifecycle contract types.
+//!
+//! Includes cache and object-store key wrappers, checksum and manifest
+//! digest placeholders, and the phase, port, and partial-state types used
+//! to describe recipe execution and failure cleanup.
 
 use camino::{Utf8Path, Utf8PathBuf};
 
