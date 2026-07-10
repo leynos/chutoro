@@ -17,18 +17,22 @@ impl CpuHnsw {
     /// Compiled only for tests to avoid production overhead; intended to stabilize
     /// property-based mutation checks that rely on post-commit healing passes.
     pub fn heal_for_test(&self) {
-        self.write_graph(|graph| {
+        let healed = self.write_graph(|graph| {
             let mut executor = graph.insertion_executor();
             executor.heal_reachability(self.params.max_connections());
             executor.enforce_bidirectional_all(self.params.max_connections());
             Ok(())
-        })
-        .expect("graph lock during heal_for_test");
+        });
+        if let Err(err) = healed {
+            panic!("graph lock during heal_for_test: {err}");
+        }
     }
 
     pub(crate) fn inspect_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> R {
-        self.read_graph(|graph| Ok(f(graph)))
-            .expect("graph lock during inspect_graph")
+        match self.read_graph(|graph| Ok(f(graph))) {
+            Ok(result) => result,
+            Err(err) => panic!("graph lock during inspect_graph: {err}"),
+        }
     }
 
     pub(crate) fn delete_node_for_test(&mut self, node: usize) -> Result<bool, HnswError> {
@@ -45,10 +49,12 @@ impl CpuHnsw {
         self.worker_rngs = build_worker_rngs(base_seed);
         self.distance_cache = DistanceCache::new(*params.distance_cache_config());
         self.params = params;
-        self.write_graph(|graph| {
+        let reconfigured = self.write_graph(|graph| {
             graph.set_params(&self.params);
             Ok(())
-        })
-        .expect("graph lock during reconfigure_for_test");
+        });
+        if let Err(err) = reconfigured {
+            panic!("graph lock during reconfigure_for_test: {err}");
+        }
     }
 }

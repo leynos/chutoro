@@ -56,6 +56,8 @@ impl fmt::Display for ExtractionBenchParams {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for benchmark parameter parsing.
+
     use super::*;
     use rstest::rstest;
 

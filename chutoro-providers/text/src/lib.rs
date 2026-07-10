@@ -136,6 +136,8 @@ impl DataSource for TextProvider {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for the text data-source provider.
+
     use super::*;
     use std::io::{self, BufRead, Cursor, Read};
 

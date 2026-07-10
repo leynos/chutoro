@@ -25,11 +25,13 @@ fn parse_csv_rows(input: &str, dims: usize) -> Vec<Vec<f32>> {
             let mut parts = line.split(',');
             let mut row = Vec::with_capacity(dims);
             for _ in 0..dims {
-                let value = parts
-                    .next()
-                    .unwrap_or_else(|| panic!("missing column in line: {line}"))
-                    .parse::<f32>()
-                    .unwrap_or_else(|err| panic!("failed to parse float in line '{line}': {err}"));
+                let Some(part) = parts.next() else {
+                    panic!("missing column in line: {line}");
+                };
+                let value = match part.parse::<f32>() {
+                    Ok(value) => value,
+                    Err(err) => panic!("failed to parse float in line '{line}': {err}"),
+                };
                 row.push(value);
             }
             row

@@ -106,6 +106,8 @@ pub(super) fn harvest_candidate_edges(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for harvest output ordering.
+
     use super::super::super::types::GraphMetadata;
     use super::harvest_k_for_metadata;
 

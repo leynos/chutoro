@@ -12,8 +12,10 @@ use tracing_test::traced_test;
 
 #[fixture]
 fn source() -> SourceUrl {
-    SourceUrl::parse("https://example.test/data.bin")
-        .unwrap_or_else(|error| panic!("test source URL should parse: {error}"))
+    match SourceUrl::parse("https://example.test/data.bin") {
+        Ok(url) => url,
+        Err(error) => panic!("test source URL should parse: {error}"),
+    }
 }
 
 #[fixture]

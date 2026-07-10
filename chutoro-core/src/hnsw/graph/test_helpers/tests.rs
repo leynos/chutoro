@@ -7,7 +7,10 @@ use crate::hnsw::{HnswError, graph::NodeContext, graph::core::Graph, params::Hns
 /// Creates default parameters for most deletion tests (max_connections=2, ef_construction=4).
 #[fixture]
 fn basic_params() -> HnswParams {
-    HnswParams::new(2, 4).expect("params must be valid")
+    match HnswParams::new(2, 4) {
+        Ok(params) => params,
+        Err(err) => panic!("params must be valid: {err}"),
+    }
 }
 
 /// Creates a graph with capacity 3 using basic params.
@@ -19,7 +22,10 @@ fn small_graph(basic_params: HnswParams) -> Graph {
 /// Creates restricted parameters for disconnection tests (max_connections=1, ef_construction=1).
 #[fixture]
 fn restricted_params() -> HnswParams {
-    HnswParams::new(1, 1).expect("params must be valid")
+    match HnswParams::new(1, 1) {
+        Ok(params) => params,
+        Err(err) => panic!("params must be valid: {err}"),
+    }
 }
 
 #[rstest]

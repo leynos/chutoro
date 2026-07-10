@@ -1,9 +1,10 @@
-.PHONY: help all clean test build release typecheck lint fmt check-fmt markdownlint nixie kani kani-full verus bench test-workflow-contracts
+.PHONY: help all clean test build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie kani kani-full verus bench test-workflow-contracts
 
 export PATH := $(HOME)/.cargo/bin:$(HOME)/.bun/bin:$(PATH)
 
 APP ?= chutoro-cli
 CARGO ?= cargo
+WHITAKER ?= whitaker
 BUILD_JOBS ?=
 CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
 RUSTDOC_FLAGS ?= --cfg docsrs -D warnings
@@ -29,9 +30,14 @@ test: ## Run tests with warnings treated as errors
 target/%/$(APP): ## Build binary in debug or release mode
 	$(CARGO) build $(BUILD_JOBS) $(if $(findstring release,$(@)),--release) --bin $(APP)
 
-lint: ## Run Clippy with warnings denied
+lint: lint-clippy lint-whitaker ## Run Clippy and the Whitaker Dylint suite with warnings denied
+
+lint-clippy: ## Run rustdoc and Clippy with warnings denied
 	RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) doc --workspace --no-deps
 	$(CARGO) clippy $(CLIPPY_FLAGS)
+
+lint-whitaker: ## Run the Whitaker Dylint suite with warnings denied
+	RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
 
 typecheck: ## Type-check all workspace targets and features
 	$(CARGO) check --workspace --all-targets --all-features $(BUILD_JOBS)

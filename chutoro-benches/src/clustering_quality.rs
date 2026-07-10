@@ -115,6 +115,8 @@ pub fn write_clustering_quality_report(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for clustering-quality metrics.
+
     use super::*;
     use rstest::rstest;
 

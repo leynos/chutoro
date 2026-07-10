@@ -35,7 +35,10 @@ pub mod tracing {
         /// ```
         #[must_use]
         pub fn spans(&self) -> Vec<SpanRecord> {
-            self.spans.lock().expect("lock poisoned").clone()
+            self.spans
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
         }
 
         /// Returns a snapshot of the emitted events recorded by the layer in
@@ -50,7 +53,10 @@ pub mod tracing {
         /// ```
         #[must_use]
         pub fn events(&self) -> Vec<EventRecord> {
-            self.events.lock().expect("lock poisoned").clone()
+            self.events
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
         }
     }
 
@@ -129,10 +135,13 @@ pub mod tracing {
             let Some(data) = span.extensions_mut().remove::<SpanData>() else {
                 return;
             };
-            self.spans.lock().expect("lock poisoned").push(SpanRecord {
-                name: data.name,
-                fields: data.fields,
-            });
+            self.spans
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(SpanRecord {
+                    name: data.name,
+                    fields: data.fields,
+                });
         }
 
         fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
@@ -142,7 +151,7 @@ pub mod tracing {
             });
             self.events
                 .lock()
-                .expect("lock poisoned")
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .push(EventRecord {
                     level: *event.metadata().level(),
                     target: event.metadata().target().to_owned(),

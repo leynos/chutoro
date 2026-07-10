@@ -61,8 +61,10 @@ impl ClusteringResult {
     /// ```
     #[must_use]
     pub fn from_assignments(assignments: Vec<ClusterId>) -> Self {
-        Self::try_from_assignments(assignments)
-            .expect("cluster identifiers must start at zero and be contiguous")
+        match Self::try_from_assignments(assignments) {
+            Ok(result) => result,
+            Err(err) => panic!("cluster identifiers must start at zero and be contiguous: {err}"),
+        }
     }
 
     /// Attempts to build a result from cluster assignments.

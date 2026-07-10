@@ -124,6 +124,8 @@ impl MutationPools {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for mutation pool generation.
+
     use super::MutationPools;
     use rstest::rstest;
 

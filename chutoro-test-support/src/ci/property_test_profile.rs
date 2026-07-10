@@ -116,6 +116,8 @@ fn parse_bool(raw: &str) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for property-test profile selection.
+
     use super::*;
     use rstest::rstest;
     use std::collections::HashMap;

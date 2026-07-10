@@ -84,8 +84,9 @@ impl DistanceCacheConfig {
 
 impl Default for DistanceCacheConfig {
     fn default() -> Self {
-        let max_entries = NonZeroUsize::new(Self::DEFAULT_MAX_ENTRIES)
-            .expect("default cache size must be non-zero");
+        let Some(max_entries) = NonZeroUsize::new(Self::DEFAULT_MAX_ENTRIES) else {
+            unreachable!("default cache size must be non-zero");
+        };
         Self::new(max_entries)
     }
 }
@@ -255,10 +256,12 @@ impl DistanceCache {
 
     fn touch(&self, key: &DistanceKey) {
         let shard = self.shard_for_key(key);
+        // Recover from a poisoned lock: the LRU usage list stays coherent
+        // because each mutation below is applied atomically under the guard.
         let mut usage = shard
             .usage
             .lock()
-            .expect("distance cache usage mutex poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some((evicted, _)) = usage.push(key.clone(), ()) {
             self.entries.remove(&evicted);
             self.record_eviction();
@@ -267,10 +270,12 @@ impl DistanceCache {
 
     fn remove_from_usage(&self, key: &DistanceKey) {
         let shard = self.shard_for_key(key);
+        // Recover from a poisoned lock: the LRU usage list stays coherent
+        // because each mutation below is applied atomically under the guard.
         let mut usage = shard
             .usage
             .lock()
-            .expect("distance cache usage mutex poisoned");
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(evicted) = self.try_restore_and_get_evicted(&mut usage, key) {
             self.entries.remove(&evicted);
             self.record_eviction();
@@ -304,9 +309,10 @@ impl DistanceCache {
             key.hash(&mut hasher);
             (hasher.finish() as usize) % self.shards.len()
         };
-        self.shards
-            .get(index)
-            .expect("distance cache shard index must be valid")
+        let Some(shard) = self.shards.get(index) else {
+            unreachable!("distance cache shard index must be valid");
+        };
+        shard
     }
 
     #[cfg(feature = "metrics")]
@@ -360,7 +366,10 @@ fn lru_shard_capacities(total_capacity: usize) -> Vec<NonZeroUsize> {
         .map(|index| {
             let extra = usize::from(index < remainder);
             let shard_capacity = base + extra;
-            NonZeroUsize::new(shard_capacity).expect("shard capacity must be non-zero")
+            let Some(capacity) = NonZeroUsize::new(shard_capacity) else {
+                unreachable!("shard capacity must be non-zero");
+            };
+            capacity
         })
         .collect()
 }

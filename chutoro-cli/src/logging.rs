@@ -58,10 +58,12 @@ pub enum LoggingError {
 /// failures (for example, when another global logger is already registered)
 /// are reported to `stderr` but do not cause this function to return an error.
 pub fn init_logging() -> Result<(), LoggingError> {
+    // Recover from a poisoned lock: initialization state is tracked by the
+    // `INITIALIZED` cell, so a poisoned guard cannot corrupt it.
     let guard = INIT_GUARD
         .get_or_init(|| Mutex::new(()))
         .lock()
-        .expect("logging initialization mutex poisoned");
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
 
     if INITIALIZED.get().is_some() {
         return Ok(());
@@ -69,15 +71,13 @@ pub fn init_logging() -> Result<(), LoggingError> {
 
     match install_subscriber() {
         Ok(()) => {
-            INITIALIZED
-                .set(())
-                .expect("logging initialization marker already set");
+            // The guard serialises initialization, so the marker can only be
+            // set once; ignore the impossible duplicate-set error.
+            let _ = INITIALIZED.set(());
         }
         Err(LoggingError::InstallFailed { source }) => {
             report_logging_conflict(&source);
-            INITIALIZED
-                .set(())
-                .expect("logging initialization marker already set");
+            let _ = INITIALIZED.set(());
         }
         Err(err) => {
             drop(guard);
@@ -157,6 +157,8 @@ fn parse_log_format(raw: &str) -> Result<bool, LoggingError> {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for logging initialization.
+
     use super::*;
 
     use rstest::rstest;

@@ -111,6 +111,8 @@ fn is_within_last_day(commit_epoch: u64, now_epoch: u64) -> bool {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for nightly gate decisions.
+
     use super::*;
 
     use rstest::rstest;

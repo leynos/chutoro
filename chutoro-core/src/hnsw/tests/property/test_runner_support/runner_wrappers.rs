@@ -244,6 +244,8 @@ fn run_idempotency_proptest(config: Config) -> TestCaseResult {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for proptest runner wrappers.
+
     use super::*;
 
     #[test]

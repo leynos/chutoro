@@ -53,10 +53,14 @@ impl FixedMonotonicClock {
 #[cfg(test)]
 impl MonotonicClock for FixedMonotonicClock {
     fn now(&self) -> Instant {
-        self.instants
+        let next = self
+            .instants
             .lock()
-            .expect("FixedMonotonicClock mutex poisoned")
-            .pop_front()
-            .expect("FixedMonotonicClock: now() called more times than seeded instants")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pop_front();
+        let Some(instant) = next else {
+            panic!("FixedMonotonicClock: now() called more times than seeded instants");
+        };
+        instant
     }
 }

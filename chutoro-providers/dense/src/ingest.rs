@@ -90,9 +90,9 @@ pub(crate) fn copy_list_values(
             });
         }
         if floats.null_count() > 0 {
-            let value_index = (0..dimension)
-                .find(|&idx| floats.is_null(idx))
-                .expect("null_count > 0 but no null index found");
+            let Some(value_index) = (0..dimension).find(|&idx| floats.is_null(idx)) else {
+                unreachable!("null_count > 0 but no null index found");
+            };
             return Err(DenseMatrixProviderError::NullValue {
                 row: absolute_row,
                 value_index,

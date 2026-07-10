@@ -174,6 +174,8 @@ pub fn format_bytes(bytes: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for memory accounting.
+
     use super::*;
     use rstest::rstest;
 

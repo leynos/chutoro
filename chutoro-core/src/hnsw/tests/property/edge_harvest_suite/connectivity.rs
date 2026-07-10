@@ -16,36 +16,45 @@ fn validate_connectivity_for_metadata(
     match metadata {
         GraphMetadata::Disconnected {
             component_count, ..
-        } => {
-            // Disconnected graphs should have at least the specified components.
-            // May have more if internal edges fail to connect all nodes within a component.
-            if actual_components < *component_count {
-                return Err(format!(
-                    "disconnected graph has fewer components than expected: {actual_components} < {component_count}"
-                ));
-            }
-        }
-        GraphMetadata::Lattice { .. } => {
-            // Lattice grids are always connected by construction.
-            if actual_components != 1 {
-                return Err(format!(
-                    "lattice should be connected, found {actual_components} components"
-                ));
-            }
-        }
+        } => validate_disconnected_components(*component_count, actual_components),
+        GraphMetadata::Lattice { .. } => validate_lattice_components(actual_components),
         GraphMetadata::ScaleFree { node_count, .. } => {
-            // Scale-free graphs built with Barabasi-Albert model are connected
-            // by construction (each new node attaches to existing nodes).
-            if actual_components > 1 && *node_count > 3 {
-                return Err(format!(
-                    "scale-free graph with {node_count} nodes has {actual_components} components (expected 1)"
-                ));
-            }
+            validate_scale_free_components(*node_count, actual_components)
         }
-        GraphMetadata::Random { .. } => {
-            // Random graphs may or may not be connected depending on edge probability.
-            // We don't enforce connectivity for random graphs; this is informational.
-        }
+        // Random graphs may or may not be connected depending on edge
+        // probability; connectivity is informational only.
+        GraphMetadata::Random { .. } => Ok(()),
+    }
+}
+
+/// Disconnected graphs should have at least the specified components; they
+/// may have more if internal edges fail to connect all nodes.
+fn validate_disconnected_components(expected: usize, actual: usize) -> Result<(), String> {
+    if actual < expected {
+        return Err(format!(
+            "disconnected graph has fewer components than expected: {actual} < {expected}"
+        ));
+    }
+    Ok(())
+}
+
+/// Lattice grids are always connected by construction.
+fn validate_lattice_components(actual: usize) -> Result<(), String> {
+    if actual != 1 {
+        return Err(format!(
+            "lattice should be connected, found {actual} components"
+        ));
+    }
+    Ok(())
+}
+
+/// Scale-free graphs built with the Barabasi-Albert model are connected by
+/// construction (each new node attaches to existing nodes).
+fn validate_scale_free_components(node_count: usize, actual: usize) -> Result<(), String> {
+    if actual > 1 && node_count > 3 {
+        return Err(format!(
+            "scale-free graph with {node_count} nodes has {actual} components (expected 1)"
+        ));
     }
     Ok(())
 }
@@ -67,6 +76,8 @@ pub(super) fn run_connectivity_preservation_property(fixture: &GraphFixture) -> 
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for connectivity validation.
+
     use super::*;
     use crate::test_utils::suite_proptest_config;
     use proptest::prelude::*;

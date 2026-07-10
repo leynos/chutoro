@@ -169,6 +169,8 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for HNSW helper routines.
+
     use super::*;
     use crate::{DataSourceError, DistanceCacheConfig, datasource::MetricDescriptor};
 
@@ -183,16 +185,21 @@ mod tests {
     ) {
         let source = TestSource::new(vec![0.0, 1.0]);
         let mut neighbours = initial_neighbours;
-        ensure_query_present(
+        let Some(ef) = NonZeroUsize::new(ef) else {
+            panic!("ef must be non-zero");
+        };
+        let ensured = ensure_query_present(
             &cache(),
             EnsureQueryArgs {
                 source: &source,
                 query: 0,
-                ef: NonZeroUsize::new(ef).expect("ef must be non-zero"),
+                ef,
                 neighbours: &mut neighbours,
             },
-        )
-        .expect("ensure_query_present must succeed");
+        );
+        if let Err(err) = ensured {
+            panic!("ensure_query_present must succeed: {err}");
+        }
         assert_eq!(neighbours, expected_neighbours);
     }
 

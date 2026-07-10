@@ -180,6 +180,8 @@ fn graph_matches_snapshot(index: &CpuHnsw, snapshot: &GraphSnapshot) -> bool {
 
 #[cfg(test)]
 mod tests {
+    //! Property tests for insertion idempotency.
+
     use super::*;
     use crate::hnsw::tests::property::types::{
         DistributionMetadata, HnswParamsSeed, VectorDistribution,

@@ -277,6 +277,8 @@ fn hnsw_build_ef_sweep(c: &mut Criterion) {
 }
 
 mod bench_harness {
+    //! Criterion harness for the HNSW ef sweep benchmark.
+
     use super::hnsw_build_ef_sweep;
     use criterion::criterion_group;
 

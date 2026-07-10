@@ -51,14 +51,16 @@ pub(super) fn run_graph_determinism_property(seed: u64, topology: GraphTopology)
 
 #[cfg(test)]
 mod tests {
+    //! Unit tests for harvest determinism checks.
+
     use super::*;
     use rstest::rstest;
 
     /// Helper to run determinism property for a single (seed, topology) pair.
     fn assert_determinism(seed: u64, topology: GraphTopology) {
-        run_graph_determinism_property(seed, topology).unwrap_or_else(|e| {
-            panic!("determinism failed for seed={seed}, topology={topology:?}: {e}")
-        });
+        if let Err(e) = run_graph_determinism_property(seed, topology) {
+            panic!("determinism failed for seed={seed}, topology={topology:?}: {e}");
+        }
     }
 
     // ========================================================================
