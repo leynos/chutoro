@@ -10,6 +10,9 @@ name: Coverage (main)
 'on':
   push:
     branches: [main]
+  # Manual dispatch allows re-running the upload (and re-seeding the
+  # ratchet baseline) without waiting for the next push to main.
+  workflow_dispatch:
 
 jobs:
   coverage-upload:
