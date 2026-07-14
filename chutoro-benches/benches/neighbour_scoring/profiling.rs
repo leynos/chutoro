@@ -109,10 +109,6 @@ impl<S: DataSource> DataSource for ProfilingSource<S> {
 }
 
 #[cfg(test)]
-#[expect(
-    dead_code,
-    reason = "Criterion harness=false bench tests compile as ordinary code"
-)]
 mod tests {
     use chutoro_core::{DataSource, DataSourceError, MetricDescriptor};
 
@@ -159,6 +155,10 @@ mod tests {
         }
     }
 
+    #[expect(
+        dead_code,
+        reason = "Criterion harness=false bench tests compile as ordinary code"
+    )]
     fn source() -> ProfilingSource<StubSource> {
         ProfilingSource::new(StubSource {
             len: 4,

@@ -761,8 +761,7 @@ const _: () = {
 ```
 
 If the assertion fails on the chosen platform, refactor `RecipeError` so its
-largest payloads remain behind boxed or reference-counted indirection and
-rerun.
+largest payloads remain behind boxed or reference-counted indirection and rerun.
 
 Stage C validation: `cargo check -p chutoro-bench-datasets`;
 `cargo clippy -p chutoro-bench-datasets -- -D warnings` proves the

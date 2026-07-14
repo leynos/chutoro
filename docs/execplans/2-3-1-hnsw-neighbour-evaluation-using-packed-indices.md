@@ -4,7 +4,7 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
 and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
-Status: ACTIVE (implementation in progress)
+Status: COMPLETE
 
 Roadmap item: 2.3.1 (Phase 2.3, Hot-path optimizations). See `docs/roadmap.md`
 lines 319-321 and `docs/chutoro-design.md` §6.3 (lines 887-963).
@@ -243,6 +243,11 @@ Stop and escalate (do not work around) when:
 
 ## Progress
 
+- [x] (2026-07-14) Review follow-up: honour the supplied build-profile report
+  target, narrow benchmark-harness lint expectations, and add orchestration
+  coverage for the default build profile and complete scoring matrix. Final
+  gates passed: `make check-fmt`, `make lint`, `make typecheck`, `make test`
+  (1058 passed, 1 skipped), `make markdownlint`, and `make nixie`.
 - [x] (2026-06-09) Draft authored.
 - [x] (2026-06-09) Community-of-experts (Logisphere) review: verdict REVISE;
   all 12 required revisions folded into this draft.
@@ -960,13 +965,13 @@ Stop and escalate (do not work around) when:
   need deterministic unit-test coverage, while `harness = false` bench modules
   do not expose ordinary tests. Date/Author: 2026-06-25, implementation agent.
 - Decision: Do not port the `neighbour_scoring` diagnostic harness to the new
-  `chutoro-bench-datasets::DatasetRecipe` infrastructure introduced by
-  roadmap item 10.1.1. Rationale: this harness measures fixed synthetic
-  candidate scoring, lane utilisation, and HNSW build-profile timing rather
-  than fetched or prepared benchmark datasets; adopting the recipe lifecycle
-  here would broaden 2.3.1 without improving the packed-index evidence. Future
-  dataset-backed benchmark matrix work should use `DatasetRecipe`.
-  Date/Author: 2026-07-07, rebase review.
+  `chutoro-bench-datasets::DatasetRecipe` infrastructure introduced by roadmap
+  item 10.1.1. Rationale: this harness measures fixed synthetic candidate
+  scoring, lane utilisation, and HNSW build-profile timing rather than fetched
+  or prepared benchmark datasets; adopting the recipe lifecycle here would
+  broaden 2.3.1 without improving the packed-index evidence. Future
+  dataset-backed benchmark matrix work should use `DatasetRecipe`. Date/Author:
+  2026-07-07, rebase review.
 
 ## Outcomes & retrospective
 

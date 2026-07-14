@@ -91,6 +91,13 @@ fn bench_case(
     Ok(())
 }
 
+fn scoring_plan() -> Vec<(usize, CandidateBucket)> {
+    DIMENSIONS
+        .iter()
+        .flat_map(|&dimension| all_buckets().map(move |bucket| (dimension, bucket)))
+        .collect()
+}
+
 fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
     let report_parent_dir = report_parent_dir();
     let build_profile_target = build_profile_report_target_value(
@@ -98,13 +105,11 @@ fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
         &report_parent_dir,
     );
     let _lane_report = write_lane_utilisation_report(&report_parent_dir)?;
-    let _build_profile = write_build_profile_report(&report_parent_dir, build_profile_target)?;
+    let _build_profile = write_build_profile_report(build_profile_target)?;
     let mut group = c.benchmark_group("neighbour_scoring");
     configure_group(&mut group);
-    for &dimension in DIMENSIONS {
-        for bucket in all_buckets() {
-            bench_case(&mut group, dimension, bucket)?;
-        }
+    for (dimension, bucket) in scoring_plan() {
+        bench_case(&mut group, dimension, bucket)?;
     }
     group.finish();
     Ok(())
@@ -128,17 +133,26 @@ mod bench_harness {
 criterion_main!(bench_harness::benches);
 
 #[cfg(test)]
-#[expect(
-    unused_imports,
-    reason = "Criterion harness=false bench tests compile as ordinary code"
-)]
 mod tests {
+    #[expect(
+        unused_imports,
+        reason = "Criterion harness=false bench tests compile as ordinary code"
+    )]
     use super::{
-        bench_id_for, score_candidates, should_use_short_measurement_value, throughput_for,
+        DIMENSIONS, bench_id_for, score_candidates, scoring_plan,
+        should_use_short_measurement_value, throughput_for,
     };
+    #[expect(
+        unused_imports,
+        reason = "Criterion harness=false bench tests compile as ordinary code"
+    )]
     use criterion::Throughput;
     use rstest::rstest;
 
+    #[expect(
+        unused_imports,
+        reason = "Criterion harness=false bench tests compile as ordinary code"
+    )]
     use super::support::{CandidateBucket, all_buckets, make_fixture};
 
     #[rstest]
@@ -187,5 +201,26 @@ mod tests {
             bench_id_for(bucket, 32).to_string(),
             "realistic/dim_32_candidates_8",
         );
+    }
+
+    #[test]
+    fn scoring_plan_covers_each_dimension_and_bucket_once() {
+        let plan = scoring_plan();
+        let buckets = all_buckets().collect::<Vec<_>>();
+
+        assert_eq!(plan.len(), DIMENSIONS.len() * buckets.len());
+        for &dimension in DIMENSIONS {
+            for bucket in &buckets {
+                let occurrences = plan
+                    .iter()
+                    .filter(|(planned_dimension, planned_bucket)| {
+                        *planned_dimension == dimension
+                            && planned_bucket.kind_name() == bucket.kind_name()
+                            && planned_bucket.size() == bucket.size()
+                    })
+                    .count();
+                assert_eq!(occurrences, 1);
+            }
+        }
     }
 }

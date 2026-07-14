@@ -10,9 +10,8 @@ use arrow_schema::{DataType, Field};
 use camino::{Utf8Path, Utf8PathBuf};
 use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_benches::neighbour_scoring::{
-    BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilisationReportRow, REPORT_DIR_NAME,
-    report_path_value, sorted_median, write_build_profile_report_csv,
-    write_lane_utilisation_report_csv,
+    BuildProfileReportRow, LaneUtilisationReportRow, REPORT_DIR_NAME, report_path_value,
+    sorted_median, write_build_profile_report_csv, write_lane_utilisation_report_csv,
 };
 use chutoro_benches::source::{SyntheticConfig, SyntheticError, SyntheticSource};
 use chutoro_core::{CpuHnsw, DataSourceError, HnswError, HnswParams};
@@ -29,6 +28,8 @@ const BENCH_SEED: u64 = 0xC4A7_0203_0000_0231;
 const LANE_REPORT: &str = "neighbour_scoring_lane_utilisation.csv";
 
 pub(super) const DIMENSIONS: &[usize] = &[32, 128, 768];
+pub(super) const DEFAULT_BUILD_PROFILE_POINT_COUNTS: &[usize] = &[10_000, 100_000];
+pub(super) const DEFAULT_BUILD_PROFILE_DIMENSION: usize = 128;
 
 #[derive(Debug, Error)]
 pub(super) enum BenchError {
@@ -219,19 +220,23 @@ fn profile_source(
 }
 
 pub(super) fn write_build_profile_report(
-    report_parent_dir: &Utf8Path,
     report_target: Option<Utf8PathBuf>,
 ) -> BenchResult<Option<Utf8PathBuf>> {
-    write_build_profile_report_for_point_counts(
-        report_parent_dir,
+    write_build_profile_report_with(report_target, write_build_profile_report_for_point_counts)
+}
+
+fn write_build_profile_report_with(
+    report_target: Option<Utf8PathBuf>,
+    writer: impl FnOnce(Option<Utf8PathBuf>, &[usize], usize) -> BenchResult<Option<Utf8PathBuf>>,
+) -> BenchResult<Option<Utf8PathBuf>> {
+    writer(
         report_target,
-        &[10_000_usize, 100_000_usize],
-        128,
+        DEFAULT_BUILD_PROFILE_POINT_COUNTS,
+        DEFAULT_BUILD_PROFILE_DIMENSION,
     )
 }
 
 pub(super) fn write_build_profile_report_for_point_counts(
-    report_parent_dir: &Utf8Path,
     report_target: Option<Utf8PathBuf>,
     point_counts: &[usize],
     dimension: usize,
@@ -267,79 +272,18 @@ pub(super) fn write_build_profile_report_for_point_counts(
             median_batch,
         });
     }
-    let report_dir = open_report_dir(report_parent_dir)?;
-    let mut file = report_dir.create(BUILD_PROFILE_REPORT)?;
+    let report_parent = path.parent().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "report target has no parent")
+    })?;
+    let report_filename = path.file_name().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "report target has no filename")
+    })?;
+    let report_dir = Dir::open_ambient_dir(report_parent, ambient_authority())?;
+    let mut file = report_dir.create(report_filename)?;
     write_build_profile_report_csv(&mut file, report_rows)?;
     Ok(Some(path))
 }
 
 #[cfg(test)]
-#[expect(
-    unused_imports,
-    reason = "Criterion harness=false bench tests compile as ordinary code"
-)]
-mod tests {
-    use camino::Utf8Path;
-    use chutoro_benches::neighbour_scoring::{BUILD_PROFILE_REPORT, REPORT_DIR_NAME};
-    use chutoro_core::DataSource;
-    use tempfile::tempdir;
-
-    use super::{
-        LANE_REPORT, make_fixture, write_build_profile_report_for_point_counts,
-        write_lane_utilisation_report,
-    };
-
-    #[test]
-    fn fixture_contains_provider_rows_and_one_based_candidates() {
-        let candidate_count = 8;
-        let fixture = make_fixture(32, candidate_count).expect("fixture must be created");
-
-        assert!(fixture.provider.len() >= candidate_count + 1);
-        assert_eq!(
-            fixture.candidates,
-            (1..=candidate_count).collect::<Vec<_>>()
-        );
-    }
-
-    #[test]
-    fn lane_utilisation_report_writes_expected_file() {
-        let temp_dir = tempdir().expect("temp dir must be created");
-        let report_parent_dir =
-            Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
-
-        let report_path = write_lane_utilisation_report(report_parent_dir)
-            .expect("lane utilisation report must be written");
-
-        assert_eq!(
-            report_path,
-            report_parent_dir.join(REPORT_DIR_NAME).join(LANE_REPORT),
-        );
-        assert!(report_path.exists());
-    }
-
-    #[test]
-    fn build_profile_report_respects_optional_target_and_writes_file() {
-        let temp_dir = tempdir().expect("temp dir must be created");
-        let report_parent_dir =
-            Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
-        let report_target = report_parent_dir
-            .join(REPORT_DIR_NAME)
-            .join(BUILD_PROFILE_REPORT);
-
-        let skipped =
-            write_build_profile_report_for_point_counts(report_parent_dir, None, &[16], 8)
-                .expect("disabled build profile report must succeed");
-        assert!(skipped.is_none());
-
-        let written = write_build_profile_report_for_point_counts(
-            report_parent_dir,
-            Some(report_target.clone()),
-            &[16],
-            8,
-        )
-        .expect("enabled build profile report must succeed");
-
-        assert_eq!(written.as_deref(), Some(report_target.as_path()));
-        assert!(report_target.exists());
-    }
-}
+#[path = "support_tests.rs"]
+mod tests;
