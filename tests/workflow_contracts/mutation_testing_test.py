@@ -8,11 +8,16 @@ at a branch, widening permissions, or losing the paths, exclusions, and
 feature configuration) fails CI on the pull request rather than
 surfacing in a scheduled or manual run.
 
+The caller must reference the correct reusable workflow at a commit SHA;
+Dependabot owns the SHA value, so these tests assert the shape of the pin
+(a 40-hex commit SHA on the correct path) rather than a specific value.
+
 Run via ``make test-workflow-contracts``.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -21,13 +26,8 @@ WORKFLOW_PATH = (
     Path(__file__).resolve().parents[2] / ".github" / "workflows" / "mutation-testing.yml"
 )
 
-#: The commit SHA of the shared workflow pin (leynos/shared-actions
-#: main, adding artefact preservation on timeout). Bump the workflow
-#: and this test together.
-PINNED_SHA = "2b09d10192627fd6e1034e7c12625dd266b45503"
-
-EXPECTED_USES = (
-    "leynos/shared-actions/.github/workflows/mutation-cargo.yml@" + PINNED_SHA
+USES_RE = re.compile(
+    r"^leynos/shared-actions/\.github/workflows/mutation-cargo\.yml@[0-9a-f]{40}$"
 )
 
 #: The exact caller configuration: workspace crate paths (the repo has
@@ -70,25 +70,13 @@ def _mutation_job(workflow: dict[str, object]) -> dict[str, object]:
     return jobs["mutation"]
 
 
-def test_uses_reference_is_pinned_to_the_documented_sha() -> None:
-    """The job must call the shared workflow at the exact documented SHA."""
+def test_uses_reference_is_pinned_to_a_commit_sha() -> None:
+    """The job must call the correct shared workflow at a full commit SHA."""
     uses = _mutation_job(_load()).get("uses")
     assert uses is not None, "jobs.mutation.uses is missing"
-    path, _, ref = uses.partition("@")
-    assert path == "leynos/shared-actions/.github/workflows/mutation-cargo.yml", (
-        f"jobs.mutation.uses must reference mutation-cargo.yml, got {path!r}"
-    )
-    assert len(ref) == 40, (
-        f"jobs.mutation.uses must pin a full 40-character commit SHA, "
-        f"not a branch or tag: {ref!r}"
-    )
-    assert all(c in "0123456789abcdef" for c in ref), (
-        f"jobs.mutation.uses must pin a lowercase hex commit SHA, "
-        f"not a branch or tag: {ref!r}"
-    )
-    assert uses == EXPECTED_USES, (
-        f"jobs.mutation.uses pins {ref!r}; this test documents {PINNED_SHA!r} — "
-        "bump the test together with the workflow"
+    assert USES_RE.match(uses), (
+        f"jobs.mutation.uses must reference mutation-cargo.yml pinned to a "
+        f"40-hex commit SHA (not a branch or tag), got {uses!r}"
     )
 
 
