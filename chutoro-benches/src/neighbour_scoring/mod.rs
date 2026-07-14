@@ -138,7 +138,7 @@ pub fn sorted_median(values: &[usize]) -> usize {
         let Some(&lower) = values.get(upper_index.saturating_sub(1)) else {
             return upper;
         };
-        lower + (upper - lower) / 2
+        lower + upper.saturating_sub(lower) / 2
     } else {
         upper
     }
@@ -174,6 +174,7 @@ mod tests {
     #[case(&[8, 16, 24, 32], 20)]
     #[case(&[usize::MIN, usize::MIN], usize::MIN)]
     #[case(&[8, 8, 8, 8], 8)]
+    #[case(&[10, 2], 10)]
     #[case(&[usize::MAX - 2, usize::MAX], usize::MAX - 1)]
     fn sorted_median_returns_expected_value(#[case] values: &[usize], #[case] expected: usize) {
         assert_eq!(sorted_median(values), expected);

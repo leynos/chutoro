@@ -451,7 +451,6 @@ dependencies = [
  "cap-std",
  "chutoro-core",
  "chutoro-providers-dense",
- "chutoro-test-support",
  "criterion",
  "flate2",
  "proptest",

@@ -47,11 +47,16 @@ open each document.
 - [ADR 003: SoA prefetch adapter boundary](adr-003-soa-prefetch-adapter-boundary.md):
   accepted guidance for the dense adapter boundary and deferred structural
   optimization levers.
+- [ADR 004: benchmark dataset recipe trait](adr-004-bench-dataset-recipe-trait.md):
+  accepted guidance for typed benchmark dataset preparation and publication.
 
 ## Execution plans
 
 - [Execution plans](execplans/): implementation plans for roadmap tasks,
   verification work, and other substantial changes.
+  - [10-1-1 Chutoro bench datasets and dataset recipe
+    trait](execplans/10-1-1-chutoro-bench-datasets-and-dataset-recipe-trait.md):
+    open for the benchmark dataset lifecycle, port contracts, and test adapters.
   - [11-1-1 Make edge harvesting hnsw insertion path public](
     execplans/11-1-1-make-edge-harvesting-hnsw-insertion-path-public.md)
   - [11-1-2 Define session config carrying

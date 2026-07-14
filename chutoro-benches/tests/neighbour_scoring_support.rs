@@ -3,20 +3,19 @@
 use camino::Utf8Path;
 use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_benches::neighbour_scoring::{
-    BUILD_PROFILE_ENV, BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilisationReportRow,
-    REPORT_DIR_NAME, build_profile_report_target, build_profile_report_target_value,
-    report_parent_dir, report_parent_dir_value, should_collect_build_profile,
-    should_collect_build_profile_value, truthy_env_value, write_build_profile_report_csv,
-    write_lane_utilisation_report_csv,
+    BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilisationReportRow, REPORT_DIR_NAME,
+    build_profile_report_target_value, report_parent_dir_value, should_collect_build_profile_value,
+    truthy_env_value, write_build_profile_report_csv, write_lane_utilisation_report_csv,
 };
-use chutoro_test_support::env::EnvVarGuard;
-use rstest::rstest;
+use rstest::{fixture, rstest};
 use std::{io::Write, process::Command, time::Duration};
-use tempfile::{NamedTempFile, tempdir};
+use tempfile::{NamedTempFile, TempDir, tempdir};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 enum ReportFixtureError {
+    #[error("report fixture I/O failed: {0}")]
+    Io(#[from] std::io::Error),
     #[error("temp dir path is not UTF-8")]
     NonUtf8TempDir,
     #[error("expected report was not written: {0}")]
@@ -25,6 +24,25 @@ enum ReportFixtureError {
 
 fn temp_dir_utf8_path(temp_dir: &tempfile::TempDir) -> Result<&Utf8Path, ReportFixtureError> {
     Utf8Path::from_path(temp_dir.path()).ok_or(ReportFixtureError::NonUtf8TempDir)
+}
+
+struct ReportDirectory {
+    _temp_dir: TempDir,
+    path: camino::Utf8PathBuf,
+    root: Dir,
+}
+
+#[fixture]
+fn report_directory() -> Result<ReportDirectory, ReportFixtureError> {
+    let temp_dir = tempdir()?;
+    let path = temp_dir_utf8_path(&temp_dir)?.to_path_buf();
+    let root = Dir::open_ambient_dir(&path, ambient_authority())?;
+    root.create_dir_all(REPORT_DIR_NAME)?;
+    Ok(ReportDirectory {
+        _temp_dir: temp_dir,
+        path,
+        root,
+    })
 }
 
 #[rstest]
@@ -83,16 +101,13 @@ fn neighbour_scoring_script_wires_expected_benchmark_binary() {
     );
 }
 
-#[test]
-fn lane_utilisation_report_file_generation_writes_schema_and_rows() -> Result<(), ReportFixtureError>
-{
-    let temp_dir = tempdir().expect("temp dir must be created");
-    let temp_dir_path = temp_dir_utf8_path(&temp_dir)?;
-    let root =
-        Dir::open_ambient_dir(temp_dir_path, ambient_authority()).expect("temp dir must be opened");
-    root.create_dir_all(REPORT_DIR_NAME)
-        .expect("report dir must be created");
-    let mut file = root
+#[rstest]
+fn lane_utilisation_report_file_generation_writes_schema_and_rows(
+    #[from(report_directory)] report_directory_result: Result<ReportDirectory, ReportFixtureError>,
+) -> Result<(), ReportFixtureError> {
+    let report_directory = report_directory_result?;
+    let mut file = report_directory
+        .root
         .open_dir(REPORT_DIR_NAME)
         .and_then(|dir| dir.create("lane.csv"))
         .expect("report file must be created");
@@ -106,7 +121,8 @@ fn lane_utilisation_report_file_generation_writes_schema_and_rows() -> Result<()
     )
     .expect("lane utilisation report must be written");
 
-    if !temp_dir_path
+    if !report_directory
+        .path
         .join(REPORT_DIR_NAME)
         .join("lane.csv")
         .exists()
@@ -116,15 +132,13 @@ fn lane_utilisation_report_file_generation_writes_schema_and_rows() -> Result<()
     Ok(())
 }
 
-#[test]
-fn build_profile_report_file_generation_writes_schema_and_rows() -> Result<(), ReportFixtureError> {
-    let temp_dir = tempdir().expect("temp dir must be created");
-    let temp_dir_path = temp_dir_utf8_path(&temp_dir)?;
-    let root =
-        Dir::open_ambient_dir(temp_dir_path, ambient_authority()).expect("temp dir must be opened");
-    root.create_dir_all(REPORT_DIR_NAME)
-        .expect("report dir must be created");
-    let mut file = root
+#[rstest]
+fn build_profile_report_file_generation_writes_schema_and_rows(
+    #[from(report_directory)] report_directory_result: Result<ReportDirectory, ReportFixtureError>,
+) -> Result<(), ReportFixtureError> {
+    let report_directory = report_directory_result?;
+    let mut file = report_directory
+        .root
         .open_dir(REPORT_DIR_NAME)
         .and_then(|dir| dir.create(BUILD_PROFILE_REPORT))
         .expect("report file must be created");
@@ -146,7 +160,8 @@ fn build_profile_report_file_generation_writes_schema_and_rows() -> Result<(), R
     )
     .expect("build profile report must be written");
 
-    if !temp_dir_path
+    if !report_directory
+        .path
         .join(REPORT_DIR_NAME)
         .join(BUILD_PROFILE_REPORT)
         .exists()
@@ -162,23 +177,22 @@ fn build_profile_report_file_generation_writes_schema_and_rows() -> Result<(), R
 #[case::false_word(Some("false"), false)]
 #[case::truthy(Some("yes"), true)]
 fn build_profile_report_target_tracks_env(#[case] value: Option<&str>, #[case] expected: bool) {
-    let _profile_env = value.map_or_else(
-        || EnvVarGuard::remove(BUILD_PROFILE_ENV),
-        |raw| EnvVarGuard::set(BUILD_PROFILE_ENV, raw),
-    );
+    let report_parent_dir = Utf8Path::new("/tmp/chutoro-target-dir");
 
-    assert_eq!(should_collect_build_profile(), expected);
-    assert_eq!(build_profile_report_target().is_some(), expected);
+    assert_eq!(should_collect_build_profile_value(value), expected);
+    assert_eq!(
+        build_profile_report_target_value(value, report_parent_dir).is_some(),
+        expected,
+    );
 }
 
 #[test]
 fn build_profile_report_target_uses_expected_filename() {
-    let _target_dir = EnvVarGuard::remove("CARGO_TARGET_DIR");
     let expected_path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../target/benchmarks/neighbour_scoring_build_profile.csv",
     );
-    let report_parent_dir = report_parent_dir();
+    let report_parent_dir = report_parent_dir_value(None);
     let actual_path = build_profile_report_target_value(Some("yes"), &report_parent_dir);
 
     assert_eq!(actual_path.as_deref(), Some(Utf8Path::new(expected_path)));
@@ -197,8 +211,7 @@ fn assert_target_path_for_dir(report_parent_dir: &Utf8Path) {
 
 #[test]
 fn build_profile_report_target_reads_cargo_target_dir_env() {
-    let _target_dir = EnvVarGuard::set("CARGO_TARGET_DIR", "/tmp/chutoro-target-dir");
-    let report_parent_dir = report_parent_dir();
+    let report_parent_dir = report_parent_dir_value(Some("/tmp/chutoro-target-dir"));
     assert_target_path_for_dir(&report_parent_dir);
 }
 

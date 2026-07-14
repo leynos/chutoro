@@ -278,6 +278,7 @@ pub(super) fn write_build_profile_report_for_point_counts(
     let report_filename = path.file_name().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "report target has no filename")
     })?;
+    Dir::create_ambient_dir_all(report_parent, ambient_authority())?;
     let report_dir = Dir::open_ambient_dir(report_parent, ambient_authority())?;
     let mut file = report_dir.create(report_filename)?;
     write_build_profile_report_csv(&mut file, report_rows)?;

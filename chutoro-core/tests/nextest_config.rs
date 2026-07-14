@@ -156,6 +156,16 @@ fn default_profile_serializes_nested_benchmark_smoke_test() {
 }
 
 #[test]
+fn default_profile_preserves_write_lock_proptest_timeout() {
+    let override_blocks = default_override_blocks();
+    let override_present = override_blocks.into_iter().any(|block| {
+        block.contains("generated_hnsw_scoring_does_not_run_inside_write_graph_scope")
+            && block.contains(BENCH_SLOW_TIMEOUT)
+    });
+    assert!(override_present);
+}
+
+#[test]
 fn makefile_exposes_typecheck_gate() {
     let typecheck_block = make_target_block("typecheck").expect("typecheck target must exist");
     assert!(MAKEFILE.contains(" typecheck "));

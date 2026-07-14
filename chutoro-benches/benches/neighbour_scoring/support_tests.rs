@@ -82,7 +82,9 @@ fn build_profile_report_respects_optional_target_and_writes_file() {
 fn build_profile_report_writes_to_supplied_target() {
     let temp_dir = tempdir().expect("temp dir must be created");
     let report_parent_dir = Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
-    let report_target = report_parent_dir.join("custom-build-profile.csv");
+    let report_target = report_parent_dir
+        .join("nested")
+        .join("custom-build-profile.csv");
 
     let written =
         write_build_profile_report_for_point_counts(Some(report_target.clone()), &[16], 8)

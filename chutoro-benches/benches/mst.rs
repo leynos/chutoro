@@ -89,7 +89,9 @@ fn register_mst_discovery_benches(c: &mut Criterion) {
         .iter()
         .copied()
         .map(|point_count| PipelineBenchParams { point_count });
-    register_noop_benches(c, "parallel_kruskal", params, |_| {});
+    register_noop_benches(c, "parallel_kruskal", params, |group| {
+        configure_short_measurement_group(group, 20, is_exact_benchmark_probe());
+    });
 }
 
 fn mst_parallel_kruskal(c: &mut Criterion) {

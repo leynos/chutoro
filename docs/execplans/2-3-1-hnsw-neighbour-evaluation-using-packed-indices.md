@@ -7,7 +7,7 @@ and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 Status: COMPLETE
 
 Roadmap item: 2.3.1 (Phase 2.3, Hot-path optimizations). See `docs/roadmap.md`
-lines 319-321 and `docs/chutoro-design.md` §6.3 (lines 887-963).
+lines 396-399 and `docs/chutoro-design.md` §6.3 (lines 887-963).
 
 ## Purpose / big picture
 
@@ -548,12 +548,12 @@ Stop and escalate (do not work around) when:
     scripts/bench-neighbour-scoring.sh`, and `make test` (1048 passed, 1
     skipped), followed by `make markdownlint` after this plan update.
   - [x] (2026-06-25) Twenty-second CodeRabbit review completed with two valid
-    findings and one repeated invalid finding. Fixes applied: environment
-    mutation tests now use a shared `chutoro-test-support::env::EnvVarGuard`
-    instead of a local one-off helper, and build-profile environment/path
-    behaviour moved behind a narrow `chutoro-benches::neighbour_scoring` seam
-    so the integration test no longer includes the broad Criterion support
-    module with dead-code allowances. Invalid finding: the repeated duplicate
+    findings and one repeated invalid finding. Fixes applied: build-profile
+    environment/path behaviour moved behind a narrow
+    `chutoro-benches::neighbour_scoring` seam so the integration test no longer
+    includes the broad Criterion support module with dead-code allowances. A
+    later review follow-up replaced environment mutation with pure,
+    value-injected configuration. Invalid finding: the repeated duplicate
     `src/neighbour_scoring.rs` path is absent on disk.
   - [x] (2026-06-25) Post-twenty-second-review deterministic gates pass:
     `shellcheck scripts/bench-neighbour-scoring.sh`, `make check-fmt`,
@@ -842,20 +842,17 @@ Stop and escalate (do not work around) when:
   `benches/neighbour_scoring/support.rs` forced a broad `#[expect(dead_code)]`
   allowance. Impact: build-profile env/path helpers now live in
   `chutoro-benches::neighbour_scoring::build_profile`; the integration test
-  covers those helpers directly, and mutable environment tests use the shared
-  `chutoro-test-support::env::EnvVarGuard`.
+  covers those helpers directly through pure, value-injected configuration.
 - Observation: atomics plus a side-vector need an explicit snapshot boundary.
   Evidence: the twenty-first CodeRabbit review noted that updating atomics
   before pushing `batch_sizes` could split one batch across two snapshots.
   Impact: `record_batch` now performs all batch accounting while holding the
   batch-size lock.
-- Observation: environment variable mutation in tests is shared infrastructure,
-  not benchmark-specific behaviour. Evidence: the twenty-second CodeRabbit
-  review noted that a local integration-test guard duplicated a reusable
-  pattern and could drift from other environment tests. Impact:
-  `chutoro-test-support::env::EnvVarGuard` serializes mutation process-wide,
-  restores the previous value on drop, and centralizes the required unsafe
-  environment calls behind documented safety comments.
+- Observation: build-profile configuration tests do not need process-environment
+  mutation. Evidence: review follow-up showed that the relevant parsing and
+  path decisions can accept explicit values at a narrow library seam. Impact:
+  the integration tests inject configuration values directly, and the obsolete
+  `chutoro-test-support::env::EnvVarGuard` infrastructure was removed.
 - Observation: Milestone 0 shows the measured packed-index batch-scoring window
   is a small share of complete HNSW build time on the synthetic profile.
   Evidence: `target/benchmarks/neighbour_scoring_build_profile.csv` reports

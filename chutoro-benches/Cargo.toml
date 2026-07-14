@@ -19,7 +19,6 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 cap-std = { version = "3.4.5", features = ["fs_utf8"] }
 chutoro-providers-dense = { path = "../chutoro-providers/dense" }
-chutoro-test-support = { path = "../chutoro-test-support" }
 proptest = "1.8.0"
 rstest = "0.26"
 tempfile = "3.10"

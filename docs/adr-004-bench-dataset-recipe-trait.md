@@ -1,4 +1,4 @@
-# Architecture Decision Record (ADR) 003: Benchmark dataset recipe trait
+# Architecture Decision Record (ADR) 004: Benchmark dataset recipe trait
 
 ## Status
 

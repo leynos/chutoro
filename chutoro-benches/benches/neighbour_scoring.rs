@@ -4,6 +4,7 @@
 //! HNSW candidate bucket sizes and emits small diagnostic CSV reports under
 //! `target/benchmarks/` so roadmap item 2.3.1 can be closed on evidence.
 
+use camino::{Utf8Path, Utf8PathBuf};
 use chutoro_benches::{
     criterion_support::configure_short_measurement_group,
     neighbour_scoring::{
@@ -99,17 +100,35 @@ fn scoring_plan() -> Vec<(usize, CandidateBucket)> {
 }
 
 fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
+    neighbour_scoring_impl_with(
+        c,
+        |report_parent_dir| write_lane_utilisation_report(report_parent_dir).map(drop),
+        |report_target| write_build_profile_report(report_target).map(drop),
+        bench_case,
+    )
+}
+
+fn neighbour_scoring_impl_with(
+    c: &mut Criterion,
+    lane_report_writer: impl FnOnce(&Utf8Path) -> BenchResult<()>,
+    build_profile_writer: impl FnOnce(Option<Utf8PathBuf>) -> BenchResult<()>,
+    mut scoring_case: impl FnMut(
+        &mut BenchmarkGroup<'_, WallTime>,
+        usize,
+        CandidateBucket,
+    ) -> BenchResult<()>,
+) -> BenchResult<()> {
     let report_parent_dir = report_parent_dir();
     let build_profile_target = build_profile_report_target_value(
         std::env::var(BUILD_PROFILE_ENV).ok().as_deref(),
         &report_parent_dir,
     );
-    let _lane_report = write_lane_utilisation_report(&report_parent_dir)?;
-    let _build_profile = write_build_profile_report(build_profile_target)?;
+    lane_report_writer(&report_parent_dir)?;
+    build_profile_writer(build_profile_target)?;
     let mut group = c.benchmark_group("neighbour_scoring");
     configure_group(&mut group);
     for (dimension, bucket) in scoring_plan() {
-        bench_case(&mut group, dimension, bucket)?;
+        scoring_case(&mut group, dimension, bucket)?;
     }
     group.finish();
     Ok(())
@@ -140,15 +159,21 @@ mod tests {
         unused_imports,
         reason = "Criterion harness=false bench tests compile as ordinary code"
     )]
+    use std::{cell::RefCell, io, rc::Rc};
+
+    #[expect(
+        unused_imports,
+        reason = "Criterion harness=false bench tests compile as ordinary code"
+    )]
     use super::{
-        DIMENSIONS, bench_id_for, score_candidates, scoring_plan,
-        should_use_short_measurement_value, throughput_for,
+        BenchError, DIMENSIONS, bench_id_for, neighbour_scoring_impl_with, score_candidates,
+        scoring_plan, should_use_short_measurement_value, throughput_for,
     };
     #[expect(
         unused_imports,
         reason = "Criterion harness=false bench tests compile as ordinary code"
     )]
-    use criterion::Throughput;
+    use criterion::{Criterion, Throughput};
     use rstest::rstest;
 
     #[expect(
@@ -224,5 +249,60 @@ mod tests {
                 assert_eq!(occurrences, 1);
             }
         }
+    }
+
+    #[test]
+    fn orchestration_writes_reports_before_all_scoring_cases() {
+        let events = Rc::new(RefCell::new(Vec::new()));
+        let lane_events = Rc::clone(&events);
+        let build_events = Rc::clone(&events);
+        let scoring_events = Rc::clone(&events);
+        let mut criterion = Criterion::default();
+
+        neighbour_scoring_impl_with(
+            &mut criterion,
+            move |_| {
+                lane_events.borrow_mut().push(("lane", 0, "", 0));
+                Ok(())
+            },
+            move |_| {
+                build_events.borrow_mut().push(("build", 0, "", 0));
+                Ok(())
+            },
+            move |_, dimension, bucket| {
+                scoring_events.borrow_mut().push((
+                    "score",
+                    dimension,
+                    bucket.kind_name(),
+                    bucket.size(),
+                ));
+                Ok(())
+            },
+        )
+        .expect("orchestration must succeed");
+
+        let events = events.borrow();
+        assert_eq!(events[0], ("lane", 0, "", 0));
+        assert_eq!(events[1], ("build", 0, "", 0));
+        let expected_cases = scoring_plan()
+            .into_iter()
+            .map(|(dimension, bucket)| ("score", dimension, bucket.kind_name(), bucket.size()))
+            .collect::<Vec<_>>();
+        assert_eq!(events[2..], expected_cases);
+    }
+
+    #[test]
+    fn orchestration_propagates_scoring_errors() {
+        let mut criterion = Criterion::default();
+
+        let error = neighbour_scoring_impl_with(
+            &mut criterion,
+            |_| Ok(()),
+            |_| Ok(()),
+            |_, _, _| Err(BenchError::Io(io::Error::other("scoring failed"))),
+        )
+        .expect_err("scoring failure must propagate");
+
+        assert!(matches!(error, BenchError::Io(_)));
     }
 }

@@ -454,7 +454,7 @@ and `StubRecipe`. The behavioural tests in
 against both in-memory and filesystem-backed adapters.
 
 The design rationale is recorded in
-[`ADR-003`](adr-003-bench-dataset-recipe-trait.md). The broader dataset
+[`ADR-004`](adr-004-bench-dataset-recipe-trait.md). The broader dataset
 pipeline is described in
 [`benchmark-dataset-retrieval.md`](benchmark-dataset-retrieval.md) §3.1.
 
