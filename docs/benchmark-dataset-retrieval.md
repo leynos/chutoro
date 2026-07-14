@@ -144,7 +144,7 @@ while preserving reproducibility and publishability.
 
 ## 5. Cost model
 
-Retrieval cost is modeled as:
+Retrieval cost is modelled as:
 
 `cost ~= egress_cost + request_cost`
 

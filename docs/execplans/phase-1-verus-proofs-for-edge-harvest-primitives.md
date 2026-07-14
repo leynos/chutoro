@@ -110,7 +110,7 @@ Use the `rstest` patterns described in
 
 ### Step 5: Prove `CandidateEdge::canonicalise` properties
 
-- Prove the canonicalised edge preserves `distance` and `sequence`.
+- Prove the canonicalized edge preserves `distance` and `sequence`.
 - Prove `source <= target` and field swapping is the only change.
 
 ### Step 6: Prove `EdgeHarvest::from_unsorted` ordering

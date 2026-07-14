@@ -70,14 +70,14 @@ fn unwrap_build(result: Result<CpuHnsw, chutoro_core::HnswError>, context: &str)
 
 // -- Recall measurement ------------------------------------------------
 
-/// Emits a warning to stderr for an unrecognised env var value.
+/// Emits a warning to stderr for an unrecognized env var value.
 #[expect(
     clippy::print_stderr,
     reason = "Benchmark-only diagnostic for invalid env var; no structured logging available."
 )]
 fn warn_unrecognised_bool_env(env_var_name: &str, value: &str) {
     eprintln!(
-        "warning: unrecognised value {value:?} for \
+        "warning: unrecognized value {value:?} for \
          {env_var_name}; expected 0/1/true/false/on/off"
     );
 }

@@ -1,6 +1,6 @@
 //! Shared graph metrics and helper utilities for property-based tests.
 //!
-//! Centralises common computations (degrees, connectivity, RNN scores) so
+//! Centralizes common computations (degrees, connectivity, RNN scores) so
 //! multiple property suites can reuse the same definitions.
 
 use std::collections::HashSet;

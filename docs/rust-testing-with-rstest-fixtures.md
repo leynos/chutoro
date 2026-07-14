@@ -20,7 +20,7 @@ objects used as a baseline for running tests. The primary purpose of a fixture
 is to ensure that there is a well-known and controlled environment in which
 tests are run so that results are repeatable. Test dependencies, such as
 database connections, user objects, or specific configurations, often require
-careful setup before a test can execute and, sometimes, teardown afterward.
+careful setup before a test can execute and, sometimes, teardown afterwards.
 Managing this setup and teardown logic within each test function can lead to
 considerable boilerplate code and repetition, making tests harder to read and
 maintain.
@@ -51,7 +51,7 @@ projects that may share the same name but operate in different ecosystems
 The `rstest` crate utilizes Rust's procedural macros, such as `#[rstest]` and
 `#[fixture]`, to achieve its declarative and expressive syntax. These macros
 allow developers to define fixtures and inject them into test functions simply
-by listing them as arguments. This compile-time mechanism analyzes test
+by listing them as arguments. This compile-time mechanism analyses test
 function signatures and fixture definitions to wire up dependencies
 automatically.
 

@@ -377,8 +377,8 @@ Record every significant decision while working on the plan.
 - Decision: Use a four-phase typed-handoff trait (`fetch`, `validate`,
   `prepare`, `publish`) rather than a TFDS-style `info`/`splits`/`examples`
   triad. Rationale: the roadmap text explicitly names the four phases; the
-  chutoro use case is "materialise a manifest at an object-store URI", not
-  "iterate examples lazily into a model". The triad's optimisation target does
+  chutoro use case is "materialize a manifest at an object-store URI", not
+  "iterate examples lazily into a model". The triad's optimization target does
   not match this workload. Date/Author: 2026-06-05, plan author.
 
 - Decision: Constrain `Self::Published` with a sealed `PublishedArtefact`
@@ -960,7 +960,7 @@ Tests live under `chutoro-bench-datasets/tests/`:
 - `recipe_lifecycle.rs` (rstest): cases for happy path (in-memory ports),
   each phase's failure path, and `FetchSizeExceeded` propagation. Use
   `tracing-test` to assert one span per phase.
-- `recipe_bdd.rs` (rstest-bdd): scenarios written once, parametrised over a
+- `recipe_bdd.rs` (rstest-bdd): scenarios written once, parametrized over a
   `FetcherAdapter` rstest fixture that yields `InMemoryFetcher` and
   `FilesystemFetcher` in turn. Scenarios cover: `Given` a recipe with two
   sources, `When` fetch fails for one, `Then` validate is not invoked and the

@@ -71,7 +71,7 @@ pub fn init_logging() -> Result<(), LoggingError> {
 
     match install_subscriber() {
         Ok(()) => {
-            // The guard serialises initialization, so the marker can only be
+            // The guard serializes initialization, so the marker can only be
             // set once; ignore the impossible duplicate-set error.
             let _ = INITIALIZED.set(());
         }
@@ -122,8 +122,8 @@ fn install_subscriber() -> Result<(), LoggingError> {
         .map_err(|source| LoggingError::InstallFailed { source })
 }
 
-/// Emit a pre-initialisation diagnostic to stderr when structured logging
-/// initialisation collides with an existing subscriber.
+/// Emit a pre-initialization diagnostic to stderr when structured logging
+/// initialization collides with an existing subscriber.
 ///
 /// Clippy's `print_stderr` lint is denied workspace-wide; suppress it narrowly
 /// for this pre-init diagnostic because structured logging is not yet available
@@ -139,7 +139,7 @@ fn install_subscriber() -> Result<(), LoggingError> {
 /// ```
 #[expect(
     clippy::print_stderr,
-    reason = "pre-initialisation diagnostic; structured logging unavailable; stderr is sole output channel"
+    reason = "pre-initialization diagnostic; structured logging unavailable; stderr is sole output channel"
 )]
 fn report_logging_conflict(source: &tracing_subscriber::util::TryInitError) {
     eprintln!("structured logging already configured elsewhere: {source}");

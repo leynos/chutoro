@@ -420,7 +420,7 @@ Quality method:
 - If dispatch changes cause architecture-specific failures, force scalar path
   locally, keep tests green, and escalate before merging specialization.
 
-## Artifacts and notes
+## Artefacts and notes
 
 During implementation, retain concise evidence snippets from:
 

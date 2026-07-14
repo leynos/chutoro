@@ -312,9 +312,9 @@ Quality method:
 - If scheduled CI run fails due to runner noise, rerun via `workflow_dispatch`
   before changing thresholds.
 
-## Artifacts and notes
+## Artefacts and notes
 
-Expected artifacts after implementation:
+Expected artefacts after implementation:
 
 - `.github/workflows/benchmark-regressions.yml`
 - policy helper module and tests under `chutoro-test-support/src/` and

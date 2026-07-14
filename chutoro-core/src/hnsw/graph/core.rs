@@ -15,7 +15,7 @@ use crate::hnsw::{
 /// trimming when distances and identifiers coincide.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NodeContext {
-    /// Identifier of the node slot being initialised.
+    /// Identifier of the node slot being initialized.
     pub(crate) node: usize,
     /// Highest level assigned to the node within the hierarchy.
     pub(crate) level: usize,
@@ -278,7 +278,7 @@ impl Graph {
     /// Retrieves the insertion sequence assigned to a node for deterministic
     /// neighbour ordering.
     ///
-    /// Returns `None` when the node slot has not been initialised or the
+    /// Returns `None` when the node slot has not been initialized or the
     /// identifier exceeds the allocated capacity.
     ///
     /// # Examples

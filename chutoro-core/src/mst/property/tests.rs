@@ -20,7 +20,7 @@ use super::structural::run_structural_invariants_property;
 use super::types::WeightDistribution;
 
 /// Canonical set of (distribution, seed, case_name) tuples shared by all
-/// parameterised property tests.  Defined once to eliminate duplication
+/// parameterized property tests.  Defined once to eliminate duplication
 /// across oracle equivalence, structural invariants, and concurrency
 /// safety test suites.
 const TEST_CASES: &[(WeightDistribution, u64, &str)] = &[
@@ -37,7 +37,7 @@ const TEST_CASES: &[(WeightDistribution, u64, &str)] = &[
     (WeightDistribution::Disconnected, 999, "disconnected_999"),
 ];
 
-/// Generates an rstest-parameterised function that exercises a property
+/// Generates an rstest-parameterized function that exercises a property
 /// runner across every entry in [`TEST_CASES`].
 ///
 /// # Arguments

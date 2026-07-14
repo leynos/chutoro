@@ -575,7 +575,7 @@ All stages are re-runnable. If a stage fails partway:
   `cargo:rustc-cfg` based on the compiler version.
 - The `OnceLock` dispatch cache is process-scoped; restarting tests clears it.
 
-## Artifacts and notes
+## Artefacts and notes
 
 (To be filled during implementation.)
 

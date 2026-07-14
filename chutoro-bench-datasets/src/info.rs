@@ -109,9 +109,9 @@ impl DatasetInfo {
     /// use chutoro_bench_datasets::{DatasetInfo, RecipeId, RecipeVersion};
     ///
     /// let info = DatasetInfo::new(RecipeId::new("mnist"), RecipeVersion::new(1, 0, 0))
-    ///     .with_summary("Hand-written digit images");
+    ///     .with_summary("Handwritten digit images");
     ///
-    /// assert_eq!(info.summary.as_ref(), "Hand-written digit images");
+    /// assert_eq!(info.summary.as_ref(), "Handwritten digit images");
     /// ```
     #[must_use]
     pub fn with_summary(mut self, summary: impl Into<Arc<str>>) -> Self {

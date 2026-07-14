@@ -67,7 +67,7 @@ pub enum ProfilingError {
     InvalidProcField {
         /// The required field name.
         field: &'static str,
-        /// The unparseable value.
+        /// The unparsable value.
         value: String,
     },
     /// A process status field had an unexpected unit.

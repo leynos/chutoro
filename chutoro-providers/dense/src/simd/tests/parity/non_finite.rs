@@ -1,7 +1,7 @@
 //! Non-finite dense SIMD backend parity properties.
 //!
 //! This module checks the non-finite Euclidean distance policy: every enabled
-//! backend must follow the scalar oracle's NaN-canonicalisation behaviour for
+//! backend must follow the scalar oracle's NaN-canonicalization behaviour for
 //! inputs containing `NaN` or infinity.
 //!
 //! Pairwise inputs come from [`strategies::non_finite_vector_pair`], which
@@ -29,7 +29,7 @@ proptest! {
         let expected = semantics.oracle_pairwise(&left, &right);
         let entries = super::pairwise_entries();
 
-        prop_assert!(expected.is_nan(), "scalar oracle must canonicalise to NaN");
+        prop_assert!(expected.is_nan(), "scalar oracle must canonicalize to NaN");
         prop_assert!(!entries.is_empty(), "at least scalar backend must be available");
         for (backend, entry) in entries {
             let actual = entry(&left, &right);
@@ -58,7 +58,7 @@ proptest! {
         semantics.oracle_query_points(query.as_slice(), &points, &mut expected);
         prop_assert!(
             expected.iter().any(|distance| distance.is_nan()),
-            "scalar oracle must canonicalise at least one query-to-points output to NaN",
+            "scalar oracle must canonicalize at least one query-to-points output to NaN",
         );
         prop_assert!(!entries.is_empty(), "at least scalar backend must be available");
         for (backend, entry) in entries {

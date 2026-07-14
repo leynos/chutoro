@@ -280,7 +280,7 @@ project:
 - In production code and shared fixtures, avoid `.expect()` entirely: return
   `Result` and use `?` to propagate errors instead of panicking.
 - Keep `expect_used` **strict**; do not suppress the lint.
-- Recognise that `allow-expect-in-tests = true` **doesn’t cover** helpers
+- Recognize that `allow-expect-in-tests = true` **doesn’t cover** helpers
   outside `#[cfg(test)]` or `#[test]`; avoid `expect` in such fixtures.
 - Use `anyhow`/`eyre` with `.context(...)` to **preserve backtraces** and
   provide clear, typed failure paths.
@@ -314,7 +314,25 @@ project:
 
 ## Markdown guidance
 
-- Validate Markdown files using `make markdownlint`.
+- Validate Markdown files using `make markdownlint`. This target also enforces
+  en-GB-oxendict spelling with the pinned `typos` release.
+- The spelling configuration `typos.toml` is generated. Edit
+  `typos.local.toml` for narrow repository terminology; never edit generated
+  entries by hand. Regenerate it with the pinned builder:
+
+  ```sh
+  TYPOS_CONFIG_BUILDER_COMMIT=d6da92f02240a79a945c835f69bdd08a888da1d0
+  uvx --python 3.14 \
+    --from "git+https://github.com/leynos/typos-config-builder.git@${TYPOS_CONFIG_BUILDER_COMMIT}" \
+    typos-config-builder
+  ```
+
+  Use the same command with `--check` to detect drift without rewriting the
+  tracked file. The separate consumer phrase check enforces corrections, such
+  as `hand-written` to `handwritten`, that Typos cannot match as whole phrases.
+- Quoted APIs and identifiers retain upstream spelling. Put them in backticks
+  or fenced code blocks, which the spelling gate ignores, rather than adding
+  word-level exceptions.
 - Run `make fmt` after any documentation changes to format all Markdown
   files and fix table markup.
 - Validate Mermaid diagrams in Markdown files by running `make nixie`.

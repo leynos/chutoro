@@ -10,7 +10,7 @@ _MISSING_SECRET_ID_MSG = "Vault response missing secret_id field"
 
 
 class VaultBootstrapError(RuntimeError):
-    """Raised when Vault initialisation commands cannot be completed."""
+    """Raised when Vault initialization commands cannot be completed."""
 
 
 def _ensure_approle_auth_enabled(payload: str) -> Mapping[str, Any]:

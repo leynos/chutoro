@@ -135,7 +135,7 @@ if [[ -n "${RESOLVED_VERUS_BIN}" ]]; then
 else
   if [[ "${VERUS_BIN}" != "${DEFAULT_VERUS_BIN}" ]]; then
     if [[ -d "${VERUS_BIN}" ]]; then
-      echo "VERUS_BIN directory contains no recognised Verus binary: ${VERUS_BIN}" >&2
+      echo "VERUS_BIN directory contains no recognized Verus binary: ${VERUS_BIN}" >&2
     else
       echo "VERUS_BIN is not executable: ${VERUS_BIN}" >&2
     fi

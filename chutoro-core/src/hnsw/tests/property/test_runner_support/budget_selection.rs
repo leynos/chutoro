@@ -53,10 +53,10 @@ impl From<TestCases> for u32 {
     }
 }
 
-/// Maximum number of shrinking iterations to attempt when minimising a failing test case.
+/// Maximum number of shrinking iterations to attempt when minimizing a failing test case.
 ///
 /// A value of 0 disables shrinking entirely. In practice, positive values are used to enable
-/// counterexample minimisation.
+/// counterexample minimization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ShrinkIterations(u32);
 
@@ -170,7 +170,7 @@ impl JobKind {
 /// exceeded the 600s nextest timeout in CI. `MAX_IDEMPOTENCY_CASES` is the
 /// Standard-job analogue for non-coverage runs.
 const COVERAGE_IDEMPOTENCY_CASES: u32 = 1;
-/// Coverage jobs cap shrink iterations to prevent long minimisation tails.
+/// Coverage jobs cap shrink iterations to prevent long minimization tails.
 /// Reduced from 32 to 8 because shrinking is rarely exercised for the
 /// idempotency property and coverage instrumentation amplifies per-iteration
 /// cost.
@@ -192,7 +192,7 @@ const MAX_IDEMPOTENCY_CASES: u32 = DEFAULT_IDEMPOTENCY_CASES;
 /// Mutation tests build full HNSW indices per case, making each iteration
 /// expensive under coverage instrumentation.
 const COVERAGE_MUTATION_CASES: u32 = 4;
-/// Coverage jobs cap mutation shrink iterations to prevent long minimisation
+/// Coverage jobs cap mutation shrink iterations to prevent long minimization
 /// tails under instrumentation overhead.
 const COVERAGE_MUTATION_MAX_SHRINK_ITERS: u32 = 64;
 /// Non-coverage jobs keep deeper shrinking for better counterexample reduction.
@@ -210,7 +210,7 @@ const MAX_MUTATION_CASES: u32 = DEFAULT_MUTATION_CASES;
 /// Search correctness builds full HNSW indices and brute-force baselines per
 /// case, so coverage instrumentation amplifies the cost substantially.
 const COVERAGE_SEARCH_CASES: u32 = 4;
-/// Coverage jobs cap search shrink iterations to avoid long minimisation tails
+/// Coverage jobs cap search shrink iterations to avoid long minimization tails
 /// under instrumentation overhead.
 const COVERAGE_SEARCH_MAX_SHRINK_ITERS: u32 = 64;
 /// Non-coverage jobs keep deeper shrinking for better counterexample reduction.
@@ -267,7 +267,7 @@ pub(crate) fn idempotency_cases() -> TestCases {
 
 /// Selects the maximum shrink iterations for idempotency tests based on job kind.
 ///
-/// Returns a reduced iteration count for coverage jobs to avoid long minimisation
+/// Returns a reduced iteration count for coverage jobs to avoid long minimization
 /// tails under instrumentation overhead.
 pub(crate) fn select_idempotency_shrink_iters(job: JobKind) -> ShrinkIterations {
     select_shrink_iterations(
@@ -322,7 +322,7 @@ pub(crate) fn mutation_cases() -> TestCases {
 
 /// Selects the maximum shrink iterations for mutation tests based on job kind.
 ///
-/// Returns a reduced iteration count for coverage jobs to prevent long minimisation
+/// Returns a reduced iteration count for coverage jobs to prevent long minimization
 /// tails under instrumentation overhead.
 pub(crate) fn select_mutation_shrink_iters(job: JobKind) -> ShrinkIterations {
     select_shrink_iterations(
@@ -357,7 +357,7 @@ pub(crate) fn search_cases() -> TestCases {
 
 /// Selects the maximum shrink iterations for search property tests based on job kind.
 ///
-/// Returns a reduced iteration count for coverage jobs to avoid long minimisation
+/// Returns a reduced iteration count for coverage jobs to avoid long minimization
 /// tails under instrumentation overhead.
 pub(crate) fn select_search_shrink_iters(job: JobKind) -> ShrinkIterations {
     select_shrink_iterations(

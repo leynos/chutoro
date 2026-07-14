@@ -1,6 +1,6 @@
 //! Test support utilities for constructing Arrow arrays, Parquet data, and DenseMatrixProvider
 //! instances from RecordBatches. Provides helpers for building FixedSizeListArray fixtures with
-//! various null-handling patterns (row nulls, value nulls) and for serialising arrays to Parquet
+//! various null-handling patterns (row nulls, value nulls) and for serializing arrays to Parquet
 //! format for ingest testing.
 
 use super::{DenseMatrixProvider, DenseMatrixProviderError};

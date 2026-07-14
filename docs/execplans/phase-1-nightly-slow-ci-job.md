@@ -219,7 +219,7 @@ locally to inspect the decision output. If any quality gate fails, fix the
 reported issues and rerun the specific command with the same `pipefail` + `tee`
 pattern.
 
-## Artifacts and Notes
+## Artefacts and notes
 
 Keep `/tmp/make-*.log` files until the change is accepted. Capture the helper
 stdout and the GitHub Actions job summary as evidence that the gate is working

@@ -327,7 +327,7 @@ Acceptance criteria mapping:
 - If documentation format checks fail, run `make fmt` before retrying
   `make markdownlint` and `make nixie`.
 
-## Artifacts and notes
+## Artefacts and notes
 
 - Keep local test logs in `/tmp/check-fmt.log`, `/tmp/lint.log`, and
   `/tmp/test.log` for debugging and attach them to any escalation.

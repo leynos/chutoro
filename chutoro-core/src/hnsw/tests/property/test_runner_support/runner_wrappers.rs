@@ -158,7 +158,7 @@ fn run_search_proptest(config: Config) -> TestCaseResult {
 
 /// Configuration for property test runners that execute within dedicated threads.
 ///
-/// Controls how property tests are executed, including test case count, forking behavior,
+/// Controls how property tests are executed, including test case count, forking behaviour,
 /// shrinking limits, and thread stack size.
 ///
 /// # Fields

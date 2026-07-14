@@ -28,7 +28,7 @@ pub(crate) use self::helpers::{has_no_self_loops, is_bidirectional};
 /// Enumerates the structural invariants enforced by the CPU HNSW graph.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HnswInvariant {
-    /// Ensures nodes referenced at a layer are initialised for that layer and
+    /// Ensures nodes referenced at a layer are initialized for that layer and
     /// all lower layers.
     LayerConsistency,
     /// Enforces the per-layer degree bounds described in the design docs.
@@ -67,7 +67,7 @@ impl HnswInvariant {
 /// Reason describing why a layer-consistency check failed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LayerConsistencyDetail {
-    /// The referenced node slot was never initialised.
+    /// The referenced node slot was never initialized.
     MissingNode,
     /// The referenced node exists but exposes fewer layers than required.
     MissingLayer { available: usize },

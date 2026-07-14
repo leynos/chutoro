@@ -750,7 +750,7 @@ workflow.
 | **Runner**             | `ubicloud-standard-8`          | `ubicloud-standard-8`                   |
 | **Job Timeout**        | `20 minutes`                   | `120 minutes`                           |
 | **Execution Scope**    | Path-filtered (selective jobs) | Full repository test suite              |
-| **Failure Action**     | Block PR merge                 | Alert team & upload failure artifact    |
+| **Failure Action**     | Block PR merge                 | Alert team & upload failure artefact    |
 
 ### 5.2. The weekly deep-coverage analysis: Exhaustive verification
 
@@ -781,10 +781,10 @@ power of PBT to find deep, rare bugs is realized.
 - **Failure Management:** Failures in the weekly run require a robust
     reporting mechanism.
 
-  - **Artifacts:** When a `proptest` test fails, it reports the seed that
+  - **Artefacts:** When a `proptest` test fails, it reports the seed that
         can be used to reproduce the failure. The CI workflow will be
         configured to capture this seed from the test logs and upload it as a
-        build artifact. This allows a developer to download the seed and
+        build artefact. This allows a developer to download the seed and
         reproduce the exact failing test case locally without needing to re-run
         the entire 25,000-case suite.
 

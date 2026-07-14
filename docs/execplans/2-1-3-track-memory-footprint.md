@@ -143,7 +143,7 @@ Implemented roadmap item 2.1.3 end-to-end.
   scaling bound outcomes, and report persistence.
 - Integrated profiling into HNSW benchmark infrastructure and expanded M sweep
   to `{8, 12, 16, 24}` in `chutoro-benches/benches/hnsw.rs`.
-- Report artifact is written to
+- Report artefact is written to
   `target/benchmarks/hnsw_memory_profile.csv` during benchmark runs.
 - Updated design docs (`docs/chutoro-design.md`) with section 11.2 describing
   methodology and scaling validation approach.
@@ -325,7 +325,7 @@ Run required quality gates and keep logs with `tee` and `set -o pipefail`.
 
    - Expected observable output:
      HNSW benchmark cases include `M=8`, `M=12`, `M=16`, `M=24` and memory
-     metrics are printed or persisted in the configured report artifact.
+     metrics are printed or persisted in the configured report artefact.
 
 ## Validation and Acceptance
 
@@ -353,7 +353,7 @@ Done means all of the following are true:
   overwritten atomically or versioned by timestamp.
 - If a benchmark run fails midway, rerunning the same command should not
   require manual cleanup beyond optional temporary log removal in `/tmp`.
-- Do not delete existing benchmark artifacts outside the task scope.
+- Do not delete existing benchmark artefacts outside the task scope.
 
 ## Interfaces and Dependencies
 

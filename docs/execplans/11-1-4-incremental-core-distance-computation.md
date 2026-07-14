@@ -941,7 +941,7 @@ decide whether to roll back the partial change with `git restore -SW <paths>`,
 and resume. Never use `git push --force` to recover; create a new commit
 instead.
 
-## Artifacts and notes
+## Artefacts and notes
 
 The community design review identified two changes that materially improved the
 plan:

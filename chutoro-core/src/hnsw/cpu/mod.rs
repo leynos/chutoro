@@ -145,7 +145,7 @@ impl CpuHnsw {
         self.insert_with_edges(node, source)
     }
 
-    /// Core insertion logic parameterised by edge collection strategy.
+    /// Core insertion logic parameterized by edge collection strategy.
     ///
     /// Uses the [`EdgeCollector`] trait to separate edge harvesting from
     /// insertion, enabling zero-overhead paths when edges are not needed.

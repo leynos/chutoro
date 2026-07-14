@@ -2,7 +2,7 @@
 //!
 //! Covers the public `distance` and `distance_batch` APIs, using the scalar
 //! `scalar_distance` helper as the Euclidean reference. The cases exercise
-//! non-finite inputs that canonicalise to `f32::NAN`, compare finite results
+//! non-finite inputs that canonicalize to `f32::NAN`, compare finite results
 //! within `1.0e-5_f32`, and cover the error paths for out-of-bounds indices,
 //! mismatched output lengths, and rejected input data.
 
@@ -235,7 +235,7 @@ fn matrix_provider_distance_batch_empty() {
 
 /// Scalar Euclidean oracle for the matrix-provider tests.
 ///
-/// Computes the Euclidean distance for two equal-length slices, canonicalising
+/// Computes the Euclidean distance for two equal-length slices, canonicalizing
 /// any non-finite result to `f32::NAN`. Panics if the inputs do not have
 /// matching lengths.
 fn scalar_distance(left: &[f32], right: &[f32]) -> f32 {

@@ -19,7 +19,7 @@ pub(super) struct SearchPropertyConfig {
 }
 
 #[derive(Clone, Copy, Debug)]
-/// Newtype wrapper for recognised environment keys used by this config parser.
+/// Newtype wrapper for recognized environment keys used by this config parser.
 struct EnvKey(&'static str);
 
 impl EnvKey {

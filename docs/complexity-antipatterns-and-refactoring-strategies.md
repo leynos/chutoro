@@ -2,7 +2,7 @@
 
 ## I. Introduction: The Challenge of Software Complexity
 
-Software development is an inherently complex endeavor. As systems evolve and
+Software development is an inherently complex endeavour. As systems evolve and
 features are added, the intricacy of the codebase tends to increase, often
 leading to challenges in maintenance, scalability, and developer productivity.
 "Any fool can write code that a computer can understand. Good programmers write
@@ -95,7 +95,7 @@ Cognitive Complexity is incremented based on three main rules 8:
 3. **Shorthand Discount:** Structures that allow multiple statements to be read
    as a single unit (e.g., a well-named method call) do not incur the same
    penalties as the raw statements they encapsulate. Method calls are generally
-   "free" in terms of cognitive complexity, as a well-chosen name summarises
+   "free" in terms of cognitive complexity, as a well-chosen name summarizes
    the underlying logic, allowing readers to grasp the high-level view before
    diving into details. However, recursive calls do increment the score.8
 
@@ -110,7 +110,7 @@ Thresholds and Implications:
 
 Code with high Cognitive Complexity is harder to read, understand, test, and
 modify.8 SonarQube, for example, raises issues when a function's Cognitive
-Complexity exceeds a certain threshold, signaling that the code should likely
+Complexity exceeds a certain threshold, signalling that the code should likely
 be refactored into smaller, more manageable pieces.8 The primary impact of high
 Cognitive Complexity is a slowdown in development and an increase in
 maintenance costs.8
@@ -338,7 +338,7 @@ perform auto-refactoring for certain languages.6
 
 ### C. Red Flags Portending the Bumpy Road
 
-Recognising early warning signs can prevent minor complexity issues from
+Recognizing early warning signs can prevent minor complexity issues from
 escalating into full-blown Bumpy Roads.
 
 1. **Increasing Cognitive Complexity Scores:** A rising Cognitive Complexity

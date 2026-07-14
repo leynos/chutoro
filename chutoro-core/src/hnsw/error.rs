@@ -40,7 +40,7 @@ pub enum HnswError {
         /// Index of the second node involved in the distance query.
         right: usize,
     },
-    /// A synchronisation primitive became poisoned after a panic.
+    /// A synchronization primitive became poisoned after a panic.
     #[error("lock for {resource} is poisoned")]
     LockPoisoned {
         /// Name of the locked resource that was poisoned.
@@ -83,7 +83,7 @@ pub enum HnswErrorCode {
     GraphInvariantViolation,
     /// The data source returned a non-finite distance.
     NonFiniteDistance,
-    /// A synchronisation primitive became poisoned after a panic.
+    /// A synchronization primitive became poisoned after a panic.
     LockPoisoned,
     /// Wrapped [`crate::DataSource`] error.
     DataSource,

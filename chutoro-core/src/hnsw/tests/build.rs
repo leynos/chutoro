@@ -123,7 +123,7 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
                 );
             }
         }
-        _ => unreachable!("unexpected ef in parameterised test"),
+        _ => unreachable!("unexpected ef in parameterized test"),
     }
     assert_sorted_by_distance(&neighbours);
 
@@ -158,7 +158,7 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
                 "reverse search neighbours must appear in descending order",
             );
         }
-        _ => unreachable!("unexpected ef in parameterised test"),
+        _ => unreachable!("unexpected ef in parameterized test"),
     }
     assert_sorted_by_distance(&neighbours);
 }
