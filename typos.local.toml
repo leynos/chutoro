@@ -14,6 +14,7 @@ ignore = [
   'types: \[[^]]*\blabeled\b',
   'GitHub Flavored\s+Markdown',
   'Azure Architecture\s+Center',
+  'Header-only C\+\+/python library for fast approximate\s+nearest neighbors',
   '"ises"',
   '\b[A-Za-z0-9][A-Za-z0-9_]*_(?:canonicalis|finalis|initialis|parameteris|prioritis|unrecognis)\w*\b',
   '\b(?:canonicalis|finalis|initialis|parameteris|prioritis|unrecognis)\w*_[A-Za-z0-9_]+\b',

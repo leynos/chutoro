@@ -14,6 +14,7 @@ NIXIE ?= nixie
 UV ?= uv
 UV_ENV = UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools
 RUFF_VERSION ?= 0.15.12
+PATHSPEC_VERSION ?= 1.1.1
 TYPOS_VERSION ?= 1.48.0
 TYPOS_CONFIG_BUILDER_COMMIT := d6da92f02240a79a945c835f69bdd08a888da1d0
 TYPOS_CONFIG_BUILDER_SOURCE := git+https://github.com/leynos/typos-config-builder.git@$(TYPOS_CONFIG_BUILDER_COMMIT)
@@ -28,7 +29,8 @@ SPELLING_PY_SRCS := \
 SPELLING_PY_TESTS := scripts/tests/test_typos_rollout_check.py
 SPELLING_COVERAGE_ARGS := --cov=typos_rollout_check --cov-fail-under=90
 SPELLING_HELPER_PYTEST = PYTHONPATH=scripts $(UV_ENV) $(UV) run --no-project \
-	--python 3.14 --with pytest==9.0.2 --with pytest-cov==7.0.0 python -m pytest
+	--python 3.14 --with pathspec==$(PATHSPEC_VERSION) --with pytest==9.0.2 \
+	--with pytest-cov==7.0.0 python -m pytest
 
 build: target/debug/$(APP) ## Build debug binary
 release: target/release/$(APP) ## Build release binary

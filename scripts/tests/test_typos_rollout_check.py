@@ -12,6 +12,7 @@ PROHIBITED = "hand" + "-written"
 TITLE_PROHIBITED = "Hand" + "-written"
 
 
+@pytest.fixture
 def checker(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     """Import the standalone phrase checker from the scripts directory."""
     monkeypatch.syspath_prepend(str(SCRIPTS))
@@ -34,7 +35,7 @@ def policy_files(*, local_phrase: str = "") -> dict[str, str]:
     return {
         "typos.toml": (
             f"# Policy for {PROHIBITED} corrections.\n"
-            '[files]\nextend-exclude = ["skip.md"]\n\n'
+            '[files]\nextend-exclude = ["*.md", "!README.md"]\n\n'
             '[default]\nextend-ignore-re = ["`[^`\\\\n]+`"]\n'
         ),
         ".typos-oxendict-base.toml": (
@@ -45,30 +46,32 @@ def policy_files(*, local_phrase: str = "") -> dict[str, str]:
 
 
 def test_load_policy_combines_phrase_and_generated_scan_policy(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    checker: types.ModuleType, tmp_path: Path
 ) -> None:
     """Load phrases from shared policy and scan settings from generated TOML."""
-    check = checker(monkeypatch)
     files = policy_files(
         local_phrase='[phrases.corrections]\n"fit-for-purpose" = "suitable"\n'
     )
     initialize(tmp_path, files)
 
-    policy = check.load_policy(tmp_path)
+    policy = checker.load_policy(tmp_path)
 
     assert policy.phrase_corrections == (
         ("fit-for-purpose", "suitable"),
         (PROHIBITED, "handwritten"),
     )
     assert policy.ignore_patterns == (r"`[^`\n]+`",)
-    assert policy.excluded_files == ("skip.md",)
+    assert policy.excluded_files == ("*.md", "!README.md")
+
+    (tmp_path / ".typos-oxendict-base.toml").unlink()
+    with pytest.raises(FileNotFoundError, match="docs/developers-guide.md"):
+        checker.load_policy(tmp_path)
 
 
 def test_checker_preserves_boundaries_masking_and_exclusions(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    checker: types.ModuleType, tmp_path: Path
 ) -> None:
     """Report phrases only when boundaries and effective policy allow them."""
-    check = checker(monkeypatch)
     initialize(
         tmp_path,
         {
@@ -79,7 +82,7 @@ def test_checker_preserves_boundaries_masking_and_exclusions(
         },
     )
 
-    findings = check.check_phrase_corrections(tmp_path, check.load_policy(tmp_path))
+    findings = checker.check_phrase_corrections(tmp_path, checker.load_policy(tmp_path))
 
     assert [(item.line, item.phrase) for item in findings] == [
         (1, PROHIBITED),
@@ -88,16 +91,15 @@ def test_checker_preserves_boundaries_masking_and_exclusions(
 
 
 def test_main_reports_location_and_exit_two(
-    monkeypatch: pytest.MonkeyPatch,
+    checker: types.ModuleType,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Return two and preserve the established path diagnostic."""
-    check = checker(monkeypatch)
     initialize(
         tmp_path,
         {"README.md": f"Prefer {PROHIBITED}.\n", **policy_files()},
     )
 
-    assert check.main(["--repository", str(tmp_path)]) == 2
+    assert checker.main(["--repository", str(tmp_path)]) == 2
     assert capsys.readouterr().out == (f"README.md:1:8: {PROHIBITED} -> handwritten\n")

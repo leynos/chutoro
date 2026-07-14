@@ -3540,7 +3540,7 @@ The benchmark runs the `ClusteringSession` lifecycle:
        6, 2025,
        [https://jzaia18.github.io/15618-Final/](https://jzaia18.github.io/15618-Final/)
 [^16]: nmslib/hnswlib: Header-only C++/python library for fast approximate
-       nearest neighbours - GitHub, accessed on September 6, 2025,
+       nearest neighbors - GitHub, accessed on September 6, 2025,
        [https://github.com/nmslib/hnswlib](https://github.com/nmslib/hnswlib)
 [^17]: js1010/cuhnsw: CUDA implementation of Hierarchical Navigable Small World
        Graph algorithm - GitHub, accessed on September 6, 2025,

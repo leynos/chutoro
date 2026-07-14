@@ -1,7 +1,7 @@
 #!/usr/bin/env -S uv run python
 # /// script
 # requires-python = ">=3.14"
-# dependencies = []
+# dependencies = ["pathspec==1.1.1"]
 # ///
 """Enforce exact phrase corrections alongside the Typos scanner."""
 
@@ -14,6 +14,8 @@ from pathlib import Path
 import re
 import subprocess
 import tomllib
+
+from pathspec import GitIgnoreSpec
 
 POLICY_PATHS = frozenset(
     {
@@ -77,7 +79,14 @@ def _phrases(document: dict[str, object]) -> dict[str, str]:
 def load_policy(repository: Path) -> PhrasePolicy:
     """Load generated scan policy and shared phrase corrections."""
     generated = _document(repository / "typos.toml")
-    phrases = _phrases(_document(repository / ".typos-oxendict-base.toml"))
+    shared_cache = repository / ".typos-oxendict-base.toml"
+    if not shared_cache.is_file():
+        message = (
+            f"{shared_cache} is missing; regenerate the spelling configuration "
+            "as documented in docs/developers-guide.md"
+        )
+        raise FileNotFoundError(message)
+    phrases = _phrases(_document(shared_cache))
     local_overlay = repository / "typos.local.toml"
     if local_overlay.exists():
         phrases.update(_phrases(_document(local_overlay)))
@@ -99,9 +108,14 @@ def _tracked(repository: Path) -> tuple[Path, ...]:
     return tuple(Path(item) for item in sorted(filter(None, raw.split("\0"))))
 
 
-def _excluded(path: Path, policy: PhrasePolicy) -> bool:
+def _exclusion_spec(policy: PhrasePolicy) -> GitIgnoreSpec:
+    """Build the gitignore-style matcher used by Typos exclusions."""
+    return GitIgnoreSpec.from_lines(policy.excluded_files)
+
+
+def _excluded(path: Path, spec: GitIgnoreSpec) -> bool:
     """Return whether effective Typos policy excludes a tracked path."""
-    return any(item in path.parts or path.match(item) for item in policy.excluded_files)
+    return spec.match_file(path.as_posix())
 
 
 def _masked(text: str, patterns: tuple[str, ...]) -> str:
@@ -143,8 +157,9 @@ def check_phrase_corrections(
 ) -> tuple[PhraseFinding, ...]:
     """Find prohibited exact phrases in tracked UTF-8 text."""
     found = []
+    exclusion_spec = _exclusion_spec(policy)
     for relative in _tracked(repository):
-        if relative in POLICY_PATHS or _excluded(relative, policy):
+        if relative in POLICY_PATHS or _excluded(relative, exclusion_spec):
             continue
         try:
             text = (repository / relative).read_text(encoding="utf-8")

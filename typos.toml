@@ -37,6 +37,7 @@ extend-ignore-re = [
     "(?s)```.*?```",
     "Azure Architecture\\s+Center",
     "GitHub Flavored\\s+Markdown",
+    "Header-only C\\+\\+/python library for fast approximate\\s+nearest neighbors",
     "\\.finalise\\b",
     "\\[\\^canonicalise\\]",
     "\\b(?:[A-Za-z0-9]+(?:Canonicalis\\w*|Finalis\\w*|Initialis\\w*|Parameteris\\w*|Prioritis\\w*|Unrecognis\\w*)[A-Za-z0-9]*|(?:Canonicalis\\w*|Finalis\\w*|Initialis\\w*|Parameteris\\w*|Prioritis\\w*|Unrecognis\\w*)[A-Za-z0-9]+)\\b",

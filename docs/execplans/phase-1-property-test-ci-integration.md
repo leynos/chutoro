@@ -296,7 +296,7 @@ fix the failure in place and rerun the same command/workflow with identical
 environment variables. Keep `/tmp/make-*.log` files until the feature is
 accepted so failure context remains available.
 
-## Artefacts and Notes
+## Artefacts and notes
 
 - Preserve `/tmp/make-*.log` outputs for all quality gates.
 - On CI failures, collect `proptest-regressions` artefacts and include failing
