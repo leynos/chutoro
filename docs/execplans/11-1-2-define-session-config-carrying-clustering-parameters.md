@@ -516,7 +516,7 @@ test fails, fix the issue locally first, rerun that targeted check, and only
 then rerun the full validator chain. Keep the logs in `/tmp/11-1-2-*.log` for
 any escalation.
 
-## Artifacts and notes
+## Artefacts and notes
 
 - Primary builder file: `chutoro-core/src/builder.rs`
 - Likely new session files:

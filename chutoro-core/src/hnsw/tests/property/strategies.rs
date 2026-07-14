@@ -1,6 +1,6 @@
 //! Strategy builders for property-based HNSW tests.
 //!
-//! Provides combinators that synthesise dataset fixtures and parameter seeds
+//! Provides combinators that synthesize dataset fixtures and parameter seeds
 //! for use in proptest suites.
 
 use proptest::prelude::*;

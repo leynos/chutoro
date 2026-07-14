@@ -30,7 +30,7 @@ pub(super) enum VectorDistribution {
     Duplicates,
 }
 
-/// Metadata describing how the dataset was synthesised.
+/// Metadata describing how the dataset was synthesized.
 #[derive(Clone, Debug)]
 pub(super) enum DistributionMetadata {
     /// No additional structure beyond the sampled bounds.
@@ -63,7 +63,7 @@ pub(super) enum DistributionMetadata {
     },
 }
 
-/// Cluster specification captured when synthesising clustered datasets.
+/// Cluster specification captured when synthesizing clustered datasets.
 #[derive(Clone, Debug)]
 pub(super) struct ClusterInfo {
     /// Index of the first vector belonging to the cluster.
@@ -229,7 +229,7 @@ pub(super) enum GraphTopology {
     Disconnected,
 }
 
-/// Metadata describing how a graph topology was synthesised.
+/// Metadata describing how a graph topology was synthesized.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum GraphMetadata {
     /// Erdos-Renyi random graph.

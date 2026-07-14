@@ -146,7 +146,7 @@ pub enum CliError {
     Core(#[from] ChutoroError),
 }
 
-/// Summarises the outcome of executing a CLI command.
+/// Summarizes the outcome of executing a CLI command.
 #[derive(Debug, Clone)]
 pub struct ExecutionSummary {
     /// Name reported by the data source implementation.
@@ -288,7 +288,7 @@ pub(super) fn derive_data_source_name(path: &Path, override_name: Option<&str>) 
 
 /// Parses a human-readable byte size such as `"512M"` or `"2G"` into a `u64`.
 ///
-/// Recognised suffixes (case-insensitive): `K`/`KB`/`KiB`, `M`/`MB`/`MiB`,
+/// Recognized suffixes (case-insensitive): `K`/`KB`/`KiB`, `M`/`MB`/`MiB`,
 /// `G`/`GB`/`GiB`, `T`/`TB`/`TiB`.  Plain integers are treated as bytes.
 pub(super) fn parse_byte_size(s: &str) -> Result<u64, String> {
     let s = s.trim();

@@ -21,17 +21,17 @@ impl Node {
     pub(crate) fn neighbours(&self, level: usize) -> &[usize] {
         debug_assert!(
             level < self.neighbours.len(),
-            "levels are initialised during construction"
+            "levels are initialized during construction"
         );
         let Some(neighbours) = self.neighbours.get(level) else {
-            unreachable!("levels are initialised during construction");
+            unreachable!("levels are initialized during construction");
         };
         neighbours.as_slice()
     }
 
     pub(crate) fn neighbours_mut(&mut self, level: usize) -> &mut Vec<usize> {
         let Some(neighbours) = self.neighbours.get_mut(level) else {
-            unreachable!("levels are initialised during construction");
+            unreachable!("levels are initialized during construction");
         };
         neighbours
     }
@@ -40,7 +40,7 @@ impl Node {
         self.sequence
     }
 
-    /// Returns the number of levels initialised for this node.
+    /// Returns the number of levels initialized for this node.
     ///
     /// # Examples
     /// ```rust,ignore

@@ -185,7 +185,7 @@ issue and rerun the specific command with the same `set -o pipefail | tee`
 pattern. If a Kani harness becomes too slow, reduce bounds or add
 `kani::assume` constraints and record the decision in the design document.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
 Keep any log files created by the commands in `/tmp/` until the change is
 accepted. When citing results in the design document, include the harness name

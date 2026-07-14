@@ -823,7 +823,7 @@ is flipped from `[ ]` to `[x]`.
   reduce `PROPTEST_CASES` for the PR tier rather than removing generators.
   Document the change in the `Decision log`.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Expected new and edited files:
 

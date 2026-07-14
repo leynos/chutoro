@@ -136,7 +136,7 @@ of the algorithm's scalability and its approximative nature.[^7]
    edge removal has the potential to split a connected component into two,
    thereby creating a hierarchy of nested clusters. This process generates a
    complete cluster hierarchy tree. To produce a useful "flat" clustering,
-   HDBSCAN's stability-based technique is employed. This method analyzes the
+   HDBSCAN's stability-based technique is employed. This method analyses the
    persistence of clusters as the distance threshold (represented by the edge
    weights) changes. Clusters that exist over a wide range of distances are
    considered more "stable" and are selected for the final output, while
@@ -259,7 +259,7 @@ neighbour check) on many different data elements simultaneously, which is the
 architectural strength of the GPU.[^10]
 
 The "local-then-global" pattern observed in the multi-process Python
-implementation of FISHDBC is not merely an artifact of that specific
+implementation of FISHDBC is not merely an artefact of that specific
 architecture; it is a manifestation of a more general and powerful parallel
 algorithmic paradigm. This divide-and-conquer strategy is fundamental to
 scaling graph algorithms where maintaining a consistent global state is
@@ -732,7 +732,7 @@ compiler more opportunities to guide call sites away from invalid data.
 
 The default execution path for the clustering engine will be a
 high-performance, multi-threaded CPU implementation. This design will draw
-inspiration from the parallel Python implementation previously analyzed but
+inspiration from the parallel Python implementation previously analysed but
 will be adapted to leverage the safety, performance, and concurrency idioms of
 modern Rust.
 
@@ -795,7 +795,7 @@ deployments can attribute latency spikes without sampling.
 
 Neighbour ordering now includes a deterministic tie-break: when distances
 match, nodes are ordered by node id and then by an insertion sequence counter
-stored alongside every `Node`. This rule stabilises candidate trimming and
+stored alongside every `Node`. This rule stabilizes candidate trimming and
 layer search under fixed RNG seeds even when the cache changes execution
 timing. The sequence numbers are assigned once per insertion and recorded
 inside the graph so property tests and deterministic builds see identical
@@ -839,7 +839,7 @@ lock, improving concurrency.
    detection, it offers a strong balance of implementation complexity and
    performance within the multi-threaded CPU context.
 
-Design decision: the CPU parallel Kruskal implementation canonicalises directed
+Design decision: the CPU parallel Kruskal implementation canonicalizes directed
 candidate edges to undirected `(min(u, v), max(u, v))` pairs and rejects
 non-finite weights. Edges are globally sorted using Rayon `par_sort_unstable`
 with `f32::total_cmp` and deterministic tie-breaks (`source`, `target`,
@@ -2079,7 +2079,7 @@ clusters: <count>
 `stdout` writes forward directly to the summary renderer while structured
 diagnostics are emitted via `tracing`. The CLI initializes a subscriber that
 defaults to a human-readable formatter, supports opt-in JSON output via
-`CHUTORO_LOG_FORMAT=json`, and honors `RUST_LOG` through `tracing-subscriber`'s
+`CHUTORO_LOG_FORMAT=json`, and honours `RUST_LOG` through `tracing-subscriber`'s
 `EnvFilter`. Diagnostics are routed to `stderr` so the machine-readable
 summaries on `stdout` remain stable. The `tracing-log` bridge ensures any crate
 still using the `log` facade produces the same structured events, and the CLI
@@ -3540,7 +3540,7 @@ The benchmark runs the `ClusteringSession` lifecycle:
        6, 2025,
        [https://jzaia18.github.io/15618-Final/](https://jzaia18.github.io/15618-Final/)
 [^16]: nmslib/hnswlib: Header-only C++/python library for fast approximate
-       nearest neighbors - GitHub, accessed on September 6, 2025,
+       nearest neighbours - GitHub, accessed on September 6, 2025,
        [https://github.com/nmslib/hnswlib](https://github.com/nmslib/hnswlib)
 [^17]: js1010/cuhnsw: CUDA implementation of Hierarchical Navigable Small World
        Graph algorithm - GitHub, accessed on September 6, 2025,

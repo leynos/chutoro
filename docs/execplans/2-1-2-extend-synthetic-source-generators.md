@@ -203,7 +203,7 @@ Stage C: add MNIST download-and-cache helper.
 Add a dedicated module (for example `chutoro-benches/src/source/mnist.rs`) that:
 
 - downloads MNIST files from a pinned base URL,
-- caches raw/downloaded artifacts under a deterministic cache directory,
+- caches raw/downloaded artefacts under a deterministic cache directory,
 - validates headers/counts and decodes to a 70,000 x 784 float matrix,
 - exposes a constructor returning a `DataSource` implementation suitable for
   Euclidean benchmarks.
@@ -322,15 +322,15 @@ Expected command outcomes:
 
 - Generator constructors and cache helpers must be safe to re-run.
 - If cache content is corrupt, delete only the affected cached file(s) and
-  rerun; do not delete unrelated benchmark artifacts.
+  rerun; do not delete unrelated benchmark artefacts.
 - If download is interrupted, rerun should detect and replace partial files
   (`*.part`) safely.
 - If any quality gate fails, fix the reported issue and rerun only failed
   command(s) first, then rerun the full gate sequence.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
-Keep the following evidence artifacts until review is complete:
+Keep the following evidence artefacts until review is complete:
 
 - `/tmp/make-check-fmt-2-1-2.log`
 - `/tmp/make-lint-2-1-2.log`

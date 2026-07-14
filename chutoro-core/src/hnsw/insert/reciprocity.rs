@@ -182,7 +182,7 @@ impl<'a> FallbackSelector<'a> {
                 return Some(candidate);
             }
             if !neighbour_list.is_empty() {
-                // Fallback prioritises connectivity over preserving any prior
+                // Fallback prioritizes connectivity over preserving any prior
                 // ordering when no capacity remains; evict the tail entry to
                 // guarantee a reciprocal link for the new node.
                 neighbour_list.pop();

@@ -275,7 +275,7 @@ The tests should answer these concrete questions:
 4. On nightly builds with `nightly_portable_simd` enabled, do those helpers
    report the portable backend as available?
 
-Prefer parameterized `rstest` coverage over hand-written repetition. The happy
+Prefer parameterized `rstest` coverage over handwritten repetition. The happy
 paths are the cases where the portable backend is correctly selected or made
 available. The unhappy paths are the cases where the feature is absent, the
 toolchain is stable, or runtime availability is false, and the code must select

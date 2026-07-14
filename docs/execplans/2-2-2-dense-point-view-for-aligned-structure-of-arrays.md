@@ -199,7 +199,7 @@ Retrospective:
   the arbitrary-pair contract.
 - `DensePointView<'a>` was easiest to make 64-byte aligned by storing data in
   `Vec<AlignedBlock>` chunks rather than introducing a custom allocator.
-- The new red tests paid off immediately by catching a bad hand-written packing
+- The new red tests paid off immediately by catching a bad handwritten packing
   expectation before the full dense-provider path was considered complete.
 
 ## Context and orientation

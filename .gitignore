@@ -8,3 +8,9 @@ coverage.xml
 .memdb/
 *.swp
 __pycache__/
+
+# Local spelling-policy caches and helper tool state
+.uv-cache/
+.uv-tools/
+.typos-oxendict-base.json
+.typos-oxendict-base.toml

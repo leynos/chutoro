@@ -2,7 +2,7 @@
 //! [`SessionConfig`] / [`SessionRefreshPolicy`] configuration types, all
 //! defined under `chutoro-core/src/session/`.
 //!
-//! Uses [`rstest`] parametrised test cases to cover builder defaults, policy
+//! Uses [`rstest`] parametrized test cases to cover builder defaults, policy
 //! accessors, `min_cluster_size` validation, backend-unavailability rejection,
 //! and HNSW construction-failure mapping.
 

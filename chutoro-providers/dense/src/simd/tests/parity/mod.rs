@@ -10,7 +10,7 @@
 //! The submodules divide the suite by fixture shape and policy surface:
 //! `strategies` owns input generators, `pairwise` checks finite pairwise
 //! distances, `query_points` checks finite query-to-points batches, and
-//! `non_finite` checks NaN-canonicalisation behaviour.
+//! `non_finite` checks NaN-canonicalization behaviour.
 //!
 //! `pairwise_entries` and `query_points_entries` combine
 //! [`dispatch::enabled_backends`] with [`kernels::pairwise_entry`] and

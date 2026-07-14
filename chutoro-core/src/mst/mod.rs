@@ -1,7 +1,7 @@
 //! CPU minimum spanning tree (MST) construction.
 //!
 //! This module provides a parallel Kruskal implementation intended for CPU
-//! backends. The algorithm parallelises the global edge sort via Rayon and
+//! backends. The algorithm parallelizes the global edge sort via Rayon and
 //! performs concurrent cycle checks using a striped-lock union-find.
 
 mod union_find;
@@ -37,7 +37,7 @@ pub enum MstError {
         /// The right endpoint id (as provided).
         right: usize,
     },
-    /// A synchronisation primitive became poisoned after a panic.
+    /// A synchronization primitive became poisoned after a panic.
     #[error("lock for {resource} is poisoned")]
     LockPoisoned {
         /// Name of the locked resource that was poisoned.
@@ -78,7 +78,7 @@ pub enum MstErrorCode {
     InvalidNodeId,
     /// An edge contained a non-finite weight.
     NonFiniteWeight,
-    /// A synchronisation primitive became poisoned after a panic.
+    /// A synchronization primitive became poisoned after a panic.
     LockPoisoned,
     /// An internal invariant was violated.
     InvariantViolation,
@@ -176,7 +176,7 @@ impl MinimumSpanningForest {
 
 /// Computes a minimum spanning forest using parallel Kruskal's algorithm.
 ///
-/// The input edges are interpreted as undirected and are canonicalised to
+/// The input edges are interpreted as undirected and are canonicalized to
 /// `(min(u, v), max(u, v))`. Self-edges are ignored.
 ///
 /// # Errors

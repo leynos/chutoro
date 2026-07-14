@@ -1,6 +1,6 @@
 //! Concurrent union-find for the parallel Kruskal implementation.
 //!
-//! This union-find prioritises correctness and deadlock avoidance over maximum
+//! This union-find prioritizes correctness and deadlock avoidance over maximum
 //! throughput. Disjoint unions can proceed in parallel while maintaining a
 //! consistent lock ordering.
 //!

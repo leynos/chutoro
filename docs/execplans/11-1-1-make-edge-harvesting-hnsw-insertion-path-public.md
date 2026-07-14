@@ -327,7 +327,7 @@ test fails, fix the issue locally first, rerun the targeted check, and only
 then rerun the full validator chain. Keep the logs in `/tmp/11-1-1-*.log` for
 any escalation.
 
-## Artifacts and notes
+## Artefacts and notes
 
 - Primary code file:
   `chutoro-core/src/hnsw/cpu/mod.rs`

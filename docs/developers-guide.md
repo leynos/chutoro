@@ -397,3 +397,38 @@ Example:
 ```rust
 assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].source == source_node;
 ```
+
+## Spelling gate
+
+Run `make spelling` to enforce en-GB-oxendict spelling in tracked Markdown
+prose. The target checks `typos.toml` for drift, runs the consumer phrase
+scanner, then runs the pinned `typos` release over tracked Markdown files.
+`make markdownlint` depends on this gate, and `make all` runs it with the
+repository's release build.
+
+The generated configuration combines the shared estate dictionary with the
+repository-specific `typos.local.toml` overlay. Do not edit `typos.toml` by
+hand. Add only narrow identifier, API, proper-name, or immutable-fixture
+exceptions to the local overlay; ordinary prose belongs in Oxford spelling.
+
+The configuration builder is pinned to commit
+`d6da92f02240a79a945c835f69bdd08a888da1d0`. Regenerate the configuration with:
+
+```sh
+TYPOS_CONFIG_BUILDER_COMMIT=d6da92f02240a79a945c835f69bdd08a888da1d0
+uvx --python 3.14 \
+  --from "git+https://github.com/leynos/typos-config-builder.git@${TYPOS_CONFIG_BUILDER_COMMIT}" \
+  typos-config-builder
+```
+
+Use the same command with `--check` in quality gates to detect drift without
+rewriting `typos.toml`. The builder refreshes the shared dictionary into the
+untracked `.typos-oxendict-base.toml` cache only when the authority is newer,
+records refresh metadata in `.typos-oxendict-base.json`, and reuses a valid
+local cache when the authority is unavailable.
+
+Typos splits hyphenated phrases into separate words. The consumer-owned
+`scripts/typos_rollout_check.py` therefore reads phrase corrections from the
+shared cache and local overlay, while taking ignore patterns and file
+exclusions from generated `typos.toml`. It reports prohibited phrases without
+duplicating the builder's validation, cache, merge or rendering behaviour.

@@ -1,0 +1,39 @@
+schema = 1
+
+[oxford]
+stems = []
+
+[words]
+accepted = []
+
+[words.corrections]
+
+[patterns]
+ignore = [
+  '\bCARGO_TERM_COLOR\b',
+  'types: \[[^]]*\blabeled\b',
+  'GitHub Flavored\s+Markdown',
+  'Azure Architecture\s+Center',
+  '"ises"',
+  '\b[A-Za-z0-9][A-Za-z0-9_]*_(?:canonicalis|finalis|initialis|parameteris|prioritis|unrecognis)\w*\b',
+  '\b(?:canonicalis|finalis|initialis|parameteris|prioritis|unrecognis)\w*_[A-Za-z0-9_]+\b',
+  '\b(?:[A-Za-z0-9]+(?:Canonicalis\w*|Finalis\w*|Initialis\w*|Parameteris\w*|Prioritis\w*|Unrecognis\w*)[A-Za-z0-9]*|(?:Canonicalis\w*|Finalis\w*|Initialis\w*|Parameteris\w*|Prioritis\w*|Unrecognis\w*)[A-Za-z0-9]+)\b',
+  '(?:::|\.)canonicalise\b',
+  '\bfn canonicalise\b',
+  '\[\^canonicalise\]',
+  '"canonicalise" for API compatibility',
+  '\bfn finalise\b',
+  '\.finalise\b',
+  '\binitialised\s*:\s*(?:_|&mut|HashSet)',
+  '\blet mut initialised\b',
+  '&mut initialised\b',
+  '\binitialised\.insert\b',
+  '\b_initialised\b',
+  '\n\s*initialised,\n',
+  '\blet ba =',
+  '\bba\.value\(\)',
+  '\bis_symmetric_result\(ab, ba\)',
+]
+
+[files]
+exclude = []

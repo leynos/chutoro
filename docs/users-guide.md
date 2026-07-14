@@ -222,7 +222,7 @@ reported via the `NonContiguousClusterIds` enum so actionable feedback can be
 surfaced upstream.
 
 Each assignment stores a `ClusterId`. The underlying value can be accessed with
-`get()` when serialising or displaying results.
+`get()` when serializing or displaying results.
 
 ## Error handling
 

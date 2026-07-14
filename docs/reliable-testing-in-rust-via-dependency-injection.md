@@ -1,6 +1,6 @@
 # 🛡️ Reliable Testing in Rust via Dependency Injection
 
-Writing robust, reliable, and parallelisable tests requires an intentional
+Writing robust, reliable, and parallelizable tests requires an intentional
 approach to handling external dependencies such as environment variables, the
 filesystem, or the system clock. Functions that directly call `std::env::var` or
 `SystemTime::now()` are difficult to test because they depend on global,

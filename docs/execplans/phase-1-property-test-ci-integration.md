@@ -63,7 +63,7 @@ cases using `rstest`, design decisions are recorded in
   distribution, set an initial CI floor, and document the uplift trigger.
 - Risk: Weekly 25,000-case runs exceed timeout.
   Severity: medium. Likelihood: medium. Mitigation: run only targeted suites,
-  use `fork = true`, and capture failure artifacts for replay.
+  use `fork = true`, and capture failure artefacts for replay.
 - Risk: Expanding `max_connections` coverage exposes existing connectivity gaps.
   Severity: medium. Likelihood: medium. Mitigation: keep a documented staged
   policy and add explicit unit coverage for guard predicates.
@@ -80,7 +80,7 @@ cases using `rstest`, design decisions are recorded in
 - [x] (2026-02-10 00:45Z) Integrated path-filtered PR property workflow
   (250 cases, now 20-minute timeout).
 - [x] (2026-02-10 00:45Z) Integrated weekly scheduled property workflow
-  (25,000 cases, `fork=true`) with failure artifact upload.
+  (25,000 cases, `fork=true`) with failure artefact upload.
 - [x] (2026-02-10 00:55Z) Added and passed `rstest` coverage for profile and
   guardrail configuration happy/unhappy/edge cases.
 - [x] (2026-02-10 01:05Z) Updated design and roadmap docs.
@@ -200,7 +200,7 @@ Stage C: integrate CI workflows for PR and weekly schedules. Add a
 path-filtered PR job and a scheduled weekly job in
 `.github/workflows/property-tests.yml` using the agreed profiles: PR = 250
 cases, 20-minute timeout; weekly = 25,000 cases, `fork=true`,
-`PROGTEST_CASES=25000`. Include failure artifact upload for proptest
+`PROGTEST_CASES=25000`. Include failure artefact upload for proptest
 regressions and logs. Go/no-go: workflow syntax validates and targeted local
 commands match workflow commands.
 
@@ -238,7 +238,7 @@ pass. Run `make fmt`, `make markdownlint`, `make nixie`, `make check-fmt`,
 4. Add `.github/workflows/property-tests.yml` with:
    PR trigger with path filters, 20-minute timeout, and `PROGTEST_CASES=250`,
    `CHUTORO_HNSW_PBT_MIN_RECALL=0.60`; weekly schedule trigger with
-   `PROGTEST_CASES=25000` and `fork=true`; artifact upload on failure for
+   `PROGTEST_CASES=25000` and `fork=true`; artefact upload on failure for
    `**/proptest-regressions/**`.
 5. Update `docs/chutoro-design.md` with an implementation update capturing:
    chosen recall floor, weekly profile, and staged max-connections policy.
@@ -296,10 +296,10 @@ fix the failure in place and rerun the same command/workflow with identical
 environment variables. Keep `/tmp/make-*.log` files until the feature is
 accepted so failure context remains available.
 
-## Artifacts and Notes
+## Artefacts and Notes
 
 - Preserve `/tmp/make-*.log` outputs for all quality gates.
-- On CI failures, collect `proptest-regressions` artifacts and include failing
+- On CI failures, collect `proptest-regressions` artefacts and include failing
   seeds in the implementation notes.
 - Capture the final workflow run links and include them in the completion
   update for traceability.
