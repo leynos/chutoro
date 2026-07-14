@@ -110,6 +110,8 @@ impl<S: DataSource> DataSource for ProfilingSource<S> {
 
 #[cfg(test)]
 mod tests {
+    //! Tests for neighbour-scoring profiling counters and snapshots.
+
     use chutoro_core::{DataSource, DataSourceError, MetricDescriptor};
 
     use super::ProfilingSource;

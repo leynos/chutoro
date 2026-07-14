@@ -71,6 +71,8 @@ pub fn saturating_add_u64(target: &AtomicU64, amount: u64) {
 
 #[cfg(test)]
 mod tests {
+    //! Tests for saturating profiling counters and concurrent recording.
+
     use std::{sync::Arc, thread};
 
     use proptest::prelude::*;

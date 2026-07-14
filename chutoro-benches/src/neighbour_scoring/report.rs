@@ -173,6 +173,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    //! Tests for neighbour-scoring CSV report rendering.
     use super::{
         BuildProfileReportRow, LaneUtilisationReportRow, duration_basis_points,
         lane_utilisation_basis_points, padded_lane_count, write_build_profile_report_csv,

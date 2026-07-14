@@ -1,5 +1,6 @@
 //! Unit tests for graph topology property validation.
 
+use proptest::test_runner::TestCaseResult;
 use rand::{SeedableRng, rngs::SmallRng};
 use rstest::rstest;
 

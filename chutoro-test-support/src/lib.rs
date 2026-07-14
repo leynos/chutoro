@@ -1,3 +1,5 @@
+//! Shared test utilities used across chutoro crates.
+
 pub mod tracing {
     //! Recording layer utilities for capturing spans and events in tests.
     use std::collections::HashMap;
@@ -220,8 +222,6 @@ pub mod tracing {
 }
 
 pub mod ci;
-
-//! Shared test utilities used across chutoro crates.
 
 pub mod env {
     //! Process environment guards for tests.

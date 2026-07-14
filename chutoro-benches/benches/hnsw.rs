@@ -417,6 +417,8 @@ fn hnsw_build_diverse_sources(c: &mut Criterion) {
 }
 
 mod bench_harness {
+    //! Criterion entrypoint for the HNSW benchmark groups.
+
     use super::{hnsw_build, hnsw_build_diverse_sources, hnsw_build_with_edges};
     use criterion::criterion_group;
 
@@ -435,6 +437,8 @@ criterion_main!(bench_harness::benches);
     reason = "Criterion harness=false bench tests compile as ordinary code"
 )]
 mod tests {
+    //! Tests for HNSW benchmark argument handling and source sizing.
+
     use rstest::rstest;
 
     use super::{

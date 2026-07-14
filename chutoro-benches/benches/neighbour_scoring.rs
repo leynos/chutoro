@@ -134,6 +134,8 @@ criterion_main!(bench_harness::benches);
 
 #[cfg(test)]
 mod tests {
+    //! Tests for neighbour-scoring benchmark orchestration.
+
     #[expect(
         unused_imports,
         reason = "Criterion harness=false bench tests compile as ordinary code"
