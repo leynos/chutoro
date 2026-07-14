@@ -38,7 +38,7 @@ def policy_files(*, local_phrase: str = "") -> dict[str, str]:
             '[default]\nextend-ignore-re = ["`[^`\\\\n]+`"]\n'
         ),
         ".typos-oxendict-base.toml": (
-            '[phrases.corrections]\n"hand-written" = "handwritten"\n'
+            f'[phrases.corrections]\n"{PROHIBITED}" = "handwritten"\n'
         ),
         "typos.local.toml": local_phrase,
     }
@@ -100,4 +100,4 @@ def test_main_reports_location_and_exit_two(
     )
 
     assert check.main(["--repository", str(tmp_path)]) == 2
-    assert capsys.readouterr().out == "README.md:1:8: hand-written -> handwritten\n"
+    assert capsys.readouterr().out == (f"README.md:1:8: {PROHIBITED} -> handwritten\n")

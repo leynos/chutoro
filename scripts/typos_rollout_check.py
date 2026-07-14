@@ -8,12 +8,12 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import re
 import subprocess
 import tomllib
-from typing import Sequence
 
 POLICY_PATHS = frozenset(
     {
@@ -117,6 +117,27 @@ def _masked(text: str, patterns: tuple[str, ...]) -> str:
     return text
 
 
+def _phrase_findings(
+    relative: Path,
+    text: str,
+    masked: str,
+    phrase_corrections: tuple[tuple[str, str], ...],
+) -> Iterator[PhraseFinding]:
+    """Yield exact phrase findings from one masked tracked file."""
+    for phrase, correction in phrase_corrections:
+        for match in re.finditer(
+            rf"(?<![\w-]){re.escape(phrase)}(?![\w-])", masked, re.IGNORECASE
+        ):
+            previous = masked.rfind("\n", 0, match.start())
+            yield PhraseFinding(
+                relative,
+                masked.count("\n", 0, match.start()) + 1,
+                match.start() - previous,
+                text[match.start() : match.end()],
+                correction,
+            )
+
+
 def check_phrase_corrections(
     repository: Path, policy: PhrasePolicy
 ) -> tuple[PhraseFinding, ...]:
@@ -130,20 +151,9 @@ def check_phrase_corrections(
         except OSError, UnicodeDecodeError:
             continue
         masked = _masked(text, policy.ignore_patterns)
-        for phrase, correction in policy.phrase_corrections:
-            for match in re.finditer(
-                rf"(?<![\w-]){re.escape(phrase)}(?![\w-])", masked, re.IGNORECASE
-            ):
-                previous = masked.rfind("\n", 0, match.start())
-                found.append(
-                    PhraseFinding(
-                        relative,
-                        masked.count("\n", 0, match.start()) + 1,
-                        match.start() - previous,
-                        text[match.start() : match.end()],
-                        correction,
-                    )
-                )
+        found.extend(
+            _phrase_findings(relative, text, masked, policy.phrase_corrections)
+        )
     return tuple(found)
 
 
