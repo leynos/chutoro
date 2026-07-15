@@ -15,8 +15,26 @@ use benchmark_support::{
 };
 use profiling::{ProfilingError, ProfilingSource};
 
+/// Register the neighbour-scoring Criterion group and its diagnostic reports.
+///
+/// Call this from a Criterion benchmark entrypoint. It writes lane-utilization
+/// and optional build-profile CSV reports before registering the benchmark
+/// cases.
+///
+/// # Examples
+///
+/// ```no_run
+/// use criterion::Criterion;
+/// use chutoro_benches::neighbour_scoring::run_neighbour_scoring;
+///
+/// let mut criterion = Criterion::default();
+/// run_neighbour_scoring(&mut criterion);
+/// // The neighbour-scoring group and its diagnostic reports are registered.
+/// ```
 #[doc(hidden)]
 pub use benchmark_runner::neighbour_scoring as run_neighbour_scoring;
+
+pub use benchmark_runner::neighbour_scoring;
 
 #[doc(hidden)]
 pub use build_profile::{
