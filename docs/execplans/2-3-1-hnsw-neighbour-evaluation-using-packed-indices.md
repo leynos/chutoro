@@ -20,14 +20,14 @@ then keeps the closest. Roadmap item 2.3.1 asks that this evaluation use
 *prefetch* upcoming coordinate blocks, and score *outside the write lock*.
 
 Reconnaissance (recorded under `Surprises & discoveries`) shows that the
-*structural* intent of 2.3.1 is already realised by Phase 2.2 (SIMD kernels)
+*structural* intent of 2.3.1 is already realized by Phase 2.2 (SIMD kernels)
 and the existing two-phase locking design — but with one genuinely unrealised
 seam (a pack→unpack→repack round-trip at the port) and a measurement question
 (whether any residual hot-path win actually exists once the distance cache
 fragments batches). This plan therefore reframes 2.3.1 around **evidence**, not
 motion. It has two scopes:
 
-1. **Committed scope (always delivered).** Prove and document the realised
+1. **Committed scope (always delivered).** Prove and document the realized
    intent: a regression guard that distance scoring never runs under the write
    lock; an implementation-update to `docs/chutoro-design.md` §6.3 explaining
    how 2.2.x satisfies the layout/locking structure; an Architecture Decision
@@ -49,7 +49,7 @@ After this change a developer can:
 1. Run `cargo bench -p chutoro-benches --bench neighbour_scoring` and see
    neighbour-set scoring bucketed by the candidate-set sizes that *actually
    occur* in the HNSW hot path (≈ 8-48), with cycle-count and per-bucket SoA
-   lane-utilisation data, not just wall-time.
+   lane-utilization data, not just wall-time.
 2. Read `docs/chutoro-design.md` §6.3, `docs/developers-guide.md`, and
    `docs/adr-003-soa-prefetch-adapter-boundary.md` and find documented: how
    2.2.x satisfies 2.3.1's layout/locking structure, the cache-fragmentation
@@ -61,7 +61,7 @@ After this change a developer can:
    idempotency, mutation, and backend-parity suites plus the new write-lock
    guard.
 
-### What is already realised vs genuinely residual (read before estimating)
+### What is already realized vs genuinely residual (read before estimating)
 
 Confirmed by reading the code (file:line cited in `Surprises & discoveries`):
 
@@ -132,7 +132,7 @@ and each marked as gated on its own evidence:
 - **`batch_distances_into` out-buffer reuse** (suggested roadmap item 2.3.5) —
   only meaningful if a query-centric override exists and the cache's
   indexed-scatter consumption is redesigned; otherwise it saves nothing on the
-  cached path and penalises non-overriding providers (e.g. text).
+  cached path and penalizes non-overriding providers (e.g. text).
 
 The suggested numbering is provisional: at implementation time, reconcile it
 with the current state of `docs/roadmap.md` (renumber if 2.3.3+ are already
@@ -232,7 +232,7 @@ Stop and escalate (do not work around) when:
    flush-to-zero, realistic data, Criterion bootstrap CIs, `critcmp`, and the
    mandatory cycle-count cross-check; quiet host.
 6. Risk: **Scratch reuse interacts badly with Rayon-parallel trim** — a
-   shared `&self` `RefCell`/`Mutex` scratch serialises `score_trim_jobs`
+   shared `&self` `RefCell`/`Mutex` scratch serializes `score_trim_jobs`
    (erasing the 2.2 parallel-scoring win) or makes allocation-count assertions
    nondeterministic across thread counts. Severity: high. Likelihood: medium.
    Mitigation: forbid shared scratch in the Decision Log; require thread-local
@@ -291,13 +291,13 @@ Stop and escalate (do not work around) when:
     findings. Fixes applied: report writing now uses `cap_std::fs_utf8` and
     `camino`; branch names are sanitized before composing benchmark log paths;
     the measured Criterion loop borrows the fixture candidates instead of
-    cloning them; zero-candidate lane utilisation returns `0`; and the
+    cloning them; zero-candidate lane utilization returns `0`; and the
     diagnostic math now has library-level unit/property tests.
   - [x] (2026-06-24) Post-CodeRabbit deterministic gates pass:
     `make check-fmt`, `make markdownlint`, `make lint`, `make test` (1015
     passed, 1 skipped), plus `shellcheck scripts/bench-neighbour-scoring.sh`.
   - [x] (2026-06-24) Second CodeRabbit review completed with three valid
-    findings. Fixes applied: lane-utilisation arithmetic is total for extreme
+    findings. Fixes applied: lane-utilization arithmetic is total for extreme
     `usize` inputs, poisoned profiling mutexes no longer abort benchmark
     scoring calls, and the benchmark runner derives the exact executable from
     Cargo JSON output instead of scanning `target/release/deps`.
@@ -385,7 +385,7 @@ Stop and escalate (do not work around) when:
     randomized rate-limit backoff. Three valid findings were fixed:
     report-rendering tests now use contextual `expect(...)` diagnostics,
     build-profile snapshots clone the guarded stats value directly, and the
-    optional build-profile environment flag is normalised before truthy-value
+    optional build-profile environment flag is normalized before truthy-value
     matching. One critical module-root finding was stale: the worktree contains
     only `chutoro-benches/src/neighbour_scoring/mod.rs` and its `report.rs`
     submodule, not a competing `src/neighbour_scoring.rs` root.
@@ -396,7 +396,7 @@ Stop and escalate (do not work around) when:
     passed), `cargo bench -p chutoro-benches --bench neighbour_scoring --
     --list`, and `shellcheck scripts/bench-neighbour-scoring.sh`.
   - [x] (2026-06-25) Tenth CodeRabbit review completed with three valid
-    findings. Fixes applied: the lane-utilisation CSV writer now quotes and
+    findings. Fixes applied: the lane-utilization CSV writer now quotes and
     escapes string fields when needed; report helper coverage now uses
     `rstest` fixtures and parameterized cases, including escaped-field and
     header-only edge paths; and the `hyperfine` wrapper shell-escapes the
@@ -435,7 +435,7 @@ Stop and escalate (do not work around) when:
   - [x] (2026-06-25) Thirteenth CodeRabbit review completed with two valid
     report-helper findings and one repeated stale duplicate-root finding.
     Fixes applied: report rendering now derives padded and wasted lane counts
-    from a single `padded_lane_count` source of truth, and the lane-utilisation
+    from a single `padded_lane_count` source of truth, and the lane-utilization
     CSV writer has property coverage for generated bucket labels and candidate
     counts, including CSV round-trip parsing of quoted fields.
   - [x] (2026-06-25) Post-thirteenth-review deterministic gates pass:
@@ -499,7 +499,7 @@ Stop and escalate (do not work around) when:
     findings and two repeated invalid findings. Fixes applied: profiling
     counters now use atomics for scalar calls, batch calls, total batch
     candidates, and elapsed batch-scoring nanoseconds while keeping the mutex
-    only for exact batch-size collection; the lane-utilisation CSV writer uses
+    only for exact batch-size collection; the lane-utilization CSV writer uses
     inlined format arguments; and the Hyperfine wrapper writes to a stable
     branch-specific `/tmp` log rather than deleting its tee output on exit.
     Invalid findings: the repeated duplicate `src/neighbour_scoring.rs` path is
@@ -578,7 +578,7 @@ Stop and escalate (do not work around) when:
     `lane_utilisation_basis_points`, and `duration_basis_points` there.
   - [x] (2026-06-25) Captured full Criterion baseline, optional HNSW build
     profile CSV, Hyperfine corroboration, and `perf stat` counters. Criterion
-    baseline `before` was saved for all 21 cases; the lane-utilisation report
+    baseline `before` was saved for all 21 cases; the lane-utilization report
     was written to `target/benchmarks/neighbour_scoring_lane_utilisation.csv`;
     the build-profile report was written to
     `target/benchmarks/neighbour_scoring_build_profile.csv`; Hyperfine reported
@@ -710,10 +710,10 @@ Stop and escalate (do not work around) when:
   reads failed with `No such file or directory`; `rg --files docs` shows the
   live documentation set. Impact: orientation used the concrete docs named by
   this plan instead.
-- Observation: the Milestone 0 lane-utilisation diagnostic is now generated at
+- Observation: the Milestone 0 lane-utilization diagnostic is now generated at
   `target/benchmarks/neighbour_scoring_lane_utilisation.csv`. Evidence: after
   `cargo bench -p chutoro-benches --bench neighbour_scoring -- --list`,
-  realistic buckets report 50.00% utilisation for 8 candidates, 75.00% for 24
+  realistic buckets report 50.00% utilization for 8 candidates, 75.00% for 24
   candidates, and 100.00% for 16, 32, and 48 candidates. Impact: the benchmark
   makes the small-batch padding cost visible before any optimization is
   attempted.
@@ -750,7 +750,7 @@ Stop and escalate (do not work around) when:
   formatting when the schema is part of the milestone evidence. Evidence:
   CodeRabbit's eighth review noted that ad hoc CSV formatting in
   `benches/neighbour_scoring/support.rs` was untested because Criterion bench
-  modules use `harness = false`. Impact: lane-utilisation and build-profile CSV
+  modules use `harness = false`. Impact: lane-utilization and build-profile CSV
   rendering now lives in `chutoro-benches::neighbour_scoring::report`, with
   exact header-and-row regression tests.
 - Observation: CodeRabbit can report stale paths after a module move. Evidence:
@@ -784,7 +784,7 @@ Stop and escalate (do not work around) when:
   directly. Evidence: the thirteenth CodeRabbit review asked for generated
   coverage over bucket labels and candidate counts, and the resulting
   `lane_utilisation_report_round_trips_generated_rows` case checks CSV parsing,
-  padding, wasted lanes, and utilisation bounds without exceeding the
+  padding, wasted lanes, and utilization bounds without exceeding the
   repository's file-size limit. Impact: the report schema now has example and
   generated coverage.
 - Observation: Criterion benchmark configuration should use supported controls
@@ -895,7 +895,7 @@ Stop and escalate (do not work around) when:
   2026-06-09, planning agent.
 - Decision: Forbid shared `Mutex`/`RefCell` SoA scratch; require thread-local or
   explicit per-call/per-job `Vec<AlignedBlock>` scratch. Rationale: a shared
-  scratch serialises the Rayon-parallel trim and destroys the 2.2
+  scratch serializes the Rayon-parallel trim and destroys the 2.2
   parallel-scoring win; alignment/padding must be preserved. Date/Author:
   2026-06-09, planning agent.
 - Decision: The C1 guard asserts a *same-thread* "not holding a write guard"
@@ -935,7 +935,7 @@ Stop and escalate (do not work around) when:
   self-contained harness exceeded the repository's 400-line source-file limit;
   separating fixture/report/profile support preserves readability without
   changing the measured path. Date/Author: 2026-06-24, implementation agent.
-- Decision: Put lane-utilisation, duration-ratio, and median diagnostic
+- Decision: Put lane-utilization, duration-ratio, and median diagnostic
   calculations in `chutoro-benches::neighbour_scoring`, not in the
   Criterion-only bench module. Rationale: Criterion targets use
   `harness = false`, so ordinary unit tests in bench-only modules are not part
@@ -972,7 +972,7 @@ Stop and escalate (do not work around) when:
 - Decision: Do not port the `neighbour_scoring` diagnostic harness to the new
   `chutoro-bench-datasets::DatasetRecipe` infrastructure introduced by roadmap
   item 10.1.1. Rationale: this harness measures fixed synthetic candidate
-  scoring, lane utilisation, and HNSW build-profile timing rather than fetched
+  scoring, lane utilization, and HNSW build-profile timing rather than fetched
   or prepared benchmark datasets; adopting the recipe lifecycle here would
   broaden 2.3.1 without improving the packed-index evidence. Future
   dataset-backed benchmark matrix work should use `DatasetRecipe`. Date/Author:
@@ -993,7 +993,7 @@ and has baseline evidence.
 `cargo bench -p chutoro-benches --bench neighbour_scoring -- --list` reports 21
 benchmark cases: realistic candidate counts 8, 16, 24, 32, and 48 plus
 diagnostic counts 256 and 1024 for dimensions 32, 128, and 768. The
-lane-utilisation report shows the pre-registered realistic buckets waste 8 of
+lane-utilization report shows the pre-registered realistic buckets waste 8 of
 16 lanes at candidate count 8, 8 of 32 lanes at candidate count 24, and no
 lanes at 16, 32, or 48.
 
@@ -1151,7 +1151,7 @@ Goal: produce the evidence that decides whether E1-E3 are built at all.
    `2M` for M∈{8,16,24}); add diagnostic-only buckets {256, 1024} labelled
    "does not occur in the HNSW hot path". Dimensions {32, 128, 768}. Use
    `Throughput::Elements`, `black_box`, a fixed seed. Record per-bucket
-   effective SoA lane utilisation *including* 16-lane padding waste, and
+   effective SoA lane utilization *including* 16-lane padding waste, and
    SoA-vs-scalar crossover.
 2. Instrument a real synthetic HNSW build (N ∈ {10k, 100k}) to capture, as data
    written under `target/benchmarks/`:
@@ -1246,7 +1246,7 @@ under 400 lines; `cpu/trim.rs`, `helpers.rs`.
 1. Extract the scratch machinery and `SearchState` scratch fields into the new
    module before wiring reuse; add a line-budget check to validation.
 2. Red: a **proptest differential** test (reusing the §2.3.1 search-correctness
-   oracle across randomised graphs and `ef` values, not three fixtures)
+   oracle across randomized graphs and `ef` values, not three fixtures)
    asserting the scratch-reusing path yields identical `Vec<Neighbour>`; assert
    scratch length is 0 at the top of each iteration; assert the Milestone 0
    allocation count drops.
@@ -1296,7 +1296,7 @@ threshold; parity within epsilon preserved.
 
 Note: `batch_distances_into` (out-buffer reuse) remains **deferred** — on the
 cached path core never calls `batch_distances` directly, so a reusable `out`
-saves nothing there, and the defaulted impl penalises non-overriding providers.
+saves nothing there, and the defaulted impl penalizes non-overriding providers.
 Record in ADR-003, do not build here.
 
 ### Milestone 5 — Packing-step prefetch behind `simd_prefetch` (E3, conditional)
@@ -1414,7 +1414,7 @@ All steps re-runnable. Criterion baselines are named. The `simd_prefetch`
 feature is additive and reverted wholesale if dropped. Commit per milestone for
 clean `git revert`. No destructive step.
 
-## Artifacts and notes
+## Artefacts and notes
 
 Record, as concise indented transcripts: the Milestone 0 miss-subset histogram,
 the adapter-boundary scoring-share-of-build-time number, the `critcmp` and
