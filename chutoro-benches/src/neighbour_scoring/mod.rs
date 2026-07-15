@@ -20,6 +20,9 @@ pub use report::{
     write_lane_utilisation_report_csv,
 };
 
+/// Lane-utilization report filename.
+pub const LANE_REPORT: &str = "neighbour_scoring_lane_utilisation.csv";
+
 /// Number of candidate lanes represented by one dense-provider `SoA` block.
 const SIMD_LANES: usize = 16;
 

@@ -10,9 +10,9 @@ use arrow_schema::{DataType, Field};
 use camino::{Utf8Path, Utf8PathBuf};
 use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_benches::neighbour_scoring::{
-    BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilisationReportRow, REPORT_DIR_NAME,
-    ReportTarget, report_path_value, sorted_median, write_build_profile_report_csv,
-    write_lane_utilisation_report_csv,
+    BUILD_PROFILE_REPORT, BuildProfileReportRow, LANE_REPORT, LaneUtilisationReportRow,
+    REPORT_DIR_NAME, ReportTarget, report_path_value, sorted_median,
+    write_build_profile_report_csv, write_lane_utilisation_report_csv,
 };
 use chutoro_benches::source::{SyntheticConfig, SyntheticError, SyntheticSource};
 use chutoro_core::{CpuHnsw, DataSourceError, HnswError, HnswParams};
@@ -26,8 +26,6 @@ const REALISTIC_BUCKETS: &[usize] = &[8, 16, 24, 32, 48];
 const DIAGNOSTIC_BUCKETS: &[usize] = &[256, 1_024];
 const BENCH_ROW_COUNT: usize = 1_025;
 const BENCH_SEED: u64 = 0xC4A7_0203_0000_0231;
-const LANE_REPORT: &str = "neighbour_scoring_lane_utilisation.csv";
-
 pub(super) const DIMENSIONS: &[usize] = &[32, 128, 768];
 pub(super) const DEFAULT_BUILD_PROFILE_POINT_COUNTS: &[usize] = &[10_000, 100_000];
 pub(super) const DEFAULT_BUILD_PROFILE_DIMENSION: usize = 128;
@@ -98,7 +96,7 @@ impl CandidateBucket {
     #[cfg(test)]
     #[expect(
         dead_code,
-        reason = "Criterion harness=false bench tests compile as ordinary code"
+        reason = "Criterion's harness=false target omits #[test] bodies from this build"
     )]
     pub(super) const fn realistic_for_test(size: usize) -> Self {
         Self::new(size, BucketKind::Realistic)
@@ -221,19 +219,22 @@ fn profile_source(
 }
 
 pub(super) fn write_build_profile_report(
-    report_target: Option<ReportTarget>,
+    report_parent_dir: Option<&Utf8Path>,
 ) -> BenchResult<Option<ReportTarget>> {
-    write_build_profile_report_with(report_target, write_build_profile_report_for_point_counts)
+    write_build_profile_report_with(
+        report_parent_dir,
+        write_default_build_profile_report_for_point_counts,
+    )
 }
 
 fn write_build_profile_report_with(
-    report_target: Option<ReportTarget>,
+    report_parent_dir: Option<&Utf8Path>,
     writer: impl FnOnce(&Utf8Path, &[usize], usize) -> BenchResult<ReportTarget>,
 ) -> BenchResult<Option<ReportTarget>> {
-    report_target
-        .map(|target| {
+    report_parent_dir
+        .map(|configured_report_parent_dir| {
             writer(
-                target.report_parent_dir(),
+                configured_report_parent_dir,
                 DEFAULT_BUILD_PROFILE_POINT_COUNTS,
                 DEFAULT_BUILD_PROFILE_DIMENSION,
             )
@@ -241,8 +242,17 @@ fn write_build_profile_report_with(
         .transpose()
 }
 
-pub(super) fn write_build_profile_report_for_point_counts(
+fn write_default_build_profile_report_for_point_counts(
     report_parent_dir: &Utf8Path,
+    point_counts: &[usize],
+    dimension: usize,
+) -> BenchResult<ReportTarget> {
+    let report_target = report_path_value(report_parent_dir, BUILD_PROFILE_REPORT);
+    write_build_profile_report_for_point_counts(&report_target, point_counts, dimension)
+}
+
+pub(super) fn write_build_profile_report_for_point_counts(
+    report_target: &ReportTarget,
     point_counts: &[usize],
     dimension: usize,
 ) -> BenchResult<ReportTarget> {
@@ -274,10 +284,10 @@ pub(super) fn write_build_profile_report_for_point_counts(
             median_batch,
         });
     }
-    let report_dir = open_report_dir(report_parent_dir)?;
-    let mut file = report_dir.create(BUILD_PROFILE_REPORT)?;
+    let report_dir = open_report_dir(report_target.report_parent_dir())?;
+    let mut file = report_dir.create(report_target.filename())?;
     write_build_profile_report_csv(&mut file, report_rows)?;
-    Ok(report_path_value(report_parent_dir, BUILD_PROFILE_REPORT))
+    Ok(report_target.clone())
 }
 
 #[cfg(test)]

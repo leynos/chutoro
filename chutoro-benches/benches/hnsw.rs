@@ -432,44 +432,50 @@ mod bench_harness {
 criterion_main!(bench_harness::benches);
 
 #[cfg(test)]
-#[expect(
-    unused_imports,
-    reason = "Criterion harness=false bench tests compile as ordinary code"
-)]
 mod tests {
     //! Tests for HNSW benchmark argument handling and source sizing.
 
-    use rstest::rstest;
-
-    use super::{
-        DIVERSE_POINT_COUNT, EXACT_PROBE_POINT_COUNT, TEXT_LEVENSHTEIN_BENCH_LABEL,
-        diverse_source_point_count_for_args, hnsw_source_point_count_for_args,
-        should_short_circuit_exact_text_probe_for_args,
-    };
-
-    #[rstest]
-    #[case::exact(["hnsw", "--exact"], EXACT_PROBE_POINT_COUNT)]
-    #[case::list(["hnsw", "--list"], DIVERSE_POINT_COUNT)]
+    #[expect(
+        unused_imports,
+        reason = "Criterion's harness=false target omits #[test] bodies from this build"
+    )]
+    #[rstest::rstest]
+    #[case::exact(["hnsw", "--exact"], super::EXACT_PROBE_POINT_COUNT)]
+    #[case::list(["hnsw", "--list"], super::DIVERSE_POINT_COUNT)]
     fn diverse_source_count_honours_exact_probe(#[case] args: [&str; 2], #[case] expected: usize) {
+        use super::diverse_source_point_count_for_args;
+
         assert_eq!(diverse_source_point_count_for_args(args), expected);
     }
 
-    #[rstest]
-    #[case::exact(["hnsw", "--exact"], EXACT_PROBE_POINT_COUNT)]
+    #[expect(
+        unused_imports,
+        reason = "Criterion's harness=false target omits #[test] bodies from this build"
+    )]
+    #[rstest::rstest]
+    #[case::exact(["hnsw", "--exact"], super::EXACT_PROBE_POINT_COUNT)]
     #[case::list(["hnsw", "--list"], 5_000)]
     fn hnsw_source_count_honours_exact_probe(#[case] args: [&str; 2], #[case] expected: usize) {
+        use super::hnsw_source_point_count_for_args;
+
         assert_eq!(hnsw_source_point_count_for_args(args, 5_000), expected);
     }
 
-    #[rstest]
-    #[case::exact_text(["hnsw", "--exact"], TEXT_LEVENSHTEIN_BENCH_LABEL, true)]
-    #[case::list_text(["hnsw", "--list"], TEXT_LEVENSHTEIN_BENCH_LABEL, false)]
+    #[expect(
+        unused_imports,
+        reason = "Criterion's harness=false target omits #[test] bodies from this build"
+    )]
+    #[rstest::rstest]
+    #[case::exact_text(["hnsw", "--exact"], super::TEXT_LEVENSHTEIN_BENCH_LABEL, true)]
+    #[case::list_text(["hnsw", "--list"], super::TEXT_LEVENSHTEIN_BENCH_LABEL, false)]
     #[case::exact_other(["hnsw", "--exact"], "gaussian_blobs", false)]
     fn text_short_circuit_requires_exact_probe_and_text_label(
         #[case] args: [&str; 2],
         #[case] bench_label: &str,
         #[case] expected: bool,
     ) {
+        use super::should_short_circuit_exact_text_probe_for_args;
+
         assert_eq!(
             should_short_circuit_exact_text_probe_for_args(args, bench_label),
             expected,

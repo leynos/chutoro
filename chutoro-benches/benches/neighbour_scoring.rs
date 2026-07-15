@@ -104,7 +104,7 @@ fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
     neighbour_scoring_impl_with(
         c,
         |report_parent_dir| write_lane_utilisation_report(report_parent_dir).map(drop),
-        |report_target| write_build_profile_report(report_target).map(drop),
+        |report_parent_dir| write_build_profile_report(report_parent_dir).map(drop),
         bench_case,
     )
 }
@@ -112,7 +112,7 @@ fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
 fn neighbour_scoring_impl_with(
     c: &mut Criterion,
     lane_report_writer: impl FnOnce(&Utf8Path) -> BenchResult<()>,
-    build_profile_writer: impl FnOnce(Option<ReportTarget>) -> BenchResult<()>,
+    build_profile_writer: impl FnOnce(Option<&Utf8Path>) -> BenchResult<()>,
     mut scoring_case: impl FnMut(
         &mut BenchmarkGroup<'_, WallTime>,
         usize,
@@ -124,8 +124,11 @@ fn neighbour_scoring_impl_with(
         std::env::var(BUILD_PROFILE_ENV).ok().as_deref(),
         &report_parent_dir,
     );
+    let build_profile_report_dir = build_profile_target
+        .as_ref()
+        .map(ReportTarget::report_parent_dir);
     lane_report_writer(&report_parent_dir)?;
-    build_profile_writer(build_profile_target)?;
+    build_profile_writer(build_profile_report_dir)?;
     let mut group = c.benchmark_group("neighbour_scoring");
     configure_group(&mut group);
     for (dimension, bucket) in scoring_plan() {
@@ -158,32 +161,9 @@ mod tests {
 
     #[expect(
         unused_imports,
-        reason = "Criterion harness=false bench tests compile as ordinary code"
+        reason = "Criterion's harness=false target omits #[test] bodies from this build"
     )]
-    use std::{cell::RefCell, io, rc::Rc};
-
-    #[expect(
-        unused_imports,
-        reason = "Criterion harness=false bench tests compile as ordinary code"
-    )]
-    use super::{
-        BenchError, DIMENSIONS, bench_id_for, neighbour_scoring_impl_with, score_candidates,
-        scoring_plan, should_use_short_measurement_value, throughput_for,
-    };
-    #[expect(
-        unused_imports,
-        reason = "Criterion harness=false bench tests compile as ordinary code"
-    )]
-    use criterion::{Criterion, Throughput};
-    use rstest::rstest;
-
-    #[expect(
-        unused_imports,
-        reason = "Criterion harness=false bench tests compile as ordinary code"
-    )]
-    use super::support::{CandidateBucket, all_buckets, make_fixture};
-
-    #[rstest]
+    #[rstest::rstest]
     #[case::unset(None, false)]
     #[case::empty(Some(""), false)]
     #[case::false_word(Some("false"), false)]
@@ -196,11 +176,19 @@ mod tests {
         #[case] value: Option<&str>,
         #[case] expected: bool,
     ) {
+        use super::should_use_short_measurement_value;
+
         assert_eq!(should_use_short_measurement_value(value), expected);
     }
 
+    #[expect(
+        unused_imports,
+        reason = "Criterion's harness=false target omits #[test] bodies from this build"
+    )]
     #[test]
     fn score_candidates_returns_one_distance_per_candidate() {
+        use super::{score_candidates, support::make_fixture};
+
         let candidate_count = 8;
         let fixture = make_fixture(32, candidate_count).expect("fixture must be created");
         let distances =
@@ -209,8 +197,15 @@ mod tests {
         assert_eq!(distances.len(), candidate_count);
     }
 
+    #[expect(
+        unused_imports,
+        reason = "Criterion's harness=false target omits #[test] bodies from this build"
+    )]
     #[test]
     fn throughput_conversion_uses_candidate_count() {
+        use super::{support::all_buckets, throughput_for};
+        use criterion::Throughput;
+
         let bucket = all_buckets()
             .next()
             .expect("neighbour scoring buckets must be non-empty");
@@ -221,8 +216,14 @@ mod tests {
         ));
     }
 
+    #[expect(
+        unused_imports,
+        reason = "Criterion's harness=false target omits #[test] bodies from this build"
+    )]
     #[test]
     fn benchmark_id_uses_kind_dimension_and_candidate_count() {
+        use super::{bench_id_for, support::CandidateBucket};
+
         let bucket = CandidateBucket::realistic_for_test(8);
 
         assert_eq!(
@@ -231,8 +232,14 @@ mod tests {
         );
     }
 
+    #[expect(
+        unused_imports,
+        reason = "Criterion's harness=false target omits #[test] bodies from this build"
+    )]
     #[test]
     fn scoring_plan_covers_each_dimension_and_bucket_once() {
+        use super::{DIMENSIONS, scoring_plan, support::all_buckets};
+
         let plan = scoring_plan();
         let buckets = all_buckets().collect::<Vec<_>>();
 
@@ -252,8 +259,17 @@ mod tests {
         }
     }
 
+    #[expect(
+        unused_imports,
+        reason = "Criterion's harness=false target omits #[test] bodies from this build"
+    )]
     #[test]
     fn orchestration_writes_reports_before_all_scoring_cases() {
+        use std::{cell::RefCell, rc::Rc};
+
+        use super::{neighbour_scoring_impl_with, scoring_plan};
+        use criterion::Criterion;
+
         let events = Rc::new(RefCell::new(Vec::new()));
         let lane_events = Rc::clone(&events);
         let build_events = Rc::clone(&events);
@@ -292,8 +308,17 @@ mod tests {
         assert_eq!(events[2..], expected_cases);
     }
 
+    #[expect(
+        unused_imports,
+        reason = "Criterion's harness=false target omits #[test] bodies from this build"
+    )]
     #[test]
     fn orchestration_propagates_scoring_errors() {
+        use std::io;
+
+        use super::{BenchError, neighbour_scoring_impl_with};
+        use criterion::Criterion;
+
         let mut criterion = Criterion::default();
 
         let error = neighbour_scoring_impl_with(

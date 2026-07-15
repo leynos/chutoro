@@ -75,10 +75,11 @@ fn report_path_uses_shared_report_directory_name() {
     assert_eq!(REPORT_DIR_NAME, "benchmarks");
     assert_eq!(
         actual_path.as_ref().map(ReportTarget::path),
-        Some(Utf8Path::new(
-            "/tmp/chutoro-target-dir/benchmarks/neighbour_scoring_build_profile.csv",
-        )
-        .to_path_buf()),
+        Some(
+            report_parent_dir
+                .join(REPORT_DIR_NAME)
+                .join(BUILD_PROFILE_REPORT)
+        ),
     );
 }
 

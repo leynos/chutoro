@@ -3,12 +3,10 @@
 use std::{error::Error, io, process::Command, str};
 
 use cap_std::{ambient_authority, fs_utf8::Dir};
-use chutoro_benches::neighbour_scoring::{REPORT_DIR_NAME, report_path};
+use chutoro_benches::neighbour_scoring::{LANE_REPORT, REPORT_DIR_NAME, report_path};
 
 const HNSW_EXACT_BENCH: &str = "hnsw_build/n=100,M=8,ef=16";
 const MST_EXACT_BENCH: &str = "parallel_kruskal/n=100";
-const LANE_REPORT: &str = "neighbour_scoring_lane_utilisation.csv";
-
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 
 fn cargo_bench_output(bench: &str, criterion_args: &[&str]) -> TestResult<String> {
