@@ -19,8 +19,6 @@ enum ReportFixtureError {
     Io(#[from] std::io::Error),
     #[error("temp dir path is not UTF-8")]
     NonUtf8TempDir,
-    #[error("expected report was not written: {0}")]
-    ReportMissing(&'static str),
 }
 
 fn temp_dir_utf8_path(temp_dir: &tempfile::TempDir) -> Result<&Utf8Path, ReportFixtureError> {
@@ -33,19 +31,16 @@ fn assert_report_contents(actual: &str, expected: &str) {
 
 struct ReportDirectory {
     _temp_dir: TempDir,
-    path: camino::Utf8PathBuf,
     root: Dir,
 }
 
 #[fixture]
 fn report_directory() -> Result<ReportDirectory, ReportFixtureError> {
     let temp_dir = tempdir()?;
-    let path = temp_dir_utf8_path(&temp_dir)?.to_path_buf();
-    let root = Dir::open_ambient_dir(&path, ambient_authority())?;
+    let root = Dir::open_ambient_dir(temp_dir_utf8_path(&temp_dir)?, ambient_authority())?;
     root.create_dir_all(REPORT_DIR_NAME)?;
     Ok(ReportDirectory {
         _temp_dir: temp_dir,
-        path,
         root,
     })
 }
@@ -128,10 +123,6 @@ fn lane_utilisation_report_file_generation_writes_schema_and_rows(
     )
     .expect("lane utilisation report must be written");
 
-    let report_path = report_directory.path.join(REPORT_DIR_NAME).join("lane.csv");
-    if !report_path.exists() {
-        return Err(ReportFixtureError::ReportMissing("lane.csv"));
-    }
     let contents = report_directory
         .root
         .open_dir(REPORT_DIR_NAME)?
@@ -175,13 +166,6 @@ fn build_profile_report_file_generation_writes_schema_and_rows(
     )
     .expect("build profile report must be written");
 
-    let report_path = report_directory
-        .path
-        .join(REPORT_DIR_NAME)
-        .join(BUILD_PROFILE_REPORT);
-    if !report_path.exists() {
-        return Err(ReportFixtureError::ReportMissing(BUILD_PROFILE_REPORT));
-    }
     let contents = report_directory
         .root
         .open_dir(REPORT_DIR_NAME)?
