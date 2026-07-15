@@ -160,8 +160,8 @@ pub fn report_path_value(report_parent_dir: &Utf8Path, filename: &str) -> Report
 /// use chutoro_benches::neighbour_scoring::{BUILD_PROFILE_REPORT, report_path};
 ///
 /// assert_eq!(
-///     report_path(BUILD_PROFILE_REPORT).file_name(),
-///     Some(BUILD_PROFILE_REPORT)
+///     report_path(BUILD_PROFILE_REPORT).filename(),
+///     BUILD_PROFILE_REPORT
 /// );
 /// ```
 #[must_use]

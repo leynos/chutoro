@@ -125,53 +125,64 @@ pub fn duration_nanos(duration: Duration) -> u64 {
     u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
-/// Adds `amount` to an atomic `usize`, saturating at `usize::MAX`.
-///
-/// # Examples
-///
-/// ```
-/// use std::sync::atomic::{AtomicUsize, Ordering};
-///
-/// use chutoro_benches::neighbour_scoring::saturating_add_usize;
-///
-/// let counter = AtomicUsize::new(usize::MAX);
-/// saturating_add_usize(&counter, 1);
-/// assert_eq!(counter.load(Ordering::Relaxed), usize::MAX);
-/// ```
-pub fn saturating_add_usize(target: &AtomicUsize, amount: usize) {
-    let mut current = target.load(Ordering::Relaxed);
-    loop {
-        let next = current.saturating_add(amount);
-        match target.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => break,
-            Err(actual) => current = actual,
+macro_rules! saturating_add_atomic {
+    ($function_name:ident, $atomic:ty, $value:ty, $doc:expr) => {
+        #[doc = $doc]
+        pub fn $function_name(target: &$atomic, amount: $value) {
+            let mut current = target.load(Ordering::Relaxed);
+            loop {
+                let next = current.saturating_add(amount);
+                match target.compare_exchange_weak(
+                    current,
+                    next,
+                    Ordering::Relaxed,
+                    Ordering::Relaxed,
+                ) {
+                    Ok(_) => break,
+                    Err(actual) => current = actual,
+                }
+            }
         }
-    }
+    };
 }
 
-/// Adds `amount` to an atomic `u64`, saturating at `u64::MAX`.
-///
-/// # Examples
-///
-/// ```
-/// use std::sync::atomic::{AtomicU64, Ordering};
-///
-/// use chutoro_benches::neighbour_scoring::saturating_add_u64;
-///
-/// let counter = AtomicU64::new(u64::MAX);
-/// saturating_add_u64(&counter, 1);
-/// assert_eq!(counter.load(Ordering::Relaxed), u64::MAX);
-/// ```
-pub fn saturating_add_u64(target: &AtomicU64, amount: u64) {
-    let mut current = target.load(Ordering::Relaxed);
-    loop {
-        let next = current.saturating_add(amount);
-        match target.compare_exchange_weak(current, next, Ordering::Relaxed, Ordering::Relaxed) {
-            Ok(_) => break,
-            Err(actual) => current = actual,
-        }
-    }
-}
+saturating_add_atomic!(
+    saturating_add_usize,
+    AtomicUsize,
+    usize,
+    r"Adds `amount` to an atomic `usize`, saturating at `usize::MAX`.
+
+# Examples
+
+```
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use chutoro_benches::neighbour_scoring::saturating_add_usize;
+
+let counter = AtomicUsize::new(usize::MAX);
+saturating_add_usize(&counter, 1);
+assert_eq!(counter.load(Ordering::Relaxed), usize::MAX);
+```"
+);
+
+saturating_add_atomic!(
+    saturating_add_u64,
+    AtomicU64,
+    u64,
+    r"Adds `amount` to an atomic `u64`, saturating at `u64::MAX`.
+
+# Examples
+
+```
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use chutoro_benches::neighbour_scoring::saturating_add_u64;
+
+let counter = AtomicU64::new(u64::MAX);
+saturating_add_u64(&counter, 1);
+assert_eq!(counter.load(Ordering::Relaxed), u64::MAX);
+```"
+);
 
 #[cfg(test)]
 #[path = "profiling_source_tests.rs"]
