@@ -1,6 +1,7 @@
 target/
 **/*.rs.bk
 lcov.info
+.coverage
 coverage.xml
 .grepai/
 .memdb/
