@@ -1,9 +1,5 @@
 //! Tests for neighbour-scoring fixture construction and report orchestration.
 
-#[expect(
-    unused_imports,
-    reason = "Criterion's harness=false target omits #[test] bodies from this build"
-)]
 #[test]
 fn fixture_contains_provider_rows_and_one_based_candidates() {
     use chutoro_core::DataSource;
@@ -20,10 +16,6 @@ fn fixture_contains_provider_rows_and_one_based_candidates() {
     );
 }
 
-#[expect(
-    unused_imports,
-    reason = "Criterion's harness=false target omits #[test] bodies from this build"
-)]
 #[test]
 fn lane_utilisation_report_writes_expected_file() {
     use camino::Utf8Path;
@@ -45,10 +37,6 @@ fn lane_utilisation_report_writes_expected_file() {
     assert!(report_path.exists());
 }
 
-#[expect(
-    unused_imports,
-    reason = "Criterion's harness=false target omits #[test] bodies from this build"
-)]
 #[test]
 fn build_profile_report_writes_conventional_file() {
     use camino::Utf8Path;
@@ -75,10 +63,6 @@ fn build_profile_report_writes_conventional_file() {
     assert!(written.path().exists());
 }
 
-#[expect(
-    unused_imports,
-    reason = "Criterion's harness=false target omits #[test] bodies from this build"
-)]
 #[test]
 fn default_build_profile_delegates_with_expected_configuration() {
     use camino::Utf8Path;
@@ -106,10 +90,6 @@ fn default_build_profile_delegates_with_expected_configuration() {
     assert_eq!(result, Some(expected_target));
 }
 
-#[expect(
-    unused_imports,
-    reason = "Criterion's harness=false target omits #[test] bodies from this build"
-)]
 #[test]
 fn build_profile_report_with_skips_writer_without_parent_directory() {
     use super::write_build_profile_report_with;
@@ -122,10 +102,6 @@ fn build_profile_report_with_skips_writer_without_parent_directory() {
     assert_eq!(result, None);
 }
 
-#[expect(
-    unused_imports,
-    reason = "Criterion's harness=false target omits #[test] bodies from this build"
-)]
 #[test]
 fn build_profile_report_honours_custom_target_filename() {
     use camino::Utf8Path;

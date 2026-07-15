@@ -163,7 +163,7 @@ mod tests {
 
     #[expect(
         dead_code,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
+        reason = "cargo test --benches builds this harness-free target without test entrypoints"
     )]
     fn source() -> ProfilingSource<StubSource> {
         ProfilingSource::new(StubSource {

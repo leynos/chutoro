@@ -96,7 +96,7 @@ impl CandidateBucket {
     #[cfg(test)]
     #[expect(
         dead_code,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
+        reason = "cargo test --benches builds this harness-free target without test entrypoints"
     )]
     pub(super) const fn realistic_for_test(size: usize) -> Self {
         Self::new(size, BucketKind::Realistic)

@@ -159,10 +159,6 @@ criterion_main!(bench_harness::benches);
 mod tests {
     //! Tests for neighbour-scoring benchmark orchestration.
 
-    #[expect(
-        unused_imports,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
-    )]
     #[rstest::rstest]
     #[case::unset(None, false)]
     #[case::empty(Some(""), false)]
@@ -181,10 +177,6 @@ mod tests {
         assert_eq!(should_use_short_measurement_value(value), expected);
     }
 
-    #[expect(
-        unused_imports,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
-    )]
     #[test]
     fn score_candidates_returns_one_distance_per_candidate() {
         use super::{score_candidates, support::make_fixture};
@@ -197,10 +189,6 @@ mod tests {
         assert_eq!(distances.len(), candidate_count);
     }
 
-    #[expect(
-        unused_imports,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
-    )]
     #[test]
     fn throughput_conversion_uses_candidate_count() {
         use super::{support::all_buckets, throughput_for};
@@ -216,10 +204,6 @@ mod tests {
         ));
     }
 
-    #[expect(
-        unused_imports,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
-    )]
     #[test]
     fn benchmark_id_uses_kind_dimension_and_candidate_count() {
         use super::{bench_id_for, support::CandidateBucket};
@@ -232,10 +216,6 @@ mod tests {
         );
     }
 
-    #[expect(
-        unused_imports,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
-    )]
     #[test]
     fn scoring_plan_covers_each_dimension_and_bucket_once() {
         use super::{DIMENSIONS, scoring_plan, support::all_buckets};
@@ -259,10 +239,6 @@ mod tests {
         }
     }
 
-    #[expect(
-        unused_imports,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
-    )]
     #[test]
     fn orchestration_writes_reports_before_all_scoring_cases() {
         use std::{cell::RefCell, rc::Rc};
@@ -308,10 +284,6 @@ mod tests {
         assert_eq!(events[2..], expected_cases);
     }
 
-    #[expect(
-        unused_imports,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
-    )]
     #[test]
     fn orchestration_propagates_scoring_errors() {
         use std::io;
