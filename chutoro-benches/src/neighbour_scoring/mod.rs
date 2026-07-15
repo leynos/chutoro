@@ -17,7 +17,7 @@ use profiling::{ProfilingError, ProfilingSource};
 
 /// Register the neighbour-scoring Criterion group and its diagnostic reports.
 ///
-/// Call this from a Criterion benchmark entrypoint. It writes lane-utilization
+/// Call this from a Criterion benchmark entrypoint. It writes lane-utilisation
 /// and optional build-profile CSV reports before registering the benchmark
 /// cases.
 ///
@@ -31,10 +31,7 @@ use profiling::{ProfilingError, ProfilingSource};
 /// run_neighbour_scoring(&mut criterion);
 /// // The neighbour-scoring group and its diagnostic reports are registered.
 /// ```
-#[doc(hidden)]
 pub use benchmark_runner::neighbour_scoring as run_neighbour_scoring;
-
-pub use benchmark_runner::neighbour_scoring;
 
 #[doc(hidden)]
 pub use build_profile::{
@@ -50,7 +47,7 @@ pub use report::{
     write_lane_utilisation_report_csv,
 };
 
-/// Lane-utilization report filename.
+/// Lane-utilisation report filename.
 pub const LANE_REPORT: &str = "neighbour_scoring_lane_utilisation.csv";
 
 /// Number of candidate lanes represented by one dense-provider `SoA` block.

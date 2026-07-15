@@ -129,17 +129,17 @@ fn neighbour_scoring_impl_with(
 /// Registers the neighbour-scoring benchmark group and its diagnostic reports.
 ///
 /// This creates the `neighbour_scoring` Criterion group and writes its
-/// lane-utilization and optional build-profile CSV diagnostics before
+/// lane-utilisation and optional build-profile CSV diagnostics before
 /// registering benchmark cases.
 ///
 /// # Examples
 ///
 /// ```no_run
 /// use criterion::Criterion;
-/// use chutoro_benches::neighbour_scoring::neighbour_scoring;
+/// use chutoro_benches::neighbour_scoring::run_neighbour_scoring;
 ///
 /// let mut criterion = Criterion::default();
-/// neighbour_scoring(&mut criterion);
+/// run_neighbour_scoring(&mut criterion);
 /// ```
 ///
 /// # Panics
