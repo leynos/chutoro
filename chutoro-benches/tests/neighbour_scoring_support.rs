@@ -4,8 +4,9 @@ use camino::Utf8Path;
 use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_benches::neighbour_scoring::{
     BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilisationReportRow, REPORT_DIR_NAME,
-    build_profile_report_target_value, report_parent_dir_value, should_collect_build_profile_value,
-    truthy_env_value, write_build_profile_report_csv, write_lane_utilisation_report_csv,
+    ReportTarget, build_profile_report_target_value, report_parent_dir_value,
+    should_collect_build_profile_value, truthy_env_value, write_build_profile_report_csv,
+    write_lane_utilisation_report_csv,
 };
 use rstest::{fixture, rstest};
 use std::{io::Write, process::Command, time::Duration};
@@ -24,6 +25,10 @@ enum ReportFixtureError {
 
 fn temp_dir_utf8_path(temp_dir: &tempfile::TempDir) -> Result<&Utf8Path, ReportFixtureError> {
     Utf8Path::from_path(temp_dir.path()).ok_or(ReportFixtureError::NonUtf8TempDir)
+}
+
+fn assert_report_contents(actual: &str, expected: &str) {
+    assert_eq!(actual, expected);
 }
 
 struct ReportDirectory {
@@ -69,10 +74,11 @@ fn report_path_uses_shared_report_directory_name() {
 
     assert_eq!(REPORT_DIR_NAME, "benchmarks");
     assert_eq!(
-        actual_path.as_deref(),
+        actual_path.as_ref().map(ReportTarget::path),
         Some(Utf8Path::new(
             "/tmp/chutoro-target-dir/benchmarks/neighbour_scoring_build_profile.csv",
-        )),
+        )
+        .to_path_buf()),
     );
 }
 
@@ -121,14 +127,22 @@ fn lane_utilisation_report_file_generation_writes_schema_and_rows(
     )
     .expect("lane utilisation report must be written");
 
-    if !report_directory
-        .path
-        .join(REPORT_DIR_NAME)
-        .join("lane.csv")
-        .exists()
-    {
+    let report_path = report_directory.path.join(REPORT_DIR_NAME).join("lane.csv");
+    if !report_path.exists() {
         return Err(ReportFixtureError::ReportMissing("lane.csv"));
     }
+    let contents = report_directory
+        .root
+        .open_dir(REPORT_DIR_NAME)?
+        .read_to_string("lane.csv")?;
+    assert_report_contents(
+        &contents,
+        concat!(
+            "bucket_kind,candidate_count,padded_lanes,wasted_lanes,",
+            "lane_utilisation_basis_points\n",
+            "realistic,8,16,8,5000\n",
+        ),
+    );
     Ok(())
 }
 
@@ -160,14 +174,26 @@ fn build_profile_report_file_generation_writes_schema_and_rows(
     )
     .expect("build profile report must be written");
 
-    if !report_directory
+    let report_path = report_directory
         .path
         .join(REPORT_DIR_NAME)
-        .join(BUILD_PROFILE_REPORT)
-        .exists()
-    {
+        .join(BUILD_PROFILE_REPORT);
+    if !report_path.exists() {
         return Err(ReportFixtureError::ReportMissing(BUILD_PROFILE_REPORT));
     }
+    let contents = report_directory
+        .root
+        .open_dir(REPORT_DIR_NAME)?
+        .read_to_string(BUILD_PROFILE_REPORT)?;
+    assert_report_contents(
+        &contents,
+        concat!(
+            "point_count,dimension,build_seconds,accumulated_batch_scoring_seconds,",
+            "accumulated_batch_scoring_vs_wall_basis_points,batch_calls,scalar_calls,",
+            "total_batch_candidates,min_batch,max_batch,median_batch\n",
+            "16,8,0.001000000,0.000001000,10,1,0,8,8,8,8\n",
+        ),
+    );
     Ok(())
 }
 
@@ -195,28 +221,27 @@ fn build_profile_report_target_uses_expected_filename() {
     let report_parent_dir = report_parent_dir_value(None);
     let actual_path = build_profile_report_target_value(Some("yes"), &report_parent_dir);
 
-    assert_eq!(actual_path.as_deref(), Some(Utf8Path::new(expected_path)));
+    assert_eq!(
+        actual_path.as_ref().map(ReportTarget::path),
+        Some(Utf8Path::new(expected_path).to_path_buf()),
+    );
 }
 
 fn assert_target_path_for_dir(report_parent_dir: &Utf8Path) {
     let actual_path = build_profile_report_target_value(Some("yes"), report_parent_dir);
 
     assert_eq!(
-        actual_path.as_deref(),
+        actual_path.as_ref().map(ReportTarget::path),
         Some(Utf8Path::new(
             "/tmp/chutoro-target-dir/benchmarks/neighbour_scoring_build_profile.csv",
-        )),
+        )
+        .to_path_buf()),
     );
 }
 
-#[test]
-fn build_profile_report_target_reads_cargo_target_dir_env() {
-    let report_parent_dir = report_parent_dir_value(Some("/tmp/chutoro-target-dir"));
-    assert_target_path_for_dir(&report_parent_dir);
-}
-
-#[test]
-fn build_profile_report_target_honours_cargo_target_dir() {
-    let report_parent_dir = report_parent_dir_value(Some("/tmp/chutoro-target-dir"));
+#[rstest]
+#[case("/tmp/chutoro-target-dir")]
+fn build_profile_report_target_honours_cargo_target_dir(#[case] target_dir: &str) {
+    let report_parent_dir = report_parent_dir_value(Some(target_dir));
     assert_target_path_for_dir(&report_parent_dir);
 }

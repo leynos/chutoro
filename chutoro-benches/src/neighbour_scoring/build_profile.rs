@@ -13,6 +13,38 @@ const DEFAULT_REPORT_PARENT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..
 /// Directory below the report parent where benchmark diagnostics are written.
 pub const REPORT_DIR_NAME: &str = "benchmarks";
 
+/// A benchmark report location expressed as its configured parent and filename.
+///
+/// Keeping these components together prevents report writers from bypassing
+/// the shared [`REPORT_DIR_NAME`] convention.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReportTarget {
+    report_parent_dir: Utf8PathBuf,
+    filename: String,
+}
+
+impl ReportTarget {
+    /// Returns the configured Cargo target directory containing benchmark reports.
+    #[must_use]
+    pub fn report_parent_dir(&self) -> &Utf8Path {
+        &self.report_parent_dir
+    }
+
+    /// Returns the report filename created below [`REPORT_DIR_NAME`].
+    #[must_use]
+    pub fn filename(&self) -> &str {
+        &self.filename
+    }
+
+    /// Returns the complete conventional path for this report.
+    #[must_use]
+    pub fn path(&self) -> Utf8PathBuf {
+        self.report_parent_dir
+            .join(REPORT_DIR_NAME)
+            .join(&self.filename)
+    }
+}
+
 /// Returns whether an environment value is a truthy benchmark flag.
 ///
 /// # Examples
@@ -95,8 +127,7 @@ pub fn report_parent_dir() -> Utf8PathBuf {
     report_parent_dir_value(std::env::var(CARGO_TARGET_DIR_ENV).ok().as_deref())
 }
 
-/// Returns the full path for a benchmark report filename below the supplied
-/// report parent directory.
+/// Returns a benchmark report target below the supplied report parent directory.
 ///
 /// # Examples
 ///
@@ -107,13 +138,18 @@ pub fn report_parent_dir() -> Utf8PathBuf {
 /// };
 ///
 /// assert_eq!(
-///     report_path_value(Utf8Path::new("target"), BUILD_PROFILE_REPORT).file_name(),
+///     report_path_value(Utf8Path::new("target"), BUILD_PROFILE_REPORT)
+///         .path()
+///         .file_name(),
 ///     Some(BUILD_PROFILE_REPORT)
 /// );
 /// ```
 #[must_use]
-pub fn report_path_value(report_parent_dir: &Utf8Path, filename: &str) -> Utf8PathBuf {
-    report_parent_dir.join(REPORT_DIR_NAME).join(filename)
+pub fn report_path_value(report_parent_dir: &Utf8Path, filename: &str) -> ReportTarget {
+    ReportTarget {
+        report_parent_dir: report_parent_dir.to_path_buf(),
+        filename: filename.to_owned(),
+    }
 }
 
 /// Returns the full path for a benchmark report filename.
@@ -129,7 +165,7 @@ pub fn report_path_value(report_parent_dir: &Utf8Path, filename: &str) -> Utf8Pa
 /// );
 /// ```
 #[must_use]
-pub fn report_path(filename: &str) -> Utf8PathBuf {
+pub fn report_path(filename: &str) -> ReportTarget {
     report_path_value(&report_parent_dir(), filename)
 }
 
@@ -149,7 +185,7 @@ pub fn report_path(filename: &str) -> Utf8PathBuf {
 pub fn build_profile_report_target_value(
     value: Option<&str>,
     report_parent_dir: &Utf8Path,
-) -> Option<Utf8PathBuf> {
+) -> Option<ReportTarget> {
     should_collect_build_profile_value(value)
         .then(|| report_path_value(report_parent_dir, BUILD_PROFILE_REPORT))
 }
@@ -165,7 +201,7 @@ pub fn build_profile_report_target_value(
 /// let _target = build_profile_report_target();
 /// ```
 #[must_use]
-pub fn build_profile_report_target() -> Option<Utf8PathBuf> {
+pub fn build_profile_report_target() -> Option<ReportTarget> {
     let report_parent_dir = report_parent_dir();
     build_profile_report_target_value(
         std::env::var(BUILD_PROFILE_ENV).ok().as_deref(),

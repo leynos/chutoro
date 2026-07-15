@@ -58,6 +58,12 @@ struct WriteGraphScope;
 
 #[cfg(test)]
 impl WriteGraphScope {
+    /// Enter a tracked write-graph scope when marker tracking is enabled.
+    ///
+    /// [`enable_write_graph_marker`] must run before the thread enters its
+    /// outermost `write_graph` scope. Enabling tracking after that call starts
+    /// leaves the outer scope untracked, so unwinding a tracked nested scope can
+    /// misreport whether the thread still owns the write graph lock.
     fn enter_if_enabled() -> Option<Self> {
         if WRITE_GRAPH_MARKER_ENABLE_COUNT.load(Ordering::Relaxed) == 0 {
             return None;

@@ -367,12 +367,14 @@ Use the helper script for whole-binary corroboration with `hyperfine`:
 scripts/bench-neighbour-scoring.sh
 ```
 
-Set `CHUTORO_BENCH_NEIGHBOUR_PROFILE=1` to add the optional HNSW build profile
-CSV at `target/benchmarks/neighbour_scoring_build_profile.csv`. The
-lane-utilisation CSV is written to
-`target/benchmarks/neighbour_scoring_lane_utilisation.csv`. Treat `hyperfine`
-as corroboration; cycle-count and Criterion evidence remain the primary signal
-for keeping a structural optimization.
+Set `CHUTORO_BENCH_NEIGHBOUR_PROFILE=1` to add the optional HNSW build profile.
+By default, the reports are written to
+`target/benchmarks/neighbour_scoring_build_profile.csv` and
+`target/benchmarks/neighbour_scoring_lane_utilisation.csv`. When
+`CARGO_TARGET_DIR` is set, the same filenames are written below its
+`benchmarks/` directory. Treat `hyperfine` as corroboration; cycle-count and
+Criterion evidence remain the primary signal for keeping a structural
+optimization.
 
 ### Benchmark architecture
 

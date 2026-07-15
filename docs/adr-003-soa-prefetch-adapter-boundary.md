@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted. Keep SoA and prefetch policy private to dense adapters, and defer
-core HNSW structural changes until separate benchmark evidence justifies them.
+Accepted - 2026-06-25. Keep SoA and prefetch policy private to dense adapters,
+and defer core HNSW structural changes until separate benchmark evidence
+justifies them.
 
 ## Date
 

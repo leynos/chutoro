@@ -9,7 +9,9 @@ use camino::Utf8Path;
     unused_imports,
     reason = "Criterion harness=false bench tests compile as ordinary code"
 )]
-use chutoro_benches::neighbour_scoring::{BUILD_PROFILE_REPORT, REPORT_DIR_NAME};
+use chutoro_benches::neighbour_scoring::{
+    BUILD_PROFILE_REPORT, REPORT_DIR_NAME, report_path_value,
+};
 #[expect(
     unused_imports,
     reason = "Criterion harness=false bench tests compile as ordinary code"
@@ -59,58 +61,34 @@ fn lane_utilisation_report_writes_expected_file() {
 }
 
 #[test]
-fn build_profile_report_respects_optional_target_and_writes_file() {
+fn build_profile_report_writes_conventional_file() {
     let temp_dir = tempdir().expect("temp dir must be created");
     let report_parent_dir = Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
-    let report_target = report_parent_dir
-        .join(REPORT_DIR_NAME)
-        .join(BUILD_PROFILE_REPORT);
 
-    let skipped = write_build_profile_report_for_point_counts(None, &[16], 8)
-        .expect("disabled build profile report must succeed");
-    assert!(skipped.is_none());
+    let written = write_build_profile_report_for_point_counts(report_parent_dir, &[16], 8)
+        .expect("enabled build profile report must succeed");
 
-    let written =
-        write_build_profile_report_for_point_counts(Some(report_target.clone()), &[16], 8)
-            .expect("enabled build profile report must succeed");
-
-    assert_eq!(written.as_deref(), Some(report_target.as_path()));
-    assert!(report_target.exists());
-}
-
-#[test]
-fn build_profile_report_writes_to_supplied_target() {
-    let temp_dir = tempdir().expect("temp dir must be created");
-    let report_parent_dir = Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
-    let report_target = report_parent_dir
-        .join("nested")
-        .join("custom-build-profile.csv");
-
-    let written =
-        write_build_profile_report_for_point_counts(Some(report_target.clone()), &[16], 8)
-            .expect("build profile report must be written to the supplied target");
-
-    assert_eq!(written.as_deref(), Some(report_target.as_path()));
-    assert!(report_target.exists());
-    assert!(
-        !report_parent_dir
+    assert_eq!(
+        written.path(),
+        report_parent_dir
             .join(REPORT_DIR_NAME)
-            .join(BUILD_PROFILE_REPORT)
-            .exists()
+            .join(BUILD_PROFILE_REPORT),
     );
+    assert!(written.path().exists());
 }
 
 #[test]
 fn default_build_profile_delegates_with_expected_configuration() {
-    let report_target = Some(Utf8Path::new("target-parent").join("report.csv"));
+    let report_parent_dir = Utf8Path::new("target-parent");
+    let report_target = Some(report_path_value(report_parent_dir, BUILD_PROFILE_REPORT));
 
     let result = write_build_profile_report_with(
         report_target.clone(),
-        |actual_target, point_counts, dimension| {
-            assert_eq!(actual_target, report_target);
+        |actual_parent_dir, point_counts, dimension| {
+            assert_eq!(actual_parent_dir, report_parent_dir);
             assert_eq!(point_counts, DEFAULT_BUILD_PROFILE_POINT_COUNTS);
             assert_eq!(dimension, DEFAULT_BUILD_PROFILE_DIMENSION);
-            Ok(actual_target)
+            Ok(report_path_value(actual_parent_dir, BUILD_PROFILE_REPORT))
         },
     )
     .expect("default build profile delegation must succeed");

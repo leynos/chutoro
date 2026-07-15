@@ -4,11 +4,12 @@
 //! HNSW candidate bucket sizes and emits small diagnostic CSV reports under
 //! `target/benchmarks/` so roadmap item 2.3.1 can be closed on evidence.
 
-use camino::{Utf8Path, Utf8PathBuf};
+use camino::Utf8Path;
 use chutoro_benches::{
     criterion_support::configure_short_measurement_group,
     neighbour_scoring::{
-        BUILD_PROFILE_ENV, build_profile_report_target_value, report_parent_dir, truthy_env_value,
+        BUILD_PROFILE_ENV, ReportTarget, build_profile_report_target_value, report_parent_dir,
+        truthy_env_value,
     },
 };
 use chutoro_core::DataSource;
@@ -111,7 +112,7 @@ fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
 fn neighbour_scoring_impl_with(
     c: &mut Criterion,
     lane_report_writer: impl FnOnce(&Utf8Path) -> BenchResult<()>,
-    build_profile_writer: impl FnOnce(Option<Utf8PathBuf>) -> BenchResult<()>,
+    build_profile_writer: impl FnOnce(Option<ReportTarget>) -> BenchResult<()>,
     mut scoring_case: impl FnMut(
         &mut BenchmarkGroup<'_, WallTime>,
         usize,

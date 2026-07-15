@@ -112,6 +112,8 @@ impl<S: DataSource> DataSource for ProfilingSource<S> {
 mod tests {
     //! Tests for neighbour-scoring profiling counters and snapshots.
 
+    use std::{thread, time::Duration};
+
     use chutoro_core::{DataSource, DataSourceError, MetricDescriptor};
 
     use super::ProfilingSource;
@@ -120,6 +122,7 @@ mod tests {
     struct StubSource {
         len: usize,
         distances_from_zero: Vec<f32>,
+        batch_delay: Duration,
     }
 
     impl DataSource for StubSource {
@@ -150,6 +153,7 @@ mod tests {
             query: usize,
             candidates: &[usize],
         ) -> Result<Vec<f32>, DataSourceError> {
+            thread::sleep(self.batch_delay);
             candidates
                 .iter()
                 .map(|&candidate| self.distance(query, candidate))
@@ -165,6 +169,7 @@ mod tests {
         ProfilingSource::new(StubSource {
             len: 4,
             distances_from_zero: vec![0.0, 1.5, 3.0, 7.0],
+            batch_delay: Duration::from_millis(1),
         })
     }
 
@@ -202,12 +207,16 @@ mod tests {
 
         let stats = source.take_snapshot().expect("snapshot must be available");
         assert_eq!(stats.batch_calls, 1);
+        assert_eq!(stats.scalar_calls, 0);
         assert_eq!(stats.total_batch_candidates, 3);
+        assert!(stats.batch_scoring_time >= Duration::from_millis(1));
         assert_eq!(stats.batch_sizes, vec![3]);
 
         let reset = source.take_snapshot().expect("snapshot must be available");
         assert_eq!(reset.batch_calls, 0);
+        assert_eq!(reset.scalar_calls, 0);
         assert_eq!(reset.total_batch_candidates, 0);
+        assert!(reset.batch_scoring_time.is_zero());
         assert!(reset.batch_sizes.is_empty());
     }
 }

@@ -202,12 +202,10 @@ milestone begins.
 Record unexpected findings here as work proceeds. Each entry should record: the
 observation, the evidence, and the impact on the plan or future work.
 
-- Observation: `docs/contents.md` and `docs/repository-layout.md`, referenced
-  by the repository instructions, are not present in this worktree. Evidence:
-  `sed -n '1,180p' docs/contents.md` and the same command for
-  `docs/repository-layout.md` both failed with "No such file or directory".
-  Impact: orientation uses the available design documents and `leta files`
-  instead.
+- Observation (2026-06-05 orientation): `docs/contents.md` and
+  `docs/repository-layout.md` were absent from the initial worktree snapshot.
+  Both files are present in the reviewed repository and now serve as the
+  orientation sources required by the repository instructions.
 
 - Observation: this workspace already uses `rstest-bdd = "0.6.0-beta1"` plus
   `rstest-bdd-macros = "0.6.0-beta1"` in `chutoro-core`; the draft's

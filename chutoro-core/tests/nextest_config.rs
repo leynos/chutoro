@@ -155,9 +155,11 @@ fn default_profile_serializes_nested_benchmark_smoke_test() {
     assert!(override_present);
 }
 
-#[test]
-fn default_profile_preserves_write_lock_proptest_timeout() {
-    let override_blocks = default_override_blocks();
+#[rstest]
+#[case("default")]
+#[case("ci")]
+fn profiles_preserve_write_lock_proptest_timeout(#[case] profile_name: &str) {
+    let override_blocks = override_blocks(profile_name);
     let override_present = override_blocks.into_iter().any(|block| {
         block.contains("generated_hnsw_scoring_does_not_run_inside_write_graph_scope")
             && block.contains(BENCH_SLOW_TIMEOUT)

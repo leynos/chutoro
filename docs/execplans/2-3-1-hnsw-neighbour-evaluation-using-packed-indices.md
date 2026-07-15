@@ -34,9 +34,8 @@ motion. It has two scopes:
    Record (ADR) recording the adapter boundary and the deferred structural
    alternatives; and a measurement harness (a `neighbour_scoring` Criterion
    benchmark — also the canonical artefact for roadmap 2.4.1) that quantifies
-   the real candidate-set-size distribution, the cache-miss-subset
-   distribution, accumulated batch-scoring time against build wall-clock, and
-   distance-cache lock contention.
+   the real candidate-set-size distribution, the cache-miss-subset distribution
+   and adapter-boundary batch-scoring time against build wall-clock.
 2. **Conditional scope (delivered only on evidence).** Three hot-path deltas —
    core-side allocation hygiene (E1), SoA packing-buffer reuse plus its
    required query-centric port override (E2), and packing-step prefetch (E3) —
@@ -107,7 +106,7 @@ Genuinely unrealised or unmeasured (the residual the panel surfaced):
   pack step, and is likely a no-op at realistic batch sizes (E3 is conditional
   and structurally suspect).
 
-### Deferred to separate, evidence-first optimisation items (NOT built here)
+### Deferred to separate, evidence-first optimization items (NOT built here)
 
 The strongest measured wins are structural and out of scope for 2.3.1. They are
 recorded in ADR-003 and **must be created as new roadmap items in
@@ -129,7 +128,7 @@ and each marked as gated on its own evidence:
 - **Secondary dimension-major (SoA) matrix copy** (suggested roadmap item
   2.3.4) — held once at provider construction, so `from_row_indices` becomes a
   strided gather with no per-call transpose and no packing buffer — trading ~1×
-  memory to eliminate the path E2 optimises incrementally.
+  memory to eliminate the path E2 optimizes incrementally.
 - **`batch_distances_into` out-buffer reuse** (suggested roadmap item 2.3.5) —
   only meaningful if a query-centric override exists and the cache's
   indexed-scatter consumption is redesigned; otherwise it saves nothing on the
@@ -221,7 +220,7 @@ Stop and escalate (do not work around) when:
    cycle/instruction count is the *primary* keep/drop signal; explicit minimum
    effect size; pin `RAYON_NUM_THREADS`; a documented load-average gate at
    capture time; "within noise" = drop-by-default for any code-adding delta.
-4. Risk: **The optimised window is structurally too small** — per-node batches
+4. Risk: **The optimized window is structurally too small** — per-node batches
    are ≈ `2M` (16-48), fragmented further to cache-miss subsets, with 16-lane
    padding wasting 30-47% at those sizes — so SoA packing overhead cancels the
    SIMD win and prefetch has nothing to hide. Severity: medium. Likelihood:
@@ -243,6 +242,15 @@ Stop and escalate (do not work around) when:
 
 ## Progress
 
+- [x] (2026-07-15) Review follow-up: encode the benchmark report-directory
+  convention in `ReportTarget`, restore capability-scoped build-profile output,
+  assert generated CSV contents, cover profiling time and both nextest
+  profiles, and exercise the real neighbour-scoring discovery path.
+  Documentation now records configured target-directory resolution, the
+  delivered measurement scope, ADR acceptance metadata, and Oxford spelling.
+  Final gates passed: `make check-fmt`, `make lint`, `make typecheck`, and
+  `make test` (1058 passed, 1 skipped), plus `make markdownlint` and
+  `make nixie`.
 - [x] (2026-07-14) Review follow-up: honour the supplied build-profile report
   target, narrow benchmark-harness lint expectations, and add orchestration
   coverage for the default build profile and complete scoring matrix. Final
@@ -254,7 +262,7 @@ Stop and escalate (do not work around) when:
 - [x] (2026-06-24) User approval received via implementation request; branch,
   PR title, upstream tracking, Lody session title, and PR reference link
   aligned.
-- [x] Milestone 0 (C4): measurement harness + cache/scoring/contention data +
+- [x] Milestone 0 (C4): measurement harness + cache-miss/scoring data +
   pre-registered go/no-go thresholds.
   - [x] (2026-06-24) Red stage captured:
     `cargo bench -p chutoro-benches --bench neighbour_scoring -- --list`
@@ -655,7 +663,7 @@ Stop and escalate (do not work around) when:
   - [x] (2026-06-25) Dropped E3 before implementation for the same threshold
     miss. ADR-003 keeps prefetch policy private to the dense adapter and defers
     any prefetch experiment to a measured follow-up.
-- [x] Milestone 6 (D5): final evidence, doc/ADR finalisation, roadmap done.
+- [x] Milestone 6 (D5): final evidence, doc/ADR finalization, roadmap done.
   - [x] (2026-06-25) Final documentation gates pass after recording the E1-E3
     no-go decision and marking roadmap 2.3.1 complete: `make markdownlint` and
     `make nixie`.
@@ -858,7 +866,7 @@ Stop and escalate (do not work around) when:
   Evidence: `target/benchmarks/neighbour_scoring_build_profile.csv` reports
   accumulated batch-scoring time at 1.678 seconds of a 20.208-second 10k-point
   build (8.30%) and 28.197 seconds of a 781.631-second 100k-point build
-  (3.61%). Impact: any E1-E3 optimisation must still clear the pre-registered
+  (3.61%). Impact: any E1-E3 optimization must still clear the pre-registered
   cycle threshold in realistic buckets; the profile does not justify
   speculative structural churn by itself.
 
@@ -919,9 +927,9 @@ Stop and escalate (do not work around) when:
 - Decision: Do not add a public `CpuHnsw`/`DistanceCache` telemetry API merely
   to satisfy the first measurement pass. Rationale: the plan's public-API
   stability constraint is stronger than the convenience of direct cache-lock
-  snapshots; the remaining contention measurement should be handled by a scoped
-  metrics extension or benchmark-only internal seam if the deterministic gates
-  justify it. Date/Author: 2026-06-24, implementation agent.
+  snapshots; exact contention measurement is deferred to a scoped metrics
+  extension or benchmark-only internal seam in future evidence-first work.
+  Date/Author: 2026-06-24, implementation agent.
 - Decision: Keep the `neighbour_scoring` benchmark as a small harness plus a
   private support module instead of a single file. Rationale: the initial
   self-contained harness exceeded the repository's 400-line source-file limit;
@@ -973,13 +981,12 @@ Stop and escalate (do not work around) when:
 ## Outcomes & retrospective
 
 To be completed at milestones and at the end. Must state, with cited numbers:
-the measured candidate-set-size and cache-miss-subset distributions;
-accumulated batch-scoring time compared with build wall-clock; distance-cache
-lock contention; and, for each of E1/E2/E3, the go/no-go decision with its
-cycle-count evidence. A "committed scope only (C1-C4), E1-E3 dropped on
-evidence" result is an explicitly successful outcome and must be recorded as
-such, with the deferred structural levers carried into the proposed follow-up
-item.
+the measured cache-miss-subset distribution; adapter-boundary batch-scoring
+time compared with build wall-clock; and, for each of E1/E2/E3, the go/no-go
+decision with its cycle-count evidence. A "committed scope only (C1-C4), E1-E3
+dropped on evidence" result is an explicitly successful outcome and must be
+recorded as such, with the deferred structural levers carried into the proposed
+follow-up item.
 
 Milestone 0 outcome (2026-06-25): the benchmark harness exists, is registered,
 and has baseline evidence.
@@ -1070,9 +1077,9 @@ below the SoA packing threshold (`candidate_count > 1`,
 
 - The batch size the adapter sees is *not* `2M`; it is the per-call miss count,
   which Milestone 0 must measure (cold vs warm).
-- The distance cache's own `Mutex<LruCache>` may be the dominant cost under
-  parallel trim; Milestone 0 measures its contention so go/no-go attributes
-  cost honestly.
+- The distance cache's own `Mutex<LruCache>` may be a dominant cost under
+  parallel trim. Exact contention measurement remains deferred because the
+  public telemetry surface does not expose lock-wait timing.
 
 ### The packed-index round-trip (the unrealised seam)
 
@@ -1152,9 +1159,8 @@ Goal: produce the evidence that decides whether E1-E3 are built at all.
      (cold vs warm graph);
    - total `batch_distances` call count and aggregate candidates scored per
      build;
-   - accumulated batch-scoring time compared with build wall-clock;
-   - distance-cache `Mutex<LruCache>` contention (acquisitions, lock-wait) under
-     parallel trim.
+   - accumulated adapter-boundary batch-scoring time compared with build
+     wall-clock.
 3. Capture cycle/instruction counts for the `neighbour_scoring` buckets via
    `perf stat`/`cachegrind` (or `iai`/`iai-callgrind` if its dev-dependency
    policy is cleared — flag in Decision Log). Save a Criterion baseline
@@ -1170,9 +1176,10 @@ actually occurs in the measured histogram, AND (c) a prototype shows ≥5% media
 cycle-count improvement with non-overlapping CIs at those buckets. Otherwise
 the delta is dropped and the null result recorded.
 
-Validation: `make bench` builds; the harness runs; all distributions and the
-contention numbers are captured and written into `Surprises & discoveries` and
-`Outcomes`. Go/no-go for E1/E2/E3 decided and recorded here.
+Validation: `make bench` builds; the harness runs; the cache-miss-subset
+distribution and adapter-boundary scoring time are captured and written into
+`Surprises & discoveries` and `Outcomes`. Go/no-go for E1/E2/E3 is decided and
+recorded here.
 
 ### Milestone 1 — Write-lock-free-scoring invariant guard (C1, committed)
 
@@ -1199,8 +1206,8 @@ Goal: record what is true regardless of whether E1-E3 are built.
 1. `docs/chutoro-design.md` §6.3 implementation-update for 2.3.1: how 2.2.x
    satisfies the packed-index/SoA/scoring-outside-lock *structure*; the
    cache-fragmentation reality; the scoring-outside-write-lock invariant and
-   its guard; the measured candidate-size/scoring-share/contention numbers; and
-   a null-result template if E1-E3 are dropped.
+   its guard; the measured cache-miss-subset/scoring-share numbers; and a
+   null-result template if E1-E3 are dropped.
 2. `docs/adr-003-soa-prefetch-adapter-boundary.md` (Y-Statement;
    `arch-decision-records` skill): the decision to keep SoA/prefetch private to
    the dense adapter; the cross-node-beam and secondary-SoA-copy and
@@ -1409,11 +1416,10 @@ clean `git revert`. No destructive step.
 
 ## Artifacts and notes
 
-Record, as concise indented transcripts: the Milestone 0 candidate-size and
-miss-subset histograms, the scoring-share-of-build-time number, the cache
-contention figures, the `critcmp` and `perf stat` tables, and the Kani success
-line. If E1-E3 are dropped, record the null result and the deferred-item
-proposal.
+Record, as concise indented transcripts: the Milestone 0 miss-subset histogram,
+the adapter-boundary scoring-share-of-build-time number, the `critcmp` and
+`perf stat` tables, and the Kani success line. If E1-E3 are dropped, record the
+null result and the deferred-item proposal.
 
 ## Interfaces and dependencies
 
