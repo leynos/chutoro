@@ -230,13 +230,13 @@ fn build_profile_report_target_uses_expected_filename() {
 
 fn assert_target_path_for_dir(report_parent_dir: &Utf8Path) {
     let actual_path = build_profile_report_target_value(Some("yes"), report_parent_dir);
+    let expected_path = report_parent_dir
+        .join(REPORT_DIR_NAME)
+        .join(BUILD_PROFILE_REPORT);
 
     assert_eq!(
         actual_path.as_ref().map(ReportTarget::path),
-        Some(Utf8Path::new(
-            "/tmp/chutoro-target-dir/benchmarks/neighbour_scoring_build_profile.csv",
-        )
-        .to_path_buf()),
+        Some(expected_path),
     );
 }
 
