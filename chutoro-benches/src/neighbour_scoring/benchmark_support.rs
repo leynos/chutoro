@@ -5,28 +5,25 @@
 
 use std::{io, num::TryFromIntError, sync::Arc, time::Instant};
 
-use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array};
-use arrow_schema::{DataType, Field};
-use camino::{Utf8Path, Utf8PathBuf};
-use cap_std::{ambient_authority, fs_utf8::Dir};
-use chutoro_benches::neighbour_scoring::{
+use super::{
     BUILD_PROFILE_REPORT, BuildProfileReportRow, LANE_REPORT, LaneUtilisationReportRow,
     REPORT_DIR_NAME, ReportTarget, report_path_value, sorted_median,
     write_build_profile_report_csv, write_lane_utilisation_report_csv,
 };
-use chutoro_benches::source::{SyntheticConfig, SyntheticError, SyntheticSource};
+use crate::source::{SyntheticConfig, SyntheticError, SyntheticSource};
+use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array};
+use arrow_schema::{DataType, Field};
+use camino::{Utf8Path, Utf8PathBuf};
+use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_core::{CpuHnsw, DataSourceError, HnswError, HnswParams};
 use chutoro_providers_dense::{DenseMatrixProvider, DenseMatrixProviderError};
 use rand::{Rng, SeedableRng, rngs::SmallRng};
 use thiserror::Error;
 
-use super::profiling::ProfilingSource;
+use super::{ProfilingError, ProfilingSource, all_buckets};
 
-const REALISTIC_BUCKETS: &[usize] = &[8, 16, 24, 32, 48];
-const DIAGNOSTIC_BUCKETS: &[usize] = &[256, 1_024];
 const BENCH_ROW_COUNT: usize = 1_025;
 const BENCH_SEED: u64 = 0xC4A7_0203_0000_0231;
-pub(super) const DIMENSIONS: &[usize] = &[32, 128, 768];
 pub(super) const DEFAULT_BUILD_PROFILE_POINT_COUNTS: &[usize] = &[10_000, 100_000];
 pub(super) const DEFAULT_BUILD_PROFILE_DIMENSION: usize = 128;
 
@@ -36,8 +33,8 @@ pub(super) enum BenchError {
     DataSource(#[from] DataSourceError),
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
-    #[error("build profile stats mutex poisoned")]
-    BuildProfileStatsPoisoned,
+    #[error("build profile statistics failed: {0}")]
+    BuildProfileStats(#[from] ProfilingError),
     #[error("dimension {dimension} does not fit {target}: {source}")]
     DimensionConversion {
         dimension: usize,
@@ -67,67 +64,10 @@ pub(super) enum BenchError {
 
 pub(super) type BenchResult<T> = Result<T, BenchError>;
 
-#[derive(Clone, Copy, Debug)]
-enum BucketKind {
-    Realistic,
-    Diagnostic,
-}
-
-impl BucketKind {
-    const fn as_str(self) -> &'static str {
-        match self {
-            Self::Realistic => "realistic",
-            Self::Diagnostic => "diagnostic",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(super) struct CandidateBucket {
-    size: usize,
-    kind: BucketKind,
-}
-
-impl CandidateBucket {
-    const fn new(size: usize, kind: BucketKind) -> Self {
-        Self { size, kind }
-    }
-
-    #[cfg(test)]
-    #[expect(
-        dead_code,
-        reason = "cargo test --benches builds this harness-free target without test entrypoints"
-    )]
-    pub(super) const fn realistic_for_test(size: usize) -> Self {
-        Self::new(size, BucketKind::Realistic)
-    }
-
-    pub(super) const fn size(self) -> usize {
-        self.size
-    }
-
-    pub(super) const fn kind_name(self) -> &'static str {
-        self.kind.as_str()
-    }
-}
-
 #[derive(Debug)]
 pub(super) struct ScoringFixture {
     pub(super) provider: DenseMatrixProvider,
     pub(super) candidates: Vec<usize>,
-}
-
-pub(super) fn all_buckets() -> impl Iterator<Item = CandidateBucket> {
-    REALISTIC_BUCKETS
-        .iter()
-        .copied()
-        .map(|size| CandidateBucket::new(size, BucketKind::Realistic))
-        .chain(
-            DIAGNOSTIC_BUCKETS
-                .iter()
-                .copied()
-                .map(|size| CandidateBucket::new(size, BucketKind::Diagnostic)),
-        )
 }
 
 fn open_report_dir(report_parent_dir: &Utf8Path) -> BenchResult<Dir> {
@@ -291,5 +231,5 @@ pub(super) fn write_build_profile_report_for_point_counts(
 }
 
 #[cfg(test)]
-#[path = "support_tests.rs"]
+#[path = "benchmark_support_tests.rs"]
 mod tests;

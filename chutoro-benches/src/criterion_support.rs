@@ -56,6 +56,36 @@ where
     args_contain_flag(args, "--exact")
 }
 
+/// Selects a bounded point count for an exact Criterion probe.
+///
+/// Normal runs retain `configured_point_count`; an invocation containing the
+/// literal `--exact` flag uses `exact_probe_point_count`.
+///
+/// # Examples
+///
+/// ```
+/// use chutoro_benches::criterion_support::point_count_for_exact_probe_args;
+///
+/// assert_eq!(point_count_for_exact_probe_args(["bench", "--exact"], 1_000, 100), 100);
+/// assert_eq!(point_count_for_exact_probe_args(["bench", "--list"], 1_000, 100), 1_000);
+/// ```
+#[must_use]
+pub fn point_count_for_exact_probe_args<I, S>(
+    args: I,
+    configured_point_count: usize,
+    exact_probe_point_count: usize,
+) -> usize
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    if is_exact_benchmark_probe_args(args) {
+        exact_probe_point_count
+    } else {
+        configured_point_count
+    }
+}
+
 /// Reads process arguments and returns whether Criterion is probing one exact
 /// benchmark case.
 ///
@@ -192,7 +222,7 @@ mod tests {
 
     use super::{
         args_contain_flag, is_exact_benchmark_probe_args, is_nextest_exact_benchmark_probe_args,
-        should_short_circuit_exact_label_probe_args,
+        point_count_for_exact_probe_args, should_short_circuit_exact_label_probe_args,
     };
 
     #[test]
@@ -216,6 +246,13 @@ mod tests {
         #[case] expected: bool,
     ) {
         assert_eq!(is_exact_benchmark_probe_args(args), expected);
+    }
+
+    #[rstest]
+    #[case::exact(["bench", "--exact"], 100)]
+    #[case::list(["bench", "--list"], 5_000)]
+    fn exact_probe_point_count_is_bounded(#[case] args: [&str; 2], #[case] expected: usize) {
+        assert_eq!(point_count_for_exact_probe_args(args, 5_000, 100), expected);
     }
 
     #[rstest]

@@ -13,7 +13,7 @@ use criterion::{
 use chutoro_benches::{
     criterion_support::{
         configure_short_measurement_group, is_benchmark_discovery, is_exact_benchmark_probe,
-        is_nextest_exact_benchmark_probe, register_noop_benches,
+        is_nextest_exact_benchmark_probe, point_count_for_exact_probe_args, register_noop_benches,
         should_short_circuit_exact_label_probe_args,
     },
     ef_sweep::{BENCH_DIMENSIONS, BENCH_SEED, make_bench_source, make_hnsw_params_with_ef},
@@ -110,39 +110,19 @@ fn panic_on_bench_build_error<B>(result: Result<B, HnswError>, context: &str) {
 }
 
 fn diverse_source_point_count() -> usize {
-    diverse_source_point_count_for_args(std::env::args())
-}
-
-fn diverse_source_point_count_for_args<I, S>(args: I) -> usize
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
     // Nextest discovers Criterion case names without `--exact`, so the
     // benchmark IDs still advertise the real matrix size. Only the exact probe
     // input is shortened to keep test gating bounded.
-    if chutoro_benches::criterion_support::is_exact_benchmark_probe_args(args) {
-        EXACT_PROBE_POINT_COUNT
-    } else {
-        DIVERSE_POINT_COUNT
-    }
+    point_count_for_exact_probe_args(
+        std::env::args(),
+        DIVERSE_POINT_COUNT,
+        EXACT_PROBE_POINT_COUNT,
+    )
 }
 
 fn hnsw_source_point_count(point_count: usize) -> usize {
-    hnsw_source_point_count_for_args(std::env::args(), point_count)
-}
-
-fn hnsw_source_point_count_for_args<I, S>(args: I, point_count: usize) -> usize
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
     // Keep Criterion benchmark IDs stable while bounding nextest's exact probes.
-    if chutoro_benches::criterion_support::is_exact_benchmark_probe_args(args) {
-        EXACT_PROBE_POINT_COUNT
-    } else {
-        point_count
-    }
+    point_count_for_exact_probe_args(std::env::args(), point_count, EXACT_PROBE_POINT_COUNT)
 }
 
 fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
@@ -150,15 +130,11 @@ fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
 }
 
 fn should_short_circuit_exact_text_probe(bench_label: &str) -> bool {
-    should_short_circuit_exact_text_probe_for_args(std::env::args(), bench_label)
-}
-
-fn should_short_circuit_exact_text_probe_for_args<I, S>(args: I, bench_label: &str) -> bool
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<str>,
-{
-    should_short_circuit_exact_label_probe_args(args, bench_label, TEXT_LEVENSHTEIN_BENCH_LABEL)
+    should_short_circuit_exact_label_probe_args(
+        std::env::args(),
+        bench_label,
+        TEXT_LEVENSHTEIN_BENCH_LABEL,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -430,55 +406,3 @@ mod bench_harness {
     );
 }
 criterion_main!(bench_harness::benches);
-
-#[cfg(test)]
-mod tests {
-    //! Tests for HNSW benchmark argument handling and source sizing.
-
-    #[expect(
-        unused_imports,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
-    )]
-    #[rstest::rstest]
-    #[case::exact(["hnsw", "--exact"], super::EXACT_PROBE_POINT_COUNT)]
-    #[case::list(["hnsw", "--list"], super::DIVERSE_POINT_COUNT)]
-    fn diverse_source_count_honours_exact_probe(#[case] args: [&str; 2], #[case] expected: usize) {
-        use super::diverse_source_point_count_for_args;
-
-        assert_eq!(diverse_source_point_count_for_args(args), expected);
-    }
-
-    #[expect(
-        unused_imports,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
-    )]
-    #[rstest::rstest]
-    #[case::exact(["hnsw", "--exact"], super::EXACT_PROBE_POINT_COUNT)]
-    #[case::list(["hnsw", "--list"], 5_000)]
-    fn hnsw_source_count_honours_exact_probe(#[case] args: [&str; 2], #[case] expected: usize) {
-        use super::hnsw_source_point_count_for_args;
-
-        assert_eq!(hnsw_source_point_count_for_args(args, 5_000), expected);
-    }
-
-    #[expect(
-        unused_imports,
-        reason = "Criterion's harness=false target omits #[test] bodies from this build"
-    )]
-    #[rstest::rstest]
-    #[case::exact_text(["hnsw", "--exact"], super::TEXT_LEVENSHTEIN_BENCH_LABEL, true)]
-    #[case::list_text(["hnsw", "--list"], super::TEXT_LEVENSHTEIN_BENCH_LABEL, false)]
-    #[case::exact_other(["hnsw", "--exact"], "gaussian_blobs", false)]
-    fn text_short_circuit_requires_exact_probe_and_text_label(
-        #[case] args: [&str; 2],
-        #[case] bench_label: &str,
-        #[case] expected: bool,
-    ) {
-        use super::should_short_circuit_exact_text_probe_for_args;
-
-        assert_eq!(
-            should_short_circuit_exact_text_probe_for_args(args, bench_label),
-            expected,
-        );
-    }
-}

@@ -9,7 +9,7 @@ fn fixture_contains_provider_rows_and_one_based_candidates() {
     let candidate_count = 8;
     let fixture = make_fixture(32, candidate_count).expect("fixture must be created");
 
-    assert!(fixture.provider.len() >= candidate_count + 1);
+    assert!(fixture.provider.len() > candidate_count);
     assert_eq!(
         fixture.candidates,
         (1..=candidate_count).collect::<Vec<_>>()
@@ -18,8 +18,8 @@ fn fixture_contains_provider_rows_and_one_based_candidates() {
 
 #[test]
 fn lane_utilisation_report_writes_expected_file() {
+    use crate::neighbour_scoring::REPORT_DIR_NAME;
     use camino::Utf8Path;
-    use chutoro_benches::neighbour_scoring::REPORT_DIR_NAME;
     use tempfile::tempdir;
 
     use super::{LANE_REPORT, write_lane_utilisation_report};
@@ -39,10 +39,8 @@ fn lane_utilisation_report_writes_expected_file() {
 
 #[test]
 fn build_profile_report_writes_conventional_file() {
+    use crate::neighbour_scoring::{BUILD_PROFILE_REPORT, REPORT_DIR_NAME, report_path_value};
     use camino::Utf8Path;
-    use chutoro_benches::neighbour_scoring::{
-        BUILD_PROFILE_REPORT, REPORT_DIR_NAME, report_path_value,
-    };
     use tempfile::tempdir;
 
     use super::write_build_profile_report_for_point_counts;
@@ -65,8 +63,8 @@ fn build_profile_report_writes_conventional_file() {
 
 #[test]
 fn default_build_profile_delegates_with_expected_configuration() {
+    use crate::neighbour_scoring::{BUILD_PROFILE_REPORT, report_path_value};
     use camino::Utf8Path;
-    use chutoro_benches::neighbour_scoring::{BUILD_PROFILE_REPORT, report_path_value};
 
     use super::{
         DEFAULT_BUILD_PROFILE_DIMENSION, DEFAULT_BUILD_PROFILE_POINT_COUNTS,
@@ -104,9 +102,9 @@ fn build_profile_report_with_skips_writer_without_parent_directory() {
 
 #[test]
 fn build_profile_report_honours_custom_target_filename() {
+    use crate::neighbour_scoring::{REPORT_DIR_NAME, report_path_value};
     use camino::Utf8Path;
     use cap_std::{ambient_authority, fs_utf8::Dir};
-    use chutoro_benches::neighbour_scoring::{REPORT_DIR_NAME, report_path_value};
     use tempfile::tempdir;
 
     use super::write_build_profile_report_for_point_counts;
@@ -129,7 +127,7 @@ fn build_profile_report_honours_custom_target_filename() {
     assert!(contents.starts_with(concat!(
         "point_count,dimension,build_seconds,accumulated_batch_scoring_seconds,",
         "accumulated_batch_scoring_vs_wall_basis_points,batch_calls,scalar_calls,",
-        "total_batch_candidates,min_batch,max_batch,median_batch\\n",
+        "total_batch_candidates,min_batch,max_batch,median_batch\n",
         "16,8,",
     )));
 }

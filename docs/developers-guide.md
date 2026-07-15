@@ -353,6 +353,20 @@ from full graph construction. It reports realistic candidate buckets (`8`, `16`,
 `24`, `32`, `48`) and diagnostic buckets (`256`, `1024`) for dense dimensions
 `32`, `128`, and `768`.
 
+Criterion targets use `harness = false`, so Cargo does not execute test
+functions embedded in benchmark binaries. Keep benchmark files as thin
+entrypoint wiring and place testable profiling, candidate-planning, and
+argument-selection logic in `chutoro-benches/src/`, with unit tests beside the
+library modules. This gives those tests Cargo's normal test harness and avoids
+lint expectations for code that only appears unused in the harness-free build.
+
+The library seam is owned by `chutoro-benches`: benchmark binaries may call it,
+but production crates must not depend on it. Prefer pure helpers without
+Criterion types for reusable selection and planning rules. Where a complete
+runner must cross the separate-crate boundary between a benchmark target and
+the support library, expose only a `#[doc(hidden)]` entrypoint; keep its
+constituent helpers private to the support crate and compose them there.
+
 Run the benchmark directly when comparing code changes:
 
 ```sh

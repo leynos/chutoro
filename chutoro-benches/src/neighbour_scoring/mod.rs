@@ -2,9 +2,21 @@
 
 use std::time::Duration;
 
+mod benchmark_plan;
+mod benchmark_runner;
+mod benchmark_support;
 mod build_profile;
 mod profiling;
 mod report;
+
+use benchmark_plan::{CandidateBucket, all_buckets, scoring_plan};
+use benchmark_support::{
+    ScoringFixture, make_fixture, write_build_profile_report, write_lane_utilisation_report,
+};
+use profiling::{ProfilingError, ProfilingSource};
+
+#[doc(hidden)]
+pub use benchmark_runner::neighbour_scoring as run_neighbour_scoring;
 
 #[doc(hidden)]
 pub use build_profile::{
