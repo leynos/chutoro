@@ -49,16 +49,16 @@ fn build_profile_report_writes_conventional_file() {
     let report_parent_dir = Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
 
     let report_target = report_path_value(report_parent_dir, BUILD_PROFILE_REPORT);
-    write_build_profile_report_for_point_counts(&report_target, &[16], 8)
+    let written = write_build_profile_report_for_point_counts(report_target, &[16], 8)
         .expect("enabled build profile report must succeed");
 
     assert_eq!(
-        report_target.path(),
+        written.path(),
         report_parent_dir
             .join(REPORT_DIR_NAME)
             .join(BUILD_PROFILE_REPORT),
     );
-    assert!(report_target.path().exists());
+    assert!(written.path().exists());
 }
 
 #[test]
@@ -113,17 +113,17 @@ fn build_profile_report_honours_custom_target_filename() {
     let report_parent_dir = Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
     let report_target = report_path_value(report_parent_dir, "custom-build-profile.csv");
 
-    write_build_profile_report_for_point_counts(&report_target, &[16], 8)
+    let written = write_build_profile_report_for_point_counts(report_target.clone(), &[16], 8)
         .expect("custom build profile report must succeed");
     let report_dir = Dir::open_ambient_dir(report_parent_dir, ambient_authority())
         .expect("report parent directory must be opened")
         .open_dir(REPORT_DIR_NAME)
         .expect("report directory must be opened");
     let contents = report_dir
-        .read_to_string(report_target.filename())
+        .read_to_string(written.filename())
         .expect("custom build profile report must be readable");
 
-    assert!(report_target.path().exists());
+    assert_eq!(written, report_target);
     assert!(contents.starts_with(concat!(
         "point_count,dimension,build_seconds,accumulated_batch_scoring_seconds,",
         "accumulated_batch_scoring_vs_wall_basis_points,batch_calls,scalar_calls,",

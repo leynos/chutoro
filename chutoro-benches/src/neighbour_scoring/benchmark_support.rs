@@ -188,15 +188,14 @@ fn write_default_build_profile_report_for_point_counts(
     dimension: usize,
 ) -> BenchResult<ReportTarget> {
     let report_target = report_path_value(report_parent_dir, BUILD_PROFILE_REPORT);
-    write_build_profile_report_for_point_counts(&report_target, point_counts, dimension)?;
-    Ok(report_target)
+    write_build_profile_report_for_point_counts(report_target, point_counts, dimension)
 }
 
 pub(super) fn write_build_profile_report_for_point_counts(
-    report_target: &ReportTarget,
+    report_target: ReportTarget,
     point_counts: &[usize],
     dimension: usize,
-) -> BenchResult<()> {
+) -> BenchResult<ReportTarget> {
     let mut report_rows = Vec::new();
 
     for &point_count in point_counts {
@@ -228,7 +227,7 @@ pub(super) fn write_build_profile_report_for_point_counts(
     let report_dir = open_report_dir(report_target.report_parent_dir())?;
     let mut file = report_dir.create(report_target.filename())?;
     write_build_profile_report_csv(&mut file, report_rows)?;
-    Ok(())
+    Ok(report_target)
 }
 
 #[cfg(test)]

@@ -382,6 +382,13 @@ scripts/bench-neighbour-scoring.sh
 ```
 
 Set `CHUTORO_BENCH_NEIGHBOUR_PROFILE=1` to add the optional HNSW build profile.
+Set `CHUTORO_BENCH_NEIGHBOUR_SHORT_MEASUREMENT` to a truthy value, using the
+same parsing as `CHUTORO_BENCH_NEIGHBOUR_PROFILE`, to shorten Criterion's
+warm-up and measurement durations for the `neighbour_scoring` group. Use this
+mode for quick local iteration, not baseline comparisons. `neighbour_scoring`
+uses this environment variable rather than `--exact` to select short
+measurement mode.
+
 By default, the reports are written to
 `target/benchmarks/neighbour_scoring_build_profile.csv` and
 `target/benchmarks/neighbour_scoring_lane_utilisation.csv`. When
