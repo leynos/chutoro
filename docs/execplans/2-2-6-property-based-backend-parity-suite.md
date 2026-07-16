@@ -640,6 +640,7 @@ The property work in this stage:
    continuing.
 
 Stage C exit gate: `make test` is clean on the default feature set;
+<!-- markdownlint-disable-next-line MD013 -->
 `cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd`
 runs the parity suite locally (or, if a nightly compiler is unavailable on the
 development machine, the gating `tests/portable_simd_gating.rs` proof of
@@ -997,6 +998,7 @@ with a matching `dense_simd)` arm in the `Run property suite` step that invokes
 In `.github/workflows/nightly-portable-simd.yml`, after the existing
 `Test dense portable SIMD backend` step, add:
 
+<!-- markdownlint-disable-next-line MD013 -->
 ```yaml
 - name: Test dense parity suite under portable SIMD
   if: ${{ steps.gate.outputs.should_run == 'true' }}

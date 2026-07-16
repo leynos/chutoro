@@ -141,9 +141,9 @@ are the next six roadmap items.
   corrupt the shared cache before the `10.1.5` lockfile lands. Severity:
   medium. Likelihood: medium. Mitigation: document under a Rustdoc
   `# Concurrency` section that concurrent same-`RecipeId` invocations are
-  undefined behaviour until `10.1.5` ships, and keep the in-memory storage and
-  publisher adapters backed by `Mutex` so they satisfy the public `Send + Sync`
-  port bounds.
+  unsupported and potentially nondeterministic until lockfile support lands in
+  `10.1.5`, and keep the in-memory storage and publisher adapters backed by
+  `Mutex` so they satisfy the public `Send + Sync` port bounds.
 - Risk: partial failure orphans intermediate artefacts. Severity: medium.
   Likelihood: medium. Mitigation: add
   `fn cleanup(&self, ctx, partial: PartialState) -> Result<(), RecipeError>`
@@ -191,7 +191,7 @@ milestone begins.
   declared-source ordering.
 - [x] M8 (docs and ADR): `docs/users-guide.md` and
   `docs/developers-guide.md` updates, ADR captured at
-  `docs/adr-003-bench-dataset-recipe-trait.md`, and a brief note added to
+  `docs/adr-004-bench-dataset-recipe-trait.md`, and a brief note added to
   `docs/benchmark-dataset-retrieval.md` referencing the ADR.
 - [x] M9 (final validation): `make check-fmt`, `make lint`, `make test`, then
   `coderabbit review --agent` final pass. Mark roadmap item 10.1.1 as `done` in
@@ -202,12 +202,10 @@ milestone begins.
 Record unexpected findings here as work proceeds. Each entry should record: the
 observation, the evidence, and the impact on the plan or future work.
 
-- Observation: `docs/contents.md` and `docs/repository-layout.md`, referenced
-  by the repository instructions, are not present in this worktree. Evidence:
-  `sed -n '1,180p' docs/contents.md` and the same command for
-  `docs/repository-layout.md` both failed with "No such file or directory".
-  Impact: orientation uses the available design documents and `leta files`
-  instead.
+- Observation (2026-06-05 orientation): `docs/contents.md` and
+  `docs/repository-layout.md` were absent from the initial worktree snapshot.
+  Both files are present in the reviewed repository and now serve as the
+  orientation sources required by the repository instructions.
 
 - Observation: this workspace already uses `rstest-bdd = "0.6.0-beta1"` plus
   `rstest-bdd-macros = "0.6.0-beta1"` in `chutoro-core`; the draft's
@@ -498,7 +496,7 @@ Compare results against the purpose section.
   `cargo clippy -p chutoro-bench-datasets --all-targets --all-features -- -D warnings`
   and `cargo test -p chutoro-bench-datasets --features testing`.
 
-- M8 landed `docs/adr-003-bench-dataset-recipe-trait.md` plus users' guide,
+- M8 landed `docs/adr-004-bench-dataset-recipe-trait.md` plus users' guide,
   developers' guide, and benchmark dataset retrieval cross-references.
   Documentation validation passed with targeted `mdtablefix`,
   `markdownlint-cli2`, `make markdownlint`, and `make nixie`.
@@ -656,7 +654,8 @@ block describing:
 - the deferred scope (`10.1.2` through `10.1.7`);
 - a worked example using `StubRecipe` (linked from the `testing` feature);
 - a `# Concurrency` section stating that concurrent same-`RecipeId`
-  invocations are undefined behaviour until the lockfile lands in `10.1.5`.
+  invocations are unsupported and potentially nondeterministic until lockfile
+  support lands in `10.1.5`.
 
 Re-export the public items: `DatasetRecipe`, `run_recipe`, `DatasetInfo`,
 `RecipeContext`, `RecipeId`, `RecipeVersion`, `SourceSpec`, `SourceUrl`,
@@ -701,7 +700,6 @@ mod sealed {
     pub trait Sealed {}
 }
 
-#[non_exhaustive]
 pub trait PublishedArtefact: sealed::Sealed + Send + Sync {
     fn manifest_uri(&self) -> &camino::Utf8Path;
     fn manifest_digest(&self) -> &crate::ManifestDigest;
@@ -761,8 +759,7 @@ const _: () = {
 ```
 
 If the assertion fails on the chosen platform, refactor `RecipeError` so its
-largest payloads remain behind boxed or reference-counted indirection and
-rerun.
+largest payloads remain behind boxed or reference-counted indirection and rerun.
 
 Stage C validation: `cargo check -p chutoro-bench-datasets`;
 `cargo clippy -p chutoro-bench-datasets -- -D warnings` proves the
@@ -936,10 +933,10 @@ Create `chutoro-bench-datasets/src/testing/` gated by
 - `in_memory.rs`: `InMemoryFetcher` backed by a
   `HashMap<SourceUrl, bytes::Bytes>`; honour `max_bytes` and emit
   `FetchSizeExceeded` when the payload exceeds the cap. `InMemoryStorage`
-  backed by `RefCell<HashMap<...>>` (explicitly `!Sync`); document the choice
-  in the doc comment. `InMemoryPublisher` backed by
-  `RefCell<HashMap<ObjectKey, Bytes>>` with an `into_records()` method that the
-  tests consume to assert what was published.
+  backed by `Mutex<HashMap<...>>`; document the `Mutex` implementation in the
+  doc comment. `InMemoryPublisher` backed by `Mutex<HashMap<ObjectKey, Bytes>>`
+  with an `into_records()` method that the tests consume to assert what was
+  published.
 - `filesystem.rs`: `FilesystemFetcher` reads bytes from a root
   `camino::Utf8PathBuf`; the `SourceUrl::file://...` scheme maps directly to a
   relative path under the root. Emits `FetchSizeExceeded` after streaming
@@ -978,7 +975,7 @@ Stage G validation: `cargo test -p chutoro-bench-datasets --features testing`;
 
 ### Stage H: ADR, documentation, and roadmap update (M8)
 
-Create `docs/adr-003-bench-dataset-recipe-trait.md` using the Y-statement
+Create `docs/adr-004-bench-dataset-recipe-trait.md` using the Y-statement
 format (see `arch-decision-records` skill). Capture:
 
 - the typestate-style typed handoffs decision;
@@ -1082,7 +1079,7 @@ Acceptance is observable behaviour, not a code count.
 - `coderabbit review --agent` reports no unresolved concerns at the
   milestone boundaries.
 - The roadmap item `10.1.1` is ticked as `[x]` in `docs/roadmap.md`.
-- The ADR is present at `docs/adr-003-bench-dataset-recipe-trait.md`.
+- The ADR is present at `docs/adr-004-bench-dataset-recipe-trait.md`.
 - `docs/users-guide.md` and `docs/developers-guide.md` reflect the new crate.
 
 Quality criteria:
@@ -1219,4 +1216,6 @@ Dev-only:
 
 ## Revision note
 
-Initial draft.
+2026-07-14: Final revision reconciles the completed implementation and review
+follow-ups with the concurrency, adapter, and compatibility decisions recorded
+during delivery.

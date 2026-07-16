@@ -1,11 +1,11 @@
 target/
 **/*.rs.bk
 lcov.info
+.coverage
 coverage.xml
 .grepai/
 .memdb/
 .verus/
-.memdb/
 *.swp
 __pycache__/
 

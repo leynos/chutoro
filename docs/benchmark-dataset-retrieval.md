@@ -65,7 +65,7 @@ consumption._
 
 - Create a shared dataset retrieval crate (`chutoro-bench-datasets`) with a
   `DatasetRecipe` abstraction (`fetch`, `validate`, `prepare`, `publish`). See
-  `docs/adr-003-bench-dataset-recipe-trait.md` for the typed handoff and
+  `docs/adr-004-bench-dataset-recipe-trait.md` for the typed handoff and
   port-boundary decision.
 - Standardize integrity checks (SHA-256 checksums, optional signatures, and
   explicit source URL pinning).

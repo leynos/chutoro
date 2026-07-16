@@ -44,11 +44,19 @@ open each document.
   accepted guidance for commit post-processing behaviour.
 - [ADR 002: adoption of Kani formal verification](adr-002-adoption-of-kani-formal-verification.md):
   accepted guidance for using Kani bounded model checking in this repository.
+- [ADR 003: SoA prefetch adapter boundary](adr-003-soa-prefetch-adapter-boundary.md):
+  accepted guidance for the dense adapter boundary and deferred structural
+  optimization levers.
+- [ADR 004: benchmark dataset recipe trait](adr-004-bench-dataset-recipe-trait.md):
+  accepted guidance for typed benchmark dataset preparation and publication.
 
 ## Execution plans
 
 - [Execution plans](execplans/): implementation plans for roadmap tasks,
   verification work, and other substantial changes.
+  - [10-1-1 Chutoro bench datasets and dataset recipe
+    trait](execplans/10-1-1-chutoro-bench-datasets-and-dataset-recipe-trait.md):
+    open for the benchmark dataset lifecycle, port contracts, and test adapters.
   - [11-1-1 Make edge harvesting hnsw insertion path public](
     execplans/11-1-1-make-edge-harvesting-hnsw-insertion-path-public.md)
   - [11-1-2 Define session config carrying
@@ -82,6 +90,8 @@ open each document.
   - [2-2-7 Kani harnesses for tail padding and
     dispatch selection](
     execplans/2-2-7-kani-harnesses-for-tail-padding-and-dispatch-selection.md)
+  - [2-3-1 HNSW neighbour evaluation using packed
+    indices](execplans/2-3-1-hnsw-neighbour-evaluation-using-packed-indices.md)
   - [Phase 1 bounded Kani harness](execplans/phase-1-bounded-kani-harness.md)
   - [Phase 1 candidate edge harvest property suite](
     execplans/phase-1-candidate-edge-harvest-property-suite.md)

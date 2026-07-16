@@ -19,7 +19,10 @@
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use chutoro_benches::{
-    criterion_support::{is_benchmark_discovery, register_noop_benches},
+    criterion_support::{
+        configure_short_measurement_group, is_benchmark_discovery, is_exact_benchmark_probe,
+        is_nextest_exact_benchmark_probe, register_noop_benches,
+    },
     error::BenchSetupError,
     params::PipelineBenchParams,
     source::{SyntheticConfig, SyntheticSource},
@@ -43,13 +46,13 @@ const M: usize = 16;
     reason = "Criterion measurement closures cannot propagate errors via Result"
 )]
 fn mst_parallel_kruskal_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
-    if is_benchmark_discovery() {
+    if is_benchmark_discovery() || is_nextest_exact_benchmark_probe() {
         register_mst_discovery_benches(c);
         return Ok(());
     }
 
     let mut group = c.benchmark_group("parallel_kruskal");
-    group.sample_size(20);
+    configure_short_measurement_group(&mut group, 20, is_exact_benchmark_probe());
 
     for &point_count in POINT_COUNTS {
         let source = SyntheticSource::generate(&SyntheticConfig {
@@ -86,7 +89,9 @@ fn register_mst_discovery_benches(c: &mut Criterion) {
         .iter()
         .copied()
         .map(|point_count| PipelineBenchParams { point_count });
-    register_noop_benches(c, "parallel_kruskal", params, |_| {});
+    register_noop_benches(c, "parallel_kruskal", params, |group| {
+        configure_short_measurement_group(group, 20, is_exact_benchmark_probe());
+    });
 }
 
 fn mst_parallel_kruskal(c: &mut Criterion) {

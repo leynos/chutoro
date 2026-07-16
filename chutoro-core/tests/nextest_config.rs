@@ -9,6 +9,9 @@ const BENCHMARK_REGRESSIONS_WORKFLOW: &str =
 const MAKEFILE: &str = include_str!("../../Makefile");
 const BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }";
+
+const LONG_BENCH_SLOW_TIMEOUT: &str =
+    "slow-timeout = { period = \"900s\", terminate-after = 1, grace-period = \"5s\" }";
 const TRYBUILD_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"300s\", terminate-after = 1, grace-period = \"5s\" }";
 const NESTED_BENCH_SMOKE_TIMEOUT: &str = TRYBUILD_SLOW_TIMEOUT;
@@ -79,15 +82,27 @@ fn nextest_default_profile_keeps_global_timeout_guard() {
 }
 
 #[rstest]
-#[case("filter = \"package(chutoro-benches) & kind(bench)\"")]
-#[case("filter = \"package(chutoro-benches) & test(/extract_labels\\\\//)\"")]
-#[case("filter = \"package(chutoro-benches) & test(/edge_harvest_construction\\\\//)\"")]
-fn nextest_default_profile_keeps_benchmark_timeout_guards(#[case] filter_value: &str) {
+#[case(
+    "filter = \"package(chutoro-benches) & kind(bench)\"",
+    LONG_BENCH_SLOW_TIMEOUT
+)]
+#[case(
+    "filter = \"package(chutoro-benches) & test(/extract_labels\\\\//)\"",
+    BENCH_SLOW_TIMEOUT
+)]
+#[case(
+    "filter = \"package(chutoro-benches) & test(/edge_harvest_construction\\\\//)\"",
+    BENCH_SLOW_TIMEOUT
+)]
+fn nextest_default_profile_keeps_benchmark_timeout_guards(
+    #[case] filter_value: &str,
+    #[case] expected_timeout: &str,
+) {
     let override_blocks = default_override_blocks();
     let override_present = override_blocks.into_iter().any(|block| {
         block.contains(filter_value)
             && block.contains("threads-required = 8")
-            && block.contains(BENCH_SLOW_TIMEOUT)
+            && block.contains(expected_timeout)
     });
     assert!(override_present);
 }
@@ -136,6 +151,18 @@ fn default_profile_serializes_nested_benchmark_smoke_test() {
         block.contains("benchmark_binaries_cover_discovery_and_exact_smoke_paths")
             && block.contains("threads-required = 8")
             && block.contains(NESTED_BENCH_SMOKE_TIMEOUT)
+    });
+    assert!(override_present);
+}
+
+#[rstest]
+#[case("default")]
+#[case("ci")]
+fn profiles_preserve_write_lock_proptest_timeout(#[case] profile_name: &str) {
+    let override_blocks = override_blocks(profile_name);
+    let override_present = override_blocks.into_iter().any(|block| {
+        block.contains("generated_hnsw_scoring_does_not_run_inside_write_graph_scope")
+            && block.contains(BENCH_SLOW_TIMEOUT)
     });
     assert!(override_present);
 }

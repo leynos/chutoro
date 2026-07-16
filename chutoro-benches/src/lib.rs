@@ -8,6 +8,7 @@ pub mod clustering_quality;
 pub mod criterion_support;
 pub mod ef_sweep;
 pub mod error;
+pub mod neighbour_scoring;
 pub mod params;
 pub mod profiling;
 pub mod recall;

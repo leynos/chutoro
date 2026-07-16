@@ -335,7 +335,7 @@ assert_eq!(published.manifest_uri().as_str(), "manifests/example.json");
 ```
 
 For the design rationale behind the four-phase trait and port split, see
-[ADR-003: Benchmark dataset recipe trait](adr-003-bench-dataset-recipe-trait.md).
+[ADR-004: Benchmark dataset recipe trait](adr-004-bench-dataset-recipe-trait.md).
 
 ## Benchmarking
 
@@ -357,3 +357,8 @@ cover multiple dataset sizes and parameter combinations so that scaling
 behaviour is visible. Consumers integrating `chutoro-core` into their own
 projects can use `chutoro-benches` as a reference for structuring performance
 tests around the pipeline APIs.
+
+### Neighbour-scoring diagnostics
+
+This contributor-only benchmark is documented in
+[Neighbour scoring measurements](./developers-guide.md#neighbour-scoring-measurements).

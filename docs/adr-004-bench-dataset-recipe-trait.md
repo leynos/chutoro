@@ -1,4 +1,4 @@
-# Architecture Decision Record (ADR) 003: Benchmark dataset recipe trait
+# Architecture Decision Record (ADR) 004: Benchmark dataset recipe trait
 
 ## Status
 
@@ -9,7 +9,7 @@ handoffs and sealed publication contract.
 
 2026-06-16
 
-## Context and Problem Statement
+## Context and problem statement
 
 Roadmap item 10.1.1 introduces `chutoro-bench-datasets`, a workspace crate for
 benchmark dataset preparation. The crate must define the stable recipe and port
@@ -17,7 +17,7 @@ contracts now, while later roadmap items add real network download, archive
 extraction, manifest schemas, object-store adapters, local lockfiles, and
 provenance checks.
 
-## Decision Drivers
+## Decision drivers
 
 - Compile-time phase ordering must prevent publication of unvalidated or
   unprepared bytes.
@@ -28,7 +28,7 @@ provenance checks.
   details behind stable ports.
 - Partial failures need an explicit recipe-owned cleanup contract.
 
-## Options Considered
+## Options considered
 
 - Single untyped callback: rejected because phase ordering would be enforced
   only by convention.
@@ -43,7 +43,7 @@ provenance checks.
 - Separate storage and publisher ports: accepted because cache mutation and
   final write-once publication carry different semantics.
 
-## Decision Outcome
+## Decision outcome
 
 The project adopts a `DatasetRecipe` trait with typed handoffs between `fetch`,
 `validate`, `prepare`, and `publish`. This achieves compile-time phase ordering
@@ -70,7 +70,7 @@ recipe-owned side effects must remain explicit.
 semantic distinction between mutable cache and final write-once publication,
 accepting some duplicated adapter boilerplate.
 
-## Architectural Rationale
+## Architectural rationale
 
 The design follows the project's hexagonal architecture guidance by keeping
 recipe policy separate from infrastructure adapters. Recipes invoke I/O through
@@ -79,7 +79,7 @@ The typed phase outputs encode lifecycle rules in Rust's type system, while the
 sealed publication contract keeps future manifest evolution local to the
 dataset crate.
 
-## Known Risks and Limitations
+## Known risks and limitations
 
 - The associated types add ceremony for small recipes.
 - The sealed publication contract is intentionally narrow until 10.1.3.

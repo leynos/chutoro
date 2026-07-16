@@ -21,6 +21,7 @@ use std::num::NonZeroUsize;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use chutoro_benches::{
+    criterion_support::{configure_short_measurement_group, is_exact_benchmark_probe},
     error::BenchSetupError,
     params::ExtractionBenchParams,
     source::{SyntheticConfig, SyntheticSource},
@@ -44,13 +45,19 @@ const MIN_CLUSTER_SIZES: &[usize] = &[5, 10];
 /// HNSW M parameter used for edge generation.
 const M: usize = 16;
 
+fn configure_extraction_group(
+    group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
+) {
+    configure_short_measurement_group(group, 20, is_exact_benchmark_probe());
+}
+
 #[expect(
     clippy::panic_in_result_fn,
     reason = "Criterion measurement closures cannot propagate errors via Result"
 )]
 fn extract_labels_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("extract_labels");
-    group.sample_size(20);
+    configure_extraction_group(&mut group);
 
     for &point_count in POINT_COUNTS {
         let source = SyntheticSource::generate(&SyntheticConfig {

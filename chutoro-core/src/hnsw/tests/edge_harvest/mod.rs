@@ -263,7 +263,9 @@ fn build_with_edges_has_consistent_count(
     // causing more variance in parallel insertion order and thus edge counts.
     let min_edges = edges1.len().min(edges2.len());
     let max_edges = edges1.len().max(edges2.len());
-    let base_tolerance = (min_edges as f64 * 0.5).max(2.0) as usize;
+    // Half the midpoint is a symmetric 50% tolerance. Basing the allowance on
+    // only the smaller sample made the accepted variance depend on build order.
+    let base_tolerance = min_edges.saturating_add(max_edges).div_ceil(4).max(2);
     // Under coverage instrumentation, Rayon's thread scheduling is
     // significantly perturbed, causing insertion order to vary more
     // than in a standard build. The variance in harvested edge counts
