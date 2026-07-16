@@ -76,6 +76,8 @@ fn lane_output_count_limits_writes_to_logical_points(
 }
 
 proptest! {
+    #![proptest_config(super::parity::proptest_config(256))]
+
     #[test]
     fn lane_output_count_matches_saturating_tail_formula(
         point_count in any::<usize>(),

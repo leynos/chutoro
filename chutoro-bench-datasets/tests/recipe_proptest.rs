@@ -5,15 +5,16 @@ use chutoro_bench_datasets::{
     RecipeContext, SourceUrl, run_recipe,
     testing::{InMemoryFetcher, InMemoryPublisher, InMemoryStorage, StubRecipe},
 };
-use chutoro_test_support::ci::property_test_profile::ProptestRunProfile;
+use chutoro_test_support::ci::property_test_profile::{PROPTEST_RNG_SEED, ProptestRunProfile};
 use proptest::prelude::*;
-use proptest::test_runner::Config as ProptestConfig;
+use proptest::test_runner::{Config as ProptestConfig, RngSeed};
 
 fn suite_proptest_config(default_cases: u32) -> ProptestConfig {
     let profile = ProptestRunProfile::load(default_cases, false);
     ProptestConfig {
         cases: profile.cases(),
         fork: profile.fork(),
+        rng_seed: RngSeed::Fixed(PROPTEST_RNG_SEED),
         ..ProptestConfig::default()
     }
 }

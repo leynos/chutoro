@@ -1,8 +1,9 @@
 //! Proptest execution wrappers for HNSW property tests.
 
+use chutoro_test_support::ci::property_test_profile::PROPTEST_RNG_SEED;
 use proptest::{
     prelude::any,
-    test_runner::{Config, TestCaseError, TestCaseResult, TestError, TestRunner},
+    test_runner::{Config, RngSeed, TestCaseError, TestCaseResult, TestError, TestRunner},
 };
 
 use super::budget_selection::{ShrinkIterations, StackSize, TestCases, property_run_profile};
@@ -45,6 +46,7 @@ where
         cases: cases.get(),
         fork: profile.fork(),
         max_shrink_iters: max_shrink_iters.get(),
+        rng_seed: RngSeed::Fixed(PROPTEST_RNG_SEED),
         ..Config::default()
     })
 }
@@ -220,6 +222,7 @@ where
             cases: runner_config.cases.get(),
             fork: runner_config.fork,
             max_shrink_iters: runner_config.max_shrink_iters.get(),
+            rng_seed: RngSeed::Fixed(PROPTEST_RNG_SEED),
             ..Config::default()
         },
         runner_config.stack_size.get(),

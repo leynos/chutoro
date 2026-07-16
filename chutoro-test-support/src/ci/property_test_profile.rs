@@ -12,6 +12,21 @@ pub const PROGTEST_CASES_ENV_KEY: &str = "PROGTEST_CASES";
 /// Environment variable controlling proptest process forking.
 pub const CHUTORO_PBT_FORK_ENV_KEY: &str = "CHUTORO_PBT_FORK";
 
+/// Fixed RNG seed applied to every property suite so coverage is deterministic.
+///
+/// By default proptest seeds its runner from operating-system entropy, so each
+/// run explores a different pseudo-random set of cases and touches a different
+/// set of lines. That makes whole-workspace line coverage wobble run-to-run for
+/// identical code and false-trips the coverage ratchet. Pinning the seed keeps
+/// proptest's exploratory value (it still walks a fixed pseudo-random set) while
+/// making the covered lines reproducible. Suites that generate their own RNG
+/// seeds through proptest strategies (for example HNSW build seeds) inherit this
+/// determinism, because those draws are taken from the seeded runner.
+///
+/// Apply it by setting `rng_seed: proptest::test_runner::RngSeed::Fixed(..)` on
+/// the `proptest::test_runner::Config` used by a suite.
+pub const PROPTEST_RNG_SEED: u64 = 0x600D_5EED_C047_0207;
+
 /// Runtime profile for property-test execution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProptestRunProfile {

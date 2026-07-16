@@ -28,7 +28,8 @@ mod pairwise;
 mod query_points;
 mod strategies;
 
-use proptest::test_runner::Config as ProptestConfig;
+use chutoro_test_support::ci::property_test_profile::PROPTEST_RNG_SEED;
+use proptest::test_runner::{Config as ProptestConfig, RngSeed};
 
 use crate::simd::{DensePointView, dispatch, kernels};
 
@@ -41,7 +42,7 @@ type QueryPointsEntry = fn(&[f32], &DensePointView<'_>, &mut [f32]);
 /// `chutoro_test_support::ci::property_test_profile`; `default_cases` is used
 /// when no CI override is present. The returned [`ProptestConfig`] carries the
 /// selected case count and fork flag.
-fn proptest_config(default_cases: u32) -> ProptestConfig {
+pub(super) fn proptest_config(default_cases: u32) -> ProptestConfig {
     const DEFAULT_FORK: bool = false;
 
     let profile = chutoro_test_support::ci::property_test_profile::ProptestRunProfile::load(
@@ -51,6 +52,7 @@ fn proptest_config(default_cases: u32) -> ProptestConfig {
     ProptestConfig {
         cases: profile.cases(),
         fork: profile.fork(),
+        rng_seed: RngSeed::Fixed(PROPTEST_RNG_SEED),
         ..ProptestConfig::default()
     }
 }

@@ -1,7 +1,7 @@
 //! Shared test utilities for `chutoro-core`.
 
-use chutoro_test_support::ci::property_test_profile::ProptestRunProfile;
-use proptest::test_runner::Config as ProptestConfig;
+use chutoro_test_support::ci::property_test_profile::{PROPTEST_RNG_SEED, ProptestRunProfile};
+use proptest::test_runner::{Config as ProptestConfig, RngSeed};
 
 use crate::{datasource::DataSource, error::DataSourceError};
 use std::sync::{
@@ -19,6 +19,7 @@ pub(crate) fn suite_proptest_config(default_cases: u32) -> ProptestConfig {
     ProptestConfig {
         cases: profile.cases(),
         fork: profile.fork(),
+        rng_seed: RngSeed::Fixed(PROPTEST_RNG_SEED),
         ..ProptestConfig::default()
     }
 }

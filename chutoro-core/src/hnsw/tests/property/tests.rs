@@ -26,6 +26,7 @@ use super::{
 };
 use crate::error::DataSourceError;
 use crate::hnsw::HnswError;
+use crate::test_utils::suite_proptest_config;
 use crate::{CpuHnsw, DataSource};
 
 #[test]
@@ -63,6 +64,8 @@ fn params_seed_build_propagates_errors(
 }
 
 proptest! {
+    #![proptest_config(suite_proptest_config(256))]
+
     #[test]
     fn fixture_dimensions_are_consistent(fixture in hnsw_fixture_strategy()) {
         let dimension = fixture.dimension();
@@ -364,6 +367,8 @@ fn bootstrap_uniform_vectors() -> Vec<Vec<f32>> {
 // ============================================================================
 
 proptest! {
+    #![proptest_config(suite_proptest_config(256))]
+
     #[test]
     fn generated_graphs_are_valid(fixture in graph_fixture_strategy()) {
         run_graph_validity_property(&fixture)?;
