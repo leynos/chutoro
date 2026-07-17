@@ -154,7 +154,7 @@ project:
 
     linting every target with all features enabled and denying all warnings.
     Install the `whitaker` wrapper with
-    `cargo install --locked whitaker-installer --version 0.2.5` followed by
+    `cargo install --locked whitaker-installer --version 0.2.6` followed by
     `whitaker-installer`. Per-lint configuration (including
     `no_std_fs_operations` exclusions, each with a rationale comment) lives
     in the root `dylint.toml`. Use `make lint-clippy` for a Clippy-only pass
