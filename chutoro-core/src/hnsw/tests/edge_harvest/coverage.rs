@@ -1,6 +1,7 @@
 //! Edge-harvest coverage and ordering tests.
 
 use super::*;
+use crate::hnsw::tests::support::is_coverage_job;
 
 #[rstest]
 fn build_with_edges_covers_inserted_nodes() {

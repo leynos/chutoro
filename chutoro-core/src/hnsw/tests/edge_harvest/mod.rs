@@ -14,7 +14,6 @@ use crate::hnsw::types::{InsertionPlan, LayerPlan};
 use crate::hnsw::{CandidateEdge, CpuHnsw, EdgeHarvest, HnswError, HnswParams, Neighbour};
 
 use super::fixtures::DummySource;
-use super::support::is_coverage_job;
 
 fn build_insertion_plan(layers: Vec<Vec<(usize, f32)>>) -> InsertionPlan {
     InsertionPlan {
@@ -225,6 +224,27 @@ fn build_with_edges_returns_valid_edges(
     }
 }
 
+/// Builds an index with edge harvesting inside a dedicated single-threaded
+/// Rayon pool, making insertion order (and therefore the harvested edges)
+/// fully deterministic for a given seed.
+fn build_with_edges_single_threaded(
+    data: Vec<f32>,
+    max_connections: usize,
+    ef_construction: usize,
+    seed: u64,
+) -> (CpuHnsw, EdgeHarvest) {
+    let source = DummySource::new(data);
+    let params = HnswParams::new(max_connections, ef_construction)
+        .expect("params")
+        .with_rng_seed(seed);
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .expect("single-threaded Rayon pool");
+    pool.install(|| CpuHnsw::build_with_edges(&source, params))
+        .expect("build must succeed")
+}
+
 #[rstest]
 #[case(5, 2, 4, 42)]
 #[case(10, 4, 8, 123)]
@@ -234,57 +254,32 @@ fn build_with_edges_has_consistent_count(
     #[case] ef_construction: usize,
     #[case] seed: u64,
 ) {
-    // Due to Rayon's non-deterministic thread scheduling, parallel insertions
-    // can happen in different orders between runs. This affects the HNSW graph
-    // structure and thus which candidate edges are discovered.
+    // Rayon's thread scheduling makes parallel insertion order — and hence
+    // the harvested edges — non-deterministic on the shared global pool, and
+    // the variance grows with pool contention from concurrently running
+    // tests. Comparing counts under a tolerance was therefore flaky under
+    // plain `cargo test`, where every test shares one process (issue #155).
     //
-    // We verify that multiple builds produce a similar number of edges (within
-    // some tolerance), rather than requiring exact equality.
+    // Instead, run each build inside its own single-threaded Rayon pool:
+    // insertions proceed in node order on one worker with a deterministic
+    // per-worker RNG, so two same-seed builds must produce identical
+    // harvests regardless of what else the process is running.
     let data: Vec<f32> = (0..num_nodes).map(|i| i as f32).collect();
-    let source1 = DummySource::new(data.clone());
-    let source2 = DummySource::new(data);
 
-    let params1 = HnswParams::new(max_connections, ef_construction)
-        .expect("params")
-        .with_rng_seed(seed);
-    let params2 = HnswParams::new(max_connections, ef_construction)
-        .expect("params")
-        .with_rng_seed(seed);
+    let (index1, edges1) =
+        build_with_edges_single_threaded(data.clone(), max_connections, ef_construction, seed);
+    let (index2, edges2) =
+        build_with_edges_single_threaded(data, max_connections, ef_construction, seed);
 
-    let (index1, edges1) = CpuHnsw::build_with_edges(&source1, params1).expect("build 1");
-    let (index2, edges2) = CpuHnsw::build_with_edges(&source2, params2).expect("build 2");
-
-    // Both builds should produce the same number of nodes
     assert_eq!(index1.len(), index2.len(), "index sizes must match");
-
-    // Edge counts should be within reasonable tolerance (±50%)
-    // since graph structure can vary with insertion order.
-    // Coverage instrumentation can significantly affect Rayon's thread scheduling,
-    // causing more variance in parallel insertion order and thus edge counts.
-    let min_edges = edges1.len().min(edges2.len());
-    let max_edges = edges1.len().max(edges2.len());
-    // Half the midpoint is a symmetric 50% tolerance. Basing the allowance on
-    // only the smaller sample made the accepted variance depend on build order.
-    let base_tolerance = min_edges.saturating_add(max_edges).div_ceil(4).max(2);
-    // Under coverage instrumentation, Rayon's thread scheduling is
-    // significantly perturbed, causing insertion order to vary more
-    // than in a standard build. The variance in harvested edge counts
-    // scales with max_connections × ef_construction: ef_construction
-    // bounds the candidate search width per insertion, and
-    // max_connections bounds the neighbourhood retained.
-    let coverage_tolerance = if is_coverage_job() {
-        max_connections * ef_construction
-    } else {
-        0
-    };
-    let tolerance = base_tolerance + coverage_tolerance;
-
-    assert!(
-        max_edges <= min_edges + tolerance,
-        "edge counts should be similar: {} vs {} (tolerance: {})",
+    assert_eq!(
         edges1.len(),
         edges2.len(),
-        tolerance
+        "same-seed single-threaded builds must harvest the same edge count",
+    );
+    assert_eq!(
+        edges1, edges2,
+        "same-seed single-threaded builds must harvest identical edges",
     );
 }
 
