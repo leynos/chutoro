@@ -45,7 +45,7 @@ jobs:
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
         if: env.CS_ACCESS_TOKEN != ''
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@927edd45ae77be4251a8a18ca9eb5613a2e32cbd
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@9f788dad94c848e3bbddfb90f9e80b6742b7390c
         with:
           format: lcov
           project-url: https://api.codescene.io/v2/projects/71838
