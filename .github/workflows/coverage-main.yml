@@ -22,6 +22,12 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       BUILD_PROFILE: debug
+      # Pin Rayon to a single worker so the HNSW build is deterministic during
+      # coverage. This baseline must be measured identically to the pull-request
+      # check in ci.yml (which sets the same variable); otherwise the ratchet
+      # would compare a deterministic PR measurement against a non-deterministic
+      # baseline. See ci.yml for the full rationale.
+      RAYON_NUM_THREADS: '1'
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
       - name: Setup Rust

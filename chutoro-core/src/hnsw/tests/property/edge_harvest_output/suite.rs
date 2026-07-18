@@ -240,6 +240,8 @@ mod tests {
     // ========================================================================
 
     proptest! {
+        #![proptest_config(suite_proptest_config(256))]
+
         #[test]
         fn harvested_output_handles_small_random_graph(seed in any::<u64>()) {
             let mut rng = rand::rngs::SmallRng::seed_from_u64(seed);

@@ -12,9 +12,12 @@ use std::sync::Arc;
 use proptest::prelude::*;
 
 use super::common::SessionTestSource;
+use crate::test_utils::suite_proptest_config;
 use crate::{CandidateEdge, ChutoroBuilder, ChutoroError, CpuHnsw, DataSource, HnswParams};
 
 proptest! {
+    #![proptest_config(suite_proptest_config(256))]
+
     /// Any non-zero `min_cluster_size` in `[1, 1000]` must yield a session whose
     /// `config().min_cluster_size()` equals the requested value.
     #[test]
