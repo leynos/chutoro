@@ -1,5 +1,8 @@
 # Chutoro
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](
+https://deepwiki.com/leynos/chutoro)
+
 *High-performance FISHDBC clustering in Rust.*
 
 Chutoro implements the [FISHDBC](https://doi.org/10.1016/j.ins.2019.06.065)
