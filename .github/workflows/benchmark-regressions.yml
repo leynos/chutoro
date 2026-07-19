@@ -77,7 +77,7 @@ jobs:
             2>&1 | tee /tmp/bench-smoke-hnsw-exact.log
       - name: Upload benchmark smoke logs
         if: failure()
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: benchmark-smoke-${{ matrix.bench }}
           path: |
@@ -154,7 +154,7 @@ jobs:
             2>&1 | tee "/tmp/bench-${{ matrix.bench }}-reference-save.log"
       - name: Upload baseline comparison logs
         if: always()
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: benchmark-baseline-${{ matrix.bench }}
           path: |
