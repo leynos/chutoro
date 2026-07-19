@@ -24,7 +24,7 @@ jobs:
       # the ratchet input reproducible and matched to the coverage-main baseline.
       RAYON_NUM_THREADS: '1'
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           # cs-coverage check diffs the PR against its merge base, so the
           # full history must be fetched for the merge base to be reachable.
@@ -107,7 +107,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - name: Install Verus
         run: scripts/install-verus.sh
         env:
