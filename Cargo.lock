@@ -147,7 +147,7 @@ dependencies = [
  "ahash",
  "arrow-buffer",
  "arrow-data",
- "arrow-schema",
+ "arrow-schema 57.3.1",
  "chrono",
  "half",
  "hashbrown 0.16.0",
@@ -178,7 +178,7 @@ dependencies = [
  "arrow-buffer",
  "arrow-data",
  "arrow-ord",
- "arrow-schema",
+ "arrow-schema 57.3.1",
  "arrow-select",
  "atoi",
  "base64",
@@ -196,7 +196,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fdd994a9d28e6365aa78e15da3f3950c0fdcea6b963a12fa1c391afb637b304"
 dependencies = [
  "arrow-buffer",
- "arrow-schema",
+ "arrow-schema 57.3.1",
  "half",
  "num-integer",
  "num-traits",
@@ -211,7 +211,7 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-data",
- "arrow-schema",
+ "arrow-schema 57.3.1",
  "arrow-select",
  "flatbuffers",
 ]
@@ -225,15 +225,21 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-data",
- "arrow-schema",
+ "arrow-schema 57.3.1",
  "arrow-select",
 ]
 
 [[package]]
 name = "arrow-schema"
-version = "57.3.0"
+version = "57.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8c872d36b7bf2a6a6a2b40de9156265f0242910791db366a2c17476ba8330d68"
+checksum = "e4cf0d4a6609679e03002167a61074a21d7b1ad9ea65e462b2c0a97f8a3b2bc6"
+
+[[package]]
+name = "arrow-schema"
+version = "59.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9e4969dc350d571766247143ab36a5187d095d3d3690970408bc630d47c69e5"
 
 [[package]]
 name = "arrow-select"
@@ -245,7 +251,7 @@ dependencies = [
  "arrow-array",
  "arrow-buffer",
  "arrow-data",
- "arrow-schema",
+ "arrow-schema 57.3.1",
  "num-traits",
 ]
 
@@ -446,7 +452,7 @@ name = "chutoro-benches"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
- "arrow-schema",
+ "arrow-schema 59.1.0",
  "camino",
  "cap-std",
  "chutoro-core",
@@ -468,7 +474,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-array",
- "arrow-schema",
+ "arrow-schema 59.1.0",
  "chutoro-core",
  "chutoro-providers-dense",
  "chutoro-providers-text",
@@ -512,7 +518,7 @@ name = "chutoro-providers-dense"
 version = "0.1.0"
 dependencies = [
  "arrow-array",
- "arrow-schema",
+ "arrow-schema 59.1.0",
  "bytes",
  "chutoro-core",
  "chutoro-test-support",
@@ -1678,7 +1684,7 @@ dependencies = [
  "arrow-cast",
  "arrow-data",
  "arrow-ipc",
- "arrow-schema",
+ "arrow-schema 57.3.1",
  "arrow-select",
  "base64",
  "brotli",
