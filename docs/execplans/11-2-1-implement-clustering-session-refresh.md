@@ -287,7 +287,7 @@ Hard invariants. Violation requires escalation, not a workaround.
   inherently non-blocking; the `self.labels = Arc::new(...)` publish is the
   atomic `Arc` swap design §12.6 already promises for a single writer. Roadmap
   `11.2.2`
-  formalises the multi-reader guarantees without changing this signature.
+  formalizes the multi-reader guarantees without changing this signature.
   Date/Author: 2026-07-22, planning.
 
 - Decision: `refresh` computes `node_count = self.point_count()` and requires
@@ -307,7 +307,7 @@ Hard invariants. Violation requires escalation, not a workaround.
 - Decision: `snapshot_version` is a per-refresh-call counter.
   Rationale: it advances once per `refresh` call, including empty and no-op
   refreshes. This is a call counter, not a content-change token; `11.2.2`
-  formalises the reader contract. Stated so consumers do not treat every
+  formalizes the reader contract. Stated so consumers do not treat every
   increment as a content change.
   Date/Author: 2026-07-22, planning (post expert review).
 
@@ -324,7 +324,7 @@ Hard invariants. Violation requires escalation, not a workaround.
 
 To be completed at delivery. Note: each refresh rebuilds and re-sorts the whole
 combined candidate set (O(E log E)) even for a no-op refresh; the cut-based
-incremental update sketched in design §12.5 is the future optimisation target
+incremental update sketched in design §12.5 is the future optimization target
 (out of scope here). Compare the shipped `refresh` against the three observable
 success criteria in Purpose.
 
@@ -528,7 +528,7 @@ M1 (pure domain layer):
      HierarchyConfig::new(min_cluster_size))` mapped via
      `map_cpu_hierarchy_error`.
    - Recovers the raw backbone: build a set of `(source, target, sequence)` keys
-     from `forest.edges()` (canonicalised), then filter the raw combined set to
+     from `forest.edges()` (canonicalized), then filter the raw combined set to
      those keys. Returns labels plus that raw backbone.
 3. Add pure-function unit tests in `refresh.rs` `#[cfg(test)]` for
    `mutual_reachability_weight` (commutativity in the two cores, `>= max` of the
