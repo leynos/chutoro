@@ -39,7 +39,7 @@ jobs:
       CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
     steps:
       - &checkout_step
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - &setup_rust_step
         name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@18bed1ca49a6de3d8882bd72635a32ae3f023d57
