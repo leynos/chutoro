@@ -13,7 +13,6 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       BUILD_PROFILE: debug
-      WHITAKER_INSTALLER_VERSION: '0.2.6'
       # Pin Rayon to a single worker so the HNSW build is deterministic during
       # coverage. `CpuHnsw::build` inserts nodes through `into_par_iter` and
       # `sample_level` draws from a per-worker RNG chosen by
@@ -50,14 +49,24 @@ jobs:
             **/*.md
             !**/target/**
             !**/dist/**
+      - name: Resolve latest Whitaker installer release
+        id: whitaker
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(gh api repos/leynos/whitaker/releases/latest --jq '.tag_name')"
+          version="${version#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
       - name: Cache Whitaker installer
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: |
             ~/.cargo/bin/whitaker-installer
             ~/.cache/cargo-binstall
-          key: whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ env.WHITAKER_INSTALLER_VERSION }}
+          key: whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ steps.whitaker.outputs.version }}
       - name: Install Whitaker
+        env:
+          WHITAKER_INSTALLER_VERSION: ${{ steps.whitaker.outputs.version }}
         run: |
           if ! command -v whitaker-installer >/dev/null 2>&1; then
             if cargo binstall --version >/dev/null 2>&1; then

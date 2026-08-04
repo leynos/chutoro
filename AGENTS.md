@@ -153,9 +153,10 @@ project:
     ```
 
     linting every target with all features enabled and denying all warnings.
-    Install the `whitaker` wrapper with
-    `cargo install --locked whitaker-installer --version 0.2.6` followed by
-    `whitaker-installer`. Per-lint configuration (including
+    The `whitaker` wrapper must already be on `PATH`; never install,
+    upgrade, or downgrade it from this repository — repository tooling and
+    agents must not modify the user's Whitaker installation. If the wrapper
+    is missing, ask the user to install it. Per-lint configuration (including
     `no_std_fs_operations` exclusions, each with a rationale comment) lives
     in the root `dylint.toml`. Use `make lint-clippy` for a Clippy-only pass
     where Whitaker is unavailable.
