@@ -15,6 +15,7 @@ mod common;
 mod concurrency;
 mod core_distance;
 mod core_distance_errors;
+mod core_distance_support;
 #[cfg(feature = "metrics")]
 mod metrics;
 mod properties;

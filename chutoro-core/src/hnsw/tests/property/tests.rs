@@ -186,23 +186,26 @@ proptest! {
 #[ignore]
 fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
     run_mutation_test(
-        TestCases::new(640),
+        TestCases::try_new(640).expect("test cases must be > 0"),
         ShrinkIterations::new(4096),
-        StackSize::new(32 * 1024 * 1024),
+        StackSize::try_new(32 * 1024 * 1024).expect("stack size must be >= minimum"),
     )
 }
 
 #[test]
 fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
-    run_search_test(search_cases(), search_shrink_iters())
+    run_search_test(
+        search_cases().expect("test cases must be > 0"),
+        search_shrink_iters(),
+    )
 }
 
 #[test]
 fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
     run_idempotency_test(
-        idempotency_cases(),
+        idempotency_cases().expect("test cases must be > 0"),
         idempotency_shrink_iters(),
-        StackSize::new(96 * 1024 * 1024),
+        StackSize::try_new(96 * 1024 * 1024).expect("stack size must be >= minimum"),
     )
 }
 
@@ -215,9 +218,10 @@ fn select_idempotency_cases_enforces_coverage_budget(
     #[case] configured_cases: u32,
     #[case] expected_cases: u32,
 ) {
+    let configured = TestCases::try_new(configured_cases).expect("test cases must be > 0");
     assert_eq!(
-        select_idempotency_cases(job, TestCases::new(configured_cases)),
-        TestCases::new(expected_cases)
+        select_idempotency_cases(job, configured),
+        TestCases::try_new(expected_cases)
     );
 }
 
@@ -243,9 +247,10 @@ fn select_mutation_cases_enforces_pr_budget(
     #[case] configured_cases: u32,
     #[case] expected_cases: u32,
 ) {
+    let configured = TestCases::try_new(configured_cases).expect("test cases must be > 0");
     assert_eq!(
-        select_mutation_cases(job, TestCases::new(configured_cases)),
-        TestCases::new(expected_cases)
+        select_mutation_cases(job, configured),
+        TestCases::try_new(expected_cases)
     );
 }
 
@@ -260,9 +265,10 @@ fn select_mutation_cases_preserves_forked_deep_run_budget(
     #[case] configured_cases: u32,
     #[case] expected_cases: u32,
 ) {
+    let configured = TestCases::try_new(configured_cases).expect("test cases must be > 0");
     assert_eq!(
-        select_mutation_cases_for_fork(job, TestCases::new(configured_cases), fork),
-        TestCases::new(expected_cases)
+        select_mutation_cases_for_fork(job, configured, fork),
+        TestCases::try_new(expected_cases)
     );
 }
 
@@ -288,9 +294,10 @@ fn select_search_cases_enforces_coverage_budget(
     #[case] configured_cases: u32,
     #[case] expected_cases: u32,
 ) {
+    let configured = TestCases::try_new(configured_cases).expect("test cases must be > 0");
     assert_eq!(
-        select_search_cases(job, TestCases::new(configured_cases)),
-        TestCases::new(expected_cases)
+        select_search_cases(job, configured),
+        TestCases::try_new(expected_cases)
     );
 }
 
@@ -310,9 +317,9 @@ fn select_search_shrink_iters_enforces_coverage_budget(
 #[test]
 fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
     run_mutation_test(
-        mutation_cases(),
+        mutation_cases().expect("test cases must be > 0"),
         mutation_shrink_iters(),
-        StackSize::new(96 * 1024 * 1024),
+        StackSize::try_new(96 * 1024 * 1024).expect("stack size must be >= minimum"),
     )
 }
 
@@ -326,7 +333,8 @@ fn bootstrap_uniform_fixture_remains_reachable() {
         rng_seed: 0,
     };
     let params = seed.build().expect("params must be valid");
-    let vectors = bootstrap_uniform_vectors();
+    let vectors =
+        bootstrap_uniform_vectors().expect("bootstrap uniform vectors fixture should parse");
     let source =
         DenseVectorSource::new("uniform-bootstrap", vectors).expect("fixture must be valid");
     let len = source.len();
@@ -358,7 +366,7 @@ fn bootstrap_uniform_fixture_remains_reachable() {
         .expect("bootstrap should preserve reachability");
 }
 
-fn bootstrap_uniform_vectors() -> Vec<Vec<f32>> {
+fn bootstrap_uniform_vectors() -> Result<Vec<Vec<f32>>, serde_json::Error> {
     super::fixtures::load_bootstrap_uniform_vectors_from_fixture()
 }
 

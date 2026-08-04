@@ -202,12 +202,13 @@ mod tests {
     /// Builds a dedicated Rayon thread pool with EDGE_HARVEST_TEST_RAYON_THREADS
     /// threads and runs the provided closure on it to limit edge-harvest test
     /// concurrency for improved stability. Test-only helper.
-    fn with_edge_harvest_pool<T: Send>(f: impl FnOnce() -> T + Send) -> T {
+    fn with_edge_harvest_pool<T: Send>(
+        f: impl FnOnce() -> T + Send,
+    ) -> Result<T, rayon::ThreadPoolBuildError> {
         let pool = ThreadPoolBuilder::new()
             .num_threads(EDGE_HARVEST_TEST_RAYON_THREADS)
-            .build()
-            .expect("edge harvest test pool should build");
-        pool.install(f)
+            .build()?;
+        Ok(pool.install(f))
     }
 
     fn make_fixture(vector_count: usize, seed: u64) -> HnswFixture {
@@ -243,7 +244,8 @@ mod tests {
         with_edge_harvest_pool(|| {
             run_edge_harvest_determinism_property(fixture, plan)
                 .expect("determinism property must hold");
-        });
+        })
+        .expect("edge harvest test pool should build");
     }
 
     #[rstest]
@@ -256,7 +258,8 @@ mod tests {
         let fixture = make_fixture(vector_count, seed);
         with_edge_harvest_pool(|| {
             run_edge_harvest_validity_property(fixture).expect("validity property must hold");
-        });
+        })
+        .expect("edge harvest test pool should build");
     }
 
     #[rstest]
@@ -268,7 +271,8 @@ mod tests {
         let fixture = make_fixture(vector_count, seed);
         with_edge_harvest_pool(|| {
             run_edge_harvest_coverage_property(fixture).expect("coverage property must hold");
-        });
+        })
+        .expect("edge harvest test pool should build");
     }
 
     #[rstest]
@@ -320,7 +324,8 @@ mod tests {
             run_edge_harvest_coverage_property(fixture.clone()).expect("coverage must hold");
             run_edge_harvest_determinism_property(fixture, EdgeHarvestPlan::new(2))
                 .expect("determinism must hold");
-        });
+        })
+        .expect("edge harvest test pool should build");
     }
 
     #[rstest]
@@ -333,7 +338,8 @@ mod tests {
                 .expect("determinism with 2 nodes");
             run_edge_harvest_validity_property(fixture.clone()).expect("validity with 2 nodes");
             run_edge_harvest_coverage_property(fixture).expect("coverage with 2 nodes");
-        });
+        })
+        .expect("edge harvest test pool should build");
     }
 
     #[rstest]
@@ -343,7 +349,8 @@ mod tests {
         let source = fixture.into_source().expect("source");
 
         let (_, edges) =
-            with_edge_harvest_pool(|| CpuHnsw::build_with_edges(&source, params).expect("build"));
+            with_edge_harvest_pool(|| CpuHnsw::build_with_edges(&source, params).expect("build"))
+                .expect("edge harvest test pool should build");
 
         // Verify edges are sorted: primary key is sequence, secondary is natural Ord.
         //

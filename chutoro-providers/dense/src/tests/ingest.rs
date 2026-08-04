@@ -13,8 +13,8 @@ use std::sync::Arc;
 
 #[rstest]
 fn matrix_provider_from_parquet() {
-    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
-    let bytes = write_parquet(array);
+    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).expect("fixture array must build");
+    let bytes = write_parquet(array).expect("parquet fixture must serialize");
     let provider = DenseMatrixProvider::try_from_parquet_reader("demo", bytes, "features")
         .expect("parquet load");
     assert_eq!(provider.len(), 2);
@@ -26,10 +26,11 @@ fn matrix_provider_from_parquet() {
 fn matrix_provider_from_parquet_multiple_batches() {
     let first_rows = vec![vec![1.0, 2.0, 3.0], vec![7.0, 8.0, 9.0]];
     let second_rows = vec![vec![4.0, 5.0, 6.0]];
-    let first = build_list_array(&first_rows, 3, false);
-    let second = build_list_array(&second_rows, 3, false);
-    let field = feature_field(3, false, false);
-    let bytes = write_parquet_two_batches(first, second, field);
+    let first = build_list_array(&first_rows, 3, false).expect("fixture array must build");
+    let second = build_list_array(&second_rows, 3, false).expect("fixture array must build");
+    let field = feature_field(3, false, false).expect("feature field must build");
+    let bytes =
+        write_parquet_two_batches(first, second, field).expect("parquet fixture must serialize");
     let provider = DenseMatrixProvider::try_from_parquet_reader("demo", bytes, "features")
         .expect("parquet load across batches");
     assert_eq!(provider.len(), 3);
@@ -42,8 +43,8 @@ fn matrix_provider_from_parquet_multiple_batches() {
 
 #[rstest]
 fn matrix_provider_parquet_missing_column() {
-    let array = build_array(&[[1.0, 2.0, 3.0]]);
-    let bytes = write_parquet(array);
+    let array = build_array(&[[1.0, 2.0, 3.0]]).expect("fixture array must build");
+    let bytes = write_parquet(array).expect("parquet fixture must serialize");
     let err = DenseMatrixProvider::try_from_parquet_reader("demo", bytes, "unknown")
         .expect_err("missing column");
     assert!(matches!(
@@ -82,8 +83,8 @@ fn matrix_provider_parquet_wrong_type() {
 fn matrix_provider_parquet_inconsistent_dimension() {
     let batch_one = {
         let rows = vec![vec![1.0, 2.0, 3.0]];
-        let array = build_list_array(&rows, 3, false);
-        let field = feature_field(3, false, false);
+        let array = build_list_array(&rows, 3, false).expect("fixture array must build");
+        let field = feature_field(3, false, false).expect("feature field must build");
         RecordBatch::try_new(
             Arc::new(Schema::new(vec![field])),
             vec![Arc::new(array) as _],
@@ -92,8 +93,8 @@ fn matrix_provider_parquet_inconsistent_dimension() {
     };
     let batch_two = {
         let rows = vec![vec![4.0, 5.0]];
-        let array = build_list_array(&rows, 2, false);
-        let field = feature_field(2, false, false);
+        let array = build_list_array(&rows, 2, false).expect("fixture array must build");
+        let field = feature_field(2, false, false).expect("feature field must build");
         RecordBatch::try_new(
             Arc::new(Schema::new(vec![field])),
             vec![Arc::new(array) as _],
@@ -119,9 +120,9 @@ fn matrix_provider_parquet_nullable_schema(
     #[case] child_nullable: bool,
 ) {
     let rows = vec![vec![1.0, 2.0, 3.0]];
-    let array = build_list_array(&rows, 3, child_nullable);
-    let field = feature_field(3, child_nullable, list_nullable);
-    let bytes = write_parquet_with_field(field, array);
+    let array = build_list_array(&rows, 3, child_nullable).expect("fixture array must build");
+    let field = feature_field(3, child_nullable, list_nullable).expect("feature field must build");
+    let bytes = write_parquet_with_field(field, array).expect("parquet fixture must serialize");
     let err = DenseMatrixProvider::try_from_parquet_reader("demo", bytes, "features")
         .expect_err("nullable schema must be rejected");
     assert!(matches!(
@@ -148,7 +149,7 @@ fn validate_field_rejects_negative_dimension() {
 #[test]
 fn copy_list_values_rejects_null_row() {
     let rows = vec![None, Some(vec![1.0, 2.0, 3.0])];
-    let array = build_list_array_with_row_nulls(&rows, 3);
+    let array = build_list_array_with_row_nulls(&rows, 3).expect("fixture array must build");
     let mut values = Vec::new();
     let err = copy_list_values(&array, 3, 0, &mut values).expect_err("null row must be rejected");
     assert!(matches!(
@@ -163,7 +164,7 @@ fn copy_list_values_rejects_null_value() {
         vec![Some(1.0), Some(2.0), Some(3.0)],
         vec![Some(4.0), None, Some(6.0)],
     ];
-    let array = build_list_array_with_value_nulls(&rows, 3);
+    let array = build_list_array_with_value_nulls(&rows, 3).expect("fixture array must build");
     let mut values = Vec::new();
     let err = copy_list_values(&array, 3, 0, &mut values).expect_err("null value must be rejected");
     assert!(matches!(
@@ -178,7 +179,7 @@ fn copy_list_values_rejects_null_value() {
 #[test]
 fn copy_list_values_rejects_incorrect_length() {
     let rows = vec![vec![1.0, 2.0]];
-    let array = build_list_array(&rows, 2, false);
+    let array = build_list_array(&rows, 2, false).expect("fixture array must build");
     let mut values = Vec::new();
     let err = copy_list_values(&array, 3, 0, &mut values)
         .expect_err("incorrect lengths must be rejected");

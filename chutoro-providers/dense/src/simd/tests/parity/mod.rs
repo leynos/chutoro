@@ -62,14 +62,16 @@ pub(super) fn proptest_config(default_cases: u32) -> ProptestConfig {
 /// Backends come from [`dispatch::enabled_backends`], then
 /// [`kernels::pairwise_entry`] resolves each compiled-and-runtime-available
 /// backend to its pairwise entry point before the pairs are collected. Missing
-/// entry points are programming errors and panic instead of being skipped.
-fn pairwise_entries() -> Vec<(dispatch::EuclideanBackend, PairwiseEntry)> {
+/// entry points are programming errors, reported as `Err` so the calling test
+/// fails instead of skipping the backend.
+fn pairwise_entries() -> Result<Vec<(dispatch::EuclideanBackend, PairwiseEntry)>, String> {
     dispatch::enabled_backends()
         .into_iter()
         .map(|backend| {
-            let entry = kernels::pairwise_entry(backend)
-                .expect("enabled backend must have a pairwise kernel entrypoint");
-            (backend, entry)
+            let entry = kernels::pairwise_entry(backend).ok_or_else(|| {
+                format!("enabled backend {backend:?} must have a pairwise kernel entrypoint")
+            })?;
+            Ok((backend, entry))
         })
         .collect()
 }
@@ -79,15 +81,17 @@ fn pairwise_entries() -> Vec<(dispatch::EuclideanBackend, PairwiseEntry)> {
 /// Backends come from [`dispatch::enabled_backends`], then
 /// [`kernels::query_points_entry`] resolves each
 /// compiled-and-runtime-available backend to its query-to-points entry point
-/// before the pairs are collected. Missing entry points are programming errors
-/// and panic instead of being skipped.
-fn query_points_entries() -> Vec<(dispatch::EuclideanBackend, QueryPointsEntry)> {
+/// before the pairs are collected. Missing entry points are programming
+/// errors, reported as `Err` so the calling test fails instead of skipping
+/// the backend.
+fn query_points_entries() -> Result<Vec<(dispatch::EuclideanBackend, QueryPointsEntry)>, String> {
     dispatch::enabled_backends()
         .into_iter()
         .map(|backend| {
-            let entry = kernels::query_points_entry(backend)
-                .expect("enabled backend must have a query-points kernel entrypoint");
-            (backend, entry)
+            let entry = kernels::query_points_entry(backend).ok_or_else(|| {
+                format!("enabled backend {backend:?} must have a query-points kernel entrypoint")
+            })?;
+            Ok((backend, entry))
         })
         .collect()
 }

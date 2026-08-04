@@ -1,45 +1,113 @@
 //! Test support utilities for constructing Arrow arrays, Parquet data, and DenseMatrixProvider
 //! instances from RecordBatches. Provides helpers for building FixedSizeListArray fixtures with
 //! various null-handling patterns (row nulls, value nulls) and for serializing arrays to Parquet
-//! format for ingest testing.
+//! format for ingest testing. Helpers are fallible so tests decide how failures are reported.
 
 use super::{DenseMatrixProvider, DenseMatrixProviderError};
 use crate::ingest::{append_fixed_size_list_values, validate_fixed_size_list_field};
 use arrow_array::builder::BooleanBufferBuilder;
 use arrow_array::{Array, ArrayRef, FixedSizeListArray, Float32Array, RecordBatch};
-use arrow_schema::{DataType, Field, Schema};
+use arrow_schema::{ArrowError, DataType, Field, Schema};
 use bytes::Bytes;
 use parquet::arrow::arrow_writer::ArrowWriter;
-use std::{convert::TryFrom, iter, sync::Arc};
+use parquet::errors::ParquetError;
+use std::{convert::TryFrom, iter, num::TryFromIntError, sync::Arc};
 
-pub(crate) fn build_array(rows: &[[f32; 3]]) -> FixedSizeListArray {
+/// Failure modes of the Arrow and Parquet fixture builders.
+///
+/// Naming each source keeps the helpers self-documenting: a malformed fixture
+/// (`RowLength`, `Dimension`) is distinguishable from an Arrow or Parquet
+/// failure raised while assembling the fixture.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum FixtureError {
+    /// A fixture row did not contain exactly `expected` values.
+    #[error("row {row} has {actual} values but the fixture dimension is {expected}")]
+    RowLength {
+        /// Zero-based index of the offending row.
+        row: usize,
+        /// Fixture dimension every row must match.
+        expected: usize,
+        /// Number of values the row actually contained.
+        actual: usize,
+    },
+    /// The dimension did not fit Arrow's `i32` fixed-size-list width.
+    #[error("fixture dimension does not fit an i32 list width")]
+    Dimension(#[from] TryFromIntError),
+    /// Arrow rejected the record batch or schema.
+    #[error(transparent)]
+    Arrow(#[from] ArrowError),
+    /// Parquet serialization failed.
+    #[error(transparent)]
+    Parquet(#[from] ParquetError),
+}
+
+/// Checks that a fixture row holds exactly `dimension` values.
+///
+/// # Errors
+/// Returns [`FixtureError::RowLength`] when `actual` differs from `dimension`.
+fn ensure_row_len(row: usize, actual: usize, dimension: usize) -> Result<(), FixtureError> {
+    if actual == dimension {
+        return Ok(());
+    }
+    Err(FixtureError::RowLength {
+        row,
+        expected: dimension,
+        actual,
+    })
+}
+
+/// Builds a non-nullable three-dimensional fixed-size list array.
+///
+/// Convenience wrapper over [`build_list_array`] for the common three-feature
+/// fixture shape; every row supplies exactly three values by construction.
+///
+/// # Errors
+/// Propagates any [`FixtureError`] raised by [`build_list_array`].
+pub(crate) fn build_array(rows: &[[f32; 3]]) -> Result<FixedSizeListArray, FixtureError> {
     let rows = rows.iter().map(|row| row.to_vec()).collect::<Vec<_>>();
     build_list_array(&rows, 3, false)
 }
 
+/// Builds a fixed-size list array from dense rows with no nulls.
+///
+/// Every row must contain exactly `dimension` values. `child_nullable` sets the
+/// nullability flag on the list's item field, letting tests exercise schema
+/// validation independently of the actual null buffer.
+///
+/// # Errors
+/// Returns [`FixtureError::RowLength`] if any row length differs from
+/// `dimension`, or [`FixtureError::Dimension`] if `dimension` exceeds `i32`.
 pub(crate) fn build_list_array(
     rows: &[Vec<f32>],
     dimension: usize,
     child_nullable: bool,
-) -> FixedSizeListArray {
-    assert!(rows.iter().all(|row| row.len() == dimension));
+) -> Result<FixedSizeListArray, FixtureError> {
+    for (index, row) in rows.iter().enumerate() {
+        ensure_row_len(index, row.len(), dimension)?;
+    }
     let values = Float32Array::from_iter_values(rows.iter().flatten().copied());
     fixed_size_list_from_values(values, dimension, child_nullable)
 }
 
+/// Builds a fixed-size list array where whole rows may be null.
+///
+/// `None` rows are recorded in the validity buffer and back-filled with zeroed
+/// values so the child array keeps its fixed stride; `Some` rows must contain
+/// exactly `dimension` values.
+///
+/// # Errors
+/// Returns [`FixtureError::RowLength`] if a present row's length differs from
+/// `dimension`, or [`FixtureError::Dimension`] if `dimension` exceeds `i32`.
 pub(crate) fn build_list_array_with_row_nulls(
     rows: &[Option<Vec<f32>>],
     dimension: usize,
-) -> FixedSizeListArray {
-    assert!(
-        rows.iter()
-            .all(|row| { row.as_ref().is_none_or(|values| values.len() == dimension) })
-    );
+) -> Result<FixedSizeListArray, FixtureError> {
     let mut flat = Vec::with_capacity(rows.len() * dimension);
     let mut validity = BooleanBufferBuilder::new(rows.len());
-    for row in rows {
+    for (index, row) in rows.iter().enumerate() {
         match row {
             Some(values) => {
+                ensure_row_len(index, values.len(), dimension)?;
                 validity.append(true);
                 flat.extend_from_slice(values);
             }
@@ -50,32 +118,54 @@ pub(crate) fn build_list_array_with_row_nulls(
         }
     }
     let values = Float32Array::from(flat);
-    FixedSizeListArray::new(
+    Ok(FixedSizeListArray::new(
         Arc::new(Field::new("item", DataType::Float32, false)),
-        i32::try_from(dimension).expect("dimension fits in i32"),
+        i32::try_from(dimension)?,
         Arc::new(values) as ArrayRef,
         Some(validity.finish().into()),
-    )
+    ))
 }
 
+/// Builds a fixed-size list array where individual values may be null.
+///
+/// Every row must contain exactly `dimension` entries, each of which may be
+/// `None`; the resulting list marks its item field nullable.
+///
+/// # Errors
+/// Returns [`FixtureError::RowLength`] if any row length differs from
+/// `dimension`, or [`FixtureError::Dimension`] if `dimension` exceeds `i32`.
 pub(crate) fn build_list_array_with_value_nulls(
     rows: &[Vec<Option<f32>>],
     dimension: usize,
-) -> FixedSizeListArray {
-    assert!(rows.iter().all(|row| row.len() == dimension));
+) -> Result<FixedSizeListArray, FixtureError> {
+    for (index, row) in rows.iter().enumerate() {
+        ensure_row_len(index, row.len(), dimension)?;
+    }
     let values = Float32Array::from_iter(rows.iter().flatten().copied());
     fixed_size_list_from_values(values, dimension, true)
 }
 
-pub(crate) fn feature_field(dimension: usize, child_nullable: bool, list_nullable: bool) -> Field {
-    Field::new(
+/// Builds the `features` schema field describing a fixed-size list column.
+///
+/// `child_nullable` and `list_nullable` control the item and list nullability
+/// flags independently so tests can construct schemas that a provider should
+/// accept or reject.
+///
+/// # Errors
+/// Returns [`FixtureError::Dimension`] if `dimension` exceeds `i32`.
+pub(crate) fn feature_field(
+    dimension: usize,
+    child_nullable: bool,
+    list_nullable: bool,
+) -> Result<Field, FixtureError> {
+    Ok(Field::new(
         "features",
         DataType::FixedSizeList(
             Arc::new(Field::new("item", DataType::Float32, child_nullable)),
-            i32::try_from(dimension).expect("dimension fits in i32"),
+            i32::try_from(dimension)?,
         ),
         list_nullable,
-    )
+    ))
 }
 
 pub(crate) fn try_from_record_batches(
@@ -125,53 +215,80 @@ pub(crate) fn try_from_record_batches(
     ))
 }
 
-pub(crate) fn write_parquet(array: FixedSizeListArray) -> Bytes {
-    let field = feature_field(3, false, false);
+/// Serializes a three-dimensional array to an in-memory Parquet file.
+///
+/// Uses the default non-nullable `features` field; call
+/// [`write_parquet_with_field`] to control the schema.
+///
+/// # Errors
+/// Returns [`FixtureError::Arrow`] if the array does not match the schema, or
+/// [`FixtureError::Parquet`] if serialization fails.
+pub(crate) fn write_parquet(array: FixedSizeListArray) -> Result<Bytes, FixtureError> {
+    let field = feature_field(3, false, false)?;
     write_parquet_with_field(field, array)
 }
 
-pub(crate) fn write_parquet_with_field(field: Field, array: FixedSizeListArray) -> Bytes {
-    let schema = Arc::new(Schema::new(vec![field.clone()]));
-    let batch =
-        RecordBatch::try_new(schema.clone(), vec![Arc::new(array) as ArrayRef]).expect("batch");
+/// Serializes a single array to an in-memory Parquet file under `field`.
+///
+/// `array` must match `field`'s declared type and nullability.
+///
+/// # Errors
+/// Returns [`FixtureError::Arrow`] if the array does not match the schema, or
+/// [`FixtureError::Parquet`] if serialization fails.
+pub(crate) fn write_parquet_with_field(
+    field: Field,
+    array: FixedSizeListArray,
+) -> Result<Bytes, FixtureError> {
+    let schema = Arc::new(Schema::new(vec![field]));
+    let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(array) as ArrayRef])?;
     let mut buffer = Vec::new();
     {
-        let mut writer = ArrowWriter::try_new(&mut buffer, schema, None).expect("writer");
-        writer.write(&batch).expect("write");
-        writer.close().expect("close");
+        let mut writer = ArrowWriter::try_new(&mut buffer, schema, None)?;
+        writer.write(&batch)?;
+        writer.close()?;
     }
-    Bytes::from(buffer)
+    Ok(Bytes::from(buffer))
 }
 
+/// Serializes two arrays as separate row groups of one Parquet file.
+///
+/// Both arrays share `field`, exercising multi-batch ingest paths. Each must
+/// match `field`'s declared type and nullability.
+///
+/// # Errors
+/// Returns [`FixtureError::Arrow`] if either array does not match the schema,
+/// or [`FixtureError::Parquet`] if serialization fails.
 pub(crate) fn write_parquet_two_batches(
     first: FixedSizeListArray,
     second: FixedSizeListArray,
     field: Field,
-) -> Bytes {
+) -> Result<Bytes, FixtureError> {
     let schema = Arc::new(Schema::new(vec![field]));
-    let batch_one =
-        RecordBatch::try_new(schema.clone(), vec![Arc::new(first) as ArrayRef]).expect("batch one");
-    let batch_two = RecordBatch::try_new(schema.clone(), vec![Arc::new(second) as ArrayRef])
-        .expect("batch two");
+    let batch_one = RecordBatch::try_new(schema.clone(), vec![Arc::new(first) as ArrayRef])?;
+    let batch_two = RecordBatch::try_new(schema.clone(), vec![Arc::new(second) as ArrayRef])?;
     let mut buffer = Vec::new();
     {
-        let mut writer = ArrowWriter::try_new(&mut buffer, schema, None).expect("writer");
-        writer.write(&batch_one).expect("write batch one");
-        writer.write(&batch_two).expect("write batch two");
-        writer.close().expect("close");
+        let mut writer = ArrowWriter::try_new(&mut buffer, schema, None)?;
+        writer.write(&batch_one)?;
+        writer.write(&batch_two)?;
+        writer.close()?;
     }
-    Bytes::from(buffer)
+    Ok(Bytes::from(buffer))
 }
 
+/// Wraps a flat value array as a fixed-size list with the given stride.
+///
+/// # Errors
+/// Returns [`FixtureError::Dimension`] if `dimension` exceeds `i32`.
 fn fixed_size_list_from_values(
     values: Float32Array,
     dimension: usize,
     child_nullable: bool,
-) -> FixedSizeListArray {
-    FixedSizeListArray::new(
+) -> Result<FixedSizeListArray, FixtureError> {
+    Ok(FixedSizeListArray::new(
         Arc::new(Field::new("item", DataType::Float32, child_nullable)),
-        i32::try_from(dimension).expect("dimension fits in i32"),
+        i32::try_from(dimension)?,
         Arc::new(values) as ArrayRef,
         None,
-    )
+    ))
 }
