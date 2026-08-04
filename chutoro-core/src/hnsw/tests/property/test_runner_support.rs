@@ -1,6 +1,7 @@
 //! Shared proptest runner and coverage-budget helpers for HNSW property tests.
 
 mod budget_selection;
+mod budget_types;
 mod runner_wrappers;
 
 pub(super) use budget_selection::{

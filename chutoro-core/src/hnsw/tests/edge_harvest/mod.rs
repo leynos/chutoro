@@ -232,17 +232,11 @@ fn build_with_edges_single_threaded(
     max_connections: usize,
     ef_construction: usize,
     seed: u64,
-) -> (CpuHnsw, EdgeHarvest) {
+) -> Result<(CpuHnsw, EdgeHarvest), Box<dyn Error>> {
     let source = DummySource::new(data);
-    let params = HnswParams::new(max_connections, ef_construction)
-        .expect("params")
-        .with_rng_seed(seed);
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
-        .build()
-        .expect("single-threaded Rayon pool");
-    pool.install(|| CpuHnsw::build_with_edges(&source, params))
-        .expect("build must succeed")
+    let params = HnswParams::new(max_connections, ef_construction)?.with_rng_seed(seed);
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build()?;
+    Ok(pool.install(|| CpuHnsw::build_with_edges(&source, params))?)
 }
 
 #[rstest]
@@ -267,9 +261,11 @@ fn build_with_edges_has_consistent_count(
     let data: Vec<f32> = (0..num_nodes).map(|i| i as f32).collect();
 
     let (index1, edges1) =
-        build_with_edges_single_threaded(data.clone(), max_connections, ef_construction, seed);
+        build_with_edges_single_threaded(data.clone(), max_connections, ef_construction, seed)
+            .expect("build must succeed");
     let (index2, edges2) =
-        build_with_edges_single_threaded(data, max_connections, ef_construction, seed);
+        build_with_edges_single_threaded(data, max_connections, ef_construction, seed)
+            .expect("build must succeed");
 
     assert_eq!(index1.len(), index2.len(), "index sizes must match");
     assert_eq!(

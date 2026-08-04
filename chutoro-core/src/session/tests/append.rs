@@ -14,7 +14,7 @@ use crate::{ChutoroBuilder, ChutoroError, DataSource, DataSourceErrorCode, HnswP
 
 #[rstest]
 fn append_empty_slice_is_noop(session_builder: ChutoroBuilder) {
-    let (mut session, _) = make_session(session_builder, 4);
+    let (mut session, _) = make_session(session_builder, 4).expect("session must build");
 
     session.append(&[]).expect("empty append must succeed");
 
@@ -25,7 +25,7 @@ fn append_empty_slice_is_noop(session_builder: ChutoroBuilder) {
 
 #[rstest]
 fn append_single_index_increases_point_count(session_builder: ChutoroBuilder) {
-    let (mut session, _) = make_session(session_builder, 4);
+    let (mut session, _) = make_session(session_builder, 4).expect("session must build");
 
     session.append(&[0]).expect("first append must succeed");
 
@@ -40,9 +40,11 @@ fn append_batch_accumulates_direct_harvested_edges(session_builder: ChutoroBuild
         .expect("HNSW params must be valid")
         .with_rng_seed(41);
     let (mut session, source) =
-        make_session(session_builder.with_hnsw_params(hnsw_params.clone()), 6);
+        make_session(session_builder.with_hnsw_params(hnsw_params.clone()), 6)
+            .expect("session must build");
     let indices = [0, 1, 2, 3];
-    let expected_edges = harvest_expected_edges(hnsw_params, source.as_ref(), &indices);
+    let expected_edges = harvest_expected_edges(hnsw_params, source.as_ref(), &indices)
+        .expect("direct harvest must succeed");
 
     session.append(&indices).expect("batch append must succeed");
 
@@ -55,7 +57,7 @@ fn append_batch_accumulates_direct_harvested_edges(session_builder: ChutoroBuild
 fn append_delegates_duplicate_rejection_to_hnsw(session_builder: ChutoroBuilder) {
     // Duplicate detection is delegated to CpuHnsw::insert_harvesting, which
     // returns HnswError::DuplicateIndex, mapped here to ChutoroError::CpuHnswFailure.
-    let (mut session, _) = make_session(session_builder, 2);
+    let (mut session, _) = make_session(session_builder, 2).expect("session must build");
 
     session.append(&[0]).expect("first append must succeed");
     let err = session
@@ -71,7 +73,7 @@ fn append_delegates_duplicate_rejection_to_hnsw(session_builder: ChutoroBuilder)
 
 #[rstest]
 fn append_rejects_out_of_bounds_index(session_builder: ChutoroBuilder) {
-    let (mut session, source) = make_session(session_builder, 2);
+    let (mut session, source) = make_session(session_builder, 2).expect("session must build");
 
     let err = session
         .append(&[source.len()])
@@ -98,10 +100,12 @@ fn append_failure_preserves_prior_successes(session_builder: ChutoroBuilder) {
         .expect("HNSW params must be valid")
         .with_rng_seed(41);
     let (mut session, source) =
-        make_session(session_builder.with_hnsw_params(hnsw_params.clone()), 4);
+        make_session(session_builder.with_hnsw_params(hnsw_params.clone()), 4)
+            .expect("session must build");
 
     // Build the expected edge set using the direct index as a baseline.
-    let expected_edges = harvest_expected_edges(hnsw_params, source.as_ref(), &[0, 1]);
+    let expected_edges = harvest_expected_edges(hnsw_params, source.as_ref(), &[0, 1])
+        .expect("direct harvest must succeed");
     // expected_edges is non-empty at this point because inserting index 1
     // into a graph that already contains index 0 harvests their mutual edge.
     assert!(
@@ -136,7 +140,7 @@ fn append_failure_preserves_prior_successes(session_builder: ChutoroBuilder) {
 
 #[rstest]
 fn append_does_not_publish_label_snapshot(session_builder: ChutoroBuilder) {
-    let (mut session, _) = make_session(session_builder, 4);
+    let (mut session, _) = make_session(session_builder, 4).expect("session must build");
 
     session.append(&[0, 1, 2]).expect("append must succeed");
 

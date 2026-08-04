@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 #[rstest]
 fn matrix_provider_from_fixed_size_list() {
-    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).expect("fixture array must build");
     let provider =
         DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
     assert_eq!(provider.len(), 2);
@@ -27,7 +27,7 @@ fn matrix_provider_from_fixed_size_list() {
 
 #[rstest]
 fn matrix_provider_distance_batch() {
-    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).expect("fixture array must build");
     let provider =
         DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
     let pairs = vec![(0, 1), (1, 0)];
@@ -189,7 +189,7 @@ fn matrix_provider_distance_batch_preserves_output_on_error() {
 
 #[rstest]
 fn matrix_provider_distance_out_of_bounds() {
-    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).expect("fixture array must build");
     let provider =
         DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
     let err = provider
@@ -203,7 +203,7 @@ fn matrix_provider_distance_out_of_bounds() {
 
 #[rstest]
 fn matrix_provider_distance_batch_length_mismatch() {
-    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]);
+    let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).expect("fixture array must build");
     let provider =
         DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
     let pairs = vec![(0, 1)];
@@ -222,7 +222,7 @@ fn matrix_provider_distance_batch_length_mismatch() {
 
 #[rstest]
 fn matrix_provider_distance_batch_empty() {
-    let array = build_array(&[[1.0, 2.0, 3.0]]);
+    let array = build_array(&[[1.0, 2.0, 3.0]]).expect("fixture array must build");
     let provider =
         DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
     let pairs: Vec<(usize, usize)> = Vec::new();
@@ -263,7 +263,7 @@ fn scalar_distance(left: &[f32], right: &[f32]) -> f32 {
 #[rstest]
 fn matrix_provider_rejects_null_rows() {
     let rows = vec![Some(vec![1.0, 2.0]), None];
-    let array = build_list_array_with_row_nulls(&rows, 2);
+    let array = build_list_array_with_row_nulls(&rows, 2).expect("fixture array must build");
     let err = DenseMatrixProvider::try_from_fixed_size_list("demo", &array)
         .expect_err("null rows must be rejected");
     assert!(matches!(err, DenseMatrixProviderError::NullRow { row: 1 }));
@@ -272,7 +272,7 @@ fn matrix_provider_rejects_null_rows() {
 #[rstest]
 fn matrix_provider_rejects_null_values() {
     let rows = vec![vec![Some(1.0), Some(2.0)], vec![Some(3.0), None]];
-    let array = build_list_array_with_value_nulls(&rows, 2);
+    let array = build_list_array_with_value_nulls(&rows, 2).expect("fixture array must build");
     let err = DenseMatrixProvider::try_from_fixed_size_list("demo", &array)
         .expect_err("null values must be rejected");
     assert!(matches!(

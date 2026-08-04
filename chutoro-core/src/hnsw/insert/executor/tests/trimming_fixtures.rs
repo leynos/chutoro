@@ -4,6 +4,8 @@
 //! exercise the insertion executor's trimming and reciprocity restoration
 //! logic.
 
+use std::error::Error;
+
 use super::*;
 use crate::hnsw::{
     error::HnswError,
@@ -17,7 +19,7 @@ pub(super) fn apply_insertion_with_trim(
     params: &HnswParams,
     new_node_id: usize,
     trimmed_neighbours: Vec<usize>,
-) -> Result<(), HnswError> {
+) -> Result<(), Box<dyn Error>> {
     let reserve_id = new_node_id.saturating_add(1);
     let mut executor = InsertionExecutor::new(graph);
     let plan = InsertionPlan {
@@ -44,7 +46,7 @@ pub(super) fn apply_insertion_with_trim(
         1,
         "only the entry node should require trim"
     );
-    let job = trim_jobs.into_iter().next().expect("trim job expected");
+    let job = trim_jobs.into_iter().next().ok_or("trim job expected")?;
     assert_eq!(job.node, 0, "trim must target the entry node");
     let trim_result = TrimResult {
         node: job.node,
@@ -52,7 +54,7 @@ pub(super) fn apply_insertion_with_trim(
         neighbours: trimmed_neighbours,
     };
 
-    executor.commit(prepared, vec![trim_result])
+    Ok(executor.commit(prepared, vec![trim_result])?)
 }
 
 pub(super) fn verify_post_trim_reciprocity(
@@ -60,9 +62,9 @@ pub(super) fn verify_post_trim_reciprocity(
     params: &HnswParams,
     new_node_id: usize,
     evicted: usize,
-) {
+) -> Result<(), Box<dyn Error>> {
     let connection_limit = connection_limit_for_level(0, params.max_connections());
-    let entry = graph.node(0).expect("entry node available");
+    let entry = graph.node(0).ok_or("entry node available")?;
     let entry_neighbours = entry.neighbours(0);
     assert!(
         entry_neighbours.contains(&new_node_id),
@@ -79,7 +81,7 @@ pub(super) fn verify_post_trim_reciprocity(
 
     let new_node = graph
         .node(new_node_id)
-        .expect("new node must be attached after commit");
+        .ok_or("new node must be attached after commit")?;
     assert!(
         new_node.neighbours(0).contains(&0),
         "new node should have a reciprocal edge to the entry node",
@@ -91,6 +93,7 @@ pub(super) fn verify_post_trim_reciprocity(
             "forward edge from evicted neighbour should be removed",
         );
     }
+    Ok(())
 }
 
 pub(super) fn build_trimming_test_graph(
@@ -98,7 +101,7 @@ pub(super) fn build_trimming_test_graph(
     trimmed_neighbours: &[usize],
     reserve_id: usize,
     new_node_id: usize,
-) -> Result<Graph, HnswError> {
+) -> Result<Graph, Box<dyn Error>> {
     let capacity = reserve_id.saturating_add(1);
     let mut graph = Graph::with_capacity(params.clone(), capacity);
     graph.insert_first(NodeContext {
@@ -114,7 +117,7 @@ pub(super) fn build_trimming_test_graph(
         sequence: (trimmed_neighbours.len() + 1) as u64,
     })?;
 
-    set_entry_neighbours(&mut graph, trimmed_neighbours);
+    set_entry_neighbours(&mut graph, trimmed_neighbours)?;
 
     // new_node_id reserved for the insertion under test.
     let _ = new_node_id;
@@ -142,8 +145,8 @@ pub(super) fn setup_reciprocal_edges_with_reserve(
     trimmed_neighbours: &[usize],
     evicted: usize,
     reserve_id: usize,
-) {
-    set_entry_neighbours(graph, trimmed_neighbours);
+) -> Result<(), Box<dyn Error>> {
+    set_entry_neighbours(graph, trimmed_neighbours)?;
 
     for &neighbour in trimmed_neighbours {
         link_if_absent(graph, neighbour, 0);
@@ -151,12 +154,14 @@ pub(super) fn setup_reciprocal_edges_with_reserve(
 
     link_if_absent(graph, evicted, reserve_id);
     link_if_absent(graph, reserve_id, evicted);
+    Ok(())
 }
 
-fn set_entry_neighbours(graph: &mut Graph, neighbours: &[usize]) {
-    let entry_neighbours = graph.node_mut(0).expect("entry present").neighbours_mut(0);
+fn set_entry_neighbours(graph: &mut Graph, neighbours: &[usize]) -> Result<(), Box<dyn Error>> {
+    let entry_neighbours = graph.node_mut(0).ok_or("entry present")?.neighbours_mut(0);
     entry_neighbours.clear();
     entry_neighbours.extend(neighbours.iter().copied());
+    Ok(())
 }
 
 fn link_if_absent(graph: &mut Graph, origin: usize, target: usize) {

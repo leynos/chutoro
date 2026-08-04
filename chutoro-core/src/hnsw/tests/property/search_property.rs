@@ -48,7 +48,8 @@ pub(super) fn run_search_correctness_property(
     let fanout_cap = fixture.params.max_connections.max(2);
     let max_k = len.min(16).min(fanout_cap);
     let k = ((usize::from(k_hint) % max_k).max(1)).min(len);
-    let ef = NonZeroUsize::new(len.max(k * 2).max(16)).expect("ef must be non-zero");
+    let ef = NonZeroUsize::new(len.max(k * 2).max(16))
+        .ok_or_else(|| TestCaseError::fail("ef must be non-zero"))?;
 
     let index = CpuHnsw::build(&source, params)
         .map_err(|err| TestCaseError::fail(format!("build failed: {err}")))?;

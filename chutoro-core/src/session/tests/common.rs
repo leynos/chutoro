@@ -11,8 +11,8 @@ use std::sync::Arc;
 use rstest::fixture;
 
 use crate::{
-    CandidateEdge, ChutoroBuilder, ClusteringSession, CpuHnsw, DataSource, DataSourceError,
-    HnswParams, MetricDescriptor,
+    CandidateEdge, ChutoroBuilder, ChutoroError, ClusteringSession, CpuHnsw, DataSource,
+    DataSourceError, HnswError, HnswParams, MetricDescriptor,
 };
 
 #[derive(Clone, Debug)]
@@ -61,30 +61,27 @@ pub(super) fn session_builder() -> ChutoroBuilder {
     ChutoroBuilder::new()
 }
 
+pub(super) type SessionAndSource = (ClusteringSession<SessionTestSource>, Arc<SessionTestSource>);
+
 pub(super) fn make_session(
     builder: ChutoroBuilder,
     source_len: usize,
-) -> (ClusteringSession<SessionTestSource>, Arc<SessionTestSource>) {
+) -> Result<SessionAndSource, ChutoroError> {
     let source = Arc::new(SessionTestSource::with_len(source_len));
-    let session = builder
-        .build_session(Arc::clone(&source))
-        .expect("session must build");
-    (session, source)
+    let session = builder.build_session(Arc::clone(&source))?;
+    Ok((session, source))
 }
 
 pub(super) fn harvest_expected_edges(
     hnsw_params: HnswParams,
     source: &SessionTestSource,
     indices: &[usize],
-) -> Vec<CandidateEdge> {
-    let direct_index = CpuHnsw::with_capacity(hnsw_params, source.len().max(1))
-        .expect("direct index must allocate");
+) -> Result<Vec<CandidateEdge>, HnswError> {
+    let direct_index = CpuHnsw::with_capacity(hnsw_params, source.len().max(1))?;
     let mut expected_edges = Vec::new();
     for &index in indices {
-        let edges = direct_index
-            .insert_harvesting(index, source)
-            .expect("direct insert must succeed");
+        let edges = direct_index.insert_harvesting(index, source)?;
         expected_edges.extend(edges);
     }
-    expected_edges
+    Ok(expected_edges)
 }

@@ -1,7 +1,7 @@
 //! Test support utilities for constructing Arrow arrays, Parquet data, and DenseMatrixProvider
 //! instances from RecordBatches. Provides helpers for building FixedSizeListArray fixtures with
 //! various null-handling patterns (row nulls, value nulls) and for serializing arrays to Parquet
-//! format for ingest testing.
+//! format for ingest testing. Helpers are fallible so tests decide how failures are reported.
 
 use super::{DenseMatrixProvider, DenseMatrixProviderError};
 use crate::ingest::{append_fixed_size_list_values, validate_fixed_size_list_field};
@@ -10,9 +10,9 @@ use arrow_array::{Array, ArrayRef, FixedSizeListArray, Float32Array, RecordBatch
 use arrow_schema::{DataType, Field, Schema};
 use bytes::Bytes;
 use parquet::arrow::arrow_writer::ArrowWriter;
-use std::{convert::TryFrom, iter, sync::Arc};
+use std::{convert::TryFrom, error::Error, iter, sync::Arc};
 
-pub(crate) fn build_array(rows: &[[f32; 3]]) -> FixedSizeListArray {
+pub(crate) fn build_array(rows: &[[f32; 3]]) -> Result<FixedSizeListArray, Box<dyn Error>> {
     let rows = rows.iter().map(|row| row.to_vec()).collect::<Vec<_>>();
     build_list_array(&rows, 3, false)
 }
@@ -21,7 +21,7 @@ pub(crate) fn build_list_array(
     rows: &[Vec<f32>],
     dimension: usize,
     child_nullable: bool,
-) -> FixedSizeListArray {
+) -> Result<FixedSizeListArray, Box<dyn Error>> {
     assert!(rows.iter().all(|row| row.len() == dimension));
     let values = Float32Array::from_iter_values(rows.iter().flatten().copied());
     fixed_size_list_from_values(values, dimension, child_nullable)
@@ -30,7 +30,7 @@ pub(crate) fn build_list_array(
 pub(crate) fn build_list_array_with_row_nulls(
     rows: &[Option<Vec<f32>>],
     dimension: usize,
-) -> FixedSizeListArray {
+) -> Result<FixedSizeListArray, Box<dyn Error>> {
     assert!(
         rows.iter()
             .all(|row| { row.as_ref().is_none_or(|values| values.len() == dimension) })
@@ -50,32 +50,36 @@ pub(crate) fn build_list_array_with_row_nulls(
         }
     }
     let values = Float32Array::from(flat);
-    FixedSizeListArray::new(
+    Ok(FixedSizeListArray::new(
         Arc::new(Field::new("item", DataType::Float32, false)),
-        i32::try_from(dimension).expect("dimension fits in i32"),
+        i32::try_from(dimension)?,
         Arc::new(values) as ArrayRef,
         Some(validity.finish().into()),
-    )
+    ))
 }
 
 pub(crate) fn build_list_array_with_value_nulls(
     rows: &[Vec<Option<f32>>],
     dimension: usize,
-) -> FixedSizeListArray {
+) -> Result<FixedSizeListArray, Box<dyn Error>> {
     assert!(rows.iter().all(|row| row.len() == dimension));
     let values = Float32Array::from_iter(rows.iter().flatten().copied());
     fixed_size_list_from_values(values, dimension, true)
 }
 
-pub(crate) fn feature_field(dimension: usize, child_nullable: bool, list_nullable: bool) -> Field {
-    Field::new(
+pub(crate) fn feature_field(
+    dimension: usize,
+    child_nullable: bool,
+    list_nullable: bool,
+) -> Result<Field, Box<dyn Error>> {
+    Ok(Field::new(
         "features",
         DataType::FixedSizeList(
             Arc::new(Field::new("item", DataType::Float32, child_nullable)),
-            i32::try_from(dimension).expect("dimension fits in i32"),
+            i32::try_from(dimension)?,
         ),
         list_nullable,
-    )
+    ))
 }
 
 pub(crate) fn try_from_record_batches(
@@ -125,53 +129,53 @@ pub(crate) fn try_from_record_batches(
     ))
 }
 
-pub(crate) fn write_parquet(array: FixedSizeListArray) -> Bytes {
-    let field = feature_field(3, false, false);
+pub(crate) fn write_parquet(array: FixedSizeListArray) -> Result<Bytes, Box<dyn Error>> {
+    let field = feature_field(3, false, false)?;
     write_parquet_with_field(field, array)
 }
 
-pub(crate) fn write_parquet_with_field(field: Field, array: FixedSizeListArray) -> Bytes {
+pub(crate) fn write_parquet_with_field(
+    field: Field,
+    array: FixedSizeListArray,
+) -> Result<Bytes, Box<dyn Error>> {
     let schema = Arc::new(Schema::new(vec![field.clone()]));
-    let batch =
-        RecordBatch::try_new(schema.clone(), vec![Arc::new(array) as ArrayRef]).expect("batch");
+    let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(array) as ArrayRef])?;
     let mut buffer = Vec::new();
     {
-        let mut writer = ArrowWriter::try_new(&mut buffer, schema, None).expect("writer");
-        writer.write(&batch).expect("write");
-        writer.close().expect("close");
+        let mut writer = ArrowWriter::try_new(&mut buffer, schema, None)?;
+        writer.write(&batch)?;
+        writer.close()?;
     }
-    Bytes::from(buffer)
+    Ok(Bytes::from(buffer))
 }
 
 pub(crate) fn write_parquet_two_batches(
     first: FixedSizeListArray,
     second: FixedSizeListArray,
     field: Field,
-) -> Bytes {
+) -> Result<Bytes, Box<dyn Error>> {
     let schema = Arc::new(Schema::new(vec![field]));
-    let batch_one =
-        RecordBatch::try_new(schema.clone(), vec![Arc::new(first) as ArrayRef]).expect("batch one");
-    let batch_two = RecordBatch::try_new(schema.clone(), vec![Arc::new(second) as ArrayRef])
-        .expect("batch two");
+    let batch_one = RecordBatch::try_new(schema.clone(), vec![Arc::new(first) as ArrayRef])?;
+    let batch_two = RecordBatch::try_new(schema.clone(), vec![Arc::new(second) as ArrayRef])?;
     let mut buffer = Vec::new();
     {
-        let mut writer = ArrowWriter::try_new(&mut buffer, schema, None).expect("writer");
-        writer.write(&batch_one).expect("write batch one");
-        writer.write(&batch_two).expect("write batch two");
-        writer.close().expect("close");
+        let mut writer = ArrowWriter::try_new(&mut buffer, schema, None)?;
+        writer.write(&batch_one)?;
+        writer.write(&batch_two)?;
+        writer.close()?;
     }
-    Bytes::from(buffer)
+    Ok(Bytes::from(buffer))
 }
 
 fn fixed_size_list_from_values(
     values: Float32Array,
     dimension: usize,
     child_nullable: bool,
-) -> FixedSizeListArray {
-    FixedSizeListArray::new(
+) -> Result<FixedSizeListArray, Box<dyn Error>> {
+    Ok(FixedSizeListArray::new(
         Arc::new(Field::new("item", DataType::Float32, child_nullable)),
-        i32::try_from(dimension).expect("dimension fits in i32"),
+        i32::try_from(dimension)?,
         Arc::new(values) as ArrayRef,
         None,
-    )
+    ))
 }

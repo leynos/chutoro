@@ -17,7 +17,7 @@ use crate::ChutoroBuilder;
 fn concurrent_readers_observe_consistent_point_count(session_builder: ChutoroBuilder) {
     // Append two points on the writer thread, then share the session
     // read-only across multiple concurrent threads.
-    let (mut session, _) = make_session(session_builder, 4);
+    let (mut session, _) = make_session(session_builder, 4).expect("session must build");
     session.append(&[0, 1]).expect("append must succeed");
     let shared = Arc::new(std::sync::RwLock::new(session));
 
@@ -45,7 +45,7 @@ fn concurrent_readers_observe_consistent_point_count(session_builder: ChutoroBui
 fn snapshot_version_is_immutable_under_concurrent_readers(session_builder: ChutoroBuilder) {
     // snapshot_version must read as 0 under all concurrent readers;
     // append does not publish a label snapshot.
-    let (mut session, _) = make_session(session_builder, 4);
+    let (mut session, _) = make_session(session_builder, 4).expect("session must build");
     session.append(&[0, 1, 2]).expect("append must succeed");
     let shared = Arc::new(std::sync::RwLock::new(session));
 
