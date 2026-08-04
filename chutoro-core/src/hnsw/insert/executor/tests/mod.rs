@@ -261,8 +261,7 @@ fn trimming_eviction_restores_reciprocity(
         .last()
         .expect("trimmed_neighbours asserted as non-empty");
 
-    let mut graph =
-        build_trimming_test_graph(&params, &trimmed_neighbours, reserve_id, new_node_id)?;
+    let mut graph = build_trimming_test_graph(&params, &trimmed_neighbours, reserve_id)?;
     setup_reciprocal_edges_with_reserve(&mut graph, &trimmed_neighbours, evicted, reserve_id)?;
 
     apply_insertion_with_trim(&mut graph, &params, new_node_id, trimmed_neighbours.clone())?;

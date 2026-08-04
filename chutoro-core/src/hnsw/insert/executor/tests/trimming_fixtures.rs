@@ -4,8 +4,6 @@
 //! exercise the insertion executor's trimming and reciprocity restoration
 //! logic.
 
-use std::error::Error;
-
 use super::*;
 use crate::hnsw::{
     error::HnswError,
@@ -14,12 +12,35 @@ use crate::hnsw::{
     types::{InsertionPlan, LayerPlan, Neighbour},
 };
 
+/// Failure modes of the trimming fixtures.
+///
+/// Keeps the underlying [`HnswError`] intact while naming the fixture
+/// invariants that the helpers rely on, so a broken fixture is distinguishable
+/// from a genuine graph error.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum TrimmingFixtureError {
+    /// A graph or executor operation failed.
+    #[error(transparent)]
+    Hnsw(#[from] HnswError),
+    /// The executor produced no trim job for the entry node.
+    #[error("trim job expected")]
+    MissingTrimJob,
+    /// A node the fixture requires was absent from the graph.
+    #[error("node {node} should be present: {reason}")]
+    MissingNode {
+        /// Identifier of the absent node.
+        node: usize,
+        /// Why the fixture expected the node to exist.
+        reason: &'static str,
+    },
+}
+
 pub(super) fn apply_insertion_with_trim(
     graph: &mut Graph,
     params: &HnswParams,
     new_node_id: usize,
     trimmed_neighbours: Vec<usize>,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), TrimmingFixtureError> {
     let reserve_id = new_node_id.saturating_add(1);
     let mut executor = InsertionExecutor::new(graph);
     let plan = InsertionPlan {
@@ -46,7 +67,10 @@ pub(super) fn apply_insertion_with_trim(
         1,
         "only the entry node should require trim"
     );
-    let job = trim_jobs.into_iter().next().ok_or("trim job expected")?;
+    let job = trim_jobs
+        .into_iter()
+        .next()
+        .ok_or(TrimmingFixtureError::MissingTrimJob)?;
     assert_eq!(job.node, 0, "trim must target the entry node");
     let trim_result = TrimResult {
         node: job.node,
@@ -62,9 +86,12 @@ pub(super) fn verify_post_trim_reciprocity(
     params: &HnswParams,
     new_node_id: usize,
     evicted: usize,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), TrimmingFixtureError> {
     let connection_limit = connection_limit_for_level(0, params.max_connections());
-    let entry = graph.node(0).ok_or("entry node available")?;
+    let entry = graph.node(0).ok_or(TrimmingFixtureError::MissingNode {
+        node: 0,
+        reason: "entry node available",
+    })?;
     let entry_neighbours = entry.neighbours(0);
     assert!(
         entry_neighbours.contains(&new_node_id),
@@ -81,7 +108,10 @@ pub(super) fn verify_post_trim_reciprocity(
 
     let new_node = graph
         .node(new_node_id)
-        .ok_or("new node must be attached after commit")?;
+        .ok_or(TrimmingFixtureError::MissingNode {
+            node: new_node_id,
+            reason: "new node must be attached after commit",
+        })?;
     assert!(
         new_node.neighbours(0).contains(&0),
         "new node should have a reciprocal edge to the entry node",
@@ -100,8 +130,7 @@ pub(super) fn build_trimming_test_graph(
     params: &HnswParams,
     trimmed_neighbours: &[usize],
     reserve_id: usize,
-    new_node_id: usize,
-) -> Result<Graph, Box<dyn Error>> {
+) -> Result<Graph, TrimmingFixtureError> {
     let capacity = reserve_id.saturating_add(1);
     let mut graph = Graph::with_capacity(params.clone(), capacity);
     graph.insert_first(NodeContext {
@@ -118,9 +147,6 @@ pub(super) fn build_trimming_test_graph(
     })?;
 
     set_entry_neighbours(&mut graph, trimmed_neighbours)?;
-
-    // new_node_id reserved for the insertion under test.
-    let _ = new_node_id;
 
     Ok(graph)
 }
@@ -145,7 +171,7 @@ pub(super) fn setup_reciprocal_edges_with_reserve(
     trimmed_neighbours: &[usize],
     evicted: usize,
     reserve_id: usize,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), TrimmingFixtureError> {
     set_entry_neighbours(graph, trimmed_neighbours)?;
 
     for &neighbour in trimmed_neighbours {
@@ -157,8 +183,17 @@ pub(super) fn setup_reciprocal_edges_with_reserve(
     Ok(())
 }
 
-fn set_entry_neighbours(graph: &mut Graph, neighbours: &[usize]) -> Result<(), Box<dyn Error>> {
-    let entry_neighbours = graph.node_mut(0).ok_or("entry present")?.neighbours_mut(0);
+fn set_entry_neighbours(
+    graph: &mut Graph,
+    neighbours: &[usize],
+) -> Result<(), TrimmingFixtureError> {
+    let entry_neighbours = graph
+        .node_mut(0)
+        .ok_or(TrimmingFixtureError::MissingNode {
+            node: 0,
+            reason: "entry present",
+        })?
+        .neighbours_mut(0);
     entry_neighbours.clear();
     entry_neighbours.extend(neighbours.iter().copied());
     Ok(())

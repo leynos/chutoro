@@ -175,6 +175,14 @@ pub(crate) fn select_mutation_cases(
     select_mutation_cases_for_fork(job, configured, false)
 }
 
+/// Reports whether a forked run keeps its configured mutation budget uncapped.
+///
+/// Forked scheduled runs opt into deeper coverage, so the `MAX_MUTATION_CASES`
+/// cap that protects pull request runs does not apply to them.
+fn should_preserve_forked_budget(job: JobKind, is_forked: bool) -> bool {
+    is_forked && !job.is_coverage()
+}
+
 /// Selects mutation case count while preserving forked deep-run budgets.
 ///
 /// # Errors
@@ -182,15 +190,15 @@ pub(crate) fn select_mutation_cases(
 pub(crate) fn select_mutation_cases_for_fork(
     job: JobKind,
     configured: TestCases,
-    fork: bool,
+    is_forked: bool,
 ) -> Result<TestCases, InvalidTestCasesError> {
     if job.is_coverage() {
-        TestCases::try_new(COVERAGE_MUTATION_CASES)
-    } else if fork {
-        Ok(configured)
-    } else {
-        TestCases::try_new(configured.get().min(MAX_MUTATION_CASES))
+        return TestCases::try_new(COVERAGE_MUTATION_CASES);
     }
+    if should_preserve_forked_budget(job, is_forked) {
+        return Ok(configured);
+    }
+    TestCases::try_new(configured.get().min(MAX_MUTATION_CASES))
 }
 
 /// Returns the number of mutation test cases, auto-detecting the job kind.
