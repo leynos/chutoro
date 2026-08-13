@@ -7,12 +7,16 @@ stems = []
 accepted = []
 
 [words.corrections]
-# "mold" names the linker (https://github.com/rui314/mold); it is not a
-# misspelling of "mould" in that context.
-mold = "mold"
 
 [patterns]
 ignore = [
+  # "mold" names the linker (https://github.com/rui314/mold) in these
+  # contexts only; the mould correction stays active elsewhere.
+  "-fuse-ld=mold",
+  "mold linker",
+  "Cranelift \\+ mold",
+  "Cranelift and mold",
+  "`mold`",
   '\bCARGO_TERM_COLOR\b',
   'types: \[[^]]*\blabeled\b',
   'GitHub Flavored\s+Markdown',
