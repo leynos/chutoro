@@ -30,17 +30,15 @@ extend-exclude = [
 [default]
 locale = "en-gb"
 extend-ignore-re = [
-    "-fuse-ld=mold",
-    "mold linker",
-    "Cranelift \\+ mold",
-    "Cranelift and mold",
-    "`mold`",
     "\"canonicalise\" for API compatibility",
     "\"ises\"",
     "&mut initialised\\b",
     "(?:::|\\.)canonicalise\\b",
     "(?s)```.*?```",
+    "-fuse-ld=mold",
     "Azure Architecture\\s+Center",
+    "Cranelift \\+ mold",
+    "Cranelift and mold",
     "GitHub Flavored\\s+Markdown",
     "Header-only C\\+\\+/python library for fast approximate\\s+nearest neighbors",
     "\\.finalise\\b",
@@ -61,6 +59,8 @@ extend-ignore-re = [
     "\\brust-analyzer\\b",
     "\\n\\s*initialised,\\n",
     "`[^`\\n]+`",
+    "`mold`",
+    "mold linker",
     "types: \\[[^]]*\\blabeled\\b",
 ]
 
