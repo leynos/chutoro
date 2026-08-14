@@ -25,6 +25,12 @@ pub(super) enum TrimmingFixtureError {
     /// The executor produced no trim job for the entry node.
     #[error("trim job expected")]
     MissingTrimJob,
+    /// The executor produced more trim jobs than the fixture expects.
+    #[error("only the entry node should require trim, but {count} jobs were produced")]
+    ExcessTrimJobs {
+        /// Number of trim jobs the executor returned.
+        count: usize,
+    },
     /// A node the fixture requires was absent from the graph.
     #[error("node {node} should be present: {reason}")]
     MissingNode {
@@ -62,15 +68,14 @@ pub(super) fn apply_insertion_with_trim(
         ApplyContext { params, plan },
     )?;
 
-    assert_eq!(
-        trim_jobs.len(),
-        1,
-        "only the entry node should require trim"
-    );
-    let job = trim_jobs
-        .into_iter()
-        .next()
-        .ok_or(TrimmingFixtureError::MissingTrimJob)?;
+    let mut jobs = trim_jobs.into_iter();
+    let job = jobs.next().ok_or(TrimmingFixtureError::MissingTrimJob)?;
+    let excess = jobs.count();
+    if excess > 0 {
+        return Err(TrimmingFixtureError::ExcessTrimJobs {
+            count: excess.saturating_add(1),
+        });
+    }
     assert_eq!(job.node, 0, "trim must target the entry node");
     let trim_result = TrimResult {
         node: job.node,

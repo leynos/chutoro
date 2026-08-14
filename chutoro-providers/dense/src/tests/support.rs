@@ -102,7 +102,8 @@ pub(crate) fn build_list_array_with_row_nulls(
     rows: &[Option<Vec<f32>>],
     dimension: usize,
 ) -> Result<FixedSizeListArray, FixtureError> {
-    let mut flat = Vec::with_capacity(rows.len() * dimension);
+    let width = i32::try_from(dimension)?;
+    let mut flat = Vec::with_capacity(rows.len().saturating_mul(dimension));
     let mut validity = BooleanBufferBuilder::new(rows.len());
     for (index, row) in rows.iter().enumerate() {
         match row {
@@ -120,7 +121,7 @@ pub(crate) fn build_list_array_with_row_nulls(
     let values = Float32Array::from(flat);
     Ok(FixedSizeListArray::new(
         Arc::new(Field::new("item", DataType::Float32, false)),
-        i32::try_from(dimension)?,
+        width,
         Arc::new(values) as ArrayRef,
         Some(validity.finish().into()),
     ))

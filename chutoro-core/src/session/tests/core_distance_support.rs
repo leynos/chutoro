@@ -15,8 +15,8 @@ pub(super) fn expected_batch_cores<D: DataSource + Send + Sync>(
 ) -> Result<Vec<f32>, HnswError> {
     let items = session.point_count();
     let params = session.config().hnsw_params().clone();
-    let index = CpuHnsw::build(source, params.clone())?;
     let ef = expected_batch_ef(session.config().min_cluster_size(), &params, items);
+    let index = CpuHnsw::build(source, params)?;
 
     (0..items)
         .map(|point| {

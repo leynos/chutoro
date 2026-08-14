@@ -264,7 +264,7 @@ fn trimming_eviction_restores_reciprocity(
     let mut graph = build_trimming_test_graph(&params, &trimmed_neighbours, reserve_id)?;
     setup_reciprocal_edges_with_reserve(&mut graph, &trimmed_neighbours, evicted, reserve_id)?;
 
-    apply_insertion_with_trim(&mut graph, &params, new_node_id, trimmed_neighbours.clone())?;
+    apply_insertion_with_trim(&mut graph, &params, new_node_id, trimmed_neighbours)?;
 
     verify_post_trim_reciprocity(&graph, &params, new_node_id, evicted)?;
 
