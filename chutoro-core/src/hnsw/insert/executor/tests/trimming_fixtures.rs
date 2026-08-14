@@ -31,6 +31,12 @@ pub(super) enum TrimmingFixtureError {
         /// Number of trim jobs the executor returned.
         count: usize,
     },
+    /// The executor trimmed a node other than the entry node.
+    #[error("trim must target the entry node, but node {node} was targeted")]
+    UnexpectedTrimTarget {
+        /// Identifier of the node the executor actually trimmed.
+        node: usize,
+    },
     /// A node the fixture requires was absent from the graph.
     #[error("node {node} should be present: {reason}")]
     MissingNode {
@@ -39,6 +45,24 @@ pub(super) enum TrimmingFixtureError {
         /// Why the fixture expected the node to exist.
         reason: &'static str,
     },
+    /// A post-trim reciprocity invariant did not hold.
+    #[error("{invariant}")]
+    ReciprocityViolated {
+        /// Description of the invariant that failed.
+        invariant: &'static str,
+    },
+}
+
+/// Returns [`TrimmingFixtureError::ReciprocityViolated`] unless `holds` is true.
+///
+/// # Errors
+/// Returns the named invariant as an error so the calling test reports the
+/// failure rather than the helper panicking.
+fn ensure_invariant(holds: bool, invariant: &'static str) -> Result<(), TrimmingFixtureError> {
+    if holds {
+        return Ok(());
+    }
+    Err(TrimmingFixtureError::ReciprocityViolated { invariant })
 }
 
 pub(super) fn apply_insertion_with_trim(
@@ -76,7 +100,9 @@ pub(super) fn apply_insertion_with_trim(
             count: excess.saturating_add(1),
         });
     }
-    assert_eq!(job.node, 0, "trim must target the entry node");
+    if job.node != 0 {
+        return Err(TrimmingFixtureError::UnexpectedTrimTarget { node: job.node });
+    }
     let trim_result = TrimResult {
         node: job.node,
         ctx: job.ctx,
@@ -98,18 +124,18 @@ pub(super) fn verify_post_trim_reciprocity(
         reason: "entry node available",
     })?;
     let entry_neighbours = entry.neighbours(0);
-    assert!(
+    ensure_invariant(
         entry_neighbours.contains(&new_node_id),
         "reciprocity pass should reintroduce the new node even after trim eviction",
-    );
-    assert!(
+    )?;
+    ensure_invariant(
         !entry_neighbours.contains(&evicted),
         "evicted neighbour should be removed to honour capacity constraints",
-    );
-    assert!(
+    )?;
+    ensure_invariant(
         entry_neighbours.len() <= connection_limit,
         "entry degree should respect the base-layer limit after reconciliation",
-    );
+    )?;
 
     let new_node = graph
         .node(new_node_id)
@@ -117,16 +143,16 @@ pub(super) fn verify_post_trim_reciprocity(
             node: new_node_id,
             reason: "new node must be attached after commit",
         })?;
-    assert!(
+    ensure_invariant(
         new_node.neighbours(0).contains(&0),
         "new node should have a reciprocal edge to the entry node",
-    );
+    )?;
 
     if let Some(evicted_node) = graph.node(evicted) {
-        assert!(
+        ensure_invariant(
             !evicted_node.neighbours(0).contains(&0),
             "forward edge from evicted neighbour should be removed",
-        );
+        )?;
     }
     Ok(())
 }
@@ -180,11 +206,11 @@ pub(super) fn setup_reciprocal_edges_with_reserve(
     set_entry_neighbours(graph, trimmed_neighbours)?;
 
     for &neighbour in trimmed_neighbours {
-        link_if_absent(graph, neighbour, 0);
+        link_if_absent(graph, neighbour, 0)?;
     }
 
-    link_if_absent(graph, evicted, reserve_id);
-    link_if_absent(graph, reserve_id, evicted);
+    link_if_absent(graph, evicted, reserve_id)?;
+    link_if_absent(graph, reserve_id, evicted)?;
     Ok(())
 }
 
@@ -204,12 +230,25 @@ fn set_entry_neighbours(
     Ok(())
 }
 
-fn link_if_absent(graph: &mut Graph, origin: usize, target: usize) {
-    let Some(node) = graph.node_mut(origin) else {
-        panic!("node {origin} should be present");
-    };
+/// Adds a base-layer edge from `origin` to `target` unless it already exists.
+///
+/// # Errors
+/// Returns [`TrimmingFixtureError::MissingNode`] if `origin` is not attached to
+/// the graph.
+fn link_if_absent(
+    graph: &mut Graph,
+    origin: usize,
+    target: usize,
+) -> Result<(), TrimmingFixtureError> {
+    let node = graph
+        .node_mut(origin)
+        .ok_or(TrimmingFixtureError::MissingNode {
+            node: origin,
+            reason: "link origin must be attached before linking",
+        })?;
     let list = node.neighbours_mut(0);
     if !list.contains(&target) {
         list.push(target);
     }
+    Ok(())
 }

@@ -181,6 +181,79 @@ The latency histogram reads time through the internal `MonotonicClock` trait.
 public constructor or builder API; it exists solely to make metrics assertions
 deterministic while preserving the public session contract.
 
+## Test fixture conventions
+
+The house policy is that fixtures and helpers are not tests. It governs how
+test-support code reports failure, distinct from how `#[test]`, `#[rstest]`,
+and `proptest!` bodies consume that failure.
+
+### Fallible fixture policy
+
+Test helpers, fixtures, and support functions must not panic to report their
+own invariants: no `.expect(...)`, `.unwrap()`, `panic!`, or `assert!` for
+conditions the helper itself is checking. They return `Result` and propagate
+failure with `?`. Panicking and assertion belong at the `#[test]` / `#[rstest]`
+/ `proptest!` boundary, where a failure is attributable to the test rather than
+to the helper it called. Whitaker's `no_expect_outside_tests` lint enforces the
+`.expect(...)` half of this rule; the rest is convention.
+
+Test bodies unwrap the `Result` a helper returns with `.expect("...")`,
+keeping the message the helper's assertion used to carry, or they return
+`Result` themselves and use `?`:
+
+```rust
+#[rstest]
+fn trims_the_entry_node() -> Result<(), TrimmingFixtureError> {
+    let graph = build_trimming_test_graph(&params, &[1, 2], 3)?;
+    verify_post_trim_reciprocity(&graph, &params, 3, 1)?;
+    Ok(())
+}
+```
+
+### Typed error contracts
+
+Fixtures return a named error enum rather than `Box<dyn Error>`, so the
+underlying domain error stays intact and fixture-invariant breakage is
+distinguishable from a genuine failure of the code under test. Both examples
+below derive their `Error` implementation with `thiserror`:
+
+- `TrimmingFixtureError` in
+  `chutoro-core/src/hnsw/insert/executor/tests/trimming_fixtures.rs` wraps
+  `HnswError` transparently via `#[from]`, and adds `MissingTrimJob`,
+  `ExcessTrimJobs`, `UnexpectedTrimTarget`, `MissingNode`, and
+  `ReciprocityViolated` variants for the fixture's own expectations.
+- `FixtureError` in `chutoro-providers/dense/src/tests/support.rs` names the
+  `RowLength`, `Dimension`, `Arrow`, and `Parquet` failure modes of the Arrow
+  and Parquet builders.
+
+### Test-only budget types
+
+`chutoro-core/src/hnsw/tests/property/test_runner_support/budget_types.rs`
+holds newtypes (`TestCases`, `StackSize`) that validate proptest runner
+configuration. They expose fallible `try_new` constructors that return a named
+error (`InvalidTestCasesError`, `InvalidStackSizeError`) rather than panicking
+constructors, so a zero or otherwise invalid budget surfaces as an error to
+the calling test. `budget_selection.rs` re-exports them, so consumers can
+import from either path.
+
+### Support-module boundaries
+
+Test modules split their fixtures into dedicated support modules when the
+test file approaches Whitaker's 400-line `module_max_lines` cap, keeping the
+test file focused on the behaviour under test. Current examples:
+
+- `chutoro-core/src/session/tests/common.rs` — shared session fixtures and the
+  `SessionTestSource` data source.
+- `chutoro-core/src/session/tests/core_distance_support.rs` — batch-oracle
+  helpers for core-distance tests.
+- `chutoro-core/src/hnsw/tests/property/test_runner_support/` — proptest
+  runner configuration.
+- `chutoro-providers/dense/src/tests/support.rs` — Arrow and Parquet fixture
+  builders.
+
+Support modules carry `//!` module docs and `///` item docs, with `# Errors`
+sections on fallible helpers.
+
 ## Continuous integration
 
 Property-test CI jobs (`property-tests-pr` and `property-tests-weekly`) run on
