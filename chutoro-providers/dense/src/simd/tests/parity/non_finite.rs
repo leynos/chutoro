@@ -27,7 +27,7 @@ proptest! {
     ) {
         let semantics = DistanceSemantics::default_euclidean();
         let expected = semantics.oracle_pairwise(&left, &right);
-        let entries = super::pairwise_entries();
+        let entries = super::pairwise_entries().expect("parity backends must enumerate");
 
         prop_assert!(expected.is_nan(), "scalar oracle must canonicalize to NaN");
         prop_assert!(!entries.is_empty(), "at least scalar backend must be available");
@@ -52,7 +52,7 @@ proptest! {
             .expect("query row must exist because fixture.query_index() is always within bounds");
         let points = DensePointView::from_row_indices(matrix, &fixture.point_indices())
             .expect("point rows must exist because fixture point indices are generated in bounds");
-        let entries = super::query_points_entries();
+        let entries = super::query_points_entries().expect("parity backends must enumerate");
         let mut expected = vec![0.0_f32; points.point_count()];
 
         semantics.oracle_query_points(query.as_slice(), &points, &mut expected);

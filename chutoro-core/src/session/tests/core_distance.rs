@@ -4,27 +4,31 @@
 //! appends mark core distances dirty, explicit recompute fills them, and full
 //! recompute mirrors the batch CPU path.
 
-use std::{collections::BTreeSet, num::NonZeroUsize, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc};
 
 use proptest::prelude::*;
 use rstest::rstest;
 
 use super::common::{SessionTestSource, make_session, session_builder};
+use super::core_distance_support::{
+    assert_core_distances_eq, expected_batch_cores, monotonic_append_order, observed_cores,
+    unique_sorted,
+};
 use crate::{
-    ChutoroBuilder, CpuHnsw, DataSource, HnswParams, Neighbour,
-    session::core_distance::recompute_targets, test_utils::suite_proptest_config,
+    ChutoroBuilder, DataSource, HnswParams, Neighbour, session::core_distance::recompute_targets,
+    test_utils::suite_proptest_config,
 };
 
 #[rstest]
 fn core_distance_returns_none_before_append(session_builder: ChutoroBuilder) {
-    let (session, _) = make_session(session_builder, 4);
+    let (session, _) = make_session(session_builder, 4).expect("session must build");
 
     assert_eq!(session.core_distance(0), None);
 }
 
 #[rstest]
 fn core_distance_returns_none_after_append_before_recompute(session_builder: ChutoroBuilder) {
-    let (mut session, _) = make_session(session_builder, 4);
+    let (mut session, _) = make_session(session_builder, 4).expect("session must build");
 
     session.append(&[0, 1, 2, 3]).expect("append must succeed");
 
@@ -35,7 +39,7 @@ fn core_distance_returns_none_after_append_before_recompute(session_builder: Chu
 
 #[rstest]
 fn recompute_core_distances_clears_dirty_bits(session_builder: ChutoroBuilder) {
-    let (mut session, _) = make_session(session_builder, 4);
+    let (mut session, _) = make_session(session_builder, 4).expect("session must build");
 
     session.append(&[0, 1, 2, 3]).expect("append must succeed");
     session
@@ -53,14 +57,16 @@ fn recompute_core_distances_clears_dirty_bits(session_builder: ChutoroBuilder) {
 #[rstest]
 fn recompute_core_distances_matches_batch_per_point(session_builder: ChutoroBuilder) {
     let hnsw_params = HnswParams::default().with_rng_seed(7);
-    let (mut session, source) = make_session(session_builder.with_hnsw_params(hnsw_params), 4);
+    let (mut session, source) =
+        make_session(session_builder.with_hnsw_params(hnsw_params), 4).expect("session must build");
 
     session.append(&[0, 1, 2, 3]).expect("append must succeed");
     session
         .recompute_core_distances_full()
         .expect("full recompute must succeed");
 
-    let expected = expected_batch_cores(source.as_ref(), &session);
+    let expected =
+        expected_batch_cores(source.as_ref(), &session).expect("batch cores must compute");
     assert_core_distances_eq(&session, &expected);
 }
 
@@ -73,7 +79,8 @@ fn core_distance_matches_expected_batch_result_for_selection_and_fallback(
     #[case] use_full_recompute: bool,
     #[case] scenario: &str,
 ) {
-    let (mut session, source) = make_session(session_builder.with_min_cluster_size(3), point_count);
+    let (mut session, source) = make_session(session_builder.with_min_cluster_size(3), point_count)
+        .expect("session must build");
 
     let points: Vec<usize> = (0..point_count).collect();
     session.append(&points).expect("append must succeed");
@@ -88,7 +95,8 @@ fn core_distance_matches_expected_batch_result_for_selection_and_fallback(
             .expect("incremental recompute must succeed");
     }
 
-    let expected = expected_batch_cores(source.as_ref(), &session);
+    let expected =
+        expected_batch_cores(source.as_ref(), &session).expect("batch cores must compute");
     assert_eq!(
         session.core_distance(0),
         Some(expected[0]),
@@ -98,7 +106,8 @@ fn core_distance_matches_expected_batch_result_for_selection_and_fallback(
 
 #[rstest]
 fn core_distance_empty_neighbour_list_yields_zero(session_builder: ChutoroBuilder) {
-    let (mut session, _) = make_session(session_builder.with_min_cluster_size(3), 1);
+    let (mut session, _) =
+        make_session(session_builder.with_min_cluster_size(3), 1).expect("session must build");
 
     session.append(&[0]).expect("append must succeed");
     session
@@ -118,7 +127,8 @@ fn recompute_core_distances_recomputes_touched_existing_points(session_builder: 
             .with_min_cluster_size(1)
             .with_hnsw_params(hnsw_params),
         5,
-    );
+    )
+    .expect("session must build");
 
     session
         .append(&[0, 2, 4])
@@ -143,7 +153,7 @@ fn recompute_core_distances_recomputes_touched_existing_points(session_builder: 
 
 #[rstest]
 fn core_distance_out_of_range_returns_none(session_builder: ChutoroBuilder) {
-    let (mut session, _) = make_session(session_builder, 1);
+    let (mut session, _) = make_session(session_builder, 1).expect("session must build");
 
     session.append(&[0]).expect("append must succeed");
 
@@ -152,7 +162,7 @@ fn core_distance_out_of_range_returns_none(session_builder: ChutoroBuilder) {
 
 #[rstest]
 fn recompute_core_distances_full_recomputes_all_points(session_builder: ChutoroBuilder) {
-    let (mut session, source) = make_session(session_builder, 10);
+    let (mut session, source) = make_session(session_builder, 10).expect("session must build");
 
     session
         .append(&(0..8).collect::<Vec<_>>())
@@ -165,7 +175,8 @@ fn recompute_core_distances_full_recomputes_all_points(session_builder: ChutoroB
         .recompute_core_distances_full()
         .expect("full recompute must succeed");
 
-    let expected = expected_batch_cores(source.as_ref(), &session);
+    let expected =
+        expected_batch_cores(source.as_ref(), &session).expect("batch cores must compute");
     assert_core_distances_eq(&session, &expected);
 }
 
@@ -277,8 +288,11 @@ proptest! {
             .recompute_core_distances_full()
             .expect("full recompute must succeed");
 
-        let expected = expected_batch_cores(source.as_ref(), &session);
-        prop_assert_eq!(observed_cores(&session), expected);
+        let expected = expected_batch_cores(source.as_ref(), &session)
+            .expect("batch cores must compute");
+        let observed =
+            observed_cores(&session).expect("point must have a recomputed core distance");
+        prop_assert_eq!(observed, expected);
     }
 
     #[test]
@@ -298,96 +312,14 @@ proptest! {
         session
             .recompute_core_distances()
             .expect("incremental recompute must succeed");
-        let incremental = observed_cores(&session);
+        let incremental =
+            observed_cores(&session).expect("point must have a recomputed core distance");
 
         session
             .recompute_core_distances_full()
             .expect("full recompute must succeed");
 
-        prop_assert_eq!(incremental, observed_cores(&session));
+        let full = observed_cores(&session).expect("point must have a recomputed core distance");
+        prop_assert_eq!(incremental, full);
     }
-}
-
-/// Builds an independent batch HNSW index to act as the oracle for recompute parity.
-fn expected_batch_cores<D: DataSource + Send + Sync>(
-    source: &D,
-    session: &crate::ClusteringSession<D>,
-) -> Vec<f32> {
-    let items = session.point_count();
-    let params = session.config().hnsw_params().clone();
-    let index = CpuHnsw::build(source, params.clone()).expect("batch HNSW build must succeed");
-    let ef = expected_batch_ef(session.config().min_cluster_size(), &params, items);
-
-    (0..items)
-        .map(|point| {
-            let neighbours = index
-                .search(source, point, ef)
-                .expect("batch HNSW search must succeed");
-            let others = neighbours
-                .into_iter()
-                .filter(|neighbour| neighbour.id != point)
-                .collect::<Vec<_>>();
-            expected_core_from_sorted_others(&others, session.config().min_cluster_size())
-        })
-        .collect()
-}
-
-/// Selects the min-cluster neighbour, falling back to the last known neighbour or zero.
-fn expected_core_from_sorted_others(
-    neighbours: &[Neighbour],
-    min_cluster_size: NonZeroUsize,
-) -> f32 {
-    neighbours
-        .get(min_cluster_size.get() - 1)
-        .or_else(|| neighbours.last())
-        .map_or(0.0, |neighbour| neighbour.distance)
-}
-
-/// Mirrors batch EF: include the query slot, honour construction EF, and cap at item count.
-fn expected_batch_ef(
-    min_cluster_size: NonZeroUsize,
-    hnsw_params: &HnswParams,
-    items: usize,
-) -> NonZeroUsize {
-    let desired = min_cluster_size
-        .get()
-        .saturating_add(1)
-        .max(hnsw_params.ef_construction())
-        .min(items);
-    NonZeroUsize::new(desired).unwrap_or(min_cluster_size)
-}
-
-/// Extracts every recomputed core distance from the session.
-fn observed_cores<D: DataSource + Send + Sync>(session: &crate::ClusteringSession<D>) -> Vec<f32> {
-    (0..session.point_count())
-        .map(|point| {
-            session
-                .core_distance(point)
-                .expect("point must have a recomputed core distance")
-        })
-        .collect()
-}
-
-/// Validates observed core distances against the batch oracle.
-fn assert_core_distances_eq<D: DataSource + Send + Sync>(
-    session: &crate::ClusteringSession<D>,
-    expected: &[f32],
-) {
-    assert_eq!(observed_cores(session), expected);
-}
-
-/// Sorts and deduplicates point indices for stable comparisons.
-fn unique_sorted(mut values: Vec<usize>) -> Vec<usize> {
-    values.sort_unstable();
-    values.dedup();
-    values
-}
-
-/// Front-loads enough unique points so every prefixed point is saturated before tail appends.
-fn monotonic_append_order(min_cluster_size: usize, tail: Vec<usize>) -> Vec<usize> {
-    let prefix = 0..=min_cluster_size;
-    let mut seen = prefix.clone().collect::<BTreeSet<_>>();
-    prefix
-        .chain(tail.into_iter().filter(|index| seen.insert(*index)))
-        .collect()
 }

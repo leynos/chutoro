@@ -181,6 +181,132 @@ The latency histogram reads time through the internal `MonotonicClock` trait.
 public constructor or builder API; it exists solely to make metrics assertions
 deterministic while preserving the public session contract.
 
+## Whitaker lint suite
+
+Whitaker is a Dylint lint suite that runs as a commit gate alongside Clippy.
+`make lint` runs `lint-clippy` (rustdoc plus Clippy) followed by
+`lint-whitaker`, which invokes the `whitaker` wrapper with
+`RUSTFLAGS="-D warnings"` over `--all-targets --all-features`. Individual
+lints are referenced elsewhere in this guide where they apply: the
+[fallible fixture policy](#fallible-fixture-policy) covers
+`no_expect_outside_tests`, and the
+[support-module boundaries](#support-module-boundaries) section covers the
+400-line `module_max_lines` cap.
+
+### Installing Whitaker locally
+
+Install the `whitaker` wrapper the same way continuous integration (CI) does,
+by installing `whitaker-installer` and letting it place the wrapper on your
+`PATH`:
+
+```shell
+cargo binstall --no-confirm --locked whitaker-installer
+# or, if cargo-binstall is unavailable:
+cargo install --locked whitaker-installer
+
+whitaker-installer
+```
+
+`whitaker-installer` installs the `whitaker` wrapper itself; the Makefile
+invokes it by bare name, so it must resolve on `PATH`. Override the `WHITAKER`
+make variable with an explicit path if you keep the binary somewhere else:
+
+```shell
+make lint WHITAKER=/path/to/whitaker
+```
+
+If `whitaker` is unavailable, run `make lint-clippy` for a Clippy-only pass.
+
+**Agents must not install, upgrade, or downgrade Whitaker from this
+repository, and must not otherwise modify the user's Whitaker installation.**
+If the wrapper is missing, ask the user to install it. See `AGENTS.md` for the
+full agent-facing rule.
+
+### CI resolution and configuration
+
+CI resolves the newest `whitaker-installer` release at run time — via
+`gh api repos/leynos/whitaker/releases/latest` — rather than pinning a
+version, then installs that release and runs it to obtain the `whitaker`
+wrapper. Because the suite version is not pinned, a new Whitaker release can
+introduce findings on code that has not otherwise changed; treat such
+findings as genuine and fix them rather than pinning around them.
+
+Per-lint configuration, including `no_std_fs_operations` crate exclusions with
+rationale comments, lives in the root `dylint.toml`.
+
+## Test fixture conventions
+
+The house policy is that fixtures and helpers are not tests. It governs how
+test-support code reports failure, distinct from how `#[test]`, `#[rstest]`,
+and `proptest!` bodies consume that failure.
+
+### Fallible fixture policy
+
+Test helpers, fixtures, and support functions must not panic to report their
+own invariants: no `.expect(...)`, `.unwrap()`, `panic!`, or `assert!` for
+conditions the helper itself is checking. They return `Result` and propagate
+failure with `?`. Panicking and assertion belong at the `#[test]` / `#[rstest]`
+/ `proptest!` boundary, where a failure is attributable to the test rather than
+to the helper it called. Whitaker's `no_expect_outside_tests` lint enforces the
+`.expect(...)` half of this rule; the rest is convention.
+
+Test bodies unwrap the `Result` a helper returns with `.expect("...")`,
+keeping the message the helper's assertion used to carry, or they return
+`Result` themselves and use `?`:
+
+```rust
+#[rstest]
+fn trims_the_entry_node() -> Result<(), TrimmingFixtureError> {
+    let graph = build_trimming_test_graph(&params, &[1, 2], 3)?;
+    verify_post_trim_reciprocity(&graph, &params, 3, 1)?;
+    Ok(())
+}
+```
+
+### Typed error contracts
+
+Fixtures return a named error enum rather than `Box<dyn Error>`, so the
+underlying domain error stays intact and fixture-invariant breakage is
+distinguishable from a genuine failure of the code under test. Both examples
+below derive their `Error` implementation with `thiserror`:
+
+- `TrimmingFixtureError` in
+  `chutoro-core/src/hnsw/insert/executor/tests/trimming_fixtures.rs` wraps
+  `HnswError` transparently via `#[from]`, and adds `MissingTrimJob`,
+  `ExcessTrimJobs`, `UnexpectedTrimTarget`, `MissingNode`, and
+  `ReciprocityViolated` variants for the fixture's own expectations.
+- `FixtureError` in `chutoro-providers/dense/src/tests/support.rs` names the
+  `RowLength`, `Dimension`, `Arrow`, and `Parquet` failure modes of the Arrow
+  and Parquet builders.
+
+### Test-only budget types
+
+`chutoro-core/src/hnsw/tests/property/test_runner_support/budget_types.rs`
+holds newtypes (`TestCases`, `StackSize`) that validate proptest runner
+configuration. They expose fallible `try_new` constructors that return a named
+error (`InvalidTestCasesError`, `InvalidStackSizeError`) rather than panicking
+constructors, so a zero or otherwise invalid budget surfaces as an error to
+the calling test. `budget_selection.rs` re-exports them, so consumers can
+import from either path.
+
+### Support-module boundaries
+
+Test modules split their fixtures into dedicated support modules when the
+test file approaches Whitaker's 400-line `module_max_lines` cap, keeping the
+test file focused on the behaviour under test. Current examples:
+
+- `chutoro-core/src/session/tests/common.rs` — shared session fixtures and the
+  `SessionTestSource` data source.
+- `chutoro-core/src/session/tests/core_distance_support.rs` — batch-oracle
+  helpers for core-distance tests.
+- `chutoro-core/src/hnsw/tests/property/test_runner_support/` — proptest
+  runner configuration.
+- `chutoro-providers/dense/src/tests/support.rs` — Arrow and Parquet fixture
+  builders.
+
+Support modules carry `//!` module docs and `///` item docs, with `# Errors`
+sections on fallible helpers.
+
 ## Continuous integration
 
 Property-test CI jobs (`property-tests-pr` and `property-tests-weekly`) run on

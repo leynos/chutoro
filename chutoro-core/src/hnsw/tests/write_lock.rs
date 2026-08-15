@@ -144,22 +144,20 @@ fn write_lock_source() -> WriteLockAssertingSource {
 }
 
 #[fixture]
-fn write_lock_params() -> HnswParams {
-    HnswParams::new(2, 4)
-        .expect("params must be valid")
-        .with_rng_seed(11)
+fn write_lock_params() -> Result<HnswParams, HnswError> {
+    Ok(HnswParams::new(2, 4)?.with_rng_seed(11))
 }
 
 #[fixture]
 fn built_write_lock_scenario(
     write_lock_source: WriteLockAssertingSource,
-    write_lock_params: HnswParams,
-) -> WriteLockScenario {
-    let index = CpuHnsw::build(&write_lock_source, write_lock_params).expect("build must succeed");
-    WriteLockScenario {
+    write_lock_params: Result<HnswParams, HnswError>,
+) -> Result<WriteLockScenario, HnswError> {
+    let index = CpuHnsw::build(&write_lock_source, write_lock_params?)?;
+    Ok(WriteLockScenario {
         source: write_lock_source,
         index,
-    }
+    })
 }
 
 fn write_lock_case_strategy() -> impl Strategy<Value = WriteLockPropertyCase> {
@@ -205,12 +203,10 @@ fn assert_write_lock_property(case: WriteLockPropertyCase) -> TestCaseResult {
     let index = build_generated_index(&source, params)
         .map_err(|error| TestCaseError::fail(format!("generated build failed: {error}")))?;
 
+    let search_ef = NonZeroUsize::new(case.search_ef)
+        .ok_or_else(|| TestCaseError::fail("generated ef must be non-zero"))?;
     index
-        .search(
-            &source,
-            case.query,
-            NonZeroUsize::new(case.search_ef).expect("generated ef must be non-zero"),
-        )
+        .search(&source, case.query, search_ef)
         .map_err(|error| TestCaseError::fail(format!("generated search failed: {error}")))?;
 
     prop_assert!(
@@ -235,9 +231,9 @@ fn build_generated_index(
 #[rstest]
 fn write_graph_marker_is_scoped_to_the_current_thread(
     _write_graph_marker_guard: WriteGraphMarkerGuard,
-    write_lock_params: HnswParams,
+    write_lock_params: Result<HnswParams, HnswError>,
 ) -> Result<(), HnswError> {
-    let index = CpuHnsw::with_capacity(write_lock_params, 2).expect("index should allocate");
+    let index = CpuHnsw::with_capacity(write_lock_params?, 2).expect("index should allocate");
     assert!(!CpuHnsw::current_thread_holds_write_graph_for_test());
     index.write_graph(|_graph| {
         assert!(CpuHnsw::current_thread_holds_write_graph_for_test());
@@ -250,19 +246,20 @@ fn write_graph_marker_is_scoped_to_the_current_thread(
 #[rstest]
 fn hnsw_scoring_does_not_run_inside_write_graph_scope(
     _write_graph_marker_guard: WriteGraphMarkerGuard,
-    built_write_lock_scenario: WriteLockScenario,
+    built_write_lock_scenario: Result<WriteLockScenario, HnswError>,
 ) {
-    built_write_lock_scenario
+    let scenario = built_write_lock_scenario.expect("build must succeed");
+    scenario
         .index
         .search(
-            &built_write_lock_scenario.source,
+            &scenario.source,
             1,
             NonZeroUsize::new(4).expect("ef must be non-zero"),
         )
         .expect("search must succeed");
 
     assert!(
-        built_write_lock_scenario.source.scoring_calls() > 0,
+        scenario.source.scoring_calls() > 0,
         "the guard should observe real HNSW scoring calls",
     );
 }
@@ -272,9 +269,10 @@ fn hnsw_scoring_does_not_run_inside_write_graph_scope(
 fn write_lock_scoring_guard_has_teeth(
     _write_graph_marker_guard: WriteGraphMarkerGuard,
     write_lock_source: WriteLockAssertingSource,
-    write_lock_params: HnswParams,
+    write_lock_params: Result<HnswParams, HnswError>,
 ) {
-    let index = CpuHnsw::with_capacity(write_lock_params, 2).expect("index should allocate");
+    let params = write_lock_params.expect("params must be valid");
+    let index = CpuHnsw::with_capacity(params, 2).expect("index should allocate");
     index
         .write_graph(|_graph| {
             let _distances = write_lock_source

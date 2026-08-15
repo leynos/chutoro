@@ -23,7 +23,7 @@ proptest! {
     fn pairwise_backends_match_scalar_oracle((left, right) in strategies::finite_vector_pair()) {
         let semantics = DistanceSemantics::default_euclidean();
         let expected = semantics.oracle_pairwise(&left, &right);
-        let entries = super::pairwise_entries();
+        let entries = super::pairwise_entries().expect("parity backends must enumerate");
 
         prop_assert!(!entries.is_empty(), "at least scalar backend must be available");
         for (_backend, entry) in entries {

@@ -4,145 +4,9 @@ use chutoro_test_support::ci::property_test_profile::ProptestRunProfile;
 
 use crate::hnsw::tests::support::is_coverage_job;
 
-/// Number of test cases to execute in a property test run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TestCases(u32);
-
-/// Error returned when test case count is invalid.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct InvalidTestCasesError;
-
-impl std::fmt::Display for InvalidTestCasesError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "test cases must be > 0")
-    }
-}
-
-impl std::error::Error for InvalidTestCasesError {}
-
-impl TestCases {
-    /// Creates a new TestCases value, returning an error if invalid.
-    ///
-    /// # Errors
-    /// Returns `InvalidTestCasesError` if `cases` is zero.
-    pub(crate) fn try_new(cases: u32) -> Result<Self, InvalidTestCasesError> {
-        if cases > 0 {
-            Ok(Self(cases))
-        } else {
-            Err(InvalidTestCasesError)
-        }
-    }
-
-    /// Creates a new TestCases value.
-    ///
-    /// # Panics
-    /// Panics if `cases` is zero (at least one test case is required).
-    pub(crate) fn new(cases: u32) -> Self {
-        Self::try_new(cases).expect("test cases must be > 0")
-    }
-
-    /// Returns the number of test cases.
-    pub(crate) fn get(self) -> u32 {
-        self.0
-    }
-}
-
-impl From<TestCases> for u32 {
-    fn from(cases: TestCases) -> u32 {
-        cases.0
-    }
-}
-
-/// Maximum number of shrinking iterations to attempt when minimizing a failing test case.
-///
-/// A value of 0 disables shrinking entirely. In practice, positive values are used to enable
-/// counterexample minimization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct ShrinkIterations(u32);
-
-impl ShrinkIterations {
-    /// Creates a new ShrinkIterations value.
-    ///
-    /// Setting `iterations` to 0 disables shrinking.
-    pub(crate) fn new(iterations: u32) -> Self {
-        Self(iterations)
-    }
-
-    /// Returns the number of shrink iterations.
-    ///
-    /// A return value of 0 means shrinking is disabled.
-    pub(crate) fn get(self) -> u32 {
-        self.0
-    }
-}
-
-impl From<ShrinkIterations> for u32 {
-    fn from(iters: ShrinkIterations) -> u32 {
-        iters.0
-    }
-}
-
-/// Stack size in bytes for property test runner threads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct StackSize(usize);
-
-/// Error returned when stack size is below the minimum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct InvalidStackSizeError {
-    provided: usize,
-    minimum: usize,
-}
-
-impl std::fmt::Display for InvalidStackSizeError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "stack size must be >= {} bytes, got {}",
-            self.minimum, self.provided
-        )
-    }
-}
-
-impl std::error::Error for InvalidStackSizeError {}
-
-impl StackSize {
-    /// Minimum safe stack size (1 MiB).
-    const MIN_STACK_SIZE: usize = 1024 * 1024;
-
-    /// Creates a new StackSize value, returning an error if below minimum.
-    ///
-    /// # Errors
-    /// Returns `InvalidStackSizeError` if `size` is below `MIN_STACK_SIZE`.
-    pub(crate) fn try_new(size: usize) -> Result<Self, InvalidStackSizeError> {
-        if size >= Self::MIN_STACK_SIZE {
-            Ok(Self(size))
-        } else {
-            Err(InvalidStackSizeError {
-                provided: size,
-                minimum: Self::MIN_STACK_SIZE,
-            })
-        }
-    }
-
-    /// Creates a new StackSize value.
-    ///
-    /// # Panics
-    /// Panics if `size` is below `MIN_STACK_SIZE`.
-    pub(crate) fn new(size: usize) -> Self {
-        Self::try_new(size).expect("stack size must be >= minimum")
-    }
-
-    /// Returns the stack size in bytes.
-    pub(crate) fn get(self) -> usize {
-        self.0
-    }
-}
-
-impl From<StackSize> for usize {
-    fn from(size: StackSize) -> usize {
-        size.0
-    }
-}
+pub(crate) use super::budget_types::{
+    InvalidTestCasesError, ShrinkIterations, StackSize, TestCases,
+};
 
 /// Whether the current job runs under coverage instrumentation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -218,11 +82,15 @@ const DEFAULT_SEARCH_MAX_SHRINK_ITERS: u32 = 1024;
 /// Default search case count when no profile override is configured.
 const DEFAULT_SEARCH_CASES: u32 = 64;
 
-fn select_cases(job: JobKind, configured: TestCases, coverage_cases: u32) -> TestCases {
+fn select_cases(
+    job: JobKind,
+    configured: TestCases,
+    coverage_cases: u32,
+) -> Result<TestCases, InvalidTestCasesError> {
     if job.is_coverage() {
-        TestCases::new(coverage_cases)
+        TestCases::try_new(coverage_cases)
     } else {
-        configured
+        Ok(configured)
     }
 }
 
@@ -238,19 +106,25 @@ fn select_shrink_iterations(
     }
 }
 
-fn configured_cases(default_cases: u32) -> TestCases {
-    TestCases::new(property_run_profile(default_cases).cases())
+fn configured_cases(default_cases: u32) -> Result<TestCases, InvalidTestCasesError> {
+    TestCases::try_new(property_run_profile(default_cases).cases())
 }
 
 /// Selects the number of idempotency test cases based on job kind.
 ///
 /// Returns capped configured cases for non-coverage jobs, or a reduced count
 /// (`COVERAGE_IDEMPOTENCY_CASES`) for coverage-instrumented runs.
-pub(crate) fn select_idempotency_cases(job: JobKind, configured: TestCases) -> TestCases {
+///
+/// # Errors
+/// Returns `InvalidTestCasesError` if the selected case count is zero.
+pub(crate) fn select_idempotency_cases(
+    job: JobKind,
+    configured: TestCases,
+) -> Result<TestCases, InvalidTestCasesError> {
     if job.is_coverage() {
-        TestCases::new(COVERAGE_IDEMPOTENCY_CASES)
+        TestCases::try_new(COVERAGE_IDEMPOTENCY_CASES)
     } else {
-        TestCases::new(configured.get().min(MAX_IDEMPOTENCY_CASES))
+        TestCases::try_new(configured.get().min(MAX_IDEMPOTENCY_CASES))
     }
 }
 
@@ -258,10 +132,13 @@ pub(crate) fn select_idempotency_cases(job: JobKind, configured: TestCases) -> T
 ///
 /// Calls `select_idempotency_cases` with the detected `JobKind` and
 /// the default idempotency case count from the property test profile.
-pub(crate) fn idempotency_cases() -> TestCases {
+///
+/// # Errors
+/// Returns `InvalidTestCasesError` if the configured case count is zero.
+pub(crate) fn idempotency_cases() -> Result<TestCases, InvalidTestCasesError> {
     select_idempotency_cases(
         JobKind::detect(),
-        configured_cases(DEFAULT_IDEMPOTENCY_CASES),
+        configured_cases(DEFAULT_IDEMPOTENCY_CASES)?,
     )
 }
 
@@ -288,34 +165,54 @@ pub(crate) fn idempotency_shrink_iters() -> ShrinkIterations {
 ///
 /// Returns capped configured cases for non-forked non-coverage jobs, or a
 /// reduced count (`COVERAGE_MUTATION_CASES`) for coverage-instrumented runs.
-pub(crate) fn select_mutation_cases(job: JobKind, configured: TestCases) -> TestCases {
+///
+/// # Errors
+/// Returns `InvalidTestCasesError` if the selected case count is zero.
+pub(crate) fn select_mutation_cases(
+    job: JobKind,
+    configured: TestCases,
+) -> Result<TestCases, InvalidTestCasesError> {
     select_mutation_cases_for_fork(job, configured, false)
 }
 
+/// Reports whether a forked run keeps its configured mutation budget uncapped.
+///
+/// Forked scheduled runs opt into deeper coverage, so the `MAX_MUTATION_CASES`
+/// cap that protects pull request runs does not apply to them.
+fn should_preserve_forked_budget(job: JobKind, is_forked: bool) -> bool {
+    is_forked && !job.is_coverage()
+}
+
 /// Selects mutation case count while preserving forked deep-run budgets.
+///
+/// # Errors
+/// Returns `InvalidTestCasesError` if the selected case count is zero.
 pub(crate) fn select_mutation_cases_for_fork(
     job: JobKind,
     configured: TestCases,
-    fork: bool,
-) -> TestCases {
+    is_forked: bool,
+) -> Result<TestCases, InvalidTestCasesError> {
     if job.is_coverage() {
-        TestCases::new(COVERAGE_MUTATION_CASES)
-    } else if fork {
-        configured
-    } else {
-        TestCases::new(configured.get().min(MAX_MUTATION_CASES))
+        return TestCases::try_new(COVERAGE_MUTATION_CASES);
     }
+    if should_preserve_forked_budget(job, is_forked) {
+        return Ok(configured);
+    }
+    TestCases::try_new(configured.get().min(MAX_MUTATION_CASES))
 }
 
 /// Returns the number of mutation test cases, auto-detecting the job kind.
 ///
 /// Calls `select_mutation_cases_for_fork` with the detected `JobKind` and the
 /// mutation case count from the property test profile.
-pub(crate) fn mutation_cases() -> TestCases {
+///
+/// # Errors
+/// Returns `InvalidTestCasesError` if the configured case count is zero.
+pub(crate) fn mutation_cases() -> Result<TestCases, InvalidTestCasesError> {
     let profile = property_run_profile(DEFAULT_MUTATION_CASES);
     select_mutation_cases_for_fork(
         JobKind::detect(),
-        TestCases::new(profile.cases()),
+        TestCases::try_new(profile.cases())?,
         profile.fork(),
     )
 }
@@ -343,7 +240,13 @@ pub(crate) fn mutation_shrink_iters() -> ShrinkIterations {
 ///
 /// Returns the configured cases for non-coverage jobs, or a reduced count
 /// (`COVERAGE_SEARCH_CASES`) for coverage-instrumented runs.
-pub(crate) fn select_search_cases(job: JobKind, configured: TestCases) -> TestCases {
+///
+/// # Errors
+/// Returns `InvalidTestCasesError` if the selected case count is zero.
+pub(crate) fn select_search_cases(
+    job: JobKind,
+    configured: TestCases,
+) -> Result<TestCases, InvalidTestCasesError> {
     select_cases(job, configured, COVERAGE_SEARCH_CASES)
 }
 
@@ -351,8 +254,11 @@ pub(crate) fn select_search_cases(job: JobKind, configured: TestCases) -> TestCa
 ///
 /// Calls `select_search_cases` with the detected `JobKind` and
 /// the default search case count from the property test profile.
-pub(crate) fn search_cases() -> TestCases {
-    select_search_cases(JobKind::detect(), configured_cases(DEFAULT_SEARCH_CASES))
+///
+/// # Errors
+/// Returns `InvalidTestCasesError` if the configured case count is zero.
+pub(crate) fn search_cases() -> Result<TestCases, InvalidTestCasesError> {
+    select_search_cases(JobKind::detect(), configured_cases(DEFAULT_SEARCH_CASES)?)
 }
 
 /// Selects the maximum shrink iterations for search property tests based on job kind.

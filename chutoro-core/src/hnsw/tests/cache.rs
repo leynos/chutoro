@@ -1,6 +1,6 @@
 //! Tests for the concurrent distance cache supporting HNSW insertion.
 
-use std::{num::NonZeroUsize, thread, time::Duration};
+use std::{error::Error, num::NonZeroUsize, thread, time::Duration};
 
 use rstest::rstest;
 
@@ -9,15 +9,14 @@ use crate::{
     hnsw::distance_cache::{DistanceCache, DistanceCacheConfig, LookupOutcome},
 };
 
-fn cache_with_capacity(capacity: usize) -> DistanceCache {
-    let config =
-        DistanceCacheConfig::new(NonZeroUsize::new(capacity).expect("capacity must be non-zero"));
-    DistanceCache::new(config)
+fn cache_with_capacity(capacity: usize) -> Result<DistanceCache, Box<dyn Error>> {
+    let entries = NonZeroUsize::new(capacity).ok_or("capacity must be non-zero")?;
+    Ok(DistanceCache::new(DistanceCacheConfig::new(entries)))
 }
 
 #[rstest]
 fn caches_and_reuses_distances() {
-    let cache = cache_with_capacity(4);
+    let cache = cache_with_capacity(4).expect("capacity must be non-zero");
     let metric = MetricDescriptor::new("test-metric");
 
     let miss = match cache.begin_lookup(&metric, 0, 1) {
@@ -36,7 +35,7 @@ fn caches_and_reuses_distances() {
 
 #[rstest]
 fn lru_eviction_discards_oldest_entry() {
-    let cache = cache_with_capacity(2);
+    let cache = cache_with_capacity(2).expect("capacity must be non-zero");
     let metric = MetricDescriptor::new("lru");
 
     let miss_a = match cache.begin_lookup(&metric, 0, 1) {
@@ -104,7 +103,7 @@ fn ttl_expiry_forces_refresh() {
 /// normalization for symmetric distance metrics.
 #[rstest]
 fn normalizes_pair_order() {
-    let cache = cache_with_capacity(2);
+    let cache = cache_with_capacity(2).expect("capacity must be non-zero");
     let metric = MetricDescriptor::new("sym");
 
     let miss = match cache.begin_lookup(&metric, 7, 3) {
@@ -123,7 +122,7 @@ fn normalizes_pair_order() {
 
 #[rstest]
 fn rejects_non_finite_entries() {
-    let cache = cache_with_capacity(1);
+    let cache = cache_with_capacity(1).expect("capacity must be non-zero");
     let metric = MetricDescriptor::new("nan");
 
     let miss = match cache.begin_lookup(&metric, 2, 3) {
@@ -139,23 +138,27 @@ fn rejects_non_finite_entries() {
     ));
 }
 
-fn cache_config(max_entries: usize) -> DistanceCacheConfig {
-    DistanceCacheConfig::new(NonZeroUsize::new(max_entries).expect("non-zero"))
+fn cache_config(max_entries: usize) -> Result<DistanceCacheConfig, Box<dyn Error>> {
+    let entries = NonZeroUsize::new(max_entries).ok_or("non-zero")?;
+    Ok(DistanceCacheConfig::new(entries))
 }
 
 #[rstest]
-#[case(cache_config(64), cache_config(64), true)]
-#[case(cache_config(64), cache_config(128), false)]
-#[case(
-    cache_config(64),
-    cache_config(64).with_ttl(Some(Duration::from_secs(1))),
-    false
-)]
+#[case(64, 64, None, true)]
+#[case(64, 128, None, false)]
+#[case(64, 64, Some(Duration::from_secs(1)), false)]
 fn distance_cache_config_equality(
-    #[case] left_config: DistanceCacheConfig,
-    #[case] right_config: DistanceCacheConfig,
+    #[case] left_entries: usize,
+    #[case] right_entries: usize,
+    #[case] right_ttl: Option<Duration>,
     #[case] expected_equal: bool,
 ) {
+    let left_config = cache_config(left_entries).expect("non-zero");
+    let mut right_config = cache_config(right_entries).expect("non-zero");
+    if let Some(ttl) = right_ttl {
+        right_config = right_config.with_ttl(Some(ttl));
+    }
+
     if expected_equal {
         assert_eq!(left_config, right_config);
     } else {

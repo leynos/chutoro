@@ -1,6 +1,7 @@
 //! Error and invariant tests for session core-distance recomputation.
 
 use std::{
+    error::Error,
     num::NonZeroUsize,
     sync::{
         Arc,
@@ -20,7 +21,7 @@ use crate::{
 #[rstest]
 #[should_panic(expected = "assertion `left == right` failed")]
 fn core_distance_asserts_storage_alignment(session_builder: ChutoroBuilder) {
-    let (mut session, _) = make_session(session_builder, 1);
+    let (mut session, _) = make_session(session_builder, 1).expect("session must build");
 
     session.append(&[0]).expect("append must succeed");
     session.dirty_core_distances.clear();
@@ -36,7 +37,7 @@ fn recompute_core_distances_propagates_errors(
     #[case] failure_description: &str,
 ) {
     let source = Arc::new(FailableSource::new(mode));
-    let mut session = build_failable_session(Arc::clone(&source));
+    let mut session = build_failable_session(Arc::clone(&source)).expect("session must build");
 
     session.append(&[0, 1, 2]).expect("append must succeed");
     source.fail();
@@ -64,7 +65,7 @@ fn recompute_core_distances_keeps_new_points_dirty_when_existing_search_fails() 
         left: 0,
         right: 2,
     }));
-    let mut session = build_failable_session(Arc::clone(&source));
+    let mut session = build_failable_session(Arc::clone(&source)).expect("session must build");
 
     session.append(&[0, 2]).expect("first append must succeed");
     session
@@ -95,19 +96,18 @@ fn recompute_core_distances_keeps_new_points_dirty_when_existing_search_fails() 
     assert!(session.core_distance(1).is_some());
 }
 
-fn build_failable_session(source: Arc<FailableSource>) -> crate::ClusteringSession<FailableSource> {
-    let cache_entries = NonZeroUsize::new(1).expect("cache size must be non-zero");
-    let hnsw_params = HnswParams::new(2, 4)
-        .expect("HNSW params must be valid")
-        .with_distance_cache_config(
-            DistanceCacheConfig::new(cache_entries).with_ttl(Some(Duration::ZERO)),
-        );
+fn build_failable_session(
+    source: Arc<FailableSource>,
+) -> Result<crate::ClusteringSession<FailableSource>, Box<dyn Error>> {
+    let cache_entries = NonZeroUsize::new(1).ok_or("cache size must be non-zero")?;
+    let hnsw_params = HnswParams::new(2, 4)?.with_distance_cache_config(
+        DistanceCacheConfig::new(cache_entries).with_ttl(Some(Duration::ZERO)),
+    );
 
-    ChutoroBuilder::new()
+    Ok(ChutoroBuilder::new()
         .with_min_cluster_size(1)
         .with_hnsw_params(hnsw_params)
-        .build_session(source)
-        .expect("session must build")
+        .build_session(source)?)
 }
 
 #[derive(Debug)]
