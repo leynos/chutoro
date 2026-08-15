@@ -56,6 +56,18 @@ fn ensure_row_len(row: usize, actual: usize, dimension: usize) -> Result<(), Fix
     })
 }
 
+/// Checks that every fixture row holds exactly `dimension` values.
+///
+/// # Errors
+/// Returns [`FixtureError::RowLength`] for the first row whose length differs
+/// from `dimension`, naming that row's index.
+fn ensure_rows_len<T>(rows: &[Vec<T>], dimension: usize) -> Result<(), FixtureError> {
+    for (index, row) in rows.iter().enumerate() {
+        ensure_row_len(index, row.len(), dimension)?;
+    }
+    Ok(())
+}
+
 /// Builds a non-nullable three-dimensional fixed-size list array.
 ///
 /// Convenience wrapper over [`build_list_array`] for the common three-feature
@@ -82,9 +94,7 @@ pub(crate) fn build_list_array(
     dimension: usize,
     child_nullable: bool,
 ) -> Result<FixedSizeListArray, FixtureError> {
-    for (index, row) in rows.iter().enumerate() {
-        ensure_row_len(index, row.len(), dimension)?;
-    }
+    ensure_rows_len(rows, dimension)?;
     let values = Float32Array::from_iter_values(rows.iter().flatten().copied());
     fixed_size_list_from_values(values, dimension, child_nullable)
 }
@@ -139,9 +149,7 @@ pub(crate) fn build_list_array_with_value_nulls(
     rows: &[Vec<Option<f32>>],
     dimension: usize,
 ) -> Result<FixedSizeListArray, FixtureError> {
-    for (index, row) in rows.iter().enumerate() {
-        ensure_row_len(index, row.len(), dimension)?;
-    }
+    ensure_rows_len(rows, dimension)?;
     let values = Float32Array::from_iter(rows.iter().flatten().copied());
     fixed_size_list_from_values(values, dimension, true)
 }

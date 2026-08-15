@@ -53,13 +53,16 @@ pub(super) enum TrimmingFixtureError {
     },
 }
 
-/// Returns [`TrimmingFixtureError::ReciprocityViolated`] unless `holds` is true.
+/// Returns [`TrimmingFixtureError::ReciprocityViolated`] unless `is_satisfied`.
 ///
 /// # Errors
 /// Returns the named invariant as an error so the calling test reports the
 /// failure rather than the helper panicking.
-fn ensure_invariant(holds: bool, invariant: &'static str) -> Result<(), TrimmingFixtureError> {
-    if holds {
+fn ensure_invariant(
+    is_satisfied: bool,
+    invariant: &'static str,
+) -> Result<(), TrimmingFixtureError> {
+    if is_satisfied {
         return Ok(());
     }
     Err(TrimmingFixtureError::ReciprocityViolated { invariant })
@@ -148,12 +151,16 @@ pub(super) fn verify_post_trim_reciprocity(
         "new node should have a reciprocal edge to the entry node",
     )?;
 
-    if let Some(evicted_node) = graph.node(evicted) {
-        ensure_invariant(
-            !evicted_node.neighbours(0).contains(&0),
-            "forward edge from evicted neighbour should be removed",
-        )?;
-    }
+    let evicted_node = graph
+        .node(evicted)
+        .ok_or(TrimmingFixtureError::MissingNode {
+            node: evicted,
+            reason: "evicted neighbour must remain attached after commit",
+        })?;
+    ensure_invariant(
+        !evicted_node.neighbours(0).contains(&0),
+        "forward edge from evicted neighbour should be removed",
+    )?;
     Ok(())
 }
 

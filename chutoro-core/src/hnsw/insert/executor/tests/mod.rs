@@ -5,8 +5,6 @@
 
 mod trimming_fixtures;
 
-use std::error::Error;
-
 use super::*;
 use crate::hnsw::insert::{
     reconciliation::EdgeReconciler,
@@ -21,8 +19,8 @@ use crate::hnsw::{
 };
 use rstest::rstest;
 use trimming_fixtures::{
-    apply_insertion_with_trim, build_trimming_test_graph, setup_reciprocal_edges_with_reserve,
-    verify_post_trim_reciprocity,
+    TrimmingFixtureError, apply_insertion_with_trim, build_trimming_test_graph,
+    setup_reciprocal_edges_with_reserve, verify_post_trim_reciprocity,
 };
 
 fn setup_basic_graph(
@@ -243,7 +241,7 @@ fn enforce_bidirectional_all_removes_invalid_upper_edge() {
 fn trimming_eviction_restores_reciprocity(
     #[case] trimmed_neighbours: Vec<usize>,
     #[case] max_connections: usize,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), TrimmingFixtureError> {
     assert!(
         !trimmed_neighbours.is_empty(),
         "trimmed_neighbours must be non-empty to exercise eviction fallback",

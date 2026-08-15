@@ -181,6 +181,59 @@ The latency histogram reads time through the internal `MonotonicClock` trait.
 public constructor or builder API; it exists solely to make metrics assertions
 deterministic while preserving the public session contract.
 
+## Whitaker lint suite
+
+Whitaker is a Dylint lint suite that runs as a commit gate alongside Clippy.
+`make lint` runs `lint-clippy` (rustdoc plus Clippy) followed by
+`lint-whitaker`, which invokes the `whitaker` wrapper with
+`RUSTFLAGS="-D warnings"` over `--all-targets --all-features`. Individual
+lints are referenced elsewhere in this guide where they apply: the
+[fallible fixture policy](#fallible-fixture-policy) covers
+`no_expect_outside_tests`, and the
+[support-module boundaries](#support-module-boundaries) section covers the
+400-line `module_max_lines` cap.
+
+### Installing Whitaker locally
+
+Install the `whitaker` wrapper the same way continuous integration (CI) does,
+by installing `whitaker-installer` and letting it place the wrapper on your
+`PATH`:
+
+```shell
+cargo binstall --no-confirm --locked whitaker-installer
+# or, if cargo-binstall is unavailable:
+cargo install --locked whitaker-installer
+
+whitaker-installer
+```
+
+`whitaker-installer` installs the `whitaker` wrapper itself; the Makefile
+invokes it by bare name, so it must resolve on `PATH`. Override the `WHITAKER`
+make variable with an explicit path if you keep the binary somewhere else:
+
+```shell
+make lint WHITAKER=/path/to/whitaker
+```
+
+If `whitaker` is unavailable, run `make lint-clippy` for a Clippy-only pass.
+
+**Agents must not install, upgrade, or downgrade Whitaker from this
+repository, and must not otherwise modify the user's Whitaker installation.**
+If the wrapper is missing, ask the user to install it. See `AGENTS.md` for the
+full agent-facing rule.
+
+### CI resolution and configuration
+
+CI resolves the newest `whitaker-installer` release at run time — via
+`gh api repos/leynos/whitaker/releases/latest` — rather than pinning a
+version, then installs that release and runs it to obtain the `whitaker`
+wrapper. Because the suite version is not pinned, a new Whitaker release can
+introduce findings on code that has not otherwise changed; treat such
+findings as genuine and fix them rather than pinning around them.
+
+Per-lint configuration, including `no_std_fs_operations` crate exclusions with
+rationale comments, lives in the root `dylint.toml`.
+
 ## Test fixture conventions
 
 The house policy is that fixtures and helpers are not tests. It governs how
