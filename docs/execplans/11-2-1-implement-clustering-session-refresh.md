@@ -46,9 +46,11 @@ Success is observable in three concrete ways:
 
 `refresh` reuses the exact batch primitives so incremental and batch results
 stay aligned: it reweights the merged **raw** candidate edge set with the
-mutual-reachability formula using current core distances, constructs a fresh
-`EdgeHarvest`, runs `parallel_kruskal`, and extracts labels with
-`extract_labels_from_mst`.
+mutual-reachability formula using current core distances, feeds the result to
+the Kruskal machinery via the crate-internal `parallel_kruskal_from_edges`
+entry point (see Decision Log — this subsumes the roadmap's "construct a fresh
+`EdgeHarvest`" step without changing observable behaviour), and extracts labels
+with `extract_labels_from_mst`.
 
 ### What this plan does and does not authorize
 
@@ -87,9 +89,10 @@ This plan does **not** authorize:
 Hard invariants. Violation requires escalation, not a workaround.
 
 - Keep scope to roadmap item `11.2.1` as bounded above.
-- Reuse the batch CPU primitives without forking their behaviour:
-  `crate::parallel_kruskal`, `crate::extract_labels_from_mst`,
-  `crate::HierarchyConfig`, `crate::EdgeHarvest`, `crate::MstEdge`, and
+- Reuse the batch CPU primitives without forking their behaviour: the Kruskal
+  machinery (via `crate::mst::parallel_kruskal_from_edges`, which the public
+  `parallel_kruskal` delegates to), `crate::extract_labels_from_mst`,
+  `crate::HierarchyConfig`, `crate::MstEdge`, and
   `crate::CandidateEdge`. The incremental mutual-reachability weighting must be
   numerically identical to the batch path in
   `chutoro-core/src/cpu_pipeline.rs`, and must always be computed from **raw**
@@ -109,7 +112,10 @@ Hard invariants. Violation requires escalation, not a workaround.
   path.
 - Add no new production dependency and no **new public** `ChutoroError` variant.
   Degenerate and invalid-input paths reuse the existing `EmptySource`,
-  `InsufficientItems`, and `CpuMstFailure` variants (see Decision Log).
+  `InsufficientItems`, and `CpuMstFailure` variants (see Decision Log). The
+  approved assertion crates `googletest`, `pretty_assertions`, and `insta`
+  enter the workspace as **dev-dependencies only** (see Decision Log); they
+  must not appear in any `[dependencies]` table.
 - `refresh` is all-or-nothing at the snapshot level: no observable session state
   (`labels`, `snapshot_version`, `pending_edges`, `mst_edges`) is mutated unless
   the whole refresh succeeds.
@@ -133,7 +139,9 @@ Hard invariants. Violation requires escalation, not a workaround.
   `Vec<MstEdge>` to `Vec<CandidateEdge>` is authorized by this plan. Promoting
   `map_cpu_mst_error`/`map_cpu_hierarchy_error` to `pub(crate)` is authorized.
   Adding any **new public** `ChutoroError` variant is not — stop and escalate.
-- Dependencies: if any new external dependency is required, stop and escalate.
+- Dependencies: if any new external dependency is required beyond the three
+  authorized dev-dependencies (`googletest`, `pretty_assertions`, `insta`),
+  stop and escalate.
 - Iterations: if the deterministic commit gates still fail after 3 fix attempts
   on a single milestone, stop and escalate.
 - Verification: if the Verus lemma cannot be discharged without an `assume`
@@ -311,6 +319,45 @@ Hard invariants. Violation requires escalation, not a workaround.
   increment as a content change.
   Date/Author: 2026-07-22, planning (post expert review).
 
+- Decision: Call `parallel_kruskal_from_edges` directly instead of the
+  roadmap's "construct a fresh `EdgeHarvest`" wording.
+  Rationale: the `pub(crate)` entry point at `chutoro-core/src/mst/mod.rs`
+  accepts `impl IntoIterator<Item = &CandidateEdge>` and is what the public
+  `parallel_kruskal` itself delegates to. `EdgeHarvest::from_unsorted` exists
+  to guarantee harvest ordering, but `prepare_edge_list` re-sorts by weight
+  regardless, so routing through `EdgeHarvest` adds a redundant O(E log E)
+  sort and an intermediate allocation purely to satisfy the wrapper type. The
+  observable result is identical (same validation, canonicalization, sort,
+  dedup, and union-find). The roadmap's stated intent — "run
+  `parallel_kruskal` over the combined set" — is met via its own internal
+  entry point; recorded here because it deviates from the item's literal
+  wording.
+  Date/Author: 2026-08-16, planning (gap review).
+
+- Decision: Dedup of the merged candidate set relies on
+  `mst::prepare_edge_list`, not on any pre-merge filtering.
+  Rationale: the three merged buffers (`mst_backbone`, `historical_edges`,
+  `pending_edges`) can legitimately overlap — an edge selected into the MST
+  may also be re-harvested by a later insertion. `prepare_edge_list` dedups
+  identical `(weight, source, target)` triples after canonicalization, and
+  duplicates of the same raw edge reweight identically under the same core
+  distances, so overlap collapses inside Kruskal at no correctness cost.
+  `EdgeHarvest` never dedups, so nothing is lost by bypassing it. A pure-fn
+  unit test asserts that duplicating an input edge across two buffers leaves
+  the output labels and backbone unchanged.
+  Date/Author: 2026-08-16, planning (gap review).
+
+- Decision: Adopt `googletest`, `pretty_assertions`, and `insta` as
+  dev-dependencies in this milestone.
+  Rationale: the `rust-unit-testing` brief names them as the approved rich
+  assertion stack, yet none is used anywhere in the workspace; deferring
+  adoption "until they are used" is circular. This is the first new test
+  suite since their approval, so it starts the practice: readable diffs for
+  vector equality, matcher-based structural claims, and one snapshot for the
+  deterministic fixture. Dev-dependencies only; the no-new-production-
+  dependency constraint is unchanged.
+  Date/Author: 2026-08-16, planning (gap review).
+
 - Decision: Prior-art alignment with FISHDBC (Dell'Amico, 2019,
   arXiv:1910.07283).
   Rationale: FISHDBC maintains an *approximate* MST updated incrementally by
@@ -363,6 +410,13 @@ The reader needs no prior plans. Relevant facts, with full paths:
   ```text
   // chutoro-core/src/mst/mod.rs
   parallel_kruskal(node_count: usize, edges: &EdgeHarvest)
+      -> Result<MinimumSpanningForest, MstError>
+  // pub(crate) sibling; parallel_kruskal delegates to it. prepare_edge_list
+  // validates, canonicalizes (source <= target), sorts by weight, and dedups
+  // identical (weight, source, target) triples before union-find. Note the
+  // dedup lives HERE, not in EdgeHarvest, which never dedups.
+  parallel_kruskal_from_edges(node_count: usize,
+      edges: impl IntoIterator<Item = &CandidateEdge>)
       -> Result<MinimumSpanningForest, MstError>
   MinimumSpanningForest::edges() -> &[MstEdge]
 
@@ -426,6 +480,27 @@ edits.
 
 Add the smallest failing specifications before any production change.
 
+0. Add `googletest`, `pretty_assertions`, and `insta` to `chutoro-core`'s
+   `[dev-dependencies]` (via the workspace dependency table if one exists;
+   crate-level otherwise). These are the approved assertion crates from the
+   `rust-unit-testing` brief, adopted here because this is the first test
+   suite written since their approval (see Decision Log). Usage in the new
+   tests, chosen for expressiveness rather than blanket replacement:
+   - `pretty_assertions::assert_eq!` wherever whole label vectors or edge
+     lists are compared, so failures render a readable diff instead of two
+     opaque `Vec` debug dumps.
+   - `googletest` matchers (`assert_that!` with `len`, `each`, `eq`,
+     `matches_pattern!`) for structural claims — for example "every label is
+     below the cluster-count bound", "the error is `CpuMstFailure` with this
+     code" — expressing the property directly rather than via boolean
+     plumbing.
+   - `insta::assert_debug_snapshot!` for the deterministic single-refresh
+     label vector of the fixed small fixture (deterministic seed, so the
+     snapshot is stable); review snapshots with `cargo insta review`, and
+     commit the `.snap` file alongside the test.
+   Plain `assert!`/`assert_eq!` remains fine for trivial scalar checks
+   (`snapshot_version`, lengths); `prop_assert!` continues to be used inside
+   `proptest` blocks, which cannot use panicking matchers directly.
 1. Unit tests in a new `chutoro-core/src/session/tests/refresh.rs` (registered
    from `session/tests.rs`), using the `session_builder` fixture and
    `make_session` helper. Every test that expects real clusters builds with
@@ -522,19 +597,29 @@ M1 (pure domain layer):
      returning `ChutoroError::CpuMstFailure` on violation (no panic).
    - Reweights each edge with `mutual_reachability_weight`, preserving
      `(source, target, sequence)`.
-   - `EdgeHarvest::from_unsorted(reweighted)`, then
-     `parallel_kruskal(node_count, &harvest)` mapped via `map_cpu_mst_error`,
-     then `extract_labels_from_mst(node_count, forest.edges(),
+   - `parallel_kruskal_from_edges(node_count, reweighted.iter())` (the
+     `pub(crate)` entry point — no `EdgeHarvest` construction; see Decision
+     Log) mapped via `map_cpu_mst_error`, then
+     `extract_labels_from_mst(node_count, forest.edges(),
      HierarchyConfig::new(min_cluster_size))` mapped via
      `map_cpu_hierarchy_error`.
+   - Overlaps between the three merged buffers need no pre-filtering:
+     `mst::prepare_edge_list` canonicalizes and dedups identical
+     `(weight, source, target)` triples inside Kruskal, and duplicates of the
+     same raw edge reweight identically under the same core distances, so
+     they collapse there. `EdgeHarvest` performs no dedup, which is a further
+     reason not to route through it.
    - Recovers the raw backbone: build a set of `(source, target, sequence)` keys
      from `forest.edges()` (canonicalized), then filter the raw combined set to
      those keys. Returns labels plus that raw backbone.
 3. Add pure-function unit tests in `refresh.rs` `#[cfg(test)]` for
    `mutual_reachability_weight` (commutativity in the two cores, `>= max` of the
    three inputs, idempotence when all equal) and `rebuild_mst_labels` (label
-   length, empty and all-noise short-circuits, out-of-range endpoint error, and
-   raw-backbone recovery correctness).
+   length, empty and all-noise short-circuits, out-of-range endpoint error,
+   raw-backbone recovery correctness, and overlap tolerance: duplicating an
+   edge across two input buffers leaves the output labels and backbone
+   unchanged, exercising the `prepare_edge_list` dedup documented in the
+   Decision Log).
 
 M2 (session wiring):
 
@@ -755,11 +840,13 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 }
 ```
 
-Reused (unchanged) symbols: `crate::parallel_kruskal`, `crate::HierarchyConfig`,
-`crate::extract_labels_from_mst`, `crate::EdgeHarvest`, `crate::MstEdge`,
-`crate::CandidateEdge`, `crate::adjusted_rand_index`. Internal
-change: the session's `mst_edges` field becomes `mst_backbone:
-Vec<CandidateEdge>`. No new external dependency; no new public error variant.
+Reused (unchanged) symbols: `crate::mst::parallel_kruskal_from_edges`
+(`pub(crate)`, the refresh path's Kruskal entry point),
+`crate::HierarchyConfig`, `crate::extract_labels_from_mst`, `crate::MstEdge`,
+`crate::CandidateEdge`, `crate::adjusted_rand_index`. Internal change: the
+session's `mst_edges` field becomes `mst_backbone: Vec<CandidateEdge>`. New
+dev-dependencies (test-only): `googletest`, `pretty_assertions`, `insta`. No
+new production dependency; no new public error variant.
 
 ## Revision note
 
@@ -779,3 +866,13 @@ and reuse the existing BDD harness; (7) reframe the Verus lemma around
 raw-retention reweight faithfulness; (8) record the auto-recompute and
 per-call-counter semantics and update §12.4 wording. Awaiting user approval
 before implementation.
+
+Revised 2026-08-16 after a user gap review. Changes: (1) adopt `googletest`,
+`pretty_assertions`, and `insta` as dev-dependencies with concrete usage
+assignments in the new suites (first adoption in the workspace); (2) switch
+the pure rebuild from `EdgeHarvest::from_unsorted` + `parallel_kruskal` to the
+crate-internal `parallel_kruskal_from_edges` entry point, removing a redundant
+sort and allocation (recorded as a deviation from the roadmap item's literal
+wording); (3) document that dedup of the overlapping merged buffers happens in
+`mst::prepare_edge_list` (not `EdgeHarvest`) and add an overlap-tolerance unit
+test. Remaining work is unaffected; the plan still awaits approval.
