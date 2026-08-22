@@ -39,10 +39,10 @@ jobs:
       CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
     steps:
       - &checkout_step
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - &setup_rust_step
         name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@18bed1ca49a6de3d8882bd72635a32ae3f023d57
+        uses: leynos/shared-actions/.github/actions/setup-rust@a42afcf10cf18a6af7c6c2ec2b30c4209bc8c8cd
       - &install_nextest_step
         name: Install cargo-nextest
         run: cargo binstall --no-confirm cargo-nextest
@@ -82,7 +82,7 @@ jobs:
       - &upload_proptest_regressions_step
         name: Upload proptest regressions
         if: failure()
-        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: proptest-regressions-${{ matrix.suite }}
           path: |
