@@ -190,6 +190,7 @@ impl<'graph> TestHelpers<'graph> {
             };
             let mut healer = ConnectivityHealer::new(self.graph);
             if healer.link_new_node(&ctx, node_id) {
+                self.graph.record_touched_nodes([(origin, 0), (node_id, 0)]);
                 return true;
             }
         }
@@ -202,6 +203,7 @@ impl<'graph> TestHelpers<'graph> {
             };
             let mut healer = ConnectivityHealer::new(self.graph);
             if healer.link_new_node(&ctx, node_id) {
+                self.graph.record_touched_nodes([(origin, 0), (node_id, 0)]);
                 return true;
             }
         }
@@ -359,6 +361,71 @@ impl<'graph> TestHelpers<'graph> {
             target_degree: neighbours.len(),
             limit: compute_connection_limit(level, max_connections),
         })
+    }
+
+    /// Repairs and validates only edges owned by graph nodes changed by a test mutation.
+    pub(super) fn enforce_bidirectional_for_touched(
+        &mut self,
+        touched: &[(usize, usize)],
+        max_connections: usize,
+    ) {
+        for (origin, level, target) in self.collect_touched_edges(touched) {
+            let ctx = UpdateContext {
+                origin,
+                level,
+                max_connections,
+            };
+            self.heal_or_remove_edge(&ctx, target);
+        }
+
+        self.validate_touched_edges_reciprocal(touched, max_connections);
+    }
+
+    fn collect_touched_edges(&self, touched: &[(usize, usize)]) -> Vec<(usize, usize, usize)> {
+        let mut edges = Vec::new();
+        for &(origin, level) in touched {
+            let Some(node) = self.graph.node(origin) else {
+                continue;
+            };
+            if level >= node.level_count() {
+                continue;
+            }
+            edges.extend(
+                node.neighbours(level)
+                    .iter()
+                    .copied()
+                    .map(|target| (origin, level, target)),
+            );
+        }
+        edges
+    }
+
+    fn validate_touched_edges_reciprocal(
+        &self,
+        touched: &[(usize, usize)],
+        max_connections: usize,
+    ) {
+        for (origin, level, target) in self.collect_touched_edges(touched) {
+            let target_node = match self.graph.node(target) {
+                Some(node) => node,
+                None => panic!(
+                    "enforce_bidirectional_for_touched left edge {origin}->{target} at level {level} to missing node",
+                ),
+            };
+            let target_levels = target_node.level_count();
+            assert!(
+                level < target_levels,
+                "enforce_bidirectional_for_touched left edge {origin}->{target} at absent level {level} (target has {target_levels})",
+            );
+
+            let neighbours = target_node.neighbours(level);
+            let limit = compute_connection_limit(level, max_connections);
+            assert!(
+                neighbours.contains(&origin),
+                "enforce_bidirectional_for_touched left one-way edge {origin}->{target} at level {level}; target degree {} (limit {limit})",
+                neighbours.len(),
+            );
+        }
     }
 }
 
