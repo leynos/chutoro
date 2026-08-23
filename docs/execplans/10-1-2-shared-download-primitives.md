@@ -283,12 +283,18 @@ Recorded during planning; extend during implementation.
   `deny.toml`, no `audit.toml`, and none of the eight workflows in
   `.github/workflows/` runs `cargo-deny`, `cargo-audit`, or any advisory check.
   Impact: Stage 0 exists.
-- Observation: `make verus` is a blocking pull-request gate, while Kani is
-  nightly only. Evidence: `.github/workflows/ci.yml:112` defines a
-  `verus-proofs` job running `make verus`;
-  `.github/workflows/nightly-kani.yml:4-5` is `schedule: cron '0 2 * * *'`.
+- Observation: `make verus` is a blocking pull-request gate, while no Kani
+  harness gates a merge at all. Evidence: `.github/workflows/ci.yml:112`
+  defines a `verus-proofs` job running `make verus` on every pull request;
+  `make kani` is invoked by no workflow whatsoever, and `make kani-full` runs
+  only in `.github/workflows/nightly-kani.yml:39`, which checks out `ref: main`
+  and is therefore post-merge, schedule-driven, and gated on recent commits.
   Impact: every Verus proof adds latency to every pull request forever, so the
-  bar for adding one is higher than for a Kani harness.
+  bar for adding one is higher than for a Kani harness — but a Kani harness is
+  cheap because it is *unenforced*, not because it is fast. The Kani harnesses
+  this plan adds will not gate anything until issue #202 is resolved, so they
+  must be run locally at each stage boundary and treated as developer tooling
+  rather than as a merge gate. See also issue #215.
 - Observation: `PartialState::orphaned_cache_key` is structurally always
   `None`. Evidence: `PartialState::new` hardcodes it
   (`src/newtypes/keys.rs:167-173`) and `cleanup_after_error` is its only caller
@@ -889,7 +895,14 @@ cargo kani -p chutoro-bench-datasets --default-unwind 4 \
 
 Add the two new harnesses to the `kani` target in the `Makefile`; it names
 harnesses explicitly (currently four across two packages), so a harness not
-listed there is never run in continuous integration.
+listed there is never run even locally via that target.
+
+Registering them there does **not** make them a merge gate: `make kani` is
+invoked by no workflow, and `make kani-full` runs post-merge on `main` and
+currently does not complete (see `docs/kani-full-hnsw-hypothesis-testing.md`
+and issue #202). Until that is fixed, run both harnesses by hand at each stage
+boundary and record the result in `Progress`. Do not treat a green pull request
+as evidence that the harnesses passed.
 
 Expected transcript shape at a stage boundary:
 
@@ -1137,6 +1150,14 @@ counts toward `too-many-arguments-threshold = 4`; any future per-entry datum
 goes into `EntryMetadata`, never into the signature.
 
 ## Revision note
+
+2026-08-16 (second revision): corrected the Kani claim in two places. The first
+draft said "Kani is nightly only"; issue #202 establishes that `make kani` runs
+in no workflow at all and `make kani-full` runs post-merge on `main` and does
+not currently complete. The verification story is unchanged, but the plan now
+states that the two new harnesses are developer tooling rather than a merge
+gate, and must be run by hand at each stage boundary. Findings from this plan
+were also filed as issues #208 through #217.
 
 2026-08-16: first draft, incorporating a six-expert design review and eight
 empirical checks against the working tree and live upstreams. The review
