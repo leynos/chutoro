@@ -16,12 +16,12 @@ const SPLITMIX_MULT_A: u64 = 0xBF58_476D_1CE4_E5B9;
 const SPLITMIX_MULT_B: u64 = 0x94D0_49BB_1331_11EB;
 
 #[inline]
-pub(super) fn mix_worker_seed(base_seed: u64, worker_index: usize) -> u64 {
+pub(super) const fn mix_worker_seed(base_seed: u64, worker_index: usize) -> u64 {
     splitmix64(base_seed ^ ((worker_index as u64 + 1).wrapping_mul(WORKER_SEED_SPACING)))
 }
 
 #[inline]
-fn splitmix64(mut state: u64) -> u64 {
+const fn splitmix64(mut state: u64) -> u64 {
     state = state.wrapping_add(WORKER_SEED_SPACING);
     state = (state ^ (state >> 30)).wrapping_mul(SPLITMIX_MULT_A);
     state = (state ^ (state >> 27)).wrapping_mul(SPLITMIX_MULT_B);

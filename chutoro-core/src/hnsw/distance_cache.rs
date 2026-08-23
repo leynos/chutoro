@@ -40,7 +40,7 @@ impl DistanceCacheConfig {
     pub const DEFAULT_MAX_ENTRIES: usize = 1_048_576;
 
     /// Builds a configuration with the provided maximum capacity.
-    pub fn new(max_entries: NonZeroUsize) -> Self {
+    pub const fn new(max_entries: NonZeroUsize) -> Self {
         Self {
             max_entries,
             ttl: None,
@@ -49,7 +49,7 @@ impl DistanceCacheConfig {
 
     /// Sets an optional time-to-live applied to cached entries.
     #[must_use]
-    pub fn with_ttl(mut self, ttl: Option<Duration>) -> Self {
+    pub const fn with_ttl(mut self, ttl: Option<Duration>) -> Self {
         self.ttl = ttl;
         self
     }
@@ -66,18 +66,18 @@ impl DistanceCacheConfig {
     /// assert_eq!(config.max_entries().get(), 2);
     /// ```
     #[must_use]
-    pub fn with_max_entries(mut self, max: NonZeroUsize) -> Self {
+    pub const fn with_max_entries(mut self, max: NonZeroUsize) -> Self {
         self.max_entries = max;
         self
     }
 
     /// Returns the maximum number of cached distances retained before eviction.
-    pub fn max_entries(&self) -> NonZeroUsize {
+    pub const fn max_entries(&self) -> NonZeroUsize {
         self.max_entries
     }
 
     /// Returns the configured time-to-live, if any.
-    pub fn ttl(&self) -> Option<Duration> {
+    pub const fn ttl(&self) -> Option<Duration> {
         self.ttl
     }
 }
@@ -99,7 +99,7 @@ struct DistanceKey {
 }
 
 impl DistanceKey {
-    fn new(metric: MetricDescriptor, a: usize, b: usize) -> Self {
+    const fn new(metric: MetricDescriptor, a: usize, b: usize) -> Self {
         let (left, right) = if a <= b { (a, b) } else { (b, a) };
         Self {
             metric,

@@ -99,7 +99,7 @@ impl<'a> Vector<'a> {
 
     /// Returns the dimensionality of the vector.
     #[must_use]
-    pub fn dimension(&self) -> usize {
+    pub const fn dimension(&self) -> usize {
         self.0.len()
     }
 }
@@ -176,7 +176,7 @@ impl Norm {
 
     /// Returns the validated norm value.
     #[must_use]
-    pub fn value(&self) -> f32 {
+    pub const fn value(&self) -> f32 {
         self.0
     }
 }
@@ -194,13 +194,13 @@ impl Deref for Norm {
 pub struct Distance(f32);
 
 impl Distance {
-    pub(crate) fn from_raw(value: f32) -> Self {
+    pub(crate) const fn from_raw(value: f32) -> Self {
         Self(value)
     }
 
     /// Returns the raw distance value.
     #[must_use]
-    pub fn value(&self) -> f32 {
+    pub const fn value(&self) -> f32 {
         self.0
     }
 }
@@ -256,25 +256,25 @@ impl CosineNorms {
 
     /// Returns the stored norm for the left vector.
     #[must_use]
-    pub fn left(&self) -> f32 {
+    pub const fn left(&self) -> f32 {
         self.left.value()
     }
 
     /// Returns the stored norm for the right vector.
     #[must_use]
-    pub fn right(&self) -> f32 {
+    pub const fn right(&self) -> f32 {
         self.right.value()
     }
 
     /// Returns the validated norm for the left vector.
     #[must_use]
-    pub fn left_norm(&self) -> Norm {
+    pub const fn left_norm(&self) -> Norm {
         self.left
     }
 
     /// Returns the validated norm for the right vector.
     #[must_use]
-    pub fn right_norm(&self) -> Norm {
+    pub const fn right_norm(&self) -> Norm {
         self.right
     }
 }

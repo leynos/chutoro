@@ -22,7 +22,7 @@ pub(super) struct InsertionStager<'graph> {
 }
 
 impl<'graph> InsertionStager<'graph> {
-    pub(super) fn new(graph: &'graph Graph) -> Self {
+    pub(super) const fn new(graph: &'graph Graph) -> Self {
         Self { graph }
     }
 

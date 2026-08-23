@@ -59,7 +59,7 @@ pub struct Chutoro {
 }
 
 impl Chutoro {
-    pub(crate) fn new(
+    pub(crate) const fn new(
         min_cluster_size: NonZeroUsize,
         execution_strategy: ExecutionStrategy,
         max_bytes: Option<u64>,
@@ -84,7 +84,7 @@ impl Chutoro {
     /// assert_eq!(chutoro.min_cluster_size().get(), 9);
     /// ```
     #[must_use]
-    pub fn min_cluster_size(&self) -> NonZeroUsize {
+    pub const fn min_cluster_size(&self) -> NonZeroUsize {
         self.min_cluster_size
     }
 
@@ -101,7 +101,7 @@ impl Chutoro {
     /// assert_eq!(chutoro.execution_strategy(), ExecutionStrategy::CpuOnly);
     /// ```
     #[must_use]
-    pub fn execution_strategy(&self) -> ExecutionStrategy {
+    pub const fn execution_strategy(&self) -> ExecutionStrategy {
         self.execution_strategy
     }
 
@@ -119,7 +119,7 @@ impl Chutoro {
     /// ```
     #[rustfmt::skip]
     #[must_use]
-    pub fn max_bytes(&self) -> Option<u64> { self.max_bytes }
+    pub const fn max_bytes(&self) -> Option<u64> { self.max_bytes }
 
     /// Executes the clustering pipeline against the provided [`DataSource`].
     ///
@@ -233,7 +233,7 @@ impl Chutoro {
         Ok(())
     }
 
-    fn choose_backend(&self) -> BackendChoice {
+    const fn choose_backend(&self) -> BackendChoice {
         match self.execution_strategy {
             ExecutionStrategy::Auto => {
                 if CPU_PATH_AVAILABLE {
@@ -268,7 +268,7 @@ impl Chutoro {
         }
     }
 
-    fn run_gpu<D: DataSource + Sync>(
+    const fn run_gpu<D: DataSource + Sync>(
         &self,
         _source: &D,
         _items: usize,
@@ -286,7 +286,7 @@ impl Chutoro {
         })
     }
 
-    fn is_backend_unavailable(&self) -> bool {
+    const fn is_backend_unavailable(&self) -> bool {
         match self.execution_strategy {
             ExecutionStrategy::Auto => !(CPU_PATH_AVAILABLE || GPU_PATH_AVAILABLE),
             ExecutionStrategy::CpuOnly => !CPU_PATH_AVAILABLE,

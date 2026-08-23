@@ -24,18 +24,18 @@ pub(super) struct EdgeReconciler<'graph> {
 }
 
 impl<'graph> EdgeReconciler<'graph> {
-    pub(super) fn new(graph: &'graph mut Graph) -> Self {
+    pub(super) const fn new(graph: &'graph mut Graph) -> Self {
         Self {
             graph,
             deferred_scrubs: Vec::new(),
         }
     }
 
-    pub(super) fn graph_mut(&mut self) -> &mut Graph {
+    pub(super) const fn graph_mut(&mut self) -> &mut Graph {
         self.graph
     }
 
-    pub(super) fn graph(&self) -> &Graph {
+    pub(super) const fn graph(&self) -> &Graph {
         self.graph
     }
 
@@ -167,7 +167,11 @@ impl<'graph> EdgeReconciler<'graph> {
     /// Returns true if connectivity healing should be triggered after removing
     /// a neighbour. Healing is needed when a node becomes isolated at the base
     /// layer after a successful removal.
-    fn should_heal_connectivity(initial_len: usize, neighbours: &[usize], level: usize) -> bool {
+    const fn should_heal_connectivity(
+        initial_len: usize,
+        neighbours: &[usize],
+        level: usize,
+    ) -> bool {
         let neighbour_was_removed = initial_len != neighbours.len();
         let is_base_layer = level == 0;
         let is_now_isolated = neighbours.is_empty();

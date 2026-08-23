@@ -133,7 +133,7 @@ impl ConcurrentUnionFind {
     }
 }
 
-fn lock_order(first: usize, second: usize) -> (usize, usize) {
+const fn lock_order(first: usize, second: usize) -> (usize, usize) {
     if first <= second {
         (first, second)
     } else {
@@ -141,7 +141,7 @@ fn lock_order(first: usize, second: usize) -> (usize, usize) {
     }
 }
 
-fn choose_parent_child(
+const fn choose_parent_child(
     left_root: usize,
     right_root: usize,
     left_rank: usize,

@@ -53,28 +53,28 @@ impl HnswParams {
 
     /// Overrides the random level multiplier used when sampling layers.
     #[must_use]
-    pub fn with_level_multiplier(mut self, multiplier: f64) -> Self {
+    pub const fn with_level_multiplier(mut self, multiplier: f64) -> Self {
         self.level_multiplier = multiplier.max(f64::MIN_POSITIVE);
         self
     }
 
     /// Caps the maximum layer that will be sampled for new nodes.
     #[must_use]
-    pub fn with_max_level(mut self, max_level: usize) -> Self {
+    pub const fn with_max_level(mut self, max_level: usize) -> Self {
         self.max_level = max_level;
         self
     }
 
     /// Seeds the internal RNG to make insertion deterministic.
     #[must_use]
-    pub fn with_rng_seed(mut self, seed: u64) -> Self {
+    pub const fn with_rng_seed(mut self, seed: u64) -> Self {
         self.rng_seed = seed;
         self
     }
 
     /// Applies a custom distance-cache configuration.
     #[must_use]
-    pub fn with_distance_cache_config(mut self, config: DistanceCacheConfig) -> Self {
+    pub const fn with_distance_cache_config(mut self, config: DistanceCacheConfig) -> Self {
         self.distance_cache = config;
         self
     }
@@ -82,39 +82,39 @@ impl HnswParams {
     /// Overrides the maximum number of cached distances while preserving the
     /// existing cache time-to-live.
     #[must_use]
-    pub fn with_distance_cache_max_entries(mut self, max: NonZeroUsize) -> Self {
+    pub const fn with_distance_cache_max_entries(mut self, max: NonZeroUsize) -> Self {
         self.distance_cache = self.distance_cache.with_max_entries(max);
         self
     }
 
     /// Overrides the optional time-to-live applied to cached entries.
     #[must_use]
-    pub fn with_distance_cache_ttl(mut self, ttl: Option<Duration>) -> Self {
+    pub const fn with_distance_cache_ttl(mut self, ttl: Option<Duration>) -> Self {
         self.distance_cache = self.distance_cache.with_ttl(ttl);
         self
     }
 
     /// Returns the neighbour fan-out enforced during insertion.
     #[must_use]
-    pub fn max_connections(&self) -> usize {
+    pub const fn max_connections(&self) -> usize {
         self.max_connections
     }
 
     /// Returns the construction search breadth (`ef_construction`).
     #[must_use]
-    pub fn ef_construction(&self) -> usize {
+    pub const fn ef_construction(&self) -> usize {
         self.ef_construction
     }
 
-    pub(crate) fn max_level(&self) -> usize {
+    pub(crate) const fn max_level(&self) -> usize {
         self.max_level
     }
 
-    pub(crate) fn rng_seed(&self) -> u64 {
+    pub(crate) const fn rng_seed(&self) -> u64 {
         self.rng_seed
     }
 
-    pub(crate) fn distance_cache_config(&self) -> &DistanceCacheConfig {
+    pub(crate) const fn distance_cache_config(&self) -> &DistanceCacheConfig {
         &self.distance_cache
     }
 
@@ -141,7 +141,7 @@ impl Default for HnswParams {
 ///
 /// Level 0 (base layer) permits twice as many connections as higher levels,
 /// following standard HNSW design to improve recall at the densest layer.
-pub(crate) fn connection_limit_for_level(level: usize, max_connections: usize) -> usize {
+pub(crate) const fn connection_limit_for_level(level: usize, max_connections: usize) -> usize {
     if level == 0 {
         max_connections.saturating_mul(2)
     } else {

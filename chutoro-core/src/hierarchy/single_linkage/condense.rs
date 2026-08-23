@@ -21,7 +21,7 @@ enum SplitCase {
 }
 
 impl SplitCase {
-    fn from_flags(left_big: bool, right_big: bool) -> Self {
+    const fn from_flags(left_big: bool, right_big: bool) -> Self {
         match (left_big, right_big) {
             (true, true) => Self::BothBig,
             (true, false) => Self::LeftBigOnly,
@@ -32,7 +32,7 @@ impl SplitCase {
 }
 
 impl<'a> CondenseBuilder<'a> {
-    pub(super) fn new(
+    pub(super) const fn new(
         forest: &'a SingleLinkageForest,
         min_cluster_size: usize,
         clusters: &'a mut Vec<CondensedCluster>,

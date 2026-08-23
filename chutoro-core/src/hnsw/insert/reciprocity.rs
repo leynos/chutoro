@@ -27,7 +27,7 @@ struct AuditContext {
 
 #[cfg(any(test, debug_assertions))]
 impl<'graph> ReciprocityAuditor<'graph> {
-    pub(super) fn new(graph: &'graph Graph) -> Self {
+    pub(super) const fn new(graph: &'graph Graph) -> Self {
         Self { graph }
     }
 

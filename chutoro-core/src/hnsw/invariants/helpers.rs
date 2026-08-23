@@ -28,7 +28,7 @@ pub(super) struct LayerValidator<'a> {
 }
 
 impl<'a> LayerValidator<'a> {
-    pub(super) fn new(graph: &'a Graph) -> Self {
+    pub(super) const fn new(graph: &'a Graph) -> Self {
         Self {
             graph,
             capacity: graph.capacity(),
@@ -71,7 +71,7 @@ impl<'a> LayerValidator<'a> {
         Ok(node)
     }
 
-    pub(super) fn capacity(&self) -> usize {
+    pub(super) const fn capacity(&self) -> usize {
         self.capacity
     }
 }

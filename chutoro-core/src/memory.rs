@@ -77,7 +77,7 @@ const USIZE_BYTES: u64 = std::mem::size_of::<usize>() as u64;
 /// assert_eq!(zero, 0, "empty dataset requires no memory");
 /// ```
 #[must_use]
-pub fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> u64 {
+pub const fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> u64 {
     if point_count == 0 {
         return 0;
     }
@@ -132,7 +132,7 @@ const GIB: u64 = 1024 * MIB;
 const TIB: u64 = 1024 * GIB;
 
 /// Selects the appropriate binary unit and divisor for a byte count.
-fn binary_unit(bytes: u64) -> (&'static str, u64) {
+const fn binary_unit(bytes: u64) -> (&'static str, u64) {
     if bytes >= TIB {
         ("TiB", TIB)
     } else if bytes >= GIB {

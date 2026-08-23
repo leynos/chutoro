@@ -111,22 +111,22 @@ impl MstEdge {
     /// Returns the smaller endpoint id.
     #[must_use]
     #[rustfmt::skip]
-    pub fn source(&self) -> usize { self.source }
+    pub const fn source(&self) -> usize { self.source }
 
     /// Returns the larger endpoint id.
     #[must_use]
     #[rustfmt::skip]
-    pub fn target(&self) -> usize { self.target }
+    pub const fn target(&self) -> usize { self.target }
 
     /// Returns the edge weight.
     #[must_use]
     #[rustfmt::skip]
-    pub fn weight(&self) -> f32 { self.weight }
+    pub const fn weight(&self) -> f32 { self.weight }
 
     /// Returns the deterministic tie-break sequence associated with the edge.
     #[must_use]
     #[rustfmt::skip]
-    pub fn sequence(&self) -> u64 { self.sequence }
+    pub const fn sequence(&self) -> u64 { self.sequence }
 }
 
 impl Eq for MstEdge {}
@@ -165,11 +165,11 @@ impl MinimumSpanningForest {
     /// Returns the number of connected components in the resulting forest.
     #[must_use]
     #[rustfmt::skip]
-    pub fn component_count(&self) -> usize { self.component_count }
+    pub const fn component_count(&self) -> usize { self.component_count }
 
     /// Returns `true` when the forest spans a single connected component.
     #[must_use]
-    pub fn is_tree(&self) -> bool {
+    pub const fn is_tree(&self) -> bool {
         self.component_count == 1
     }
 }
@@ -192,7 +192,7 @@ pub fn parallel_kruskal(
     parallel_kruskal_from_edges(node_count, edges.iter())
 }
 
-fn validate_and_canonicalize_edge(
+const fn validate_and_canonicalize_edge(
     edge: &CandidateEdge,
     node_count: usize,
 ) -> Result<Option<MstEdge>, MstError> {

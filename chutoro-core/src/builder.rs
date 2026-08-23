@@ -73,7 +73,7 @@ enum GpuRejectionReason {
 
 impl GpuRejectionReason {
     #[rustfmt::skip]
-    fn as_str(self) -> &'static str {
+    const fn as_str(self) -> &'static str {
         match self {
             Self::BackendNotCompiled => "GPU backend unavailable",
             #[cfg(feature = "cpu")]
@@ -121,7 +121,7 @@ impl ChutoroBuilder {
     /// assert_eq!(builder.min_cluster_size(), 10);
     /// ```
     #[must_use]
-    pub fn with_min_cluster_size(mut self, size: usize) -> Self {
+    pub const fn with_min_cluster_size(mut self, size: usize) -> Self {
         self.min_cluster_size = size;
         self
     }
@@ -137,7 +137,7 @@ impl ChutoroBuilder {
     /// ```
     #[rustfmt::skip]
     #[must_use]
-    pub fn min_cluster_size(&self) -> usize { self.min_cluster_size }
+    pub const fn min_cluster_size(&self) -> usize { self.min_cluster_size }
 
     /// Sets the execution strategy to use when running the algorithm.
     ///
@@ -149,7 +149,7 @@ impl ChutoroBuilder {
     /// assert_eq!(builder.execution_strategy(), ExecutionStrategy::CpuOnly);
     /// ```
     #[must_use]
-    pub fn with_execution_strategy(mut self, strategy: ExecutionStrategy) -> Self {
+    pub const fn with_execution_strategy(mut self, strategy: ExecutionStrategy) -> Self {
         self.execution_strategy = strategy;
         self
     }
@@ -165,7 +165,7 @@ impl ChutoroBuilder {
     /// ```
     #[rustfmt::skip]
     #[must_use]
-    pub fn execution_strategy(&self) -> ExecutionStrategy { self.execution_strategy }
+    pub const fn execution_strategy(&self) -> ExecutionStrategy { self.execution_strategy }
 
     /// Sets an upper bound on estimated peak memory (in bytes).
     ///
@@ -182,7 +182,7 @@ impl ChutoroBuilder {
     /// assert_eq!(builder.max_bytes(), Some(1_073_741_824));
     /// ```
     #[must_use]
-    pub fn with_max_bytes(mut self, bytes: u64) -> Self {
+    pub const fn with_max_bytes(mut self, bytes: u64) -> Self {
         self.max_bytes = Some(bytes);
         self
     }
@@ -198,7 +198,7 @@ impl ChutoroBuilder {
     /// ```
     #[rustfmt::skip]
     #[must_use]
-    pub fn max_bytes(&self) -> Option<u64> { self.max_bytes }
+    pub const fn max_bytes(&self) -> Option<u64> { self.max_bytes }
 
     /// Sets the HNSW parameters used when constructing clustering sessions.
     ///
@@ -212,7 +212,7 @@ impl ChutoroBuilder {
     /// ```
     #[cfg(feature = "cpu")]
     #[must_use]
-    pub fn with_hnsw_params(mut self, params: HnswParams) -> Self {
+    pub const fn with_hnsw_params(mut self, params: HnswParams) -> Self {
         self.hnsw_params = params;
         self
     }
@@ -220,7 +220,7 @@ impl ChutoroBuilder {
     /// Returns the HNSW parameters used for session construction.
     #[cfg(feature = "cpu")]
     #[must_use]
-    pub fn hnsw_params(&self) -> &HnswParams {
+    pub const fn hnsw_params(&self) -> &HnswParams {
         &self.hnsw_params
     }
 
@@ -239,7 +239,7 @@ impl ChutoroBuilder {
     /// ```
     #[cfg(feature = "cpu")]
     #[must_use]
-    pub fn with_session_refresh_policy(mut self, policy: SessionRefreshPolicy) -> Self {
+    pub const fn with_session_refresh_policy(mut self, policy: SessionRefreshPolicy) -> Self {
         self.session_refresh_policy = policy;
         self
     }
@@ -247,7 +247,7 @@ impl ChutoroBuilder {
     /// Returns the refresh policy used for session construction.
     #[cfg(feature = "cpu")]
     #[must_use]
-    pub fn session_refresh_policy(&self) -> &SessionRefreshPolicy {
+    pub const fn session_refresh_policy(&self) -> &SessionRefreshPolicy {
         &self.session_refresh_policy
     }
 

@@ -285,7 +285,7 @@ impl CpuHnsw {
 
     /// Returns a handle for checking structural invariants.
     #[must_use]
-    pub fn invariants(&self) -> HnswInvariantChecker<'_> {
+    pub const fn invariants(&self) -> HnswInvariantChecker<'_> {
         HnswInvariantChecker::new(self)
     }
 }

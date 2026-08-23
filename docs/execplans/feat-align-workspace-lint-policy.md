@@ -60,9 +60,9 @@ keeps local editor feedback aligned with commit gates.
   replace expressions.
 - Full all-target linting includes test-only modules; the earlier measurement
   counted fewer diagnostics than the live all-target gate.
-- The linked worktree's Git index is currently read-only, preventing commits
-  despite the source worktree being writable. The current changes are retained
-  in `stash@{0}` as a recovery checkpoint.
+- The shared Cargo cache is contended by other worktrees. A test gate may need
+  to wait for the active owner rather than bypassing Cargo's package-cache
+  lock.
 
 ## Progress
 
@@ -77,6 +77,11 @@ keeps local editor feedback aligned with commit gates.
       `make test` for the policy bootstrap. CodeRabbit reported no findings.
 - [x] 2026-08-23: Opted `chutoro-core` into workspace lints and applied the
       machine-applicable `missing_const_for_fn` and `use_self` fixes.
+- [x] 2026-08-24: Rechecked the core mechanical checkpoint: formatting and
+      type checking pass; the intentional Clippy baseline is 604 diagnostics.
+- [ ] 2026-08-24: Repeat the checkpoint test gate once unrelated shared Cargo
+      work releases its package-cache lock; the first run reached 172 of 1,085
+      tests before infrastructure contention suspended it.
 - [ ] Resolve `chutoro-core` structural, bounds-safety, numerical, and test
       lint families in bounded commits.
 - [ ] Opt in the remaining library crates and retire duplicated Rustdoc flags.
@@ -100,6 +105,13 @@ keeps local editor feedback aligned with commit gates.
 - `git stash apply --index` cannot create the linked-worktree `index.lock` due
   to a read-only filesystem. Applying the stash patch without `--index` works
   and the stash remains as the recovery copy.
+- The former Git-metadata restriction has cleared. The core checkpoint can now
+  be committed; retain `stash@{0}` until its committed diff is independently
+  verified.
+- The 2026-08-24 checkpoint gate confirms `make check-fmt` and `make
+  typecheck` pass. `make lint` fails with the recorded 604 core Clippy
+  diagnostics. `make test` is incomplete because unrelated suspended Cargo
+  jobs hold the shared package-cache lock; it reached 172 of 1,085 tests.
 
 ## Decision Log
 
@@ -150,8 +162,9 @@ stage, where each family is resolved rather than globally allowed.
 ## Outcomes & Retrospective
 
 The final outcome is not yet achieved. The first green policy-bootstrap stage
-is committed as `b8330a7`; the core mechanical checkpoint remains uncommitted
-until the linked-worktree Git metadata becomes writable.
+is committed as `b8330a7`. The core mechanical checkpoint is committed as its
+own intentionally lint-red stage after the exact residual diagnostics and
+incomplete shared-cache test run have been recorded.
 
 ## Revision Note
 

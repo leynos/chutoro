@@ -103,7 +103,7 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
 // _DummySrc is Send by default (no non-Send fields); the compiler enforces the
 // bound at the call site of assert_send_sync.
 const _: fn() = || {
-    fn assert_send_sync<T: Send + Sync>() {}
+    const fn assert_send_sync<T: Send + Sync>() {}
 
     struct _DummySrc;
 
@@ -131,7 +131,7 @@ const _: fn() = || {
 impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// Returns the validated configuration used by the session.
     #[must_use]
-    pub fn config(&self) -> &SessionConfig {
+    pub const fn config(&self) -> &SessionConfig {
         &self.config
     }
 
@@ -143,7 +143,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 
     /// Returns the most recent published snapshot version.
     #[must_use]
-    pub fn snapshot_version(&self) -> u64 {
+    pub const fn snapshot_version(&self) -> u64 {
         self.snapshot_version
     }
 

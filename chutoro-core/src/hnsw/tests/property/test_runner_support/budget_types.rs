@@ -39,7 +39,7 @@ impl TestCases {
 }
 
 impl From<TestCases> for u32 {
-    fn from(cases: TestCases) -> u32 {
+    fn from(cases: TestCases) -> Self {
         cases.0
     }
 }
@@ -68,7 +68,7 @@ impl ShrinkIterations {
 }
 
 impl From<ShrinkIterations> for u32 {
-    fn from(iters: ShrinkIterations) -> u32 {
+    fn from(iters: ShrinkIterations) -> Self {
         iters.0
     }
 }
@@ -122,7 +122,7 @@ impl StackSize {
 }
 
 impl From<StackSize> for usize {
-    fn from(size: StackSize) -> usize {
+    fn from(size: StackSize) -> Self {
         size.0
     }
 }

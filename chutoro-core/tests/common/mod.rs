@@ -14,7 +14,7 @@ pub struct Dummy {
 
 impl Dummy {
     #[must_use]
-    pub fn new(data: Vec<f32>) -> Self {
+    pub const fn new(data: Vec<f32>) -> Self {
         Self { data }
     }
 }
@@ -24,7 +24,7 @@ impl DataSource for Dummy {
         self.data.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dummy"
     }
 

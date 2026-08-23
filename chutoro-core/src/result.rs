@@ -164,7 +164,7 @@ impl ClusteringResult {
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
     #[must_use]
-    pub fn cluster_count(&self) -> usize {
+    pub const fn cluster_count(&self) -> usize {
         self.cluster_count
     }
 }
@@ -193,7 +193,7 @@ impl ClusterId {
     /// ```
     #[rustfmt::skip]
     #[must_use]
-    pub fn new(id: u64) -> Self { Self(id) }
+    pub const fn new(id: u64) -> Self { Self(id) }
 
     /// Returns the underlying numeric identifier.
     ///
@@ -206,5 +206,5 @@ impl ClusterId {
     /// ```
     #[rustfmt::skip]
     #[must_use]
-    pub fn get(self) -> u64 { self.0 }
+    pub const fn get(self) -> u64 { self.0 }
 }

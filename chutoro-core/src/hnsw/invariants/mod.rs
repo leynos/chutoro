@@ -145,7 +145,7 @@ pub struct HnswInvariantChecker<'index> {
 }
 
 impl<'index> HnswInvariantChecker<'index> {
-    pub(super) fn new(index: &'index CpuHnsw) -> Self {
+    pub(super) const fn new(index: &'index CpuHnsw) -> Self {
         Self { index }
     }
 

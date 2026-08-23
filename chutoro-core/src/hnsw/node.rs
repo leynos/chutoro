@@ -36,7 +36,7 @@ impl Node {
         neighbours
     }
 
-    pub(crate) fn sequence(&self) -> u64 {
+    pub(crate) const fn sequence(&self) -> u64 {
         self.sequence
     }
 
@@ -53,7 +53,7 @@ impl Node {
     /// assert_eq!(node.level_count(), 2);
     /// ```
     #[must_use]
-    pub(crate) fn level_count(&self) -> usize {
+    pub(crate) const fn level_count(&self) -> usize {
         self.neighbours.len()
     }
 

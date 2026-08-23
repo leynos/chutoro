@@ -336,7 +336,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 }
 
 #[cfg(feature = "metrics")]
-fn core_distance_error_reason(error: &crate::ChutoroError) -> &'static str {
+const fn core_distance_error_reason(error: &crate::ChutoroError) -> &'static str {
     match error {
         crate::ChutoroError::DataSource { .. } => "data_source",
         crate::ChutoroError::CpuHnswFailure { .. } => "hnsw_failure",

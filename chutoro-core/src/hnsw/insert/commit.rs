@@ -20,7 +20,7 @@ pub(super) struct CommitApplicator<'graph> {
 }
 
 impl<'graph> CommitApplicator<'graph> {
-    pub(super) fn new(graph: &'graph mut Graph) -> Self {
+    pub(super) const fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
     }
 

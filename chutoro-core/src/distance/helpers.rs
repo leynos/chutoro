@@ -3,7 +3,7 @@
 use super::types::{DistanceError, Norm, Result, Vector, VectorKind};
 
 /// Ensures both vectors share the same dimensionality.
-pub(crate) fn validate_dimensions(left: &Vector<'_>, right: &Vector<'_>) -> Result<()> {
+pub(crate) const fn validate_dimensions(left: &Vector<'_>, right: &Vector<'_>) -> Result<()> {
     if left.dimension() != right.dimension() {
         return Err(DistanceError::DimensionMismatch {
             left: left.dimension(),

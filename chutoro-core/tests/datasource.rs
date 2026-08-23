@@ -1,4 +1,4 @@
-//! Integration tests for the DataSource trait behaviour.
+//! Integration tests for the `DataSource` trait behaviour.
 
 mod common;
 
@@ -93,7 +93,7 @@ struct BatchFirstDummy {
 }
 
 impl BatchFirstDummy {
-    fn new(
+    const fn new(
         data: Vec<f32>,
         batch_calls: Arc<AtomicUsize>,
         distance_calls: Arc<AtomicUsize>,
@@ -111,7 +111,7 @@ impl DataSource for BatchFirstDummy {
         self.data.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "batch-first-dummy"
     }
 

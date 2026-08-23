@@ -55,7 +55,7 @@ impl DataSource for SessionAppendSource {
         self.values.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "session-append-bdd"
     }
 

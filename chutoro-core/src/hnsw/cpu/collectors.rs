@@ -26,7 +26,7 @@ impl EdgeCollector for NoopCollector {
 pub(super) struct VecCollector(Vec<CandidateEdge>);
 
 impl VecCollector {
-    pub(super) fn new() -> Self {
+    pub(super) const fn new() -> Self {
         Self(Vec::new())
     }
 

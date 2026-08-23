@@ -46,7 +46,7 @@ impl DescentContext {
     /// Construct a descent context.
     #[must_use]
     #[inline]
-    pub(crate) fn new(query: usize, entry: EntryPoint, target_level: usize) -> Self {
+    pub(crate) const fn new(query: usize, entry: EntryPoint, target_level: usize) -> Self {
         Self {
             query,
             target_level,
@@ -67,7 +67,7 @@ impl LayerPlanContext {
     /// Construct a layer-planning context.
     #[must_use]
     #[inline]
-    pub(crate) fn new(query: usize, current: usize, target_level: usize, ef: usize) -> Self {
+    pub(crate) const fn new(query: usize, current: usize, target_level: usize, ef: usize) -> Self {
         Self {
             query,
             target_level,
@@ -93,13 +93,13 @@ pub(crate) struct SearchContext {
 impl SearchContext {
     #[must_use]
     #[inline]
-    pub(crate) fn with_ef(self, ef: usize) -> ExtendedSearchContext {
+    pub(crate) const fn with_ef(self, ef: usize) -> ExtendedSearchContext {
         ExtendedSearchContext { base: self, ef }
     }
 
     #[must_use]
     #[inline]
-    pub(crate) fn with_distance(self, current_dist: f32) -> NeighbourSearchContext {
+    pub(crate) const fn with_distance(self, current_dist: f32) -> NeighbourSearchContext {
         NeighbourSearchContext {
             base: self,
             current_dist,
@@ -107,17 +107,17 @@ impl SearchContext {
     }
 
     #[inline]
-    pub(crate) fn query(&self) -> usize {
+    pub(crate) const fn query(&self) -> usize {
         self.query
     }
 
     #[inline]
-    pub(crate) fn entry(&self) -> usize {
+    pub(crate) const fn entry(&self) -> usize {
         self.entry
     }
 
     #[inline]
-    pub(crate) fn level(&self) -> usize {
+    pub(crate) const fn level(&self) -> usize {
         self.level
     }
 }
@@ -130,17 +130,17 @@ pub(crate) struct ExtendedSearchContext {
 
 impl ExtendedSearchContext {
     #[inline]
-    pub(crate) fn query(&self) -> usize {
+    pub(crate) const fn query(&self) -> usize {
         self.base.query()
     }
 
     #[inline]
-    pub(crate) fn entry(&self) -> usize {
+    pub(crate) const fn entry(&self) -> usize {
         self.base.entry()
     }
 
     #[inline]
-    pub(crate) fn level(&self) -> usize {
+    pub(crate) const fn level(&self) -> usize {
         self.base.level()
     }
 }
@@ -153,12 +153,12 @@ pub(crate) struct NeighbourSearchContext {
 
 impl NeighbourSearchContext {
     #[inline]
-    pub(crate) fn query(&self) -> usize {
+    pub(crate) const fn query(&self) -> usize {
         self.base.query()
     }
 
     #[inline]
-    pub(crate) fn level(&self) -> usize {
+    pub(crate) const fn level(&self) -> usize {
         self.base.level()
     }
 }
@@ -186,7 +186,7 @@ impl Graph {
         }
     }
 
-    pub(crate) fn entry(&self) -> Option<EntryPoint> {
+    pub(crate) const fn entry(&self) -> Option<EntryPoint> {
         self.entry
     }
 
@@ -200,7 +200,7 @@ impl Graph {
     /// assert_eq!(graph.capacity(), 3);
     /// ```
     #[must_use]
-    pub(crate) fn capacity(&self) -> usize {
+    pub(crate) const fn capacity(&self) -> usize {
         self.nodes.len()
     }
 
@@ -309,22 +309,22 @@ impl Graph {
     }
 
     #[inline]
-    pub(crate) fn insertion_planner(&self) -> InsertionPlanner<'_> {
+    pub(crate) const fn insertion_planner(&self) -> InsertionPlanner<'_> {
         InsertionPlanner::new(self)
     }
 
     #[inline]
-    pub(crate) fn insertion_executor(&mut self) -> InsertionExecutor<'_> {
+    pub(crate) const fn insertion_executor(&mut self) -> InsertionExecutor<'_> {
         InsertionExecutor::new(self)
     }
 
     #[inline]
-    pub(crate) fn searcher(&self) -> LayerSearcher<'_> {
+    pub(crate) const fn searcher(&self) -> LayerSearcher<'_> {
         LayerSearcher::new(self)
     }
 
     #[cfg(test)]
-    pub(crate) fn params(&self) -> &HnswParams {
+    pub(crate) const fn params(&self) -> &HnswParams {
         &self.params
     }
 }

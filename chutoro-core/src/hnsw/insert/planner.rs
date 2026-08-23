@@ -66,7 +66,7 @@ pub(crate) struct PlanningInputs<'a, D: DataSource + Sync> {
 }
 
 impl<'graph> InsertionPlanner<'graph> {
-    pub(crate) fn new(graph: &'graph Graph) -> Self {
+    pub(crate) const fn new(graph: &'graph Graph) -> Self {
         Self { graph }
     }
 

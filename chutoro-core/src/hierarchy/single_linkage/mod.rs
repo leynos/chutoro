@@ -113,7 +113,7 @@ pub(crate) struct CondensedCluster {
 }
 
 impl CondensedCluster {
-    fn new(parent: Option<usize>, birth_lambda: f32) -> Self {
+    const fn new(parent: Option<usize>, birth_lambda: f32) -> Self {
         Self {
             parent,
             birth_lambda,
@@ -151,7 +151,7 @@ impl CondensedForest {
         root: usize,
         forest: &SingleLinkageForest,
         min_cluster_size: usize,
-        condensed: &mut CondensedForest,
+        condensed: &mut Self,
     ) {
         let root_size = forest.nodes[root].size;
         if root_size < min_cluster_size {
@@ -249,7 +249,7 @@ struct Labeller<'a> {
 }
 
 impl<'a> Labeller<'a> {
-    fn new(
+    const fn new(
         condensed: &'a CondensedForest,
         label_lookup: &'a [Option<usize>],
         labels: &'a mut [Option<usize>],

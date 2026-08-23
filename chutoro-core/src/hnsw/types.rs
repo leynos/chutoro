@@ -76,14 +76,14 @@ pub(crate) struct RankedNeighbour {
 }
 
 impl RankedNeighbour {
-    pub(crate) fn new(id: usize, distance: f32, sequence: u64) -> Self {
+    pub(crate) const fn new(id: usize, distance: f32, sequence: u64) -> Self {
         Self {
             inner: Neighbour { id, distance },
             sequence,
         }
     }
 
-    pub(crate) fn into_neighbour(self) -> Neighbour {
+    pub(crate) const fn into_neighbour(self) -> Neighbour {
         self.inner
     }
 
@@ -154,7 +154,7 @@ pub struct CandidateEdge {
 impl CandidateEdge {
     /// Creates a new candidate edge.
     #[must_use]
-    pub fn new(source: usize, target: usize, distance: f32, sequence: u64) -> Self {
+    pub const fn new(source: usize, target: usize, distance: f32, sequence: u64) -> Self {
         Self {
             source,
             target,
@@ -166,29 +166,29 @@ impl CandidateEdge {
     /// Returns the source node identifier.
     #[must_use]
     #[rustfmt::skip]
-    pub fn source(&self) -> usize { self.source }
+    pub const fn source(&self) -> usize { self.source }
 
     /// Returns the target node identifier.
     #[must_use]
     #[rustfmt::skip]
-    pub fn target(&self) -> usize { self.target }
+    pub const fn target(&self) -> usize { self.target }
 
     /// Returns the distance (weight) between source and target.
     #[must_use]
     #[rustfmt::skip]
-    pub fn distance(&self) -> f32 { self.distance }
+    pub const fn distance(&self) -> f32 { self.distance }
 
     /// Returns the insertion sequence for deterministic ordering.
     #[must_use]
     #[rustfmt::skip]
-    pub fn sequence(&self) -> u64 { self.sequence }
+    pub const fn sequence(&self) -> u64 { self.sequence }
 
     /// Returns the edge with `source <= target` for canonical representation.
     ///
     /// Useful for undirected MST construction where edge direction is
     /// irrelevant.
     #[must_use]
-    pub fn canonicalise(self) -> Self {
+    pub const fn canonicalise(self) -> Self {
         if self.source <= self.target {
             self
         } else {
@@ -274,12 +274,12 @@ impl EdgeHarvest {
     /// Returns the number of harvested edges.
     #[must_use]
     #[rustfmt::skip]
-    pub fn len(&self) -> usize { self.0.len() }
+    pub const fn len(&self) -> usize { self.0.len() }
 
     /// Returns whether the harvest contains no edges.
     #[must_use]
     #[rustfmt::skip]
-    pub fn is_empty(&self) -> bool { self.0.is_empty() }
+    pub const fn is_empty(&self) -> bool { self.0.is_empty() }
 
     /// Returns an iterator over the harvested edges.
     #[rustfmt::skip]

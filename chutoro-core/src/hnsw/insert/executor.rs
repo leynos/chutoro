@@ -28,7 +28,7 @@ pub(crate) struct InsertionExecutor<'graph> {
 }
 
 impl<'graph> InsertionExecutor<'graph> {
-    pub(crate) fn new(graph: &'graph mut Graph) -> Self {
+    pub(crate) const fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
     }
 

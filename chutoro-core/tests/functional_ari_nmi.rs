@@ -54,7 +54,10 @@ impl DenseVectors {
     }
 
     fn dim(&self) -> usize {
-        self.rows.first().map(|row| row.len()).unwrap_or_default()
+        self.rows
+            .first()
+            .map(std::vec::Vec::len)
+            .unwrap_or_default()
     }
 }
 
@@ -63,7 +66,7 @@ impl DataSource for DenseVectors {
         self.rows.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dense-vectors"
     }
 
@@ -112,7 +115,7 @@ fn core_distances_exact<D: DataSource>(
             }
             distances.push(source.distance(i, j)?);
         }
-        distances.sort_by(|a, b| a.total_cmp(b));
+        distances.sort_by(f32::total_cmp);
         *core_value = distances
             // Select the k-th nearest neighbour distance as the core distance
             // (0-indexed, so `k-1`), matching HDBSCAN's definition.
@@ -182,7 +185,7 @@ fn approx_pipeline<D: DataSource + Sync>(
         let core = if others.len() >= min_cluster_size.get() {
             others[min_cluster_size.get() - 1].distance
         } else {
-            others.last().map(|n| n.distance).unwrap_or(0.0)
+            others.last().map_or(0.0, |n| n.distance)
         };
         core_distances.push(core);
     }
@@ -263,7 +266,7 @@ struct Dataset {
     data: &'static str,
 }
 
-fn iris_dataset() -> Dataset {
+const fn iris_dataset() -> Dataset {
     Dataset {
         name: "iris",
         dims: 4,
@@ -271,7 +274,7 @@ fn iris_dataset() -> Dataset {
     }
 }
 
-fn ruspini_dataset() -> Dataset {
+const fn ruspini_dataset() -> Dataset {
     Dataset {
         name: "ruspini",
         dims: 2,

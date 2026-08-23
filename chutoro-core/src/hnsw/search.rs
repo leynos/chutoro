@@ -134,7 +134,7 @@ impl SearchNeighbour {
     /// let neighbour = SearchNeighbour::new(5, 0.42, 7);
     /// assert_eq!(neighbour.id, 5);
     /// ```
-    fn new(id: usize, distance: f32, sequence: u64) -> Self {
+    const fn new(id: usize, distance: f32, sequence: u64) -> Self {
         Self {
             id,
             distance,
@@ -152,7 +152,7 @@ impl SearchNeighbour {
     /// let public = neighbour.into_public();
     /// assert_eq!(public.id, 1);
     /// ```
-    fn into_public(self) -> Neighbour {
+    const fn into_public(self) -> Neighbour {
         Neighbour {
             id: self.id,
             distance: self.distance,
@@ -214,7 +214,7 @@ struct SearchInputs<'a, D: DataSource + Sync> {
 
 impl<'a, D: DataSource + Sync> SearchInputs<'a, D> {
     /// Creates a new wrapper around the cache and data source used by search.
-    fn new(cache: Option<&'a DistanceCache>, source: &'a D) -> Self {
+    const fn new(cache: Option<&'a DistanceCache>, source: &'a D) -> Self {
         Self { cache, source }
     }
 
@@ -235,7 +235,7 @@ pub(crate) struct LayerSearcher<'graph> {
 }
 
 impl<'graph> LayerSearcher<'graph> {
-    pub(super) fn new(graph: &'graph Graph) -> Self {
+    pub(super) const fn new(graph: &'graph Graph) -> Self {
         Self { graph }
     }
 

@@ -19,7 +19,7 @@ pub(super) struct ConnectivityHealer<'graph> {
 }
 
 impl<'graph> ConnectivityHealer<'graph> {
-    pub(super) fn new(graph: &'graph mut Graph) -> Self {
+    pub(super) const fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
     }
 
