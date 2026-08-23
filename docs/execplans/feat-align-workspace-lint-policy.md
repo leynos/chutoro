@@ -79,6 +79,10 @@ keeps local editor feedback aligned with commit gates.
       machine-applicable `missing_const_for_fn` and `use_self` fixes.
 - [x] 2026-08-24: Rechecked the core mechanical checkpoint: formatting and
       type checking pass; the intentional Clippy baseline is 604 diagnostics.
+- [x] 2026-08-24: Moved the seven existing self-named module files to their
+      already-present `mod.rs` locations. Formatting and type checking pass;
+      scoped core Clippy reports no remaining `self_named_module_files` finding
+      and now reaches 187 core-library diagnostics.
 - [ ] 2026-08-24: Repeat the checkpoint test gate once unrelated shared Cargo
       work releases its package-cache lock; the first run reached 172 of 1,085
       tests before infrastructure contention suspended it.
@@ -112,6 +116,10 @@ keeps local editor feedback aligned with commit gates.
   typecheck` pass. `make lint` fails with the recorded 604 core Clippy
   diagnostics. `make test` is incomplete because unrelated suspended Cargo
   jobs hold the shared package-cache lock; it reached 172 of 1,085 tests.
+- Moving the self-named modules is a content-preserving layout migration: all
+  seven destination directories already existed for their child modules. The
+  scoped core Clippy run now has no `self_named_module_files` diagnostics and
+  reaches 187 remaining errors in the library target.
 
 ## Decision Log
 
@@ -143,6 +151,20 @@ output under `/tmp` and record the next lint family before editing it.
 The stage is complete only when the mechanical diff is reviewed, formatted, and
 committed. Its remaining gate failures are deliberately carried to the next
 stage, where each family is resolved rather than globally allowed.
+
+## Stage 2b: Core Module Layout
+
+Rust resolves a module declared as `mod foo;` identically from `foo.rs` or
+`foo/mod.rs`; moving a parent module to the latter form permits its existing
+child directory without violating the workspace's
+`self_named_module_files = "deny"` policy. Move only the seven reported parent
+modules, retain all module declarations and contents, and do not alter public
+paths.
+
+The focused acceptance evidence is `make check-fmt` and `make typecheck`
+passing, plus `cargo clippy -p chutoro-core --all-features --all-targets -- -D
+warnings` containing no `self_named_module_files` diagnostic. This stage may
+remain lint-red for the next explicit family; record the new baseline first.
 
 ## Verification Plan
 
