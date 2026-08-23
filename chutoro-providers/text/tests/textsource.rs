@@ -14,16 +14,16 @@ fn distance_returns_levenshtein(#[case] left: &str, #[case] right: &str, #[case]
     let provider = TextProvider::new("demo", vec![left.to_owned(), right.to_owned()])
         .expect("provider must build");
     let dist = provider.distance(0, 1).expect("distance must succeed");
-    assert_eq!(dist, expected);
+    assert_eq!(dist.to_bits(), expected.to_bits());
     let reverse = provider.distance(1, 0).expect("distance must succeed");
-    assert_eq!(reverse, expected);
+    assert_eq!(reverse.to_bits(), expected.to_bits());
 
     for index in 0..provider.len() {
         let self_distance = provider
             .distance(index, index)
             .expect("self-distance must succeed");
-        assert_eq!(
-            self_distance, 0.0,
+        assert!(
+            self_distance.to_bits() == 0.0_f32.to_bits(),
             "distance({index}, {index}) must be zero"
         );
     }
@@ -99,5 +99,5 @@ fn data_source_reports_metadata() {
     let distance = provider
         .distance(0, 1)
         .expect("distance calculation must succeed");
-    assert_eq!(distance, 4.0);
+    assert_eq!(distance.to_bits(), 4.0_f32.to_bits());
 }
