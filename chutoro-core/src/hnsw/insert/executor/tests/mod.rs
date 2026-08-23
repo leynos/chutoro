@@ -224,6 +224,29 @@ fn enforce_bidirectional_all_removes_invalid_upper_edge() {
     assert_no_edge(&graph, 1, 0, 1);
 }
 
+#[test]
+fn enforce_bidirectional_for_touched_leaves_unrelated_edges_unchanged() {
+    let mut graph = setup_basic_graph(2, 4, 3).expect("params should be valid in tests");
+    insert_entry_node(&mut graph, 0).expect("insert entry");
+    attach_test_node(&mut graph, 1, 0, 1).expect("attach first node");
+    attach_test_node(&mut graph, 2, 0, 2).expect("attach second node");
+
+    add_edge_if_missing(&mut graph, 0, 1, 0);
+    add_edge_if_missing(&mut graph, 2, 0, 0);
+
+    TestHelpers::new(&mut graph).enforce_bidirectional_for_touched(&[(0, 0)], 2);
+
+    assert_bidirectional_edge!(&graph, 0, 1, 0);
+    assert_no_edge(&graph, 0, 2, 0);
+    assert!(
+        graph
+            .node(2)
+            .expect("untracked node must remain")
+            .neighbours(0)
+            .contains(&0),
+        "untracked edge must not be processed",
+    );
+}
 #[rstest]
 #[case::evicts_tail(vec![1, 3], 1)]
 #[case::evicts_tail_wider(vec![1, 3, 4, 5], 2)]
