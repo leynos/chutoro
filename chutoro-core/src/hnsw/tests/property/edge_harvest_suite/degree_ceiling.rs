@@ -30,7 +30,7 @@ fn validate_edge_indices(node_count: usize, edges: &[CandidateEdge]) -> TestCase
 ///
 /// Verifies that no node exceeds the maximum degree expected for its topology:
 /// - **Lattice**: 4 (without diagonals) or 8 (with diagonals)
-/// - **ScaleFree**: `node_count - 1` (theoretical hub maximum)
+/// - **`ScaleFree`**: `node_count - 1` (theoretical hub maximum)
 /// - **Random**: `node_count - 1` (complete graph maximum)
 /// - **Disconnected**: `max(component_sizes) - 1` (within largest component)
 pub(super) fn run_degree_ceiling_property(fixture: &GraphFixture) -> TestCaseResult {

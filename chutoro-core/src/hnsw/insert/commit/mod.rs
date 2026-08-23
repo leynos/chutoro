@@ -114,7 +114,7 @@ impl<'graph> CommitApplicator<'graph> {
     /// neighbour lists.
     ///
     /// Uses the graph's node iterator to avoid scanning empty capacity slots,
-    /// making this O(populated_nodes × levels) rather than O(capacity × levels).
+    /// making this `O(populated_nodes` × levels) rather than O(capacity × levels).
     fn compute_reciprocated_edges(&self, new_node: NewNodeContext) -> Vec<Vec<usize>> {
         let mut reciprocated: Vec<Vec<usize>> = vec![Vec::new(); new_node.level + 1];
         for (node_id, node) in self.graph.nodes_iter() {

@@ -83,6 +83,9 @@ keeps local editor feedback aligned with commit gates.
       already-present `mod.rs` locations. Formatting and type checking pass;
       scoped core Clippy reports no remaining `self_named_module_files` finding
       and now reaches 187 core-library diagnostics.
+- [x] 2026-08-24: Applied and reviewed the machine-applicable
+      `doc_markdown` repairs in core source and property-test documentation.
+      A scoped run with all policy lints disabled except `doc_markdown` passes.
 - [ ] 2026-08-24: Repeat the checkpoint test gate once unrelated shared Cargo
       work releases its package-cache lock; the first run reached 172 of 1,085
       tests before infrastructure contention suspended it.
@@ -120,6 +123,8 @@ keeps local editor feedback aligned with commit gates.
   seven destination directories already existed for their child modules. The
   scoped core Clippy run now has no `self_named_module_files` diagnostics and
   reaches 187 remaining errors in the library target.
+- Clippy supplied machine-applicable `doc_markdown` changes for eleven files.
+  They add Rustdoc code formatting only; no identifiers or behaviour change.
 
 ## Decision Log
 
@@ -165,6 +170,16 @@ The focused acceptance evidence is `make check-fmt` and `make typecheck`
 passing, plus `cargo clippy -p chutoro-core --all-features --all-targets -- -D
 warnings` containing no `self_named_module_files` diagnostic. This stage may
 remain lint-red for the next explicit family; record the new baseline first.
+
+## Stage 2c: Core Documentation Markup
+
+Apply only Clippy's machine-applicable `doc_markdown` suggestions, then review
+every changed Rustdoc line to confirm it quotes an identifier or symbolic
+expression accurately. Run a scoped Clippy invocation that disables the
+workspace's unrelated explicit lint denials and enables only `doc_markdown`;
+it must complete without a documentation-markup warning. The next stage owns
+missing error and panic sections, which require semantic documentation rather
+than formatting.
 
 ## Verification Plan
 

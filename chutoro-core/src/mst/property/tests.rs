@@ -19,7 +19,7 @@ use super::strategies::{generate_fixture, mst_fixture_strategy};
 use super::structural::run_structural_invariants_property;
 use super::types::WeightDistribution;
 
-/// Canonical set of (distribution, seed, case_name) tuples shared by all
+/// Canonical set of (distribution, seed, `case_name`) tuples shared by all
 /// parameterized property tests.  Defined once to eliminate duplication
 /// across oracle equivalence, structural invariants, and concurrency
 /// safety test suites.

@@ -63,7 +63,7 @@ fn validate_scale_free_components(node_count: usize, actual: usize) -> Result<()
 ///
 /// Verifies expected connectivity based on topology:
 /// - **Lattice**: Must have exactly 1 connected component
-/// - **ScaleFree**: Must have exactly 1 component (for n > 3, due to initial clique)
+/// - **`ScaleFree`**: Must have exactly 1 component (for n > 3, due to initial clique)
 /// - **Random**: Informational only (connectivity is probabilistic)
 /// - **Disconnected**: Must have at least `component_count` components
 pub(super) fn run_connectivity_preservation_property(fixture: &GraphFixture) -> TestCaseResult {

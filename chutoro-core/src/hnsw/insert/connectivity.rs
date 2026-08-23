@@ -124,7 +124,7 @@ impl<'graph> ConnectivityHealer<'graph> {
             .is_some_and(|n| level < n.level_count() && n.neighbours(level).contains(&target))
     }
 
-    /// Inner implementation of link_new_node that returns the evicted node (if any)
+    /// Inner implementation of `link_new_node` that returns the evicted node (if any)
     /// instead of recursively handling it.
     fn link_new_node_inner(&mut self, ctx: &UpdateContext, new_node: usize) -> Option<usize> {
         let limit = compute_connection_limit(ctx.level, ctx.max_connections);

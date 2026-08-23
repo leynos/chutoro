@@ -20,7 +20,7 @@ impl std::fmt::Display for InvalidTestCasesError {
 impl std::error::Error for InvalidTestCasesError {}
 
 impl TestCases {
-    /// Creates a new TestCases value, returning an error if invalid.
+    /// Creates a new `TestCases` value, returning an error if invalid.
     ///
     /// # Errors
     /// Returns `InvalidTestCasesError` if `cases` is zero.
@@ -52,7 +52,7 @@ impl From<TestCases> for u32 {
 pub(crate) struct ShrinkIterations(u32);
 
 impl ShrinkIterations {
-    /// Creates a new ShrinkIterations value.
+    /// Creates a new `ShrinkIterations` value.
     ///
     /// Setting `iterations` to 0 disables shrinking.
     pub(crate) fn new(iterations: u32) -> Self {
@@ -100,7 +100,7 @@ impl StackSize {
     /// Minimum safe stack size (1 MiB).
     const MIN_STACK_SIZE: usize = 1024 * 1024;
 
-    /// Creates a new StackSize value, returning an error if below minimum.
+    /// Creates a new `StackSize` value, returning an error if below minimum.
     ///
     /// # Errors
     /// Returns `InvalidStackSizeError` if `size` is below `MIN_STACK_SIZE`.

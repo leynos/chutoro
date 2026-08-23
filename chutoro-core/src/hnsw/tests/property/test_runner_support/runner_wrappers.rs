@@ -95,7 +95,7 @@ where
         .map_err(|err| map_test_error(err, test_name))
 }
 
-/// Maps TestError to TestCaseError with formatted messages.
+/// Maps `TestError` to `TestCaseError` with formatted messages.
 fn map_test_error(err: TestError<impl std::fmt::Debug>, test_name: &str) -> TestCaseError {
     match err {
         TestError::Abort(reason) => TestCaseError::fail(format!("{test_name} aborted: {reason}")),

@@ -9,7 +9,7 @@ use crate::hnsw::error::HnswError;
 
 use super::CpuHnsw;
 
-/// SplitMix64 increment (the 64-bit golden ratio) used for per-worker seed
+/// `SplitMix64` increment (the 64-bit golden ratio) used for per-worker seed
 /// derivation.
 const WORKER_SEED_SPACING: u64 = 0x9E37_79B9_7F4A_7C15;
 const SPLITMIX_MULT_A: u64 = 0xBF58_476D_1CE4_E5B9;

@@ -4,7 +4,7 @@ use rstest::{fixture, rstest};
 
 use crate::hnsw::{HnswError, graph::NodeContext, graph::core::Graph, params::HnswParams};
 
-/// Creates default parameters for most deletion tests (max_connections=2, ef_construction=4).
+/// Creates default parameters for most deletion tests (`max_connections=2`, `ef_construction=4`).
 #[fixture]
 fn basic_params() -> HnswParams {
     match HnswParams::new(2, 4) {
@@ -19,7 +19,7 @@ fn small_graph(basic_params: HnswParams) -> Graph {
     Graph::with_capacity(basic_params, 3)
 }
 
-/// Creates restricted parameters for disconnection tests (max_connections=1, ef_construction=1).
+/// Creates restricted parameters for disconnection tests (`max_connections=1`, `ef_construction=1`).
 #[fixture]
 fn restricted_params() -> HnswParams {
     match HnswParams::new(1, 1) {
