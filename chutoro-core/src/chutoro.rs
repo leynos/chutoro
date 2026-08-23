@@ -7,14 +7,12 @@ use std::{num::NonZeroUsize, sync::Arc};
 
 use crate::{
     Result, builder::ExecutionStrategy, datasource::DataSource, error::ChutoroError,
-    result::ClusteringResult,
+    execution_config::ExecutionConfig, result::ClusteringResult,
 };
 use tracing::{instrument, warn};
 
 /// Whether this build includes the CPU execution pipeline.
 const CPU_PATH_AVAILABLE: bool = cfg!(feature = "cpu");
-/// HNSW connection cap used by the default memory-estimation path.
-const DEFAULT_MAX_CONNECTIONS: usize = 16;
 // The `gpu` feature currently exposes the orchestration surface only;
 // no accelerated implementation ships yet.
 /// Whether this build includes a usable GPU execution pipeline.
@@ -60,8 +58,8 @@ enum BackendChoice {
 /// ```
 #[derive(Debug, Clone)]
 pub struct Chutoro {
-    /// Validated minimum number of items per result cluster.
-    min_cluster_size: NonZeroUsize,
+    /// Validated clustering and CPU HNSW policy selected by the builder.
+    execution_config: ExecutionConfig,
     /// Backend-selection policy chosen by the builder.
     execution_strategy: ExecutionStrategy,
     /// Optional guard for estimated peak memory consumption.
@@ -71,12 +69,12 @@ pub struct Chutoro {
 impl Chutoro {
     /// Construct an orchestrator from already validated builder state.
     pub(crate) const fn new(
-        min_cluster_size: NonZeroUsize,
+        execution_config: ExecutionConfig,
         execution_strategy: ExecutionStrategy,
         max_bytes: Option<u64>,
     ) -> Self {
         Self {
-            min_cluster_size,
+            execution_config,
             execution_strategy,
             max_bytes,
         }
@@ -96,7 +94,13 @@ impl Chutoro {
     /// ```
     #[must_use]
     pub const fn min_cluster_size(&self) -> NonZeroUsize {
-        self.min_cluster_size
+        self.execution_config.min_cluster_size()
+    }
+
+    /// Returns the HNSW parameters configured for CPU execution.
+    #[cfg(feature = "cpu")]
+    pub(crate) fn hnsw_params(&self) -> &crate::HnswParams {
+        self.execution_config.hnsw_params()
     }
 
     /// Returns the execution strategy that will be used when running.
@@ -180,7 +184,7 @@ impl Chutoro {
         fields(
             data_source = %source.name(),
             items = items,
-            min_cluster_size = %self.min_cluster_size,
+            min_cluster_size = %self.min_cluster_size(),
             strategy = ?self.execution_strategy
         ),
     )]
@@ -199,11 +203,11 @@ impl Chutoro {
                 data_source: Arc::from(source.name()),
             });
         }
-        if items < self.min_cluster_size.get() {
+        if items < self.min_cluster_size().get() {
             return Err(ChutoroError::InsufficientItems {
                 data_source: Arc::from(source.name()),
                 items,
-                min_cluster_size: self.min_cluster_size,
+                min_cluster_size: self.min_cluster_size(),
             });
         }
         if let Some(err) = self.backend_unavailable_error() {
@@ -224,11 +228,11 @@ impl Chutoro {
             return Ok(());
         };
 
-        // Use the default HNSW max_connections for estimation.  The pipeline
-        // always constructs params via `HnswParams::default()`, so this is
-        // consistent with actual usage.  Validated by the
-        // `default_max_connections_matches_hnsw_params` test.
-        let estimated = crate::memory::estimate_peak_bytes(items, DEFAULT_MAX_CONNECTIONS);
+        #[cfg(feature = "cpu")]
+        let estimated =
+            crate::memory::estimate_peak_bytes(items, self.hnsw_params().max_connections());
+        #[cfg(not(feature = "cpu"))]
+        let estimated = 0;
 
         if estimated > limit {
             return Err(ChutoroError::MemoryLimitExceeded {
@@ -263,12 +267,17 @@ impl Chutoro {
         name = "core.run_cpu",
         err,
         skip(self, source),
-        fields(items = items, min_cluster_size = %self.min_cluster_size),
+        fields(items = items, min_cluster_size = %self.min_cluster_size()),
     )]
     fn run_cpu<D: DataSource + Sync>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
         #[cfg(feature = "cpu")]
         {
-            crate::cpu_pipeline::run_cpu_pipeline_with_len(source, items, self.min_cluster_size)
+            crate::cpu_pipeline::run_cpu_pipeline_with_len(
+                source,
+                items,
+                self.min_cluster_size(),
+                self.hnsw_params(),
+            )
         }
         #[cfg(not(feature = "cpu"))]
         {
@@ -312,10 +321,21 @@ mod tests {
     use super::*;
     use crate::ChutoroBuilder;
 
+    fn execution_config(min_cluster_size: NonZeroUsize) -> ExecutionConfig {
+        #[cfg(feature = "cpu")]
+        {
+            ExecutionConfig::new(min_cluster_size, crate::HnswParams::default())
+        }
+        #[cfg(not(feature = "cpu"))]
+        {
+            ExecutionConfig::new(min_cluster_size)
+        }
+    }
+
     #[test]
     fn gpu_preferred_requires_gpu_feature() {
         let chutoro = Chutoro::new(
-            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
+            execution_config(NonZeroUsize::new(1).expect("literal 1 is non-zero")),
             ExecutionStrategy::GpuPreferred,
             None,
         );
@@ -333,7 +353,7 @@ mod tests {
         if cfg!(feature = "cpu") {
             for strategy in [ExecutionStrategy::Auto, ExecutionStrategy::CpuOnly] {
                 let chutoro = Chutoro::new(
-                    NonZeroUsize::new(1).expect("literal 1 is non-zero"),
+                    execution_config(NonZeroUsize::new(1).expect("literal 1 is non-zero")),
                     strategy,
                     None,
                 );
@@ -342,7 +362,7 @@ mod tests {
         }
 
         let chutoro = Chutoro::new(
-            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
+            execution_config(NonZeroUsize::new(1).expect("literal 1 is non-zero")),
             ExecutionStrategy::GpuPreferred,
             None,
         );
@@ -369,16 +389,15 @@ mod tests {
         assert_eq!(chutoro.max_bytes(), Some(1_000_000));
     }
 
-    /// Guards against silent drift if `HnswParams::default().max_connections`
-    /// ever changes.  The constant in `check_memory_limit` must stay in sync.
     #[cfg(feature = "cpu")]
     #[test]
-    fn default_max_connections_matches_hnsw_params() {
-        let params = crate::HnswParams::default();
-        assert_eq!(
-            params.max_connections(),
-            16,
-            "DEFAULT_MAX_CONNECTIONS in check_memory_limit must be updated to match"
-        );
+    fn builder_hnsw_params_reach_chutoro_execution_config() {
+        let params = crate::HnswParams::new(4, 16).expect("parameters must be valid");
+        let chutoro = ChutoroBuilder::new()
+            .with_hnsw_params(params.clone())
+            .build()
+            .expect("build must succeed");
+
+        assert_eq!(chutoro.hnsw_params(), &params);
     }
 }

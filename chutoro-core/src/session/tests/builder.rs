@@ -11,6 +11,7 @@ use std::{num::NonZeroUsize, sync::Arc};
 use rstest::rstest;
 
 use super::common::{SessionTestSource, session_builder};
+use crate::execution_config::ExecutionConfig;
 use crate::{
     ChutoroBuilder, ChutoroError, ClusteringSession, ExecutionStrategy, HnswParams, SessionConfig,
     SessionRefreshPolicy,
@@ -115,8 +116,10 @@ fn build_session_rejects_gpu_preferred_execution_strategy(session_builder: Chuto
 fn build_session_maps_hnsw_construction_failure_to_cpu_hnsw_failure() {
     let source = Arc::new(SessionTestSource::with_len(0));
     let config = SessionConfig::new(
-        NonZeroUsize::new(5).expect("minimum cluster size must be non-zero"),
-        HnswParams::default(),
+        ExecutionConfig::new(
+            NonZeroUsize::new(5).expect("minimum cluster size must be non-zero"),
+            HnswParams::default(),
+        ),
         SessionRefreshPolicy::manual(),
     );
 

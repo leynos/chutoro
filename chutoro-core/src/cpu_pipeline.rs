@@ -16,48 +16,21 @@ use crate::{
     HnswParams, MstError, Result, error::ChutoroError, parallel_kruskal, result::ClusteringResult,
 };
 
-/// Runs the CPU pipeline end-to-end for the provided [`DataSource`].
-///
-/// # Errors
-/// Returns the same errors as [`crate::Chutoro::run`], including empty or
-/// undersized sources, data source failures, and CPU pipeline failures.
-#[cfg(feature = "cpu")]
-pub fn run_cpu_pipeline<D: DataSource + Sync>(
-    source: &D,
-    min_cluster_size: NonZeroUsize,
-) -> Result<ClusteringResult> {
-    let items = source.len();
-    if items == 0 {
-        return Err(ChutoroError::EmptySource {
-            data_source: Arc::from(source.name()),
-        });
-    }
-    if items < min_cluster_size.get() {
-        return Err(ChutoroError::InsufficientItems {
-            data_source: Arc::from(source.name()),
-            items,
-            min_cluster_size,
-        });
-    }
-
-    run_cpu_pipeline_with_len(source, items, min_cluster_size)
-}
-
 /// Run the CPU pipeline after source-length validation.
 #[cfg(feature = "cpu")]
 pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
     source: &D,
     items: usize,
     min_cluster_size: NonZeroUsize,
+    hnsw_params: &HnswParams,
 ) -> Result<ClusteringResult> {
-    let params = HnswParams::default();
-    let (index, harvested) = CpuHnsw::build_with_edges(source, params.clone())
+    let (index, harvested) = CpuHnsw::build_with_edges(source, hnsw_params.clone())
         .map_err(|error| map_cpu_hnsw_error(source, error))?;
 
     let desired = min_cluster_size
         .get()
         .saturating_add(1)
-        .max(params.ef_construction())
+        .max(hnsw_params.ef_construction())
         .min(items);
     let ef = NonZeroUsize::new(desired).unwrap_or(NonZeroUsize::MIN);
 

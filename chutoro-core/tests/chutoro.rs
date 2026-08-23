@@ -6,6 +6,8 @@ use chutoro_core::{
     ChutoroBuilder, ChutoroError, ClusterId, ClusteringResult, DataSource, DataSourceError,
     ExecutionStrategy, NonContiguousClusterIds,
 };
+#[cfg(feature = "cpu")]
+use chutoro_core::{HnswParams, estimate_peak_bytes};
 use common::Dummy;
 use rstest::{fixture, rstest};
 use std::sync::Arc;
@@ -144,6 +146,34 @@ fn run_insufficient_items_errors(small_dummy: Dummy) {
             min_cluster_size,
             ..
         } if min_cluster_size.get() == 4
+    ));
+}
+
+#[cfg(feature = "cpu")]
+#[rstest]
+fn run_memory_limit_uses_builder_hnsw_params(dummy: Dummy) {
+    let hnsw_params = HnswParams::new(4, 16).expect("parameters must be valid");
+    let estimated_bytes = estimate_peak_bytes(dummy.len(), hnsw_params.max_connections());
+    assert_ne!(estimated_bytes, estimate_peak_bytes(dummy.len(), 16));
+
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(2)
+        .with_execution_strategy(ExecutionStrategy::CpuOnly)
+        .with_hnsw_params(hnsw_params)
+        .with_max_bytes(estimated_bytes - 1)
+        .build()
+        .expect("configuration must be valid");
+
+    let err = chutoro
+        .run(&dummy)
+        .expect_err("configured memory limit must be enforced");
+    assert!(matches!(
+        err,
+        ChutoroError::MemoryLimitExceeded {
+            point_count,
+            estimated_bytes: actual_estimated_bytes,
+            ..
+        } if point_count == dummy.len() && actual_estimated_bytes == estimated_bytes
     ));
 }
 

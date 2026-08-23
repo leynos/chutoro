@@ -8,6 +8,7 @@ mod cpu_pipeline;
 mod datasource;
 mod distance;
 mod error;
+mod execution_config;
 #[cfg(feature = "cpu")]
 mod hierarchy;
 #[cfg(feature = "cpu")]
@@ -35,9 +36,6 @@ pub use crate::{
     memory::{estimate_peak_bytes, format_bytes},
     result::{ClusterId, ClusteringResult, NonContiguousClusterIds},
 };
-
-#[cfg(feature = "cpu")]
-pub use crate::cpu_pipeline::run_cpu_pipeline;
 
 #[cfg(feature = "cpu")]
 /// CPU-accelerated HNSW index components; requires the `cpu` feature.
