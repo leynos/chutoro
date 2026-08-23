@@ -39,7 +39,8 @@ impl Graph {
             });
         };
 
-        self.strip_references_to(node);
+        let removed_references = self.strip_references_to(node);
+        self.record_touched_nodes(removed_references);
         self.reconnect_layers(removed_neighbours);
 
         if self.entry.map(|entry| entry.node) == Some(node) {
@@ -129,41 +130,54 @@ impl Graph {
 
     pub(super) fn try_add_edge(&mut self, origin: usize, target: usize, level: usize) -> bool {
         let limit = params::connection_limit_for_level(level, self.params.max_connections());
-        let Some(node) = self.nodes.get_mut(origin).and_then(Option::as_mut) else {
-            return false;
-        };
-        if level >= node.level_count() {
-            return false;
-        }
+        let added = {
+            let Some(node) = self.nodes.get_mut(origin).and_then(Option::as_mut) else {
+                return false;
+            };
+            if level >= node.level_count() {
+                return false;
+            }
 
-        let Some(neighbours) = node.neighbours_mut(level) else {
-            return false;
-        };
-        if neighbours.contains(&target) {
-            return true;
-        }
+            let Some(neighbours) = node.neighbours_mut(level) else {
+                return false;
+            };
+            if neighbours.contains(&target) {
+                return true;
+            }
 
-        if neighbours.len() < limit {
+            if neighbours.len() >= limit {
+                return false;
+            }
+
             neighbours.push(target);
-            return true;
+            true
+        };
+        if added {
+            self.record_touched_nodes([(origin, level)]);
         }
-
-        false
+        added
     }
 
     pub(super) fn remove_edge(&mut self, origin: usize, target: usize, level: usize) {
-        let Some(node) = self.nodes.get_mut(origin).and_then(Option::as_mut) else {
-            return;
-        };
-        if level >= node.level_count() {
-            return;
-        }
+        let removed = {
+            let Some(node) = self.nodes.get_mut(origin).and_then(Option::as_mut) else {
+                return;
+            };
+            if level >= node.level_count() {
+                return;
+            }
 
-        let Some(neighbours) = node.neighbours_mut(level) else {
-            return;
-        };
-        if let Some(pos) = neighbours.iter().position(|&candidate| candidate == target) {
+            let Some(neighbours) = node.neighbours_mut(level) else {
+                return;
+            };
+            let Some(pos) = neighbours.iter().position(|&candidate| candidate == target) else {
+                return;
+            };
             neighbours.remove(pos);
+            true
+        };
+        if removed {
+            self.record_touched_nodes([(origin, level)]);
         }
     }
 
@@ -176,20 +190,15 @@ impl Graph {
         Ok(())
     }
 
-    fn strip_references_to(&mut self, node: usize) {
-        for maybe_node in self.nodes.iter_mut().flatten() {
-            let levels = maybe_node.level_count();
-            for level in 0..levels {
-                Self::strip_level_references(maybe_node, level, node);
-            }
+    fn strip_references_to(&mut self, node: usize) -> Vec<(usize, usize)> {
+        let mut touched = Vec::new();
+        for (id, maybe_node) in self.nodes.iter_mut().enumerate() {
+            let Some(existing) = maybe_node.as_mut() else {
+                continue;
+            };
+            touched.extend(Self::strip_node_references(id, existing, node));
         }
-    }
-
-    /// Removes references to a deleted node from one valid graph level.
-    fn strip_level_references(node: &mut Node, level: usize, deleted_node: usize) {
-        if let Some(neighbours) = node.neighbours_mut(level) {
-            neighbours.retain(|&target| target != deleted_node);
-        }
+        touched
     }
 
     fn reconnect_layers(&mut self, removed_neighbours: Vec<Vec<usize>>) {
@@ -263,6 +272,34 @@ impl Graph {
 
         state.visit(target);
         Ok(())
+    }
+
+    /// Records test-only mutation pairs for the next localized healing pass.
+    pub(crate) fn record_touched_nodes<I>(&mut self, touched: I)
+    where
+        I: IntoIterator<Item = (usize, usize)>,
+    {
+        self.touched.extend(touched);
+    }
+
+    /// Returns and clears the mutation pairs accumulated since the last pass.
+    pub(crate) fn take_touched_nodes(&mut self) -> Vec<(usize, usize)> {
+        std::mem::take(&mut self.touched).into_iter().collect()
+    }
+
+    fn strip_node_references(
+        id: usize,
+        existing: &mut crate::hnsw::node::Node,
+        target: usize,
+    ) -> Vec<(usize, usize)> {
+        (0..existing.level_count())
+            .filter_map(|level| {
+                let neighbours = existing.neighbours_mut(level)?;
+                let previous_len = neighbours.len();
+                neighbours.retain(|&candidate| candidate != target);
+                (neighbours.len() != previous_len).then_some((id, level))
+            })
+            .collect()
     }
 }
 
