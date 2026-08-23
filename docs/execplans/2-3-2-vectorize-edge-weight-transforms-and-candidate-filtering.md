@@ -293,8 +293,10 @@ Tolerance 6 makes plan-versus-code disagreement an escalation trigger.
   `chutoro-core/Cargo.toml:43-44` declares only `[lints.rust] unexpected_cfgs`.
   Impact: `cast_possible_truncation`, `indexing_slicing`, `float_arithmetic` and
   `unwrap_used` are inert in this crate. Revision 1's stated defence against
-  silent `usize`-to-`u32` truncation did not exist. Recorded as a follow-up
-  below; opting the crate in is out of scope here and would not be quiet.
+  silent `usize`-to-`u32` truncation did not exist. The same gap applies to
+  `chutoro-cli`, `chutoro-providers/dense`, `chutoro-providers/text` and
+  `chutoro-test-support`, which carry no `[lints]` section at all. Tracked as
+  issue #200; opting the crates in is out of scope here and would not be quiet.
 
 - Observation: **the concurrency property suite does not exercise concurrency.**
   Evidence: `run_concurrency_safety_property`
@@ -1053,11 +1055,18 @@ and must not be absorbed into it silently.
    allocations per point, on a twenty-four-thread machine. Parallelizing it is
    roughly six lines and is plausibly worth two orders of magnitude more than
    everything in this plan combined. It belongs in its own roadmap item.
-2. **`chutoro-core` does not inherit the workspace Clippy table.** Only
-   `chutoro-bench-datasets` opts in, so roughly sixty denied lints — including
-   `indexing_slicing`, `unwrap_used` and `cast_possible_truncation` — are inert
-   across the main crate. Opting in is a large, noisy change and needs its own
-   plan.
+2. **Almost no crate inherits the workspace lint table.** Tracked as
+   [issue #200](https://github.com/leynos/chutoro/issues/200). Only
+   `chutoro-bench-datasets` carries `[lints] workspace = true`;
+   `chutoro-benches` hand-duplicates the table with a manual-sync caveat; and
+   `chutoro-core`, `chutoro-cli`, `chutoro-providers/dense`,
+   `chutoro-providers/text` and `chutoro-test-support` inherit nothing. Opting
+   every crate in costs a measured 576 findings, and adding
+   `missing_docs_in_private_items = "deny"` on top costs a further 914. Note
+   that `missing_docs` and the rustdoc lints _are_ enforced, but through
+   `.cargo/config.toml` rustflags and the `RUSTDOCFLAGS` override in
+   `make lint-clippy` rather than through the manifest — so editor feedback
+   diverges from CI. This is why revision 1's truncation guard did not exist.
 
 ## Outcomes & retrospective
 
