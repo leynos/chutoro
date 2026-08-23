@@ -15,6 +15,9 @@ Accepted
   fix now propagates updates via `Graph::set_params`.
 - Initial population calculation was capped to half the fixture size to avoid
   overshooting insert capacity.
+- The test-only healing hook currently scans every graph edge after bootstrap
+  and after each mutation, even though insertion and deletion already know
+  which adjacency lists they changed.
 
 ## Decision
 
@@ -30,6 +33,12 @@ Accepted
   `CpuHnsw::delete_node_for_test`, scrubbing references, reconnecting former
   neighbours, recomputing the entry point, and decrementing the public length
   counter so mutation properties exercise real delete semantics.
+- Keep a test-only, graph-owned set of changed `(node, level)` pairs. Commit,
+  deletion, reconnection, and reachability repair append only lists that they
+  alter; `CpuHnsw::heal_for_test` drains the set and applies reciprocity repair
+  and validation only to their outgoing edges. The set is private to graph
+  mutation helpers: callers neither add arbitrary pairs nor retain a drained
+  batch for a later mutation.
 
 ## Consequences
 
