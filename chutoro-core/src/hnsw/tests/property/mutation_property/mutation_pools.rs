@@ -107,18 +107,18 @@ impl MutationPools {
         if list.is_empty() {
             None
         } else {
-            let idx = usize::from(hint) % list.len();
+            let idx = usize::from(hint).checked_rem(list.len())?;
             list.get(idx).copied()
         }
     }
 
     fn remove_value(list: &mut Vec<usize>, value: usize) -> bool {
-        if let Some(position) = list.iter().position(|&candidate| candidate == value) {
-            list.remove(position);
-            true
-        } else {
-            false
-        }
+        list.iter()
+            .position(|&candidate| candidate == value)
+            .map_or(false, |position| {
+                list.remove(position);
+                true
+            })
     }
 }
 

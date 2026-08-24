@@ -93,7 +93,7 @@ impl HnswFixture {
     /// Returns the vector dimensionality for the generated dataset.
     #[must_use]
     pub fn dimension(&self) -> usize {
-        self.vectors.first().map_or(0, |vector| vector.len())
+        self.vectors.first().map_or(0, Vec::len)
     }
 
     /// Converts the fixture into a [`DenseVectorSource`] suitable for building

@@ -120,13 +120,14 @@ where
 
     handle.join().map_err(|panic_payload| {
         // Try to downcast the panic payload to extract the actual panic message.
-        let panic_msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
-            (*s).to_string()
-        } else if let Some(s) = panic_payload.downcast_ref::<String>() {
-            s.clone()
-        } else {
-            format!("{panic_payload:?}")
-        };
+        let panic_msg = panic_payload.downcast_ref::<&str>().map_or_else(
+            || {
+                panic_payload
+                    .downcast_ref::<String>()
+                    .map_or_else(|| format!("{panic_payload:?}"), Clone::clone)
+            },
+            |message| (*message).to_owned(),
+        );
         TestCaseError::fail(format!("{name} panicked: {panic_msg}"))
     })?
 }
