@@ -124,22 +124,24 @@ fn gzip_idx_images(count: usize, rows: usize, cols: usize, fill: u8) -> io::Resu
     let cols_u32 = u32::try_from(cols).map_err(io::Error::other)?;
 
     let mut raw = Vec::new();
-    append_u32_be(&mut raw, IDX_IMAGE_MAGIC);
-    append_u32_be(&mut raw, count_u32);
-    append_u32_be(&mut raw, rows_u32);
-    append_u32_be(&mut raw, cols_u32);
+    append_u32_be(&mut raw, IDX_IMAGE_MAGIC)?;
+    append_u32_be(&mut raw, count_u32)?;
+    append_u32_be(&mut raw, rows_u32)?;
+    append_u32_be(&mut raw, cols_u32)?;
     raw.extend(vec![fill; count * rows * cols]);
     gzip_bytes(&raw)
 }
 
-// The mask below guarantees the shifted byte always fits `u8`, so this
-// helper cannot fail and needs no `Result`.
-fn append_u32_be(buffer: &mut Vec<u8>, value: u32) {
+// The mask guarantees the shifted byte always fits `u8`, so the error
+// branch is unreachable in practice; it is propagated rather than
+// unwrapped because helpers must not panic.
+fn append_u32_be(buffer: &mut Vec<u8>, value: u32) -> io::Result<()> {
     for shift in [24u32, 16, 8, 0] {
         let masked_byte = (value >> shift) & 0xFF;
-        let byte = u8::try_from(masked_byte).expect("byte masked with 0xFF always fits u8");
+        let byte = u8::try_from(masked_byte).map_err(io::Error::other)?;
         buffer.push(byte);
     }
+    Ok(())
 }
 
 fn gzip_bytes(raw: &[u8]) -> io::Result<Vec<u8>> {
