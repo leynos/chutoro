@@ -41,8 +41,8 @@ fn main() -> ExitCode {
             .find_map(|cause| {
                 // Downcast each cause so context layers do not obscure `CliError`
                 // instances that carry structured codes.
-                let cause: &(dyn std::error::Error + 'static) = cause;
-                cause
+                let error_cause: &(dyn std::error::Error + 'static) = cause;
+                error_cause
                     .downcast_ref::<CliError>()
                     .and_then(|cli_error| match cli_error {
                         CliError::Core(core) => Some((Some(core.code()), core.data_source_code())),
@@ -53,8 +53,8 @@ fn main() -> ExitCode {
 
         error!(
             error = %err,
-            code = ?code.map(|c| c.as_str()),
-            data_source_code = ?data_source_code.map(|c| c.as_str()),
+            code = ?code.map(chutoro_core::ChutoroErrorCode::as_str),
+            data_source_code = ?data_source_code.map(chutoro_core::DataSourceErrorCode::as_str),
             "command execution failed"
         );
         return ExitCode::FAILURE;

@@ -345,7 +345,7 @@ impl DistanceCache {
     }
 
     #[cfg(not(feature = "metrics"))]
-    fn record_hit(_elapsed: Duration) {}
+    const fn record_hit(_elapsed: Duration) {}
 
     #[cfg(feature = "metrics")]
     fn record_miss() {
@@ -353,7 +353,7 @@ impl DistanceCache {
     }
 
     #[cfg(not(feature = "metrics"))]
-    fn record_miss() {}
+    const fn record_miss() {}
 
     #[cfg(feature = "metrics")]
     fn record_eviction() {
@@ -361,7 +361,7 @@ impl DistanceCache {
     }
 
     #[cfg(not(feature = "metrics"))]
-    fn record_eviction() {}
+    const fn record_eviction() {}
 
     #[cfg(feature = "metrics")]
     fn record_lookup_latency(elapsed: Duration) {
@@ -370,7 +370,7 @@ impl DistanceCache {
     }
 
     #[cfg(not(feature = "metrics"))]
-    fn record_lookup_latency(_elapsed: Duration) {}
+    const fn record_lookup_latency(_elapsed: Duration) {}
 }
 
 // no inherent methods on PendingMiss

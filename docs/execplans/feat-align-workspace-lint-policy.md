@@ -123,14 +123,24 @@ keeps local editor feedback aligned with commit gates.
 - [x] Renamed shadowed cache-option and resolved-value bindings in HNSW
       validation. Its unit test and full checkpoints pass before returning to
       the node-level access contract.
-- [ ] Resolve `chutoro-core` structural, bounds-safety, numerical, and test
-      lint families in bounded commits.
-- [ ] Opt in the remaining library crates and retire duplicated Rustdoc flags.
-- [ ] Replace the benches mirror, deny private item documentation debt, and
-      document private items.
-- [ ] Narrow Whitaker filesystem exclusions and document the exception model.
-- [ ] Run final gates, CodeRabbit review, publish the renamed branch, and
-      create the requested draft pull request.
+- [x] 2026-08-24: Enrolled `chutoro-cli` in `[workspace.lints]` and resolved
+      its all-target Clippy diagnostics. Marked the four metrics-disabled core
+      cache hooks `const` so this feature-reduced dependency path also obeys
+      the inherited policy. Full gates pass: 1,082 tests passed, one skipped.
+- [ ] Enrol `chutoro-providers-dense` and `chutoro-test-support` in
+      `[workspace.lints]`, resolving their live diagnostics in bounded crate
+      stages.
+- [ ] Replace the `chutoro-benches` lint-table mirror with
+      `[lints] workspace = true`; keep only scoped, documented expectations
+      for unavoidable Criterion expansion diagnostics.
+- [ ] Add and satisfy `missing_docs_in_private_items = "deny"` without
+      weakening the root lint policy.
+- [ ] Narrow Whitaker filesystem exclusions to the ambient boundaries in
+      `chutoro-cli`, `chutoro-providers-dense`, `chutoro-test-support` and
+      `chutoro-benches`; retain only separately compiled gate binaries and
+      integration-test crates whose ambient fixture staging is intentional.
+- [ ] Document the exception model, run final gates and CodeRabbit review,
+      then update the existing draft pull request.
 
 ## Surprises & Discoveries
 
@@ -166,6 +176,10 @@ keeps local editor feedback aligned with commit gates.
 - Command-line lint levels propagate to local dependencies. The semantic
   Rustdoc check therefore uses `--no-deps`; otherwise it diagnoses
   `chutoro-test-support` before that crate inherits the workspace policy.
+- The installed Whitaker suite accepts `excluded_paths` as well as
+  `excluded_crates`. This permits the remaining ambient filesystem exceptions
+  to describe only their concrete module boundaries instead of exempting an
+  entire library crate.
 
 ## Decision Log
 

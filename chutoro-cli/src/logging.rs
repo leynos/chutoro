@@ -71,13 +71,13 @@ pub fn init_logging() -> Result<(), LoggingError> {
 
     match install_subscriber() {
         Ok(()) => {
-            // The guard serializes initialization, so the marker can only be
-            // set once; ignore the impossible duplicate-set error.
-            let _ = INITIALIZED.set(());
+            // The guard serializes initialization, so a duplicate marker
+            // update would reveal an internal synchronization error.
+            mark_initialized();
         }
         Err(LoggingError::InstallFailed { source }) => {
             report_logging_conflict(&source);
-            let _ = INITIALIZED.set(());
+            mark_initialized();
         }
         Err(err) => {
             drop(guard);
@@ -88,32 +88,42 @@ pub fn init_logging() -> Result<(), LoggingError> {
     Ok(())
 }
 
+fn mark_initialized() {
+    let was_already_initialized = INITIALIZED.set(()).is_err();
+    debug_assert!(
+        !was_already_initialized,
+        "the initialization guard permits only one marker update",
+    );
+}
+
 fn install_subscriber() -> Result<(), LoggingError> {
     let use_json = match env::var(LOG_FORMAT_ENV) {
         Ok(raw) => parse_log_format(&raw)?,
         Err(env::VarError::NotPresent) => false,
-        Err(err @ env::VarError::NotUnicode(_)) => Err(LoggingError::InvalidUnicode {
-            name: LOG_FORMAT_ENV,
-            source: err,
-        })?,
+        Err(err @ env::VarError::NotUnicode(_)) => {
+            return Err(LoggingError::InvalidUnicode {
+                name: LOG_FORMAT_ENV,
+                source: err,
+            });
+        }
     };
 
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
-    let fmt_layer = tracing_subscriber::fmt::layer()
+    let base_fmt_layer = tracing_subscriber::fmt::layer()
         .with_span_events(FmtSpan::FULL)
         .with_writer(std::io::stderr);
 
     let fmt_layer = if use_json {
-        fmt_layer.json().with_span_list(true).boxed()
+        base_fmt_layer.json().with_span_list(true).boxed()
     } else {
-        fmt_layer.boxed()
+        base_fmt_layer.boxed()
     };
 
     // Installing the log bridge is best-effort. If another logger already owns
     // the global slot, crates emitting via the `log` facade will continue using
     // that logger; tracing-native spans and events are unaffected.
-    let _ = LogTracer::init();
+    drop(LogTracer::init());
 
     tracing_subscriber::registry()
         .with(env_filter)

@@ -30,9 +30,9 @@ pub enum Command {
 }
 
 impl Command {
-    fn name(&self) -> &'static str {
+    const fn name(&self) -> &'static str {
         match self {
-            Command::Run(_) => "run",
+            Self::Run(_) => "run",
         }
     }
 }
@@ -70,10 +70,10 @@ pub enum RunSource {
 }
 
 impl RunSource {
-    fn kind(&self) -> &'static str {
+    const fn kind(&self) -> &'static str {
         match self {
-            RunSource::Parquet(_) => "parquet",
-            RunSource::Text(_) => "text",
+            Self::Parquet(_) => "parquet",
+            Self::Text(_) => "text",
         }
     }
 }
@@ -116,9 +116,9 @@ pub enum TextMetric {
 }
 
 impl TextMetric {
-    fn label(self) -> &'static str {
+    const fn label(self) -> &'static str {
         match self {
-            TextMetric::Levenshtein => "levenshtein",
+            Self::Levenshtein => "levenshtein",
         }
     }
 }
@@ -238,7 +238,7 @@ pub(super) fn run_parquet(
     let ParquetArgs { path, column, name } = args;
     let chosen_name = derive_data_source_name(&path, name.as_deref());
     let provider = DenseMatrixProvider::try_from_parquet_path(chosen_name, &path, &column)?;
-    execute_with_provider(chutoro, provider)
+    execute_with_provider(chutoro, &provider)
 }
 
 #[instrument(
@@ -258,7 +258,7 @@ pub(super) fn run_text(chutoro: &Chutoro, args: TextArgs) -> Result<ExecutionSum
     let provider = match metric {
         TextMetric::Levenshtein => TextProvider::try_from_reader(chosen_name, reader)?,
     };
-    execute_with_provider(chutoro, provider)
+    execute_with_provider(chutoro, &provider)
 }
 
 #[instrument(
@@ -282,23 +282,24 @@ pub(super) fn derive_data_source_name(path: &Path, override_name: Option<&str>) 
 
     path.file_stem()
         .and_then(|value| value.to_str())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| "data_source".to_owned())
+        .map_or_else(|| "data_source".to_owned(), ToOwned::to_owned)
 }
 
 /// Parses a human-readable byte size such as `"512M"` or `"2G"` into a `u64`.
 ///
 /// Recognized suffixes (case-insensitive): `K`/`KB`/`KiB`, `M`/`MB`/`MiB`,
 /// `G`/`GB`/`GiB`, `T`/`TB`/`TiB`.  Plain integers are treated as bytes.
-pub(super) fn parse_byte_size(s: &str) -> Result<u64, String> {
-    let s = s.trim();
-    if s.is_empty() {
+pub(super) fn parse_byte_size(value: &str) -> Result<u64, String> {
+    let trimmed_value = value.trim();
+    if trimmed_value.is_empty() {
         return Err("byte size must not be empty".to_owned());
     }
 
     // Split into leading digits and trailing suffix.
-    let split = s.find(|ch: char| !ch.is_ascii_digit()).unwrap_or(s.len());
-    let (num_part, suffix) = s.split_at(split);
+    let split = trimmed_value
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(trimmed_value.len());
+    let (num_part, suffix) = trimmed_value.split_at(split);
 
     let base: u64 = num_part
         .parse()
@@ -324,16 +325,17 @@ fn suffix_multiplier(suffix: &str) -> Result<u64, String> {
 
 /// Produce a redacted label for a path that avoids leaking absolute directories.
 fn path_label(path: &Path) -> String {
-    path.file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "<unknown>".to_owned())
+    path.file_name().map_or_else(
+        || "<unknown>".to_owned(),
+        |name| name.to_string_lossy().into_owned(),
+    )
 }
 
-fn execute_with_provider<D>(chutoro: &Chutoro, provider: D) -> Result<ExecutionSummary, CliError>
+fn execute_with_provider<D>(chutoro: &Chutoro, provider: &D) -> Result<ExecutionSummary, CliError>
 where
     D: DataSource + Sync,
 {
-    let result = chutoro.run(&provider)?;
+    let result = chutoro.run(provider)?;
     Ok(ExecutionSummary {
         data_source: provider.name().to_owned(),
         result,
