@@ -224,7 +224,10 @@ impl Default for HnswParams {
     fn default() -> Self {
         match Self::new(16, 64) {
             Ok(params) => params,
-            Err(err) => unreachable!("default parameters must be valid: {err}"),
+            // The reason is deliberately not bound: Kani rewrites
+            // `unreachable!` to discard its format arguments, which would
+            // leave the binding unused under `cfg(kani)` and `-D warnings`.
+            Err(_) => unreachable!("default parameters (16, 64) must be valid"),
         }
     }
 }
