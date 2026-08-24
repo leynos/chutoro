@@ -70,8 +70,8 @@ impl SearchPropertyConfig {
         T: Copy,
         F: for<'a> Fn(RawConfigValue<'a>) -> Result<T, String>,
     {
-        match env.string(key.as_str()) {
-            Some(raw) => match parser(RawConfigValue(raw.as_str())) {
+        env.string(key.as_str())
+            .map_or(default, |raw| match parser(RawConfigValue(raw.as_str())) {
                 Ok(value) => value,
                 Err(reason) => {
                     tracing::warn!(
@@ -82,9 +82,7 @@ impl SearchPropertyConfig {
                     );
                     default
                 }
-            },
-            None => default,
-        }
+            })
     }
 
     fn parse_min_recall(raw: RawConfigValue<'_>) -> Result<f32, String> {
