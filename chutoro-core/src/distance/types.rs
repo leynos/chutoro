@@ -1,7 +1,11 @@
 //! Domain primitives shared by the distance routines.
 
-use core::{fmt, ops::Deref};
+use core::{
+    fmt,
+    ops::{AddAssign, Deref, Mul},
+};
 
+use num_traits::cast;
 use thiserror::Error;
 
 use super::helpers::validate_dimensions;
@@ -118,6 +122,15 @@ impl Deref for Vector<'_> {
     }
 }
 
+/// Narrows an internal calculation to the public distance scalar type.
+///
+/// `num_traits` preserves Rust's floating-point narrowing behaviour, including
+/// overflow to infinity, while making the deliberate conversion boundary
+/// explicit.
+pub(crate) fn narrow_to_f32(value: f64) -> f32 {
+    cast(value).unwrap_or(f32::NAN)
+}
+
 /// Validated L2 norm for cosine distance calculations.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Norm(f32);
@@ -148,7 +161,7 @@ impl Norm {
     pub fn from_vector(vector: &Vector<'_>, which: VectorKind) -> Result<Self> {
         let mut sum = 0.0f64;
         for value in vector.iter() {
-            sum += f64::from(*value) * f64::from(*value);
+            sum.add_assign(f64::from(*value).mul(f64::from(*value)));
         }
 
         Self::from_squared_sum(sum, which)
@@ -171,7 +184,7 @@ impl Norm {
 
     pub(crate) fn from_squared_sum(sum: f64, which: VectorKind) -> Result<Self> {
         Self::validate_squared_sum(sum, which)?;
-        Self::new(sum.sqrt() as f32, which)
+        Self::new(narrow_to_f32(sum.sqrt()), which)
     }
 
     /// Returns the validated norm value.

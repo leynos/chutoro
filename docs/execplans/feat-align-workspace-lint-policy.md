@@ -359,6 +359,16 @@ output slot. Preserve the initial output-length check and deferred copy, so a
 distance failure still leaves the caller's output unchanged. Verify the data
 source tests, `make check-fmt`, and scoped Clippy for the batch index warning.
 
+## Stage 2s: Distance Arithmetic Boundaries
+
+Represent the existing Euclidean and cosine arithmetic through the standard
+operation traits, preserving the operations and their order while satisfying
+the workspace numeric policy. Centralize the explicit `f64` to `f32` boundary
+in the distance module through the already-resolved `num-traits` crate, whose
+conversion matches Rust's overflow-to-infinity behaviour. Verify distance
+integration tests, `make check-fmt`, and scoped Clippy for the affected
+arithmetic and conversion diagnostics.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

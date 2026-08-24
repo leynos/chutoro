@@ -1,7 +1,9 @@
 //! Euclidean distance implementation for validated vectors.
 
+use core::ops::{AddAssign, Mul, Sub};
+
 use crate::distance::helpers::validate_dimensions;
-use crate::distance::types::{Distance, Result, Vector, VectorKind};
+use crate::distance::types::{Distance, Result, Vector, VectorKind, narrow_to_f32};
 
 /// Computes the Euclidean distance between two vectors.
 ///
@@ -31,9 +33,9 @@ pub fn euclidean_distance(left_values: &[f32], right_values: &[f32]) -> Result<D
 
     let mut sum = 0.0f64;
     for (&l, &r) in left_vector.iter().zip(right_vector.iter()) {
-        let diff = f64::from(l) - f64::from(r);
-        sum += diff * diff;
+        let difference = f64::from(l).sub(f64::from(r));
+        sum.add_assign(difference.mul(difference));
     }
 
-    Ok(Distance::from_raw(sum.sqrt() as f32))
+    Ok(Distance::from_raw(narrow_to_f32(sum.sqrt())))
 }
