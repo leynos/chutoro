@@ -163,11 +163,11 @@ fn count_input_components(fixture: &MstFixture) -> usize {
         }
         let ra = find_root(&mut parent, s);
         let rb = find_root(&mut parent, t);
-        if ra != rb {
-            if let Some(parent_root) = parent.get_mut(rb) {
-                *parent_root = ra;
-                components -= 1;
-            }
+        if ra != rb
+            && let Some(parent_root) = parent.get_mut(rb)
+        {
+            *parent_root = ra;
+            components -= 1;
         }
     }
 

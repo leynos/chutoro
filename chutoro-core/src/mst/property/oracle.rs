@@ -56,7 +56,7 @@ pub(super) fn sequential_kruskal(
         let rb = find_root(&mut parent, edge.target);
         if ra != rb {
             union_by_rank(&mut parent, &mut rank, ra, rb);
-            total_weight += f64::from(edge.weight);
+            total_weight = std::ops::Add::add(total_weight, f64::from(edge.weight));
             edge_count += 1;
             components -= 1;
         }
@@ -161,9 +161,9 @@ fn union_by_rank(parent: &mut [usize], rank: &mut [usize], a: usize, b: usize) {
         return;
     };
     *child_parent = root;
-    if root_rank == child_rank {
-        if let Some(root_rank_slot) = rank.get_mut(root) {
-            *root_rank_slot = root_rank.saturating_add(1);
-        }
+    if root_rank == child_rank
+        && let Some(root_rank_slot) = rank.get_mut(root)
+    {
+        *root_rank_slot = root_rank.saturating_add(1);
     }
 }
