@@ -21,41 +21,13 @@ fn validate_edges_canonical(edges: &[MstEdge]) -> bool {
 /// Validates MST forest structural invariants for Kani verification.
 ///
 /// Returns `true` if the forest satisfies:
+/// - At most four nodes (the harness bound)
 /// - Edge count equals `n - c` where `n` is node count and `c` is component count
-/// - No self-loops (source != target for all edges)
-/// - Canonical ordering (source < target for all edges)
+/// - No self-loops and canonical ordering (`source < target` for all edges)
 /// - Acyclic structure (no cycles detected via union-find)
-#[cfg(not(kani))]
-pub(crate) fn is_valid_forest(
-    node_count: usize,
-    edges: &[MstEdge],
-    component_count: usize,
-) -> bool {
-    // Forest must have n - c edges
-    if edges.len() != node_count.saturating_sub(component_count) {
-        return false;
-    }
-
-    // No self-loops and canonical ordering
-    if !validate_edges_canonical(edges) {
-        return false;
-    }
-
-    // Acyclic check via union-find
-    let mut parent: Vec<usize> = (0..node_count).collect();
-    for edge in edges {
-        let root_s = kani_find_root(&mut parent, edge.source());
-        let root_t = kani_find_root(&mut parent, edge.target());
-        if root_s == root_t {
-            return false; // Cycle detected
-        }
-        parent[root_t] = root_s;
-    }
-
-    true
-}
-
-#[cfg(kani)]
+///
+/// The enclosing module is compiled only under `cfg(kani)`, so no per-item
+/// cfg gate is needed.
 pub(crate) fn is_valid_forest(
     node_count: usize,
     edges: &[MstEdge],

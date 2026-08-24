@@ -16,6 +16,8 @@ name: Kani PR
       - "Makefile"
       - "Cargo.toml"
       - "Cargo.lock"
+      - "chutoro-core/Cargo.toml"
+      - "chutoro-providers/dense/Cargo.toml"
   workflow_dispatch:
 
 permissions:
@@ -34,11 +36,13 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
       - name: Install Kani
         run: |
-          cargo install --locked kani-verifier
+          cargo install --locked kani-verifier --version 0.67.0
           cargo kani setup
       - name: Run Kani practical suite
         run: make kani
