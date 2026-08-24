@@ -473,16 +473,20 @@ full suite only when its commit-recency gate permits it.
 
 ### Installing Kani
 
-CI and local runs use kani-verifier 0.67.0. Install it with the
-`rust-prover-tools` pin (`prover-tools kani install`) or directly:
+CI and local runs use the kani-verifier release pinned in
+`tools/kani/VERSION`, which is the single source of truth for the version.
+`prover-tools kani install` reads that file by default; install it directly
+with:
 
 ```sh
-cargo install --locked kani-verifier --version 0.67.0
+cargo install --locked kani-verifier --version "$(cat tools/kani/VERSION)"
 cargo kani setup
 ```
 
-The `kani-pr.yml` workflow installs the same pinned version, and the
-workflow contract test asserts the pin.
+The Makefile derives `KANI_VERSION` from the same file, the `kani-pr.yml`
+workflow interpolates it rather than restating it, and a workflow contract
+test fails the build if a version literal reappears in the workflow.
+Bumping Kani is therefore a one-line change to `tools/kani/VERSION`.
 
 The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
 `make kani`. The full tier remains the package-wide sweep across every
