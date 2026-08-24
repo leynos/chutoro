@@ -138,3 +138,16 @@ Accepted
   insertion latency improvements and to guard against degree-bound regressions.
 - Expand deletion coverage with adversarial cases to validate the lightweight
   reconnection heuristic under high churn.
+
+## Addendum — 2026-08-24
+
+Issue #47 confirms the localized reciprocity sweep as a test-only boundary. The
+graph owns a private queue of changed `(node, level)` pairs; commit, deletion,
+reconnection, and reachability repair append the adjacency lists they alter.
+`CpuHnsw::heal_for_test` repairs reachability first, then drains the queue once
+and enforces reciprocity only for the queued outgoing lists. Production paths
+do not expose or depend on this queue.
+
+Mutation rollback must restore the queue together with the graph nodes and
+entry point. This prevents a failed deletion from leaving stale pairs for a
+later healing pass and keeps the healing state consistent with the graph.
