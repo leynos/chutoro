@@ -249,16 +249,18 @@ impl HealingTestContext {
 /// the connectivity healer should restore a direct link to the entry node
 /// (node 0) at the base layer, ensuring that connectivity is explicitly
 /// maintained via the entry point.
-#[rstest]
-fn eviction_at_base_layer_triggers_healing() -> Result<(), HnswError> {
-    let params = HnswParams::new(1, 4)?;
-    let ctx = HealingTestContext::new(params)?;
+#[test]
+fn eviction_at_base_layer_triggers_healing() {
+    let params = HnswParams::new(1, 4).expect("test parameters must be valid");
+    let ctx = HealingTestContext::new(params).expect("healing fixture must initialize");
 
     // Node 3 adds node 1, triggering eviction of node 2 from node 1
     let update = build_update(3, 0, vec![1], ctx.max_connections);
     let new_node = NewNodeContext { id: 3, level: 0 };
 
-    let graph = ctx.apply_updates(vec![update], new_node)?;
+    let graph = ctx
+        .apply_updates(vec![update], new_node)
+        .expect("apply healing update");
 
     // Node 2 should have been healed to connect to the entry node (node 0)
     let node2 = graph.node(2).expect("node 2 should exist");
@@ -266,6 +268,4 @@ fn eviction_at_base_layer_triggers_healing() -> Result<(), HnswError> {
         node2.neighbours(0).contains(&0),
         "node 2 should be healed to connect to entry node 0",
     );
-
-    Ok(())
 }

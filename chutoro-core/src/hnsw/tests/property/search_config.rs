@@ -85,8 +85,9 @@ impl SearchPropertyConfig {
         T: Copy,
         F: for<'a> Fn(RawConfigValue<'a>) -> Result<T, String>,
     {
-        env::var(key.as_str()).map_or(default, |raw| {
-            parser(RawConfigValue(raw.as_str())).unwrap_or_else(|reason| {
+        env::var(key.as_str()).map_or(default, |raw| match parser(RawConfigValue(raw.as_str())) {
+            Ok(value) => value,
+            Err(reason) => {
                 tracing::warn!(
                     env = key.as_str(),
                     raw = %raw,
@@ -94,7 +95,7 @@ impl SearchPropertyConfig {
                     "invalid config override, falling back to default",
                 );
                 default
-            })
+            }
         })
     }
 

@@ -24,6 +24,18 @@ enum SplitCase {
     BothSmall,
 }
 
+/// Captures one dendrogram split for the internal condensation transition.
+///
+/// This is local to [`CondenseBuilder`]: it groups the two child identifiers,
+/// their sizes, and the split lambda without widening the hierarchy API.
+struct BranchSplit {
+    left: usize,
+    right: usize,
+    lambda: f32,
+    left_size: usize,
+    right_size: usize,
+}
+
 impl SplitCase {
     const fn from_flags(left_big: bool, right_big: bool) -> Self {
         match (left_big, right_big) {
@@ -53,56 +65,116 @@ impl<'a> CondenseBuilder<'a> {
         node_id: usize,
         cluster_id: usize,
     ) -> Result<(), HierarchyError> {
+        let Some((left, right, lambda)) = self.branch_details(node_id)? else {
+            return self.record_leaf(node_id, cluster_id);
+        };
+
+        let left_size = self.node_size(left)?;
+        let right_size = self.node_size(right)?;
+        let left_big = left_size >= self.min_cluster_size;
+        let right_big = right_size >= self.min_cluster_size;
+
+        let branch_split = BranchSplit {
+            left,
+            right,
+            lambda,
+            left_size,
+            right_size,
+        };
+        self.apply_split_case(
+            SplitCase::from_flags(left_big, right_big),
+            cluster_id,
+            &branch_split,
+        )
+    }
+
+    fn branch_details(
+        &self,
+        node_id: usize,
+    ) -> Result<Option<(usize, usize, f32)>, HierarchyError> {
         let node = self
             .forest
             .nodes
             .get(node_id)
             .ok_or(HierarchyError::InvalidForestReference { node_id })?;
-        let Some((left, right)) = node.left.zip(node.right) else {
-            if let Some(point) = node.point {
-                record_point_event(self.clusters, cluster_id, point, f32::INFINITY)?;
-            }
-            return Ok(());
-        };
+        Ok(node
+            .left
+            .zip(node.right)
+            .map(|(left, right)| (left, right, weight_to_lambda(node.weight))))
+    }
 
-        let lambda = weight_to_lambda(node.weight);
-        let left_size = self
+    fn node_size(&self, node_id: usize) -> Result<usize, HierarchyError> {
+        self.forest
+            .nodes
+            .get(node_id)
+            .map(|node| node.size)
+            .ok_or(HierarchyError::InvalidForestReference { node_id })
+    }
+
+    fn record_leaf(&mut self, node_id: usize, cluster_id: usize) -> Result<(), HierarchyError> {
+        let node = self
             .forest
             .nodes
-            .get(left)
-            .ok_or(HierarchyError::InvalidForestReference { node_id: left })?
-            .size;
-        let right_size = self
-            .forest
-            .nodes
-            .get(right)
-            .ok_or(HierarchyError::InvalidForestReference { node_id: right })?
-            .size;
-        let left_big = left_size >= self.min_cluster_size;
-        let right_big = right_size >= self.min_cluster_size;
-
-        match SplitCase::from_flags(left_big, right_big) {
-            SplitCase::BothBig => {
-                let left_cluster = self.create_child_cluster(cluster_id, lambda, left_size)?;
-                let right_cluster = self.create_child_cluster(cluster_id, lambda, right_size)?;
-                self.condense_cluster(left, left_cluster)?;
-                self.condense_cluster(right, right_cluster)?;
-            }
-            SplitCase::LeftBigOnly => {
-                self.emit_pruned_points(right, cluster_id, lambda)?;
-                self.condense_cluster(left, cluster_id)?;
-            }
-            SplitCase::RightBigOnly => {
-                self.emit_pruned_points(left, cluster_id, lambda)?;
-                self.condense_cluster(right, cluster_id)?;
-            }
-            SplitCase::BothSmall => {
-                self.emit_pruned_points(left, cluster_id, lambda)?;
-                self.emit_pruned_points(right, cluster_id, lambda)?;
-            }
+            .get(node_id)
+            .ok_or(HierarchyError::InvalidForestReference { node_id })?;
+        if let Some(point) = node.point {
+            record_point_event(self.clusters, cluster_id, point, f32::INFINITY)?;
         }
-
         Ok(())
+    }
+
+    fn apply_split_case(
+        &mut self,
+        split_case: SplitCase,
+        cluster_id: usize,
+        branch_split: &BranchSplit,
+    ) -> Result<(), HierarchyError> {
+        match split_case {
+            SplitCase::BothBig => self.split_both_big(cluster_id, branch_split),
+            SplitCase::LeftBigOnly => self.split_left_big_only(cluster_id, branch_split),
+            SplitCase::RightBigOnly => self.split_right_big_only(cluster_id, branch_split),
+            SplitCase::BothSmall => self.split_both_small(cluster_id, branch_split),
+        }
+    }
+
+    fn split_both_big(
+        &mut self,
+        cluster_id: usize,
+        branch_split: &BranchSplit,
+    ) -> Result<(), HierarchyError> {
+        let left_cluster =
+            self.create_child_cluster(cluster_id, branch_split.lambda, branch_split.left_size)?;
+        let right_cluster =
+            self.create_child_cluster(cluster_id, branch_split.lambda, branch_split.right_size)?;
+        self.condense_cluster(branch_split.left, left_cluster)?;
+        self.condense_cluster(branch_split.right, right_cluster)
+    }
+
+    fn split_left_big_only(
+        &mut self,
+        cluster_id: usize,
+        branch_split: &BranchSplit,
+    ) -> Result<(), HierarchyError> {
+        self.emit_pruned_points(branch_split.right, cluster_id, branch_split.lambda)?;
+        self.condense_cluster(branch_split.left, cluster_id)
+    }
+
+    fn split_right_big_only(
+        &mut self,
+        cluster_id: usize,
+        branch_split: &BranchSplit,
+    ) -> Result<(), HierarchyError> {
+        self.emit_pruned_points(branch_split.left, cluster_id, branch_split.lambda)?;
+        self.condense_cluster(branch_split.right, cluster_id)
+    }
+
+    fn split_both_small(
+        &mut self,
+        cluster_id: usize,
+        branch_split: &BranchSplit,
+    ) -> Result<(), HierarchyError> {
+        self.emit_pruned_points(branch_split.left, cluster_id, branch_split.lambda)?;
+        self.emit_pruned_points(branch_split.right, cluster_id, branch_split.lambda)
     }
 
     fn create_child_cluster(
@@ -140,24 +212,29 @@ impl<'a> CondenseBuilder<'a> {
     ) -> Result<(), HierarchyError> {
         let mut stack = vec![node_id];
         while let Some(current) = stack.pop() {
-            let node = self
-                .forest
-                .nodes
-                .get(current)
-                .ok_or(HierarchyError::InvalidForestReference { node_id: current })?;
-            if let Some(point) = node.point {
-                record_point_event(self.clusters, cluster_id, point, lambda)?;
-                continue;
-            }
-            if let Some(left) = node.left {
-                stack.push(left);
-            }
-            if let Some(right) = node.right {
-                stack.push(right);
-            }
+            let children = self.prune_node(current, cluster_id, lambda)?;
+            stack.extend(children.into_iter().flatten());
         }
 
         Ok(())
+    }
+
+    fn prune_node(
+        &mut self,
+        node_id: usize,
+        cluster_id: usize,
+        lambda: f32,
+    ) -> Result<[Option<usize>; 2], HierarchyError> {
+        let node = self
+            .forest
+            .nodes
+            .get(node_id)
+            .ok_or(HierarchyError::InvalidForestReference { node_id })?;
+        if let Some(point) = node.point {
+            record_point_event(self.clusters, cluster_id, point, lambda)?;
+            return Ok([None, None]);
+        }
+        Ok([node.left, node.right])
     }
 }
 

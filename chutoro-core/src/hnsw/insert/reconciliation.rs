@@ -108,15 +108,14 @@ impl<'graph> EdgeReconciler<'graph> {
 
         #[cfg(test)]
         {
-            if !neighbours.contains(&ctx.origin) {
-                panic!(
-                    "ensure_reverse_edge failed to insert {origin}->{target} at level {level}; degree {} (limit {limit})",
-                    neighbours.len(),
-                    origin = ctx.origin,
-                    target = target,
-                    level = ctx.level,
-                );
-            }
+            assert!(
+                neighbours.contains(&ctx.origin),
+                "ensure_reverse_edge failed to insert {origin}->{target} at level {level}; degree {} (limit {limit})",
+                neighbours.len(),
+                origin = ctx.origin,
+                target = target,
+                level = ctx.level,
+            );
         }
 
         if let Some(evicted_node_id) = evicted_origin {

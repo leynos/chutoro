@@ -240,10 +240,7 @@ fn fixture_with_vectors(vectors: Vec<Vec<f32>>, max_connections: usize) -> HnswF
         !vectors.is_empty(),
         "test fixtures must contain at least one vector"
     );
-    let dimension = vectors
-        .first()
-        .map(Vec::len)
-        .expect("test fixtures must contain a vector");
+    let dimension = vectors.first().map_or(0, Vec::len);
     assert!(vectors.iter().all(|vector| vector.len() == dimension));
     HnswFixture {
         distribution: VectorDistribution::Uniform,

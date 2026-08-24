@@ -107,16 +107,16 @@ fn commit_updates_write_reciprocal_edges(
     Ok(())
 }
 
-#[rstest]
-fn commit_updates_scrub_evicted_forward_edge() -> Result<(), HnswError> {
-    let params = HnswParams::new(1, 4)?;
+#[test]
+fn commit_updates_scrub_evicted_forward_edge() {
+    let params = HnswParams::new(1, 4).expect("test parameters must be valid");
     let max_connections = params.max_connections();
     let mut graph = Graph::with_capacity(params, 4);
 
-    insert_node(&mut graph, 0, 1, 0)?;
-    insert_node(&mut graph, 1, 1, 1)?;
-    insert_node(&mut graph, 2, 1, 2)?;
-    insert_node(&mut graph, 3, 1, 3)?;
+    insert_node(&mut graph, 0, 1, 0).expect("insert node 0");
+    insert_node(&mut graph, 1, 1, 1).expect("insert node 1");
+    insert_node(&mut graph, 2, 1, 2).expect("insert node 2");
+    insert_node(&mut graph, 3, 1, 3).expect("insert node 3");
 
     add_edge_if_missing(&mut graph, 1, 2, 1);
     add_edge_if_missing(&mut graph, 2, 1, 1);
@@ -125,9 +125,12 @@ fn commit_updates_scrub_evicted_forward_edge() -> Result<(), HnswError> {
     let new_node = NewNodeContext { id: 3, level: 1 };
 
     let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    let (reciprocated, _) = applicator
+        .apply_neighbour_updates(vec![update], max_connections, new_node)
+        .expect("apply neighbour updates");
+    applicator
+        .apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)
+        .expect("apply new-node neighbours");
 
     let limit = limits::compute_connection_limit(1, max_connections);
     for node_id in [0, 1, 2, 3] {
@@ -142,8 +145,6 @@ fn commit_updates_scrub_evicted_forward_edge() -> Result<(), HnswError> {
     assert_bidirectional_edge(&graph, 0, 1, 1);
     assert_no_edge(&graph, 2, 1, 1);
     assert_no_edge(&graph, 1, 2, 1);
-
-    Ok(())
 }
 
 #[rstest]
