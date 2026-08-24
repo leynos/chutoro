@@ -166,11 +166,14 @@ pub mod tracing {
 
     impl Visit for FieldRecorder<'_> {
         fn record_bytes(&mut self, field: &Field, value: &[u8]) {
-            let mut encoded = String::with_capacity(value.len() * 2);
-            for byte in value {
-                use std::fmt::Write as _;
-                let _ = write!(&mut encoded, "{byte:02x}");
-            }
+            let encoded = value.iter().fold(
+                String::with_capacity(value.len() * 2),
+                |mut encoded, byte| {
+                    use std::fmt::Write as _;
+                    let _write_result = write!(&mut encoded, "{byte:02x}");
+                    encoded
+                },
+            );
             self.fields.insert(field.name().to_owned(), encoded);
         }
 

@@ -142,9 +142,8 @@ fn with_exe_suffix(mut path: PathBuf) -> PathBuf {
         return path;
     }
 
-    let file_name = match path.file_name().and_then(|name| name.to_str()) {
-        Some(name) => name,
-        None => return path,
+    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+        return path;
     };
     if file_name.ends_with(suffix) {
         return path;

@@ -1,6 +1,6 @@
 //! Compile-time checks for the CPU-gated session API surface.
 
-use std::{env, path::Path, process::Command, str};
+use std::{path::Path, process::Command, str};
 
 #[test]
 #[cfg(feature = "cpu")]
@@ -16,7 +16,9 @@ fn session_api_is_unavailable_without_cpu_feature() {
         .join("tests")
         .join("fixtures")
         .join("session_api_without_cpu");
-    let target_dir = env::temp_dir().join(format!("chutoro-core-no-cpu-{}", std::process::id()));
+    let target_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("target");
 
     let output = Command::new(env!("CARGO"))
         .arg("check")

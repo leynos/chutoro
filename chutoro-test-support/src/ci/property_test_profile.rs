@@ -61,13 +61,13 @@ impl ProptestRunProfile {
 
     /// Number of cases to run per property.
     #[must_use]
-    pub fn cases(&self) -> u32 {
+    pub const fn cases(&self) -> u32 {
         self.cases
     }
 
     /// Whether to run proptest cases in forked subprocesses.
     #[must_use]
-    pub fn fork(&self) -> bool {
+    pub const fn fork(&self) -> bool {
         self.fork
     }
 }
@@ -76,10 +76,10 @@ fn read_cases_or_default<L>(default: u32, lookup: &L) -> u32
 where
     L: Fn(&'static str) -> Option<String>,
 {
-    match read_env(PROPTEST_CASES_ENV_KEY, parse_cases, lookup) {
-        Some(cases) => cases.unwrap_or(default),
-        None => read_env_or_default(PROGTEST_CASES_ENV_KEY, default, parse_cases, lookup),
-    }
+    read_env(PROPTEST_CASES_ENV_KEY, parse_cases, lookup).map_or_else(
+        || read_env_or_default(PROGTEST_CASES_ENV_KEY, default, parse_cases, lookup),
+        |cases| cases.unwrap_or(default),
+    )
 }
 
 fn read_env_or_default<T, F, L>(key: &'static str, default: T, parser: F, lookup: &L) -> T
@@ -115,7 +115,7 @@ fn parse_cases(raw: &str) -> Result<u32, String> {
         .parse::<u32>()
         .map_err(|error| format!("parse error: {error}"))?;
     if parsed == 0 {
-        return Err("cases must be > 0".to_string());
+        return Err("cases must be > 0".to_owned());
     }
     Ok(parsed)
 }
@@ -125,7 +125,7 @@ fn parse_bool(raw: &str) -> Result<bool, String> {
     match normalized.as_str() {
         "1" | "true" | "yes" | "on" => Ok(true),
         "0" | "false" | "no" | "off" => Ok(false),
-        _ => Err("expected one of: true/false/1/0/yes/no/on/off".to_string()),
+        _ => Err("expected one of: true/false/1/0/yes/no/on/off".to_owned()),
     }
 }
 

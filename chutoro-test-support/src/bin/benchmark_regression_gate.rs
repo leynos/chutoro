@@ -26,11 +26,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     emit_github_output(profile, &reason)?;
 
-    println!("mode={}", mode.as_str());
-    println!("should_compare={should_compare}");
-    println!("event={}", event.as_str());
-    println!("policy={}", policy.as_str());
-    println!("reason={reason}");
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "mode={}", mode.as_str())?;
+    writeln!(stdout, "should_compare={should_compare}")?;
+    writeln!(stdout, "event={}", event.as_str())?;
+    writeln!(stdout, "policy={}", policy.as_str())?;
+    writeln!(stdout, "reason={reason}")?;
 
     Ok(())
 }

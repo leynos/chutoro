@@ -127,9 +127,12 @@ keeps local editor feedback aligned with commit gates.
       its all-target Clippy diagnostics. Marked the four metrics-disabled core
       cache hooks `const` so this feature-reduced dependency path also obeys
       the inherited policy. Full gates pass: 1,082 tests passed, one skipped.
-- [ ] Enrol `chutoro-providers-dense` and `chutoro-test-support` in
-      `[workspace.lints]`, resolving their live diagnostics in bounded crate
-      stages.
+- [x] 2026-08-24: Enrolled `chutoro-test-support` in `[workspace.lints]`.
+      Resolved its all-target Clippy diagnostics without changing CI gate
+      output or profile-selection behaviour; the focused crate Clippy and test
+      gates pass.
+- [ ] Enrol `chutoro-providers-dense` in `[workspace.lints]`, resolving its
+      live diagnostics in a bounded crate stage.
 - [ ] Replace the `chutoro-benches` lint-table mirror with
       `[lints] workspace = true`; keep only scoped, documented expectations
       for unavoidable Criterion expansion diagnostics.
@@ -188,6 +191,14 @@ keeps local editor feedback aligned with commit gates.
   diagnostics. Its distinct SIMD kernels, property fixtures and module-layout
   migration must be remediated as a dedicated stage; its manifest remains
   unchanged until that stage can finish green.
+- `chutoro-test-support` now inherits the workspace lint policy. Its initial
+  diagnostics were confined to output emission, small CI-profile helpers and
+  integration-test parsing; the remediation preserves the gate binaries' stdout
+  contracts and their test coverage.
+- The CPU-disabled session API fixture previously created a fresh target
+  directory for each test-process ID. That forced a cold dependency compile and
+  exceeded nextest's 60-second limit in the complete suite. It now reuses the
+  workspace target cache while keeping its independent no-CPU Cargo invocation.
 
 ## Decision Log
 

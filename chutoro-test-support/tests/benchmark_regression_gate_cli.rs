@@ -66,9 +66,8 @@ fn benchmark_gate_binary_outputs_expected_mode(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mode = match parse_value(&stdout, "mode") {
-        Some(value) => value,
-        None => panic!("missing mode output: {stdout}"),
+    let Some(mode) = parse_value(&stdout, "mode") else {
+        panic!("missing mode output: {stdout}");
     };
     let should_compare = match parse_value(&stdout, "should_compare") {
         Some("true") => true,

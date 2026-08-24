@@ -20,8 +20,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     emit_github_output(should_run, reason)?;
 
-    println!("should_run={should_run}");
-    println!("reason={reason}");
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "should_run={should_run}")?;
+    writeln!(stdout, "reason={reason}")?;
 
     Ok(())
 }
@@ -32,7 +33,7 @@ fn read_force_flag() -> Result<bool, Box<dyn Error>> {
         return Ok(false);
     }
 
-    parse_bool(&raw).map_err(|message| message.into())
+    parse_bool(&raw).map_err(Into::into)
 }
 
 fn parse_bool(value: &str) -> Result<bool, String> {

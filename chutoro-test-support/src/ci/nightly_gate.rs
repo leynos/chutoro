@@ -58,6 +58,10 @@ impl std::error::Error for NightlyGateError {}
 /// instead of a hard failure. Set `force` to `true` to bypass the date gate
 /// (for manual verification runs).
 ///
+/// # Errors
+///
+/// Returns an error when the commit timestamp exceeds the allowed future skew.
+///
 /// # Examples
 ///
 /// ```
@@ -105,7 +109,7 @@ pub fn should_run_kani_full(
     }
 }
 
-fn is_within_last_day(commit_epoch: u64, now_epoch: u64) -> bool {
+const fn is_within_last_day(commit_epoch: u64, now_epoch: u64) -> bool {
     commit_epoch >= now_epoch.saturating_sub(SECONDS_PER_DAY)
 }
 

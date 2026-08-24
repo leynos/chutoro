@@ -62,9 +62,8 @@ fn kani_gate_binary_outputs_decision(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let should_run = match parse_should_run(&stdout) {
-        Some(value) => value,
-        None => panic!("missing should_run output: {stdout}"),
+    let Some(should_run) = parse_should_run(&stdout) else {
+        panic!("missing should_run output: {stdout}");
     };
 
     assert_eq!(should_run, case.expected_run);
