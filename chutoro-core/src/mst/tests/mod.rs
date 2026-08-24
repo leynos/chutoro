@@ -19,9 +19,20 @@ fn harvest(edges: &[(usize, usize, f32, u64)]) -> EdgeHarvest {
 
 fn union_find_root(parent: &mut [usize], node: usize) -> usize {
     let mut current = node;
-    while parent[current] != current {
-        let grandparent = parent[parent[current]];
-        parent[current] = grandparent;
+    loop {
+        let Some(&current_parent) = parent.get(current) else {
+            break;
+        };
+        if current_parent == current {
+            break;
+        }
+        let Some(&grandparent) = parent.get(current_parent) else {
+            break;
+        };
+        let Some(current_slot) = parent.get_mut(current) else {
+            break;
+        };
+        *current_slot = grandparent;
         current = grandparent;
     }
     current
@@ -33,7 +44,10 @@ fn union_find_merge(parent: &mut [usize], left: usize, right: usize) -> bool {
     if left_root == right_root {
         return false;
     }
-    parent[right_root] = left_root;
+    let Some(root) = parent.get_mut(right_root) else {
+        return false;
+    };
+    *root = left_root;
     true
 }
 
@@ -110,8 +124,12 @@ fn ignores_self_edges() {
         "MST of a connected graph should have N-1 edges"
     );
     assert_eq!(result.edges().len(), 1);
-    assert_eq!(result.edges()[0].source(), 0);
-    assert_eq!(result.edges()[0].target(), 1);
+    let edge = result
+        .edges()
+        .first()
+        .expect("a connected two-node MST has one edge");
+    assert_eq!(edge.source(), 0);
+    assert_eq!(edge.target(), 1);
 }
 
 #[test]
@@ -144,7 +162,10 @@ fn undirected_edges_are_canonicalized_and_deduplicated() {
         "MST of a connected graph should have N-1 edges"
     );
 
-    let edge = &result.edges()[0];
+    let edge = result
+        .edges()
+        .first()
+        .expect("a connected two-node MST has one edge");
     assert_eq!(edge.source(), 0);
     assert_eq!(edge.target(), 1);
     assert_eq!(edge.sequence(), 10);
