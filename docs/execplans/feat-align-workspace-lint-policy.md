@@ -526,6 +526,13 @@ result slot before reading or writing it. Preserve sampling bounds, search
 ordering, cache completion, and existing graph-invariant errors. Verify HNSW
 tests, formatting, and scoped Clippy.
 
+## Stage 3q: Exact Binary Memory Display
+
+Format binary memory units with integer quotient and remainder arithmetic.
+Preserve the public one-decimal display convention, including half-to-even
+rounding and unit-boundary carry. Verify display examples, formatting, and
+scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
