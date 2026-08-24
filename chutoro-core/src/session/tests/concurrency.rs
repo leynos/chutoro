@@ -19,13 +19,15 @@ fn concurrent_readers_observe_consistent_point_count(session_builder: ChutoroBui
     // read-only across multiple concurrent threads.
     let (mut session, _) = make_session(session_builder, 4).expect("session must build");
     session.append(&[0, 1]).expect("append must succeed");
-    let shared = Arc::new(std::sync::RwLock::new(session));
+    let shared_session = Arc::new(std::sync::RwLock::new(session));
 
     let handles: Vec<_> = (0..8)
         .map(|_| {
-            let shared = Arc::clone(&shared);
+            let reader_session = Arc::clone(&shared_session);
             std::thread::spawn(move || {
-                let guard = shared.read().expect("read lock must not be poisoned");
+                let guard = reader_session
+                    .read()
+                    .expect("read lock must not be poisoned");
                 (guard.point_count(), guard.snapshot_version())
             })
         })
@@ -47,13 +49,13 @@ fn snapshot_version_is_immutable_under_concurrent_readers(session_builder: Chuto
     // append does not publish a label snapshot.
     let (mut session, _) = make_session(session_builder, 4).expect("session must build");
     session.append(&[0, 1, 2]).expect("append must succeed");
-    let shared = Arc::new(std::sync::RwLock::new(session));
+    let shared_session = Arc::new(std::sync::RwLock::new(session));
 
     let handles: Vec<_> = (0..16)
         .map(|_| {
-            let shared = Arc::clone(&shared);
+            let reader_session = Arc::clone(&shared_session);
             std::thread::spawn(move || {
-                shared
+                reader_session
                     .read()
                     .expect("read lock must not be poisoned")
                     .snapshot_version()

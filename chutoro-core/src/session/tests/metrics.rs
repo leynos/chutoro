@@ -23,11 +23,11 @@ fn append_records_deterministic_latency_via_clock_seam(session_builder: ChutoroB
     let snapshotter = recorder.snapshotter();
     metrics::with_local_recorder(&recorder, || {
         // Build a session with a fixed clock that reports exactly 5 ms per point.
-        let (session, _) = make_session(session_builder, 4).expect("session must build");
+        let (built_session, _) = make_session(session_builder, 4).expect("session must build");
         let clock = Arc::new(crate::session::clock::FixedMonotonicClock::with_elapsed(
             Duration::from_millis(5),
         ));
-        let mut session = session.with_clock_for_test(clock);
+        let mut session = built_session.with_clock_for_test(clock);
 
         session.append(&[0]).expect("single append must succeed");
     });
