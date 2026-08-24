@@ -1,5 +1,8 @@
 //! Test-only helpers for repairing graph connectivity and reciprocity.
 
+// `cargo kani` sets `cfg(kani)` but not `cfg(test)`, so anything reachable
+// only from tests must be gated or it becomes dead code under `-D warnings`.
+#[cfg(test)]
 use super::{
     connectivity::ConnectivityHealer, limits::compute_connection_limit,
     reconciliation::EdgeReconciler, types::UpdateContext,
@@ -38,6 +41,7 @@ pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usiz
     }
 }
 
+#[cfg(test)]
 pub(super) fn assert_no_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
     if let Some(node) = graph.node(origin)
         && level < node.level_count()
@@ -132,11 +136,13 @@ macro_rules! assert_bidirectional_edge {
 #[cfg(test)]
 pub(crate) use assert_bidirectional_edge;
 
+#[cfg(test)]
 #[derive(Debug)]
 pub(super) struct TestHelpers<'graph> {
     pub(super) graph: &'graph mut Graph,
 }
 
+#[cfg(test)]
 impl<'graph> TestHelpers<'graph> {
     pub(super) const fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
