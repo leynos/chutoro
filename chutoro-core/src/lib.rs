@@ -38,6 +38,9 @@ pub use crate::{
 };
 
 #[cfg(feature = "cpu")]
+pub use crate::memory::estimate_peak_bytes_for_hnsw_params;
+
+#[cfg(feature = "cpu")]
 /// CPU-accelerated HNSW index components; requires the `cpu` feature.
 pub use crate::hnsw::{
     CandidateEdge, CpuHnsw, DistanceCacheConfig, EdgeHarvest, HnswError, HnswErrorCode,

@@ -53,6 +53,33 @@ assert_eq!(result.cluster_count(), 1);
 # Ok::<(), chutoro_core::ChutoroError>(())
 ```
 
+On CPU builds, `with_hnsw_params` configures both one-shot batch runs and
+incremental sessions. For a batch run, `max_connections` and
+`ef_construction` are passed to CPU HNSW construction. The configured
+`max_connections` and the effective, dataset-bounded construction-search
+width derived from `ef_construction` are included when estimating the run's
+peak memory for a limit set with `with_max_bytes`:
+
+```rust
+use chutoro_core::{ChutoroBuilder, HnswParams};
+
+let chutoro = ChutoroBuilder::new()
+    .with_min_cluster_size(2)
+    .with_hnsw_params(HnswParams::new(32, 128)?)
+    .with_max_bytes(1_073_741_824)
+    .build()?;
+let result = chutoro.run(&Dummy(vec![1.0, 2.0, 4.0, 8.0]))?;
+# Ok::<(), chutoro_core::ChutoroError>(())
+```
+
+When the estimate exceeds the configured limit, `run` returns
+`ChutoroError::MemoryLimitExceeded` before allocating the pipeline. Omitting
+`with_max_bytes` leaves this guard disabled.
+
+The public `run_cpu_pipeline` entry point has been removed. Migrate callers to
+`ChutoroBuilder::build()?.run(&source)`, which applies the same validated
+configuration and run preconditions as the supported batch API.
+
 `ExecutionStrategy::Auto` runs the CPU backend. The `gpu` feature prepares the
 orchestration surface for a future accelerator backend; requesting
 `ExecutionStrategy::GpuPreferred` currently yields `BackendUnavailable`.

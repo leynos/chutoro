@@ -15,6 +15,7 @@ use crate::{
     CandidateEdge, ClusterId, CpuHnsw, DataSource, EdgeHarvest, HierarchyConfig, HnswError,
     HnswParams, MstError, Result, error::ChutoroError, parallel_kruskal, result::ClusteringResult,
 };
+use tracing::debug;
 
 /// Run the CPU pipeline after source-length validation.
 #[cfg(feature = "cpu")]
@@ -24,6 +25,14 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
     min_cluster_size: NonZeroUsize,
     hnsw_params: &HnswParams,
 ) -> Result<ClusteringResult> {
+    let configured_ef_construction = hnsw_params.ef_construction();
+    let hnsw_params = hnsw_params.clone().bounded_for_point_count(items);
+    debug!(
+        max_connections = hnsw_params.max_connections(),
+        configured_ef_construction,
+        effective_ef_construction = hnsw_params.ef_construction(),
+        "building CPU HNSW index"
+    );
     let (index, harvested) = CpuHnsw::build_with_edges(source, hnsw_params.clone())
         .map_err(|error| map_cpu_hnsw_error(source, error))?;
 

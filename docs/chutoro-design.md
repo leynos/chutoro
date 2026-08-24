@@ -1790,14 +1790,22 @@ use std::sync::Arc;
 /// Builder for the chutoro implementation of the FISHDBC algorithm.
 pub struct ChutoroBuilder {
     min_cluster_size: usize,
-    // HNSW parameters (e.g., ef_construction, M)
-    //... other configuration...
+    execution_strategy: ExecutionStrategy,
+    max_bytes: Option<u64>,
+    #[cfg(feature = "cpu")]
+    hnsw_params: HnswParams,
 }
 
 impl ChutoroBuilder {
     pub fn new() -> Self {
         // Default parameters
-        Self { min_cluster_size: 5, /*... */ }
+        Self {
+            min_cluster_size: 5,
+            execution_strategy: ExecutionStrategy::Auto,
+            max_bytes: None,
+            #[cfg(feature = "cpu")]
+            hnsw_params: HnswParams::default(),
+        }
     }
 
     pub fn min_cluster_size(mut self, size: usize) -> Self {
@@ -1805,30 +1813,39 @@ impl ChutoroBuilder {
         self
     }
 
-    //... other builder methods for HNSW/HDBSCAN parameters...
-
     pub fn build(self) -> Result<Chutoro, ChutoroError> {
         let min_cluster_size = NonZeroUsize::new(self.min_cluster_size)
             .ok_or(ChutoroError::InvalidMinClusterSize { got: self.min_cluster_size })?;
 
+        // `ExecutionConfig` is created only after builder validation and is
+        // shared by batch and session construction.
+        #[cfg(feature = "cpu")]
+        let execution_config =
+            ExecutionConfig::new(min_cluster_size, self.hnsw_params);
+        #[cfg(not(feature = "cpu"))]
+        let execution_config = ExecutionConfig::new(min_cluster_size);
+
         Ok(Chutoro {
-            min_cluster_size,
+            execution_config,
             execution_strategy: self.execution_strategy,
+            max_bytes: self.max_bytes,
         })
     }
 }
 
 /// The main chutoro clustering algorithm struct.
 pub struct Chutoro {
-    min_cluster_size: NonZeroUsize,
+    execution_config: ExecutionConfig,
     execution_strategy: ExecutionStrategy,
+    max_bytes: Option<u64>,
 }
 
 impl Chutoro {
     /// Runs the clustering algorithm on the given data source.
     ///
-    /// The CPU implementation validates the dataset before dispatch and then
-    /// executes the FISHDBC pipeline (HNSW → MST → hierarchy extraction).
+    /// The CPU implementation validates the dataset and memory estimate before
+    /// dispatch, then executes the FISHDBC pipeline (HNSW → MST → hierarchy
+    /// extraction).
     pub fn run<D: DataSource + Sync>(&self, source: &D) -> Result<ClusteringResult, ChutoroError> {
         let len = source.len();
         if len == 0 {
@@ -1836,13 +1853,17 @@ impl Chutoro {
                 data_source: Arc::from(source.name()),
             });
         }
-        if len < self.min_cluster_size.get() {
+        if len < self.execution_config.min_cluster_size().get() {
             return Err(ChutoroError::InsufficientItems {
                 data_source: Arc::from(source.name()),
                 items: len,
-                min_cluster_size: self.min_cluster_size,
+                min_cluster_size: self.execution_config.min_cluster_size(),
             });
         }
+
+        // The memory guard uses the configured HNSW connectivity whenever a
+        // limit is set; it runs before backend dispatch.
+        self.check_memory_limit(source, len)?;
 
         // If neither the `cpu` nor `gpu` feature is enabled, the orchestrator
         // cannot select a backend and returns `BackendUnavailable`.
@@ -1870,7 +1891,12 @@ impl Chutoro {
         // The detailed CPU pipeline lives in `chutoro-core/src/cpu_pipeline.rs`.
         //
         // Precondition: `items > 0` due to earlier source validation in `run`.
-        cpu_pipeline::run_cpu_pipeline_with_len(source, items, self.min_cluster_size)
+        cpu_pipeline::run_cpu_pipeline_with_len(
+            source,
+            items,
+            self.execution_config.min_cluster_size(),
+            self.execution_config.hnsw_params(),
+        )
     }
 
     #[cfg(feature = "gpu")]
@@ -1887,10 +1913,18 @@ impl Chutoro {
 
 `ChutoroBuilder::build` rejects zero-sized clusters while deferring backend
 availability to runtime so GPU-preferred configurations can be constructed
-ahead of accelerated support. The struct stores the validated
-`min_cluster_size` and `execution_strategy`, and [`Chutoro::run`] fails fast on
-empty or undersized sources while sharing `Arc<str>` handles for the
-data-source name so repeated errors avoid cloning.
+ahead of accelerated support. It creates one validated internal
+`ExecutionConfig` carrying `min_cluster_size` and, with the `cpu` feature,
+`HnswParams`. `Chutoro` stores that config alongside `execution_strategy` and
+the optional `max_bytes` limit. [`Chutoro::run`] checks for an empty source,
+insufficient items, backend availability, and a memory-limit violation in that
+order before dispatching. The memory estimate uses the configured HNSW
+`max_connections`, so `with_hnsw_params` applies to both batch CPU execution
+and its memory guard. For one-shot CPU execution, the configured
+`ef_construction` is bounded to the effective width
+`min(ef_construction, max(point_count, max_connections))`. The memory guard
+uses `estimate_peak_bytes_for_hnsw_params` so that same effective width is
+included in its estimate.
 
 _Implementation update (2025-12-18)._ The CPU pipeline is available when the
 `cpu` feature is enabled (it is part of the default feature set). The `Auto`
@@ -2301,9 +2335,12 @@ deterministic queries with `ef_search = 64`. Results are written to
   controls insertion thoroughness. They are complementary: increasing `M`
   without sufficient `ef_construction` wastes connectivity, while high
   `ef_construction` with low `M` is limited by the graph's fan-out capacity.
-- Memory footprint is primarily a function of `M` (not `ef_construction`)
-  since `ef_construction` only affects the construction search beam, not the
-  stored graph structure. Memory scaling is tracked in §11.2.
+- One-shot CPU execution bounds the effective construction width to
+  `min(ef_construction, max(point_count, max_connections))` before building
+  HNSW. The batch memory guard calls
+  `estimate_peak_bytes_for_hnsw_params(point_count, &HnswParams)`, including
+  that effective width as well as the stored graph's `M`-dependent footprint.
+  Memory scaling is tracked in §11.2.
 
 ### 11.4. Memory guards and estimation (roadmap 2.1.5)
 
@@ -2313,8 +2350,9 @@ rejects datasets whose estimated peak memory exceeds the configured limit. The
 guard fires before any pipeline allocation, avoiding wasted work and
 out-of-memory crashes.
 
-**Estimation formula.** The function `estimate_peak_bytes(n, M)` computes a
-conservative upper bound on the peak memory that the CPU pipeline will require:
+**Estimation formula.** The function
+`estimate_peak_bytes(n, M)` computes a conservative upper bound on the peak
+memory that the CPU pipeline will require:
 
 ```text
 hnsw_adjacency     = n × (2 × M) × 8       (level-0 neighbour IDs)
@@ -2327,6 +2365,14 @@ mst_forest         = n × 32                 (MstEdge structs)
 
 estimated_bytes = (sum of above) × 1.5      (safety multiplier)
 ```
+
+For one-shot runs, the memory guard calls
+`estimate_peak_bytes_for_hnsw_params(point_count, &HnswParams)`. That helper
+derives `effective_ef_construction` as
+`min(ef_construction, max(point_count, max_connections))` and includes the
+construction-search state required by that bounded width. Retaining
+`max_connections` as the lower bound keeps the estimate aligned with the
+allocation made by the batch pipeline.
 
 The 1.5× safety multiplier covers heap fragmentation, Rayon thread-local
 buffers, and transient allocations that are difficult to predict statically.
@@ -2524,11 +2570,16 @@ clustering state, in contrast to the stateless `Chutoro::run()` path.
   - The returned session does **not** seed existing source items into the index.
     This keeps `11.1.2` limited to configuration and lifecycle scaffolding while
     leaving bootstrap behaviour to `11.3.1` and `11.3.2`.
-  - `SessionConfig` stores validated types directly:
-    `NonZeroUsize` for `min_cluster_size`, `HnswParams` for HNSW tuning, and the
+  - `SessionConfig` composes the same validated internal `ExecutionConfig`
+    used by `Chutoro`, rather than storing `min_cluster_size` and `HnswParams`
+    separately. Its accessors continue to expose those values alongside the
     v1 `SessionRefreshPolicy { refresh_every_n: Option<NonZeroUsize> }`. Later
     roadmap items extend the refresh policy with drift-trigger and
     baseline-management fields once those semantics are implemented.
+  - Batch CPU execution consumes the configured HNSW parameters through the
+    internal `run_cpu_pipeline_with_len(source, items, min_cluster_size,
+    hnsw_params)` boundary. Session construction and one-shot execution
+    therefore use one validated source for HNSW tuning.
   - Session construction is CPU-only in v1. `build_session(...)` therefore
     rejects `ExecutionStrategy::GpuPreferred` even if batch execution later gains
     a separate GPU backend.

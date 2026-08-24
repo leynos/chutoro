@@ -11,6 +11,19 @@ fn accepts_equal_search_and_connection_width() {
     assert_eq!(params.ef_construction(), 8);
 }
 
+#[test]
+fn effective_ef_construction_preserves_minimum_search_width() {
+    let params = HnswParams::new(4, 64).expect("parameters must be valid");
+
+    assert_eq!(params.effective_ef_construction(3), 4);
+    assert_eq!(params.effective_ef_construction(12), 12);
+    assert_eq!(params.effective_ef_construction(128), 64);
+    assert_eq!(
+        params.clone().bounded_for_point_count(12).ef_construction(),
+        12
+    );
+}
+
 #[cfg(target_pointer_width = "64")]
 #[test]
 fn accepts_connection_widths_above_u32_range() {

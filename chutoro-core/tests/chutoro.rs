@@ -7,7 +7,7 @@ use chutoro_core::{
     ExecutionStrategy, NonContiguousClusterIds,
 };
 #[cfg(feature = "cpu")]
-use chutoro_core::{HnswParams, estimate_peak_bytes};
+use chutoro_core::{HnswParams, estimate_peak_bytes, estimate_peak_bytes_for_hnsw_params};
 use common::Dummy;
 use rstest::{fixture, rstest};
 use std::sync::Arc;
@@ -153,7 +153,7 @@ fn run_insufficient_items_errors(small_dummy: Dummy) {
 #[rstest]
 fn run_memory_limit_uses_builder_hnsw_params(dummy: Dummy) {
     let hnsw_params = HnswParams::new(4, 16).expect("parameters must be valid");
-    let estimated_bytes = estimate_peak_bytes(dummy.len(), hnsw_params.max_connections());
+    let estimated_bytes = estimate_peak_bytes_for_hnsw_params(dummy.len(), &hnsw_params);
     assert_ne!(estimated_bytes, estimate_peak_bytes(dummy.len(), 16));
 
     let chutoro = ChutoroBuilder::new()
@@ -175,6 +175,44 @@ fn run_memory_limit_uses_builder_hnsw_params(dummy: Dummy) {
             ..
         } if point_count == dummy.len() && actual_estimated_bytes == estimated_bytes
     ));
+}
+
+#[cfg(feature = "cpu")]
+#[rstest]
+fn run_passes_builder_hnsw_params_to_cpu_pipeline(dummy: Dummy) {
+    let hnsw_params = HnswParams::new(1, 2).expect("parameters must be valid");
+    let layer = RecordingLayer::default();
+    let subscriber = tracing_subscriber::registry().with(layer.clone());
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(2)
+        .with_execution_strategy(ExecutionStrategy::CpuOnly)
+        .with_hnsw_params(hnsw_params)
+        .build()
+        .expect("configuration must be valid");
+
+    let result = tracing::subscriber::with_default(subscriber, || chutoro.run(&dummy))
+        .expect("custom HNSW configuration must complete the CPU pipeline");
+    assert_eq!(result.assignments().len(), dummy.len());
+
+    let event = layer
+        .events()
+        .into_iter()
+        .find(|event| {
+            event
+                .fields
+                .get("message")
+                .is_some_and(|message| message == "building CPU HNSW index")
+        })
+        .expect("CPU pipeline must record its HNSW construction parameters");
+    assert_eq!(event.fields.get("max_connections"), Some(&"1".to_owned()));
+    assert_eq!(
+        event.fields.get("configured_ef_construction"),
+        Some(&"2".to_owned())
+    );
+    assert_eq!(
+        event.fields.get("effective_ef_construction"),
+        Some(&"2".to_owned())
+    );
 }
 
 #[cfg(not(feature = "gpu"))]
