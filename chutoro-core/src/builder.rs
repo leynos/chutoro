@@ -260,6 +260,11 @@ impl ChutoroBuilder {
     /// let chutoro = ChutoroBuilder::new().build().expect("configuration is valid");
     /// assert_eq!(chutoro.min_cluster_size().get(), 5);
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ChutoroError`] when the configured cluster size or execution
+    /// strategy is invalid for the enabled backends.
     pub fn build(self) -> Result<Chutoro> {
         let min_cluster_size = self.validate_min_cluster_size()?;
         let gpu_rejection_reason =

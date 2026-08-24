@@ -15,6 +15,10 @@ impl CpuHnsw {
     ///
     /// Compiled only for tests to avoid production overhead; intended to stabilize
     /// property-based mutation checks that rely on post-commit healing passes.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the test graph lock cannot be acquired.
     pub fn heal_for_test(&self) {
         let healed = self.write_graph(|graph| {
             let mut executor = graph.insertion_executor();

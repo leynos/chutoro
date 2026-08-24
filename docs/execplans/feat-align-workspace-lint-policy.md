@@ -86,6 +86,9 @@ keeps local editor feedback aligned with commit gates.
 - [x] 2026-08-24: Applied and reviewed the machine-applicable
       `doc_markdown` repairs in core source and property-test documentation.
       A scoped run with all policy lints disabled except `doc_markdown` passes.
+- [x] 2026-08-24: Documented every reported core `Result` error and deliberate
+      panic contract. Scoped core Clippy passes with `missing_errors_doc` and
+      `missing_panics_doc` denied.
 - [ ] 2026-08-24: Repeat the checkpoint test gate once unrelated shared Cargo
       work releases its package-cache lock; the first run reached 172 of 1,085
       tests before infrastructure contention suspended it.
@@ -125,6 +128,9 @@ keeps local editor feedback aligned with commit gates.
   reaches 187 remaining errors in the library target.
 - Clippy supplied machine-applicable `doc_markdown` changes for eleven files.
   They add Rustdoc code formatting only; no identifiers or behaviour change.
+- Command-line lint levels propagate to local dependencies. The semantic
+  Rustdoc check therefore uses `--no-deps`; otherwise it diagnoses
+  `chutoro-test-support` before that crate inherits the workspace policy.
 
 ## Decision Log
 
@@ -180,6 +186,17 @@ workspace's unrelated explicit lint denials and enables only `doc_markdown`;
 it must complete without a documentation-markup warning. The next stage owns
 missing error and panic sections, which require semantic documentation rather
 than formatting.
+
+## Stage 2d: Core Error and Panic Contracts
+
+Add a precise `# Errors` section to each public core API reported by
+`missing_errors_doc`, describing the actual condition represented by its error
+type. Add `# Panics` only to the two APIs that deliberately panic, describing
+their concrete precondition or test-only lock failure. Verify with
+`cargo clippy -p chutoro-core --all-features --all-targets --no-deps` while
+denying only `missing_errors_doc` and `missing_panics_doc`; `--no-deps` keeps
+the scoped check from enforcing a future lint policy on dependencies that are
+not yet opted in.
 
 ## Verification Plan
 

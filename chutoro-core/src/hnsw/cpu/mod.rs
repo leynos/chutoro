@@ -74,6 +74,11 @@ impl CpuHnsw {
     /// let index = CpuHnsw::build(&data, params).expect("build must succeed");
     /// index.insert(1, &data).expect("insert must succeed");
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HnswError`] when the source, graph, or insertion operation
+    /// cannot complete.
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
         self.insert_with_collector(node, source, &mut NoopCollector)
     }
@@ -229,6 +234,11 @@ impl CpuHnsw {
     ///     .expect("search must succeed");
     /// assert_eq!(neighbours[0].id, 0);
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HnswError`] when the graph is empty, its lock cannot be
+    /// acquired, or the source cannot provide a required distance.
     pub fn search<D: DataSource + Sync>(
         &self,
         source: &D,

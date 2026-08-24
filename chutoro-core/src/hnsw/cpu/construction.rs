@@ -34,6 +34,11 @@ impl CpuHnsw {
     ///     .expect("build must succeed");
     /// assert_eq!(index.len(), 3);
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HnswError`] when initialization or a source-backed insertion
+    /// fails.
     pub fn build<D: DataSource + Sync>(source: &D, params: HnswParams) -> Result<Self, HnswError> {
         let index = Self::build_initial(source, params)?;
         let items = source.len();
@@ -82,6 +87,11 @@ impl CpuHnsw {
     /// // Edges connect nodes discovered during insertion
     /// assert!(edges.iter().all(|e| e.source() < 3 && e.target() < 3));
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HnswError`] when initialization, insertion, or edge harvesting
+    /// fails.
     pub fn build_with_edges<D: DataSource + Sync>(
         source: &D,
         params: HnswParams,
@@ -140,6 +150,10 @@ impl CpuHnsw {
     /// let index = CpuHnsw::with_capacity(params, 16).expect("capacity must be > 0");
     /// assert!(index.is_empty());
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HnswError::InvalidParameters`] when `capacity` is zero.
     pub fn with_capacity(params: HnswParams, capacity: usize) -> Result<Self, HnswError> {
         if capacity == 0 {
             return Err(HnswError::InvalidParameters {

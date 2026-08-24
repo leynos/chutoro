@@ -59,6 +59,10 @@ impl ClusteringResult {
     /// let result = ClusteringResult::from_assignments(vec![ClusterId::new(0)]);
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics when identifiers do not start at zero or are not contiguous.
     #[must_use]
     pub fn from_assignments(assignments: Vec<ClusterId>) -> Self {
         match Self::try_from_assignments(assignments) {

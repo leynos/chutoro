@@ -143,6 +143,11 @@ pub trait DataSource {
     }
 
     /// Computes the distance between two items.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataSourceError`] when either item cannot be read or the
+    /// distance cannot be computed.
     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError>;
 
     /// Computes the distances from `query` to every entry in `candidates`.

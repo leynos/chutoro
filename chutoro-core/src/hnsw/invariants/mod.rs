@@ -150,11 +150,19 @@ impl<'index> HnswInvariantChecker<'index> {
     }
 
     /// Runs all invariants, returning the first violation encountered.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`HnswInvariantViolation`] discovered.
     pub fn check_all(&self) -> Result<(), HnswInvariantViolation> {
         self.check_many(HnswInvariant::all())
     }
 
     /// Runs a custom subset of invariants in the provided order.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`HnswInvariantViolation`] discovered.
     pub fn check_many<I>(&self, invariants: I) -> Result<(), HnswInvariantViolation>
     where
         I: IntoIterator<Item = HnswInvariant>,
@@ -164,26 +172,46 @@ impl<'index> HnswInvariantChecker<'index> {
     }
 
     /// Runs a single invariant.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`HnswInvariantViolation`] reported by `invariant`.
     pub fn check(&self, invariant: HnswInvariant) -> Result<(), HnswInvariantViolation> {
         self.check_many([invariant])
     }
 
     /// Runs the layer-consistency invariant directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`HnswInvariantViolation`] if a graph layer is inconsistent.
     pub fn layer_consistency(&self) -> Result<(), HnswInvariantViolation> {
         self.check(HnswInvariant::LayerConsistency)
     }
 
     /// Runs the degree-bound invariant directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`HnswInvariantViolation`] if a node exceeds its degree bound.
     pub fn degree_bounds(&self) -> Result<(), HnswInvariantViolation> {
         self.check(HnswInvariant::DegreeBounds)
     }
 
     /// Runs the reachability invariant directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`HnswInvariantViolation`] if a node is unreachable.
     pub fn reachability(&self) -> Result<(), HnswInvariantViolation> {
         self.check(HnswInvariant::Reachability)
     }
 
     /// Runs the bidirectional-link invariant directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`HnswInvariantViolation`] if a graph link is one-way.
     pub fn bidirectional_links(&self) -> Result<(), HnswInvariantViolation> {
         self.check(HnswInvariant::BidirectionalLinks)
     }
