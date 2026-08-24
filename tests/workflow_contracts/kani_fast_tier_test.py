@@ -26,6 +26,14 @@ FAST_TIER_SOURCES = (REPO_ROOT / "chutoro-core" / "src" / "mst" / "kani_harness.
 
 PROOF_RE = re.compile(r"^\s*fn\s+(verify_\w+)", re.MULTILINE)
 
+#: The first ``kani:`` target header and its immediately following
+#: tab-indented recipe lines; the capture stops at the first line that is
+#: not tab-indented.
+KANI_TARGET_RE = re.compile(
+    r"^kani:[^\n]*\n(?P<recipe>(?:\t[^\n]*(?:\n|$))*)",
+    re.MULTILINE,
+)
+
 
 def _fast_tier_harnesses() -> list[str]:
     """Return every proof name declared in the fast-tier harness modules."""
@@ -38,20 +46,11 @@ def _fast_tier_harnesses() -> list[str]:
 @pytest.fixture(scope="module")
 def kani_target() -> str:
     """Return the recipe body of the Makefile's ``kani:`` target."""
-    lines = MAKEFILE_PATH.read_text(encoding="utf-8").splitlines()
-    body: list[str] = []
-    in_target = False
-    for line in lines:
-        if re.match(r"^kani:", line):
-            in_target = True
-            continue
-        if in_target:
-            if line.startswith("\t"):
-                body.append(line)
-            else:
-                break
-    assert body, "the Makefile must define a kani: target with a recipe"
-    return "\n".join(body)
+    match = KANI_TARGET_RE.search(MAKEFILE_PATH.read_text(encoding="utf-8"))
+    assert match and match["recipe"], (
+        "the Makefile must define a kani: target with a recipe"
+    )
+    return match["recipe"].rstrip("\n")
 
 
 def test_fast_tier_sources_declare_harnesses() -> None:
