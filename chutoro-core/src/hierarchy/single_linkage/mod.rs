@@ -22,6 +22,7 @@
 mod condense;
 mod forest;
 
+use core::ops::AddAssign;
 use std::num::NonZeroUsize;
 
 use crate::mst::MstEdge;
@@ -280,7 +281,7 @@ pub(crate) fn extract_flat_labels(
         return Ok(vec![0; node_count]);
     }
 
-    let selected = select_stable_clusters(condensed);
+    let selected = select_stable_clusters(condensed)?;
     let mut selected_ids: Vec<usize> = selected.into_iter().collect();
     selected_ids.sort_unstable();
 
@@ -366,41 +367,44 @@ impl<'a> Labeller<'a> {
     }
 }
 
-fn select_stable_clusters(condensed: &CondensedForest) -> Vec<usize> {
+fn select_stable_clusters(condensed: &CondensedForest) -> Result<Vec<usize>, HierarchyError> {
     let mut selected = Vec::new();
     for root in condensed.roots.iter().copied() {
-        select_stable_clusters_inner(condensed, root, &mut selected);
+        select_stable_clusters_inner(condensed, root, &mut selected)?;
     }
     if selected.is_empty() {
         // Fallback: select all roots to avoid returning only noise for
         // well-formed condensed forests.
         selected.extend(condensed.roots.iter().copied());
     }
-    selected
+    Ok(selected)
 }
 
 fn select_stable_clusters_inner(
     condensed: &CondensedForest,
     cluster_id: usize,
     selected: &mut Vec<usize>,
-) -> f32 {
-    let cluster = &condensed.clusters[cluster_id];
+) -> Result<f32, HierarchyError> {
+    let cluster = condensed
+        .clusters
+        .get(cluster_id)
+        .ok_or(HierarchyError::InvalidClusterReference { cluster_id })?;
     if cluster.children.is_empty() {
         selected.push(cluster_id);
-        return cluster.stability;
+        return Ok(cluster.stability);
     }
 
     let mut child_score = 0.0_f32;
     let mut child_selected = Vec::with_capacity(cluster.children.len());
     for child in &cluster.children {
         let before = selected.len();
-        let score = select_stable_clusters_inner(condensed, *child, selected);
-        child_score += score;
+        let score = select_stable_clusters_inner(condensed, *child, selected)?;
+        child_score.add_assign(score);
         child_selected.push((before, selected.len()));
     }
 
     if child_score > cluster.stability {
-        return child_score;
+        return Ok(child_score);
     }
 
     // Replace child selections with the current cluster.
@@ -409,7 +413,7 @@ fn select_stable_clusters_inner(
         selected.drain(start..end);
     }
     selected.push(cluster_id);
-    cluster.stability
+    Ok(cluster.stability)
 }
 
 #[derive(Clone, Debug)]

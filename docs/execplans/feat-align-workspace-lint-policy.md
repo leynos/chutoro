@@ -407,6 +407,13 @@ bad condensed-cluster and point references as typed hierarchy errors while
 preserving labels for valid hierarchies. Verify the hierarchy suite,
 formatting, and scoped Clippy.
 
+## Stage 2y: Stable-Cluster Selection
+
+Propagate missing condensed-cluster references through stable-cluster selection
+and express score accumulation through the existing arithmetic operation trait.
+Preserve selection and fallback behaviour for valid hierarchies. Verify the
+hierarchy suite, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
