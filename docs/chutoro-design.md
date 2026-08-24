@@ -1264,44 +1264,46 @@ nodes) while preserving the previous short-circuit behaviour for fail-fast
 callers.
 
 The formal verification harnesses extend these guarantees by exercising the
-commit path under bounded conditions, ensuring reconciliation and deferred
-scrubs still satisfy the bidirectional edge invariant. The sequence below
-illustrates the commit-path harness flow used by Kani.
+production reconciliation entry points under bounded conditions. Multi-node
+harnesses that drove the whole commit sequence (trimmed write-back, reverse
+edge reconciliation, and deferred scrubs) in one formula proved intractable
+for the Bounded Model Checker for C (CBMC) and were retired in favour of
+exact unit-test twins in `chutoro-core/src/hnsw/insert/commit/tests/`; the
+investigation and the resulting tractability policy are recorded in
+[the hypothesis document](./kani-full-hnsw-hypothesis-testing.md) and the
+developers' guide "Kani CI policy" section. The remaining Kani proofs drive
+`EdgeReconciler::ensure_reverse_edge` directly on two-node graphs, as the
+sequence below illustrates.
 
 ```mermaid
 sequenceDiagram
     actor KaniVerifier
     participant KaniHarness
     participant HnswGraph
-    participant KaniCommitHelper
-    participant CommitApplicator
-    participant DeferredScrubLogic
+    participant KaniReverseEdgeHelper
+    participant EdgeReconciler
     participant Invariants
 
-    KaniVerifier->>KaniHarness: run_commit_path_harness
-    KaniHarness->>HnswGraph: build_3_node_single_layer_graph
-    KaniHarness->>HnswGraph: seed_neighbour_lists_with_eviction_case
+    KaniVerifier->>KaniHarness: run_reverse_edge_harness
+    KaniHarness->>HnswGraph: build_2_node_graph_via_lean_constructors
+    KaniHarness->>HnswGraph: nondeterministically_seed_forward_edge
 
-    KaniHarness->>KaniCommitHelper: apply_commit_updates_for_kani(graph, update_specs)
-    KaniCommitHelper->>KaniCommitHelper: kani_assume_preconditions(graph, update_specs)
-    KaniCommitHelper->>CommitApplicator: apply_neighbour_updates(final_updates, max_connections, new_node)
+    KaniHarness->>KaniReverseEdgeHelper: ensure_reverse_edge_for_kani(graph, ctx, target)
+    KaniReverseEdgeHelper->>KaniReverseEdgeHelper: kani_assume_preconditions(graph, ctx, target)
+    KaniReverseEdgeHelper->>EdgeReconciler: ensure_reverse_edge(ctx, target)
+    EdgeReconciler->>HnswGraph: insert_or_confirm_reverse_edge
 
-    CommitApplicator->>HnswGraph: apply_trimmed_neighbour_lists
-    CommitApplicator->>HnswGraph: reconcile_reverse_edges
-    CommitApplicator->>DeferredScrubLogic: schedule_deferred_scrubs
-    DeferredScrubLogic->>HnswGraph: remove_one_way_edges
+    EdgeReconciler-->>KaniReverseEdgeHelper: bool
+    KaniReverseEdgeHelper-->>KaniHarness: bool
 
-    CommitApplicator-->>KaniCommitHelper: Result
-    KaniCommitHelper-->>KaniHarness: Result
-
-    KaniHarness->>Invariants: is_bidirectional(graph)
+    KaniHarness->>Invariants: is_bidirectional / has_no_self_loops
     Invariants-->>KaniHarness: bool
     KaniHarness-->>KaniVerifier: assert_invariant_holds
 ```
 
-_Figure 2: Commit-path Kani harness flow for bidirectional invariant checks,
-using a bounded three-node scenario (the implementation uses level 1 to
-exercise eviction and deferred scrubs)._
+_Figure 2: Reverse-edge Kani harness flow for the bidirectional, no-self-loop,
+and neighbour-uniqueness invariant checks, using bounded two-node scenarios
+with one concrete level per proof entry point._
 
 _Implementation update (2026-01-17)._ A nightly slow CI job runs
 `make kani-full` only when the `main` branch has a commit within the last 24

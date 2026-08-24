@@ -158,19 +158,23 @@ mod kani_proofs {
 
     /// Verifies MST minimality property for bounded graphs.
     ///
-    /// This harness verifies that the MST includes minimum weight edges by
-    /// checking that the total weight is minimal. For a 3-node graph, if
-    /// all edges are present, the MST must exclude the heaviest edge that
-    /// would create a cycle.
+    /// This harness verifies that the forest is weight-minimal, not merely
+    /// structurally valid. It draws the edge selection explicitly, computes
+    /// the expected minimal spanning weight for that selection, and asserts
+    /// that the returned forest matches it. When the full triangle is
+    /// selected, this forces the heaviest edge (weight 2) to be excluded.
     #[kani::proof]
     #[kani::solver(kissat)]
     #[kani::unwind(10)]
     fn verify_mst_minimality_3_nodes() {
         let node_count = 3usize;
+        let select_01 = kani::any::<bool>();
+        let select_12 = kani::any::<bool>();
+        let select_02 = kani::any::<bool>();
         let edges = [
-            selected_candidate(0, 1, 0, 0),
-            selected_candidate(1, 2, 1, 1),
-            selected_candidate(0, 2, 2, 2),
+            candidate_or_self_loop(0, 1, 0, 0, select_01),
+            candidate_or_self_loop(1, 2, 1, 1, select_12),
+            candidate_or_self_loop(0, 2, 2, 2, select_02),
         ];
 
         let Ok(forest) = parallel_kruskal_from_edges(node_count, edges.iter()) else {
@@ -194,6 +198,34 @@ mod kani_proofs {
                 "connected MST should have n-1 edges",
             );
         }
+
+        // Verify minimality: the forest's total weight must equal the
+        // minimal spanning weight for the selected edge subset. Weights are
+        // small integers, so f32 summation is exact.
+        let total_weight: f32 = mst_edges.iter().map(|edge| edge.weight()).sum();
+        let expected = expected_minimal_weight(select_01, select_12, select_02);
+        kani::assert(
+            total_weight == expected,
+            "MST total weight must be minimal for the selected edges",
+        );
+    }
+
+    /// Returns the minimal spanning weight of the triangle subset where edge
+    /// (0,1) weighs 0, edge (1,2) weighs 1, and edge (0,2) weighs 2.
+    ///
+    /// With both lighter edges selected the tree spans all three nodes for
+    /// weight 1 and the weight-2 edge must be excluded; otherwise the forest
+    /// is exactly the selected edges, because no cycle can form.
+    fn expected_minimal_weight(select_01: bool, select_12: bool, select_02: bool) -> f32 {
+        match (select_01, select_12, select_02) {
+            (true, true, _) => 1.0,
+            (true, false, true) => 2.0,
+            (false, true, true) => 3.0,
+            (true, false, false) => 0.0,
+            (false, true, false) => 1.0,
+            (false, false, true) => 2.0,
+            (false, false, false) => 0.0,
+        }
     }
 
     fn selected_candidate(
@@ -202,7 +234,19 @@ mod kani_proofs {
         weight: u8,
         sequence: u64,
     ) -> CandidateEdge {
-        if kani::any::<bool>() {
+        candidate_or_self_loop(source, target, weight, sequence, kani::any::<bool>())
+    }
+
+    /// Builds the edge when `selected`, or a same-weight self-loop (which
+    /// validation discards) when not.
+    fn candidate_or_self_loop(
+        source: usize,
+        target: usize,
+        weight: u8,
+        sequence: u64,
+        selected: bool,
+    ) -> CandidateEdge {
+        if selected {
             CandidateEdge::new(source, target, f32::from(weight), sequence)
         } else {
             CandidateEdge::new(source, source, f32::from(weight), sequence)
