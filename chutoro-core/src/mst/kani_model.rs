@@ -4,19 +4,64 @@
 //! production algorithm's validated edge ordering and deterministic union
 //! selection while omitting Rayon and synchronisation internals that do not
 //! contribute to the forest invariants proved by the bounded harnesses.
-//! It is restricted to `cfg(kani)` and must not be used by production callers.
+//! It is compiled only for Kani harnesses and for the exhaustive
+//! model-equivalence tests; production callers must not use it.
 
 use crate::CandidateEdge;
 
-use super::{
-    EMPTY_MST_EDGE, MinimumSpanningForest, MstEdge, MstError, validate_and_canonicalize_edge,
+#[cfg(kani)]
+use super::MinimumSpanningForest;
+use super::{MstEdge, MstError, validate_and_canonicalize_edge};
+
+/// Placeholder edge used to initialise the bounded forest buffer.
+const EMPTY_MST_EDGE: MstEdge = MstEdge {
+    source: 0,
+    target: 0,
+    weight: 0.0,
+    sequence: 0,
 };
 
+/// Bounded forest produced by the sequential Kani model.
+///
+/// The representation is cfg-independent so the equivalence tests can compare
+/// it directly against the production forest.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct ModelForest {
+    edges: [MstEdge; 3],
+    edge_count: usize,
+    component_count: usize,
+}
+
+impl ModelForest {
+    /// Returns the accepted forest edges in sorted order.
+    #[rustfmt::skip]
+    pub(super) fn edges(&self) -> &[MstEdge] { &self.edges[..self.edge_count] }
+
+    /// Returns the number of connected components in the resulting forest.
+    #[rustfmt::skip]
+    pub(super) fn component_count(&self) -> usize { self.component_count }
+}
+
 /// Computes the Kani-only sequential model of parallel Kruskal.
+#[cfg(kani)]
 pub(super) fn parallel_kruskal_from_edges_for_kani<'a>(
     node_count: usize,
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
 ) -> Result<MinimumSpanningForest, MstError> {
+    let forest = kruskal_model(node_count, edges)?;
+    Ok(MinimumSpanningForest {
+        edges: forest.edges,
+        edge_count: forest.edge_count,
+        component_count: forest.component_count,
+    })
+}
+
+/// Runs the bounded sequential Kruskal model shared by Kani and the
+/// equivalence tests.
+pub(super) fn kruskal_model<'a>(
+    node_count: usize,
+    edges: impl IntoIterator<Item = &'a CandidateEdge>,
+) -> Result<ModelForest, MstError> {
     if node_count == 0 {
         return Err(MstError::EmptyGraph);
     }
@@ -83,7 +128,7 @@ pub(super) fn parallel_kruskal_from_edges_for_kani<'a>(
     }
 
     sort_forest_edges_for_kani(&mut forest_edges, forest_edge_count);
-    Ok(MinimumSpanningForest {
+    Ok(ModelForest {
         edges: forest_edges,
         edge_count: forest_edge_count,
         component_count,

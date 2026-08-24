@@ -7,6 +7,7 @@
 //! The healing process uses an iterative work queue to avoid deep recursion
 //! that could cause stack overflow with pathological graph configurations.
 
+#[cfg(not(kani))]
 use std::collections::HashSet;
 
 use super::limits::compute_connection_limit;
@@ -32,7 +33,7 @@ impl<'graph> ConnectivityHealer<'graph> {
     /// due to evictions, avoiding deep recursion that could cause stack overflow.
     pub(super) fn ensure_base_connectivity(&mut self, node: usize, max_connections: usize) {
         let mut work_queue: Vec<usize> = vec![node];
-        let mut visited: HashSet<usize> = HashSet::new();
+        let mut visited = VisitedSet::new();
 
         while let Some(current) = work_queue.pop() {
             if !visited.insert(current) {
@@ -87,7 +88,7 @@ impl<'graph> ConnectivityHealer<'graph> {
     /// Processes evicted nodes iteratively to restore their connectivity.
     fn process_eviction_queue(&mut self, initial: usize, max_connections: usize) {
         let mut work_queue: Vec<usize> = vec![initial];
-        let mut visited: HashSet<usize> = HashSet::new();
+        let mut visited = VisitedSet::new();
 
         while let Some(current) = work_queue.pop() {
             if let Some(evicted) = self.try_heal_node(&mut visited, current, max_connections) {
@@ -99,7 +100,7 @@ impl<'graph> ConnectivityHealer<'graph> {
     /// Attempts to heal connectivity for a single node, returning any newly evicted node.
     fn try_heal_node(
         &mut self,
-        visited: &mut HashSet<usize>,
+        visited: &mut VisitedSet,
         current: usize,
         max_connections: usize,
     ) -> Option<usize> {
@@ -246,5 +247,36 @@ impl<'graph> ConnectivityHealer<'graph> {
             return Some(evicted);
         }
         None
+    }
+}
+
+/// Visited-node set for the iterative healing queues.
+///
+/// Production builds use a `HashSet`. Under Kani the default hasher's
+/// randomised SipHash state is symbolic, which makes bounded verification of
+/// any healing path intractable, so a linear-scan `Vec` set is substituted;
+/// healing queues visit each node at most once, so the scan stays bounded.
+#[cfg(not(kani))]
+type VisitedSet = HashSet<usize>;
+
+#[cfg(kani)]
+#[derive(Debug, Default)]
+struct VisitedSet {
+    seen: Vec<usize>,
+}
+
+#[cfg(kani)]
+impl VisitedSet {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    /// Inserts `id`, returning `true` when it was not already present.
+    fn insert(&mut self, id: usize) -> bool {
+        if self.seen.contains(&id) {
+            return false;
+        }
+        self.seen.push(id);
+        true
     }
 }

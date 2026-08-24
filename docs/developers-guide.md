@@ -483,7 +483,16 @@ lean `#[cfg(kani)]` constructors that return static reasons.
 
 Where production code relies on concurrency that Kani models sequentially, a
 `#[cfg(kani)]` model must preserve the production ordering and selection
-semantics while omitting only unsupported runtime machinery.
+semantics while omitting only unsupported runtime machinery. Every such model
+must be backed by exhaustive finite-state equivalence tests against the
+production implementation over the model's full bounded input domain; see
+`chutoro-core/src/mst/tests/kani_model_equivalence.rs`.
+
+Standard hash collections must not appear on any Kani-reachable path. The
+default `HashMap`/`HashSet` hasher seeds symbolic SipHash state that makes even
+fully deterministic harnesses intractable. Substitute a bounded linear-scan
+structure under `#[cfg(kani)]`, as `ConnectivityHealer`'s visited set does in
+`chutoro-core/src/hnsw/insert/connectivity.rs`.
 
 Keep each `#[kani::unwind(N)]` bound as tight as the harness permits; do not
 increase a default bound to compensate for proof cost. For a demonstrably slow
