@@ -1,10 +1,51 @@
 {
+  "usage": "Kani rule sets are scoped to bounded-proof code only. They deliberately exclude chutoro-core/src/mst/tests/kani_model_equivalence.rs and chutoro-test-support/**/kani_nightly_gate*.rs, which merely carry `kani` in the name and are ordinary Rust under no solver constraint.",
   "rule_sets": [
     {
       "matching_content_path": "chutoro-providers/dense/src/simd/kernels.rs",
       "matching_content_path_doc": "Kernel functions operate directly on `&[f32]` slices and `usize` offsets because SIMD intrinsics require contiguous, unboxed memory and raw index arithmetic",
       "rules": [
         { "name": "Primitive Obsession", "weight": 0.0 }
+      ]
+    },
+    {
+      "matching_content_path": "**/kani_proofs/**",
+      "matching_content_path_doc": "Kani proof modules. Harness setup is deliberately repeated per proof entry point: sharing an abstraction over a symbolic node id or level multiplies solver aliasing past the tractable CBMC state space. See the `Kani CI policy` section of docs/developers-guide.md.",
+      "rules": [
+        { "name": "Code Duplication", "weight": 0.0 },
+        { "name": "Primitive Obsession", "weight": 0.0 },
+        { "name": "Excess Number of Function Arguments", "weight": 0.0 },
+        { "name": "Complex Method", "weight": 0.3 }
+      ]
+    },
+    {
+      "matching_content_path": "**/kani_proofs.rs",
+      "matching_content_path_doc": "Single-file Kani proof module; same solver constraint as `**/kani_proofs/**`.",
+      "rules": [
+        { "name": "Code Duplication", "weight": 0.0 },
+        { "name": "Primitive Obsession", "weight": 0.0 },
+        { "name": "Excess Number of Function Arguments", "weight": 0.0 },
+        { "name": "Complex Method", "weight": 0.3 }
+      ]
+    },
+    {
+      "matching_content_path": "**/kani_harness.rs",
+      "matching_content_path_doc": "Kani harnesses. Bundling harness edge arguments into a struct was measured to help break verification: together with the sort and `kruskal_model` refactors below it took `make kani-full` from 17/17 harnesses verified to `kissat: maximum variable index exceeded`, 0 verified. See docs/kani-full-hnsw-hypothesis-testing.md.",
+      "rules": [
+        { "name": "Code Duplication", "weight": 0.0 },
+        { "name": "Primitive Obsession", "weight": 0.0 },
+        { "name": "Excess Number of Function Arguments", "weight": 0.0 },
+        { "name": "Complex Method", "weight": 0.3 }
+      ]
+    },
+    {
+      "matching_content_path": "**/kani_model.rs",
+      "matching_content_path_doc": "Bounded sequential model verified in place of the Rayon production path. Unifying its two bounded insertion sorts and decomposing `kruskal_model` inflated the CBMC formula past the SAT solver's variable-index limit, so the model stays concrete and monomorphic. Its behaviour is pinned instead by exhaustive equivalence tests against production in chutoro-core/src/mst/tests/kani_model_equivalence.rs. `Complex Method` is down-weighted rather than disabled so genuine complexity growth still surfaces in review.",
+      "rules": [
+        { "name": "Code Duplication", "weight": 0.0 },
+        { "name": "Primitive Obsession", "weight": 0.0 },
+        { "name": "Excess Number of Function Arguments", "weight": 0.0 },
+        { "name": "Complex Method", "weight": 0.3 }
       ]
     }
   ]
