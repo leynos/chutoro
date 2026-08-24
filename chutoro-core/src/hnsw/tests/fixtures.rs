@@ -18,7 +18,7 @@ impl DataSource for DummySource {
         self.data.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dummy"
     }
 
@@ -31,7 +31,7 @@ impl DataSource for DummySource {
             .data
             .get(right)
             .ok_or(DataSourceError::OutOfBounds { index: right })?;
-        Ok((a - b).abs())
+        Ok(a.mul_add(1.0, std::ops::Neg::neg(*b)).abs())
     }
 }
 
@@ -39,7 +39,7 @@ pub(super) fn assert_sorted_by_distance(neighbours: &[Neighbour]) {
     for window in neighbours.windows(2) {
         if let [left, right] = window {
             assert!(
-                left.distance <= right.distance + f32::EPSILON,
+                left.distance <= right.distance.mul_add(1.0, f32::EPSILON),
                 "distances must be non-decreasing: {neighbours:?}",
             );
         }

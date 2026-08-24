@@ -21,18 +21,31 @@ fn level_sampling_matches_geometric_tail() {
             }
             level += 1;
         }
-        counts[level] += 1;
+        let count = counts
+            .get_mut(level)
+            .expect("sampled level must be within the configured maximum");
+        *count += 1;
     }
 
-    let continue_prob = 1.0 / params.max_connections() as f64;
+    let connection_count = u32::try_from(params.max_connections())
+        .expect("test parameters fit within an exact f64 conversion");
+    let continue_prob = f64::from(connection_count).recip();
     for window in counts
         .windows(2)
-        .filter(|pair| pair[0] > 0 && pair[1] > 0)
+        .filter(|pair| matches!(pair, [current, next] if *current > 0 && *next > 0))
         .take(3)
     {
-        let next_ratio = window[1] as f64 / window[0] as f64;
+        let [current, next] = window else {
+            continue;
+        };
+        let current_count =
+            u32::try_from(*current).expect("sample count fits within an exact f64 conversion");
+        let next_count =
+            u32::try_from(*next).expect("sample count fits within an exact f64 conversion");
+        let next_ratio = std::ops::Div::div(f64::from(next_count), f64::from(current_count));
+        let ratio_error = std::ops::Sub::sub(next_ratio, continue_prob).abs();
         assert!(
-            (next_ratio - continue_prob).abs() < 0.035,
+            ratio_error < 0.035,
             "ratio should approach geometric tail (observed {next_ratio}, expected {continue_prob})",
         );
     }
