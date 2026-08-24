@@ -18,6 +18,7 @@ name: Kani PR
       - "Cargo.lock"
       - "chutoro-core/Cargo.toml"
       - "chutoro-providers/dense/Cargo.toml"
+      - "tools/kani/VERSION"
   workflow_dispatch:
 
 permissions:
@@ -42,7 +43,10 @@ jobs:
         uses: leynos/shared-actions/.github/actions/setup-rust@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
       - name: Install Kani
         run: |
-          cargo install --locked kani-verifier --version 0.67.0
+          # tools/kani/VERSION is the single source of truth for the pin;
+          # the Makefile and the workflow contract test read the same file.
+          kani_version="$(tr -d '[:space:]' < tools/kani/VERSION)"
+          cargo install --locked kani-verifier --version "$kani_version"
           cargo kani setup
       - name: Run Kani practical suite
         run: make kani

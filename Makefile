@@ -21,10 +21,11 @@ TYPOS_CONFIG_BUILDER_SOURCE := git+https://github.com/leynos/typos-config-builde
 TYPOS_CONFIG_BUILDER := $(UV_ENV) $(UV) tool run --python 3.14 \
 	--from "$(TYPOS_CONFIG_BUILDER_SOURCE)" typos-config-builder
 VERUS_BIN ?= verus
-KANI_VERSION ?= $(shell $(CARGO) kani -V | awk '{print $$2}')
 # Mirrors scripts/install-kani.sh, which unpacks the verifier bundle under
 # KANI_HOME and links the pinned nightly toolchain into it.
 KANI_HOME ?= $(HOME)/.kani
+KANI_VERSION_FILE ?= tools/kani/VERSION
+KANI_VERSION ?= $(strip $(shell cat $(KANI_VERSION_FILE)))
 KANI_LIB_PATH ?= $(KANI_HOME)/kani-$(KANI_VERSION)/toolchain/lib
 KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
 SPELLING_PY_SRCS := \
@@ -114,7 +115,7 @@ bench: ## Run Criterion benchmarks
 	$(CARGO) bench -p chutoro-benches
 
 test-workflow-contracts: ## Validate the CI workflow contracts
-	uv run --with 'pytest>=8' --with 'pyyaml>=6' pytest tests/workflow_contracts -q
+	uv run --with 'pytest>=8' --with 'pyyaml>=6' --with 'pathspec>=0.12' pytest tests/workflow_contracts -q
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
