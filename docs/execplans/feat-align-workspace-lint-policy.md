@@ -433,6 +433,12 @@ Zip validated trim candidates, insertion sequences, and distances rather than
 indexing paired vectors. Preserve ranked-neighbour ordering for valid matching
 inputs. Verify trimming tests, formatting, and scoped Clippy.
 
+## Stage 3c: HNSW Cache Usage Entries
+
+Match explicitly on the unit payload stored in the LRU usage cache, preserving
+eviction and restoration behaviour while making the marker-value contract
+clear. Verify cache tests, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

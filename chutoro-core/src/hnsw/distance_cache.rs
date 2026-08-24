@@ -279,7 +279,7 @@ impl DistanceCache {
             .usage
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some((evicted, _)) = usage.push(key.clone(), ()) {
+        if let Some((evicted, ())) = usage.push(key.clone(), ()) {
             self.entries.remove(&evicted);
             Self::record_eviction();
         }
@@ -317,7 +317,7 @@ impl DistanceCache {
         }
 
         let restored = usage.push(key.clone(), ());
-        restored.map(|(evicted, _)| evicted)
+        restored.map(|(evicted, ())| evicted)
     }
 
     fn shard_for_key(&self, key: &DistanceKey) -> Option<&LruShard> {
