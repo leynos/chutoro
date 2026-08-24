@@ -184,6 +184,9 @@ keeps local editor feedback aligned with commit gates.
       neighbours, and candidate-edge fields. The focused HNSW suite passes
       319 tests (one intentionally ignored), and core Clippy now reports 226
       remaining primary-crate documentation diagnostics.
+- [x] 2026-08-24: Documented invariant evaluation contexts, dispatch, and
+      reachability BFS state. The 26 focused invariant tests pass, and core
+      Clippy now reports 196 remaining primary-crate documentation diagnostics.
 - [x] 2026-08-24: Replaced the `chutoro-cli` whole-crate filesystem exemption
       with the user-path command boundary and its two `cli::tests` fixture
       modules. `make lint` passes with Whitaker enforcing every other CLI

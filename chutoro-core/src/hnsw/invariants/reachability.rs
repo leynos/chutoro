@@ -109,6 +109,7 @@ fn process_single_node(
     Ok(())
 }
 
+/// Validate one neighbour edge and enqueue a newly reachable target.
 fn process_neighbour(
     traversal: &TraversalContext<'_>,
     task: &NeighbourTask,
@@ -126,14 +127,21 @@ fn process_neighbour(
     Ok(())
 }
 
+/// One directed edge awaiting reachability validation.
 struct NeighbourTask {
+    /// Node exposing the neighbour reference.
     origin: usize,
+    /// Layer containing the neighbour reference.
     level: usize,
+    /// Referenced neighbour node.
     target: usize,
 }
 
+/// Immutable dependencies shared while traversing reachable nodes.
 struct TraversalContext<'a> {
+    /// Graph whose nodes are traversed.
     graph: &'a crate::hnsw::graph::Graph,
+    /// Layer validator used for every discovered edge.
     validator: &'a LayerValidator<'a>,
 }
 
@@ -154,12 +162,16 @@ fn check_all_nodes_visited(
     Ok(())
 }
 
+/// Mutable breadth-first traversal state.
 struct BfsContext {
+    /// Per-node reachability flags.
     visited: Vec<bool>,
+    /// Nodes awaiting expansion.
     queue: VecDeque<usize>,
 }
 
 impl BfsContext {
+    /// Allocate traversal state sized for the graph node capacity.
     fn new(capacity: usize) -> Self {
         Self {
             visited: vec![false; capacity],
@@ -167,6 +179,7 @@ impl BfsContext {
         }
     }
 
+    /// Mark a node reached and enqueue it for expansion.
     fn visit(&mut self, node: usize) {
         if let Some(is_visited) = self.visited.get_mut(node) {
             *is_visited = true;
@@ -174,6 +187,7 @@ impl BfsContext {
         }
     }
 
+    /// Report whether breadth-first traversal has reached a node.
     fn is_visited(&self, node: usize) -> bool {
         self.visited.get(node).is_some_and(|is_visited| *is_visited)
     }
