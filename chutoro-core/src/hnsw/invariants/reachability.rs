@@ -205,13 +205,17 @@ mod tests {
             level: 0,
             sequence: 1,
         })?;
-        let Some(node_zero) = graph.node_mut(0) else {
-            panic!("node 0 should exist");
-        };
+        let node_zero = graph
+            .node_mut(0)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: "node 0 should exist".to_owned(),
+            })?;
         node_zero.neighbours_mut(0).push(1);
-        let Some(node_one) = graph.node_mut(1) else {
-            panic!("node 1 should exist");
-        };
+        let node_one = graph
+            .node_mut(1)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: "node 1 should exist".to_owned(),
+            })?;
         node_one.neighbours_mut(0).push(0);
         Ok(graph)
     }
@@ -219,11 +223,11 @@ mod tests {
     #[rstest]
     fn process_neighbour_visits_unseen_targets(
         demo_graph: Result<Graph, HnswError>,
-    ) -> Result<(), HnswError> {
-        let demo_graph = demo_graph?;
-        let validator = LayerValidator::new(&demo_graph);
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let graph = demo_graph?;
+        let validator = LayerValidator::new(&graph);
         let traversal = TraversalContext {
-            graph: &demo_graph,
+            graph: &graph,
             validator: &validator,
         };
         let mut context = BfsContext::new(validator.capacity());
@@ -234,25 +238,31 @@ mod tests {
             target: 1,
         };
 
-        process_neighbour(&traversal, &task, &mut context, &mut mode)
-            .expect("fresh targets should be enqueued");
+        process_neighbour(&traversal, &task, &mut context, &mut mode)?;
 
-        assert!(
-            context.is_visited(1),
-            "expected node 1 to be marked visited"
-        );
-        assert_eq!(context.queue.pop_front(), Some(1));
+        if !context.is_visited(1) {
+            return Err(HnswError::GraphInvariantViolation {
+                message: "expected node 1 to be marked visited".to_owned(),
+            }
+            .into());
+        }
+        if context.queue.pop_front() != Some(1) {
+            return Err(HnswError::GraphInvariantViolation {
+                message: "expected node 1 to be queued".to_owned(),
+            }
+            .into());
+        }
         Ok(())
     }
 
     #[rstest]
     fn process_neighbour_skips_already_visited_targets(
         demo_graph: Result<Graph, HnswError>,
-    ) -> Result<(), HnswError> {
-        let demo_graph = demo_graph?;
-        let validator = LayerValidator::new(&demo_graph);
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let graph = demo_graph?;
+        let validator = LayerValidator::new(&graph);
         let traversal = TraversalContext {
-            graph: &demo_graph,
+            graph: &graph,
             validator: &validator,
         };
         let mut context = BfsContext::new(validator.capacity());
@@ -269,24 +279,25 @@ mod tests {
             },
             &mut context,
             &mut mode,
-        )
-        .expect("visited nodes should be ignored");
+        )?;
 
-        assert!(
-            context.queue.is_empty(),
-            "no duplicate visits should be queued"
-        );
+        if !context.queue.is_empty() {
+            return Err(HnswError::GraphInvariantViolation {
+                message: "no duplicate visits should be queued".to_owned(),
+            }
+            .into());
+        }
         Ok(())
     }
 
     #[rstest]
     fn process_neighbour_records_layer_consistency_violations(
         demo_graph: Result<Graph, HnswError>,
-    ) -> Result<(), HnswError> {
-        let demo_graph = demo_graph?;
-        let validator = LayerValidator::new(&demo_graph);
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let graph = demo_graph?;
+        let validator = LayerValidator::new(&graph);
         let traversal = TraversalContext {
-            graph: &demo_graph,
+            graph: &graph,
             validator: &validator,
         };
         let mut context = BfsContext::new(validator.capacity());
@@ -305,13 +316,17 @@ mod tests {
             },
             &mut context,
             &mut mode,
-        )
-        .expect("collect mode should absorb violations");
+        )?;
 
-        assert!(matches!(
+        if !matches!(
             violations.as_slice(),
             [HnswInvariantViolation::LayerConsistency { target: 3, .. }]
-        ));
+        ) {
+            return Err(HnswError::GraphInvariantViolation {
+                message: "expected layer-consistency violation for node 3".to_owned(),
+            }
+            .into());
+        }
         Ok(())
     }
 }
