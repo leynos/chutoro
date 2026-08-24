@@ -182,6 +182,12 @@ keeps local editor feedback aligned with commit gates.
   Whitaker exemption must use the guarded
   `cfg_attr(dylint_lib = "whitaker_suite", ...)` form and the workspace
   check-cfg declaration.
+- 2026-08-24: Rebase onto `origin/main` using main's coordinated Arrow and
+  Parquet 59.2.0 upgrade as the dependency baseline. Retain this branch's
+  `num-traits` workspace dependency for the checked `f32` narrowing boundary,
+  then regenerate `Cargo.lock` from the merged manifest. Rationale: this
+  preserves both the upstream type-family compatibility invariant and the
+  branch's numerical-safety remediation.
 
 ## Stage 2a: Core Mechanical Lint Onboarding
 
