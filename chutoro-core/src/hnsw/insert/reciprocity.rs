@@ -111,7 +111,7 @@ pub(super) struct ReciprocityWorkspace<'a> {
     pub(super) max_connections: usize,
 }
 
-impl<'a> ReciprocityWorkspace<'a> {
+impl ReciprocityWorkspace<'_> {
     pub(super) fn apply(self) {
         let ReciprocityWorkspace {
             filtered,
@@ -150,7 +150,7 @@ struct FallbackSelector<'a> {
     max_connections: usize,
 }
 
-impl<'a> FallbackSelector<'a> {
+impl FallbackSelector<'_> {
     fn reciprocated(&self, level: usize) -> HashSet<usize> {
         self.final_updates
             .iter()

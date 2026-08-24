@@ -478,6 +478,13 @@ the planner's graph traversal, candidate ordering, and distance-cache use while
 keeping ownership with the insertion caller. Verify HNSW tests, formatting, and
 scoped Clippy.
 
+## Stage 3j: HNSW Reciprocal-Selection Lifetimes
+
+Elide implementation lifetimes that are fully determined by their workspace and
+selector types. Preserve reciprocal filtering and fallback selection behaviour
+while making the inferred lifetime relation explicit. Verify HNSW tests,
+formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
