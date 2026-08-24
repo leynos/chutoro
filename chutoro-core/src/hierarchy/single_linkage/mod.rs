@@ -163,15 +163,21 @@ pub(crate) struct CondensedForest {
 }
 
 impl CondensedForest {
+    const fn validate_endpoint(endpoint: usize, node_count: usize) -> Result<(), HierarchyError> {
+        if endpoint < node_count {
+            return Ok(());
+        }
+
+        Err(HierarchyError::InvalidEdgeEndpoint {
+            endpoint,
+            node_count,
+        })
+    }
+
     fn validate_edges(node_count: usize, edges: &[MstEdge]) -> Result<(), HierarchyError> {
         for edge in edges {
             for endpoint in [edge.source(), edge.target()] {
-                if endpoint >= node_count {
-                    return Err(HierarchyError::InvalidEdgeEndpoint {
-                        endpoint,
-                        node_count,
-                    });
-                }
+                Self::validate_endpoint(endpoint, node_count)?;
             }
             let weight = edge.weight();
             if !weight.is_finite() || weight < 0.0 {

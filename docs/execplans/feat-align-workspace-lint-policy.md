@@ -388,6 +388,12 @@ returning typed hierarchy errors if internal forest state is inconsistent.
 Verify hierarchy tests, `make check-fmt`, and scoped Clippy for forest
 construction diagnostics.
 
+## Stage 2v: Hierarchy Input Validation
+
+Extract endpoint validation from the edge traversal so malformed MST endpoints
+remain typed hierarchy errors without introducing nested control flow. Verify
+the hierarchy suite, formatting, and the scoped hierarchy Clippy diagnostic.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
