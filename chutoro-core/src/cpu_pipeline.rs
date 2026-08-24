@@ -58,9 +58,7 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
         .saturating_add(1)
         .max(params.ef_construction())
         .min(items);
-    let Some(ef) = NonZeroUsize::new(desired) else {
-        unreachable!("ef_construction is non-zero so the computed ef is non-zero");
-    };
+    let ef = NonZeroUsize::new(desired).unwrap_or(NonZeroUsize::MIN);
 
     let mut core_distances = Vec::with_capacity(items);
     for point in 0..items {

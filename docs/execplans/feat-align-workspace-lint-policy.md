@@ -101,6 +101,10 @@ keeps local editor feedback aligned with commit gates.
       `unused_self` to associated functions and updated all internal callers.
       `make check-fmt` and `make test` pass; the latter again reports 1,085
       passed tests and 1 skipped test.
+- [x] 2026-08-24: Replaced four production `unreachable!` branches where a
+      non-zero construction has a safe minimum fallback or a fixed default can
+      be expressed directly. `make check-fmt` and `make test` pass; scoped
+      Clippy reports seven remaining `unreachable!` sites for the next stage.
 - [ ] Resolve `chutoro-core` structural, bounds-safety, numerical, and test
       lint families in bounded commits.
 - [ ] Opt in the remaining library crates and retire duplicated Rustdoc flags.
@@ -138,6 +142,9 @@ keeps local editor feedback aligned with commit gates.
   reaches 187 remaining errors in the library target.
 - Clippy supplied machine-applicable `doc_markdown` changes for eleven files.
   They add Rustdoc code formatting only; no identifiers or behaviour change.
+- The post-turn full lint baseline is now 527 errors. The scoped
+  `unreachable!` check after the production fallback stage reports seven sites:
+  one cache shard accessor, two node-level accessors, and four test helpers.
 - Command-line lint levels propagate to local dependencies. The semantic
   Rustdoc check therefore uses `--no-deps`; otherwise it diagnoses
   `chutoro-test-support` before that crate inherits the workspace policy.
@@ -233,6 +240,18 @@ the receiver removal is explicit. This preserves the GPU fallback's error, the
 graph insertion, and all metric names and values; it only removes an
 unnecessary method receiver. Verify `make check-fmt` and `make test`. Full lint
 remains intentionally red for the next recorded family.
+
+## Stage 2h: Core Non-panicking Default Construction
+
+Replace `unreachable!` only where the implementation can maintain a safe return
+value without disguising an externally observable failure. The CPU pipeline and
+cache capacity calculations fall back to `NonZeroUsize::MIN` if their
+arithmetic ever yields zero. `HnswParams::default` constructs its known valid
+fields directly, preserving the values validated by `HnswParams::new`. Do not
+replace the remaining accessor or test assertion sites with generic panics;
+they require error propagation or test-structure changes. Verify
+`make check-fmt`, `make test`, and package Clippy's remaining
+`clippy::unreachable` locations.
 
 ## Verification Plan
 

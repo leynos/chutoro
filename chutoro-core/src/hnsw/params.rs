@@ -130,9 +130,13 @@ impl HnswParams {
 
 impl Default for HnswParams {
     fn default() -> Self {
-        match Self::new(16, 64) {
-            Ok(params) => params,
-            Err(err) => unreachable!("default parameters must be valid: {err}"),
+        Self {
+            max_connections: 16,
+            ef_construction: 64,
+            level_multiplier: (16.0_f64).ln().recip(),
+            max_level: 12,
+            rng_seed: 0x5EED_CAFE,
+            distance_cache: DistanceCacheConfig::default(),
         }
     }
 }

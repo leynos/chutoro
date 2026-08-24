@@ -87,9 +87,7 @@ impl DistanceCacheConfig {
 
 impl Default for DistanceCacheConfig {
     fn default() -> Self {
-        let Some(max_entries) = NonZeroUsize::new(Self::DEFAULT_MAX_ENTRIES) else {
-            unreachable!("default cache size must be non-zero");
-        };
+        let max_entries = NonZeroUsize::new(Self::DEFAULT_MAX_ENTRIES).unwrap_or(NonZeroUsize::MIN);
         Self::new(max_entries)
     }
 }
@@ -369,10 +367,7 @@ fn lru_shard_capacities(total_capacity: usize) -> Vec<NonZeroUsize> {
         .map(|index| {
             let extra = usize::from(index < remainder);
             let shard_capacity = base + extra;
-            let Some(capacity) = NonZeroUsize::new(shard_capacity) else {
-                unreachable!("shard capacity must be non-zero");
-            };
-            capacity
+            NonZeroUsize::new(shard_capacity).unwrap_or(NonZeroUsize::MIN)
         })
         .collect()
 }
