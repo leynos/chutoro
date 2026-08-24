@@ -81,11 +81,7 @@ impl Drop for WriteGraphScope {
 }
 
 impl CpuHnsw {
-    pub(super) fn insert_initial(
-        &self,
-        graph: &mut Graph,
-        ctx: NodeContext,
-    ) -> Result<(), HnswError> {
+    pub(super) fn insert_initial(graph: &mut Graph, ctx: NodeContext) -> Result<(), HnswError> {
         graph.insert_first(ctx)
     }
 
@@ -135,7 +131,7 @@ impl CpuHnsw {
         validate_distance(Some(&self.distance_cache), source, ctx.node, ctx.node)?;
         self.write_graph(|graph| {
             if graph.entry().is_none() {
-                self.insert_initial(graph, ctx)?;
+                Self::insert_initial(graph, ctx)?;
                 Ok(true)
             } else {
                 Ok(false)

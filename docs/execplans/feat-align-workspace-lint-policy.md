@@ -94,9 +94,13 @@ keeps local editor feedback aligned with commit gates.
 - [x] 2026-08-24: Replaced every reported core `manual_let_else` match with
       an equivalent `let-else` binding, including the cache-test assertions.
       Scoped core Clippy passes with that lint denied.
-- [ ] 2026-08-24: Repeat the checkpoint test gate once unrelated shared Cargo
-      work releases its package-cache lock; the first run reached 172 of 1,085
-      tests before infrastructure contention suspended it.
+- [x] 2026-08-24: Repeated the deferred checkpoint test gate after the shared
+      Cargo cache became available: `make test` passed with 1,085 tests passed
+      and 1 skipped.
+- [x] 2026-08-24: Converted the six private core helpers reported by
+      `unused_self` to associated functions and updated all internal callers.
+      `make check-fmt` and `make test` pass; the latter again reports 1,085
+      passed tests and 1 skipped test.
 - [ ] Resolve `chutoro-core` structural, bounds-safety, numerical, and test
       lint families in bounded commits.
 - [ ] Opt in the remaining library crates and retire duplicated Rustdoc flags.
@@ -124,9 +128,10 @@ keeps local editor feedback aligned with commit gates.
   be committed; retain `stash@{0}` until its committed diff is independently
   verified.
 - The 2026-08-24 checkpoint gate confirms `make check-fmt` and `make typecheck`
-  pass. `make lint` fails with the recorded 604 core Clippy diagnostics.
-  `make test` is incomplete because unrelated suspended Cargo jobs hold the
-  shared package-cache lock; it reached 172 of 1,085 tests.
+  pass. `make lint` fails with the recorded 604 core Clippy diagnostics. The
+  first `make test` attempt was incomplete because unrelated suspended Cargo
+  jobs held the shared package-cache lock; the later rerun completed with 1,085
+  passing tests and one skipped test.
 - Moving the self-named modules is a content-preserving layout migration: all
   seven destination directories already existed for their child modules. The
   scoped core Clippy run now has no `self_named_module_files` diagnostics and
@@ -218,6 +223,16 @@ matches that expected a cache miss retain their failure message in the `else`
 branch, rather than using `unreachable!`. Verify with package-scoped Clippy and
 only `manual_let_else` denied. The transformation preserves each former match
 arm's success value and failure control flow.
+
+## Stage 2g: Core Associated Helpers
+
+Convert the six private helpers that do not inspect instance state to
+associated functions: the GPU-unavailable fallback, the initial graph-insert
+operation, and the four metrics emitters. Update every call to use `Self::` so
+the receiver removal is explicit. This preserves the GPU fallback's error, the
+graph insertion, and all metric names and values; it only removes an
+unnecessary method receiver. Verify `make check-fmt` and `make test`. Full lint
+remains intentionally red for the next recorded family.
 
 ## Verification Plan
 

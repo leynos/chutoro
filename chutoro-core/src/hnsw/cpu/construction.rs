@@ -135,7 +135,7 @@ impl CpuHnsw {
             node_ctx.node,
             node_ctx.node,
         )?;
-        index.write_graph(|graph| index.insert_initial(graph, node_ctx))?;
+        index.write_graph(|graph| Self::insert_initial(graph, node_ctx))?;
         index.len.store(1, Ordering::Relaxed);
 
         Ok(index)

@@ -203,7 +203,7 @@ impl Chutoro {
 
         match self.choose_backend() {
             BackendChoice::Cpu => self.run_cpu(source, items),
-            BackendChoice::Gpu => self.run_gpu(source, items),
+            BackendChoice::Gpu => Self::run_gpu(source, items),
         }
     }
 
@@ -267,11 +267,7 @@ impl Chutoro {
         }
     }
 
-    const fn run_gpu<D: DataSource + Sync>(
-        &self,
-        _source: &D,
-        _items: usize,
-    ) -> Result<ClusteringResult> {
+    const fn run_gpu<D: DataSource + Sync>(_source: &D, _items: usize) -> Result<ClusteringResult> {
         Err(ChutoroError::BackendUnavailable {
             requested: ExecutionStrategy::GpuPreferred,
         })

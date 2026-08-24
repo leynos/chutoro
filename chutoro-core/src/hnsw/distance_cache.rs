@@ -199,8 +199,8 @@ impl DistanceCache {
                 drop(entry);
                 self.entries.remove(&key);
                 self.remove_from_usage(&key);
-                self.record_eviction();
-                self.record_miss();
+                Self::record_eviction();
+                Self::record_miss();
                 return LookupOutcome::Miss(PendingMiss {
                     key,
                     started,
@@ -211,10 +211,10 @@ impl DistanceCache {
             let value = entry.value;
             drop(entry);
             self.touch(&key);
-            self.record_hit(started.elapsed());
+            Self::record_hit(started.elapsed());
             LookupOutcome::Hit(value)
         } else {
-            self.record_miss();
+            Self::record_miss();
             LookupOutcome::Miss(PendingMiss {
                 key,
                 started,
@@ -247,7 +247,7 @@ impl DistanceCache {
             },
         );
         self.touch(&key);
-        self.record_lookup_latency(started.elapsed());
+        Self::record_lookup_latency(started.elapsed());
         Ok(value)
     }
 
@@ -267,7 +267,7 @@ impl DistanceCache {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some((evicted, _)) = usage.push(key.clone(), ()) {
             self.entries.remove(&evicted);
-            self.record_eviction();
+            Self::record_eviction();
         }
     }
 
@@ -281,7 +281,7 @@ impl DistanceCache {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(evicted) = self.try_restore_and_get_evicted(&mut usage, key) {
             self.entries.remove(&evicted);
-            self.record_eviction();
+            Self::record_eviction();
         }
     }
 
@@ -319,39 +319,39 @@ impl DistanceCache {
     }
 
     #[cfg(feature = "metrics")]
-    fn record_hit(&self, elapsed: Duration) {
+    fn record_hit(elapsed: Duration) {
         metrics::counter!("distance_cache_hits").increment(1);
         metrics::histogram!("distance_cache_lookup_latency_histogram")
             .record(elapsed.as_secs_f64());
     }
 
     #[cfg(not(feature = "metrics"))]
-    fn record_hit(&self, _elapsed: Duration) {}
+    fn record_hit(_elapsed: Duration) {}
 
     #[cfg(feature = "metrics")]
-    fn record_miss(&self) {
+    fn record_miss() {
         metrics::counter!("distance_cache_misses").increment(1);
     }
 
     #[cfg(not(feature = "metrics"))]
-    fn record_miss(&self) {}
+    fn record_miss() {}
 
     #[cfg(feature = "metrics")]
-    fn record_eviction(&self) {
+    fn record_eviction() {
         metrics::counter!("distance_cache_evictions").increment(1);
     }
 
     #[cfg(not(feature = "metrics"))]
-    fn record_eviction(&self) {}
+    fn record_eviction() {}
 
     #[cfg(feature = "metrics")]
-    fn record_lookup_latency(&self, elapsed: Duration) {
+    fn record_lookup_latency(elapsed: Duration) {
         metrics::histogram!("distance_cache_lookup_latency_histogram")
             .record(elapsed.as_secs_f64());
     }
 
     #[cfg(not(feature = "metrics"))]
-    fn record_lookup_latency(&self, _elapsed: Duration) {}
+    fn record_lookup_latency(_elapsed: Duration) {}
 }
 
 // no inherent methods on PendingMiss
