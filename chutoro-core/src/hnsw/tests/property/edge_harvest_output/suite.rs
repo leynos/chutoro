@@ -10,7 +10,7 @@ use super::super::graph_topology_tests::validate_edge;
 use super::super::strategies::graph_fixture_strategy_for_topology;
 use super::super::types::{GraphFixture, GraphMetadata, GraphTopology};
 use super::harvest::{harvest_candidate_edges, harvest_k_for_metadata};
-use super::{CONNECTIVITY_PRESERVATION_THRESHOLD, HARVEST_CASES_PER_TOPOLOGY};
+use super::{CONNECTIVITY_PRESERVATION_PERCENT, HARVEST_CASES_PER_TOPOLOGY};
 use crate::test_utils::suite_proptest_config;
 
 /// Captures per-fixture metrics for harvested-output property checks.
@@ -80,7 +80,7 @@ pub(super) fn evaluate_harvested_output(
         .min(fixture.graph.node_count.saturating_sub(1));
     let input_rnn = compute_rnn_score(fixture.graph.node_count, &fixture.graph.edges, k);
     let output_rnn = compute_rnn_score(fixture.graph.node_count, &harvested, k);
-    let rnn_delta = output_rnn - input_rnn;
+    let rnn_delta = output_rnn.mul_add(1.0, std::ops::Neg::neg(input_rnn));
 
     Ok(HarvestedMetrics {
         input_components,
@@ -110,15 +110,15 @@ pub(super) fn run_harvested_output_suite_for_topology(topology: GraphTopology) -
         Ok(())
     })?;
 
-    let metrics = metrics.into_inner();
-    if metrics.len() != cases {
+    let collected_metrics = metrics.into_inner();
+    if collected_metrics.len() != cases {
         return Err(TestCaseError::fail(format!(
             "{topology:?} expected {cases} cases, got {}",
-            metrics.len()
+            collected_metrics.len()
         )));
     }
 
-    let mut deltas: Vec<f64> = metrics.iter().map(|m| m.rnn_delta).collect();
+    let mut deltas: Vec<f64> = collected_metrics.iter().map(|m| m.rnn_delta).collect();
     let median_delta = median(&mut deltas);
     let min_delta = min_rnn_delta_for_topology(topology);
     if median_delta < min_delta {
@@ -127,21 +127,21 @@ pub(super) fn run_harvested_output_suite_for_topology(topology: GraphTopology) -
         )));
     }
 
-    let connected_cases: Vec<&HarvestedMetrics> =
-        metrics.iter().filter(|m| m.input_components == 1).collect();
+    let connected_cases: Vec<&HarvestedMetrics> = collected_metrics
+        .iter()
+        .filter(|m| m.input_components == 1)
+        .collect();
     if !connected_cases.is_empty() {
         let preserved = connected_cases
             .iter()
             .filter(|m| m.output_components == 1)
             .count();
-        let ratio = preserved as f64 / connected_cases.len() as f64;
-        if ratio < CONNECTIVITY_PRESERVATION_THRESHOLD {
+        let total_connected_cases = connected_cases.len();
+        if preserved.saturating_mul(100)
+            < total_connected_cases.saturating_mul(CONNECTIVITY_PRESERVATION_PERCENT)
+        {
             return Err(TestCaseError::fail(format!(
-                "{topology:?} connectivity preserved in {:.1}% ({} / {}), below {:.1}%",
-                ratio * 100.0,
-                preserved,
-                connected_cases.len(),
-                CONNECTIVITY_PRESERVATION_THRESHOLD * 100.0
+                "{topology:?} connectivity preserved in {preserved} / {total_connected_cases}, below {CONNECTIVITY_PRESERVATION_PERCENT}%",
             )));
         }
     }
