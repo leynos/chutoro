@@ -176,6 +176,10 @@ keeps local editor feedback aligned with commit gates.
       module was already 372 lines. The state module is exclusively owned by
       `LayerSearcher`; its four focused search tests pass and core Clippy now
       reports 265 remaining primary-crate documentation diagnostics.
+- [x] 2026-08-24: Documented the HNSW insertion reciprocity auditor, mutable
+      workspace, and fallback selector. The 17 focused insertion tests pass,
+      and core Clippy now reports 242 remaining primary-crate documentation
+      diagnostics.
 - [x] 2026-08-24: Replaced the `chutoro-cli` whole-crate filesystem exemption
       with the user-path command boundary and its two `cli::tests` fixture
       modules. `make lint` passes with Whitaker enforcing every other CLI

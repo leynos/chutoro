@@ -12,25 +12,32 @@ use crate::hnsw::graph::Graph;
 
 use super::{limits::compute_connection_limit, types::FinalisedUpdate};
 
+/// Verifies reciprocity and degree bounds for insertion-touched nodes.
 #[cfg(any(test, debug_assertions))]
 #[derive(Debug)]
 pub(super) struct ReciprocityAuditor<'graph> {
+    /// Graph containing the committed adjacency lists under audit.
     graph: &'graph Graph,
 }
 
+/// Level-specific limits used while auditing reciprocal edges.
 #[cfg(any(test, debug_assertions))]
 #[derive(Debug, Clone, Copy)]
 struct AuditContext {
+    /// Graph level under inspection.
     level: usize,
+    /// Base connection limit configured for the graph.
     max_connections: usize,
 }
 
 #[cfg(any(test, debug_assertions))]
 impl<'graph> ReciprocityAuditor<'graph> {
+    /// Bind an auditor to the graph whose insertion result is inspected.
     pub(super) const fn new(graph: &'graph Graph) -> Self {
         Self { graph }
     }
 
+    /// Assert reciprocal links and degree bounds for every touched node-level pair.
     pub(super) fn assert_reciprocity_for_touched(
         &self,
         touched: &[(usize, usize)],
@@ -50,6 +57,7 @@ impl<'graph> ReciprocityAuditor<'graph> {
         }
     }
 
+    /// Assert the degree and reverse-edge state of one origin node.
     fn assert_origin_state(&self, origin: usize, ctx: AuditContext) {
         let level = ctx.level;
         let Some(origin_node) = self.graph.node(origin) else {
@@ -72,6 +80,7 @@ impl<'graph> ReciprocityAuditor<'graph> {
         }
     }
 
+    /// Assert that one target retains the reverse edge from its origin.
     fn assert_target_state(&self, origin: usize, target: usize, ctx: AuditContext) {
         let level = ctx.level;
         let Some(target_node) = self.graph.node(target) else {
@@ -103,15 +112,22 @@ impl<'graph> ReciprocityAuditor<'graph> {
     }
 }
 
+/// Mutable insertion workspace that removes unreciprocated neighbours.
 pub(super) struct ReciprocityWorkspace<'a> {
+    /// Candidate neighbours retained for the newly inserted node.
     pub(super) filtered: &'a mut [Vec<usize>],
+    /// Pre-filter candidates used when a level needs a fallback link.
     pub(super) original: &'a [Vec<usize>],
+    /// Final node updates whose reverse links may be adjusted.
     pub(super) final_updates: &'a mut [FinalisedUpdate],
+    /// Identifier of the node receiving reciprocal links.
     pub(super) new_node: usize,
+    /// Base connection limit used for fallback selection.
     pub(super) max_connections: usize,
 }
 
 impl ReciprocityWorkspace<'_> {
+    /// Retain reciprocated candidates and restore one fallback when needed.
     pub(super) fn apply(self) {
         let ReciprocityWorkspace {
             filtered,
@@ -143,14 +159,20 @@ impl ReciprocityWorkspace<'_> {
     }
 }
 
+/// Chooses and updates a fallback reciprocal neighbour for one level.
 struct FallbackSelector<'a> {
+    /// Original candidates by graph level.
     original: &'a [Vec<usize>],
+    /// Committed updates that may receive a reverse edge.
     final_updates: &'a mut [FinalisedUpdate],
+    /// Newly inserted node requiring a reciprocal link.
     new_node: usize,
+    /// Base connection limit for each candidate level.
     max_connections: usize,
 }
 
 impl FallbackSelector<'_> {
+    /// Collect candidates that already retain a reverse edge at `level`.
     fn reciprocated(&self, level: usize) -> HashSet<usize> {
         self.final_updates
             .iter()
@@ -161,6 +183,7 @@ impl FallbackSelector<'_> {
             .collect()
     }
 
+    /// Select or create one reciprocal fallback link at `level`.
     fn select(&mut self, level: usize) -> Option<usize> {
         let fallback_candidates = self
             .original
