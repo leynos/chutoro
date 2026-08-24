@@ -1,0 +1,174 @@
+//! Sequential Kani model for parallel Kruskal execution.
+//!
+//! Kani models concurrency as sequential execution. This model preserves the
+//! production algorithm's validated edge ordering and deterministic union
+//! selection while omitting Rayon and synchronisation internals that do not
+//! contribute to the forest invariants proved by the bounded harnesses.
+//! It is restricted to `cfg(kani)` and must not be used by production callers.
+
+use crate::CandidateEdge;
+
+use super::{
+    EMPTY_MST_EDGE, MinimumSpanningForest, MstEdge, MstError, validate_and_canonicalize_edge,
+};
+
+/// Computes the Kani-only sequential model of parallel Kruskal.
+pub(super) fn parallel_kruskal_from_edges_for_kani<'a>(
+    node_count: usize,
+    edges: impl IntoIterator<Item = &'a CandidateEdge>,
+) -> Result<MinimumSpanningForest, MstError> {
+    if node_count == 0 {
+        return Err(MstError::EmptyGraph);
+    }
+
+    if node_count > 4 {
+        return Err(MstError::InvariantViolation {
+            invariant: "Kani MST model supports at most four nodes",
+            index: node_count,
+            lock_count: 4,
+        });
+    }
+
+    let mut edge_list = [None; 6];
+    let mut edge_count = 0;
+    for edge in edges {
+        if let Some(edge) = validate_and_canonicalize_edge(edge, node_count)? {
+            let Some(slot) = edge_list.get_mut(edge_count) else {
+                return Err(MstError::InvariantViolation {
+                    invariant: "Kani MST model supports at most six edges",
+                    index: edge_count,
+                    lock_count: edge_list.len(),
+                });
+            };
+            *slot = Some(edge);
+            edge_count += 1;
+        }
+    }
+    sort_edges_for_kani(&mut edge_list, edge_count);
+    edge_count = deduplicate_edges_for_kani(&mut edge_list, edge_count);
+
+    let mut parents = [0, 1, 2, 3];
+    let mut ranks = [0; 4];
+    let mut node = 0;
+    while node < node_count {
+        parents[node] = node;
+        node += 1;
+    }
+    let mut component_count = node_count;
+    let mut forest_edges = [EMPTY_MST_EDGE; 3];
+    let mut forest_edge_count = 0;
+
+    let mut index = 0;
+    while index < edge_count {
+        let Some(edge) = edge_list[index] else {
+            return Err(MstError::InvariantViolation {
+                invariant: "Kani MST edge buffer must be populated",
+                index,
+                lock_count: edge_count,
+            });
+        };
+        let source_root = find_root(&mut parents, edge.source);
+        let target_root = find_root(&mut parents, edge.target);
+        if source_root != target_root {
+            union_roots(&mut parents, &mut ranks, source_root, target_root);
+            component_count = component_count.saturating_sub(1);
+            forest_edges[forest_edge_count] = edge;
+            forest_edge_count += 1;
+        }
+
+        if component_count == 1 && forest_edge_count == node_count.saturating_sub(1) {
+            break;
+        }
+        index += 1;
+    }
+
+    sort_forest_edges_for_kani(&mut forest_edges, forest_edge_count);
+    Ok(MinimumSpanningForest {
+        edges: forest_edges,
+        edge_count: forest_edge_count,
+        component_count,
+    })
+}
+
+fn sort_edges_for_kani(edges: &mut [Option<MstEdge>], edge_count: usize) {
+    let mut index = 1;
+    while index < edge_count {
+        let mut current = index;
+        while current > 0 && should_swap_edges(edges, current) {
+            edges.swap(current, current - 1);
+            current -= 1;
+        }
+        index += 1;
+    }
+}
+
+fn deduplicate_edges_for_kani(edges: &mut [Option<MstEdge>], edge_count: usize) -> usize {
+    let mut unique_count = 0;
+    let mut index = 0;
+    while index < edge_count {
+        if let Some(edge) = edges[index] {
+            let is_duplicate = unique_count > 0 && duplicate_edges(edges[unique_count - 1], edge);
+            if !is_duplicate {
+                edges[unique_count] = Some(edge);
+                unique_count += 1;
+            }
+        }
+        index += 1;
+    }
+    unique_count
+}
+
+fn sort_forest_edges_for_kani(edges: &mut [MstEdge], edge_count: usize) {
+    let mut index = 1;
+    while index < edge_count {
+        let mut current = index;
+        while current > 0 && edges[current] < edges[current - 1] {
+            edges.swap(current, current - 1);
+            current -= 1;
+        }
+        index += 1;
+    }
+}
+
+fn should_swap_edges(edges: &[Option<MstEdge>], current: usize) -> bool {
+    match (edges[current], edges[current - 1]) {
+        (Some(current), Some(previous)) => current < previous,
+        _ => false,
+    }
+}
+
+fn duplicate_edges(left: Option<MstEdge>, right: MstEdge) -> bool {
+    left.is_some_and(|left| {
+        left.weight == right.weight && left.source == right.source && left.target == right.target
+    })
+}
+
+fn find_root(parents: &mut [usize; 4], node: usize) -> usize {
+    let mut current = node;
+    while parents[current] != current {
+        let parent = parents[current];
+        let grandparent = parents[parent];
+        if grandparent != parent {
+            parents[current] = grandparent;
+        }
+        current = parent;
+    }
+    current
+}
+
+fn union_roots(parents: &mut [usize; 4], ranks: &mut [usize; 4], left: usize, right: usize) {
+    let (parent, child) = if ranks[left] > ranks[right] {
+        (left, right)
+    } else if ranks[right] > ranks[left] {
+        (right, left)
+    } else if left <= right {
+        (left, right)
+    } else {
+        (right, left)
+    };
+
+    parents[child] = parent;
+    if ranks[left] == ranks[right] {
+        ranks[parent] = ranks[parent].saturating_add(1);
+    }
+}

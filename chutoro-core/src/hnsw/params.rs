@@ -66,6 +66,28 @@ impl HnswParams {
         })
     }
 
+    /// Creates Kani parameters without constructing formatted production errors.
+    #[cfg(kani)]
+    pub(crate) fn new_for_kani(
+        max_connections: usize,
+        ef_construction: usize,
+    ) -> Result<Self, &'static str> {
+        if max_connections == 0 {
+            return Err("max_connections must be greater than zero");
+        }
+        if ef_construction < max_connections {
+            return Err("ef_construction must be at least max_connections");
+        }
+        Ok(Self {
+            max_connections,
+            ef_construction,
+            level_multiplier: (max_connections as f64).ln().recip(),
+            max_level: 12,
+            rng_seed: 0x5EED_CAFE,
+            distance_cache: DistanceCacheConfig::default(),
+        })
+    }
+
     /// Overrides the random level multiplier used when sampling layers.
     #[must_use]
     pub const fn with_level_multiplier(mut self, multiplier: f64) -> Self {
@@ -163,6 +185,7 @@ impl HnswParams {
 }
 
 impl Default for HnswParams {
+    #[cfg(kani)]
     fn default() -> Self {
         Self {
             max_connections: 16,
@@ -171,6 +194,14 @@ impl Default for HnswParams {
             max_level: 12,
             rng_seed: 0x5EED_CAFE,
             distance_cache: DistanceCacheConfig::default(),
+        }
+    }
+
+    #[cfg(not(kani))]
+    fn default() -> Self {
+        match Self::new(16, 64) {
+            Ok(params) => params,
+            Err(err) => unreachable!("default parameters must be valid: {}", err),
         }
     }
 }

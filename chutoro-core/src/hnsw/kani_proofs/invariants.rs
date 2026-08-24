@@ -13,7 +13,7 @@ use crate::hnsw::{
 fn setup_four_node_graph(params: HnswParams) -> Option<Graph> {
     let mut graph = Graph::with_capacity(params, 4);
     if graph
-        .insert_first(NodeContext {
+        .insert_first_for_kani(NodeContext {
             node: 0,
             level: 1,
             sequence: 0,
@@ -24,7 +24,7 @@ fn setup_four_node_graph(params: HnswParams) -> Option<Graph> {
         return None;
     }
     if graph
-        .attach_node(NodeContext {
+        .attach_node_for_kani(NodeContext {
             node: 1,
             level: 1,
             sequence: 1,
@@ -35,7 +35,7 @@ fn setup_four_node_graph(params: HnswParams) -> Option<Graph> {
         return None;
     }
     if graph
-        .attach_node(NodeContext {
+        .attach_node_for_kani(NodeContext {
             node: 2,
             level: 0,
             sequence: 2,
@@ -46,7 +46,7 @@ fn setup_four_node_graph(params: HnswParams) -> Option<Graph> {
         return None;
     }
     if graph
-        .attach_node(NodeContext {
+        .attach_node_for_kani(NodeContext {
             node: 3,
             level: 0,
             sequence: 3,
@@ -127,7 +127,7 @@ fn deduped_targets(first: usize, second: usize) -> Vec<usize> {
 #[kani::proof]
 #[kani::unwind(10)]
 fn verify_no_self_loops_4_nodes() {
-    let Ok(params) = HnswParams::new(2, 2) else {
+    let Ok(params) = HnswParams::new_for_kani(2, 2) else {
         kani::assert(false, "failed to construct bounded HNSW params");
         return;
     };
@@ -171,7 +171,7 @@ fn verify_no_self_loops_4_nodes() {
 #[kani::proof]
 #[kani::unwind(10)]
 fn verify_neighbour_uniqueness_4_nodes() {
-    let Ok(params) = HnswParams::new(2, 2) else {
+    let Ok(params) = HnswParams::new_for_kani(2, 2) else {
         kani::assert(false, "failed to construct bounded HNSW params");
         return;
     };
@@ -222,6 +222,7 @@ fn bounded_node_id_for_kani() -> usize {
 /// - If the graph is non-empty, the entry point exists, references a valid
 ///   node, and has a level at least as high as any other node in the graph.
 #[kani::proof]
+#[kani::solver(kissat)]
 #[kani::unwind(12)]
 fn verify_entry_point_validity_4_nodes() {
     let levels = [

@@ -6,14 +6,8 @@
 
 mod union_find;
 
-use std::cmp::Ordering;
-
-use rayon::prelude::*;
-
-use crate::{CandidateEdge, EdgeHarvest};
-
-use self::union_find::ConcurrentUnionFind;
-
+#[cfg(kani)]
+mod kani_model;
 /// Errors returned while computing a minimum spanning tree/forest.
 #[derive(Clone, Debug, thiserror::Error, PartialEq)]
 #[non_exhaustive]
@@ -154,6 +148,7 @@ impl PartialOrd for MstEdge {
 /// The output of a minimum spanning forest computation.
 ///
 /// When the input graph is connected, the forest is a minimum spanning tree.
+#[cfg(not(kani))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct MinimumSpanningForest {
     /// Accepted minimum-weight edges in deterministic order.
@@ -162,11 +157,38 @@ pub struct MinimumSpanningForest {
     component_count: usize,
 }
 
+/// Bounded Kani representation of a minimum spanning forest.
+///
+/// The Kani harnesses exercise at most four nodes, so the forest has at most
+/// three edges. Keeping that representation inline avoids modelling allocator
+/// and panic paths that are unrelated to forest invariants.
+#[cfg(kani)]
+#[derive(Clone, Debug, PartialEq)]
+pub struct MinimumSpanningForest {
+    edges: [MstEdge; 3],
+    edge_count: usize,
+    component_count: usize,
+}
+
+#[cfg(kani)]
+const EMPTY_MST_EDGE: MstEdge = MstEdge {
+    source: 0,
+    target: 0,
+    weight: 0.0,
+    sequence: 0,
+};
 impl MinimumSpanningForest {
     /// Returns the MST/forest edges.
     #[must_use]
     #[rustfmt::skip]
+    #[cfg(not(kani))]
     pub fn edges(&self) -> &[MstEdge] { &self.edges }
+
+    /// Returns the MST/forest edges in the Kani bounded model.
+    #[must_use]
+    #[rustfmt::skip]
+    #[cfg(kani)]
+    pub fn edges(&self) -> &[MstEdge] { &self.edges[..self.edge_count] }
 
     /// Returns the number of connected components in the resulting forest.
     #[must_use]
@@ -306,42 +328,50 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
     node_count: usize,
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
 ) -> Result<MinimumSpanningForest, MstError> {
-    if node_count == 0 {
-        return Err(MstError::EmptyGraph);
+    #[cfg(kani)]
+    {
+        return kani_model::parallel_kruskal_from_edges_for_kani(node_count, edges);
     }
 
-    let edge_list = prepare_edge_list(edges, node_count)?;
-
-    if edge_list.is_empty() {
-        return Ok(MinimumSpanningForest {
-            edges: Vec::new(),
-            component_count: node_count,
-        });
-    }
-
-    let union_find = ConcurrentUnionFind::new(node_count);
-    let mut forest_edges = Vec::with_capacity(node_count.saturating_sub(1));
-
-    for group in edge_list.chunk_by(|left, right| {
-        matches!(
-            left.weight.partial_cmp(&right.weight),
-            Some(Ordering::Equal)
-        )
-    }) {
-        let accepted = process_weight_group(group, &union_find)?;
-
-        forest_edges.extend(accepted);
-
-        if is_mst_complete(node_count, &union_find, &forest_edges) {
-            break;
+    #[cfg(not(kani))]
+    {
+        if node_count == 0 {
+            return Err(MstError::EmptyGraph);
         }
-    }
 
-    forest_edges.sort_unstable();
-    Ok(MinimumSpanningForest {
-        edges: forest_edges,
-        component_count: union_find.components(),
-    })
+        let edge_list = prepare_edge_list(edges, node_count)?;
+
+        if edge_list.is_empty() {
+            return Ok(MinimumSpanningForest {
+                edges: Vec::new(),
+                component_count: node_count,
+            });
+        }
+
+        let union_find = ConcurrentUnionFind::new(node_count);
+        let mut forest_edges = Vec::with_capacity(node_count.saturating_sub(1));
+
+        for group in edge_list.chunk_by(|left, right| {
+            matches!(
+                left.weight.partial_cmp(&right.weight),
+                Some(Ordering::Equal)
+            )
+        }) {
+            let accepted = process_weight_group(group, &union_find)?;
+
+            forest_edges.extend(accepted);
+
+            if is_mst_complete(node_count, &union_find, &forest_edges) {
+                break;
+            }
+        }
+
+        forest_edges.sort_unstable();
+        Ok(MinimumSpanningForest {
+            edges: forest_edges,
+            component_count: union_find.components(),
+        })
+    }
 }
 
 #[cfg(kani)]

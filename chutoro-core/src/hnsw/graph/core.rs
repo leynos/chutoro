@@ -297,6 +297,33 @@ impl Graph {
         Ok(())
     }
 
+    /// Inserts the first Kani node without constructing formatted production errors.
+    #[cfg(kani)]
+    pub(crate) fn insert_first_for_kani(&mut self, ctx: NodeContext) -> Result<(), &'static str> {
+        self.attach_node_for_kani(ctx)?;
+        self.entry = Some(EntryPoint {
+            node: ctx.node,
+            level: ctx.level,
+        });
+        Ok(())
+    }
+
+    /// Attaches a Kani node without constructing formatted production errors.
+    #[cfg(kani)]
+    pub(crate) fn attach_node_for_kani(&mut self, ctx: NodeContext) -> Result<(), &'static str> {
+        if ctx.level > self.params.max_level() {
+            return Err("node level exceeds max_level");
+        }
+        let Some(slot) = self.nodes.get_mut(ctx.node) else {
+            return Err("node is outside pre-allocated capacity");
+        };
+        if slot.is_some() {
+            return Err("node already exists");
+        }
+        *slot = Some(Node::new(ctx.level, ctx.sequence));
+        Ok(())
+    }
+
     #[cfg(kani)]
     /// Expose entry-promotion criteria to Kani proofs.
     pub(crate) fn should_promote_entry_for_kani(current: Option<EntryPoint>, level: usize) -> bool {
