@@ -134,9 +134,9 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
     let mut miss_candidates = Vec::new();
     let mut miss_meta = Vec::new();
 
-    for (index, &candidate) in candidates.iter().enumerate() {
+    for (index, (&candidate, distance_slot)) in candidates.iter().zip(&mut distances).enumerate() {
         match cache.begin_lookup(&metric, node, candidate) {
-            LookupOutcome::Hit(value) => distances[index] = value,
+            LookupOutcome::Hit(value) => *distance_slot = value,
             LookupOutcome::Miss(miss) => {
                 miss_candidates.push(candidate);
                 miss_meta.push((index, miss));
@@ -161,7 +161,11 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
 
     for ((index, miss), distance) in miss_meta.into_iter().zip(miss_distances.into_iter()) {
         cache.complete_miss(miss, distance)?;
-        distances[index] = distance;
+        *distances
+            .get_mut(index)
+            .ok_or_else(|| HnswError::InvalidParameters {
+                reason: format!("distance slot {index} is outside the candidate batch"),
+            })? = distance;
     }
 
     Ok(distances)

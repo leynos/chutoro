@@ -452,6 +452,12 @@ Use `Option::map_or` for graph-entry, node-level, and fallback-neighbour
 defaults. Preserve all established fallback values while making defaulting
 intent explicit. Verify HNSW tests, formatting, and scoped Clippy.
 
+## Stage 3f: HNSW Batch Distance Buffers
+
+Fill cache-hit slots through a paired iterator and verify cache-miss slot
+access before writing. Preserve candidate ordering and cache completion
+behaviour. Verify HNSW tests, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
