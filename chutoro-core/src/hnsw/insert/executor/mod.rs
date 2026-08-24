@@ -140,7 +140,7 @@ impl<'graph> InsertionExecutor<'graph> {
 
         self.heal_connectivity_gaps(
             &mut reciprocated,
-            HealingContext {
+            &HealingContext {
                 filtered_new_node_neighbours: &filtered_new_node_neighbours,
                 new_node_id: new_node.id,
                 max_connections,
@@ -192,7 +192,7 @@ impl<'graph> InsertionExecutor<'graph> {
     fn heal_connectivity_gaps(
         &mut self,
         reciprocated: &mut [Vec<usize>],
-        healing_ctx: HealingContext<'_>,
+        healing_ctx: &HealingContext<'_>,
     ) {
         let mut healer = ConnectivityHealer::new(self.graph);
         for (level, neighbours) in reciprocated.iter_mut().enumerate() {

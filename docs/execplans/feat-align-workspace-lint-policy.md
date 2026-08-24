@@ -333,6 +333,15 @@ ID; and invariant collection distinguishes the requested iterable from its
 materialized values. Verify focused hierarchy, MST, and HNSW tests,
 `make check-fmt`, and package Clippy with only `clippy::shadow_reuse` denied.
 
+## Stage 2p: HNSW Insertion Mutation Names
+
+Distinguish the origin and new-node neighbour lists, optional evicted node, and
+borrowed healing context during insertion. Preserve the existing capacity
+eviction, deferred-scrub, and fallback-link decisions; only replace the
+equivalent optional-eviction branch with `Option::map_or`. Verify HNSW
+insertion tests, `make check-fmt`, and package Clippy with the affected naming
+and option-flow lints denied.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

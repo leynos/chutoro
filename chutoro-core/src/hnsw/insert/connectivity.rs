@@ -133,9 +133,9 @@ impl<'graph> ConnectivityHealer<'graph> {
         }
 
         let candidate_node = self.graph.node_mut(ctx.origin)?;
-        let neighbours = candidate_node.neighbours_mut(ctx.level);
-        let evicted = Self::add_to_neighbour_list(neighbours, new_node, limit);
-        if !neighbours.contains(&new_node) {
+        let origin_neighbours = candidate_node.neighbours_mut(ctx.level);
+        let evicted_node = Self::add_to_neighbour_list(origin_neighbours, new_node, limit);
+        if !origin_neighbours.contains(&new_node) {
             return None;
         }
 
@@ -144,19 +144,16 @@ impl<'graph> ConnectivityHealer<'graph> {
         }
 
         let new_node_ref = self.graph.node_mut(new_node)?;
-        let neighbours = new_node_ref.neighbours_mut(ctx.level);
-        Self::add_to_neighbour_list(neighbours, ctx.origin, limit);
-        if !neighbours.contains(&ctx.origin) {
+        let new_node_neighbours = new_node_ref.neighbours_mut(ctx.level);
+        Self::add_to_neighbour_list(new_node_neighbours, ctx.origin, limit);
+        if !new_node_neighbours.contains(&ctx.origin) {
             return None;
         }
 
         // Return the evicted node that needs cleanup instead of recursing
-        if let Some(evicted) = evicted {
-            self.clean_up_evicted_edge_inner(evicted, ctx)
-        } else {
-            // Link succeeded, no eviction
-            Some(new_node)
-        }
+        evicted_node.map_or(Some(new_node), |node_id| {
+            self.clean_up_evicted_edge_inner(node_id, ctx)
+        })
     }
 
     /// Cleans up a forward edge from an evicted node and returns the evicted node

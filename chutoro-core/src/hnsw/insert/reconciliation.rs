@@ -96,13 +96,13 @@ impl<'graph> EdgeReconciler<'graph> {
             return true;
         }
 
-        let mut evicted: Option<usize> = None;
+        let mut evicted_node: Option<usize> = None;
         if neighbours.len() < limit {
             neighbours.push(ctx.origin);
         } else if !neighbours.is_empty() {
             // Neighbour lists produced by trimming are ordered furthest-first; evict
             // the furthest (front) to preserve closer entries when capacity is full.
-            evicted = Some(neighbours.remove(0));
+            evicted_node = Some(neighbours.remove(0));
             neighbours.push(ctx.origin);
         }
 
@@ -119,9 +119,9 @@ impl<'graph> EdgeReconciler<'graph> {
             }
         }
 
-        if let Some(evicted) = evicted {
+        if let Some(evicted_node) = evicted_node {
             self.deferred_scrubs.push(DeferredScrub {
-                origin: evicted,
+                origin: evicted_node,
                 target,
                 level: ctx.level,
             });
