@@ -90,7 +90,7 @@ spelling-helper-test: ## Validate the shared spelling-policy integration
 nixie: ## Validate Mermaid diagrams
 	find . -type f -name '*.md' -not -path './target/*' -not -path './.verus/*' \
 		-not -path './.uv-cache/*' -not -path './.uv-tools/*' -print0 | \
-		xargs -0 $(NIXIE) --max-concurrency 1 --no-sandbox
+		xargs -0 $(NIXIE) --no-sandbox
 
 kani: ## Run Kani practical harnesses
 	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_smoke_2_nodes_1_layer

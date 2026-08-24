@@ -219,6 +219,9 @@ keeps local editor feedback aligned with commit gates.
       one intentionally skipped test. The focused cache suite also retains
       the LRU-eviction and TTL-refresh coverage required by the cache
       refactoring.
+- [x] 2026-08-24: Committed the final local remediation as `f4584ac` and
+      force-pushed it with lease to `origin/feat/align-workspace-lint-policy`.
+      `git ls-remote` confirms the remote branch at that exact commit.
 - [ ] Document the exception model, run final gates and CodeRabbit review,
       then update the existing draft pull request.
 
@@ -246,9 +249,13 @@ keeps local editor feedback aligned with commit gates.
   passing tests and one skipped test.
 - The final Mermaid gate twice timed out while rendering figure 3 in the
   unchanged bounded-Kani plan concurrently. Rendering that input serially
-  succeeded, so the `make nixie` target now limits Nixie to one renderer job.
-  This preserves diagram validation while avoiding renderer contention on the
-  six-core development host.
+  succeeded, and the unchanged `make nixie` target subsequently passed. A
+  later serial experiment also timed out while direct `merman-cli` rendering
+  passed immediately, so renderer scheduling is not a valid repository fix.
+- Git transport can push the branch, but the GitHub API is unavailable from
+  this sandbox and the local `comenq` daemon socket rejects access. CodeRabbit
+  queueing and draft pull-request inspection therefore remain external
+  publication steps rather than inferred successes.
 - Moving the self-named modules is a content-preserving layout migration: all
   seven destination directories already existed for their child modules. The
   scoped core Clippy run now has no `self_named_module_files` diagnostics and
