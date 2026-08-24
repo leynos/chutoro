@@ -59,6 +59,28 @@ fn graph_neighbours_are_unique(graph: &Graph) -> bool {
     true
 }
 
+/// Prepares the bounded two-node graph and update context shared by the
+/// per-level reverse-edge proofs.
+///
+/// Constructs bounded parameters, builds the two-node graph, seeds the
+/// forward edge nondeterministically, and returns the graph together with
+/// the origin's update context. Returns `None` when construction fails,
+/// after asserting the failure.
+fn setup_reverse_edge_proof(level: usize) -> Option<(Graph, KaniUpdateContext)> {
+    let Ok(params) = HnswParams::new_for_kani(2, 2) else {
+        kani::assert(false, "failed to construct bounded HNSW params");
+        return None;
+    };
+    let max_connections = params.max_connections();
+    let mut graph = setup_two_node_graph(params)?;
+
+    if kani::any::<bool>() {
+        add_edge_if_missing(&mut graph, 0, 1, level);
+    }
+    let ctx = KaniUpdateContext::new(0, level, max_connections);
+    Some((graph, ctx))
+}
+
 /// Verifies that no node has itself as a neighbour (no self-loops).
 ///
 /// This harness drives the production `EdgeReconciler::ensure_reverse_edge`
@@ -93,19 +115,9 @@ fn verify_no_self_loops_2_nodes_upper_layer() {
 
 /// Shared body for the per-level no-self-loop proofs.
 fn check_no_self_loops_at_level(level: usize) {
-    let Ok(params) = HnswParams::new_for_kani(2, 2) else {
-        kani::assert(false, "failed to construct bounded HNSW params");
+    let Some((mut graph, ctx)) = setup_reverse_edge_proof(level) else {
         return;
     };
-    let max_connections = params.max_connections();
-    let Some(mut graph) = setup_two_node_graph(params) else {
-        return;
-    };
-
-    if kani::any::<bool>() {
-        add_edge_if_missing(&mut graph, 0, 1, level);
-    }
-    let ctx = KaniUpdateContext::new(0, level, max_connections);
     let added = ensure_reverse_edge_for_kani(&mut graph, ctx, 1);
     kani::assert(added, "reverse edge must be ensured");
 
@@ -147,19 +159,9 @@ fn verify_neighbour_uniqueness_2_nodes_upper_layer() {
 
 /// Shared body for the per-level neighbour-uniqueness proofs.
 fn check_neighbour_uniqueness_at_level(level: usize) {
-    let Ok(params) = HnswParams::new_for_kani(2, 2) else {
-        kani::assert(false, "failed to construct bounded HNSW params");
+    let Some((mut graph, ctx)) = setup_reverse_edge_proof(level) else {
         return;
     };
-    let max_connections = params.max_connections();
-    let Some(mut graph) = setup_two_node_graph(params) else {
-        return;
-    };
-
-    if kani::any::<bool>() {
-        add_edge_if_missing(&mut graph, 0, 1, level);
-    }
-    let ctx = KaniUpdateContext::new(0, level, max_connections);
     let first = ensure_reverse_edge_for_kani(&mut graph, ctx, 1);
     kani::assert(first, "first reconciliation must succeed");
     let second = ensure_reverse_edge_for_kani(&mut graph, ctx, 1);

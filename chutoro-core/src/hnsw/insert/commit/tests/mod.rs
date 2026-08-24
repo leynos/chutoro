@@ -333,15 +333,6 @@ fn isolation_replacement_keeps_bidirectionality(
         applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
     applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
 
-    for node_id in 0..3usize {
-        let node = graph.node(node_id).expect("node exists");
-        for &neighbour in node.neighbours(0) {
-            let other = graph.node(neighbour).expect("neighbour exists");
-            assert!(
-                other.neighbours(0).contains(&node_id),
-                "edge {node_id}->{neighbour} has no reverse edge",
-            );
-        }
-    }
+    assert_graph_bidirectional(&graph, 3);
     Ok(())
 }

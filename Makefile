@@ -110,7 +110,7 @@ verus: ## Run Verus proofs for edge harvest primitives
 bench: ## Run Criterion benchmarks
 	$(CARGO) bench -p chutoro-benches
 
-test-workflow-contracts: ## Validate the mutation-testing caller contract
+test-workflow-contracts: ## Validate the CI workflow contracts
 	uv run --with 'pytest>=8' --with 'pyyaml>=6' pytest tests/workflow_contracts -q
 
 help: ## Show available targets

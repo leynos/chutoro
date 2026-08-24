@@ -26,6 +26,26 @@ pub struct HnswParams {
     distance_cache: DistanceCacheConfig,
 }
 
+/// Reasons parameter validation fails.
+///
+/// Shared by the production and Kani constructors so both map the same
+/// checks to their own error representations.
+#[derive(Clone, Copy, Debug)]
+enum ParamsError {
+    ZeroMaxConnections,
+    EfBelowMaxConnections,
+}
+
+#[cfg(kani)]
+impl ParamsError {
+    /// Returns the static reason used by the Kani constructor.
+    fn static_reason(self) -> &'static str {
+        match self {
+            Self::ZeroMaxConnections => "max_connections must be greater than zero",
+            Self::EfBelowMaxConnections => "ef_construction must be at least max_connections",
+        }
+    }
+}
 impl HnswParams {
     /// Creates a new parameter set with explicit neighbour and search widths.
     ///
@@ -40,29 +60,15 @@ impl HnswParams {
     /// assert_eq!(params.max_connections(), 16);
     /// ```
     pub fn new(max_connections: usize, ef_construction: usize) -> Result<Self, HnswError> {
-        if max_connections == 0 {
-            return Err(HnswError::InvalidParameters {
+        Self::validate_and_build(max_connections, ef_construction).map_err(|reason| match reason {
+            ParamsError::ZeroMaxConnections => HnswError::InvalidParameters {
                 reason: "max_connections must be greater than zero".into(),
-            });
-        }
-        if ef_construction < max_connections {
-            return Err(HnswError::InvalidParameters {
+            },
+            ParamsError::EfBelowMaxConnections => HnswError::InvalidParameters {
                 reason: format!(
                     "ef_construction ({ef_construction}) must be >= max_connections ({max_connections})"
                 ),
-            });
-        }
-        Ok(Self {
-            max_connections,
-            ef_construction,
-            level_multiplier: max_connections
-                .to_f64()
-                .unwrap_or(f64::INFINITY)
-                .ln()
-                .recip(),
-            max_level: 12,
-            rng_seed: 0x5EED_CAFE,
-            distance_cache: DistanceCacheConfig::default(),
+            },
         })
     }
 
@@ -72,20 +78,8 @@ impl HnswParams {
         max_connections: usize,
         ef_construction: usize,
     ) -> Result<Self, &'static str> {
-        if max_connections == 0 {
-            return Err("max_connections must be greater than zero");
-        }
-        if ef_construction < max_connections {
-            return Err("ef_construction must be at least max_connections");
-        }
-        Ok(Self {
-            max_connections,
-            ef_construction,
-            level_multiplier: (max_connections as f64).ln().recip(),
-            max_level: 12,
-            rng_seed: 0x5EED_CAFE,
-            distance_cache: DistanceCacheConfig::default(),
-        })
+        Self::validate_and_build(max_connections, ef_construction)
+            .map_err(ParamsError::static_reason)
     }
 
     /// Overrides the random level multiplier used when sampling layers.
@@ -182,6 +176,35 @@ impl HnswParams {
         self.ef_construction = self.effective_ef_construction(point_count);
         self
     }
+
+    /// Validates the parameters and constructs the defaults.
+    ///
+    /// Shared by the production and Kani constructors; returns a static
+    /// reason so the Kani path never constructs formatted errors, and keeps
+    /// `max_level`, `rng_seed`, and `level_multiplier` defined once.
+    fn validate_and_build(
+        max_connections: usize,
+        ef_construction: usize,
+    ) -> Result<Self, ParamsError> {
+        if max_connections == 0 {
+            return Err(ParamsError::ZeroMaxConnections);
+        }
+        if ef_construction < max_connections {
+            return Err(ParamsError::EfBelowMaxConnections);
+        }
+        Ok(Self {
+            max_connections,
+            ef_construction,
+            level_multiplier: max_connections
+                .to_f64()
+                .unwrap_or(f64::INFINITY)
+                .ln()
+                .recip(),
+            max_level: 12,
+            rng_seed: 0x5EED_CAFE,
+            distance_cache: DistanceCacheConfig::default(),
+        })
+    }
 }
 
 impl Default for HnswParams {
@@ -201,7 +224,7 @@ impl Default for HnswParams {
     fn default() -> Self {
         match Self::new(16, 64) {
             Ok(params) => params,
-            Err(err) => unreachable!("default parameters must be valid: {}", err),
+            Err(err) => unreachable!("default parameters must be valid: {err}"),
         }
     }
 }

@@ -263,7 +263,7 @@ Phase 1 replaced those construction paths with `#[cfg(kani)]` lean constructors
 returning static error reasons, and replaced harness `.expect(...)` calls with
 Kani assertions and early returns.
 
-The residual non-completion had two further causes, both resolved:
+The residual non-completion had three further causes, all resolved:
 
 1. **Symbolic hashing in connectivity healing.** `ConnectivityHealer` tracked
    visited nodes with `std::collections::HashSet`, whose randomized SipHash

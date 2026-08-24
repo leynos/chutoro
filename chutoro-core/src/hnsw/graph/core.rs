@@ -206,6 +206,28 @@ pub(crate) struct Graph {
     pub(super) entry: Option<EntryPoint>,
 }
 
+/// Reasons a node context fails validation during attachment.
+///
+/// Shared by the production and Kani constructors so both map the same
+/// checks to their own error representations.
+#[derive(Clone, Copy, Debug)]
+enum AttachNodeError {
+    LevelExceedsMax,
+    OutsideCapacity,
+    Duplicate,
+}
+
+#[cfg(kani)]
+impl AttachNodeError {
+    /// Returns the static reason used by the Kani constructors.
+    fn static_reason(self) -> &'static str {
+        match self {
+            Self::LevelExceedsMax => "node level exceeds max_level",
+            Self::OutsideCapacity => "node is outside pre-allocated capacity",
+            Self::Duplicate => "node already exists",
+        }
+    }
+}
 /// Report whether `level` should replace the graph's current entry level.
 fn should_promote_entry(current: Option<EntryPoint>, level: usize) -> bool {
     level > current.map_or(0, |entry| entry.level)
@@ -265,63 +287,67 @@ impl Graph {
     /// Insert the first node and make it the graph entry point.
     pub(crate) fn insert_first(&mut self, ctx: NodeContext) -> Result<(), HnswError> {
         self.attach_node(ctx)?;
-        self.entry = Some(EntryPoint {
-            node: ctx.node,
-            level: ctx.level,
-        });
+        self.promote_entry_to(ctx);
         Ok(())
     }
 
     /// Initialise an unoccupied graph slot with its node context.
     pub(crate) fn attach_node(&mut self, ctx: NodeContext) -> Result<(), HnswError> {
-        if ctx.level > self.params.max_level() {
-            return Err(HnswError::InvalidParameters {
+        self.attach_node_inner(ctx).map_err(|reason| match reason {
+            AttachNodeError::LevelExceedsMax => HnswError::InvalidParameters {
                 reason: format!(
                     "node {}: level {} exceeds max_level {}",
                     ctx.node,
                     ctx.level,
                     self.params.max_level()
                 ),
-            });
-        }
-        let slot = self
-            .nodes
-            .get_mut(ctx.node)
-            .ok_or_else(|| HnswError::InvalidParameters {
+            },
+            AttachNodeError::OutsideCapacity => HnswError::InvalidParameters {
                 reason: format!("node {} is outside pre-allocated capacity", ctx.node),
-            })?;
+            },
+            AttachNodeError::Duplicate => HnswError::DuplicateNode { node: ctx.node },
+        })
+    }
+
+    /// Validates the context and initialises the node slot.
+    ///
+    /// Shared by the production and Kani constructors; returns a static
+    /// reason so the Kani path never constructs formatted errors.
+    fn attach_node_inner(&mut self, ctx: NodeContext) -> Result<(), AttachNodeError> {
+        if ctx.level > self.params.max_level() {
+            return Err(AttachNodeError::LevelExceedsMax);
+        }
+        let Some(slot) = self.nodes.get_mut(ctx.node) else {
+            return Err(AttachNodeError::OutsideCapacity);
+        };
         if slot.is_some() {
-            return Err(HnswError::DuplicateNode { node: ctx.node });
+            return Err(AttachNodeError::Duplicate);
         }
         *slot = Some(Node::new(ctx.level, ctx.sequence));
         Ok(())
+    }
+
+    /// Records the node as the graph entry point.
+    fn promote_entry_to(&mut self, ctx: NodeContext) {
+        self.entry = Some(EntryPoint {
+            node: ctx.node,
+            level: ctx.level,
+        });
     }
 
     /// Inserts the first Kani node without constructing formatted production errors.
     #[cfg(kani)]
     pub(crate) fn insert_first_for_kani(&mut self, ctx: NodeContext) -> Result<(), &'static str> {
         self.attach_node_for_kani(ctx)?;
-        self.entry = Some(EntryPoint {
-            node: ctx.node,
-            level: ctx.level,
-        });
+        self.promote_entry_to(ctx);
         Ok(())
     }
 
     /// Attaches a Kani node without constructing formatted production errors.
     #[cfg(kani)]
     pub(crate) fn attach_node_for_kani(&mut self, ctx: NodeContext) -> Result<(), &'static str> {
-        if ctx.level > self.params.max_level() {
-            return Err("node level exceeds max_level");
-        }
-        let Some(slot) = self.nodes.get_mut(ctx.node) else {
-            return Err("node is outside pre-allocated capacity");
-        };
-        if slot.is_some() {
-            return Err("node already exists");
-        }
-        *slot = Some(Node::new(ctx.level, ctx.sequence));
-        Ok(())
+        self.attach_node_inner(ctx)
+            .map_err(AttachNodeError::static_reason)
     }
 
     #[cfg(kani)]
