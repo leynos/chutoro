@@ -78,9 +78,15 @@ fn graph_neighbours_are_unique(graph: &Graph) -> bool {
 /// per-level reverse-edge proofs.
 ///
 /// Constructs bounded parameters, builds the two-node graph, seeds the
-/// forward edge nondeterministically, and returns the graph together with
-/// the origin's update context. Returns `None` when construction fails,
-/// after asserting the failure.
+/// forward edge from node 0 to node 1 nondeterministically, and returns the
+/// graph together with the origin's update context. Returns `None` when
+/// construction fails, after asserting the failure.
+///
+/// This helper is private to this module and serves the bounded two-node
+/// Kani reconciliation proofs only. It must not become a general
+/// graph-construction abstraction: widening it beyond two nodes, a concrete
+/// level, or this seeding pattern would reintroduce the state-space growth
+/// recorded in the developers' guide, "Kani CI policy".
 fn setup_reverse_edge_proof(level: usize) -> Option<(Graph, KaniUpdateContext)> {
     let Ok(params) = HnswParams::new_for_kani(2, 2) else {
         kani::assert(false, "failed to construct bounded HNSW params");
