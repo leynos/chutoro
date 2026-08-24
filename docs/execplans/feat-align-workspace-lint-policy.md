@@ -504,6 +504,13 @@ with the traversal loop. Preserve layer validation, visited-node detection, and
 failure collection behaviour. Verify invariant tests, formatting, and scoped
 Clippy.
 
+## Stage 3n: HNSW Reachability Visit State
+
+Centralize bounds-safe visited-state access for BFS reachability checks.
+Preserve the traversal order for valid graph identifiers while treating invalid
+visited slots as unvisited. Verify invariant tests, formatting, and scoped
+Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

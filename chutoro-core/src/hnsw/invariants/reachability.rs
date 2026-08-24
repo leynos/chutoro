@@ -119,7 +119,7 @@ fn process_neighbour(
         .validator
         .ensure(task.origin, task.target, task.level)
     {
-        Ok(_) if context.visited[task.target] => {}
+        Ok(_) if context.is_visited(task.target) => {}
         Ok(_) => context.visit(task.target),
         Err(err) => mode.record(err)?,
     }
@@ -147,7 +147,7 @@ fn check_all_nodes_visited(
     mode: &mut EvaluationMode<'_>,
 ) -> Result<(), HnswInvariantViolation> {
     for (node_id, _) in graph.nodes_iter() {
-        if !context.visited[node_id] {
+        if !context.is_visited(node_id) {
             mode.record(HnswInvariantViolation::UnreachableNode { node: node_id })?;
         }
     }
@@ -168,9 +168,14 @@ impl BfsContext {
     }
 
     fn visit(&mut self, node: usize) {
-        debug_assert!(node < self.visited.len(), "node ID exceeds graph capacity");
-        self.visited[node] = true;
-        self.queue.push_back(node);
+        if let Some(is_visited) = self.visited.get_mut(node) {
+            *is_visited = true;
+            self.queue.push_back(node);
+        }
+    }
+
+    fn is_visited(&self, node: usize) -> bool {
+        self.visited.get(node).is_some_and(|is_visited| *is_visited)
     }
 }
 
@@ -232,7 +237,10 @@ mod tests {
         process_neighbour(&traversal, &task, &mut context, &mut mode)
             .expect("fresh targets should be enqueued");
 
-        assert!(context.visited[1], "expected node 1 to be marked visited");
+        assert!(
+            context.is_visited(1),
+            "expected node 1 to be marked visited"
+        );
         assert_eq!(context.queue.pop_front(), Some(1));
         Ok(())
     }
