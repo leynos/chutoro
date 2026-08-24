@@ -2,7 +2,7 @@
 //!
 //! # Note: Primitive Obsession suppression
 //!
-//! This module is excluded from the CodeScene Primitive Obsession rule
+//! This module is excluded from the `CodeScene` Primitive Obsession rule
 //! (see `.codescene/code-health-rules.json`). The kernel functions here
 //! operate directly on `&[f32]` slices and `usize` offsets because SIMD
 //! intrinsics require contiguous, unboxed memory and raw index arithmetic.
@@ -216,6 +216,10 @@ pub(super) fn query_points_entry(
     backend_kernels(backend).map(|k| k.query_points)
 }
 
+#[expect(
+    clippy::float_arithmetic,
+    reason = "squared-L2 accumulation is the scalar reference kernel's numerical operation"
+)]
 pub(super) fn euclidean_distance_query_points_scalar(
     query: &[f32],
     points: &DensePointView<'_>,
@@ -257,10 +261,18 @@ fn select_euclidean_query_points_kernel() -> EuclideanQueryPointsKernel {
     )
 }
 
-fn finalize_distance(value: f32) -> f32 {
+const fn finalize_distance(value: f32) -> f32 {
     if value.is_finite() { value } else { f32::NAN }
 }
 
+#[expect(
+    clippy::float_arithmetic,
+    reason = "squared-L2 accumulation is the tail kernel's numerical operation"
+)]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "SIMD callers advance the tail offset only while it remains within both equal-length rows"
+)]
 fn squared_l2_tail(left: &[f32], right: &[f32], offset: usize) -> f32 {
     left[offset..]
         .iter()

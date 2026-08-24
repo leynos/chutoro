@@ -17,7 +17,7 @@
 //! Together these layers keep dispatch, feature gating, and backend numerical
 //! behaviour aligned without requiring tests to assume a particular host CPU.
 
-use super::dispatch::{self, CompiledSimdSupport, RuntimeSimdSupport};
+use super::dispatch::{self, CompiledSimdSupport, CpuSimdSupport, RuntimeSimdSupport};
 use super::kernels;
 use super::*;
 use rstest::{fixture, rstest};
@@ -35,6 +35,10 @@ const CLOSE_TOLERANCE: f32 = 1.0e-6_f32;
 ///
 /// A pure query so the comparison and its diagnostics belong to the calling
 /// test rather than to a shared assertion helper.
+#[expect(
+    clippy::float_arithmetic,
+    reason = "a tolerance-based assertion must calculate the distance delta"
+)]
 fn distance_delta(left: Distance, right: Distance) -> f32 {
     (left.get() - right.get()).abs()
 }
@@ -60,59 +64,59 @@ macro_rules! assert_close {
 pub(crate) use assert_close;
 
 #[fixture]
-fn matrix_3x2() -> Result<RowMajorMatrix<'static>, DataSourceError> {
+fn matrix_3x2() -> RowMajorMatrix<'static> {
     const VALUES: [f32; 6] = [1.0, 2.0, 4.0, 6.0, 2.0, 1.0];
-    Ok(RowMajorMatrix::new(
+    RowMajorMatrix::new(
         MatrixValues::new(&VALUES),
         RowCount::new(3),
         Dimension::new(2),
-    ))
+    )
 }
 
 #[rstest]
 #[case(
-    CompiledSimdSupport::new(false, false, false, false),
-    RuntimeSimdSupport::new(true, true, true, true),
+    CompiledSimdSupport::new(CpuSimdSupport::new(false, false, false), false),
+    RuntimeSimdSupport::new(CpuSimdSupport::new(true, true, true), true),
     dispatch::EuclideanBackend::Scalar
 )]
 #[case(
-    CompiledSimdSupport::new(true, false, false, false),
-    RuntimeSimdSupport::new(true, false, false, false),
+    CompiledSimdSupport::new(CpuSimdSupport::new(true, false, false), false),
+    RuntimeSimdSupport::new(CpuSimdSupport::new(true, false, false), false),
     dispatch::EuclideanBackend::Avx2
 )]
 #[case(
-    CompiledSimdSupport::new(true, true, false, false),
-    RuntimeSimdSupport::new(true, true, false, false),
+    CompiledSimdSupport::new(CpuSimdSupport::new(true, true, false), false),
+    RuntimeSimdSupport::new(CpuSimdSupport::new(true, true, false), false),
     dispatch::EuclideanBackend::Avx512
 )]
 #[case(
-    CompiledSimdSupport::new(false, false, true, false),
-    RuntimeSimdSupport::new(false, false, true, false),
+    CompiledSimdSupport::new(CpuSimdSupport::new(false, false, true), false),
+    RuntimeSimdSupport::new(CpuSimdSupport::new(false, false, true), false),
     dispatch::EuclideanBackend::Neon
 )]
 #[case(
-    CompiledSimdSupport::new(false, false, false, true),
-    RuntimeSimdSupport::new(false, false, false, true),
+    CompiledSimdSupport::new(CpuSimdSupport::new(false, false, false), true),
+    RuntimeSimdSupport::new(CpuSimdSupport::new(false, false, false), true),
     dispatch::EuclideanBackend::PortableSimd
 )]
 #[case(
-    CompiledSimdSupport::new(true, false, false, true),
-    RuntimeSimdSupport::new(true, false, false, true),
+    CompiledSimdSupport::new(CpuSimdSupport::new(true, false, false), true),
+    RuntimeSimdSupport::new(CpuSimdSupport::new(true, false, false), true),
     dispatch::EuclideanBackend::Avx2
 )]
 #[case(
-    CompiledSimdSupport::new(false, true, false, false),
-    RuntimeSimdSupport::new(false, false, false, false),
+    CompiledSimdSupport::new(CpuSimdSupport::new(false, true, false), false),
+    RuntimeSimdSupport::new(CpuSimdSupport::new(false, false, false), false),
     dispatch::EuclideanBackend::Scalar
 )]
 #[case(
-    CompiledSimdSupport::new(false, false, true, false),
-    RuntimeSimdSupport::new(false, false, false, false),
+    CompiledSimdSupport::new(CpuSimdSupport::new(false, false, true), false),
+    RuntimeSimdSupport::new(CpuSimdSupport::new(false, false, false), false),
     dispatch::EuclideanBackend::Scalar
 )]
 #[case(
-    CompiledSimdSupport::new(false, false, false, true),
-    RuntimeSimdSupport::new(false, false, false, false),
+    CompiledSimdSupport::new(CpuSimdSupport::new(false, false, false), true),
+    RuntimeSimdSupport::new(CpuSimdSupport::new(false, false, false), false),
     dispatch::EuclideanBackend::Scalar
 )]
 fn choose_euclidean_backend_prefers_best_enabled_supported_backend(
@@ -205,11 +209,12 @@ fn batch_pairs_reject_mismatched_output_lengths(
     assert!(matches!(err, DataSourceError::OutputLengthMismatch { .. }));
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the test directly asserts the three fixed outputs requested by its three-pair fixture"
+)]
 #[rstest]
-fn batch_pairs_compute_distances(
-    #[from(matrix_3x2)] matrix_result: Result<RowMajorMatrix<'static>, DataSourceError>,
-) {
-    let matrix_3x2 = matrix_result.expect("matrix fixture must build");
+fn batch_pairs_compute_distances(#[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>) {
     let pairs = vec![
         DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
         DistancePair::new(RowIndex::new(0), RowIndex::new(2)),
@@ -244,7 +249,7 @@ fn query_points_kernel_canonicalizes_non_finite_results_to_nan(
         RowCount::new(2),
         Dimension::new(query.len()),
     );
-    let query = matrix
+    let query_row = matrix
         .row(RowIndex::new(0))
         .expect("query row must be in bounds");
     let points = DensePointView::from_row_indices(matrix, &[RowIndex::new(1)])
@@ -252,18 +257,17 @@ fn query_points_kernel_canonicalizes_non_finite_results_to_nan(
     let mut scalar = vec![0.0_f32; 1];
     let mut actual = vec![0.0_f32; 1];
 
-    kernels::euclidean_distance_query_points_scalar(query.as_slice(), &points, &mut scalar);
-    kernels::euclidean_distance_query_points(query.as_slice(), &points, &mut actual);
+    kernels::euclidean_distance_query_points_scalar(query_row.as_slice(), &points, &mut scalar);
+    kernels::euclidean_distance_query_points(query_row.as_slice(), &points, &mut actual);
 
-    assert!(scalar[0].is_nan());
-    assert!(actual[0].is_nan());
+    assert!(scalar.first().is_some_and(|value| value.is_nan()));
+    assert!(actual.first().is_some_and(|value| value.is_nan()));
 }
 
 #[rstest]
 fn batch_pairs_leave_output_unmodified_on_error(
-    #[from(matrix_3x2)] matrix_result: Result<RowMajorMatrix<'static>, DataSourceError>,
+    #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
 ) {
-    let matrix_3x2 = matrix_result.expect("matrix fixture must build");
     let pairs = vec![
         DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
         DistancePair::new(RowIndex::new(0), RowIndex::new(9)),
@@ -280,9 +284,8 @@ fn batch_pairs_leave_output_unmodified_on_error(
 
 #[rstest]
 fn raw_pairs_preserve_original_validation_order_for_shared_query_batches(
-    #[from(matrix_3x2)] matrix_result: Result<RowMajorMatrix<'static>, DataSourceError>,
+    #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
 ) {
-    let matrix_3x2 = matrix_result.expect("matrix fixture must build");
     let pairs = vec![(99, 1), (0, 1)];
     let mut out = vec![10.0_f32; pairs.len()];
     let mut out_buffer = DistanceBuffer::new(&mut out);
@@ -294,11 +297,14 @@ fn raw_pairs_preserve_original_validation_order_for_shared_query_batches(
     assert_eq!(out, vec![10.0_f32; pairs.len()]);
 }
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the test directly asserts the two fixed outputs of its two-point fixture"
+)]
 #[rstest]
 fn query_points_kernel_matches_scalar_reference(
-    #[from(matrix_3x2)] matrix_result: Result<RowMajorMatrix<'static>, DataSourceError>,
+    #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
 ) {
-    let matrix_3x2 = matrix_result.expect("matrix fixture must build");
     let query = matrix_3x2
         .row(RowIndex::new(0))
         .expect("query row must be in bounds");

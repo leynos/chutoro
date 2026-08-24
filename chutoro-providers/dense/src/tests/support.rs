@@ -1,5 +1,5 @@
-//! Test support utilities for constructing Arrow arrays, Parquet data, and DenseMatrixProvider
-//! instances from RecordBatches. Provides helpers for building FixedSizeListArray fixtures with
+//! Test support utilities for constructing Arrow arrays, Parquet data, and `DenseMatrixProvider`
+//! instances from `RecordBatches`. Provides helpers for building `FixedSizeListArray` fixtures with
 //! various null-handling patterns (row nulls, value nulls) and for serializing arrays to Parquet
 //! format for ingest testing. Helpers are fallible so tests decide how failures are reported.
 
@@ -76,8 +76,8 @@ fn ensure_rows_len<T>(rows: &[Vec<T>], dimension: usize) -> Result<(), FixtureEr
 /// # Errors
 /// Propagates any [`FixtureError`] raised by [`build_list_array`].
 pub(crate) fn build_array(rows: &[[f32; 3]]) -> Result<FixedSizeListArray, FixtureError> {
-    let rows = rows.iter().map(|row| row.to_vec()).collect::<Vec<_>>();
-    build_list_array(&rows, 3, false)
+    let row_values = rows.iter().map(|row| row.to_vec()).collect::<Vec<_>>();
+    build_list_array(&row_values, 3, false)
 }
 
 /// Builds a fixed-size list array from dense rows with no nulls.
@@ -116,16 +116,13 @@ pub(crate) fn build_list_array_with_row_nulls(
     let mut flat = Vec::with_capacity(rows.len().saturating_mul(dimension));
     let mut validity = BooleanBufferBuilder::new(rows.len());
     for (index, row) in rows.iter().enumerate() {
-        match row {
-            Some(values) => {
-                ensure_row_len(index, values.len(), dimension)?;
-                validity.append(true);
-                flat.extend_from_slice(values);
-            }
-            None => {
-                validity.append(false);
-                flat.extend(iter::repeat_n(0.0, dimension));
-            }
+        if let Some(values) = row {
+            ensure_row_len(index, values.len(), dimension)?;
+            validity.append(true);
+            flat.extend_from_slice(values);
+        } else {
+            validity.append(false);
+            flat.extend(iter::repeat_n(0.0, dimension));
         }
     }
     let values = Float32Array::from(flat);
@@ -150,7 +147,7 @@ pub(crate) fn build_list_array_with_value_nulls(
     dimension: usize,
 ) -> Result<FixedSizeListArray, FixtureError> {
     ensure_rows_len(rows, dimension)?;
-    let values = Float32Array::from_iter(rows.iter().flatten().copied());
+    let values = rows.iter().flatten().copied().collect::<Float32Array>();
     fixed_size_list_from_values(values, dimension, true)
 }
 
@@ -218,9 +215,12 @@ pub(crate) fn try_from_record_batches(
         rows += list.len();
     }
 
-    let dimension = dimension.unwrap_or(0);
+    let resolved_dimension = dimension.unwrap_or(0);
     Ok(DenseMatrixProvider::from_parts(
-        name, rows, dimension, values,
+        name,
+        rows,
+        resolved_dimension,
+        values,
     ))
 }
 

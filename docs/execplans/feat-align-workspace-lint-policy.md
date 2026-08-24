@@ -131,8 +131,10 @@ keeps local editor feedback aligned with commit gates.
       Resolved its all-target Clippy diagnostics without changing CI gate
       output or profile-selection behaviour; the focused crate Clippy and test
       gates pass.
-- [ ] Enrol `chutoro-providers-dense` in `[workspace.lints]`, resolving its
-      live diagnostics in a bounded crate stage.
+- [x] 2026-08-24: Enrolled `chutoro-providers-dense` in
+      `[workspace.lints]`, resolved its 127 all-target Clippy diagnostics, and
+      preserved the SIMD, numerical, and fixed-seed fixture contracts. Scoped
+      all-target Clippy, Whitaker, and crate tests pass.
 - [ ] Replace the `chutoro-benches` lint-table mirror with
       `[lints] workspace = true`; keep only scoped, documented expectations
       for unavoidable Criterion expansion diagnostics.
@@ -142,10 +144,10 @@ keeps local editor feedback aligned with commit gates.
       with the user-path command boundary and its two `cli::tests` fixture
       modules. `make lint` passes with Whitaker enforcing every other CLI
       module.
-- [ ] Narrow Whitaker filesystem exclusions to the ambient boundaries in
-      `chutoro-providers-dense`, `chutoro-test-support` and `chutoro-benches`;
-      retain only separately compiled gate binaries and integration-test
-      crates whose ambient fixture staging is intentional.
+- [ ] Narrow Whitaker filesystem exclusions to the remaining ambient
+      boundaries in `chutoro-test-support` and `chutoro-benches`; retain only
+      separately compiled gate binaries and integration-test crates whose
+      ambient fixture staging is intentional.
 - [ ] Document the exception model, run final gates and CodeRabbit review,
       then update the existing draft pull request.
 
@@ -191,6 +193,13 @@ keeps local editor feedback aligned with commit gates.
   diagnostics. Its distinct SIMD kernels, property fixtures and module-layout
   migration must be remediated as a dedicated stage; its manifest remains
   unchanged until that stage can finish green.
+- The completed dense stage moves its two parent modules to `mod.rs` and
+  replaces unchecked test/support access with safe indexing. These repairs
+  preserve the existing fixture topology and numerical contracts.
+- Dense's only direct filesystem use is the backwards-compatible
+  `try_from_parquet_path` convenience API. Whitaker confirms that excluding its
+  private path-opening adapter, rather than the whole dense crate, leaves all
+  other dense modules enforced.
 - `chutoro-test-support` now inherits the workspace lint policy. Its initial
   diagnostics were confined to output emission, small CI-profile helpers and
   integration-test parsing; the remediation preserves the gate binaries' stdout
@@ -221,6 +230,12 @@ keeps local editor feedback aligned with commit gates.
   then regenerate `Cargo.lock` from the merged manifest. Rationale: this
   preserves both the upstream type-family compatibility invariant and the
   branch's numerical-safety remediation.
+- 2026-08-24: Keep `DenseMatrixProvider::try_from_parquet_path` as a
+  compatibility convenience, but isolate its ambient `Path` to `File`
+  conversion in the private `parquet_path` module. That module is owned solely
+  by the convenience constructor and must not be reused by new provider APIs;
+  callers with a capability or readable source use `try_from_parquet_reader`.
+  `dylint.toml` excludes only this adapter.
 
 ## Stage 2a: Core Mechanical Lint Onboarding
 

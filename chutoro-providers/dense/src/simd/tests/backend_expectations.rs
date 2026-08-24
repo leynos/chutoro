@@ -23,7 +23,7 @@ fn distance_semantics_contract_snapshot() {
 /// [`dispatch::enabled_backends`] on the current host.
 ///
 /// True iff the `simd_avx512` feature is compiled in, the target is
-/// x86/x86_64, and AVX-512F is detected at runtime.
+/// `x86/x86_64`, and AVX-512F is detected at runtime.
 fn avx512_backend_expected() -> bool {
     cfg!(feature = "simd_avx512")
         && cfg!(any(target_arch = "x86", target_arch = "x86_64"))
@@ -34,7 +34,7 @@ fn avx512_backend_expected() -> bool {
 /// [`dispatch::enabled_backends`] on the current host.
 ///
 /// True iff the `simd_avx2` feature is compiled in, the target is
-/// x86/x86_64, and AVX2 is detected at runtime.
+/// `x86/x86_64`, and AVX2 is detected at runtime.
 fn avx2_backend_expected() -> bool {
     cfg!(feature = "simd_avx2")
         && cfg!(any(target_arch = "x86", target_arch = "x86_64"))

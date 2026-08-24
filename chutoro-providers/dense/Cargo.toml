@@ -31,3 +31,6 @@ trybuild = "1.0"
 [dev-dependencies.chutoro-test-support]
 version = "0.1.0"
 path = "../../chutoro-test-support"
+
+[lints]
+workspace = true

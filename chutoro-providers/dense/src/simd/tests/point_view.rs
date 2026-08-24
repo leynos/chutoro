@@ -10,11 +10,10 @@ use proptest::prelude::*;
     vec![vec![4.0, 1.0, 2.0], vec![6.0, 2.0, 1.0]],
 )]
 fn dense_point_view_packs_structure_of_arrays(
-    #[from(matrix_3x2)] matrix_result: Result<RowMajorMatrix<'static>, DataSourceError>,
+    #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
     #[case] indices: Vec<RowIndex>,
     #[case] expected_blocks: Vec<Vec<f32>>,
 ) {
-    let matrix_3x2 = matrix_result.expect("matrix fixture must build");
     let view =
         DensePointView::from_row_indices(matrix_3x2, &indices).expect("point view must build");
     assert_eq!(view.point_count(), indices.len());
@@ -23,12 +22,14 @@ fn dense_point_view_packs_structure_of_arrays(
 
     for (dimension_index, expected_prefix) in expected_blocks.into_iter().enumerate() {
         let block = view.coordinate_block(dimension_index);
-        assert_eq!(&block[..expected_prefix.len()], expected_prefix.as_slice());
-        assert!(
-            block[expected_prefix.len()..]
-                .iter()
-                .all(|value| *value == 0.0)
-        );
+        let prefix = block
+            .get(..expected_prefix.len())
+            .expect("expected block prefix must fit the packed block");
+        assert_eq!(prefix, expected_prefix.as_slice());
+        let tail = block
+            .get(expected_prefix.len()..)
+            .expect("expected block tail must start within the packed block");
+        assert!(tail.iter().all(|value| *value == 0.0));
     }
 }
 
@@ -93,7 +94,9 @@ proptest! {
 #[case(15)]
 #[case(17)]
 fn dense_point_view_zero_fills_unused_lanes(#[case] point_count: usize) {
-    let values: Vec<f32> = (0..17).map(|value| value as f32 + 1.0).collect();
+    let values: Vec<f32> = (0_u8..17)
+        .map(|value| f32::from(value.saturating_add(1)))
+        .collect();
     let matrix = RowMajorMatrix::new(
         MatrixValues::new(&values),
         RowCount::new(17),
@@ -104,11 +107,10 @@ fn dense_point_view_zero_fills_unused_lanes(#[case] point_count: usize) {
     let view = DensePointView::from_row_indices(matrix, &indices).expect("point view must build");
     let block = view.coordinate_block(0);
 
-    assert!(
-        block[point_count..view.padded_point_count()]
-            .iter()
-            .all(|value| *value == 0.0)
-    );
+    let unused_lanes = block
+        .get(point_count..view.padded_point_count())
+        .expect("unused lanes must remain within the padded packed block");
+    assert!(unused_lanes.iter().all(|value| *value == 0.0));
 }
 
 #[rstest]

@@ -4,7 +4,7 @@
 //! modelling raw architecture intrinsics. They prove the support-mask selector
 //! and the bounded lane arithmetic used by packed query-to-points kernels.
 
-use super::dispatch::{self, CompiledSimdSupport, RuntimeSimdSupport};
+use super::dispatch::{self, CompiledSimdSupport, CpuSimdSupport, RuntimeSimdSupport};
 use super::lane_output_count;
 use super::point_view;
 
@@ -45,13 +45,13 @@ fn verify_dense_simd_dispatch_selection_respects_support_masks() {
     };
 
     let compiled = CompiledSimdSupport::new(
-        avx2.compiled,
-        avx512.compiled,
-        neon.compiled,
+        CpuSimdSupport::new(avx2.compiled, avx512.compiled, neon.compiled),
         psimd.compiled,
     );
-    let runtime =
-        RuntimeSimdSupport::new(avx2.runtime, avx512.runtime, neon.runtime, psimd.runtime);
+    let runtime = RuntimeSimdSupport::new(
+        CpuSimdSupport::new(avx2.runtime, avx512.runtime, neon.runtime),
+        psimd.runtime,
+    );
 
     match dispatch::choose_euclidean_backend(compiled, runtime) {
         dispatch::EuclideanBackend::Avx512 => {

@@ -26,8 +26,8 @@ proptest! {
         let semantics = DistanceSemantics::default_euclidean();
         let matrix = fixture.matrix();
         let query = matrix
-            .row(fixture.query_index())
-            .expect("query row must exist because fixture.query_index() is always within bounds");
+            .row(strategies::QueryPointsFixture::query_index())
+            .expect("query row must exist because fixture query index is always within bounds");
         let points = DensePointView::from_row_indices(matrix, &fixture.point_indices())
             .expect("point rows must exist because fixture point indices are generated in bounds");
         let entries = super::query_points_entries().expect("parity backends must enumerate");

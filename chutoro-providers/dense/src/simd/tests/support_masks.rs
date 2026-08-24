@@ -7,7 +7,8 @@
 //! via trybuild in `tests/portable_simd_gating.rs`.
 
 use super::super::dispatch::{
-    self, CompiledSimdSupport, RuntimeSimdSupport, compiled_simd_support, runtime_simd_support,
+    self, CompiledSimdSupport, CpuSimdSupport, RuntimeSimdSupport, compiled_simd_support,
+    runtime_simd_support,
 };
 
 /// Verifies that `compiled_simd_support()` returns a mask matching the active
@@ -20,9 +21,11 @@ use super::super::dispatch::{
 #[test]
 fn compiled_support_matches_active_target_and_feature_gates() {
     let expected = CompiledSimdSupport::new(
-        cfg!(feature = "simd_avx2") && cfg!(any(target_arch = "x86", target_arch = "x86_64")),
-        cfg!(feature = "simd_avx512") && cfg!(any(target_arch = "x86", target_arch = "x86_64")),
-        cfg!(feature = "simd_neon") && cfg!(any(target_arch = "arm", target_arch = "aarch64")),
+        CpuSimdSupport::new(
+            cfg!(feature = "simd_avx2") && cfg!(any(target_arch = "x86", target_arch = "x86_64")),
+            cfg!(feature = "simd_avx512") && cfg!(any(target_arch = "x86", target_arch = "x86_64")),
+            cfg!(feature = "simd_neon") && cfg!(any(target_arch = "arm", target_arch = "aarch64")),
+        ),
         cfg!(all(feature = "nightly_portable_simd", nightly)),
     );
 
@@ -32,9 +35,11 @@ fn compiled_support_matches_active_target_and_feature_gates() {
 #[test]
 fn runtime_support_matches_host_detection_rules() {
     let expected = RuntimeSimdSupport::new(
-        runtime_avx2_expectation(),
-        runtime_avx512_expectation(),
-        runtime_neon_expectation(),
+        CpuSimdSupport::new(
+            runtime_avx2_expectation(),
+            runtime_avx512_expectation(),
+            runtime_neon_expectation(),
+        ),
         cfg!(all(feature = "nightly_portable_simd", nightly)),
     );
 

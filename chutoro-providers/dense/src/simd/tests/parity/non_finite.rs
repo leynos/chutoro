@@ -48,8 +48,8 @@ proptest! {
         let semantics = DistanceSemantics::default_euclidean();
         let matrix = fixture.matrix();
         let query = matrix
-            .row(fixture.query_index())
-            .expect("query row must exist because fixture.query_index() is always within bounds");
+            .row(strategies::QueryPointsFixture::query_index())
+            .expect("query row must exist because fixture query index is always within bounds");
         let points = DensePointView::from_row_indices(matrix, &fixture.point_indices())
             .expect("point rows must exist because fixture point indices are generated in bounds");
         let entries = super::query_points_entries().expect("parity backends must enumerate");
@@ -65,12 +65,16 @@ proptest! {
             let mut actual = vec![0.0_f32; points.point_count()];
             entry(query.as_slice(), &points, &mut actual);
             semantics.check_query_close(&actual, &expected)?;
-            for (index, expected_distance) in expected.iter().enumerate() {
+            for (index, (actual_distance, expected_distance)) in actual
+                .iter()
+                .zip(expected.iter())
+                .enumerate()
+            {
                 if expected_distance.is_nan() {
                     prop_assert!(
-                        actual[index].is_nan(),
+                        actual_distance.is_nan(),
                         "backend={backend:?}, index={index}, actual={}",
-                        actual[index],
+                        actual_distance,
                     );
                 }
             }

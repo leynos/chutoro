@@ -7,6 +7,7 @@
 
 mod errors;
 mod ingest;
+mod parquet_path;
 mod provider;
 mod simd;
 mod source;

@@ -106,6 +106,10 @@ impl DistanceSemantics {
     ///
     /// Reported as a [`TestCaseResult`] rather than a bare assertion so the
     /// proptest call sites keep their shrink reporting.
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "a tolerance-based property assertion must calculate its distance delta"
+    )]
     pub(crate) fn check_close(self, actual: f32, expected: f32) -> TestCaseResult {
         if self.should_accept_non_finite(actual, expected) {
             return Ok(());
@@ -124,6 +128,10 @@ impl DistanceSemantics {
     ///
     /// Reported as a [`TestCaseResult`] for the same shrink-reporting reason as
     /// [`Self::check_close`].
+    #[expect(
+        clippy::float_arithmetic,
+        reason = "a tolerance-based property assertion must calculate each distance delta"
+    )]
     pub(crate) fn check_query_close(self, actual: &[f32], expected: &[f32]) -> TestCaseResult {
         prop_assert_eq!(
             actual.len(),

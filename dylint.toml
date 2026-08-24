@@ -9,6 +9,10 @@ excluded_paths = [
     # These test-only modules stage CLI inputs as real files for command tests.
     "chutoro_cli::cli::tests::test_helpers",
     "chutoro_cli::cli::tests::test_fixtures",
+    # Dense provider convenience constructor: this private adapter opens a
+    # caller-supplied ambient path. The provider and its reader constructor
+    # remain capability-clean.
+    "chutoro_providers_dense::parquet_path",
 ]
 excluded_crates = [
     # Benchmark harness: downloads, caches, and reads benchmark datasets
@@ -27,8 +31,4 @@ excluded_crates = [
     # files from workflow-provided ambient runner paths by design.
     "kani_nightly_gate",
     "benchmark_regression_gate",
-    # Dense matrix provider: `try_from_parquet_path` is a convenience
-    # constructor whose contract is opening a caller-supplied ambient
-    # path; `try_from_parquet_reader` is the capability-clean surface.
-    "chutoro_providers_dense",
 ]

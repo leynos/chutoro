@@ -14,6 +14,10 @@ use rstest::rstest;
 use std::sync::Arc;
 
 #[rstest]
+#[expect(
+    clippy::float_arithmetic,
+    reason = "the test verifies a tolerance-based Euclidean distance result"
+)]
 fn matrix_provider_from_fixed_size_list() {
     let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).expect("fixture array must build");
     let provider =
@@ -26,6 +30,10 @@ fn matrix_provider_from_fixed_size_list() {
 }
 
 #[rstest]
+#[expect(
+    clippy::float_arithmetic,
+    reason = "the test verifies tolerance-based batch Euclidean distance results"
+)]
 fn matrix_provider_distance_batch() {
     let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).expect("fixture array must build");
     let provider =
@@ -79,14 +87,20 @@ fn matrix_provider_distance_matches_scalar_reference(
     let actual = provider
         .distance(left, right)
         .expect("distance should succeed");
-    let expected = scalar_distance(&rows[left], &rows[right])
+    let left_row = rows
+        .get(left)
+        .expect("case left index must select a fixture row");
+    let right_row = rows
+        .get(right)
+        .expect("case right index must select a fixture row");
+    let expected = scalar_distance(left_row, right_row)
         .expect("scalar distance inputs must have matching dimensions");
 
     if expected.is_nan() {
         assert!(actual.is_nan(), "actual={actual}, expected=NaN");
     } else {
         assert!(
-            (actual - expected).abs() <= 1.0e-5_f32,
+            distance_matches_tolerance(actual, expected),
             "actual={actual}, expected={expected}",
         );
     }
@@ -156,7 +170,13 @@ fn matrix_provider_distance_batch_matches_scalar_reference(
     let expected: Vec<f32> = pairs
         .iter()
         .map(|(left, right)| {
-            scalar_distance(&rows[*left], &rows[*right])
+            let left_row = rows
+                .get(*left)
+                .expect("case left index must select a fixture row");
+            let right_row = rows
+                .get(*right)
+                .expect("case right index must select a fixture row");
+            scalar_distance(left_row, right_row)
                 .expect("scalar distance inputs must have matching dimensions")
         })
         .collect();
@@ -166,7 +186,7 @@ fn matrix_provider_distance_batch_matches_scalar_reference(
             assert!(actual.is_nan(), "actual={actual}, expected=NaN");
         } else {
             assert!(
-                (actual - expected_value).abs() <= 1.0e-5_f32,
+                distance_matches_tolerance(actual, expected_value),
                 "actual={actual}, expected={expected_value}",
             );
         }
@@ -242,6 +262,10 @@ fn matrix_provider_distance_batch_empty() {
 /// Computes the Euclidean distance for two equal-length slices, canonicalizing
 /// any non-finite result to `f32::NAN`. Returns `None` when the inputs have
 /// mismatched lengths, so the calling test reports the malformed fixture.
+#[expect(
+    clippy::float_arithmetic,
+    reason = "the scalar test oracle computes squared Euclidean distance"
+)]
 fn scalar_distance(left: &[f32], right: &[f32]) -> Option<f32> {
     if left.len() != right.len() {
         return None;
@@ -260,6 +284,15 @@ fn scalar_distance(left: &[f32], right: &[f32]) -> Option<f32> {
     } else {
         f32::NAN
     })
+}
+
+/// Returns whether two finite distances agree within the test tolerance.
+#[expect(
+    clippy::float_arithmetic,
+    reason = "a tolerance-based numerical assertion must calculate its distance delta"
+)]
+fn distance_matches_tolerance(actual: f32, expected: f32) -> bool {
+    (actual - expected).abs() <= 1.0e-5_f32
 }
 
 #[rstest]

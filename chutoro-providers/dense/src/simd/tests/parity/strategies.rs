@@ -52,7 +52,7 @@ impl QueryPointsFixture {
     }
 
     /// Returns the fixed query row index, which is always row `0`.
-    pub(super) fn query_index(&self) -> RowIndex {
+    pub(super) const fn query_index() -> RowIndex {
         RowIndex::new(0)
     }
 
@@ -94,9 +94,9 @@ pub(super) fn non_finite_vector_pair() -> impl Strategy<Value = (Vec<f32>, Vec<f
         )
             .prop_map(|(mut left, mut right, index, insert_left, non_finite)| {
                 if insert_left {
-                    left[index] = non_finite;
+                    replace_generated_value(&mut left, index, non_finite);
                 } else {
-                    right[index] = non_finite;
+                    replace_generated_value(&mut right, index, non_finite);
                 }
                 (left, right)
             })
@@ -129,7 +129,12 @@ pub(super) fn non_finite_query_points_fixture() -> impl Strategy<Value = QueryPo
             non_finite_value(),
         )
             .prop_map(move |(mut values, row_index, column_index, non_finite)| {
-                values[row_index * dimension + column_index] = non_finite;
+                let value_index = row_index
+                    .checked_mul(dimension)
+                    .and_then(|offset| offset.checked_add(column_index));
+                if let Some(value) = value_index.and_then(|index| values.get_mut(index)) {
+                    *value = non_finite;
+                }
                 query_fixture(values, rows, dimension, point_count)
             })
     })
@@ -185,6 +190,13 @@ fn query_fixture(
         rows,
         dimension,
         point_indices: (1..=point_count).collect(),
+    }
+}
+
+/// Replaces a value selected from a bounded proptest index.
+fn replace_generated_value(values: &mut [f32], index: usize, replacement: f32) {
+    if let Some(value) = values.get_mut(index) {
+        *value = replacement;
     }
 }
 

@@ -1,4 +1,4 @@
-//! Tests for DenseSource construction and distance operations, covering mismatched dimensions, empty inputs, and batch validation.
+//! Tests for `DenseSource` construction and distance operations, covering mismatched dimensions, empty inputs, and batch validation.
 use super::DenseSource;
 use chutoro_core::{DataSource, DataSourceError};
 use rstest::rstest;
@@ -43,6 +43,10 @@ fn distance_out_of_bounds() {
 }
 
 #[rstest]
+#[expect(
+    clippy::float_arithmetic,
+    reason = "the test verifies a tolerance-based Euclidean distance result"
+)]
 fn distance_ok() {
     let ds = DenseSource::try_new("d", vec![vec![0.0, 0.0], vec![3.0, 4.0]])
         .expect("valid uniform rows");
@@ -68,6 +72,10 @@ fn distance_batch_empty_pairs() {
 }
 
 #[rstest]
+#[expect(
+    clippy::float_arithmetic,
+    reason = "the test verifies tolerance-based batch Euclidean distance results"
+)]
 fn distance_batch_ok() {
     let ds = DenseSource::try_new("d", vec![vec![0.0, 0.0], vec![3.0, 4.0]])
         .expect("valid uniform rows");
@@ -76,7 +84,7 @@ fn distance_batch_ok() {
     ds.distance_batch(&pairs, &mut out)
         .expect("batch must succeed");
     assert!(
-        (out[0] - 5.0).abs() < 1e-6 && (out[1] - 5.0).abs() < 1e-6,
+        out.iter().all(|value| (*value - 5.0).abs() < 1e-6),
         "batch must overwrite output in pair order"
     );
 }

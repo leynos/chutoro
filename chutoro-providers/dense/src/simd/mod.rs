@@ -133,7 +133,6 @@ fn collect_euclidean_distance_batch(
     matrix: RowMajorMatrix<'_>,
     pairs: impl Iterator<Item = (RowIndex, RowIndex)>,
 ) -> Result<Vec<f32>, DataSourceError> {
-    let pairs = pairs;
     let (lower_bound, _) = pairs.size_hint();
     let mut results = Vec::with_capacity(lower_bound);
     for (left, right) in pairs {
@@ -164,7 +163,7 @@ fn should_pack_query_points(dimension: usize, candidate_count: usize) -> bool {
     should_pack_query_points_for_backend(dispatch::euclidean_backend(), dimension, candidate_count)
 }
 
-fn should_pack_query_points_for_backend(
+const fn should_pack_query_points_for_backend(
     backend: EuclideanBackend,
     dimension: usize,
     candidate_count: usize,
@@ -184,7 +183,7 @@ fn validate_raw_pairs_in_order(
     Ok(())
 }
 
-fn validate_raw_row_index(index: usize, rows: usize) -> Result<(), DataSourceError> {
+const fn validate_raw_row_index(index: usize, rows: usize) -> Result<(), DataSourceError> {
     if index < rows {
         Ok(())
     } else {
