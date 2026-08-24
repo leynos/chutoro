@@ -369,6 +369,16 @@ conversion matches Rust's overflow-to-infinity behaviour. Verify distance
 integration tests, `make check-fmt`, and scoped Clippy for the affected
 arithmetic and conversion diagnostics.
 
+## Stage 2t: Condensed-Hierarchy References
+
+Make every linkage-node and condensed-cluster lookup checked. Malformed
+internal references now propagate typed `HierarchyError` variants through
+hierarchy extraction rather than panicking or quietly omitting events. Preserve
+the condensation traversal, event ordering, and numerical formulae while
+expressing their existing arithmetic through the standard operation traits.
+Verify hierarchy tests, `make check-fmt`, and scoped Clippy for the
+condensation diagnostics.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

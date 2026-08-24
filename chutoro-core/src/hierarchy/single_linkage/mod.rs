@@ -53,6 +53,18 @@ pub enum HierarchyError {
         /// Invalid weight value observed on the edge.
         weight: f32,
     },
+    /// The constructed linkage forest referenced a missing node.
+    #[error("linkage forest references missing node {node_id}")]
+    InvalidForestReference {
+        /// Identifier of the missing linkage node.
+        node_id: usize,
+    },
+    /// The condensation process referenced a missing cluster.
+    #[error("condensation references missing cluster {cluster_id}")]
+    InvalidClusterReference {
+        /// Identifier of the missing condensed cluster.
+        cluster_id: usize,
+    },
 }
 
 impl HierarchyError {
@@ -63,6 +75,8 @@ impl HierarchyError {
             Self::EmptyDataset => HierarchyErrorCode::EmptyDataset,
             Self::MinClusterSizeTooLarge { .. } => HierarchyErrorCode::MinClusterSizeTooLarge,
             Self::InvalidEdgeWeight { .. } => HierarchyErrorCode::InvalidEdgeWeight,
+            Self::InvalidForestReference { .. } => HierarchyErrorCode::InvalidForestReference,
+            Self::InvalidClusterReference { .. } => HierarchyErrorCode::InvalidClusterReference,
         }
     }
 }
@@ -76,6 +90,10 @@ pub enum HierarchyErrorCode {
     MinClusterSizeTooLarge,
     /// An input edge weight was invalid for hierarchy extraction.
     InvalidEdgeWeight,
+    /// A constructed linkage forest referenced a missing node.
+    InvalidForestReference,
+    /// Condensation referenced a missing cluster.
+    InvalidClusterReference,
 }
 
 impl HierarchyErrorCode {
@@ -86,6 +104,8 @@ impl HierarchyErrorCode {
             Self::EmptyDataset => "EMPTY_DATASET",
             Self::MinClusterSizeTooLarge => "MIN_CLUSTER_SIZE_TOO_LARGE",
             Self::InvalidEdgeWeight => "INVALID_EDGE_WEIGHT",
+            Self::InvalidForestReference => "INVALID_FOREST_REFERENCE",
+            Self::InvalidClusterReference => "INVALID_CLUSTER_REFERENCE",
         }
     }
 }
@@ -152,19 +172,23 @@ impl CondensedForest {
         forest: &SingleLinkageForest,
         min_cluster_size: usize,
         condensed: &mut Self,
-    ) {
-        let root_size = forest.nodes[root].size;
+    ) -> Result<(), HierarchyError> {
+        let root_size = forest
+            .nodes
+            .get(root)
+            .ok_or(HierarchyError::InvalidForestReference { node_id: root })?
+            .size;
         if root_size < min_cluster_size {
             // Entire component is below the minimum cluster size; it will
             // become noise during labelling.
-            return;
+            return Ok(());
         }
 
         let cluster_id = condensed.clusters.len();
         condensed.clusters.push(CondensedCluster::new(None, 0.0));
         condensed.roots.push(cluster_id);
         let mut builder = CondenseBuilder::new(forest, min_cluster_size, &mut condensed.clusters);
-        builder.condense_cluster(root, cluster_id);
+        builder.condense_cluster(root, cluster_id)
     }
 
     pub(crate) fn from_mst(
@@ -192,7 +216,7 @@ impl CondensedForest {
         };
 
         for root in forest.roots.iter().copied() {
-            Self::process_root_into_condensed(root, &forest, min_cluster_size, &mut condensed);
+            Self::process_root_into_condensed(root, &forest, min_cluster_size, &mut condensed)?;
         }
 
         Ok(condensed)
