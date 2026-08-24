@@ -23,19 +23,17 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 
     /// Map an HNSW operation failure into this session's domain error.
     pub(super) fn map_hnsw_error(&self, error: HnswError) -> ChutoroError {
-        crate::cpu_pipeline::map_cpu_hnsw_error(self.source.as_ref(), error)
+        error.into_chutoro_error(Arc::from(self.source.name()))
     }
 
     /// Convert an HNSW allocation failure into a structured session error.
-    fn map_index_allocation_error(error: &HnswError) -> ChutoroError {
-        let code = Arc::from(error.code().as_str());
-        let message = Arc::from(error.to_string());
+    fn map_index_allocation_error(source: &D, error: HnswError) -> ChutoroError {
+        let chutoro_error = error.into_chutoro_error(Arc::from(source.name()));
         warn!(
-            code = ?code,
-            message = %message,
+            error = ?chutoro_error,
             "CpuHnsw index allocation failed; returning CpuHnswFailure"
         );
-        ChutoroError::CpuHnswFailure { code, message }
+        chutoro_error
     }
 
     /// Describe metrics emitted by session mutation and core-distance recompute.
@@ -89,7 +87,8 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         source: Arc<D>,
         index_result: std::result::Result<CpuHnsw, HnswError>,
     ) -> Result<Self> {
-        let index = index_result.map_err(|error| Self::map_index_allocation_error(&error))?;
+        let index = index_result
+            .map_err(|error| Self::map_index_allocation_error(source.as_ref(), error))?;
         debug!(
             min_cluster_size = %config.min_cluster_size(),
             "ClusteringSession allocated: empty HNSW index ready"

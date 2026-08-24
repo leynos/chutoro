@@ -34,7 +34,7 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
         "building CPU HNSW index"
     );
     let (index, harvested) = CpuHnsw::build_with_edges(source, effective_hnsw_params.clone())
-        .map_err(|error| map_cpu_hnsw_error(source, error))?;
+        .map_err(|error| error.into_chutoro_error(Arc::from(source.name())))?;
 
     let desired = min_cluster_size
         .get()
@@ -51,20 +51,16 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
             let right = edge.target();
             let dist = edge.distance();
             let left_core_distance = core_distances.get(left).copied().ok_or_else(|| {
-                map_cpu_hnsw_error(
-                    source,
-                    HnswError::GraphInvariantViolation {
-                        message: format!("harvested edge source {left} has no core distance"),
-                    },
-                )
+                HnswError::GraphInvariantViolation {
+                    message: format!("harvested edge source {left} has no core distance"),
+                }
+                .into_chutoro_error(Arc::from(source.name()))
             })?;
             let right_core_distance = core_distances.get(right).copied().ok_or_else(|| {
-                map_cpu_hnsw_error(
-                    source,
-                    HnswError::GraphInvariantViolation {
-                        message: format!("harvested edge target {right} has no core distance"),
-                    },
-                )
+                HnswError::GraphInvariantViolation {
+                    message: format!("harvested edge target {right} has no core distance"),
+                }
+                .into_chutoro_error(Arc::from(source.name()))
             })?;
             let weight = dist.max(left_core_distance).max(right_core_distance);
             Ok(CandidateEdge::new(left, right, weight, edge.sequence()))
@@ -100,7 +96,7 @@ fn compute_core_distances<D: DataSource + Sync>(
     for point in 0..inputs.items {
         let neighbours = index
             .search(source, point, inputs.ef)
-            .map_err(|error| map_cpu_hnsw_error(source, error))?;
+            .map_err(|error| error.into_chutoro_error(Arc::from(source.name())))?;
         let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
         let core = others
             .get(inputs.min_cluster_size.get().saturating_sub(1))
@@ -135,21 +131,6 @@ impl CoreDistanceInputs {
             min_cluster_size,
             ef,
         }
-    }
-}
-
-/// Translate an HNSW failure into the public CPU-pipeline error type.
-#[cfg(feature = "cpu")]
-pub(crate) fn map_cpu_hnsw_error<D: DataSource>(source: &D, hnsw_error: HnswError) -> ChutoroError {
-    match hnsw_error {
-        HnswError::DataSource(data_source_error) => ChutoroError::DataSource {
-            data_source: Arc::from(source.name()),
-            error: data_source_error,
-        },
-        other_error => ChutoroError::CpuHnswFailure {
-            code: Arc::from(other_error.code().as_str()),
-            message: Arc::from(other_error.to_string()),
-        },
     }
 }
 

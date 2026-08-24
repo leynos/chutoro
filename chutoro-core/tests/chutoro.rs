@@ -1,6 +1,8 @@
 //! Tests for the `Chutoro` orchestration API.
 
 mod common;
+#[path = "support/failable_source.rs"]
+mod failable_source;
 
 use chutoro_core::{
     ChutoroBuilder, ChutoroError, ClusterId, ClusteringResult, DataSource, DataSourceError,
@@ -11,6 +13,7 @@ use chutoro_core::{
     DistanceCacheConfig, HnswParams, estimate_peak_bytes, estimate_peak_bytes_for_hnsw_params,
 };
 use common::Dummy;
+use failable_source::{FailableSource, FailureMode};
 use rstest::{fixture, rstest};
 use std::{num::NonZeroUsize, sync::Arc};
 use tracing::Level;
@@ -149,6 +152,34 @@ fn run_insufficient_items_errors(small_dummy: Dummy) {
             ..
         } if min_cluster_size.get() == 4
     ));
+}
+
+#[cfg(feature = "cpu")]
+#[rstest]
+#[case::data_source(FailureMode::DataSource)]
+#[case::hnsw(FailureMode::NonFinite)]
+fn run_maps_hnsw_errors(#[case] mode: FailureMode) {
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(2)
+        .with_execution_strategy(ExecutionStrategy::CpuOnly)
+        .build()
+        .expect("configuration must be valid");
+    let source = FailableSource::failing(mode);
+
+    let err = chutoro
+        .run(&source)
+        .expect_err("one-shot run must propagate the injected HNSW failure");
+
+    match mode {
+        FailureMode::DataSource => assert!(
+            matches!(err, ChutoroError::DataSource { .. }),
+            "expected data source error, got {err:?}"
+        ),
+        FailureMode::NonFinite => assert!(
+            matches!(err, ChutoroError::CpuHnswFailure { .. }),
+            "expected HNSW error, got {err:?}"
+        ),
+    }
 }
 
 #[cfg(feature = "cpu")]
