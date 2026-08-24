@@ -118,7 +118,9 @@ fn cmp_canon_edge(a: &CanonEdge, b: &CanonEdge) -> Ordering {
 /// Mirrors the dedup logic in `prepare_edge_list`.
 fn dedup_canon_edges(edges: &mut Vec<CanonEdge>) {
     edges.dedup_by(|right, left| {
-        left.weight == right.weight && left.source == right.source && left.target == right.target
+        left.weight.total_cmp(&right.weight).is_eq()
+            && left.source == right.source
+            && left.target == right.target
     });
 }
 
@@ -127,19 +129,41 @@ fn dedup_canon_edges(edges: &mut Vec<CanonEdge>) {
 /// Prefers the node with the higher rank; when ranks are equal, the
 /// smaller index becomes root to ensure deterministic tie-breaking.
 fn choose_root(rank: &[usize], a: usize, b: usize) -> (usize, usize) {
-    match rank[a].cmp(&rank[b]) {
+    let Some(&a_rank) = rank.get(a) else {
+        return (b, a);
+    };
+    let Some(&b_rank) = rank.get(b) else {
+        return (a, b);
+    };
+    match a_rank.cmp(&b_rank) {
         Ordering::Greater => (a, b),
         Ordering::Less => (b, a),
-        Ordering::Equal if a <= b => (a, b),
-        Ordering::Equal => (b, a),
+        Ordering::Equal => {
+            if a <= b {
+                (a, b)
+            } else {
+                (b, a)
+            }
+        }
     }
 }
 
 /// Union by rank, breaking ties by smaller index.
 fn union_by_rank(parent: &mut [usize], rank: &mut [usize], a: usize, b: usize) {
     let (root, child) = choose_root(rank, a, b);
-    parent[child] = root;
-    if rank[root] == rank[child] {
-        rank[root] += 1;
+    let Some(root_rank) = rank.get(root).copied() else {
+        return;
+    };
+    let Some(child_rank) = rank.get(child).copied() else {
+        return;
+    };
+    let Some(child_parent) = parent.get_mut(child) else {
+        return;
+    };
+    *child_parent = root;
+    if root_rank == child_rank {
+        if let Some(root_rank_slot) = rank.get_mut(root) {
+            *root_rank_slot = root_rank.saturating_add(1);
+        }
     }
 }
