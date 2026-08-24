@@ -215,7 +215,7 @@ fn assert_has_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
     );
 }
 
-/// Context for eviction tests with a 4-node graph where node 1 is at capacity.
+/// Context for eviction tests over a level-1 graph with one seeded edge pair.
 struct EvictionTestContext {
     graph: Graph,
     max_connections: usize,
@@ -226,19 +226,30 @@ impl EvictionTestContext {
     /// Creates a test graph with 4 nodes at level 1, where node 1 is seeded
     /// at capacity with a bidirectional edge to node 2.
     fn new(params: HnswParams) -> Result<Self, HnswError> {
+        Self::seeded(params, 4, (1, 2), NewNodeContext { id: 3, level: 1 })
+    }
+
+    /// Creates a test graph with `node_count` nodes at level 1, seeding the
+    /// `seeded_pair` nodes with a bidirectional level-1 edge so the first of
+    /// the pair sits at capacity.
+    fn seeded(
+        params: HnswParams,
+        node_count: usize,
+        seeded_pair: (usize, usize),
+        new_node: NewNodeContext,
+    ) -> Result<Self, HnswError> {
         let max_connections = params.max_connections();
-        let mut graph = Graph::with_capacity(params, 4);
+        let mut graph = Graph::with_capacity(params, node_count);
 
-        insert_node(&mut graph, 0, 1, 0)?;
-        insert_node(&mut graph, 1, 1, 1)?;
-        insert_node(&mut graph, 2, 1, 2)?;
-        insert_node(&mut graph, 3, 1, 3)?;
+        for node in 0..node_count {
+            let sequence = u64::try_from(node).unwrap_or(u64::MAX);
+            insert_node(&mut graph, node, 1, sequence)?;
+        }
 
-        // Seed node 1 at capacity with node 2 (bidirectional)
-        add_edge_if_missing(&mut graph, 1, 2, 1);
-        add_edge_if_missing(&mut graph, 2, 1, 1);
+        let (first, second) = seeded_pair;
+        add_edge_if_missing(&mut graph, first, second, 1);
+        add_edge_if_missing(&mut graph, second, first, 1);
 
-        let new_node = NewNodeContext { id: 3, level: 1 };
         Ok(Self {
             graph,
             max_connections,

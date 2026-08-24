@@ -296,24 +296,15 @@ fn eviction_at_base_layer_triggers_healing() {
 fn commit_path_reconciliation_keeps_bidirectionality(
     params_one_connection: HnswParams,
 ) -> Result<(), HnswError> {
-    let max_connections = params_one_connection.max_connections();
-    let mut graph = Graph::with_capacity(params_one_connection, 3);
-
-    insert_node(&mut graph, 0, 1, 0)?;
-    insert_node(&mut graph, 1, 1, 1)?;
-    insert_node(&mut graph, 2, 1, 2)?;
-
     // Seed node 0 at level-1 capacity with node 2 (bidirectional).
-    add_edge_if_missing(&mut graph, 0, 2, 1);
-    add_edge_if_missing(&mut graph, 2, 0, 1);
-
-    let update = build_update(1, 1, vec![0], max_connections);
-    let new_node = NewNodeContext { id: 1, level: 1 };
-
-    let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    let ctx = EvictionTestContext::seeded(
+        params_one_connection,
+        3,
+        (0, 2),
+        NewNodeContext { id: 1, level: 1 },
+    )?;
+    let update = build_update(1, 1, vec![0], ctx.max_connections);
+    let graph = ctx.apply_updates(vec![update])?;
 
     assert_graph_bidirectional(&graph, 3);
     assert_no_edge(&graph, 2, 0, 1);
@@ -331,25 +322,10 @@ fn commit_path_reconciliation_keeps_bidirectionality(
 fn eviction_deferred_scrub_keeps_reciprocity(
     params_one_connection: HnswParams,
 ) -> Result<(), HnswError> {
-    let max_connections = params_one_connection.max_connections();
-    let mut graph = Graph::with_capacity(params_one_connection, 4);
-
-    insert_node(&mut graph, 0, 1, 0)?;
-    insert_node(&mut graph, 1, 1, 1)?;
-    insert_node(&mut graph, 2, 1, 2)?;
-    insert_node(&mut graph, 3, 1, 3)?;
-
-    // Seed node 1 at level-1 capacity with node 2 (bidirectional).
-    add_edge_if_missing(&mut graph, 1, 2, 1);
-    add_edge_if_missing(&mut graph, 2, 1, 1);
-
-    let update = build_update(0, 1, vec![1], max_connections);
-    let new_node = NewNodeContext { id: 3, level: 1 };
-
-    let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    // The default fixture seeds node 1 at level-1 capacity with node 2.
+    let ctx = EvictionTestContext::new(params_one_connection)?;
+    let update = build_update(0, 1, vec![1], ctx.max_connections);
+    let graph = ctx.apply_updates(vec![update])?;
 
     assert_has_edge(&graph, 1, 0, 1);
     assert_no_edge(&graph, 2, 1, 1);
