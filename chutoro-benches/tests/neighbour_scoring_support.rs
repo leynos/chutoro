@@ -25,10 +25,6 @@ fn temp_dir_utf8_path(temp_dir: &tempfile::TempDir) -> Result<&Utf8Path, ReportF
     Utf8Path::from_path(temp_dir.path()).ok_or(ReportFixtureError::NonUtf8TempDir)
 }
 
-fn assert_report_contents(actual: &str, expected: &str) {
-    assert_eq!(actual, expected);
-}
-
 struct ReportDirectory {
     _temp_dir: TempDir,
     root: Dir,
@@ -106,8 +102,8 @@ fn neighbour_scoring_script_wires_expected_benchmark_binary() {
 #[rstest]
 fn lane_utilisation_report_file_generation_writes_schema_and_rows(
     #[from(report_directory)] report_directory_result: Result<ReportDirectory, ReportFixtureError>,
-) -> Result<(), ReportFixtureError> {
-    let report_directory = report_directory_result?;
+) {
+    let report_directory = report_directory_result.expect("report directory must be created");
     let mut file = report_directory
         .root
         .open_dir(REPORT_DIR_NAME)
@@ -125,24 +121,25 @@ fn lane_utilisation_report_file_generation_writes_schema_and_rows(
 
     let contents = report_directory
         .root
-        .open_dir(REPORT_DIR_NAME)?
-        .read_to_string("lane.csv")?;
-    assert_report_contents(
-        &contents,
+        .open_dir(REPORT_DIR_NAME)
+        .expect("report directory must be opened")
+        .read_to_string("lane.csv")
+        .expect("lane report must be readable");
+    assert_eq!(
+        contents,
         concat!(
             "bucket_kind,candidate_count,padded_lanes,wasted_lanes,",
             "lane_utilisation_basis_points\n",
             "realistic,8,16,8,5000\n",
         ),
     );
-    Ok(())
 }
 
 #[rstest]
 fn build_profile_report_file_generation_writes_schema_and_rows(
     #[from(report_directory)] report_directory_result: Result<ReportDirectory, ReportFixtureError>,
-) -> Result<(), ReportFixtureError> {
-    let report_directory = report_directory_result?;
+) {
+    let report_directory = report_directory_result.expect("report directory must be created");
     let mut file = report_directory
         .root
         .open_dir(REPORT_DIR_NAME)
@@ -168,10 +165,12 @@ fn build_profile_report_file_generation_writes_schema_and_rows(
 
     let contents = report_directory
         .root
-        .open_dir(REPORT_DIR_NAME)?
-        .read_to_string(BUILD_PROFILE_REPORT)?;
-    assert_report_contents(
-        &contents,
+        .open_dir(REPORT_DIR_NAME)
+        .expect("report directory must be opened")
+        .read_to_string(BUILD_PROFILE_REPORT)
+        .expect("build profile report must be readable");
+    assert_eq!(
+        contents,
         concat!(
             "point_count,dimension,build_seconds,accumulated_batch_scoring_seconds,",
             "accumulated_batch_scoring_vs_wall_basis_points,batch_calls,scalar_calls,",
@@ -179,7 +178,6 @@ fn build_profile_report_file_generation_writes_schema_and_rows(
             "16,8,0.001000000,0.000001000,10,1,0,8,8,8,8\n",
         ),
     );
-    Ok(())
 }
 
 #[rstest]
@@ -212,21 +210,23 @@ fn build_profile_report_target_uses_expected_filename() {
     );
 }
 
-fn assert_target_path_for_dir(report_parent_dir: &Utf8Path) {
-    let actual_path = build_profile_report_target_value(Some("yes"), report_parent_dir);
-    let expected_path = report_parent_dir
+/// Pure query returning the conventional report path below
+/// `report_parent_dir`, used as the expectation for
+/// `build_profile_report_target_honours_cargo_target_dir`.
+fn expected_build_profile_report_path(report_parent_dir: &Utf8Path) -> camino::Utf8PathBuf {
+    report_parent_dir
         .join(REPORT_DIR_NAME)
-        .join(BUILD_PROFILE_REPORT);
-
-    assert_eq!(
-        actual_path.as_ref().map(ReportTarget::path),
-        Some(expected_path),
-    );
+        .join(BUILD_PROFILE_REPORT)
 }
 
 #[rstest]
 #[case("/tmp/chutoro-target-dir")]
 fn build_profile_report_target_honours_cargo_target_dir(#[case] target_dir: &str) {
     let report_parent_dir = report_parent_dir_value(Some(target_dir));
-    assert_target_path_for_dir(&report_parent_dir);
+    let actual_path = build_profile_report_target_value(Some("yes"), &report_parent_dir);
+
+    assert_eq!(
+        actual_path.as_ref().map(ReportTarget::path),
+        Some(expected_build_profile_report_path(&report_parent_dir)),
+    );
 }

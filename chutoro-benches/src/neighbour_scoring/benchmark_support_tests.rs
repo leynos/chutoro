@@ -1,5 +1,45 @@
 //! Tests for neighbour-scoring fixture construction and report orchestration.
 
+use rstest::{fixture, rstest};
+
+/// Errors surfaced by the [`utf8_temp_dir`] fixture.
+#[derive(Debug, thiserror::Error)]
+enum Utf8TempDirError {
+    #[error("temp dir I/O failed: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("temp dir path is not UTF-8")]
+    NonUtf8Path,
+}
+
+/// A [`tempfile::TempDir`] paired with its UTF-8 path.
+///
+/// The `TempDir` is kept alongside the path (rather than discarded) so the
+/// directory is not deleted while tests still hold the path.
+struct Utf8TempDir {
+    _temp_dir: tempfile::TempDir,
+    path: camino::Utf8PathBuf,
+}
+
+impl Utf8TempDir {
+    fn path(&self) -> &camino::Utf8Path {
+        &self.path
+    }
+}
+
+/// Creates a temporary directory and resolves its UTF-8 path, for tests that
+/// exercise report-writing helpers against a scratch directory.
+#[fixture]
+fn utf8_temp_dir() -> Result<Utf8TempDir, Utf8TempDirError> {
+    let temp_dir = tempfile::tempdir()?;
+    let path = camino::Utf8Path::from_path(temp_dir.path())
+        .ok_or(Utf8TempDirError::NonUtf8Path)?
+        .to_path_buf();
+    Ok(Utf8TempDir {
+        _temp_dir: temp_dir,
+        path,
+    })
+}
+
 #[test]
 fn fixture_contains_provider_rows_and_one_based_candidates() {
     use chutoro_core::DataSource;
@@ -16,16 +56,16 @@ fn fixture_contains_provider_rows_and_one_based_candidates() {
     );
 }
 
-#[test]
-fn lane_utilisation_report_writes_expected_file() {
+#[rstest]
+fn lane_utilisation_report_writes_expected_file(
+    #[from(utf8_temp_dir)] temp_dir_result: Result<Utf8TempDir, Utf8TempDirError>,
+) {
     use crate::neighbour_scoring::REPORT_DIR_NAME;
-    use camino::Utf8Path;
-    use tempfile::tempdir;
 
     use super::{LANE_REPORT, write_lane_utilisation_report};
 
-    let temp_dir = tempdir().expect("temp dir must be created");
-    let report_parent_dir = Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
+    let temp_dir = temp_dir_result.expect("temp dir must be created");
+    let report_parent_dir = temp_dir.path();
 
     let report_path = write_lane_utilisation_report(report_parent_dir)
         .expect("lane utilisation report must be written");
@@ -37,16 +77,16 @@ fn lane_utilisation_report_writes_expected_file() {
     assert!(report_path.exists());
 }
 
-#[test]
-fn build_profile_report_writes_conventional_file() {
+#[rstest]
+fn build_profile_report_writes_conventional_file(
+    #[from(utf8_temp_dir)] temp_dir_result: Result<Utf8TempDir, Utf8TempDirError>,
+) {
     use crate::neighbour_scoring::{BUILD_PROFILE_REPORT, REPORT_DIR_NAME, report_path_value};
-    use camino::Utf8Path;
-    use tempfile::tempdir;
 
     use super::write_build_profile_report_for_point_counts;
 
-    let temp_dir = tempdir().expect("temp dir must be created");
-    let report_parent_dir = Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
+    let temp_dir = temp_dir_result.expect("temp dir must be created");
+    let report_parent_dir = temp_dir.path();
 
     let report_target = report_path_value(report_parent_dir, BUILD_PROFILE_REPORT);
     let written = write_build_profile_report_for_point_counts(report_target, &[16], 8)
@@ -100,17 +140,17 @@ fn build_profile_report_with_skips_writer_without_parent_directory() {
     assert_eq!(result, None);
 }
 
-#[test]
-fn build_profile_report_honours_custom_target_filename() {
+#[rstest]
+fn build_profile_report_honours_custom_target_filename(
+    #[from(utf8_temp_dir)] temp_dir_result: Result<Utf8TempDir, Utf8TempDirError>,
+) {
     use crate::neighbour_scoring::{REPORT_DIR_NAME, report_path_value};
-    use camino::Utf8Path;
     use cap_std::{ambient_authority, fs_utf8::Dir};
-    use tempfile::tempdir;
 
     use super::write_build_profile_report_for_point_counts;
 
-    let temp_dir = tempdir().expect("temp dir must be created");
-    let report_parent_dir = Utf8Path::from_path(temp_dir.path()).expect("temp path must be UTF-8");
+    let temp_dir = temp_dir_result.expect("temp dir must be created");
+    let report_parent_dir = temp_dir.path();
     let report_target = report_path_value(report_parent_dir, "custom-build-profile.csv");
 
     let written = write_build_profile_report_for_point_counts(report_target.clone(), &[16], 8)

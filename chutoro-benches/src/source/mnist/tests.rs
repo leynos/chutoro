@@ -7,7 +7,7 @@ use flate2::write::GzEncoder;
 use rstest::rstest;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{self, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 struct FakeClient {
@@ -62,10 +62,10 @@ fn parse_idx_images_rejects_invalid_data(
     #[case] mutate: MutationFn,
     #[case] expected_message: &str,
 ) {
-    let payload = gzip_idx_images(2, 28, 28, 0_u8);
+    let payload = gzip_idx_images(2, 28, 28, 0_u8).expect("gzip idx image payload must be created");
     let decoded_bytes = gunzip_bytes(Path::new("bad"), &payload).expect("decode must succeed");
     let mutated_bytes = mutate(decoded_bytes);
-    let remade = gzip_bytes(&mutated_bytes);
+    let remade = gzip_bytes(&mutated_bytes).expect("gzip payload must be re-encoded");
 
     let error = parse_idx_images(Path::new("bad"), &remade)
         .expect_err("invalid IDX image payload should fail");
@@ -85,8 +85,10 @@ fn load_mnist_uses_cache_after_first_download() {
 
     let train_url = file_url(&config, TRAIN_IMAGES_FILE);
     let test_url = file_url(&config, TEST_IMAGES_FILE);
-    let train_payload = gzip_idx_images(60_000, 28, 28, 3_u8);
-    let test_payload = gzip_idx_images(10_000, 28, 28, 9_u8);
+    let train_payload =
+        gzip_idx_images(60_000, 28, 28, 3_u8).expect("gzip train payload must be created");
+    let test_payload =
+        gzip_idx_images(10_000, 28, 28, 9_u8).expect("gzip test payload must be created");
 
     let client = FakeClient::new(HashMap::from([
         (train_url, train_payload),
@@ -116,14 +118,10 @@ fn test_cache_dir() -> PathBuf {
     env::temp_dir().join(format!("chutoro-mnist-test-{nanos}"))
 }
 
-fn gzip_idx_images(count: usize, rows: usize, cols: usize, fill: u8) -> Vec<u8> {
-    let (Ok(count_u32), Ok(rows_u32), Ok(cols_u32)) = (
-        u32::try_from(count),
-        u32::try_from(rows),
-        u32::try_from(cols),
-    ) else {
-        panic!("count, rows, and cols should fit u32 in tests");
-    };
+fn gzip_idx_images(count: usize, rows: usize, cols: usize, fill: u8) -> io::Result<Vec<u8>> {
+    let count_u32 = u32::try_from(count).map_err(io::Error::other)?;
+    let rows_u32 = u32::try_from(rows).map_err(io::Error::other)?;
+    let cols_u32 = u32::try_from(cols).map_err(io::Error::other)?;
 
     let mut raw = Vec::new();
     append_u32_be(&mut raw, IDX_IMAGE_MAGIC);
@@ -134,22 +132,18 @@ fn gzip_idx_images(count: usize, rows: usize, cols: usize, fill: u8) -> Vec<u8> 
     gzip_bytes(&raw)
 }
 
+// The mask below guarantees the shifted byte always fits `u8`, so this
+// helper cannot fail and needs no `Result`.
 fn append_u32_be(buffer: &mut Vec<u8>, value: u32) {
     for shift in [24u32, 16, 8, 0] {
-        let Ok(byte) = u8::try_from((value >> shift) & 0xFF) else {
-            panic!("masked byte must fit u8");
-        };
+        let masked_byte = (value >> shift) & 0xFF;
+        let byte = u8::try_from(masked_byte).expect("byte masked with 0xFF always fits u8");
         buffer.push(byte);
     }
 }
 
-fn gzip_bytes(raw: &[u8]) -> Vec<u8> {
+fn gzip_bytes(raw: &[u8]) -> io::Result<Vec<u8>> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    if let Err(err) = encoder.write_all(raw) {
-        panic!("gzip payload writing must succeed in tests: {err}");
-    }
-    match encoder.finish() {
-        Ok(bytes) => bytes,
-        Err(err) => panic!("gzip payload finalization must succeed in tests: {err}"),
-    }
+    encoder.write_all(raw)?;
+    encoder.finish()
 }

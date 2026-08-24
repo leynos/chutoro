@@ -1,11 +1,10 @@
 //! Behavioural tests for the benchmark regression gate binary.
 
-use std::env;
 use std::error::Error;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 
+use chutoro_test_support::process::find_test_binary;
 use rstest::{fixture, rstest};
 
 #[derive(Debug, Clone, Copy)]
@@ -54,40 +53,32 @@ struct GateCase {
     expected_should_compare: false,
 })]
 fn benchmark_gate_binary_outputs_expected_mode(
-    gate_runner: Result<GateRunner, Box<dyn Error>>,
+    #[from(gate_runner)] gate_runner_result: Result<GateRunner, Box<dyn Error>>,
     #[case] case: GateCase,
-) -> Result<(), Box<dyn Error>> {
-    let gate_runner = gate_runner?;
-    let output = gate_runner.run(case.event, case.policy)?;
+) {
+    let gate_runner = gate_runner_result.expect("gate runner must be created");
+    let output = gate_runner
+        .run(case.event, case.policy)
+        .expect("benchmark_regression_gate binary must run");
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(
-            std::io::Error::other(format!("expected success, got failure: {stderr}",)).into(),
-        );
+        panic!("expected success, got failure: {stderr}");
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let mode = parse_value(&stdout, "mode")
-        .ok_or_else(|| std::io::Error::other(format!("missing mode output: {stdout}")))?;
+    let mode = match parse_value(&stdout, "mode") {
+        Some(value) => value,
+        None => panic!("missing mode output: {stdout}"),
+    };
     let should_compare = match parse_value(&stdout, "should_compare") {
         Some("true") => true,
         Some("false") => false,
-        Some(other) => {
-            return Err(std::io::Error::other(
-                format!("unexpected should_compare value: {other}",),
-            )
-            .into());
-        }
-        None => {
-            return Err(
-                std::io::Error::other(format!("missing should_compare output: {stdout}",)).into(),
-            );
-        }
+        Some(other) => panic!("unexpected should_compare value: {other}"),
+        None => panic!("missing should_compare output: {stdout}"),
     };
 
     assert_eq!(mode, case.expected_mode);
     assert_eq!(should_compare, case.expected_should_compare);
-    Ok(())
 }
 
 #[rstest]
@@ -96,23 +87,22 @@ fn benchmark_gate_binary_outputs_expected_mode(
 #[case("pull_request_target", "pull_request")]
 #[case("push", "other")]
 fn benchmark_gate_binary_reports_event(
-    gate_runner: Result<GateRunner, Box<dyn Error>>,
+    #[from(gate_runner)] gate_runner_result: Result<GateRunner, Box<dyn Error>>,
     #[case] event: &str,
     #[case] expected_event: &str,
-) -> Result<(), Box<dyn Error>> {
-    let gate_runner = gate_runner?;
-    let output = gate_runner.run(event, None)?;
+) {
+    let gate_runner = gate_runner_result.expect("gate runner must be created");
+    let output = gate_runner
+        .run(event, None)
+        .expect("benchmark_regression_gate binary must run");
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(
-            std::io::Error::other(format!("expected success, got failure: {stderr}",)).into(),
-        );
+        panic!("expected success, got failure: {stderr}");
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let printed_event = parse_value(&stdout, "event").unwrap_or("<missing>");
     assert_eq!(printed_event, expected_event);
-    Ok(())
 }
 
 #[fixture]
@@ -126,7 +116,7 @@ struct GateRunner {
 
 impl GateRunner {
     fn new() -> Result<Self, Box<dyn Error>> {
-        let binary_path = binary_path().map_err(std::io::Error::other)?;
+        let binary_path = find_test_binary("benchmark_regression_gate")?;
         Ok(Self { binary_path })
     }
 
@@ -143,88 +133,6 @@ impl GateRunner {
 
         command.output()
     }
-}
-
-fn binary_path() -> Result<PathBuf, String> {
-    if let Ok(value) = env::var("CARGO_BIN_EXE_benchmark_regression_gate") {
-        return Ok(with_exe_suffix(PathBuf::from(value)));
-    }
-
-    let current_exe = env::current_exe()
-        .map_err(|error| format!("failed to locate current test binary: {error}"))?;
-    let deps_dir = current_exe
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "failed to resolve deps directory from test binary".to_string())?;
-    let target_dir = deps_dir
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "failed to resolve target directory from deps".to_string())?;
-    let direct = with_exe_suffix(target_dir.join("benchmark_regression_gate"));
-    if direct.exists() {
-        return Ok(direct);
-    }
-
-    find_in_deps(&deps_dir)
-        .ok_or_else(|| "failed to locate benchmark_regression_gate binary".to_string())
-}
-
-fn find_in_deps(deps_dir: &Path) -> Option<PathBuf> {
-    fs::read_dir(deps_dir)
-        .ok()?
-        .filter_map(|entry| entry.ok())
-        .find_map(is_matching_binary)
-}
-
-fn is_matching_binary(entry: fs::DirEntry) -> Option<PathBuf> {
-    let path = entry.path();
-    let metadata = entry.metadata().ok()?;
-
-    if !metadata.is_file() {
-        return None;
-    }
-
-    let file_name = path.file_name()?.to_str()?;
-    if !has_expected_suffix(&path, file_name) {
-        return None;
-    }
-
-    let file_stem = path.file_stem()?.to_str()?;
-    if file_stem == "benchmark_regression_gate"
-        || file_stem.starts_with("benchmark_regression_gate-")
-    {
-        Some(path)
-    } else {
-        None
-    }
-}
-
-fn has_expected_suffix(path: &Path, file_name: &str) -> bool {
-    let suffix = env::consts::EXE_SUFFIX;
-    if suffix.is_empty() {
-        return path.extension().is_none();
-    }
-
-    file_name.ends_with(suffix)
-}
-
-fn with_exe_suffix(mut path: PathBuf) -> PathBuf {
-    let suffix = env::consts::EXE_SUFFIX;
-    if suffix.is_empty() {
-        return path;
-    }
-
-    let file_name = match path.file_name().and_then(|name| name.to_str()) {
-        Some(name) => name,
-        None => return path,
-    };
-    if file_name.ends_with(suffix) {
-        return path;
-    }
-
-    let updated = format!("{file_name}{suffix}");
-    path.set_file_name(updated);
-    path
 }
 
 fn parse_value<'a>(stdout: &'a str, key: &str) -> Option<&'a str> {

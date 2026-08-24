@@ -156,16 +156,14 @@ pub fn neighbour_scoring(c: &mut Criterion) {
 mod tests {
     //! Tests for neighbour-scoring benchmark orchestration.
 
+    // `should_use_short_measurement_value` is a thin delegate to the
+    // canonical `truthy_env_value`, whose full truthy/falsy case table is
+    // exercised by `chutoro-benches/tests/neighbour_scoring_support.rs`.
+    // These two cases only confirm the delegation, not the whole table.
     #[rstest::rstest]
-    #[case::unset(None, false)]
-    #[case::empty(Some(""), false)]
-    #[case::false_word(Some("false"), false)]
-    #[case::zero(Some("0"), false)]
-    #[case::mixed_case_true(Some(" TrUe "), true)]
-    #[case::one(Some("1"), true)]
-    #[case::on(Some("on"), true)]
-    #[case::yes(Some("yes"), true)]
-    fn short_measurement_parser_recognizes_env_values(
+    #[case::falsy(Some("false"), false)]
+    #[case::truthy(Some("yes"), true)]
+    fn short_measurement_parser_delegates_to_truthy_env_value(
         #[case] value: Option<&str>,
         #[case] expected: bool,
     ) {
