@@ -446,6 +446,12 @@ distribution, retaining the deterministic result for valid non-zero shard
 counts without lossy hash narrowing. Verify cache tests, formatting, and scoped
 Clippy.
 
+## Stage 3e: HNSW Optional Defaults
+
+Use `Option::map_or` for graph-entry, node-level, and fallback-neighbour
+defaults. Preserve all established fallback values while making defaulting
+intent explicit. Verify HNSW tests, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

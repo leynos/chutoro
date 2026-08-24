@@ -171,7 +171,7 @@ pub(crate) struct Graph {
 }
 
 fn should_promote_entry(current: Option<EntryPoint>, level: usize) -> bool {
-    level > current.map(|entry| entry.level).unwrap_or(0)
+    level > current.map_or(0, |entry| entry.level)
 }
 
 impl Graph {

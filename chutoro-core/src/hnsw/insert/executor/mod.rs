@@ -54,7 +54,7 @@ impl<'graph> InsertionExecutor<'graph> {
         let stager = InsertionStager::new(&*self.graph);
         stager.ensure_slot_available(node_id)?;
 
-        let promote_entry = level > self.graph.entry().map(|entry| entry.level).unwrap_or(0);
+        let promote_entry = level > self.graph.entry().map_or(0, |entry| entry.level);
         let max_connections = params.max_connections();
         let LayerProcessingOutcome {
             mut new_node_neighbours,

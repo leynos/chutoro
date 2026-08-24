@@ -162,7 +162,10 @@ impl<'a> FallbackSelector<'a> {
     }
 
     fn select(&mut self, level: usize) -> Option<usize> {
-        let fallback_candidates = self.original.get(level).map(Vec::as_slice).unwrap_or(&[]);
+        let fallback_candidates = self
+            .original
+            .get(level)
+            .map_or(&[] as &[usize], Vec::as_slice);
         let limit = compute_connection_limit(level, self.max_connections);
 
         for &candidate in fallback_candidates {

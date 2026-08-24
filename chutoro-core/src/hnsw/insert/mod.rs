@@ -129,7 +129,7 @@ fn assume_node_has_level(graph: &crate::hnsw::graph::Graph, node_id: usize, leve
     debug_assert!(node_exists, "Kani node must exist");
     kani::assume(node_exists);
 
-    let level_valid = node.map(|node| level < node.level_count()).unwrap_or(false);
+    let level_valid = node.map_or(false, |node| level < node.level_count());
     debug_assert!(level_valid, "Kani node must expose the requested level");
     kani::assume(level_valid);
 
