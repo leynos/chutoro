@@ -13,6 +13,7 @@ use crate::{ChutoroError, CpuHnsw, DataSource, DataSourceError, HnswError, Resul
 use tracing::{debug, instrument, warn};
 
 impl<D: DataSource + Send + Sync> ClusteringSession<D> {
+    /// Build the data-source bounds error for an invalid append index.
     fn append_index_error(&self, index: usize) -> ChutoroError {
         ChutoroError::DataSource {
             data_source: Arc::from(self.source.name()),
@@ -20,10 +21,12 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         }
     }
 
+    /// Map an HNSW operation failure into this session's domain error.
     pub(super) fn map_hnsw_error(&self, error: HnswError) -> ChutoroError {
         crate::cpu_pipeline::map_cpu_hnsw_error(self.source.as_ref(), error)
     }
 
+    /// Convert an HNSW allocation failure into a structured session error.
     fn map_index_allocation_error(error: &HnswError) -> ChutoroError {
         let code = Arc::from(error.code().as_str());
         let message = Arc::from(error.to_string());
@@ -35,6 +38,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         ChutoroError::CpuHnswFailure { code, message }
     }
 
+    /// Describe metrics emitted by session mutation and core-distance recompute.
     #[cfg(feature = "metrics")]
     fn describe_session_metrics() {
         metrics::describe_counter!(
@@ -79,6 +83,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         );
     }
 
+    /// Construct a session from an already attempted HNSW allocation.
     fn new_with_index_result(
         config: SessionConfig,
         source: Arc<D>,
@@ -110,11 +115,13 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         })
     }
 
+    /// Allocate an HNSW index at `capacity` and construct its session.
     fn new_with_capacity(config: SessionConfig, source: Arc<D>, capacity: usize) -> Result<Self> {
         let index = CpuHnsw::with_capacity(config.hnsw_params().clone(), capacity);
         Self::new_with_index_result(config, source, index)
     }
 
+    /// Construct an empty session using the source length as its capacity.
     pub(crate) fn new(config: SessionConfig, source: Arc<D>) -> Result<Self> {
         let capacity = source.len().max(1);
         Self::new_with_capacity(config, source, capacity)

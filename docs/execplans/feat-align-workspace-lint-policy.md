@@ -163,6 +163,10 @@ keeps local editor feedback aligned with commit gates.
       exclusively owned by the distance cache; the split keeps the documented
       cache implementation below the repository's 400-line limit without
       changing cache calls or emitted metric names.
+- [x] 2026-08-24: Documented session core-distance dirty-state, search-width,
+      error mapping, and construction helpers. Focused core Clippy reports
+      367 remaining primary-crate documentation diagnostics; the 44 focused
+      session tests and two API-surface tests pass.
 - [x] 2026-08-24: Replaced the `chutoro-cli` whole-crate filesystem exemption
       with the user-path command boundary and its two `cli::tests` fixture
       modules. `make lint` passes with Whitaker enforcing every other CLI

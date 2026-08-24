@@ -69,6 +69,7 @@ pub(super) fn recompute_targets(
 }
 
 impl<D: DataSource + Send + Sync> ClusteringSession<D> {
+    /// Mark `index` dirty and grow core-distance storage when needed.
     pub(super) fn mark_core_distance_dirty(&mut self, index: usize) {
         let len = index.saturating_add(1);
         if self.core_distances.len() < len {
@@ -83,6 +84,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         }
     }
 
+    /// Iterate the slots that have been inserted or remain dirty.
     fn inserted_core_distance_indices(&self) -> impl Iterator<Item = usize> + '_ {
         self.core_distances
             .iter()
@@ -93,6 +95,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             })
     }
 
+    /// Collect the core-distance slots that require recomputation.
     fn dirty_core_distance_indices(&self) -> Vec<usize> {
         self.dirty_core_distances
             .iter()
@@ -101,6 +104,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             .collect()
     }
 
+    /// Derive the HNSW search width used for core-distance recomputation.
     fn core_distance_ef(&self) -> Option<NonZeroUsize> {
         let point_count = NonZeroUsize::new(self.point_count())?;
         let ef_construction = NonZeroUsize::new(self.config.hnsw_params().ef_construction())?;
@@ -111,6 +115,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         ))
     }
 
+    /// Search for `point`'s neighbours while excluding the point itself.
     fn search_non_self_neighbours(&self, point: usize, ef: NonZeroUsize) -> Result<Vec<Neighbour>> {
         #[cfg(feature = "metrics")]
         metrics::counter!("chutoro.session.core_distance.queries_total").increment(1);
@@ -139,11 +144,13 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             .collect())
     }
 
+    /// Derive and store `point`'s core distance from sorted neighbours.
     fn write_core_distance(&mut self, point: usize, neighbours: &[Neighbour]) {
         let core = core_distance_from_neighbours(neighbours, self.config.min_cluster_size());
         self.write_core_distance_value(point, core);
     }
 
+    /// Store a recomputed core distance and clear its dirty flag.
     fn write_core_distance_value(&mut self, point: usize, core: f32) {
         if let Some(core_distance) = self.core_distances.get_mut(point) {
             *core_distance = core;
@@ -345,6 +352,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     }
 }
 
+/// Classify a core-distance failure for low-cardinality metrics.
 #[cfg(feature = "metrics")]
 const fn core_distance_error_reason(error: &crate::ChutoroError) -> &'static str {
     match error {
