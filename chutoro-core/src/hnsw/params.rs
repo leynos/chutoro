@@ -4,16 +4,23 @@ use std::{num::NonZeroUsize, ops::Neg, time::Duration};
 
 use crate::hnsw::{distance_cache::DistanceCacheConfig, error::HnswError};
 
+/// Greatest finite sampling draw strictly below one.
 const LARGEST_DRAW_BELOW_ONE: f64 = f64::from_bits(0x3FEF_FFFF_FFFF_FFFF);
 
 /// Configuration parameters for the CPU HNSW index.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HnswParams {
+    /// Maximum neighbours retained at the base graph layer.
     max_connections: usize,
+    /// Construction-time search width.
     ef_construction: usize,
+    /// Random-level distribution multiplier.
     level_multiplier: f64,
+    /// Highest level a sampled node may receive.
     max_level: usize,
+    /// Seed for deterministic insertion-level sampling.
     rng_seed: u64,
+    /// Capacity and expiry configuration for distance reuse.
     distance_cache: DistanceCacheConfig,
 }
 
@@ -112,14 +119,17 @@ impl HnswParams {
         self.ef_construction
     }
 
+    /// Return the highest permitted sampled graph level.
     pub(crate) const fn max_level(&self) -> usize {
         self.max_level
     }
 
+    /// Return the seed used by insertion-level sampling.
     pub(crate) const fn rng_seed(&self) -> u64 {
         self.rng_seed
     }
 
+    /// Return the configuration used to build the distance cache.
     pub(crate) const fn distance_cache_config(&self) -> &DistanceCacheConfig {
         &self.distance_cache
     }

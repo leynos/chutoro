@@ -4,12 +4,16 @@
 //! search, insertion, and trimming.
 #[derive(Clone, Debug)]
 pub(crate) struct Node {
+    /// Mutable adjacency list for every initialized graph level.
     neighbours: Vec<Vec<usize>>,
+    /// Sink returned for attempted mutation of an unavailable level.
     invalid_level_neighbours: Vec<usize>,
+    /// Deterministic insertion order for equal-distance tie-breaking.
     sequence: u64,
 }
 
 impl Node {
+    /// Create a node with empty adjacency lists through `level`.
     pub(crate) fn new(level: usize, sequence: u64) -> Self {
         let mut neighbours = Vec::with_capacity(level + 1);
         neighbours.resize_with(level + 1, Vec::new);
@@ -20,12 +24,14 @@ impl Node {
         }
     }
 
+    /// Return neighbours at `level`, or an empty slice when unavailable.
     pub(crate) fn neighbours(&self, level: usize) -> &[usize] {
         self.neighbours
             .get(level)
             .map_or(self.invalid_level_neighbours.as_slice(), Vec::as_slice)
     }
 
+    /// Return mutable neighbours at `level`, or the unavailable-level sink.
     pub(crate) fn neighbours_mut(&mut self, level: usize) -> &mut Vec<usize> {
         if let Some(neighbours) = self.neighbours.get_mut(level) {
             neighbours
@@ -34,6 +40,7 @@ impl Node {
         }
     }
 
+    /// Return this node's deterministic insertion sequence.
     pub(crate) const fn sequence(&self) -> u64 {
         self.sequence
     }
