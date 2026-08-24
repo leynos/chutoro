@@ -112,7 +112,7 @@ const _: fn() = || {
             0
         }
 
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "_dummy"
         }
 

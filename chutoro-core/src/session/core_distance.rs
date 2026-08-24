@@ -23,12 +23,13 @@ pub(super) fn core_distance_from_neighbours(
     min_cluster_size: NonZeroUsize,
 ) -> f32 {
     if neighbours.len() >= min_cluster_size.get() {
-        neighbours[min_cluster_size.get() - 1].distance
+        neighbours
+            .get(min_cluster_size.get().saturating_sub(1))
+            .map_or(0.0, |neighbour| neighbour.distance)
     } else {
         neighbours
             .last()
-            .map(|neighbour| neighbour.distance)
-            .unwrap_or(0.0)
+            .map_or(0.0, |neighbour| neighbour.distance)
     }
 }
 
@@ -74,8 +75,12 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             self.core_distances.resize(len, f32::INFINITY);
             self.dirty_core_distances.resize(len, false);
         }
-        self.core_distances[index] = f32::INFINITY;
-        self.dirty_core_distances[index] = true;
+        if let Some(core_distance) = self.core_distances.get_mut(index) {
+            *core_distance = f32::INFINITY;
+        }
+        if let Some(is_dirty) = self.dirty_core_distances.get_mut(index) {
+            *is_dirty = true;
+        }
     }
 
     fn inserted_core_distance_indices(&self) -> impl Iterator<Item = usize> + '_ {
@@ -140,8 +145,12 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     }
 
     fn write_core_distance_value(&mut self, point: usize, core: f32) {
-        self.core_distances[point] = core;
-        self.dirty_core_distances[point] = false;
+        if let Some(core_distance) = self.core_distances.get_mut(point) {
+            *core_distance = core;
+        }
+        if let Some(is_dirty) = self.dirty_core_distances.get_mut(point) {
+            *is_dirty = false;
+        }
     }
 
     /// Recomputes dirty and touched core distances.
@@ -231,8 +240,9 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         let existing_targets = recompute_targets(&new_indices, &neighbour_slices);
 
         #[cfg(feature = "metrics")]
-        metrics::histogram!("chutoro.session.core_distance.touched_existing_per_recompute")
-            .record(existing_targets.len() as f64);
+        metrics::histogram!("chutoro.session.core_distance.touched_existing_per_recompute").record(
+            u32::try_from(existing_targets.len()).map_or_else(|_| f64::from(u32::MAX), f64::from),
+        );
 
         let mut pending_updates = Vec::with_capacity(new_indices.len() + existing_targets.len());
         for (point, neighbours) in new_indices.iter().copied().zip(&neighbour_lists) {

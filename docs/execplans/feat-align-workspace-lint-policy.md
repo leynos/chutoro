@@ -549,6 +549,14 @@ semantics for signed zero, the canonical deduplication rule, sorted-group
 order, and early-completion behaviour. Verify MST tests, formatting, and scoped
 Clippy.
 
+## Stage 3t: Session Core-Distance State
+
+Use checked slots for core-distance state and isolate index-failure mapping and
+metrics description inside session construction. These helpers are limited to
+session state management; callers continue to use the public constructor and
+recompute methods. Preserve valid-slot updates, metrics, and existing typed
+errors. Verify session tests, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
