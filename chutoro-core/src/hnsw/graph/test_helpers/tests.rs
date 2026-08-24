@@ -137,6 +137,8 @@ fn delete_node_reverts_when_it_would_disconnect_graph(restricted_params: HnswPar
     graph.try_add_bidirectional_edge(0, 3, 0);
     graph.try_add_bidirectional_edge(1, 4, 0);
     graph.try_add_bidirectional_edge(2, 4, 0);
+    let _ = graph.take_touched_nodes();
+    graph.record_touched_nodes([(4, 0)]);
 
     let result = graph.delete_node(0);
 
@@ -158,5 +160,10 @@ fn delete_node_reverts_when_it_would_disconnect_graph(restricted_params: HnswPar
         graph.entry().map(|entry| entry.node),
         Some(0),
         "entry point must roll back on failure"
+    );
+    assert_eq!(
+        graph.take_touched_nodes(),
+        vec![(4, 0)],
+        "failed deletion must restore the pre-mutation healing queue",
     );
 }
