@@ -109,6 +109,9 @@ keeps local editor feedback aligned with commit gates.
       constraints or an invariant error. `make check-fmt`, `make test`, and
       `make markdownlint` pass; scoped Clippy now reports only the three
       planned production accessor sites.
+- [x] Made the distance cache bypass its optional LRU state when shard
+      construction is unavailable. The cache tests and full checkpoints pass;
+      scoped Clippy now reports only the two node-level accessor contracts.
 - [ ] Resolve `chutoro-core` structural, bounds-safety, numerical, and test
       lint families in bounded commits.
 - [ ] Opt in the remaining library crates and retire duplicated Rustdoc flags.
@@ -266,6 +269,16 @@ assert their supported `ef` values before choosing an assertion set, and the
 core-distance error test asserts that pair failures remain covered by their
 dedicated dirty-state test. Verify the focused HNSW test, `make check-fmt`,
 `make test`, and package Clippy's residual `clippy::unreachable` locations.
+
+## Stage 2j: Cache Shard Fallback
+
+Treat an absent private LRU shard as an unavailable cache rather than a reason
+to terminate clustering. `begin_lookup` reports the inconsistent state and
+returns a miss, while `complete_miss` returns the computed finite distance
+without retaining it. The shard access helper becomes fallible, and its
+maintenance callers become no-ops only in that already-bypassed state. Normal
+valid configurations retain their existing sharded LRU operation. Verify the
+cache tests and package Clippy's remaining `clippy::unreachable` locations.
 
 ## Verification Plan
 

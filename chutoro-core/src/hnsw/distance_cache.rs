@@ -192,6 +192,16 @@ impl DistanceCache {
     ) -> LookupOutcome {
         let started = Instant::now();
         let key = DistanceKey::new(metric.clone(), left, right);
+        if self.shards.is_empty() {
+            tracing::error!("distance cache has no LRU shards; bypassing cache");
+            Self::record_miss();
+            return LookupOutcome::Miss(PendingMiss {
+                key,
+                started,
+                left,
+                right,
+            });
+        }
         if let Some(entry) = self.entries.get(&key) {
             if self.is_expired(&entry) {
                 drop(entry);
@@ -237,6 +247,10 @@ impl DistanceCache {
             );
             return Err(HnswError::NonFiniteDistance { left, right });
         }
+        if self.shards.is_empty() {
+            Self::record_lookup_latency(started.elapsed());
+            return Ok(value);
+        }
         self.entries.insert(
             key.clone(),
             CacheEntry {
@@ -256,7 +270,9 @@ impl DistanceCache {
     }
 
     fn touch(&self, key: &DistanceKey) {
-        let shard = self.shard_for_key(key);
+        let Some(shard) = self.shard_for_key(key) else {
+            return;
+        };
         // Recover from a poisoned lock: the LRU usage list stays coherent
         // because each mutation below is applied atomically under the guard.
         let mut usage = shard
@@ -270,7 +286,9 @@ impl DistanceCache {
     }
 
     fn remove_from_usage(&self, key: &DistanceKey) {
-        let shard = self.shard_for_key(key);
+        let Some(shard) = self.shard_for_key(key) else {
+            return;
+        };
         // Recover from a poisoned lock: the LRU usage list stays coherent
         // because each mutation below is applied atomically under the guard.
         let mut usage = shard
@@ -302,18 +320,19 @@ impl DistanceCache {
         restored.map(|(evicted, _)| evicted)
     }
 
-    fn shard_for_key(&self, key: &DistanceKey) -> &LruShard {
-        let index = if self.shards.len() == 1 {
+    fn shard_for_key(&self, key: &DistanceKey) -> Option<&LruShard> {
+        let shard_count = self.shards.len();
+        if shard_count == 0 {
+            return None;
+        }
+        let index = if shard_count == 1 {
             0
         } else {
             let mut hasher = DefaultHasher::new();
             key.hash(&mut hasher);
-            (hasher.finish() as usize) % self.shards.len()
+            (hasher.finish() as usize) % shard_count
         };
-        let Some(shard) = self.shards.get(index) else {
-            unreachable!("distance cache shard index must be valid");
-        };
-        shard
+        self.shards.get(index)
     }
 
     #[cfg(feature = "metrics")]
