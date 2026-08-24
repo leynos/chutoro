@@ -144,7 +144,7 @@ fn run_mutation_proptest(config: Config) -> TestCaseResult {
         config,
         (hnsw_fixture_strategy(), mutation_plan_strategy()),
         "hnsw mutation proptest",
-        |(fixture, plan)| run_mutation_property(fixture, plan),
+        |(fixture, plan)| run_mutation_property(&fixture, &plan),
     )
 }
 

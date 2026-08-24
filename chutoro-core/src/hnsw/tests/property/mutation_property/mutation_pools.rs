@@ -115,7 +115,7 @@ impl MutationPools {
     fn remove_value(list: &mut Vec<usize>, value: usize) -> bool {
         list.iter()
             .position(|&candidate| candidate == value)
-            .map_or(false, |position| {
+            .is_some_and(|position| {
                 list.remove(position);
                 true
             })
