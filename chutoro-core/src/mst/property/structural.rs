@@ -105,7 +105,12 @@ fn validate_acyclicity(node_count: usize, edges: &[MstEdge]) -> TestCaseResult {
                 edge.target(),
             )));
         }
-        parent[rb] = ra;
+        let Some(parent_root) = parent.get_mut(rb) else {
+            return Err(TestCaseError::fail(format!(
+                "edge {i}: target root {rb} is not a graph node"
+            )));
+        };
+        *parent_root = ra;
     }
     Ok(())
 }
@@ -159,8 +164,10 @@ fn count_input_components(fixture: &MstFixture) -> usize {
         let ra = find_root(&mut parent, s);
         let rb = find_root(&mut parent, t);
         if ra != rb {
-            parent[rb] = ra;
-            components -= 1;
+            if let Some(parent_root) = parent.get_mut(rb) {
+                *parent_root = ra;
+                components -= 1;
+            }
         }
     }
 

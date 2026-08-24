@@ -154,7 +154,12 @@ fn handles_many_equal_weights_without_cycles() {
         assert_eq!(result.component_count(), 1);
         assert!(result.is_tree());
         assert_eq!(result.edges().len(), node_count - 1);
-        assert!(result.edges().iter().all(|edge| edge.weight() == 1.0));
+        assert!(
+            result
+                .edges()
+                .iter()
+                .all(|edge| edge.weight().total_cmp(&1.0).is_eq())
+        );
 
         if let Some(expected) = expected_edges.as_ref() {
             assert_eq!(actual_edges.as_slice(), expected.as_slice());
@@ -214,7 +219,9 @@ fn forest_is_acyclic(#[case] node_count: usize, #[case] edges: &[(usize, usize, 
             edge.source(),
             edge.target()
         );
-        parent[root_t] = root_s;
+        *parent
+            .get_mut(root_t)
+            .expect("MST root must identify a graph node") = root_s;
     }
 }
 
@@ -259,8 +266,11 @@ fn weights_are_non_decreasing_in_mst() {
 
     // MST edges should be sorted by weight (Kruskal property)
     for window in result.edges().windows(2) {
+        let [first_edge, second_edge] = window else {
+            continue;
+        };
         assert!(
-            window[0].weight() <= window[1].weight(),
+            first_edge.weight() <= second_edge.weight(),
             "MST edges should be in non-decreasing weight order"
         );
     }

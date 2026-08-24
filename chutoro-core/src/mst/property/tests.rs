@@ -276,7 +276,7 @@ fn assert_oracle(
     expected_components: usize,
 ) {
     assert!(
-        (result.total_weight - expected_weight).abs() < f64::EPSILON,
+        result.total_weight.total_cmp(&expected_weight).is_eq(),
         "weight: expected {expected_weight}, got {}",
         result.total_weight,
     );
