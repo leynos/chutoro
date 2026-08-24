@@ -352,6 +352,13 @@ they only derive their mapped error from the original value. Verify the CPU
 pipeline through the workspace test suite, `make check-fmt`, and scoped Clippy
 for the addressed indexing and pass-by-value diagnostics.
 
+## Stage 2r: Data Source Batch Output Access
+
+Fill the temporary batch buffer by zipping each requested pair with its mutable
+output slot. Preserve the initial output-length check and deferred copy, so a
+distance failure still leaves the caller's output unchanged. Verify the data
+source tests, `make check-fmt`, and scoped Clippy for the batch index warning.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
