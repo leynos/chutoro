@@ -570,6 +570,13 @@ Keep scalar fixture distances symmetric through fused subtraction, and compare
 expected float buffers through their exact representations. Reuse this only in
 test data sources. Verify the focused datasource test target and Clippy.
 
+## Stage 3w: Functional Clustering Quality Tests
+
+Retain the exact and approximate clustering quality contracts while making
+vector distances, core-distance lookup, and failure reporting fallible and
+bounds-safe. Compare exact metric expectations through total ordering. Verify
+the focused functional test target and Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
