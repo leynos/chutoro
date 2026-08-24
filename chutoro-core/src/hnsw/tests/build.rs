@@ -72,7 +72,7 @@ impl DataSource for DistanceBatchInstrumentedSource {
                 .data()
                 .get(right)
                 .ok_or(DataSourceError::OutOfBounds { index: right })?;
-            *slot = (a - b).abs();
+            *slot = a.mul_add(1.0, std::ops::Neg::neg(*b)).abs();
         }
         Ok(())
     }
@@ -103,7 +103,7 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
     if ef == 8 {
         assert!(forward_ids.starts_with(&[0, 1, 2]));
         if forward_ids.len() == 4 {
-            assert_eq!(forward_ids[3], 3);
+            assert_eq!(forward_ids.get(3).copied(), Some(3));
         } else {
             assert_eq!(forward_ids.len(), 3);
         }
@@ -117,28 +117,31 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
             "forward search should return at least two results",
         );
         if forward_ids.len() > 2 {
+            let additional_ids = forward_ids
+                .get(2..)
+                .expect("length check guarantees additional neighbours");
             assert!(
-                forward_ids[2..]
+                additional_ids
                     .windows(2)
-                    .all(|window| window[0] <= window[1]),
+                    .all(|pair| matches!(pair, [left, right] if left <= right)),
                 "additional forward neighbours must appear in ascending order",
             );
         }
     }
     assert_sorted_by_distance(&neighbours);
 
-    let neighbours = index
+    let reverse_neighbours = index
         .search(
             &source,
             3,
             NonZeroUsize::new(ef).expect("ef must be non-zero"),
         )
         .expect("search must succeed");
-    let reverse_ids: Vec<_> = neighbours.iter().map(|n| n.id).collect();
+    let reverse_ids: Vec<_> = reverse_neighbours.iter().map(|n| n.id).collect();
     if ef == 8 {
         assert!(reverse_ids.ends_with(&[2, 1, 0]));
         if reverse_ids.len() == 4 {
-            assert_eq!(reverse_ids[0], 3);
+            assert_eq!(reverse_ids.first().copied(), Some(3));
         } else {
             assert_eq!(reverse_ids.len(), 3);
         }
@@ -152,11 +155,13 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
             "reverse search should return at least two results",
         );
         assert!(
-            reverse_ids.windows(2).all(|window| window[0] >= window[1]),
+            reverse_ids
+                .windows(2)
+                .all(|pair| matches!(pair, [left, right] if left >= right)),
             "reverse search neighbours must appear in descending order",
         );
     }
-    assert_sorted_by_distance(&neighbours);
+    assert_sorted_by_distance(&reverse_neighbours);
 }
 
 #[rstest]
@@ -207,7 +212,7 @@ fn uses_batch_distances_during_scoring() {
                         .data()
                         .get(candidate)
                         .ok_or(DataSourceError::OutOfBounds { index: candidate })?;
-                    Ok((a - b).abs())
+                    Ok(a.mul_add(1.0, std::ops::Neg::neg(*b)).abs())
                 })
                 .collect()
         }
@@ -272,22 +277,23 @@ fn duplicate_insert_is_rejected() {
 }
 
 #[rstest]
-fn cpu_hnsw_initialises_graph_with_params() -> Result<(), HnswError> {
-    let params = HnswParams::new(2, 4)?.with_rng_seed(7);
-    let index = CpuHnsw::with_capacity(params.clone(), 8)?;
+fn cpu_hnsw_initialises_graph_with_params() {
+    let params = HnswParams::new(2, 4)
+        .expect("parameters must be valid")
+        .with_rng_seed(7);
+    let index = CpuHnsw::with_capacity(params.clone(), 8).expect("index must initialise");
     index.inspect_graph(|graph| {
         let graph_params = graph.params();
         assert_eq!(graph_params.max_connections(), params.max_connections());
         assert_eq!(graph_params.ef_construction(), params.ef_construction());
         assert_eq!(graph_params.rng_seed(), params.rng_seed());
     });
-    Ok(())
 }
 
 #[rstest]
-fn trimming_prefers_lower_id_on_distance_ties() -> Result<(), HnswError> {
-    let params = HnswParams::new(1, 4)?;
-    let index = CpuHnsw::with_capacity(params.clone(), 3)?;
+fn trimming_prefers_lower_id_on_distance_ties() {
+    let params = HnswParams::new(1, 4).expect("parameters must be valid");
+    let index = CpuHnsw::with_capacity(params.clone(), 3).expect("index must initialise");
     let ctx = EdgeContext {
         level: 0,
         max_connections: params.max_connections(),
@@ -305,7 +311,8 @@ fn trimming_prefers_lower_id_on_distance_ties() -> Result<(), HnswError> {
     );
 
     let result = index
-        .score_trim_jobs(vec![job], &DummySource::new(vec![0.0, 1.0, 1.0]))?
+        .score_trim_jobs(vec![job], &DummySource::new(vec![0.0, 1.0, 1.0]))
+        .expect("trim scoring must succeed")
         .into_iter()
         .next()
         .expect("trim job yields a result");
@@ -315,13 +322,12 @@ fn trimming_prefers_lower_id_on_distance_ties() -> Result<(), HnswError> {
         vec![1, 2],
         "base layer retains up to 2 * M neighbours while preserving tie-break ordering",
     );
-    Ok(())
 }
 
 #[rstest]
-fn score_trim_jobs_limits_results_to_max_connections() -> Result<(), HnswError> {
-    let params = HnswParams::new(1, 4)?;
-    let index = CpuHnsw::with_capacity(params.clone(), 6)?;
+fn score_trim_jobs_limits_results_to_max_connections() {
+    let params = HnswParams::new(1, 4).expect("parameters must be valid");
+    let index = CpuHnsw::with_capacity(params.clone(), 6).expect("index must initialise");
     let ctx = EdgeContext {
         level: 0,
         max_connections: 2,
@@ -336,13 +342,13 @@ fn score_trim_jobs_limits_results_to_max_connections() -> Result<(), HnswError> 
         .score_trim_jobs(
             vec![job],
             &DummySource::new(vec![0.0, 0.05, 0.1, 0.2, 0.4, 0.8]),
-        )?
+        )
+        .expect("trim scoring must succeed")
         .into_iter()
         .next()
         .expect("trim job result expected");
 
     assert_eq!(result.neighbours, vec![1, 2, 3, 4]);
-    Ok(())
 }
 
 #[rstest]
