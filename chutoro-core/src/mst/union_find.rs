@@ -162,6 +162,11 @@ impl ConcurrentUnionFind {
             lock_count: self.locks.len(),
         })
     }
+
+    #[cfg(test)]
+    pub(super) fn root_of(&self, node: usize) -> usize {
+        self.find(node)
+    }
 }
 
 /// Order two roots consistently to avoid lock-order inversions.
@@ -188,4 +193,113 @@ const fn choose_parent_child(
     }
 
     lock_order(left_root, right_root)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Concurrent stress coverage for the striped-lock union-find protocol.
+
+    use std::sync::{Arc, Barrier};
+
+    use rand::Rng;
+    use rand::SeedableRng;
+    use rand::rngs::SmallRng;
+    use rstest::rstest;
+
+    use super::ConcurrentUnionFind;
+
+    const NODE_COUNT: usize = 8;
+    const EDGE_COUNT: usize = 4_096;
+
+    #[rstest]
+    #[case(42, 2)]
+    #[case(999, 4)]
+    #[case(7_777, 8)]
+    fn concurrent_unions_match_sequential_partition(
+        #[case] seed: u64,
+        #[case] thread_count: usize,
+    ) {
+        // Multiple workers contend for the same small lock table, exercising
+        // striped-lock ordering, root revalidation, and retry interleavings.
+        let edges = Arc::new(random_edges(seed));
+        let union_find = Arc::new(ConcurrentUnionFind::new(NODE_COUNT));
+        let start = Arc::new(Barrier::new(thread_count + 1));
+        let chunk_size = edges.len().div_ceil(thread_count);
+
+        let handles: Vec<_> = (0..thread_count)
+            .map(|worker_index| {
+                let edges = Arc::clone(&edges);
+                let union_find = Arc::clone(&union_find);
+                let start = Arc::clone(&start);
+                let first = worker_index * chunk_size;
+                let last = (first + chunk_size).min(edges.len());
+
+                std::thread::spawn(move || {
+                    start.wait();
+                    for &(left, right) in &edges[first..last] {
+                        union_find
+                            .try_union(left, right)
+                            .expect("generated nodes must be valid");
+                    }
+                })
+            })
+            .collect();
+
+        start.wait();
+        for handle in handles {
+            handle.join().expect("union worker must not panic");
+        }
+
+        let concurrent_labels = normalised_labels(|node| union_find.root_of(node));
+        let (oracle_labels, oracle_components) = sequential_oracle(&edges);
+
+        assert_eq!(concurrent_labels, oracle_labels);
+        assert_eq!(union_find.components(), oracle_components);
+    }
+
+    fn random_edges(seed: u64) -> Vec<(usize, usize)> {
+        let mut rng = SmallRng::seed_from_u64(seed);
+        (0..EDGE_COUNT)
+            .map(|_| (rng.gen_range(0..NODE_COUNT), rng.gen_range(0..NODE_COUNT)))
+            .collect()
+    }
+
+    fn normalised_labels(root_of: impl Fn(usize) -> usize) -> Vec<usize> {
+        let mut component_minimums = [NODE_COUNT; NODE_COUNT];
+        for node in 0..NODE_COUNT {
+            let root = root_of(node);
+            component_minimums[root] = component_minimums[root].min(node);
+        }
+
+        (0..NODE_COUNT)
+            .map(|node| component_minimums[root_of(node)])
+            .collect()
+    }
+
+    fn sequential_oracle(edges: &[(usize, usize)]) -> (Vec<usize>, usize) {
+        let mut parents: Vec<usize> = (0..NODE_COUNT).collect();
+        let mut components = NODE_COUNT;
+
+        for &(left, right) in edges {
+            let left_root = scalar_find(&parents, left);
+            let right_root = scalar_find(&parents, right);
+            if left_root != right_root {
+                parents[right_root] = left_root;
+                components -= 1;
+            }
+        }
+
+        (
+            normalised_labels(|node| scalar_find(&parents, node)),
+            components,
+        )
+    }
+
+    fn scalar_find(parents: &[usize], node: usize) -> usize {
+        let mut current = node;
+        while parents[current] != current {
+            current = parents[current];
+        }
+        current
+    }
 }
