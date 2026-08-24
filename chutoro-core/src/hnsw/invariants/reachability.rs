@@ -104,25 +104,23 @@ fn process_single_node(
             level,
             target,
         };
-        process_neighbour(traversal, task, context, mode)?;
+        process_neighbour(traversal, &task, context, mode)?;
     }
     Ok(())
 }
 
 fn process_neighbour(
     traversal: &TraversalContext<'_>,
-    task: NeighbourTask,
+    task: &NeighbourTask,
     context: &mut BfsContext,
     mode: &mut EvaluationMode<'_>,
 ) -> Result<(), HnswInvariantViolation> {
-    let NeighbourTask {
-        origin,
-        level,
-        target,
-    } = task;
-    match traversal.validator.ensure(origin, target, level) {
-        Ok(_) if context.visited[target] => {}
-        Ok(_) => context.visit(target),
+    match traversal
+        .validator
+        .ensure(task.origin, task.target, task.level)
+    {
+        Ok(_) if context.visited[task.target] => {}
+        Ok(_) => context.visit(task.target),
         Err(err) => mode.record(err)?,
     }
     Ok(())
@@ -231,7 +229,7 @@ mod tests {
             target: 1,
         };
 
-        process_neighbour(&traversal, task, &mut context, &mut mode)
+        process_neighbour(&traversal, &task, &mut context, &mut mode)
             .expect("fresh targets should be enqueued");
 
         assert!(context.visited[1], "expected node 1 to be marked visited");
@@ -256,7 +254,7 @@ mod tests {
 
         process_neighbour(
             &traversal,
-            NeighbourTask {
+            &NeighbourTask {
                 origin: 0,
                 level: 0,
                 target: 1,
@@ -292,7 +290,7 @@ mod tests {
 
         process_neighbour(
             &traversal,
-            NeighbourTask {
+            &NeighbourTask {
                 origin: 0,
                 level: 0,
                 target: 3,

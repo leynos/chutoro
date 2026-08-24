@@ -497,6 +497,13 @@ Validate the staged new-node level before appending a neighbour. Preserve valid
 level ordering and report malformed plans through the existing graph-invariant
 error path. Verify HNSW tests, formatting, and scoped Clippy.
 
+## Stage 3m: HNSW Reachability Neighbour Tasks
+
+Borrow neighbour tasks while checking BFS reachability, retaining ownership
+with the traversal loop. Preserve layer validation, visited-node detection, and
+failure collection behaviour. Verify invariant tests, formatting, and scoped
+Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
