@@ -1,5 +1,7 @@
 //! Chutoro core library.
 
+#[cfg(feature = "metrics")]
+mod batch_metrics;
 mod builder;
 mod chutoro;
 mod clustering_quality;

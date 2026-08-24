@@ -54,11 +54,11 @@ assert_eq!(result.cluster_count(), 1);
 ```
 
 On CPU builds, `with_hnsw_params` configures both one-shot batch runs and
-incremental sessions. For a batch run, `max_connections` and
-`ef_construction` are passed to CPU HNSW construction. The configured
-`max_connections` and the effective, dataset-bounded construction-search
-width derived from `ef_construction` are included when estimating the run's
-peak memory for a limit set with `with_max_bytes`:
+incremental sessions. For a batch run, `max_connections` and `ef_construction`
+are passed to CPU HNSW construction. The configured `max_connections` and the
+effective, dataset-bounded construction-search width derived from
+`ef_construction` are included when estimating the run's peak memory for a
+limit set with `with_max_bytes`:
 
 ```rust
 use chutoro_core::{ChutoroBuilder, HnswParams};
@@ -75,6 +75,31 @@ let result = chutoro.run(&Dummy(vec![1.0, 2.0, 4.0, 8.0]))?;
 When the estimate exceeds the configured limit, `run` returns
 `ChutoroError::MemoryLimitExceeded` before allocating the pipeline. Omitting
 `with_max_bytes` leaves this guard disabled.
+
+When the `metrics` feature is enabled, one-shot runs emit bounded batch
+metrics. The `chutoro.batch.runs_total` counter has the labels `backend`,
+`outcome`, and `error_code`. `backend` is one of `cpu`, `gpu`, or `unavailable`;
+`outcome` is `success` or `error`; and `error_code` is `none` for successful
+runs or the stable `ChutoroErrorCode` string for failures. The resource
+histograms use only the bounded `backend` label:
+
+- `chutoro.batch.max_connections` (Count) records the configured HNSW
+  connection width.
+- `chutoro.batch.effective_ef_construction` (Count) records the dataset-
+  bounded HNSW construction-search width.
+- `chutoro.batch.estimated_bytes` (Bytes) records the estimated peak memory.
+- `chutoro.batch.memory_limit_bytes` (Bytes) records the configured memory
+  limit when one is present.
+
+The stable `ChutoroErrorCode` vocabulary includes
+`CHUTORO_INVALID_MIN_CLUSTER_SIZE`, `CHUTORO_EMPTY_SOURCE`,
+`CHUTORO_INSUFFICIENT_ITEMS`, `CHUTORO_BACKEND_UNAVAILABLE`,
+`CHUTORO_DATA_SOURCE_FAILURE`, `CHUTORO_CPU_HNSW_FAILURE`,
+`CHUTORO_CPU_MST_FAILURE`, `CHUTORO_CPU_HIERARCHY_FAILURE`, and
+`CHUTORO_MEMORY_LIMIT_EXCEEDED`. The `CHUTORO_INVALID_MIN_CLUSTER_SIZE` code is
+reported during builder validation; the remaining applicable codes can be
+reported as `run` outcomes. Neither these metrics nor the batch decision-point
+tracing includes source names, source paths, or source payload data.
 
 The public `run_cpu_pipeline` entry point has been removed. Migrate callers to
 `ChutoroBuilder::build()?.run(&source)`, which applies the same validated

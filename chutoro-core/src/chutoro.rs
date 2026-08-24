@@ -181,13 +181,12 @@ impl Chutoro {
 
     #[instrument(
         name = "core.run",
-        err,
         skip(self, source),
         fields(
-            data_source = %source.name(),
             items = items,
             min_cluster_size = %self.min_cluster_size(),
-            strategy = ?self.execution_strategy
+            strategy = ?self.execution_strategy,
+            backend = self.backend_label()
         ),
     )]
     /// Run clustering after the caller has measured the source length.
@@ -196,32 +195,84 @@ impl Chutoro {
         source: &D,
         items: usize,
     ) -> Result<ClusteringResult> {
+        let backend = self.backend_label();
         if items == 0 {
+            let error = ChutoroError::EmptySource {
+                data_source: Arc::from(source.name()),
+            };
             warn!(
-                data_source = source.name(),
+                backend,
+                error_code = error.code().as_str(),
                 "data source is empty, returning error"
             );
-            return Err(ChutoroError::EmptySource {
-                data_source: Arc::from(source.name()),
-            });
+            return self.record_batch_result(backend, Err(error));
         }
         if items < self.min_cluster_size().get() {
-            return Err(ChutoroError::InsufficientItems {
+            let error = ChutoroError::InsufficientItems {
                 data_source: Arc::from(source.name()),
                 items,
                 min_cluster_size: self.min_cluster_size(),
-            });
+            };
+            warn!(
+                backend,
+                error_code = error.code().as_str(),
+                "data source has insufficient items for configured cluster size"
+            );
+            return self.record_batch_result(backend, Err(error));
         }
         if let Some(err) = self.backend_unavailable_error() {
-            return Err(err);
+            warn!(
+                backend,
+                error_code = err.code().as_str(),
+                "requested batch backend is unavailable"
+            );
+            return self.record_batch_result(backend, Err(err));
         }
 
-        self.check_memory_limit(source, items)?;
+        self.record_batch_resources(items);
 
-        match self.choose_backend() {
+        if let Err(error) = self.check_memory_limit(source, items) {
+            return self.record_batch_result(backend, Err(error));
+        }
+
+        let result = match self.choose_backend() {
             BackendChoice::Cpu => self.run_cpu(source, items),
             BackendChoice::Gpu => Self::run_gpu(source, items),
+        };
+        if let Err(error) = &result {
+            warn!(
+                backend,
+                error_code = error.code().as_str(),
+                "batch execution failed after precondition checks"
+            );
         }
+        self.record_batch_result(backend, result)
+    }
+
+    fn record_batch_result<T>(&self, backend: &'static str, result: Result<T>) -> Result<T> {
+        #[cfg(feature = "metrics")]
+        crate::batch_metrics::record_outcome(backend, &result);
+
+        #[cfg(not(feature = "metrics"))]
+        let _ = backend;
+
+        result
+    }
+
+    fn record_batch_resources(&self, items: usize) {
+        #[cfg(all(feature = "cpu", feature = "metrics"))]
+        {
+            let hnsw_params = self.hnsw_params();
+            crate::batch_metrics::record_cpu_resources(
+                hnsw_params.max_connections(),
+                hnsw_params.effective_ef_construction(items),
+                crate::memory::estimate_peak_bytes_for_hnsw_params(items, hnsw_params),
+                self.max_bytes,
+            );
+        }
+
+        #[cfg(not(all(feature = "cpu", feature = "metrics")))]
+        let _ = items;
     }
 
     /// Returns an error if the estimated peak memory exceeds `max_bytes`.
@@ -248,23 +299,24 @@ impl Chutoro {
         );
 
         if estimated > limit {
-            #[cfg(feature = "cpu")]
-            warn!(
-                backend = "cpu",
-                max_connections = self.hnsw_params().max_connections(),
-                estimated_bytes = estimated,
-                max_bytes = limit,
-                error_code = "memory_limit_exceeded",
-                "CPU memory estimate exceeds configured limit"
-            );
-            return Err(ChutoroError::MemoryLimitExceeded {
+            let error = ChutoroError::MemoryLimitExceeded {
                 data_source: Arc::from(source.name()),
                 point_count: items,
                 estimated_bytes: estimated,
                 max_bytes: limit,
                 estimated_display: Arc::from(crate::memory::format_bytes(estimated)),
                 limit_display: Arc::from(crate::memory::format_bytes(limit)),
-            });
+            };
+            #[cfg(feature = "cpu")]
+            warn!(
+                backend = "cpu",
+                max_connections = self.hnsw_params().max_connections(),
+                estimated_bytes = estimated,
+                max_bytes = limit,
+                error_code = error.code().as_str(),
+                "CPU memory estimate exceeds configured limit"
+            );
+            return Err(error);
         }
         Ok(())
     }
@@ -284,10 +336,20 @@ impl Chutoro {
         }
     }
 
+    fn backend_label(&self) -> &'static str {
+        if self.is_backend_unavailable() {
+            return "unavailable";
+        }
+
+        match self.choose_backend() {
+            BackendChoice::Cpu => "cpu",
+            BackendChoice::Gpu => "gpu",
+        }
+    }
+
     /// Execute the CPU FISHDBC pipeline; available with the `cpu` feature.
     #[instrument(
         name = "core.run_cpu",
-        err,
         skip(self, source),
         fields(items = items, min_cluster_size = %self.min_cluster_size()),
     )]
@@ -339,3 +401,7 @@ impl Chutoro {
 #[cfg(test)]
 #[path = "chutoro_tests.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "cpu"))]
+#[path = "chutoro/properties.rs"]
+mod properties;
