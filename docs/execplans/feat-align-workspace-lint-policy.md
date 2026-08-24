@@ -112,6 +112,10 @@ keeps local editor feedback aligned with commit gates.
 - [x] Made the distance cache bypass its optional LRU state when shard
       construction is unavailable. The cache tests and full checkpoints pass;
       scoped Clippy now reports only the two node-level accessor contracts.
+- [x] Bound the core-distance assertion test's intentionally ignored value to
+      a named discard variable. The focused test and full checkpoints pass;
+      the two broadly used node-level accessors remain a separate contract
+      design.
 - [ ] Resolve `chutoro-core` structural, bounds-safety, numerical, and test
       lint families in bounded commits.
 - [ ] Opt in the remaining library crates and retire duplicated Rustdoc flags.
@@ -279,6 +283,22 @@ without retaining it. The shard access helper becomes fallible, and its
 maintenance callers become no-ops only in that already-bypassed state. Normal
 valid configurations retain their existing sharded LRU operation. Verify the
 cache tests and package Clippy's remaining `clippy::unreachable` locations.
+
+## Stage 2k: Explicit Test Discard
+
+Bind the `core_distance` value that exists only to trigger the storage
+alignment assertion to a named discard variable. This keeps the test's
+`#[should_panic]` contract while making the intentional result discard
+explicit. Verify the focused assertion test and scoped Clippy with only
+`clippy::let_underscore_must_use` denied.
+
+## Stage 2l: Node-level Access Contract
+
+The remaining node accessors have callers in search, insertion, graph
+maintenance, invariants, and test assertions, including callers that cannot
+propagate an `HnswError`. Do not replace their invariant failure with an empty
+neighbour list or a generic panic. Establish an error or recovery contract at
+their appropriate graph-operation boundaries before changing their signatures.
 
 ## Verification Plan
 

@@ -26,7 +26,7 @@ fn core_distance_asserts_storage_alignment(session_builder: ChutoroBuilder) {
     session.append(&[0]).expect("append must succeed");
     session.dirty_core_distances.clear();
 
-    let _ = session.core_distance(0);
+    let _alignment_check = session.core_distance(0);
 }
 
 #[rstest]
