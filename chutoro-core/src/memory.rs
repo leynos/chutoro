@@ -14,6 +14,7 @@
 /// Rayon thread-local buffers, and transient allocations.  1.5× is chosen as
 /// a balance between avoiding false positives and catching genuine OOM risks.
 const SAFETY_MULTIPLIER_NUMERATOR: u64 = 3;
+/// Denominator paired with the safety multiplier numerator.
 const SAFETY_MULTIPLIER_DENOMINATOR: u64 = 2;
 
 /// Default maximum distance cache entries.  Mirrors the value in
@@ -126,9 +127,13 @@ pub const fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> 
 // Formatting
 // ---------------------------------------------------------------------------
 
+/// Number of bytes in one kibibyte.
 const KIB: u64 = 1024;
+/// Number of bytes in one mebibyte.
 const MIB: u64 = 1024 * KIB;
+/// Number of bytes in one gibibyte.
 const GIB: u64 = 1024 * MIB;
+/// Number of bytes in one tebibyte.
 const TIB: u64 = 1024 * GIB;
 
 /// Selects the appropriate binary unit and divisor for a byte count.
