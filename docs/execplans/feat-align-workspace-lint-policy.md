@@ -187,6 +187,9 @@ keeps local editor feedback aligned with commit gates.
 - [x] 2026-08-24: Documented invariant evaluation contexts, dispatch, and
       reachability BFS state. The 26 focused invariant tests pass, and core
       Clippy now reports 196 remaining primary-crate documentation diagnostics.
+- [x] 2026-08-24: Documented the concurrent MST union-find's lock, rank, and
+      path-halving helpers. The focused MST suite passes 90 tests; include the
+      module in the next core Clippy measurement batch.
 - [x] 2026-08-24: Replaced the `chutoro-cli` whole-crate filesystem exemption
       with the user-path command boundary and its two `cli::tests` fixture
       modules. `make lint` passes with Whitaker enforcing every other CLI
