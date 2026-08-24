@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -46,19 +47,22 @@ def _workflow_files() -> list[Path]:
     )
 
 
-def _iter_uses(document: object) -> list[str]:
-    """Return every ``uses:`` value anywhere in a parsed workflow."""
-    found: list[str] = []
+def _iter_uses(document: object) -> Iterator[str]:
+    """Yield every ``uses:`` value anywhere in a parsed workflow."""
     if isinstance(document, dict):
-        for key, value in document.items():
-            if key == "uses" and isinstance(value, str):
-                found.append(value)
-            else:
-                found.extend(_iter_uses(value))
+        yield from _iter_uses_in_mapping(document)
     elif isinstance(document, list):
         for item in document:
-            found.extend(_iter_uses(item))
-    return found
+            yield from _iter_uses(item)
+
+
+def _iter_uses_in_mapping(mapping: dict[str, object]) -> Iterator[str]:
+    """Yield the ``uses:`` value of one mapping, then recurse into the rest."""
+    for key, value in mapping.items():
+        if key == "uses" and isinstance(value, str):
+            yield value
+        else:
+            yield from _iter_uses(value)
 
 
 @pytest.fixture(scope="module")
