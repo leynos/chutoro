@@ -125,8 +125,9 @@ impl BenchmarkRegressionProfile {
     }
 
     fn load_with_env(default_policy: BenchmarkCiPolicy, env: &dyn Env) -> Self {
-        let policy = match env.string(CHUTORO_BENCH_CI_POLICY_ENV_KEY) {
-            Some(raw) => match parse_policy(&raw) {
+        let policy = env
+            .string(CHUTORO_BENCH_CI_POLICY_ENV_KEY)
+            .map_or(default_policy, |raw| match parse_policy(&raw) {
                 Ok(policy) => policy,
                 Err(reason) => {
                     tracing::warn!(
@@ -138,9 +139,7 @@ impl BenchmarkRegressionProfile {
                     );
                     default_policy
                 }
-            },
-            None => default_policy,
-        };
+            });
 
         let event = env
             .string(GITHUB_EVENT_NAME_ENV_KEY)
