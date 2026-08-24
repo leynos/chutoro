@@ -533,6 +533,14 @@ Preserve the public one-decimal display convention, including half-to-even
 rounding and unit-boundary carry. Verify display examples, formatting, and
 scoped Clippy.
 
+## Stage 3r: Checked MST Union-Find Tables
+
+Centralize rank and parent table access inside the concurrent union-find; the
+helpers are restricted to its lock-protected traversal and union operations,
+and callers continue to compose through `try_union`. Preserve lock ordering,
+path halving, and invariant-error reporting. Verify MST tests, formatting, and
+scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
