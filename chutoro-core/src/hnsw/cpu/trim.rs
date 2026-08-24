@@ -77,6 +77,7 @@ impl CpuHnsw {
             .collect::<Result<Vec<_>, HnswError>>()
     }
 
+    /// Score and retain the best candidates for one staged trim job.
     fn run_trim_job<D: DataSource + Sync>(
         &self,
         job: TrimJob,

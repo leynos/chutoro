@@ -26,10 +26,12 @@ impl EdgeCollector for NoopCollector {
 pub(super) struct VecCollector(Vec<CandidateEdge>);
 
 impl VecCollector {
+    /// Construct an empty edge collector.
     pub(super) const fn new() -> Self {
         Self(Vec::new())
     }
 
+    /// Return all edges accumulated across insertions.
     pub(super) fn into_inner(self) -> Vec<CandidateEdge> {
         self.0
     }

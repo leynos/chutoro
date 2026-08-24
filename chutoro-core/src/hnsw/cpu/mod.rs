@@ -40,13 +40,21 @@ use self::collectors::{EdgeCollector, NoopCollector, VecCollector};
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
 pub struct CpuHnsw {
+    /// Immutable HNSW configuration shared by insertions and searches.
     pub(super) params: HnswParams,
+    /// Concurrent graph protected by reader-writer locking.
     pub(super) graph: Arc<RwLock<Graph>>,
+    /// Fallback generator used outside Rayon worker threads.
     rng: Mutex<SmallRng>,
+    /// Per-worker generators that avoid contention during level sampling.
     worker_rngs: Vec<Mutex<SmallRng>>,
+    /// Shared cache of distances computed during graph operations.
     distance_cache: DistanceCache,
+    /// Serializes the graph-mutation phase of each insertion.
     insert_mutex: Mutex<()>,
+    /// Monotonic sequence assigning deterministic order to inserted nodes.
     next_sequence: AtomicU64,
+    /// Number of nodes currently committed to the graph.
     len: AtomicUsize,
 }
 
