@@ -266,7 +266,7 @@ Kani assertions and early returns.
 The residual non-completion had two further causes, both resolved:
 
 1. **Symbolic hashing in connectivity healing.** `ConnectivityHealer` tracked
-   visited nodes with `std::collections::HashSet`, whose randomised SipHash
+   visited nodes with `std::collections::HashSet`, whose randomized SipHash
    seed is symbolic under Kani. The three-node reconciliation harness is the
    only harness reaching the healer (via base-layer isolation), which made it
    intractable while the two-node harness stayed fast. The healer now uses a
@@ -290,8 +290,23 @@ The residual non-completion had two further causes, both resolved:
    commit path, four-node eviction scrub) are retired in favour of exact
    unit-test twins in `chutoro-core/src/hnsw/insert/commit/tests/`.
 
-The investigation is resolved: the remaining harness set is tractable and the
-full tier completes within the nightly budget (see the timing note below).
+3. **The full reconciled-update helper is intractable at any bound.** The
+   no-self-loop and neighbour-uniqueness harnesses drove
+   `apply_reconciled_update_for_kani`, which chains added-edge
+   reconciliation, write-back, removed-edge reconciliation (including the
+   base-layer healing cascade), and deferred scrubs in one formula. The
+   harnesses timed out at 20 minutes even on a two-node graph with a
+   concrete origin and concrete level. The helper was removed and both
+   invariants are now proved on the `ensure_reverse_edge` surface: per-level
+   two-node proofs with nondeterministic edge seeding
+   (`verify_no_self_loops_2_nodes_base_layer` and siblings), which verify in
+   18 to 66 seconds each. Broader configurations remain covered by the
+   graph-topology property suites.
+
+The investigation is resolved. `make kani-full` completes: all 17 harnesses
+across `chutoro-core` and `chutoro-providers-dense` verify successfully in
+17 minutes 50 seconds of wall-clock time (including Kani compilation) on a
+six-core development machine, well within the nightly 120-minute budget.
 
 ## Notes for executing agent
 

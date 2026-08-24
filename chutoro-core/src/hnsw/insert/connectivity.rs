@@ -253,7 +253,7 @@ impl<'graph> ConnectivityHealer<'graph> {
 /// Visited-node set for the iterative healing queues.
 ///
 /// Production builds use a `HashSet`. Under Kani the default hasher's
-/// randomised SipHash state is symbolic, which makes bounded verification of
+/// randomized SipHash state is symbolic, which makes bounded verification of
 /// any healing path intractable, so a linear-scan `Vec` set is substituted;
 /// healing queues visit each node at most once, so the scan stays bounded.
 #[cfg(not(kani))]
