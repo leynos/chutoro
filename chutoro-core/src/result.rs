@@ -9,7 +9,8 @@ use thiserror::Error;
 /// Largest `usize` value represented as an unsigned 64-bit integer.
 const USIZE_MAX_U64: u64 = usize::MAX as u64;
 
-/// Report whether an identifier cannot fit within the host pointer width.
+/// Report whether the contiguous count represented by `value + 1` cannot fit
+/// in `usize`, including when `value` is `usize::MAX`.
 #[inline]
 fn exceeds_pointer_width(value: u64) -> bool {
     value == USIZE_MAX_U64 || usize::try_from(value).is_err()

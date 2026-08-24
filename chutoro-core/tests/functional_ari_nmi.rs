@@ -18,6 +18,21 @@ use chutoro_core::{
     parallel_kruskal,
 };
 
+/// Absolute tolerance for clustering-quality values derived from floating-point calculations.
+const QUALITY_SCORE_TOLERANCE: f64 = 1.0e-12_f64;
+
+#[expect(
+    clippy::float_arithmetic,
+    reason = "derived clustering-quality checks need an absolute delta"
+)]
+fn assert_quality_score_is_one(score: f64) {
+    let delta = (score - 1.0_f64).abs();
+    assert!(
+        delta <= QUALITY_SCORE_TOLERANCE,
+        "score={score}, delta={delta}, tolerance={QUALITY_SCORE_TOLERANCE}"
+    );
+}
+
 /// Parses `dims` comma-separated floats from each non-blank line of `input`.
 ///
 /// # Errors
@@ -251,31 +266,17 @@ fn nmi_is_one_when_both_partitions_have_single_cluster() {
 #[test]
 fn metrics_identity_and_permutation_are_one() {
     let labels = vec![0, 0, 1, 1, 2, 2];
-    assert_eq!(
-        adjusted_rand_index(&labels, &labels)
-            .expect("ARI should compute")
-            .total_cmp(&1.0),
-        Ordering::Equal
-    );
-    assert_eq!(
-        normalized_mutual_information(&labels, &labels)
-            .expect("NMI should compute")
-            .total_cmp(&1.0),
-        Ordering::Equal
+    assert_quality_score_is_one(adjusted_rand_index(&labels, &labels).expect("ARI should compute"));
+    assert_quality_score_is_one(
+        normalized_mutual_information(&labels, &labels).expect("NMI should compute"),
     );
 
     let permuted = vec![1, 1, 2, 2, 0, 0];
-    assert_eq!(
-        adjusted_rand_index(&labels, &permuted)
-            .expect("ARI should compute")
-            .total_cmp(&1.0),
-        Ordering::Equal
+    assert_quality_score_is_one(
+        adjusted_rand_index(&labels, &permuted).expect("ARI should compute"),
     );
-    assert_eq!(
-        normalized_mutual_information(&labels, &permuted)
-            .expect("NMI should compute")
-            .total_cmp(&1.0),
-        Ordering::Equal
+    assert_quality_score_is_one(
+        normalized_mutual_information(&labels, &permuted).expect("NMI should compute"),
     );
 }
 

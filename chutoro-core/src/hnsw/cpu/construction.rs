@@ -57,7 +57,7 @@ impl CpuHnsw {
     ///
     /// # Errors
     ///
-    /// Returns [`HnswError`] when initialization or a source-backed insertion
+    /// Returns [`HnswError`] when initialisation or a source-backed insertion
     /// fails.
     pub fn build<D: DataSource + Sync>(source: &D, params: HnswParams) -> Result<Self, HnswError> {
         let index = Self::build_initial(source, params)?;
@@ -110,7 +110,7 @@ impl CpuHnsw {
     ///
     /// # Errors
     ///
-    /// Returns [`HnswError`] when initialization, insertion, or edge harvesting
+    /// Returns [`HnswError`] when initialisation, insertion, or edge harvesting
     /// fails.
     pub fn build_with_edges<D: DataSource + Sync>(
         source: &D,

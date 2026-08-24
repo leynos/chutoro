@@ -236,11 +236,14 @@ fn build_generated_index(
 }
 
 #[rstest]
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "rstest consumes the fixture binding while its Drop implementation protects the test scope"
+)]
 fn write_graph_marker_is_scoped_to_the_current_thread(
-    write_graph_marker_guard: WriteGraphMarkerGuard,
+    #[from(write_graph_marker_guard)] _write_graph_marker_guard: WriteGraphMarkerGuard,
     write_lock_params: Result<HnswParams, HnswError>,
 ) {
-    let _ = &write_graph_marker_guard;
     let index = CpuHnsw::with_capacity(write_lock_params.expect("parameters must be valid"), 2)
         .expect("index should allocate");
     assert!(!CpuHnsw::current_thread_holds_write_graph_for_test());
@@ -254,11 +257,14 @@ fn write_graph_marker_is_scoped_to_the_current_thread(
 }
 
 #[rstest]
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "rstest consumes the fixture binding while its Drop implementation protects the test scope"
+)]
 fn hnsw_scoring_does_not_run_inside_write_graph_scope(
-    write_graph_marker_guard: WriteGraphMarkerGuard,
+    #[from(write_graph_marker_guard)] _write_graph_marker_guard: WriteGraphMarkerGuard,
     built_write_lock_scenario: Result<WriteLockScenario, HnswError>,
 ) {
-    let _ = &write_graph_marker_guard;
     let scenario = built_write_lock_scenario.expect("build must succeed");
     scenario
         .index
@@ -277,12 +283,15 @@ fn hnsw_scoring_does_not_run_inside_write_graph_scope(
 
 #[rstest]
 #[should_panic(expected = "distance scoring must not run while the current thread holds")]
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "rstest consumes the fixture binding while its Drop implementation protects the test scope"
+)]
 fn write_lock_scoring_guard_has_teeth(
-    write_graph_marker_guard: WriteGraphMarkerGuard,
+    #[from(write_graph_marker_guard)] _write_graph_marker_guard: WriteGraphMarkerGuard,
     write_lock_source: WriteLockAssertingSource,
     write_lock_params: Result<HnswParams, HnswError>,
 ) {
-    let _ = &write_graph_marker_guard;
     let params = write_lock_params.expect("params must be valid");
     let index = CpuHnsw::with_capacity(params, 2).expect("index should allocate");
     index

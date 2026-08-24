@@ -85,16 +85,19 @@ fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
         .node_mut(0)
         .expect("entry node must be present")
         .neighbours_mut(1)
+        .expect("entry node must expose level 1")
         .push(1);
     graph
         .node_mut(1)
         .expect("target node must be present")
         .neighbours_mut(1)
+        .expect("target node must expose level 1")
         .push(2);
     graph
         .node_mut(2)
         .expect("evicted node must be present")
         .neighbours_mut(1)
+        .expect("evicted node must expose level 1")
         .push(1);
 
     let mut reconciler = EdgeReconciler::new(&mut graph);

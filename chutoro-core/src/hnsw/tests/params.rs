@@ -11,6 +11,17 @@ fn accepts_equal_search_and_connection_width() {
     assert_eq!(params.ef_construction(), 8);
 }
 
+#[cfg(target_pointer_width = "64")]
+#[test]
+fn accepts_connection_widths_above_u32_range() {
+    let width = usize::try_from(u64::from(u32::MAX) + 1).expect("64-bit usize must fit width");
+
+    let params = HnswParams::new(width, width).expect("usize-sized widths must be valid");
+
+    assert_eq!(params.max_connections(), width);
+    assert_eq!(params.ef_construction(), width);
+}
+
 #[test]
 fn preserves_distance_cache_ttl_when_overriding_capacity() {
     let ttl = Some(Duration::from_secs(5));

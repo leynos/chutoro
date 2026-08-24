@@ -174,8 +174,14 @@ fn eviction_respects_furthest_first_ordering(
     // Seed node 1 at capacity with nodes 2 (furthest, front) and 3 (closer, back)
     // Order matters: push node 2 first (furthest), then node 3 (closer)
     let node1 = graph.node_mut(1).expect("node 1 should exist");
-    node1.neighbours_mut(1).push(2); // furthest (front)
-    node1.neighbours_mut(1).push(3); // closer (back)
+    node1
+        .neighbours_mut(1)
+        .expect("node 1 must expose level 1")
+        .push(2); // furthest (front)
+    node1
+        .neighbours_mut(1)
+        .expect("node 1 must expose level 1")
+        .push(3); // closer (back)
 
     // Add reciprocal edges
     add_edge_if_missing(&mut graph, 2, 1, 1);

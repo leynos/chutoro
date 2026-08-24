@@ -160,9 +160,8 @@ fn scale_free_graph_has_hub_nodes() {
         let max_degree = *degrees.iter().max().unwrap_or(&0);
 
         // Scale-free graphs should exhibit hub nodes with degree > average.
-        // Relaxed assertion: max should be at least as large as average.
         assert!(
-            max_degree.saturating_mul(graph.node_count) >= total_degree,
+            max_degree.saturating_mul(graph.node_count) > total_degree,
             "scale-free should have at least one hub: max={max_degree}, total={total_degree}"
         );
         return;

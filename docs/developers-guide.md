@@ -181,13 +181,38 @@ The latency histogram reads time through the internal `MonotonicClock` trait.
 public constructor or builder API; it exists solely to make metrics assertions
 deterministic while preserving the public session contract.
 
+## Workspace lint and check-cfg policy
+
+The seven workspace crates inherit the root `[workspace.lints]` policy through
+`[lints] workspace = true`: `chutoro-core`, `chutoro-cli`,
+`chutoro-providers-dense`, `chutoro-providers-text`, `chutoro-test-support`,
+`chutoro-benches`, and `chutoro-bench-datasets`. Keep that inheritance rather
+than duplicating lint tables in individual manifests. The root policy denies
+private-item documentation debt through Clippy's
+`missing_docs_in_private_items` lint, in addition to the Rustdoc `missing_docs`
+policy.
+
+The workspace also declares the configuration names used by supported builds
+and verification tools: `kani`, `coverage`, `nightly`, and `dylint_lib` (with
+arbitrary values for the latter). Add a new `cfg` name to the root `check-cfg`
+list when introducing a supported build mode so local Rustc diagnostics and the
+commit gates agree.
+
+Whitaker filesystem exceptions are boundary-specific entries in `dylint.toml`,
+not crate-wide opt-outs. The current exceptions cover the CLI's ambient input
+boundary, CLI file-backed test fixtures, the dense provider's parquet-path
+adapter, benchmark report writers and Linux `/proc` sampling, MNIST cache
+staging, and the separately compiled CI gate binaries. Keep the rest of each
+workspace crate under `no_std_fs_operations` enforcement and add an explanatory
+comment whenever a new boundary is unavoidable.
+
 ## Whitaker lint suite
 
 Whitaker is a Dylint lint suite that runs as a commit gate alongside Clippy.
 `make lint` runs `lint-clippy` (rustdoc plus Clippy) followed by
 `lint-whitaker`, which invokes the `whitaker` wrapper with
-`RUSTFLAGS="-D warnings"` over `--all-targets --all-features`. Individual
-lints are referenced elsewhere in this guide where they apply: the
+`RUSTFLAGS="-D warnings"` over `--all-targets --all-features`. Individual lints
+are referenced elsewhere in this guide where they apply: the
 [fallible fixture policy](#fallible-fixture-policy) covers
 `no_expect_outside_tests`, and the
 [support-module boundaries](#support-module-boundaries) section covers the
@@ -217,19 +242,19 @@ make lint WHITAKER=/path/to/whitaker
 
 If `whitaker` is unavailable, run `make lint-clippy` for a Clippy-only pass.
 
-**Agents must not install, upgrade, or downgrade Whitaker from this
-repository, and must not otherwise modify the user's Whitaker installation.**
-If the wrapper is missing, ask the user to install it. See `AGENTS.md` for the
-full agent-facing rule.
+**Agents must not install, upgrade, or downgrade Whitaker from this repository,
+and must not otherwise modify the user's Whitaker installation.** If the
+wrapper is missing, ask the user to install it. See `AGENTS.md` for the full
+agent-facing rule.
 
 ### CI resolution and configuration
 
 CI resolves the newest `whitaker-installer` release at run time — via
-`gh api repos/leynos/whitaker/releases/latest` — rather than pinning a
-version, then installs that release and runs it to obtain the `whitaker`
-wrapper. Because the suite version is not pinned, a new Whitaker release can
-introduce findings on code that has not otherwise changed; treat such
-findings as genuine and fix them rather than pinning around them.
+`gh api repos/leynos/whitaker/releases/latest` — rather than pinning a version,
+then installs that release and runs it to obtain the `whitaker` wrapper.
+Because the suite version is not pinned, a new Whitaker release can introduce
+findings on code that has not otherwise changed; treat such findings as genuine
+and fix them rather than pinning around them.
 
 Per-lint configuration, including `no_std_fs_operations` crate exclusions with
 rationale comments, lives in the root `dylint.toml`.
@@ -237,8 +262,8 @@ rationale comments, lives in the root `dylint.toml`.
 ## Test fixture conventions
 
 The house policy is that fixtures and helpers are not tests. It governs how
-test-support code reports failure, distinct from how `#[test]`, `#[rstest]`,
-and `proptest!` bodies consume that failure.
+test-support code reports failure, distinct from how `#[test]`, `#[rstest]`, and
+`proptest!` bodies consume that failure.
 
 ### Fallible fixture policy
 
@@ -250,9 +275,9 @@ failure with `?`. Panicking and assertion belong at the `#[test]` / `#[rstest]`
 to the helper it called. Whitaker's `no_expect_outside_tests` lint enforces the
 `.expect(...)` half of this rule; the rest is convention.
 
-Test bodies unwrap the `Result` a helper returns with `.expect("...")`,
-keeping the message the helper's assertion used to carry, or they return
-`Result` themselves and use `?`:
+Test bodies unwrap the `Result` a helper returns with `.expect("...")`, keeping
+the message the helper's assertion used to carry, or they return `Result`
+themselves and use `?`:
 
 ```rust
 #[rstest]
@@ -285,15 +310,15 @@ below derive their `Error` implementation with `thiserror`:
 holds newtypes (`TestCases`, `StackSize`) that validate proptest runner
 configuration. They expose fallible `try_new` constructors that return a named
 error (`InvalidTestCasesError`, `InvalidStackSizeError`) rather than panicking
-constructors, so a zero or otherwise invalid budget surfaces as an error to
-the calling test. `budget_selection.rs` re-exports them, so consumers can
-import from either path.
+constructors, so a zero or otherwise invalid budget surfaces as an error to the
+calling test. `budget_selection.rs` re-exports them, so consumers can import
+from either path.
 
 ### Support-module boundaries
 
-Test modules split their fixtures into dedicated support modules when the
-test file approaches Whitaker's 400-line `module_max_lines` cap, keeping the
-test file focused on the behaviour under test. Current examples:
+Test modules split their fixtures into dedicated support modules when the test
+file approaches Whitaker's 400-line `module_max_lines` cap, keeping the test
+file focused on the behaviour under test. Current examples:
 
 - `chutoro-core/src/session/tests/common.rs` — shared session fixtures and the
   `SessionTestSource` data source.
@@ -555,15 +580,14 @@ Each benchmark file follows this pattern:
 
 ### Lint policy for benchmarks
 
-The `chutoro-benches` crate does **not** inherit workspace lints. Criterion's
-macro expansions (`criterion_group!`, `criterion_main!`, `bench_with_input`
-closures) trigger several of the strict workspace denials — most notably
-`missing_docs`, `shadow_reuse`, and `excessive_nesting`. A crate-local
-`[lints]` section in `chutoro-benches/Cargo.toml` mirrors the workspace
-strictness for handwritten code. Benchmark source files use tightly scoped
-`#![expect(lint, reason = "…")]` attributes for the lints that Criterion's
-macro expansions unavoidably trigger. The rationale is documented in a comment
-at the top of the `[lints.clippy]` section in `chutoro-benches/Cargo.toml`.
+The `chutoro-benches` crate inherits the workspace lints through its
+`[lints] workspace = true` manifest entry. Criterion's macro expansions
+(`criterion_group!`, `criterion_main!`, and `bench_with_input` closures) can
+still trigger strict denials — most notably `missing_docs`, `shadow_reuse`, and
+`excessive_nesting` — so benchmark source files use tightly scoped
+`#![expect(lint, reason = "…")]` attributes only where a macro expansion makes
+the diagnostic unavoidable. Handwritten benchmark support remains subject to
+the same root policy.
 
 ### Adding a new benchmark
 

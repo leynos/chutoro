@@ -241,6 +241,14 @@ via `ChutoroError` variants:
   CPU backend encounters internal failures in HNSW construction/search, MST
   construction, or hierarchy extraction.
 
+Callers using `extract_labels_from_mst` can inspect its typed `HierarchyError`
+result for invalid input and internal reference failures: `EmptyDataset`,
+`MinClusterSizeTooLarge`, `InvalidEdgeWeight`, and `InvalidEdgeEndpoint`
+describe invalid extraction inputs, while `InvalidForestReference`,
+`InvalidClusterReference`, and `InvalidPointReference` identify inconsistent
+intermediate hierarchy state. Each variant exposes a stable machine-readable
+code through `code()` and the code's `as_str()` method.
+
 `DataSourceError` distinguishes out-of-bounds indices, dimension mismatches,
 and invalid buffers. Propagate these errors verbatim, so callers receive stable
 error codes via `DataSourceError::code()`.
@@ -267,6 +275,12 @@ The crate exposes the following feature flags:
   implementation is not yet available).
 - `skeleton` is a legacy compatibility flag retained for early versions; it is
   no longer required by the CPU backend.
+
+When the `metrics` feature is enabled, the distance cache emits four metrics:
+`distance_cache_hits` counts successful lookups, `distance_cache_misses` counts
+lookups that require computation, and `distance_cache_evictions` counts LRU
+entries removed from the cache. `distance_cache_lookup_latency_histogram`
+records lookup latency for both hits and completed misses.
 
 Choose an `ExecutionStrategy` that matches the compiled features. Allowing
 `Auto` keeps behaviour stable across builds while seamlessly adopting GPU

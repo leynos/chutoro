@@ -69,14 +69,12 @@ fn check_all_succeeds_for_valid_index(
 
 #[rstest]
 #[case::missing_node(|graph: &mut Graph| {
-    graph.node_mut(0).expect("node 0").neighbours_mut(0).push(3);
-})]
-#[case::missing_layer(|graph: &mut Graph| {
     graph
         .node_mut(0)
         .expect("node 0")
-        .neighbours_mut(1)
-        .push(1);
+        .neighbours_mut(0)
+        .expect("node 0 must expose level 0")
+        .push(3);
 })]
 fn layer_consistency_reports_invalid_reference(#[case] mutate: fn(&mut Graph)) {
     let params = HnswParams::new(4, 8).expect("params").with_max_level(2);
@@ -130,10 +128,15 @@ fn degree_bounds_detects_overflow(#[case] level: usize, #[case] degree: usize) {
             .node_mut(id)
             .expect("reverse")
             .neighbours_mut(level)
+            .expect("reverse node must expose level")
             .push(0);
     }
 
-    let node = graph.node_mut(0).expect("entry").neighbours_mut(level);
+    let node = graph
+        .node_mut(0)
+        .expect("entry")
+        .neighbours_mut(level)
+        .expect("entry must expose level");
     node.clear();
     node.extend(1..=degree);
 
@@ -188,8 +191,18 @@ fn reachability_collects_all_unreachable_nodes() {
             sequence: 3,
         })
         .expect("attach node 3");
-    graph.node_mut(0).expect("entry").neighbours_mut(0).push(1);
-    graph.node_mut(1).expect("one").neighbours_mut(0).push(0);
+    graph
+        .node_mut(0)
+        .expect("entry")
+        .neighbours_mut(0)
+        .expect("entry must expose level 0")
+        .push(1);
+    graph
+        .node_mut(1)
+        .expect("one")
+        .neighbours_mut(0)
+        .expect("node one must expose level 0")
+        .push(0);
 
     let ctx = GraphContext {
         graph: &graph,

@@ -5,8 +5,8 @@ use std::num::NonZeroUsize;
 use rstest::rstest;
 
 use crate::{
-    CandidateEdge, EdgeHarvest, HierarchyConfig, HierarchyError, extract_labels_from_mst,
-    parallel_kruskal,
+    CandidateEdge, EdgeHarvest, HierarchyConfig, HierarchyError, HierarchyErrorCode,
+    extract_labels_from_mst, parallel_kruskal,
 };
 
 fn core_distances_1d(points: &[f32], min_cluster_size: usize) -> Vec<f32> {
@@ -160,4 +160,87 @@ fn rejects_negative_edge_weights() {
     .expect_err("negative edge weights are invalid for hierarchy extraction");
 
     assert!(matches!(err, HierarchyError::InvalidEdgeWeight { .. }));
+}
+
+#[test]
+fn rejects_mst_endpoint_outside_hierarchy_dataset() {
+    let edges = EdgeHarvest::new(vec![CandidateEdge::new(0, 2, 1.0, 0)]);
+    let forest = parallel_kruskal(3, &edges).expect("MST should accept its own valid endpoint");
+
+    let err = extract_labels_from_mst(
+        2,
+        forest.edges(),
+        HierarchyConfig::new(NonZeroUsize::new(2).expect("non-zero")),
+    )
+    .expect_err("hierarchy endpoint must belong to the hierarchy dataset");
+
+    assert_eq!(
+        err,
+        HierarchyError::InvalidEdgeEndpoint {
+            endpoint: 2,
+            node_count: 2,
+        }
+    );
+    assert_eq!(err.code(), HierarchyErrorCode::InvalidEdgeEndpoint);
+    assert_eq!(err.code().as_str(), "INVALID_EDGE_ENDPOINT");
+}
+
+#[rstest]
+#[case(
+    HierarchyError::EmptyDataset,
+    HierarchyErrorCode::EmptyDataset,
+    "EMPTY_DATASET"
+)]
+#[case(
+    HierarchyError::MinClusterSizeTooLarge {
+        node_count: 2,
+        min_cluster_size: 3,
+    },
+    HierarchyErrorCode::MinClusterSizeTooLarge,
+    "MIN_CLUSTER_SIZE_TOO_LARGE"
+)]
+#[case(
+    HierarchyError::InvalidEdgeWeight {
+        left: 0,
+        right: 1,
+        weight: -1.0,
+    },
+    HierarchyErrorCode::InvalidEdgeWeight,
+    "INVALID_EDGE_WEIGHT"
+)]
+#[case(
+    HierarchyError::InvalidEdgeEndpoint {
+        endpoint: 2,
+        node_count: 2,
+    },
+    HierarchyErrorCode::InvalidEdgeEndpoint,
+    "INVALID_EDGE_ENDPOINT"
+)]
+#[case(
+    HierarchyError::InvalidForestReference { node_id: 3 },
+    HierarchyErrorCode::InvalidForestReference,
+    "INVALID_FOREST_REFERENCE"
+)]
+#[case(
+    HierarchyError::InvalidClusterReference { cluster_id: 4 },
+    HierarchyErrorCode::InvalidClusterReference,
+    "INVALID_CLUSTER_REFERENCE"
+)]
+#[case(
+    HierarchyError::InvalidPointReference {
+        point_id: 5,
+        node_count: 2,
+    },
+    HierarchyErrorCode::InvalidPointReference,
+    "INVALID_POINT_REFERENCE"
+)]
+fn hierarchy_error_codes_are_stable(
+    #[case] error: HierarchyError,
+    #[case] expected_code: HierarchyErrorCode,
+    #[case] expected_name: &'static str,
+) {
+    let code = error.code();
+
+    assert_eq!(code, expected_code);
+    assert_eq!(code.as_str(), expected_name);
 }

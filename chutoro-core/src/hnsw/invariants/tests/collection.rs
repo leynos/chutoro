@@ -47,7 +47,7 @@ fn collect_many_with_logging_reports_degree_violation(
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(node) = graph.node_mut(0) {
-            let neighbours = node.neighbours_mut(0);
+            let neighbours = node.neighbours_mut(0).expect("node 0 must expose level 0");
             neighbours.clear();
             neighbours.extend(std::iter::repeat_n(1, 10));
         }
@@ -68,7 +68,9 @@ fn clear_node(graph: &mut Graph, node_id: usize) {
     if let Some(node) = graph.node_mut(node_id) {
         let levels = node.level_count();
         for level in 0..levels {
-            node.neighbours_mut(level).clear();
+            if let Some(neighbours) = node.neighbours_mut(level) {
+                neighbours.clear();
+            }
         }
     }
 }
@@ -111,6 +113,7 @@ fn no_self_loops_after_construction(#[case] node_count: usize) {
                     .node_mut(origin)
                     .expect("node")
                     .neighbours_mut(0)
+                    .expect("node must expose level 0")
                     .push(target);
             }
         }
@@ -148,7 +151,12 @@ fn self_loop_is_detectable() {
         .expect("attach node");
 
     // Manually inject a self-loop (this is invalid)
-    graph.node_mut(0).expect("node").neighbours_mut(0).push(0);
+    graph
+        .node_mut(0)
+        .expect("node")
+        .neighbours_mut(0)
+        .expect("node must expose level 0")
+        .push(0);
 
     // Verify the self-loop exists
     let has_self_loop = graph
@@ -192,6 +200,7 @@ fn neighbour_list_is_unique(#[case] neighbours: Vec<usize>) {
             .node_mut(0)
             .expect("node")
             .neighbours_mut(0)
+            .expect("node must expose level 0")
             .push(neighbour);
     }
 
@@ -238,7 +247,11 @@ fn duplicate_neighbour_is_detectable() {
         .expect("attach node");
 
     // Manually inject a duplicate (this is invalid)
-    let neighbours = graph.node_mut(0).expect("node").neighbours_mut(0);
+    let neighbours = graph
+        .node_mut(0)
+        .expect("node")
+        .neighbours_mut(0)
+        .expect("node must expose level 0");
     neighbours.push(1);
     neighbours.push(1); // Duplicate
 

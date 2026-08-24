@@ -51,6 +51,7 @@ fn greedy_descent_selects_closest_neighbour() {
         .node_mut(0)
         .expect("entry must exist")
         .neighbours_mut(0)
+        .expect("entry must expose level 0")
         .extend([1, 2]);
 
     let ctx = SearchContext {
@@ -103,16 +104,19 @@ fn equal_distance_stopping_fixture() -> Result<(DummySource, Graph), String> {
         .node_mut(1)
         .ok_or_else(|| "entry must exist".to_owned())?
         .neighbours_mut(0)
+        .ok_or_else(|| "entry must expose level 0".to_owned())?
         .extend([2]);
     graph
         .node_mut(2)
         .ok_or_else(|| "tie candidate must exist".to_owned())?
         .neighbours_mut(0)
+        .ok_or_else(|| "tie candidate must expose level 0".to_owned())?
         .extend([1, 3]);
     graph
         .node_mut(3)
         .ok_or_else(|| "closer node must exist".to_owned())?
         .neighbours_mut(0)
+        .ok_or_else(|| "closer node must expose level 0".to_owned())?
         .extend([2]);
 
     Ok((source, graph))
@@ -175,6 +179,7 @@ fn layer_search_orders_equal_distance_deterministically() {
             .node_mut(node)
             .expect("node must exist")
             .neighbours_mut(0)
+            .expect("node must expose level 0")
             .extend([0]);
     }
 
@@ -182,6 +187,7 @@ fn layer_search_orders_equal_distance_deterministically() {
         .node_mut(0)
         .expect("entry must exist")
         .neighbours_mut(0)
+        .expect("entry must expose level 0")
         .extend([1, 2, 3]);
 
     let ctx = SearchContext {

@@ -99,6 +99,9 @@ proptest! {
         if let DistributionMetadata::Manifold { basis, noise_bound, origin, ambient_dim, intrinsic_dim } = &fixture.metadata {
             prop_assert_eq!(*ambient_dim, fixture.dimension());
             prop_assert_eq!(*intrinsic_dim, basis.len());
+            prop_assert!(fixture.vectors.iter().all(|vector| vector.len() == *ambient_dim));
+            prop_assert_eq!(origin.len(), *ambient_dim);
+            prop_assert!(basis.iter().all(|basis_vector| basis_vector.len() == *ambient_dim));
             for point in &fixture.vectors {
                 let mut diff: Vec<f32> = point
                     .iter()

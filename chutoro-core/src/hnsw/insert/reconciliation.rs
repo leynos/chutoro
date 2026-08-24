@@ -64,7 +64,9 @@ impl<'graph> EdgeReconciler<'graph> {
                 continue;
             }
 
-            let neighbours = target_node.neighbours_mut(ctx.level);
+            let Some(neighbours) = target_node.neighbours_mut(ctx.level) else {
+                continue;
+            };
             let Some(pos) = neighbours.iter().position(|&id| id == ctx.origin) else {
                 continue;
             };
@@ -100,7 +102,9 @@ impl<'graph> EdgeReconciler<'graph> {
         }
 
         let limit = compute_connection_limit(ctx.level, ctx.max_connections);
-        let neighbours = target_node.neighbours_mut(ctx.level);
+        let Some(neighbours) = target_node.neighbours_mut(ctx.level) else {
+            return false;
+        };
         if neighbours.contains(&ctx.origin) {
             return true;
         }
@@ -196,7 +200,9 @@ impl<'graph> EdgeReconciler<'graph> {
             return;
         }
 
-        let neighbours = origin_node.neighbours_mut(ctx.level);
+        let Some(neighbours) = origin_node.neighbours_mut(ctx.level) else {
+            return;
+        };
         let initial_len = neighbours.len();
         if let Some(pos) = neighbours.iter().position(|&id| id == target) {
             neighbours.remove(pos);

@@ -100,6 +100,10 @@ pub(super) fn degree_ceiling_for_metadata(metadata: &GraphMetadata) -> usize {
 fn build_adjacency_lists(node_count: usize, edges: &[CandidateEdge]) -> Vec<Vec<(usize, f32)>> {
     let mut adjacency: Vec<Vec<(usize, f32)>> = vec![Vec::new(); node_count];
     for edge in edges {
+        if edge.source() >= node_count || edge.target() >= node_count {
+            continue;
+        }
+
         if let Some(source_neighbours) = adjacency.get_mut(edge.source()) {
             source_neighbours.push((edge.target(), edge.distance()));
         }
@@ -275,6 +279,16 @@ mod tests {
         ];
         let score = compute_rnn_score(4, &edges, 2);
         assert!(score.total_cmp(&0.8).is_eq());
+    }
+
+    #[test]
+    fn out_of_range_edges_do_not_create_partial_relationships() {
+        let edges = vec![CandidateEdge::new(0, 2, 1.0, 0)];
+
+        let relationships = top_k_neighbour_sets(2, &edges, 1);
+
+        assert!(relationships.iter().all(HashSet::is_empty));
+        assert!(compute_rnn_score(2, &edges, 1).total_cmp(&1.0).is_eq());
     }
 
     #[test]

@@ -179,11 +179,12 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
 mod tests {
     //! Unit tests for HNSW helper routines.
 
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
 
     use super::*;
     use crate::{DataSourceError, DistanceCacheConfig, datasource::MetricDescriptor};
 
+    #[fixture]
     fn cache() -> DistanceCache {
         DistanceCache::new(DistanceCacheConfig::default())
     }
@@ -194,6 +195,7 @@ mod tests {
     /// A fallible query rather than an assertion helper, so the calling test
     /// owns both the failure diagnostics and the comparison.
     fn ensured_neighbours(
+        cache: &DistanceCache,
         initial_neighbours: Vec<Neighbour>,
         ef: usize,
     ) -> Result<Vec<Neighbour>, HnswError> {
@@ -203,7 +205,7 @@ mod tests {
             reason: "ef must be non-zero".to_owned(),
         })?;
         ensure_query_present(
-            &cache(),
+            cache,
             EnsureQueryArgs {
                 source: &source,
                 query: 0,
@@ -223,21 +225,22 @@ mod tests {
     #[case::skipped_when_capacity_is_one(vec![neighbour(1, 1.0)], 1, vec![neighbour(1, 1.0)])]
     #[case::noop_when_query_present(vec![neighbour(0, 0.0)], 1, vec![neighbour(0, 0.0)])]
     fn ensure_query_present_matches_expected_window(
+        cache: DistanceCache,
         #[case] initial_neighbours: Vec<Neighbour>,
         #[case] ef: usize,
         #[case] expected_neighbours: Vec<Neighbour>,
     ) {
-        let neighbours =
-            ensured_neighbours(initial_neighbours, ef).expect("ensure_query_present must succeed");
+        let neighbours = ensured_neighbours(&cache, initial_neighbours, ef)
+            .expect("ensure_query_present must succeed");
         assert_eq!(neighbours, expected_neighbours);
     }
 
-    #[test]
-    fn ensure_query_evicts_furthest_when_full() {
+    #[rstest]
+    fn ensure_query_evicts_furthest_when_full(cache: DistanceCache) {
         let mut neighbours = vec![neighbour(1, 1.0), neighbour(2, 2.0)];
         let source = TestSource::new(vec![0.0, 1.0, 2.0]);
         ensure_query_present(
-            &cache(),
+            &cache,
             EnsureQueryArgs {
                 source: &source,
                 query: 0,
@@ -252,9 +255,8 @@ mod tests {
         assert!(neighbours.iter().all(|neighbour| neighbour.id != 2));
     }
 
-    #[test]
-    fn batch_distances_populates_cache() {
-        let cache = cache();
+    #[rstest]
+    fn batch_distances_populates_cache(cache: DistanceCache) {
         let source = TestSource::new(vec![0.0, 1.0, 4.0]);
         let distances = batch_distances_for_trim(&cache, 0, &[1, 2], &source)
             .expect("batch distances must succeed");

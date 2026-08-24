@@ -224,13 +224,23 @@ mod tests {
             .ok_or_else(|| HnswError::GraphInvariantViolation {
                 message: "node 0 should exist".to_owned(),
             })?;
-        node_zero.neighbours_mut(0).push(1);
+        node_zero
+            .neighbours_mut(0)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: "node 0 should expose level 0".to_owned(),
+            })?
+            .push(1);
         let node_one = graph
             .node_mut(1)
             .ok_or_else(|| HnswError::GraphInvariantViolation {
                 message: "node 1 should exist".to_owned(),
             })?;
-        node_one.neighbours_mut(0).push(0);
+        node_one
+            .neighbours_mut(0)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: "node 1 should expose level 0".to_owned(),
+            })?
+            .push(0);
         Ok(graph)
     }
 

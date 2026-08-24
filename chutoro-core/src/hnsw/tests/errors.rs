@@ -62,6 +62,7 @@ fn reports_invariant_violation_when_search_node_missing() {
         .node_mut(0)
         .expect("entry exists")
         .neighbours_mut(0)
+        .expect("entry must expose level 0")
         .push(1);
 
     let searcher = graph.searcher();

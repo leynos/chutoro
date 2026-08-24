@@ -5,8 +5,23 @@ use std::cmp::Ordering;
 use chutoro_core::{CosineNorms, DistanceError, VectorKind, cosine_distance, euclidean_distance};
 use rstest::rstest;
 
+/// Absolute tolerance for derived floating-point distance values.
+const DERIVED_DISTANCE_TOLERANCE: f32 = 1.0e-5_f32;
+
 fn assert_same_float(actual: f32, expected: f32) {
     assert_eq!(actual.total_cmp(&expected), Ordering::Equal);
+}
+
+#[expect(
+    clippy::float_arithmetic,
+    reason = "derived floating-point distance checks need an absolute delta"
+)]
+fn assert_derived_distance_matches(actual: f32, expected: f32) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta <= DERIVED_DISTANCE_TOLERANCE,
+        "actual={actual}, expected={expected}, delta={delta}, tolerance={DERIVED_DISTANCE_TOLERANCE}"
+    );
 }
 
 #[rstest]
@@ -19,7 +34,7 @@ fn euclidean_distance_returns_expected(
     #[case] expected: f32,
 ) {
     let distance = euclidean_distance(&left, &right).expect("distance should succeed");
-    assert_same_float(distance.value(), expected);
+    assert_derived_distance_matches(distance.value(), expected);
 }
 
 #[test]
@@ -62,7 +77,7 @@ fn cosine_distance_returns_expected(
     #[case] expected: f32,
 ) {
     let distance = cosine_distance(&left, &right, None).expect("distance should succeed");
-    assert_same_float(distance.value(), expected);
+    assert_derived_distance_matches(distance.value(), expected);
 }
 
 #[test]

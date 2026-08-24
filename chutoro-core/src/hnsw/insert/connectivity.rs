@@ -137,7 +137,7 @@ impl<'graph> ConnectivityHealer<'graph> {
         }
 
         let candidate_node = self.graph.node_mut(ctx.origin)?;
-        let origin_neighbours = candidate_node.neighbours_mut(ctx.level);
+        let origin_neighbours = candidate_node.neighbours_mut(ctx.level)?;
         let evicted_node = Self::add_to_neighbour_list(origin_neighbours, new_node, limit);
         if !origin_neighbours.contains(&new_node) {
             return None;
@@ -148,7 +148,7 @@ impl<'graph> ConnectivityHealer<'graph> {
         }
 
         let new_node_ref = self.graph.node_mut(new_node)?;
-        let new_node_neighbours = new_node_ref.neighbours_mut(ctx.level);
+        let new_node_neighbours = new_node_ref.neighbours_mut(ctx.level)?;
         Self::add_to_neighbour_list(new_node_neighbours, ctx.origin, limit);
         if !new_node_neighbours.contains(&ctx.origin) {
             return None;
@@ -169,7 +169,9 @@ impl<'graph> ConnectivityHealer<'graph> {
             return ctx.origin;
         }
 
-        let evicted_neighbours = evicted_node.neighbours_mut(ctx.level);
+        let Some(evicted_neighbours) = evicted_node.neighbours_mut(ctx.level) else {
+            return ctx.origin;
+        };
         if let Some(pos) = evicted_neighbours.iter().position(|&id| id == ctx.origin) {
             evicted_neighbours.remove(pos);
         }

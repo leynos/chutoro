@@ -13,7 +13,10 @@ pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usiz
             kani::assert(false, "Kani origin node must exist");
             return;
         };
-        let neighbours = node.neighbours_mut(level);
+        let Some(neighbours) = node.neighbours_mut(level) else {
+            kani::assert(false, "Kani origin must expose requested level");
+            return;
+        };
         if !neighbours.contains(&target) {
             neighbours.push(target);
         }
@@ -25,7 +28,10 @@ pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usiz
             debug_assert!(false, "missing origin node {origin}");
             return;
         };
-        let neighbours = node.neighbours_mut(level);
+        let Some(neighbours) = node.neighbours_mut(level) else {
+            debug_assert!(false, "origin {origin} lacks requested level {level}");
+            return;
+        };
         if !neighbours.contains(&target) {
             neighbours.push(target);
         }
@@ -287,7 +293,9 @@ impl<'graph> TestHelpers<'graph> {
             && ctx.level < target_node.level_count()
         {
             let limit = compute_connection_limit(ctx.level, ctx.max_connections);
-            let neighbours = target_node.neighbours_mut(ctx.level);
+            let Some(neighbours) = target_node.neighbours_mut(ctx.level) else {
+                return;
+            };
             if neighbours.contains(&ctx.origin) {
                 return;
             }

@@ -1,7 +1,7 @@
 //! Locate compiled `[[bin]]` target binaries for behavioural tests that spawn
 //! CLI subprocesses.
 //!
-//! This module centralises the binary-resolution logic that Cargo
+//! This module centralizes the binary-resolution logic that Cargo
 //! integration tests otherwise reimplement per binary: prefer the
 //! `CARGO_BIN_EXE_<name>` environment variable Cargo sets for binary targets
 //! owned by the crate under test, and fall back to probing the target
@@ -14,47 +14,29 @@ use cap_std::{
     fs::{Dir, DirEntry},
 };
 use std::env;
-use std::fmt;
 use std::path::{Path, PathBuf};
+use thiserror::Error;
 
 /// Errors surfaced when a compiled test binary cannot be located.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum TestBinaryError {
     /// The current test binary's own executable path could not be resolved.
+    #[error("failed to locate current test binary: {0}")]
     CurrentExe(String),
     /// The `deps` directory could not be derived from the test binary path.
+    #[error("failed to resolve deps directory from test binary")]
     DepsDir,
     /// The `target` directory could not be derived from the `deps` directory.
+    #[error("failed to resolve target directory from deps")]
     TargetDir,
     /// No binary matching the requested name was found under the target
     /// directory.
+    #[error("failed to locate {name} binary")]
     NotFound {
         /// Name of the binary that could not be located.
         name: String,
     },
 }
-
-impl fmt::Display for TestBinaryError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::CurrentExe(error) => {
-                write!(formatter, "failed to locate current test binary: {error}")
-            }
-            Self::DepsDir => {
-                write!(
-                    formatter,
-                    "failed to resolve deps directory from test binary"
-                )
-            }
-            Self::TargetDir => {
-                write!(formatter, "failed to resolve target directory from deps")
-            }
-            Self::NotFound { name } => write!(formatter, "failed to locate {name} binary"),
-        }
-    }
-}
-
-impl std::error::Error for TestBinaryError {}
 
 /// Locates a compiled binary produced by a `[[bin]]` target named `name` in
 /// the crate under test.
@@ -81,13 +63,26 @@ impl std::error::Error for TestBinaryError {}
 /// assert!(path.exists());
 /// ```
 pub fn find_test_binary(name: &str) -> Result<PathBuf, TestBinaryError> {
-    if let Ok(value) = env::var(format!("CARGO_BIN_EXE_{name}")) {
-        return Ok(with_exe_suffix(PathBuf::from(value)));
+    let environment_path = env::var(format!("CARGO_BIN_EXE_{name}"))
+        .ok()
+        .map(PathBuf::from);
+    let current_exe =
+        env::current_exe().map_err(|error| TestBinaryError::CurrentExe(error.to_string()));
+    find_test_binary_with(name, environment_path, current_exe)
+}
+
+/// Resolves a test binary from an optional environment path or executable path.
+fn find_test_binary_with(
+    name: &str,
+    environment_path: Option<PathBuf>,
+    current_exe: Result<PathBuf, TestBinaryError>,
+) -> Result<PathBuf, TestBinaryError> {
+    if let Some(path) = environment_path {
+        return Ok(with_exe_suffix(path));
     }
 
-    let current_exe =
-        env::current_exe().map_err(|error| TestBinaryError::CurrentExe(error.to_string()))?;
-    let deps_dir = current_exe
+    let executable_path = current_exe?;
+    let deps_dir = executable_path
         .parent()
         .map(Path::to_path_buf)
         .ok_or(TestBinaryError::DepsDir)?;
@@ -162,4 +157,62 @@ fn with_exe_suffix(mut path: PathBuf) -> PathBuf {
     let updated = format!("{file_name}{suffix}");
     path.set_file_name(updated);
     path
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for test-binary resolution paths and errors.
+
+    use super::*;
+
+    #[test]
+    fn resolves_binary_from_environment_path() {
+        let path = find_test_binary_with(
+            "test-binary",
+            Some(PathBuf::from("test-binary")),
+            Err(TestBinaryError::CurrentExe("unused".into())),
+        )
+        .expect("environment path should resolve the test binary");
+
+        assert_eq!(path, with_exe_suffix(PathBuf::from("test-binary")));
+    }
+
+    #[test]
+    fn resolves_binary_from_dependency_directory_fallback() {
+        let current_exe =
+            env::current_exe().map_err(|error| TestBinaryError::CurrentExe(error.to_string()));
+        let path = find_test_binary_with("chutoro_test_support", None, current_exe)
+            .expect("dependency-directory fallback should resolve this test binary");
+
+        assert!(path.exists());
+    }
+
+    #[test]
+    fn rejects_non_executable_suffix() {
+        let valid_name = format!("test-binary{}", env::consts::EXE_SUFFIX);
+        assert!(has_expected_suffix(Path::new(&valid_name), &valid_name));
+        assert!(!has_expected_suffix(
+            Path::new("test-binary.invalid"),
+            "test-binary.invalid"
+        ));
+    }
+
+    #[test]
+    fn returns_not_found_when_no_candidate_exists() {
+        let error = find_test_binary_with(
+            "missing-test-binary",
+            None,
+            Ok(PathBuf::from(
+                "/chutoro-test-support-missing/target/debug/deps/test-binary",
+            )),
+        )
+        .expect_err("missing binary should produce a NotFound error");
+
+        assert_eq!(
+            error,
+            TestBinaryError::NotFound {
+                name: "missing-test-binary".to_owned(),
+            }
+        );
+    }
 }

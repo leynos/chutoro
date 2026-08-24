@@ -1,14 +1,12 @@
-# Debugging Plan: benchmark smoke HNSW stall
+# Debugging plan: benchmark smoke HNSW stall
 
-**Generated**: 2026-08-24T16:18:27Z
-**Issue ID**: validation blocker during issue #200 work
-**Severity**: medium
-**Falsification sub-agent**: alchemist
+**Generated**: 2026-08-24T16:18:27Z **Issue ID**: validation blocker during
+issue #200 work **Severity**: medium **Falsification sub-agent**: alchemist
 **Planning agent boundary**: This document was prepared by the planning agent.
 Falsification must be executed by the named sub-agent, not by the planning
 agent.
 
-## Problem Statement
+## Problem statement
 
 `cargo test -p chutoro-benches --all-features` passes 139 unit tests, but its
 `benchmark_smoke` integration test stalls in the exact HNSW Criterion probe.
@@ -17,7 +15,9 @@ seven minutes, all Rayon workers waited in `CpuHnsw::insert_with_collector`.
 The smoke test was terminated after capturing a backtrace. This blocks a green
 gate for a manifest-only workspace-lint and filesystem-boundary change.
 
-## Context Summary
+## Context summary
+
+The observed benchmark-stall context was:
 
 | Aspect              | Details                                                            |
 | ------------------- | ------------------------------------------------------------------ |
@@ -26,7 +26,7 @@ gate for a manifest-only workspace-lint and filesystem-boundary change.
 | Affected components | `benchmark_smoke`, `benches/hnsw.rs`, `CpuHnsw::build`             |
 | Recent changes      | Only bench lint inheritance and Dylint exclusions; no HNSW changes |
 
-### Error Artefacts
+### Error artefacts
 
 ```plaintext
 Benchmarking hnsw_build/n=100,M=8,ef=16: Collecting 10 samples in estimated
@@ -37,7 +37,7 @@ CpuHnsw::insert_with_collector; the owner waited in Rayon while
 CpuHnsw::build was called from Criterion's iter_batched.
 ```
 
-### Information Gaps
+### Information gaps
 
 - The prior full workspace gate reported green, but its exact process
   environment and the smoke probe's Rayon worker count were not recorded.
@@ -60,7 +60,9 @@ mutex, and the probe's 100-point input does not justify multi-minute work.
 **Prediction**: With `RAYON_NUM_THREADS=1`, the exact `hnsw` probe completes
 within 30 seconds and prints Criterion timing output.
 
-#### H1 Falsification Plan
+#### H1 falsification plan
+
+The H1 falsification steps were:
 
 | Step | Action                                                                  | Expected Negative Result                                                        |
 | ---- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
@@ -84,7 +86,9 @@ the owner also waited through the full Criterion sample loop.
 
 **Prediction**: The exact probe stalls with both one and two Rayon workers.
 
-#### H2 Falsification Plan
+#### H2 falsification plan
+
+The H2 falsification steps were:
 
 | Step | Action                                                  | Expected Negative Result                                                          |
 | ---- | ------------------------------------------------------- | --------------------------------------------------------------------------------- |
@@ -96,27 +100,27 @@ the owner also waited through the full Criterion sample loop.
 
 ______________________________________________________________________
 
-## Recommended Execution Order
+## Recommended execution order
 
 1. **H1** — it is the cheapest decisive experiment and may identify a bounded
    smoke-fixture configuration fix.
 2. **H2** — it follows directly only if the one-worker run stalls.
 
-## Termination Criteria
+## Termination criteria
 
 - **Root cause identified**: One worker count completes while another stalls,
   or every tested worker count stalls.
 - **Escalation trigger**: Both bounded runs time out or show a different stack
   signature; revise the hypotheses before modifying production code.
 
-## Notes for Executing Agent
+## Notes for executing agent
 
 Run only the two stated experiments. Do not edit tracked files, run full
 repository gates, or terminate unrelated processes. Return `falsified`,
 `not-falsified`, or `inconclusive` for each hypothesis, with exact command
 results and timing evidence.
 
-## Falsification Record
+## Falsification record
 
 - 2026-08-24: The initial one- and two-worker 30-second probes were
   inconclusive. Both timed out during Cargo compilation before Criterion

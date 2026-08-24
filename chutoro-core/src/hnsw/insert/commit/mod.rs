@@ -50,7 +50,13 @@ impl<'graph> CommitApplicator<'graph> {
             .enumerate()
             .take(node_level + 1)
         {
-            let list = node_ref.neighbours_mut(level);
+            let list = node_ref.neighbours_mut(level).ok_or_else(|| {
+                HnswError::GraphInvariantViolation {
+                    message: format!(
+                        "node {node_id} lacks level {level} after attach during commit"
+                    ),
+                }
+            })?;
             list.clear();
             list.extend(neighbours);
         }
@@ -94,7 +100,14 @@ impl<'graph> CommitApplicator<'graph> {
                 .ok_or_else(|| HnswError::GraphInvariantViolation {
                     message: format!("node {} missing during insertion commit", update.node),
                 })?;
-            let list = node_ref.neighbours_mut(level);
+            let list = node_ref.neighbours_mut(level).ok_or_else(|| {
+                HnswError::GraphInvariantViolation {
+                    message: format!(
+                        "node {} lacks level {level} during insertion commit",
+                        update.node
+                    ),
+                }
+            })?;
             list.clear();
             list.extend(next);
 
@@ -118,7 +131,7 @@ impl<'graph> CommitApplicator<'graph> {
     /// neighbour lists.
     ///
     /// Uses the graph's node iterator to avoid scanning empty capacity slots,
-    /// making this `O(populated_nodes` × levels) rather than O(capacity × levels).
+    /// making this `O(populated_nodes)` × levels rather than O(capacity × levels).
     fn compute_reciprocated_edges(&self, new_node: NewNodeContext) -> Vec<Vec<usize>> {
         let mut reciprocated: Vec<Vec<usize>> = vec![Vec::new(); new_node.level + 1];
         for (node_id, node) in self.graph.nodes_iter() {

@@ -40,7 +40,7 @@ impl PackedSoaStorage {
     /// View the aligned blocks as contiguous scalar values.
     const fn as_slice(&self) -> &[f32] {
         let ptr = self.blocks.as_ptr().cast::<f32>();
-        // Safety: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
+        // SAFETY: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
         // the blocks are contiguous `f32` values with no interior padding.
         unsafe { std::slice::from_raw_parts(ptr, self.len()) }
     }
@@ -48,7 +48,7 @@ impl PackedSoaStorage {
     /// View the aligned blocks as mutable contiguous scalar values.
     const fn as_mut_slice(&mut self) -> &mut [f32] {
         let ptr = self.blocks.as_mut_ptr().cast::<f32>();
-        // Safety: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
+        // SAFETY: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
         // the blocks are contiguous `f32` values with no interior padding.
         unsafe { std::slice::from_raw_parts_mut(ptr, self.len()) }
     }

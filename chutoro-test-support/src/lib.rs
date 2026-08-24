@@ -167,7 +167,7 @@ pub mod tracing {
 
     /// Visitor that writes tracing fields into a string-valued map.
     struct FieldRecorder<'a> {
-        /// Map receiving the serialised field values.
+        /// Map receiving the serialized field values.
         fields: &'a mut HashMap<String, String>,
     }
 

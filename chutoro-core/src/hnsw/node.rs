@@ -7,8 +7,6 @@
 pub(crate) struct Node {
     /// Mutable adjacency list for every initialized graph level.
     neighbours: Vec<Vec<usize>>,
-    /// Sink returned for attempted mutation of an unavailable level.
-    invalid_level_neighbours: Vec<usize>,
     /// Deterministic insertion order for equal-distance tie-breaking.
     sequence: u64,
 }
@@ -20,25 +18,18 @@ impl Node {
         neighbours.resize_with(level + 1, Vec::new);
         Self {
             neighbours,
-            invalid_level_neighbours: Vec::new(),
             sequence,
         }
     }
 
     /// Return neighbours at `level`, or an empty slice when unavailable.
     pub(crate) fn neighbours(&self, level: usize) -> &[usize] {
-        self.neighbours
-            .get(level)
-            .map_or(self.invalid_level_neighbours.as_slice(), Vec::as_slice)
+        self.neighbours.get(level).map_or(&[], Vec::as_slice)
     }
 
-    /// Return mutable neighbours at `level`, or the unavailable-level sink.
-    pub(crate) fn neighbours_mut(&mut self, level: usize) -> &mut Vec<usize> {
-        if let Some(neighbours) = self.neighbours.get_mut(level) {
-            neighbours
-        } else {
-            &mut self.invalid_level_neighbours
-        }
+    /// Return mutable neighbours at `level` when that level is initialized.
+    pub(crate) fn neighbours_mut(&mut self, level: usize) -> Option<&mut Vec<usize>> {
+        self.neighbours.get_mut(level)
     }
 
     /// Return this node's deterministic insertion sequence.
@@ -77,7 +68,12 @@ impl Node {
     /// graph
     ///     .attach_node(NodeContext { node: 1, level: 0, sequence: 1 })
     ///     .expect("attach second node");
-    /// graph.node_mut(0).expect("node 0").neighbours_mut(0).push(1);
+    /// graph
+    ///     .node_mut(0)
+    ///     .expect("node 0")
+    ///     .neighbours_mut(0)
+    ///     .expect("node 0 must expose level 0")
+    ///     .push(1);
     /// let neighbours: Vec<_> = graph
     ///     .node(0)
     ///     .expect("node 0")
@@ -90,5 +86,20 @@ impl Node {
             .iter()
             .enumerate()
             .flat_map(|(level, ids)| ids.iter().copied().map(move |target| (level, target)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for node adjacency accessors.
+
+    use super::Node;
+
+    #[test]
+    fn unavailable_level_cannot_be_mutated() {
+        let mut node = Node::new(0, 0);
+
+        assert!(node.neighbours_mut(1).is_none());
+        assert!(node.neighbours(1).is_empty());
     }
 }

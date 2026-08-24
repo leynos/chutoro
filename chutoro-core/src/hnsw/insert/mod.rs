@@ -290,9 +290,12 @@ pub(crate) fn apply_reconciled_update_for_kani(
     reconciler.reconcile_added_edges(&update_ctx, next);
 
     if let Some(node_ref) = reconciler.graph_mut().node_mut(ctx.origin) {
-        let list = node_ref.neighbours_mut(ctx.level);
-        list.clear();
-        list.extend(next.iter().copied());
+        if let Some(list) = node_ref.neighbours_mut(ctx.level) {
+            list.clear();
+            list.extend(next.iter().copied());
+        } else {
+            debug_assert!(false, "Kani update origin must expose its asserted level");
+        }
     }
 
     reconciler.apply_deferred_scrubs(ctx.max_connections);

@@ -518,6 +518,7 @@ version = "0.1.0"
 dependencies = [
  "cap-std",
  "rstest",
+ "thiserror 2.0.20",
  "tracing",
  "tracing-subscriber",
 ]

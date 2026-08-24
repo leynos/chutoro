@@ -136,7 +136,9 @@ impl Graph {
             return false;
         }
 
-        let neighbours = node.neighbours_mut(level);
+        let Some(neighbours) = node.neighbours_mut(level) else {
+            return false;
+        };
         if neighbours.contains(&target) {
             return true;
         }
@@ -157,7 +159,9 @@ impl Graph {
             return;
         }
 
-        let neighbours = node.neighbours_mut(level);
+        let Some(neighbours) = node.neighbours_mut(level) else {
+            return;
+        };
         if let Some(pos) = neighbours.iter().position(|&candidate| candidate == target) {
             neighbours.remove(pos);
         }
@@ -176,9 +180,15 @@ impl Graph {
         for maybe_node in self.nodes.iter_mut().flatten() {
             let levels = maybe_node.level_count();
             for level in 0..levels {
-                let neighbours = maybe_node.neighbours_mut(level);
-                neighbours.retain(|&target| target != node);
+                Self::strip_level_references(maybe_node, level, node);
             }
+        }
+    }
+
+    /// Removes references to a deleted node from one valid graph level.
+    fn strip_level_references(node: &mut Node, level: usize, deleted_node: usize) {
+        if let Some(neighbours) = node.neighbours_mut(level) {
+            neighbours.retain(|&target| target != deleted_node);
         }
     }
 

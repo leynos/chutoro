@@ -234,7 +234,10 @@ fn set_entry_neighbours(
             node: 0,
             reason: "entry present",
         })?
-        .neighbours_mut(0);
+        .neighbours_mut(0)
+        .ok_or_else(|| HnswError::GraphInvariantViolation {
+            message: "entry must expose level 0".to_owned(),
+        })?;
     entry_neighbours.clear();
     entry_neighbours.extend(neighbours.iter().copied());
     Ok(())
@@ -256,7 +259,11 @@ fn link_if_absent(
             node: origin,
             reason: "link origin must be attached before linking",
         })?;
-    let list = node.neighbours_mut(0);
+    let list = node
+        .neighbours_mut(0)
+        .ok_or_else(|| HnswError::GraphInvariantViolation {
+            message: "link origin must expose level 0".to_owned(),
+        })?;
     if !list.contains(&target) {
         list.push(target);
     }

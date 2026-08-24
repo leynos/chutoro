@@ -2,6 +2,8 @@
 
 use std::{num::NonZeroUsize, ops::Neg, time::Duration};
 
+use num_traits::ToPrimitive;
+
 use crate::hnsw::{distance_cache::DistanceCacheConfig, error::HnswError};
 
 /// Greatest finite sampling draw strictly below one.
@@ -50,14 +52,14 @@ impl HnswParams {
                 ),
             });
         }
-        let max_connections_for_level =
-            u32::try_from(max_connections).map_err(|_| HnswError::InvalidParameters {
-                reason: "max_connections must fit in a 32-bit level calculation".into(),
-            })?;
         Ok(Self {
             max_connections,
             ef_construction,
-            level_multiplier: f64::from(max_connections_for_level).ln().recip(),
+            level_multiplier: max_connections
+                .to_f64()
+                .unwrap_or(f64::INFINITY)
+                .ln()
+                .recip(),
             max_level: 12,
             rng_seed: 0x5EED_CAFE,
             distance_cache: DistanceCacheConfig::default(),

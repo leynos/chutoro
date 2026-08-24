@@ -165,13 +165,9 @@ fn generate_sparse(rng: &mut SmallRng) -> MstFixture {
     // Build a random spanning tree via random permutation walk.
     let mut perm: Vec<usize> = (0..node_count).collect();
     shuffle(&mut perm, rng);
-    for pair in perm.windows(2) {
+    for (&left, &right) in perm.iter().zip(perm.iter().skip(1)) {
         let weight = rng.gen_range(0.1_f32..100.0);
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "windows(2) guarantees that each pair has exactly two elements"
-        )]
-        let (s, t) = canonical(pair[0], pair[1]);
+        let (s, t) = canonical(left, right);
         edges.push(CandidateEdge::new(s, t, weight, seq));
         seq += 1;
     }
