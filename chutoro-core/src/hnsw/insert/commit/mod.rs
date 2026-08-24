@@ -12,14 +12,18 @@ use super::{
     types::{FinalisedUpdate, NewNodeContext, UpdateContext},
 };
 
+/// Final new-node neighbours and existing node-level lists touched by commit.
 pub(super) type ApplyUpdatesOutcome = (Vec<Vec<usize>>, Vec<(usize, usize)>);
 
+/// Applies finalised insertion updates to a mutable graph.
 #[derive(Debug)]
 pub(super) struct CommitApplicator<'graph> {
+    /// Graph that receives the committed adjacency-list changes.
     pub(super) graph: &'graph mut Graph,
 }
 
 impl<'graph> CommitApplicator<'graph> {
+    /// Bind a commit applicator to the graph receiving insertion updates.
     pub(super) const fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
     }

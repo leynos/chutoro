@@ -11,8 +11,10 @@ use crate::{
     },
 };
 
+/// Plans graph searches needed to insert a node without mutating the graph.
 #[derive(Debug)]
 pub(crate) struct InsertionPlanner<'graph> {
+    /// Graph searched to select insertion neighbours.
     graph: &'graph Graph,
 }
 
@@ -59,13 +61,18 @@ pub(crate) struct InsertionPlanner<'graph> {
 /// ```
 #[derive(Clone, Copy)]
 pub(crate) struct PlanningInputs<'a, D: DataSource + Sync> {
+    /// Node identity, level, and sequence being planned.
     pub(crate) ctx: NodeContext,
+    /// HNSW parameters controlling layer-search breadth.
     pub(crate) params: &'a HnswParams,
+    /// Data source used for distances during graph traversal.
     pub(crate) source: &'a D,
+    /// Optional shared cache for traversal distance lookups.
     pub(crate) cache: Option<&'a DistanceCache>,
 }
 
 impl<'graph> InsertionPlanner<'graph> {
+    /// Bind an insertion planner to a graph searched without mutation.
     pub(crate) const fn new(graph: &'graph Graph) -> Self {
         Self { graph }
     }
@@ -94,6 +101,7 @@ impl<'graph> InsertionPlanner<'graph> {
         Ok(InsertionPlan { layers })
     }
 
+    /// Descend greedily from the entry point to the insertion target level.
     fn greedy_descend_to_target_level<D: DataSource + Sync>(
         &self,
         source: &D,
@@ -118,6 +126,7 @@ impl<'graph> InsertionPlanner<'graph> {
         Ok(current)
     }
 
+    /// Search target layers and collect neighbour candidates for each one.
     fn build_layer_plans_from_target<D: DataSource + Sync>(
         &self,
         source: &D,

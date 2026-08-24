@@ -13,12 +13,15 @@ use super::limits::compute_connection_limit;
 use super::types::{LinkContext, UpdateContext};
 use crate::hnsw::graph::Graph;
 
+/// Restores graph connectivity after an insertion edge changes.
 #[derive(Debug)]
 pub(super) struct ConnectivityHealer<'graph> {
+    /// Graph whose adjacency lists are repaired during healing.
     pub(super) graph: &'graph mut Graph,
 }
 
 impl<'graph> ConnectivityHealer<'graph> {
+    /// Bind a connectivity healer to the graph being repaired.
     pub(super) const fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
     }
@@ -56,6 +59,7 @@ impl<'graph> ConnectivityHealer<'graph> {
         }
     }
 
+    /// Link a node to the update origin at the requested level.
     pub(super) fn link_new_node(&mut self, ctx: &UpdateContext, new_node: usize) -> bool {
         if ctx.level == 0 {
             self.link_new_node_base_layer(ctx, new_node)
@@ -177,6 +181,7 @@ impl<'graph> ConnectivityHealer<'graph> {
         }
     }
 
+    /// Link a node to the entry point when other fallback candidates fail.
     pub(super) fn attach_entry_fallback(
         &mut self,
         level: usize,
@@ -193,6 +198,7 @@ impl<'graph> ConnectivityHealer<'graph> {
         })
     }
 
+    /// Select the first fallback candidate that accepts a reciprocal link.
     pub(super) fn select_new_node_fallback(
         &mut self,
         ctx: LinkContext,
@@ -213,12 +219,14 @@ impl<'graph> ConnectivityHealer<'graph> {
         linked.or_else(|| self.attach_entry_fallback(ctx.level, ctx.max_connections, ctx.new_node))
     }
 
+    /// Report whether a node has an initialized adjacency list for a level.
     fn can_link_at_level(&self, node_id: usize, level: usize) -> bool {
         self.graph
             .node(node_id)
             .is_some_and(|node| level < node.level_count())
     }
 
+    /// Insert a neighbour and return the displaced tail when capacity is full.
     fn add_to_neighbour_list(
         neighbours: &mut Vec<usize>,
         new_id: usize,

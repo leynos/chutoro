@@ -22,12 +22,15 @@ use super::types::{
 
 pub(crate) use super::types::{TrimJob, TrimResult};
 
+/// Applies prepared insertion plans and their trimmed neighbour lists.
 #[derive(Debug)]
 pub(crate) struct InsertionExecutor<'graph> {
+    /// Graph mutated by prepare and commit operations.
     graph: &'graph mut Graph,
 }
 
 impl<'graph> InsertionExecutor<'graph> {
+    /// Bind an insertion executor to the graph that receives the insertion.
     pub(crate) const fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
     }
@@ -169,6 +172,7 @@ impl<'graph> InsertionExecutor<'graph> {
         Ok(())
     }
 
+    /// Combine staged updates with any trimmed neighbour-list results.
     fn prepare_final_updates(
         updates: Vec<StagedUpdate>,
         trims: Vec<TrimResult>,
@@ -189,6 +193,7 @@ impl<'graph> InsertionExecutor<'graph> {
         final_updates
     }
 
+    /// Fill empty new-node levels through the configured fallback links.
     fn heal_connectivity_gaps(
         &mut self,
         reciprocated: &mut [Vec<usize>],

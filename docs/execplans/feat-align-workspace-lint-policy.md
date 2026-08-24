@@ -738,6 +738,13 @@ changing candidate ordering, trimming decisions, or connectivity healing.
 Verify the insertion test module and scoped Clippy. The private-item diagnostic
 count falls from 100 to 81 after this batch.
 
+## Stage 3ab: HNSW Insertion Support Documentation
+
+Document commit application, connectivity healing, execution, and planning
+internals while preserving graph mutation order, level fallback selection, and
+trimmed-update composition. Verify the insertion test module and scoped Clippy.
+The private-item diagnostic count falls from 81 to 55 after this batch.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
