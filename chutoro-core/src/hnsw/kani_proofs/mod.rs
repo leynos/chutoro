@@ -71,9 +71,3 @@ pub(super) fn add_bidirectional_edge(
     add_edge_if_missing(graph, origin, target, level);
     add_edge_if_missing(graph, target, origin, level);
 }
-
-pub(super) fn push_if_absent(list: &mut Vec<usize>, value: usize) {
-    if !list.contains(&value) {
-        list.push(value);
-    }
-}

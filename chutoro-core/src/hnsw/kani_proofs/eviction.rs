@@ -2,7 +2,6 @@
 
 use super::{EdgeAssertion, has_node_link};
 use crate::hnsw::{
-    error::HnswError,
     graph::{EdgeContext, Graph, NodeContext},
     insert::{
         FinalisedUpdate, NewNodeContext, StagedUpdate, apply_commit_updates_for_kani,
@@ -16,26 +15,27 @@ use crate::hnsw::{
 ///
 /// Returns a graph with nodes 0, 1, 2, 3 all inserted at level 1,
 /// configured with `max_connections = 1` so that level 1 has capacity 1.
-fn setup_eviction_test_graph(params: HnswParams) -> Result<Graph, HnswError> {
+fn setup_eviction_test_graph(params: HnswParams) -> Result<Graph, &'static str> {
     let mut graph = Graph::with_capacity(params, 4);
 
-    // Insert 4 nodes at level 1
-    graph.insert_first(NodeContext {
+    // Insert 4 nodes at level 1 through the lean Kani constructors so the
+    // harness never reaches `format!`-based production error paths.
+    graph.insert_first_for_kani(NodeContext {
         node: 0,
         level: 1,
         sequence: 0,
     })?;
-    graph.attach_node(NodeContext {
+    graph.attach_node_for_kani(NodeContext {
         node: 1,
         level: 1,
         sequence: 1,
     })?;
-    graph.attach_node(NodeContext {
+    graph.attach_node_for_kani(NodeContext {
         node: 2,
         level: 1,
         sequence: 2,
     })?;
-    graph.attach_node(NodeContext {
+    graph.attach_node_for_kani(NodeContext {
         node: 3,
         level: 1,
         sequence: 3,
@@ -74,7 +74,7 @@ fn setup_eviction_test_graph(params: HnswParams) -> Result<Graph, HnswError> {
 #[kani::unwind(10)]
 fn verify_eviction_deferred_scrub_reciprocity() {
     // Use max_connections = 1 so level 1 has capacity 1 and can evict.
-    let Ok(params) = HnswParams::new(1, 2) else {
+    let Ok(params) = HnswParams::new_for_kani(1, 2) else {
         kani::assert(false, "failed to construct eviction HNSW params");
         return;
     };
