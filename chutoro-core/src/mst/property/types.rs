@@ -4,6 +4,7 @@
 //! by the graph generation strategies and property functions.
 
 use crate::CandidateEdge;
+use mockable::{DefaultEnv, Env};
 
 /// Weight distribution strategy for generated graphs.
 ///
@@ -60,8 +61,12 @@ impl ConcurrencyConfig {
     /// [`MIN_CONCURRENCY_REPS`] are clamped upward so the property always
     /// performs at least one comparison run against the baseline.
     pub(super) fn load() -> Self {
-        let repetitions = std::env::var("CHUTORO_MST_PBT_CONCURRENCY_REPS")
-            .ok()
+        Self::load_with_env(&DefaultEnv)
+    }
+
+    fn load_with_env(env: &dyn Env) -> Self {
+        let repetitions = env
+            .string("CHUTORO_MST_PBT_CONCURRENCY_REPS")
             .and_then(|s| s.parse().ok())
             .unwrap_or(5)
             .max(MIN_CONCURRENCY_REPS);

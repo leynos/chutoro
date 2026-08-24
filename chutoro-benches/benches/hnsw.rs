@@ -9,6 +9,7 @@ use criterion::{
     BatchSize, BenchmarkGroup, BenchmarkId, Criterion, black_box, criterion_main,
     measurement::WallTime,
 };
+use mockable::{DefaultEnv, Env};
 
 use chutoro_benches::{
     criterion_support::{
@@ -276,8 +277,8 @@ fn hnsw_build(c: &mut Criterion) {
 }
 
 /// Determine whether this invocation should collect HNSW memory measurements.
-fn should_collect_memory_profile() -> bool {
-    if let Ok(value) = std::env::var("CHUTORO_BENCH_HNSW_MEMORY_PROFILE") {
+fn should_collect_memory_profile_with_env(env: &dyn Env) -> bool {
+    if let Some(value) = env.string("CHUTORO_BENCH_HNSW_MEMORY_PROFILE") {
         let normalized = value.trim().to_ascii_lowercase();
         if matches!(normalized.as_str(), "0" | "false" | "off") {
             return false;
@@ -289,19 +290,21 @@ fn should_collect_memory_profile() -> bool {
     !is_benchmark_discovery() && !is_exact_benchmark_probe()
 }
 
-/// Resolve the configured destination for the HNSW memory report.
-fn memory_report_path() -> PathBuf {
-    std::env::var_os("CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH")
+fn memory_report_path_with_env(env: &dyn Env) -> PathBuf {
+    env.os_string("CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH")
         .map_or_else(|| PathBuf::from(MEMORY_REPORT_PATH), PathBuf::from)
 }
-
 /// Collect and write optional HNSW memory measurements before benchmark setup.
 fn profile_hnsw_memory_impl() -> Result<Option<PathBuf>, BenchSetupError> {
-    if !should_collect_memory_profile() {
+    profile_hnsw_memory_impl_with_env(&DefaultEnv)
+}
+
+fn profile_hnsw_memory_impl_with_env(env: &dyn Env) -> Result<Option<PathBuf>, BenchSetupError> {
+    if !should_collect_memory_profile_with_env(env) {
         return Ok(None);
     }
 
-    let report_path = memory_report_path();
+    let report_path = memory_report_path_with_env(env);
     let mut records = Vec::new();
 
     for &point_count in POINT_COUNTS {
@@ -336,7 +339,6 @@ fn profile_hnsw_memory_impl() -> Result<Option<PathBuf>, BenchSetupError> {
         .map(Some)
         .map_err(BenchSetupError::from)
 }
-
 /// Register edge-harvesting HNSW measurements and optional memory reporting.
 fn hnsw_build_with_edges_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let _maybe_report_path = profile_hnsw_memory_impl()?;
@@ -354,6 +356,13 @@ fn hnsw_build_with_edges(c: &mut Criterion) {
 
 /// Register HNSW build measurements across diverse synthetic source shapes.
 fn hnsw_build_diverse_sources_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
+    hnsw_build_diverse_sources_impl_with_env(c, &DefaultEnv)
+}
+
+fn hnsw_build_diverse_sources_impl_with_env(
+    c: &mut Criterion,
+    env: &dyn Env,
+) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("hnsw_build_diverse_sources");
     configure_hnsw_group(&mut group);
 
@@ -392,7 +401,7 @@ fn hnsw_build_diverse_sources_impl(c: &mut Criterion) -> Result<(), BenchSetupEr
         &params,
     );
 
-    if std::env::var("CHUTORO_BENCH_ENABLE_MNIST").as_deref() == Ok("1") {
+    if env.string("CHUTORO_BENCH_ENABLE_MNIST").as_deref() == Some("1") {
         let mnist = SyntheticSource::load_mnist(&MnistConfig::default())?;
         bench_build_source(
             &mut group,
@@ -409,7 +418,6 @@ fn hnsw_build_diverse_sources_impl(c: &mut Criterion) -> Result<(), BenchSetupEr
     group.finish();
     Ok(())
 }
-
 /// Register the public Criterion diverse-source HNSW entrypoint.
 fn hnsw_build_diverse_sources(c: &mut Criterion) {
     if let Err(err) = hnsw_build_diverse_sources_impl(c) {

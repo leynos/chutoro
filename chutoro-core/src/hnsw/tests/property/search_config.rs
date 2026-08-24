@@ -3,7 +3,7 @@
 //! Reads environment overrides for the minimum recall threshold and maximum
 //! fixture length used by the property-based search tests.
 
-use std::env;
+use mockable::{DefaultEnv, Env};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum RecallThresholdError {
@@ -38,44 +38,19 @@ impl<'a> RawConfigValue<'a> {
 
 impl SearchPropertyConfig {
     const ENV_KEY: EnvKey = EnvKey("CHUTORO_HNSW_PBT_MIN_RECALL");
+
     const MAX_FIXTURE_LEN_ENV_KEY: EnvKey = EnvKey("CHUTORO_HNSW_PBT_MAX_FIXTURE_LEN");
+
     const MIN_MAX_CONNECTIONS_ENV_KEY: EnvKey = EnvKey("CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS");
+
     pub(super) const DEFAULT_MIN_RECALL: f32 = 0.50;
+
     pub(super) const DEFAULT_MAX_FIXTURE_LEN: usize = 32;
+
     pub(super) const DEFAULT_MIN_MAX_CONNECTIONS: usize = 12;
 
     pub(super) fn load() -> Self {
-        Self::load_with_lookup(|key| env::var(key.as_str()).ok())
-    }
-
-    fn load_with_lookup<F>(lookup: F) -> Self
-    where
-        F: Fn(EnvKey) -> Option<String>,
-    {
-        let min_recall = Self::read_env_or_default(
-            Self::ENV_KEY,
-            Self::DEFAULT_MIN_RECALL,
-            Self::parse_min_recall,
-            &lookup,
-        );
-        let max_fixture_len = Self::read_env_or_default(
-            Self::MAX_FIXTURE_LEN_ENV_KEY,
-            Self::DEFAULT_MAX_FIXTURE_LEN,
-            Self::parse_max_fixture_len,
-            &lookup,
-        );
-        let min_max_connections = Self::read_env_or_default(
-            Self::MIN_MAX_CONNECTIONS_ENV_KEY,
-            Self::DEFAULT_MIN_MAX_CONNECTIONS,
-            Self::parse_min_max_connections,
-            &lookup,
-        );
-
-        Self {
-            min_recall,
-            max_fixture_len,
-            min_max_connections,
-        }
+        Self::load_with_env(&DefaultEnv)
     }
 
     pub(super) fn min_recall(&self) -> f32 {
@@ -90,24 +65,26 @@ impl SearchPropertyConfig {
         self.min_max_connections
     }
 
-    fn read_env_or_default<T, P, L>(key: EnvKey, default: T, parser: P, lookup: &L) -> T
+    fn read_env_or_default<T, F>(key: EnvKey, default: T, parser: F, env: &dyn Env) -> T
     where
         T: Copy,
-        P: for<'a> Fn(RawConfigValue<'a>) -> Result<T, String>,
-        L: Fn(EnvKey) -> Option<String>,
+        F: for<'a> Fn(RawConfigValue<'a>) -> Result<T, String>,
     {
-        lookup(key).map_or(default, |raw| match parser(RawConfigValue(raw.as_str())) {
-            Ok(value) => value,
-            Err(reason) => {
-                tracing::warn!(
-                    env = key.as_str(),
-                    raw = %raw,
-                    reason = %reason,
-                    "invalid config override, falling back to default",
-                );
-                default
-            }
-        })
+        match env.string(key.as_str()) {
+            Some(raw) => match parser(RawConfigValue(raw.as_str())) {
+                Ok(value) => value,
+                Err(reason) => {
+                    tracing::warn!(
+                        env = key.as_str(),
+                        raw = %raw,
+                        reason = %reason,
+                        "invalid config override, falling back to default",
+                    );
+                    default
+                }
+            },
+            None => default,
+        }
     }
 
     fn parse_min_recall(raw: RawConfigValue<'_>) -> Result<f32, String> {
@@ -132,6 +109,33 @@ impl SearchPropertyConfig {
         }
         Ok(parsed)
     }
+
+    fn load_with_env(env: &dyn Env) -> Self {
+        let min_recall = Self::read_env_or_default(
+            Self::ENV_KEY,
+            Self::DEFAULT_MIN_RECALL,
+            Self::parse_min_recall,
+            env,
+        );
+        let max_fixture_len = Self::read_env_or_default(
+            Self::MAX_FIXTURE_LEN_ENV_KEY,
+            Self::DEFAULT_MAX_FIXTURE_LEN,
+            Self::parse_max_fixture_len,
+            env,
+        );
+        let min_max_connections = Self::read_env_or_default(
+            Self::MIN_MAX_CONNECTIONS_ENV_KEY,
+            Self::DEFAULT_MIN_MAX_CONNECTIONS,
+            Self::parse_min_max_connections,
+            env,
+        );
+
+        Self {
+            min_recall,
+            max_fixture_len,
+            min_max_connections,
+        }
+    }
 }
 
 fn parse_recall_threshold(raw: RawConfigValue<'_>) -> Result<f32, RecallThresholdError> {
@@ -150,13 +154,18 @@ mod tests {
     //! Unit tests for search configuration.
 
     use super::*;
+    use mockable::MockEnv;
     use rstest::rstest;
-    fn config_with_min_max_connections(value: Option<&str>) -> SearchPropertyConfig {
-        SearchPropertyConfig::load_with_lookup(|key| {
-            (key == SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY)
-                .then(|| value.map(str::to_owned))
+
+    fn env_with_min_max_connections(raw_value: Option<&str>) -> MockEnv {
+        let mut env = MockEnv::new();
+        let configured_value = raw_value.map(str::to_owned);
+        env.expect_string().returning(move |key| {
+            (key == SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str())
+                .then(|| configured_value.clone())
                 .flatten()
-        })
+        });
+        env
     }
 
     #[rstest]
@@ -231,7 +240,8 @@ mod tests {
 
     #[test]
     fn load_uses_default_min_max_connections_when_env_unset() {
-        let config = config_with_min_max_connections(None);
+        let env = env_with_min_max_connections(None);
+        let config = SearchPropertyConfig::load_with_env(&env);
         assert_eq!(
             config.min_max_connections(),
             SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS
@@ -241,13 +251,16 @@ mod tests {
     #[test]
     fn load_uses_env_min_max_connections_when_valid() {
         let override_val = SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS + 4;
-        let config = config_with_min_max_connections(Some(&override_val.to_string()));
+        let value = override_val.to_string();
+        let env = env_with_min_max_connections(Some(&value));
+        let config = SearchPropertyConfig::load_with_env(&env);
         assert_eq!(config.min_max_connections(), override_val);
     }
 
     #[test]
     fn load_falls_back_to_default_min_max_connections_on_invalid_env() {
-        let config = config_with_min_max_connections(Some("not-a-number"));
+        let env = env_with_min_max_connections(Some("not-a-number"));
+        let config = SearchPropertyConfig::load_with_env(&env);
         assert_eq!(
             config.min_max_connections(),
             SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS

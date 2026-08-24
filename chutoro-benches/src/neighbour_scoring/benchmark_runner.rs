@@ -16,6 +16,7 @@ use chutoro_core::DataSource;
 use criterion::{
     BenchmarkGroup, BenchmarkId, Criterion, Throughput, black_box, measurement::WallTime,
 };
+use mockable::{DefaultEnv, Env};
 
 use super::{
     CandidateBucket, ScoringFixture, benchmark_support::BenchError, benchmark_support::BenchResult,
@@ -39,9 +40,12 @@ fn should_use_short_measurement_value(value: Option<&str>) -> bool {
 
 /// Read whether short benchmark measurements are enabled.
 fn should_use_short_measurement() -> bool {
-    should_use_short_measurement_value(std::env::var(SHORT_MEASUREMENT_ENV).ok().as_deref())
+    should_use_short_measurement_with_env(&DefaultEnv)
 }
 
+fn should_use_short_measurement_with_env(env: &dyn Env) -> bool {
+    should_use_short_measurement_value(env.string(SHORT_MEASUREMENT_ENV).as_deref())
+}
 /// Measure distances from the benchmark query to selected candidates.
 fn score_candidates(
     scoring_fixture: &ScoringFixture,
@@ -121,7 +125,7 @@ fn neighbour_scoring_impl_with(
 ) -> BenchResult<()> {
     let report_parent_dir = report_parent_dir();
     let build_profile_target = build_profile_report_target_value(
-        std::env::var(BUILD_PROFILE_ENV).ok().as_deref(),
+        DefaultEnv.string(BUILD_PROFILE_ENV).as_deref(),
         &report_parent_dir,
     );
     let build_profile_report_dir = build_profile_target
