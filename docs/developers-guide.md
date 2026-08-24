@@ -460,7 +460,6 @@ selection:
 `chutoro-providers-dense`. Keep new dense harnesses small enough for
 `make kani` unless they are intentionally slow-lane proofs.
 
-
 ## Kani CI policy
 
 `make kani` is the pull-request gate. The path-filtered
