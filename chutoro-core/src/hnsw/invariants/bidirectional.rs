@@ -9,6 +9,7 @@ use super::{
 };
 use tracing::{Level, debug, trace};
 
+/// Record every edge that lacks its same-level reverse link.
 pub(super) fn check_bidirectional(
     ctx: GraphContext<'_>,
     mode: &mut EvaluationMode<'_>,

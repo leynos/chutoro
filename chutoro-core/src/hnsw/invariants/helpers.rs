@@ -9,6 +9,7 @@ use crate::hnsw::{graph::Graph, node::Node};
 
 use super::{HnswInvariantViolation, LayerConsistencyDetail};
 
+/// Visit every directed edge and propagate the first visitor violation.
 pub(super) fn for_each_edge(
     graph: &Graph,
     mut visitor: impl FnMut(usize, usize, usize) -> Result<(), HnswInvariantViolation>,
@@ -21,13 +22,17 @@ pub(super) fn for_each_edge(
     Ok(())
 }
 
+/// Validates that graph nodes exist and expose referenced layers.
 #[derive(Clone, Copy, Debug)]
 pub(super) struct LayerValidator<'a> {
+    /// Graph whose node references are checked.
     graph: &'a Graph,
+    /// Maximum valid node identifier plus one.
     capacity: usize,
 }
 
 impl<'a> LayerValidator<'a> {
+    /// Bind a validator to one graph and cache its node capacity.
     pub(super) const fn new(graph: &'a Graph) -> Self {
         Self {
             graph,
@@ -35,6 +40,7 @@ impl<'a> LayerValidator<'a> {
         }
     }
 
+    /// Return a referenced node after verifying its identifier and level.
     pub(super) fn ensure(
         &self,
         origin: usize,
@@ -71,6 +77,7 @@ impl<'a> LayerValidator<'a> {
         Ok(node)
     }
 
+    /// Return the graph's node capacity.
     pub(super) const fn capacity(&self) -> usize {
         self.capacity
     }

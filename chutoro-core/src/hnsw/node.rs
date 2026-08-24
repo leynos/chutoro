@@ -2,6 +2,7 @@
 //!
 //! Maintains per-level neighbour lists and provides accessors used during
 //! search, insertion, and trimming.
+/// Per-node adjacency lists and deterministic insertion metadata.
 #[derive(Clone, Debug)]
 pub(crate) struct Node {
     /// Mutable adjacency list for every initialized graph level.

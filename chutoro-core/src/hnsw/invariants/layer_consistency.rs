@@ -9,6 +9,7 @@
 use super::helpers::for_each_edge;
 use super::{EvaluationMode, GraphContext, HnswInvariantViolation, helpers::LayerValidator};
 
+/// Record edges that target missing nodes or unavailable graph levels.
 pub(super) fn check_layer_consistency(
     ctx: GraphContext<'_>,
     mode: &mut EvaluationMode<'_>,
