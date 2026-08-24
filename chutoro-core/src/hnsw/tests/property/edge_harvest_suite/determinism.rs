@@ -56,13 +56,6 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
-    /// Helper to run determinism property for a single (seed, topology) pair.
-    fn assert_determinism(seed: u64, topology: GraphTopology) {
-        if let Err(e) = run_graph_determinism_property(seed, topology) {
-            panic!("determinism failed for seed={seed}, topology={topology:?}: {e}");
-        }
-    }
-
     // ========================================================================
     // Determinism Property Tests (rstest)
     // ========================================================================
@@ -90,10 +83,13 @@ mod tests {
             GraphTopology::Lattice,
             GraphTopology::Disconnected,
         ];
-        for seed in seeds {
-            for topology in topologies {
-                assert_determinism(seed, topology);
-            }
+        let cases = seeds
+            .into_iter()
+            .flat_map(|seed| topologies.map(move |topology| (seed, topology)));
+        for (seed, topology) in cases {
+            run_graph_determinism_property(seed, topology).unwrap_or_else(|err| {
+                panic!("determinism failed for seed={seed}, topology={topology:?}: {err}")
+            });
         }
     }
 }

@@ -175,6 +175,8 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
 mod tests {
     //! Unit tests for HNSW helper routines.
 
+    use rstest::rstest;
+
     use super::*;
     use crate::{DataSourceError, DistanceCacheConfig, datasource::MetricDescriptor};
 
@@ -182,17 +184,21 @@ mod tests {
         DistanceCache::new(DistanceCacheConfig::default())
     }
 
-    fn run_ensure_query_test(
+    /// Runs [`ensure_query_present`] over `initial_neighbours` and returns the
+    /// resulting list.
+    ///
+    /// A fallible query rather than an assertion helper, so the calling test
+    /// owns both the failure diagnostics and the comparison.
+    fn ensured_neighbours(
         initial_neighbours: Vec<Neighbour>,
         ef: usize,
-        expected_neighbours: &[Neighbour],
-    ) {
+    ) -> Result<Vec<Neighbour>, HnswError> {
         let source = TestSource::new(vec![0.0, 1.0]);
         let mut neighbours = initial_neighbours;
-        let Some(search_ef) = NonZeroUsize::new(ef) else {
-            panic!("ef must be non-zero");
-        };
-        let ensured = ensure_query_present(
+        let search_ef = NonZeroUsize::new(ef).ok_or_else(|| HnswError::InvalidParameters {
+            reason: "ef must be non-zero".to_owned(),
+        })?;
+        ensure_query_present(
             &cache(),
             EnsureQueryArgs {
                 source: &source,
@@ -200,30 +206,26 @@ mod tests {
                 ef: search_ef,
                 neighbours: &mut neighbours,
             },
-        );
-        if let Err(err) = ensured {
-            panic!("ensure_query_present must succeed: {err}");
-        }
+        )?;
+        Ok(neighbours)
+    }
+
+    #[rstest]
+    #[case::added_when_room_available(
+        vec![neighbour(1, 1.0)],
+        2,
+        vec![neighbour(0, 0.0), neighbour(1, 1.0)]
+    )]
+    #[case::skipped_when_capacity_is_one(vec![neighbour(1, 1.0)], 1, vec![neighbour(1, 1.0)])]
+    #[case::noop_when_query_present(vec![neighbour(0, 0.0)], 1, vec![neighbour(0, 0.0)])]
+    fn ensure_query_present_matches_expected_window(
+        #[case] initial_neighbours: Vec<Neighbour>,
+        #[case] ef: usize,
+        #[case] expected_neighbours: Vec<Neighbour>,
+    ) {
+        let neighbours =
+            ensured_neighbours(initial_neighbours, ef).expect("ensure_query_present must succeed");
         assert_eq!(neighbours, expected_neighbours);
-    }
-
-    #[test]
-    fn ensure_query_added_when_room_available() {
-        run_ensure_query_test(
-            vec![neighbour(1, 1.0)],
-            2,
-            &[neighbour(0, 0.0), neighbour(1, 1.0)],
-        );
-    }
-
-    #[test]
-    fn ensure_query_skips_when_capacity_is_one() {
-        run_ensure_query_test(vec![neighbour(1, 1.0)], 1, &[neighbour(1, 1.0)]);
-    }
-
-    #[test]
-    fn ensure_query_noop_when_present() {
-        run_ensure_query_test(vec![neighbour(0, 0.0)], 1, &[neighbour(0, 0.0)]);
     }
 
     #[test]

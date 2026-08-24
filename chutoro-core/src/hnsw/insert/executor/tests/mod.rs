@@ -8,7 +8,7 @@ mod trimming_fixtures;
 use super::*;
 use crate::hnsw::insert::{
     reconciliation::EdgeReconciler,
-    test_helpers::{TestHelpers, add_edge_if_missing, assert_no_edge},
+    test_helpers::{TestHelpers, add_edge_if_missing, assert_bidirectional_edge, assert_no_edge},
     types,
 };
 use crate::hnsw::{
@@ -51,27 +51,6 @@ fn attach_test_node(
         level,
         sequence,
     })
-}
-
-fn assert_bidirectional_edge(graph: &Graph, node_a: usize, node_b: usize, level: usize) {
-    let Some(a) = graph.node(node_a) else {
-        panic!("node {node_a} should be present");
-    };
-    let Some(b) = graph.node(node_b) else {
-        panic!("node {node_b} should be present");
-    };
-    assert!(
-        a.level_count() > level && b.level_count() > level,
-        "both nodes must expose level {level}",
-    );
-    assert!(
-        a.neighbours(level).contains(&node_b),
-        "expected edge {node_a}->{node_b} at level {level}",
-    );
-    assert!(
-        b.neighbours(level).contains(&node_a),
-        "expected edge {node_b}->{node_a} at level {level}",
-    );
 }
 
 #[test]
@@ -163,13 +142,13 @@ fn commit_inlines_reciprocity(
     #[case] seed_edge_level: usize,
     #[case] trim_override: Option<Vec<usize>>,
     #[case] new_node_level: usize,
-) -> Result<(), HnswError> {
-    let params = HnswParams::new(max_connections, 4)?;
+) {
+    let params = HnswParams::new(max_connections, 4).expect("params must be valid");
     let entry_level = new_node_level.max(seed_edge_level);
-    let mut graph = setup_basic_graph(max_connections, 4, 4)?;
-    insert_entry_node(&mut graph, entry_level)?;
+    let mut graph = setup_basic_graph(max_connections, 4, 4).expect("graph must build");
+    insert_entry_node(&mut graph, entry_level).expect("insert entry");
 
-    attach_test_node(&mut graph, 1, 0, 1)?;
+    attach_test_node(&mut graph, 1, 0, 1).expect("attach node 1");
 
     add_edge_if_missing(&mut graph, 0, 1, seed_edge_level);
 
@@ -191,17 +170,19 @@ fn commit_inlines_reciprocity(
     }
 
     let mut executor = InsertionExecutor::new(&mut graph);
-    let (prepared, trim_jobs) = executor.apply(
-        NodeContext {
-            node: 2,
-            level: new_node_level,
-            sequence: 2,
-        },
-        ApplyContext {
-            params: &params,
-            plan: InsertionPlan { layers },
-        },
-    )?;
+    let (prepared, trim_jobs) = executor
+        .apply(
+            NodeContext {
+                node: 2,
+                level: new_node_level,
+                sequence: 2,
+            },
+            ApplyContext {
+                params: &params,
+                plan: InsertionPlan { layers },
+            },
+        )
+        .expect("apply insertion plan");
 
     let trims: Vec<TrimResult> = trim_jobs
         .iter()
@@ -214,18 +195,16 @@ fn commit_inlines_reciprocity(
         })
         .collect();
 
-    executor.commit(prepared, trims)?;
+    executor.commit(prepared, trims).expect("commit insertion");
 
-    assert_bidirectional_edge(&graph, 0, 2, 0);
+    assert_bidirectional_edge!(&graph, 0, 2, 0);
     if new_node_level > 0 {
-        assert_bidirectional_edge(&graph, 0, 2, new_node_level);
+        assert_bidirectional_edge!(&graph, 0, 2, new_node_level);
         assert_no_edge(&graph, 0, 1, seed_edge_level);
         assert_no_edge(&graph, 1, 0, seed_edge_level);
     } else {
-        assert_bidirectional_edge(&graph, 0, 1, 0);
+        assert_bidirectional_edge!(&graph, 0, 1, 0);
     }
-
-    Ok(())
 }
 
 #[test]
@@ -236,9 +215,12 @@ fn enforce_bidirectional_all_adds_upper_layer_backlink() {
 
     add_edge_if_missing(&mut graph, 0, 1, 1);
 
-    TestHelpers::new(&mut graph).enforce_bidirectional_all(2);
+    let mut helpers = TestHelpers::new(&mut graph);
+    helpers.enforce_bidirectional_all(2);
+    let violation = helpers.find_reciprocity_violation(2);
 
-    assert_bidirectional_edge(&graph, 0, 1, 1);
+    assert_eq!(violation, None, "healing must leave every edge reciprocal");
+    assert_bidirectional_edge!(&graph, 0, 1, 1);
 }
 
 #[test]
@@ -250,8 +232,11 @@ fn enforce_bidirectional_all_removes_invalid_upper_edge() {
     // One-way edge exists at level 1, but target only has level 0.
     add_edge_if_missing(&mut graph, 0, 1, 1);
 
-    TestHelpers::new(&mut graph).enforce_bidirectional_all(2);
+    let mut helpers = TestHelpers::new(&mut graph);
+    helpers.enforce_bidirectional_all(2);
+    let violation = helpers.find_reciprocity_violation(2);
 
+    assert_eq!(violation, None, "healing must leave every edge reciprocal");
     assert_no_edge(&graph, 0, 1, 1);
     assert_no_edge(&graph, 1, 0, 1);
 }

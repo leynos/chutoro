@@ -1,7 +1,7 @@
 //! Commit-path tests for neighbour updates and deferred scrubs.
 
 use super::super::limits;
-use super::super::test_helpers::{add_edge_if_missing, assert_no_edge};
+use super::super::test_helpers::{add_edge_if_missing, assert_bidirectional_edge, assert_no_edge};
 use super::CommitApplicator;
 use crate::hnsw::{
     error::HnswError,
@@ -11,12 +11,11 @@ use crate::hnsw::{
 };
 use rstest::{fixture, rstest};
 
+/// Parameters allowing two connections per node; fallible so tests, rather
+/// than the fixture, surface any configuration error.
 #[fixture]
-fn params_two_connections() -> HnswParams {
-    match HnswParams::new(2, 4) {
-        Ok(params) => params,
-        Err(err) => panic!("params should be valid for tests: {err}"),
-    }
+fn params_two_connections() -> Result<HnswParams, HnswError> {
+    HnswParams::new(2, 4)
 }
 
 fn insert_node(
@@ -35,27 +34,6 @@ fn insert_node(
     } else {
         graph.attach_node(ctx)
     }
-}
-
-fn assert_bidirectional_edge(graph: &Graph, node_a: usize, node_b: usize, level: usize) {
-    let Some(a) = graph.node(node_a) else {
-        panic!("node {node_a} should exist");
-    };
-    let Some(b) = graph.node(node_b) else {
-        panic!("node {node_b} should exist");
-    };
-    assert!(
-        a.level_count() > level && b.level_count() > level,
-        "both nodes must expose level {level}",
-    );
-    assert!(
-        a.neighbours(level).contains(&node_b),
-        "expected edge {node_a}->{node_b} at level {level}",
-    );
-    assert!(
-        b.neighbours(level).contains(&node_a),
-        "expected edge {node_b}->{node_a} at level {level}",
-    );
 }
 
 fn build_update(
@@ -81,14 +59,15 @@ fn build_update(
 #[case::upper_layer(1)]
 fn commit_updates_write_reciprocal_edges(
     #[case] level: usize,
-    params_two_connections: HnswParams,
-) -> Result<(), HnswError> {
-    let max_connections = params_two_connections.max_connections();
-    let mut graph = Graph::with_capacity(params_two_connections.clone(), 3);
+    #[from(params_two_connections)] params_res: Result<HnswParams, HnswError>,
+) {
+    let params = params_res.expect("params should be valid for tests");
+    let max_connections = params.max_connections();
+    let mut graph = Graph::with_capacity(params, 3);
 
-    insert_node(&mut graph, 0, level, 0)?;
-    insert_node(&mut graph, 1, level, 1)?;
-    insert_node(&mut graph, 2, level, 2)?;
+    insert_node(&mut graph, 0, level, 0).expect("insert node 0");
+    insert_node(&mut graph, 1, level, 1).expect("insert node 1");
+    insert_node(&mut graph, 2, level, 2).expect("insert node 2");
 
     add_edge_if_missing(&mut graph, 0, 1, level);
     add_edge_if_missing(&mut graph, 1, 0, level);
@@ -97,14 +76,15 @@ fn commit_updates_write_reciprocal_edges(
     let new_node = NewNodeContext { id: 2, level };
 
     let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    let (reciprocated, _) = applicator
+        .apply_neighbour_updates(vec![update], max_connections, new_node)
+        .expect("apply neighbour updates");
+    applicator
+        .apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)
+        .expect("apply new-node neighbours");
 
-    assert_bidirectional_edge(&graph, 0, 2, level);
-    assert_bidirectional_edge(&graph, 0, 1, level);
-
-    Ok(())
+    assert_bidirectional_edge!(&graph, 0, 2, level);
+    assert_bidirectional_edge!(&graph, 0, 1, level);
 }
 
 #[test]
@@ -142,15 +122,18 @@ fn commit_updates_scrub_evicted_forward_edge() {
         );
     }
 
-    assert_bidirectional_edge(&graph, 0, 1, 1);
+    assert_bidirectional_edge!(&graph, 0, 1, 1);
     assert_no_edge(&graph, 2, 1, 1);
     assert_no_edge(&graph, 1, 2, 1);
 }
 
 #[rstest]
-fn commit_updates_report_missing_origin(params_two_connections: HnswParams) {
-    let max_connections = params_two_connections.max_connections();
-    let mut graph = Graph::with_capacity(params_two_connections, 2);
+fn commit_updates_report_missing_origin(
+    #[from(params_two_connections)] params_res: Result<HnswParams, HnswError>,
+) {
+    let params = params_res.expect("params should be valid for tests");
+    let max_connections = params.max_connections();
+    let mut graph = Graph::with_capacity(params, 2);
 
     graph
         .insert_first(NodeContext {
@@ -182,12 +165,11 @@ fn commit_updates_report_missing_origin(params_two_connections: HnswParams) {
 // Eviction and deferred scrub tests
 // ---------------------------------------------------------------------------
 
+/// Parameters allowing a single connection per node; fallible so tests, rather
+/// than the fixture, surface any configuration error.
 #[fixture]
-fn params_one_connection() -> HnswParams {
-    match HnswParams::new(1, 4) {
-        Ok(params) => params,
-        Err(err) => panic!("params should be valid for tests: {err}"),
-    }
+fn params_one_connection() -> Result<HnswParams, HnswError> {
+    HnswParams::new(1, 4)
 }
 
 fn assert_has_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
@@ -259,22 +241,23 @@ impl EvictionTestContext {
 /// scrub should then remove node 2's forward edge to node 1.
 #[rstest]
 fn eviction_scrubs_orphaned_forward_edge(
-    params_one_connection: HnswParams,
-) -> Result<(), HnswError> {
-    let ctx = EvictionTestContext::new(params_one_connection)?;
+    #[from(params_one_connection)] params_res: Result<HnswParams, HnswError>,
+) {
+    let params = params_res.expect("params should be valid for tests");
+    let ctx = EvictionTestContext::new(params).expect("eviction fixture must initialize");
     let update = build_update(0, 1, vec![1], ctx.max_connections);
-    let graph = ctx.apply_updates(vec![update])?;
+    let graph = ctx
+        .apply_updates(vec![update])
+        .expect("apply eviction update");
 
     // Node 0 and node 1 should be linked
-    assert_bidirectional_edge(&graph, 0, 1, 1);
+    assert_bidirectional_edge!(&graph, 0, 1, 1);
 
     // Node 2's forward edge to node 1 should be scrubbed
     assert_no_edge(&graph, 2, 1, 1);
 
     // Node 1 should no longer link to node 2
     assert_no_edge(&graph, 1, 2, 1);
-
-    Ok(())
 }
 
 mod deferred_scrub;

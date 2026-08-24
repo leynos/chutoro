@@ -14,11 +14,12 @@ use crate::{
     error::DataSourceError,
     hnsw::{
         CpuHnsw,
+        error::HnswError,
         graph::{Graph, NodeContext},
         params::HnswParams,
     },
 };
-use rstest::rstest;
+use rstest::{fixture, rstest};
 
 #[derive(Clone)]
 struct Dummy(Vec<f32>);
@@ -43,22 +44,26 @@ impl DataSource for Dummy {
     }
 }
 
-fn build_index() -> (CpuHnsw, Dummy) {
+/// Index built over four evenly spaced points, paired with its data source.
+type IndexAndSource = (CpuHnsw, Dummy);
+
+/// Builds a small, valid index for invariant checks.
+///
+/// Fallible so construction errors surface in the consuming test rather than
+/// as a panic inside shared setup.
+#[fixture]
+fn valid_index() -> Result<IndexAndSource, HnswError> {
     let data = Dummy(vec![0.0, 1.0, 2.0, 3.0]);
-    let params = match HnswParams::new(4, 8) {
-        Ok(params) => params.with_rng_seed(7),
-        Err(err) => panic!("params: {err}"),
-    };
-    let index = match CpuHnsw::build(&data, params) {
-        Ok(index) => index,
-        Err(err) => panic!("build hnsw: {err}"),
-    };
-    (index, data)
+    let params = HnswParams::new(4, 8)?.with_rng_seed(7);
+    let index = CpuHnsw::build(&data, params)?;
+    Ok((index, data))
 }
 
-#[test]
-fn check_all_succeeds_for_valid_index() {
-    let (index, _data) = build_index();
+#[rstest]
+fn check_all_succeeds_for_valid_index(
+    #[from(valid_index)] index_res: Result<IndexAndSource, HnswError>,
+) {
+    let (index, _data) = index_res.expect("index should build");
     index.invariants().check_all().expect("graph valid");
 }
 
@@ -206,9 +211,16 @@ fn reachability_collects_all_unreachable_nodes() {
     )));
 }
 
-#[test]
-fn collect_all_reports_multiple_violations() {
-    assert_collects_unreachable_nodes(|index| index.invariants().collect_all(), "collect_all");
+#[rstest]
+fn collect_all_reports_multiple_violations(
+    #[from(valid_index)] index_res: Result<IndexAndSource, HnswError>,
+) {
+    let (index, _data) = index_res.expect("index should build");
+    assert_collects_unreachable_nodes(
+        &index,
+        |hnsw| hnsw.invariants().collect_all(),
+        "collect_all",
+    );
 }
 
 mod collection;

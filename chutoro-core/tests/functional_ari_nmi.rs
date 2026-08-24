@@ -18,26 +18,40 @@ use chutoro_core::{
     parallel_kruskal,
 };
 
-fn parse_csv_rows(input: &str, dims: usize) -> Vec<Vec<f32>> {
+/// Parses `dims` comma-separated floats from each non-blank line of `input`.
+///
+/// # Errors
+///
+/// Returns [`io::Error`] when a line has too few columns or a column does not
+/// parse as `f32`, so callers surface malformed fixture data as a test failure
+/// rather than an opaque panic inside shared setup.
+fn parse_csv_rows(input: &str, dims: usize) -> Result<Vec<Vec<f32>>, io::Error> {
     input
         .lines()
         .filter(|line| !line.trim().is_empty())
-        .map(|line| {
-            let mut parts = line.split(',');
-            let mut row = Vec::with_capacity(dims);
-            for _ in 0..dims {
-                let Some(part) = parts.next() else {
-                    panic!("missing column in line: {line}");
-                };
-                let value = match part.parse::<f32>() {
-                    Ok(value) => value,
-                    Err(err) => panic!("failed to parse float in line '{line}': {err}"),
-                };
-                row.push(value);
-            }
-            row
-        })
+        .map(|line| parse_csv_row(line, dims))
         .collect()
+}
+
+fn parse_csv_row(line: &str, dims: usize) -> Result<Vec<f32>, io::Error> {
+    let mut parts = line.split(',');
+    let mut row = Vec::with_capacity(dims);
+    for _ in 0..dims {
+        let part = parts.next().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("missing column in line: {line}"),
+            )
+        })?;
+        let value = part.parse::<f32>().map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to parse float in line '{line}': {err}"),
+            )
+        })?;
+        row.push(value);
+    }
+    Ok(row)
 }
 
 #[derive(Clone, Debug)]
@@ -324,7 +338,7 @@ fn hnsw_pipeline_matches_exact_baseline(
     #[case] min_ari: f64,
     #[case] min_nmi: f64,
 ) -> Result<(), Box<dyn Error>> {
-    let rows = parse_csv_rows(dataset.data, dataset.dims);
+    let rows = parse_csv_rows(dataset.data, dataset.dims)?;
     let source = DenseVectors::new("euclidean", rows);
     if source.dim() != dataset.dims {
         return Err(io::Error::new(

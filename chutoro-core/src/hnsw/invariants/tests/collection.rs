@@ -2,11 +2,10 @@
 
 use super::*;
 
-pub(super) fn assert_collects_unreachable_nodes<F>(collect: F, description: &str)
+pub(super) fn assert_collects_unreachable_nodes<F>(index: &CpuHnsw, collect: F, description: &str)
 where
     F: FnOnce(&CpuHnsw) -> Vec<HnswInvariantViolation>,
 {
-    let (index, _data) = build_index();
     {
         let mut graph = index
             .graph
@@ -16,7 +15,7 @@ where
             clear_node(&mut graph, entry.node);
         }
     }
-    let violations = collect(&index);
+    let violations = collect(index);
     assert!(
         violations
             .iter()
@@ -25,17 +24,23 @@ where
     );
 }
 
-#[test]
-fn collect_all_with_logging_captures_unreachable_nodes() {
+#[rstest]
+fn collect_all_with_logging_captures_unreachable_nodes(
+    #[from(valid_index)] index_res: Result<IndexAndSource, HnswError>,
+) {
+    let (index, _data) = index_res.expect("index should build");
     assert_collects_unreachable_nodes(
-        |index| index.invariants().collect_all_with_logging(),
+        &index,
+        |hnsw| hnsw.invariants().collect_all_with_logging(),
         "collect_all_with_logging",
     );
 }
 
-#[test]
-fn collect_many_with_logging_reports_degree_violation() {
-    let (index, _data) = build_index();
+#[rstest]
+fn collect_many_with_logging_reports_degree_violation(
+    #[from(valid_index)] index_res: Result<IndexAndSource, HnswError>,
+) {
+    let (index, _data) = index_res.expect("index should build");
     {
         let mut graph = index
             .graph

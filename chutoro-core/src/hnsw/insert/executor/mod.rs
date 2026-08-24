@@ -238,6 +238,16 @@ impl<'graph> InsertionExecutor<'graph> {
         super::test_helpers::TestHelpers::new(self.graph)
             .enforce_bidirectional_all(max_connections);
     }
+
+    /// Reports the first reciprocity violation left in the graph, if any.
+    #[cfg(test)]
+    pub(crate) fn find_reciprocity_violation(
+        &mut self,
+        max_connections: usize,
+    ) -> Option<super::test_helpers::ReciprocityViolation> {
+        super::test_helpers::TestHelpers::new(self.graph)
+            .find_reciprocity_violation(max_connections)
+    }
 }
 
 #[cfg(test)]

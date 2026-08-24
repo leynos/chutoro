@@ -18,16 +18,22 @@ impl CpuHnsw {
     ///
     /// # Panics
     ///
-    /// Panics when the test graph lock cannot be acquired.
+    /// Panics when the test graph lock cannot be acquired, or when healing
+    /// leaves a non-reciprocal edge behind.
     pub fn heal_for_test(&self) {
+        let max_connections = self.params.max_connections();
         let healed = self.write_graph(|graph| {
             let mut executor = graph.insertion_executor();
-            executor.heal_reachability(self.params.max_connections());
-            executor.enforce_bidirectional_all(self.params.max_connections());
-            Ok(())
+            executor.heal_reachability(max_connections);
+            executor.enforce_bidirectional_all(max_connections);
+            Ok(executor.find_reciprocity_violation(max_connections))
         });
-        if let Err(err) = healed {
-            panic!("graph lock during heal_for_test: {err}");
+        match healed {
+            Ok(None) => {}
+            Ok(Some(violation)) => {
+                panic!("heal_for_test left a reciprocity violation: {violation:?}")
+            }
+            Err(err) => panic!("graph lock during heal_for_test: {err}"),
         }
     }
 

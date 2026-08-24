@@ -43,6 +43,89 @@ pub(super) fn assert_no_edge(graph: &Graph, origin: usize, target: usize, level:
     }
 }
 
+/// Outcome of inspecting a node pair for a mutual edge at a given level.
+///
+/// Modelled as a query result so callers assert on a value rather than relying
+/// on a helper to panic on their behalf.
+#[cfg(test)]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum EdgeSymmetry {
+    /// Both nodes list one another at the requested level.
+    Symmetric,
+    /// The named node is absent from the graph.
+    MissingNode(usize),
+    /// The named node does not expose the requested level.
+    LevelAbsent { node: usize, level_count: usize },
+    /// The forward edge `origin -> target` is missing.
+    MissingEdge { origin: usize, target: usize },
+}
+
+/// Classifies the edge relationship between `node_a` and `node_b` at `level`.
+#[cfg(test)]
+pub(crate) fn edge_symmetry(
+    graph: &Graph,
+    node_a: usize,
+    node_b: usize,
+    level: usize,
+) -> EdgeSymmetry {
+    let Some(a) = graph.node(node_a) else {
+        return EdgeSymmetry::MissingNode(node_a);
+    };
+    let Some(b) = graph.node(node_b) else {
+        return EdgeSymmetry::MissingNode(node_b);
+    };
+
+    if level >= a.level_count() {
+        return EdgeSymmetry::LevelAbsent {
+            node: node_a,
+            level_count: a.level_count(),
+        };
+    }
+    if level >= b.level_count() {
+        return EdgeSymmetry::LevelAbsent {
+            node: node_b,
+            level_count: b.level_count(),
+        };
+    }
+
+    if !a.neighbours(level).contains(&node_b) {
+        return EdgeSymmetry::MissingEdge {
+            origin: node_a,
+            target: node_b,
+        };
+    }
+    if !b.neighbours(level).contains(&node_a) {
+        return EdgeSymmetry::MissingEdge {
+            origin: node_b,
+            target: node_a,
+        };
+    }
+    EdgeSymmetry::Symmetric
+}
+
+/// Asserts that two nodes reference one another at `level`.
+///
+/// Implemented as a macro so a failure reports the calling test's line rather
+/// than a shared helper's line.
+#[cfg(test)]
+macro_rules! assert_bidirectional_edge {
+    ($graph:expr, $node_a:expr, $node_b:expr, $level:expr $(,)?) => {{
+        let symmetry =
+            $crate::hnsw::insert::test_helpers::edge_symmetry($graph, $node_a, $node_b, $level);
+        assert_eq!(
+            symmetry,
+            $crate::hnsw::insert::test_helpers::EdgeSymmetry::Symmetric,
+            "expected bidirectional edge {} <-> {} at level {}",
+            $node_a,
+            $node_b,
+            $level,
+        );
+    }};
+}
+
+#[cfg(test)]
+pub(crate) use assert_bidirectional_edge;
+
 #[derive(Debug)]
 pub(super) struct TestHelpers<'graph> {
     pub(super) graph: &'graph mut Graph,
@@ -187,8 +270,6 @@ impl<'graph> TestHelpers<'graph> {
             };
             self.heal_or_remove_edge(&ctx, target);
         }
-
-        self.validate_all_edges_reciprocal(max_connections);
     }
 
     pub(super) fn collect_edges(&self) -> Vec<(usize, usize, usize)> {
@@ -221,33 +302,81 @@ impl<'graph> TestHelpers<'graph> {
         reconciler.remove_forward_edge_from(ctx, target);
     }
 
-    #[expect(
-        clippy::excessive_nesting,
-        reason = "test-only reciprocal validation keeps explicit panic messages"
-    )]
-    pub(super) fn validate_all_edges_reciprocal(&self, max_connections: usize) {
-        for (origin, node) in self.graph.nodes_iter() {
-            for (level, target) in node.iter_neighbours() {
-                let Some(target_node) = self.graph.node(target) else {
-                    panic!(
-                        "enforce_bidirectional_all left edge {origin}->{target} at level {level} to missing node",
-                    );
-                };
-
-                let target_levels = target_node.level_count();
-                assert!(
-                    level < target_levels,
-                    "enforce_bidirectional_all left edge {origin}->{target} at absent level {level} (target has {target_levels})",
-                );
-
-                let neighbours = target_node.neighbours(level);
-                let limit = compute_connection_limit(level, max_connections);
-                assert!(
-                    neighbours.contains(&origin),
-                    "enforce_bidirectional_all left one-way edge {origin}->{target} at level {level}; target degree {} (limit {limit})",
-                    neighbours.len(),
-                );
-            }
-        }
+    /// Returns the first edge that breaks reciprocity, or `None` when every
+    /// edge is mutual.
+    ///
+    /// A pure query so callers assert on the outcome at their own call site.
+    pub(crate) fn find_reciprocity_violation(
+        &self,
+        max_connections: usize,
+    ) -> Option<ReciprocityViolation> {
+        self.collect_edges()
+            .into_iter()
+            .find_map(|edge| self.edge_reciprocity_violation(edge, max_connections))
     }
+
+    /// Checks a single `(origin, level, target)` edge for reciprocity.
+    fn edge_reciprocity_violation(
+        &self,
+        (origin, level, target): (usize, usize, usize),
+        max_connections: usize,
+    ) -> Option<ReciprocityViolation> {
+        let Some(target_node) = self.graph.node(target) else {
+            return Some(ReciprocityViolation::MissingTarget {
+                origin,
+                target,
+                level,
+            });
+        };
+
+        let target_levels = target_node.level_count();
+        if level >= target_levels {
+            return Some(ReciprocityViolation::AbsentLevel {
+                origin,
+                target,
+                level,
+                target_levels,
+            });
+        }
+
+        let neighbours = target_node.neighbours(level);
+        if neighbours.contains(&origin) {
+            return None;
+        }
+
+        Some(ReciprocityViolation::OneWay {
+            origin,
+            target,
+            level,
+            target_degree: neighbours.len(),
+            limit: compute_connection_limit(level, max_connections),
+        })
+    }
+}
+
+/// Describes why an edge left by [`TestHelpers::enforce_bidirectional_all`]
+/// fails the reciprocity invariant.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum ReciprocityViolation {
+    /// The edge points at a node that is absent from the graph.
+    MissingTarget {
+        origin: usize,
+        target: usize,
+        level: usize,
+    },
+    /// The target node does not expose the edge's level.
+    AbsentLevel {
+        origin: usize,
+        target: usize,
+        level: usize,
+        target_levels: usize,
+    },
+    /// The target node does not link back to the origin.
+    OneWay {
+        origin: usize,
+        target: usize,
+        level: usize,
+        target_degree: usize,
+        limit: usize,
+    },
 }

@@ -16,20 +16,35 @@ const TRYBUILD_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"300s\", terminate-after = 1, grace-period = \"5s\" }";
 const NESTED_BENCH_SMOKE_TIMEOUT: &str = TRYBUILD_SLOW_TIMEOUT;
 
-fn default_override_blocks() -> Vec<&'static str> {
-    override_blocks("default")
-}
-
-fn ci_override_blocks() -> Vec<&'static str> {
-    override_blocks("ci")
-}
-
 fn override_blocks(profile_name: &str) -> Vec<&'static str> {
     NEXTEST_CONFIG
         .split(&format!("[[profile.{profile_name}.overrides]]"))
         .skip(1)
         .map(str::trim)
         .collect()
+}
+
+/// Reports whether `profile_name` declares an override block containing every
+/// fragment in `fragments`.
+fn has_override_with_fragments(profile_name: &str, fragments: &[&str]) -> bool {
+    override_blocks(profile_name)
+        .into_iter()
+        .any(|block| fragments.iter().all(|fragment| block.contains(fragment)))
+}
+
+/// Asserts that a profile declares an override block matching every fragment.
+///
+/// A macro so a failure reports the calling test's line rather than a shared
+/// helper's line.
+macro_rules! assert_override_present {
+    ($profile:expr, [$($fragment:expr),+ $(,)?] $(,)?) => {
+        assert!(
+            has_override_with_fragments($profile, &[$($fragment),+]),
+            "profile '{}' should declare an override containing {:?}",
+            $profile,
+            [$($fragment),+],
+        );
+    };
 }
 
 fn extract_block(
@@ -98,23 +113,21 @@ fn nextest_default_profile_keeps_benchmark_timeout_guards(
     #[case] filter_value: &str,
     #[case] expected_timeout: &str,
 ) {
-    let override_blocks = default_override_blocks();
-    let override_present = override_blocks.into_iter().any(|block| {
-        block.contains(filter_value)
-            && block.contains("threads-required = 8")
-            && block.contains(expected_timeout)
-    });
-    assert!(override_present);
+    assert_override_present!(
+        "default",
+        [filter_value, "threads-required = 8", expected_timeout]
+    );
 }
 
 #[test]
 fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
-    let override_blocks = ci_override_blocks();
-    let idempotency_override_present = override_blocks.into_iter().any(|block| {
-        block.contains("filter = \"test(/hnsw_idempotency_preserved_proptest/)\"")
-            && block.contains(BENCH_SLOW_TIMEOUT)
-    });
-    assert!(idempotency_override_present);
+    assert_override_present!(
+        "ci",
+        [
+            "filter = \"test(/hnsw_idempotency_preserved_proptest/)\"",
+            BENCH_SLOW_TIMEOUT,
+        ]
+    );
 
     let pr_job = workflow_job_block("property-tests-pr").expect("property-tests-pr job must exist");
     assert!(pr_job.contains("timeout-minutes: 20"));
@@ -122,49 +135,53 @@ fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
 
 #[test]
 fn default_profile_covers_idempotency_rstest_case_4_timeout() {
-    let override_blocks = default_override_blocks();
-    let override_present = override_blocks.into_iter().any(|block| {
-        block.contains("filter = \"test(/idempotency_rstest_cases::case_4/)\"")
-            && block.contains("period = \"180s\"")
-    });
-    assert!(override_present);
+    assert_override_present!(
+        "default",
+        [
+            "filter = \"test(/idempotency_rstest_cases::case_4/)\"",
+            "period = \"180s\"",
+        ]
+    );
 }
 
 #[rstest]
 #[case("default")]
 #[case("ci")]
 fn nextest_profiles_keep_trybuild_timeout_guards(#[case] profile_name: &str) {
-    let override_blocks = override_blocks(profile_name);
-    let override_present = override_blocks.into_iter().any(|block| {
-        block.contains("portable_simd_gating_compile_checks")
-            && block.contains("session_api_compiles_when_cpu_feature_is_enabled")
-            && block.contains("threads-required = 4")
-            && block.contains(TRYBUILD_SLOW_TIMEOUT)
-    });
-    assert!(override_present);
+    assert_override_present!(
+        profile_name,
+        [
+            "portable_simd_gating_compile_checks",
+            "session_api_compiles_when_cpu_feature_is_enabled",
+            "threads-required = 4",
+            TRYBUILD_SLOW_TIMEOUT,
+        ]
+    );
 }
 
 #[test]
 fn default_profile_serializes_nested_benchmark_smoke_test() {
-    let override_blocks = default_override_blocks();
-    let override_present = override_blocks.into_iter().any(|block| {
-        block.contains("benchmark_binaries_cover_discovery_and_exact_smoke_paths")
-            && block.contains("threads-required = 8")
-            && block.contains(NESTED_BENCH_SMOKE_TIMEOUT)
-    });
-    assert!(override_present);
+    assert_override_present!(
+        "default",
+        [
+            "benchmark_binaries_cover_discovery_and_exact_smoke_paths",
+            "threads-required = 8",
+            NESTED_BENCH_SMOKE_TIMEOUT,
+        ]
+    );
 }
 
 #[rstest]
 #[case("default")]
 #[case("ci")]
 fn profiles_preserve_write_lock_proptest_timeout(#[case] profile_name: &str) {
-    let override_blocks = override_blocks(profile_name);
-    let override_present = override_blocks.into_iter().any(|block| {
-        block.contains("generated_hnsw_scoring_does_not_run_inside_write_graph_scope")
-            && block.contains(BENCH_SLOW_TIMEOUT)
-    });
-    assert!(override_present);
+    assert_override_present!(
+        profile_name,
+        [
+            "generated_hnsw_scoring_does_not_run_inside_write_graph_scope",
+            BENCH_SLOW_TIMEOUT,
+        ]
+    );
 }
 
 #[test]

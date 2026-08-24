@@ -22,17 +22,18 @@ use super::*;
 /// - Node 2 ↔ Node 3 edge exists (from update 2).
 #[rstest]
 fn benign_deferred_scrub_is_noop_when_edge_already_removed(
-    params_one_connection: HnswParams,
-) -> Result<(), HnswError> {
-    let max_connections = params_one_connection.max_connections();
-    let mut graph = Graph::with_capacity(params_one_connection, 5);
+    #[from(params_one_connection)] params_res: Result<HnswParams, HnswError>,
+) {
+    let params = params_res.expect("params should be valid for tests");
+    let max_connections = params.max_connections();
+    let mut graph = Graph::with_capacity(params, 5);
 
     // Insert 5 nodes at level 1
-    insert_node(&mut graph, 0, 1, 0)?;
-    insert_node(&mut graph, 1, 1, 1)?;
-    insert_node(&mut graph, 2, 1, 2)?;
-    insert_node(&mut graph, 3, 1, 3)?;
-    insert_node(&mut graph, 4, 1, 4)?;
+    insert_node(&mut graph, 0, 1, 0).expect("insert node 0");
+    insert_node(&mut graph, 1, 1, 1).expect("insert node 1");
+    insert_node(&mut graph, 2, 1, 2).expect("insert node 2");
+    insert_node(&mut graph, 3, 1, 3).expect("insert node 3");
+    insert_node(&mut graph, 4, 1, 4).expect("insert node 4");
 
     // Node 1 at capacity with node 2 (bidirectional)
     add_edge_if_missing(&mut graph, 1, 2, 1);
@@ -49,15 +50,18 @@ fn benign_deferred_scrub_is_noop_when_edge_already_removed(
     let new_node = NewNodeContext { id: 4, level: 1 };
 
     let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update1, update2], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    let (reciprocated, _) = applicator
+        .apply_neighbour_updates(vec![update1, update2], max_connections, new_node)
+        .expect("apply neighbour updates");
+    applicator
+        .apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)
+        .expect("apply new-node neighbours");
 
     // The deferred scrub for 2→1 should be a no-op since update2 already
     // removed that edge. The test passing without panic confirms this.
 
     // Node 0 and node 1 should be linked (from update1)
-    assert_bidirectional_edge(&graph, 0, 1, 1);
+    assert_bidirectional_edge!(&graph, 0, 1, 1);
 
     // Node 2's forward edge to node 1 should be absent
     assert_no_edge(&graph, 2, 1, 1);
@@ -66,9 +70,7 @@ fn benign_deferred_scrub_is_noop_when_edge_already_removed(
     assert_no_edge(&graph, 1, 2, 1);
 
     // Node 2 and node 3 should be linked (from update2)
-    assert_bidirectional_edge(&graph, 2, 3, 1);
-
-    Ok(())
+    assert_bidirectional_edge!(&graph, 2, 3, 1);
 }
 
 /// Tests that deferred scrub is skipped when reciprocity is restored by a later
@@ -79,21 +81,22 @@ fn benign_deferred_scrub_is_noop_when_edge_already_removed(
 /// detect the restored reciprocity and skip removing node 2's forward edge.
 #[rstest]
 fn eviction_skips_scrub_if_reciprocity_restored(
-    params_one_connection: HnswParams,
-) -> Result<(), HnswError> {
-    let ctx = EvictionTestContext::new(params_one_connection)?;
+    #[from(params_one_connection)] params_res: Result<HnswParams, HnswError>,
+) {
+    let params = params_res.expect("params should be valid for tests");
+    let ctx = EvictionTestContext::new(params).expect("eviction fixture must initialize");
 
     // First update: node 0 adds node 1 (evicts node 2 from node 1)
     // Second update: node 2 re-adds node 1 (restores the reciprocal edge)
     let update1 = build_update(0, 1, vec![1], ctx.max_connections);
     let update2 = build_update(2, 1, vec![1], ctx.max_connections);
-    let graph = ctx.apply_updates(vec![update1, update2])?;
+    let graph = ctx
+        .apply_updates(vec![update1, update2])
+        .expect("apply eviction updates");
 
     // Node 2 should still have its forward edge to node 1 (scrub was skipped)
     // because the second update re-added node 1 to node 2's neighbour list
     assert_has_edge(&graph, 2, 1, 1);
-
-    Ok(())
 }
 
 /// Tests that multiple evictions in a batch update are all scrubbed correctly.
@@ -101,17 +104,20 @@ fn eviction_skips_scrub_if_reciprocity_restored(
 /// Scenario: Two separate updates from different origin nodes each trigger an
 /// eviction. Both orphaned forward edges should be scrubbed.
 #[rstest]
-fn multiple_evictions_in_batch_update(params_one_connection: HnswParams) -> Result<(), HnswError> {
-    let max_connections = params_one_connection.max_connections();
-    let mut graph = Graph::with_capacity(params_one_connection, 7);
+fn multiple_evictions_in_batch_update(
+    #[from(params_one_connection)] params_res: Result<HnswParams, HnswError>,
+) {
+    let params = params_res.expect("params should be valid for tests");
+    let max_connections = params.max_connections();
+    let mut graph = Graph::with_capacity(params, 7);
 
-    insert_node(&mut graph, 0, 1, 0)?;
-    insert_node(&mut graph, 1, 1, 1)?;
-    insert_node(&mut graph, 2, 1, 2)?;
-    insert_node(&mut graph, 3, 1, 3)?;
-    insert_node(&mut graph, 4, 1, 4)?;
-    insert_node(&mut graph, 5, 1, 5)?;
-    insert_node(&mut graph, 6, 1, 6)?;
+    insert_node(&mut graph, 0, 1, 0).expect("insert node 0");
+    insert_node(&mut graph, 1, 1, 1).expect("insert node 1");
+    insert_node(&mut graph, 2, 1, 2).expect("insert node 2");
+    insert_node(&mut graph, 3, 1, 3).expect("insert node 3");
+    insert_node(&mut graph, 4, 1, 4).expect("insert node 4");
+    insert_node(&mut graph, 5, 1, 5).expect("insert node 5");
+    insert_node(&mut graph, 6, 1, 6).expect("insert node 6");
 
     // Node 1 at capacity with node 2 (bidirectional)
     add_edge_if_missing(&mut graph, 1, 2, 1);
@@ -129,19 +135,20 @@ fn multiple_evictions_in_batch_update(params_one_connection: HnswParams) -> Resu
     let new_node = NewNodeContext { id: 6, level: 1 };
 
     let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update1, update2], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    let (reciprocated, _) = applicator
+        .apply_neighbour_updates(vec![update1, update2], max_connections, new_node)
+        .expect("apply neighbour updates");
+    applicator
+        .apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)
+        .expect("apply new-node neighbours");
 
     // Both evicted nodes' forward edges should be scrubbed
     assert_no_edge(&graph, 2, 1, 1);
     assert_no_edge(&graph, 4, 3, 1);
 
     // The new edges should be bidirectional
-    assert_bidirectional_edge(&graph, 0, 1, 1);
-    assert_bidirectional_edge(&graph, 5, 3, 1);
-
-    Ok(())
+    assert_bidirectional_edge!(&graph, 0, 1, 1);
+    assert_bidirectional_edge!(&graph, 5, 3, 1);
 }
 
 /// Tests that eviction respects furthest-first ordering.
@@ -150,17 +157,19 @@ fn multiple_evictions_in_batch_update(params_one_connection: HnswParams) -> Resu
 /// When a new edge is added, the front entry (node 2, furthest) should be
 /// evicted, not the back entry (node 3, closer).
 #[rstest]
-fn eviction_respects_furthest_first_ordering() -> Result<(), HnswError> {
+fn eviction_respects_furthest_first_ordering(
+    #[from(params_two_connections)] params_res: Result<HnswParams, HnswError>,
+) {
     // Use max_connections = 2 so level-1 capacity is 2
-    let params = HnswParams::new(2, 4)?;
+    let params = params_res.expect("params should be valid for tests");
     let max_connections = params.max_connections();
     let mut graph = Graph::with_capacity(params, 5);
 
-    insert_node(&mut graph, 0, 1, 0)?;
-    insert_node(&mut graph, 1, 1, 1)?;
-    insert_node(&mut graph, 2, 1, 2)?;
-    insert_node(&mut graph, 3, 1, 3)?;
-    insert_node(&mut graph, 4, 1, 4)?;
+    insert_node(&mut graph, 0, 1, 0).expect("insert node 0");
+    insert_node(&mut graph, 1, 1, 1).expect("insert node 1");
+    insert_node(&mut graph, 2, 1, 2).expect("insert node 2");
+    insert_node(&mut graph, 3, 1, 3).expect("insert node 3");
+    insert_node(&mut graph, 4, 1, 4).expect("insert node 4");
 
     // Seed node 1 at capacity with nodes 2 (furthest, front) and 3 (closer, back)
     // Order matters: push node 2 first (furthest), then node 3 (closer)
@@ -177,9 +186,12 @@ fn eviction_respects_furthest_first_ordering() -> Result<(), HnswError> {
     let new_node = NewNodeContext { id: 4, level: 1 };
 
     let mut applicator = CommitApplicator::new(&mut graph);
-    let (reciprocated, _) =
-        applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+    let (reciprocated, _) = applicator
+        .apply_neighbour_updates(vec![update], max_connections, new_node)
+        .expect("apply neighbour updates");
+    applicator
+        .apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)
+        .expect("apply new-node neighbours");
 
     // Node 2 (furthest, front) should be evicted
     assert_no_edge(&graph, 1, 2, 1);
@@ -189,9 +201,7 @@ fn eviction_respects_furthest_first_ordering() -> Result<(), HnswError> {
     assert_has_edge(&graph, 1, 3, 1);
 
     // New edge should be added
-    assert_bidirectional_edge(&graph, 0, 1, 1);
-
-    Ok(())
+    assert_bidirectional_edge!(&graph, 0, 1, 1);
 }
 
 /// Context for base layer healing tests with a 4-node graph at level 0.
