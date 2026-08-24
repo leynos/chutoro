@@ -151,23 +151,18 @@ impl<'graph> ConnectivityHealer<'graph> {
         }
 
         // Return the evicted node that needs cleanup instead of recursing
-        evicted_node.map_or(Some(new_node), |node_id| {
+        Some(evicted_node.map_or(new_node, |node_id| {
             self.clean_up_evicted_edge_inner(node_id, ctx)
-        })
+        }))
     }
 
-    /// Cleans up a forward edge from an evicted node and returns the evicted node
-    /// if it became isolated (for caller to handle iteratively).
-    fn clean_up_evicted_edge_inner(
-        &mut self,
-        evicted: usize,
-        ctx: &UpdateContext,
-    ) -> Option<usize> {
+    /// Cleans up a forward edge and returns the node to handle iteratively.
+    fn clean_up_evicted_edge_inner(&mut self, evicted: usize, ctx: &UpdateContext) -> usize {
         let Some(evicted_node) = self.graph.node_mut(evicted) else {
-            return Some(ctx.origin); // Link succeeded to origin's perspective
+            return ctx.origin; // Link succeeded to origin's perspective
         };
         if ctx.level >= evicted_node.level_count() {
-            return Some(ctx.origin);
+            return ctx.origin;
         }
 
         let evicted_neighbours = evicted_node.neighbours_mut(ctx.level);
@@ -176,9 +171,9 @@ impl<'graph> ConnectivityHealer<'graph> {
         }
 
         if ctx.level == 0 && evicted_neighbours.is_empty() {
-            Some(evicted) // Return isolated node for caller to queue
+            evicted // Return isolated node for caller to queue
         } else {
-            Some(ctx.origin) // Link succeeded
+            ctx.origin // Link succeeded
         }
     }
 

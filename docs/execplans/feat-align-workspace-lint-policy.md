@@ -464,6 +464,13 @@ Iterate reciprocal edge buckets directly rather than indexing them from level
 numbers. Preserve level-to-bucket correspondence and committed neighbour
 ordering. Verify HNSW tests, formatting, and scoped Clippy.
 
+## Stage 3h: HNSW Evicted-Edge Cleanup
+
+Return the cleanup follow-up node directly, keeping the optional result at the
+link-operation boundary where a failed link is distinguishable. Preserve
+isolation scheduling and successful-link behaviour. Verify HNSW tests,
+formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
