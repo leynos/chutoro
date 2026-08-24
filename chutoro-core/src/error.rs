@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use crate::builder::ExecutionStrategy;
 
+/// Define an error-code enum and map its variants to stable strings.
 macro_rules! define_error_codes {
     (
         $(#[$enum_meta:meta])*

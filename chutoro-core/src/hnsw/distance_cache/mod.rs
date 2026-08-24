@@ -171,6 +171,7 @@ impl LruShard {
     }
 }
 
+/// Concurrent distance cache backed by sharded least-recently-used bookkeeping.
 #[derive(Debug)]
 pub(crate) struct DistanceCache {
     /// Concurrent distance values indexed by their canonical keys.

@@ -752,6 +752,14 @@ index state without changing synchronization, seed derivation, or insertion
 behaviour. Verify the CPU-focused test and scoped Clippy. The private-item
 diagnostic count falls from 55 to 30 after this batch.
 
+## Stage 3ad: Remaining Core Private-Item Documentation
+
+Document CPU pipeline error mapping, distance construction, hierarchy
+construction, distance-cache ownership, and search helper context without
+changing error translation, normalization, or graph algorithms. Verify the
+core test suite and scoped Clippy. The core library private-item diagnostic
+count reaches zero after this batch.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

@@ -167,6 +167,7 @@ impl Norm {
         Self::from_squared_sum(sum, which)
     }
 
+    /// Validate a squared norm before converting it to a finite magnitude.
     pub(crate) fn validate_squared_sum(sum: f64, which: VectorKind) -> Result<()> {
         if !sum.is_finite() {
             return Err(DistanceError::InvalidNorm {
@@ -182,6 +183,7 @@ impl Norm {
         Ok(())
     }
 
+    /// Construct a norm from a validated squared sum.
     pub(crate) fn from_squared_sum(sum: f64, which: VectorKind) -> Result<Self> {
         Self::validate_squared_sum(sum, which)?;
         Self::new(narrow_to_f32(sum.sqrt()), which)
@@ -207,6 +209,7 @@ impl Deref for Norm {
 pub struct Distance(f32);
 
 impl Distance {
+    /// Construct a distance from a value already validated by its caller.
     pub(crate) const fn from_raw(value: f32) -> Self {
         Self(value)
     }
@@ -235,7 +238,9 @@ impl fmt::Display for Distance {
 /// Pre-computed L2 norms for cosine distance calculations.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CosineNorms {
+    /// Norm for the left vector.
     left: Norm,
+    /// Norm for the right vector.
     right: Norm,
 }
 

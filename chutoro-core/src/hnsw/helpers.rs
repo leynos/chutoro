@@ -16,9 +16,13 @@ use super::{
 /// Bundles the context required to ensure a search result includes the query
 /// item when enough capacity is available.
 pub(crate) struct EnsureQueryArgs<'a, D: DataSource + Sync> {
+    /// Data source used to evaluate a missing query candidate.
     pub source: &'a D,
+    /// Query identifier that may need to be inserted.
     pub query: usize,
+    /// Search-result capacity that bounds query insertion.
     pub ef: NonZeroUsize,
+    /// Mutable result list updated when the query is absent.
     pub neighbours: &'a mut Vec<Neighbour>,
 }
 

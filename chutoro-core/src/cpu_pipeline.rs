@@ -43,6 +43,7 @@ pub fn run_cpu_pipeline<D: DataSource + Sync>(
     run_cpu_pipeline_with_len(source, items, min_cluster_size)
 }
 
+/// Run the CPU pipeline after source-length validation.
 #[cfg(feature = "cpu")]
 pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
     source: &D,
@@ -119,6 +120,7 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
     Ok(ClusteringResult::from_assignments(assignments))
 }
 
+/// Translate an HNSW failure into the public CPU-pipeline error type.
 #[cfg(feature = "cpu")]
 pub(crate) fn map_cpu_hnsw_error<D: DataSource>(source: &D, hnsw_error: HnswError) -> ChutoroError {
     match hnsw_error {
@@ -133,6 +135,7 @@ pub(crate) fn map_cpu_hnsw_error<D: DataSource>(source: &D, hnsw_error: HnswErro
     }
 }
 
+/// Translate an MST failure into the public CPU-pipeline error type.
 #[cfg(feature = "cpu")]
 fn map_cpu_mst_error(error: &MstError) -> ChutoroError {
     ChutoroError::CpuMstFailure {
@@ -141,6 +144,7 @@ fn map_cpu_mst_error(error: &MstError) -> ChutoroError {
     }
 }
 
+/// Translate a hierarchy failure into the public CPU-pipeline error type.
 #[cfg(feature = "cpu")]
 fn map_cpu_hierarchy_error(error: &crate::HierarchyError) -> ChutoroError {
     ChutoroError::CpuHierarchyFailure {

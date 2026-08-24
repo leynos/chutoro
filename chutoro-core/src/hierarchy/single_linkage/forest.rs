@@ -11,6 +11,7 @@ use super::super::union_find::DisjointSet;
 use super::{HierarchyError, LinkageNode, SingleLinkageForest};
 
 impl SingleLinkageForest {
+    /// Merge sorted minimum-spanning edges into linkage nodes and components.
     fn merge_edges(
         dsu: &mut DisjointSet,
         nodes: &mut Vec<LinkageNode>,
@@ -59,6 +60,7 @@ impl SingleLinkageForest {
         Ok(())
     }
 
+    /// Collect the canonical linkage-node identifier for each component root.
     fn collect_roots(
         dsu: &mut DisjointSet,
         node_count: usize,
@@ -80,6 +82,7 @@ impl SingleLinkageForest {
         Ok(roots)
     }
 
+    /// Build a single-linkage forest from a minimum-spanning forest.
     pub(super) fn from_mst(node_count: usize, edges: &[MstEdge]) -> Result<Self, HierarchyError> {
         let mut nodes = Vec::with_capacity(node_count.saturating_mul(2).saturating_sub(1));
         for point in 0..node_count {
