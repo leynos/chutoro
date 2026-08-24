@@ -278,6 +278,7 @@ const fn finalize_distance(value: f32) -> f32 {
     if value.is_finite() { value } else { f32::NAN }
 }
 
+/// Sum squared coordinate differences from the scalar tail offset.
 #[expect(
     clippy::float_arithmetic,
     reason = "squared-L2 accumulation is the tail kernel's numerical operation"
@@ -286,7 +287,6 @@ const fn finalize_distance(value: f32) -> f32 {
     clippy::indexing_slicing,
     reason = "SIMD callers advance the tail offset only while it remains within both equal-length rows"
 )]
-/// Sum squared coordinate differences from the scalar tail offset.
 fn squared_l2_tail(left: &[f32], right: &[f32], offset: usize) -> f32 {
     left[offset..]
         .iter()

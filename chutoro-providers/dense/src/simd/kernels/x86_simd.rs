@@ -105,12 +105,12 @@ macro_rules! impl_euclidean_distance_query_points_x86_simd {
     };
 }
 
+/// Compute pairwise Euclidean distance with AVX-512 instructions.
 #[cfg(all(
     feature = "simd_avx512",
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 #[target_feature(enable = "avx512f")]
-/// Compute pairwise Euclidean distance with AVX-512 instructions.
 pub(super) unsafe fn euclidean_distance_avx512(left: &[f32], right: &[f32]) -> f32 {
     finalize_distance(unsafe { squared_l2_avx512(left, right) }.sqrt())
 }
@@ -143,12 +143,12 @@ impl_euclidean_distance_query_points_x86_simd!(
     storeu = _mm512_storeu_ps,
 );
 
+/// Compute pairwise Euclidean distance with AVX2 instructions.
 #[cfg(all(
     feature = "simd_avx2",
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 #[target_feature(enable = "avx2")]
-/// Compute pairwise Euclidean distance with AVX2 instructions.
 pub(super) unsafe fn euclidean_distance_avx2(left: &[f32], right: &[f32]) -> f32 {
     finalize_distance(unsafe { squared_l2_avx2(left, right) }.sqrt())
 }

@@ -380,8 +380,6 @@ impl DistanceCache {
     }
 }
 
-// no inherent methods on PendingMiss
-
 /// Divide total capacity into bounded, non-zero LRU shard capacities.
 fn lru_shard_capacities(total_capacity: usize) -> Vec<NonZeroUsize> {
     debug_assert!(total_capacity > 0, "total capacity must be non-zero");

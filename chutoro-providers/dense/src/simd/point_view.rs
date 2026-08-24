@@ -31,8 +31,8 @@ impl PackedSoaStorage {
         }
     }
 
-    #[inline]
     /// Return the scalar capacity represented by the aligned blocks.
+    #[inline]
     const fn len(&self) -> usize {
         self.blocks.len() * MAX_SIMD_LANES
     }
@@ -53,11 +53,11 @@ impl PackedSoaStorage {
         unsafe { std::slice::from_raw_parts_mut(ptr, self.len()) }
     }
 
+    /// Return the packed coordinate block for one dimension.
     #[expect(
         clippy::indexing_slicing,
         reason = "packed storage is allocated for every dimension and padded point before block access"
     )]
-    /// Return the packed coordinate block for one dimension.
     fn block(&self, dimension_index: usize, padded_point_count: usize) -> &[f32] {
         let start = dimension_index * padded_point_count;
         let end = start + padded_point_count;

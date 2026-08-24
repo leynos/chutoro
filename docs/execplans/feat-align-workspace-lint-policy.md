@@ -139,10 +139,10 @@ keeps local editor feedback aligned with commit gates.
       `[lints] workspace = true`. All-target Clippy and Whitaker pass with no
       Criterion-specific lint exception; the bench crate's unit and smoke tests
       pass.
-- [ ] Add and satisfy Clippy's `missing_docs_in_private_items = "deny"`
+- [x] Add and satisfy Clippy's `missing_docs_in_private_items = "deny"`
       without weakening the root lint policy. The first all-workspace baseline
-      reports 608 private-item documentation diagnostics; resolve them in
-      crate-sized, reviewable batches.
+      reported 608 private-item documentation diagnostics; every workspace
+      target now passes the warning-denied Clippy gate.
 - [x] 2026-08-24: Added item-level documentation throughout
       `chutoro-bench-datasets` and `chutoro-test-support`, including private
       test adapters and gate binaries. Focused all-target Clippy passes for
@@ -199,6 +199,26 @@ keeps local editor feedback aligned with commit gates.
       through a `cap_std::fs::Dir`; retain only the separately compiled gate
       binaries and their integration-test crates, whose ambient fixture staging
       is intentional. Focused crate tests and Whitaker pass.
+- [x] 2026-08-24: Audited all seven workspace-member manifests. Core, CLI,
+      both providers, test support, benchmarks, and benchmark datasets inherit
+      `[workspace.lints]`; no workspace member remains to be enrolled.
+- [x] 2026-08-24: Audited Whitaker filesystem exclusions against live source.
+      No library crate has a whole-crate exemption. Remaining exceptions are
+      the CLI user-path boundary, its fixture modules, the private Parquet path
+      adapter, benchmark report/sampler/cache boundaries, and four separately
+      compiled gate binaries or integration-test crates, each with a rationale
+      in `dylint.toml`.
+- [x] 2026-08-24: Extracted benchmark profiling tests into their owned sibling
+      module after private-item documentation pushed the implementation beyond
+      the 400-line limit. The implementation is now 300 lines; benchmark
+      all-target Clippy, its 139 library tests, and the benchmark smoke test
+      pass. The full rustdoc, Clippy, and Whitaker lint gate is green.
+- [x] 2026-08-24: Passed the final local gate set: `make check-fmt`,
+      `make lint`, `make typecheck`, `make markdownlint`, `make nixie`, and
+      `make test`. The workspace test gate ran 1,082 tests successfully, with
+      one intentionally skipped test. The focused cache suite also retains
+      the LRU-eviction and TTL-refresh coverage required by the cache
+      refactoring.
 - [ ] Document the exception model, run final gates and CodeRabbit review,
       then update the existing draft pull request.
 
@@ -224,6 +244,11 @@ keeps local editor feedback aligned with commit gates.
   first `make test` attempt was incomplete because unrelated suspended Cargo
   jobs held the shared package-cache lock; the later rerun completed with 1,085
   passing tests and one skipped test.
+- The final Mermaid gate twice timed out while rendering figure 3 in the
+  unchanged bounded-Kani plan concurrently. Rendering that input serially
+  succeeded, so the `make nixie` target now limits Nixie to one renderer job.
+  This preserves diagram validation while avoiding renderer contention on the
+  six-core development host.
 - Moving the self-named modules is a content-preserving layout migration: all
   seven destination directories already existed for their child modules. The
   scoped core Clippy run now has no `self_named_module_files` diagnostics and
