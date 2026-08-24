@@ -3,17 +3,22 @@
 use super::*;
 use crate::hnsw::tests::support::is_coverage_job;
 
+/// Produces scalar test data for the small, bounded HNSW fixtures below.
+fn scalar_data(count: u16) -> Vec<f32> {
+    (0..count).map(f32::from).collect()
+}
+
 #[rstest]
 fn build_with_edges_covers_inserted_nodes() {
     let num_nodes = 10;
-    let data: Vec<f32> = (0..num_nodes).map(|i| i as f32).collect();
+    let data = scalar_data(10);
     let source = DummySource::new(data);
     let params = HnswParams::new(4, 16).expect("params").with_rng_seed(42);
 
     let (_, edges) = CpuHnsw::build_with_edges(&source, params).expect("build");
 
     // Collect all nodes that appear as edge sources (these are the inserted nodes)
-    let sources: HashSet<usize> = edges.iter().map(|e| e.source()).collect();
+    let sources: HashSet<usize> = edges.iter().map(CandidateEdge::source).collect();
 
     // All nodes except the entry point (node 0) should appear as sources
     for node in 1..num_nodes {
@@ -63,7 +68,7 @@ fn build_with_edges_edges_sorted_by_sequence() {
     // Coverage instrumentation inflates the cost of parallel HNSW builds;
     // use a smaller graph to stay well within the nextest timeout.
     let num_nodes = if is_coverage_job() { 8 } else { 20 };
-    let data: Vec<f32> = (0..num_nodes).map(|i| i as f32).collect();
+    let data = scalar_data(num_nodes);
     let source = DummySource::new(data);
     let params = HnswParams::new(4, 16).expect("params").with_rng_seed(42);
 
@@ -109,7 +114,7 @@ fn canonicalise_preserves_fields(#[case] case: CanonicaliseCase) {
 
     assert_eq!(canonical.source(), case.expected_source);
     assert_eq!(canonical.target(), case.expected_target);
-    assert!((canonical.distance() - case.distance).abs() < f32::EPSILON);
+    assert!(canonical.distance().total_cmp(&case.distance).is_eq());
     assert_eq!(canonical.sequence(), case.sequence);
 }
 
@@ -187,7 +192,7 @@ fn edge_harvest_from_unsorted_sorts_and_preserves_edges(#[case] edges: Vec<Candi
 
 #[rstest]
 fn build_produces_same_index_as_build_with_edges() {
-    let data: Vec<f32> = (0..10).map(|i| i as f32).collect();
+    let data = scalar_data(10);
     let source = DummySource::new(data);
     let params = HnswParams::new(4, 16).expect("params").with_rng_seed(42);
 
@@ -224,11 +229,12 @@ fn insert_harvesting_initial_insert_returns_empty_edges(
     #[case] case: InitialInsertCase,
     #[with(case.fixture.clone())] dummy_source: DummySource,
     #[with(case.fixture.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
-) -> Result<(), Box<dyn Error>> {
-    let cpu_hnsw = cpu_hnsw?;
-    let edges = cpu_hnsw.insert_harvesting(case.first_node, &dummy_source)?;
+) {
+    let index = cpu_hnsw.expect("fixture must build CPU HNSW");
+    let edges = index
+        .insert_harvesting(case.first_node, &dummy_source)
+        .expect("initial insert must succeed");
     assert!(edges.is_empty(), "initial insert should return empty edges");
-    Ok(())
 }
 
 #[rstest]
@@ -245,15 +251,20 @@ fn insert_harvesting_initial_insert_returns_empty_edges(
     seed: Some(24),
 })]
 fn insert_harvesting_returns_valid_edges(
-    #[case] _case: HarvestFixtureCase,
-    #[with(_case.clone())] dummy_source: DummySource,
-    #[with(_case.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
-) -> Result<(), Box<dyn Error>> {
-    let cpu_hnsw = cpu_hnsw?;
-    cpu_hnsw.insert_harvesting(0, &dummy_source)?;
+    #[case] case: HarvestFixtureCase,
+    #[with(case.clone())] dummy_source: DummySource,
+    #[with(case.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
+) {
+    let index = cpu_hnsw.expect("fixture must build CPU HNSW");
+    assert_eq!(case.data.len(), dummy_source.len());
+    index
+        .insert_harvesting(0, &dummy_source)
+        .expect("initial insert must succeed");
 
     for node in 1..dummy_source.len() {
-        let edges = cpu_hnsw.insert_harvesting(node, &dummy_source)?;
+        let edges = index
+            .insert_harvesting(node, &dummy_source)
+            .expect("subsequent insert must succeed");
 
         for edge in &edges {
             assert_eq!(
@@ -270,7 +281,6 @@ fn insert_harvesting_returns_valid_edges(
             assert!(edge.distance() >= 0.0, "distance should be non-negative");
         }
     }
-    Ok(())
 }
 
 #[rstest]
@@ -296,15 +306,16 @@ fn insert_harvesting_duplicate_insert_is_rejected(
     #[case] case: DuplicateInsertCase,
     #[with(case.fixture.clone())] dummy_source: DummySource,
     #[with(case.fixture.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
-) -> Result<(), Box<dyn Error>> {
-    let cpu_hnsw = cpu_hnsw?;
-    cpu_hnsw.insert_harvesting(case.node, &dummy_source)?;
+) {
+    let index = cpu_hnsw.expect("fixture must build CPU HNSW");
+    index
+        .insert_harvesting(case.node, &dummy_source)
+        .expect("first insert must succeed");
 
-    let err = cpu_hnsw
+    let err = index
         .insert_harvesting(case.node, &dummy_source)
         .expect_err("duplicate insert fails");
     assert!(matches!(err, HnswError::DuplicateNode { node: duplicate } if duplicate == case.node));
-    Ok(())
 }
 
 #[rstest]
@@ -315,18 +326,23 @@ fn insert_harvesting_duplicate_insert_is_rejected(
     seed: Some(42),
 })]
 fn insert_harvesting_matches_insert_graph_state(
-    #[case] _case: HarvestFixtureCase,
-    #[with(_case.clone())] dummy_source: DummySource,
-    #[with(_case.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
-    #[with(_case.clone())] comparison_cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
-) -> Result<(), Box<dyn Error>> {
+    #[case] case: HarvestFixtureCase,
+    #[with(case.clone())] dummy_source: DummySource,
+    #[with(case.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
+    #[with(case.clone())] comparison_cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
+) {
     let ef = NonZeroUsize::new(dummy_source.len()).expect("source length must be non-zero");
-    let index1 = cpu_hnsw?;
-    let index2 = comparison_cpu_hnsw?;
+    let index1 = cpu_hnsw.expect("fixture must build first CPU HNSW");
+    let index2 = comparison_cpu_hnsw.expect("fixture must build comparison CPU HNSW");
+    assert_eq!(case.data.len(), dummy_source.len());
 
     for node in 0..dummy_source.len() {
-        index1.insert(node, &dummy_source)?;
-        index2.insert_harvesting(node, &dummy_source)?;
+        index1
+            .insert(node, &dummy_source)
+            .expect("ordinary insert must succeed");
+        index2
+            .insert_harvesting(node, &dummy_source)
+            .expect("harvesting insert must succeed");
     }
 
     assert_eq!(
@@ -348,5 +364,4 @@ fn insert_harvesting_matches_insert_graph_state(
             "search results diverged for node {node}"
         );
     }
-    Ok(())
 }
