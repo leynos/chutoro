@@ -4,7 +4,11 @@ This ExecPlan is a living record for issue #200. It records completed stages,
 current lint evidence, and the bounded next stage so the work can resume
 without relying on an interactive session.
 
-Status: IN PROGRESS
+Status: READY FOR EXTERNAL REVIEW
+
+The seven workspace-member manifests are enrolled, and the remaining
+filesystem exceptions have been narrowed and audited. The implementation is
+locally validated; external review remains pending.
 
 ## Purpose / big picture
 
@@ -222,8 +226,15 @@ keeps local editor feedback aligned with commit gates.
 - [x] 2026-08-24: Committed the final local remediation as `f4584ac` and
       force-pushed it with lease to `origin/feat/align-workspace-lint-policy`.
       `git ls-remote` confirms the remote branch at that exact commit.
-- [ ] Document the exception model, run final gates and CodeRabbit review,
-      then update the existing draft pull request.
+- [x] 2026-08-24: Revalidated the review-fix tree at `acf27f8`. The required
+      `make check-fmt`, `make lint` (including Clippy and Whitaker),
+      `make typecheck`, `make markdownlint`, `make nixie`, and `make test`
+      gates passed; the workspace test gate reported 1,096 passed and one
+      skipped test.
+- [x] 2026-08-24: Opened PR #228 with the branch at `aafc3c3` and queued a
+      CodeRabbit review as queue item `9dac68cb`.
+- [ ] External CodeRabbit review for PR #228 remains pending. Record its
+      result and any resulting amendments here before closing the plan.
 
 ## Surprises & discoveries
 
@@ -832,10 +843,17 @@ then advance the workspace lint gate.
 
 ## Outcomes & retrospective
 
-The final outcome is not yet achieved. The first green policy-bootstrap stage
-is committed as `b8330a7`. The core mechanical checkpoint is committed as its
-own intentionally lint-red stage after the exact residual diagnostics and
-incomplete shared-cache test run have been recorded.
+The workspace-lint objective is complete locally. All seven workspace-member
+manifests inherit `[workspace.lints]`, and the Whitaker filesystem exclusions
+are limited to the documented, scoped boundaries recorded in `dylint.toml`.
+The final review-fix tree passed the complete local gate set at `acf27f8`,
+including 1,096 passing tests and one skipped test. This confirms that the
+crate enrolment and filesystem-exemption narrowing remain visible as completed
+and audited stages rather than deferred work.
+
+PR #228 is open at `aafc3c3`, with CodeRabbit review queue item `9dac68cb`
+pending. The plan therefore remains open for external review feedback and any
+required follow-up, not for additional local lint-policy enrolment.
 
 ## Revision note
 
@@ -843,3 +861,8 @@ Created on 2026-08-23 after the issue owner selected staged onboarding and
 authorized intermediate commits with known lint failures. It records the live
 diagnostic expansion and the Git-metadata access constraint so the next agent
 can resume safely.
+
+Updated on 2026-08-24 to record completion and audit of all seven manifest
+enrolments and the narrowed filesystem exceptions, the final local gate
+evidence, and the current PR and CodeRabbit review state. External review is
+the only remaining plan item.
