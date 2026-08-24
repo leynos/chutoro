@@ -488,6 +488,16 @@ that path; each retired harness is replaced by an exact unit-test twin in
 `.../commit/tests/mod.rs`. Reserve Kani proofs for small nondeterministic
 state spaces where exhaustive exploration adds coverage a test cannot.
 
+Two further tractability rules follow from the same investigation. Keep
+symbolic values out of index positions: a symbolic node id or level index
+multiplies solver aliasing through every `node_mut` and `neighbours(level)`
+access, so fix the origin and split per-level proof entry points with a
+concrete level argument instead. Keep each proof on a narrow production
+surface: a helper that chains added-edge reconciliation, write-back,
+removed-edge reconciliation, and deferred scrubs in one formula was
+intractable even on a two-node graph, while per-call proofs of
+`ensure_reverse_edge` verify in about a minute.
+
 Harness construction must avoid panic-capable paths such as `.expect(...)` and
 production errors that build messages with `format!` before an invariant
 assertion. Prefer

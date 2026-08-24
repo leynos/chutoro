@@ -137,58 +137,6 @@ fn assume_node_has_level(graph: &crate::hnsw::graph::Graph, node_id: usize, leve
     debug_assert!(neighbours_deduped, "Kani neighbours must be deduplicated",);
     kani::assume(neighbours_deduped);
 }
-/// Applies reconciliation logic to a single update for Kani harnesses.
-///
-/// This helper mirrors the production commit flow (added-edge reconciliation,
-/// list write-back, removed-edge reconciliation, and deferred scrubs) while
-/// keeping the setup compact for bounded verification.
-#[cfg(kani)]
-pub(crate) fn apply_reconciled_update_for_kani(
-    graph: &mut crate::hnsw::graph::Graph,
-    ctx: KaniUpdateContext,
-    next: &mut Vec<usize>,
-) {
-    assume_node_has_level(graph, ctx.origin, ctx.level);
-    next.retain(|&target| target != ctx.origin);
-    let Some(origin) = graph.node(ctx.origin) else {
-        kani::assert(false, "Kani update origin must exist in the graph");
-        return;
-    };
-    let previous = origin.neighbours(ctx.level).to_vec();
-
-    let next_deduped = is_deduped(next);
-    debug_assert!(next_deduped, "Kani update next list must be deduplicated");
-    kani::assume(next_deduped);
-    for &target in next.iter() {
-        assume_node_has_level(graph, target, ctx.level);
-    }
-
-    let update_ctx = types::UpdateContext {
-        origin: ctx.origin,
-        level: ctx.level,
-        max_connections: ctx.max_connections,
-    };
-    let mut reconciler = reconciliation::EdgeReconciler::new(graph);
-    reconciler.reconcile_added_edges(&update_ctx, next);
-
-    let Some(node_ref) = reconciler.graph_mut().node_mut(ctx.origin) else {
-        kani::assert(
-            false,
-            "Kani update origin must exist while writing neighbours",
-        );
-        return;
-    };
-    let list = node_ref.neighbours_mut(ctx.level);
-    list.clear();
-    list.extend(next.iter().copied());
-
-    // Mirror the production commit order: removed-edge reconciliation runs
-    // after the origin's write-back so connectivity healing sees final state.
-    reconciler.reconcile_removed_edges(&update_ctx, &previous, next.as_slice());
-
-    reconciler.apply_deferred_scrubs(ctx.max_connections);
-}
-
 /// Ensures a reverse edge using the production reconciler for Kani harnesses.
 ///
 /// This helper calls the same reconciliation code used during insertion
