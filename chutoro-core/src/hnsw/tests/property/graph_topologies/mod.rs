@@ -153,8 +153,8 @@ fn create_initial_complete_graph(
             builder
                 .edges
                 .push(CandidateEdge::new(i, j, distance, *builder.sequence));
-            builder.degrees[i] += 1;
-            builder.degrees[j] += 1;
+            increment_graph_degree(builder, i);
+            increment_graph_degree(builder, j);
             *builder.sequence += 1;
         }
     }
@@ -173,13 +173,9 @@ fn attach_node_preferentially(
 ) {
     let mut attached = Vec::new();
     for _ in 0..params.edges_per_new_node.min(new_node) {
-        let target = select_by_degree(
-            rng,
-            &builder.degrees[..new_node],
-            &attached,
-            params.exponent,
-        );
-        if let Some(target) = target {
+        let candidates = builder.degrees.get(..new_node).unwrap_or_default();
+        let selected_target = select_by_degree(rng, candidates, &attached, params.exponent);
+        if let Some(target) = selected_target {
             let distance = rng.gen_range(0.1_f32..10.0);
             builder.edges.push(CandidateEdge::new(
                 new_node,
@@ -187,8 +183,8 @@ fn attach_node_preferentially(
                 distance,
                 *builder.sequence,
             ));
-            builder.degrees[new_node] += 1;
-            builder.degrees[target] += 1;
+            increment_graph_degree(builder, new_node);
+            increment_graph_degree(builder, target);
             attached.push(target);
             *builder.sequence += 1;
         }
@@ -274,12 +270,8 @@ pub(super) fn generate_disconnected_graph(rng: &mut SmallRng) -> GeneratedGraph 
 
     for &size in &component_sizes {
         let component_start_edge_count = edges.len();
-        add_component_edges(
-            rng,
-            &mut edges,
-            &mut sequence,
-            ComponentSpec::new(node_offset, size),
-        );
+        let component = ComponentSpec::new(node_offset, size);
+        add_component_edges(rng, &mut edges, &mut sequence, &component);
         // Guarantee at least one edge per component to avoid empty graphs.
         if edges.len() == component_start_edge_count && size >= 2 {
             let distance = rng.gen_range(0.1_f32..10.0);
@@ -309,7 +301,7 @@ fn add_component_edges(
     rng: &mut SmallRng,
     edges: &mut Vec<CandidateEdge>,
     sequence: &mut u64,
-    component: ComponentSpec,
+    component: &ComponentSpec,
 ) {
     let edge_prob = rng.gen_range(0.2..0.6);
     for i in 0..component.size {
@@ -347,7 +339,7 @@ fn select_by_degree(
                 0.0
             } else {
                 // Add 1 to degree to avoid zero weights for isolated nodes.
-                (d.max(1) as f64).powf(exponent)
+                f64::from(u16::try_from(d.max(1)).unwrap_or(u16::MAX)).powf(exponent)
             }
         })
         .collect();
@@ -357,18 +349,25 @@ fn select_by_degree(
         return None;
     }
 
-    let threshold = rng.gen_range(0.0..1.0) * total;
+    let threshold = rng.gen_range(0.0..total);
     let mut cumulative = 0.0;
     let mut last_valid = None;
     for (i, &w) in weights.iter().enumerate() {
         if w > 0.0 {
             last_valid = Some(i);
         }
-        cumulative += w;
+        cumulative = w.mul_add(1.0, cumulative);
         if cumulative >= threshold {
             return Some(i);
         }
     }
     // Fallback for floating-point precision edge case where threshold == total.
     last_valid
+}
+
+/// Increments a graph degree when the generated node index is valid.
+fn increment_graph_degree(builder: &mut GraphBuilder<'_>, node: usize) {
+    if let Some(degree) = builder.degrees.get_mut(node) {
+        *degree = degree.saturating_add(1);
+    }
 }
