@@ -85,21 +85,17 @@ impl SearchPropertyConfig {
         T: Copy,
         F: for<'a> Fn(RawConfigValue<'a>) -> Result<T, String>,
     {
-        match env::var(key.as_str()) {
-            Ok(raw) => match parser(RawConfigValue(raw.as_str())) {
-                Ok(value) => value,
-                Err(reason) => {
-                    tracing::warn!(
-                        env = key.as_str(),
-                        raw = %raw,
-                        reason = %reason,
-                        "invalid config override, falling back to default",
-                    );
-                    default
-                }
-            },
-            Err(_) => default,
-        }
+        env::var(key.as_str()).map_or(default, |raw| {
+            parser(RawConfigValue(raw.as_str())).unwrap_or_else(|reason| {
+                tracing::warn!(
+                    env = key.as_str(),
+                    raw = %raw,
+                    reason = %reason,
+                    "invalid config override, falling back to default",
+                );
+                default
+            })
+        })
     }
 
     fn parse_min_recall(raw: RawConfigValue<'_>) -> Result<f32, String> {
@@ -159,7 +155,7 @@ mod tests {
     fn parse_recall_threshold_accepts_valid_values(#[case] input: &str, #[case] expected: f32) {
         let parsed = parse_recall_threshold(RawConfigValue(input)).expect("value should parse");
         assert!(
-            (parsed - expected).abs() < f32::EPSILON,
+            parsed.total_cmp(&expected).is_eq(),
             "parsed {parsed} vs {expected}"
         );
     }
@@ -245,7 +241,7 @@ mod tests {
             env::set_var(
                 SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(),
                 override_val.to_string(),
-            )
+            );
         };
 
         let config = SearchPropertyConfig::load();
@@ -264,7 +260,7 @@ mod tests {
             env::set_var(
                 SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(),
                 "not-a-number",
-            )
+            );
         };
 
         let config = SearchPropertyConfig::load();
