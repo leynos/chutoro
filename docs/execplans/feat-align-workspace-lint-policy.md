@@ -414,6 +414,13 @@ and express score accumulation through the existing arithmetic operation trait.
 Preserve selection and fallback behaviour for valid hierarchies. Verify the
 hierarchy suite, formatting, and scoped Clippy.
 
+## Stage 2z: Hierarchy Union-Find
+
+Make union-find parent and rank access fallible, propagating malformed internal
+state as typed hierarchy errors through forest construction. Preserve union by
+rank and path compression for valid inputs. Verify the hierarchy suite,
+formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

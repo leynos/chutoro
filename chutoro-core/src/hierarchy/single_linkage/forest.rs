@@ -17,8 +17,8 @@ impl SingleLinkageForest {
         edges_sorted: Vec<MstEdge>,
     ) -> Result<(), HierarchyError> {
         for edge in edges_sorted {
-            let left_root = dsu.find(edge.source());
-            let right_root = dsu.find(edge.target());
+            let left_root = dsu.find(edge.source())?;
+            let right_root = dsu.find(edge.target())?;
             if left_root == right_root {
                 continue;
             }
@@ -50,7 +50,7 @@ impl SingleLinkageForest {
                 size,
                 point: None,
             });
-            let merged = dsu.union(left_root, right_root);
+            let merged = dsu.union(left_root, right_root)?;
             *dsu.component_node
                 .get_mut(merged)
                 .ok_or(HierarchyError::InvalidForestReference { node_id: merged })? = new_id;
@@ -65,7 +65,7 @@ impl SingleLinkageForest {
     ) -> Result<Vec<usize>, HierarchyError> {
         let mut roots = Vec::new();
         for node in 0..node_count {
-            let root = dsu.find(node);
+            let root = dsu.find(node)?;
             if root == node {
                 let component_node = *dsu
                     .component_node
