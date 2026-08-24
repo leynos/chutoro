@@ -5,6 +5,7 @@
 #[derive(Clone, Debug)]
 pub(crate) struct Node {
     neighbours: Vec<Vec<usize>>,
+    invalid_level_neighbours: Vec<usize>,
     sequence: u64,
 }
 
@@ -14,26 +15,23 @@ impl Node {
         neighbours.resize_with(level + 1, Vec::new);
         Self {
             neighbours,
+            invalid_level_neighbours: Vec::new(),
             sequence,
         }
     }
 
     pub(crate) fn neighbours(&self, level: usize) -> &[usize] {
-        debug_assert!(
-            level < self.neighbours.len(),
-            "levels are initialized during construction"
-        );
-        let Some(neighbours) = self.neighbours.get(level) else {
-            unreachable!("levels are initialized during construction");
-        };
-        neighbours.as_slice()
+        self.neighbours
+            .get(level)
+            .map_or(self.invalid_level_neighbours.as_slice(), Vec::as_slice)
     }
 
     pub(crate) fn neighbours_mut(&mut self, level: usize) -> &mut Vec<usize> {
-        let Some(neighbours) = self.neighbours.get_mut(level) else {
-            unreachable!("levels are initialized during construction");
-        };
-        neighbours
+        if let Some(neighbours) = self.neighbours.get_mut(level) {
+            neighbours
+        } else {
+            &mut self.invalid_level_neighbours
+        }
     }
 
     pub(crate) const fn sequence(&self) -> u64 {

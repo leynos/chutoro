@@ -511,6 +511,13 @@ Preserve the traversal order for valid graph identifiers while treating invalid
 visited slots as unvisited. Verify invariant tests, formatting, and scoped
 Clippy.
 
+## Stage 3o: HNSW Invalid-Level Neighbour Access
+
+Quarantine reads and writes attempted at an uninitialized node level while
+preserving all initialized neighbour lists. This retains non-panicking internal
+access without making malformed entries observable in graph traversal. Verify
+HNSW tests, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
