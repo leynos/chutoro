@@ -4,6 +4,7 @@ use arrow_schema::{DataType, Field};
 
 use crate::errors::DenseMatrixProviderError;
 
+/// Validate that a field is a fixed-size list with the expected item type.
 pub(crate) fn validate_fixed_size_list_field(
     field: &Field,
     column: &str,
@@ -31,6 +32,7 @@ pub(crate) fn validate_fixed_size_list_field(
     }
 }
 
+/// Append validated fixed-size list values to the dense matrix buffer.
 pub(crate) fn append_fixed_size_list_values(
     array: &FixedSizeListArray,
     expected_dimension: Option<usize>,
@@ -48,6 +50,7 @@ pub(crate) fn append_fixed_size_list_values(
     Ok(dimension)
 }
 
+/// Validate a fixed-size list array and return its common dimension.
 pub(crate) fn validate_fixed_size_list(
     array: &FixedSizeListArray,
 ) -> Result<usize, DenseMatrixProviderError> {
@@ -60,6 +63,7 @@ pub(crate) fn validate_fixed_size_list(
     })
 }
 
+/// Copy fixed-size list values into the dense matrix buffer.
 pub(crate) fn copy_list_values(
     array: &FixedSizeListArray,
     dimension: usize,

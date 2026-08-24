@@ -14,9 +14,13 @@ use crate::simd;
 /// Dense matrix provider backed by a contiguous row-major buffer.
 #[derive(Debug)]
 pub struct DenseMatrixProvider {
+    /// Provider name reported through the data-source interface.
     name: String,
+    /// Number of rows in the flattened matrix.
     rows: usize,
+    /// Number of coordinates in every matrix row.
     dimension: usize,
+    /// Row-major matrix values.
     values: Vec<f32>,
 }
 
@@ -123,6 +127,7 @@ impl DenseMatrixProvider {
         Ok(Self::from_parts(name, rows, dimension, values))
     }
 
+    /// Return one validated matrix row as a coordinate slice.
     fn row_slice(&self, index: usize) -> Result<&[f32], DataSourceError> {
         if index >= self.rows {
             return Err(DataSourceError::OutOfBounds { index });

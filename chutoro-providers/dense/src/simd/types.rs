@@ -187,8 +187,11 @@ impl<'a> MatrixValues<'a> {
 /// Row-major matrix metadata and storage for dense SIMD kernels.
 #[derive(Clone, Copy)]
 pub(crate) struct RowMajorMatrix<'a> {
+    /// Flat row-major values backing the matrix view.
     values: MatrixValues<'a>,
+    /// Number of rows in the matrix view.
     rows: RowCount,
+    /// Number of scalar coordinates in each row.
     dimension: Dimension,
 }
 

@@ -760,6 +760,14 @@ changing error translation, normalization, or graph algorithms. Verify the
 core test suite and scoped Clippy. The core library private-item diagnostic
 count reaches zero after this batch.
 
+## Stage 3ae: Provider Private-Item Documentation
+
+Document dense-provider ingestion, matrix storage, SIMD dispatch and packing,
+and text-provider loading internals without changing representation, runtime
+feature selection, or numerical operations. Verify both provider test suites
+and their scoped all-feature Clippy pass. The next workspace lint boundary is
+the CLI crate.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

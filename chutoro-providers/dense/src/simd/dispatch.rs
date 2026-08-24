@@ -2,6 +2,7 @@
 
 use std::sync::OnceLock;
 
+/// Ordered SIMD backends preferred over the scalar implementation.
 const EUCLIDEAN_SIMD_BACKEND_PRIORITY: [EuclideanBackend; 4] = [
     EuclideanBackend::Avx512,
     EuclideanBackend::Avx2,
@@ -12,17 +13,24 @@ const EUCLIDEAN_SIMD_BACKEND_PRIORITY: [EuclideanBackend; 4] = [
 /// Euclidean distance backend chosen for the current build and machine.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum EuclideanBackend {
+    /// Portable scalar implementation.
     Scalar,
+    /// x86 AVX2 implementation.
     Avx2,
+    /// x86 AVX-512 implementation.
     Avx512,
+    /// ARM NEON implementation.
     Neon,
+    /// Nightly portable-SIMD implementation.
     PortableSimd,
 }
 
 /// Backends compiled into the current binary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct CompiledSimdSupport {
+    /// CPU-specific SIMD support compiled for this target.
     cpu: CpuSimdSupport,
+    /// Whether the portable-SIMD implementation was compiled.
     portable_simd: bool,
 }
 
@@ -37,8 +45,11 @@ impl CompiledSimdSupport {
 /// CPU SIMD backends represented by the target's native feature probes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct CpuSimdSupport {
+    /// Whether the AVX2 implementation is supported.
     avx2: bool,
+    /// Whether the AVX-512 implementation is supported.
     avx512: bool,
+    /// Whether the NEON implementation is supported.
     neon: bool,
 }
 
@@ -53,7 +64,9 @@ impl CpuSimdSupport {
 /// Backends available on the current machine at runtime.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct RuntimeSimdSupport {
+    /// CPU-specific SIMD support detected at runtime.
     cpu: CpuSimdSupport,
+    /// Whether portable SIMD is enabled for this runtime.
     portable_simd: bool,
 }
 
@@ -65,6 +78,7 @@ impl RuntimeSimdSupport {
     }
 }
 
+/// Lazily initialized Euclidean backend selected for this process.
 static EUCLIDEAN_BACKEND: OnceLock<EuclideanBackend> = OnceLock::new();
 
 /// Returns the initialized Euclidean backend for the current build and host.
@@ -143,10 +157,12 @@ pub(super) fn choose_euclidean_backend(
     select_backend(compiled, runtime)
 }
 
+/// Select the process-wide backend from compiled and runtime support.
 fn select_euclidean_backend() -> EuclideanBackend {
     choose_euclidean_backend(compiled_simd_support(), runtime_simd_support())
 }
 
+/// Select the highest-priority backend supported by both masks.
 fn select_backend(compiled: CompiledSimdSupport, runtime: RuntimeSimdSupport) -> EuclideanBackend {
     for backend in EUCLIDEAN_SIMD_BACKEND_PRIORITY {
         if backend_supported(compiled, runtime, backend) {
@@ -157,6 +173,7 @@ fn select_backend(compiled: CompiledSimdSupport, runtime: RuntimeSimdSupport) ->
     EuclideanBackend::Scalar
 }
 
+/// Determine whether a backend is enabled in both support masks.
 const fn backend_supported(
     compiled: CompiledSimdSupport,
     runtime: RuntimeSimdSupport,
@@ -171,37 +188,44 @@ const fn backend_supported(
     }
 }
 
+/// Detect runtime AVX2 support on x86 targets.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn runtime_avx2_support() -> bool {
     std::arch::is_x86_feature_detected!("avx2")
 }
 
+/// Report that AVX2 is unavailable on non-x86 targets.
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 fn runtime_avx2_support() -> bool {
     false
 }
 
+/// Detect runtime AVX-512 support on x86 targets.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 fn runtime_avx512_support() -> bool {
     std::arch::is_x86_feature_detected!("avx512f")
 }
 
+/// Report that AVX-512 is unavailable on non-x86 targets.
 #[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
 fn runtime_avx512_support() -> bool {
     false
 }
 
+/// Detect runtime NEON support on 32-bit ARM targets.
 #[cfg(target_arch = "arm")]
 fn runtime_neon_support() -> bool {
     std::arch::is_arm_feature_detected!("neon")
 }
 
+/// Report baseline NEON support on AArch64 targets.
 #[cfg(target_arch = "aarch64")]
 fn runtime_neon_support() -> bool {
     // AArch64 mandates Advanced SIMD, so there is no separate runtime probe.
     true
 }
 
+/// Report that NEON is unavailable on non-ARM targets.
 #[cfg(not(any(target_arch = "arm", target_arch = "aarch64")))]
 const fn runtime_neon_support() -> bool {
     false

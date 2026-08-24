@@ -3,7 +3,9 @@ use chutoro_core::{DataSource, DataSourceError};
 
 /// In-memory dense vector data source.
 pub struct DenseSource {
+    /// Vectors indexed by the data source.
     data: Vec<Vec<f32>>,
+    /// Data-source name reported to consumers.
     name: String,
 }
 

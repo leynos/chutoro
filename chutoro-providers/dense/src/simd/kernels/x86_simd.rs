@@ -8,6 +8,7 @@ use std::arch::x86 as x86_arch;
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64 as x86_arch;
 
+/// Implement an x86 SIMD squared-L2 accumulation kernel.
 macro_rules! impl_squared_l2_x86_simd {
     (
         $fn_name:ident,
@@ -51,6 +52,7 @@ macro_rules! impl_squared_l2_x86_simd {
     };
 }
 
+/// Implement an x86 SIMD query-to-points Euclidean kernel.
 macro_rules! impl_euclidean_distance_query_points_x86_simd {
     (
         $unsafe_fn:ident,
@@ -108,6 +110,7 @@ macro_rules! impl_euclidean_distance_query_points_x86_simd {
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 #[target_feature(enable = "avx512f")]
+/// Compute pairwise Euclidean distance with AVX-512 instructions.
 pub(super) unsafe fn euclidean_distance_avx512(left: &[f32], right: &[f32]) -> f32 {
     finalize_distance(unsafe { squared_l2_avx512(left, right) }.sqrt())
 }
@@ -145,6 +148,7 @@ impl_euclidean_distance_query_points_x86_simd!(
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 #[target_feature(enable = "avx2")]
+/// Compute pairwise Euclidean distance with AVX2 instructions.
 pub(super) unsafe fn euclidean_distance_avx2(left: &[f32], right: &[f32]) -> f32 {
     finalize_distance(unsafe { squared_l2_avx2(left, right) }.sqrt())
 }

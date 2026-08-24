@@ -19,7 +19,9 @@ pub enum TextProviderError {
 /// UTF-8 text provider that reports Levenshtein distances between lines.
 #[derive(Debug)]
 pub struct TextProvider {
+    /// Text records indexed by the provider.
     data: Vec<String>,
+    /// Provider name reported through the data-source interface.
     name: String,
 }
 
@@ -89,6 +91,7 @@ impl TextProvider {
         &self.data
     }
 
+    /// Read newline-delimited text records from a capability-scoped file.
     fn read_lines(
         mut reader: impl BufRead,
         lines: &mut Vec<String>,

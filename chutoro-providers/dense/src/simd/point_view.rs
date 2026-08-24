@@ -10,16 +10,20 @@ use chutoro_core::DataSourceError;
 
 use super::{Dimension, MAX_SIMD_LANES, RowIndex, RowMajorMatrix};
 
+/// One 64-byte-aligned SIMD block.
 #[repr(C, align(64))]
 #[derive(Clone, Copy, Debug)]
 struct AlignedBlock([f32; MAX_SIMD_LANES]);
 
+/// Owns lane-aligned blocks for a packed Structure-of-Arrays view.
 #[derive(Debug)]
 struct PackedSoaStorage {
+    /// Consecutive aligned storage blocks.
     blocks: Vec<AlignedBlock>,
 }
 
 impl PackedSoaStorage {
+    /// Allocate zero-filled storage for the requested scalar value count.
     fn zeroed(len: usize) -> Self {
         let blocks = len.div_ceil(MAX_SIMD_LANES);
         Self {
@@ -28,10 +32,12 @@ impl PackedSoaStorage {
     }
 
     #[inline]
+    /// Return the scalar capacity represented by the aligned blocks.
     const fn len(&self) -> usize {
         self.blocks.len() * MAX_SIMD_LANES
     }
 
+    /// View the aligned blocks as contiguous scalar values.
     const fn as_slice(&self) -> &[f32] {
         let ptr = self.blocks.as_ptr().cast::<f32>();
         // Safety: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
@@ -39,6 +45,7 @@ impl PackedSoaStorage {
         unsafe { std::slice::from_raw_parts(ptr, self.len()) }
     }
 
+    /// View the aligned blocks as mutable contiguous scalar values.
     const fn as_mut_slice(&mut self) -> &mut [f32] {
         let ptr = self.blocks.as_mut_ptr().cast::<f32>();
         // Safety: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
@@ -50,6 +57,7 @@ impl PackedSoaStorage {
         clippy::indexing_slicing,
         reason = "packed storage is allocated for every dimension and padded point before block access"
     )]
+    /// Return the packed coordinate block for one dimension.
     fn block(&self, dimension_index: usize, padded_point_count: usize) -> &[f32] {
         let start = dimension_index * padded_point_count;
         let end = start + padded_point_count;
@@ -60,10 +68,15 @@ impl PackedSoaStorage {
 /// Aligned Structure of Arrays packing for a selected dense point batch.
 #[derive(Debug)]
 pub(crate) struct DensePointView<'a> {
+    /// Aligned Structure-of-Arrays storage for selected points.
     storage: PackedSoaStorage,
+    /// Number of original points represented by the view.
     point_count: usize,
+    /// Lane-padded number of points in every coordinate block.
     padded_point_count: usize,
+    /// Number of coordinates in every packed point.
     dimension: Dimension,
+    /// Binds the view lifetime to the source matrix values.
     _marker: std::marker::PhantomData<&'a [f32]>,
 }
 
@@ -158,6 +171,7 @@ impl<'a> DensePointView<'a> {
     }
 }
 
+/// Round a point count up to the SIMD lane width.
 pub(super) const fn padded_point_count(point_count: usize) -> usize {
     point_count.next_multiple_of(MAX_SIMD_LANES)
 }
