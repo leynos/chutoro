@@ -113,9 +113,7 @@ impl CpuHnsw {
         }
 
         let mut heap = BinaryHeap::with_capacity(connection_limit);
-        for (index, id) in candidates.into_iter().enumerate() {
-            let sequence = sequences[index];
-            let distance = distances[index];
+        for ((id, sequence), distance) in candidates.into_iter().zip(sequences).zip(distances) {
             heap.push(RankedNeighbour::new(id, distance, sequence));
             if heap.len() > connection_limit {
                 heap.pop();

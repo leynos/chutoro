@@ -427,6 +427,12 @@ Replace the construction module's wildcard parent import with explicit module
 dependencies, preserving build behaviour while exposing the actual API
 boundary. Verify construction tests, formatting, and scoped Clippy.
 
+## Stage 3b: HNSW Trim Scoring
+
+Zip validated trim candidates, insertion sequences, and distances rather than
+indexing paired vectors. Preserve ranked-neighbour ordering for valid matching
+inputs. Verify trimming tests, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
