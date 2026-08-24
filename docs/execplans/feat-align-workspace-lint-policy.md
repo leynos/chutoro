@@ -485,6 +485,12 @@ selector types. Preserve reciprocal filtering and fallback selection behaviour
 while making the inferred lifetime relation explicit. Verify HNSW tests,
 formatting, and scoped Clippy.
 
+## Stage 3k: HNSW Reverse-Edge Eviction Naming
+
+Name the deferred-scrub origin distinctly from its optional staging slot.
+Preserve full-list eviction and deferred cleanup behaviour while making the
+source of the scrub explicit. Verify HNSW tests, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
