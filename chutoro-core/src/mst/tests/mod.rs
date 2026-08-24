@@ -172,3 +172,4 @@ fn undirected_edges_are_canonicalized_and_deduplicated() {
 }
 
 mod forests;
+mod kani_model_equivalence;

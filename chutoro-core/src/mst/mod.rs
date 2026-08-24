@@ -6,7 +6,7 @@
 
 mod union_find;
 
-#[cfg(kani)]
+#[cfg(any(kani, test))]
 mod kani_model;
 /// Errors returned while computing a minimum spanning tree/forest.
 #[derive(Clone, Debug, thiserror::Error, PartialEq)]
@@ -170,13 +170,6 @@ pub struct MinimumSpanningForest {
     component_count: usize,
 }
 
-#[cfg(kani)]
-const EMPTY_MST_EDGE: MstEdge = MstEdge {
-    source: 0,
-    target: 0,
-    weight: 0.0,
-    sequence: 0,
-};
 impl MinimumSpanningForest {
     /// Returns the MST/forest edges.
     #[must_use]
