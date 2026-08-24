@@ -261,3 +261,47 @@ fn eviction_scrubs_orphaned_forward_edge(
 }
 
 mod deferred_scrub;
+
+/// Regression test: replacing a neighbour whose only base-layer edge was to
+/// the origin must not leave a dangling reverse edge.
+///
+/// Removing node 1 from node 0's list isolates node 1 at the base layer, so
+/// the connectivity healer links it back to the entry node, which is node 0
+/// itself. Removed-edge reconciliation therefore has to run after node 0's
+/// neighbour list is written back; healing against the stale pre-write-back
+/// list is clobbered by the write-back, leaving `1 -> 0` without `0 -> 1`.
+#[rstest]
+fn isolation_replacement_keeps_bidirectionality(
+    params_two_connections: HnswParams,
+) -> Result<(), HnswError> {
+    let max_connections = params_two_connections.max_connections();
+    let mut graph = Graph::with_capacity(params_two_connections, 3);
+
+    insert_node(&mut graph, 0, 0, 0)?;
+    insert_node(&mut graph, 1, 0, 1)?;
+    insert_node(&mut graph, 2, 0, 2)?;
+
+    add_edge_if_missing(&mut graph, 0, 1, 0);
+    add_edge_if_missing(&mut graph, 1, 0, 0);
+
+    // Node 0 replaces neighbour 1 with neighbour 2, isolating node 1.
+    let update = build_update(0, 0, vec![2], max_connections);
+    let new_node = NewNodeContext { id: 2, level: 0 };
+
+    let mut applicator = CommitApplicator::new(&mut graph);
+    let (reciprocated, _) =
+        applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
+    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+
+    for node_id in 0..3usize {
+        let node = graph.node(node_id).expect("node exists");
+        for &neighbour in node.neighbours(0) {
+            let other = graph.node(neighbour).expect("neighbour exists");
+            assert!(
+                other.neighbours(0).contains(&node_id),
+                "edge {node_id}->{neighbour} has no reverse edge",
+            );
+        }
+    }
+    Ok(())
+}

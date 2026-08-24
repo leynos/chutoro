@@ -1,6 +1,6 @@
 //! Bidirectional-link Kani harnesses for bounded HNSW graphs.
 
-use super::{add_bidirectional_edge, push_if_absent};
+use super::add_bidirectional_edge;
 use crate::hnsw::{
     graph::{EdgeContext, Graph, NodeContext},
     insert::{
