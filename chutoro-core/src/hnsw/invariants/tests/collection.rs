@@ -148,8 +148,7 @@ fn self_loop_is_detectable() {
     // Verify the self-loop exists
     let has_self_loop = graph
         .node(0)
-        .map(|node| node.neighbours(0).contains(&0))
-        .unwrap_or(false);
+        .is_some_and(|node| node.neighbours(0).contains(&0));
     assert!(has_self_loop, "self-loop should be present for detection");
 }
 
@@ -256,6 +255,10 @@ fn duplicate_neighbour_is_detectable() {
 #[case::three_nodes_varying_levels(vec![1, 0, 2], 2)]
 fn entry_point_has_max_level(#[case] levels: Vec<usize>, #[case] expected_entry_level: usize) {
     let max_level = *levels.iter().max().unwrap_or(&0);
+    let first_level = levels
+        .first()
+        .copied()
+        .expect("test cases require an initial level");
     let params = HnswParams::new(4, 8)
         .expect("params")
         .with_max_level(max_level.saturating_add(1));
@@ -265,7 +268,7 @@ fn entry_point_has_max_level(#[case] levels: Vec<usize>, #[case] expected_entry_
     graph
         .insert_first(NodeContext {
             node: 0,
-            level: levels[0],
+            level: first_level,
             sequence: 0,
         })
         .expect("insert first");

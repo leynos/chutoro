@@ -27,11 +27,19 @@ impl DataSource for Dummy {
     fn len(&self) -> usize {
         self.0.len()
     }
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dummy"
     }
     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-        Ok((self.0[i] - self.0[j]).abs())
+        let left = self
+            .0
+            .get(i)
+            .ok_or(DataSourceError::OutOfBounds { index: i })?;
+        let right = self
+            .0
+            .get(j)
+            .ok_or(DataSourceError::OutOfBounds { index: j })?;
+        Ok(left.mul_add(1.0, std::ops::Neg::neg(*right)).abs())
     }
 }
 
