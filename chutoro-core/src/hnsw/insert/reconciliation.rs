@@ -17,13 +17,17 @@ use super::{
     types::{DeferredScrub, UpdateContext},
 };
 
+/// Reconciles forward and reverse edges while committing one insertion.
 #[derive(Debug)]
 pub(super) struct EdgeReconciler<'graph> {
+    /// Graph mutated during insertion reconciliation.
     pub(super) graph: &'graph mut Graph,
+    /// Edge removals deferred until all staged updates complete.
     deferred_scrubs: Vec<DeferredScrub>,
 }
 
 impl<'graph> EdgeReconciler<'graph> {
+    /// Bind reconciliation state to a mutable graph.
     pub(super) const fn new(graph: &'graph mut Graph) -> Self {
         Self {
             graph,
@@ -31,14 +35,17 @@ impl<'graph> EdgeReconciler<'graph> {
         }
     }
 
+    /// Return the graph for follow-up mutation by the commit executor.
     pub(super) const fn graph_mut(&mut self) -> &mut Graph {
         self.graph
     }
 
+    /// Return a shared graph view while reconciling edges.
     pub(super) const fn graph(&self) -> &Graph {
         self.graph
     }
 
+    /// Remove reverse links for neighbours dropped from an updated node.
     pub(super) fn reconcile_removed_edges(
         &mut self,
         ctx: &UpdateContext,
@@ -78,10 +85,12 @@ impl<'graph> EdgeReconciler<'graph> {
         }
     }
 
+    /// Retain only added neighbours that accept a reverse link.
     pub(super) fn reconcile_added_edges(&mut self, ctx: &UpdateContext, next: &mut Vec<usize>) {
         next.retain(|&target| self.ensure_reverse_edge(ctx, target));
     }
 
+    /// Add a reverse link to `target`, evicting a furthest neighbour if needed.
     pub(super) fn ensure_reverse_edge(&mut self, ctx: &UpdateContext, target: usize) -> bool {
         let Some(target_node) = self.graph.node_mut(target) else {
             return false;
@@ -178,6 +187,7 @@ impl<'graph> EdgeReconciler<'graph> {
         neighbour_was_removed && is_base_layer && is_now_isolated
     }
 
+    /// Remove an orphaned forward edge and heal base-layer isolation.
     pub(super) fn remove_forward_edge_from(&mut self, ctx: &UpdateContext, target: usize) {
         let Some(origin_node) = self.graph.node_mut(ctx.origin) else {
             return;

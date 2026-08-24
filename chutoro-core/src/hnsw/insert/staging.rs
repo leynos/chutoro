@@ -16,16 +16,20 @@ use crate::hnsw::{
 use super::limits::compute_connection_limit;
 use super::types::{LayerProcessingOutcome, StagedUpdate, TrimJob, TrimWork};
 
+/// Stages per-level adjacency changes for one graph insertion.
 #[derive(Debug)]
 pub(super) struct InsertionStager<'graph> {
+    /// Graph whose slots, nodes, and sequences are consulted during staging.
     pub(super) graph: &'graph Graph,
 }
 
 impl<'graph> InsertionStager<'graph> {
+    /// Bind a stager to the graph that will receive an insertion.
     pub(super) const fn new(graph: &'graph Graph) -> Self {
         Self { graph }
     }
 
+    /// Reject a new-node identifier without a vacant graph slot.
     pub(super) fn ensure_slot_available(&self, node: usize) -> Result<(), HnswError> {
         if !self.graph.has_slot(node) {
             return Err(HnswError::InvalidParameters {
@@ -138,6 +142,7 @@ impl<'graph> InsertionStager<'graph> {
         Ok((updates, trim_jobs))
     }
 
+    /// Remove repeated neighbours from each new-node level list.
     pub(super) fn dedupe_new_node_lists(levels: &mut [Vec<usize>]) {
         for neighbours in levels {
             let mut seen = HashSet::new();
@@ -145,11 +150,13 @@ impl<'graph> InsertionStager<'graph> {
         }
     }
 
+    /// Sort and deduplicate an existing node's staged candidates.
     pub(super) fn dedupe_candidates(candidates: &mut Vec<usize>) {
         candidates.sort_unstable();
         candidates.dedup();
     }
 
+    /// Return the deterministic sequence for a staged candidate.
     pub(super) fn sequence_for_candidate(
         &self,
         candidate: usize,
@@ -168,6 +175,7 @@ impl<'graph> InsertionStager<'graph> {
             })
     }
 
+    /// Stage one reciprocal neighbour update and mark possible trimming.
     #[expect(
         clippy::too_many_arguments,
         reason = "Staging shares tightly-coupled accumulators; refactoring into a tracker is follow-up work"
@@ -228,6 +236,7 @@ impl<'graph> InsertionStager<'graph> {
     }
 }
 
+/// Move the newly inserted node to the front of candidate order.
 #[inline]
 pub(super) fn prioritise_new_node(new_node: usize, candidates: &mut [usize]) {
     if let Some(pos) = candidates

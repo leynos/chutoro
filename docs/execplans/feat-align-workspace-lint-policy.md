@@ -731,6 +731,13 @@ returns the evicted key while the shard lock remains held. Preserve shard
 selection, poison recovery, entry removal, and eviction metrics. Verify the
 cache suite, workspace formatting, type checking, linting, and tests.
 
+## Stage 3aa: HNSW Insertion Staging Documentation
+
+Document insertion staging and reciprocal-edge reconciliation internals without
+changing candidate ordering, trimming decisions, or connectivity healing.
+Verify the insertion test module and scoped Clippy. The private-item diagnostic
+count falls from 100 to 81 after this batch.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
