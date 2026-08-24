@@ -16,10 +16,31 @@ use super::types::GraphMetadata;
 pub(super) fn compute_node_degrees(node_count: usize, edges: &[CandidateEdge]) -> Vec<usize> {
     let mut degrees = vec![0usize; node_count];
     for edge in edges {
-        degrees[edge.source()] += 1;
-        degrees[edge.target()] += 1;
+        if let Some(source_degree) = degrees.get_mut(edge.source()) {
+            *source_degree += 1;
+        }
+        if let Some(target_degree) = degrees.get_mut(edge.target()) {
+            *target_degree += 1;
+        }
     }
     degrees
+}
+
+/// Finds a disjoint-set root and compresses the traversed path.
+fn find_root(parent: &mut [usize], start: usize) -> Option<usize> {
+    let mut root = start;
+    while parent.get(root).is_some_and(|&next| next != root) {
+        root = *parent.get(root)?;
+    }
+
+    let mut node = start;
+    while parent.get(node).is_some_and(|&next| next != root) {
+        let next = *parent.get(node)?;
+        *parent.get_mut(node)? = root;
+        node = next;
+    }
+
+    parent.get(root).map(|_| root)
 }
 
 /// Counts connected components using union-find with path compression.
@@ -32,29 +53,22 @@ pub(super) fn count_connected_components(node_count: usize, edges: &[CandidateEd
 
     let mut parent: Vec<usize> = (0..node_count).collect();
 
-    fn find(parent: &mut [usize], mut node: usize) -> usize {
-        let mut root = node;
-        while parent[root] != root {
-            root = parent[root];
-        }
-        while parent[node] != root {
-            let next = parent[node];
-            parent[node] = root;
-            node = next;
-        }
-        root
-    }
-
     for edge in edges {
-        let root_s = find(&mut parent, edge.source());
-        let root_t = find(&mut parent, edge.target());
+        let (Some(root_s), Some(root_t)) = (
+            find_root(&mut parent, edge.source()),
+            find_root(&mut parent, edge.target()),
+        ) else {
+            continue;
+        };
         if root_s != root_t {
-            parent[root_t] = root_s;
+            if let Some(target_parent) = parent.get_mut(root_t) {
+                *target_parent = root_s;
+            }
         }
     }
 
     (0..node_count)
-        .filter(|&i| find(&mut parent, i) == i)
+        .filter(|&index| find_root(&mut parent, index).is_some_and(|root| root == index))
         .count()
 }
 
@@ -68,8 +82,9 @@ pub(super) fn degree_ceiling_for_metadata(metadata: &GraphMetadata) -> usize {
                 4
             }
         }
-        GraphMetadata::ScaleFree { node_count, .. } => node_count.saturating_sub(1),
-        GraphMetadata::Random { node_count, .. } => node_count.saturating_sub(1),
+        GraphMetadata::ScaleFree { node_count, .. } | GraphMetadata::Random { node_count, .. } => {
+            node_count.saturating_sub(1)
+        }
         GraphMetadata::Disconnected {
             component_sizes, ..
         } => component_sizes
@@ -85,8 +100,12 @@ pub(super) fn degree_ceiling_for_metadata(metadata: &GraphMetadata) -> usize {
 fn build_adjacency_lists(node_count: usize, edges: &[CandidateEdge]) -> Vec<Vec<(usize, f32)>> {
     let mut adjacency: Vec<Vec<(usize, f32)>> = vec![Vec::new(); node_count];
     for edge in edges {
-        adjacency[edge.source()].push((edge.target(), edge.distance()));
-        adjacency[edge.target()].push((edge.source(), edge.distance()));
+        if let Some(source_neighbours) = adjacency.get_mut(edge.source()) {
+            source_neighbours.push((edge.target(), edge.distance()));
+        }
+        if let Some(target_neighbours) = adjacency.get_mut(edge.target()) {
+            target_neighbours.push((edge.source(), edge.distance()));
+        }
     }
     adjacency
 }
@@ -119,7 +138,10 @@ fn count_symmetric_relationships(top_k_neighbours: &[HashSet<usize>]) -> (usize,
     for (node, neighbours) in top_k_neighbours.iter().enumerate() {
         for &neighbour in neighbours {
             total_relationships += 1;
-            if top_k_neighbours[neighbour].contains(&node) {
+            if top_k_neighbours
+                .get(neighbour)
+                .is_some_and(|reverse_neighbours| reverse_neighbours.contains(&node))
+            {
                 symmetric_count += 1;
             }
         }
@@ -142,7 +164,9 @@ pub(super) fn compute_rnn_score(node_count: usize, edges: &[CandidateEdge], k: u
     if total_relationships == 0 {
         1.0
     } else {
-        symmetric_count as f64 / total_relationships as f64
+        let numerator = f64::from(u32::try_from(symmetric_count).unwrap_or(u32::MAX));
+        let denominator = f64::from(u32::try_from(total_relationships).unwrap_or(u32::MAX));
+        std::ops::Div::div(numerator, denominator)
     }
 }
 
@@ -151,12 +175,18 @@ pub(super) fn median(values: &mut [f64]) -> f64 {
     if values.is_empty() {
         return 0.0;
     }
-    values.sort_by(|a, b| a.total_cmp(b));
-    let mid = values.len() / 2;
+    values.sort_by(f64::total_cmp);
+    let mid = values.len().checked_div(2).unwrap_or(0);
     if values.len().is_multiple_of(2) {
-        (values[mid - 1] + values[mid]) / 2.0
+        let upper = values.get(mid).copied().unwrap_or(0.0);
+        let lower = mid
+            .checked_sub(1)
+            .and_then(|index| values.get(index))
+            .copied()
+            .unwrap_or(upper);
+        f64::midpoint(lower, upper)
     } else {
-        values[mid]
+        values.get(mid).copied().unwrap_or(0.0)
     }
 }
 
@@ -215,25 +245,25 @@ mod tests {
 
     #[test]
     fn compute_rnn_score_empty_graph() {
-        assert_eq!(compute_rnn_score(5, &[], 5), 1.0);
+        assert!(compute_rnn_score(5, &[], 5).total_cmp(&1.0).is_eq());
     }
 
     #[test]
     fn compute_rnn_score_k_zero_is_trivially_one() {
         let edges = vec![CandidateEdge::new(0, 1, 1.0, 0)];
-        assert_eq!(compute_rnn_score(2, &edges, 0), 1.0);
+        assert!(compute_rnn_score(2, &edges, 0).total_cmp(&1.0).is_eq());
     }
 
     #[test]
     fn compute_rnn_score_zero_nodes_is_trivially_one() {
         let edges: Vec<CandidateEdge> = Vec::new();
-        assert_eq!(compute_rnn_score(0, &edges, 5), 1.0);
+        assert!(compute_rnn_score(0, &edges, 5).total_cmp(&1.0).is_eq());
     }
 
     #[test]
     fn compute_rnn_score_symmetric_pair() {
         let edges = vec![CandidateEdge::new(0, 1, 1.0, 0)];
-        assert_eq!(compute_rnn_score(2, &edges, 5), 1.0);
+        assert!(compute_rnn_score(2, &edges, 5).total_cmp(&1.0).is_eq());
     }
 
     #[test]
@@ -244,25 +274,25 @@ mod tests {
             CandidateEdge::new(0, 3, 3.0, 2),
         ];
         let score = compute_rnn_score(4, &edges, 2);
-        assert!((score - 0.8).abs() < 0.01);
+        assert!(score.total_cmp(&0.8).is_eq());
     }
 
     #[test]
     fn median_even_count() {
         let mut values = vec![1.0, 3.0, 2.0, 4.0];
-        assert!((median(&mut values) - 2.5).abs() < f64::EPSILON);
+        assert!(median(&mut values).total_cmp(&2.5).is_eq());
     }
 
     #[test]
     fn median_odd_count() {
         let mut values = vec![3.0, 1.0, 2.0];
-        assert!((median(&mut values) - 2.0).abs() < f64::EPSILON);
+        assert!(median(&mut values).total_cmp(&2.0).is_eq());
     }
 
     #[test]
     fn median_empty_slice_returns_zero() {
         let mut values: [f64; 0] = [];
-        assert_eq!(median(&mut values), 0.0);
+        assert!(median(&mut values).total_cmp(&0.0).is_eq());
     }
 
     #[test]
