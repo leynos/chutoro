@@ -183,7 +183,14 @@ impl<'graph> InsertionStager<'graph> {
         initialised: &mut HashSet<(usize, usize)>,
         needs_trim: &mut HashSet<(usize, usize)>,
     ) -> Result<(), HnswError> {
-        new_node_neighbours[level_index].push(neighbour);
+        let new_node_level = new_node_neighbours.get_mut(level_index).ok_or_else(|| {
+            HnswError::GraphInvariantViolation {
+                message: format!(
+                    "insertion staging: new node {new_node} missing level {level_index}",
+                ),
+            }
+        })?;
+        new_node_level.push(neighbour);
 
         let key = (neighbour, level_index);
         if initialised.insert(key) {

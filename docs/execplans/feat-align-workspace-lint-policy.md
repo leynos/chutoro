@@ -491,6 +491,12 @@ Name the deferred-scrub origin distinctly from its optional staging slot.
 Preserve full-list eviction and deferred cleanup behaviour while making the
 source of the scrub explicit. Verify HNSW tests, formatting, and scoped Clippy.
 
+## Stage 3l: HNSW Staged Neighbour Levels
+
+Validate the staged new-node level before appending a neighbour. Preserve valid
+level ordering and report malformed plans through the existing graph-invariant
+error path. Verify HNSW tests, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
