@@ -557,6 +557,13 @@ session state management; callers continue to use the public constructor and
 recompute methods. Preserve valid-slot updates, metrics, and existing typed
 errors. Verify session tests, formatting, and scoped Clippy.
 
+## Stage 3u: Distance Integration Assertions
+
+Keep exact float-value assertions inside the distance integration suite; the
+helper is test-only and must use total ordering rather than arithmetic
+tolerances. Preserve each distance contract and the failure-specific error
+assertions. Verify the focused test target and Clippy invocation.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
