@@ -1902,12 +1902,14 @@ accelerator backend; requesting `GpuPreferred` continues to surface
 #13).
 
 `ClusteringResult` caches the number of unique clusters and exposes
-`try_from_assignments` so callers can surface non-contiguous identifiers
-instead of panicking. The helper returns a `NonContiguousClusterIds` enum to
-differentiate missing zero, gap, and overflow conditions. The CPU pipeline
-emits contiguous identifiers by construction, keeping the result surface stable
-while allowing future work to introduce explicit noise modelling or membership
-probabilities without breaking the identifier invariants.
+`try_from_assignments` as its public fallible constructor so callers can surface
+non-contiguous identifiers instead of panicking. The constructor returns a
+`NonContiguousClusterIds` enum to differentiate missing zero, gap, duplicate,
+and overflow conditions. The CPU pipeline emits contiguous identifiers by
+construction and may use the `pub(crate)` `from_assignments` convenience,
+keeping the result surface stable while allowing future work to introduce
+explicit noise modelling or membership probabilities without breaking the
+identifier invariants.
 
 ```
 

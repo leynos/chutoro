@@ -85,12 +85,104 @@ use chutoro_core::{
 #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
 #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
 #         Ok((a - b).abs())
-#     }
+# }
+```
+
+Sessions are CPU-only, so `ExecutionStrategy::GpuPreferred` is rejected during
+`build_session()`. Empty and undersized sources are accepted at construction
+time because session creation does not seed HNSW or run the batch bootstrap
+path.
+
+After `append`, newly inserted points have dirty core distances. Calling
+`core_distance(i)` before a recompute returns `None` for those points. Call
+`recompute_core_distances()` after append batches to compute core distances for
+new points and for existing points that appeared near those new points in HNSW.
+Treat these recomputed values as provisional until each point has at least
+`min_cluster_size` non-self neighbours. Before that neighbourhood saturation
+point, the fallback core-distance rule can still increase; monotonic
+non-increase only applies after saturation. Call
+`recompute_core_distances_full()` when the session must re-establish parity
+with a from-scratch batch core-distance pass; it searches every inserted point
+and is more expensive than the incremental path.
+
+Use `append(&[...])` to insert source indices that already exist in the backing
+`DataSource`. The session does not copy or extend source storage; the caller
+owns that storage contract. Each index is inserted into the live HNSW index
+through the edge-harvesting path, and harvested candidate edges are kept
+internally for the later refresh workflow.
+
+`append` is fail-fast with partial progress. If a slice contains `[0, 1, bad]`
+and the first two inserts succeed, those points remain in the session and their
+harvested edges remain pending when the error for `bad` is returned.
+Out-of-bounds indices surface as `ChutoroError::DataSource`; duplicate indices
+and HNSW structural failures surface as `ChutoroError::CpuHnswFailure`.
+
 #     fn metric_descriptor(&self) -> MetricDescriptor {
 #         MetricDescriptor::new("abs")
-#     }
 # }
-#
+```
+
+Sessions are CPU-only, so `ExecutionStrategy::GpuPreferred` is rejected during
+`build_session()`. Empty and undersized sources are accepted at construction
+time because session creation does not seed HNSW or run the batch bootstrap
+path.
+
+After `append`, newly inserted points have dirty core distances. Calling
+`core_distance(i)` before a recompute returns `None` for those points. Call
+`recompute_core_distances()` after append batches to compute core distances for
+new points and for existing points that appeared near those new points in HNSW.
+Treat these recomputed values as provisional until each point has at least
+`min_cluster_size` non-self neighbours. Before that neighbourhood saturation
+point, the fallback core-distance rule can still increase; monotonic
+non-increase only applies after saturation. Call
+`recompute_core_distances_full()` when the session must re-establish parity
+with a from-scratch batch core-distance pass; it searches every inserted point
+and is more expensive than the incremental path.
+
+Use `append(&[...])` to insert source indices that already exist in the backing
+`DataSource`. The session does not copy or extend source storage; the caller
+owns that storage contract. Each index is inserted into the live HNSW index
+through the edge-harvesting path, and harvested candidate edges are kept
+internally for the later refresh workflow.
+
+`append` is fail-fast with partial progress. If a slice contains `[0, 1, bad]`
+and the first two inserts succeed, those points remain in the session and their
+harvested edges remain pending when the error for `bad` is returned.
+Out-of-bounds indices surface as `ChutoroError::DataSource`; duplicate indices
+and HNSW structural failures surface as `ChutoroError::CpuHnswFailure`.
+
+# }
+```
+
+Sessions are CPU-only, so `ExecutionStrategy::GpuPreferred` is rejected during
+`build_session()`. Empty and undersized sources are accepted at construction
+time because session creation does not seed HNSW or run the batch bootstrap
+path.
+
+After `append`, newly inserted points have dirty core distances. Calling
+`core_distance(i)` before a recompute returns `None` for those points. Call
+`recompute_core_distances()` after append batches to compute core distances for
+new points and for existing points that appeared near those new points in HNSW.
+Treat these recomputed values as provisional until each point has at least
+`min_cluster_size` non-self neighbours. Before that neighbourhood saturation
+point, the fallback core-distance rule can still increase; monotonic
+non-increase only applies after saturation. Call
+`recompute_core_distances_full()` when the session must re-establish parity
+with a from-scratch batch core-distance pass; it searches every inserted point
+and is more expensive than the incremental path.
+
+Use `append(&[...])` to insert source indices that already exist in the backing
+`DataSource`. The session does not copy or extend source storage; the caller
+owns that storage contract. Each index is inserted into the live HNSW index
+through the edge-harvesting path, and harvested candidate edges are kept
+internally for the later refresh workflow.
+
+`append` is fail-fast with partial progress. If a slice contains `[0, 1, bad]`
+and the first two inserts succeed, those points remain in the session and their
+harvested edges remain pending when the error for `bad` is returned.
+Out-of-bounds indices surface as `ChutoroError::DataSource`; duplicate indices
+and HNSW structural failures surface as `ChutoroError::CpuHnswFailure`.
+
 # fn example(source: Arc<Dummy>) -> Result<(), chutoro_core::ChutoroError> {
 let mut session = ChutoroBuilder::new()
     .with_min_cluster_size(10)
@@ -214,12 +306,12 @@ For an end-to-end example, see the Rustdoc for
 ## Results and assignments
 
 `Chutoro::run` returns a `ClusteringResult`, which exposes the per-item
-`assignments` and a pre-computed `cluster_count`. The helper enforces that
-cluster identifiers start at `0` and are contiguous.
-`ClusteringResult::try_from_assignments` is available when validation of
-identifiers is required before constructing a result manually. Errors are
-reported via the `NonContiguousClusterIds` enum so actionable feedback can be
-surfaced upstream.
+`assignments` and a pre-computed `cluster_count`. To construct a result
+manually, use the public fallible `ClusteringResult::try_from_assignments`. It
+verifies that cluster identifiers start at `0` and are contiguous, reporting
+invalid input through the `NonContiguousClusterIds` enum so actionable feedback
+can be surfaced upstream. The panicking `from_assignments` convenience is
+internal to `chutoro-core`, where the CPU pipeline guarantees the precondition.
 
 Each assignment stores a `ClusterId`. The underlying value can be accessed with
 `get()` when serializing or displaying results.
