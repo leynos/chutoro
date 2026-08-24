@@ -28,7 +28,7 @@ fn caches_and_reuses_distances() {
         .expect("completing miss must succeed");
 
     match cache.begin_lookup(&metric, 0, 1) {
-        LookupOutcome::Hit(value) => assert_eq!(value, 0.5),
+        LookupOutcome::Hit(value) => assert!(value.total_cmp(&0.5).is_eq()),
         LookupOutcome::Miss(_) => panic!("value should have been cached"),
     }
 }
@@ -64,11 +64,11 @@ fn lru_eviction_discards_oldest_entry() {
         LookupOutcome::Miss(_) => {}
     }
     match cache.begin_lookup(&metric, 0, 2) {
-        LookupOutcome::Hit(value) => assert_eq!(value, 2.0),
+        LookupOutcome::Hit(value) => assert!(value.total_cmp(&2.0).is_eq()),
         LookupOutcome::Miss(_) => panic!("recent entry must be retained"),
     }
     match cache.begin_lookup(&metric, 0, 3) {
-        LookupOutcome::Hit(value) => assert_eq!(value, 3.0),
+        LookupOutcome::Hit(value) => assert!(value.total_cmp(&3.0).is_eq()),
         LookupOutcome::Miss(_) => panic!("new entry must be present"),
     }
 }
@@ -110,8 +110,8 @@ fn normalizes_pair_order() {
         .expect("completing miss must succeed");
 
     match cache.begin_lookup(&metric, 3, 7) {
-        LookupOutcome::Hit(value) => assert_eq!(value, 1.23),
-        _ => panic!("normalized (a,b) must hit for (b,a)"),
+        LookupOutcome::Hit(value) => assert!(value.total_cmp(&1.23).is_eq()),
+        LookupOutcome::Miss(_) => panic!("normalized (a,b) must hit for (b,a)"),
     }
 }
 
