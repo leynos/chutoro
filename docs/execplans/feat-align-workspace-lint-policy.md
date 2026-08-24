@@ -135,10 +135,14 @@ keeps local editor feedback aligned with commit gates.
       for unavoidable Criterion expansion diagnostics.
 - [ ] Add and satisfy `missing_docs_in_private_items = "deny"` without
       weakening the root lint policy.
+- [x] 2026-08-24: Replaced the `chutoro-cli` whole-crate filesystem exemption
+      with the user-path command boundary and its two `cli::tests` fixture
+      modules. `make lint` passes with Whitaker enforcing every other CLI
+      module.
 - [ ] Narrow Whitaker filesystem exclusions to the ambient boundaries in
-      `chutoro-cli`, `chutoro-providers-dense`, `chutoro-test-support` and
-      `chutoro-benches`; retain only separately compiled gate binaries and
-      integration-test crates whose ambient fixture staging is intentional.
+      `chutoro-providers-dense`, `chutoro-test-support` and `chutoro-benches`;
+      retain only separately compiled gate binaries and integration-test
+      crates whose ambient fixture staging is intentional.
 - [ ] Document the exception model, run final gates and CodeRabbit review,
       then update the existing draft pull request.
 

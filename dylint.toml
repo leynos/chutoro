@@ -1,6 +1,15 @@
 # Configuration for the Whitaker Dylint suite (see `make lint-whitaker`).
 
 [no_std_fs_operations]
+excluded_paths = [
+    # The command module opens the input path supplied by the user. This is
+    # the CLI's intentional ambient boundary; provider reader constructors
+    # remain capability-clean.
+    "chutoro_cli::cli::commands",
+    # These test-only modules stage CLI inputs as real files for command tests.
+    "chutoro_cli::cli::tests::test_helpers",
+    "chutoro_cli::cli::tests::test_fixtures",
+]
 excluded_crates = [
     # Benchmark harness: downloads, caches, and reads benchmark datasets
     # (for example MNIST) from ambient cache directories and writes
@@ -22,8 +31,4 @@ excluded_crates = [
     # constructor whose contract is opening a caller-supplied ambient
     # path; `try_from_parquet_reader` is the capability-clean surface.
     "chutoro_providers_dense",
-    # Command-line interface: opens input files at paths supplied by the
-    # user on the command line, the ambient contract of a CLI; its test
-    # fixtures stage matching files in ambient temp directories.
-    "chutoro_cli",
 ]
