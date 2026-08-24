@@ -20,8 +20,6 @@ mod types;
 
 pub(super) use executor::{InsertionExecutor, TrimJob, TrimResult};
 pub(super) use planner::{InsertionPlanner, PlanningInputs};
-#[cfg(kani)]
-pub(crate) use types::{FinalisedUpdate, NewNodeContext, StagedUpdate};
 
 use crate::hnsw::types::{CandidateEdge, InsertionPlan};
 
@@ -139,124 +137,11 @@ fn assume_node_has_level(graph: &crate::hnsw::graph::Graph, node_id: usize, leve
     debug_assert!(neighbours_deduped, "Kani neighbours must be deduplicated",);
     kani::assume(neighbours_deduped);
 }
-
-/// Validates that the new node exists, exposes the level, and has deduplicated
-/// neighbours at that level.
-#[cfg(kani)]
-fn validate_new_node_for_kani(graph: &crate::hnsw::graph::Graph, new_node: &types::NewNodeContext) {
-    assume_node_has_level(graph, new_node.id, new_node.level);
-}
-
-/// Validates the origin node state, neighbour list structure, and target nodes
-/// for commit-path updates.
-#[cfg(kani)]
-fn validate_update_for_kani(
-    graph: &crate::hnsw::graph::Graph,
-    update: &types::FinalisedUpdate,
-    max_connections: usize,
-) {
-    let (staged, neighbours) = update;
-    assume_node_has_level(graph, staged.node, staged.ctx.level);
-
-    let deduped = is_deduped(neighbours.as_slice());
-    debug_assert!(
-        deduped,
-        "Kani commit update neighbour list must be deduplicated"
-    );
-    kani::assume(deduped);
-
-    let no_self_loops = !neighbours.contains(&staged.node);
-    debug_assert!(
-        no_self_loops,
-        "Kani commit update neighbours must not contain the origin"
-    );
-    kani::assume(no_self_loops);
-
-    let limit = limits::compute_connection_limit(staged.ctx.level, max_connections);
-    let within_limit = neighbours.len() <= limit;
-    debug_assert!(
-        within_limit,
-        "Kani commit update neighbours must respect connection limits"
-    );
-    kani::assume(within_limit);
-
-    let mut targets_exist = true;
-    let mut targets_level_valid = true;
-    for &id in neighbours {
-        let candidate = graph.node(id);
-        let exists = candidate.is_some();
-        targets_exist &= exists;
-        let level_valid = candidate
-            .map(|node| staged.ctx.level < node.level_count())
-            .unwrap_or(false);
-        targets_level_valid &= level_valid;
-    }
-    debug_assert!(
-        targets_exist,
-        "Kani commit update neighbours must exist in the graph"
-    );
-    kani::assume(targets_exist);
-
-    debug_assert!(
-        targets_level_valid,
-        "Kani commit update neighbours must expose the requested level"
-    );
-    kani::assume(targets_level_valid);
-}
-
-/// Applies the full commit-path update sequence for Kani harnesses.
-///
-/// This helper drives the same reconciliation and deferred scrub logic used in
-/// production by calling [`CommitApplicator::apply_neighbour_updates`] and
-/// [`CommitApplicator::apply_new_node_neighbours`]. It constrains inputs to
-/// match production preconditions so Kani explores valid states.
-#[cfg(kani)]
-pub(crate) fn apply_commit_updates_for_kani(
-    graph: &mut crate::hnsw::graph::Graph,
-    max_connections: usize,
-    new_node: types::NewNodeContext,
-    updates: Vec<types::FinalisedUpdate>,
-) -> Result<(), crate::hnsw::error::HnswError> {
-    validate_new_node_for_kani(graph, &new_node);
-
-    for update in &updates {
-        validate_update_for_kani(graph, update, max_connections);
-    }
-
-    let mut applicator = commit::CommitApplicator::new(graph);
-    let (reciprocated, _touched) =
-        applicator.apply_neighbour_updates(updates, max_connections, new_node)?;
-    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
-
-    Ok(())
-}
-
 /// Applies reconciliation logic to a single update for Kani harnesses.
 ///
-/// This helper mirrors the production commit flow (removed-edge reconciliation,
-/// added-edge reconciliation, list write-back, and deferred scrubs) while
+/// This helper mirrors the production commit flow (added-edge reconciliation,
+/// list write-back, removed-edge reconciliation, and deferred scrubs) while
 /// keeping the setup compact for bounded verification.
-///
-/// # Examples
-/// ```rust,ignore
-/// use crate::hnsw::{
-///     graph::{Graph, NodeContext},
-///     insert::{apply_reconciled_update_for_kani, KaniUpdateContext},
-///     params::HnswParams,
-/// };
-///
-/// let params = HnswParams::new(2, 2).expect("params must be valid");
-/// let mut graph = Graph::with_capacity(params, 2);
-/// graph
-///     .insert_first(NodeContext { node: 0, level: 0, sequence: 0 })
-///     .expect("insert node 0");
-/// graph
-///     .attach_node(NodeContext { node: 1, level: 0, sequence: 1 })
-///     .expect("attach node 1");
-/// let ctx = KaniUpdateContext::new(0, 0, 2);
-/// let mut next = vec![1];
-/// apply_reconciled_update_for_kani(&mut graph, ctx, &mut next);
-/// ```
 #[cfg(kani)]
 pub(crate) fn apply_reconciled_update_for_kani(
     graph: &mut crate::hnsw::graph::Graph,

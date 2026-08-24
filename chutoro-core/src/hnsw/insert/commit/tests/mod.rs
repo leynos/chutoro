@@ -172,6 +172,35 @@ fn params_one_connection() -> Result<HnswParams, HnswError> {
     HnswParams::new(1, 4)
 }
 
+/// Asserts that every edge in the graph has its reverse edge at every level.
+fn assert_graph_bidirectional(graph: &Graph, node_count: usize) {
+    for node_id in 0..node_count {
+        let Some(node) = graph.node(node_id) else {
+            panic!("node {node_id} should exist");
+        };
+        for level in 0..node.level_count() {
+            assert_level_edges_reciprocated(graph, node_id, node.neighbours(level), level);
+        }
+    }
+}
+
+/// Asserts that each listed neighbour links back to `node_id` at `level`.
+fn assert_level_edges_reciprocated(
+    graph: &Graph,
+    node_id: usize,
+    neighbours: &[usize],
+    level: usize,
+) {
+    for &neighbour in neighbours {
+        let Some(other) = graph.node(neighbour) else {
+            panic!("neighbour {neighbour} should exist");
+        };
+        assert!(
+            level < other.level_count() && other.neighbours(level).contains(&node_id),
+            "edge {node_id}->{neighbour} at level {level} has no reverse edge",
+        );
+    }
+}
 fn assert_has_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
     let Some(node) = graph.node(origin) else {
         panic!("node {origin} should exist");
