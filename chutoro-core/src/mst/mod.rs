@@ -282,7 +282,11 @@ fn prepare_edge_list<'a>(
 
     edge_list.par_sort_unstable();
     edge_list.dedup_by(|left, right| {
-        left.weight == right.weight && left.source == right.source && left.target == right.target
+        matches!(
+            left.weight.partial_cmp(&right.weight),
+            Some(Ordering::Equal)
+        ) && left.source == right.source
+            && left.target == right.target
     });
     Ok(edge_list)
 }
@@ -307,15 +311,12 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
     let union_find = ConcurrentUnionFind::new(node_count);
     let mut forest_edges = Vec::with_capacity(node_count.saturating_sub(1));
 
-    let mut cursor = 0;
-    while cursor < edge_list.len() {
-        let weight = edge_list[cursor].weight;
-        let mut next = cursor.saturating_add(1);
-        while next < edge_list.len() && edge_list[next].weight == weight {
-            next = next.saturating_add(1);
-        }
-
-        let group = &edge_list[cursor..next];
+    for group in edge_list.chunk_by(|left, right| {
+        matches!(
+            left.weight.partial_cmp(&right.weight),
+            Some(Ordering::Equal)
+        )
+    }) {
         let accepted = process_weight_group(group, &union_find)?;
 
         forest_edges.extend(accepted);
@@ -323,8 +324,6 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
         if is_mst_complete(node_count, &union_find, &forest_edges) {
             break;
         }
-
-        cursor = next;
     }
 
     forest_edges.sort_unstable();

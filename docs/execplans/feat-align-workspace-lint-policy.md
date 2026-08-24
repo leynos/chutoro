@@ -541,6 +541,14 @@ and callers continue to compose through `try_union`. Preserve lock ordering,
 path halving, and invariant-error reporting. Verify MST tests, formatting, and
 scoped Clippy.
 
+## Stage 3s: MST Weight Groups
+
+Group adjacent finite edge weights with `partial_cmp` and slice grouping rather
+than direct float equality and manually indexed ranges. Preserve the equality
+semantics for signed zero, the canonical deduplication rule, sorted-group
+order, and early-completion behaviour. Verify MST tests, formatting, and scoped
+Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
