@@ -28,6 +28,7 @@ use crate::HnswParams;
 /// ```
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SessionRefreshPolicy {
+    /// Optional append count that requests an automatic refresh.
     refresh_every_n: Option<NonZeroUsize>,
 }
 
@@ -97,12 +98,16 @@ impl SessionRefreshPolicy {
 /// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionConfig {
+    /// Minimum membership required for a retained cluster.
     min_cluster_size: NonZeroUsize,
+    /// HNSW construction and search parameters.
     hnsw_params: HnswParams,
+    /// Policy controlling when a refresh is requested.
     refresh_policy: SessionRefreshPolicy,
 }
 
 impl SessionConfig {
+    /// Combine already-validated clustering, index, and refresh settings.
     pub(crate) const fn new(
         min_cluster_size: NonZeroUsize,
         hnsw_params: HnswParams,

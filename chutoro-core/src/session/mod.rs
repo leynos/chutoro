@@ -84,17 +84,29 @@ pub use config::{SessionConfig, SessionRefreshPolicy};
 /// ```
 #[derive(Debug)]
 pub struct ClusteringSession<D: DataSource + Send + Sync> {
+    /// Validated clustering and refresh configuration.
     config: SessionConfig,
+    /// Incrementally maintained nearest-neighbour index.
     index: CpuHnsw,
+    /// Core-distance value for each appended point.
     core_distances: Vec<f32>,
+    /// Marks core-distance slots that require recomputation.
     dirty_core_distances: Vec<bool>,
+    /// Reserved MST edges for a future refresh snapshot.
     _mst_edges: Vec<MstEdge>,
+    /// Reserved historical candidate edges for a future refresh snapshot.
     _historical_edges: Vec<CandidateEdge>,
+    /// Candidate edges harvested since the prior refresh.
     pending_edges: Vec<CandidateEdge>,
+    /// Immutable labels published by a future refresh snapshot.
     _labels: Arc<Vec<usize>>,
+    /// Monotonic version of the published clustering snapshot.
     snapshot_version: u64,
+    /// Backing data source used by HNSW and clustering computations.
     source: Arc<D>,
+    /// Input length at the most recent refresh snapshot.
     _last_refresh_len: usize,
+    /// Monotonic clock used to measure optional session metrics.
     #[cfg(feature = "metrics")]
     clock: std::sync::Arc<dyn clock::MonotonicClock>,
 }
