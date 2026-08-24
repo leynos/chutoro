@@ -4,10 +4,22 @@
 //! backends. The algorithm parallelizes the global edge sort via Rayon and
 //! performs concurrent cycle checks using a striped-lock union-find.
 
+#[cfg(not(kani))]
 mod union_find;
 
 #[cfg(any(kani, test))]
 mod kani_model;
+
+use std::cmp::Ordering;
+
+#[cfg(not(kani))]
+use rayon::prelude::*;
+
+use crate::{CandidateEdge, EdgeHarvest};
+
+#[cfg(not(kani))]
+use self::union_find::ConcurrentUnionFind;
+
 /// Errors returned while computing a minimum spanning tree/forest.
 #[derive(Clone, Debug, thiserror::Error, PartialEq)]
 #[non_exhaustive]
@@ -260,6 +272,7 @@ const fn validate_and_canonicalize_edge(
     }))
 }
 
+#[cfg(not(kani))]
 /// Accept non-cycling edges from one equal-weight group deterministically.
 fn process_weight_group(
     group: &[MstEdge],
@@ -277,6 +290,7 @@ fn process_weight_group(
     Ok(accepted)
 }
 
+#[cfg(not(kani))]
 /// Report whether a forest contains the edge count of a spanning tree.
 fn is_mst_complete(
     node_count: usize,
@@ -286,6 +300,7 @@ fn is_mst_complete(
     union_find.components() == 1 && forest_edges.len() == node_count.saturating_sub(1)
 }
 
+#[cfg(not(kani))]
 /// Validate, canonicalise, sort, and deduplicate candidate edges.
 fn prepare_edge_list<'a>(
     edges: impl IntoIterator<Item = &'a CandidateEdge>,

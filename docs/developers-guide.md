@@ -470,6 +470,20 @@ production modules, the Makefile, or the Cargo dependency graph changes.
 `.github/workflows/nightly-kani.yml` workflow checks out `main` and runs the
 full suite only when its commit-recency gate permits it.
 
+
+### Installing Kani
+
+CI and local runs use kani-verifier 0.67.0. Install it with the
+`rust-prover-tools` pin (`prover-tools kani install`) or directly:
+
+```sh
+cargo install --locked kani-verifier --version 0.67.0
+cargo kani setup
+```
+
+The `kani-pr.yml` workflow installs the same pinned version, and the
+workflow contract test asserts the pin.
+
 The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
 `make kani`. The full tier remains the package-wide sweep across every
 declared harness, including the distance and HNSW invariant proofs that are

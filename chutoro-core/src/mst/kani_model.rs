@@ -34,10 +34,12 @@ pub(super) struct ModelForest {
 
 impl ModelForest {
     /// Returns the accepted forest edges in sorted order.
+    #[cfg(test)]
     #[rustfmt::skip]
     pub(super) fn edges(&self) -> &[MstEdge] { &self.edges[..self.edge_count] }
 
     /// Returns the number of connected components in the resulting forest.
+    #[cfg(test)]
     #[rustfmt::skip]
     pub(super) fn component_count(&self) -> usize { self.component_count }
 }

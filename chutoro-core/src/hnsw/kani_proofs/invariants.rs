@@ -32,6 +32,21 @@ fn setup_two_node_graph(params: HnswParams) -> Option<Graph> {
         kani::assert(false, "failed to attach node 1");
         return None;
     }
+
+    // Guard against vacuous proofs: a no-op constructor would leave the
+    // graph empty and every downstream invariant trivially satisfied.
+    kani::assert(
+        graph.node(0).is_some_and(|node| node.level_count() == 2),
+        "node 0 must exist with two levels after construction",
+    );
+    kani::assert(
+        graph.node(1).is_some_and(|node| node.level_count() == 2),
+        "node 1 must exist with two levels after construction",
+    );
+    kani::assert(
+        graph.entry().is_some_and(|entry| entry.node == 0),
+        "entry point must reference node 0 after construction",
+    );
     Some(graph)
 }
 

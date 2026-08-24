@@ -81,6 +81,12 @@ impl<'graph> EdgeReconciler<'graph> {
             return;
         }
 
+        tracing::debug!(
+            operation = "reconcile_removed_edges",
+            level = ctx.level,
+            isolated_count = isolated.len(),
+            "healing base connectivity for nodes isolated by removed edges"
+        );
         let mut healer = ConnectivityHealer::new(self.graph);
         for node in isolated {
             healer.ensure_base_connectivity(node, ctx.max_connections);
@@ -167,6 +173,11 @@ impl<'graph> EdgeReconciler<'graph> {
                 continue;
             }
 
+            tracing::debug!(
+                operation = "apply_deferred_scrubs",
+                level = scrub.level,
+                "scrubbing orphaned forward edge left by an eviction"
+            );
             let ctx = UpdateContext {
                 origin: scrub.origin,
                 level: scrub.level,
