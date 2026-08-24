@@ -7,10 +7,12 @@ use chutoro_core::{
     ExecutionStrategy, NonContiguousClusterIds,
 };
 #[cfg(feature = "cpu")]
-use chutoro_core::{HnswParams, estimate_peak_bytes, estimate_peak_bytes_for_hnsw_params};
+use chutoro_core::{
+    DistanceCacheConfig, HnswParams, estimate_peak_bytes, estimate_peak_bytes_for_hnsw_params,
+};
 use common::Dummy;
 use rstest::{fixture, rstest};
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 use tracing::Level;
 use tracing_subscriber::layer::SubscriberExt;
 
@@ -174,6 +176,44 @@ fn run_memory_limit_uses_builder_hnsw_params(dummy: Dummy) {
             estimated_bytes: actual_estimated_bytes,
             ..
         } if point_count == dummy.len() && actual_estimated_bytes == estimated_bytes
+    ));
+}
+
+#[cfg(feature = "cpu")]
+#[rstest]
+fn run_memory_limit_uses_configured_distance_cache_capacity(dummy: Dummy) {
+    let default_params = HnswParams::new(16, 64).expect("parameters must be valid");
+    let cache_capacity =
+        NonZeroUsize::new(DistanceCacheConfig::DEFAULT_MAX_ENTRIES.saturating_mul(2))
+            .expect("doubled default cache capacity must be non-zero");
+    let hnsw_params = default_params
+        .clone()
+        .with_distance_cache_max_entries(cache_capacity);
+    let default_estimate = estimate_peak_bytes_for_hnsw_params(dummy.len(), &default_params);
+    let parameter_aware_estimate = estimate_peak_bytes_for_hnsw_params(dummy.len(), &hnsw_params);
+    let max_bytes = parameter_aware_estimate - 1;
+    assert!(
+        max_bytes > default_estimate,
+        "the configured cache must increase the estimate beyond the default cache"
+    );
+
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(2)
+        .with_execution_strategy(ExecutionStrategy::CpuOnly)
+        .with_hnsw_params(hnsw_params)
+        .with_max_bytes(max_bytes)
+        .build()
+        .expect("configuration must be valid");
+
+    let error = chutoro
+        .run(&dummy)
+        .expect_err("parameter-aware memory limit must be enforced");
+    assert!(matches!(
+        error,
+        ChutoroError::MemoryLimitExceeded {
+            estimated_bytes,
+            ..
+        } if estimated_bytes == parameter_aware_estimate
     ));
 }
 

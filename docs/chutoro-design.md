@@ -2357,7 +2357,7 @@ memory that the CPU pipeline will require:
 ```text
 hnsw_adjacency     = n × (2 × M) × 8       (level-0 neighbour IDs)
 hnsw_node_overhead = n × 80                 (Node structs, Vec headers)
-distance_cache     = 1 048 576 × 80          (full cache capacity)
+distance_cache     = cache_entries × 80      (configured cache capacity)
 candidate_edges    = n × M × 32             (CandidateEdge structs)
 core_distances     = n × 4                  (f32 per point)
 mutual_edges       = n × M × 32             (recomputed edges)
@@ -2372,7 +2372,11 @@ derives `effective_ef_construction` as
 `min(ef_construction, max(point_count, max_connections))` and includes the
 construction-search state required by that bounded width. Retaining
 `max_connections` as the lower bound keeps the estimate aligned with the
-allocation made by the batch pipeline.
+allocation made by the batch pipeline. It also sets `cache_entries` from the
+configured `DistanceCacheConfig::max_entries` value, so enlarged or reduced
+distance caches are reflected in the guard. The legacy public
+`estimate_peak_bytes(n, M)` helper continues to use
+`DistanceCacheConfig::DEFAULT_MAX_ENTRIES` for compatibility.
 
 The 1.5× safety multiplier covers heap fragmentation, Rayon thread-local
 buffers, and transient allocations that are difficult to predict statically.
@@ -2398,11 +2402,13 @@ work, ensure at least 4 GiB of headroom above the estimate. The `--max-bytes`
 flag accepts human-readable suffixes: `--max-bytes 2G`, `--max-bytes 512M`, or
 plain byte counts.
 
-**Limitations.** The estimate assumes the default HNSW `M = 16` and
-`DistanceCacheConfig::DEFAULT_MAX_ENTRIES = 1 048 576`. Custom HNSW parameters
-or enlarged caches will shift actual memory usage. The formula does not account
-for the data source's own memory footprint (e.g., the in-memory Parquet column
-or text corpus), which must be added separately for a complete picture.
+**Limitations.** The table above assumes the default HNSW `M = 16` and
+`DistanceCacheConfig::DEFAULT_MAX_ENTRIES = 1 048 576`; the parameter-aware
+one-shot estimate instead uses the configured cache capacity. Custom HNSW
+parameters or enlarged caches will shift actual memory usage. The formula does
+not account for the data source's own memory footprint (e.g., the in-memory
+Parquet column or text corpus), which must be added separately for a complete
+picture.
 
 ### 11.5. Optional Gaussian clustering-quality tracking (roadmap 2.1.6)
 

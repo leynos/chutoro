@@ -17,10 +17,12 @@ const SAFETY_MULTIPLIER_NUMERATOR: u64 = 3;
 /// Denominator paired with the safety multiplier numerator.
 const SAFETY_MULTIPLIER_DENOMINATOR: u64 = 2;
 
-/// Default maximum distance cache entries.  Mirrors the value in
-/// `DistanceCacheConfig::DEFAULT_MAX_ENTRIES` but is duplicated here so the
-/// estimation module compiles without the `cpu` feature gate.
-const DEFAULT_CACHE_MAX_ENTRIES: u64 = 1_048_576;
+/// Default maximum distance-cache entries used by [`estimate_peak_bytes`].
+///
+/// This mirrors `DistanceCacheConfig::DEFAULT_MAX_ENTRIES` while allowing the
+/// legacy estimator to compile without the `cpu` feature gate. Parameter-aware
+/// estimates use the capacity configured on [`crate::HnswParams`] instead.
+const DEFAULT_CACHE_MAX_ENTRIES: usize = 1_048_576;
 
 /// Estimated overhead per node in the HNSW graph: `Option<Node>`, `Vec`
 /// headers for the per-level neighbour lists, sequence counter, and alignment
@@ -60,7 +62,7 @@ const USIZE_BYTES: u64 = std::mem::size_of::<usize>() as u64;
 ///
 /// - HNSW level-0 adjacency lists (`2 × M` neighbours per node).
 /// - Per-node struct overhead (Vec headers, sequence counter, alignment).
-/// - Distance cache (full configured capacity of 1,048,576 entries).
+/// - Distance cache at `DistanceCacheConfig::DEFAULT_MAX_ENTRIES` capacity.
 /// - Candidate edges harvested during HNSW build (`≈ n × M`).
 /// - Core-distance vector (`n × sizeof(f32)`).
 /// - Mutual-reachability edge rewrite (same count as candidate edges).
@@ -82,13 +84,18 @@ const USIZE_BYTES: u64 = std::mem::size_of::<usize>() as u64;
 /// ```
 #[must_use]
 pub const fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> u64 {
-    estimate_peak_bytes_with_search_width(point_count, max_connections, 0)
+    estimate_peak_bytes_with_search_width(
+        point_count,
+        max_connections,
+        0,
+        DEFAULT_CACHE_MAX_ENTRIES,
+    )
 }
 
 /// Returns the guarded peak estimate for concrete CPU HNSW parameters.
 ///
 /// This extends [`estimate_peak_bytes`] with the temporary search-state
-/// allocation made while constructing the CPU HNSW index.
+/// allocation and distance-cache capacity configured for the CPU HNSW index.
 ///
 /// # Examples
 ///
@@ -109,6 +116,7 @@ pub fn estimate_peak_bytes_for_hnsw_params(
         point_count,
         hnsw_params.max_connections(),
         hnsw_params.effective_ef_construction(point_count),
+        hnsw_params.distance_cache_config().max_entries().get(),
     )
 }
 
@@ -116,6 +124,7 @@ const fn estimate_peak_bytes_with_search_width(
     point_count: usize,
     max_connections: usize,
     search_width: usize,
+    distance_cache_capacity: usize,
 ) -> u64 {
     if point_count == 0 {
         return 0;
@@ -131,10 +140,9 @@ const fn estimate_peak_bytes_with_search_width(
     // Per-node struct overhead (Option<Node>, Vec headers, sequence, etc.).
     let hnsw_nodes = n.saturating_mul(NODE_OVERHEAD_BYTES);
 
-    // Distance cache — always allocates up to DEFAULT_CACHE_MAX_ENTRIES
-    // entries regardless of point count, because pairwise lookups during
-    // HNSW construction can fill the cache to capacity even for small n.
-    let distance_cache = DEFAULT_CACHE_MAX_ENTRIES.saturating_mul(CACHE_ENTRY_BYTES);
+    // Pairwise lookups can fill the configured cache capacity even for small
+    // batches, so account for every configured entry rather than point count.
+    let distance_cache = (distance_cache_capacity as u64).saturating_mul(CACHE_ENTRY_BYTES);
 
     // Candidate edges: approximately n * M edges from the HNSW build.
     let candidate_edges = n.saturating_mul(m).saturating_mul(CANDIDATE_EDGE_BYTES);
@@ -165,6 +173,7 @@ const fn estimate_peak_bytes_with_search_width(
         .saturating_mul(SAFETY_MULTIPLIER_NUMERATOR)
         .saturating_div(SAFETY_MULTIPLIER_DENOMINATOR)
 }
+
 /// Number of bytes in one kibibyte.
 const KIB: u64 = 1024;
 /// Number of bytes in one mebibyte.
@@ -281,6 +290,27 @@ mod tests {
         assert!(
             wide_bytes > narrow_bytes,
             "a wider effective search state must increase the memory estimate"
+        );
+    }
+
+    #[cfg(feature = "cpu")]
+    #[rstest]
+    fn parameter_estimate_grows_with_distance_cache_capacity() {
+        let default_params = crate::HnswParams::new(4, 16).expect("parameters must be valid");
+        let cache_capacity = std::num::NonZeroUsize::new(
+            crate::DistanceCacheConfig::DEFAULT_MAX_ENTRIES.saturating_mul(2),
+        )
+        .expect("doubled default cache capacity must be non-zero");
+        let custom_cache_params = default_params
+            .clone()
+            .with_distance_cache_max_entries(cache_capacity);
+
+        let default_bytes = estimate_peak_bytes_for_hnsw_params(100, &default_params);
+        let custom_cache_bytes = estimate_peak_bytes_for_hnsw_params(100, &custom_cache_params);
+
+        assert!(
+            custom_cache_bytes > default_bytes,
+            "a larger configured distance cache must increase the memory estimate"
         );
     }
 
