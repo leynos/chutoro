@@ -220,9 +220,9 @@ impl CondensedForest {
     pub(crate) fn from_mst(
         node_count: usize,
         edges: &[MstEdge],
-        min_cluster_size: NonZeroUsize,
+        minimum_cluster_size: NonZeroUsize,
     ) -> Result<Self, HierarchyError> {
-        let min_cluster_size = min_cluster_size.get();
+        let min_cluster_size = minimum_cluster_size.get();
         if node_count == 0 {
             return Err(HierarchyError::EmptyDataset);
         }

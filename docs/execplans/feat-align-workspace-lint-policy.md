@@ -394,6 +394,12 @@ Extract endpoint validation from the edge traversal so malformed MST endpoints
 remain typed hierarchy errors without introducing nested control flow. Verify
 the hierarchy suite, formatting, and the scoped hierarchy Clippy diagnostic.
 
+## Stage 2w: Hierarchy Parameter Naming
+
+Name the non-zero configuration wrapper distinctly from its extracted integer
+value, preserving hierarchy extraction semantics while removing misleading
+binding shadowing. Verify the hierarchy suite, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
