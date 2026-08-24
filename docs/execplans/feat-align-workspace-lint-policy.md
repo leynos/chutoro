@@ -61,8 +61,7 @@ keeps local editor feedback aligned with commit gates.
 - Full all-target linting includes test-only modules; the earlier measurement
   counted fewer diagnostics than the live all-target gate.
 - The shared Cargo cache is contended by other worktrees. A test gate may need
-  to wait for the active owner rather than bypassing Cargo's package-cache
-  lock.
+  to wait for the active owner rather than bypassing Cargo's package-cache lock.
 
 ## Progress
 
@@ -92,6 +91,9 @@ keeps local editor feedback aligned with commit gates.
 - [x] 2026-08-24: Marked the four value-returning core APIs reported by
       `must_use_candidate` with `#[must_use]`. Scoped core Clippy passes with
       that lint denied.
+- [x] 2026-08-24: Replaced every reported core `manual_let_else` match with
+      an equivalent `let-else` binding, including the cache-test assertions.
+      Scoped core Clippy passes with that lint denied.
 - [ ] 2026-08-24: Repeat the checkpoint test gate once unrelated shared Cargo
       work releases its package-cache lock; the first run reached 172 of 1,085
       tests before infrastructure contention suspended it.
@@ -121,10 +123,10 @@ keeps local editor feedback aligned with commit gates.
 - The former Git-metadata restriction has cleared. The core checkpoint can now
   be committed; retain `stash@{0}` until its committed diff is independently
   verified.
-- The 2026-08-24 checkpoint gate confirms `make check-fmt` and `make
-  typecheck` pass. `make lint` fails with the recorded 604 core Clippy
-  diagnostics. `make test` is incomplete because unrelated suspended Cargo
-  jobs hold the shared package-cache lock; it reached 172 of 1,085 tests.
+- The 2026-08-24 checkpoint gate confirms `make check-fmt` and `make typecheck`
+  pass. `make lint` fails with the recorded 604 core Clippy diagnostics.
+  `make test` is incomplete because unrelated suspended Cargo jobs hold the
+  shared package-cache lock; it reached 172 of 1,085 tests.
 - Moving the self-named modules is a content-preserving layout migration: all
   seven destination directories already existed for their child modules. The
   scoped core Clippy run now has no `self_named_module_files` diagnostics and
@@ -176,17 +178,18 @@ modules, retain all module declarations and contents, and do not alter public
 paths.
 
 The focused acceptance evidence is `make check-fmt` and `make typecheck`
-passing, plus `cargo clippy -p chutoro-core --all-features --all-targets -- -D
-warnings` containing no `self_named_module_files` diagnostic. This stage may
-remain lint-red for the next explicit family; record the new baseline first.
+passing, plus
+`cargo clippy -p chutoro-core --all-features --all-targets -- -D warnings`
+containing no `self_named_module_files` diagnostic. This stage may remain
+lint-red for the next explicit family; record the new baseline first.
 
 ## Stage 2c: Core Documentation Markup
 
 Apply only Clippy's machine-applicable `doc_markdown` suggestions, then review
 every changed Rustdoc line to confirm it quotes an identifier or symbolic
 expression accurately. Run a scoped Clippy invocation that disables the
-workspace's unrelated explicit lint denials and enables only `doc_markdown`;
-it must complete without a documentation-markup warning. The next stage owns
+workspace's unrelated explicit lint denials and enables only `doc_markdown`; it
+must complete without a documentation-markup warning. The next stage owns
 missing error and panic sections, which require semantic documentation rather
 than formatting.
 
@@ -207,6 +210,14 @@ Add `#[must_use]` to every reported core API whose ignored return value loses
 configuration or error-code information. Verify with package-scoped Clippy,
 again using `--no-deps`, with only `must_use_candidate` denied. This change is
 an API-use diagnostic only; it does not alter runtime behaviour.
+
+## Stage 2f: Core `let-else` Idioms
+
+Replace the reported single-pattern matches with `let-else` bindings. Test
+matches that expected a cache miss retain their failure message in the `else`
+branch, rather than using `unreachable!`. Verify with package-scoped Clippy and
+only `manual_let_else` denied. The transformation preserves each former match
+arm's success value and failure control flow.
 
 ## Verification Plan
 

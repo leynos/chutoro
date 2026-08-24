@@ -226,13 +226,10 @@ impl<'graph> TestHelpers<'graph> {
     pub(super) fn validate_all_edges_reciprocal(&self, max_connections: usize) {
         for (origin, node) in self.graph.nodes_iter() {
             for (level, target) in node.iter_neighbours() {
-                let target_node = match self.graph.node(target) {
-                    Some(node) => node,
-                    None => {
-                        panic!(
-                            "enforce_bidirectional_all left edge {origin}->{target} at level {level} to missing node",
-                        );
-                    }
+                let Some(target_node) = self.graph.node(target) else {
+                    panic!(
+                        "enforce_bidirectional_all left edge {origin}->{target} at level {level} to missing node",
+                    );
                 };
 
                 let target_levels = target_node.level_count();

@@ -208,9 +208,8 @@ impl Chutoro {
 
     /// Returns an error if the estimated peak memory exceeds `max_bytes`.
     fn check_memory_limit<D: DataSource>(&self, source: &D, items: usize) -> Result<()> {
-        let limit = match self.max_bytes {
-            Some(limit) => limit,
-            None => return Ok(()),
+        let Some(limit) = self.max_bytes else {
+            return Ok(());
         };
 
         // Use the default HNSW max_connections for estimation.  The pipeline

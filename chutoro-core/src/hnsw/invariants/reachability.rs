@@ -41,9 +41,8 @@ pub(super) fn check_reachability(
         return Ok(());
     }
 
-    let entry = match ctx.graph.entry() {
-        Some(entry) => entry,
-        None => return mode.record(HnswInvariantViolation::MissingEntryPoint),
+    let Some(entry) = ctx.graph.entry() else {
+        return mode.record(HnswInvariantViolation::MissingEntryPoint);
     };
 
     let validator = LayerValidator::new(ctx.graph);
@@ -89,17 +88,14 @@ fn process_single_node(
     context: &mut BfsContext,
     mode: &mut EvaluationMode<'_>,
 ) -> Result<(), HnswInvariantViolation> {
-    let node = match traversal.graph.node(node_id) {
-        Some(node) => node,
-        None => {
-            mode.record(HnswInvariantViolation::LayerConsistency {
-                origin: node_id,
-                target: node_id,
-                layer: 0,
-                detail: super::LayerConsistencyDetail::MissingNode,
-            })?;
-            return Ok(());
-        }
+    let Some(node) = traversal.graph.node(node_id) else {
+        mode.record(HnswInvariantViolation::LayerConsistency {
+            origin: node_id,
+            target: node_id,
+            layer: 0,
+            detail: super::LayerConsistencyDetail::MissingNode,
+        })?;
+        return Ok(());
     };
 
     for (level, target) in node.iter_neighbours() {
