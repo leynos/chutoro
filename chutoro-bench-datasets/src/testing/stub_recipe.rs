@@ -8,14 +8,19 @@ use crate::{
     RecipeError, RecipeId, RecipeVersion, SourceSpec, SourceUrl,
 };
 
+/// Default per-source byte ceiling used by the deterministic stub recipe.
 const DEFAULT_MAX_BYTES: usize = 1024 * 1024;
 
 /// Simple recipe that fetches every source and publishes concatenated bytes.
 #[derive(Clone, Debug)]
 pub struct StubRecipe {
+    /// Stable identifier used by the fixture recipe.
     id: RecipeId,
+    /// Fixture recipe version returned to the driver.
     version: RecipeVersion,
+    /// Primary source specifications fetched by the fixture recipe.
     sources: Vec<SourceSpec>,
+    /// Per-source byte limit enforced by the fixture recipe.
     max_bytes: usize,
 }
 

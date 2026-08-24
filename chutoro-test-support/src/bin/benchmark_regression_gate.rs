@@ -36,6 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Initialise non-failing stderr tracing for the gate process.
 fn init_tracing() {
     let _subscriber_init_result = tracing_subscriber::fmt()
         .with_target(false)
@@ -44,6 +45,7 @@ fn init_tracing() {
         .try_init();
 }
 
+/// Append the resolved benchmark profile to GitHub's workflow output file.
 fn emit_github_output(
     profile: BenchmarkRegressionProfile,
     reason: &str,
@@ -68,6 +70,7 @@ fn emit_github_output(
     Ok(())
 }
 
+/// Write one GitHub output value using a delimiter when it contains newlines.
 fn write_github_output_value(
     file: &mut impl Write,
     key: &str,
@@ -90,6 +93,7 @@ fn write_github_output_value(
     Ok(())
 }
 
+/// Return the optional environment value named `name`.
 fn read_optional_env(name: &str) -> Result<Option<String>, Box<dyn Error>> {
     match env::var(name) {
         Ok(value) => Ok(Some(value)),

@@ -9,9 +9,12 @@
 //! sole public entry point; callers pass the binary's `[[bin]]` `name` and
 //! receive its resolved path.
 
+use cap_std::{
+    ambient_authority,
+    fs::{Dir, DirEntry},
+};
 use std::env;
 use std::fmt;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 /// Errors surfaced when a compiled test binary cannot be located.
@@ -102,22 +105,27 @@ pub fn find_test_binary(name: &str) -> Result<PathBuf, TestBinaryError> {
     })
 }
 
+/// Search the compiled dependency directory for a binary matching `name`.
 fn find_in_deps(deps_dir: &Path, name: &str) -> Option<PathBuf> {
-    fs::read_dir(deps_dir)
+    Dir::open_ambient_dir(deps_dir, ambient_authority())
+        .ok()?
+        .entries()
         .ok()?
         .filter_map(Result::ok)
-        .find_map(|entry| is_matching_binary(&entry, name))
+        .find_map(|entry| is_matching_binary(&entry, deps_dir, name))
 }
 
-fn is_matching_binary(entry: &fs::DirEntry, name: &str) -> Option<PathBuf> {
-    let path = entry.path();
+/// Return the entry's path when it is a compiled binary matching `name`.
+fn is_matching_binary(entry: &DirEntry, deps_dir: &Path, name: &str) -> Option<PathBuf> {
+    let os_file_name = entry.file_name();
+    let file_name = os_file_name.to_str()?;
+    let path = deps_dir.join(file_name);
     let metadata = entry.metadata().ok()?;
 
     if !metadata.is_file() {
         return None;
     }
 
-    let file_name = path.file_name()?.to_str()?;
     if !has_expected_suffix(&path, file_name) {
         return None;
     }
@@ -127,6 +135,7 @@ fn is_matching_binary(entry: &fs::DirEntry, name: &str) -> Option<PathBuf> {
     (file_stem == name || file_stem.starts_with(&hyphenated_prefix)).then_some(path)
 }
 
+/// Report whether a candidate binary has the platform's executable suffix.
 fn has_expected_suffix(path: &Path, file_name: &str) -> bool {
     let suffix = env::consts::EXE_SUFFIX;
     if suffix.is_empty() {
@@ -136,6 +145,7 @@ fn has_expected_suffix(path: &Path, file_name: &str) -> bool {
     file_name.ends_with(suffix)
 }
 
+/// Append the platform executable suffix unless `path` already has it.
 fn with_exe_suffix(mut path: PathBuf) -> PathBuf {
     let suffix = env::consts::EXE_SUFFIX;
     if suffix.is_empty() {

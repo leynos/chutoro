@@ -93,8 +93,11 @@ impl BenchmarkRegressionMode {
 /// Fully resolved benchmark CI profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BenchmarkRegressionProfile {
+    /// CI policy selected from the configured override or supplied default.
     policy: BenchmarkCiPolicy,
+    /// GitHub event used to resolve the benchmark mode.
     event: BenchmarkCiEvent,
+    /// Resulting benchmark regression action.
     mode: BenchmarkRegressionMode,
 }
 
@@ -121,6 +124,7 @@ impl BenchmarkRegressionProfile {
         Self::load_with_lookup(default_policy, |key| env::var(key).ok())
     }
 
+    /// Resolve a profile through an injected environment lookup for tests.
     fn load_with_lookup<F>(default_policy: BenchmarkCiPolicy, lookup: F) -> Self
     where
         F: Fn(&'static str) -> Option<String>,

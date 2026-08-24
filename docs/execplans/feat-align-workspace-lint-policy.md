@@ -139,17 +139,27 @@ keeps local editor feedback aligned with commit gates.
       `[lints] workspace = true`. All-target Clippy and Whitaker pass with no
       Criterion-specific lint exception; the bench crate's unit and smoke tests
       pass.
-- [ ] Add and satisfy `missing_docs_in_private_items = "deny"` without
-      weakening the root lint policy.
+- [ ] Add and satisfy Clippy's `missing_docs_in_private_items = "deny"`
+      without weakening the root lint policy. The first all-workspace baseline
+      reports 608 private-item documentation diagnostics; resolve them in
+      crate-sized, reviewable batches.
+- [x] 2026-08-24: Added item-level documentation throughout
+      `chutoro-bench-datasets` and `chutoro-test-support`, including private
+      test adapters and gate binaries. Focused all-target Clippy passes for
+      both crates; the dataset crate's 26 tests and 41 doctests also pass.
+- [x] 2026-08-24: Documented the core orchestration and builder invariants.
+      Focused core Clippy reduces the remaining primary crate documentation
+      baseline from 547 to 521 diagnostics; continue with the algorithmic
+      implementation modules in a subsequent batch.
 - [x] 2026-08-24: Replaced the `chutoro-cli` whole-crate filesystem exemption
       with the user-path command boundary and its two `cli::tests` fixture
       modules. `make lint` passes with Whitaker enforcing every other CLI
       module.
-- [ ] Narrow Whitaker filesystem exclusions to the remaining ambient
-      boundaries in `chutoro-test-support`; the benches exclusion is now six
-      named report, memory-sampling, and MNIST cache modules. Retain only
-      separately compiled gate binaries and integration-test crates whose
-      ambient fixture staging is intentional.
+- [x] 2026-08-24: Removed the `chutoro-test-support` whole-crate Whitaker
+      exemption. Its binary-discovery fallback now reads the `deps` directory
+      through a `cap_std::fs::Dir`; retain only the separately compiled gate
+      binaries and their integration-test crates, whose ambient fixture staging
+      is intentional. Focused crate tests and Whitaker pass.
 - [ ] Document the exception model, run final gates and CodeRabbit review,
       then update the existing draft pull request.
 
@@ -219,6 +229,13 @@ keeps local editor feedback aligned with commit gates.
   directory for each test-process ID. That forced a cold dependency compile and
   exceeded nextest's 60-second limit in the complete suite. It now reuses the
   workspace target cache while keeping its independent no-CPU Cargo invocation.
+- The installed toolchain exposes `missing_docs_in_private_items` as a Clippy
+  lint, not a Rust lint. Placing it in `[workspace.lints.rust]` fails the
+  Rustdoc gate with `E0602`; the root policy therefore places it in
+  `[workspace.lints.clippy]`.
+- The test-support binary fallback can use `cap_std::fs::Dir` to make its
+  directory read capability-scoped without changing its public API, path
+  fallback, or returned binary path.
 
 ## Decision Log
 
@@ -251,6 +268,15 @@ keeps local editor feedback aligned with commit gates.
   `RAYON_NUM_THREADS=2` on its spawned `cargo bench` commands. Rationale: the
   test verifies benchmark discovery and executability, not default-pool
   throughput; a two-worker pool completes the fixed-seed probe predictably.
+- 2026-08-24: Enforce private-item documentation through Clippy's workspace
+  lint table. Rationale: the Rust compiler has no lint with that name, while
+  the installed Clippy version supports it and diagnoses the intended private
+  implementation surface.
+- 2026-08-24: Replace `chutoro-test-support`'s direct `std::fs::read_dir`
+  fallback with `cap_std::fs::Dir`, and remove its Whitaker exclusion.
+  Rationale: the existing public fallback must still resolve bins when Cargo's
+  environment variable is absent, but a capability-scoped directory handle
+  narrows filesystem authority without altering that behaviour.
 
 ## Stage 2a: Core Mechanical Lint Onboarding
 

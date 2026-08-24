@@ -30,7 +30,9 @@ pub const PROPTEST_RNG_SEED: u64 = 0x600D_5EED_C047_0207;
 /// Runtime profile for property-test execution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProptestRunProfile {
+    /// Number of cases each property test should execute.
     cases: u32,
+    /// Whether proptest should isolate cases in subprocesses.
     fork: bool,
 }
 
@@ -50,6 +52,7 @@ impl ProptestRunProfile {
         Self::load_with_lookup(default_cases, default_fork, |key| env::var(key).ok())
     }
 
+    /// Resolve a profile through an injected environment lookup for tests.
     fn load_with_lookup<F>(default_cases: u32, default_fork: bool, lookup: F) -> Self
     where
         F: Fn(&'static str) -> Option<String>,
@@ -72,6 +75,7 @@ impl ProptestRunProfile {
     }
 }
 
+/// Read the current or legacy cases override, otherwise return `default`.
 fn read_cases_or_default<L>(default: u32, lookup: &L) -> u32
 where
     L: Fn(&'static str) -> Option<String>,
@@ -82,6 +86,7 @@ where
     )
 }
 
+/// Parse an optional environment value, falling back to `default` on failure.
 fn read_env_or_default<T, F, L>(key: &'static str, default: T, parser: F, lookup: &L) -> T
 where
     T: Copy,
@@ -91,6 +96,7 @@ where
     read_env(key, parser, lookup).map_or(default, |value| value.unwrap_or(default))
 }
 
+/// Read and parse an optional environment value, logging invalid overrides.
 fn read_env<T, F, L>(key: &'static str, parser: F, lookup: &L) -> Option<Result<T, String>>
 where
     F: Fn(&str) -> Result<T, String>,
@@ -109,6 +115,7 @@ where
     })
 }
 
+/// Parse a non-zero proptest case count from an environment value.
 fn parse_cases(raw: &str) -> Result<u32, String> {
     let parsed = raw
         .trim()
@@ -120,6 +127,7 @@ fn parse_cases(raw: &str) -> Result<u32, String> {
     Ok(parsed)
 }
 
+/// Parse an accepted boolean spelling from an environment value.
 fn parse_bool(raw: &str) -> Result<bool, String> {
     let normalized = raw.trim().to_ascii_lowercase();
     match normalized.as_str() {

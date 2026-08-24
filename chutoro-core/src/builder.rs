@@ -55,23 +55,32 @@ pub enum ExecutionStrategy {
 /// ```
 #[derive(Debug, Clone)]
 pub struct ChutoroBuilder {
+    /// Requested minimum number of items per resulting cluster.
     min_cluster_size: usize,
+    /// Backend-selection policy used by constructed orchestrators.
     execution_strategy: ExecutionStrategy,
+    /// Optional upper bound for estimated peak memory usage.
     max_bytes: Option<u64>,
     #[cfg(feature = "cpu")]
+    /// HNSW construction parameters carried into CPU sessions.
     hnsw_params: HnswParams,
     #[cfg(feature = "cpu")]
+    /// Policy controlling CPU-session refreshes after inserts.
     session_refresh_policy: SessionRefreshPolicy,
 }
 
+/// Reason a GPU-preferred configuration cannot be constructed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum GpuRejectionReason {
+    /// The build does not include a GPU backend.
     BackendNotCompiled,
     #[cfg(feature = "cpu")]
+    /// Clustering sessions have only a CPU implementation.
     SessionsCpuOnly,
 }
 
 impl GpuRejectionReason {
+    /// Return the stable explanation used in diagnostics.
     #[rustfmt::skip]
     const fn as_str(self) -> &'static str {
         match self {
@@ -324,6 +333,7 @@ impl ChutoroBuilder {
         ClusteringSession::new(config, source)
     }
 
+    /// Convert the configured cluster size to its required non-zero form.
     fn validate_min_cluster_size(&self) -> Result<NonZeroUsize> {
         NonZeroUsize::new(self.min_cluster_size).ok_or_else(|| {
             warn!(
@@ -336,6 +346,7 @@ impl ChutoroBuilder {
         })
     }
 
+    /// Reject a GPU-preferred strategy when its required backend is unavailable.
     fn validate_execution_strategy(
         &self,
         gpu_rejection_reason: Option<GpuRejectionReason>,

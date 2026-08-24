@@ -11,15 +11,21 @@ use crate::{
 };
 use tracing::{instrument, warn};
 
+/// Whether this build includes the CPU execution pipeline.
 const CPU_PATH_AVAILABLE: bool = cfg!(feature = "cpu");
+/// HNSW connection cap used by the default memory-estimation path.
 const DEFAULT_MAX_CONNECTIONS: usize = 16;
 // The `gpu` feature currently exposes the orchestration surface only;
 // no accelerated implementation ships yet.
+/// Whether this build includes a usable GPU execution pipeline.
 const GPU_PATH_AVAILABLE: bool = false;
 
+/// Concrete backend selected after resolving an execution strategy.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BackendChoice {
+    /// Execute through the CPU pipeline.
     Cpu,
+    /// Execute through the GPU pipeline.
     Gpu,
 }
 
@@ -54,12 +60,16 @@ enum BackendChoice {
 /// ```
 #[derive(Debug, Clone)]
 pub struct Chutoro {
+    /// Validated minimum number of items per result cluster.
     min_cluster_size: NonZeroUsize,
+    /// Backend-selection policy chosen by the builder.
     execution_strategy: ExecutionStrategy,
+    /// Optional guard for estimated peak memory consumption.
     max_bytes: Option<u64>,
 }
 
 impl Chutoro {
+    /// Construct an orchestrator from already validated builder state.
     pub(crate) const fn new(
         min_cluster_size: NonZeroUsize,
         execution_strategy: ExecutionStrategy,
@@ -174,6 +184,7 @@ impl Chutoro {
             strategy = ?self.execution_strategy
         ),
     )]
+    /// Run clustering after the caller has measured the source length.
     fn run_with_len<D: DataSource + Sync>(
         &self,
         source: &D,
@@ -232,6 +243,7 @@ impl Chutoro {
         Ok(())
     }
 
+    /// Resolve the configured strategy to the backend that should run.
     const fn choose_backend(&self) -> BackendChoice {
         match self.execution_strategy {
             ExecutionStrategy::Auto => {
@@ -267,12 +279,14 @@ impl Chutoro {
         }
     }
 
+    /// Return the current GPU-backend-unavailable result.
     const fn run_gpu<D: DataSource + Sync>(_source: &D, _items: usize) -> Result<ClusteringResult> {
         Err(ChutoroError::BackendUnavailable {
             requested: ExecutionStrategy::GpuPreferred,
         })
     }
 
+    /// Return the unavailable-backend error when the strategy cannot execute.
     fn backend_unavailable_error(&self) -> Option<ChutoroError> {
         let unavailable = self.is_backend_unavailable();
 
@@ -281,6 +295,7 @@ impl Chutoro {
         })
     }
 
+    /// Report whether the configured strategy has no compiled implementation.
     const fn is_backend_unavailable(&self) -> bool {
         match self.execution_strategy {
             ExecutionStrategy::Auto => !(CPU_PATH_AVAILABLE || GPU_PATH_AVAILABLE),

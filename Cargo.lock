@@ -516,6 +516,7 @@ dependencies = [
 name = "chutoro-test-support"
 version = "0.1.0"
 dependencies = [
+ "cap-std",
  "rstest",
  "tracing",
  "tracing-subscriber",

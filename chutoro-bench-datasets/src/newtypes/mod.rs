@@ -106,6 +106,7 @@ impl Display for RecipeVersion {
     }
 }
 
+/// Parse one required unsigned component of a recipe version.
 fn parse_version_part(part: Option<&str>, value: &str) -> Result<u16, RecipeError> {
     part.ok_or_else(|| RecipeError::invalid_version(value))?
         .parse::<u16>()
@@ -156,10 +157,12 @@ impl Display for SourceUrl {
     }
 }
 
+/// Report whether `value` begins with one of the supported URL schemes.
 fn is_supported_source_scheme(value: &str) -> bool {
     value.starts_with("https://") || value.starts_with("s3://") || value.starts_with("file://")
 }
 
+/// Report whether `value` has content after its URL scheme separator.
 fn has_non_empty_source_remainder(value: &str) -> bool {
     value
         .split_once("://")

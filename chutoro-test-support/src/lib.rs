@@ -17,7 +17,9 @@ pub mod tracing {
     /// and behavioural tests can verify instrumentation deterministically.
     #[derive(Clone, Default)]
     pub struct RecordingLayer {
+        /// Closed spans captured in completion order.
         spans: Arc<Mutex<Vec<SpanRecord>>>,
+        /// Events captured in emission order.
         events: Arc<Mutex<Vec<EventRecord>>>,
     }
 
@@ -82,9 +84,12 @@ pub mod tracing {
         pub fields: HashMap<String, String>,
     }
 
+    /// Mutable span data accumulated before the span closes.
     #[derive(Default)]
     struct SpanData {
+        /// Name read from the tracing metadata.
         name: String,
+        /// Structured values recorded against the span.
         fields: HashMap<String, String>,
     }
 
@@ -160,7 +165,9 @@ pub mod tracing {
         }
     }
 
+    /// Visitor that writes tracing fields into a string-valued map.
     struct FieldRecorder<'a> {
+        /// Map receiving the serialised field values.
         fields: &'a mut HashMap<String, String>,
     }
 

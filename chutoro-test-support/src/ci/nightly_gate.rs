@@ -2,7 +2,9 @@
 
 use std::fmt;
 
+/// Number of seconds in the rolling Kani eligibility window.
 const SECONDS_PER_DAY: u64 = 86_400;
+/// Largest tolerated positive timestamp skew before rejecting a commit.
 const ALLOWED_FUTURE_SKEW_SECONDS: u64 = 300;
 
 /// Decision describing whether the nightly Kani job should run.
@@ -15,6 +17,7 @@ pub struct NightlyDecision {
 }
 
 impl NightlyDecision {
+    /// Build a nightly-job decision with its explanatory reason.
     fn new(should_run: bool, reason: impl Into<String>) -> Self {
         Self {
             should_run,
@@ -109,6 +112,7 @@ pub fn should_run_kani_full(
     }
 }
 
+/// Report whether a commit lies within the rolling 24-hour eligibility window.
 const fn is_within_last_day(commit_epoch: u64, now_epoch: u64) -> bool {
     commit_epoch >= now_epoch.saturating_sub(SECONDS_PER_DAY)
 }

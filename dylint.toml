@@ -26,9 +26,6 @@ excluded_paths = [
     "chutoro_benches::source::mnist::tests",
 ]
 excluded_crates = [
-    # Test support utilities: the CI gate binaries and helpers read
-    # workflow-provided files from ambient runner paths by design.
-    "chutoro_test_support",
     # Integration test crates for the CI gate binaries: they stage gate
     # input files in ambient temp directories and spawn the binaries
     # against them.

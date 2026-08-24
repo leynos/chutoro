@@ -16,6 +16,7 @@ pub struct CacheKey(Utf8PathBuf);
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ObjectKey(Utf8PathBuf);
 
+/// Implement the common path-wrapper API for a recipe storage key type.
 macro_rules! impl_path_key {
     ($name:ident, $create_doc:literal, $example_path:literal) => {
         impl $name {
