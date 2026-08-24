@@ -7,9 +7,13 @@ use crate::MstEdge;
 
 /// Path-compressing find for union-find verification.
 pub(super) fn find_root(parent: &mut [usize], mut node: usize) -> usize {
-    while parent[node] != node {
-        parent[node] = parent[parent[node]];
-        node = parent[node];
+    while parent.get(node).is_some_and(|&next| next != node) {
+        let next = parent.get(node).copied().unwrap_or(node);
+        let grandparent = parent.get(next).copied().unwrap_or(next);
+        if let Some(parent_node) = parent.get_mut(node) {
+            *parent_node = grandparent;
+        }
+        node = grandparent;
     }
     node
 }

@@ -35,7 +35,7 @@ pub(super) fn run_oracle_equivalence_property(fixture: &MstFixture) -> TestCaseR
 
     let parallel_weight = total_weight_f64(parallel_result.edges());
 
-    if (parallel_weight - oracle.total_weight).abs() > f64::EPSILON {
+    if !parallel_weight.total_cmp(&oracle.total_weight).is_eq() {
         return Err(TestCaseError::fail(format!(
             "total weight mismatch: parallel={parallel_weight}, oracle={} \
              (distribution={:?}, nodes={}, edges={})",
