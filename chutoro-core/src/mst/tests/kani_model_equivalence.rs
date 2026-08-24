@@ -161,3 +161,106 @@ fn model_matches_production_errors(
     );
     assert_eq!(model.expect_err("model must reject input"), expected);
 }
+
+/// Exercises the deduplication path, which the complete-graph sweep above
+/// cannot reach because it emits each undirected pair at most once.
+///
+/// Duplicates are in-domain: the model's six-edge budget counts canonical
+/// edges before deduplication, so a caller may legitimately supply repeats.
+/// Deduplication interacts with the `(weight, source, target, sequence)`
+/// ordering, which is where a divergence would hide.
+#[rstest]
+#[case::identical_repeat(
+    3,
+    vec![
+        CandidateEdge::new(0, 1, 1.0, 0),
+        CandidateEdge::new(0, 1, 1.0, 0),
+        CandidateEdge::new(1, 2, 2.0, 1),
+    ],
+)]
+#[case::same_edge_differing_sequence(
+    3,
+    vec![
+        CandidateEdge::new(0, 1, 1.0, 5),
+        CandidateEdge::new(0, 1, 1.0, 2),
+        CandidateEdge::new(1, 2, 2.0, 1),
+    ],
+)]
+#[case::reversed_orientation_then_duplicate(
+    3,
+    vec![
+        CandidateEdge::new(1, 0, 1.0, 0),
+        CandidateEdge::new(0, 1, 1.0, 0),
+        CandidateEdge::new(1, 2, 2.0, 1),
+    ],
+)]
+#[case::same_pair_differing_weights_must_not_dedupe(
+    3,
+    vec![
+        CandidateEdge::new(0, 1, 1.0, 0),
+        CandidateEdge::new(0, 1, 3.0, 1),
+        CandidateEdge::new(1, 2, 2.0, 2),
+    ],
+)]
+#[case::duplicates_at_the_six_edge_budget(
+    4,
+    vec![
+        CandidateEdge::new(0, 1, 1.0, 0),
+        CandidateEdge::new(0, 1, 1.0, 0),
+        CandidateEdge::new(1, 2, 2.0, 1),
+        CandidateEdge::new(2, 3, 3.0, 2),
+        CandidateEdge::new(0, 3, 4.0, 3),
+        CandidateEdge::new(1, 3, 5.0, 4),
+    ],
+)]
+fn model_matches_production_for_duplicate_edges(
+    #[case] node_count: usize,
+    #[case] candidates: Vec<CandidateEdge>,
+) {
+    if let Err(divergence) = check_equivalence(node_count, &candidates) {
+        panic!("{divergence}");
+    }
+}
+
+/// Pins the model's bounded domain, where it deliberately diverges.
+///
+/// Beyond four nodes or six canonical edges the model reports an invariant
+/// violation while production succeeds. That is the modelling contract, not
+/// a defect: widening a harness past these bounds must fail loudly rather
+/// than silently verify a truncated graph.
+#[rstest]
+#[case::seven_canonical_edges(
+    4,
+    vec![
+        CandidateEdge::new(0, 1, 1.0, 0),
+        CandidateEdge::new(0, 2, 2.0, 1),
+        CandidateEdge::new(0, 3, 3.0, 2),
+        CandidateEdge::new(1, 2, 4.0, 3),
+        CandidateEdge::new(1, 3, 5.0, 4),
+        CandidateEdge::new(2, 3, 6.0, 5),
+        CandidateEdge::new(0, 1, 9.0, 6),
+    ],
+    "Kani MST model supports at most six edges",
+)]
+#[case::five_nodes(
+    5,
+    vec![CandidateEdge::new(0, 4, 1.0, 0)],
+    "Kani MST model supports at most four nodes",
+)]
+fn model_rejects_inputs_outside_its_bounded_domain(
+    #[case] node_count: usize,
+    #[case] candidates: Vec<CandidateEdge>,
+    #[case] expected_invariant: &str,
+) {
+    assert!(
+        parallel_kruskal_from_edges(node_count, candidates.iter()).is_ok(),
+        "production must accept this input; only the bounded model rejects it",
+    );
+
+    let error = kruskal_model(node_count, candidates.iter())
+        .expect_err("the model must reject input outside its bounded domain");
+    let MstError::InvariantViolation { invariant, .. } = error else {
+        panic!("expected an invariant violation, got {error:?}");
+    };
+    assert_eq!(invariant, expected_invariant);
+}
