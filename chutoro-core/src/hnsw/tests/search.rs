@@ -65,10 +65,9 @@ fn greedy_descent_selects_closest_neighbour() {
     assert_eq!(result, 2);
 }
 
-#[rstest]
-fn layer_search_halts_on_equal_distance_candidates() {
+fn equal_distance_stopping_fixture() -> Result<(DummySource, Graph), String> {
     let source = DummySource::new(vec![0.0, 1.0, 1.0, 0.2]);
-    let params = HnswParams::new(2, 4).expect("params must be valid");
+    let params = HnswParams::new(2, 4).map_err(|error| format!("params must be valid: {error}"))?;
     let mut graph = Graph::with_capacity(params, source.len());
 
     graph
@@ -77,44 +76,52 @@ fn layer_search_halts_on_equal_distance_candidates() {
             level: 0,
             sequence: 1,
         })
-        .expect("seed entry point");
+        .map_err(|error| format!("seed entry point: {error}"))?;
     graph
         .attach_node(NodeContext {
             node: 0,
             level: 0,
             sequence: 0,
         })
-        .expect("attach query node");
+        .map_err(|error| format!("attach query node: {error}"))?;
     graph
         .attach_node(NodeContext {
             node: 2,
             level: 0,
             sequence: 2,
         })
-        .expect("attach tie candidate");
+        .map_err(|error| format!("attach tie candidate: {error}"))?;
     graph
         .attach_node(NodeContext {
             node: 3,
             level: 0,
             sequence: 3,
         })
-        .expect("attach hidden closer node");
+        .map_err(|error| format!("attach hidden closer node: {error}"))?;
 
     graph
         .node_mut(1)
-        .expect("entry must exist")
+        .ok_or_else(|| "entry must exist".to_owned())?
         .neighbours_mut(0)
         .extend([2]);
     graph
         .node_mut(2)
-        .expect("tie candidate must exist")
+        .ok_or_else(|| "tie candidate must exist".to_owned())?
         .neighbours_mut(0)
         .extend([1, 3]);
     graph
         .node_mut(3)
-        .expect("closer node must exist")
+        .ok_or_else(|| "closer node must exist".to_owned())?
         .neighbours_mut(0)
         .extend([2]);
+
+    Ok((source, graph))
+}
+
+#[rstest]
+fn layer_search_halts_on_equal_distance_candidates() {
+    let (source, graph) =
+        equal_distance_stopping_fixture().expect("equal-distance stopping fixture must be valid");
 
     let ctx = SearchContext {
         query: 0,
