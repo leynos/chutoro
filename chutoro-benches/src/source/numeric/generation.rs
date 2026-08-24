@@ -5,6 +5,7 @@ use crate::source::SyntheticError;
 use rand::{Rng, rngs::SmallRng};
 use std::f32::consts::PI;
 
+/// Validate Gaussian blob counts and separation parameters.
 pub(super) fn validate_blob_config(config: &GaussianBlobConfig) -> Result<(), SyntheticError> {
     if config.cluster_count == 0 {
         return Err(SyntheticError::ZeroClusters);
@@ -23,6 +24,7 @@ pub(super) fn validate_blob_config(config: &GaussianBlobConfig) -> Result<(), Sy
     Ok(())
 }
 
+/// Place Gaussian blob centroids around a reproducible ring.
 #[expect(
     clippy::cast_precision_loss,
     reason = "centroid placement uses index-derived floating-point angles"
@@ -53,6 +55,7 @@ pub(super) fn build_blob_centroids(
         .collect()
 }
 
+/// Resolve isotropic or per-axis covariance scales.
 pub(super) fn resolve_axis_scales(
     anisotropy: &Anisotropy,
     dimensions: usize,
@@ -63,6 +66,7 @@ pub(super) fn resolve_axis_scales(
     }
 }
 
+/// Validate one scale and expand it across all dimensions.
 fn validate_isotropic_scale(scale: f32, dimensions: usize) -> Result<Vec<f32>, SyntheticError> {
     if !scale.is_finite() || scale <= 0.0 {
         return Err(SyntheticError::InvalidFloatParameter {
@@ -72,6 +76,7 @@ fn validate_isotropic_scale(scale: f32, dimensions: usize) -> Result<Vec<f32>, S
     Ok(vec![scale; dimensions])
 }
 
+/// Validate and copy the configured per-axis scales.
 fn validate_axis_scales(scales: &[f32], dimensions: usize) -> Result<Vec<f32>, SyntheticError> {
     if scales.len() != dimensions {
         return Err(SyntheticError::AxisScaleLengthMismatch {
@@ -87,6 +92,7 @@ fn validate_axis_scales(scales: &[f32], dimensions: usize) -> Result<Vec<f32>, S
     Ok(scales.to_vec())
 }
 
+/// Validate a finite positive parameter, optionally allowing zero.
 fn validate_float_param(
     value: f32,
     parameter: &'static str,
@@ -105,6 +111,7 @@ fn validate_float_param(
     }
 }
 
+/// Check that a manifold has enough dimensions for its pattern.
 const fn validate_pattern_dimensions(
     pattern: &'static str,
     minimum: usize,
@@ -120,10 +127,12 @@ const fn validate_pattern_dimensions(
     Ok(())
 }
 
+/// Validate dimensions required by the ring pattern.
 const fn validate_ring_pattern(config: &ManifoldConfig) -> Result<(), SyntheticError> {
     validate_pattern_dimensions("ring", 2, config.dimensions)
 }
 
+/// Validate dimensions and turn count required by Swiss-roll generation.
 const fn validate_swiss_roll_pattern(config: &ManifoldConfig) -> Result<(), SyntheticError> {
     if config.dimensions < 3 {
         return validate_pattern_dimensions("swiss_roll", 3, config.dimensions);
@@ -134,6 +143,7 @@ const fn validate_swiss_roll_pattern(config: &ManifoldConfig) -> Result<(), Synt
     Ok(())
 }
 
+/// Validate common manifold parameters and pattern-specific requirements.
 pub(super) fn validate_manifold_config(config: &ManifoldConfig) -> Result<(), SyntheticError> {
     validate_float_param(config.major_radius, "major_radius", false)?;
     validate_float_param(config.thickness, "thickness", true)?;
@@ -145,6 +155,7 @@ pub(super) fn validate_manifold_config(config: &ManifoldConfig) -> Result<(), Sy
     }
 }
 
+/// Generate one noisy point on a ring manifold.
 #[expect(
     clippy::float_arithmetic,
     reason = "sampling manifold coordinates requires floating-point arithmetic"
@@ -169,6 +180,7 @@ fn generate_ring_point(
     Ok(())
 }
 
+/// Generate one noisy point on a Swiss-roll manifold.
 #[expect(
     clippy::float_arithmetic,
     reason = "sampling manifold coordinates requires floating-point arithmetic"
@@ -204,6 +216,7 @@ fn generate_swiss_roll_point(
     Ok(())
 }
 
+/// Generate one point using the configured manifold pattern.
 pub(super) fn manifold_point(
     config: &ManifoldConfig,
     rng: &mut SmallRng,
@@ -217,6 +230,7 @@ pub(super) fn manifold_point(
     Ok(point)
 }
 
+/// Draw one standard-normal sample using the Box-Muller transform.
 #[expect(
     clippy::float_arithmetic,
     reason = "Box-Muller transform requires floating-point arithmetic"

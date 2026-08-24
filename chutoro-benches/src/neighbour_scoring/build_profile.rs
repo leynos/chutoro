@@ -8,7 +8,9 @@ pub const BUILD_PROFILE_ENV: &str = "CHUTORO_BENCH_NEIGHBOUR_PROFILE";
 /// Build-profile report filename.
 pub const BUILD_PROFILE_REPORT: &str = "neighbour_scoring_build_profile.csv";
 
+/// Environment variable overriding the Cargo target directory.
 const CARGO_TARGET_DIR_ENV: &str = "CARGO_TARGET_DIR";
+/// Fallback parent directory for generated benchmark reports.
 const DEFAULT_REPORT_PARENT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target");
 /// Directory below the report parent where benchmark diagnostics are written.
 pub const REPORT_DIR_NAME: &str = "benchmarks";
@@ -19,7 +21,9 @@ pub const REPORT_DIR_NAME: &str = "benchmarks";
 /// the shared [`REPORT_DIR_NAME`] convention.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReportTarget {
+    /// Parent directory containing the conventional report directory.
     report_parent_dir: Utf8PathBuf,
+    /// Filename written below the conventional report directory.
     filename: String,
 }
 

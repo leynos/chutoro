@@ -22,21 +22,27 @@ use super::{
     make_fixture, scoring_plan, write_build_profile_report, write_lane_utilisation_report,
 };
 
+/// Query row used for every neighbour-scoring benchmark iteration.
 const QUERY_INDEX: usize = 0;
+/// Environment variable enabling shorter benchmark measurements.
 const SHORT_MEASUREMENT_ENV: &str = "CHUTORO_BENCH_NEIGHBOUR_SHORT_MEASUREMENT";
 
+/// Apply the group's optional short-measurement configuration.
 fn configure_group(group: &mut BenchmarkGroup<'_, WallTime>) {
     configure_short_measurement_group(group, 10, should_use_short_measurement());
 }
 
+/// Interpret the short-measurement environment variable value.
 fn should_use_short_measurement_value(value: Option<&str>) -> bool {
     truthy_env_value(value)
 }
 
+/// Read whether short benchmark measurements are enabled.
 fn should_use_short_measurement() -> bool {
     should_use_short_measurement_value(std::env::var(SHORT_MEASUREMENT_ENV).ok().as_deref())
 }
 
+/// Measure distances from the benchmark query to selected candidates.
 fn score_candidates(
     scoring_fixture: &ScoringFixture,
     candidates: &[usize],
@@ -46,6 +52,7 @@ fn score_candidates(
         .batch_distances(black_box(QUERY_INDEX), black_box(candidates))
 }
 
+/// Convert a candidate bucket to Criterion throughput metadata.
 fn throughput_for(bucket: CandidateBucket) -> BenchResult<Throughput> {
     let throughput =
         u64::try_from(bucket.size()).map_err(|source| BenchError::CandidateCountConversion {
@@ -55,6 +62,7 @@ fn throughput_for(bucket: CandidateBucket) -> BenchResult<Throughput> {
     Ok(Throughput::Elements(throughput))
 }
 
+/// Build a stable Criterion identifier for one benchmark case.
 fn bench_id_for(bucket: CandidateBucket, dimension: usize) -> BenchmarkId {
     BenchmarkId::new(
         bucket.kind_name(),
@@ -62,6 +70,7 @@ fn bench_id_for(bucket: CandidateBucket, dimension: usize) -> BenchmarkId {
     )
 }
 
+/// Execute and black-box a single scoring iteration.
 fn run_scoring_iteration(scoring_fixture: &ScoringFixture, candidates: &[usize]) {
     match score_candidates(scoring_fixture, candidates) {
         Ok(distances) => {
@@ -73,6 +82,7 @@ fn run_scoring_iteration(scoring_fixture: &ScoringFixture, candidates: &[usize])
     }
 }
 
+/// Register one dimension and candidate-bucket benchmark case.
 fn bench_case(
     group: &mut BenchmarkGroup<'_, WallTime>,
     dimension: usize,
@@ -88,6 +98,7 @@ fn bench_case(
     Ok(())
 }
 
+/// Run the neighbour-scoring benchmark with production report writers.
 fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
     neighbour_scoring_impl_with(
         c,
@@ -97,6 +108,7 @@ fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
     )
 }
 
+/// Run the benchmark with injected report writers and case registration.
 fn neighbour_scoring_impl_with(
     c: &mut Criterion,
     lane_report_writer: impl FnOnce(&Utf8Path) -> BenchResult<()>,

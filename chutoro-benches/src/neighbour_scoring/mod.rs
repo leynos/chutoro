@@ -90,6 +90,7 @@ pub fn lane_utilisation_basis_points(candidate_count: usize) -> usize {
     usize::try_from(basis_points).unwrap_or(10_000)
 }
 
+/// Compute the lane-padded candidate count without `usize` overflow.
 const fn padded_lane_count(candidate_count: usize) -> u128 {
     let candidate_count_u128 = candidate_count as u128;
     let simd_lanes = SIMD_LANES as u128;

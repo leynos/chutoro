@@ -768,6 +768,14 @@ feature selection, or numerical operations. Verify both provider test suites
 and their scoped all-feature Clippy pass. The next workspace lint boundary is
 the CLI crate.
 
+## Stage 3af: CLI and Benchmark Private-Item Documentation
+
+Document CLI execution and logging internals plus benchmark reporting,
+profiling, fixtures, synthetic sources, and SIMD measurement helpers. Preserve
+command semantics, benchmark inputs, source generation, and profiling
+instrumentation. Verify the CLI and benchmark suites and scoped all-feature
+Clippy before advancing the workspace lint gate.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

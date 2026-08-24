@@ -42,12 +42,14 @@ pub struct BuildProfileReportRow {
     pub median_batch: usize,
 }
 
+/// Determine whether a CSV field needs quoting.
 fn csv_requires_quotes(field: &str) -> bool {
     field
         .chars()
         .any(|ch| matches!(ch, ',' | '"' | '\n' | '\r'))
 }
 
+/// Return a CSV-safe representation of one field.
 fn csv_escape(field: &str) -> Cow<'_, str> {
     if csv_requires_quotes(field) {
         let escaped = field.replace('"', "\"\"");

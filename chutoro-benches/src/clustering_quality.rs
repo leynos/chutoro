@@ -31,6 +31,7 @@ pub struct ClusteringQualityMeasurement {
 }
 
 impl ClusteringQualityMeasurement {
+    /// Return the CSV column header for quality measurements.
     const fn csv_header() -> &'static str {
         concat!(
             "point_count,max_connections,ef_construction,min_cluster_size,",
@@ -38,6 +39,7 @@ impl ClusteringQualityMeasurement {
         )
     }
 
+    /// Format this quality measurement as one CSV record.
     fn to_csv_row(&self) -> String {
         format!(
             "{},{},{},{},{:.6},{:.6},{}\n",

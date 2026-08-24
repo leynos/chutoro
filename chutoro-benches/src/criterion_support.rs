@@ -20,6 +20,7 @@ pub fn is_cli_flag_present(flag: &str) -> bool {
     args_contain_flag(std::env::args(), flag)
 }
 
+/// Determine whether an argument sequence contains an exact flag.
 fn args_contain_flag(args: impl IntoIterator<Item = impl AsRef<str>>, flag: &str) -> bool {
     args.into_iter().any(|arg| arg.as_ref() == flag)
 }
@@ -117,6 +118,7 @@ pub fn is_nextest_exact_benchmark_probe() -> bool {
     )
 }
 
+/// Determine whether arguments describe a nextest exact benchmark probe.
 fn is_nextest_exact_benchmark_probe_args<I, S>(args: I, has_nextest_test_name: bool) -> bool
 where
     I: IntoIterator<Item = S>,

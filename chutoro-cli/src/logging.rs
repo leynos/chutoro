@@ -13,9 +13,12 @@ use tracing_subscriber::{
     EnvFilter, Layer, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
 };
 
+/// Environment variable selecting human-readable or JSON log output.
 const LOG_FORMAT_ENV: &str = "CHUTORO_LOG_FORMAT";
 
+/// Marker indicating that global logging initialization has completed.
 static INITIALIZED: OnceLock<()> = OnceLock::new();
+/// Mutex serializing logging initialization attempts.
 static INIT_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
 
 /// Errors raised while initializing structured logging.
@@ -88,6 +91,7 @@ pub fn init_logging() -> Result<(), LoggingError> {
     Ok(())
 }
 
+/// Record that logging initialization has completed.
 fn mark_initialized() {
     let was_already_initialized = INITIALIZED.set(()).is_err();
     debug_assert!(
@@ -96,6 +100,7 @@ fn mark_initialized() {
     );
 }
 
+/// Build and install the configured tracing subscriber.
 fn install_subscriber() -> Result<(), LoggingError> {
     let use_json = match env::var(LOG_FORMAT_ENV) {
         Ok(raw) => parse_log_format(&raw)?,
@@ -155,6 +160,7 @@ fn report_logging_conflict(source: &tracing_subscriber::util::TryInitError) {
     eprintln!("structured logging already configured elsewhere: {source}");
 }
 
+/// Parse the configured log format, returning whether JSON is enabled.
 fn parse_log_format(raw: &str) -> Result<bool, LoggingError> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "human" => Ok(false),

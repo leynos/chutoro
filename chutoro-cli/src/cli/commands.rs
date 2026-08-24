@@ -11,6 +11,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use thiserror::Error;
 use tracing::{info, instrument};
 
+/// Default minimum number of items retained in a cluster.
 const DEFAULT_MIN_CLUSTER_SIZE: usize = 5;
 
 /// Top-level CLI options parsed by [`clap`].
@@ -30,6 +31,7 @@ pub enum Command {
 }
 
 impl Command {
+    /// Return the command name used in tracing fields.
     const fn name(&self) -> &'static str {
         match self {
             Self::Run(_) => "run",
@@ -70,6 +72,7 @@ pub enum RunSource {
 }
 
 impl RunSource {
+    /// Return the source kind used in tracing fields.
     const fn kind(&self) -> &'static str {
         match self {
             Self::Parquet(_) => "parquet",
@@ -116,6 +119,7 @@ pub enum TextMetric {
 }
 
 impl TextMetric {
+    /// Return the metric name used by tracing and diagnostics.
     const fn label(self) -> &'static str {
         match self {
             Self::Levenshtein => "levenshtein",
@@ -192,6 +196,7 @@ pub fn run_cli(cli: Cli) -> Result<ExecutionSummary, CliError> {
     }
 }
 
+/// Execute the selected run subcommand.
 #[instrument(
     name = "cli.execute",
     err,
@@ -221,6 +226,7 @@ pub(super) fn run_command(command: RunCommand) -> Result<ExecutionSummary, CliEr
     Ok(summary)
 }
 
+/// Load a Parquet source and execute the clustering pipeline.
 #[instrument(
     name = "cli.run_parquet",
     err,
@@ -241,6 +247,7 @@ pub(super) fn run_parquet(
     execute_with_provider(chutoro, &provider)
 }
 
+/// Load a text source and execute the clustering pipeline.
 #[instrument(
     name = "cli.run_text",
     err,
@@ -261,6 +268,7 @@ pub(super) fn run_text(chutoro: &Chutoro, args: TextArgs) -> Result<ExecutionSum
     execute_with_provider(chutoro, &provider)
 }
 
+/// Open a text source while retaining the path in any I/O error.
 #[instrument(
     name = "cli.open_text_reader",
     err,
@@ -275,6 +283,7 @@ pub(super) fn open_text_reader(path: &Path) -> Result<BufReader<File>, CliError>
     Ok(BufReader::new(file))
 }
 
+/// Derive a stable data-source name from an optional override or file path.
 pub(super) fn derive_data_source_name(path: &Path, override_name: Option<&str>) -> String {
     if let Some(name) = override_name {
         return name.to_owned();
@@ -331,6 +340,7 @@ fn path_label(path: &Path) -> String {
     )
 }
 
+/// Run the clustering pipeline for a data-source provider.
 fn execute_with_provider<D>(chutoro: &Chutoro, provider: &D) -> Result<ExecutionSummary, CliError>
 where
     D: DataSource + Sync,

@@ -16,7 +16,9 @@ use thiserror::Error;
 /// Validates whether harvested edge count is within expected scaling bounds.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EdgeScalingBounds {
+    /// Divisor used for the lower edge-count bound.
     lower_multiplier: usize,
+    /// Multiplier used for the upper edge-count bound.
     upper_multiplier: usize,
 }
 
@@ -33,11 +35,13 @@ impl EdgeScalingBounds {
         }
     }
 
+    /// Return the divisor used for the lower edge-count bound.
     #[must_use]
     const fn lower_multiplier(self) -> usize {
         self.lower_multiplier
     }
 
+    /// Return the multiplier used for the upper edge-count bound.
     #[must_use]
     const fn upper_multiplier(self) -> usize {
         self.upper_multiplier
@@ -125,16 +129,27 @@ pub struct HnswMemoryInput {
 /// Single row in the HNSW memory profile report.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HnswMemoryRecord {
+    /// Number of points in the profiled index.
     point_count: usize,
+    /// Configured maximum connections per HNSW node.
     max_connections: usize,
+    /// Configured construction search width.
     ef_construction: usize,
+    /// Elapsed build time in milliseconds.
     elapsed_millis: u128,
+    /// Peak resident-set increase in bytes.
     peak_rss_bytes: u64,
+    /// Number of harvested candidate edges.
     edge_count: usize,
+    /// Expected edge count from points and maximum connections.
     expected_edges: usize,
+    /// Whether the measured edge count falls within configured bounds.
     edge_scaling_ok: bool,
+    /// Absolute difference between measured and expected edge counts.
     edge_deviation: usize,
+    /// Peak memory increase per point in bytes.
     memory_per_point_bytes: u64,
+    /// Peak memory increase per edge in bytes.
     memory_per_edge_bytes: u64,
 }
 
@@ -179,6 +194,7 @@ impl HnswMemoryRecord {
         })
     }
 
+    /// Return the CSV header for memory profile records.
     const fn csv_header() -> &'static str {
         concat!(
             "point_count,max_connections,ef_construction,elapsed_ms,peak_rss_bytes,",
@@ -187,6 +203,7 @@ impl HnswMemoryRecord {
         )
     }
 
+    /// Render this memory profile record as one CSV row.
     fn to_csv_row(&self) -> String {
         format!(
             "{},{},{},{},{},{},{},{},{},{},{}\n",
@@ -210,6 +227,7 @@ impl HnswMemoryRecord {
     clippy::integer_division_remainder_used,
     reason = "Metrics are intentionally truncated to whole bytes after a non-zero denominator check."
 )]
+/// Divide a metric after validating its non-zero denominator.
 fn divide_metric(
     numerator: u64,
     denominator: usize,
@@ -224,6 +242,7 @@ fn divide_metric(
     Ok(numerator / denominator_u64)
 }
 
+/// Check edge-count scaling and report its deviation from expectation.
 fn validate_edge_scaling(
     edge_count: usize,
     expected_edges: usize,

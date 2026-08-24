@@ -27,7 +27,9 @@ pub struct SyntheticTextConfig {
 /// A synthetic text [`DataSource`] using Levenshtein distance.
 #[derive(Clone, Debug)]
 pub struct SyntheticTextSource {
+    /// Generated strings in source order.
     data: Vec<String>,
+    /// Stable source name reported through [`DataSource`].
     name: &'static str,
 }
 
@@ -104,6 +106,7 @@ impl DataSource for SyntheticTextSource {
     }
 }
 
+/// Validate counts, lengths, and alphabet settings for text generation.
 const fn validate_text_config(config: &SyntheticTextConfig) -> Result<(), SyntheticError> {
     if config.item_count == 0 {
         return Err(SyntheticError::ZeroTextItems);
@@ -123,6 +126,7 @@ const fn validate_text_config(config: &SyntheticTextConfig) -> Result<(), Synthe
     Ok(())
 }
 
+/// Convert the configured alphabet into selectable characters.
 fn alphabet_chars(alphabet: &str) -> Result<Vec<char>, SyntheticError> {
     let chars: Vec<char> = alphabet.chars().collect();
     if chars.is_empty() {
@@ -131,6 +135,7 @@ fn alphabet_chars(alphabet: &str) -> Result<Vec<char>, SyntheticError> {
     Ok(chars)
 }
 
+/// Resolve configured templates or generate a small default template set.
 fn resolved_templates(
     config: &SyntheticTextConfig,
     alphabet: &[char],
@@ -159,6 +164,7 @@ fn resolved_templates(
     Ok(templates)
 }
 
+/// Generate one random word within the configured length bounds.
 fn random_word(
     min_length: usize,
     max_length: usize,
@@ -174,18 +180,24 @@ fn random_word(
     Ok(chars.into_iter().collect())
 }
 
+/// One edit operation used to mutate a generated word.
 #[derive(Clone, Copy)]
 enum EditOperation {
+    /// Insert one character.
     Insert,
+    /// Delete one character.
     Delete,
+    /// Replace one character.
     Substitute,
 }
 
+/// Select and apply one random edit operation.
 fn apply_edit(chars: &mut Vec<char>, alphabet: &[char], rng: &mut SmallRng) {
     let operation = choose_edit_operation(rng);
     apply_selected_edit(chars, alphabet, rng, operation);
 }
 
+/// Select an edit operation from the three supported variants.
 fn choose_edit_operation(rng: &mut SmallRng) -> EditOperation {
     let operation = rng.gen_range(0..3);
     match operation {
@@ -195,6 +207,7 @@ fn choose_edit_operation(rng: &mut SmallRng) -> EditOperation {
     }
 }
 
+/// Apply a previously selected edit operation.
 fn apply_selected_edit(
     chars: &mut Vec<char>,
     alphabet: &[char],
@@ -208,6 +221,7 @@ fn apply_selected_edit(
     }
 }
 
+/// Insert a random alphabet character at a random position.
 fn insert_char(chars: &mut Vec<char>, alphabet: &[char], rng: &mut SmallRng) {
     let insert_index = rng.gen_range(0..=chars.len());
     if let Some(character) = random_alphabet_char(alphabet, rng) {
@@ -215,6 +229,7 @@ fn insert_char(chars: &mut Vec<char>, alphabet: &[char], rng: &mut SmallRng) {
     }
 }
 
+/// Delete a random character when the string is non-empty.
 fn delete_char(chars: &mut Vec<char>, rng: &mut SmallRng) {
     if chars.is_empty() {
         return;
@@ -223,6 +238,7 @@ fn delete_char(chars: &mut Vec<char>, rng: &mut SmallRng) {
     chars.remove(delete_index);
 }
 
+/// Replace a random character, inserting one when the string is empty.
 fn substitute_char(chars: &mut Vec<char>, alphabet: &[char], rng: &mut SmallRng) {
     if chars.is_empty() {
         insert_char(chars, alphabet, rng);
@@ -236,6 +252,7 @@ fn substitute_char(chars: &mut Vec<char>, alphabet: &[char], rng: &mut SmallRng)
     }
 }
 
+/// Mutate a string until it lies within configured length bounds.
 fn enforce_length_bounds(
     chars: &mut Vec<char>,
     config: &SyntheticTextConfig,
@@ -250,6 +267,7 @@ fn enforce_length_bounds(
     }
 }
 
+/// Select one random alphabet character, if the alphabet is non-empty.
 fn random_alphabet_char(alphabet: &[char], rng: &mut SmallRng) -> Option<char> {
     if alphabet.is_empty() {
         return None;

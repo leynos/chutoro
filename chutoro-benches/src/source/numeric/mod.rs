@@ -80,9 +80,13 @@ pub struct ManifoldConfig {
 /// A numeric synthetic [`DataSource`] using Euclidean distance.
 #[derive(Clone, Debug)]
 pub struct SyntheticSource {
+    /// Flattened generated vector values.
     data: Vec<f32>,
+    /// Number of generated points.
     point_count: usize,
+    /// Number of dimensions in each point.
     dimensions: usize,
+    /// Stable source name reported through [`DataSource`].
     name: &'static str,
 }
 
@@ -137,6 +141,7 @@ impl SyntheticSource {
         Ok((source, labels))
     }
 
+    /// Generate Gaussian samples and their round-robin cluster labels.
     #[expect(
         clippy::float_arithmetic,
         reason = "Gaussian data generation requires floating-point arithmetic"
@@ -215,6 +220,7 @@ impl SyntheticSource {
     #[rustfmt::skip]
     pub(crate) fn raw_data(&self) -> &[f32] { &self.data }
 
+    /// Construct a source from validated flattened point data.
     pub(crate) fn from_parts(
         name: &'static str,
         data: Vec<f32>,
@@ -278,6 +284,7 @@ impl DataSource for SyntheticSource {
     }
 }
 
+/// Validate the common point-count and dimensionality requirements.
 const fn validate_basic_numeric_config(
     point_count: usize,
     dimensions: usize,
@@ -291,18 +298,21 @@ const fn validate_basic_numeric_config(
     Ok(())
 }
 
+/// Compute flattened storage length without overflowing.
 fn checked_total(point_count: usize, dimensions: usize) -> Result<usize, SyntheticError> {
     point_count
         .checked_mul(dimensions)
         .ok_or(SyntheticError::Overflow)
 }
 
+/// Compute a point's flattened start offset without overflowing.
 fn checked_offset(index: usize, dimensions: usize) -> Result<usize, DataSourceError> {
     index
         .checked_mul(dimensions)
         .ok_or(DataSourceError::OutOfBounds { index })
 }
 
+/// Compute a point's flattened end offset without overflowing.
 fn checked_end(start: usize, dimensions: usize, index: usize) -> Result<usize, DataSourceError> {
     start
         .checked_add(dimensions)
