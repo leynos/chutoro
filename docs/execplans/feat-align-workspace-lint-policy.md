@@ -583,6 +583,11 @@ Propagate behavioural world-construction failures through the BDD framework's
 fallible fixture support, retaining the existing scenario and error contracts.
 Verify the focused session-append BDD test target and Clippy.
 
+## Stage 3y: Batch-first Datasource Fixture
+
+Keep test-batch dispatch checks exact while returning assertion failures from
+fallible tests. Verify the focused batch-first tests and library Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

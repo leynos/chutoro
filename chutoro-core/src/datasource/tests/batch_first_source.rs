@@ -6,6 +6,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+use std::{error::Error, io};
 
 #[derive(Clone)]
 struct BatchFirstSource {
@@ -33,7 +34,7 @@ impl DataSource for BatchFirstSource {
         self.data.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "batch-first"
     }
 
@@ -47,7 +48,7 @@ impl DataSource for BatchFirstSource {
             .data
             .get(right)
             .ok_or(DataSourceError::OutOfBounds { index: right })?;
-        Ok((l - r).abs())
+        Ok(l.mul_add(1.0, std::ops::Neg::neg(*r)).abs())
     }
 
     fn distance_batch(
@@ -73,7 +74,7 @@ impl DataSource for BatchFirstSource {
                 .data
                 .get(right)
                 .ok_or(DataSourceError::OutOfBounds { index: right })?;
-            results.push((l - r).abs());
+            results.push(l.mul_add(1.0, std::ops::Neg::neg(*r)).abs());
         }
         out.copy_from_slice(&results);
         Ok(())
@@ -110,22 +111,33 @@ fn batch_distances_delegates_to_distance_batch(
         (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>),
         DataSourceError,
     >,
-) -> Result<(), DataSourceError> {
+) -> Result<(), Box<dyn Error>> {
     let (source, batch_calls, distance_calls) = batch_first_setup?;
 
     let distances = source.batch_distances(0, &[1, 2])?;
 
-    assert_eq!(distances, vec![1.5, 4.0]);
-    assert_eq!(
-        batch_calls.load(Ordering::Relaxed),
-        1,
-        "batch override should be called exactly once",
-    );
-    assert_eq!(
-        distance_calls.load(Ordering::Relaxed),
-        0,
-        "scalar distance should not be used when distance_batch is available",
-    );
+    if distances
+        .iter()
+        .map(|distance| distance.to_bits())
+        .collect::<Vec<_>>()
+        != vec![1.5_f32.to_bits(), 4.0_f32.to_bits()]
+    {
+        return Err(
+            io::Error::new(io::ErrorKind::InvalidData, "unexpected batch distances").into(),
+        );
+    }
+    if batch_calls.load(Ordering::Relaxed) != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "batch override was not called once",
+        )
+        .into());
+    }
+    if distance_calls.load(Ordering::Relaxed) != 0 {
+        return Err(
+            io::Error::new(io::ErrorKind::InvalidData, "scalar distance was called").into(),
+        );
+    }
 
     Ok(())
 }
@@ -136,17 +148,20 @@ fn batch_distances_propagates_distance_batch_errors(
         (BatchFirstSource, Arc<AtomicUsize>, Arc<AtomicUsize>),
         DataSourceError,
     >,
-) -> Result<(), DataSourceError> {
+) -> Result<(), Box<dyn Error>> {
     let (source, _batch_calls, _distance_calls) = batch_first_singleton_setup?;
 
     let err = source
         .batch_distances(0, &[1])
         .expect_err("out-of-bounds candidate must fail");
 
-    assert!(
-        matches!(err, DataSourceError::OutOfBounds { index: 1 }),
-        "unexpected error: {err:?}",
-    );
+    if !matches!(err, DataSourceError::OutOfBounds { index: 1 }) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("unexpected error: {err:?}"),
+        )
+        .into());
+    }
 
     Ok(())
 }
