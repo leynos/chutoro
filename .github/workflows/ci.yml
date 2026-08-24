@@ -29,7 +29,7 @@ jobs:
           # full history must be fetched for the merge base to be reachable.
           fetch-depth: 0
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@a42afcf10cf18a6af7c6c2ec2b30c4209bc8c8cd
+        uses: leynos/shared-actions/.github/actions/setup-rust@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
       - name: Dense stable SIMD gating
         run: |
           cargo clippy -p chutoro-providers-dense \
@@ -89,7 +89,7 @@ jobs:
       - name: Workflow contract tests
         run: make test-workflow-contracts
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@a42afcf10cf18a6af7c6c2ec2b30c4209bc8c8cd
+        uses: leynos/shared-actions/.github/actions/generate-coverage@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
         with:
           output-path: lcov.info
           format: lcov
@@ -101,7 +101,7 @@ jobs:
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
         if: env.CS_ACCESS_TOKEN != '' && github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@a42afcf10cf18a6af7c6c2ec2b30c4209bc8c8cd
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
         with:
           format: lcov
           mode: check
