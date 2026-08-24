@@ -10,17 +10,26 @@ use num_traits::cast;
 
 use super::{CondensedCluster, CondensedEvent, HierarchyError, SingleLinkageForest};
 
+/// Builds condensed-cluster events while traversing a linkage forest.
 pub(super) struct CondenseBuilder<'a> {
+    /// Dendrogram whose branches are being condensed.
     forest: &'a SingleLinkageForest,
+    /// Smallest branch retained as a cluster.
     min_cluster_size: usize,
+    /// Output clusters receiving traversal events.
     clusters: &'a mut Vec<CondensedCluster>,
 }
 
+/// Classification of a split relative to the minimum cluster size.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum SplitCase {
+    /// Both branches continue as child clusters.
     BothBig,
+    /// Only the left branch continues as a cluster.
     LeftBigOnly,
+    /// Only the right branch continues as a cluster.
     RightBigOnly,
+    /// Both branches are emitted as pruned points.
     BothSmall,
 }
 
@@ -29,14 +38,20 @@ enum SplitCase {
 /// This is local to [`CondenseBuilder`]: it groups the two child identifiers,
 /// their sizes, and the split lambda without widening the hierarchy API.
 struct BranchSplit {
+    /// Left child node identifier.
     left: usize,
+    /// Right child node identifier.
     right: usize,
+    /// Inverse-weight lifetime at the split.
     lambda: f32,
+    /// Number of leaves under the left child.
     left_size: usize,
+    /// Number of leaves under the right child.
     right_size: usize,
 }
 
 impl SplitCase {
+    /// Construct a split classification from the child-size predicates.
     const fn from_flags(left_big: bool, right_big: bool) -> Self {
         match (left_big, right_big) {
             (true, true) => Self::BothBig,
@@ -48,6 +63,7 @@ impl SplitCase {
 }
 
 impl<'a> CondenseBuilder<'a> {
+    /// Create a traversal builder for one linkage forest.
     pub(super) const fn new(
         forest: &'a SingleLinkageForest,
         min_cluster_size: usize,
@@ -60,6 +76,7 @@ impl<'a> CondenseBuilder<'a> {
         }
     }
 
+    /// Condense the subtree rooted at `node_id` into `cluster_id`.
     pub(super) fn condense_cluster(
         &mut self,
         node_id: usize,
@@ -88,6 +105,7 @@ impl<'a> CondenseBuilder<'a> {
         )
     }
 
+    /// Return a branch node's children and inverse-weight lifetime.
     fn branch_details(
         &self,
         node_id: usize,
@@ -103,6 +121,7 @@ impl<'a> CondenseBuilder<'a> {
             .map(|(left, right)| (left, right, weight_to_lambda(node.weight))))
     }
 
+    /// Return the leaf count below a linkage node.
     fn node_size(&self, node_id: usize) -> Result<usize, HierarchyError> {
         self.forest
             .nodes
@@ -111,6 +130,7 @@ impl<'a> CondenseBuilder<'a> {
             .ok_or(HierarchyError::InvalidForestReference { node_id })
     }
 
+    /// Emit the leaf event for a terminal linkage node.
     fn record_leaf(&mut self, node_id: usize, cluster_id: usize) -> Result<(), HierarchyError> {
         let node = self
             .forest
@@ -123,6 +143,7 @@ impl<'a> CondenseBuilder<'a> {
         Ok(())
     }
 
+    /// Apply the condensation behaviour associated with a split classification.
     fn apply_split_case(
         &mut self,
         split_case: SplitCase,
@@ -137,6 +158,7 @@ impl<'a> CondenseBuilder<'a> {
         }
     }
 
+    /// Create child clusters when both branches satisfy the size threshold.
     fn split_both_big(
         &mut self,
         cluster_id: usize,
@@ -150,6 +172,7 @@ impl<'a> CondenseBuilder<'a> {
         self.condense_cluster(branch_split.right, right_cluster)
     }
 
+    /// Prune the right branch while continuing through the left branch.
     fn split_left_big_only(
         &mut self,
         cluster_id: usize,
@@ -159,6 +182,7 @@ impl<'a> CondenseBuilder<'a> {
         self.condense_cluster(branch_split.left, cluster_id)
     }
 
+    /// Prune the left branch while continuing through the right branch.
     fn split_right_big_only(
         &mut self,
         cluster_id: usize,
@@ -168,6 +192,7 @@ impl<'a> CondenseBuilder<'a> {
         self.condense_cluster(branch_split.right, cluster_id)
     }
 
+    /// Prune both branches when neither satisfies the size threshold.
     fn split_both_small(
         &mut self,
         cluster_id: usize,
@@ -177,6 +202,7 @@ impl<'a> CondenseBuilder<'a> {
         self.emit_pruned_points(branch_split.right, cluster_id, branch_split.lambda)
     }
 
+    /// Add a condensed child cluster and its parent event.
     fn create_child_cluster(
         &mut self,
         parent: usize,
@@ -204,6 +230,7 @@ impl<'a> CondenseBuilder<'a> {
         Ok(child_id)
     }
 
+    /// Emit every leaf below a branch that no longer forms a cluster.
     fn emit_pruned_points(
         &mut self,
         node_id: usize,
@@ -219,6 +246,7 @@ impl<'a> CondenseBuilder<'a> {
         Ok(())
     }
 
+    /// Emit a point event or return the branch children for further pruning.
     fn prune_node(
         &mut self,
         node_id: usize,
@@ -238,6 +266,7 @@ impl<'a> CondenseBuilder<'a> {
     }
 }
 
+/// Append one point-leaf event and update its cluster stability.
 fn record_point_event(
     clusters: &mut [CondensedCluster],
     cluster_id: usize,
@@ -255,11 +284,13 @@ fn record_point_event(
     Ok(())
 }
 
+/// Accumulate one branch's lifetime contribution to cluster stability.
 fn record_stability_increment(cluster: &mut CondensedCluster, lambda: f32, size: f32) {
     let increment = lambda.sub(cluster.birth_lambda).mul(size);
     cluster.stability.add_assign(increment);
 }
 
+/// Convert a linkage-edge weight into its HDBSCAN lifetime value.
 fn weight_to_lambda(weight: f32) -> f32 {
     if weight == 0.0 {
         f32::INFINITY
@@ -268,6 +299,7 @@ fn weight_to_lambda(weight: f32) -> f32 {
     }
 }
 
+/// Convert a branch size for use in floating-point stability arithmetic.
 fn narrow_size_to_f32(size: usize) -> f32 {
     cast(size).unwrap_or(f32::NAN)
 }

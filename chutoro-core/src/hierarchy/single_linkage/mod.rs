@@ -31,29 +31,44 @@ use crate::mst::MstEdge;
 use self::condense::CondenseBuilder;
 pub use self::error::{HierarchyError, HierarchyErrorCode};
 
+/// Event emitted while condensing a linkage-tree cluster.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum CondensedEvent {
+    /// A data point leaves the current cluster.
     Point {
+        /// Original data-point identifier.
         index: usize,
+        /// Lifetime at which the point leaves.
         lambda: f32,
     },
+    /// A new child cluster begins at the split.
     ChildCluster {
+        /// Identifier assigned to the child cluster.
         cluster: usize,
+        /// Lifetime at which the child begins.
         lambda: f32,
+        /// Number of points assigned to the child.
         size: usize,
     },
 }
 
+/// One cluster in the condensed hierarchy and its stability evidence.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct CondensedCluster {
+    /// Parent cluster, if this is not a root.
     parent: Option<usize>,
+    /// Lifetime at which this cluster was created.
     birth_lambda: f32,
+    /// Accumulated cluster lifetime weighted by membership.
     stability: f32,
+    /// Point and child-cluster transitions emitted by this cluster.
     events: Vec<CondensedEvent>,
+    /// Direct child-cluster identifiers.
     children: Vec<usize>,
 }
 
 impl CondensedCluster {
+    /// Create an empty cluster with its parent and creation lifetime.
     const fn new(parent: Option<usize>, birth_lambda: f32) -> Self {
         Self {
             parent,
@@ -65,13 +80,17 @@ impl CondensedCluster {
     }
 }
 
+/// Collection of condensed clusters and their component roots.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct CondensedForest {
+    /// All clusters in creation order.
     clusters: Vec<CondensedCluster>,
+    /// Root clusters, one per retained connected component.
     roots: Vec<usize>,
 }
 
 impl CondensedForest {
+    /// Reject an MST endpoint that lies outside the input dataset.
     const fn validate_endpoint(endpoint: usize, node_count: usize) -> Result<(), HierarchyError> {
         if endpoint < node_count {
             return Ok(());
@@ -83,6 +102,7 @@ impl CondensedForest {
         })
     }
 
+    /// Validate endpoints and finite, non-negative weights for MST edges.
     fn validate_edges(node_count: usize, edges: &[MstEdge]) -> Result<(), HierarchyError> {
         for edge in edges {
             for endpoint in [edge.source(), edge.target()] {
@@ -102,6 +122,7 @@ impl CondensedForest {
         Ok(())
     }
 
+    /// Condense one sufficiently large linkage-tree component into `condensed`.
     fn process_root_into_condensed(
         root: usize,
         forest: &SingleLinkageForest,
@@ -126,6 +147,7 @@ impl CondensedForest {
         builder.condense_cluster(root, cluster_id)
     }
 
+    /// Build a condensed forest from a validated mutual-reachability MST.
     pub(crate) fn from_mst(
         node_count: usize,
         edges: &[MstEdge],
@@ -203,13 +225,18 @@ pub(crate) fn extract_flat_labels(
         .collect())
 }
 
+/// Assigns selected condensed clusters to their point-leaf events.
 struct Labeller<'a> {
+    /// Condensed hierarchy to traverse.
     condensed: &'a CondensedForest,
+    /// Selected label for each cluster, if selected.
     label_lookup: &'a [Option<usize>],
+    /// Output label slot for each input point.
     labels: &'a mut [Option<usize>],
 }
 
 impl<'a> Labeller<'a> {
+    /// Create a labeller over the selected clusters and output slots.
     const fn new(
         condensed: &'a CondensedForest,
         label_lookup: &'a [Option<usize>],
@@ -222,6 +249,7 @@ impl<'a> Labeller<'a> {
         }
     }
 
+    /// Label a cluster's point events and recursively visit its children.
     fn label_cluster(
         &mut self,
         cluster_id: usize,
@@ -263,6 +291,7 @@ impl<'a> Labeller<'a> {
     }
 }
 
+/// Select the maximum-stability cluster set beneath every condensed root.
 fn select_stable_clusters(condensed: &CondensedForest) -> Result<Vec<usize>, HierarchyError> {
     let mut selected = Vec::new();
     for root in condensed.roots.iter().copied() {
@@ -276,6 +305,7 @@ fn select_stable_clusters(condensed: &CondensedForest) -> Result<Vec<usize>, Hie
     Ok(selected)
 }
 
+/// Select stable clusters recursively and return the best subtree score.
 fn select_stable_clusters_inner(
     condensed: &CondensedForest,
     cluster_id: usize,
@@ -313,17 +343,26 @@ fn select_stable_clusters_inner(
 }
 
 #[derive(Clone, Debug)]
+/// One node in the binary linkage dendrogram.
 struct LinkageNode {
+    /// Left child node for an internal branch.
     left: Option<usize>,
+    /// Right child node for an internal branch.
     right: Option<usize>,
+    /// MST weight at which the children merge.
     weight: f32,
+    /// Number of point leaves beneath this node.
     size: usize,
+    /// Input point represented by a leaf node.
     point: Option<usize>,
 }
 
 // `SingleLinkageForest::from_mst` lives in the `forest` submodule.
+/// Linkage nodes and the roots of their disconnected components.
 #[derive(Clone, Debug)]
 struct SingleLinkageForest {
+    /// Linkage nodes in leaf-first construction order.
     nodes: Vec<LinkageNode>,
+    /// Root node of each disconnected component.
     roots: Vec<usize>,
 }

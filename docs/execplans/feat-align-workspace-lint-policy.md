@@ -167,6 +167,10 @@ keeps local editor feedback aligned with commit gates.
       error mapping, and construction helpers. Focused core Clippy reports
       367 remaining primary-crate documentation diagnostics; the 44 focused
       session tests and two API-surface tests pass.
+- [x] 2026-08-24: Documented single-linkage condensation transitions,
+      hierarchy events, labelling, and linkage-node state. Focused core Clippy
+      now reports 296 remaining primary-crate documentation diagnostics, and
+      all seven focused hierarchy tests pass.
 - [x] 2026-08-24: Replaced the `chutoro-cli` whole-crate filesystem exemption
       with the user-path command boundary and its two `cli::tests` fixture
       modules. `make lint` passes with Whitaker enforcing every other CLI
