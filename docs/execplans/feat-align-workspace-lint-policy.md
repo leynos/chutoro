@@ -458,6 +458,12 @@ Fill cache-hit slots through a paired iterator and verify cache-miss slot
 access before writing. Preserve candidate ordering and cache completion
 behaviour. Verify HNSW tests, formatting, and scoped Clippy.
 
+## Stage 3g: HNSW Reciprocal Edge Collection
+
+Iterate reciprocal edge buckets directly rather than indexing them from level
+numbers. Preserve level-to-bucket correspondence and committed neighbour
+ordering. Verify HNSW tests, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

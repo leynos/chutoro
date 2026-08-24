@@ -127,21 +127,17 @@ impl<'graph> CommitApplicator<'graph> {
     }
 
     /// Collects edges from a single existing node that point to the new node.
-    #[expect(
-        clippy::needless_range_loop,
-        reason = "Level indices map to reciprocated bucket indices"
-    )]
     fn collect_edges_to_new_node(
         node_id: usize,
         node: &crate::hnsw::node::Node,
         new_node: &NewNodeContext,
         reciprocated: &mut [Vec<usize>],
     ) {
-        for level in 0..=new_node.level {
+        for (level, reciprocated_nodes) in reciprocated.iter_mut().enumerate() {
             let has_edge =
                 level < node.level_count() && node.neighbours(level).contains(&new_node.id);
             if has_edge {
-                reciprocated[level].push(node_id);
+                reciprocated_nodes.push(node_id);
             }
         }
     }
