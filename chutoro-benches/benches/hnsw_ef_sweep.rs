@@ -55,6 +55,7 @@ const CLUSTERING_QUALITY_REPORT_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../target/benchmarks/hnsw_cluster_quality_vs_ef.csv"
 );
+/// Reduced sweep sizes used while Criterion discovers benchmark names.
 const DISCOVERY_EF_SWEEP_POINT_COUNTS: &[usize] = &[500];
 
 /// Panics on HNSW build failure within a Criterion benchmark closure.
@@ -82,6 +83,7 @@ fn warn_unrecognised_bool_env(env_var_name: &str, value: &str) {
     );
 }
 
+/// Parse one optional benchmark boolean environment variable.
 fn parse_bool_env_var(env_var_name: &str) -> Option<bool> {
     let value = std::env::var(env_var_name).ok()?;
     let normalized = value.trim().to_ascii_lowercase();
@@ -95,14 +97,17 @@ fn parse_bool_env_var(env_var_name: &str) -> Option<bool> {
     None
 }
 
+/// Determine whether Criterion is enumerating benchmark names.
 fn is_discovery_mode() -> bool {
     std::env::args().any(|arg| arg == "--list" || arg == "--exact")
 }
 
+/// Determine whether nextest is executing an exact Criterion probe.
 fn is_exact_benchmark_probe() -> bool {
     std::env::args().any(|arg| arg == "--exact")
 }
 
+/// Configure sampling for one `ef_construction` sweep group.
 fn configure_ef_sweep_group(
     group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
 ) {
@@ -113,6 +118,7 @@ fn configure_ef_sweep_group(
     }
 }
 
+/// Select full or reduced source sizes for this Criterion invocation.
 fn ef_sweep_point_counts() -> &'static [usize] {
     if is_discovery_mode() {
         DISCOVERY_EF_SWEEP_POINT_COUNTS
@@ -121,20 +127,24 @@ fn ef_sweep_point_counts() -> &'static [usize] {
     }
 }
 
+/// Determine whether this invocation should write the recall report.
 fn should_collect_recall_report() -> bool {
     parse_bool_env_var("CHUTORO_BENCH_HNSW_RECALL_REPORT").unwrap_or_else(|| !is_discovery_mode())
 }
 
+/// Resolve the configured destination for the recall report.
 fn recall_report_path() -> PathBuf {
     std::env::var_os("CHUTORO_BENCH_HNSW_RECALL_REPORT_PATH")
         .map_or_else(|| PathBuf::from(RECALL_REPORT_PATH), PathBuf::from)
 }
 
+/// Determine whether this invocation should write the clustering-quality report.
 fn should_collect_cluster_quality_report() -> bool {
     parse_bool_env_var("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT")
         .unwrap_or_else(|| !is_discovery_mode())
 }
 
+/// Resolve the configured destination for the clustering-quality report.
 fn cluster_quality_report_path() -> PathBuf {
     std::env::var_os("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH").map_or_else(
         || PathBuf::from(CLUSTERING_QUALITY_REPORT_PATH),
@@ -157,6 +167,7 @@ const fn query_index(qi: usize, len: usize) -> usize {
     qi.saturating_add(1).saturating_mul(len) / RECALL_QUERY_COUNT.saturating_add(1)
 }
 
+/// Aggregate recall scores over the deterministic query sample.
 fn collect_recall_over_queries(
     source: &SyntheticSource,
     index: &CpuHnsw,
@@ -183,6 +194,7 @@ fn collect_recall_over_queries(
     })
 }
 
+/// Measure recall across the configured `ef_construction` values.
 fn measure_recall_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
     if !should_collect_recall_report() {
         return Ok(None);
@@ -224,6 +236,7 @@ fn measure_recall_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
 
 // -- Criterion ef_construction sweep -----------------------------------
 
+/// Register the `ef_construction` build sweep and optional quality reports.
 #[expect(
     clippy::excessive_nesting,
     reason = "Criterion bench_with_input + triple parameter loop requires deep nesting"
@@ -270,6 +283,7 @@ fn hnsw_build_ef_sweep_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     Ok(())
 }
 
+/// Register the public Criterion `ef_construction` sweep entrypoint.
 fn hnsw_build_ef_sweep(c: &mut Criterion) {
     if let Err(err) = hnsw_build_ef_sweep_impl(c) {
         panic!("hnsw_build_ef_sweep benchmark setup failed: {err}");

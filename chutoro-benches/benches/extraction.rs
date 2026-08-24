@@ -45,12 +45,14 @@ const MIN_CLUSTER_SIZES: &[usize] = &[5, 10];
 /// HNSW M parameter used for edge generation.
 const M: usize = 16;
 
+/// Configure sampling for one extraction benchmark group.
 fn configure_extraction_group(
     group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
 ) {
     configure_short_measurement_group(group, 20, is_exact_benchmark_probe());
 }
 
+/// Register extraction measurements and return setup failures to the caller.
 #[expect(
     clippy::panic_in_result_fn,
     reason = "Criterion measurement closures cannot propagate errors via Result"
@@ -103,6 +105,7 @@ fn extract_labels_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     Ok(())
 }
 
+/// Register the public Criterion extraction benchmark entrypoint.
 fn extract_labels(c: &mut Criterion) {
     if let Err(err) = extract_labels_impl(c) {
         panic!("extract_labels benchmark setup failed: {err}");

@@ -776,6 +776,13 @@ command semantics, benchmark inputs, source generation, and profiling
 instrumentation. Verify the CLI and benchmark suites and scoped all-feature
 Clippy before advancing the workspace lint gate.
 
+## Stage 3ag: Benchmark-Binary Private-Item Documentation
+
+Document Criterion binary setup, workload preparation, and report-selection
+helpers without changing registration, discovery, exact-probe, HNSW workload,
+or reporting semantics. Verify the benchmark targets' all-feature Clippy pass,
+then advance the workspace lint gate.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

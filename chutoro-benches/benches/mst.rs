@@ -41,6 +41,7 @@ const POINT_COUNTS: &[usize] = &[100, 500, 1_000];
 /// HNSW M parameter used for edge generation.
 const M: usize = 16;
 
+/// Register MST measurements and return setup failures to the caller.
 #[expect(
     clippy::panic_in_result_fn,
     reason = "Criterion measurement closures cannot propagate errors via Result"
@@ -84,6 +85,7 @@ fn mst_parallel_kruskal_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     Ok(())
 }
 
+/// Register no-op MST cases used while Criterion discovers benchmark names.
 fn register_mst_discovery_benches(c: &mut Criterion) {
     let params = POINT_COUNTS
         .iter()
@@ -94,6 +96,7 @@ fn register_mst_discovery_benches(c: &mut Criterion) {
     });
 }
 
+/// Register the public Criterion MST benchmark entrypoint.
 fn mst_parallel_kruskal(c: &mut Criterion) {
     if let Err(err) = mst_parallel_kruskal_impl(c) {
         panic!("mst_parallel_kruskal benchmark setup failed: {err}");

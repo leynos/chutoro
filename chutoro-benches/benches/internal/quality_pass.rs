@@ -24,6 +24,7 @@ use crate::{
     should_collect_cluster_quality_report,
 };
 
+/// Generate labelled synthetic data for the clustering-quality sweep.
 fn make_cluster_quality_source() -> Result<(SyntheticSource, Vec<usize>), BenchSetupError> {
     SyntheticSource::generate_gaussian_blobs_with_labels(&GaussianBlobConfig {
         point_count: CLUSTERING_QUALITY_POINT_COUNT,
@@ -36,6 +37,7 @@ fn make_cluster_quality_source() -> Result<(SyntheticSource, Vec<usize>), BenchS
     .map_err(BenchSetupError::from)
 }
 
+/// Calculate each point's mutual-reachability core distance.
 fn compute_core_distances(
     index: &CpuHnsw,
     source: &SyntheticSource,
@@ -89,6 +91,7 @@ fn compute_core_distances(
     Ok(core_distances)
 }
 
+/// Convert harvested HNSW edges into mutual-reachability candidate edges.
 fn build_mutual_edges(
     harvested: &EdgeHarvest,
     core_distances: &[f64],
