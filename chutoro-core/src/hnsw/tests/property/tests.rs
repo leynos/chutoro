@@ -31,16 +31,19 @@ use crate::{CpuHnsw, DataSource};
 
 #[test]
 fn dense_vector_source_rejects_inconsistent_rows() {
-    let err = DenseVectorSource::new("empty", Vec::new()).expect_err("empty data should fail");
-    assert_eq!(err, DataSourceError::EmptyData);
+    let empty_error =
+        DenseVectorSource::new("empty", Vec::new()).expect_err("empty data should fail");
+    assert_eq!(empty_error, DataSourceError::EmptyData);
 
-    let err = DenseVectorSource::new("zero", vec![vec![]]).expect_err("zero dimension should fail");
-    assert_eq!(err, DataSourceError::ZeroDimension);
+    let zero_dimension_error =
+        DenseVectorSource::new("zero", vec![vec![]]).expect_err("zero dimension should fail");
+    assert_eq!(zero_dimension_error, DataSourceError::ZeroDimension);
 
-    let err = DenseVectorSource::new("mismatch", vec![vec![0.0, 1.0], vec![1.0]])
-        .expect_err("dimension mismatch must fail");
+    let dimension_mismatch_error =
+        DenseVectorSource::new("mismatch", vec![vec![0.0, 1.0], vec![1.0]])
+            .expect_err("dimension mismatch must fail");
     assert_eq!(
-        err,
+        dimension_mismatch_error,
         DataSourceError::DimensionMismatch { left: 2, right: 1 },
     );
 }
