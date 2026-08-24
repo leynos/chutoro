@@ -171,6 +171,11 @@ keeps local editor feedback aligned with commit gates.
       hierarchy events, labelling, and linkage-node state. Focused core Clippy
       now reports 296 remaining primary-crate documentation diagnostics, and
       all seven focused hierarchy tests pass.
+- [x] 2026-08-24: Moved HNSW search queue state into the private
+      `search::state` child module before documenting it, because the original
+      module was already 372 lines. The state module is exclusively owned by
+      `LayerSearcher`; its four focused search tests pass and core Clippy now
+      reports 265 remaining primary-crate documentation diagnostics.
 - [x] 2026-08-24: Replaced the `chutoro-cli` whole-crate filesystem exemption
       with the user-path command boundary and its two `cli::tests` fixture
       modules. `make lint` passes with Whitaker enforcing every other CLI
