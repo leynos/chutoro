@@ -60,10 +60,10 @@ pub(super) fn count_connected_components(node_count: usize, edges: &[CandidateEd
         ) else {
             continue;
         };
-        if root_s != root_t {
-            if let Some(target_parent) = parent.get_mut(root_t) {
-                *target_parent = root_s;
-            }
+        if root_s != root_t
+            && let Some(target_parent) = parent.get_mut(root_t)
+        {
+            *target_parent = root_s;
         }
     }
 

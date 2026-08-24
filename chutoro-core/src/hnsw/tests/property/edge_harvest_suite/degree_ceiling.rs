@@ -165,14 +165,16 @@ mod tests {
         }
 
         let degrees = compute_node_degrees(graph.node_count, &graph.edges);
-        let avg_degree: f64 = degrees.iter().sum::<usize>() as f64 / graph.node_count as f64;
+        let total_degree = degrees.iter().sum::<usize>();
         let max_degree = degrees.iter().copied().max().unwrap_or(0);
 
         // Scale-free graphs should have at least one hub with degree above average.
-        let hub_threshold = avg_degree * 1.5;
         assert!(
-            max_degree as f64 >= hub_threshold,
-            "scale-free graph lacks hub: max_degree={max_degree}, avg_degree={avg_degree:.1}, threshold={hub_threshold:.1}"
+            max_degree
+                .saturating_mul(2)
+                .saturating_mul(graph.node_count)
+                >= total_degree.saturating_mul(3),
+            "scale-free graph lacks hub: max_degree={max_degree}, total_degree={total_degree}"
         );
     }
 }

@@ -31,7 +31,7 @@ const COVERAGE_MAX_ATTEMPTS_PER_INDEX: usize = 2;
 /// unchanged.
 pub(super) fn run_idempotency_property(
     fixture: HnswFixture,
-    plan: IdempotencyPlan,
+    plan: &IdempotencyPlan,
 ) -> TestCaseResult {
     let is_coverage_job = is_coverage_job();
     let params = fixture
@@ -53,8 +53,8 @@ pub(super) fn run_idempotency_property(
     let snapshot = snapshot_graph(&index);
 
     // Attempt duplicate insertions
-    let duplicate_indices = duplicate_indices_for_job(&plan, len, is_coverage_job);
-    let attempts_per_index = attempts_per_index_for_job(&plan, is_coverage_job);
+    let duplicate_indices = duplicate_indices_for_job(plan, len, is_coverage_job);
+    let attempts_per_index = attempts_per_index_for_job(plan, is_coverage_job);
     for &node in &duplicate_indices {
         for attempt in 0..attempts_per_index {
             let result = index.insert(node, &source);
@@ -92,7 +92,7 @@ pub(super) fn run_idempotency_property(
 fn resolve_duplicate_indices(plan: &IdempotencyPlan, len: usize) -> Vec<usize> {
     plan.duplicate_hints
         .iter()
-        .map(|&hint| usize::from(hint) % len)
+        .map(|&hint| std::ops::Rem::rem(usize::from(hint), len))
         .collect()
 }
 
@@ -190,7 +190,10 @@ mod tests {
 
     fn make_fixture(vector_count: usize, seed: u64) -> HnswFixture {
         let vectors: Vec<Vec<f32>> = (0..vector_count)
-            .map(|i| vec![i as f32, (i * 2) as f32, (i * 3) as f32])
+            .map(|index| {
+                let value = f32::from(u16::try_from(index).unwrap_or(u16::MAX));
+                vec![value, value.mul_add(2.0, 0.0), value.mul_add(3.0, 0.0)]
+            })
             .collect();
         HnswFixture {
             distribution: VectorDistribution::Uniform,
@@ -218,10 +221,11 @@ mod tests {
     ) {
         let fixture = make_fixture(vector_count, seed);
         let plan = IdempotencyPlan {
-            duplicate_hints: (0..vector_count as u16).collect(),
+            duplicate_hints: (0..u16::try_from(vector_count).expect("fixture length fits u16"))
+                .collect(),
             attempts_per_index: attempts,
         };
-        run_idempotency_property(fixture, plan).expect("idempotency property must hold");
+        run_idempotency_property(fixture, &plan).expect("idempotency property must hold");
     }
 
     #[rstest]
@@ -231,7 +235,7 @@ mod tests {
             duplicate_hints: vec![0],
             attempts_per_index: 5,
         };
-        run_idempotency_property(fixture, plan).expect("single duplicate must preserve state");
+        run_idempotency_property(fixture, &plan).expect("single duplicate must preserve state");
     }
 
     #[rstest]
@@ -241,7 +245,7 @@ mod tests {
             duplicate_hints: vec![0, 1, 2, 3, 4],
             attempts_per_index: 3,
         };
-        run_idempotency_property(fixture, plan).expect("all nodes duplicated must preserve state");
+        run_idempotency_property(fixture, &plan).expect("all nodes duplicated must preserve state");
     }
 
     #[rstest]

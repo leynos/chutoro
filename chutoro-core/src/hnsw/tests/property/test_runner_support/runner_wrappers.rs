@@ -242,7 +242,7 @@ fn run_idempotency_proptest(config: Config) -> TestCaseResult {
         config,
         (hnsw_fixture_strategy(), idempotency_plan_strategy()),
         "hnsw idempotency proptest",
-        |(fixture, plan)| run_idempotency_property(fixture, plan),
+        |(fixture, plan)| run_idempotency_property(fixture, &plan),
     )
 }
 
