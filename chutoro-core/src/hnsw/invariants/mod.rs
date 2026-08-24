@@ -252,10 +252,10 @@ impl<'index> HnswInvariantChecker<'index> {
 
     fn collect_many_with_mode(
         &self,
-        invariants: impl IntoIterator<Item = HnswInvariant>,
+        requested_invariants: impl IntoIterator<Item = HnswInvariant>,
         log_violations: bool,
     ) -> Vec<HnswInvariantViolation> {
-        let invariants: Vec<_> = invariants.into_iter().collect();
+        let invariants: Vec<_> = requested_invariants.into_iter().collect();
         let mut violations = Vec::new();
         let mode = EvaluationMode::Collect {
             sink: &mut violations,

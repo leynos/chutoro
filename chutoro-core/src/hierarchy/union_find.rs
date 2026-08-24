@@ -37,20 +37,20 @@ impl DisjointSet {
     }
 
     pub(super) fn union(&mut self, left: usize, right: usize) -> usize {
-        let mut left = self.find(left);
-        let mut right = self.find(right);
-        if left == right {
-            return left;
+        let mut left_root = self.find(left);
+        let mut right_root = self.find(right);
+        if left_root == right_root {
+            return left_root;
         }
-        let left_rank = self.rank[left];
-        let right_rank = self.rank[right];
+        let left_rank = self.rank[left_root];
+        let right_rank = self.rank[right_root];
         if left_rank < right_rank {
-            std::mem::swap(&mut left, &mut right);
+            std::mem::swap(&mut left_root, &mut right_root);
         }
-        self.parent[right] = left;
+        self.parent[right_root] = left_root;
         if left_rank == right_rank {
-            self.rank[left] = left_rank.saturating_add(1);
+            self.rank[left_root] = left_rank.saturating_add(1);
         }
-        left
+        left_root
     }
 }

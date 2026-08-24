@@ -322,6 +322,17 @@ validation. Preserve cache-hit handling, batch distance resolution, and the
 error raised for unresolved candidates. Verify the validation unit test,
 `make check-fmt`, and package Clippy with only `clippy::shadow_reuse` denied.
 
+## Stage 2o: Core Graph and MST Binding Names
+
+Rename shadowed values at algorithm boundaries without changing their
+contracts: the CPU HNSW error mapper distinguishes its original error from
+mapped variants; union-find distinguishes inputs from resolved roots; MST
+distinguishes original endpoints from canonical endpoints and its iterable from
+the collected edge list; HNSW insertion distinguishes a context from its node
+ID; and invariant collection distinguishes the requested iterable from its
+materialized values. Verify focused hierarchy, MST, and HNSW tests,
+`make check-fmt`, and package Clippy with only `clippy::shadow_reuse` denied.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

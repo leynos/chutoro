@@ -196,18 +196,18 @@ const fn validate_and_canonicalize_edge(
     edge: &CandidateEdge,
     node_count: usize,
 ) -> Result<Option<MstEdge>, MstError> {
-    let source = edge.source();
-    let target = edge.target();
+    let edge_source = edge.source();
+    let edge_target = edge.target();
 
-    if source >= node_count {
+    if edge_source >= node_count {
         return Err(MstError::InvalidNodeId {
-            node: source,
+            node: edge_source,
             node_count,
         });
     }
-    if target >= node_count {
+    if edge_target >= node_count {
         return Err(MstError::InvalidNodeId {
-            node: target,
+            node: edge_target,
             node_count,
         });
     }
@@ -215,24 +215,24 @@ const fn validate_and_canonicalize_edge(
     let weight = edge.distance();
     if !weight.is_finite() {
         return Err(MstError::NonFiniteWeight {
-            left: source,
-            right: target,
+            left: edge_source,
+            right: edge_target,
         });
     }
 
-    if source == target {
+    if edge_source == edge_target {
         return Ok(None);
     }
 
-    let (source, target) = if source <= target {
-        (source, target)
+    let (canonical_source, canonical_target) = if edge_source <= edge_target {
+        (edge_source, edge_target)
     } else {
-        (target, source)
+        (edge_target, edge_source)
     };
 
     Ok(Some(MstEdge {
-        source,
-        target,
+        source: canonical_source,
+        target: canonical_target,
         weight,
         sequence: edge.sequence(),
     }))
@@ -266,8 +266,8 @@ fn prepare_edge_list<'a>(
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
     node_count: usize,
 ) -> Result<Vec<MstEdge>, MstError> {
-    let edges: Vec<&CandidateEdge> = edges.into_iter().collect();
-    let mut edge_list = edges
+    let candidate_edges: Vec<&CandidateEdge> = edges.into_iter().collect();
+    let mut edge_list = candidate_edges
         .par_iter()
         .try_fold(Vec::new, |mut acc, edge| {
             if let Some(mst_edge) = validate_and_canonicalize_edge(edge, node_count)? {

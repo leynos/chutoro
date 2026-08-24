@@ -104,15 +104,15 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
 }
 
 #[cfg(feature = "cpu")]
-pub(crate) fn map_cpu_hnsw_error<D: DataSource>(source: &D, error: HnswError) -> ChutoroError {
-    match error {
-        HnswError::DataSource(error) => ChutoroError::DataSource {
+pub(crate) fn map_cpu_hnsw_error<D: DataSource>(source: &D, hnsw_error: HnswError) -> ChutoroError {
+    match hnsw_error {
+        HnswError::DataSource(data_source_error) => ChutoroError::DataSource {
             data_source: Arc::from(source.name()),
-            error,
+            error: data_source_error,
         },
-        other => ChutoroError::CpuHnswFailure {
-            code: Arc::from(other.code().as_str()),
-            message: Arc::from(other.to_string()),
+        other_error => ChutoroError::CpuHnswFailure {
+            code: Arc::from(other_error.code().as_str()),
+            message: Arc::from(other_error.to_string()),
         },
     }
 }
