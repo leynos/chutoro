@@ -564,6 +564,12 @@ helper is test-only and must use total ordering rather than arithmetic
 tolerances. Preserve each distance contract and the failure-specific error
 assertions. Verify the focused test target and Clippy invocation.
 
+## Stage 3v: Datasource Test Fixtures
+
+Keep scalar fixture distances symmetric through fused subtraction, and compare
+expected float buffers through their exact representations. Reuse this only in
+test data sources. Verify the focused datasource test target and Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

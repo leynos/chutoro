@@ -22,7 +22,10 @@ fn distance_batch_returns_distances(dummy: Dummy) {
     dummy
         .distance_batch(&pairs, &mut out)
         .expect("distance_batch must succeed");
-    assert_eq!(out, [2.0, 3.0]);
+    assert_eq!(
+        out.map(f32::to_bits),
+        [2.0_f32.to_bits(), 3.0_f32.to_bits()]
+    );
 }
 
 #[rstest]
@@ -55,7 +58,10 @@ fn distance_batch_preserves_out_on_error(dummy: Dummy) {
         .distance_batch(&pairs, &mut out)
         .expect_err("distance_batch must propagate inner errors");
     assert!(matches!(err, DataSourceError::OutOfBounds { index: 99 }));
-    assert_eq!(out, [1.0, 1.0]);
+    assert_eq!(
+        out.map(f32::to_bits),
+        [1.0_f32.to_bits(), 1.0_f32.to_bits()]
+    );
 }
 
 #[rstest(dummy(vec![]))]
@@ -125,7 +131,7 @@ impl DataSource for BatchFirstDummy {
             .data
             .get(j)
             .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((a - b).abs())
+        Ok(a.mul_add(1.0, std::ops::Neg::neg(*b)).abs())
     }
 
     fn distance_batch(
@@ -150,7 +156,7 @@ impl DataSource for BatchFirstDummy {
                 .data
                 .get(right)
                 .ok_or(DataSourceError::OutOfBounds { index: right })?;
-            *slot = (a - b).abs();
+            *slot = a.mul_add(1.0, std::ops::Neg::neg(*b)).abs();
         }
         Ok(())
     }

@@ -37,6 +37,6 @@ impl DataSource for Dummy {
             .data
             .get(j)
             .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((a - b).abs())
+        Ok(a.mul_add(1.0, std::ops::Neg::neg(*b)).abs())
     }
 }
