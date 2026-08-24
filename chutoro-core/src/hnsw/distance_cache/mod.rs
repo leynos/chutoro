@@ -303,6 +303,23 @@ impl DistanceCache {
 
     /// Mark a cache key as recently used and evict an LRU key when needed.
     fn touch(&self, key: &DistanceKey) {
+        self.update_usage(key, |_, usage, usage_key| {
+            usage
+                .push(usage_key.clone(), ())
+                .map(|(evicted, ())| evicted)
+        });
+    }
+
+    /// Update a key's LRU usage and evict a displaced cache entry.
+    fn update_usage(
+        &self,
+        key: &DistanceKey,
+        operation: impl FnOnce(
+            &Self,
+            &mut LruCache<DistanceKey, ()>,
+            &DistanceKey,
+        ) -> Option<DistanceKey>,
+    ) {
         let Some(shard) = self.shard_for_key(key) else {
             return;
         };
@@ -312,7 +329,7 @@ impl DistanceCache {
             .usage
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some((evicted, ())) = usage.push(key.clone(), ()) {
+        if let Some(evicted) = operation(self, &mut usage, key) {
             self.entries.remove(&evicted);
             metric_hooks::record_eviction();
         }
@@ -320,19 +337,7 @@ impl DistanceCache {
 
     /// Remove a key from LRU usage while preserving a concurrently restored key.
     fn remove_from_usage(&self, key: &DistanceKey) {
-        let Some(shard) = self.shard_for_key(key) else {
-            return;
-        };
-        // Recover from a poisoned lock: the LRU usage list stays coherent
-        // because each mutation below is applied atomically under the guard.
-        let mut usage = shard
-            .usage
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(evicted) = self.try_restore_and_get_evicted(&mut usage, key) {
-            self.entries.remove(&evicted);
-            metric_hooks::record_eviction();
-        }
+        self.update_usage(key, Self::try_restore_and_get_evicted);
     }
 
     /// Restore a key still present in the value map and return any eviction.

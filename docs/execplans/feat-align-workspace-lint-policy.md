@@ -722,6 +722,15 @@ Verify the focused session-append BDD test target and Clippy.
 Keep test-batch dispatch checks exact while returning assertion failures from
 fallible tests. Verify the focused batch-first tests and library Clippy.
 
+## Stage 3z: Distance-Cache Usage Updates
+
+Centralize the cache's locked LRU mutation and eviction side effects in the
+private `DistanceCache::update_usage` composition point. It is restricted to
+`touch` and `remove_from_usage`: callers provide a usage-only operation that
+returns the evicted key while the shard lock remains held. Preserve shard
+selection, poison recovery, entry removal, and eviction metrics. Verify the
+cache suite, workspace formatting, type checking, linting, and tests.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
