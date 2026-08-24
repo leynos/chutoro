@@ -1,8 +1,10 @@
 //! Error types produced by the CPU HNSW implementation.
 
+use std::sync::Arc;
+
 use thiserror::Error;
 
-use crate::error::DataSourceError;
+use crate::error::{ChutoroError, DataSourceError};
 
 /// Errors produced by the CPU HNSW implementation.
 #[derive(Clone, Debug, Error, PartialEq)]
@@ -52,6 +54,18 @@ pub enum HnswError {
 }
 
 impl HnswError {
+    /// Converts this HNSW adapter error into the public core error type.
+    #[must_use]
+    pub(crate) fn into_chutoro_error(self, data_source: Arc<str>) -> ChutoroError {
+        match self {
+            Self::DataSource(error) => ChutoroError::DataSource { data_source, error },
+            other => ChutoroError::CpuHnswFailure {
+                code: Arc::from(other.code().as_str()),
+                message: Arc::from(other.to_string()),
+            },
+        }
+    }
+
     /// Returns a stable, machine-readable error code for the variant.
     #[must_use]
     pub const fn code(&self) -> HnswErrorCode {
