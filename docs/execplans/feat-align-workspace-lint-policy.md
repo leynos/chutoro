@@ -155,6 +155,9 @@ keeps local editor feedback aligned with commit gates.
       clustering-quality internals. Focused core Clippy reduces the primary
       crate baseline to 420 diagnostics, and all 534 core tests plus 67
       doctests pass (18 doctests are intentionally ignored).
+- [x] 2026-08-24: Documented the distance-cache keys, entries, sharding, and
+      metric hooks. Focused core Clippy reduces the primary crate baseline to
+      382 diagnostics without changing cache behaviour.
 - [x] 2026-08-24: Replaced the `chutoro-cli` whole-crate filesystem exemption
       with the user-path command boundary and its two `cli::tests` fixture
       modules. `make lint` passes with Whitaker enforcing every other CLI
