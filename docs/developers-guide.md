@@ -359,6 +359,20 @@ If a workflow's behaviour genuinely depends on a feature only present from a
 particular commit onwards, express that as a comment or a changelog note, not
 as a test assertion on the SHA string.
 
+### Arrow and Parquet family updates
+
+Keep the root workspace's `arrow-array`, `arrow-schema`, and `parquet`
+requirements on the same version. The dense provider passes Arrow's
+`RecordBatchReader`, `ArrowError`, and `DataType` across the Parquet bridge, so
+mixing compatible-looking major-minor releases creates distinct Rust types and
+prevents the workspace from compiling.
+
+Dependabot's `arrow` group covers version updates, while `arrow-security`
+covers security updates. Both match `arrow*` and `parquet`. Do not accept a
+single-package update from either category: update all three direct workspace
+requirements together, regenerate `Cargo.lock`, and run the Arrow/Parquet
+compile-pass test before the full quality gates.
+
 ## Dense SIMD parity suite
 
 Dense Euclidean backend parity tests live in

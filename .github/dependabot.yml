@@ -18,6 +18,16 @@ updates:
 
   # Enable version updates for Cargo
   - package-ecosystem: "cargo"
+    groups:
+      arrow:
+        patterns:
+          - 'arrow*'
+          - 'parquet'
+      arrow-security:
+        applies-to: security-updates
+        patterns:
+          - 'arrow*'
+          - 'parquet'
     directory: "/"
     open-pull-requests-limit: 5
     labels:
