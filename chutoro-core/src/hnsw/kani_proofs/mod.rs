@@ -37,6 +37,7 @@ mod invariants;
 
 use crate::hnsw::{graph::Graph, insert::test_helpers::add_edge_if_missing};
 
+/// Seeds a forward and reverse edge pair between two existing nodes.
 pub(super) fn add_bidirectional_edge(
     graph: &mut Graph,
     origin: usize,

@@ -234,6 +234,12 @@ demonstrates:
 - `make kani` gates pull requests via the path-filtered `kani-pr.yml`
   workflow, and `make kani-full` (17 harnesses, roughly 18 minutes) runs
   nightly post-merge.
+- MST proofs verify a bounded `cfg(kani)` sequential model of parallel
+  Kruskal (at most four nodes, six canonical edges, fixed-size forest
+  representation) rather than the Rayon production path; the modelling
+  boundary is closed by exhaustive equivalence tests in
+  `chutoro-core/src/mst/tests/kani_model_equivalence.rs`, and
+  out-of-domain inputs fail loudly with invariant violations.
 
 ### Verification Targets (Next Invariants)
 
@@ -303,6 +309,8 @@ intended as future formal verification targets:
   unit-test twins and narrow-surface proofs, fixed the reconciliation
   write-back ordering defect the investigation exposed, and wired `make kani`
   into pull-request CI with `make kani-full` remaining the nightly tier.
+- 2026-08-24: Documented the MST Kani model boundary and its equivalence-test
+  closure in the design document and this ADR.
 
 ## References
 

@@ -8,6 +8,11 @@ use crate::hnsw::{
     types::EntryPoint,
 };
 
+/// Builds the bounded two-node graph used by the invariant proofs.
+///
+/// Both nodes expose levels 0 and 1, and construction is asserted
+/// non-vacuous: nodes, level counts, and the entry point are checked
+/// so a no-op constructor cannot satisfy the proofs trivially.
 fn setup_two_node_graph(params: HnswParams) -> Option<Graph> {
     let mut graph = Graph::with_capacity(params, 2);
     if graph
@@ -50,6 +55,7 @@ fn setup_two_node_graph(params: HnswParams) -> Option<Graph> {
     Some(graph)
 }
 
+/// Reports whether a neighbour list is free of duplicate entries.
 fn slice_has_no_duplicates(neighbours: &[usize]) -> bool {
     // A linear scan keeps the assertion path free of `HashSet`'s symbolic
     // SipHash state, which is intractable under Kani.
@@ -63,6 +69,7 @@ fn slice_has_no_duplicates(neighbours: &[usize]) -> bool {
     true
 }
 
+/// Reports whether every neighbour list at every level is duplicate-free.
 fn graph_neighbours_are_unique(graph: &Graph) -> bool {
     for (_node_id, node) in graph.nodes_iter() {
         for level in 0..node.level_count() {
@@ -235,18 +242,21 @@ fn verify_entry_point_validity_4_nodes() {
     );
 }
 
+/// Draws a nondeterministic node level bounded to the proof domain.
 fn bounded_entry_level_for_kani() -> usize {
     let level: usize = kani::any();
     kani::assume(level <= 2);
     level
 }
 
+/// Applies the production entry-promotion rule to the model entry point.
 fn promote_entry_model_for_kani(entry: &mut EntryPoint, node: usize, level: usize) {
     if Graph::should_promote_entry_for_kani(Some(*entry), level) {
         *entry = EntryPoint { node, level };
     }
 }
 
+/// Reports whether the entry references a valid node at the maximum level.
 fn entry_is_valid_for_kani(entry: EntryPoint, levels: &[usize; 4]) -> bool {
     entry.node < levels.len()
         && entry.level == levels[entry.node]

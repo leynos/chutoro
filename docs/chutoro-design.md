@@ -1305,6 +1305,19 @@ _Figure 2: Reverse-edge Kani harness flow for the bidirectional, no-self-loop,
 and neighbour-uniqueness invariant checks, using bounded two-node scenarios
 with one concrete level per proof entry point._
 
+Minimum spanning tree (MST) proofs verify a bounded sequential model of
+the parallel Kruskal implementation, compiled only under `cfg(kani)`,
+because the Bounded Model Checker for C (CBMC) cannot absorb the Rayon
+and concurrent union-find machinery. The model is bounded at four nodes
+and six canonical edges, represents the forest as a fixed `[MstEdge; 3]`
+array in place of production's growable vector, and preserves the
+production edge ordering, deduplication, and deterministic union
+selection. Inputs outside those bounds fail with an invariant violation
+rather than silently truncating. The model's fidelity to production is
+pinned by exhaustive equivalence tests over every edge subset of one- to
+four-node complete graphs
+(`chutoro-core/src/mst/tests/kani_model_equivalence.rs`).
+
 _Implementation update (2026-01-17)._ A nightly slow CI job runs
 `make kani-full` only when the `main` branch has a commit within the last 24
 hours (UTC) of the schedule trigger. Manual `workflow_dispatch` runs may force

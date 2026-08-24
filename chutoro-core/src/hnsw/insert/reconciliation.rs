@@ -27,7 +27,7 @@ pub(super) struct EdgeReconciler<'graph> {
 }
 
 impl<'graph> EdgeReconciler<'graph> {
-    /// Bind reconciliation state to a mutable graph.
+    /// Creates a reconciler over the graph with no scrubs pending.
     pub(super) const fn new(graph: &'graph mut Graph) -> Self {
         Self {
             graph,
@@ -35,17 +35,20 @@ impl<'graph> EdgeReconciler<'graph> {
         }
     }
 
-    /// Return the graph for follow-up mutation by the commit executor.
+    /// Returns mutable access to the underlying graph.
     pub(super) const fn graph_mut(&mut self) -> &mut Graph {
         self.graph
     }
 
-    /// Return a shared graph view while reconciling edges.
+    /// Returns shared access to the underlying graph.
     pub(super) const fn graph(&self) -> &Graph {
         self.graph
     }
 
-    /// Remove reverse links for neighbours dropped from an updated node.
+    /// Removes reciprocal edges for neighbours dropped from the origin.
+    ///
+    /// Runs after the origin's list write-back so base-layer healing of any
+    /// newly isolated node observes final state rather than the stale list.
     pub(super) fn reconcile_removed_edges(
         &mut self,
         ctx: &UpdateContext,
@@ -87,18 +90,24 @@ impl<'graph> EdgeReconciler<'graph> {
             isolated_count = isolated.len(),
             "healing base connectivity for nodes isolated by removed edges"
         );
+        #[cfg(feature = "metrics")]
+        metrics::counter!("chutoro.hnsw.reconciliation.healed_nodes_total")
+            .increment(isolated.len() as u64);
         let mut healer = ConnectivityHealer::new(self.graph);
         for node in isolated {
             healer.ensure_base_connectivity(node, ctx.max_connections);
         }
     }
 
-    /// Retain only added neighbours that accept a reverse link.
+    /// Retains only targets whose reverse edge could be ensured.
     pub(super) fn reconcile_added_edges(&mut self, ctx: &UpdateContext, next: &mut Vec<usize>) {
         next.retain(|&target| self.ensure_reverse_edge(ctx, target));
     }
 
-    /// Add a reverse link to `target`, evicting a furthest neighbour if needed.
+    /// Ensures `target` links back to the origin, evicting if at capacity.
+    ///
+    /// Returns `false` when the target is missing or lacks the level. An
+    /// eviction defers a scrub for the orphaned forward edge.
     pub(super) fn ensure_reverse_edge(&mut self, ctx: &UpdateContext, target: usize) -> bool {
         let Some(target_node) = self.graph.node_mut(target) else {
             return false;
@@ -137,9 +146,9 @@ impl<'graph> EdgeReconciler<'graph> {
             );
         }
 
-        if let Some(evicted_node_id) = evicted_origin {
+        if let Some(evicted_origin) = evicted_origin {
             self.deferred_scrubs.push(DeferredScrub {
-                origin: evicted_node_id,
+                origin: evicted_origin,
                 target,
                 level: ctx.level,
             });
@@ -178,6 +187,12 @@ impl<'graph> EdgeReconciler<'graph> {
                 level = scrub.level,
                 "scrubbing orphaned forward edge left by an eviction"
             );
+            #[cfg(feature = "metrics")]
+            metrics::counter!(
+                "chutoro.hnsw.reconciliation.orphan_scrubs_total",
+                "layer" => if scrub.level == 0 { "base" } else { "upper" }
+            )
+            .increment(1);
             let ctx = UpdateContext {
                 origin: scrub.origin,
                 level: scrub.level,
@@ -202,7 +217,8 @@ impl<'graph> EdgeReconciler<'graph> {
         neighbour_was_removed && is_base_layer && is_now_isolated
     }
 
-    /// Remove an orphaned forward edge and heal base-layer isolation.
+    /// Removes the origin's forward edge to `target`, healing base-layer
+    /// isolation the removal causes.
     pub(super) fn remove_forward_edge_from(&mut self, ctx: &UpdateContext, target: usize) {
         let Some(origin_node) = self.graph.node_mut(ctx.origin) else {
             return;

@@ -33,6 +33,7 @@ enum WeightScheme {
 }
 
 impl WeightScheme {
+    /// Returns the weight this scheme assigns to the edge at `index`.
     fn weight(self, index: usize, edge_total: usize) -> f32 {
         #[expect(
             clippy::cast_precision_loss,
@@ -109,6 +110,10 @@ fn check_equivalence(node_count: usize, candidates: &[CandidateEdge]) -> Result<
 #[rstest]
 #[case::omitted(DeselectedEdge::Omitted)]
 #[case::self_loop(DeselectedEdge::SelfLoop)]
+/// Sweeps every edge subset of one-to-four-node complete graphs.
+///
+/// Each subset runs under every weight scheme and the given deselected
+/// edge encoding; model and production must agree exactly.
 fn model_matches_production_for_all_bounded_graphs(#[case] deselected: DeselectedEdge) {
     let schemes = [
         WeightScheme::AllEqual,
@@ -147,6 +152,7 @@ fn model_matches_production_for_all_bounded_graphs(#[case] deselected: Deselecte
     vec![CandidateEdge::new(0, 1, f32::NAN, 0)],
     MstError::NonFiniteWeight { left: 0, right: 1 },
 )]
+/// Asserts the model rejects invalid inputs with production's errors.
 fn model_matches_production_errors(
     #[case] node_count: usize,
     #[case] candidates: Vec<CandidateEdge>,

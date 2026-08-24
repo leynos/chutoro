@@ -220,6 +220,7 @@ impl Default for HnswParams {
         }
     }
 
+    /// Returns the documented default parameters of sixteen and sixty-four.
     #[cfg(not(kani))]
     fn default() -> Self {
         match Self::new(16, 64) {
