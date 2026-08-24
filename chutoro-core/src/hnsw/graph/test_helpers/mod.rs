@@ -31,6 +31,7 @@ impl Graph {
 
         let snapshot_nodes = self.nodes.clone();
         let snapshot_entry = self.entry;
+        let snapshot_touched = self.touched.clone();
         let removed_neighbours = collect_neighbour_layers(existing);
 
         let Some(_taken) = self.nodes.get_mut(node).and_then(Option::take) else {
@@ -50,6 +51,7 @@ impl Graph {
         if let Err(err) = self.ensure_reachability() {
             self.nodes = snapshot_nodes;
             self.entry = snapshot_entry;
+            self.touched = snapshot_touched;
             return Err(err);
         }
 
