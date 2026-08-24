@@ -54,8 +54,8 @@ fn validate_nonnegative_distance(distance: f32, edge_idx: usize) -> TestCaseResu
 /// 1. Index sizes match exactly
 /// 2. Edge counts are within reasonable tolerance
 pub(super) fn run_edge_harvest_determinism_property(
-    fixture: HnswFixture,
-    plan: EdgeHarvestPlan,
+    fixture: &HnswFixture,
+    plan: &EdgeHarvestPlan,
 ) -> TestCaseResult {
     let params = fixture
         .params
@@ -98,7 +98,11 @@ pub(super) fn run_edge_harvest_determinism_property(
         // non-deterministic insertion order)
         let min_edges = baseline_edges.len().min(edges.len());
         let max_edges = baseline_edges.len().max(edges.len());
-        let base_tolerance = ((min_edges as f64) * 0.3).max(3.0) as usize;
+        let base_tolerance = min_edges
+            .saturating_mul(3)
+            .checked_div(10)
+            .unwrap_or(0)
+            .max(3);
         // Tiny graphs can swing by a full neighbourhood based on insertion order.
         let tolerance = base_tolerance.max(params.max_connections());
 
@@ -118,7 +122,7 @@ pub(super) fn run_edge_harvest_determinism_property(
 
 /// Runs the edge harvest validity property: verifies all harvested edges are
 /// structurally valid (valid node references, finite distances, no self-edges).
-pub(super) fn run_edge_harvest_validity_property(fixture: HnswFixture) -> TestCaseResult {
+pub(super) fn run_edge_harvest_validity_property(fixture: &HnswFixture) -> TestCaseResult {
     let params = fixture
         .params
         .build()
@@ -150,7 +154,7 @@ pub(super) fn run_edge_harvest_validity_property(fixture: HnswFixture) -> TestCa
 
 /// Runs the edge harvest coverage property: verifies all inserted nodes
 /// (except the entry point) appear as edge sources.
-pub(super) fn run_edge_harvest_coverage_property(fixture: HnswFixture) -> TestCaseResult {
+pub(super) fn run_edge_harvest_coverage_property(fixture: &HnswFixture) -> TestCaseResult {
     let params = fixture
         .params
         .build()
@@ -171,7 +175,7 @@ pub(super) fn run_edge_harvest_coverage_property(fixture: HnswFixture) -> TestCa
     let num_nodes = index.len();
 
     // Collect all nodes that appear as edge sources
-    let sources: HashSet<usize> = edges.iter().map(|e| e.source()).collect();
+    let sources: HashSet<usize> = edges.iter().map(crate::CandidateEdge::source).collect();
 
     // All nodes except the entry point (node 0) should appear as sources
     // Node 0 is the first inserted and has no prior nodes to discover
@@ -211,9 +215,15 @@ mod tests {
         Ok(pool.install(f))
     }
 
-    fn make_fixture(vector_count: usize, seed: u64) -> HnswFixture {
+    fn make_fixture(vector_count: u16, seed: u64) -> HnswFixture {
         let vectors: Vec<Vec<f32>> = (0..vector_count)
-            .map(|i| vec![i as f32, (i * 2) as f32, (i * 3) as f32])
+            .map(|index| {
+                vec![
+                    f32::from(index),
+                    f32::from(index.saturating_mul(2)),
+                    f32::from(index.saturating_mul(3)),
+                ]
+            })
             .collect();
         HnswFixture {
             distribution: VectorDistribution::Uniform,
@@ -235,14 +245,14 @@ mod tests {
     #[case(10, 456, 2)]
     #[case(20, 789, 2)]
     fn edge_harvest_determinism_rstest_cases(
-        #[case] vector_count: usize,
+        #[case] vector_count: u16,
         #[case] seed: u64,
         #[case] rebuild_attempts: usize,
     ) {
         let fixture = make_fixture(vector_count, seed);
         let plan = EdgeHarvestPlan::new(rebuild_attempts);
         with_edge_harvest_pool(|| {
-            run_edge_harvest_determinism_property(fixture, plan)
+            run_edge_harvest_determinism_property(&fixture, &plan)
                 .expect("determinism property must hold");
         })
         .expect("edge harvest test pool should build");
@@ -254,10 +264,10 @@ mod tests {
     #[case(10, 456)]
     #[case(20, 789)]
     #[case(50, 999)]
-    fn edge_harvest_validity_rstest_cases(#[case] vector_count: usize, #[case] seed: u64) {
+    fn edge_harvest_validity_rstest_cases(#[case] vector_count: u16, #[case] seed: u64) {
         let fixture = make_fixture(vector_count, seed);
         with_edge_harvest_pool(|| {
-            run_edge_harvest_validity_property(fixture).expect("validity property must hold");
+            run_edge_harvest_validity_property(&fixture).expect("validity property must hold");
         })
         .expect("edge harvest test pool should build");
     }
@@ -267,10 +277,10 @@ mod tests {
     #[case(5, 123)]
     #[case(10, 456)]
     #[case(20, 789)]
-    fn edge_harvest_coverage_rstest_cases(#[case] vector_count: usize, #[case] seed: u64) {
+    fn edge_harvest_coverage_rstest_cases(#[case] vector_count: u16, #[case] seed: u64) {
         let fixture = make_fixture(vector_count, seed);
         with_edge_harvest_pool(|| {
-            run_edge_harvest_coverage_property(fixture).expect("coverage property must hold");
+            run_edge_harvest_coverage_property(&fixture).expect("coverage property must hold");
         })
         .expect("edge harvest test pool should build");
     }
@@ -282,12 +292,12 @@ mod tests {
         // Create clustered data: two clusters
         let mut vectors = Vec::new();
         // Cluster 1: around origin
-        for i in 0..5 {
-            vectors.push(vec![i as f32 * 0.1, i as f32 * 0.1, 0.0]);
+        for coordinate in [0.0, 0.1, 0.2, 0.3, 0.4] {
+            vectors.push(vec![coordinate, coordinate, 0.0]);
         }
         // Cluster 2: offset
-        for i in 0..5 {
-            vectors.push(vec![10.0 + i as f32 * 0.1, 10.0 + i as f32 * 0.1, 0.0]);
+        for coordinate in [10.0, 10.1, 10.2, 10.3, 10.4] {
+            vectors.push(vec![coordinate, coordinate, 0.0]);
         }
 
         let fixture = HnswFixture {
@@ -320,9 +330,9 @@ mod tests {
 
         // Run all properties on clustered data
         with_edge_harvest_pool(|| {
-            run_edge_harvest_validity_property(fixture.clone()).expect("validity must hold");
-            run_edge_harvest_coverage_property(fixture.clone()).expect("coverage must hold");
-            run_edge_harvest_determinism_property(fixture, EdgeHarvestPlan::new(2))
+            run_edge_harvest_validity_property(&fixture).expect("validity must hold");
+            run_edge_harvest_coverage_property(&fixture).expect("coverage must hold");
+            run_edge_harvest_determinism_property(&fixture, &EdgeHarvestPlan::new(2))
                 .expect("determinism must hold");
         })
         .expect("edge harvest test pool should build");
@@ -334,10 +344,10 @@ mod tests {
         let plan = EdgeHarvestPlan::new(3);
 
         with_edge_harvest_pool(|| {
-            run_edge_harvest_determinism_property(fixture.clone(), plan)
+            run_edge_harvest_determinism_property(&fixture, &plan)
                 .expect("determinism with 2 nodes");
-            run_edge_harvest_validity_property(fixture.clone()).expect("validity with 2 nodes");
-            run_edge_harvest_coverage_property(fixture).expect("coverage with 2 nodes");
+            run_edge_harvest_validity_property(&fixture).expect("validity with 2 nodes");
+            run_edge_harvest_coverage_property(&fixture).expect("coverage with 2 nodes");
         })
         .expect("edge harvest test pool should build");
     }
@@ -357,7 +367,9 @@ mod tests {
         // EdgeHarvest::from_unsorted sorts by sequence first, then by CandidateEdge's
         // Ord implementation (distance, source, target, sequence) as a tie-breaker.
         for window in edges.windows(2) {
-            let (prev, curr) = (&window[0], &window[1]);
+            let [prev, curr] = window else {
+                continue;
+            };
             assert!(
                 prev.sequence() < curr.sequence()
                     || (prev.sequence() == curr.sequence() && prev <= curr),
