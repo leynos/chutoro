@@ -1,5 +1,4 @@
 //! Unit tests for MNIST parsing and cache helpers.
-
 use super::*;
 use chutoro_core::DataSource;
 use flate2::Compression;
