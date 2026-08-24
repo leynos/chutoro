@@ -330,7 +330,9 @@ impl DistanceCache {
         } else {
             let mut hasher = DefaultHasher::new();
             key.hash(&mut hasher);
-            (hasher.finish() as usize) % shard_count
+            let shard_count_as_u64 = u64::try_from(shard_count).ok()?;
+            let hash_remainder = hasher.finish().checked_rem(shard_count_as_u64)?;
+            usize::try_from(hash_remainder).ok()?
         };
         self.shards.get(index)
     }
@@ -379,8 +381,8 @@ fn lru_shard_capacities(total_capacity: usize) -> Vec<NonZeroUsize> {
     let shard_count = desired_shards
         .clamp(1, DEFAULT_LRU_SHARDS)
         .min(total_capacity);
-    let base = total_capacity / shard_count;
-    let remainder = total_capacity % shard_count;
+    let base = total_capacity.checked_div(shard_count).unwrap_or_default();
+    let remainder = total_capacity.checked_rem(shard_count).unwrap_or_default();
 
     (0..shard_count)
         .map(|index| {

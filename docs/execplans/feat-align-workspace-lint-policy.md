@@ -439,6 +439,13 @@ Match explicitly on the unit payload stored in the LRU usage cache, preserving
 eviction and restoration behaviour while making the marker-value contract
 clear. Verify cache tests, formatting, and scoped Clippy.
 
+## Stage 3d: HNSW Cache Sharding
+
+Use checked quotient and remainder operations for shard selection and capacity
+distribution, retaining the deterministic result for valid non-zero shard
+counts without lossy hash narrowing. Verify cache tests, formatting, and scoped
+Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
