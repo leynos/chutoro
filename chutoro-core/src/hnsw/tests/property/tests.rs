@@ -183,7 +183,7 @@ proptest! {
 }
 
 #[test]
-#[ignore]
+#[ignore = "stress configuration is too expensive for the default test suite"]
 fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
     run_mutation_test(
         TestCases::try_new(640).expect("test cases must be > 0"),

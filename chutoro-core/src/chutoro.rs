@@ -12,6 +12,7 @@ use crate::{
 use tracing::{instrument, warn};
 
 const CPU_PATH_AVAILABLE: bool = cfg!(feature = "cpu");
+const DEFAULT_MAX_CONNECTIONS: usize = 16;
 // The `gpu` feature currently exposes the orchestration surface only;
 // no accelerated implementation ships yet.
 const GPU_PATH_AVAILABLE: bool = false;
@@ -216,7 +217,6 @@ impl Chutoro {
         // always constructs params via `HnswParams::default()`, so this is
         // consistent with actual usage.  Validated by the
         // `default_max_connections_matches_hnsw_params` test.
-        const DEFAULT_MAX_CONNECTIONS: usize = 16;
         let estimated = crate::memory::estimate_peak_bytes(items, DEFAULT_MAX_CONNECTIONS);
 
         if estimated > limit {
