@@ -342,6 +342,16 @@ equivalent optional-eviction branch with `Option::map_or`. Verify HNSW
 insertion tests, `make check-fmt`, and package Clippy with the affected naming
 and option-flow lints denied.
 
+## Stage 2q: CPU Pipeline Edge Access
+
+Replace positional core-distance access with checked lookups. A malformed
+harvested edge now crosses the existing CPU HNSW graph-invariant error boundary
+rather than panicking, while a short neighbour result retains the existing
+zero-distance fallback. Keep the MST and hierarchy mappers borrowed because
+they only derive their mapped error from the original value. Verify the CPU
+pipeline through the workspace test suite, `make check-fmt`, and scoped Clippy
+for the addressed indexing and pass-by-value diagnostics.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
