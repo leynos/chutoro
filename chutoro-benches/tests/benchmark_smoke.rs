@@ -7,6 +7,7 @@ use chutoro_benches::neighbour_scoring::{LANE_REPORT, REPORT_DIR_NAME, report_pa
 
 const HNSW_EXACT_BENCH: &str = "hnsw_build/n=100,M=8,ef=16";
 const MST_EXACT_BENCH: &str = "parallel_kruskal/n=100";
+const SMOKE_RAYON_THREADS: &str = "2";
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 
 fn cargo_bench_output(bench: &str, criterion_args: &[&str]) -> TestResult<String> {
@@ -17,6 +18,9 @@ fn cargo_bench_output(bench: &str, criterion_args: &[&str]) -> TestResult<String
     command.env("CHUTORO_BENCH_HNSW_RECALL_REPORT", "0");
     command.env("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT", "0");
     command.env("CHUTORO_BENCH_NEIGHBOUR_PROFILE", "0");
+    // The two-worker pool completes the bounded HNSW probe without turning
+    // this discovery test into a contention benchmark on larger hosts.
+    command.env("RAYON_NUM_THREADS", SMOKE_RAYON_THREADS);
 
     let output = command.output()?;
     let stdout = str::from_utf8(&output.stdout)?;

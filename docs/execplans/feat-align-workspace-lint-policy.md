@@ -135,9 +135,10 @@ keeps local editor feedback aligned with commit gates.
       `[workspace.lints]`, resolved its 127 all-target Clippy diagnostics, and
       preserved the SIMD, numerical, and fixed-seed fixture contracts. Scoped
       all-target Clippy, Whitaker, and crate tests pass.
-- [ ] Replace the `chutoro-benches` lint-table mirror with
-      `[lints] workspace = true`; keep only scoped, documented expectations
-      for unavoidable Criterion expansion diagnostics.
+- [x] 2026-08-24: Replaced the `chutoro-benches` lint-table mirror with
+      `[lints] workspace = true`. All-target Clippy and Whitaker pass with no
+      Criterion-specific lint exception; the bench crate's unit and smoke tests
+      pass.
 - [ ] Add and satisfy `missing_docs_in_private_items = "deny"` without
       weakening the root lint policy.
 - [x] 2026-08-24: Replaced the `chutoro-cli` whole-crate filesystem exemption
@@ -145,7 +146,8 @@ keeps local editor feedback aligned with commit gates.
       modules. `make lint` passes with Whitaker enforcing every other CLI
       module.
 - [ ] Narrow Whitaker filesystem exclusions to the remaining ambient
-      boundaries in `chutoro-test-support` and `chutoro-benches`; retain only
+      boundaries in `chutoro-test-support`; the benches exclusion is now six
+      named report, memory-sampling, and MNIST cache modules. Retain only
       separately compiled gate binaries and integration-test crates whose
       ambient fixture staging is intentional.
 - [ ] Document the exception model, run final gates and CodeRabbit review,
@@ -200,6 +202,15 @@ keeps local editor feedback aligned with commit gates.
   `try_from_parquet_path` convenience API. Whitaker confirms that excluding its
   private path-opening adapter, rather than the whole dense crate, leaves all
   other dense modules enforced.
+- The benches crate had no lint diagnostics after workspace inheritance. Its
+  former filesystem crate exemption covered only report writers, Linux process
+  sampling, and MNIST cache staging; Whitaker now enforces the rest of the
+  crate through six named module paths.
+- The benchmark smoke test's default Rayon pool stalled in the HNSW insertion
+  path. A delegated bounded experiment found that two spawned benchmark workers
+  complete the fixed-seed Criterion probe in 12 seconds, whereas one did not
+  finish in 30 seconds. The test fixture now sets that two-worker value only
+  for its child `cargo bench` commands.
 - `chutoro-test-support` now inherits the workspace lint policy. Its initial
   diagnostics were confined to output emission, small CI-profile helpers and
   integration-test parsing; the remediation preserves the gate binaries' stdout
@@ -236,6 +247,10 @@ keeps local editor feedback aligned with commit gates.
   by the convenience constructor and must not be reused by new provider APIs;
   callers with a capability or readable source use `try_from_parquet_reader`.
   `dylint.toml` excludes only this adapter.
+- 2026-08-24: Keep the benchmark smoke test's real exact HNSW probe, but set
+  `RAYON_NUM_THREADS=2` on its spawned `cargo bench` commands. Rationale: the
+  test verifies benchmark discovery and executability, not default-pool
+  throughput; a two-worker pool completes the fixed-seed probe predictably.
 
 ## Stage 2a: Core Mechanical Lint Onboarding
 

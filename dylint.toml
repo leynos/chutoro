@@ -13,12 +13,19 @@ excluded_paths = [
     # caller-supplied ambient path. The provider and its reader constructor
     # remain capability-clean.
     "chutoro_providers_dense::parquet_path",
+    # Benchmark report writers create their caller-selected output directories
+    # and files for quality, profiling, and recall results.
+    "chutoro_benches::clustering_quality",
+    "chutoro_benches::profiling",
+    "chutoro_benches::recall",
+    # The sampler reads Linux's ambient `/proc/self/status` interface.
+    "chutoro_benches::profiling::memory_sampler",
+    # MNIST caching downloads and atomically updates an ambient cache path;
+    # its tests clean up the same staged cache directory.
+    "chutoro_benches::source::mnist",
+    "chutoro_benches::source::mnist::tests",
 ]
 excluded_crates = [
-    # Benchmark harness: downloads, caches, and reads benchmark datasets
-    # (for example MNIST) from ambient cache directories and writes
-    # profiling output where Criterion and CI expect it.
-    "chutoro_benches",
     # Test support utilities: the CI gate binaries and helpers read
     # workflow-provided files from ambient runner paths by design.
     "chutoro_test_support",
