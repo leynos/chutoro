@@ -261,11 +261,37 @@ surviving formatting cost came from sibling harnesses that reached
 
 Phase 1 replaced those construction paths with `#[cfg(kani)]` lean constructors
 returning static error reasons, and replaced harness `.expect(...)` calls with
-Kani assertions and early returns. The full-tier sweep still needs a complete
-post-remediation run before this investigation can be marked resolved: the
-three-node bidirectional reconciliation harness remained solver-intensive under
-the initial CaDiCaL configuration, so it now uses `kissat` for the next
-full-tier measurement.
+Kani assertions and early returns.
+
+The residual non-completion had two further causes, both resolved:
+
+1. **Symbolic hashing in connectivity healing.** `ConnectivityHealer` tracked
+   visited nodes with `std::collections::HashSet`, whose randomised SipHash
+   seed is symbolic under Kani. The three-node reconciliation harness is the
+   only harness reaching the healer (via base-layer isolation), which made it
+   intractable while the two-node harness stayed fast. The healer now uses a
+   bounded linear-scan visited set under `#[cfg(kani)]`.
+
+2. **Deterministic multi-node harnesses past the CBMC cliff.** Even after the
+   hashing fix, `verify_bidirectional_links_reconciliation_3_nodes_1_layer`
+   exceeded 20 minutes in symbolic execution, and
+   `verify_bidirectional_links_commit_path_3_nodes` exceeded a 15-minute
+   budget while solving. These harnesses were fully deterministic (no
+   `kani::any`), so their value over a unit test was only the absence of
+   undefined behaviour along one concrete path. Hand-tracing the three-node
+   reconciliation harness exposed a genuine production defect: removed-edge
+   reconciliation ran before the origin's neighbour-list write-back, so
+   base-layer connectivity healing against the entry node could be clobbered
+   by the write-back, leaving a dangling reverse edge. The commit path now
+   writes the origin's list back before removed-edge reconciliation, and a
+   deterministic regression test
+   (`isolation_replacement_keeps_bidirectionality`) pins the fix. The three
+   deterministic heavy harnesses (three-node reconciliation, three-node
+   commit path, four-node eviction scrub) are retired in favour of exact
+   unit-test twins in `chutoro-core/src/hnsw/insert/commit/tests/`.
+
+The investigation is resolved: the remaining harness set is tractable and the
+full tier completes within the nightly budget (see the timing note below).
 
 ## Notes for executing agent
 

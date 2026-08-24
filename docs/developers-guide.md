@@ -472,8 +472,21 @@ production modules, the Makefile, or the Cargo dependency graph changes.
 full suite only when its commit-recency gate permits it.
 
 The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
-`make kani`. The full tier remains the package-wide sweep for broader and
-intentionally expensive HNSW proofs.
+`make kani`. The full tier remains the package-wide sweep across every
+declared harness, including the distance and HNSW invariant proofs that are
+not in the fast list.
+
+Kani harnesses must stay within the tractable CBMC state space. For graph
+code there is a sharp combinatorial cliff between two-node and three-node
+configurations that drive the full commit machinery: three deterministic
+multi-node harnesses (three-node reconciliation, three-node commit path, and
+four-node eviction scrub) each exceeded 15 to 20 minutes without concluding
+and were retired. A deterministic harness explores a single concrete path, so
+its value over a unit test is only the absence of undefined behaviour along
+that path; each retired harness is replaced by an exact unit-test twin in
+`chutoro-core/src/hnsw/insert/commit/tests/deferred_scrub.rs` and
+`.../commit/tests/mod.rs`. Reserve Kani proofs for small nondeterministic
+state spaces where exhaustive exploration adds coverage a test cannot.
 
 Harness construction must avoid panic-capable paths such as `.expect(...)` and
 production errors that build messages with `format!` before an invariant

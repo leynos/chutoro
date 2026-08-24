@@ -9,7 +9,7 @@
 //! # Running Harnesses
 //!
 //! ```bash
-//! cargo kani -p chutoro-core --harness verify_bidirectional_links_commit_path_3_nodes
+//! cargo kani -p chutoro-core --harness verify_bidirectional_links_smoke_2_nodes_1_layer
 //! ```
 //!
 //! Or via the Makefile (practical harnesses):
@@ -18,7 +18,7 @@
 //! make kani
 //! ```
 //!
-//! Run the full suite (includes heavier 3-node harnesses):
+//! Run the full suite (package-wide sweep):
 //!
 //! ```bash
 //! make kani-full
@@ -33,34 +33,9 @@
 //! verification strategy.
 
 mod bidirectional;
-mod eviction;
 mod invariants;
 
 use crate::hnsw::{graph::Graph, insert::test_helpers::add_edge_if_missing};
-
-pub(super) struct EdgeAssertion {
-    source: usize,
-    target: usize,
-    level: usize,
-}
-
-impl EdgeAssertion {
-    pub(super) fn new(source: usize, target: usize, level: usize) -> Self {
-        Self {
-            source,
-            target,
-            level,
-        }
-    }
-}
-
-/// Returns `true` when source links to target at the given level.
-pub(super) fn has_node_link(graph: &Graph, edge: EdgeAssertion) -> bool {
-    graph
-        .node(edge.source)
-        .map(|n| n.neighbours(edge.level).contains(&edge.target))
-        .unwrap_or(false)
-}
 
 pub(super) fn add_bidirectional_edge(
     graph: &mut Graph,
