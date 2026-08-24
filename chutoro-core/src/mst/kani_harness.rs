@@ -205,6 +205,10 @@ mod kani_proofs {
         weight
     }
 
+    /// Builds an edge whose inclusion Kani chooses nondeterministically.
+    ///
+    /// A deselected edge degenerates to a self-loop, which validation
+    /// discards, so both branches stay within the bounded edge budget.
     fn selected_candidate(
         source: usize,
         target: usize,

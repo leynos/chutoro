@@ -9,6 +9,10 @@ use super::{
 };
 use crate::hnsw::graph::Graph;
 
+/// Appends a directed edge unless it is already present.
+///
+/// The Kani body asserts the origin exists so proofs stay non-vacuous;
+/// the test body downgrades that to a debug assertion.
 pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usize, level: usize) {
     #[cfg(kani)]
     {
@@ -42,6 +46,7 @@ pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usiz
 }
 
 #[cfg(test)]
+/// Panics when the directed edge is present at the given level.
 pub(super) fn assert_no_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
     if let Some(node) = graph.node(origin)
         && level < node.level_count()

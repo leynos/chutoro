@@ -137,6 +137,7 @@ pub(super) fn kruskal_model<'a>(
     })
 }
 
+/// Insertion-sorts the populated prefix of the bounded edge buffer.
 fn sort_edges_for_kani(edges: &mut [Option<MstEdge>], edge_count: usize) {
     let mut index = 1;
     while index < edge_count {
@@ -149,6 +150,9 @@ fn sort_edges_for_kani(edges: &mut [Option<MstEdge>], edge_count: usize) {
     }
 }
 
+/// Compacts adjacent duplicates out of the sorted prefix.
+///
+/// Returns the number of unique edges retained.
 fn deduplicate_edges_for_kani(edges: &mut [Option<MstEdge>], edge_count: usize) -> usize {
     let mut unique_count = 0;
     let mut index = 0;
@@ -165,6 +169,7 @@ fn deduplicate_edges_for_kani(edges: &mut [Option<MstEdge>], edge_count: usize) 
     unique_count
 }
 
+/// Insertion-sorts the accepted forest edges into canonical order.
 fn sort_forest_edges_for_kani(edges: &mut [MstEdge], edge_count: usize) {
     let mut index = 1;
     while index < edge_count {
@@ -177,6 +182,10 @@ fn sort_forest_edges_for_kani(edges: &mut [MstEdge], edge_count: usize) {
     }
 }
 
+/// Reports whether adjacent populated slots are out of order.
+///
+/// Pairs involving an empty slot never swap; the sorted prefix is fully
+/// populated at the only call site, so that arm is defensive.
 fn should_swap_edges(edges: &[Option<MstEdge>], current: usize) -> bool {
     match (edges[current], edges[current - 1]) {
         (Some(current), Some(previous)) => current < previous,
@@ -184,12 +193,14 @@ fn should_swap_edges(edges: &[Option<MstEdge>], current: usize) -> bool {
     }
 }
 
+/// Reports whether two edges share weight and canonical endpoints.
 fn duplicate_edges(left: Option<MstEdge>, right: MstEdge) -> bool {
     left.is_some_and(|left| {
         left.weight == right.weight && left.source == right.source && left.target == right.target
     })
 }
 
+/// Finds the union-find root of `node`, halving paths as it walks.
 fn find_root(parents: &mut [usize; 4], node: usize) -> usize {
     let mut current = node;
     while parents[current] != current {
@@ -203,6 +214,7 @@ fn find_root(parents: &mut [usize; 4], node: usize) -> usize {
     current
 }
 
+/// Unions two roots by rank, breaking ties towards the smaller id.
 fn union_roots(parents: &mut [usize; 4], ranks: &mut [usize; 4], left: usize, right: usize) {
     let (parent, child) = if ranks[left] > ranks[right] {
         (left, right)

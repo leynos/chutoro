@@ -294,15 +294,11 @@ fn eviction_at_base_layer_triggers_healing() {
 /// and defers a scrub for the orphaned (2 -> 0) forward edge.
 #[rstest]
 fn commit_path_reconciliation_keeps_bidirectionality(
-    params_one_connection: HnswParams,
+    #[from(params_one_connection)] params_res: Result<HnswParams, HnswError>,
 ) -> Result<(), HnswError> {
     // Seed node 0 at level-1 capacity with node 2 (bidirectional).
-    let ctx = EvictionTestContext::seeded(
-        params_one_connection,
-        3,
-        (0, 2),
-        NewNodeContext { id: 1, level: 1 },
-    )?;
+    let ctx =
+        EvictionTestContext::seeded(params_res?, 3, (0, 2), NewNodeContext { id: 1, level: 1 })?;
     let update = build_update(1, 1, vec![0], ctx.max_connections);
     let graph = ctx.apply_updates(vec![update])?;
 
@@ -320,10 +316,10 @@ fn commit_path_reconciliation_keeps_bidirectionality(
 /// orphaned (2 -> 1) forward edge.
 #[rstest]
 fn eviction_deferred_scrub_keeps_reciprocity(
-    params_one_connection: HnswParams,
+    #[from(params_one_connection)] params_res: Result<HnswParams, HnswError>,
 ) -> Result<(), HnswError> {
     // The default fixture seeds node 1 at level-1 capacity with node 2.
-    let ctx = EvictionTestContext::new(params_one_connection)?;
+    let ctx = EvictionTestContext::new(params_res?)?;
     let update = build_update(0, 1, vec![1], ctx.max_connections);
     let graph = ctx.apply_updates(vec![update])?;
 

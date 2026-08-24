@@ -11,13 +11,13 @@ use crate::hnsw::{
 };
 use rstest::{fixture, rstest};
 
-/// Parameters allowing two connections per node; fallible so tests, rather
-/// than the fixture, surface any configuration error.
+/// Provides parameters with a fan-out of two for commit tests.
 #[fixture]
 fn params_two_connections() -> Result<HnswParams, HnswError> {
     HnswParams::new(2, 4)
 }
 
+/// Inserts a node, seeding the entry point on the first insertion.
 fn insert_node(
     graph: &mut Graph,
     node: usize,
@@ -36,6 +36,7 @@ fn insert_node(
     }
 }
 
+/// Builds a staged update paired with its finalized neighbour list.
 fn build_update(
     node: usize,
     level: usize,
@@ -165,8 +166,7 @@ fn commit_updates_report_missing_origin(
 // Eviction and deferred scrub tests
 // ---------------------------------------------------------------------------
 
-/// Parameters allowing a single connection per node; fallible so tests, rather
-/// than the fixture, surface any configuration error.
+/// Provides parameters with a fan-out of one so level 1 evicts.
 #[fixture]
 fn params_one_connection() -> Result<HnswParams, HnswError> {
     HnswParams::new(1, 4)
@@ -201,6 +201,7 @@ fn assert_level_edges_reciprocated(
         );
     }
 }
+/// Panics unless the directed edge is present at the level.
 fn assert_has_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
     let Some(node) = graph.node(origin) else {
         panic!("node {origin} should exist");
@@ -312,10 +313,11 @@ mod deferred_scrub;
 /// list is clobbered by the write-back, leaving `1 -> 0` without `0 -> 1`.
 #[rstest]
 fn isolation_replacement_keeps_bidirectionality(
-    params_two_connections: HnswParams,
+    #[from(params_two_connections)] params_res: Result<HnswParams, HnswError>,
 ) -> Result<(), HnswError> {
-    let max_connections = params_two_connections.max_connections();
-    let mut graph = Graph::with_capacity(params_two_connections, 3);
+    let params = params_res.expect("params should be valid for tests");
+    let max_connections = params.max_connections();
+    let mut graph = Graph::with_capacity(params, 3);
 
     insert_node(&mut graph, 0, 0, 0)?;
     insert_node(&mut graph, 1, 0, 1)?;
