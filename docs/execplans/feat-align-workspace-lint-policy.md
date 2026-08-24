@@ -471,6 +471,13 @@ link-operation boundary where a failed link is distinguishable. Preserve
 isolation scheduling and successful-link behaviour. Verify HNSW tests,
 formatting, and scoped Clippy.
 
+## Stage 3i: HNSW Insertion Planning Inputs
+
+Borrow insertion-planning inputs for the read-only planning operation. Preserve
+the planner's graph traversal, candidate ordering, and distance-cache use while
+keeping ownership with the insertion caller. Verify HNSW tests, formatting, and
+scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

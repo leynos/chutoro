@@ -177,7 +177,7 @@ impl CpuHnsw {
 
         let cache = &self.distance_cache;
         let plan = self.read_graph(|graph| {
-            graph.insertion_planner().plan(PlanningInputs {
+            graph.insertion_planner().plan(&PlanningInputs {
                 ctx: node_ctx,
                 params: &self.params,
                 source,

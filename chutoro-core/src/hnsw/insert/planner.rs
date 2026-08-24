@@ -77,21 +77,20 @@ impl<'graph> InsertionPlanner<'graph> {
     /// to identify candidate neighbours for bidirectional linking.
     pub(crate) fn plan<D: DataSource + Sync>(
         &self,
-        inputs: PlanningInputs<'_, D>,
+        inputs: &PlanningInputs<'_, D>,
     ) -> Result<InsertionPlan, HnswError> {
-        let PlanningInputs {
-            ctx,
-            params,
-            source,
-            cache,
-        } = inputs;
         let entry = self.graph.entry().ok_or(HnswError::GraphEmpty)?;
-        let target_level = ctx.level.min(entry.level);
-        let descent_ctx = DescentContext::new(ctx.node, entry, target_level);
-        let current = self.greedy_descend_to_target_level(source, descent_ctx, cache)?;
-        let layer_ctx =
-            LayerPlanContext::new(ctx.node, current, target_level, params.ef_construction());
-        let layers = self.build_layer_plans_from_target(source, layer_ctx, cache)?;
+        let target_level = inputs.ctx.level.min(entry.level);
+        let descent_ctx = DescentContext::new(inputs.ctx.node, entry, target_level);
+        let current =
+            self.greedy_descend_to_target_level(inputs.source, descent_ctx, inputs.cache)?;
+        let layer_ctx = LayerPlanContext::new(
+            inputs.ctx.node,
+            current,
+            target_level,
+            inputs.params.ef_construction(),
+        );
+        let layers = self.build_layer_plans_from_target(inputs.source, layer_ctx, inputs.cache)?;
         Ok(InsertionPlan { layers })
     }
 
