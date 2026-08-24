@@ -400,6 +400,13 @@ Name the non-zero configuration wrapper distinctly from its extracted integer
 value, preserving hierarchy extraction semantics while removing misleading
 binding shadowing. Verify the hierarchy suite, formatting, and scoped Clippy.
 
+## Stage 2x: Flat-Label Extraction
+
+Make selected-cluster, root-cluster, and point-label access fallible. Report
+bad condensed-cluster and point references as typed hierarchy errors while
+preserving labels for valid hierarchies. Verify the hierarchy suite,
+formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

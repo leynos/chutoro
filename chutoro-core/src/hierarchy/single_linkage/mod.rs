@@ -73,6 +73,14 @@ pub enum HierarchyError {
         /// Identifier of the missing condensed cluster.
         cluster_id: usize,
     },
+    /// The condensation process referenced a point outside the dataset.
+    #[error("condensation references point {point_id} outside dataset size {node_count}")]
+    InvalidPointReference {
+        /// Identifier of the missing dataset point.
+        point_id: usize,
+        /// Number of points in the dataset.
+        node_count: usize,
+    },
 }
 
 impl HierarchyError {
@@ -86,6 +94,7 @@ impl HierarchyError {
             Self::InvalidEdgeEndpoint { .. } => HierarchyErrorCode::InvalidEdgeEndpoint,
             Self::InvalidForestReference { .. } => HierarchyErrorCode::InvalidForestReference,
             Self::InvalidClusterReference { .. } => HierarchyErrorCode::InvalidClusterReference,
+            Self::InvalidPointReference { .. } => HierarchyErrorCode::InvalidPointReference,
         }
     }
 }
@@ -105,6 +114,8 @@ pub enum HierarchyErrorCode {
     InvalidForestReference,
     /// Condensation referenced a missing cluster.
     InvalidClusterReference,
+    /// Condensation referenced a point outside the dataset.
+    InvalidPointReference,
 }
 
 impl HierarchyErrorCode {
@@ -118,6 +129,7 @@ impl HierarchyErrorCode {
             Self::InvalidEdgeEndpoint => "INVALID_EDGE_ENDPOINT",
             Self::InvalidForestReference => "INVALID_FOREST_REFERENCE",
             Self::InvalidClusterReference => "INVALID_CLUSTER_REFERENCE",
+            Self::InvalidPointReference => "INVALID_POINT_REFERENCE",
         }
     }
 }
@@ -274,13 +286,15 @@ pub(crate) fn extract_flat_labels(
 
     let mut label_lookup = vec![None; condensed.clusters.len()];
     for (label, cluster_id) in selected_ids.iter().copied().enumerate() {
-        label_lookup[cluster_id] = Some(label);
+        *label_lookup
+            .get_mut(cluster_id)
+            .ok_or(HierarchyError::InvalidClusterReference { cluster_id })? = Some(label);
     }
 
     let mut labels = vec![None; node_count];
     let mut labeller = Labeller::new(condensed, &label_lookup, &mut labels);
     for root in condensed.roots.iter().copied() {
-        labeller.label_cluster(root, None);
+        labeller.label_cluster(root, None)?;
     }
 
     let cluster_count = selected_ids.len();
@@ -311,20 +325,44 @@ impl<'a> Labeller<'a> {
         }
     }
 
-    fn label_cluster(&mut self, cluster_id: usize, inherited: Option<usize>) {
-        let cluster_label = self.label_lookup[cluster_id].or(inherited);
-        let cluster = &self.condensed.clusters[cluster_id];
+    fn label_cluster(
+        &mut self,
+        cluster_id: usize,
+        inherited: Option<usize>,
+    ) -> Result<(), HierarchyError> {
+        let cluster_label = self
+            .label_lookup
+            .get(cluster_id)
+            .ok_or(HierarchyError::InvalidClusterReference { cluster_id })?
+            .or(inherited);
+        let cluster = self
+            .condensed
+            .clusters
+            .get(cluster_id)
+            .ok_or(HierarchyError::InvalidClusterReference { cluster_id })?;
 
         for event in &cluster.events {
             match *event {
                 CondensedEvent::Point { index, .. } => {
-                    self.labels[index] = cluster_label;
+                    let node_count = self.labels.len();
+                    *self
+                        .labels
+                        .get_mut(index)
+                        .ok_or(HierarchyError::InvalidPointReference {
+                            point_id: index,
+                            node_count,
+                        })? = cluster_label;
                 }
-                CondensedEvent::ChildCluster { cluster, .. } => {
-                    self.label_cluster(cluster, cluster_label);
+                CondensedEvent::ChildCluster {
+                    cluster: child_cluster,
+                    ..
+                } => {
+                    self.label_cluster(child_cluster, cluster_label)?;
                 }
             }
         }
+
+        Ok(())
     }
 }
 
