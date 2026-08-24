@@ -20,8 +20,7 @@ use std::{
     },
 };
 
-use rand::{SeedableRng, rngs::SmallRng};
-use rayon::prelude::*;
+use rand::rngs::SmallRng;
 
 use crate::DataSource;
 
@@ -34,11 +33,9 @@ use super::{
     invariants::HnswInvariantChecker,
     params::HnswParams,
     types::{CandidateEdge, EdgeHarvest, Neighbour},
-    validate::validate_distance,
 };
 
 use self::collectors::{EdgeCollector, NoopCollector, VecCollector};
-use self::rng::build_worker_rngs;
 
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]

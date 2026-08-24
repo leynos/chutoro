@@ -1,6 +1,26 @@
 //! Constructors and bulk-build entry points for [`CpuHnsw`].
 
-use super::*;
+use std::sync::{
+    Arc, Mutex, RwLock,
+    atomic::{AtomicU64, AtomicUsize, Ordering},
+};
+
+use rand::{SeedableRng, rngs::SmallRng};
+use rayon::prelude::*;
+
+use crate::{
+    DataSource,
+    hnsw::{
+        distance_cache::DistanceCache,
+        error::HnswError,
+        graph::{Graph, NodeContext},
+        params::HnswParams,
+        types::EdgeHarvest,
+        validate::validate_distance,
+    },
+};
+
+use super::{CpuHnsw, rng::build_worker_rngs};
 
 impl CpuHnsw {
     /// Builds a new HNSW index from the provided [`DataSource`].

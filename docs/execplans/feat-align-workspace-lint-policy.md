@@ -421,6 +421,12 @@ state as typed hierarchy errors through forest construction. Preserve union by
 rank and path compression for valid inputs. Verify the hierarchy suite,
 formatting, and scoped Clippy.
 
+## Stage 3a: HNSW Construction Imports
+
+Replace the construction module's wildcard parent import with explicit module
+dependencies, preserving build behaviour while exposing the actual API
+boundary. Verify construction tests, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
