@@ -120,6 +120,9 @@ keeps local editor feedback aligned with commit gates.
       preserving their vector validation and numerical operations. Distance
       tests and full checkpoints pass before returning to the node-level
       access contract.
+- [x] Renamed shadowed cache-option and resolved-value bindings in HNSW
+      validation. Its unit test and full checkpoints pass before returning to
+      the node-level access contract.
 - [ ] Resolve `chutoro-core` structural, bounds-safety, numerical, and test
       lint families in bounded commits.
 - [ ] Opt in the remaining library crates and retire duplicated Rustdoc flags.
@@ -311,6 +314,13 @@ Euclidean distance primitives and in `CosineNorms`. Keep all validation,
 accumulation, conversion, and clamping operations unchanged. Verify the
 distance integration tests, `make check-fmt`, and package Clippy with only
 `clippy::shadow_reuse` denied.
+
+## Stage 2n: HNSW Validation Binding Names
+
+Rename the shadowed cache-option and resolved-value bindings in HNSW distance
+validation. Preserve cache-hit handling, batch distance resolution, and the
+error raised for unresolved candidates. Verify the validation unit test,
+`make check-fmt`, and package Clippy with only `clippy::shadow_reuse` denied.
 
 ## Verification Plan
 

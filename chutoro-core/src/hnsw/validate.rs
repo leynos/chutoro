@@ -14,12 +14,12 @@ use super::{
 use crate::{DataSource, MetricDescriptor};
 
 fn lookup_or_compute<D: DataSource + Sync>(
-    cache: Option<&DistanceCache>,
+    cache_option: Option<&DistanceCache>,
     source: &D,
     left: usize,
     right: usize,
 ) -> Result<f32, HnswError> {
-    if let Some(cache) = cache {
+    if let Some(cache) = cache_option {
         let metric = source.metric_descriptor();
         match cache.begin_lookup(&metric, left, right) {
             LookupOutcome::Hit(value) => Ok(value),
@@ -67,12 +67,12 @@ pub(crate) fn validate_distance<D: DataSource + Sync>(
 }
 
 pub(crate) fn validate_batch_distances<D: DataSource + Sync>(
-    cache: Option<&DistanceCache>,
+    cache_option: Option<&DistanceCache>,
     source: &D,
     query: usize,
     candidates: &[usize],
 ) -> Result<Vec<f32>, HnswError> {
-    if let Some(cache) = cache {
+    if let Some(cache) = cache_option {
         batch_lookup_or_compute(cache, source, query, candidates)
     } else {
         validate_batch_without_cache(source, query, candidates)
@@ -145,9 +145,9 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
             });
         }
 
-        for ((index, miss), value) in pending.into_iter().zip(computed.into_iter()) {
-            let value = self.cache.complete_miss(miss, value)?;
-            results[index] = Some(value);
+        for ((index, miss), computed_value) in pending.into_iter().zip(computed.into_iter()) {
+            let cached_value = self.cache.complete_miss(miss, computed_value)?;
+            results[index] = Some(cached_value);
         }
 
         Ok(())
@@ -170,9 +170,9 @@ fn ensure_all_resolved(
     }
 
     let mut resolved = Vec::with_capacity(results.len());
-    for (candidate, value) in candidates.iter().zip(results.into_iter()) {
-        match value {
-            Some(value) => resolved.push(value),
+    for (candidate, result_slot) in candidates.iter().zip(results.into_iter()) {
+        match result_slot {
+            Some(distance) => resolved.push(distance),
             None => {
                 return Err(HnswError::InvalidParameters {
                     reason: format!(
