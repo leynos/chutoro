@@ -379,6 +379,15 @@ expressing their existing arithmetic through the standard operation traits.
 Verify hierarchy tests, `make check-fmt`, and scoped Clippy for the
 condensation diagnostics.
 
+## Stage 2u: Linkage-Forest Construction
+
+Validate MST endpoints against the declared dataset size before union-find
+construction, and make each component-node and linkage-node lookup fallible.
+Preserve the sorted merge order and component sizes for valid MSTs while
+returning typed hierarchy errors if internal forest state is inconsistent.
+Verify hierarchy tests, `make check-fmt`, and scoped Clippy for forest
+construction diagnostics.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

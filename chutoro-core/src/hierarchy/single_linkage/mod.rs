@@ -53,6 +53,14 @@ pub enum HierarchyError {
         /// Invalid weight value observed on the edge.
         weight: f32,
     },
+    /// An MST edge referenced an endpoint outside the dataset.
+    #[error("MST edge endpoint {endpoint} is outside dataset size {node_count}")]
+    InvalidEdgeEndpoint {
+        /// Endpoint identifier that did not belong to the dataset.
+        endpoint: usize,
+        /// Number of nodes in the dataset.
+        node_count: usize,
+    },
     /// The constructed linkage forest referenced a missing node.
     #[error("linkage forest references missing node {node_id}")]
     InvalidForestReference {
@@ -75,6 +83,7 @@ impl HierarchyError {
             Self::EmptyDataset => HierarchyErrorCode::EmptyDataset,
             Self::MinClusterSizeTooLarge { .. } => HierarchyErrorCode::MinClusterSizeTooLarge,
             Self::InvalidEdgeWeight { .. } => HierarchyErrorCode::InvalidEdgeWeight,
+            Self::InvalidEdgeEndpoint { .. } => HierarchyErrorCode::InvalidEdgeEndpoint,
             Self::InvalidForestReference { .. } => HierarchyErrorCode::InvalidForestReference,
             Self::InvalidClusterReference { .. } => HierarchyErrorCode::InvalidClusterReference,
         }
@@ -90,6 +99,8 @@ pub enum HierarchyErrorCode {
     MinClusterSizeTooLarge,
     /// An input edge weight was invalid for hierarchy extraction.
     InvalidEdgeWeight,
+    /// An input edge endpoint was outside the dataset.
+    InvalidEdgeEndpoint,
     /// A constructed linkage forest referenced a missing node.
     InvalidForestReference,
     /// Condensation referenced a missing cluster.
@@ -104,6 +115,7 @@ impl HierarchyErrorCode {
             Self::EmptyDataset => "EMPTY_DATASET",
             Self::MinClusterSizeTooLarge => "MIN_CLUSTER_SIZE_TOO_LARGE",
             Self::InvalidEdgeWeight => "INVALID_EDGE_WEIGHT",
+            Self::InvalidEdgeEndpoint => "INVALID_EDGE_ENDPOINT",
             Self::InvalidForestReference => "INVALID_FOREST_REFERENCE",
             Self::InvalidClusterReference => "INVALID_CLUSTER_REFERENCE",
         }
@@ -151,8 +163,16 @@ pub(crate) struct CondensedForest {
 }
 
 impl CondensedForest {
-    fn validate_edges(edges: &[MstEdge]) -> Result<(), HierarchyError> {
+    fn validate_edges(node_count: usize, edges: &[MstEdge]) -> Result<(), HierarchyError> {
         for edge in edges {
+            for endpoint in [edge.source(), edge.target()] {
+                if endpoint >= node_count {
+                    return Err(HierarchyError::InvalidEdgeEndpoint {
+                        endpoint,
+                        node_count,
+                    });
+                }
+            }
             let weight = edge.weight();
             if !weight.is_finite() || weight < 0.0 {
                 let left = edge.source().min(edge.target());
@@ -207,9 +227,9 @@ impl CondensedForest {
             });
         }
 
-        Self::validate_edges(edges)?;
+        Self::validate_edges(node_count, edges)?;
 
-        let forest = SingleLinkageForest::from_mst(node_count, edges);
+        let forest = SingleLinkageForest::from_mst(node_count, edges)?;
         let mut condensed = Self {
             clusters: Vec::new(),
             roots: Vec::new(),
