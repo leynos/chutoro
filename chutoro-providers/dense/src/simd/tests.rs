@@ -28,15 +28,36 @@ mod parity;
 mod point_view;
 mod support_masks;
 
-fn close(left: Distance, right: Distance) {
-    let left = left.get();
-    let right = right.get();
-    let tolerance = 1.0e-6_f32;
-    assert!(
-        (left - right).abs() <= tolerance,
-        "left={left}, right={right}, tolerance={tolerance}",
-    );
+/// Tolerance shared by the inline dense SIMD smoke tests.
+const CLOSE_TOLERANCE: f32 = 1.0e-6_f32;
+
+/// Absolute difference between two distances.
+///
+/// A pure query so the comparison and its diagnostics belong to the calling
+/// test rather than to a shared assertion helper.
+fn distance_delta(left: Distance, right: Distance) -> f32 {
+    (left.get() - right.get()).abs()
 }
+
+/// Asserts that two distances agree within [`CLOSE_TOLERANCE`].
+///
+/// Implemented as a macro so a failure reports the calling test's line.
+macro_rules! assert_close {
+    ($left:expr, $right:expr $(,)?) => {{
+        let left = $left;
+        let right = $right;
+        let delta = $crate::simd::tests::distance_delta(left, right);
+        assert!(
+            delta <= $crate::simd::tests::CLOSE_TOLERANCE,
+            "left={}, right={}, delta={delta}, tolerance={}",
+            left.get(),
+            right.get(),
+            $crate::simd::tests::CLOSE_TOLERANCE,
+        );
+    }};
+}
+
+pub(crate) use assert_close;
 
 #[fixture]
 fn matrix_3x2() -> Result<RowMajorMatrix<'static>, DataSourceError> {
@@ -141,7 +162,7 @@ fn query_point_packing_requires_simd_backend(
 fn euclidean_distance_matches_scalar_reference(#[case] left: Vec<f32>, #[case] right: Vec<f32>) {
     let expected = kernels::euclidean_distance_scalar(&left, &right);
     let actual = euclidean_distance(RowSlice::new(&left), RowSlice::new(&right));
-    close(actual, Distance::new(expected));
+    assert_close!(actual, Distance::new(expected));
 }
 
 #[rstest]
@@ -186,9 +207,9 @@ fn batch_pairs_reject_mismatched_output_lengths(
 
 #[rstest]
 fn batch_pairs_compute_distances(
-    matrix_3x2: Result<RowMajorMatrix<'static>, DataSourceError>,
-) -> Result<(), DataSourceError> {
-    let matrix_3x2 = matrix_3x2?;
+    #[from(matrix_3x2)] matrix_result: Result<RowMajorMatrix<'static>, DataSourceError>,
+) {
+    let matrix_3x2 = matrix_result.expect("matrix fixture must build");
     let pairs = vec![
         DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
         DistancePair::new(RowIndex::new(0), RowIndex::new(2)),
@@ -200,10 +221,9 @@ fn batch_pairs_compute_distances(
     euclidean_distance_batch_pairs(matrix_3x2, &pairs, &mut out_buffer)
         .expect("batch computation must succeed");
 
-    close(Distance::new(out[0]), Distance::new(5.0_f32));
-    close(Distance::new(out[1]), Distance::new((2.0_f32).sqrt()));
-    close(Distance::new(out[2]), Distance::new((29.0_f32).sqrt()));
-    Ok(())
+    assert_close!(Distance::new(out[0]), Distance::new(5.0_f32));
+    assert_close!(Distance::new(out[1]), Distance::new((2.0_f32).sqrt()));
+    assert_close!(Distance::new(out[2]), Distance::new((29.0_f32).sqrt()));
 }
 
 #[rstest]
@@ -216,7 +236,7 @@ fn batch_pairs_compute_distances(
 fn query_points_kernel_canonicalizes_non_finite_results_to_nan(
     #[case] query: Vec<f32>,
     #[case] point: Vec<f32>,
-) -> Result<(), DataSourceError> {
+) {
     let mut values = query.clone();
     values.extend_from_slice(&point);
     let matrix = RowMajorMatrix::new(
@@ -224,8 +244,11 @@ fn query_points_kernel_canonicalizes_non_finite_results_to_nan(
         RowCount::new(2),
         Dimension::new(query.len()),
     );
-    let query = matrix.row(RowIndex::new(0))?;
-    let points = DensePointView::from_row_indices(matrix, &[RowIndex::new(1)])?;
+    let query = matrix
+        .row(RowIndex::new(0))
+        .expect("query row must be in bounds");
+    let points = DensePointView::from_row_indices(matrix, &[RowIndex::new(1)])
+        .expect("point view must build");
     let mut scalar = vec![0.0_f32; 1];
     let mut actual = vec![0.0_f32; 1];
 
@@ -234,14 +257,13 @@ fn query_points_kernel_canonicalizes_non_finite_results_to_nan(
 
     assert!(scalar[0].is_nan());
     assert!(actual[0].is_nan());
-    Ok(())
 }
 
 #[rstest]
 fn batch_pairs_leave_output_unmodified_on_error(
-    matrix_3x2: Result<RowMajorMatrix<'static>, DataSourceError>,
-) -> Result<(), DataSourceError> {
-    let matrix_3x2 = matrix_3x2?;
+    #[from(matrix_3x2)] matrix_result: Result<RowMajorMatrix<'static>, DataSourceError>,
+) {
+    let matrix_3x2 = matrix_result.expect("matrix fixture must build");
     let pairs = vec![
         DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
         DistancePair::new(RowIndex::new(0), RowIndex::new(9)),
@@ -254,14 +276,13 @@ fn batch_pairs_leave_output_unmodified_on_error(
 
     assert!(matches!(err, DataSourceError::OutOfBounds { index: 9 }));
     assert_eq!(out, vec![10.0_f32, 20.0_f32]);
-    Ok(())
 }
 
 #[rstest]
 fn raw_pairs_preserve_original_validation_order_for_shared_query_batches(
-    matrix_3x2: Result<RowMajorMatrix<'static>, DataSourceError>,
-) -> Result<(), DataSourceError> {
-    let matrix_3x2 = matrix_3x2?;
+    #[from(matrix_3x2)] matrix_result: Result<RowMajorMatrix<'static>, DataSourceError>,
+) {
+    let matrix_3x2 = matrix_result.expect("matrix fixture must build");
     let pairs = vec![(99, 1), (0, 1)];
     let mut out = vec![10.0_f32; pairs.len()];
     let mut out_buffer = DistanceBuffer::new(&mut out);
@@ -271,22 +292,23 @@ fn raw_pairs_preserve_original_validation_order_for_shared_query_batches(
 
     assert_eq!(err, DataSourceError::OutOfBounds { index: 99 });
     assert_eq!(out, vec![10.0_f32; pairs.len()]);
-    Ok(())
 }
 
 #[rstest]
 fn query_points_kernel_matches_scalar_reference(
-    matrix_3x2: Result<RowMajorMatrix<'static>, DataSourceError>,
-) -> Result<(), DataSourceError> {
-    let matrix_3x2 = matrix_3x2?;
-    let query = matrix_3x2.row(RowIndex::new(0))?;
+    #[from(matrix_3x2)] matrix_result: Result<RowMajorMatrix<'static>, DataSourceError>,
+) {
+    let matrix_3x2 = matrix_result.expect("matrix fixture must build");
+    let query = matrix_3x2
+        .row(RowIndex::new(0))
+        .expect("query row must be in bounds");
     let points =
-        DensePointView::from_row_indices(matrix_3x2, &[RowIndex::new(1), RowIndex::new(2)])?;
+        DensePointView::from_row_indices(matrix_3x2, &[RowIndex::new(1), RowIndex::new(2)])
+            .expect("point view must build");
     let mut out = vec![0.0_f32; 2];
 
     kernels::euclidean_distance_query_points(query.as_slice(), &points, &mut out);
 
-    close(Distance::new(out[0]), Distance::new(5.0_f32));
-    close(Distance::new(out[1]), Distance::new((2.0_f32).sqrt()));
-    Ok(())
+    assert_close!(Distance::new(out[0]), Distance::new(5.0_f32));
+    assert_close!(Distance::new(out[1]), Distance::new((2.0_f32).sqrt()));
 }

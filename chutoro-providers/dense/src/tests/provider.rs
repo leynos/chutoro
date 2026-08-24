@@ -79,7 +79,8 @@ fn matrix_provider_distance_matches_scalar_reference(
     let actual = provider
         .distance(left, right)
         .expect("distance should succeed");
-    let expected = scalar_distance(&rows[left], &rows[right]);
+    let expected = scalar_distance(&rows[left], &rows[right])
+        .expect("scalar distance inputs must have matching dimensions");
 
     if expected.is_nan() {
         assert!(actual.is_nan(), "actual={actual}, expected=NaN");
@@ -154,7 +155,10 @@ fn matrix_provider_distance_batch_matches_scalar_reference(
 
     let expected: Vec<f32> = pairs
         .iter()
-        .map(|(left, right)| scalar_distance(&rows[*left], &rows[*right]))
+        .map(|(left, right)| {
+            scalar_distance(&rows[*left], &rows[*right])
+                .expect("scalar distance inputs must have matching dimensions")
+        })
         .collect();
     assert_eq!(out.len(), expected.len());
     for (actual, expected_value) in out.iter().copied().zip(expected.into_iter()) {
@@ -236,14 +240,12 @@ fn matrix_provider_distance_batch_empty() {
 /// Scalar Euclidean oracle for the matrix-provider tests.
 ///
 /// Computes the Euclidean distance for two equal-length slices, canonicalizing
-/// any non-finite result to `f32::NAN`. Panics if the inputs do not have
-/// matching lengths.
-fn scalar_distance(left: &[f32], right: &[f32]) -> f32 {
-    assert_eq!(
-        left.len(),
-        right.len(),
-        "scalar distance inputs must have matching dimensions",
-    );
+/// any non-finite result to `f32::NAN`. Returns `None` when the inputs have
+/// mismatched lengths, so the calling test reports the malformed fixture.
+fn scalar_distance(left: &[f32], right: &[f32]) -> Option<f32> {
+    if left.len() != right.len() {
+        return None;
+    }
     let distance = left
         .iter()
         .zip(right.iter())
@@ -253,11 +255,11 @@ fn scalar_distance(left: &[f32], right: &[f32]) -> f32 {
         })
         .sum::<f32>()
         .sqrt();
-    if distance.is_finite() {
+    Some(if distance.is_finite() {
         distance
     } else {
         f32::NAN
-    }
+    })
 }
 
 #[rstest]

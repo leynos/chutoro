@@ -11,7 +11,7 @@
 //!
 //! A non-finite result is accepted when the scalar oracle and backend both
 //! produce `NaN`; finite query-to-points entries in the same batch are still
-//! compared through [`DistanceSemantics::assert_query_close`].
+//! compared through [`DistanceSemantics::check_query_close`].
 
 use proptest::prelude::*;
 
@@ -64,7 +64,7 @@ proptest! {
         for (backend, entry) in entries {
             let mut actual = vec![0.0_f32; points.point_count()];
             entry(query.as_slice(), &points, &mut actual);
-            semantics.assert_query_close(&actual, &expected);
+            semantics.check_query_close(&actual, &expected)?;
             for (index, expected_distance) in expected.iter().enumerate() {
                 if expected_distance.is_nan() {
                     prop_assert!(

@@ -24,6 +24,9 @@
 //! entry points, and the semantics contract defines how their outputs are
 //! compared.
 
+use proptest::prelude::{prop_assert, prop_assert_eq};
+use proptest::test_runner::TestCaseResult;
+
 use super::{DensePointView, kernels};
 
 // These enums intentionally start with one variant each. They keep the
@@ -99,26 +102,33 @@ impl DistanceSemantics {
         kernels::euclidean_distance_query_points_scalar(query, points, out);
     }
 
-    /// Asserts that an actual backend output matches the scalar oracle.
-    pub(crate) fn assert_close(self, actual: f32, expected: f32) {
+    /// Checks that an actual backend output matches the scalar oracle.
+    ///
+    /// Reported as a [`TestCaseResult`] rather than a bare assertion so the
+    /// proptest call sites keep their shrink reporting.
+    pub(crate) fn check_close(self, actual: f32, expected: f32) -> TestCaseResult {
         if self.should_accept_non_finite(actual, expected) {
-            return;
+            return Ok(());
         }
 
         let delta = (actual - expected).abs();
-        assert!(
+        prop_assert!(
             delta <= self.epsilon,
             "actual={actual}, expected={expected}, delta={delta}, epsilon={}",
             self.epsilon,
         );
+        Ok(())
     }
 
-    /// Asserts that all query-to-points outputs match the scalar oracle.
-    pub(crate) fn assert_query_close(self, actual: &[f32], expected: &[f32]) {
-        assert_eq!(
+    /// Checks that all query-to-points outputs match the scalar oracle.
+    ///
+    /// Reported as a [`TestCaseResult`] for the same shrink-reporting reason as
+    /// [`Self::check_close`].
+    pub(crate) fn check_query_close(self, actual: &[f32], expected: &[f32]) -> TestCaseResult {
+        prop_assert_eq!(
             actual.len(),
             expected.len(),
-            "query output lengths must match",
+            "query output lengths must match"
         );
         for (index, (actual_distance, expected_distance)) in actual
             .iter()
@@ -130,7 +140,7 @@ impl DistanceSemantics {
                 continue;
             }
             let delta = (actual_distance - expected_distance).abs();
-            assert!(
+            prop_assert!(
                 delta <= self.epsilon,
                 concat!(
                     "index={index}, actual={actual_distance}, expected={expected_distance}, ",
@@ -143,6 +153,7 @@ impl DistanceSemantics {
                 epsilon = self.epsilon,
             );
         }
+        Ok(())
     }
 
     /// Returns whether a non-finite result satisfies the configured policy.

@@ -21,7 +21,7 @@ use super::{DensePointView, Dimension, MatrixValues, RowCount, RowIndex, RowMajo
     ),
     all(feature = "nightly_portable_simd", nightly)
 ))]
-use super::{Distance, close};
+use super::{Distance, assert_close};
 #[cfg(any(
     all(
         any(target_arch = "x86", target_arch = "x86_64"),
@@ -77,7 +77,7 @@ fn x86_entrypoint_matches_scalar_when_available(
 
     let expected = kernels::euclidean_distance_scalar(&left, &right);
     let actual = entry(&left, &right);
-    close(Distance::new(actual), Distance::new(expected));
+    assert_close!(Distance::new(actual), Distance::new(expected));
 }
 
 #[cfg(all(
@@ -132,7 +132,7 @@ fn portable_simd_pairwise_matches_scalar(#[case] len: u32) {
     let expected = kernels::euclidean_distance_scalar(&left, &right);
     let actual = kernels::euclidean_distance_portable_simd_entry(&left, &right);
 
-    close(Distance::new(actual), Distance::new(expected));
+    assert_close!(Distance::new(actual), Distance::new(expected));
 }
 
 #[cfg(all(feature = "nightly_portable_simd", nightly))]
@@ -164,7 +164,7 @@ fn portable_simd_query_points_matches_scalar() {
     );
 
     for (actual_distance, expected_distance) in actual.into_iter().zip(expected) {
-        close(
+        assert_close!(
             Distance::new(actual_distance),
             Distance::new(expected_distance),
         );

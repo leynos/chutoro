@@ -8,7 +8,7 @@
 //! arbitrary finite vectors, duplicate vectors and all-zero vectors across the
 //! lane-boundary dimensions used by the parity suite.
 //!
-//! A backend output is accepted when [`DistanceSemantics::assert_close`] finds
+//! A backend output is accepted when [`DistanceSemantics::check_close`] finds
 //! it within the configured finite-distance epsilon of the scalar result.
 
 use proptest::prelude::*;
@@ -28,7 +28,7 @@ proptest! {
         prop_assert!(!entries.is_empty(), "at least scalar backend must be available");
         for (_backend, entry) in entries {
             let actual = entry(&left, &right);
-            semantics.assert_close(actual, expected);
+            semantics.check_close(actual, expected)?;
         }
     }
 }

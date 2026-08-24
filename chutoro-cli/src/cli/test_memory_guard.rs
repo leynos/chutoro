@@ -1,15 +1,16 @@
 //! Tests for the `--max-bytes` memory guard and `parse_byte_size` parser.
 
 use super::super::commands::{parse_byte_size, run_command};
-use super::super::{Cli, CliError, Command, RunCommand, RunSource, TextArgs, TextMetric};
+use super::super::{Cli, CliError, Command};
+
+use std::io;
 
 use chutoro_core::ChutoroError;
 use clap::Parser;
 use rstest::rstest;
+use tempfile::TempDir;
 
-use super::test_helpers::{create_text_file, run_command_expecting_error, temp_dir};
-
-type TestResult = Result<(), Box<dyn std::error::Error>>;
+use super::test_helpers::{create_text_file, expect_err, temp_dir, text_run_command};
 
 // -- parse_byte_size: happy paths -------------------------------------------
 
@@ -62,22 +63,17 @@ fn parse_byte_size_rejects_overflow() {
 // -- CLI memory guard: integration ------------------------------------------
 
 #[rstest]
-fn run_command_rejects_when_max_bytes_exceeded() -> TestResult {
-    let dir = temp_dir();
-    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")?;
+fn run_command_rejects_when_max_bytes_exceeded(
+    #[from(temp_dir)] temp_dir_result: io::Result<TempDir>,
+) {
+    let dir = temp_dir_result.expect("temp dir should be created");
+    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")
+        .expect("text fixture must be written");
 
     // A limit of 100 bytes is far too small for any real pipeline run.
-    let err = run_command_expecting_error(
-        RunCommand {
-            min_cluster_size: 1,
-            max_bytes: Some(100),
-            source: RunSource::Text(TextArgs {
-                path,
-                metric: TextMetric::Levenshtein,
-                name: None,
-            }),
-        },
-        "100-byte limit must be exceeded",
+    let err = expect_err!(
+        run_command(text_run_command(path, 1, Some(100))),
+        "100-byte limit must be exceeded"
     );
     assert!(
         matches!(
@@ -86,85 +82,47 @@ fn run_command_rejects_when_max_bytes_exceeded() -> TestResult {
         ),
         "expected MemoryLimitExceeded, got {err:?}"
     );
-    Ok(())
 }
 
 #[rstest]
-fn run_command_succeeds_when_max_bytes_sufficient() -> TestResult {
-    let dir = temp_dir();
-    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")?;
+fn run_command_succeeds_when_max_bytes_sufficient(
+    #[from(temp_dir)] temp_dir_result: io::Result<TempDir>,
+) {
+    let dir = temp_dir_result.expect("temp dir should be created");
+    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")
+        .expect("text fixture must be written");
 
     // 1 GiB should be more than enough for 3 items.
-    let summary = run_command(RunCommand {
-        min_cluster_size: 1,
-        max_bytes: Some(1_073_741_824),
-        source: RunSource::Text(TextArgs {
-            path,
-            metric: TextMetric::Levenshtein,
-            name: None,
-        }),
-    })?;
+    let summary = run_command(text_run_command(path, 1, Some(1_073_741_824)))
+        .expect("generous limit must permit the run");
     assert_eq!(summary.result.assignments().len(), 3);
-    Ok(())
 }
 
 #[rstest]
-fn run_command_zero_max_bytes_rejects_any_dataset() -> TestResult {
-    let dir = temp_dir();
-    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\n")?;
-    let err = run_command_expecting_error(
-        RunCommand {
-            min_cluster_size: 1,
-            max_bytes: Some(0),
-            source: RunSource::Text(TextArgs {
-                path,
-                metric: TextMetric::Levenshtein,
-                name: None,
-            }),
-        },
-        "zero max_bytes must reject any dataset",
+fn run_command_zero_max_bytes_rejects_any_dataset(
+    #[from(temp_dir)] temp_dir_result: io::Result<TempDir>,
+) {
+    let dir = temp_dir_result.expect("temp dir should be created");
+    let path =
+        create_text_file(&dir, "lines.txt", "alpha\nbeta\n").expect("text fixture must be written");
+    let err = expect_err!(
+        run_command(text_run_command(path, 1, Some(0))),
+        "zero max_bytes must reject any dataset"
     );
     assert!(matches!(
         err,
         CliError::Core(ChutoroError::MemoryLimitExceeded { .. })
     ));
-    Ok(())
 }
 
 #[rstest]
-fn clap_parses_max_bytes_flag() {
-    let args = [
-        "chutoro",
-        "run",
-        "--max-bytes",
-        "2G",
-        "text",
-        "data.txt",
-        "--metric",
-        "levenshtein",
-    ];
-    let cli = Cli::try_parse_from(args).expect("valid args must parse");
+#[case::flag_present(&["chutoro", "run", "--max-bytes", "2G", "text", "data.txt", "--metric", "levenshtein"], Some(2 * 1024 * 1024 * 1024))]
+#[case::flag_absent(&["chutoro", "run", "text", "data.txt", "--metric", "levenshtein"], None)]
+fn clap_parses_max_bytes_flag(#[case] args: &[&str], #[case] expected: Option<u64>) {
+    let cli = Cli::try_parse_from(args.iter().copied()).expect("valid args must parse");
     match cli.command {
         Command::Run(cmd) => {
-            assert_eq!(cmd.max_bytes, Some(2 * 1024 * 1024 * 1024));
-        }
-    }
-}
-
-#[rstest]
-fn clap_omits_max_bytes_when_absent() {
-    let args = [
-        "chutoro",
-        "run",
-        "text",
-        "data.txt",
-        "--metric",
-        "levenshtein",
-    ];
-    let cli = Cli::try_parse_from(args).expect("valid args must parse");
-    match cli.command {
-        Command::Run(cmd) => {
-            assert_eq!(cmd.max_bytes, None);
+            assert_eq!(cmd.max_bytes, expected);
         }
     }
 }

@@ -10,7 +10,7 @@
 //! all-zero row patterns across SIMD boundary dimensions.
 //!
 //! A backend output slice is accepted when
-//! [`DistanceSemantics::assert_query_close`] finds every finite distance within
+//! [`DistanceSemantics::check_query_close`] finds every finite distance within
 //! the configured epsilon of the scalar query-to-points result.
 
 use proptest::prelude::*;
@@ -38,7 +38,7 @@ proptest! {
         for (_backend, entry) in entries {
             let mut actual = vec![0.0_f32; points.point_count()];
             entry(query.as_slice(), &points, &mut actual);
-            semantics.assert_query_close(&actual, &expected);
+            semantics.check_query_close(&actual, &expected)?;
         }
     }
 }
