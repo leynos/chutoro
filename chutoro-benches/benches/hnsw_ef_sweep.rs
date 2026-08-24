@@ -6,6 +6,7 @@
 use std::{num::NonZeroUsize, path::PathBuf, time::Duration, time::Instant};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_main};
+use mockable::{DefaultEnv, Env};
 
 use chutoro_benches::{
     ef_sweep::{
@@ -84,8 +85,8 @@ fn warn_unrecognised_bool_env(env_var_name: &str, value: &str) {
 }
 
 /// Parse one optional benchmark boolean environment variable.
-fn parse_bool_env_var(env_var_name: &str) -> Option<bool> {
-    let value = std::env::var(env_var_name).ok()?;
+fn parse_bool_env_var(env: &dyn Env, env_var_name: &str) -> Option<bool> {
+    let value = env.string(env_var_name)?;
     let normalized = value.trim().to_ascii_lowercase();
     if matches!(normalized.as_str(), "0" | "false" | "off") {
         return Some(false);
@@ -129,29 +130,43 @@ fn ef_sweep_point_counts() -> &'static [usize] {
 
 /// Determine whether this invocation should write the recall report.
 fn should_collect_recall_report() -> bool {
-    parse_bool_env_var("CHUTORO_BENCH_HNSW_RECALL_REPORT").unwrap_or_else(|| !is_discovery_mode())
+    should_collect_recall_report_with_env(&DefaultEnv)
 }
 
-/// Resolve the configured destination for the recall report.
-fn recall_report_path() -> PathBuf {
-    std::env::var_os("CHUTORO_BENCH_HNSW_RECALL_REPORT_PATH")
-        .map_or_else(|| PathBuf::from(RECALL_REPORT_PATH), PathBuf::from)
-}
-
-/// Determine whether this invocation should write the clustering-quality report.
-fn should_collect_cluster_quality_report() -> bool {
-    parse_bool_env_var("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT")
+fn should_collect_recall_report_with_env(env: &dyn Env) -> bool {
+    parse_bool_env_var(env, "CHUTORO_BENCH_HNSW_RECALL_REPORT")
         .unwrap_or_else(|| !is_discovery_mode())
 }
-
-/// Resolve the configured destination for the clustering-quality report.
-fn cluster_quality_report_path() -> PathBuf {
-    std::env::var_os("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH").map_or_else(
-        || PathBuf::from(CLUSTERING_QUALITY_REPORT_PATH),
-        PathBuf::from,
-    )
+/// Resolve the configured destination for the recall report.
+fn recall_report_path() -> PathBuf {
+    recall_report_path_with_env(&DefaultEnv)
 }
 
+fn recall_report_path_with_env(env: &dyn Env) -> PathBuf {
+    env.os_string("CHUTORO_BENCH_HNSW_RECALL_REPORT_PATH")
+        .map_or_else(|| PathBuf::from(RECALL_REPORT_PATH), PathBuf::from)
+}
+/// Determine whether this invocation should write the clustering-quality report.
+fn should_collect_cluster_quality_report() -> bool {
+    should_collect_cluster_quality_report_with_env(&DefaultEnv)
+}
+
+fn should_collect_cluster_quality_report_with_env(env: &dyn Env) -> bool {
+    parse_bool_env_var(env, "CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT")
+        .unwrap_or_else(|| !is_discovery_mode())
+}
+/// Resolve the configured destination for the clustering-quality report.
+fn cluster_quality_report_path() -> PathBuf {
+    cluster_quality_report_path_with_env(&DefaultEnv)
+}
+
+fn cluster_quality_report_path_with_env(env: &dyn Env) -> PathBuf {
+    env.os_string("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH")
+        .map_or_else(
+            || PathBuf::from(CLUSTERING_QUALITY_REPORT_PATH),
+            PathBuf::from,
+        )
+}
 /// Returns an evenly-spaced query index for deterministic recall sampling.
 ///
 /// Maps query ordinal `qi` in `0..RECALL_QUERY_COUNT` to an index in

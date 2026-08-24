@@ -26,6 +26,7 @@ thiserror = "2.0.17"
 tracing = { version = "0.1.41", features = ["attributes"] }
 
 [dev-dependencies]
+mockable = { workspace = true, features = ["mock"] }
 proptest = "1.8.0"
 rstest = "0.26"
 test-strategy = "0.4.3"

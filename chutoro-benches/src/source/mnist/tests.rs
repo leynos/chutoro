@@ -7,9 +7,9 @@ use flate2::write::GzEncoder;
 use rstest::rstest;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::env;
 use std::io::{self, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
-
 struct FakeClient {
     payloads: HashMap<String, Vec<u8>>,
     call_count: RefCell<usize>,

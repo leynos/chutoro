@@ -1,6 +1,7 @@
 //! Build-profile report path and environment helpers.
 
 use camino::{Utf8Path, Utf8PathBuf};
+use mockable::{DefaultEnv, Env};
 
 /// Environment variable that enables HNSW build-profile report generation.
 pub const BUILD_PROFILE_ENV: &str = "CHUTORO_BENCH_NEIGHBOUR_PROFILE";
@@ -96,9 +97,12 @@ pub fn should_collect_build_profile_value(value: Option<&str>) -> bool {
 /// ```
 #[must_use]
 pub fn should_collect_build_profile() -> bool {
-    should_collect_build_profile_value(std::env::var(BUILD_PROFILE_ENV).ok().as_deref())
+    should_collect_build_profile_with_env(&DefaultEnv)
 }
 
+fn should_collect_build_profile_with_env(env: &dyn Env) -> bool {
+    should_collect_build_profile_value(env.string(BUILD_PROFILE_ENV).as_deref())
+}
 /// Returns the parent directory used for benchmark reports.
 ///
 /// # Examples
@@ -128,9 +132,12 @@ pub fn report_parent_dir_value(cargo_target_dir: Option<&str>) -> Utf8PathBuf {
 /// ```
 #[must_use]
 pub fn report_parent_dir() -> Utf8PathBuf {
-    report_parent_dir_value(std::env::var(CARGO_TARGET_DIR_ENV).ok().as_deref())
+    report_parent_dir_with_env(&DefaultEnv)
 }
 
+fn report_parent_dir_with_env(env: &dyn Env) -> Utf8PathBuf {
+    report_parent_dir_value(env.string(CARGO_TARGET_DIR_ENV).as_deref())
+}
 /// Returns a benchmark report target below the supplied report parent directory.
 ///
 /// # Examples
@@ -206,9 +213,10 @@ pub fn build_profile_report_target_value(
 /// ```
 #[must_use]
 pub fn build_profile_report_target() -> Option<ReportTarget> {
-    let report_parent_dir = report_parent_dir();
-    build_profile_report_target_value(
-        std::env::var(BUILD_PROFILE_ENV).ok().as_deref(),
-        &report_parent_dir,
-    )
+    build_profile_report_target_with_env(&DefaultEnv)
+}
+
+fn build_profile_report_target_with_env(env: &dyn Env) -> Option<ReportTarget> {
+    let report_parent_dir = report_parent_dir_with_env(env);
+    build_profile_report_target_value(env.string(BUILD_PROFILE_ENV).as_deref(), &report_parent_dir)
 }

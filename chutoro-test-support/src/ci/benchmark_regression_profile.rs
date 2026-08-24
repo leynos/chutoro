@@ -3,7 +3,7 @@
 //! This module centralizes event and policy parsing for benchmark regression
 //! checks so workflows can share one deterministic decision surface.
 
-use std::env;
+use mockable::{DefaultEnv, Env};
 
 /// Environment variable controlling benchmark CI policy.
 pub const CHUTORO_BENCH_CI_POLICY_ENV_KEY: &str = "CHUTORO_BENCH_CI_POLICY";
@@ -121,33 +121,29 @@ impl BenchmarkRegressionProfile {
     /// ```
     #[must_use]
     pub fn load(default_policy: BenchmarkCiPolicy) -> Self {
-        Self::load_with_lookup(default_policy, |key| env::var(key).ok())
+        Self::load_with_env(default_policy, &DefaultEnv)
     }
 
-    /// Resolve a profile through an injected environment lookup for tests.
-    fn load_with_lookup<F>(default_policy: BenchmarkCiPolicy, lookup: F) -> Self
-    where
-        F: Fn(&'static str) -> Option<String>,
-    {
-        let policy =
-            lookup(CHUTORO_BENCH_CI_POLICY_ENV_KEY).map_or(
-                default_policy,
-                |raw| match parse_policy(&raw) {
-                    Ok(policy) => policy,
-                    Err(reason) => {
-                        tracing::warn!(
-                            env = CHUTORO_BENCH_CI_POLICY_ENV_KEY,
-                            raw = %raw,
-                            reason = %reason,
-                            fallback_policy = default_policy.as_str(),
-                            "invalid benchmark CI policy override; using default",
-                        );
-                        default_policy
-                    }
-                },
-            );
+    fn load_with_env(default_policy: BenchmarkCiPolicy, env: &dyn Env) -> Self {
+        let policy = match env.string(CHUTORO_BENCH_CI_POLICY_ENV_KEY) {
+            Some(raw) => match parse_policy(&raw) {
+                Ok(policy) => policy,
+                Err(reason) => {
+                    tracing::warn!(
+                        env = CHUTORO_BENCH_CI_POLICY_ENV_KEY,
+                        raw = %raw,
+                        reason = %reason,
+                        fallback_policy = default_policy.as_str(),
+                        "invalid benchmark CI policy override; using default",
+                    );
+                    default_policy
+                }
+            },
+            None => default_policy,
+        };
 
-        let event = lookup(GITHUB_EVENT_NAME_ENV_KEY)
+        let event = env
+            .string(GITHUB_EVENT_NAME_ENV_KEY)
             .as_deref()
             .map_or(BenchmarkCiEvent::Other, parse_event_name);
         let mode = resolve_regression_mode(event, policy);
@@ -239,6 +235,7 @@ mod tests {
     //! Unit tests for benchmark regression profile parsing.
 
     use super::*;
+    use mockable::MockEnv;
     use rstest::rstest;
     use std::collections::HashMap;
 
@@ -255,9 +252,10 @@ mod tests {
             env_entries.insert(CHUTORO_BENCH_CI_POLICY_ENV_KEY, raw.to_owned());
         }
 
-        BenchmarkRegressionProfile::load_with_lookup(default_policy, |key| {
-            env_entries.get(key).cloned()
-        })
+        let mut env = MockEnv::new();
+        env.expect_string()
+            .returning(move |key| env_entries.get(key).cloned());
+        BenchmarkRegressionProfile::load_with_env(default_policy, &env)
     }
 
     #[rstest]

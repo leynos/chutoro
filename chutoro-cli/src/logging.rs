@@ -3,6 +3,7 @@
 //! Installs a global `tracing` subscriber with optional JSON formatting and
 //! bridges the `log` facade so crates using either API emit structured events.
 
+use mockable::{DefaultEnv, Env};
 use std::{
     env,
     sync::{Mutex, OnceLock},
@@ -102,7 +103,11 @@ fn mark_initialized() {
 
 /// Build and install the configured tracing subscriber.
 fn install_subscriber() -> Result<(), LoggingError> {
-    let use_json = match env::var(LOG_FORMAT_ENV) {
+    install_subscriber_with_env(&DefaultEnv)
+}
+
+fn install_subscriber_with_env(env: &dyn Env) -> Result<(), LoggingError> {
+    let use_json = match env.raw(LOG_FORMAT_ENV) {
         Ok(raw) => parse_log_format(&raw)?,
         Err(env::VarError::NotPresent) => false,
         Err(err @ env::VarError::NotUnicode(_)) => {
@@ -136,7 +141,6 @@ fn install_subscriber() -> Result<(), LoggingError> {
         .try_init()
         .map_err(|source| LoggingError::InstallFailed { source })
 }
-
 /// Emit a pre-initialization diagnostic to stderr when structured logging
 /// initialization collides with an existing subscriber.
 ///
