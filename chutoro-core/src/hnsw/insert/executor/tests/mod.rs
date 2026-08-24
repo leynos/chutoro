@@ -102,9 +102,21 @@ fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
         .expect("attach node 2");
 
     // Forward edges: 0 -> 1, 2 -> 1; target (1) is at capacity and prefers 2.
-    graph.node_mut(0).unwrap().neighbours_mut(1).push(1);
-    graph.node_mut(1).unwrap().neighbours_mut(1).push(2);
-    graph.node_mut(2).unwrap().neighbours_mut(1).push(1);
+    graph
+        .node_mut(0)
+        .expect("entry node must be present")
+        .neighbours_mut(1)
+        .push(1);
+    graph
+        .node_mut(1)
+        .expect("target node must be present")
+        .neighbours_mut(1)
+        .push(2);
+    graph
+        .node_mut(2)
+        .expect("evicted node must be present")
+        .neighbours_mut(1)
+        .push(1);
 
     let mut reconciler = EdgeReconciler::new(&mut graph);
     let ensured = reconciler.ensure_reverse_edge(
@@ -121,16 +133,25 @@ fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
     // Apply deferred scrubs to remove the evicted node's forward edge.
     reconciler.apply_deferred_scrubs(1);
 
-    let target = reconciler.graph.node(1).unwrap();
+    let target = reconciler
+        .graph
+        .node(1)
+        .expect("target node must be present");
     assert_eq!(target.neighbours(1), &[0]);
 
-    let evicted = reconciler.graph.node(2).unwrap();
+    let evicted = reconciler
+        .graph
+        .node(2)
+        .expect("evicted node must be present");
     assert!(
         !evicted.neighbours(1).contains(&1),
         "evicted neighbour should lose its forward edge to maintain reciprocity",
     );
 
-    let origin = reconciler.graph.node(0).unwrap();
+    let origin = reconciler
+        .graph
+        .node(0)
+        .expect("entry node must be present");
     assert!(origin.neighbours(1).contains(&1));
 }
 
@@ -242,22 +263,22 @@ fn trimming_eviction_restores_reciprocity(
     #[case] trimmed_neighbours: Vec<usize>,
     #[case] max_connections: usize,
 ) -> Result<(), TrimmingFixtureError> {
-    assert!(
-        !trimmed_neighbours.is_empty(),
-        "trimmed_neighbours must be non-empty to exercise eviction fallback",
-    );
+    if trimmed_neighbours.is_empty() {
+        return Err(TrimmingFixtureError::EmptyTrimmedNeighbours);
+    }
 
     let params = HnswParams::new(max_connections, max_connections * 4)?;
     let new_node_id = trimmed_neighbours
         .iter()
         .copied()
         .max()
-        .expect("trimmed_neighbours asserted as non-empty")
+        .ok_or(TrimmingFixtureError::EmptyTrimmedNeighbours)?
         .saturating_add(1);
     let reserve_id = new_node_id.saturating_add(1);
-    let evicted = *trimmed_neighbours
+    let evicted = trimmed_neighbours
         .last()
-        .expect("trimmed_neighbours asserted as non-empty");
+        .copied()
+        .ok_or(TrimmingFixtureError::EmptyTrimmedNeighbours)?;
 
     let mut graph = build_trimming_test_graph(&params, &trimmed_neighbours, reserve_id)?;
     setup_reciprocal_edges_with_reserve(&mut graph, &trimmed_neighbours, evicted, reserve_id)?;

@@ -19,6 +19,9 @@ use crate::hnsw::{
 /// from a genuine graph error.
 #[derive(Debug, thiserror::Error)]
 pub(super) enum TrimmingFixtureError {
+    /// The trimming scenario requires at least one neighbour.
+    #[error("trimmed neighbours must be non-empty")]
+    EmptyTrimmedNeighbours,
     /// A graph or executor operation failed.
     #[error(transparent)]
     Hnsw(#[from] HnswError),
