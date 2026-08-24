@@ -180,6 +180,10 @@ keeps local editor feedback aligned with commit gates.
   `excluded_crates`. This permits the remaining ambient filesystem exceptions
   to describe only their concrete module boundaries instead of exempting an
   entire library crate.
+- The `chutoro-providers-dense` opt-in measurement reaches 127 all-target
+  diagnostics. Its distinct SIMD kernels, property fixtures and module-layout
+  migration must be remediated as a dedicated stage; its manifest remains
+  unchanged until that stage can finish green.
 
 ## Decision Log
 
