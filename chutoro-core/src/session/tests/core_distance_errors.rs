@@ -46,16 +46,20 @@ fn recompute_core_distances_propagates_errors(
         .recompute_core_distances_full()
         .expect_err(&format!("recompute must propagate {failure_description}"));
 
-    match mode {
-        FailureMode::DataSource => assert!(
+    assert!(
+        matches!(mode, FailureMode::DataSource | FailureMode::NonFinite),
+        "pair data source failures belong to the dirty-state retention test",
+    );
+    if matches!(mode, FailureMode::DataSource) {
+        assert!(
             matches!(err, ChutoroError::DataSource { .. }),
             "expected data source error, got {err:?}"
-        ),
-        FailureMode::NonFinite => assert!(
+        );
+    } else {
+        assert!(
             matches!(err, ChutoroError::CpuHnswFailure { .. }),
             "expected HNSW error, got {err:?}"
-        ),
-        FailureMode::PairDataSource { .. } => unreachable!("pair failure is not a test case"),
+        );
     }
 }
 

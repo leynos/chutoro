@@ -105,6 +105,10 @@ keeps local editor feedback aligned with commit gates.
       non-zero construction has a safe minimum fallback or a fixed default can
       be expressed directly. `make check-fmt` and `make test` pass; scoped
       Clippy reports seven remaining `unreachable!` sites for the next stage.
+- [x] Replaced the four test-only `unreachable!` branches with explicit test
+      constraints or an invariant error. `make check-fmt`, `make test`, and
+      `make markdownlint` pass; scoped Clippy now reports only the three
+      planned production accessor sites.
 - [ ] Resolve `chutoro-core` structural, bounds-safety, numerical, and test
       lint families in bounded commits.
 - [ ] Opt in the remaining library crates and retire duplicated Rustdoc flags.
@@ -252,6 +256,16 @@ replace the remaining accessor or test assertion sites with generic panics;
 they require error propagation or test-structure changes. Verify
 `make check-fmt`, `make test`, and package Clippy's remaining
 `clippy::unreachable` locations.
+
+## Stage 2i: Explicit Test Invariants
+
+Replace the four test-only `unreachable!` sites without weakening their
+contracts. The graph deletion helper returns `GraphInvariantViolation` if a
+node disappears between validation and removal. Parameterised HNSW search tests
+assert their supported `ef` values before choosing an assertion set, and the
+core-distance error test asserts that pair failures remain covered by their
+dedicated dirty-state test. Verify the focused HNSW test, `make check-fmt`,
+`make test`, and package Clippy's residual `clippy::unreachable` locations.
 
 ## Verification Plan
 

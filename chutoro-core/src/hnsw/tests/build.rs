@@ -96,34 +96,34 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
         )
         .expect("search must succeed");
     let forward_ids: Vec<_> = neighbours.iter().map(|n| n.id).collect();
-    match ef {
-        8 => {
-            assert!(forward_ids.starts_with(&[0, 1, 2]));
-            if forward_ids.len() == 4 {
-                assert_eq!(forward_ids[3], 3);
-            } else {
-                assert_eq!(forward_ids.len(), 3);
-            }
+    assert!(
+        matches!(ef, 8 | 16),
+        "parameterized test only supports ef values 8 and 16",
+    );
+    if ef == 8 {
+        assert!(forward_ids.starts_with(&[0, 1, 2]));
+        if forward_ids.len() == 4 {
+            assert_eq!(forward_ids[3], 3);
+        } else {
+            assert_eq!(forward_ids.len(), 3);
         }
-        16 => {
+    } else {
+        assert!(
+            forward_ids.starts_with(&[0, 1]),
+            "forward search should begin with nearest ids",
+        );
+        assert!(
+            forward_ids.len() >= 2,
+            "forward search should return at least two results",
+        );
+        if forward_ids.len() > 2 {
             assert!(
-                forward_ids.starts_with(&[0, 1]),
-                "forward search should begin with nearest ids",
+                forward_ids[2..]
+                    .windows(2)
+                    .all(|window| window[0] <= window[1]),
+                "additional forward neighbours must appear in ascending order",
             );
-            assert!(
-                forward_ids.len() >= 2,
-                "forward search should return at least two results",
-            );
-            if forward_ids.len() > 2 {
-                assert!(
-                    forward_ids[2..]
-                        .windows(2)
-                        .all(|window| window[0] <= window[1]),
-                    "additional forward neighbours must appear in ascending order",
-                );
-            }
         }
-        _ => unreachable!("unexpected ef in parameterized test"),
     }
     assert_sorted_by_distance(&neighbours);
 
@@ -135,30 +135,26 @@ fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
         )
         .expect("search must succeed");
     let reverse_ids: Vec<_> = neighbours.iter().map(|n| n.id).collect();
-    match ef {
-        8 => {
-            assert!(reverse_ids.ends_with(&[2, 1, 0]));
-            if reverse_ids.len() == 4 {
-                assert_eq!(reverse_ids[0], 3);
-            } else {
-                assert_eq!(reverse_ids.len(), 3);
-            }
+    if ef == 8 {
+        assert!(reverse_ids.ends_with(&[2, 1, 0]));
+        if reverse_ids.len() == 4 {
+            assert_eq!(reverse_ids[0], 3);
+        } else {
+            assert_eq!(reverse_ids.len(), 3);
         }
-        16 => {
-            assert!(
-                reverse_ids.starts_with(&[3]),
-                "reverse search should begin with the query id",
-            );
-            assert!(
-                reverse_ids.len() >= 2,
-                "reverse search should return at least two results",
-            );
-            assert!(
-                reverse_ids.windows(2).all(|window| window[0] >= window[1]),
-                "reverse search neighbours must appear in descending order",
-            );
-        }
-        _ => unreachable!("unexpected ef in parameterized test"),
+    } else {
+        assert!(
+            reverse_ids.starts_with(&[3]),
+            "reverse search should begin with the query id",
+        );
+        assert!(
+            reverse_ids.len() >= 2,
+            "reverse search should return at least two results",
+        );
+        assert!(
+            reverse_ids.windows(2).all(|window| window[0] >= window[1]),
+            "reverse search neighbours must appear in descending order",
+        );
     }
     assert_sorted_by_distance(&neighbours);
 }

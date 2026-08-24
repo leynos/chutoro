@@ -34,7 +34,9 @@ impl Graph {
         let removed_neighbours = collect_neighbour_layers(existing);
 
         let Some(_taken) = self.nodes.get_mut(node).and_then(Option::take) else {
-            unreachable!("node presence checked above");
+            return Err(HnswError::GraphInvariantViolation {
+                message: format!("node {node} disappeared during deletion"),
+            });
         };
 
         self.strip_references_to(node);
