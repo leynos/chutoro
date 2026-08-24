@@ -144,7 +144,7 @@ impl DataSource for FailableSource {
         self.values.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "failable-session-source"
     }
 
@@ -156,7 +156,19 @@ impl DataSource for FailableSource {
                 FailureMode::PairDataSource { left, right } if is_pair(i, j, left, right) => {
                     Err(DataSourceError::OutOfBounds { index: i.max(j) })
                 }
-                FailureMode::PairDataSource { .. } => Ok((self.values[i] - self.values[j]).abs()),
+                FailureMode::PairDataSource { .. } => {
+                    let left_value = self
+                        .values
+                        .get(i)
+                        .ok_or(DataSourceError::OutOfBounds { index: i })?;
+                    let right_value = self
+                        .values
+                        .get(j)
+                        .ok_or(DataSourceError::OutOfBounds { index: j })?;
+                    Ok(left_value
+                        .mul_add(1.0, std::ops::Neg::neg(*right_value))
+                        .abs())
+                }
             };
         }
 
@@ -168,7 +180,7 @@ impl DataSource for FailableSource {
             .values
             .get(j)
             .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((left - right).abs())
+        Ok(left.mul_add(1.0, std::ops::Neg::neg(*right)).abs())
     }
 
     fn metric_descriptor(&self) -> MetricDescriptor {

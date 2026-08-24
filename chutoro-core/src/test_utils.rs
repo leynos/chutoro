@@ -90,6 +90,6 @@ impl DataSource for CountingSource {
             .data
             .get(right)
             .ok_or(DataSourceError::OutOfBounds { index: right })?;
-        Ok((a - b).abs())
+        Ok(a.mul_add(1.0, std::ops::Neg::neg(*b)).abs())
     }
 }

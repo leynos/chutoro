@@ -218,7 +218,7 @@ impl Graph {
         if let Some(unreachable) = self
             .nodes_iter()
             .map(|(id, _)| id)
-            .find(|&id| !state.visited[id])
+            .find(|&id| !state.is_visited(id))
         {
             return Err(HnswError::GraphInvariantViolation {
                 message: format!(
@@ -247,7 +247,7 @@ impl Graph {
                 message: format!("node {origin} references missing neighbour {target}"),
             });
         }
-        if state.visited[target] {
+        if state.is_visited(target) {
             return Ok(());
         }
 
@@ -265,17 +265,25 @@ impl ReachabilityState {
     fn new(capacity: usize, entry: usize) -> Self {
         let mut visited = vec![false; capacity];
         let mut queue = VecDeque::new();
-        visited[entry] = true;
-        queue.push_back(entry);
+        if let Some(entry_visited) = visited.get_mut(entry) {
+            *entry_visited = true;
+            queue.push_back(entry);
+        }
         Self { visited, queue }
     }
 
     fn visit(&mut self, node: usize) {
-        if self.visited[node] {
+        if self.is_visited(node) {
             return;
         }
-        self.visited[node] = true;
-        self.queue.push_back(node);
+        if let Some(node_visited) = self.visited.get_mut(node) {
+            *node_visited = true;
+            self.queue.push_back(node);
+        }
+    }
+
+    fn is_visited(&self, node: usize) -> bool {
+        self.visited.get(node).copied().unwrap_or(false)
     }
 }
 

@@ -29,7 +29,9 @@ impl SessionTestSource {
     /// Builds a source of `len` points valued `0.0, 1.0, ..., (len - 1) as f32`.
     pub(super) fn with_len(len: usize) -> Self {
         Self {
-            values: (0..len).map(|value| value as f32).collect(),
+            values: (0..len)
+                .map(|value| value.to_string().parse::<f32>().unwrap_or(f32::INFINITY))
+                .collect(),
             name: "session-test",
         }
     }
@@ -53,7 +55,7 @@ impl DataSource for SessionTestSource {
             .values
             .get(j)
             .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((left - right).abs())
+        Ok(left.mul_add(1.0, std::ops::Neg::neg(*right)).abs())
     }
 
     fn metric_descriptor(&self) -> MetricDescriptor {

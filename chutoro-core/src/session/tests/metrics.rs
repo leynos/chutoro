@@ -46,7 +46,7 @@ fn append_records_deterministic_latency_via_clock_seam(session_builder: ChutoroB
             .expect("at least one sample must be recorded")
             .into_inner();
         assert!(
-            (recorded - 0.005_f64).abs() < 1e-6,
+            recorded.total_cmp(&0.005_f64).is_eq(),
             "recorded latency must match the fixed clock: expected 0.005 s, got {recorded}"
         );
     } else {

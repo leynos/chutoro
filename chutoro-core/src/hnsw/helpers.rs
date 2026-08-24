@@ -185,11 +185,11 @@ mod tests {
     fn run_ensure_query_test(
         initial_neighbours: Vec<Neighbour>,
         ef: usize,
-        expected_neighbours: Vec<Neighbour>,
+        expected_neighbours: &[Neighbour],
     ) {
         let source = TestSource::new(vec![0.0, 1.0]);
         let mut neighbours = initial_neighbours;
-        let Some(ef) = NonZeroUsize::new(ef) else {
+        let Some(search_ef) = NonZeroUsize::new(ef) else {
             panic!("ef must be non-zero");
         };
         let ensured = ensure_query_present(
@@ -197,7 +197,7 @@ mod tests {
             EnsureQueryArgs {
                 source: &source,
                 query: 0,
-                ef,
+                ef: search_ef,
                 neighbours: &mut neighbours,
             },
         );
@@ -212,18 +212,18 @@ mod tests {
         run_ensure_query_test(
             vec![neighbour(1, 1.0)],
             2,
-            vec![neighbour(0, 0.0), neighbour(1, 1.0)],
+            &[neighbour(0, 0.0), neighbour(1, 1.0)],
         );
     }
 
     #[test]
     fn ensure_query_skips_when_capacity_is_one() {
-        run_ensure_query_test(vec![neighbour(1, 1.0)], 1, vec![neighbour(1, 1.0)]);
+        run_ensure_query_test(vec![neighbour(1, 1.0)], 1, &[neighbour(1, 1.0)]);
     }
 
     #[test]
     fn ensure_query_noop_when_present() {
-        run_ensure_query_test(vec![neighbour(0, 0.0)], 1, vec![neighbour(0, 0.0)]);
+        run_ensure_query_test(vec![neighbour(0, 0.0)], 1, &[neighbour(0, 0.0)]);
     }
 
     #[test]
@@ -257,7 +257,7 @@ mod tests {
         let metric = source.metric_descriptor();
         assert!(matches!(
             cache.begin_lookup(&metric, 0, 1),
-            LookupOutcome::Hit(value) if (value - 1.0).abs() < f32::EPSILON
+            LookupOutcome::Hit(value) if value.total_cmp(&1.0).is_eq()
         ));
     }
 
@@ -281,12 +281,22 @@ mod tests {
             self.data.len()
         }
 
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "test"
         }
 
         fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
-            Ok((self.data[left] - self.data[right]).abs())
+            let left_value = self
+                .data
+                .get(left)
+                .ok_or(DataSourceError::OutOfBounds { index: left })?;
+            let right_value = self
+                .data
+                .get(right)
+                .ok_or(DataSourceError::OutOfBounds { index: right })?;
+            Ok(left_value
+                .mul_add(1.0, std::ops::Neg::neg(*right_value))
+                .abs())
         }
 
         fn metric_descriptor(&self) -> MetricDescriptor {
