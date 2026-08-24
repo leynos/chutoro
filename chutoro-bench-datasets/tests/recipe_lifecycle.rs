@@ -10,17 +10,20 @@ use chutoro_bench_datasets::{
 use rstest::{fixture, rstest};
 use tracing_test::traced_test;
 
+mod common;
+use common::expect_err;
+
 #[fixture]
-fn source() -> SourceUrl {
-    match SourceUrl::parse("https://example.test/data.bin") {
-        Ok(url) => url,
-        Err(error) => panic!("test source URL should parse: {error}"),
-    }
+fn source() -> Result<SourceUrl, RecipeError> {
+    SourceUrl::parse("https://example.test/data.bin")
 }
 
 #[fixture]
-fn fetcher(source: SourceUrl) -> InMemoryFetcher {
-    InMemoryFetcher::new([(source, Bytes::from_static(b"abc"))])
+fn fetcher(source: Result<SourceUrl, RecipeError>) -> Result<InMemoryFetcher, RecipeError> {
+    Ok(InMemoryFetcher::new([(
+        source?,
+        Bytes::from_static(b"abc"),
+    )]))
 }
 
 #[fixture]
@@ -47,20 +50,25 @@ impl RecipeSetup {
 
 #[fixture]
 fn ctx(
-    fetcher: InMemoryFetcher,
+    fetcher: Result<InMemoryFetcher, RecipeError>,
     storage: InMemoryStorage,
     publisher: InMemoryPublisher,
-) -> RecipeSetup {
-    RecipeSetup {
-        fetcher,
+) -> Result<RecipeSetup, RecipeError> {
+    Ok(RecipeSetup {
+        fetcher: fetcher?,
         storage,
         publisher,
-    }
+    })
 }
 
 #[traced_test]
 #[rstest]
-fn run_recipe_publishes_prepared_bytes(source: SourceUrl, ctx: RecipeSetup) {
+fn run_recipe_publishes_prepared_bytes(
+    #[from(source)] source_res: Result<SourceUrl, RecipeError>,
+    #[from(ctx)] ctx_res: Result<RecipeSetup, RecipeError>,
+) {
+    let source = source_res.expect("test source URL should parse");
+    let ctx = ctx_res.expect("recipe setup should build");
     let recipe = StubRecipe::new("stub", vec![source]);
     let context = ctx.context();
 
@@ -79,13 +87,19 @@ fn run_recipe_publishes_prepared_bytes(source: SourceUrl, ctx: RecipeSetup) {
 }
 
 #[rstest]
-fn fetch_size_limit_is_propagated(source: SourceUrl, ctx: RecipeSetup) {
+fn fetch_size_limit_is_propagated(
+    #[from(source)] source_res: Result<SourceUrl, RecipeError>,
+    #[from(ctx)] ctx_res: Result<RecipeSetup, RecipeError>,
+) {
+    let source = source_res.expect("test source URL should parse");
+    let ctx = ctx_res.expect("recipe setup should build");
     let recipe = StubRecipe::new("stub", vec![source]).with_max_bytes(2);
     let context = ctx.context();
 
-    let Err(error) = run_recipe(&recipe, &context) else {
-        panic!("oversized source should fail");
-    };
+    let error = expect_err!(
+        run_recipe(&recipe, &context),
+        "oversized source should fail"
+    );
 
     assert!(matches!(
         error,
@@ -99,34 +113,45 @@ fn fetch_size_limit_is_propagated(source: SourceUrl, ctx: RecipeSetup) {
 #[case::prepare(FailingPhase::Prepare, Some(chutoro_bench_datasets::Phase::Validate))]
 #[case::publish(FailingPhase::Publish, Some(chutoro_bench_datasets::Phase::Prepare))]
 fn failure_invokes_cleanup_with_partial_state(
-    source: SourceUrl,
-    ctx: RecipeSetup,
+    #[from(source)] source_res: Result<SourceUrl, RecipeError>,
+    #[from(ctx)] ctx_res: Result<RecipeSetup, RecipeError>,
     #[case] failing_phase: FailingPhase,
     #[case] expected_completed_phase: Option<chutoro_bench_datasets::Phase>,
 ) {
+    let source = source_res.expect("test source URL should parse");
+    let ctx = ctx_res.expect("recipe setup should build");
     let recipe = FailingRecipe::new(source, failing_phase);
     let context = ctx.context();
 
-    let Err(error) = run_recipe(&recipe, &context) else {
-        panic!("configured phase should fail");
-    };
+    let error = expect_err!(
+        run_recipe(&recipe, &context),
+        "configured phase should fail"
+    );
 
     assert!(error.to_string().contains(failing_phase.message()));
     assert_eq!(
-        recipe.cleanup_state(),
+        recipe
+            .cleanup_state()
+            .expect("cleanup state lock should not be poisoned"),
         Some(PartialState::new(expected_completed_phase)),
     );
 }
 
 #[rstest]
-fn cleanup_failure_reports_failed_phase_and_cleanup_source(source: SourceUrl, ctx: RecipeSetup) {
+fn cleanup_failure_reports_failed_phase_and_cleanup_source(
+    #[from(source)] source_res: Result<SourceUrl, RecipeError>,
+    #[from(ctx)] ctx_res: Result<RecipeSetup, RecipeError>,
+) {
+    let source = source_res.expect("test source URL should parse");
+    let ctx = ctx_res.expect("recipe setup should build");
     let recipe =
         FailingRecipe::new(source, FailingPhase::Validate).with_cleanup_error("cleanup failed");
     let context = ctx.context();
 
-    let Err(error) = run_recipe(&recipe, &context) else {
-        panic!("cleanup failure should replace the original phase error");
-    };
+    let error = expect_err!(
+        run_recipe(&recipe, &context),
+        "cleanup failure should replace the original phase error"
+    );
 
     let RecipeError::Cleanup {
         phase,
@@ -138,7 +163,9 @@ fn cleanup_failure_reports_failed_phase_and_cleanup_source(source: SourceUrl, ct
     assert_eq!(phase, chutoro_bench_datasets::Phase::Validate);
     assert!(cleanup_source.to_string().contains("cleanup failed"));
     assert_eq!(
-        recipe.cleanup_state(),
+        recipe
+            .cleanup_state()
+            .expect("cleanup state lock should not be poisoned"),
         Some(PartialState::new(Some(
             chutoro_bench_datasets::Phase::Fetch
         ))),
@@ -198,11 +225,13 @@ impl FailingRecipe {
         self
     }
 
-    fn cleanup_state(&self) -> Option<PartialState> {
-        match self.cleanup_state.lock() {
-            Ok(state) => state.clone(),
-            Err(error) => panic!("cleanup state lock should not be poisoned: {error}"),
-        }
+    /// Reads the recorded cleanup state, propagating a mutex poison error
+    /// rather than panicking so callers decide how to report the failure.
+    fn cleanup_state(&self) -> Result<Option<PartialState>, String> {
+        self.cleanup_state
+            .lock()
+            .map(|state| state.clone())
+            .map_err(|error| format!("cleanup state lock should not be poisoned: {error}"))
     }
 
     fn fail_or_pass<T>(
