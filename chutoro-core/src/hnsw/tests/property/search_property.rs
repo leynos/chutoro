@@ -22,9 +22,11 @@ use proptest::{
 };
 use rstest::rstest;
 
+const MIN_FIXTURE_LEN: usize = 2;
+
 /// Executes the search-correctness property for a generated fixture.
 pub(super) fn run_search_correctness_property(
-    fixture: HnswFixture,
+    fixture: &HnswFixture,
     query_hint: u16,
     k_hint: u16,
 ) -> TestCaseResult {
@@ -38,16 +40,15 @@ pub(super) fn run_search_correctness_property(
         .into_source()
         .map_err(|err| TestCaseError::fail(format!("fixture -> source failed: {err}")))?;
 
-    const MIN_FIXTURE_LEN: usize = 2;
     let len = source.len();
     prop_assume!(len >= MIN_FIXTURE_LEN);
     prop_assume!(len <= config.max_fixture_len());
 
     prop_assume!(fixture.params.max_connections >= config.min_max_connections());
-    let query = (usize::from(query_hint) % len).min(len.saturating_sub(1));
+    let query = std::ops::Rem::rem(usize::from(query_hint), len).min(len.saturating_sub(1));
     let fanout_cap = fixture.params.max_connections.max(2);
     let max_k = len.min(16).min(fanout_cap);
-    let k = ((usize::from(k_hint) % max_k).max(1)).min(len);
+    let k = (std::ops::Rem::rem(usize::from(k_hint), max_k).max(1)).min(len);
     let ef = NonZeroUsize::new(len.max(k * 2).max(16))
         .ok_or_else(|| TestCaseError::fail("ef must be non-zero"))?;
 
@@ -70,15 +71,15 @@ pub(super) fn run_search_correctness_property(
     let threshold = config.min_recall();
     let recall = recall_at_k(&oracle, &hnsw_neighbours, k);
     let recall_ctx = RecallCheckContext {
-        fixture: &fixture,
+        fixture,
         len,
         k,
         query,
         fanout_cap,
         threshold,
     };
-    record_search_metrics(SearchMetricsContext {
-        fixture: &fixture,
+    record_search_metrics(&SearchMetricsContext {
+        fixture,
         len,
         k,
         recall,
@@ -127,7 +128,9 @@ fn recall_at_k(oracle: &[Neighbour], observed: &[Neighbour], k: usize) -> f32 {
         .take(target)
         .filter(|neighbour| oracle_ids.contains(&neighbour.id))
         .count();
-    hits as f32 / target as f32
+    let hit_count = f32::from(u16::try_from(hits).unwrap_or(u16::MAX));
+    let target_count = f32::from(u16::try_from(target).unwrap_or(u16::MAX));
+    std::ops::Div::div(hit_count, target_count)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -147,7 +150,7 @@ impl SearchTimings {
         if oracle_secs <= f64::EPSILON {
             f64::INFINITY
         } else {
-            oracle_secs / hnsw_secs
+            std::ops::Div::div(oracle_secs, hnsw_secs)
         }
     }
 }
@@ -187,7 +190,7 @@ fn ensure_recall_meets_threshold(recall: f32, ctx: &RecallCheckContext<'_>) -> T
     Ok(())
 }
 
-fn record_search_metrics(ctx: SearchMetricsContext<'_>) {
+fn record_search_metrics(ctx: &SearchMetricsContext<'_>) {
     tracing::debug!(
         distribution = ?ctx.fixture.distribution,
         dimension = ctx.fixture.dimension(),
@@ -216,7 +219,7 @@ fn recall_at_k_computes_expected_hits(
     let observed = neighbours_from_ids(&observed_ids);
     let recall = recall_at_k(&oracle, &observed, k);
     assert!(
-        (recall - expected).abs() < f32::EPSILON,
+        recall.total_cmp(&expected).is_eq(),
         "recall {recall} vs {expected}"
     );
 }
@@ -226,7 +229,7 @@ fn neighbours_from_ids(ids: &[usize]) -> Vec<Neighbour> {
         .enumerate()
         .map(|(idx, &id)| Neighbour {
             id,
-            distance: idx as f32,
+            distance: f32::from(u16::try_from(idx).unwrap_or(u16::MAX)),
         })
         .collect()
 }
@@ -237,7 +240,10 @@ fn fixture_with_vectors(vectors: Vec<Vec<f32>>, max_connections: usize) -> HnswF
         !vectors.is_empty(),
         "test fixtures must contain at least one vector"
     );
-    let dimension = vectors[0].len();
+    let dimension = vectors
+        .first()
+        .map(Vec::len)
+        .expect("test fixtures must contain a vector");
     assert!(vectors.iter().all(|vector| vector.len() == dimension));
     HnswFixture {
         distribution: VectorDistribution::Uniform,
@@ -262,7 +268,7 @@ fn uniform_fixture(max_connections: usize) -> HnswFixture {
 fn fixture_with_len(len: usize, dimension: usize, max_connections: usize) -> HnswFixture {
     assert!(dimension > 0, "dimension must be positive");
     let vectors = (0..len)
-        .map(|idx| vec![idx as f32; dimension])
+        .map(|idx| vec![f32::from(u16::try_from(idx).unwrap_or(u16::MAX)); dimension])
         .collect::<Vec<_>>();
     fixture_with_vectors(vectors, max_connections)
 }
@@ -286,7 +292,7 @@ impl DataSource for MatrixSource {
         self.distances.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "matrix"
     }
 
@@ -333,7 +339,7 @@ fn brute_force_top_k_handles_empty_source() {
 #[test]
 fn search_property_rejects_single_item_fixture() {
     let fixture = fixture_with_len(1, 1, SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS);
-    let result = run_search_correctness_property(fixture, 0, 0);
+    let result = run_search_correctness_property(&fixture, 0, 0);
     assert!(matches!(result, Err(TestCaseError::Reject(_))));
 }
 
@@ -342,7 +348,7 @@ fn search_property_rejects_single_item_fixture() {
 fn search_property_rejects_fixtures_exceeding_max_len() {
     let len = SearchPropertyConfig::DEFAULT_MAX_FIXTURE_LEN + 1;
     let fixture = fixture_with_len(len, 2, SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS);
-    let result = run_search_correctness_property(fixture, 0, 0);
+    let result = run_search_correctness_property(&fixture, 0, 0);
     assert!(matches!(result, Err(TestCaseError::Reject(_))));
 }
 
@@ -350,7 +356,7 @@ fn search_property_rejects_fixtures_exceeding_max_len() {
 #[test]
 fn search_property_rejects_when_connections_too_low() {
     let fixture = fixture_with_len(4, 2, SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS - 1);
-    let result = run_search_correctness_property(fixture, 0, 0);
+    let result = run_search_correctness_property(&fixture, 0, 0);
     assert!(matches!(result, Err(TestCaseError::Reject(_))));
 }
 
@@ -378,6 +384,6 @@ fn recall_threshold_failure_includes_context() {
             assert!(text.contains("fanout_cap=8"));
             assert!(text.contains("distribution=Uniform"));
         }
-        other => panic!("unexpected error variant: {other:?}"),
+        other @ TestCaseError::Reject(_) => panic!("unexpected error variant: {other:?}"),
     }
 }

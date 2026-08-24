@@ -154,7 +154,7 @@ fn run_search_proptest(config: Config) -> TestCaseResult {
         (hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
         "hnsw search proptest",
         |(fixture, query_hint, k_hint)| {
-            run_search_correctness_property(fixture, query_hint, k_hint)
+            run_search_correctness_property(&fixture, query_hint, k_hint)
         },
     )
 }
