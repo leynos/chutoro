@@ -101,9 +101,13 @@ impl MstErrorCode {
 /// A single MST edge in canonical undirected form (`source <= target`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MstEdge {
+    /// Smaller endpoint identifier in canonical order.
     source: usize,
+    /// Larger endpoint identifier in canonical order.
     target: usize,
+    /// Validated finite edge weight.
     weight: f32,
+    /// Deterministic insertion-order tie breaker.
     sequence: u64,
 }
 
@@ -152,7 +156,9 @@ impl PartialOrd for MstEdge {
 /// When the input graph is connected, the forest is a minimum spanning tree.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MinimumSpanningForest {
+    /// Accepted minimum-weight edges in deterministic order.
     edges: Vec<MstEdge>,
+    /// Number of connected components remaining after Kruskal processing.
     component_count: usize,
 }
 
@@ -192,6 +198,7 @@ pub fn parallel_kruskal(
     parallel_kruskal_from_edges(node_count, edges.iter())
 }
 
+/// Validate a candidate edge and convert it to canonical MST form.
 const fn validate_and_canonicalize_edge(
     edge: &CandidateEdge,
     node_count: usize,
@@ -238,6 +245,7 @@ const fn validate_and_canonicalize_edge(
     }))
 }
 
+/// Accept non-cycling edges from one equal-weight group deterministically.
 fn process_weight_group(
     group: &[MstEdge],
     union_find: &ConcurrentUnionFind,
@@ -254,6 +262,7 @@ fn process_weight_group(
     Ok(accepted)
 }
 
+/// Report whether a forest contains the edge count of a spanning tree.
 fn is_mst_complete(
     node_count: usize,
     union_find: &ConcurrentUnionFind,
@@ -262,6 +271,7 @@ fn is_mst_complete(
     union_find.components() == 1 && forest_edges.len() == node_count.saturating_sub(1)
 }
 
+/// Validate, canonicalise, sort, and deduplicate candidate edges.
 fn prepare_edge_list<'a>(
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
     node_count: usize,
@@ -291,6 +301,7 @@ fn prepare_edge_list<'a>(
     Ok(edge_list)
 }
 
+/// Run parallel Kruskal directly over an iterator of candidate edges.
 pub(crate) fn parallel_kruskal_from_edges<'a>(
     node_count: usize,
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
