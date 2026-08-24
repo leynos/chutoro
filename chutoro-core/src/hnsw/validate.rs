@@ -72,11 +72,10 @@ pub(crate) fn validate_batch_distances<D: DataSource + Sync>(
     query: usize,
     candidates: &[usize],
 ) -> Result<Vec<f32>, HnswError> {
-    if let Some(cache) = cache_option {
-        batch_lookup_or_compute(cache, source, query, candidates)
-    } else {
-        validate_batch_without_cache(source, query, candidates)
-    }
+    cache_option.map_or_else(
+        || validate_batch_without_cache(source, query, candidates),
+        |cache| batch_lookup_or_compute(cache, source, query, candidates),
+    )
 }
 
 fn validate_batch_without_cache<D: DataSource + Sync>(
@@ -116,9 +115,11 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
     }
 
     fn populate(&self, results: &mut [Option<f32>], pending: &mut Vec<(usize, PendingMiss)>) {
-        for (index, &candidate) in self.candidates.iter().enumerate() {
+        for (index, (&candidate, result)) in
+            self.candidates.iter().zip(results.iter_mut()).enumerate()
+        {
             match self.cache.begin_lookup(&self.metric, self.query, candidate) {
-                LookupOutcome::Hit(value) => results[index] = Some(value),
+                LookupOutcome::Hit(value) => *result = Some(value),
                 LookupOutcome::Miss(miss) => pending.push((index, miss)),
             }
         }
@@ -131,8 +132,16 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
     ) -> Result<(), HnswError> {
         let missing: Vec<usize> = pending
             .iter()
-            .map(|(index, _)| self.candidates[*index])
-            .collect();
+            .map(|(index, _)| {
+                self.candidates.get(*index).copied().ok_or_else(|| {
+                    HnswError::GraphInvariantViolation {
+                        message: format!(
+                            "cached batch validation: missing candidate at result index {index}",
+                        ),
+                    }
+                })
+            })
+            .collect::<Result<_, _>>()?;
         let computed = self.source.batch_distances(self.query, &missing)?;
 
         if computed.len() != pending.len() {
@@ -147,7 +156,15 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
 
         for ((index, miss), computed_value) in pending.into_iter().zip(computed.into_iter()) {
             let cached_value = self.cache.complete_miss(miss, computed_value)?;
-            results[index] = Some(cached_value);
+            let result =
+                results
+                    .get_mut(index)
+                    .ok_or_else(|| HnswError::GraphInvariantViolation {
+                        message: format!(
+                            "cached batch validation: missing result slot at index {index}",
+                        ),
+                    })?;
+            *result = Some(cached_value);
         }
 
         Ok(())

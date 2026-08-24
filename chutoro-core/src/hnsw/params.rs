@@ -1,8 +1,10 @@
 //! Parameter handling for the CPU HNSW implementation.
 
-use std::{num::NonZeroUsize, time::Duration};
+use std::{num::NonZeroUsize, ops::Neg, time::Duration};
 
 use crate::hnsw::{distance_cache::DistanceCacheConfig, error::HnswError};
+
+const LARGEST_DRAW_BELOW_ONE: f64 = f64::from_bits(0x3FEF_FFFF_FFFF_FFFF);
 
 /// Configuration parameters for the CPU HNSW index.
 #[derive(Clone, Debug, PartialEq)]
@@ -127,8 +129,8 @@ impl HnswParams {
     /// The multiplier of `1/ln(M)` induces a geometric tail where the chance of
     /// rising to the next layer is `1/M`, mirroring the reference algorithm.
     pub(crate) fn should_stop(&self, draw: f64) -> bool {
-        let clamped = draw.clamp(1.0e-12, 1.0 - f64::EPSILON);
-        (-clamped.ln()) * self.level_multiplier < 1.0
+        let clamped = draw.clamp(1.0e-12, LARGEST_DRAW_BELOW_ONE);
+        clamped.ln().mul_add(self.level_multiplier.neg(), 0.0) < 1.0
     }
 }
 

@@ -518,6 +518,14 @@ preserving all initialized neighbour lists. This retains non-panicking internal
 access without making malformed entries observable in graph traversal. Verify
 HNSW tests, formatting, and scoped Clippy.
 
+## Stage 3p: HNSW Sampling and Cache Resolution
+
+Use the next representable draw below one for level sampling, keep candidate
+identifiers distinct within layer search, and validate every cached batch
+result slot before reading or writing it. Preserve sampling bounds, search
+ordering, cache completion, and existing graph-invariant errors. Verify HNSW
+tests, formatting, and scoped Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the

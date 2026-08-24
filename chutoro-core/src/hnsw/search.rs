@@ -352,16 +352,19 @@ impl<'graph> LayerSearcher<'graph> {
                 .neighbours(ctx.level())
                 .iter()
                 .copied()
-                .filter(|candidate| state.discover(*candidate))
+                .filter(|neighbour_id| state.discover(*neighbour_id))
                 .collect();
             if fresh.is_empty() {
                 continue;
             }
 
             let distances = inputs.validate_batch(ctx.query(), &fresh)?;
-            for (candidate, distance) in fresh.into_iter().zip(distances.into_iter()) {
-                let sequence = self.sequence_for_node(candidate, "layer expansion")?;
-                state.try_enqueue(SearchNeighbour::new(candidate, distance, sequence), ctx.ef);
+            for (neighbour_id, distance) in fresh.into_iter().zip(distances.into_iter()) {
+                let sequence = self.sequence_for_node(neighbour_id, "layer expansion")?;
+                state.try_enqueue(
+                    SearchNeighbour::new(neighbour_id, distance, sequence),
+                    ctx.ef,
+                );
             }
         }
         Ok(state.finalise())
