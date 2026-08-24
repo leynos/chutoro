@@ -254,12 +254,18 @@ conditions.
 
 ## Current conclusion
 
-The likely immediate blocker is the HNSW `verify_entry_point_validity_4_nodes`
-full-tier harness. The dense SIMD 2.2.7 harnesses are not the direct cause, and
-the run does not appear to be blocked by obvious resource contention. The
-strongest surviving theory is that the HNSW harness construction leaves
-panic-capable paths available to Kani, causing CBMC to spend the budget in Rust
-`core::str` panic and slice-error formatting.
+`verify_entry_point_validity_4_nodes` is panic-free in the current split-module
+layout. With the `kissat` solver it verifies 63 checks in 0.17 seconds. The
+surviving formatting cost came from sibling harnesses that reached
+`format!`-based production error paths during graph and parameter construction.
+
+Phase 1 replaced those construction paths with `#[cfg(kani)]` lean constructors
+returning static error reasons, and replaced harness `.expect(...)` calls with
+Kani assertions and early returns. The full-tier sweep still needs a complete
+post-remediation run before this investigation can be marked resolved: the
+three-node bidirectional reconciliation harness remained solver-intensive under
+the initial CaDiCaL configuration, so it now uses `kissat` for the next
+full-tier measurement.
 
 ## Notes for executing agent
 

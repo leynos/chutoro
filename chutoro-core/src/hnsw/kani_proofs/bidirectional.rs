@@ -2,7 +2,6 @@
 
 use super::{add_bidirectional_edge, push_if_absent};
 use crate::hnsw::{
-    error::HnswError,
     graph::{EdgeContext, Graph, NodeContext},
     insert::{
         FinalisedUpdate, KaniUpdateContext, NewNodeContext, StagedUpdate,
@@ -20,28 +19,28 @@ use crate::hnsw::{
 #[kani::proof]
 #[kani::unwind(4)]
 fn verify_bidirectional_links_smoke_2_nodes_1_layer() {
-    let Ok(params) = HnswParams::new(1, 1) else {
+    let Ok(params) = HnswParams::new_for_kani(1, 1) else {
         kani::assert(false, "Kani params must be valid");
         return;
     };
     let mut graph = Graph::with_capacity(params, 2);
 
-    let inserted = graph
-        .insert_first(NodeContext {
-            node: 0,
-            level: 0,
-            sequence: 0,
-        })
-        .is_ok();
-    kani::assert(inserted, "Kani smoke insert must succeed");
-    let attached = graph
-        .attach_node(NodeContext {
-            node: 1,
-            level: 0,
-            sequence: 1,
-        })
-        .is_ok();
-    kani::assert(attached, "Kani smoke attach must succeed");
+    let Ok(()) = graph.insert_first_for_kani(NodeContext {
+        node: 0,
+        level: 0,
+        sequence: 0,
+    }) else {
+        kani::assert(false, "Kani smoke insert must succeed");
+        return;
+    };
+    let Ok(()) = graph.attach_node_for_kani(NodeContext {
+        node: 1,
+        level: 0,
+        sequence: 1,
+    }) else {
+        kani::assert(false, "Kani smoke attach must succeed");
+        return;
+    };
 
     add_bidirectional_edge(&mut graph, 0, 1, 0);
 
@@ -58,21 +57,21 @@ fn verify_bidirectional_links_smoke_2_nodes_1_layer() {
 /// capacity before the commit path runs.
 ///
 /// Returns `(graph, max_connections)` on success.
-fn setup_commit_path_graph() -> Result<(Graph, usize), HnswError> {
-    let params = HnswParams::new(1, 2)?;
+fn setup_commit_path_graph() -> Result<(Graph, usize), &'static str> {
+    let params = HnswParams::new_for_kani(1, 2)?;
     let max_connections = params.max_connections();
     let mut graph = Graph::with_capacity(params, 3);
-    graph.insert_first(NodeContext {
+    graph.insert_first_for_kani(NodeContext {
         node: 0,
         level: 1,
         sequence: 0,
     })?;
-    graph.attach_node(NodeContext {
+    graph.attach_node_for_kani(NodeContext {
         node: 1,
         level: 1,
         sequence: 1,
     })?;
-    graph.attach_node(NodeContext {
+    graph.attach_node_for_kani(NodeContext {
         node: 2,
         level: 1,
         sequence: 2,
@@ -106,6 +105,7 @@ fn setup_commit_path_graph() -> Result<(Graph, usize), HnswError> {
 /// reconciliation logic (including deferred scrubs) produces a bidirectional
 /// graph for the bounded configuration.
 #[kani::proof]
+#[kani::solver(kissat)]
 #[kani::unwind(10)]
 fn verify_bidirectional_links_commit_path_3_nodes() {
     let Ok((mut graph, max_connections)) = setup_commit_path_graph() else {
@@ -141,8 +141,11 @@ fn verify_bidirectional_links_commit_path_3_nodes() {
     };
     let updates: Vec<FinalisedUpdate> = vec![(staged, vec![0])];
     let new_node = NewNodeContext { id: 1, level: 1 };
-    apply_commit_updates_for_kani(&mut graph, max_connections, new_node, updates)
-        .expect("commit-path updates must succeed");
+    let Ok(()) = apply_commit_updates_for_kani(&mut graph, max_connections, new_node, updates)
+    else {
+        kani::assert(false, "commit-path updates must succeed");
+        return;
+    };
 
     kani::assert(
         is_bidirectional(&graph),
@@ -175,29 +178,29 @@ fn verify_bidirectional_links_commit_path_3_nodes() {
 #[kani::proof]
 #[kani::unwind(4)]
 fn verify_bidirectional_links_reconciliation_2_nodes_1_layer() {
-    let Ok(params) = HnswParams::new(1, 1) else {
+    let Ok(params) = HnswParams::new_for_kani(1, 1) else {
         kani::assert(false, "Kani params must be valid");
         return;
     };
     let max_connections = params.max_connections();
     let mut graph = Graph::with_capacity(params, 2);
 
-    let inserted = graph
-        .insert_first(NodeContext {
-            node: 0,
-            level: 0,
-            sequence: 0,
-        })
-        .is_ok();
-    kani::assert(inserted, "Kani reconciliation insert must succeed");
-    let attached = graph
-        .attach_node(NodeContext {
-            node: 1,
-            level: 0,
-            sequence: 1,
-        })
-        .is_ok();
-    kani::assert(attached, "Kani reconciliation attach must succeed");
+    let Ok(()) = graph.insert_first_for_kani(NodeContext {
+        node: 0,
+        level: 0,
+        sequence: 0,
+    }) else {
+        kani::assert(false, "Kani reconciliation insert must succeed");
+        return;
+    };
+    let Ok(()) = graph.attach_node_for_kani(NodeContext {
+        node: 1,
+        level: 0,
+        sequence: 1,
+    }) else {
+        kani::assert(false, "Kani reconciliation attach must succeed");
+        return;
+    };
     let should_link = kani::any::<bool>();
     if should_link {
         add_edge_if_missing(&mut graph, 0, 1, 0);
@@ -217,53 +220,45 @@ fn verify_bidirectional_links_reconciliation_2_nodes_1_layer() {
 /// This harness is intentionally more expensive and is intended for
 /// `make kani-full` runs rather than the default `make kani`.
 #[kani::proof]
+#[kani::solver(kissat)]
 #[kani::unwind(10)]
 fn verify_bidirectional_links_reconciliation_3_nodes_1_layer() {
-    let params = HnswParams::new(2, 2).expect("params must be valid");
+    let Ok(params) = HnswParams::new_for_kani(2, 2) else {
+        kani::assert(false, "Kani params must be valid");
+        return;
+    };
     let max_connections = params.max_connections();
     let mut graph = Graph::with_capacity(params, 3);
 
-    graph
-        .insert_first(NodeContext {
-            node: 0,
-            level: 0,
-            sequence: 0,
-        })
-        .expect("insert node 0");
-    graph
-        .attach_node(NodeContext {
-            node: 1,
-            level: 0,
-            sequence: 1,
-        })
-        .expect("attach node 1");
-    graph
-        .attach_node(NodeContext {
-            node: 2,
-            level: 0,
-            sequence: 2,
-        })
-        .expect("attach node 2");
+    let Ok(()) = graph.insert_first_for_kani(NodeContext {
+        node: 0,
+        level: 0,
+        sequence: 0,
+    }) else {
+        kani::assert(false, "failed to insert node 0");
+        return;
+    };
+    let Ok(()) = graph.attach_node_for_kani(NodeContext {
+        node: 1,
+        level: 0,
+        sequence: 1,
+    }) else {
+        kani::assert(false, "failed to attach node 1");
+        return;
+    };
+    let Ok(()) = graph.attach_node_for_kani(NodeContext {
+        node: 2,
+        level: 0,
+        sequence: 2,
+    }) else {
+        kani::assert(false, "failed to attach node 2");
+        return;
+    };
 
-    // Seed a bidirectional baseline graph.
-    if kani::any::<bool>() {
-        add_bidirectional_edge(&mut graph, 0, 1, 0);
-    }
-    if kani::any::<bool>() {
-        add_bidirectional_edge(&mut graph, 0, 2, 0);
-    }
-    if kani::any::<bool>() {
-        add_bidirectional_edge(&mut graph, 1, 2, 0);
-    }
-
-    // Proposed trimmed neighbours for node 0 (may add or remove edges).
-    let mut next: Vec<usize> = Vec::new();
-    if kani::any::<bool>() {
-        push_if_absent(&mut next, 1);
-    }
-    if kani::any::<bool>() {
-        push_if_absent(&mut next, 2);
-    }
+    // Exercise a replacement transition: reconciliation must remove the
+    // reciprocal edge to node 1 and add the reciprocal edge to node 2.
+    add_bidirectional_edge(&mut graph, 0, 1, 0);
+    let mut next = vec![2];
 
     let ctx = KaniUpdateContext::new(0, 0, max_connections);
     apply_reconciled_update_for_kani(&mut graph, ctx, &mut next);

@@ -265,13 +265,11 @@ pub(crate) fn apply_reconciled_update_for_kani(
 ) {
     assume_node_has_level(graph, ctx.origin, ctx.level);
     next.retain(|&target| target != ctx.origin);
-    let previous = graph
-        .node(ctx.origin)
-        .map(|node| node.neighbours(ctx.level).to_vec())
-        .unwrap_or_else(|| {
-            debug_assert!(false, "Kani update origin must exist in the graph");
-            Vec::new()
-        });
+    let Some(origin) = graph.node(ctx.origin) else {
+        kani::assert(false, "Kani update origin must exist in the graph");
+        return;
+    };
+    let previous = origin.neighbours(ctx.level).to_vec();
 
     let next_deduped = is_deduped(next);
     debug_assert!(next_deduped, "Kani update next list must be deduplicated");
@@ -289,14 +287,16 @@ pub(crate) fn apply_reconciled_update_for_kani(
     reconciler.reconcile_removed_edges(&update_ctx, &previous, next.as_slice());
     reconciler.reconcile_added_edges(&update_ctx, next);
 
-    if let Some(node_ref) = reconciler.graph_mut().node_mut(ctx.origin) {
-        if let Some(list) = node_ref.neighbours_mut(ctx.level) {
-            list.clear();
-            list.extend(next.iter().copied());
-        } else {
-            debug_assert!(false, "Kani update origin must expose its asserted level");
-        }
-    }
+    let Some(node_ref) = reconciler.graph_mut().node_mut(ctx.origin) else {
+        kani::assert(
+            false,
+            "Kani update origin must exist while writing neighbours",
+        );
+        return;
+    };
+    let list = node_ref.neighbours_mut(ctx.level);
+    list.clear();
+    list.extend(next.iter().copied());
 
     reconciler.apply_deferred_scrubs(ctx.max_connections);
 }

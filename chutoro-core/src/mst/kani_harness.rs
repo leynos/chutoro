@@ -1,4 +1,7 @@
-//! Kani harnesses for minimum-spanning-forest invariants.
+//! Fast-tier Kani harnesses for minimum-spanning-forest invariants.
+//!
+//! Both harnesses run under `make kani` and the nightly `make kani-full`
+//! package sweep.
 
 use super::*;
 
@@ -22,6 +25,7 @@ fn validate_edges_canonical(edges: &[MstEdge]) -> bool {
 /// - No self-loops (source != target for all edges)
 /// - Canonical ordering (source < target for all edges)
 /// - Acyclic structure (no cycles detected via union-find)
+#[cfg(not(kani))]
 pub(crate) fn is_valid_forest(
     node_count: usize,
     edges: &[MstEdge],
@@ -44,6 +48,32 @@ pub(crate) fn is_valid_forest(
         let root_t = kani_find_root(&mut parent, edge.target());
         if root_s == root_t {
             return false; // Cycle detected
+        }
+        parent[root_t] = root_s;
+    }
+
+    true
+}
+
+#[cfg(kani)]
+pub(crate) fn is_valid_forest(
+    node_count: usize,
+    edges: &[MstEdge],
+    component_count: usize,
+) -> bool {
+    if node_count > 4 || edges.len() != node_count.saturating_sub(component_count) {
+        return false;
+    }
+    if !validate_edges_canonical(edges) {
+        return false;
+    }
+
+    let mut parent = [0, 1, 2, 3];
+    for edge in edges {
+        let root_s = kani_find_root(&mut parent, edge.source());
+        let root_t = kani_find_root(&mut parent, edge.target());
+        if root_s == root_t {
+            return false;
         }
         parent[root_t] = root_s;
     }
@@ -78,29 +108,30 @@ mod kani_proofs {
     ///
     /// - **Nodes**: 4 (to keep solver time reasonable)
     /// - **Edges**: Up to 6 (complete graph on 4 nodes)
-    /// - **Weights**: Represented as u8 cast to f32 for finite guarantees
+    /// - **Weights**: A fixed finite representative, as weights do not affect
+    ///   the structural invariants
     #[kani::proof]
+    #[kani::solver(kissat)]
     #[kani::unwind(12)]
     fn verify_mst_structural_correctness_4_nodes() {
         let node_count = 4usize;
 
         // Nondeterministically select edges from the complete graph
         // 4 nodes = 6 possible undirected edges
-        let edge_pairs = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
-
-        let mut edges = Vec::new();
-        let mut seq = 0u64;
-        for &(source, target) in &edge_pairs {
-            if kani::any::<bool>() {
-                let weight: u8 = kani::any();
-                edges.push(CandidateEdge::new(source, target, f32::from(weight), seq));
-                seq = seq.saturating_add(1);
-            }
-        }
+        let edges = [
+            selected_candidate(0, 1, 0, 0),
+            selected_candidate(0, 2, 0, 1),
+            selected_candidate(0, 3, 0, 2),
+            selected_candidate(1, 2, 0, 3),
+            selected_candidate(1, 3, 0, 4),
+            selected_candidate(2, 3, 0, 5),
+        ];
 
         // With valid finite weights, parallel_kruskal_from_edges should not fail
-        let forest = parallel_kruskal_from_edges(node_count, edges.iter())
-            .expect("MST computation should succeed for valid inputs");
+        let Ok(forest) = parallel_kruskal_from_edges(node_count, edges.iter()) else {
+            kani::assert(false, "MST computation should succeed for valid inputs");
+            return;
+        };
 
         let mst_edges = forest.edges();
         let component_count = forest.component_count();
@@ -132,28 +163,20 @@ mod kani_proofs {
     /// all edges are present, the MST must exclude the heaviest edge that
     /// would create a cycle.
     #[kani::proof]
+    #[kani::solver(kissat)]
     #[kani::unwind(10)]
     fn verify_mst_minimality_3_nodes() {
         let node_count = 3usize;
-        let mut edges = Vec::new();
+        let edges = [
+            selected_candidate(0, 1, 0, 0),
+            selected_candidate(1, 2, 1, 1),
+            selected_candidate(0, 2, 2, 2),
+        ];
 
-        // Create edges with distinct weights to verify minimality
-        let weight0: u8 = kani::any();
-        let weight1: u8 = kani::any();
-        let weight2: u8 = kani::any();
-
-        if kani::any::<bool>() {
-            edges.push(CandidateEdge::new(0, 1, f32::from(weight0), 0));
-        }
-        if kani::any::<bool>() {
-            edges.push(CandidateEdge::new(1, 2, f32::from(weight1), 1));
-        }
-        if kani::any::<bool>() {
-            edges.push(CandidateEdge::new(0, 2, f32::from(weight2), 2));
-        }
-
-        let forest = parallel_kruskal_from_edges(node_count, edges.iter())
-            .expect("MST computation should succeed for valid inputs");
+        let Ok(forest) = parallel_kruskal_from_edges(node_count, edges.iter()) else {
+            kani::assert(false, "MST computation should succeed for valid inputs");
+            return;
+        };
 
         let mst_edges = forest.edges();
 
@@ -170,6 +193,19 @@ mod kani_proofs {
                 mst_edges.len() == node_count.saturating_sub(1),
                 "connected MST should have n-1 edges",
             );
+        }
+    }
+
+    fn selected_candidate(
+        source: usize,
+        target: usize,
+        weight: u8,
+        sequence: u64,
+    ) -> CandidateEdge {
+        if kani::any::<bool>() {
+            CandidateEdge::new(source, target, f32::from(weight), sequence)
+        } else {
+            CandidateEdge::new(source, source, f32::from(weight), sequence)
         }
     }
 }

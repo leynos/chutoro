@@ -460,6 +460,36 @@ selection:
 `chutoro-providers-dense`. Keep new dense harnesses small enough for
 `make kani` unless they are intentionally slow-lane proofs.
 
+
+## Kani CI policy
+
+`make kani` is the pull-request gate. The path-filtered
+`.github/workflows/kani-pr.yml` workflow runs it when Kani harnesses, their
+production modules, the Makefile, or the Cargo dependency graph changes.
+
+`make kani-full` is the post-merge nightly tier. The
+`.github/workflows/nightly-kani.yml` workflow checks out `main` and runs the
+full suite only when its commit-recency gate permits it.
+
+The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
+`make kani`. The full tier remains the package-wide sweep for broader and
+intentionally expensive HNSW proofs.
+
+Harness construction must avoid panic-capable paths such as `.expect(...)` and
+production errors that build messages with `format!` before an invariant
+assertion. Prefer
+`let Ok(value) = operation else { kani::assert(false, "..."); return; };` and
+lean `#[cfg(kani)]` constructors that return static reasons.
+
+Where production code relies on concurrency that Kani models sequentially, a
+`#[cfg(kani)]` model must preserve the production ordering and selection
+semantics while omitting only unsupported runtime machinery.
+
+Keep each `#[kani::unwind(N)]` bound as tight as the harness permits; do not
+increase a default bound to compensate for proof cost. For a demonstrably slow
+full-tier harness, benchmark `#[kani::solver(kissat)]` or
+`#[kani::solver(cadical)]` and retain the faster verified configuration.
+
 ## Benchmarks
 
 The `chutoro-benches` crate provides Criterion benchmarks for the four CPU
