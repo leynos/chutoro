@@ -158,6 +158,11 @@ keeps local editor feedback aligned with commit gates.
 - [x] 2026-08-24: Documented the distance-cache keys, entries, sharding, and
       metric hooks. Focused core Clippy reduces the primary crate baseline to
       382 diagnostics without changing cache behaviour.
+- [x] 2026-08-24: Moved the cache's feature-specific metric hooks into its
+      private `distance_cache::metric_hooks` child module. The hooks remain
+      exclusively owned by the distance cache; the split keeps the documented
+      cache implementation below the repository's 400-line limit without
+      changing cache calls or emitted metric names.
 - [x] 2026-08-24: Replaced the `chutoro-cli` whole-crate filesystem exemption
       with the user-path command boundary and its two `cli::tests` fixture
       modules. `make lint` passes with Whitaker enforcing every other CLI

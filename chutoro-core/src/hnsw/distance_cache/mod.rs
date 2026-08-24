@@ -18,6 +18,8 @@ use tracing::instrument;
 
 use crate::{datasource::MetricDescriptor, hnsw::error::HnswError};
 
+mod metric_hooks;
+
 /// Configuration parameters for the distance cache used by [`crate::CpuHnsw`].
 ///
 /// # Examples
@@ -222,7 +224,7 @@ impl DistanceCache {
         let key = DistanceKey::new(metric.clone(), left, right);
         if self.shards.is_empty() {
             tracing::error!("distance cache has no LRU shards; bypassing cache");
-            Self::record_miss();
+            metric_hooks::record_miss();
             return LookupOutcome::Miss(PendingMiss {
                 key,
                 started,
@@ -235,8 +237,8 @@ impl DistanceCache {
                 drop(entry);
                 self.entries.remove(&key);
                 self.remove_from_usage(&key);
-                Self::record_eviction();
-                Self::record_miss();
+                metric_hooks::record_eviction();
+                metric_hooks::record_miss();
                 return LookupOutcome::Miss(PendingMiss {
                     key,
                     started,
@@ -247,10 +249,10 @@ impl DistanceCache {
             let value = entry.value;
             drop(entry);
             self.touch(&key);
-            Self::record_hit(started.elapsed());
+            metric_hooks::record_hit(started.elapsed());
             LookupOutcome::Hit(value)
         } else {
-            Self::record_miss();
+            metric_hooks::record_miss();
             LookupOutcome::Miss(PendingMiss {
                 key,
                 started,
@@ -277,7 +279,7 @@ impl DistanceCache {
             return Err(HnswError::NonFiniteDistance { left, right });
         }
         if self.shards.is_empty() {
-            Self::record_lookup_latency(started.elapsed());
+            metric_hooks::record_lookup_latency(started.elapsed());
             return Ok(value);
         }
         self.entries.insert(
@@ -288,7 +290,7 @@ impl DistanceCache {
             },
         );
         self.touch(&key);
-        Self::record_lookup_latency(started.elapsed());
+        metric_hooks::record_lookup_latency(started.elapsed());
         Ok(value)
     }
 
@@ -312,7 +314,7 @@ impl DistanceCache {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some((evicted, ())) = usage.push(key.clone(), ()) {
             self.entries.remove(&evicted);
-            Self::record_eviction();
+            metric_hooks::record_eviction();
         }
     }
 
@@ -329,7 +331,7 @@ impl DistanceCache {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(evicted) = self.try_restore_and_get_evicted(&mut usage, key) {
             self.entries.remove(&evicted);
-            Self::record_eviction();
+            metric_hooks::record_eviction();
         }
     }
 
@@ -370,49 +372,6 @@ impl DistanceCache {
         };
         self.shards.get(index)
     }
-
-    #[cfg(feature = "metrics")]
-    /// Record a cache hit and its lookup latency.
-    fn record_hit(elapsed: Duration) {
-        metrics::counter!("distance_cache_hits").increment(1);
-        metrics::histogram!("distance_cache_lookup_latency_histogram")
-            .record(elapsed.as_secs_f64());
-    }
-
-    #[cfg(not(feature = "metrics"))]
-    /// Discard a hit metric when metrics are not compiled.
-    const fn record_hit(_elapsed: Duration) {}
-
-    #[cfg(feature = "metrics")]
-    /// Record a cache miss.
-    fn record_miss() {
-        metrics::counter!("distance_cache_misses").increment(1);
-    }
-
-    #[cfg(not(feature = "metrics"))]
-    /// Discard a miss metric when metrics are not compiled.
-    const fn record_miss() {}
-
-    #[cfg(feature = "metrics")]
-    /// Record an LRU eviction.
-    fn record_eviction() {
-        metrics::counter!("distance_cache_evictions").increment(1);
-    }
-
-    #[cfg(not(feature = "metrics"))]
-    /// Discard an eviction metric when metrics are not compiled.
-    const fn record_eviction() {}
-
-    #[cfg(feature = "metrics")]
-    /// Record cache lookup latency when a miss completes.
-    fn record_lookup_latency(elapsed: Duration) {
-        metrics::histogram!("distance_cache_lookup_latency_histogram")
-            .record(elapsed.as_secs_f64());
-    }
-
-    #[cfg(not(feature = "metrics"))]
-    /// Discard a lookup-latency metric when metrics are not compiled.
-    const fn record_lookup_latency(_elapsed: Duration) {}
 }
 
 // no inherent methods on PendingMiss
