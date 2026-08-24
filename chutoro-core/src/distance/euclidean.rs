@@ -24,13 +24,13 @@ use crate::distance::types::{Distance, Result, Vector, VectorKind};
 ///   when input lengths differ.
 /// - [`crate::distance::DistanceError::NonFinite`] when a value is NaN or
 ///   infinite.
-pub fn euclidean_distance(left: &[f32], right: &[f32]) -> Result<Distance> {
-    let left = Vector::new(left, VectorKind::Left)?;
-    let right = Vector::new(right, VectorKind::Right)?;
-    validate_dimensions(&left, &right)?;
+pub fn euclidean_distance(left_values: &[f32], right_values: &[f32]) -> Result<Distance> {
+    let left_vector = Vector::new(left_values, VectorKind::Left)?;
+    let right_vector = Vector::new(right_values, VectorKind::Right)?;
+    validate_dimensions(&left_vector, &right_vector)?;
 
     let mut sum = 0.0f64;
-    for (&l, &r) in left.iter().zip(right.iter()) {
+    for (&l, &r) in left_vector.iter().zip(right_vector.iter()) {
         let diff = f64::from(l) - f64::from(r);
         sum += diff * diff;
     }

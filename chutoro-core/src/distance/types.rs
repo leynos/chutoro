@@ -233,10 +233,13 @@ impl CosineNorms {
     ///
     /// Returns [`DistanceError::InvalidNorm`] when a norm is non-finite or
     /// negative and [`DistanceError::ZeroMagnitude`] when a norm is zero.
-    pub fn new(left: f32, right: f32) -> Result<Self> {
-        let left = Norm::new(left, VectorKind::Left)?;
-        let right = Norm::new(right, VectorKind::Right)?;
-        Ok(Self { left, right })
+    pub fn new(left_value: f32, right_value: f32) -> Result<Self> {
+        let left_norm = Norm::new(left_value, VectorKind::Left)?;
+        let right_norm = Norm::new(right_value, VectorKind::Right)?;
+        Ok(Self {
+            left: left_norm,
+            right: right_norm,
+        })
     }
 
     /// Computes norms from the provided vectors.
@@ -245,13 +248,16 @@ impl CosineNorms {
     ///
     /// Propagates validation errors surfaced by
     /// [`crate::distance::cosine_distance`].
-    pub fn from_vectors(left: &[f32], right: &[f32]) -> Result<Self> {
-        let left = Vector::new(left, VectorKind::Left)?;
-        let right = Vector::new(right, VectorKind::Right)?;
-        validate_dimensions(&left, &right)?;
-        let left = Norm::from_vector(&left, VectorKind::Left)?;
-        let right = Norm::from_vector(&right, VectorKind::Right)?;
-        Ok(Self { left, right })
+    pub fn from_vectors(left_values: &[f32], right_values: &[f32]) -> Result<Self> {
+        let left_vector = Vector::new(left_values, VectorKind::Left)?;
+        let right_vector = Vector::new(right_values, VectorKind::Right)?;
+        validate_dimensions(&left_vector, &right_vector)?;
+        let left_norm = Norm::from_vector(&left_vector, VectorKind::Left)?;
+        let right_norm = Norm::from_vector(&right_vector, VectorKind::Right)?;
+        Ok(Self {
+            left: left_norm,
+            right: right_norm,
+        })
     }
 
     /// Returns the stored norm for the left vector.

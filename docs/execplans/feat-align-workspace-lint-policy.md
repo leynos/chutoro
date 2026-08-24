@@ -116,6 +116,10 @@ keeps local editor feedback aligned with commit gates.
       a named discard variable. The focused test and full checkpoints pass;
       the two broadly used node-level accessors remain a separate contract
       design.
+- [x] Renamed the shadowed bindings in the distance primitives while
+      preserving their vector validation and numerical operations. Distance
+      tests and full checkpoints pass before returning to the node-level
+      access contract.
 - [ ] Resolve `chutoro-core` structural, bounds-safety, numerical, and test
       lint families in bounded commits.
 - [ ] Opt in the remaining library crates and retire duplicated Rustdoc flags.
@@ -299,6 +303,14 @@ maintenance, invariants, and test assertions, including callers that cannot
 propagate an `HnswError`. Do not replace their invariant failure with an empty
 neighbour list or a generic panic. Establish an error or recovery contract at
 their appropriate graph-operation boundaries before changing their signatures.
+
+## Stage 2m: Distance Binding Names
+
+Rename the shadowed vector, norm, and similarity bindings in the cosine and
+Euclidean distance primitives and in `CosineNorms`. Keep all validation,
+accumulation, conversion, and clamping operations unchanged. Verify the
+distance integration tests, `make check-fmt`, and package Clippy with only
+`clippy::shadow_reuse` denied.
 
 ## Verification Plan
 
