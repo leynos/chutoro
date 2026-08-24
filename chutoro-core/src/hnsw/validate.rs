@@ -13,6 +13,7 @@ use super::{
 };
 use crate::{DataSource, MetricDescriptor};
 
+/// Return one cached or newly computed finite distance.
 fn lookup_or_compute<D: DataSource + Sync>(
     cache_option: Option<&DistanceCache>,
     source: &D,
@@ -33,6 +34,7 @@ fn lookup_or_compute<D: DataSource + Sync>(
     }
 }
 
+/// Resolve a batch through the cache before computing its misses.
 fn batch_lookup_or_compute<D: DataSource + Sync>(
     cache: &DistanceCache,
     source: &D,
@@ -52,6 +54,7 @@ fn batch_lookup_or_compute<D: DataSource + Sync>(
     ensure_all_resolved(query, candidates, results)
 }
 
+/// Validate one distance from an optional cache-backed lookup.
 pub(crate) fn validate_distance<D: DataSource + Sync>(
     cache: Option<&DistanceCache>,
     source: &D,
@@ -66,6 +69,7 @@ pub(crate) fn validate_distance<D: DataSource + Sync>(
     }
 }
 
+/// Validate a batch of query-to-candidate distances.
 pub(crate) fn validate_batch_distances<D: DataSource + Sync>(
     cache_option: Option<&DistanceCache>,
     source: &D,
@@ -78,6 +82,7 @@ pub(crate) fn validate_batch_distances<D: DataSource + Sync>(
     )
 }
 
+/// Validate source-provided batch distances when caching is unavailable.
 fn validate_batch_without_cache<D: DataSource + Sync>(
     source: &D,
     query: usize,
@@ -95,15 +100,22 @@ fn validate_batch_without_cache<D: DataSource + Sync>(
     Ok(distances)
 }
 
+/// Inputs shared while resolving a cache-backed batch lookup.
 struct CacheBatch<'a, D: DataSource + Sync> {
+    /// Cache that owns lookup and miss-completion state.
     cache: &'a DistanceCache,
+    /// Source used to compute uncached distances.
     source: &'a D,
+    /// Query node shared by every candidate.
     query: usize,
+    /// Candidate nodes ordered with the result slots.
     candidates: &'a [usize],
+    /// Source metric attached to cache keys.
     metric: MetricDescriptor,
 }
 
 impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
+    /// Capture cache, source, query, candidates, and their metric descriptor.
     fn new(cache: &'a DistanceCache, source: &'a D, query: usize, candidates: &'a [usize]) -> Self {
         Self {
             cache,
@@ -114,6 +126,7 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
         }
     }
 
+    /// Fill hit result slots and collect cache misses with their indices.
     fn populate(&self, results: &mut [Option<f32>], pending: &mut Vec<(usize, PendingMiss)>) {
         for (index, (&candidate, result)) in
             self.candidates.iter().zip(results.iter_mut()).enumerate()
@@ -125,6 +138,7 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
         }
     }
 
+    /// Compute, validate, and store each pending cache miss.
     fn resolve(
         &self,
         pending: Vec<(usize, PendingMiss)>,
@@ -171,6 +185,7 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
     }
 }
 
+/// Convert resolved slots into distances or report the first unresolved candidate.
 fn ensure_all_resolved(
     query: usize,
     candidates: &[usize],
