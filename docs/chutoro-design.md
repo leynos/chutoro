@@ -1296,7 +1296,7 @@ sequenceDiagram
     EdgeReconciler-->>KaniReverseEdgeHelper: bool
     KaniReverseEdgeHelper-->>KaniHarness: bool
 
-    KaniHarness->>Invariants: is_bidirectional / has_no_self_loops
+    KaniHarness->>Invariants: is_bidirectional / has_no_self_loops / neighbours_are_unique
     Invariants-->>KaniHarness: bool
     KaniHarness-->>KaniVerifier: assert_invariant_holds
 ```

@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 import yaml
 
 WORKFLOW_PATH = (
@@ -52,8 +53,9 @@ EXPECTED_PATHS = [
 ]
 
 
-def _load() -> dict[str, object]:
-    """Parse the workflow file."""
+@pytest.fixture(scope="module")
+def workflow() -> dict[str, object]:
+    """Parse the workflow file once for every contract test."""
     return yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
 
 
@@ -81,9 +83,11 @@ def _steps(workflow: dict[str, object]) -> list[dict[str, object]]:
     return steps
 
 
-def test_pull_request_trigger_covers_the_kani_surface() -> None:
+def test_pull_request_trigger_covers_the_kani_surface(
+    workflow: dict[str, object],
+) -> None:
     """The gate fires on main-targeted PRs touching Kani-relevant paths."""
-    triggers = _triggers(_load())
+    triggers = _triggers(workflow)
     pull_request = triggers.get("pull_request")
     assert isinstance(pull_request, dict), "on.pull_request is missing"
     assert pull_request.get("branches") == ["main"], (
@@ -101,17 +105,17 @@ def test_pull_request_trigger_covers_the_kani_surface() -> None:
     assert "workflow_dispatch" in triggers, "on.workflow_dispatch is missing"
 
 
-def test_workflow_permissions_are_read_only() -> None:
+def test_workflow_permissions_are_read_only(workflow: dict[str, object]) -> None:
     """The workflow token grants contents: read and nothing broader."""
-    permissions = _load().get("permissions")
+    permissions = workflow.get("permissions")
     assert permissions == {"contents": "read"}, (
         f"permissions must be exactly {{'contents': 'read'}}, got {permissions!r}"
     )
 
 
-def test_concurrency_cancels_superseded_runs() -> None:
+def test_concurrency_cancels_superseded_runs(workflow: dict[str, object]) -> None:
     """A newer push cancels the previous run for the same ref."""
-    concurrency = _load().get("concurrency")
+    concurrency = workflow.get("concurrency")
     assert isinstance(concurrency, dict), "the workflow must declare concurrency"
     assert concurrency.get("group") == "kani-pr-${{ github.ref }}", (
         f"concurrency.group must key on the triggering ref, got "
@@ -123,17 +127,21 @@ def test_concurrency_cancels_superseded_runs() -> None:
     )
 
 
-def test_job_timeout_is_tighter_than_the_nightly_budget() -> None:
+def test_job_timeout_is_tighter_than_the_nightly_budget(
+    workflow: dict[str, object],
+) -> None:
     """The PR gate stays well under the nightly 120-minute tier."""
-    timeout = _kani_job(_load()).get("timeout-minutes")
+    timeout = _kani_job(workflow).get("timeout-minutes")
     assert timeout == 30, (
         f"jobs.kani.timeout-minutes must be 30, got {timeout!r}"
     )
 
 
-def test_checkout_is_pinned_and_does_not_persist_credentials() -> None:
+def test_checkout_is_pinned_and_does_not_persist_credentials(
+    workflow: dict[str, object],
+) -> None:
     """Checkout is SHA-pinned and drops the token before running PR code."""
-    steps = _steps(_load())
+    steps = _steps(workflow)
     checkout = steps[0]
     uses = checkout.get("uses")
     assert isinstance(uses, str) and CHECKOUT_RE.match(uses), (
@@ -150,9 +158,9 @@ def test_checkout_is_pinned_and_does_not_persist_credentials() -> None:
     )
 
 
-def test_setup_rust_is_pinned_to_a_commit_sha() -> None:
+def test_setup_rust_is_pinned_to_a_commit_sha(workflow: dict[str, object]) -> None:
     """The shared setup-rust action is referenced at a full commit SHA."""
-    steps = _steps(_load())
+    steps = _steps(workflow)
     uses_values = [step.get("uses") for step in steps if step.get("uses")]
     assert any(
         isinstance(uses, str) and SETUP_RUST_RE.match(uses) for uses in uses_values
@@ -162,9 +170,11 @@ def test_setup_rust_is_pinned_to_a_commit_sha() -> None:
     )
 
 
-def test_kani_install_is_locked_and_version_pinned() -> None:
+def test_kani_install_is_locked_and_version_pinned(
+    workflow: dict[str, object],
+) -> None:
     """The verifier installs with --locked at an exact approved version."""
-    steps = _steps(_load())
+    steps = _steps(workflow)
     install_runs = [
         step.get("run")
         for step in steps
@@ -183,9 +193,9 @@ def test_kani_install_is_locked_and_version_pinned() -> None:
     )
 
 
-def test_gating_step_runs_the_practical_suite() -> None:
+def test_gating_step_runs_the_practical_suite(workflow: dict[str, object]) -> None:
     """The gate runs make kani, the fast practical tier."""
-    steps = _steps(_load())
+    steps = _steps(workflow)
     run_steps = [step.get("run") for step in steps if isinstance(step.get("run"), str)]
     assert any(run.strip() == "make kani" for run in run_steps), (
         f"a step must run 'make kani' as the gating command, got {run_steps!r}"

@@ -182,22 +182,27 @@ mod kani_proofs {
         );
     }
 
+    /// Returns `true` when the weight-2 edge closes the triangle and must
+    /// therefore be excluded from the minimal spanning tree.
+    fn heavy_edge_is_redundant(select_01: bool, select_12: bool, select_02: bool) -> bool {
+        select_01 && select_12 && select_02
+    }
+
     /// Returns the minimal spanning weight of the triangle subset where edge
     /// (0,1) weighs 0, edge (1,2) weighs 1, and edge (0,2) weighs 2.
     ///
-    /// With both lighter edges selected the tree spans all three nodes for
-    /// weight 1 and the weight-2 edge must be excluded; otherwise the forest
-    /// is exactly the selected edges, because no cycle can form.
+    /// Edge (0,1) contributes nothing to the total. Selected edges cannot
+    /// otherwise form a cycle, so the forest is exactly the selected edges
+    /// unless the heavy edge closes the triangle and is excluded.
     fn expected_minimal_weight(select_01: bool, select_12: bool, select_02: bool) -> f32 {
-        match (select_01, select_12, select_02) {
-            (true, true, _) => 1.0,
-            (true, false, true) => 2.0,
-            (false, true, true) => 3.0,
-            (true, false, false) => 0.0,
-            (false, true, false) => 1.0,
-            (false, false, true) => 2.0,
-            (false, false, false) => 0.0,
+        let mut weight = 0.0;
+        if select_12 {
+            weight += 1.0;
         }
+        if select_02 && !heavy_edge_is_redundant(select_01, select_12, select_02) {
+            weight += 2.0;
+        }
+        weight
     }
 
     fn selected_candidate(
