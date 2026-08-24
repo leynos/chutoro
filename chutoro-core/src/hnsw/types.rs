@@ -7,18 +7,25 @@ use std::cmp::Ordering;
 /// Entry point into the hierarchical graph used when searching.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct EntryPoint {
+    /// Identifier of the entry node.
     pub(crate) node: usize,
+    /// Highest level available from the entry node.
     pub(crate) level: usize,
 }
 
+/// Per-layer connection plan produced while inserting one HNSW node.
 #[derive(Clone, Debug)]
 pub(crate) struct InsertionPlan {
+    /// Connections selected for each level of the inserted node.
     pub(crate) layers: Vec<LayerPlan>,
 }
 
+/// Candidate neighbours selected at one HNSW graph level.
 #[derive(Clone, Debug)]
 pub(crate) struct LayerPlan {
+    /// Graph level to update.
     pub(crate) level: usize,
+    /// Neighbours retained at this level.
     pub(crate) neighbours: Vec<Neighbour>,
 }
 
@@ -71,11 +78,14 @@ impl PartialOrd for Neighbour {
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct RankedNeighbour {
+    /// Public neighbour data ordered by distance and identifier.
     inner: Neighbour,
+    /// Insertion sequence used to break equal-distance ties.
     sequence: u64,
 }
 
 impl RankedNeighbour {
+    /// Construct a ranked neighbour with deterministic tie-breaking metadata.
     pub(crate) const fn new(id: usize, distance: f32, sequence: u64) -> Self {
         Self {
             inner: Neighbour { id, distance },
@@ -83,10 +93,12 @@ impl RankedNeighbour {
         }
     }
 
+    /// Discard ordering metadata and return the public neighbour value.
     pub(crate) const fn into_neighbour(self) -> Neighbour {
         self.inner
     }
 
+    /// Compare by neighbour ordering and then insertion sequence.
     pub(crate) fn compare(&self, other: &Self) -> Ordering {
         self.inner
             .cmp(&other.inner)
@@ -145,9 +157,13 @@ impl PartialOrd for RankedNeighbour {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CandidateEdge {
+    /// Source node identifier.
     source: usize,
+    /// Target node identifier.
     target: usize,
+    /// Validated distance used as the MST weight.
     distance: f32,
+    /// Insertion sequence used to deterministically order ties.
     sequence: u64,
 }
 
