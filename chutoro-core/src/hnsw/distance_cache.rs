@@ -40,6 +40,7 @@ impl DistanceCacheConfig {
     pub const DEFAULT_MAX_ENTRIES: usize = 1_048_576;
 
     /// Builds a configuration with the provided maximum capacity.
+    #[must_use]
     pub const fn new(max_entries: NonZeroUsize) -> Self {
         Self {
             max_entries,
@@ -72,11 +73,13 @@ impl DistanceCacheConfig {
     }
 
     /// Returns the maximum number of cached distances retained before eviction.
+    #[must_use]
     pub const fn max_entries(&self) -> NonZeroUsize {
         self.max_entries
     }
 
     /// Returns the configured time-to-live, if any.
+    #[must_use]
     pub const fn ttl(&self) -> Option<Duration> {
         self.ttl
     }

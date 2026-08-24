@@ -225,6 +225,7 @@ define_error_codes! {
 
 impl ChutoroError {
     /// Retrieve the inner [`DataSourceErrorCode`] when the error originated in a [`crate::DataSource`].
+    #[must_use]
     pub const fn data_source_code(&self) -> Option<DataSourceErrorCode> {
         match self {
             Self::DataSource { error, .. } => Some(error.code()),

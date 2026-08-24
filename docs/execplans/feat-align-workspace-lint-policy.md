@@ -89,6 +89,9 @@ keeps local editor feedback aligned with commit gates.
 - [x] 2026-08-24: Documented every reported core `Result` error and deliberate
       panic contract. Scoped core Clippy passes with `missing_errors_doc` and
       `missing_panics_doc` denied.
+- [x] 2026-08-24: Marked the four value-returning core APIs reported by
+      `must_use_candidate` with `#[must_use]`. Scoped core Clippy passes with
+      that lint denied.
 - [ ] 2026-08-24: Repeat the checkpoint test gate once unrelated shared Cargo
       work releases its package-cache lock; the first run reached 172 of 1,085
       tests before infrastructure contention suspended it.
@@ -197,6 +200,13 @@ their concrete precondition or test-only lock failure. Verify with
 denying only `missing_errors_doc` and `missing_panics_doc`; `--no-deps` keeps
 the scoped check from enforcing a future lint policy on dependencies that are
 not yet opted in.
+
+## Stage 2e: Core `must_use` API Markers
+
+Add `#[must_use]` to every reported core API whose ignored return value loses
+configuration or error-code information. Verify with package-scoped Clippy,
+again using `--no-deps`, with only `must_use_candidate` denied. This change is
+an API-use diagnostic only; it does not alter runtime behaviour.
 
 ## Verification Plan
 
