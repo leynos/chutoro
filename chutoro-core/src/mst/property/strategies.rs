@@ -167,10 +167,11 @@ fn generate_sparse(rng: &mut SmallRng) -> MstFixture {
     shuffle(&mut perm, rng);
     for pair in perm.windows(2) {
         let weight = rng.gen_range(0.1_f32..100.0);
-        let (s, t) = match pair {
-            [source, target] => canonical(*source, *target),
-            _ => continue,
-        };
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "windows(2) guarantees that each pair has exactly two elements"
+        )]
+        let (s, t) = canonical(pair[0], pair[1]);
         edges.push(CandidateEdge::new(s, t, weight, seq));
         seq += 1;
     }
