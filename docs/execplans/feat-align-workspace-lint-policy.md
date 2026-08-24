@@ -577,6 +577,12 @@ vector distances, core-distance lookup, and failure reporting fallible and
 bounds-safe. Compare exact metric expectations through total ordering. Verify
 the focused functional test target and Clippy.
 
+## Stage 3x: Session Append BDD Fixture
+
+Propagate behavioural world-construction failures through the BDD framework's
+fallible fixture support, retaining the existing scenario and error contracts.
+Verify the focused session-append BDD test target and Clippy.
+
 ## Verification Plan
 
 - Const conversion invariant: each changed function remains callable with the
