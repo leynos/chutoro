@@ -53,52 +53,32 @@ fn attach_test_node(
     })
 }
 
-#[test]
-fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
-    let params = HnswParams::new(1, 4).expect("params must be valid");
-    let mut graph = Graph::with_capacity(params, 3);
+fn reverse_edge_eviction_fixture() -> Graph {
+    let Ok(mut graph) = setup_basic_graph(1, 4, 3) else {
+        panic!("params must be valid");
+    };
 
-    graph
-        .insert_first(NodeContext {
-            node: 0,
-            level: 1,
-            sequence: 0,
-        })
-        .expect("insert entry");
-    graph
-        .attach_node(NodeContext {
-            node: 1,
-            level: 1,
-            sequence: 1,
-        })
-        .expect("attach node 1");
-    graph
-        .attach_node(NodeContext {
-            node: 2,
-            level: 1,
-            sequence: 2,
-        })
-        .expect("attach node 2");
+    assert!(insert_entry_node(&mut graph, 1).is_ok(), "insert entry");
+    assert!(
+        attach_test_node(&mut graph, 1, 1, 1).is_ok(),
+        "attach node 1"
+    );
+    assert!(
+        attach_test_node(&mut graph, 2, 1, 2).is_ok(),
+        "attach node 2"
+    );
 
     // Forward edges: 0 -> 1, 2 -> 1; target (1) is at capacity and prefers 2.
+    add_edge_if_missing(&mut graph, 0, 1, 1);
+    add_edge_if_missing(&mut graph, 1, 2, 1);
+    add_edge_if_missing(&mut graph, 2, 1, 1);
+
     graph
-        .node_mut(0)
-        .expect("entry node must be present")
-        .neighbours_mut(1)
-        .expect("entry node must expose level 1")
-        .push(1);
-    graph
-        .node_mut(1)
-        .expect("target node must be present")
-        .neighbours_mut(1)
-        .expect("target node must expose level 1")
-        .push(2);
-    graph
-        .node_mut(2)
-        .expect("evicted node must be present")
-        .neighbours_mut(1)
-        .expect("evicted node must expose level 1")
-        .push(1);
+}
+
+#[test]
+fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
+    let mut graph = reverse_edge_eviction_fixture();
 
     let mut reconciler = EdgeReconciler::new(&mut graph);
     let ensured = reconciler.ensure_reverse_edge(
