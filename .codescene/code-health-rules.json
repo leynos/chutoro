@@ -40,12 +40,13 @@
     },
     {
       "matching_content_path": "**/kani_model.rs",
-      "matching_content_path_doc": "Bounded sequential model verified in place of the Rayon production path. Unifying its two bounded insertion sorts and decomposing `kruskal_model` inflated the CBMC formula past the SAT solver's variable-index limit, so the model stays concrete and monomorphic. Its behaviour is pinned instead by exhaustive equivalence tests against production in chutoro-core/src/mst/tests/kani_model_equivalence.rs. `Complex Method` is down-weighted rather than disabled so genuine complexity growth still surfaces in review.",
+      "matching_content_path_doc": "Bounded sequential model verified in place of the Rayon production path. Unifying its two bounded insertion sorts and decomposing `kruskal_model` inflated the CBMC formula past the SAT solver's variable-index limit, so the model stays concrete and monomorphic. Its behaviour is pinned instead by exhaustive equivalence tests against production in chutoro-core/src/mst/tests/kani_model_equivalence.rs. The model is excluded from CodeScene method checks because their prescribed decompositions invalidate the bounded proof; reconsider the exception only with successful `make kani` and `make kani-full` verification.",
       "rules": [
         { "name": "Code Duplication", "weight": 0.0 },
         { "name": "Primitive Obsession", "weight": 0.0 },
         { "name": "Excess Number of Function Arguments", "weight": 0.0 },
-        { "name": "Complex Method", "weight": 0.3 }
+        { "name": "Complex Method", "weight": 0.0 },
+        { "name": "Large Method", "weight": 0.0 }
       ]
     }
   ]
