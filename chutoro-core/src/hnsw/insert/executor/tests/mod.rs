@@ -53,6 +53,14 @@ fn attach_test_node(
     })
 }
 
+fn enforce_and_assert_bidirectional(graph: &mut Graph) {
+    let mut helpers = TestHelpers::new(graph);
+    helpers.enforce_bidirectional_all(2);
+    let violation = helpers.find_reciprocity_violation(2);
+
+    assert_eq!(violation, None, "healing must leave every edge reciprocal");
+}
+
 fn reverse_edge_eviction_fixture() -> Graph {
     let Ok(mut graph) = setup_basic_graph(1, 4, 3) else {
         panic!("params must be valid");
@@ -198,11 +206,7 @@ fn enforce_bidirectional_all_adds_upper_layer_backlink() {
 
     add_edge_if_missing(&mut graph, 0, 1, 1);
 
-    let mut helpers = TestHelpers::new(&mut graph);
-    helpers.enforce_bidirectional_all(2);
-    let violation = helpers.find_reciprocity_violation(2);
-
-    assert_eq!(violation, None, "healing must leave every edge reciprocal");
+    enforce_and_assert_bidirectional(&mut graph);
     assert_bidirectional_edge!(&graph, 0, 1, 1);
 }
 
@@ -215,11 +219,7 @@ fn enforce_bidirectional_all_removes_invalid_upper_edge() {
     // One-way edge exists at level 1, but target only has level 0.
     add_edge_if_missing(&mut graph, 0, 1, 1);
 
-    let mut helpers = TestHelpers::new(&mut graph);
-    helpers.enforce_bidirectional_all(2);
-    let violation = helpers.find_reciprocity_violation(2);
-
-    assert_eq!(violation, None, "healing must leave every edge reciprocal");
+    enforce_and_assert_bidirectional(&mut graph);
     assert_no_edge(&graph, 0, 1, 1);
     assert_no_edge(&graph, 1, 0, 1);
 }
