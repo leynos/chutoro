@@ -101,9 +101,13 @@ impl MstErrorCode {
 /// A single MST edge in canonical undirected form (`source <= target`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MstEdge {
+    /// Smaller endpoint identifier in canonical order.
     source: usize,
+    /// Larger endpoint identifier in canonical order.
     target: usize,
+    /// Validated finite edge weight.
     weight: f32,
+    /// Deterministic insertion-order tie breaker.
     sequence: u64,
 }
 
@@ -111,22 +115,22 @@ impl MstEdge {
     /// Returns the smaller endpoint id.
     #[must_use]
     #[rustfmt::skip]
-    pub fn source(&self) -> usize { self.source }
+    pub const fn source(&self) -> usize { self.source }
 
     /// Returns the larger endpoint id.
     #[must_use]
     #[rustfmt::skip]
-    pub fn target(&self) -> usize { self.target }
+    pub const fn target(&self) -> usize { self.target }
 
     /// Returns the edge weight.
     #[must_use]
     #[rustfmt::skip]
-    pub fn weight(&self) -> f32 { self.weight }
+    pub const fn weight(&self) -> f32 { self.weight }
 
     /// Returns the deterministic tie-break sequence associated with the edge.
     #[must_use]
     #[rustfmt::skip]
-    pub fn sequence(&self) -> u64 { self.sequence }
+    pub const fn sequence(&self) -> u64 { self.sequence }
 }
 
 impl Eq for MstEdge {}
@@ -152,7 +156,9 @@ impl PartialOrd for MstEdge {
 /// When the input graph is connected, the forest is a minimum spanning tree.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MinimumSpanningForest {
+    /// Accepted minimum-weight edges in deterministic order.
     edges: Vec<MstEdge>,
+    /// Number of connected components remaining after Kruskal processing.
     component_count: usize,
 }
 
@@ -165,11 +171,11 @@ impl MinimumSpanningForest {
     /// Returns the number of connected components in the resulting forest.
     #[must_use]
     #[rustfmt::skip]
-    pub fn component_count(&self) -> usize { self.component_count }
+    pub const fn component_count(&self) -> usize { self.component_count }
 
     /// Returns `true` when the forest spans a single connected component.
     #[must_use]
-    pub fn is_tree(&self) -> bool {
+    pub const fn is_tree(&self) -> bool {
         self.component_count == 1
     }
 }
@@ -192,22 +198,23 @@ pub fn parallel_kruskal(
     parallel_kruskal_from_edges(node_count, edges.iter())
 }
 
-fn validate_and_canonicalize_edge(
+/// Validate a candidate edge and convert it to canonical MST form.
+const fn validate_and_canonicalize_edge(
     edge: &CandidateEdge,
     node_count: usize,
 ) -> Result<Option<MstEdge>, MstError> {
-    let source = edge.source();
-    let target = edge.target();
+    let edge_source = edge.source();
+    let edge_target = edge.target();
 
-    if source >= node_count {
+    if edge_source >= node_count {
         return Err(MstError::InvalidNodeId {
-            node: source,
+            node: edge_source,
             node_count,
         });
     }
-    if target >= node_count {
+    if edge_target >= node_count {
         return Err(MstError::InvalidNodeId {
-            node: target,
+            node: edge_target,
             node_count,
         });
     }
@@ -215,29 +222,30 @@ fn validate_and_canonicalize_edge(
     let weight = edge.distance();
     if !weight.is_finite() {
         return Err(MstError::NonFiniteWeight {
-            left: source,
-            right: target,
+            left: edge_source,
+            right: edge_target,
         });
     }
 
-    if source == target {
+    if edge_source == edge_target {
         return Ok(None);
     }
 
-    let (source, target) = if source <= target {
-        (source, target)
+    let (canonical_source, canonical_target) = if edge_source <= edge_target {
+        (edge_source, edge_target)
     } else {
-        (target, source)
+        (edge_target, edge_source)
     };
 
     Ok(Some(MstEdge {
-        source,
-        target,
+        source: canonical_source,
+        target: canonical_target,
         weight,
         sequence: edge.sequence(),
     }))
 }
 
+/// Accept non-cycling edges from one equal-weight group deterministically.
 fn process_weight_group(
     group: &[MstEdge],
     union_find: &ConcurrentUnionFind,
@@ -254,6 +262,7 @@ fn process_weight_group(
     Ok(accepted)
 }
 
+/// Report whether a forest contains the edge count of a spanning tree.
 fn is_mst_complete(
     node_count: usize,
     union_find: &ConcurrentUnionFind,
@@ -262,12 +271,13 @@ fn is_mst_complete(
     union_find.components() == 1 && forest_edges.len() == node_count.saturating_sub(1)
 }
 
+/// Validate, canonicalise, sort, and deduplicate candidate edges.
 fn prepare_edge_list<'a>(
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
     node_count: usize,
 ) -> Result<Vec<MstEdge>, MstError> {
-    let edges: Vec<&CandidateEdge> = edges.into_iter().collect();
-    let mut edge_list = edges
+    let candidate_edges: Vec<&CandidateEdge> = edges.into_iter().collect();
+    let mut edge_list = candidate_edges
         .par_iter()
         .try_fold(Vec::new, |mut acc, edge| {
             if let Some(mst_edge) = validate_and_canonicalize_edge(edge, node_count)? {
@@ -282,11 +292,16 @@ fn prepare_edge_list<'a>(
 
     edge_list.par_sort_unstable();
     edge_list.dedup_by(|left, right| {
-        left.weight == right.weight && left.source == right.source && left.target == right.target
+        matches!(
+            left.weight.partial_cmp(&right.weight),
+            Some(Ordering::Equal)
+        ) && left.source == right.source
+            && left.target == right.target
     });
     Ok(edge_list)
 }
 
+/// Run parallel Kruskal directly over an iterator of candidate edges.
 pub(crate) fn parallel_kruskal_from_edges<'a>(
     node_count: usize,
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
@@ -307,15 +322,12 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
     let union_find = ConcurrentUnionFind::new(node_count);
     let mut forest_edges = Vec::with_capacity(node_count.saturating_sub(1));
 
-    let mut cursor = 0;
-    while cursor < edge_list.len() {
-        let weight = edge_list[cursor].weight;
-        let mut next = cursor.saturating_add(1);
-        while next < edge_list.len() && edge_list[next].weight == weight {
-            next = next.saturating_add(1);
-        }
-
-        let group = &edge_list[cursor..next];
+    for group in edge_list.chunk_by(|left, right| {
+        matches!(
+            left.weight.partial_cmp(&right.weight),
+            Some(Ordering::Equal)
+        )
+    }) {
         let accepted = process_weight_group(group, &union_find)?;
 
         forest_edges.extend(accepted);
@@ -323,8 +335,6 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
         if is_mst_complete(node_count, &union_find, &forest_edges) {
             break;
         }
-
-        cursor = next;
     }
 
     forest_edges.sort_unstable();

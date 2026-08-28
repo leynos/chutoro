@@ -2,7 +2,7 @@
 //!
 //! # Note: Primitive Obsession suppression
 //!
-//! This module is excluded from the CodeScene Primitive Obsession rule
+//! This module is excluded from the `CodeScene` Primitive Obsession rule
 //! (see `.codescene/code-health-rules.json`). The kernel functions here
 //! operate directly on `&[f32]` slices and `usize` offsets because SIMD
 //! intrinsics require contiguous, unboxed memory and raw index arithmetic.
@@ -31,12 +31,17 @@ mod neon_simd;
 #[cfg(all(feature = "nightly_portable_simd", nightly))]
 mod portable_simd;
 
+/// Function-pointer shape for pairwise Euclidean kernels.
 type EuclideanKernel = fn(&[f32], &[f32]) -> f32;
+/// Function-pointer shape for query-to-packed-points Euclidean kernels.
 type EuclideanQueryPointsKernel = fn(&[f32], &DensePointView<'_>, &mut [f32]);
 
+/// Lazily selected pairwise Euclidean kernel.
 pub(super) static EUCLIDEAN_KERNEL: OnceLock<EuclideanKernel> = OnceLock::new();
+/// Lazily selected query-to-points Euclidean kernel.
 static EUCLIDEAN_QUERY_POINTS_KERNEL: OnceLock<EuclideanQueryPointsKernel> = OnceLock::new();
 
+/// Select a backend-specific expression from the active Euclidean backend.
 macro_rules! select_backend_fn {
     (
         avx512 = $avx512:expr,
@@ -68,6 +73,7 @@ macro_rules! select_backend_fn {
     };
 }
 
+/// Select the pairwise Euclidean kernel for the active backend.
 pub(super) fn select_euclidean_kernel() -> EuclideanKernel {
     select_backend_fn!(
         avx512 = euclidean_distance_avx512_entry,
@@ -140,6 +146,7 @@ pub(super) fn pairwise_entry(backend: dispatch::EuclideanBackend) -> Option<Eucl
     backend_kernels(backend).map(|k| k.pairwise)
 }
 
+/// Compute a pairwise Euclidean distance with the scalar fallback kernel.
 pub(super) fn euclidean_distance_scalar(left: &[f32], right: &[f32]) -> f32 {
     assert_eq!(
         left.len(),
@@ -149,6 +156,7 @@ pub(super) fn euclidean_distance_scalar(left: &[f32], right: &[f32]) -> f32 {
     finalize_distance(squared_l2_tail(left, right, 0).sqrt())
 }
 
+/// Invoke the AVX2 pairwise kernel after its runtime capability check.
 #[cfg(all(
     feature = "simd_avx2",
     any(target_arch = "x86", target_arch = "x86_64")
@@ -163,6 +171,7 @@ pub(super) fn euclidean_distance_avx2_entry(left: &[f32], right: &[f32]) -> f32 
     unsafe { x86_simd::euclidean_distance_avx2(left, right) }
 }
 
+/// Invoke the AVX-512 pairwise kernel after its runtime capability check.
 #[cfg(all(
     feature = "simd_avx512",
     any(target_arch = "x86", target_arch = "x86_64")
@@ -197,6 +206,7 @@ pub(super) fn euclidean_distance_portable_simd_entry(left: &[f32], right: &[f32]
     portable_simd::euclidean_distance_portable_simd_entry(left, right)
 }
 
+/// Compute Euclidean distances from one query to packed points.
 pub(super) fn euclidean_distance_query_points(
     query: &[f32],
     points: &DensePointView<'_>,
@@ -216,6 +226,11 @@ pub(super) fn query_points_entry(
     backend_kernels(backend).map(|k| k.query_points)
 }
 
+/// Compute query-to-points Euclidean distances with the scalar fallback.
+#[expect(
+    clippy::float_arithmetic,
+    reason = "squared-L2 accumulation is the scalar reference kernel's numerical operation"
+)]
 pub(super) fn euclidean_distance_query_points_scalar(
     query: &[f32],
     points: &DensePointView<'_>,
@@ -247,6 +262,7 @@ pub(super) fn euclidean_distance_query_points_portable_simd_entry(
     portable_simd::euclidean_distance_query_points_portable_simd_entry(query, points, out);
 }
 
+/// Select the query-to-points kernel for the active backend.
 fn select_euclidean_query_points_kernel() -> EuclideanQueryPointsKernel {
     select_backend_fn!(
         avx512 = x86_simd::euclidean_distance_query_points_avx512_entry,
@@ -257,10 +273,20 @@ fn select_euclidean_query_points_kernel() -> EuclideanQueryPointsKernel {
     )
 }
 
-fn finalize_distance(value: f32) -> f32 {
+/// Preserve finite distances and normalize non-finite values to `NaN`.
+const fn finalize_distance(value: f32) -> f32 {
     if value.is_finite() { value } else { f32::NAN }
 }
 
+/// Sum squared coordinate differences from the scalar tail offset.
+#[expect(
+    clippy::float_arithmetic,
+    reason = "squared-L2 accumulation is the tail kernel's numerical operation"
+)]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "SIMD callers advance the tail offset only while it remains within both equal-length rows"
+)]
 fn squared_l2_tail(left: &[f32], right: &[f32], offset: usize) -> f32 {
     left[offset..]
         .iter()

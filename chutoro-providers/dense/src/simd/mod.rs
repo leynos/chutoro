@@ -24,7 +24,9 @@ pub(crate) use types::{
 #[cfg(test)]
 pub(crate) use types::DistancePair;
 
+/// Maximum scalar lanes handled by the supported SIMD backends.
 pub(crate) const MAX_SIMD_LANES: usize = 16;
+/// Byte alignment required by packed SIMD storage.
 pub(crate) const SIMD_ALIGNMENT_BYTES: usize = 64;
 
 /// Returns how many logical output lanes belong to a SIMD batch.
@@ -116,6 +118,7 @@ pub(crate) fn euclidean_distance_batch_raw_pairs(
     Ok(())
 }
 
+/// Collect scalar distances after converting raw indices to typed pairs.
 fn collect_euclidean_distance_batch_from_raw_pairs(
     matrix: RowMajorMatrix<'_>,
     pairs: &[(usize, usize)],
@@ -129,11 +132,11 @@ fn collect_euclidean_distance_batch_from_raw_pairs(
     )
 }
 
+/// Collect pairwise distances while preserving input pair order.
 fn collect_euclidean_distance_batch(
     matrix: RowMajorMatrix<'_>,
     pairs: impl Iterator<Item = (RowIndex, RowIndex)>,
 ) -> Result<Vec<f32>, DataSourceError> {
-    let pairs = pairs;
     let (lower_bound, _) = pairs.size_hint();
     let mut results = Vec::with_capacity(lower_bound);
     for (left, right) in pairs {
@@ -144,6 +147,7 @@ fn collect_euclidean_distance_batch(
     Ok(results)
 }
 
+/// Compute distances from one query row to a packed point view.
 fn euclidean_distance_query_points(
     query: RowSlice<'_>,
     points: &DensePointView<'_>,
@@ -160,11 +164,13 @@ fn euclidean_distance_query_points(
     Ok(())
 }
 
+/// Decide whether the active backend benefits from packing query candidates.
 fn should_pack_query_points(dimension: usize, candidate_count: usize) -> bool {
     should_pack_query_points_for_backend(dispatch::euclidean_backend(), dimension, candidate_count)
 }
 
-fn should_pack_query_points_for_backend(
+/// Decide whether one backend benefits from packing query candidates.
+const fn should_pack_query_points_for_backend(
     backend: EuclideanBackend,
     dimension: usize,
     candidate_count: usize,
@@ -172,6 +178,7 @@ fn should_pack_query_points_for_backend(
     dimension > 0 && candidate_count > 1 && !matches!(backend, EuclideanBackend::Scalar)
 }
 
+/// Validate raw row pairs without changing their supplied order.
 fn validate_raw_pairs_in_order(
     matrix: RowMajorMatrix<'_>,
     pairs: &[(usize, usize)],
@@ -184,7 +191,8 @@ fn validate_raw_pairs_in_order(
     Ok(())
 }
 
-fn validate_raw_row_index(index: usize, rows: usize) -> Result<(), DataSourceError> {
+/// Validate one raw row index against the matrix row count.
+const fn validate_raw_row_index(index: usize, rows: usize) -> Result<(), DataSourceError> {
     if index < rows {
         Ok(())
     } else {
@@ -192,6 +200,7 @@ fn validate_raw_row_index(index: usize, rows: usize) -> Result<(), DataSourceErr
     }
 }
 
+/// Extract a common query and its candidate rows from homogeneous pairs.
 fn shared_query_candidates(pairs: &[(usize, usize)]) -> Option<(RowIndex, Vec<RowIndex>)> {
     let (first_left, first_right) = pairs.first().copied()?;
     if pairs.iter().all(|(left, _)| *left == first_left) {

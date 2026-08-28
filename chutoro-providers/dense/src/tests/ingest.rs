@@ -1,4 +1,4 @@
-//! Tests for DenseMatrixProvider ingestion from Parquet data. Validates single-batch and
+//! Tests for `DenseMatrixProvider` ingestion from Parquet data. Validates single-batch and
 //! multi-batch loading, error handling for missing columns, incorrect types, inconsistent
 //! dimensions, nullable schemas, and null row/value rejection during copy operations.
 

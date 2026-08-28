@@ -26,15 +26,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     emit_github_output(profile, &reason)?;
 
-    println!("mode={}", mode.as_str());
-    println!("should_compare={should_compare}");
-    println!("event={}", event.as_str());
-    println!("policy={}", policy.as_str());
-    println!("reason={reason}");
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "mode={}", mode.as_str())?;
+    writeln!(stdout, "should_compare={should_compare}")?;
+    writeln!(stdout, "event={}", event.as_str())?;
+    writeln!(stdout, "policy={}", policy.as_str())?;
+    writeln!(stdout, "reason={reason}")?;
 
     Ok(())
 }
 
+/// Initialise non-failing stderr tracing for the gate process.
 fn init_tracing() {
     let _subscriber_init_result = tracing_subscriber::fmt()
         .with_target(false)
@@ -43,6 +45,7 @@ fn init_tracing() {
         .try_init();
 }
 
+/// Append the resolved benchmark profile to GitHub's workflow output file.
 fn emit_github_output(
     profile: BenchmarkRegressionProfile,
     reason: &str,
@@ -67,6 +70,7 @@ fn emit_github_output(
     Ok(())
 }
 
+/// Write one GitHub output value using a delimiter when it contains newlines.
 fn write_github_output_value(
     file: &mut impl Write,
     key: &str,
@@ -89,6 +93,7 @@ fn write_github_output_value(
     Ok(())
 }
 
+/// Return the optional environment value named `name`.
 fn read_optional_env(name: &str) -> Result<Option<String>, Box<dyn Error>> {
     match env::var(name) {
         Ok(value) => Ok(Some(value)),

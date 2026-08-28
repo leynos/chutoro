@@ -61,9 +61,15 @@ fn edge_multiset(edges: &[CandidateEdge]) -> HashMap<(usize, usize, u32, u64), u
     counts
 }
 
+fn scalar_data(count: u16) -> Vec<f32> {
+    (0..count).map(f32::from).collect()
+}
+
 fn assert_edges_sorted_by_sequence_then_ord(edges: &[CandidateEdge]) {
     for window in edges.windows(2) {
-        let (prev, curr) = (&window[0], &window[1]);
+        let [prev, curr] = window else {
+            continue;
+        };
         let ordering = prev
             .sequence()
             .cmp(&curr.sequence())
@@ -177,12 +183,12 @@ struct CanonicaliseCase {
 #[case(10, 4, 16, 456)]
 #[case(20, 8, 32, 789)]
 fn build_with_edges_returns_valid_edges(
-    #[case] num_nodes: usize,
+    #[case] num_nodes: u16,
     #[case] max_connections: usize,
     #[case] ef_construction: usize,
     #[case] seed: u64,
 ) {
-    let data: Vec<f32> = (0..num_nodes).map(|i| i as f32).collect();
+    let data = scalar_data(num_nodes);
     let source = DummySource::new(data);
     let params = HnswParams::new(max_connections, ef_construction)
         .expect("params must be valid")
@@ -190,17 +196,18 @@ fn build_with_edges_returns_valid_edges(
 
     let (index, edges) = CpuHnsw::build_with_edges(&source, params).expect("build must succeed");
 
-    assert_eq!(index.len(), num_nodes);
+    let node_count = usize::from(num_nodes);
+    assert_eq!(index.len(), node_count);
 
     // Validate all edge invariants in a single pass
     for edge in &edges {
         assert!(
-            edge.source() < num_nodes,
+            edge.source() < node_count,
             "source {} out of bounds",
             edge.source()
         );
         assert!(
-            edge.target() < num_nodes,
+            edge.target() < node_count,
             "target {} out of bounds",
             edge.target()
         );
@@ -243,7 +250,7 @@ fn build_with_edges_single_threaded(
 #[case(5, 2, 4, 42)]
 #[case(10, 4, 8, 123)]
 fn build_with_edges_has_consistent_count(
-    #[case] num_nodes: usize,
+    #[case] num_nodes: u16,
     #[case] max_connections: usize,
     #[case] ef_construction: usize,
     #[case] seed: u64,
@@ -258,7 +265,7 @@ fn build_with_edges_has_consistent_count(
     // insertions proceed in node order on one worker with a deterministic
     // per-worker RNG, so two same-seed builds must produce identical
     // harvests regardless of what else the process is running.
-    let data: Vec<f32> = (0..num_nodes).map(|i| i as f32).collect();
+    let data = scalar_data(num_nodes);
 
     let (index1, edges1) =
         build_with_edges_single_threaded(data.clone(), max_connections, ef_construction, seed)

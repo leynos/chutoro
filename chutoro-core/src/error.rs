@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use crate::builder::ExecutionStrategy;
 
+/// Define an error-code enum and map its variants to stable strings.
 macro_rules! define_error_codes {
     (
         $(#[$enum_meta:meta])*
@@ -225,6 +226,7 @@ define_error_codes! {
 
 impl ChutoroError {
     /// Retrieve the inner [`DataSourceErrorCode`] when the error originated in a [`crate::DataSource`].
+    #[must_use]
     pub const fn data_source_code(&self) -> Option<DataSourceErrorCode> {
         match self {
             Self::DataSource { error, .. } => Some(error.code()),

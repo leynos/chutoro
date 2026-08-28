@@ -23,13 +23,15 @@ fn insert_waits_for_mutex() {
     let finished = Arc::new(AtomicBool::new(false));
 
     let handle = {
-        let index = Arc::clone(&index);
-        let source = Arc::clone(&source);
-        let finished = Arc::clone(&finished);
+        let shared_index = Arc::clone(&index);
+        let shared_source = Arc::clone(&source);
+        let completion_flag = Arc::clone(&finished);
         thread::spawn(move || {
             started_tx.send(()).expect("report thread start");
-            index.insert(0, &*source).expect("insert must succeed");
-            finished.store(true, AtomicOrdering::SeqCst);
+            shared_index
+                .insert(0, &*shared_source)
+                .expect("insert must succeed");
+            completion_flag.store(true, AtomicOrdering::SeqCst);
         })
     };
 
@@ -64,12 +66,22 @@ impl DataSource for TestSource {
         self.data.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "test"
     }
 
     fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
-        Ok((self.data[left] - self.data[right]).abs())
+        let left_value = self
+            .data
+            .get(left)
+            .ok_or(DataSourceError::OutOfBounds { index: left })?;
+        let right_value = self
+            .data
+            .get(right)
+            .ok_or(DataSourceError::OutOfBounds { index: right })?;
+        Ok(left_value
+            .mul_add(1.0, std::ops::Neg::neg(*right_value))
+            .abs())
     }
 
     fn metric_descriptor(&self) -> MetricDescriptor {

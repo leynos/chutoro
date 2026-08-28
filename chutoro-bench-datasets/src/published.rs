@@ -14,6 +14,7 @@ use crate::ManifestDigest;
 mod sealed {
     //! Seals `PublishedArtefact` so only crate-owned artefact types implement it.
 
+    /// Private sealing trait implemented by crate-owned published artefacts.
     pub trait Sealed {}
 }
 
@@ -53,7 +54,9 @@ pub trait PublishedArtefact: sealed::Sealed + Send + Sync {
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PublishedManifest {
+    /// UTF-8 path of the manifest produced by the recipe.
     manifest_uri: Utf8PathBuf,
+    /// Digest that identifies the produced manifest content.
     manifest_digest: ManifestDigest,
 }
 

@@ -4,6 +4,7 @@ use arrow_schema::{DataType, Field};
 
 use crate::errors::DenseMatrixProviderError;
 
+/// Validate that a field is a fixed-size list with the expected item type.
 pub(crate) fn validate_fixed_size_list_field(
     field: &Field,
     column: &str,
@@ -31,6 +32,7 @@ pub(crate) fn validate_fixed_size_list_field(
     }
 }
 
+/// Append validated fixed-size list values to the dense matrix buffer.
 pub(crate) fn append_fixed_size_list_values(
     array: &FixedSizeListArray,
     expected_dimension: Option<usize>,
@@ -48,6 +50,7 @@ pub(crate) fn append_fixed_size_list_values(
     Ok(dimension)
 }
 
+/// Validate a fixed-size list array and return its common dimension.
 pub(crate) fn validate_fixed_size_list(
     array: &FixedSizeListArray,
 ) -> Result<usize, DenseMatrixProviderError> {
@@ -60,6 +63,7 @@ pub(crate) fn validate_fixed_size_list(
     })
 }
 
+/// Copy fixed-size list values into the dense matrix buffer.
 pub(crate) fn copy_list_values(
     array: &FixedSizeListArray,
     dimension: usize,
@@ -89,10 +93,9 @@ pub(crate) fn copy_list_values(
                 actual: floats.len(),
             });
         }
-        if floats.null_count() > 0 {
-            let Some(value_index) = (0..dimension).find(|&idx| floats.is_null(idx)) else {
-                unreachable!("null_count > 0 but no null index found");
-            };
+        if floats.null_count() > 0
+            && let Some(value_index) = (0..dimension).find(|&idx| floats.is_null(idx))
+        {
             return Err(DenseMatrixProviderError::NullValue {
                 row: absolute_row,
                 value_index,
@@ -100,8 +103,23 @@ pub(crate) fn copy_list_values(
         }
         let values = floats.values().as_ref();
         let start = floats.offset();
-        let end = start + dimension;
-        out.extend_from_slice(&values[start..end]);
+        let end =
+            start
+                .checked_add(dimension)
+                .ok_or(DenseMatrixProviderError::InvalidRowLength {
+                    row: absolute_row,
+                    expected: dimension,
+                    actual: values.len().saturating_sub(start),
+                })?;
+        let row_values =
+            values
+                .get(start..end)
+                .ok_or(DenseMatrixProviderError::InvalidRowLength {
+                    row: absolute_row,
+                    expected: dimension,
+                    actual: values.len().saturating_sub(start),
+                })?;
+        out.extend_from_slice(row_values);
     }
     Ok(())
 }

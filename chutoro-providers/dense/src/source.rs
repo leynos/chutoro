@@ -3,7 +3,9 @@ use chutoro_core::{DataSource, DataSourceError};
 
 /// In-memory dense vector data source.
 pub struct DenseSource {
+    /// Vectors indexed by the data source.
     data: Vec<Vec<f32>>,
+    /// Data-source name reported to consumers.
     name: String,
 }
 
@@ -94,27 +96,27 @@ impl DataSource for DenseSource {
     }
 
     #[expect(clippy::float_arithmetic, reason = "vector arithmetic")]
-    fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-        let a = self
+    fn distance(&self, left_index: usize, right_index: usize) -> Result<f32, DataSourceError> {
+        let left = self
             .data
-            .get(i)
-            .ok_or(DataSourceError::OutOfBounds { index: i })?;
-        let b = self
+            .get(left_index)
+            .ok_or(DataSourceError::OutOfBounds { index: left_index })?;
+        let right = self
             .data
-            .get(j)
-            .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        if a.len() != b.len() {
+            .get(right_index)
+            .ok_or(DataSourceError::OutOfBounds { index: right_index })?;
+        if left.len() != right.len() {
             return Err(DataSourceError::DimensionMismatch {
-                left: a.len(),
-                right: b.len(),
+                left: left.len(),
+                right: right.len(),
             });
         }
-        let sum = a
+        let sum = left
             .iter()
-            .zip(b.iter())
-            .map(|(x, y)| {
-                let d = x - y;
-                d * d
+            .zip(right.iter())
+            .map(|(left_value, right_value)| {
+                let delta = left_value - right_value;
+                delta * delta
             })
             .sum::<f32>();
         Ok(sum.sqrt())

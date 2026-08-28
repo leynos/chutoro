@@ -13,13 +13,16 @@ use super::limits::compute_connection_limit;
 use super::types::{LinkContext, UpdateContext};
 use crate::hnsw::graph::Graph;
 
+/// Restores graph connectivity after an insertion edge changes.
 #[derive(Debug)]
 pub(super) struct ConnectivityHealer<'graph> {
+    /// Graph whose adjacency lists are repaired during healing.
     pub(super) graph: &'graph mut Graph,
 }
 
 impl<'graph> ConnectivityHealer<'graph> {
-    pub(super) fn new(graph: &'graph mut Graph) -> Self {
+    /// Bind a connectivity healer to the graph being repaired.
+    pub(super) const fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
     }
 
@@ -56,6 +59,7 @@ impl<'graph> ConnectivityHealer<'graph> {
         }
     }
 
+    /// Link a node to the update origin at the requested level.
     pub(super) fn link_new_node(&mut self, ctx: &UpdateContext, new_node: usize) -> bool {
         if ctx.level == 0 {
             self.link_new_node_base_layer(ctx, new_node)
@@ -124,7 +128,7 @@ impl<'graph> ConnectivityHealer<'graph> {
             .is_some_and(|n| level < n.level_count() && n.neighbours(level).contains(&target))
     }
 
-    /// Inner implementation of link_new_node that returns the evicted node (if any)
+    /// Inner implementation of `link_new_node` that returns the evicted node (if any)
     /// instead of recursively handling it.
     fn link_new_node_inner(&mut self, ctx: &UpdateContext, new_node: usize) -> Option<usize> {
         let limit = compute_connection_limit(ctx.level, ctx.max_connections);
@@ -133,9 +137,9 @@ impl<'graph> ConnectivityHealer<'graph> {
         }
 
         let candidate_node = self.graph.node_mut(ctx.origin)?;
-        let neighbours = candidate_node.neighbours_mut(ctx.level);
-        let evicted = Self::add_to_neighbour_list(neighbours, new_node, limit);
-        if !neighbours.contains(&new_node) {
+        let origin_neighbours = candidate_node.neighbours_mut(ctx.level)?;
+        let evicted_node = Self::add_to_neighbour_list(origin_neighbours, new_node, limit);
+        if !origin_neighbours.contains(&new_node) {
             return None;
         }
 
@@ -144,47 +148,42 @@ impl<'graph> ConnectivityHealer<'graph> {
         }
 
         let new_node_ref = self.graph.node_mut(new_node)?;
-        let neighbours = new_node_ref.neighbours_mut(ctx.level);
-        Self::add_to_neighbour_list(neighbours, ctx.origin, limit);
-        if !neighbours.contains(&ctx.origin) {
+        let new_node_neighbours = new_node_ref.neighbours_mut(ctx.level)?;
+        Self::add_to_neighbour_list(new_node_neighbours, ctx.origin, limit);
+        if !new_node_neighbours.contains(&ctx.origin) {
             return None;
         }
 
         // Return the evicted node that needs cleanup instead of recursing
-        if let Some(evicted) = evicted {
-            self.clean_up_evicted_edge_inner(evicted, ctx)
-        } else {
-            // Link succeeded, no eviction
-            Some(new_node)
-        }
+        Some(evicted_node.map_or(new_node, |node_id| {
+            self.clean_up_evicted_edge_inner(node_id, ctx)
+        }))
     }
 
-    /// Cleans up a forward edge from an evicted node and returns the evicted node
-    /// if it became isolated (for caller to handle iteratively).
-    fn clean_up_evicted_edge_inner(
-        &mut self,
-        evicted: usize,
-        ctx: &UpdateContext,
-    ) -> Option<usize> {
+    /// Cleans up a forward edge and returns the node to handle iteratively.
+    fn clean_up_evicted_edge_inner(&mut self, evicted: usize, ctx: &UpdateContext) -> usize {
         let Some(evicted_node) = self.graph.node_mut(evicted) else {
-            return Some(ctx.origin); // Link succeeded to origin's perspective
+            return ctx.origin; // Link succeeded to origin's perspective
         };
         if ctx.level >= evicted_node.level_count() {
-            return Some(ctx.origin);
+            return ctx.origin;
         }
 
-        let evicted_neighbours = evicted_node.neighbours_mut(ctx.level);
+        let Some(evicted_neighbours) = evicted_node.neighbours_mut(ctx.level) else {
+            return ctx.origin;
+        };
         if let Some(pos) = evicted_neighbours.iter().position(|&id| id == ctx.origin) {
             evicted_neighbours.remove(pos);
         }
 
         if ctx.level == 0 && evicted_neighbours.is_empty() {
-            Some(evicted) // Return isolated node for caller to queue
+            evicted // Return isolated node for caller to queue
         } else {
-            Some(ctx.origin) // Link succeeded
+            ctx.origin // Link succeeded
         }
     }
 
+    /// Link a node to the entry point when other fallback candidates fail.
     pub(super) fn attach_entry_fallback(
         &mut self,
         level: usize,
@@ -201,6 +200,7 @@ impl<'graph> ConnectivityHealer<'graph> {
         })
     }
 
+    /// Select the first fallback candidate that accepts a reciprocal link.
     pub(super) fn select_new_node_fallback(
         &mut self,
         ctx: LinkContext,
@@ -221,12 +221,14 @@ impl<'graph> ConnectivityHealer<'graph> {
         linked.or_else(|| self.attach_entry_fallback(ctx.level, ctx.max_connections, ctx.new_node))
     }
 
+    /// Report whether a node has an initialized adjacency list for a level.
     fn can_link_at_level(&self, node_id: usize, level: usize) -> bool {
         self.graph
             .node(node_id)
             .is_some_and(|node| level < node.level_count())
     }
 
+    /// Insert a neighbour and return the displaced tail when capacity is full.
     fn add_to_neighbour_list(
         neighbours: &mut Vec<usize>,
         new_id: usize,

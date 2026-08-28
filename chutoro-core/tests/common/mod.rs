@@ -14,7 +14,7 @@ pub struct Dummy {
 
 impl Dummy {
     #[must_use]
-    pub fn new(data: Vec<f32>) -> Self {
+    pub const fn new(data: Vec<f32>) -> Self {
         Self { data }
     }
 }
@@ -24,7 +24,7 @@ impl DataSource for Dummy {
         self.data.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dummy"
     }
 
@@ -37,6 +37,6 @@ impl DataSource for Dummy {
             .data
             .get(j)
             .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((a - b).abs())
+        Ok(a.mul_add(1.0, std::ops::Neg::neg(*b)).abs())
     }
 }

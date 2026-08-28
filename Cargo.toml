@@ -20,6 +20,7 @@ rust-version = "1.89.0"
 [workspace.dependencies]
 arrow-array = "59.2.0"
 arrow-schema = "59.2.0"
+num-traits = "0.2.19"
 parquet = "59.2.0"
 
 [workspace.lints.clippy]
@@ -83,10 +84,19 @@ missing_panics_doc                  = "deny"
 error_impl_error                    = "deny"
 result_large_err                    = "deny"
 
+# 9. documentation coverage
+missing_docs_in_private_items       = "deny"
+
 [workspace.lints.rust]
 unknown_lints                       = "deny"
 renamed_and_removed_lints           = "deny"
 missing_docs                        = "deny"
+unexpected_cfgs = { level = "warn", check-cfg = [
+    'cfg(kani)',
+    'cfg(coverage)',
+    'cfg(nightly)',
+    'cfg(dylint_lib, values(any()))',
+] }
 
 [workspace.lints.rustdoc]
 missing_crate_level_docs            = "deny"

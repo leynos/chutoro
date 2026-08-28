@@ -54,6 +54,7 @@ const MEMORY_REPORT_PATH: &str = concat!(
 /// Multiplicative edge-scaling tolerance around `expected = n * M`.
 const EDGE_SCALING_BOUNDS: EdgeScalingBounds = EdgeScalingBounds::new(8, 8);
 
+/// Criterion label for the text-source Levenshtein-distance case.
 const TEXT_LEVENSHTEIN_BENCH_LABEL: &str = "text_levenshtein";
 
 /// Creates [`HnswParams`] for the given M value with `ef = M * 2`.
@@ -61,6 +62,7 @@ fn make_hnsw_params(m: usize) -> Result<HnswParams, BenchSetupError> {
     make_hnsw_params_with_ef(m, m.saturating_mul(2), BENCH_SEED)
 }
 
+/// Build the Gaussian-blob source used by the diverse-source benchmark.
 fn make_gaussian_source() -> Result<SyntheticSource, BenchSetupError> {
     Ok(SyntheticSource::generate_gaussian_blobs(
         &GaussianBlobConfig {
@@ -74,6 +76,7 @@ fn make_gaussian_source() -> Result<SyntheticSource, BenchSetupError> {
     )?)
 }
 
+/// Build the ring-manifold source used by the diverse-source benchmark.
 fn make_ring_source() -> Result<SyntheticSource, BenchSetupError> {
     Ok(SyntheticSource::generate_manifold(&ManifoldConfig {
         point_count: diverse_source_point_count(),
@@ -87,6 +90,7 @@ fn make_ring_source() -> Result<SyntheticSource, BenchSetupError> {
     })?)
 }
 
+/// Build the synthetic text source used by the diverse-source benchmark.
 fn make_text_source() -> Result<chutoro_benches::source::SyntheticTextSource, BenchSetupError> {
     Ok(SyntheticSource::generate_text(&SyntheticTextConfig {
         item_count: diverse_source_point_count(),
@@ -103,12 +107,14 @@ fn make_text_source() -> Result<chutoro_benches::source::SyntheticTextSource, Be
     })?)
 }
 
+/// Surface an HNSW build failure from a Criterion closure.
 fn panic_on_bench_build_error<B>(result: Result<B, HnswError>, context: &str) {
     if let Err(err) = result {
         panic!("{context}: {err}");
     }
 }
 
+/// Select the diverse-source input size for normal and exact-probe runs.
 fn diverse_source_point_count() -> usize {
     // Nextest discovers Criterion case names without `--exact`, so the
     // benchmark IDs still advertise the real matrix size. Only the exact probe
@@ -120,15 +126,18 @@ fn diverse_source_point_count() -> usize {
     )
 }
 
+/// Select one HNSW input size while preserving the displayed benchmark ID.
 fn hnsw_source_point_count(point_count: usize) -> usize {
     // Keep Criterion benchmark IDs stable while bounding nextest's exact probes.
     point_count_for_exact_probe_args(std::env::args(), point_count, EXACT_PROBE_POINT_COUNT)
 }
 
+/// Configure sampling for an HNSW Criterion benchmark group.
 fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
     configure_short_measurement_group(group, 10, is_exact_benchmark_probe());
 }
 
+/// Identify the text case that must use a bounded exact-probe measurement.
 fn should_short_circuit_exact_text_probe(bench_label: &str) -> bool {
     should_short_circuit_exact_label_probe_args(
         std::env::args(),
@@ -137,13 +146,18 @@ fn should_short_circuit_exact_text_probe(bench_label: &str) -> bool {
     )
 }
 
+/// Describes one source-specific HNSW build benchmark case.
 #[derive(Clone, Copy)]
 struct SourceBenchSpec<'a> {
+    /// Stable Criterion label for the case.
     bench_label: &'a str,
+    /// Context shown if the source's HNSW build fails.
     fail_label: &'a str,
+    /// Number of source items represented by the benchmark ID.
     point_count: usize,
 }
 
+/// Register one source-specific HNSW build measurement.
 fn bench_build_source<S: DataSource + Sync>(
     group: &mut BenchmarkGroup<'_, WallTime>,
     spec: SourceBenchSpec<'_>,
@@ -177,6 +191,7 @@ fn bench_build_source<S: DataSource + Sync>(
     );
 }
 
+/// Register one HNSW build matrix using the supplied construction operation.
 #[expect(
     clippy::excessive_nesting,
     reason = "Criterion bench_with_input + b.iter pattern requires deep nesting"
@@ -231,6 +246,7 @@ where
     Ok(())
 }
 
+/// Register no-op HNSW cases used while Criterion discovers benchmark names.
 fn register_hnsw_build_probe_benches(c: &mut Criterion, group_name: &str) {
     let params = POINT_COUNTS.iter().copied().flat_map(|point_count| {
         MAX_CONNECTIONS
@@ -245,18 +261,21 @@ fn register_hnsw_build_probe_benches(c: &mut Criterion, group_name: &str) {
     register_noop_benches(c, group_name, params, configure_hnsw_group);
 }
 
+/// Register the plain HNSW build benchmark and return setup failures.
 fn hnsw_build_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     bench_hnsw_build_generic(c, "hnsw_build", |source, params| {
         CpuHnsw::build(source, params).map(|_| ())
     })
 }
 
+/// Register the public Criterion plain-HNSW benchmark entrypoint.
 fn hnsw_build(c: &mut Criterion) {
     if let Err(err) = hnsw_build_impl(c) {
         panic!("hnsw_build benchmark setup failed: {err}");
     }
 }
 
+/// Determine whether this invocation should collect HNSW memory measurements.
 fn should_collect_memory_profile() -> bool {
     if let Ok(value) = std::env::var("CHUTORO_BENCH_HNSW_MEMORY_PROFILE") {
         let normalized = value.trim().to_ascii_lowercase();
@@ -270,11 +289,13 @@ fn should_collect_memory_profile() -> bool {
     !is_benchmark_discovery() && !is_exact_benchmark_probe()
 }
 
+/// Resolve the configured destination for the HNSW memory report.
 fn memory_report_path() -> PathBuf {
     std::env::var_os("CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH")
         .map_or_else(|| PathBuf::from(MEMORY_REPORT_PATH), PathBuf::from)
 }
 
+/// Collect and write optional HNSW memory measurements before benchmark setup.
 fn profile_hnsw_memory_impl() -> Result<Option<PathBuf>, BenchSetupError> {
     if !should_collect_memory_profile() {
         return Ok(None);
@@ -316,6 +337,7 @@ fn profile_hnsw_memory_impl() -> Result<Option<PathBuf>, BenchSetupError> {
         .map_err(BenchSetupError::from)
 }
 
+/// Register edge-harvesting HNSW measurements and optional memory reporting.
 fn hnsw_build_with_edges_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let _maybe_report_path = profile_hnsw_memory_impl()?;
     bench_hnsw_build_generic(c, "hnsw_build_with_edges", |source, params| {
@@ -323,12 +345,14 @@ fn hnsw_build_with_edges_impl(c: &mut Criterion) -> Result<(), BenchSetupError> 
     })
 }
 
+/// Register the public Criterion edge-harvesting HNSW entrypoint.
 fn hnsw_build_with_edges(c: &mut Criterion) {
     if let Err(err) = hnsw_build_with_edges_impl(c) {
         panic!("hnsw_build_with_edges benchmark setup failed: {err}");
     }
 }
 
+/// Register HNSW build measurements across diverse synthetic source shapes.
 fn hnsw_build_diverse_sources_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("hnsw_build_diverse_sources");
     configure_hnsw_group(&mut group);
@@ -386,6 +410,7 @@ fn hnsw_build_diverse_sources_impl(c: &mut Criterion) -> Result<(), BenchSetupEr
     Ok(())
 }
 
+/// Register the public Criterion diverse-source HNSW entrypoint.
 fn hnsw_build_diverse_sources(c: &mut Criterion) {
     if let Err(err) = hnsw_build_diverse_sources_impl(c) {
         panic!("hnsw_build_diverse_sources benchmark setup failed: {err}");

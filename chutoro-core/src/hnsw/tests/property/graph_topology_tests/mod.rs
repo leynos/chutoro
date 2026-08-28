@@ -230,18 +230,22 @@ pub(super) fn run_scale_free_hub_property(fixture: &GraphFixture) -> TestCaseRes
     let mut degrees = vec![0usize; graph.node_count];
 
     for edge in &graph.edges {
-        degrees[edge.source()] += 1;
-        degrees[edge.target()] += 1;
+        increment_degree(&mut degrees, edge.source())?;
+        increment_degree(&mut degrees, edge.target())?;
     }
 
-    let avg_degree: f64 = degrees.iter().sum::<usize>() as f64 / graph.node_count as f64;
+    let total_degree = degrees.iter().sum::<usize>();
     let max_degree = *degrees.iter().max().unwrap_or(&0);
 
     // Scale-free graphs should have at least one hub with degree >= average.
     // This is a relaxed assertion since small graphs may not show clear hubs.
-    if (max_degree as f64) < avg_degree * 0.8 {
+    if max_degree
+        .saturating_mul(5)
+        .saturating_mul(graph.node_count)
+        < total_degree.saturating_mul(4)
+    {
         return Err(TestCaseError::fail(format!(
-            "scale-free graph lacks hub nodes: max_degree={max_degree}, avg_degree={avg_degree:.1}",
+            "scale-free graph lacks hub nodes: max_degree={max_degree}, total_degree={total_degree}",
         )));
     }
 
@@ -258,8 +262,8 @@ pub(super) fn run_lattice_regularity_property(fixture: &GraphFixture) -> TestCas
     let mut degrees = vec![0usize; graph.node_count];
 
     for edge in &graph.edges {
-        degrees[edge.source()] += 1;
-        degrees[edge.target()] += 1;
+        increment_degree(&mut degrees, edge.source())?;
+        increment_degree(&mut degrees, edge.target())?;
     }
 
     // Lattice interior nodes should have similar degrees
@@ -291,10 +295,10 @@ pub(super) fn build_node_to_component_mapping(
     let mut node_to_component = vec![0usize; node_count];
     let mut offset = 0;
     for (comp_idx, &size) in component_sizes.iter().enumerate() {
-        for i in 0..size {
-            node_to_component[offset + i] = comp_idx;
+        for component_slot in node_to_component.iter_mut().skip(offset).take(size) {
+            *component_slot = comp_idx;
         }
-        offset += size;
+        offset = offset.saturating_add(size);
     }
     node_to_component
 }
@@ -309,12 +313,27 @@ fn verify_no_cross_component_edges(
     node_to_component: &[usize],
 ) -> TestCaseResult {
     for edge in edges {
-        if node_to_component[edge.source()] != node_to_component[edge.target()] {
+        let source_component = node_to_component
+            .get(edge.source())
+            .ok_or_else(|| TestCaseError::fail(format!("edge source out of bounds: {edge:?}")))?;
+        let target_component = node_to_component
+            .get(edge.target())
+            .ok_or_else(|| TestCaseError::fail(format!("edge target out of bounds: {edge:?}")))?;
+        if source_component != target_component {
             return Err(TestCaseError::fail(format!(
                 "edge crosses components: {edge:?}",
             )));
         }
     }
+    Ok(())
+}
+
+/// Increments a node degree while reporting invalid generated edges.
+fn increment_degree(degrees: &mut [usize], node: usize) -> TestCaseResult {
+    let degree = degrees
+        .get_mut(node)
+        .ok_or_else(|| TestCaseError::fail(format!("node {node} is out of bounds")))?;
+    *degree = degree.saturating_add(1);
     Ok(())
 }
 

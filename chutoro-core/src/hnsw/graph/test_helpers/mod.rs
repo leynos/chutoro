@@ -34,7 +34,9 @@ impl Graph {
         let removed_neighbours = collect_neighbour_layers(existing);
 
         let Some(_taken) = self.nodes.get_mut(node).and_then(Option::take) else {
-            unreachable!("node presence checked above");
+            return Err(HnswError::GraphInvariantViolation {
+                message: format!("node {node} disappeared during deletion"),
+            });
         };
 
         self.strip_references_to(node);
@@ -134,7 +136,9 @@ impl Graph {
             return false;
         }
 
-        let neighbours = node.neighbours_mut(level);
+        let Some(neighbours) = node.neighbours_mut(level) else {
+            return false;
+        };
         if neighbours.contains(&target) {
             return true;
         }
@@ -155,7 +159,9 @@ impl Graph {
             return;
         }
 
-        let neighbours = node.neighbours_mut(level);
+        let Some(neighbours) = node.neighbours_mut(level) else {
+            return;
+        };
         if let Some(pos) = neighbours.iter().position(|&candidate| candidate == target) {
             neighbours.remove(pos);
         }
@@ -174,9 +180,15 @@ impl Graph {
         for maybe_node in self.nodes.iter_mut().flatten() {
             let levels = maybe_node.level_count();
             for level in 0..levels {
-                let neighbours = maybe_node.neighbours_mut(level);
-                neighbours.retain(|&target| target != node);
+                Self::strip_level_references(maybe_node, level, node);
             }
+        }
+    }
+
+    /// Removes references to a deleted node from one valid graph level.
+    fn strip_level_references(node: &mut Node, level: usize, deleted_node: usize) {
+        if let Some(neighbours) = node.neighbours_mut(level) {
+            neighbours.retain(|&target| target != deleted_node);
         }
     }
 
@@ -216,7 +228,7 @@ impl Graph {
         if let Some(unreachable) = self
             .nodes_iter()
             .map(|(id, _)| id)
-            .find(|&id| !state.visited[id])
+            .find(|&id| !state.is_visited(id))
         {
             return Err(HnswError::GraphInvariantViolation {
                 message: format!(
@@ -245,7 +257,7 @@ impl Graph {
                 message: format!("node {origin} references missing neighbour {target}"),
             });
         }
-        if state.visited[target] {
+        if state.is_visited(target) {
             return Ok(());
         }
 
@@ -263,17 +275,25 @@ impl ReachabilityState {
     fn new(capacity: usize, entry: usize) -> Self {
         let mut visited = vec![false; capacity];
         let mut queue = VecDeque::new();
-        visited[entry] = true;
-        queue.push_back(entry);
+        if let Some(entry_visited) = visited.get_mut(entry) {
+            *entry_visited = true;
+            queue.push_back(entry);
+        }
         Self { visited, queue }
     }
 
     fn visit(&mut self, node: usize) {
-        if self.visited[node] {
+        if self.is_visited(node) {
             return;
         }
-        self.visited[node] = true;
-        self.queue.push_back(node);
+        if let Some(node_visited) = self.visited.get_mut(node) {
+            *node_visited = true;
+            self.queue.push_back(node);
+        }
+    }
+
+    fn is_visited(&self, node: usize) -> bool {
+        self.visited.get(node).copied().unwrap_or(false)
     }
 }
 

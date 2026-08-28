@@ -77,6 +77,7 @@ impl CpuHnsw {
             .collect::<Result<Vec<_>, HnswError>>()
     }
 
+    /// Score and retain the best candidates for one staged trim job.
     fn run_trim_job<D: DataSource + Sync>(
         &self,
         job: TrimJob,
@@ -113,9 +114,7 @@ impl CpuHnsw {
         }
 
         let mut heap = BinaryHeap::with_capacity(connection_limit);
-        for (index, id) in candidates.into_iter().enumerate() {
-            let sequence = sequences[index];
-            let distance = distances[index];
+        for ((id, sequence), distance) in candidates.into_iter().zip(sequences).zip(distances) {
             heap.push(RankedNeighbour::new(id, distance, sequence));
             if heap.len() > connection_limit {
                 heap.pop();

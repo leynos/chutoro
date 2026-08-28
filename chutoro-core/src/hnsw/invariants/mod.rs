@@ -70,7 +70,10 @@ pub enum LayerConsistencyDetail {
     /// The referenced node slot was never initialized.
     MissingNode,
     /// The referenced node exists but exposes fewer layers than required.
-    MissingLayer { available: usize },
+    MissingLayer {
+        /// Number of layers exposed by the referenced node.
+        available: usize,
+    },
 }
 
 impl fmt::Display for LayerConsistencyDetail {
@@ -141,20 +144,30 @@ pub enum HnswInvariantViolation {
 /// Helper returned by [`CpuHnsw::invariants`] to run structural checks.
 #[derive(Debug)]
 pub struct HnswInvariantChecker<'index> {
+    /// Index whose graph and parameters supply every invariant context.
     index: &'index CpuHnsw,
 }
 
 impl<'index> HnswInvariantChecker<'index> {
-    pub(super) fn new(index: &'index CpuHnsw) -> Self {
+    /// Bind an invariant checker to one HNSW index.
+    pub(super) const fn new(index: &'index CpuHnsw) -> Self {
         Self { index }
     }
 
     /// Runs all invariants, returning the first violation encountered.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`HnswInvariantViolation`] discovered.
     pub fn check_all(&self) -> Result<(), HnswInvariantViolation> {
         self.check_many(HnswInvariant::all())
     }
 
     /// Runs a custom subset of invariants in the provided order.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`HnswInvariantViolation`] discovered.
     pub fn check_many<I>(&self, invariants: I) -> Result<(), HnswInvariantViolation>
     where
         I: IntoIterator<Item = HnswInvariant>,
@@ -164,26 +177,46 @@ impl<'index> HnswInvariantChecker<'index> {
     }
 
     /// Runs a single invariant.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`HnswInvariantViolation`] reported by `invariant`.
     pub fn check(&self, invariant: HnswInvariant) -> Result<(), HnswInvariantViolation> {
         self.check_many([invariant])
     }
 
     /// Runs the layer-consistency invariant directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`HnswInvariantViolation`] if a graph layer is inconsistent.
     pub fn layer_consistency(&self) -> Result<(), HnswInvariantViolation> {
         self.check(HnswInvariant::LayerConsistency)
     }
 
     /// Runs the degree-bound invariant directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`HnswInvariantViolation`] if a node exceeds its degree bound.
     pub fn degree_bounds(&self) -> Result<(), HnswInvariantViolation> {
         self.check(HnswInvariant::DegreeBounds)
     }
 
     /// Runs the reachability invariant directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`HnswInvariantViolation`] if a node is unreachable.
     pub fn reachability(&self) -> Result<(), HnswInvariantViolation> {
         self.check(HnswInvariant::Reachability)
     }
 
     /// Runs the bidirectional-link invariant directly.
+    ///
+    /// # Errors
+    ///
+    /// Returns an [`HnswInvariantViolation`] if a graph link is one-way.
     pub fn bidirectional_links(&self) -> Result<(), HnswInvariantViolation> {
         self.check(HnswInvariant::BidirectionalLinks)
     }
@@ -222,12 +255,13 @@ impl<'index> HnswInvariantChecker<'index> {
         self.collect_many_with_mode(invariants, true)
     }
 
+    /// Run requested invariants while optionally collecting logged violations.
     fn collect_many_with_mode(
         &self,
-        invariants: impl IntoIterator<Item = HnswInvariant>,
+        requested_invariants: impl IntoIterator<Item = HnswInvariant>,
         log_violations: bool,
     ) -> Vec<HnswInvariantViolation> {
-        let invariants: Vec<_> = invariants.into_iter().collect();
+        let invariants: Vec<_> = requested_invariants.into_iter().collect();
         let mut violations = Vec::new();
         let mode = EvaluationMode::Collect {
             sink: &mut violations,
@@ -239,6 +273,7 @@ impl<'index> HnswInvariantChecker<'index> {
         violations
     }
 
+    /// Run requested invariants using the supplied failure-collection mode.
     fn run_with_mode<I>(
         &self,
         invariants: I,
@@ -275,6 +310,7 @@ impl<'index> HnswInvariantChecker<'index> {
         })
     }
 
+    /// Read the graph and invoke an operation with graph parameters.
     fn with_context<R>(
         &self,
         f: impl FnOnce(GraphContext<'_>) -> Result<R, HnswInvariantViolation>,
@@ -294,6 +330,7 @@ impl<'index> HnswInvariantChecker<'index> {
     }
 }
 
+/// Dispatch one invariant to its structural checker.
 fn dispatch(
     ctx: GraphContext<'_>,
     invariant: HnswInvariant,
@@ -307,21 +344,30 @@ fn dispatch(
     }
 }
 
+/// Immutable graph and parameter references for one invariant pass.
 #[derive(Clone, Copy)]
 pub(super) struct GraphContext<'a> {
+    /// Graph whose adjacency structure is validated.
     graph: &'a Graph,
+    /// HNSW parameters defining the structural limits.
     params: &'a HnswParams,
 }
 
+/// Selects fail-fast or violation-collection behaviour for a checker pass.
 pub(super) enum EvaluationMode<'a> {
+    /// Return immediately after the first violation.
     FailFast,
+    /// Accumulate violations and optionally log each one.
     Collect {
+        /// Destination for collected violations.
         sink: &'a mut Vec<HnswInvariantViolation>,
+        /// Whether each violation is emitted through tracing.
         log: bool,
     },
 }
 
 impl EvaluationMode<'_> {
+    /// Return or record a violation according to the selected evaluation mode.
     fn record(&mut self, violation: HnswInvariantViolation) -> Result<(), HnswInvariantViolation> {
         match self {
             Self::FailFast => Err(violation),

@@ -1,7 +1,28 @@
 //! Integration tests validating the distance helpers exported by `chutoro-core`.
 
+use std::cmp::Ordering;
+
 use chutoro_core::{CosineNorms, DistanceError, VectorKind, cosine_distance, euclidean_distance};
 use rstest::rstest;
+
+/// Absolute tolerance for derived floating-point distance values.
+const DERIVED_DISTANCE_TOLERANCE: f32 = 1.0e-5_f32;
+
+fn assert_same_float(actual: f32, expected: f32) {
+    assert_eq!(actual.total_cmp(&expected), Ordering::Equal);
+}
+
+#[expect(
+    clippy::float_arithmetic,
+    reason = "derived floating-point distance checks need an absolute delta"
+)]
+fn assert_derived_distance_matches(actual: f32, expected: f32) {
+    let delta = (actual - expected).abs();
+    assert!(
+        delta <= DERIVED_DISTANCE_TOLERANCE,
+        "actual={actual}, expected={expected}, delta={delta}, tolerance={DERIVED_DISTANCE_TOLERANCE}"
+    );
+}
 
 #[rstest]
 #[case(vec![0.0_f32, 0.0], vec![0.0_f32, 0.0], 0.0_f32)]
@@ -13,7 +34,7 @@ fn euclidean_distance_returns_expected(
     #[case] expected: f32,
 ) {
     let distance = euclidean_distance(&left, &right).expect("distance should succeed");
-    assert!((distance.value() - expected).abs() < 1e-6);
+    assert_derived_distance_matches(distance.value(), expected);
 }
 
 #[test]
@@ -56,7 +77,7 @@ fn cosine_distance_returns_expected(
     #[case] expected: f32,
 ) {
     let distance = cosine_distance(&left, &right, None).expect("distance should succeed");
-    assert!((distance.value() - expected).abs() < 1e-6);
+    assert_derived_distance_matches(distance.value(), expected);
 }
 
 #[test]
@@ -66,30 +87,30 @@ fn cosine_distance_respects_precomputed_norms() {
 
     let baseline = cosine_distance(&left, &right, None).expect("baseline distance");
     let norms = CosineNorms::from_vectors(&left, &right).expect("norms from vectors");
-    assert!((norms.left_norm().value() - norms.left()).abs() < f32::EPSILON);
-    assert!((norms.right_norm().value() - norms.right()).abs() < f32::EPSILON);
+    assert_same_float(norms.left_norm().value(), norms.left());
+    assert_same_float(norms.right_norm().value(), norms.right());
 
     let cached = cosine_distance(&left, &right, Some(norms)).expect("cached distance");
 
-    assert!((baseline.value() - cached.value()).abs() < 1e-6);
+    assert_same_float(baseline.value(), cached.value());
 }
 
 #[test]
 fn cosine_distance_rejects_zero_magnitude_vectors() {
-    let error = cosine_distance(&[0.0_f32, 0.0], &[1.0_f32, 0.0], None)
+    let uncached_error = cosine_distance(&[0.0_f32, 0.0], &[1.0_f32, 0.0], None)
         .expect_err("zero magnitude must fail");
     assert!(matches!(
-        error,
+        uncached_error,
         DistanceError::ZeroMagnitude {
             which: VectorKind::Left
         }
     ));
 
     let norms = CosineNorms::new(1.0_f32, 1.0_f32).expect("valid norms");
-    let error = cosine_distance(&[0.0_f32, 0.0], &[1.0_f32, 0.0], Some(norms))
+    let cached_error = cosine_distance(&[0.0_f32, 0.0], &[1.0_f32, 0.0], Some(norms))
         .expect_err("zero vector must fail even with cached norms");
     assert!(matches!(
-        error,
+        cached_error,
         DistanceError::ZeroMagnitude {
             which: VectorKind::Left
         }
@@ -98,26 +119,26 @@ fn cosine_distance_rejects_zero_magnitude_vectors() {
 
 #[test]
 fn cosine_distance_rejects_invalid_norms() {
-    let error = CosineNorms::new(f32::NAN, 1.0_f32).expect_err("reject NaN norm");
+    let nan_error = CosineNorms::new(f32::NAN, 1.0_f32).expect_err("reject NaN norm");
     assert!(matches!(
-        error,
+        nan_error,
         DistanceError::InvalidNorm {
             which: VectorKind::Left,
             value
         } if value.is_nan()
     ));
 
-    let error = CosineNorms::new(0.0_f32, 1.0_f32).expect_err("reject zero norm");
+    let zero_error = CosineNorms::new(0.0_f32, 1.0_f32).expect_err("reject zero norm");
     assert!(matches!(
-        error,
+        zero_error,
         DistanceError::ZeroMagnitude {
             which: VectorKind::Left
         }
     ));
 
-    let error = CosineNorms::new(-1.0_f32, 1.0_f32).expect_err("reject negative norm");
+    let negative_error = CosineNorms::new(-1.0_f32, 1.0_f32).expect_err("reject negative norm");
     assert!(matches!(
-        error,
+        negative_error,
         DistanceError::InvalidNorm {
             which: VectorKind::Left,
             value: v
@@ -150,12 +171,7 @@ fn cosine_distance_rejects_non_finite_values() {
 fn euclidean_is_symmetric(#[case] a: &[f32], #[case] b: &[f32]) {
     let ab = euclidean_distance(a, b).expect("a to b should succeed");
     let ba = euclidean_distance(b, a).expect("b to a should succeed");
-    assert!(
-        (ab.value() - ba.value()).abs() < 1e-6,
-        "euclidean distance should be symmetric: d(a,b)={} != d(b,a)={}",
-        ab.value(),
-        ba.value()
-    );
+    assert_same_float(ab.value(), ba.value());
 }
 
 #[rstest]
@@ -191,12 +207,7 @@ fn euclidean_is_non_negative(#[case] a: &[f32], #[case] b: &[f32]) {
 fn cosine_is_symmetric(#[case] a: &[f32], #[case] b: &[f32]) {
     let ab = cosine_distance(a, b, None).expect("a to b should succeed");
     let ba = cosine_distance(b, a, None).expect("b to a should succeed");
-    assert!(
-        (ab.value() - ba.value()).abs() < 1e-6,
-        "cosine distance should be symmetric: d(a,b)={} != d(b,a)={}",
-        ab.value(),
-        ba.value()
-    );
+    assert_same_float(ab.value(), ba.value());
 }
 
 #[rstest]

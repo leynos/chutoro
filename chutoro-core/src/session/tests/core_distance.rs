@@ -99,7 +99,7 @@ fn core_distance_matches_expected_batch_result_for_selection_and_fallback(
         expected_batch_cores(source.as_ref(), &session).expect("batch cores must compute");
     assert_eq!(
         session.core_distance(0),
-        Some(expected[0]),
+        expected.first().copied(),
         "unexpected core distance for {scenario}"
     );
 }
@@ -256,7 +256,10 @@ proptest! {
             }
 
             for &point in &inserted_set {
-                if let Some(before) = previous[point] {
+                let previous_distance = previous
+                    .get_mut(point)
+                    .expect("inserted point must have a tracking slot");
+                if let Some(before) = *previous_distance {
                     let after = session
                         .core_distance(point)
                         .expect("saturated point must have a core distance");
@@ -265,7 +268,7 @@ proptest! {
                         "point {point} core distance increased from {before} to {after}"
                     );
                 }
-                previous[point] = session.core_distance(point);
+                *previous_distance = session.core_distance(point);
             }
         }
     }

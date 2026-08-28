@@ -23,12 +23,13 @@ pub(super) fn core_distance_from_neighbours(
     min_cluster_size: NonZeroUsize,
 ) -> f32 {
     if neighbours.len() >= min_cluster_size.get() {
-        neighbours[min_cluster_size.get() - 1].distance
+        neighbours
+            .get(min_cluster_size.get().saturating_sub(1))
+            .map_or(0.0, |neighbour| neighbour.distance)
     } else {
         neighbours
             .last()
-            .map(|neighbour| neighbour.distance)
-            .unwrap_or(0.0)
+            .map_or(0.0, |neighbour| neighbour.distance)
     }
 }
 
@@ -68,16 +69,22 @@ pub(super) fn recompute_targets(
 }
 
 impl<D: DataSource + Send + Sync> ClusteringSession<D> {
+    /// Mark `index` dirty and grow core-distance storage when needed.
     pub(super) fn mark_core_distance_dirty(&mut self, index: usize) {
         let len = index.saturating_add(1);
         if self.core_distances.len() < len {
             self.core_distances.resize(len, f32::INFINITY);
             self.dirty_core_distances.resize(len, false);
         }
-        self.core_distances[index] = f32::INFINITY;
-        self.dirty_core_distances[index] = true;
+        if let Some(core_distance) = self.core_distances.get_mut(index) {
+            *core_distance = f32::INFINITY;
+        }
+        if let Some(is_dirty) = self.dirty_core_distances.get_mut(index) {
+            *is_dirty = true;
+        }
     }
 
+    /// Iterate the slots that have been inserted or remain dirty.
     fn inserted_core_distance_indices(&self) -> impl Iterator<Item = usize> + '_ {
         self.core_distances
             .iter()
@@ -88,6 +95,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             })
     }
 
+    /// Collect the core-distance slots that require recomputation.
     fn dirty_core_distance_indices(&self) -> Vec<usize> {
         self.dirty_core_distances
             .iter()
@@ -96,6 +104,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             .collect()
     }
 
+    /// Derive the HNSW search width used for core-distance recomputation.
     fn core_distance_ef(&self) -> Option<NonZeroUsize> {
         let point_count = NonZeroUsize::new(self.point_count())?;
         let ef_construction = NonZeroUsize::new(self.config.hnsw_params().ef_construction())?;
@@ -106,6 +115,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         ))
     }
 
+    /// Search for `point`'s neighbours while excluding the point itself.
     fn search_non_self_neighbours(&self, point: usize, ef: NonZeroUsize) -> Result<Vec<Neighbour>> {
         #[cfg(feature = "metrics")]
         metrics::counter!("chutoro.session.core_distance.queries_total").increment(1);
@@ -134,14 +144,20 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             .collect())
     }
 
+    /// Derive and store `point`'s core distance from sorted neighbours.
     fn write_core_distance(&mut self, point: usize, neighbours: &[Neighbour]) {
         let core = core_distance_from_neighbours(neighbours, self.config.min_cluster_size());
         self.write_core_distance_value(point, core);
     }
 
+    /// Store a recomputed core distance and clear its dirty flag.
     fn write_core_distance_value(&mut self, point: usize, core: f32) {
-        self.core_distances[point] = core;
-        self.dirty_core_distances[point] = false;
+        if let Some(core_distance) = self.core_distances.get_mut(point) {
+            *core_distance = core;
+        }
+        if let Some(is_dirty) = self.dirty_core_distances.get_mut(point) {
+            *is_dirty = false;
+        }
     }
 
     /// Recomputes dirty and touched core distances.
@@ -231,8 +247,9 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         let existing_targets = recompute_targets(&new_indices, &neighbour_slices);
 
         #[cfg(feature = "metrics")]
-        metrics::histogram!("chutoro.session.core_distance.touched_existing_per_recompute")
-            .record(existing_targets.len() as f64);
+        metrics::histogram!("chutoro.session.core_distance.touched_existing_per_recompute").record(
+            u32::try_from(existing_targets.len()).map_or_else(|_| f64::from(u32::MAX), f64::from),
+        );
 
         let mut pending_updates = Vec::with_capacity(new_indices.len() + existing_targets.len());
         for (point, neighbours) in new_indices.iter().copied().zip(&neighbour_lists) {
@@ -335,8 +352,9 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     }
 }
 
+/// Classify a core-distance failure for low-cardinality metrics.
 #[cfg(feature = "metrics")]
-fn core_distance_error_reason(error: &crate::ChutoroError) -> &'static str {
+const fn core_distance_error_reason(error: &crate::ChutoroError) -> &'static str {
     match error {
         crate::ChutoroError::DataSource { .. } => "data_source",
         crate::ChutoroError::CpuHnswFailure { .. } => "hnsw_failure",

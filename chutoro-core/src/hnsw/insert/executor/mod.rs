@@ -22,13 +22,16 @@ use super::types::{
 
 pub(crate) use super::types::{TrimJob, TrimResult};
 
+/// Applies prepared insertion plans and their trimmed neighbour lists.
 #[derive(Debug)]
 pub(crate) struct InsertionExecutor<'graph> {
+    /// Graph mutated by prepare and commit operations.
     graph: &'graph mut Graph,
 }
 
 impl<'graph> InsertionExecutor<'graph> {
-    pub(crate) fn new(graph: &'graph mut Graph) -> Self {
+    /// Bind an insertion executor to the graph that receives the insertion.
+    pub(crate) const fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
     }
 
@@ -41,20 +44,20 @@ impl<'graph> InsertionExecutor<'graph> {
     /// [`InsertionExecutor::commit`] with the resulting [`TrimResult`]s.
     pub(crate) fn apply(
         &mut self,
-        node: NodeContext,
+        node_context: NodeContext,
         apply_ctx: ApplyContext<'_>,
     ) -> Result<(PreparedInsertion, Vec<TrimJob>), HnswError> {
         let ApplyContext { params, plan } = apply_ctx;
         let NodeContext {
-            node,
+            node: node_id,
             level,
             sequence,
-        } = node;
+        } = node_context;
 
         let stager = InsertionStager::new(&*self.graph);
-        stager.ensure_slot_available(node)?;
+        stager.ensure_slot_available(node_id)?;
 
-        let promote_entry = level > self.graph.entry().map(|entry| entry.level).unwrap_or(0);
+        let promote_entry = level > self.graph.entry().map_or(0, |entry| entry.level);
         let max_connections = params.max_connections();
         let LayerProcessingOutcome {
             mut new_node_neighbours,
@@ -63,7 +66,7 @@ impl<'graph> InsertionExecutor<'graph> {
             needs_trim,
         } = stager.process_insertion_layers(
             NodeContext {
-                node,
+                node: node_id,
                 level,
                 sequence,
             },
@@ -73,7 +76,7 @@ impl<'graph> InsertionExecutor<'graph> {
         InsertionStager::dedupe_new_node_lists(&mut new_node_neighbours);
         let (updates, trim_jobs) = stager.generate_updates_and_trim_jobs(
             NodeContext {
-                node,
+                node: node_id,
                 level,
                 sequence,
             },
@@ -87,7 +90,7 @@ impl<'graph> InsertionExecutor<'graph> {
         Ok((
             PreparedInsertion {
                 node: NodeContext {
-                    node,
+                    node: node_id,
                     level,
                     sequence,
                 },
@@ -140,7 +143,7 @@ impl<'graph> InsertionExecutor<'graph> {
 
         self.heal_connectivity_gaps(
             &mut reciprocated,
-            HealingContext {
+            &HealingContext {
                 filtered_new_node_neighbours: &filtered_new_node_neighbours,
                 new_node_id: new_node.id,
                 max_connections,
@@ -169,6 +172,7 @@ impl<'graph> InsertionExecutor<'graph> {
         Ok(())
     }
 
+    /// Combine staged updates with any trimmed neighbour-list results.
     fn prepare_final_updates(
         updates: Vec<StagedUpdate>,
         trims: Vec<TrimResult>,
@@ -189,10 +193,11 @@ impl<'graph> InsertionExecutor<'graph> {
         final_updates
     }
 
+    /// Fill empty new-node levels through the configured fallback links.
     fn heal_connectivity_gaps(
         &mut self,
         reciprocated: &mut [Vec<usize>],
-        healing_ctx: HealingContext<'_>,
+        healing_ctx: &HealingContext<'_>,
     ) {
         let mut healer = ConnectivityHealer::new(self.graph);
         for (level, neighbours) in reciprocated.iter_mut().enumerate() {
@@ -237,6 +242,16 @@ impl<'graph> InsertionExecutor<'graph> {
     pub(crate) fn enforce_bidirectional_all(&mut self, max_connections: usize) {
         super::test_helpers::TestHelpers::new(self.graph)
             .enforce_bidirectional_all(max_connections);
+    }
+
+    /// Reports the first reciprocity violation left in the graph, if any.
+    #[cfg(test)]
+    pub(crate) fn find_reciprocity_violation(
+        &mut self,
+        max_connections: usize,
+    ) -> Option<super::test_helpers::ReciprocityViolation> {
+        super::test_helpers::TestHelpers::new(self.graph)
+            .find_reciprocity_violation(max_connections)
     }
 }
 

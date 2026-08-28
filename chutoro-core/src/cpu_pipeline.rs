@@ -43,6 +43,7 @@ pub fn run_cpu_pipeline<D: DataSource + Sync>(
     run_cpu_pipeline_with_len(source, items, min_cluster_size)
 }
 
+/// Run the CPU pipeline after source-length validation.
 #[cfg(feature = "cpu")]
 pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
     source: &D,
@@ -58,9 +59,7 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
         .saturating_add(1)
         .max(params.ef_construction())
         .min(items);
-    let Some(ef) = NonZeroUsize::new(desired) else {
-        unreachable!("ef_construction is non-zero so the computed ef is non-zero");
-    };
+    let ef = NonZeroUsize::new(desired).unwrap_or(NonZeroUsize::MIN);
 
     let mut core_distances = Vec::with_capacity(items);
     for point in 0..items {
@@ -68,11 +67,10 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
             .search(source, point, ef)
             .map_err(|error| map_cpu_hnsw_error(source, error))?;
         let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
-        let core = if others.len() >= min_cluster_size.get() {
-            others[min_cluster_size.get() - 1].distance
-        } else {
-            others.last().map(|n| n.distance).unwrap_or(0.0)
-        };
+        let core = others
+            .get(min_cluster_size.get().saturating_sub(1))
+            .or_else(|| others.last())
+            .map_or(0.0, |neighbour| neighbour.distance);
         core_distances.push(core);
     }
 
@@ -82,20 +80,37 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
             let left = edge.source();
             let right = edge.target();
             let dist = edge.distance();
-            let weight = dist.max(core_distances[left]).max(core_distances[right]);
-            CandidateEdge::new(left, right, weight, edge.sequence())
+            let left_core_distance = core_distances.get(left).copied().ok_or_else(|| {
+                map_cpu_hnsw_error(
+                    source,
+                    HnswError::GraphInvariantViolation {
+                        message: format!("harvested edge source {left} has no core distance"),
+                    },
+                )
+            })?;
+            let right_core_distance = core_distances.get(right).copied().ok_or_else(|| {
+                map_cpu_hnsw_error(
+                    source,
+                    HnswError::GraphInvariantViolation {
+                        message: format!("harvested edge target {right} has no core distance"),
+                    },
+                )
+            })?;
+            let weight = dist.max(left_core_distance).max(right_core_distance);
+            Ok(CandidateEdge::new(left, right, weight, edge.sequence()))
         })
-        .collect();
+        .collect::<Result<_>>()?;
     let mutual_harvest = EdgeHarvest::new(mutual_edges);
 
-    let forest = parallel_kruskal(items, &mutual_harvest).map_err(map_cpu_mst_error)?;
+    let forest =
+        parallel_kruskal(items, &mutual_harvest).map_err(|error| map_cpu_mst_error(&error))?;
 
     let labels = crate::extract_labels_from_mst(
         items,
         forest.edges(),
         HierarchyConfig::new(min_cluster_size),
     )
-    .map_err(map_cpu_hierarchy_error)?;
+    .map_err(|error| map_cpu_hierarchy_error(&error))?;
 
     let assignments = labels
         .into_iter()
@@ -105,30 +120,33 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
     Ok(ClusteringResult::from_assignments(assignments))
 }
 
+/// Translate an HNSW failure into the public CPU-pipeline error type.
 #[cfg(feature = "cpu")]
-pub(crate) fn map_cpu_hnsw_error<D: DataSource>(source: &D, error: HnswError) -> ChutoroError {
-    match error {
-        HnswError::DataSource(error) => ChutoroError::DataSource {
+pub(crate) fn map_cpu_hnsw_error<D: DataSource>(source: &D, hnsw_error: HnswError) -> ChutoroError {
+    match hnsw_error {
+        HnswError::DataSource(data_source_error) => ChutoroError::DataSource {
             data_source: Arc::from(source.name()),
-            error,
+            error: data_source_error,
         },
-        other => ChutoroError::CpuHnswFailure {
-            code: Arc::from(other.code().as_str()),
-            message: Arc::from(other.to_string()),
+        other_error => ChutoroError::CpuHnswFailure {
+            code: Arc::from(other_error.code().as_str()),
+            message: Arc::from(other_error.to_string()),
         },
     }
 }
 
+/// Translate an MST failure into the public CPU-pipeline error type.
 #[cfg(feature = "cpu")]
-fn map_cpu_mst_error(error: MstError) -> ChutoroError {
+fn map_cpu_mst_error(error: &MstError) -> ChutoroError {
     ChutoroError::CpuMstFailure {
         code: Arc::from(error.code().as_str()),
         message: Arc::from(error.to_string()),
     }
 }
 
+/// Translate a hierarchy failure into the public CPU-pipeline error type.
 #[cfg(feature = "cpu")]
-fn map_cpu_hierarchy_error(error: crate::HierarchyError) -> ChutoroError {
+fn map_cpu_hierarchy_error(error: &crate::HierarchyError) -> ChutoroError {
     ChutoroError::CpuHierarchyFailure {
         code: Arc::from(error.code().as_str()),
         message: Arc::from(error.to_string()),

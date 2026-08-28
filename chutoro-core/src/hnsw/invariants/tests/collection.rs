@@ -2,11 +2,10 @@
 
 use super::*;
 
-pub(super) fn assert_collects_unreachable_nodes<F>(collect: F, description: &str)
+pub(super) fn assert_collects_unreachable_nodes<F>(index: &CpuHnsw, collect: F, description: &str)
 where
     F: FnOnce(&CpuHnsw) -> Vec<HnswInvariantViolation>,
 {
-    let (index, _data) = build_index();
     {
         let mut graph = index
             .graph
@@ -16,7 +15,7 @@ where
             clear_node(&mut graph, entry.node);
         }
     }
-    let violations = collect(&index);
+    let violations = collect(index);
     assert!(
         violations
             .iter()
@@ -25,24 +24,30 @@ where
     );
 }
 
-#[test]
-fn collect_all_with_logging_captures_unreachable_nodes() {
+#[rstest]
+fn collect_all_with_logging_captures_unreachable_nodes(
+    #[from(valid_index)] index_res: Result<IndexAndSource, HnswError>,
+) {
+    let (index, _data) = index_res.expect("index should build");
     assert_collects_unreachable_nodes(
-        |index| index.invariants().collect_all_with_logging(),
+        &index,
+        |hnsw| hnsw.invariants().collect_all_with_logging(),
         "collect_all_with_logging",
     );
 }
 
-#[test]
-fn collect_many_with_logging_reports_degree_violation() {
-    let (index, _data) = build_index();
+#[rstest]
+fn collect_many_with_logging_reports_degree_violation(
+    #[from(valid_index)] index_res: Result<IndexAndSource, HnswError>,
+) {
+    let (index, _data) = index_res.expect("index should build");
     {
         let mut graph = index
             .graph
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(node) = graph.node_mut(0) {
-            let neighbours = node.neighbours_mut(0);
+            let neighbours = node.neighbours_mut(0).expect("node 0 must expose level 0");
             neighbours.clear();
             neighbours.extend(std::iter::repeat_n(1, 10));
         }
@@ -63,7 +68,9 @@ fn clear_node(graph: &mut Graph, node_id: usize) {
     if let Some(node) = graph.node_mut(node_id) {
         let levels = node.level_count();
         for level in 0..levels {
-            node.neighbours_mut(level).clear();
+            if let Some(neighbours) = node.neighbours_mut(level) {
+                neighbours.clear();
+            }
         }
     }
 }
@@ -106,6 +113,7 @@ fn no_self_loops_after_construction(#[case] node_count: usize) {
                     .node_mut(origin)
                     .expect("node")
                     .neighbours_mut(0)
+                    .expect("node must expose level 0")
                     .push(target);
             }
         }
@@ -143,13 +151,17 @@ fn self_loop_is_detectable() {
         .expect("attach node");
 
     // Manually inject a self-loop (this is invalid)
-    graph.node_mut(0).expect("node").neighbours_mut(0).push(0);
+    graph
+        .node_mut(0)
+        .expect("node")
+        .neighbours_mut(0)
+        .expect("node must expose level 0")
+        .push(0);
 
     // Verify the self-loop exists
     let has_self_loop = graph
         .node(0)
-        .map(|node| node.neighbours(0).contains(&0))
-        .unwrap_or(false);
+        .is_some_and(|node| node.neighbours(0).contains(&0));
     assert!(has_self_loop, "self-loop should be present for detection");
 }
 
@@ -188,6 +200,7 @@ fn neighbour_list_is_unique(#[case] neighbours: Vec<usize>) {
             .node_mut(0)
             .expect("node")
             .neighbours_mut(0)
+            .expect("node must expose level 0")
             .push(neighbour);
     }
 
@@ -234,7 +247,11 @@ fn duplicate_neighbour_is_detectable() {
         .expect("attach node");
 
     // Manually inject a duplicate (this is invalid)
-    let neighbours = graph.node_mut(0).expect("node").neighbours_mut(0);
+    let neighbours = graph
+        .node_mut(0)
+        .expect("node")
+        .neighbours_mut(0)
+        .expect("node must expose level 0");
     neighbours.push(1);
     neighbours.push(1); // Duplicate
 
@@ -256,6 +273,10 @@ fn duplicate_neighbour_is_detectable() {
 #[case::three_nodes_varying_levels(vec![1, 0, 2], 2)]
 fn entry_point_has_max_level(#[case] levels: Vec<usize>, #[case] expected_entry_level: usize) {
     let max_level = *levels.iter().max().unwrap_or(&0);
+    let first_level = levels
+        .first()
+        .copied()
+        .expect("test cases require an initial level");
     let params = HnswParams::new(4, 8)
         .expect("params")
         .with_max_level(max_level.saturating_add(1));
@@ -265,7 +286,7 @@ fn entry_point_has_max_level(#[case] levels: Vec<usize>, #[case] expected_entry_
     graph
         .insert_first(NodeContext {
             node: 0,
-            level: levels[0],
+            level: first_level,
             sequence: 0,
         })
         .expect("insert first");

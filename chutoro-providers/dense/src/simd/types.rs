@@ -9,13 +9,13 @@ pub(crate) struct RowIndex(usize);
 impl RowIndex {
     /// Builds a row index wrapper.
     #[must_use]
-    pub(crate) fn new(index: usize) -> Self {
+    pub(crate) const fn new(index: usize) -> Self {
         Self(index)
     }
 
     /// Returns the raw zero-based row index.
     #[must_use]
-    pub(crate) fn get(self) -> usize {
+    pub(crate) const fn get(self) -> usize {
         self.0
     }
 }
@@ -56,13 +56,13 @@ pub(crate) struct Distance(f32);
 impl Distance {
     /// Builds a distance wrapper.
     #[must_use]
-    pub(crate) fn new(value: f32) -> Self {
+    pub(crate) const fn new(value: f32) -> Self {
         Self(value)
     }
 
     /// Returns the raw distance value.
     #[must_use]
-    pub(crate) fn get(self) -> f32 {
+    pub(crate) const fn get(self) -> f32 {
         self.0
     }
 }
@@ -74,13 +74,13 @@ pub(crate) struct Dimension(usize);
 impl Dimension {
     /// Builds a dimension wrapper.
     #[must_use]
-    pub(crate) fn new(value: usize) -> Self {
+    pub(crate) const fn new(value: usize) -> Self {
         Self(value)
     }
 
     /// Returns the raw dimension value.
     #[must_use]
-    pub(crate) fn get(self) -> usize {
+    pub(crate) const fn get(self) -> usize {
         self.0
     }
 }
@@ -92,13 +92,13 @@ pub(crate) struct RowCount(usize);
 impl RowCount {
     /// Builds a row count wrapper.
     #[must_use]
-    pub(crate) fn new(value: usize) -> Self {
+    pub(crate) const fn new(value: usize) -> Self {
         Self(value)
     }
 
     /// Returns the raw row count.
     #[must_use]
-    pub(crate) fn get(self) -> usize {
+    pub(crate) const fn get(self) -> usize {
         self.0
     }
 }
@@ -108,19 +108,19 @@ pub(crate) struct DistanceBuffer<'a>(&'a mut [f32]);
 
 impl<'a> DistanceBuffer<'a> {
     /// Builds a mutable distance output buffer wrapper.
-    pub(crate) fn new(buffer: &'a mut [f32]) -> Self {
+    pub(crate) const fn new(buffer: &'a mut [f32]) -> Self {
         Self(buffer)
     }
 
     /// Returns the number of writable distances.
     #[must_use]
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.0.len()
     }
 
     /// Returns the total buffer capacity in distance elements.
     #[must_use]
-    pub(crate) fn capacity(&self) -> usize {
+    pub(crate) const fn capacity(&self) -> usize {
         self.0.len()
     }
 
@@ -143,19 +143,19 @@ pub(crate) struct RowSlice<'a>(&'a [f32]);
 impl<'a> RowSlice<'a> {
     /// Builds a row slice wrapper.
     #[must_use]
-    pub(crate) fn new(slice: &'a [f32]) -> Self {
+    pub(crate) const fn new(slice: &'a [f32]) -> Self {
         Self(slice)
     }
 
     /// Returns the raw scalar slice.
     #[must_use]
-    pub(crate) fn as_slice(self) -> &'a [f32] {
+    pub(crate) const fn as_slice(self) -> &'a [f32] {
         self.0
     }
 
     /// Returns the number of scalar elements in the row.
     #[must_use]
-    pub(crate) fn len(self) -> usize {
+    pub(crate) const fn len(self) -> usize {
         self.0.len()
     }
 }
@@ -167,19 +167,19 @@ pub(crate) struct MatrixValues<'a>(&'a [f32]);
 impl<'a> MatrixValues<'a> {
     /// Builds a matrix backing storage wrapper.
     #[must_use]
-    pub(crate) fn new(values: &'a [f32]) -> Self {
+    pub(crate) const fn new(values: &'a [f32]) -> Self {
         Self(values)
     }
 
     /// Returns the raw matrix values slice.
     #[must_use]
-    pub(crate) fn as_slice(self) -> &'a [f32] {
+    pub(crate) const fn as_slice(self) -> &'a [f32] {
         self.0
     }
 
     /// Returns the number of scalar values in the matrix backing store.
     #[must_use]
-    pub(crate) fn len(self) -> usize {
+    pub(crate) const fn len(self) -> usize {
         self.0.len()
     }
 }
@@ -187,15 +187,22 @@ impl<'a> MatrixValues<'a> {
 /// Row-major matrix metadata and storage for dense SIMD kernels.
 #[derive(Clone, Copy)]
 pub(crate) struct RowMajorMatrix<'a> {
+    /// Flat row-major values backing the matrix view.
     values: MatrixValues<'a>,
+    /// Number of rows in the matrix view.
     rows: RowCount,
+    /// Number of scalar coordinates in each row.
     dimension: Dimension,
 }
 
 impl<'a> RowMajorMatrix<'a> {
     /// Builds a row-major matrix view.
     #[must_use]
-    pub(crate) fn new(values: MatrixValues<'a>, rows: RowCount, dimension: Dimension) -> Self {
+    pub(crate) const fn new(
+        values: MatrixValues<'a>,
+        rows: RowCount,
+        dimension: Dimension,
+    ) -> Self {
         Self {
             values,
             rows,
@@ -205,19 +212,19 @@ impl<'a> RowMajorMatrix<'a> {
 
     /// Returns the number of scalar dimensions in each row.
     #[must_use]
-    pub(crate) fn dimension(self) -> Dimension {
+    pub(crate) const fn dimension(self) -> Dimension {
         self.dimension
     }
 
     /// Returns the number of rows in the matrix.
     #[must_use]
-    pub(crate) fn rows(self) -> RowCount {
+    pub(crate) const fn rows(self) -> RowCount {
         self.rows
     }
 
     /// Returns the matrix backing storage.
     #[must_use]
-    pub(crate) fn values(self) -> MatrixValues<'a> {
+    pub(crate) const fn values(self) -> MatrixValues<'a> {
         self.values
     }
 
@@ -241,6 +248,9 @@ impl<'a> RowMajorMatrix<'a> {
         }
 
         let values = self.values().as_slice();
-        Ok(RowSlice::new(&values[start..end]))
+        let row = values
+            .get(start..end)
+            .ok_or(DataSourceError::OutOfBounds { index: raw_index })?;
+        Ok(RowSlice::new(row))
     }
 }

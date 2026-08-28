@@ -22,60 +22,87 @@ use thiserror::Error;
 
 use super::{ProfilingError, ProfilingSource, all_buckets};
 
+/// Minimum rows provisioned for neighbour-scoring fixtures.
 const BENCH_ROW_COUNT: usize = 1_025;
+/// Fixed seed for reproducible neighbour-scoring fixtures.
 const BENCH_SEED: u64 = 0xC4A7_0203_0000_0231;
+/// Point counts included by default in build-profile reports.
 pub(super) const DEFAULT_BUILD_PROFILE_POINT_COUNTS: &[usize] = &[10_000, 100_000];
+/// Vector dimension included by default in build-profile reports.
 pub(super) const DEFAULT_BUILD_PROFILE_DIMENSION: usize = 128;
 
+/// Errors raised while preparing neighbour-scoring benchmarks and reports.
 #[derive(Debug, Error)]
 pub(super) enum BenchError {
+    /// Data-source operation failed.
     #[error("data source error: {0}")]
     DataSource(#[from] DataSourceError),
+    /// Report filesystem operation failed.
     #[error("I/O error: {0}")]
     Io(#[from] io::Error),
+    /// Build-profile instrumentation failed.
     #[error("build profile statistics failed: {0}")]
     BuildProfileStats(#[from] ProfilingError),
+    /// Requested dimension cannot be represented by an API target type.
     #[error("dimension {dimension} does not fit {target}: {source}")]
     DimensionConversion {
+        /// Original dimension value.
         dimension: usize,
+        /// Name of the target integer type.
         target: &'static str,
+        /// Conversion failure reported by the standard library.
         source: TryFromIntError,
     },
+    /// Requested candidate count cannot be represented by Criterion throughput.
     #[error("candidate count {candidate_count} does not fit u64: {source}")]
     CandidateCountConversion {
+        /// Original candidate count.
         candidate_count: usize,
+        /// Conversion failure reported by the standard library.
         source: TryFromIntError,
     },
+    /// Dense-provider fixture construction failed.
     #[error("dense provider setup failed: {0}")]
     DenseProvider(#[from] DenseMatrixProviderError),
+    /// HNSW parameter construction failed.
     #[error("HNSW parameter setup failed: {source}")]
     HnswParams {
+        /// Underlying HNSW parameter error.
         #[source]
         source: HnswError,
     },
+    /// Synthetic-source construction failed.
     #[error("synthetic source setup failed: {0}")]
     SyntheticSource(#[from] SyntheticError),
+    /// HNSW index construction failed.
     #[error("HNSW build failed: {source}")]
     HnswBuild {
+        /// Underlying HNSW build error.
         #[source]
         source: HnswError,
     },
 }
 
+/// Result type used by neighbour-scoring benchmark setup.
 pub(super) type BenchResult<T> = Result<T, BenchError>;
 
+/// Prepared provider and candidates for one scoring benchmark case.
 #[derive(Debug)]
 pub(super) struct ScoringFixture {
+    /// Dense provider queried by the benchmark.
     pub(super) provider: DenseMatrixProvider,
+    /// Candidate row indices measured against the query.
     pub(super) candidates: Vec<usize>,
 }
 
+/// Open the report directory through a capability-scoped handle.
 fn open_report_dir(report_parent_dir: &Utf8Path) -> BenchResult<Dir> {
     let target_dir = Dir::open_ambient_dir(report_parent_dir, ambient_authority())?;
     target_dir.create_dir_all(REPORT_DIR_NAME)?;
     Ok(target_dir.open_dir(REPORT_DIR_NAME)?)
 }
 
+/// Generate deterministic dense matrix values for one fixture.
 fn make_values(row_count: usize, dimension: usize) -> BenchResult<Vec<f32>> {
     let seed_dimension =
         u64::try_from(dimension).map_err(|source| BenchError::DimensionConversion {
@@ -93,6 +120,7 @@ fn make_values(row_count: usize, dimension: usize) -> BenchResult<Vec<f32>> {
     Ok(values)
 }
 
+/// Build an Arrow-backed dense provider for one fixture.
 fn make_provider(row_count: usize, dimension: usize) -> BenchResult<DenseMatrixProvider> {
     let width = i32::try_from(dimension).map_err(|source| BenchError::DimensionConversion {
         dimension,
@@ -112,6 +140,7 @@ fn make_provider(row_count: usize, dimension: usize) -> BenchResult<DenseMatrixP
     )?)
 }
 
+/// Construct a reproducible neighbour-scoring fixture.
 pub(super) fn make_fixture(
     dimension: usize,
     candidate_count: usize,
@@ -126,6 +155,7 @@ pub(super) fn make_fixture(
     })
 }
 
+/// Write the lane-utilisation report for all candidate buckets.
 pub(super) fn write_lane_utilisation_report(
     report_parent_dir: &Utf8Path,
 ) -> BenchResult<Utf8PathBuf> {
@@ -142,10 +172,12 @@ pub(super) fn write_lane_utilisation_report(
     Ok(target.path())
 }
 
+/// Construct the fixed HNSW parameters used for build-profile measurements.
 fn hnsw_params() -> BenchResult<HnswParams> {
     HnswParams::new(16, 32).map_err(|source| BenchError::HnswParams { source })
 }
 
+/// Build an instrumented synthetic source for one profile point count.
 fn profile_source(
     point_count: usize,
     dimension: usize,
@@ -158,6 +190,7 @@ fn profile_source(
     Ok(ProfilingSource::new(source))
 }
 
+/// Write the optional default build-profile report.
 pub(super) fn write_build_profile_report(
     report_parent_dir: Option<&Utf8Path>,
 ) -> BenchResult<Option<ReportTarget>> {
@@ -167,6 +200,7 @@ pub(super) fn write_build_profile_report(
     )
 }
 
+/// Write a build-profile report through an injected report writer.
 fn write_build_profile_report_with(
     report_parent_dir: Option<&Utf8Path>,
     writer: impl FnOnce(&Utf8Path, &[usize], usize) -> BenchResult<ReportTarget>,
@@ -182,6 +216,7 @@ fn write_build_profile_report_with(
         .transpose()
 }
 
+/// Write the default build-profile report for supplied point counts.
 fn write_default_build_profile_report_for_point_counts(
     report_parent_dir: &Utf8Path,
     point_counts: &[usize],
@@ -191,6 +226,7 @@ fn write_default_build_profile_report_for_point_counts(
     write_build_profile_report_for_point_counts(report_target, point_counts, dimension)
 }
 
+/// Build and write profile rows for each supplied point count.
 pub(super) fn write_build_profile_report_for_point_counts(
     report_target: ReportTarget,
     point_counts: &[usize],

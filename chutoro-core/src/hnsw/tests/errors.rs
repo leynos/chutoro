@@ -29,7 +29,7 @@ fn non_finite_distance_is_reported() {
             2
         }
 
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "nan"
         }
 
@@ -62,6 +62,7 @@ fn reports_invariant_violation_when_search_node_missing() {
         .node_mut(0)
         .expect("entry exists")
         .neighbours_mut(0)
+        .expect("entry must expose level 0")
         .push(1);
 
     let searcher = graph.searcher();
@@ -111,12 +112,12 @@ fn non_finite_batch_distance_is_reported(default_cache: DistanceCache) {
             3
         }
 
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "batch-nan"
         }
 
-        fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
-            Ok((left as f32 - right as f32).abs())
+        fn distance(&self, _: usize, _: usize) -> Result<f32, DataSourceError> {
+            Ok(0.0)
         }
 
         fn batch_distances(
@@ -151,12 +152,12 @@ fn reports_partial_batch_results_from_source(default_cache: DistanceCache) {
             4
         }
 
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "partial-batch"
         }
 
-        fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
-            Ok((left as f32 - right as f32).abs())
+        fn distance(&self, _: usize, _: usize) -> Result<f32, DataSourceError> {
+            Ok(0.0)
         }
 
         fn batch_distances(

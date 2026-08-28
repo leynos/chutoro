@@ -10,26 +10,27 @@ use proptest::prelude::*;
     vec![vec![4.0, 1.0, 2.0], vec![6.0, 2.0, 1.0]],
 )]
 fn dense_point_view_packs_structure_of_arrays(
-    matrix_3x2: Result<RowMajorMatrix<'static>, DataSourceError>,
+    #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
     #[case] indices: Vec<RowIndex>,
     #[case] expected_blocks: Vec<Vec<f32>>,
-) -> Result<(), DataSourceError> {
-    let matrix_3x2 = matrix_3x2?;
-    let view = DensePointView::from_row_indices(matrix_3x2, &indices)?;
+) {
+    let view =
+        DensePointView::from_row_indices(matrix_3x2, &indices).expect("point view must build");
     assert_eq!(view.point_count(), indices.len());
     assert_eq!(view.padded_point_count(), MAX_SIMD_LANES);
     assert!(view.is_aligned_to(SIMD_ALIGNMENT_BYTES));
 
     for (dimension_index, expected_prefix) in expected_blocks.into_iter().enumerate() {
         let block = view.coordinate_block(dimension_index);
-        assert_eq!(&block[..expected_prefix.len()], expected_prefix.as_slice());
-        assert!(
-            block[expected_prefix.len()..]
-                .iter()
-                .all(|value| *value == 0.0)
-        );
+        let prefix = block
+            .get(..expected_prefix.len())
+            .expect("expected block prefix must fit the packed block");
+        assert_eq!(prefix, expected_prefix.as_slice());
+        let tail = block
+            .get(expected_prefix.len()..)
+            .expect("expected block tail must start within the packed block");
+        assert!(tail.iter().all(|value| *value == 0.0));
     }
-    Ok(())
 }
 
 #[rstest]
@@ -41,7 +42,7 @@ fn dense_point_view_packs_structure_of_arrays(
 fn dense_point_view_pads_point_count_to_lane_boundary(
     #[case] point_count: usize,
     #[case] expected_padded_count: usize,
-) -> Result<(), DataSourceError> {
+) {
     let values = vec![1.0_f32; 17];
     let matrix = RowMajorMatrix::new(
         MatrixValues::new(&values),
@@ -50,10 +51,9 @@ fn dense_point_view_pads_point_count_to_lane_boundary(
     );
     let indices: Vec<RowIndex> = (0..point_count).map(RowIndex::new).collect();
 
-    let view = DensePointView::from_row_indices(matrix, &indices)?;
+    let view = DensePointView::from_row_indices(matrix, &indices).expect("point view must build");
 
     assert_eq!(view.padded_point_count(), expected_padded_count);
-    Ok(())
 }
 
 #[rstest]
@@ -93,10 +93,10 @@ proptest! {
 #[rstest]
 #[case(15)]
 #[case(17)]
-fn dense_point_view_zero_fills_unused_lanes(
-    #[case] point_count: usize,
-) -> Result<(), DataSourceError> {
-    let values: Vec<f32> = (0..17).map(|value| value as f32 + 1.0).collect();
+fn dense_point_view_zero_fills_unused_lanes(#[case] point_count: usize) {
+    let values: Vec<f32> = (0_u8..17)
+        .map(|value| f32::from(value.saturating_add(1)))
+        .collect();
     let matrix = RowMajorMatrix::new(
         MatrixValues::new(&values),
         RowCount::new(17),
@@ -104,15 +104,13 @@ fn dense_point_view_zero_fills_unused_lanes(
     );
     let indices: Vec<RowIndex> = (0..point_count).map(RowIndex::new).collect();
 
-    let view = DensePointView::from_row_indices(matrix, &indices)?;
+    let view = DensePointView::from_row_indices(matrix, &indices).expect("point view must build");
     let block = view.coordinate_block(0);
 
-    assert!(
-        block[point_count..view.padded_point_count()]
-            .iter()
-            .all(|value| *value == 0.0)
-    );
-    Ok(())
+    let unused_lanes = block
+        .get(point_count..view.padded_point_count())
+        .expect("unused lanes must remain within the padded packed block");
+    assert!(unused_lanes.iter().all(|value| *value == 0.0));
 }
 
 #[rstest]

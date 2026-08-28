@@ -19,7 +19,7 @@ use super::strategies::{generate_fixture, mst_fixture_strategy};
 use super::structural::run_structural_invariants_property;
 use super::types::WeightDistribution;
 
-/// Canonical set of (distribution, seed, case_name) tuples shared by all
+/// Canonical set of (distribution, seed, `case_name`) tuples shared by all
 /// parameterized property tests.  Defined once to eliminate duplication
 /// across oracle equivalence, structural invariants, and concurrency
 /// safety test suites.
@@ -276,7 +276,7 @@ fn assert_oracle(
     expected_components: usize,
 ) {
     assert!(
-        (result.total_weight - expected_weight).abs() < f64::EPSILON,
+        result.total_weight.total_cmp(&expected_weight).is_eq(),
         "weight: expected {expected_weight}, got {}",
         result.total_weight,
     );

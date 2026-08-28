@@ -18,10 +18,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Write one build-script directive for Cargo to consume.
 fn emit_cargo_directive(directive: &str) -> io::Result<()> {
     writeln!(io::stdout().lock(), "{directive}")
 }
 
+/// Report whether the configured Rust compiler identifies itself as nightly.
 fn is_nightly_compiler() -> bool {
     let rustc = env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc"));
     Command::new(rustc)

@@ -6,6 +6,6 @@
 use crate::hnsw::params::connection_limit_for_level;
 
 /// Computes the connection limit for a given level (doubled for level 0).
-pub(super) fn compute_connection_limit(level: usize, max_connections: usize) -> usize {
+pub(super) const fn compute_connection_limit(level: usize, max_connections: usize) -> usize {
     connection_limit_for_level(level, max_connections)
 }

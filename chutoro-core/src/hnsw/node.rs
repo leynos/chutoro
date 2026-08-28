@@ -2,13 +2,17 @@
 //!
 //! Maintains per-level neighbour lists and provides accessors used during
 //! search, insertion, and trimming.
+/// Per-node adjacency lists and deterministic insertion metadata.
 #[derive(Clone, Debug)]
 pub(crate) struct Node {
+    /// Mutable adjacency list for every initialized graph level.
     neighbours: Vec<Vec<usize>>,
+    /// Deterministic insertion order for equal-distance tie-breaking.
     sequence: u64,
 }
 
 impl Node {
+    /// Create a node with empty adjacency lists through `level`.
     pub(crate) fn new(level: usize, sequence: u64) -> Self {
         let mut neighbours = Vec::with_capacity(level + 1);
         neighbours.resize_with(level + 1, Vec::new);
@@ -18,25 +22,18 @@ impl Node {
         }
     }
 
+    /// Return neighbours at `level`, or an empty slice when unavailable.
     pub(crate) fn neighbours(&self, level: usize) -> &[usize] {
-        debug_assert!(
-            level < self.neighbours.len(),
-            "levels are initialized during construction"
-        );
-        let Some(neighbours) = self.neighbours.get(level) else {
-            unreachable!("levels are initialized during construction");
-        };
-        neighbours.as_slice()
+        self.neighbours.get(level).map_or(&[], Vec::as_slice)
     }
 
-    pub(crate) fn neighbours_mut(&mut self, level: usize) -> &mut Vec<usize> {
-        let Some(neighbours) = self.neighbours.get_mut(level) else {
-            unreachable!("levels are initialized during construction");
-        };
-        neighbours
+    /// Return mutable neighbours at `level` when that level is initialized.
+    pub(crate) fn neighbours_mut(&mut self, level: usize) -> Option<&mut Vec<usize>> {
+        self.neighbours.get_mut(level)
     }
 
-    pub(crate) fn sequence(&self) -> u64 {
+    /// Return this node's deterministic insertion sequence.
+    pub(crate) const fn sequence(&self) -> u64 {
         self.sequence
     }
 
@@ -53,7 +50,7 @@ impl Node {
     /// assert_eq!(node.level_count(), 2);
     /// ```
     #[must_use]
-    pub(crate) fn level_count(&self) -> usize {
+    pub(crate) const fn level_count(&self) -> usize {
         self.neighbours.len()
     }
 
@@ -71,7 +68,12 @@ impl Node {
     /// graph
     ///     .attach_node(NodeContext { node: 1, level: 0, sequence: 1 })
     ///     .expect("attach second node");
-    /// graph.node_mut(0).expect("node 0").neighbours_mut(0).push(1);
+    /// graph
+    ///     .node_mut(0)
+    ///     .expect("node 0")
+    ///     .neighbours_mut(0)
+    ///     .expect("node 0 must expose level 0")
+    ///     .push(1);
     /// let neighbours: Vec<_> = graph
     ///     .node(0)
     ///     .expect("node 0")
@@ -84,5 +86,20 @@ impl Node {
             .iter()
             .enumerate()
             .flat_map(|(level, ids)| ids.iter().copied().map(move |target| (level, target)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for node adjacency accessors.
+
+    use super::Node;
+
+    #[test]
+    fn unavailable_level_cannot_be_mutated() {
+        let mut node = Node::new(0, 0);
+
+        assert!(node.neighbours_mut(1).is_none());
+        assert!(node.neighbours(1).is_empty());
     }
 }

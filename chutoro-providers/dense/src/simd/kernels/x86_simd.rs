@@ -1,4 +1,4 @@
-//! x86 and x86_64 SIMD kernel implementations.
+//! x86 and `x86_64` SIMD kernel implementations.
 
 use super::super::lane_output_count;
 use super::{DensePointView, finalize_distance, squared_l2_tail};
@@ -8,6 +8,7 @@ use std::arch::x86 as x86_arch;
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64 as x86_arch;
 
+/// Implement an x86 SIMD squared-L2 accumulation kernel.
 macro_rules! impl_squared_l2_x86_simd {
     (
         $fn_name:ident,
@@ -23,6 +24,10 @@ macro_rules! impl_squared_l2_x86_simd {
     ) => {
         #[cfg(all(feature = $cargo_feature, any(target_arch = "x86", target_arch = "x86_64")))]
         #[target_feature(enable = $target_feature)]
+        #[expect(
+            clippy::float_arithmetic,
+            reason = "SIMD squared-L2 accumulation is the kernel's numerical operation"
+        )]
         pub(super) unsafe fn $fn_name(left: &[f32], right: &[f32]) -> f32 {
             let mut index = 0_usize;
             let mut acc = x86_arch::$zero();
@@ -47,6 +52,7 @@ macro_rules! impl_squared_l2_x86_simd {
     };
 }
 
+/// Implement an x86 SIMD query-to-points Euclidean kernel.
 macro_rules! impl_euclidean_distance_query_points_x86_simd {
     (
         $unsafe_fn:ident,
@@ -89,14 +95,17 @@ macro_rules! impl_euclidean_distance_query_points_x86_simd {
                 let mut lane = [0.0_f32; $lanes];
                 unsafe { x86_arch::$storeu(lane.as_mut_ptr(), acc) };
                 let remaining = lane_output_count(out.len(), offset, $lanes);
-                for lane_index in 0..remaining {
-                    out[offset + lane_index] = finalize_distance(lane[lane_index].sqrt());
+                for (output, lane_value) in
+                    out.iter_mut().skip(offset).zip(lane.iter()).take(remaining)
+                {
+                    *output = finalize_distance(lane_value.sqrt());
                 }
             }
         }
     };
 }
 
+/// Compute pairwise Euclidean distance with AVX-512 instructions.
 #[cfg(all(
     feature = "simd_avx512",
     any(target_arch = "x86", target_arch = "x86_64")
@@ -134,6 +143,7 @@ impl_euclidean_distance_query_points_x86_simd!(
     storeu = _mm512_storeu_ps,
 );
 
+/// Compute pairwise Euclidean distance with AVX2 instructions.
 #[cfg(all(
     feature = "simd_avx2",
     any(target_arch = "x86", target_arch = "x86_64")

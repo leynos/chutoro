@@ -8,7 +8,7 @@ mod trimming_fixtures;
 use super::*;
 use crate::hnsw::insert::{
     reconciliation::EdgeReconciler,
-    test_helpers::{TestHelpers, add_edge_if_missing, assert_no_edge},
+    test_helpers::{TestHelpers, add_edge_if_missing, assert_bidirectional_edge, assert_no_edge},
     types,
 };
 use crate::hnsw::{
@@ -53,58 +53,40 @@ fn attach_test_node(
     })
 }
 
-fn assert_bidirectional_edge(graph: &Graph, node_a: usize, node_b: usize, level: usize) {
-    let Some(a) = graph.node(node_a) else {
-        panic!("node {node_a} should be present");
+fn enforce_and_assert_bidirectional(graph: &mut Graph) {
+    let mut helpers = TestHelpers::new(graph);
+    helpers.enforce_bidirectional_all(2);
+    let violation = helpers.find_reciprocity_violation(2);
+
+    assert_eq!(violation, None, "healing must leave every edge reciprocal");
+}
+
+fn reverse_edge_eviction_fixture() -> Graph {
+    let Ok(mut graph) = setup_basic_graph(1, 4, 3) else {
+        panic!("params must be valid");
     };
-    let Some(b) = graph.node(node_b) else {
-        panic!("node {node_b} should be present");
-    };
+
+    assert!(insert_entry_node(&mut graph, 1).is_ok(), "insert entry");
     assert!(
-        a.level_count() > level && b.level_count() > level,
-        "both nodes must expose level {level}",
+        attach_test_node(&mut graph, 1, 1, 1).is_ok(),
+        "attach node 1"
     );
     assert!(
-        a.neighbours(level).contains(&node_b),
-        "expected edge {node_a}->{node_b} at level {level}",
+        attach_test_node(&mut graph, 2, 1, 2).is_ok(),
+        "attach node 2"
     );
-    assert!(
-        b.neighbours(level).contains(&node_a),
-        "expected edge {node_b}->{node_a} at level {level}",
-    );
+
+    // Forward edges: 0 -> 1, 2 -> 1; target (1) is at capacity and prefers 2.
+    add_edge_if_missing(&mut graph, 0, 1, 1);
+    add_edge_if_missing(&mut graph, 1, 2, 1);
+    add_edge_if_missing(&mut graph, 2, 1, 1);
+
+    graph
 }
 
 #[test]
 fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
-    let params = HnswParams::new(1, 4).expect("params must be valid");
-    let mut graph = Graph::with_capacity(params, 3);
-
-    graph
-        .insert_first(NodeContext {
-            node: 0,
-            level: 1,
-            sequence: 0,
-        })
-        .expect("insert entry");
-    graph
-        .attach_node(NodeContext {
-            node: 1,
-            level: 1,
-            sequence: 1,
-        })
-        .expect("attach node 1");
-    graph
-        .attach_node(NodeContext {
-            node: 2,
-            level: 1,
-            sequence: 2,
-        })
-        .expect("attach node 2");
-
-    // Forward edges: 0 -> 1, 2 -> 1; target (1) is at capacity and prefers 2.
-    graph.node_mut(0).unwrap().neighbours_mut(1).push(1);
-    graph.node_mut(1).unwrap().neighbours_mut(1).push(2);
-    graph.node_mut(2).unwrap().neighbours_mut(1).push(1);
+    let mut graph = reverse_edge_eviction_fixture();
 
     let mut reconciler = EdgeReconciler::new(&mut graph);
     let ensured = reconciler.ensure_reverse_edge(
@@ -121,16 +103,25 @@ fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
     // Apply deferred scrubs to remove the evicted node's forward edge.
     reconciler.apply_deferred_scrubs(1);
 
-    let target = reconciler.graph.node(1).unwrap();
+    let target = reconciler
+        .graph
+        .node(1)
+        .expect("target node must be present");
     assert_eq!(target.neighbours(1), &[0]);
 
-    let evicted = reconciler.graph.node(2).unwrap();
+    let evicted = reconciler
+        .graph
+        .node(2)
+        .expect("evicted node must be present");
     assert!(
         !evicted.neighbours(1).contains(&1),
         "evicted neighbour should lose its forward edge to maintain reciprocity",
     );
 
-    let origin = reconciler.graph.node(0).unwrap();
+    let origin = reconciler
+        .graph
+        .node(0)
+        .expect("entry node must be present");
     assert!(origin.neighbours(1).contains(&1));
 }
 
@@ -142,13 +133,13 @@ fn commit_inlines_reciprocity(
     #[case] seed_edge_level: usize,
     #[case] trim_override: Option<Vec<usize>>,
     #[case] new_node_level: usize,
-) -> Result<(), HnswError> {
-    let params = HnswParams::new(max_connections, 4)?;
+) {
+    let params = HnswParams::new(max_connections, 4).expect("params must be valid");
     let entry_level = new_node_level.max(seed_edge_level);
-    let mut graph = setup_basic_graph(max_connections, 4, 4)?;
-    insert_entry_node(&mut graph, entry_level)?;
+    let mut graph = setup_basic_graph(max_connections, 4, 4).expect("graph must build");
+    insert_entry_node(&mut graph, entry_level).expect("insert entry");
 
-    attach_test_node(&mut graph, 1, 0, 1)?;
+    attach_test_node(&mut graph, 1, 0, 1).expect("attach node 1");
 
     add_edge_if_missing(&mut graph, 0, 1, seed_edge_level);
 
@@ -170,17 +161,19 @@ fn commit_inlines_reciprocity(
     }
 
     let mut executor = InsertionExecutor::new(&mut graph);
-    let (prepared, trim_jobs) = executor.apply(
-        NodeContext {
-            node: 2,
-            level: new_node_level,
-            sequence: 2,
-        },
-        ApplyContext {
-            params: &params,
-            plan: InsertionPlan { layers },
-        },
-    )?;
+    let (prepared, trim_jobs) = executor
+        .apply(
+            NodeContext {
+                node: 2,
+                level: new_node_level,
+                sequence: 2,
+            },
+            ApplyContext {
+                params: &params,
+                plan: InsertionPlan { layers },
+            },
+        )
+        .expect("apply insertion plan");
 
     let trims: Vec<TrimResult> = trim_jobs
         .iter()
@@ -193,18 +186,16 @@ fn commit_inlines_reciprocity(
         })
         .collect();
 
-    executor.commit(prepared, trims)?;
+    executor.commit(prepared, trims).expect("commit insertion");
 
-    assert_bidirectional_edge(&graph, 0, 2, 0);
+    assert_bidirectional_edge!(&graph, 0, 2, 0);
     if new_node_level > 0 {
-        assert_bidirectional_edge(&graph, 0, 2, new_node_level);
+        assert_bidirectional_edge!(&graph, 0, 2, new_node_level);
         assert_no_edge(&graph, 0, 1, seed_edge_level);
         assert_no_edge(&graph, 1, 0, seed_edge_level);
     } else {
-        assert_bidirectional_edge(&graph, 0, 1, 0);
+        assert_bidirectional_edge!(&graph, 0, 1, 0);
     }
-
-    Ok(())
 }
 
 #[test]
@@ -215,9 +206,8 @@ fn enforce_bidirectional_all_adds_upper_layer_backlink() {
 
     add_edge_if_missing(&mut graph, 0, 1, 1);
 
-    TestHelpers::new(&mut graph).enforce_bidirectional_all(2);
-
-    assert_bidirectional_edge(&graph, 0, 1, 1);
+    enforce_and_assert_bidirectional(&mut graph);
+    assert_bidirectional_edge!(&graph, 0, 1, 1);
 }
 
 #[test]
@@ -229,8 +219,7 @@ fn enforce_bidirectional_all_removes_invalid_upper_edge() {
     // One-way edge exists at level 1, but target only has level 0.
     add_edge_if_missing(&mut graph, 0, 1, 1);
 
-    TestHelpers::new(&mut graph).enforce_bidirectional_all(2);
-
+    enforce_and_assert_bidirectional(&mut graph);
     assert_no_edge(&graph, 0, 1, 1);
     assert_no_edge(&graph, 1, 0, 1);
 }
@@ -242,22 +231,22 @@ fn trimming_eviction_restores_reciprocity(
     #[case] trimmed_neighbours: Vec<usize>,
     #[case] max_connections: usize,
 ) -> Result<(), TrimmingFixtureError> {
-    assert!(
-        !trimmed_neighbours.is_empty(),
-        "trimmed_neighbours must be non-empty to exercise eviction fallback",
-    );
+    if trimmed_neighbours.is_empty() {
+        return Err(TrimmingFixtureError::EmptyTrimmedNeighbours);
+    }
 
     let params = HnswParams::new(max_connections, max_connections * 4)?;
     let new_node_id = trimmed_neighbours
         .iter()
         .copied()
         .max()
-        .expect("trimmed_neighbours asserted as non-empty")
+        .ok_or(TrimmingFixtureError::EmptyTrimmedNeighbours)?
         .saturating_add(1);
     let reserve_id = new_node_id.saturating_add(1);
-    let evicted = *trimmed_neighbours
+    let evicted = trimmed_neighbours
         .last()
-        .expect("trimmed_neighbours asserted as non-empty");
+        .copied()
+        .ok_or(TrimmingFixtureError::EmptyTrimmedNeighbours)?;
 
     let mut graph = build_trimming_test_graph(&params, &trimmed_neighbours, reserve_id)?;
     setup_reciprocal_edges_with_reserve(&mut graph, &trimmed_neighbours, evicted, reserve_id)?;

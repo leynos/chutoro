@@ -13,6 +13,7 @@ use crate::{ChutoroError, CpuHnsw, DataSource, DataSourceError, HnswError, Resul
 use tracing::{debug, instrument, warn};
 
 impl<D: DataSource + Send + Sync> ClusteringSession<D> {
+    /// Build the data-source bounds error for an invalid append index.
     fn append_index_error(&self, index: usize) -> ChutoroError {
         ChutoroError::DataSource {
             data_source: Arc::from(self.source.name()),
@@ -20,73 +21,82 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         }
     }
 
+    /// Map an HNSW operation failure into this session's domain error.
     pub(super) fn map_hnsw_error(&self, error: HnswError) -> ChutoroError {
         crate::cpu_pipeline::map_cpu_hnsw_error(self.source.as_ref(), error)
     }
 
+    /// Convert an HNSW allocation failure into a structured session error.
+    fn map_index_allocation_error(error: &HnswError) -> ChutoroError {
+        let code = Arc::from(error.code().as_str());
+        let message = Arc::from(error.to_string());
+        warn!(
+            code = ?code,
+            message = %message,
+            "CpuHnsw index allocation failed; returning CpuHnswFailure"
+        );
+        ChutoroError::CpuHnswFailure { code, message }
+    }
+
+    /// Describe metrics emitted by session mutation and core-distance recompute.
+    #[cfg(feature = "metrics")]
+    fn describe_session_metrics() {
+        metrics::describe_counter!(
+            "chutoro.session.append.errors_total",
+            "Total number of append failures, labelled by reason."
+        );
+        metrics::describe_histogram!(
+            "chutoro.session.append.point_seconds",
+            metrics::Unit::Seconds,
+            "Per-point HNSW insertion latency in seconds."
+        );
+        metrics::describe_counter!(
+            "chutoro.session.harvested_edges",
+            metrics::Unit::Count,
+            "Total harvested candidate edges buffered for refresh."
+        );
+        metrics::describe_counter!(
+            "chutoro.session.core_distance.queries_total",
+            "Total HNSW searches used for session core-distance recompute."
+        );
+        metrics::describe_counter!(
+            "chutoro.session.core_distance.recomputed_existing",
+            "Total existing points recomputed after appearing near new points."
+        );
+        metrics::describe_counter!(
+            "chutoro.session.core_distance.appends_left_dirty_total",
+            "Recompute calls that started with one or more dirty core distances."
+        );
+        metrics::describe_counter!(
+            "chutoro.session.core_distance.errors_total",
+            "Total number of core-distance recompute failures, labelled by reason."
+        );
+        metrics::describe_histogram!(
+            "chutoro.session.core_distance.touched_existing_per_recompute",
+            metrics::Unit::Count,
+            "Existing-point fan-out touched by incremental core-distance recompute."
+        );
+        metrics::describe_histogram!(
+            "chutoro.session.core_distance.recompute_seconds",
+            metrics::Unit::Seconds,
+            "Session core-distance recompute duration in seconds."
+        );
+    }
+
+    /// Construct a session from an already attempted HNSW allocation.
     fn new_with_index_result(
         config: SessionConfig,
         source: Arc<D>,
-        index: std::result::Result<CpuHnsw, HnswError>,
+        index_result: std::result::Result<CpuHnsw, HnswError>,
     ) -> Result<Self> {
-        let index = index.map_err(|error| {
-            let code = Arc::from(error.code().as_str());
-            let message = Arc::from(error.to_string());
-            warn!(
-                code = ?code,
-                message = %message,
-                "CpuHnsw index allocation failed; returning CpuHnswFailure"
-            );
-            ChutoroError::CpuHnswFailure { code, message }
-        })?;
+        let index = index_result.map_err(|error| Self::map_index_allocation_error(&error))?;
         debug!(
             min_cluster_size = %config.min_cluster_size(),
             "ClusteringSession allocated: empty HNSW index ready"
         );
 
         #[cfg(feature = "metrics")]
-        {
-            metrics::describe_counter!(
-                "chutoro.session.append.errors_total",
-                "Total number of append failures, labelled by reason."
-            );
-            metrics::describe_histogram!(
-                "chutoro.session.append.point_seconds",
-                metrics::Unit::Seconds,
-                "Per-point HNSW insertion latency in seconds."
-            );
-            metrics::describe_counter!(
-                "chutoro.session.harvested_edges",
-                metrics::Unit::Count,
-                "Total harvested candidate edges buffered for refresh."
-            );
-            metrics::describe_counter!(
-                "chutoro.session.core_distance.queries_total",
-                "Total HNSW searches used for session core-distance recompute."
-            );
-            metrics::describe_counter!(
-                "chutoro.session.core_distance.recomputed_existing",
-                "Total existing points recomputed after appearing near new points."
-            );
-            metrics::describe_counter!(
-                "chutoro.session.core_distance.appends_left_dirty_total",
-                "Recompute calls that started with one or more dirty core distances."
-            );
-            metrics::describe_counter!(
-                "chutoro.session.core_distance.errors_total",
-                "Total number of core-distance recompute failures, labelled by reason."
-            );
-            metrics::describe_histogram!(
-                "chutoro.session.core_distance.touched_existing_per_recompute",
-                metrics::Unit::Count,
-                "Existing-point fan-out touched by incremental core-distance recompute."
-            );
-            metrics::describe_histogram!(
-                "chutoro.session.core_distance.recompute_seconds",
-                metrics::Unit::Seconds,
-                "Session core-distance recompute duration in seconds."
-            );
-        }
+        Self::describe_session_metrics();
 
         Ok(Self {
             config,
@@ -105,11 +115,13 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
         })
     }
 
+    /// Allocate an HNSW index at `capacity` and construct its session.
     fn new_with_capacity(config: SessionConfig, source: Arc<D>, capacity: usize) -> Result<Self> {
         let index = CpuHnsw::with_capacity(config.hnsw_params().clone(), capacity);
         Self::new_with_index_result(config, source, index)
     }
 
+    /// Construct an empty session using the source length as its capacity.
     pub(crate) fn new(config: SessionConfig, source: Arc<D>) -> Result<Self> {
         let capacity = source.len().max(1);
         Self::new_with_capacity(config, source, capacity)

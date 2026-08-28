@@ -47,7 +47,7 @@ pub(super) fn generate_uniform_dataset(rng: &mut SmallRng) -> GeneratedDataset {
     let dimension = rng.gen_range(2..=16);
     let len = rng.gen_range(8..=64);
     let bound = rng.gen_range(1.0..=10.0);
-    let dist = Uniform::new_inclusive(-bound, bound);
+    let dist = Uniform::new_inclusive(std::ops::Neg::neg(bound), bound);
     let vectors = (0..len)
         .map(|_| sample_vector(dimension, rng, dist))
         .collect();
@@ -78,7 +78,7 @@ pub(super) fn generate_clustered_dataset(rng: &mut SmallRng) -> GeneratedDataset
     let points_per_cluster = rng.gen_range(4..=12);
     let radius = rng.gen_range(0.05..=0.75);
     let dist_centroid = Uniform::new_inclusive(-12.0, 12.0);
-    let offset = Uniform::new_inclusive(-radius, radius);
+    let offset = Uniform::new_inclusive(std::ops::Neg::neg(radius), radius);
     let mut vectors = Vec::with_capacity(cluster_count * points_per_cluster);
     let mut clusters = Vec::with_capacity(cluster_count);
     for _ in 0..cluster_count {
@@ -87,7 +87,8 @@ pub(super) fn generate_clustered_dataset(rng: &mut SmallRng) -> GeneratedDataset
         for _ in 0..points_per_cluster {
             let mut point = centroid.clone();
             for coord in &mut point {
-                *coord += rng.sample(offset);
+                let displacement: f32 = rng.sample(offset);
+                *coord = displacement.mul_add(1.0, *coord);
             }
             vectors.push(point);
         }
@@ -163,7 +164,7 @@ pub(super) fn generate_duplicate_dataset(rng: &mut SmallRng) -> GeneratedDataset
     let dimension = rng.gen_range(2..=16);
     let base_len = rng.gen_range(6..=24);
     let bound = rng.gen_range(1.0..=8.0);
-    let dist = Uniform::new_inclusive(-bound, bound);
+    let dist = Uniform::new_inclusive(std::ops::Neg::neg(bound), bound);
     let mut vectors: Vec<Vec<f32>> = (0..base_len)
         .map(|_| sample_vector(dimension, rng, dist))
         .collect();
@@ -173,10 +174,12 @@ pub(super) fn generate_duplicate_dataset(rng: &mut SmallRng) -> GeneratedDataset
         let source_index = rng.gen_range(0..vectors.len());
         let copies = rng.gen_range(2..=4);
         let mut indices = vec![source_index];
-        let template = vectors[source_index].clone();
+        let Some(template) = vectors.get(source_index).cloned() else {
+            continue;
+        };
         for _ in 1..copies {
             vectors.push(template.clone());
-            indices.push(vectors.len() - 1);
+            indices.push(vectors.len().saturating_sub(1));
         }
         groups.push(indices);
     }
@@ -232,7 +235,7 @@ fn orthonormal_basis(
         let norm = l2_norm(&candidate);
         if norm > f32::EPSILON {
             for value in &mut candidate {
-                *value /= norm;
+                *value = std::ops::Div::div(*value, norm);
             }
             basis.push(candidate);
         } else {
@@ -263,7 +266,7 @@ fn gram_schmidt_step(vector: &mut [f32], basis: &[Vec<f32>]) {
     for base in basis {
         let projection = dot(vector, base);
         for (value, base_component) in vector.iter_mut().zip(base) {
-            *value -= projection * base_component;
+            *value = std::ops::Neg::neg(projection).mul_add(*base_component, *value);
         }
     }
 }
@@ -314,7 +317,7 @@ fn project_onto_manifold(origin: &[f32], basis: &[Vec<f32>], coeffs: &[f32]) -> 
     let mut point = origin.to_vec();
     for (basis_vec, coeff) in basis.iter().zip(coeffs) {
         for (value, basis_value) in point.iter_mut().zip(basis_vec) {
-            *value += coeff * basis_value;
+            *value = coeff.mul_add(*basis_value, *value);
         }
     }
     point
@@ -338,6 +341,7 @@ fn apply_noise(rng: &mut SmallRng, point: &mut [f32], noise_bound: f32) {
         return;
     }
     for value in point {
-        *value += rng.gen_range(-noise_bound..=noise_bound);
+        let noise = rng.gen_range(std::ops::Neg::neg(noise_bound)..=noise_bound);
+        *value = noise.mul_add(1.0, *value);
     }
 }

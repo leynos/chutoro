@@ -143,6 +143,11 @@ pub trait DataSource {
     }
 
     /// Computes the distance between two items.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataSourceError`] when either item cannot be read or the
+    /// distance cannot be computed.
     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError>;
 
     /// Computes the distances from `query` to every entry in `candidates`.
@@ -197,8 +202,8 @@ pub trait DataSource {
         }
         // Compute into a temp buffer to keep `out` unchanged on error.
         let mut tmp = vec![0.0_f32; pairs.len()];
-        for (idx, (i, j)) in pairs.iter().enumerate() {
-            tmp[idx] = self.distance(*i, *j)?;
+        for ((left, right), distance) in pairs.iter().copied().zip(tmp.iter_mut()) {
+            *distance = self.distance(left, right)?;
         }
         out.copy_from_slice(&tmp);
         Ok(())

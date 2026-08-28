@@ -84,17 +84,29 @@ pub use config::{SessionConfig, SessionRefreshPolicy};
 /// ```
 #[derive(Debug)]
 pub struct ClusteringSession<D: DataSource + Send + Sync> {
+    /// Validated clustering and refresh configuration.
     config: SessionConfig,
+    /// Incrementally maintained nearest-neighbour index.
     index: CpuHnsw,
+    /// Core-distance value for each appended point.
     core_distances: Vec<f32>,
+    /// Marks core-distance slots that require recomputation.
     dirty_core_distances: Vec<bool>,
+    /// Reserved MST edges for a future refresh snapshot.
     _mst_edges: Vec<MstEdge>,
+    /// Reserved historical candidate edges for a future refresh snapshot.
     _historical_edges: Vec<CandidateEdge>,
+    /// Candidate edges harvested since the prior refresh.
     pending_edges: Vec<CandidateEdge>,
+    /// Immutable labels published by a future refresh snapshot.
     _labels: Arc<Vec<usize>>,
+    /// Monotonic version of the published clustering snapshot.
     snapshot_version: u64,
+    /// Backing data source used by HNSW and clustering computations.
     source: Arc<D>,
+    /// Input length at the most recent refresh snapshot.
     _last_refresh_len: usize,
+    /// Monotonic clock used to measure optional session metrics.
     #[cfg(feature = "metrics")]
     clock: std::sync::Arc<dyn clock::MonotonicClock>,
 }
@@ -103,7 +115,7 @@ pub struct ClusteringSession<D: DataSource + Send + Sync> {
 // _DummySrc is Send by default (no non-Send fields); the compiler enforces the
 // bound at the call site of assert_send_sync.
 const _: fn() = || {
-    fn assert_send_sync<T: Send + Sync>() {}
+    const fn assert_send_sync<T: Send + Sync>() {}
 
     struct _DummySrc;
 
@@ -112,7 +124,7 @@ const _: fn() = || {
             0
         }
 
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "_dummy"
         }
 
@@ -131,7 +143,7 @@ const _: fn() = || {
 impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// Returns the validated configuration used by the session.
     #[must_use]
-    pub fn config(&self) -> &SessionConfig {
+    pub const fn config(&self) -> &SessionConfig {
         &self.config
     }
 
@@ -143,7 +155,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 
     /// Returns the most recent published snapshot version.
     #[must_use]
-    pub fn snapshot_version(&self) -> u64 {
+    pub const fn snapshot_version(&self) -> u64 {
         self.snapshot_version
     }
 

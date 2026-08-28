@@ -11,32 +11,48 @@ use std::{
 use chutoro_core::{DataSource, DataSourceError, MetricDescriptor};
 use thiserror::Error;
 
+/// Errors raised while collecting neighbour-scoring profile statistics.
 #[derive(Debug, Error)]
 pub(super) enum ProfilingError {
+    /// The profiling statistics mutex was poisoned.
     #[error("build profile stats mutex poisoned")]
     StatsPoisoned,
 }
 
+/// Snapshot of distance-call and batch-size statistics collected during a build.
 #[derive(Debug, Default)]
 pub(super) struct BuildProfileStats {
+    /// Number of batch-distance calls recorded.
     pub(super) batch_calls: usize,
+    /// Number of scalar-distance calls recorded.
     pub(super) scalar_calls: usize,
+    /// Total number of candidates passed to batch-distance calls.
     pub(super) total_batch_candidates: usize,
+    /// Total time spent scoring batches.
     pub(super) batch_scoring_time: Duration,
+    /// Candidate counts for each recorded batch-distance call.
     pub(super) batch_sizes: Vec<usize>,
 }
 
+/// Data-source wrapper that records distance-call statistics for a benchmark.
 #[derive(Debug)]
 pub(super) struct ProfilingSource<S> {
+    /// Wrapped data source.
     inner: S,
+    /// Number of batch-distance calls recorded.
     batch_calls: AtomicUsize,
+    /// Number of scalar-distance calls recorded.
     scalar_calls: AtomicUsize,
+    /// Total number of candidates passed to batch-distance calls.
     total_batch_candidates: AtomicUsize,
+    /// Total batch-scoring time in nanoseconds.
     batch_scoring_nanos: AtomicU64,
+    /// Candidate counts for recorded batch-distance calls.
     batch_sizes: Mutex<Vec<usize>>,
 }
 
 impl<S> ProfilingSource<S> {
+    /// Wrap a data source with empty profiling counters.
     pub(super) const fn new(inner: S) -> Self {
         Self {
             inner,
@@ -48,6 +64,7 @@ impl<S> ProfilingSource<S> {
         }
     }
 
+    /// Return the current counters and reset them for the next interval.
     pub(super) fn take_snapshot(&self) -> Result<BuildProfileStats, ProfilingError> {
         let mut batch_sizes = self
             .batch_sizes
@@ -64,6 +81,7 @@ impl<S> ProfilingSource<S> {
         })
     }
 
+    /// Record one batch-distance call and its scoring duration.
     fn record_batch(&self, candidate_count: usize, elapsed: Duration) {
         if let Ok(mut batch_sizes) = self.batch_sizes.lock() {
             batch_sizes.push(candidate_count);
@@ -73,6 +91,7 @@ impl<S> ProfilingSource<S> {
         }
     }
 
+    /// Record one scalar-distance call.
     fn record_scalar(&self) {
         saturating_add_usize(&self.scalar_calls, 1);
     }
@@ -125,6 +144,7 @@ pub fn duration_nanos(duration: Duration) -> u64 {
     u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
+/// Define an atomic counter increment that saturates at the integer maximum.
 macro_rules! saturating_add_atomic {
     ($function_name:ident, $atomic:ty, $value:ty, $doc:expr) => {
         #[doc = $doc]

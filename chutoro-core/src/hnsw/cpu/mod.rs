@@ -20,8 +20,7 @@ use std::{
     },
 };
 
-use rand::{SeedableRng, rngs::SmallRng};
-use rayon::prelude::*;
+use rand::rngs::SmallRng;
 
 use crate::DataSource;
 
@@ -34,22 +33,28 @@ use super::{
     invariants::HnswInvariantChecker,
     params::HnswParams,
     types::{CandidateEdge, EdgeHarvest, Neighbour},
-    validate::validate_distance,
 };
 
 use self::collectors::{EdgeCollector, NoopCollector, VecCollector};
-use self::rng::build_worker_rngs;
 
 /// Parallel CPU HNSW index coordinating insertions through two-phase locking.
 #[derive(Debug)]
 pub struct CpuHnsw {
+    /// Immutable HNSW configuration shared by insertions and searches.
     pub(super) params: HnswParams,
+    /// Concurrent graph protected by reader-writer locking.
     pub(super) graph: Arc<RwLock<Graph>>,
+    /// Fallback generator used outside Rayon worker threads.
     rng: Mutex<SmallRng>,
+    /// Per-worker generators that avoid contention during level sampling.
     worker_rngs: Vec<Mutex<SmallRng>>,
+    /// Shared cache of distances computed during graph operations.
     distance_cache: DistanceCache,
+    /// Serializes the graph-mutation phase of each insertion.
     insert_mutex: Mutex<()>,
+    /// Monotonic sequence assigning deterministic order to inserted nodes.
     next_sequence: AtomicU64,
+    /// Number of nodes currently committed to the graph.
     len: AtomicUsize,
 }
 
@@ -74,6 +79,11 @@ impl CpuHnsw {
     /// let index = CpuHnsw::build(&data, params).expect("build must succeed");
     /// index.insert(1, &data).expect("insert must succeed");
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HnswError`] when the source, graph, or insertion operation
+    /// cannot complete.
     pub fn insert<D: DataSource + Sync>(&self, node: usize, source: &D) -> Result<(), HnswError> {
         self.insert_with_collector(node, source, &mut NoopCollector)
     }
@@ -175,7 +185,7 @@ impl CpuHnsw {
 
         let cache = &self.distance_cache;
         let plan = self.read_graph(|graph| {
-            graph.insertion_planner().plan(PlanningInputs {
+            graph.insertion_planner().plan(&PlanningInputs {
                 ctx: node_ctx,
                 params: &self.params,
                 source,
@@ -229,6 +239,11 @@ impl CpuHnsw {
     ///     .expect("search must succeed");
     /// assert_eq!(neighbours[0].id, 0);
     /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HnswError`] when the graph is empty, its lock cannot be
+    /// acquired, or the source cannot provide a required distance.
     pub fn search<D: DataSource + Sync>(
         &self,
         source: &D,
@@ -285,7 +300,7 @@ impl CpuHnsw {
 
     /// Returns a handle for checking structural invariants.
     #[must_use]
-    pub fn invariants(&self) -> HnswInvariantChecker<'_> {
+    pub const fn invariants(&self) -> HnswInvariantChecker<'_> {
         HnswInvariantChecker::new(self)
     }
 }

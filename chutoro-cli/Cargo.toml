@@ -32,3 +32,6 @@ tempfile = "3.10"
 
 [dev-dependencies.chutoro-test-support]
 path = "../chutoro-test-support"
+
+[lints]
+workspace = true

@@ -93,8 +93,11 @@ impl BenchmarkRegressionMode {
 /// Fully resolved benchmark CI profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BenchmarkRegressionProfile {
+    /// CI policy selected from the configured override or supplied default.
     policy: BenchmarkCiPolicy,
+    /// GitHub event used to resolve the benchmark mode.
     event: BenchmarkCiEvent,
+    /// Resulting benchmark regression action.
     mode: BenchmarkRegressionMode,
 }
 
@@ -121,26 +124,28 @@ impl BenchmarkRegressionProfile {
         Self::load_with_lookup(default_policy, |key| env::var(key).ok())
     }
 
+    /// Resolve a profile through an injected environment lookup for tests.
     fn load_with_lookup<F>(default_policy: BenchmarkCiPolicy, lookup: F) -> Self
     where
         F: Fn(&'static str) -> Option<String>,
     {
-        let policy = match lookup(CHUTORO_BENCH_CI_POLICY_ENV_KEY) {
-            Some(raw) => match parse_policy(&raw) {
-                Ok(policy) => policy,
-                Err(reason) => {
-                    tracing::warn!(
-                        env = CHUTORO_BENCH_CI_POLICY_ENV_KEY,
-                        raw = %raw,
-                        reason = %reason,
-                        fallback_policy = default_policy.as_str(),
-                        "invalid benchmark CI policy override; using default",
-                    );
-                    default_policy
-                }
-            },
-            None => default_policy,
-        };
+        let policy =
+            lookup(CHUTORO_BENCH_CI_POLICY_ENV_KEY).map_or(
+                default_policy,
+                |raw| match parse_policy(&raw) {
+                    Ok(policy) => policy,
+                    Err(reason) => {
+                        tracing::warn!(
+                            env = CHUTORO_BENCH_CI_POLICY_ENV_KEY,
+                            raw = %raw,
+                            reason = %reason,
+                            fallback_policy = default_policy.as_str(),
+                            "invalid benchmark CI policy override; using default",
+                        );
+                        default_policy
+                    }
+                },
+            );
 
         let event = lookup(GITHUB_EVENT_NAME_ENV_KEY)
             .as_deref()
@@ -199,6 +204,10 @@ pub const fn resolve_regression_mode(
 ///
 /// Accepted values are case-insensitive and tolerate either hyphen or
 /// underscore separators.
+///
+/// # Errors
+///
+/// Returns an error when `raw` does not name a supported policy.
 pub fn parse_policy(raw: &str) -> Result<BenchmarkCiPolicy, String> {
     let normalized = raw.trim().to_ascii_lowercase();
 
@@ -210,7 +219,7 @@ pub fn parse_policy(raw: &str) -> Result<BenchmarkCiPolicy, String> {
         "always-baseline" | "always_baseline" | "always" | "all" | "1" => {
             Ok(BenchmarkCiPolicy::AlwaysBaseline)
         }
-        _ => Err("expected one of: disabled, scheduled-baseline, always-baseline".to_string()),
+        _ => Err("expected one of: disabled, scheduled-baseline, always-baseline".to_owned()),
     }
 }
 

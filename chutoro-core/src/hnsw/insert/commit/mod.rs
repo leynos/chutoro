@@ -12,15 +12,19 @@ use super::{
     types::{FinalisedUpdate, NewNodeContext, UpdateContext},
 };
 
+/// Final new-node neighbours and existing node-level lists touched by commit.
 pub(super) type ApplyUpdatesOutcome = (Vec<Vec<usize>>, Vec<(usize, usize)>);
 
+/// Applies finalised insertion updates to a mutable graph.
 #[derive(Debug)]
 pub(super) struct CommitApplicator<'graph> {
+    /// Graph that receives the committed adjacency-list changes.
     pub(super) graph: &'graph mut Graph,
 }
 
 impl<'graph> CommitApplicator<'graph> {
-    pub(super) fn new(graph: &'graph mut Graph) -> Self {
+    /// Bind a commit applicator to the graph receiving insertion updates.
+    pub(super) const fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
     }
 
@@ -46,7 +50,13 @@ impl<'graph> CommitApplicator<'graph> {
             .enumerate()
             .take(node_level + 1)
         {
-            let list = node_ref.neighbours_mut(level);
+            let list = node_ref.neighbours_mut(level).ok_or_else(|| {
+                HnswError::GraphInvariantViolation {
+                    message: format!(
+                        "node {node_id} lacks level {level} after attach during commit"
+                    ),
+                }
+            })?;
             list.clear();
             list.extend(neighbours);
         }
@@ -90,7 +100,14 @@ impl<'graph> CommitApplicator<'graph> {
                 .ok_or_else(|| HnswError::GraphInvariantViolation {
                     message: format!("node {} missing during insertion commit", update.node),
                 })?;
-            let list = node_ref.neighbours_mut(level);
+            let list = node_ref.neighbours_mut(level).ok_or_else(|| {
+                HnswError::GraphInvariantViolation {
+                    message: format!(
+                        "node {} lacks level {level} during insertion commit",
+                        update.node
+                    ),
+                }
+            })?;
             list.clear();
             list.extend(next);
 
@@ -114,7 +131,7 @@ impl<'graph> CommitApplicator<'graph> {
     /// neighbour lists.
     ///
     /// Uses the graph's node iterator to avoid scanning empty capacity slots,
-    /// making this O(populated_nodes × levels) rather than O(capacity × levels).
+    /// making this `O(populated_nodes)` × levels rather than O(capacity × levels).
     fn compute_reciprocated_edges(&self, new_node: NewNodeContext) -> Vec<Vec<usize>> {
         let mut reciprocated: Vec<Vec<usize>> = vec![Vec::new(); new_node.level + 1];
         for (node_id, node) in self.graph.nodes_iter() {
@@ -127,21 +144,17 @@ impl<'graph> CommitApplicator<'graph> {
     }
 
     /// Collects edges from a single existing node that point to the new node.
-    #[expect(
-        clippy::needless_range_loop,
-        reason = "Level indices map to reciprocated bucket indices"
-    )]
     fn collect_edges_to_new_node(
         node_id: usize,
         node: &crate::hnsw::node::Node,
         new_node: &NewNodeContext,
         reciprocated: &mut [Vec<usize>],
     ) {
-        for level in 0..=new_node.level {
+        for (level, reciprocated_nodes) in reciprocated.iter_mut().enumerate() {
             let has_edge =
                 level < node.level_count() && node.neighbours(level).contains(&new_node.id);
             if has_edge {
-                reciprocated[level].push(node_id);
+                reciprocated_nodes.push(node_id);
             }
         }
     }

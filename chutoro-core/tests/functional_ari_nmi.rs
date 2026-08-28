@@ -5,6 +5,7 @@
 //! close to an exact baseline computed from the full mutual-reachability graph
 //! on small public datasets.
 
+use std::cmp::Ordering;
 use std::error::Error;
 use std::io;
 use std::num::NonZeroUsize;
@@ -17,26 +18,55 @@ use chutoro_core::{
     parallel_kruskal,
 };
 
-fn parse_csv_rows(input: &str, dims: usize) -> Vec<Vec<f32>> {
+/// Absolute tolerance for clustering-quality values derived from floating-point calculations.
+const QUALITY_SCORE_TOLERANCE: f64 = 1.0e-12_f64;
+
+#[expect(
+    clippy::float_arithmetic,
+    reason = "derived clustering-quality checks need an absolute delta"
+)]
+fn assert_quality_score_is_one(score: f64) {
+    let delta = (score - 1.0_f64).abs();
+    assert!(
+        delta <= QUALITY_SCORE_TOLERANCE,
+        "score={score}, delta={delta}, tolerance={QUALITY_SCORE_TOLERANCE}"
+    );
+}
+
+/// Parses `dims` comma-separated floats from each non-blank line of `input`.
+///
+/// # Errors
+///
+/// Returns [`io::Error`] when a line has too few columns or a column does not
+/// parse as `f32`, so callers surface malformed fixture data as a test failure
+/// rather than an opaque panic inside shared setup.
+fn parse_csv_rows(input: &str, dims: usize) -> Result<Vec<Vec<f32>>, io::Error> {
     input
         .lines()
         .filter(|line| !line.trim().is_empty())
-        .map(|line| {
-            let mut parts = line.split(',');
-            let mut row = Vec::with_capacity(dims);
-            for _ in 0..dims {
-                let Some(part) = parts.next() else {
-                    panic!("missing column in line: {line}");
-                };
-                let value = match part.parse::<f32>() {
-                    Ok(value) => value,
-                    Err(err) => panic!("failed to parse float in line '{line}': {err}"),
-                };
-                row.push(value);
-            }
-            row
-        })
+        .map(|line| parse_csv_row(line, dims))
         .collect()
+}
+
+fn parse_csv_row(line: &str, dims: usize) -> Result<Vec<f32>, io::Error> {
+    let mut parts = line.split(',');
+    let mut row = Vec::with_capacity(dims);
+    for _ in 0..dims {
+        let part = parts.next().ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("missing column in line: {line}"),
+            )
+        })?;
+        let value = part.parse::<f32>().map_err(|err| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to parse float in line '{line}': {err}"),
+            )
+        })?;
+        row.push(value);
+    }
+    Ok(row)
 }
 
 #[derive(Clone, Debug)]
@@ -54,7 +84,10 @@ impl DenseVectors {
     }
 
     fn dim(&self) -> usize {
-        self.rows.first().map(|row| row.len()).unwrap_or_default()
+        self.rows
+            .first()
+            .map(std::vec::Vec::len)
+            .unwrap_or_default()
     }
 }
 
@@ -63,7 +96,7 @@ impl DataSource for DenseVectors {
         self.rows.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "dense-vectors"
     }
 
@@ -91,8 +124,8 @@ impl DataSource for DenseVectors {
         }
         let mut sum = 0.0_f32;
         for (&a, &b) in left.iter().zip(right.iter()) {
-            let diff = a - b;
-            sum += diff * diff;
+            let difference = a.mul_add(1.0, std::ops::Neg::neg(b));
+            sum = difference.mul_add(difference, sum);
         }
         Ok(sum.sqrt())
     }
@@ -112,7 +145,7 @@ fn core_distances_exact<D: DataSource>(
             }
             distances.push(source.distance(i, j)?);
         }
-        distances.sort_by(|a, b| a.total_cmp(b));
+        distances.sort_by(f32::total_cmp);
         *core_value = distances
             // Select the k-th nearest neighbour distance as the core distance
             // (0-indexed, so `k-1`), matching HDBSCAN's definition.
@@ -134,7 +167,13 @@ fn complete_mutual_reachability_edges<D: DataSource>(
     for i in 0..n {
         for j in (i + 1)..n {
             let dist = source.distance(i, j)?;
-            let weight = dist.max(core[i]).max(core[j]);
+            let left_core_distance = *core.get(i).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "missing left core distance")
+            })?;
+            let right_core_distance = *core.get(j).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "missing right core distance")
+            })?;
+            let weight = dist.max(left_core_distance).max(right_core_distance);
             edges.push(CandidateEdge::new(i, j, weight, seq));
             seq += 1;
         }
@@ -176,27 +215,33 @@ fn approx_pipeline<D: DataSource + Sync>(
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "ef must be non-zero"))?;
 
     let mut core_distances = Vec::with_capacity(items);
+    let core_neighbour_index = min_cluster_size.get().saturating_sub(1);
     for point in 0..items {
         let neighbours = index.search(source, point, ef)?;
         let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
-        let core = if others.len() >= min_cluster_size.get() {
-            others[min_cluster_size.get() - 1].distance
-        } else {
-            others.last().map(|n| n.distance).unwrap_or(0.0)
-        };
+        let core = others.get(core_neighbour_index).map_or_else(
+            || others.last().map_or(0.0, |neighbour| neighbour.distance),
+            |neighbour| neighbour.distance,
+        );
         core_distances.push(core);
     }
 
     let mutual_edges: Vec<CandidateEdge> = harvested
         .iter()
-        .map(|edge| {
+        .map(|edge| -> Result<CandidateEdge, io::Error> {
             let left = edge.source();
             let right = edge.target();
             let dist = edge.distance();
-            let weight = dist.max(core_distances[left]).max(core_distances[right]);
-            CandidateEdge::new(left, right, weight, edge.sequence())
+            let left_core_distance = *core_distances.get(left).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "missing left core distance")
+            })?;
+            let right_core_distance = *core_distances.get(right).ok_or_else(|| {
+                io::Error::new(io::ErrorKind::InvalidInput, "missing right core distance")
+            })?;
+            let weight = dist.max(left_core_distance).max(right_core_distance);
+            Ok(CandidateEdge::new(left, right, weight, edge.sequence()))
         })
-        .collect();
+        .collect::<Result<_, _>>()?;
     let mutual_harvest = EdgeHarvest::new(mutual_edges);
 
     let forest = parallel_kruskal(items, &mutual_harvest)?;
@@ -211,32 +256,27 @@ fn approx_pipeline<D: DataSource + Sync>(
 fn nmi_is_one_when_both_partitions_have_single_cluster() {
     let labels = vec![0, 0, 0, 0];
     assert_eq!(
-        normalized_mutual_information(&labels, &labels).expect("NMI should compute"),
-        1.0
+        normalized_mutual_information(&labels, &labels)
+            .expect("NMI should compute")
+            .total_cmp(&1.0),
+        Ordering::Equal
     );
 }
 
 #[test]
 fn metrics_identity_and_permutation_are_one() {
     let labels = vec![0, 0, 1, 1, 2, 2];
-    assert_eq!(
-        adjusted_rand_index(&labels, &labels).expect("ARI should compute"),
-        1.0
-    );
-    assert!(
-        (normalized_mutual_information(&labels, &labels).expect("NMI should compute") - 1.0).abs()
-            < 1e-12
+    assert_quality_score_is_one(adjusted_rand_index(&labels, &labels).expect("ARI should compute"));
+    assert_quality_score_is_one(
+        normalized_mutual_information(&labels, &labels).expect("NMI should compute"),
     );
 
     let permuted = vec![1, 1, 2, 2, 0, 0];
-    assert_eq!(
+    assert_quality_score_is_one(
         adjusted_rand_index(&labels, &permuted).expect("ARI should compute"),
-        1.0
     );
-    assert!(
-        (normalized_mutual_information(&labels, &permuted).expect("NMI should compute") - 1.0)
-            .abs()
-            < 1e-12
+    assert_quality_score_is_one(
+        normalized_mutual_information(&labels, &permuted).expect("NMI should compute"),
     );
 }
 
@@ -263,7 +303,7 @@ struct Dataset {
     data: &'static str,
 }
 
-fn iris_dataset() -> Dataset {
+const fn iris_dataset() -> Dataset {
     Dataset {
         name: "iris",
         dims: 4,
@@ -271,7 +311,7 @@ fn iris_dataset() -> Dataset {
     }
 }
 
-fn ruspini_dataset() -> Dataset {
+const fn ruspini_dataset() -> Dataset {
     Dataset {
         name: "ruspini",
         dims: 2,
@@ -295,15 +335,21 @@ fn ruspini_dataset() -> Dataset {
 #[case(ruspini_dataset(), 4, 0.95, 0.95)]
 fn hnsw_pipeline_matches_exact_baseline(
     #[case] dataset: Dataset,
-    #[case] min_cluster_size: usize,
+    #[case] minimum_cluster_size: usize,
     #[case] min_ari: f64,
     #[case] min_nmi: f64,
 ) -> Result<(), Box<dyn Error>> {
-    let rows = parse_csv_rows(dataset.data, dataset.dims);
+    let rows = parse_csv_rows(dataset.data, dataset.dims)?;
     let source = DenseVectors::new("euclidean", rows);
-    assert_eq!(source.dim(), dataset.dims);
+    if source.dim() != dataset.dims {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "parsed dataset does not match declared dimensionality",
+        )
+        .into());
+    }
 
-    let min_cluster_size = NonZeroUsize::new(min_cluster_size).ok_or_else(|| {
+    let min_cluster_size = NonZeroUsize::new(minimum_cluster_size).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
             "min_cluster_size must be non-zero",
@@ -316,23 +362,41 @@ fn hnsw_pipeline_matches_exact_baseline(
     let ari = adjusted_rand_index(&exact, &approx).expect("ARI should compute");
     let nmi = normalized_mutual_information(&exact, &approx).expect("NMI should compute");
 
-    assert!(
-        ari >= min_ari,
-        "dataset={} ARI {} < {} (clusters exact={}, approx={})",
-        dataset.name,
-        ari,
-        min_ari,
-        exact.iter().copied().max().unwrap_or(0) + 1,
-        approx.iter().copied().max().unwrap_or(0) + 1
-    );
-    assert!(
-        nmi >= min_nmi,
-        "dataset={} NMI {} < {} (clusters exact={}, approx={})",
-        dataset.name,
-        nmi,
-        min_nmi,
-        exact.iter().copied().max().unwrap_or(0) + 1,
-        approx.iter().copied().max().unwrap_or(0) + 1
-    );
+    let exact_cluster_count = exact.iter().copied().max().unwrap_or(0).saturating_add(1);
+    let approximate_cluster_count = approx.iter().copied().max().unwrap_or(0).saturating_add(1);
+    if ari < min_ari {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                concat!(
+                    "dataset={} ARI {ari} < {min_ari} (clusters exact={exact_cluster_count}, ",
+                    "approx={approximate_cluster_count})"
+                ),
+                dataset.name,
+                ari = ari,
+                min_ari = min_ari,
+                exact_cluster_count = exact_cluster_count,
+                approximate_cluster_count = approximate_cluster_count,
+            ),
+        )
+        .into());
+    }
+    if nmi < min_nmi {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                concat!(
+                    "dataset={} NMI {nmi} < {min_nmi} (clusters exact={exact_cluster_count}, ",
+                    "approx={approximate_cluster_count})"
+                ),
+                dataset.name,
+                nmi = nmi,
+                min_nmi = min_nmi,
+                exact_cluster_count = exact_cluster_count,
+                approximate_cluster_count = approximate_cluster_count,
+            ),
+        )
+        .into());
+    }
     Ok(())
 }

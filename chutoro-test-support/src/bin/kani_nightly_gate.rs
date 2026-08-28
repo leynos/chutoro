@@ -20,21 +20,24 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     emit_github_output(should_run, reason)?;
 
-    println!("should_run={should_run}");
-    println!("reason={reason}");
+    let mut stdout = std::io::stdout().lock();
+    writeln!(stdout, "should_run={should_run}")?;
+    writeln!(stdout, "reason={reason}")?;
 
     Ok(())
 }
 
+/// Read the optional override that forces the Kani job to run.
 fn read_force_flag() -> Result<bool, Box<dyn Error>> {
     let raw = read_optional_env("CHUTORO_KANI_FORCE")?.unwrap_or_default();
     if raw.is_empty() {
         return Ok(false);
     }
 
-    parse_bool(&raw).map_err(|message| message.into())
+    parse_bool(&raw).map_err(Into::into)
 }
 
+/// Parse one of the gate's accepted boolean environment value spellings.
 fn parse_bool(value: &str) -> Result<bool, String> {
     match value.trim().to_ascii_lowercase().as_str() {
         "1" | "true" | "yes" | "on" => Ok(true),
@@ -43,6 +46,7 @@ fn parse_bool(value: &str) -> Result<bool, String> {
     }
 }
 
+/// Read the main commit timestamp from an override or the local Git history.
 fn read_commit_epoch() -> Result<u64, Box<dyn Error>> {
     if let Some(value) = read_optional_env("CHUTORO_KANI_COMMIT_EPOCH")? {
         return Ok(value.parse::<u64>()?);
@@ -64,6 +68,7 @@ fn read_commit_epoch() -> Result<u64, Box<dyn Error>> {
     Ok(trimmed.parse::<u64>()?)
 }
 
+/// Read the current timestamp from an override or the system clock.
 fn read_now_epoch() -> Result<u64, Box<dyn Error>> {
     if let Some(value) = read_optional_env("CHUTORO_KANI_NOW_EPOCH")? {
         return Ok(value.parse::<u64>()?);
@@ -73,6 +78,7 @@ fn read_now_epoch() -> Result<u64, Box<dyn Error>> {
     Ok(duration.as_secs())
 }
 
+/// Append the Kani decision to GitHub's workflow output file.
 fn emit_github_output(should_run: bool, reason: &str) -> Result<(), Box<dyn Error>> {
     let output_path = read_optional_env("GITHUB_OUTPUT")?.unwrap_or_default();
     if output_path.is_empty() {
@@ -90,6 +96,7 @@ fn emit_github_output(should_run: bool, reason: &str) -> Result<(), Box<dyn Erro
     Ok(())
 }
 
+/// Write one GitHub output value using a delimiter when it contains newlines.
 fn write_github_output_value(
     file: &mut impl Write,
     key: &str,
@@ -112,6 +119,7 @@ fn write_github_output_value(
     Ok(())
 }
 
+/// Return the optional environment value named `name`.
 fn read_optional_env(name: &str) -> Result<Option<String>, Box<dyn Error>> {
     match env::var(name) {
         Ok(value) => Ok(Some(value)),

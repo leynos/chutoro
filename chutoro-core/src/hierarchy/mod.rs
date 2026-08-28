@@ -31,19 +31,20 @@ use self::single_linkage::{CondensedForest, extract_flat_labels};
 /// Configuration for hierarchy extraction.
 #[derive(Debug, Clone, Copy)]
 pub struct HierarchyConfig {
+    /// Smallest population retained as a cluster during condensation.
     min_cluster_size: NonZeroUsize,
 }
 
 impl HierarchyConfig {
     /// Creates a configuration using the provided `min_cluster_size`.
     #[must_use]
-    pub fn new(min_cluster_size: NonZeroUsize) -> Self {
+    pub const fn new(min_cluster_size: NonZeroUsize) -> Self {
         Self { min_cluster_size }
     }
 
     /// Returns the minimum cluster size.
     #[must_use]
-    pub fn min_cluster_size(&self) -> NonZeroUsize {
+    pub const fn min_cluster_size(&self) -> NonZeroUsize {
         self.min_cluster_size
     }
 }

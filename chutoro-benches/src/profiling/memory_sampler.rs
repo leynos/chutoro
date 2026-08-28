@@ -49,6 +49,7 @@ pub fn measure_peak_resident_set_size<T>(
     }
 }
 
+/// Measure peak resident-set size on Linux while the operation runs.
 #[cfg(target_os = "linux")]
 fn measure_peak_resident_set_size_linux<T>(
     sample_interval: Duration,
@@ -106,11 +107,13 @@ fn measure_peak_resident_set_size_linux<T>(
     ))
 }
 
+/// Compute the non-negative peak resident-set increase from a baseline.
 #[cfg(target_os = "linux")]
 const fn compute_peak_rss_delta_bytes(starting_rss_bytes: u64, peak_rss_bytes: u64) -> u64 {
     peak_rss_bytes.saturating_sub(starting_rss_bytes)
 }
 
+/// Store the first sampler error observed by the background thread.
 #[cfg(target_os = "linux")]
 fn store_background_error(error_slot: &Mutex<Option<ProfilingError>>, error: ProfilingError) {
     if let Ok(mut guard) = error_slot.lock()
@@ -120,12 +123,14 @@ fn store_background_error(error_slot: &Mutex<Option<ProfilingError>>, error: Pro
     }
 }
 
+/// Read the current process resident-set size from `/proc/self/status`.
 #[cfg(target_os = "linux")]
 fn read_vm_rss_bytes() -> Result<u64, ProfilingError> {
     let status = fs::read_to_string("/proc/self/status")?;
     parse_vm_rss_bytes(&status)
 }
 
+/// Parse the `VmRSS` field from process status text.
 #[cfg(target_os = "linux")]
 fn parse_vm_rss_bytes(status: &str) -> Result<u64, ProfilingError> {
     let field = "VmRSS";
@@ -136,6 +141,7 @@ fn parse_vm_rss_bytes(status: &str) -> Result<u64, ProfilingError> {
     parse_kibibyte_proc_field(line, field)
 }
 
+/// Parse a numeric `/proc` field expressed in kibibytes.
 #[cfg(target_os = "linux")]
 fn parse_kibibyte_proc_field(line: &str, field: &'static str) -> Result<u64, ProfilingError> {
     let mut parts = line.split_whitespace();

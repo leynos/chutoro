@@ -33,10 +33,14 @@ pub enum ClusteringQualityError {
     },
 }
 
+/// Per-cluster item counts for one partition.
 type ClusterCounts = HashMap<usize, usize>;
+/// Counts for each pair of labels across two partitions.
 type PairCounts = HashMap<(usize, usize), usize>;
+/// Marginal and pair counts built from two label sequences.
 type ContingencyTableBuild = (ClusterCounts, ClusterCounts, PairCounts);
 
+/// Validate matching label lengths and return their shared item count.
 const fn validate_label_lengths(
     ground_truth: &[usize],
     predicted: &[usize],
@@ -50,6 +54,7 @@ const fn validate_label_lengths(
     Ok(ground_truth.len())
 }
 
+/// Build marginal and pair counts for two equally sized label sequences.
 fn build_contingency_table(left: &[usize], right: &[usize]) -> ContingencyTableBuild {
     let mut left_counts = HashMap::<usize, usize>::new();
     let mut right_counts = HashMap::<usize, usize>::new();
@@ -64,6 +69,7 @@ fn build_contingency_table(left: &[usize], right: &[usize]) -> ContingencyTableB
     (left_counts, right_counts, contingency)
 }
 
+/// Return the number of unordered pairs selected from `value` items.
 #[expect(
     clippy::cast_precision_loss,
     clippy::float_arithmetic,
@@ -74,6 +80,7 @@ fn comb2(value: usize) -> f64 {
     as_float * (as_float - 1.0) / 2.0
 }
 
+/// Compute ARI from a precomputed contingency table.
 #[expect(
     clippy::float_arithmetic,
     reason = "ARI definition requires floating-point arithmetic."
@@ -106,6 +113,7 @@ fn adjusted_rand_index_from_contingency(
     }
 }
 
+/// Compute mutual information from a precomputed contingency table.
 #[expect(
     clippy::cast_precision_loss,
     clippy::float_arithmetic,
@@ -137,6 +145,7 @@ fn mutual_information_from_contingency(
     Ok(mutual_information)
 }
 
+/// Compute partition entropy from per-cluster item counts.
 #[expect(
     clippy::cast_precision_loss,
     clippy::float_arithmetic,
@@ -152,13 +161,18 @@ fn entropy(counts: &ClusterCounts, item_count: usize) -> f64 {
     entropy
 }
 
+/// Classifies zero-entropy combinations before NMI normalisation.
 #[derive(Clone, Copy)]
 enum NmiEntropyRegime {
+    /// Both partitions have zero entropy.
     Both,
+    /// Exactly one partition has zero entropy.
     One,
+    /// Neither partition has zero entropy.
     Neither,
 }
 
+/// Categorise the two entropy values used to normalise mutual information.
 fn classify_nmi_entropy_regime(left_entropy: f64, right_entropy: f64) -> NmiEntropyRegime {
     if left_entropy == 0.0 && right_entropy == 0.0 {
         NmiEntropyRegime::Both
@@ -169,6 +183,7 @@ fn classify_nmi_entropy_regime(left_entropy: f64, right_entropy: f64) -> NmiEntr
     }
 }
 
+/// Compute NMI from a precomputed contingency table.
 #[expect(
     clippy::float_arithmetic,
     reason = "NMI definition requires floating-point arithmetic."

@@ -48,7 +48,7 @@ pub(super) fn run_concurrency_safety_property(fixture: &MstFixture) -> TestCaseR
         })?;
 
         let run_weight = total_weight_f64(result.edges());
-        if (run_weight - baseline_weight).abs() > f64::EPSILON {
+        if !run_weight.total_cmp(&baseline_weight).is_eq() {
             return Err(TestCaseError::fail(format!(
                 "run {run}: total weight diverged — baseline={baseline_weight}, \
                  run={run_weight} (distribution={:?}, nodes={}, edges={})",

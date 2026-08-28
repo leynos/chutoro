@@ -7,8 +7,11 @@ use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+/// Compressed MNIST training-image filename.
 const TRAIN_IMAGES_FILE: &str = "train-images-idx3-ubyte.gz";
+/// Compressed MNIST test-image filename.
 const TEST_IMAGES_FILE: &str = "t10k-images-idx3-ubyte.gz";
+/// IDX magic value identifying an image file.
 const IDX_IMAGE_MAGIC: u32 = 2_051;
 /// Number of MNIST images expected from train + test files.
 pub const MNIST_POINT_COUNT: usize = 70_000;
@@ -42,6 +45,7 @@ pub trait MnistDownloadClient {
     fn download_bytes(&self, url: &str) -> Result<Vec<u8>, SyntheticError>;
 }
 
+/// `ureq`-backed client used by the public MNIST loader.
 struct UreqMnistDownloadClient;
 
 impl MnistDownloadClient for UreqMnistDownloadClient {
@@ -74,6 +78,7 @@ impl SyntheticSource {
     }
 }
 
+/// Load and validate MNIST data through the supplied download client.
 fn load_mnist_with_client(
     config: &MnistConfig,
     client: &dyn MnistDownloadClient,
@@ -118,6 +123,7 @@ fn load_mnist_with_client(
     SyntheticSource::from_parts("mnist", data, point_count, dimensions)
 }
 
+/// Read a cached archive or download and atomically cache it.
 fn ensure_cached_bytes(
     path: &Path,
     url: &str,
@@ -132,6 +138,7 @@ fn ensure_cached_bytes(
     Ok(payload)
 }
 
+/// Write downloaded bytes through a temporary sibling before renaming them.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), SyntheticError> {
     let mut part_path = path.to_path_buf();
     part_path.set_extension("part");
@@ -143,10 +150,12 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), SyntheticError> {
     Ok(())
 }
 
+/// Build the download URL for one MNIST archive.
 fn file_url(config: &MnistConfig, file_name: &str) -> String {
     format!("{}/{}", config.base_url.trim_end_matches('/'), file_name)
 }
 
+/// Resolve the conventional local cache directory for MNIST archives.
 fn default_cache_dir() -> PathBuf {
     if let Some(explicit) = env::var_os("CHUTORO_MNIST_CACHE_DIR") {
         return PathBuf::from(explicit);
@@ -166,13 +175,18 @@ fn default_cache_dir() -> PathBuf {
     env::temp_dir().join("chutoro").join("mnist")
 }
 
+/// Parsed metadata and flattened pixel data for one MNIST archive.
 #[derive(Debug)]
 struct ParsedImages {
+    /// Flattened pixel values from all decoded images.
     data: Vec<f32>,
+    /// Number of decoded images.
     count: usize,
+    /// Number of pixels in each image.
     dimensions: usize,
 }
 
+/// Decode and validate one gzip-compressed IDX image archive.
 fn parse_idx_images(path: &Path, gzipped_bytes: &[u8]) -> Result<ParsedImages, SyntheticError> {
     let decoded = gunzip_bytes(path, gzipped_bytes)?;
     if decoded.len() < 16 {
@@ -223,6 +237,7 @@ fn parse_idx_images(path: &Path, gzipped_bytes: &[u8]) -> Result<ParsedImages, S
     })
 }
 
+/// Decompress an MNIST archive and map decoder failures to domain errors.
 fn gunzip_bytes(path: &Path, bytes: &[u8]) -> Result<Vec<u8>, SyntheticError> {
     let mut gzip_decoder = GzDecoder::new(bytes);
     let mut decompressed = Vec::new();
@@ -235,6 +250,7 @@ fn gunzip_bytes(path: &Path, bytes: &[u8]) -> Result<Vec<u8>, SyntheticError> {
     Ok(decompressed)
 }
 
+/// Read one four-byte big-endian IDX header field.
 fn read_u32_be(slice: &[u8], path: &Path, field: &str) -> Result<u32, SyntheticError> {
     if slice.len() != 4 {
         return Err(invalid_mnist(
@@ -249,6 +265,7 @@ fn read_u32_be(slice: &[u8], path: &Path, field: &str) -> Result<u32, SyntheticE
     Ok(value)
 }
 
+/// Borrow a header range or report the missing IDX bytes.
 fn slice_at<'a>(
     data: &'a [u8],
     start: usize,
@@ -259,6 +276,7 @@ fn slice_at<'a>(
         .ok_or_else(|| invalid_mnist(path, &format!("missing bytes for range {start}..{end}")))
 }
 
+/// Construct an invalid-MNIST error with the offending path and reason.
 fn invalid_mnist(path: &Path, message: &str) -> SyntheticError {
     SyntheticError::InvalidMnistFile {
         path: path.to_path_buf(),

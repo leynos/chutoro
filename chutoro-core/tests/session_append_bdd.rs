@@ -21,12 +21,14 @@ use chutoro_core::{
 #[derive(Debug)]
 enum BddStepError {
     Parse(ParseIntError),
+    Session(ChutoroError),
 }
 
 impl std::fmt::Display for BddStepError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Parse(error) => write!(formatter, "invalid BDD index list: {error}"),
+            Self::Session(error) => write!(formatter, "failed to create BDD session: {error}"),
         }
     }
 }
@@ -36,6 +38,12 @@ impl std::error::Error for BddStepError {}
 impl From<ParseIntError> for BddStepError {
     fn from(error: ParseIntError) -> Self {
         Self::Parse(error)
+    }
+}
+
+impl From<ChutoroError> for BddStepError {
+    fn from(error: ChutoroError) -> Self {
+        Self::Session(error)
     }
 }
 
@@ -55,7 +63,7 @@ impl DataSource for SessionAppendSource {
         self.values.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "session-append-bdd"
     }
 
@@ -68,7 +76,7 @@ impl DataSource for SessionAppendSource {
             .values
             .get(j)
             .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((left - right).abs())
+        Ok(left.mul_add(1.0, std::ops::Neg::neg(*right)).abs())
     }
 
     fn metric_descriptor(&self) -> MetricDescriptor {
@@ -77,19 +85,18 @@ impl DataSource for SessionAppendSource {
 }
 
 #[fixture]
-fn world() -> SessionAppendWorld {
+fn world() -> StepResult<SessionAppendWorld, BddStepError> {
     let source = Arc::new(SessionAppendSource {
         values: vec![0.0, 1.0, 4.0],
     });
     let session = ChutoroBuilder::new()
         .with_min_cluster_size(1)
-        .build_session(source)
-        .expect("behavioural session fixture must build");
+        .build_session(source)?;
 
-    SessionAppendWorld {
+    Ok(SessionAppendWorld {
         session,
         last_error: None,
-    }
+    })
 }
 
 #[given("an empty clustering session")]
@@ -152,34 +159,58 @@ fn source_index_has_core_distance(world: &SessionAppendWorld, index: usize, dist
     path = "tests/features/session_append.feature",
     name = "Appending valid source indices"
 )]
-fn append_valid_source_indices(_world: SessionAppendWorld) {}
+fn append_valid_source_indices(
+    _world: StepResult<SessionAppendWorld, BddStepError>,
+) -> StepResult<(), BddStepError> {
+    Ok(())
+}
 
 #[scenario(
     path = "tests/features/session_append.feature",
     name = "Duplicate index rejection"
 )]
-fn duplicate_index_rejection(_world: SessionAppendWorld) {}
+fn duplicate_index_rejection(
+    _world: StepResult<SessionAppendWorld, BddStepError>,
+) -> StepResult<(), BddStepError> {
+    Ok(())
+}
 
 #[scenario(
     path = "tests/features/session_append.feature",
     name = "Out-of-bounds index rejection"
 )]
-fn out_of_bounds_index_rejection(_world: SessionAppendWorld) {}
+fn out_of_bounds_index_rejection(
+    _world: StepResult<SessionAppendWorld, BddStepError>,
+) -> StepResult<(), BddStepError> {
+    Ok(())
+}
 
 #[scenario(
     path = "tests/features/session_append.feature",
     name = "Empty index list no-op"
 )]
-fn empty_index_list_no_op(_world: SessionAppendWorld) {}
+fn empty_index_list_no_op(
+    _world: StepResult<SessionAppendWorld, BddStepError>,
+) -> StepResult<(), BddStepError> {
+    Ok(())
+}
 
 #[scenario(
     path = "tests/features/session_append.feature",
     name = "Snapshot version immutability across multiple appends"
 )]
-fn snapshot_version_immutability_across_multiple_appends(_world: SessionAppendWorld) {}
+fn snapshot_version_immutability_across_multiple_appends(
+    _world: StepResult<SessionAppendWorld, BddStepError>,
+) -> StepResult<(), BddStepError> {
+    Ok(())
+}
 
 #[scenario(
     path = "tests/features/session_append.feature",
     name = "Recomputing core distances after append"
 )]
-fn recomputing_core_distances_after_append(_world: SessionAppendWorld) {}
+fn recomputing_core_distances_after_append(
+    _world: StepResult<SessionAppendWorld, BddStepError>,
+) -> StepResult<(), BddStepError> {
+    Ok(())
+}

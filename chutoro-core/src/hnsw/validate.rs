@@ -13,13 +13,14 @@ use super::{
 };
 use crate::{DataSource, MetricDescriptor};
 
+/// Return one cached or newly computed finite distance.
 fn lookup_or_compute<D: DataSource + Sync>(
-    cache: Option<&DistanceCache>,
+    cache_option: Option<&DistanceCache>,
     source: &D,
     left: usize,
     right: usize,
 ) -> Result<f32, HnswError> {
-    if let Some(cache) = cache {
+    if let Some(cache) = cache_option {
         let metric = source.metric_descriptor();
         match cache.begin_lookup(&metric, left, right) {
             LookupOutcome::Hit(value) => Ok(value),
@@ -33,6 +34,7 @@ fn lookup_or_compute<D: DataSource + Sync>(
     }
 }
 
+/// Resolve a batch through the cache before computing its misses.
 fn batch_lookup_or_compute<D: DataSource + Sync>(
     cache: &DistanceCache,
     source: &D,
@@ -52,6 +54,7 @@ fn batch_lookup_or_compute<D: DataSource + Sync>(
     ensure_all_resolved(query, candidates, results)
 }
 
+/// Validate one distance from an optional cache-backed lookup.
 pub(crate) fn validate_distance<D: DataSource + Sync>(
     cache: Option<&DistanceCache>,
     source: &D,
@@ -66,19 +69,20 @@ pub(crate) fn validate_distance<D: DataSource + Sync>(
     }
 }
 
+/// Validate a batch of query-to-candidate distances.
 pub(crate) fn validate_batch_distances<D: DataSource + Sync>(
-    cache: Option<&DistanceCache>,
+    cache_option: Option<&DistanceCache>,
     source: &D,
     query: usize,
     candidates: &[usize],
 ) -> Result<Vec<f32>, HnswError> {
-    if let Some(cache) = cache {
-        batch_lookup_or_compute(cache, source, query, candidates)
-    } else {
-        validate_batch_without_cache(source, query, candidates)
-    }
+    cache_option.map_or_else(
+        || validate_batch_without_cache(source, query, candidates),
+        |cache| batch_lookup_or_compute(cache, source, query, candidates),
+    )
 }
 
+/// Validate source-provided batch distances when caching is unavailable.
 fn validate_batch_without_cache<D: DataSource + Sync>(
     source: &D,
     query: usize,
@@ -96,15 +100,22 @@ fn validate_batch_without_cache<D: DataSource + Sync>(
     Ok(distances)
 }
 
+/// Inputs shared while resolving a cache-backed batch lookup.
 struct CacheBatch<'a, D: DataSource + Sync> {
+    /// Cache that owns lookup and miss-completion state.
     cache: &'a DistanceCache,
+    /// Source used to compute uncached distances.
     source: &'a D,
+    /// Query node shared by every candidate.
     query: usize,
+    /// Candidate nodes ordered with the result slots.
     candidates: &'a [usize],
+    /// Source metric attached to cache keys.
     metric: MetricDescriptor,
 }
 
 impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
+    /// Capture cache, source, query, candidates, and their metric descriptor.
     fn new(cache: &'a DistanceCache, source: &'a D, query: usize, candidates: &'a [usize]) -> Self {
         Self {
             cache,
@@ -115,15 +126,19 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
         }
     }
 
+    /// Fill hit result slots and collect cache misses with their indices.
     fn populate(&self, results: &mut [Option<f32>], pending: &mut Vec<(usize, PendingMiss)>) {
-        for (index, &candidate) in self.candidates.iter().enumerate() {
+        for (index, (&candidate, result)) in
+            self.candidates.iter().zip(results.iter_mut()).enumerate()
+        {
             match self.cache.begin_lookup(&self.metric, self.query, candidate) {
-                LookupOutcome::Hit(value) => results[index] = Some(value),
+                LookupOutcome::Hit(value) => *result = Some(value),
                 LookupOutcome::Miss(miss) => pending.push((index, miss)),
             }
         }
     }
 
+    /// Compute, validate, and store each pending cache miss.
     fn resolve(
         &self,
         pending: Vec<(usize, PendingMiss)>,
@@ -131,8 +146,16 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
     ) -> Result<(), HnswError> {
         let missing: Vec<usize> = pending
             .iter()
-            .map(|(index, _)| self.candidates[*index])
-            .collect();
+            .map(|(index, _)| {
+                self.candidates.get(*index).copied().ok_or_else(|| {
+                    HnswError::GraphInvariantViolation {
+                        message: format!(
+                            "cached batch validation: missing candidate at result index {index}",
+                        ),
+                    }
+                })
+            })
+            .collect::<Result<_, _>>()?;
         let computed = self.source.batch_distances(self.query, &missing)?;
 
         if computed.len() != pending.len() {
@@ -145,15 +168,24 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
             });
         }
 
-        for ((index, miss), value) in pending.into_iter().zip(computed.into_iter()) {
-            let value = self.cache.complete_miss(miss, value)?;
-            results[index] = Some(value);
+        for ((index, miss), computed_value) in pending.into_iter().zip(computed.into_iter()) {
+            let cached_value = self.cache.complete_miss(miss, computed_value)?;
+            let result =
+                results
+                    .get_mut(index)
+                    .ok_or_else(|| HnswError::GraphInvariantViolation {
+                        message: format!(
+                            "cached batch validation: missing result slot at index {index}",
+                        ),
+                    })?;
+            *result = Some(cached_value);
         }
 
         Ok(())
     }
 }
 
+/// Convert resolved slots into distances or report the first unresolved candidate.
 fn ensure_all_resolved(
     query: usize,
     candidates: &[usize],
@@ -170,9 +202,9 @@ fn ensure_all_resolved(
     }
 
     let mut resolved = Vec::with_capacity(results.len());
-    for (candidate, value) in candidates.iter().zip(results.into_iter()) {
-        match value {
-            Some(value) => resolved.push(value),
+    for (candidate, result_slot) in candidates.iter().zip(results.into_iter()) {
+        match result_slot {
+            Some(distance) => resolved.push(distance),
             None => {
                 return Err(HnswError::InvalidParameters {
                     reason: format!(

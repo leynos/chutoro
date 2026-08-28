@@ -51,6 +51,7 @@ pub(super) fn generate_fixture(distribution: WeightDistribution, rng: &mut Small
 
 /// Configuration for probabilistic graph generation, grouping the
 /// parameters that vary between weight-distribution strategies.
+#[derive(Clone, Copy)]
 struct ProbabilisticGraphConfig {
     /// Upper bound for the random node count (inclusive).
     max_nodes: usize,
@@ -132,7 +133,7 @@ fn generate_unique_weights(rng: &mut SmallRng) -> MstFixture {
 fn generate_identical_weights(rng: &mut SmallRng) -> MstFixture {
     let weight_pool_size = rng.gen_range(1..=3);
     let weight_pool: Vec<f32> = (0..weight_pool_size)
-        .map(|_| rng.gen_range(1_u8..=10) as f32)
+        .map(|_| f32::from(rng.gen_range(1_u8..=10)))
         .collect();
 
     generate_probabilistic_graph(
@@ -142,7 +143,12 @@ fn generate_identical_weights(rng: &mut SmallRng) -> MstFixture {
             edge_prob_range: (0.3, 0.7),
             distribution: WeightDistribution::ManyIdentical,
         },
-        move |r| weight_pool[r.gen_range(0..weight_pool.len())],
+        move |r| {
+            weight_pool
+                .get(r.gen_range(0..weight_pool.len()))
+                .copied()
+                .unwrap_or(1.0)
+        },
     )
 }
 
@@ -159,15 +165,16 @@ fn generate_sparse(rng: &mut SmallRng) -> MstFixture {
     // Build a random spanning tree via random permutation walk.
     let mut perm: Vec<usize> = (0..node_count).collect();
     shuffle(&mut perm, rng);
-    for i in 1..node_count {
+    for (&left, &right) in perm.iter().zip(perm.iter().skip(1)) {
         let weight = rng.gen_range(0.1_f32..100.0);
-        let (s, t) = canonical(perm[i - 1], perm[i]);
+        let (s, t) = canonical(left, right);
         edges.push(CandidateEdge::new(s, t, weight, seq));
         seq += 1;
     }
 
     // Add a small number of extra edges (roughly 0.5n to n).
-    let extra_count = rng.gen_range(node_count / 2..=node_count);
+    let extra_lower_bound = node_count.checked_div(2).unwrap_or(0);
+    let extra_count = rng.gen_range(extra_lower_bound..=node_count);
     for _ in 0..extra_count {
         let i = rng.gen_range(0..node_count);
         let j = rng.gen_range(0..node_count);
@@ -312,7 +319,7 @@ impl proptest::arbitrary::Arbitrary for WeightDistribution {
         proptest::strategy::WA<proptest::strategy::Just<Self>>,
     )>;
 
-    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+    fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
         prop_oneof![
             2 => Just(Self::Unique),
             3 => Just(Self::ManyIdentical),

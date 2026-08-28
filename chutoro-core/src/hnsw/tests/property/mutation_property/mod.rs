@@ -25,8 +25,8 @@ use mutation_pools::MutationPools;
 const MIN_MUTATION_FIXTURE_LEN: usize = 2;
 const MAX_MUTATION_FIXTURE_LEN: usize = 48;
 
-pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) -> TestCaseResult {
-    let (mut active_params, source, len) = setup_mutation_index(&fixture)?;
+pub(super) fn run_mutation_property(fixture: &HnswFixture, plan: &MutationPlan) -> TestCaseResult {
+    let (mut active_params, source, len) = setup_mutation_index(fixture)?;
     let mut index = CpuHnsw::with_capacity(active_params.clone(), len)
         .map_err(|err| TestCaseError::fail(format!("with_capacity(len={len}) failed: {err}")))?;
     let mut pools = MutationPools::new(len);
@@ -34,7 +34,7 @@ pub(super) fn run_mutation_property(fixture: HnswFixture, plan: MutationPlan) ->
 
     bootstrap_and_validate(&mut ctx, plan.initial_population_hint, len)?;
 
-    let applied = apply_mutation_steps(&mut ctx, &mut active_params, &plan)?;
+    let applied = apply_mutation_steps(&mut ctx, &mut active_params, plan)?;
 
     prop_assume!(applied > 0);
     Ok(())
@@ -111,13 +111,13 @@ fn apply_mutation_steps(
     let mut applied = 0_usize;
     for (step, operation) in plan.operations.iter().enumerate() {
         let outcome = {
-            let mut ctx = MutationRunner {
+            let mut runner = MutationRunner {
                 index: ctx.index,
                 pools: ctx.pools,
                 source: ctx.source,
                 active_params,
             };
-            ctx.apply(operation)?
+            runner.apply(operation)?
         };
         if outcome.applied {
             applied += 1;
@@ -166,7 +166,7 @@ struct MutationRunner<'ctx> {
     active_params: &'ctx mut HnswParams,
 }
 
-impl<'ctx> MutationRunner<'ctx> {
+impl MutationRunner<'_> {
     fn apply(
         &mut self,
         operation: &MutationOperationSeed,
@@ -183,7 +183,7 @@ impl<'ctx> MutationRunner<'ctx> {
             return Ok(OperationOutcome::skipped("add skipped: no available nodes"));
         };
         let insert_result = self.index.insert(node, self.source);
-        insert_result.map_err(|err| mutation_fail("insert", node, err))?;
+        insert_result.map_err(|err| mutation_fail("insert", node, &err))?;
         self.pools.mark_inserted(node);
         Ok(OperationOutcome::applied(format!("add node {node}")))
     }
@@ -205,7 +205,7 @@ impl<'ctx> MutationRunner<'ctx> {
             Err(err @ HnswError::GraphInvariantViolation { .. }) => {
                 Ok(OperationOutcome::skipped(format!("delete aborted: {err}")))
             }
-            Err(err) => Err(mutation_fail("delete", node, err)),
+            Err(err) => Err(mutation_fail("delete", node, &err)),
         }
     }
 
@@ -229,8 +229,8 @@ pub(super) fn derive_initial_population(hint: u16, len: usize) -> usize {
     if len == 0 {
         return 0;
     }
-    let base = usize::from(hint) % len;
-    let upper_bound = len / 2;
+    let base = std::ops::Rem::rem(usize::from(hint), len);
+    let upper_bound = len >> 1;
     base.max(1).min(upper_bound.max(1))
 }
 
@@ -253,7 +253,7 @@ fn next_reconfigure_params(
     Ok(params)
 }
 
-fn mutation_fail(action: &str, node: usize, err: HnswError) -> TestCaseError {
+fn mutation_fail(action: &str, node: usize, err: &HnswError) -> TestCaseError {
     TestCaseError::fail(format!("{action} node {node} failed: {err}"))
 }
 

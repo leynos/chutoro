@@ -2,15 +2,17 @@
 
 use super::commands::{derive_data_source_name, run_command};
 use super::{
-    Cli, CliError, Command, ExecutionSummary, ParquetArgs, RunCommand, RunSource, TextArgs,
-    TextMetric, render_summary, run_cli,
+    Cli, CliError, Command, ExecutionSummary, ParquetArgs, RunCommand, RunSource, render_summary,
+    run_cli,
 };
 
+use std::io;
 use std::path::Path;
 
 use chutoro_core::{ChutoroError, ClusteringResult};
 use clap::Parser;
 use rstest::rstest;
+use tempfile::TempDir;
 use tracing::Level;
 use tracing_subscriber::layer::SubscriberExt;
 
@@ -25,47 +27,43 @@ use test_fixtures::create_parquet_file;
 
 #[path = "test_helpers.rs"]
 mod test_helpers;
-use test_helpers::{
-    create_text_file, run_cli_expecting_error, run_command_expecting_error, temp_dir,
-};
-
-type TestResult = Result<(), Box<dyn std::error::Error>>;
+use test_helpers::{create_text_file, expect_err, temp_dir, text_cli, text_run_command};
 
 /// Runs the text pipeline once with the provided input file and minimum
 /// cluster size.
 ///
 /// Returns the [`ExecutionSummary`] produced by the CLI runner.
 fn run_text_once(path: &Path, min_cluster_size: usize) -> Result<ExecutionSummary, CliError> {
-    let cli = Cli {
-        command: Command::Run(RunCommand {
-            min_cluster_size,
-            max_bytes: None,
-            source: RunSource::Text(TextArgs {
-                path: path.to_path_buf(),
-                metric: TextMetric::Levenshtein,
-                name: None,
-            }),
-        }),
-    };
-    run_cli(cli)
+    run_cli(text_cli(path.to_path_buf(), min_cluster_size, None))
+}
+
+/// Observed assignment and cluster counts for a completed run.
+///
+/// Reported as a pure query so the calling test owns every assertion.
+fn summary_shape(summary: &ExecutionSummary) -> (usize, usize) {
+    (
+        summary.result.assignments().len(),
+        summary.result.cluster_count(),
+    )
 }
 
 /// Asserts that a text run produced a clustering with the expected number of
-/// assignments, and returns the observed cluster count.
+/// assignments, and evaluates to the observed cluster count.
 ///
 /// This keeps the tests robust by checking invariants that should hold across
-/// implementations without relying on exact label ids.
-fn assert_text_result_summary(
-    summary: &ExecutionSummary,
-    expected_items: usize,
-) -> Result<usize, Box<dyn std::error::Error>> {
-    assert_eq!(summary.result.assignments().len(), expected_items);
-    let clusters = summary.result.cluster_count();
-    assert!(
-        clusters >= 1 && clusters <= expected_items,
-        "expected 1..={expected_items} clusters for a {expected_items}-row input",
-    );
-    Ok(clusters)
+/// implementations without relying on exact label ids. It is a macro so a
+/// failure reports the calling test's line.
+macro_rules! assert_run_summary {
+    ($summary:expr, $expected_items:expr $(,)?) => {{
+        let expected_items = $expected_items;
+        let (assignments, clusters) = summary_shape(&$summary);
+        assert_eq!(assignments, expected_items);
+        assert!(
+            (1..=expected_items).contains(&clusters),
+            "expected 1..={expected_items} clusters for a {expected_items}-row input",
+        );
+        clusters
+    }};
 }
 
 #[rstest]
@@ -83,16 +81,17 @@ fn derive_data_source_name_selects_expected_name(
     assert_eq!(name, expected);
 }
 
-#[test]
-fn run_text_success() -> TestResult {
-    let dir = temp_dir();
-    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")?;
+#[rstest]
+fn run_text_success(#[from(temp_dir)] temp_dir_result: io::Result<TempDir>) {
+    let dir = temp_dir_result.expect("temp dir should be created");
+    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")
+        .expect("text fixture must be written");
 
-    let summary_min_1 = run_text_once(path.as_path(), 1)?;
-    let clusters_min_1 = assert_text_result_summary(&summary_min_1, 3)?;
+    let summary_min_1 = run_text_once(path.as_path(), 1).expect("run must succeed");
+    let clusters_min_1 = assert_run_summary!(summary_min_1, 3);
 
-    let summary_min_2 = run_text_once(path.as_path(), 2)?;
-    let clusters_min_2 = assert_text_result_summary(&summary_min_2, 3)?;
+    let summary_min_2 = run_text_once(path.as_path(), 2).expect("run must succeed");
+    let clusters_min_2 = assert_run_summary!(summary_min_2, 3);
 
     assert!(
         clusters_min_2 <= clusters_min_1,
@@ -102,56 +101,35 @@ fn run_text_success() -> TestResult {
         clusters_min_1, clusters_min_2,
         "expected min_cluster_size to influence cluster structure for this synthetic input"
     );
-    Ok(())
 }
 
 #[rstest]
-fn run_text_rejects_insufficient_items() -> TestResult {
-    let dir = temp_dir();
-    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\n")?;
-    let cli = Cli {
-        command: Command::Run(RunCommand {
-            min_cluster_size: 3,
-            max_bytes: None,
-            source: RunSource::Text(TextArgs {
-                path,
-                metric: TextMetric::Levenshtein,
-                name: None,
-            }),
-        }),
-    };
-    let err = run_cli_expecting_error(cli, "run must fail for insufficient items");
+fn run_text_rejects_insufficient_items(#[from(temp_dir)] temp_dir_result: io::Result<TempDir>) {
+    let dir = temp_dir_result.expect("temp dir should be created");
+    let path =
+        create_text_file(&dir, "lines.txt", "alpha\nbeta\n").expect("text fixture must be written");
+    let err = expect_err!(
+        run_cli(text_cli(path, 3, None)),
+        "run must fail for insufficient items"
+    );
     assert!(matches!(
         err,
         CliError::Core(ChutoroError::InsufficientItems { .. })
     ));
-    Ok(())
 }
 
 #[rstest]
-fn run_text_rejects_empty_files() -> TestResult {
-    let dir = temp_dir();
-    let path = create_text_file(&dir, "empty.txt", "")?;
-    let cli = Cli {
-        command: Command::Run(RunCommand {
-            min_cluster_size: 1,
-            max_bytes: None,
-            source: RunSource::Text(TextArgs {
-                path,
-                metric: TextMetric::Levenshtein,
-                name: None,
-            }),
-        }),
-    };
-    let err = run_cli_expecting_error(cli, "empty input must fail");
+fn run_text_rejects_empty_files(#[from(temp_dir)] temp_dir_result: io::Result<TempDir>) {
+    let dir = temp_dir_result.expect("temp dir should be created");
+    let path = create_text_file(&dir, "empty.txt", "").expect("text fixture must be written");
+    let err = expect_err!(run_cli(text_cli(path, 1, None)), "empty input must fail");
     assert!(matches!(err, CliError::Text(TextProviderError::EmptyInput)));
-    Ok(())
 }
 
 #[rstest]
-fn run_parquet_success() -> TestResult {
-    let dir = temp_dir();
-    let path = create_parquet_file(&dir, "vectors.parquet")?;
+fn run_parquet_success(#[from(temp_dir)] temp_dir_result: io::Result<TempDir>) {
+    let dir = temp_dir_result.expect("temp dir should be created");
+    let path = create_parquet_file(&dir, "vectors.parquet").expect("parquet fixture must be built");
     let cli = Cli {
         command: Command::Run(RunCommand {
             min_cluster_size: 2,
@@ -163,19 +141,14 @@ fn run_parquet_success() -> TestResult {
             }),
         }),
     };
-    let summary = run_cli(cli)?;
-    assert_eq!(summary.result.assignments().len(), 4);
-    assert!(
-        summary.result.cluster_count() >= 1 && summary.result.cluster_count() <= 4,
-        "expected 1..=4 clusters for a 4-row input"
-    );
-    Ok(())
+    let summary = run_cli(cli).expect("parquet run must succeed");
+    let _ = assert_run_summary!(summary, 4);
 }
 
 #[rstest]
-fn run_parquet_rejects_missing_column() -> TestResult {
-    let dir = temp_dir();
-    let path = create_parquet_file(&dir, "vectors.parquet")?;
+fn run_parquet_rejects_missing_column(#[from(temp_dir)] temp_dir_result: io::Result<TempDir>) {
+    let dir = temp_dir_result.expect("temp dir should be created");
+    let path = create_parquet_file(&dir, "vectors.parquet").expect("parquet fixture must be built");
     let cli = Cli {
         command: Command::Run(RunCommand {
             min_cluster_size: 1,
@@ -187,39 +160,32 @@ fn run_parquet_rejects_missing_column() -> TestResult {
             }),
         }),
     };
-    let err = run_cli_expecting_error(cli, "unknown column must fail");
+    let err = expect_err!(run_cli(cli), "unknown column must fail");
     assert!(matches!(
         err,
         CliError::Dense(DenseMatrixProviderError::ColumnNotFound { .. })
     ));
-    Ok(())
 }
 
 #[rstest]
-fn run_command_rejects_zero_min_cluster_size() -> TestResult {
-    let dir = temp_dir();
-    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")?;
-    let err = run_command_expecting_error(
-        RunCommand {
-            min_cluster_size: 0,
-            max_bytes: None,
-            source: RunSource::Text(TextArgs {
-                path,
-                metric: TextMetric::Levenshtein,
-                name: None,
-            }),
-        },
-        "zero min-cluster-size must fail",
+fn run_command_rejects_zero_min_cluster_size(
+    #[from(temp_dir)] temp_dir_result: io::Result<TempDir>,
+) {
+    let dir = temp_dir_result.expect("temp dir should be created");
+    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")
+        .expect("text fixture must be written");
+    let err = expect_err!(
+        run_command(text_run_command(path, 0, None)),
+        "zero min-cluster-size must fail"
     );
     assert!(matches!(
         err,
         CliError::Core(ChutoroError::InvalidMinClusterSize { .. })
     ));
-    Ok(())
 }
 
 #[rstest]
-fn render_summary_outputs_assignments() -> TestResult {
+fn render_summary_outputs_assignments() {
     let summary = ExecutionSummary {
         data_source: "demo".into(),
         result: ClusteringResult::from_assignments(vec![
@@ -228,13 +194,12 @@ fn render_summary_outputs_assignments() -> TestResult {
         ]),
     };
     let mut buffer = Vec::new();
-    render_summary(&summary, &mut buffer)?;
-    let text = String::from_utf8(buffer)?;
+    render_summary(&summary, &mut buffer).expect("rendering must succeed");
+    let text = String::from_utf8(buffer).expect("rendered summary must be UTF-8");
     assert!(text.contains("data source: demo"));
     assert!(text.contains("clusters: 2"));
     assert!(text.contains("0\t0"));
     assert!(text.contains("1\t1"));
-    Ok(())
 }
 
 #[rstest]
@@ -252,23 +217,17 @@ fn clap_rejects_unknown_metric() {
 }
 
 #[rstest]
-fn run_command_emits_tracing_fields() -> TestResult {
-    let dir = temp_dir();
-    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")?;
+fn run_command_emits_tracing_fields(#[from(temp_dir)] temp_dir_result: io::Result<TempDir>) {
+    let dir = temp_dir_result.expect("temp dir should be created");
+    let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")
+        .expect("text fixture must be written");
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
-    let command = RunCommand {
-        min_cluster_size: 2,
-        max_bytes: None,
-        source: RunSource::Text(TextArgs {
-            path,
-            metric: TextMetric::Levenshtein,
-            name: None,
-        }),
-    };
+    let command = text_run_command(path, 2, None);
 
-    let summary = tracing::subscriber::with_default(subscriber, || run_command(command))?;
+    let summary = tracing::subscriber::with_default(subscriber, || run_command(command))
+        .expect("run must succeed");
     assert_eq!(summary.data_source, "lines");
 
     let spans = layer.spans();
@@ -323,25 +282,16 @@ fn run_command_emits_tracing_fields() -> TestResult {
                 Some(value) if value == expected_data_source || value == expected_data_source_debug
             )
     }));
-    Ok(())
 }
 
 #[rstest]
-fn open_text_reader_records_path_on_error() -> TestResult {
-    let dir = temp_dir();
+fn open_text_reader_records_path_on_error(#[from(temp_dir)] temp_dir_result: io::Result<TempDir>) {
+    let dir = temp_dir_result.expect("temp dir should be created");
     let missing_path = dir.path().join("missing.txt");
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
-    let command = RunCommand {
-        min_cluster_size: 1,
-        max_bytes: None,
-        source: RunSource::Text(TextArgs {
-            path: missing_path.clone(),
-            metric: TextMetric::Levenshtein,
-            name: None,
-        }),
-    };
+    let command = text_run_command(missing_path, 1, None);
 
     let err = tracing::subscriber::with_default(subscriber, || run_command(command))
         .expect_err("missing file must fail");
@@ -367,7 +317,6 @@ fn open_text_reader_records_path_on_error() -> TestResult {
         run_span.fields.get("override_name"),
         Some(&"<derived>".to_owned())
     );
-    Ok(())
 }
 
 #[path = "test_memory_guard.rs"]

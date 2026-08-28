@@ -146,18 +146,23 @@ fn scale_free_graph_has_hub_nodes() {
 
         let mut degrees = vec![0usize; graph.node_count];
         for edge in &graph.edges {
-            degrees[edge.source()] += 1;
-            degrees[edge.target()] += 1;
+            let source_degree = degrees
+                .get_mut(edge.source())
+                .expect("generated edge source must be in bounds");
+            *source_degree = source_degree.saturating_add(1);
+            let target_degree = degrees
+                .get_mut(edge.target())
+                .expect("generated edge target must be in bounds");
+            *target_degree = target_degree.saturating_add(1);
         }
 
-        let avg_degree: f64 = degrees.iter().sum::<usize>() as f64 / graph.node_count as f64;
+        let total_degree = degrees.iter().sum::<usize>();
         let max_degree = *degrees.iter().max().unwrap_or(&0);
 
         // Scale-free graphs should exhibit hub nodes with degree > average.
-        // Relaxed assertion: max should be at least as large as average.
         assert!(
-            max_degree as f64 >= avg_degree,
-            "scale-free should have at least one hub: max={max_degree}, avg={avg_degree:.1}"
+            max_degree.saturating_mul(graph.node_count) > total_degree,
+            "scale-free should have at least one hub: max={max_degree}, total={total_degree}"
         );
         return;
     }
@@ -178,8 +183,12 @@ fn disconnected_graph_has_no_cross_component_edges() {
         // Verify no edge crosses components.
         for edge in &graph.edges {
             assert_eq!(
-                node_to_component[edge.source()],
-                node_to_component[edge.target()],
+                node_to_component
+                    .get(edge.source())
+                    .expect("generated edge source must be in bounds"),
+                node_to_component
+                    .get(edge.target())
+                    .expect("generated edge target must be in bounds"),
                 "edge {edge:?} crosses components",
             );
         }
@@ -217,12 +226,11 @@ fn lattice_with_diagonals_has_more_edges() {
     );
 
     // On average, diagonal lattices should have at least as many edges as non-diagonal ones.
-    let avg_with_diag = with_diag_edges as f64 / with_diag_count as f64;
-    let avg_without_diag = without_diag_edges as f64 / without_diag_count as f64;
-
     assert!(
-        avg_with_diag >= avg_without_diag,
+        with_diag_edges.saturating_mul(without_diag_count)
+            >= without_diag_edges.saturating_mul(with_diag_count),
         "expected lattices with diagonals to be at least as dense as those without; \
-         avg_with_diag={avg_with_diag}, avg_without_diag={avg_without_diag}"
+         with_diag_edges={with_diag_edges}, without_diag_edges={without_diag_edges}, \
+         with_diag_count={with_diag_count}, without_diag_count={without_diag_count}"
     );
 }

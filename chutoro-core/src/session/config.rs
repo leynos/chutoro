@@ -28,6 +28,7 @@ use crate::HnswParams;
 /// ```
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SessionRefreshPolicy {
+    /// Optional append count that requests an automatic refresh.
     refresh_every_n: Option<NonZeroUsize>,
 }
 
@@ -40,14 +41,14 @@ impl SessionRefreshPolicy {
 
     /// Sets the optional append threshold that should trigger a refresh later.
     #[must_use]
-    pub fn with_refresh_every_n(mut self, refresh_every_n: Option<NonZeroUsize>) -> Self {
+    pub const fn with_refresh_every_n(mut self, refresh_every_n: Option<NonZeroUsize>) -> Self {
         self.refresh_every_n = refresh_every_n;
         self
     }
 
     /// Returns the configured append threshold for automatic refresh.
     #[must_use]
-    pub fn refresh_every_n(&self) -> Option<NonZeroUsize> {
+    pub const fn refresh_every_n(&self) -> Option<NonZeroUsize> {
         self.refresh_every_n
     }
 }
@@ -97,13 +98,17 @@ impl SessionRefreshPolicy {
 /// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionConfig {
+    /// Minimum membership required for a retained cluster.
     min_cluster_size: NonZeroUsize,
+    /// HNSW construction and search parameters.
     hnsw_params: HnswParams,
+    /// Policy controlling when a refresh is requested.
     refresh_policy: SessionRefreshPolicy,
 }
 
 impl SessionConfig {
-    pub(crate) fn new(
+    /// Combine already-validated clustering, index, and refresh settings.
+    pub(crate) const fn new(
         min_cluster_size: NonZeroUsize,
         hnsw_params: HnswParams,
         refresh_policy: SessionRefreshPolicy,
@@ -117,19 +122,19 @@ impl SessionConfig {
 
     /// Returns the minimum cluster size carried into the session.
     #[must_use]
-    pub fn min_cluster_size(&self) -> NonZeroUsize {
+    pub const fn min_cluster_size(&self) -> NonZeroUsize {
         self.min_cluster_size
     }
 
     /// Returns the HNSW parameters used for the session index.
     #[must_use]
-    pub fn hnsw_params(&self) -> &HnswParams {
+    pub const fn hnsw_params(&self) -> &HnswParams {
         &self.hnsw_params
     }
 
     /// Returns the session refresh policy.
     #[must_use]
-    pub fn refresh_policy(&self) -> &SessionRefreshPolicy {
+    pub const fn refresh_policy(&self) -> &SessionRefreshPolicy {
         &self.refresh_policy
     }
 }

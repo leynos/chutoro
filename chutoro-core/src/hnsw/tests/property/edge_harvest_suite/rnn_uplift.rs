@@ -10,8 +10,7 @@ fn min_rnn_score_for_topology(topology: GraphTopology) -> f64 {
     match topology {
         GraphTopology::Lattice => 0.75, // Highly regular, should be very symmetric; relaxed to 0.75 to account for random edge-weight variance across the full proptest generation space.
         GraphTopology::ScaleFree => 0.05, // Hubs with m=1 create extreme asymmetry.
-        GraphTopology::Random => 0.3,   // Moderate symmetry expected.
-        GraphTopology::Disconnected => 0.3, // Within components should be symmetric.
+        GraphTopology::Random | GraphTopology::Disconnected => 0.3,
     }
 }
 
@@ -20,7 +19,7 @@ fn min_rnn_score_for_topology(topology: GraphTopology) -> f64 {
 /// Verifies that the Reverse Nearest Neighbour (RNN) score meets minimum
 /// thresholds based on topology characteristics:
 /// - **Lattice**: ≥ 0.75 (highly regular structure implies high symmetry)
-/// - **ScaleFree**: ≥ 0.05 (hub nodes create extreme asymmetry)
+/// - **`ScaleFree`**: ≥ 0.05 (hub nodes create extreme asymmetry)
 /// - **Random**: ≥ 0.3 (moderate symmetry expected)
 /// - **Disconnected**: ≥ 0.3 (within-component symmetry)
 ///
@@ -117,10 +116,9 @@ mod tests {
         #[case] message: &str,
     ) {
         assert_eq!(
-            min_rnn_score_for_topology(topology),
-            expected_threshold,
-            "{}",
-            message
+            min_rnn_score_for_topology(topology).total_cmp(&expected_threshold),
+            std::cmp::Ordering::Equal,
+            "{message}"
         );
     }
 

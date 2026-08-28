@@ -1,6 +1,7 @@
 //! Write-lock invariant tests for HNSW distance scoring.
 
 use std::{
+    collections::BTreeSet,
     num::NonZeroUsize,
     sync::{
         Arc,
@@ -68,7 +69,7 @@ impl WriteLockAssertingSource {
             .data()
             .get(right)
             .ok_or(DataSourceError::OutOfBounds { index: right })?;
-        Ok((a - b).abs())
+        Ok(a.mul_add(1.0, std::ops::Neg::neg(*b)).abs())
     }
 }
 
@@ -172,11 +173,11 @@ fn write_lock_case_strategy() -> impl Strategy<Value = WriteLockPropertyCase> {
             1_usize..=len,
         )
             .prop_map(
-                move |(raw_values, max_connections, ef_extra, rng_seed, query, search_ef)| {
+                move |(raw_values, case_max_connections, ef_extra, rng_seed, query, search_ef)| {
                     WriteLockPropertyCase {
                         values: insertion_ordered_values(raw_values),
-                        max_connections,
-                        ef_construction: max_connections + ef_extra,
+                        max_connections: case_max_connections,
+                        ef_construction: case_max_connections + ef_extra,
                         rng_seed,
                         query,
                         search_ef,
@@ -187,10 +188,16 @@ fn write_lock_case_strategy() -> impl Strategy<Value = WriteLockPropertyCase> {
 }
 
 fn insertion_ordered_values(raw_values: Vec<i16>) -> Vec<f32> {
+    let mut used_values = BTreeSet::new();
     raw_values
         .into_iter()
-        .enumerate()
-        .map(|(index, value)| f32::from(value) + index as f32 / 1024.0)
+        .map(|value| {
+            let mut unique_value = value;
+            while !used_values.insert(unique_value) {
+                unique_value += 1;
+            }
+            f32::from(unique_value)
+        })
         .collect()
 }
 
@@ -229,23 +236,33 @@ fn build_generated_index(
 }
 
 #[rstest]
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "rstest consumes the fixture binding while its Drop implementation protects the test scope"
+)]
 fn write_graph_marker_is_scoped_to_the_current_thread(
-    _write_graph_marker_guard: WriteGraphMarkerGuard,
+    #[from(write_graph_marker_guard)] _write_graph_marker_guard: WriteGraphMarkerGuard,
     write_lock_params: Result<HnswParams, HnswError>,
-) -> Result<(), HnswError> {
-    let index = CpuHnsw::with_capacity(write_lock_params?, 2).expect("index should allocate");
+) {
+    let index = CpuHnsw::with_capacity(write_lock_params.expect("parameters must be valid"), 2)
+        .expect("index should allocate");
     assert!(!CpuHnsw::current_thread_holds_write_graph_for_test());
-    index.write_graph(|_graph| {
-        assert!(CpuHnsw::current_thread_holds_write_graph_for_test());
-        Ok(())
-    })?;
+    index
+        .write_graph(|_graph| {
+            assert!(CpuHnsw::current_thread_holds_write_graph_for_test());
+            Ok(())
+        })
+        .expect("write graph must succeed");
     assert!(!CpuHnsw::current_thread_holds_write_graph_for_test());
-    Ok(())
 }
 
 #[rstest]
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "rstest consumes the fixture binding while its Drop implementation protects the test scope"
+)]
 fn hnsw_scoring_does_not_run_inside_write_graph_scope(
-    _write_graph_marker_guard: WriteGraphMarkerGuard,
+    #[from(write_graph_marker_guard)] _write_graph_marker_guard: WriteGraphMarkerGuard,
     built_write_lock_scenario: Result<WriteLockScenario, HnswError>,
 ) {
     let scenario = built_write_lock_scenario.expect("build must succeed");
@@ -266,8 +283,12 @@ fn hnsw_scoring_does_not_run_inside_write_graph_scope(
 
 #[rstest]
 #[should_panic(expected = "distance scoring must not run while the current thread holds")]
+#[expect(
+    clippy::used_underscore_binding,
+    reason = "rstest consumes the fixture binding while its Drop implementation protects the test scope"
+)]
 fn write_lock_scoring_guard_has_teeth(
-    _write_graph_marker_guard: WriteGraphMarkerGuard,
+    #[from(write_graph_marker_guard)] _write_graph_marker_guard: WriteGraphMarkerGuard,
     write_lock_source: WriteLockAssertingSource,
     write_lock_params: Result<HnswParams, HnswError>,
 ) {

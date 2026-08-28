@@ -40,11 +40,14 @@ impl DenseVectorSource {
     ///
     /// Returns an error if the dataset is empty, contains zero-length vectors,
     /// or mixes dimensions.
-    pub fn new(name: impl Into<String>, vectors: Vec<Vec<f32>>) -> Result<Self, DataSourceError> {
+    pub fn new(
+        source_name: impl Into<String>,
+        vectors: Vec<Vec<f32>>,
+    ) -> Result<Self, DataSourceError> {
         if vectors.is_empty() {
             return Err(DataSourceError::EmptyData);
         }
-        let dimension = vectors[0].len();
+        let dimension = vectors.first().ok_or(DataSourceError::EmptyData)?.len();
         if dimension == 0 {
             return Err(DataSourceError::ZeroDimension);
         }
@@ -56,7 +59,7 @@ impl DenseVectorSource {
                 });
             }
         }
-        let name = Arc::<str>::from(name.into());
+        let name = Arc::<str>::from(source_name.into());
         Ok(Self {
             name,
             vectors: Arc::from(vectors),
@@ -113,8 +116,8 @@ pub(super) fn euclidean_distance(left: &[f32], right: &[f32]) -> f32 {
     left.iter()
         .zip(right)
         .map(|(l, r)| {
-            let diff = l - r;
-            diff * diff
+            let difference = std::ops::Sub::sub(*l, *r);
+            std::ops::Mul::mul(difference, difference)
         })
         .sum::<f32>()
         .sqrt()
@@ -137,7 +140,10 @@ pub(super) fn euclidean_distance(left: &[f32], right: &[f32]) -> f32 {
 /// assert_eq!(product, 11.0);
 /// ```
 pub(super) fn dot(left: &[f32], right: &[f32]) -> f32 {
-    left.iter().zip(right).map(|(l, r)| l * r).sum()
+    left.iter()
+        .zip(right)
+        .map(|(l, r)| std::ops::Mul::mul(*l, *r))
+        .sum()
 }
 
 /// Computes the L2 (Euclidean) norm of a vector.
@@ -155,7 +161,11 @@ pub(super) fn dot(left: &[f32], right: &[f32]) -> f32 {
 /// assert_eq!(norm, 5.0);
 /// ```
 pub(super) fn l2_norm(vector: &[f32]) -> f32 {
-    vector.iter().map(|v| v * v).sum::<f32>().sqrt()
+    vector
+        .iter()
+        .map(|value| std::ops::Mul::mul(*value, *value))
+        .sum::<f32>()
+        .sqrt()
 }
 
 /// Creates a unit vector with 1.0 at the specified axis.
@@ -178,8 +188,8 @@ pub(super) fn l2_norm(vector: &[f32]) -> f32 {
 /// ```
 pub(super) fn unit_vector(dimension: usize, axis: usize) -> Vec<f32> {
     let mut vector = vec![0.0; dimension];
-    if axis < dimension {
-        vector[axis] = 1.0;
+    if let Some(component) = vector.get_mut(axis) {
+        *component = 1.0;
     }
     vector
 }

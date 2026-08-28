@@ -28,7 +28,7 @@ fn caches_and_reuses_distances() {
         .expect("completing miss must succeed");
 
     match cache.begin_lookup(&metric, 0, 1) {
-        LookupOutcome::Hit(value) => assert_eq!(value, 0.5),
+        LookupOutcome::Hit(value) => assert!(value.total_cmp(&0.5).is_eq()),
         LookupOutcome::Miss(_) => panic!("value should have been cached"),
     }
 }
@@ -38,25 +38,22 @@ fn lru_eviction_discards_oldest_entry() {
     let cache = cache_with_capacity(2).expect("capacity must be non-zero");
     let metric = MetricDescriptor::new("lru");
 
-    let miss_a = match cache.begin_lookup(&metric, 0, 1) {
-        LookupOutcome::Miss(miss) => miss,
-        _ => unreachable!(),
+    let LookupOutcome::Miss(miss_a) = cache.begin_lookup(&metric, 0, 1) else {
+        panic!("initial cache lookup must miss");
     };
     cache
         .complete_miss(miss_a, 1.0)
         .expect("completing miss_a must succeed");
 
-    let miss_b = match cache.begin_lookup(&metric, 0, 2) {
-        LookupOutcome::Miss(miss) => miss,
-        _ => unreachable!(),
+    let LookupOutcome::Miss(miss_b) = cache.begin_lookup(&metric, 0, 2) else {
+        panic!("second cache lookup must miss");
     };
     cache
         .complete_miss(miss_b, 2.0)
         .expect("completing miss_b must succeed");
 
-    let miss_c = match cache.begin_lookup(&metric, 0, 3) {
-        LookupOutcome::Miss(miss) => miss,
-        _ => unreachable!(),
+    let LookupOutcome::Miss(miss_c) = cache.begin_lookup(&metric, 0, 3) else {
+        panic!("third cache lookup must miss");
     };
     cache
         .complete_miss(miss_c, 3.0)
@@ -67,11 +64,11 @@ fn lru_eviction_discards_oldest_entry() {
         LookupOutcome::Miss(_) => {}
     }
     match cache.begin_lookup(&metric, 0, 2) {
-        LookupOutcome::Hit(value) => assert_eq!(value, 2.0),
+        LookupOutcome::Hit(value) => assert!(value.total_cmp(&2.0).is_eq()),
         LookupOutcome::Miss(_) => panic!("recent entry must be retained"),
     }
     match cache.begin_lookup(&metric, 0, 3) {
-        LookupOutcome::Hit(value) => assert_eq!(value, 3.0),
+        LookupOutcome::Hit(value) => assert!(value.total_cmp(&3.0).is_eq()),
         LookupOutcome::Miss(_) => panic!("new entry must be present"),
     }
 }
@@ -83,9 +80,8 @@ fn ttl_expiry_forces_refresh() {
     let cache = DistanceCache::new(config);
     let metric = MetricDescriptor::new("ttl");
 
-    let miss = match cache.begin_lookup(&metric, 1, 2) {
-        LookupOutcome::Miss(miss) => miss,
-        _ => unreachable!(),
+    let LookupOutcome::Miss(miss) = cache.begin_lookup(&metric, 1, 2) else {
+        panic!("initial cache lookup must miss");
     };
     cache
         .complete_miss(miss, 4.2)
@@ -106,17 +102,16 @@ fn normalizes_pair_order() {
     let cache = cache_with_capacity(2).expect("capacity must be non-zero");
     let metric = MetricDescriptor::new("sym");
 
-    let miss = match cache.begin_lookup(&metric, 7, 3) {
-        LookupOutcome::Miss(miss) => miss,
-        _ => unreachable!(),
+    let LookupOutcome::Miss(miss) = cache.begin_lookup(&metric, 7, 3) else {
+        panic!("initial cache lookup must miss");
     };
     cache
         .complete_miss(miss, 1.23)
         .expect("completing miss must succeed");
 
     match cache.begin_lookup(&metric, 3, 7) {
-        LookupOutcome::Hit(value) => assert_eq!(value, 1.23),
-        _ => panic!("normalized (a,b) must hit for (b,a)"),
+        LookupOutcome::Hit(value) => assert!(value.total_cmp(&1.23).is_eq()),
+        LookupOutcome::Miss(_) => panic!("normalized (a,b) must hit for (b,a)"),
     }
 }
 
@@ -125,9 +120,8 @@ fn rejects_non_finite_entries() {
     let cache = cache_with_capacity(1).expect("capacity must be non-zero");
     let metric = MetricDescriptor::new("nan");
 
-    let miss = match cache.begin_lookup(&metric, 2, 3) {
-        LookupOutcome::Miss(miss) => miss,
-        _ => unreachable!(),
+    let LookupOutcome::Miss(miss) = cache.begin_lookup(&metric, 2, 3) else {
+        panic!("initial cache lookup must miss");
     };
     let err = cache
         .complete_miss(miss, f32::NAN)

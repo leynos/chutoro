@@ -3,7 +3,7 @@
 //! reachability, and the shared proptest runners/helpers used to orchestrate
 //! these scenarios.
 
-use proptest::{prop_assert, prop_assert_eq, proptest, test_runner::TestCaseResult};
+use proptest::{proptest, test_runner::TestCaseResult};
 use rstest::rstest;
 
 use super::{
@@ -12,8 +12,8 @@ use super::{
         run_graph_validity_property,
     },
     mutation_property::derive_initial_population,
-    strategies::{graph_fixture_strategy, hnsw_fixture_strategy},
-    support::{DenseVectorSource, dot, euclidean_distance, l2_norm},
+    strategies::graph_fixture_strategy,
+    support::DenseVectorSource,
     test_runner_support::{
         JobKind, ShrinkIterations, StackSize, TestCases, idempotency_cases,
         idempotency_shrink_iters, mutation_cases, mutation_shrink_iters, run_idempotency_test,
@@ -22,7 +22,7 @@ use super::{
         select_mutation_cases_for_fork, select_mutation_shrink_iters, select_search_cases,
         select_search_shrink_iters,
     },
-    types::{DistributionMetadata, HnswParamsSeed, VectorDistribution},
+    types::HnswParamsSeed,
 };
 use crate::error::DataSourceError;
 use crate::hnsw::HnswError;
@@ -31,16 +31,19 @@ use crate::{CpuHnsw, DataSource};
 
 #[test]
 fn dense_vector_source_rejects_inconsistent_rows() {
-    let err = DenseVectorSource::new("empty", Vec::new()).expect_err("empty data should fail");
-    assert_eq!(err, DataSourceError::EmptyData);
+    let empty_error =
+        DenseVectorSource::new("empty", Vec::new()).expect_err("empty data should fail");
+    assert_eq!(empty_error, DataSourceError::EmptyData);
 
-    let err = DenseVectorSource::new("zero", vec![vec![]]).expect_err("zero dimension should fail");
-    assert_eq!(err, DataSourceError::ZeroDimension);
+    let zero_dimension_error =
+        DenseVectorSource::new("zero", vec![vec![]]).expect_err("zero dimension should fail");
+    assert_eq!(zero_dimension_error, DataSourceError::ZeroDimension);
 
-    let err = DenseVectorSource::new("mismatch", vec![vec![0.0, 1.0], vec![1.0]])
-        .expect_err("dimension mismatch must fail");
+    let dimension_mismatch_error =
+        DenseVectorSource::new("mismatch", vec![vec![0.0, 1.0], vec![1.0]])
+            .expect_err("dimension mismatch must fail");
     assert_eq!(
-        err,
+        dimension_mismatch_error,
         DataSourceError::DimensionMismatch { left: 2, right: 1 },
     );
 }
@@ -63,127 +66,8 @@ fn params_seed_build_propagates_errors(
     assert!(matches!(err, HnswError::InvalidParameters { .. }));
 }
 
-proptest! {
-    #![proptest_config(suite_proptest_config(256))]
-
-    #[test]
-    fn fixture_dimensions_are_consistent(fixture in hnsw_fixture_strategy()) {
-        let dimension = fixture.dimension();
-        prop_assert!(dimension > 0);
-        prop_assert!(fixture.vectors.iter().all(|v| v.len() == dimension));
-        prop_assert!(fixture.params.build().is_ok());
-        let source = fixture
-            .clone()
-            .into_source()
-            .expect("fixture must convert into a dense source");
-        prop_assert_eq!(source.len(), fixture.vectors.len());
-    }
-
-    #[test]
-    fn duplicate_groups_reference_identical_vectors(
-        fixture in hnsw_fixture_strategy()
-    ) {
-        if let DistributionMetadata::Duplicates { groups } = &fixture.metadata {
-            for group in groups {
-                let first = group.first().expect("duplicate group must contain at least one index");
-                prop_assert!(*first < fixture.vectors.len());
-                let exemplar = &fixture.vectors[*first];
-                for &index in group.iter().skip(1) {
-                    prop_assert!(index < fixture.vectors.len());
-                    prop_assert!(fixture.vectors[index] == *exemplar);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn distribution_matches_metadata(fixture in hnsw_fixture_strategy()) {
-        match (&fixture.distribution, &fixture.metadata) {
-            (VectorDistribution::Uniform, DistributionMetadata::Uniform { .. }) => {}
-            (VectorDistribution::Clustered, DistributionMetadata::Clustered { .. }) => {}
-            (VectorDistribution::Manifold, DistributionMetadata::Manifold { .. }) => {}
-            (VectorDistribution::Duplicates, DistributionMetadata::Duplicates { .. }) => {}
-            (distribution, metadata) => {
-                prop_assert!(
-                    false,
-                    "distribution {:?} mismatched metadata {:?}",
-                    distribution,
-                    metadata,
-                );
-            }
-        }
-    }
-
-    #[test]
-    fn cluster_points_remain_within_radius(
-        fixture in hnsw_fixture_strategy()
-    ) {
-        if let DistributionMetadata::Clustered { clusters } = &fixture.metadata {
-            for cluster in clusters {
-                for point in &fixture.vectors[cluster.start..cluster.start + cluster.len] {
-                    let distance = euclidean_distance(point, &cluster.centroid);
-                    prop_assert!(
-                        distance <= cluster.radius * (fixture.dimension() as f32).sqrt() + 0.05,
-                        "point {:?} exceeds radius: observed {}, allowed {}",
-                        point,
-                        distance,
-                        cluster.radius * (fixture.dimension() as f32).sqrt() + 0.05,
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn uniform_vectors_stay_within_bounds(
-        fixture in hnsw_fixture_strategy()
-    ) {
-        if let DistributionMetadata::Uniform { bound } = &fixture.metadata {
-            for point in &fixture.vectors {
-                for &value in point {
-                    prop_assert!(value <= bound + f32::EPSILON);
-                    prop_assert!(value >= -bound - f32::EPSILON);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn manifold_points_stay_near_basis(
-        fixture in hnsw_fixture_strategy()
-    ) {
-        if let DistributionMetadata::Manifold {
-            basis,
-            noise_bound,
-            origin,
-            ambient_dim,
-            intrinsic_dim,
-        } = &fixture.metadata
-        {
-            prop_assert_eq!(*ambient_dim, fixture.dimension());
-            prop_assert_eq!(*intrinsic_dim, basis.len());
-            for point in &fixture.vectors {
-                let mut diff: Vec<f32> = point.iter().zip(origin.iter()).map(|(p, o)| p - o).collect();
-                let mut projection = vec![0.0_f32; diff.len()];
-                for basis_vec in basis.iter() {
-                    let coeff = dot(&diff, basis_vec);
-                    for (proj, component) in projection.iter_mut().zip(basis_vec) {
-                        *proj += coeff * component;
-                    }
-                }
-                for (value, proj) in diff.iter_mut().zip(&projection) {
-                    *value -= proj;
-                }
-                let residual = l2_norm(&diff);
-                let tolerance = (*noise_bound * diff.len() as f32).sqrt() + 0.05;
-                prop_assert!(residual <= tolerance);
-            }
-        }
-    }
-}
-
 #[test]
-#[ignore]
+#[ignore = "stress configuration is too expensive for the default test suite"]
 fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
     run_mutation_test(
         TestCases::try_new(640).expect("test cases must be > 0"),

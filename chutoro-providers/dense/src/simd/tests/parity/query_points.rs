@@ -10,7 +10,7 @@
 //! all-zero row patterns across SIMD boundary dimensions.
 //!
 //! A backend output slice is accepted when
-//! [`DistanceSemantics::assert_query_close`] finds every finite distance within
+//! [`DistanceSemantics::check_query_close`] finds every finite distance within
 //! the configured epsilon of the scalar query-to-points result.
 
 use proptest::prelude::*;
@@ -26,8 +26,8 @@ proptest! {
         let semantics = DistanceSemantics::default_euclidean();
         let matrix = fixture.matrix();
         let query = matrix
-            .row(fixture.query_index())
-            .expect("query row must exist because fixture.query_index() is always within bounds");
+            .row(strategies::QueryPointsFixture::query_index())
+            .expect("query row must exist because fixture query index is always within bounds");
         let points = DensePointView::from_row_indices(matrix, &fixture.point_indices())
             .expect("point rows must exist because fixture point indices are generated in bounds");
         let entries = super::query_points_entries().expect("parity backends must enumerate");
@@ -38,7 +38,7 @@ proptest! {
         for (_backend, entry) in entries {
             let mut actual = vec![0.0_f32; points.point_count()];
             entry(query.as_slice(), &points, &mut actual);
-            semantics.assert_query_close(&actual, &expected);
+            semantics.check_query_close(&actual, &expected)?;
         }
     }
 }

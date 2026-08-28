@@ -16,9 +16,13 @@ use super::{
 /// Bundles the context required to ensure a search result includes the query
 /// item when enough capacity is available.
 pub(crate) struct EnsureQueryArgs<'a, D: DataSource + Sync> {
+    /// Data source used to evaluate a missing query candidate.
     pub source: &'a D,
+    /// Query identifier that may need to be inserted.
     pub query: usize,
+    /// Search-result capacity that bounds query insertion.
     pub ef: NonZeroUsize,
+    /// Mutable result list updated when the query is absent.
     pub neighbours: &'a mut Vec<Neighbour>,
 }
 
@@ -134,9 +138,9 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
     let mut miss_candidates = Vec::new();
     let mut miss_meta = Vec::new();
 
-    for (index, &candidate) in candidates.iter().enumerate() {
+    for (index, (&candidate, distance_slot)) in candidates.iter().zip(&mut distances).enumerate() {
         match cache.begin_lookup(&metric, node, candidate) {
-            LookupOutcome::Hit(value) => distances[index] = value,
+            LookupOutcome::Hit(value) => *distance_slot = value,
             LookupOutcome::Miss(miss) => {
                 miss_candidates.push(candidate);
                 miss_meta.push((index, miss));
@@ -161,7 +165,11 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
 
     for ((index, miss), distance) in miss_meta.into_iter().zip(miss_distances.into_iter()) {
         cache.complete_miss(miss, distance)?;
-        distances[index] = distance;
+        *distances
+            .get_mut(index)
+            .ok_or_else(|| HnswError::InvalidParameters {
+                reason: format!("distance slot {index} is outside the candidate batch"),
+            })? = distance;
     }
 
     Ok(distances)
@@ -171,63 +179,68 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
 mod tests {
     //! Unit tests for HNSW helper routines.
 
+    use rstest::{fixture, rstest};
+
     use super::*;
     use crate::{DataSourceError, DistanceCacheConfig, datasource::MetricDescriptor};
 
+    #[fixture]
     fn cache() -> DistanceCache {
         DistanceCache::new(DistanceCacheConfig::default())
     }
 
-    fn run_ensure_query_test(
+    /// Runs [`ensure_query_present`] over `initial_neighbours` and returns the
+    /// resulting list.
+    ///
+    /// A fallible query rather than an assertion helper, so the calling test
+    /// owns both the failure diagnostics and the comparison.
+    fn ensured_neighbours(
+        cache: &DistanceCache,
         initial_neighbours: Vec<Neighbour>,
         ef: usize,
-        expected_neighbours: Vec<Neighbour>,
-    ) {
+    ) -> Result<Vec<Neighbour>, HnswError> {
         let source = TestSource::new(vec![0.0, 1.0]);
         let mut neighbours = initial_neighbours;
-        let Some(ef) = NonZeroUsize::new(ef) else {
-            panic!("ef must be non-zero");
-        };
-        let ensured = ensure_query_present(
-            &cache(),
+        let search_ef = NonZeroUsize::new(ef).ok_or_else(|| HnswError::InvalidParameters {
+            reason: "ef must be non-zero".to_owned(),
+        })?;
+        ensure_query_present(
+            cache,
             EnsureQueryArgs {
                 source: &source,
                 query: 0,
-                ef,
+                ef: search_ef,
                 neighbours: &mut neighbours,
             },
-        );
-        if let Err(err) = ensured {
-            panic!("ensure_query_present must succeed: {err}");
-        }
+        )?;
+        Ok(neighbours)
+    }
+
+    #[rstest]
+    #[case::added_when_room_available(
+        vec![neighbour(1, 1.0)],
+        2,
+        vec![neighbour(0, 0.0), neighbour(1, 1.0)]
+    )]
+    #[case::skipped_when_capacity_is_one(vec![neighbour(1, 1.0)], 1, vec![neighbour(1, 1.0)])]
+    #[case::noop_when_query_present(vec![neighbour(0, 0.0)], 1, vec![neighbour(0, 0.0)])]
+    fn ensure_query_present_matches_expected_window(
+        cache: DistanceCache,
+        #[case] initial_neighbours: Vec<Neighbour>,
+        #[case] ef: usize,
+        #[case] expected_neighbours: Vec<Neighbour>,
+    ) {
+        let neighbours = ensured_neighbours(&cache, initial_neighbours, ef)
+            .expect("ensure_query_present must succeed");
         assert_eq!(neighbours, expected_neighbours);
     }
 
-    #[test]
-    fn ensure_query_added_when_room_available() {
-        run_ensure_query_test(
-            vec![neighbour(1, 1.0)],
-            2,
-            vec![neighbour(0, 0.0), neighbour(1, 1.0)],
-        );
-    }
-
-    #[test]
-    fn ensure_query_skips_when_capacity_is_one() {
-        run_ensure_query_test(vec![neighbour(1, 1.0)], 1, vec![neighbour(1, 1.0)]);
-    }
-
-    #[test]
-    fn ensure_query_noop_when_present() {
-        run_ensure_query_test(vec![neighbour(0, 0.0)], 1, vec![neighbour(0, 0.0)]);
-    }
-
-    #[test]
-    fn ensure_query_evicts_furthest_when_full() {
+    #[rstest]
+    fn ensure_query_evicts_furthest_when_full(cache: DistanceCache) {
         let mut neighbours = vec![neighbour(1, 1.0), neighbour(2, 2.0)];
         let source = TestSource::new(vec![0.0, 1.0, 2.0]);
         ensure_query_present(
-            &cache(),
+            &cache,
             EnsureQueryArgs {
                 source: &source,
                 query: 0,
@@ -242,9 +255,8 @@ mod tests {
         assert!(neighbours.iter().all(|neighbour| neighbour.id != 2));
     }
 
-    #[test]
-    fn batch_distances_populates_cache() {
-        let cache = cache();
+    #[rstest]
+    fn batch_distances_populates_cache(cache: DistanceCache) {
         let source = TestSource::new(vec![0.0, 1.0, 4.0]);
         let distances = batch_distances_for_trim(&cache, 0, &[1, 2], &source)
             .expect("batch distances must succeed");
@@ -253,7 +265,7 @@ mod tests {
         let metric = source.metric_descriptor();
         assert!(matches!(
             cache.begin_lookup(&metric, 0, 1),
-            LookupOutcome::Hit(value) if (value - 1.0).abs() < f32::EPSILON
+            LookupOutcome::Hit(value) if value.total_cmp(&1.0).is_eq()
         ));
     }
 
@@ -277,12 +289,22 @@ mod tests {
             self.data.len()
         }
 
-        fn name(&self) -> &str {
+        fn name(&self) -> &'static str {
             "test"
         }
 
         fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
-            Ok((self.data[left] - self.data[right]).abs())
+            let left_value = self
+                .data
+                .get(left)
+                .ok_or(DataSourceError::OutOfBounds { index: left })?;
+            let right_value = self
+                .data
+                .get(right)
+                .ok_or(DataSourceError::OutOfBounds { index: right })?;
+            Ok(left_value
+                .mul_add(1.0, std::ops::Neg::neg(*right_value))
+                .abs())
         }
 
         fn metric_descriptor(&self) -> MetricDescriptor {

@@ -26,7 +26,7 @@ fn core_distance_asserts_storage_alignment(session_builder: ChutoroBuilder) {
     session.append(&[0]).expect("append must succeed");
     session.dirty_core_distances.clear();
 
-    let _ = session.core_distance(0);
+    let _alignment_check = session.core_distance(0);
 }
 
 #[rstest]
@@ -46,16 +46,20 @@ fn recompute_core_distances_propagates_errors(
         .recompute_core_distances_full()
         .expect_err(&format!("recompute must propagate {failure_description}"));
 
-    match mode {
-        FailureMode::DataSource => assert!(
+    assert!(
+        matches!(mode, FailureMode::DataSource | FailureMode::NonFinite),
+        "pair data source failures belong to the dirty-state retention test",
+    );
+    if matches!(mode, FailureMode::DataSource) {
+        assert!(
             matches!(err, ChutoroError::DataSource { .. }),
             "expected data source error, got {err:?}"
-        ),
-        FailureMode::NonFinite => assert!(
+        );
+    } else {
+        assert!(
             matches!(err, ChutoroError::CpuHnswFailure { .. }),
             "expected HNSW error, got {err:?}"
-        ),
-        FailureMode::PairDataSource { .. } => unreachable!("pair failure is not a test case"),
+        );
     }
 }
 
@@ -140,7 +144,7 @@ impl DataSource for FailableSource {
         self.values.len()
     }
 
-    fn name(&self) -> &str {
+    fn name(&self) -> &'static str {
         "failable-session-source"
     }
 
@@ -152,7 +156,19 @@ impl DataSource for FailableSource {
                 FailureMode::PairDataSource { left, right } if is_pair(i, j, left, right) => {
                     Err(DataSourceError::OutOfBounds { index: i.max(j) })
                 }
-                FailureMode::PairDataSource { .. } => Ok((self.values[i] - self.values[j]).abs()),
+                FailureMode::PairDataSource { .. } => {
+                    let left_value = self
+                        .values
+                        .get(i)
+                        .ok_or(DataSourceError::OutOfBounds { index: i })?;
+                    let right_value = self
+                        .values
+                        .get(j)
+                        .ok_or(DataSourceError::OutOfBounds { index: j })?;
+                    Ok(left_value
+                        .mul_add(1.0, std::ops::Neg::neg(*right_value))
+                        .abs())
+                }
             };
         }
 
@@ -164,7 +180,7 @@ impl DataSource for FailableSource {
             .values
             .get(j)
             .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok((left - right).abs())
+        Ok(left.mul_add(1.0, std::ops::Neg::neg(*right)).abs())
     }
 
     fn metric_descriptor(&self) -> MetricDescriptor {

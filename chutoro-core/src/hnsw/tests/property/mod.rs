@@ -4,6 +4,7 @@ pub(super) mod datasets;
 pub(super) mod edge_harvest_output;
 pub(super) mod edge_harvest_property;
 pub(super) mod edge_harvest_suite;
+mod fixture_validation;
 mod fixtures;
 pub(super) mod graph_metrics;
 pub(super) mod graph_topologies;

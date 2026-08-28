@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array, RecordBatch};
-use arrow_schema::{DataType, Field, Schema};
+use arrow_schema::{ArrowError, DataType, Field, Schema};
 use parquet::arrow::arrow_writer::ArrowWriter;
 use tempfile::TempDir;
 
@@ -30,7 +30,7 @@ pub fn create_parquet_file(
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let path = dir.path().join(name);
     let schema = build_schema();
-    let batch = build_record_batch(schema.clone());
+    let batch = build_record_batch(schema.clone())?;
     let file = File::create(&path)?;
     let mut writer = ArrowWriter::try_new(file, schema, None)?;
     writer.write(&batch)?;
@@ -44,13 +44,14 @@ fn build_schema() -> Arc<Schema> {
     Arc::new(Schema::new(vec![Field::new("features", list_type, false)]))
 }
 
-fn build_record_batch(schema: Arc<Schema>) -> RecordBatch {
+/// Builds the single record batch backing the Parquet fixture.
+///
+/// Propagates the Arrow error rather than panicking so the calling test owns
+/// the failure diagnostics.
+fn build_record_batch(schema: Arc<Schema>) -> Result<RecordBatch, ArrowError> {
     // Flat buffer representing 4 2D points: (0,0), (1,1), (2,2), (3,3).
     let values = Float32Array::from(vec![0.0_f32, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]);
     let item_field = Arc::new(Field::new("item", DataType::Float32, false));
     let list = FixedSizeListArray::new(item_field, 2, Arc::new(values) as ArrayRef, None);
-    match RecordBatch::try_new(schema, vec![Arc::new(list) as ArrayRef]) {
-        Ok(batch) => batch,
-        Err(err) => panic!("failed to construct record batch: {err}"),
-    }
+    RecordBatch::try_new(schema, vec![Arc::new(list) as ArrayRef])
 }

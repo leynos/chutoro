@@ -1,10 +1,10 @@
 //! Behavioural tests for the nightly Kani gate binary.
 
-use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::error::Error;
+use std::path::PathBuf;
 use std::process::Command;
 
+use chutoro_test_support::process::find_test_binary;
 use rstest::{fixture, rstest};
 
 const SECONDS_PER_DAY: u64 = 86_400;
@@ -48,17 +48,22 @@ struct GateCase {
     force: Some("true"),
     expected_run: true,
 })]
-fn kani_gate_binary_outputs_decision(gate_runner: GateRunner, #[case] case: GateCase) {
-    let output = gate_runner.run(case.commit_epoch, case.now_epoch, case.force);
+fn kani_gate_binary_outputs_decision(
+    #[from(gate_runner)] gate_runner_result: Result<GateRunner, Box<dyn Error>>,
+    #[case] case: GateCase,
+) {
+    let gate_runner = gate_runner_result.expect("gate runner must be created");
+    let output = gate_runner
+        .run(case.commit_epoch, case.now_epoch, case.force)
+        .expect("kani_nightly_gate binary must run");
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         panic!("expected success, got failure: {stderr}");
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    let should_run = match parse_should_run(&stdout) {
-        Some(value) => value,
-        None => panic!("missing should_run output: {stdout}"),
+    let Some(should_run) = parse_should_run(&stdout) else {
+        panic!("missing should_run output: {stdout}");
     };
 
     assert_eq!(should_run, case.expected_run);
@@ -67,8 +72,14 @@ fn kani_gate_binary_outputs_decision(gate_runner: GateRunner, #[case] case: Gate
 #[rstest]
 #[case::invalid_force("maybe")]
 #[case::invalid_force_whitespace("true-ish")]
-fn kani_gate_binary_rejects_invalid_force(gate_runner: GateRunner, #[case] force_value: &str) {
-    let output = gate_runner.run(SECONDS_PER_DAY, SECONDS_PER_DAY, Some(force_value));
+fn kani_gate_binary_rejects_invalid_force(
+    #[from(gate_runner)] gate_runner_result: Result<GateRunner, Box<dyn Error>>,
+    #[case] force_value: &str,
+) {
+    let gate_runner = gate_runner_result.expect("gate runner must be created");
+    let output = gate_runner
+        .run(SECONDS_PER_DAY, SECONDS_PER_DAY, Some(force_value))
+        .expect("kani_nightly_gate binary must run");
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         panic!("expected failure, got success: {stdout}");
@@ -79,7 +90,7 @@ fn kani_gate_binary_rejects_invalid_force(gate_runner: GateRunner, #[case] force
 }
 
 #[fixture]
-fn gate_runner() -> GateRunner {
+fn gate_runner() -> Result<GateRunner, Box<dyn Error>> {
     GateRunner::new()
 }
 
@@ -88,13 +99,17 @@ struct GateRunner {
 }
 
 impl GateRunner {
-    fn new() -> Self {
-        Self {
-            binary_path: binary_path(),
-        }
+    fn new() -> Result<Self, Box<dyn Error>> {
+        let binary_path = find_test_binary("kani_nightly_gate")?;
+        Ok(Self { binary_path })
     }
 
-    fn run(&self, commit_epoch: u64, now_epoch: u64, force: Option<&str>) -> std::process::Output {
+    fn run(
+        &self,
+        commit_epoch: u64,
+        now_epoch: u64,
+        force: Option<&str>,
+    ) -> std::io::Result<std::process::Output> {
         let mut command = Command::new(&self.binary_path);
         command
             .env("CHUTORO_KANI_COMMIT_EPOCH", commit_epoch.to_string())
@@ -110,92 +125,8 @@ impl GateRunner {
             }
         }
 
-        command.output().expect("failed to run kani_nightly_gate")
+        command.output()
     }
-}
-
-fn binary_path() -> PathBuf {
-    if let Ok(value) = env::var("CARGO_BIN_EXE_kani_nightly_gate") {
-        return with_exe_suffix(PathBuf::from(value));
-    }
-
-    let current_exe = match env::current_exe() {
-        Ok(path) => path,
-        Err(error) => panic!("failed to locate current test binary: {error}"),
-    };
-    let deps_dir = match current_exe.parent() {
-        Some(dir) => dir.to_path_buf(),
-        None => panic!("failed to resolve deps directory from test binary"),
-    };
-    let target_dir = match deps_dir.parent() {
-        Some(dir) => dir.to_path_buf(),
-        None => panic!("failed to resolve target directory from deps"),
-    };
-    let direct = with_exe_suffix(target_dir.join("kani_nightly_gate"));
-    if direct.exists() {
-        return direct;
-    }
-
-    match find_in_deps(&deps_dir) {
-        Some(path) => path,
-        None => panic!("failed to locate kani_nightly_gate binary"),
-    }
-}
-
-fn find_in_deps(deps_dir: &Path) -> Option<PathBuf> {
-    fs::read_dir(deps_dir)
-        .ok()?
-        .filter_map(|entry| entry.ok())
-        .find_map(is_matching_binary)
-}
-
-fn is_matching_binary(entry: fs::DirEntry) -> Option<PathBuf> {
-    let path = entry.path();
-    let metadata = entry.metadata().ok()?;
-
-    if !metadata.is_file() {
-        return None;
-    }
-
-    let file_name = path.file_name()?.to_str()?;
-    if !has_expected_suffix(&path, file_name) {
-        return None;
-    }
-
-    let file_stem = path.file_stem()?.to_str()?;
-    if file_stem.starts_with("kani_nightly_gate") {
-        Some(path)
-    } else {
-        None
-    }
-}
-
-fn has_expected_suffix(path: &Path, file_name: &str) -> bool {
-    let suffix = env::consts::EXE_SUFFIX;
-    if suffix.is_empty() {
-        return path.extension().is_none();
-    }
-
-    file_name.ends_with(suffix)
-}
-
-fn with_exe_suffix(mut path: PathBuf) -> PathBuf {
-    let suffix = env::consts::EXE_SUFFIX;
-    if suffix.is_empty() {
-        return path;
-    }
-
-    let file_name = match path.file_name().and_then(|name| name.to_str()) {
-        Some(name) => name,
-        None => return path,
-    };
-    if file_name.ends_with(suffix) {
-        return path;
-    }
-
-    let updated = format!("{file_name}{suffix}");
-    path.set_file_name(updated);
-    path
 }
 
 fn parse_should_run(stdout: &str) -> Option<bool> {

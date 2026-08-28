@@ -16,3 +16,6 @@ features = ["skeleton"]
 
 [dev-dependencies]
 rstest = "0.26"
+
+[lints]
+workspace = true

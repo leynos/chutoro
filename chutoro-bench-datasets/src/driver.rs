@@ -61,6 +61,7 @@ pub fn run_recipe<R: DatasetRecipe>(
     )
 }
 
+/// Run one recipe phase and initiate cleanup when it fails.
 fn execute_phase<R, T>(
     recipe: &R,
     ctx: &RecipeContext<'_>,
@@ -85,13 +86,17 @@ where
         })
 }
 
+/// Progress metadata for a recipe phase being run.
 #[derive(Clone, Copy, Debug)]
 struct PhaseExecution {
+    /// Last phase known to have completed before the active phase started.
     highest_completed_phase: Option<Phase>,
+    /// Phase that is about to be executed.
     phase: Phase,
 }
 
 impl PhaseExecution {
+    /// Describe the active phase and its last completed predecessor.
     const fn new(highest_completed_phase: Option<Phase>, phase: Phase) -> Self {
         Self {
             highest_completed_phase,
@@ -100,14 +105,19 @@ impl PhaseExecution {
     }
 }
 
+/// Failure metadata retained while recipe cleanup runs.
 #[derive(Debug)]
 struct PhaseFailure {
+    /// Last phase known to have completed before the failure.
     highest_completed_phase: Option<Phase>,
+    /// Phase whose execution returned the original error.
     failed_phase: Phase,
+    /// Error returned by the failed phase before cleanup ran.
     original: RecipeError,
 }
 
 impl PhaseFailure {
+    /// Bundle the phase progress and error needed by cleanup.
     const fn new(
         highest_completed_phase: Option<Phase>,
         failed_phase: Phase,
@@ -121,6 +131,7 @@ impl PhaseFailure {
     }
 }
 
+/// Run recipe cleanup and preserve the original failure when cleanup succeeds.
 fn cleanup_after_error<R: DatasetRecipe>(
     recipe: &R,
     ctx: &RecipeContext<'_>,

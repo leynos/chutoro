@@ -1,7 +1,11 @@
 //! Domain primitives shared by the distance routines.
 
-use core::{fmt, ops::Deref};
+use core::{
+    fmt,
+    ops::{AddAssign, Deref, Mul},
+};
 
+use num_traits::cast;
 use thiserror::Error;
 
 use super::helpers::validate_dimensions;
@@ -99,7 +103,7 @@ impl<'a> Vector<'a> {
 
     /// Returns the dimensionality of the vector.
     #[must_use]
-    pub fn dimension(&self) -> usize {
+    pub const fn dimension(&self) -> usize {
         self.0.len()
     }
 }
@@ -116,6 +120,15 @@ impl Deref for Vector<'_> {
     fn deref(&self) -> &Self::Target {
         self.0
     }
+}
+
+/// Narrows an internal calculation to the public distance scalar type.
+///
+/// `num_traits` preserves Rust's floating-point narrowing behaviour, including
+/// overflow to infinity, while making the deliberate conversion boundary
+/// explicit.
+pub(crate) fn narrow_to_f32(value: f64) -> f32 {
+    cast(value).unwrap_or(f32::NAN)
 }
 
 /// Validated L2 norm for cosine distance calculations.
@@ -148,12 +161,13 @@ impl Norm {
     pub fn from_vector(vector: &Vector<'_>, which: VectorKind) -> Result<Self> {
         let mut sum = 0.0f64;
         for value in vector.iter() {
-            sum += f64::from(*value) * f64::from(*value);
+            sum.add_assign(f64::from(*value).mul(f64::from(*value)));
         }
 
         Self::from_squared_sum(sum, which)
     }
 
+    /// Validate a squared norm before converting it to a finite magnitude.
     pub(crate) fn validate_squared_sum(sum: f64, which: VectorKind) -> Result<()> {
         if !sum.is_finite() {
             return Err(DistanceError::InvalidNorm {
@@ -169,14 +183,15 @@ impl Norm {
         Ok(())
     }
 
+    /// Construct a norm from a validated squared sum.
     pub(crate) fn from_squared_sum(sum: f64, which: VectorKind) -> Result<Self> {
         Self::validate_squared_sum(sum, which)?;
-        Self::new(sum.sqrt() as f32, which)
+        Self::new(narrow_to_f32(sum.sqrt()), which)
     }
 
     /// Returns the validated norm value.
     #[must_use]
-    pub fn value(&self) -> f32 {
+    pub const fn value(&self) -> f32 {
         self.0
     }
 }
@@ -194,13 +209,14 @@ impl Deref for Norm {
 pub struct Distance(f32);
 
 impl Distance {
-    pub(crate) fn from_raw(value: f32) -> Self {
+    /// Construct a distance from a value already validated by its caller.
+    pub(crate) const fn from_raw(value: f32) -> Self {
         Self(value)
     }
 
     /// Returns the raw distance value.
     #[must_use]
-    pub fn value(&self) -> f32 {
+    pub const fn value(&self) -> f32 {
         self.0
     }
 }
@@ -222,7 +238,9 @@ impl fmt::Display for Distance {
 /// Pre-computed L2 norms for cosine distance calculations.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CosineNorms {
+    /// Norm for the left vector.
     left: Norm,
+    /// Norm for the right vector.
     right: Norm,
 }
 
@@ -233,10 +251,13 @@ impl CosineNorms {
     ///
     /// Returns [`DistanceError::InvalidNorm`] when a norm is non-finite or
     /// negative and [`DistanceError::ZeroMagnitude`] when a norm is zero.
-    pub fn new(left: f32, right: f32) -> Result<Self> {
-        let left = Norm::new(left, VectorKind::Left)?;
-        let right = Norm::new(right, VectorKind::Right)?;
-        Ok(Self { left, right })
+    pub fn new(left_value: f32, right_value: f32) -> Result<Self> {
+        let left_norm = Norm::new(left_value, VectorKind::Left)?;
+        let right_norm = Norm::new(right_value, VectorKind::Right)?;
+        Ok(Self {
+            left: left_norm,
+            right: right_norm,
+        })
     }
 
     /// Computes norms from the provided vectors.
@@ -245,36 +266,39 @@ impl CosineNorms {
     ///
     /// Propagates validation errors surfaced by
     /// [`crate::distance::cosine_distance`].
-    pub fn from_vectors(left: &[f32], right: &[f32]) -> Result<Self> {
-        let left = Vector::new(left, VectorKind::Left)?;
-        let right = Vector::new(right, VectorKind::Right)?;
-        validate_dimensions(&left, &right)?;
-        let left = Norm::from_vector(&left, VectorKind::Left)?;
-        let right = Norm::from_vector(&right, VectorKind::Right)?;
-        Ok(Self { left, right })
+    pub fn from_vectors(left_values: &[f32], right_values: &[f32]) -> Result<Self> {
+        let left_vector = Vector::new(left_values, VectorKind::Left)?;
+        let right_vector = Vector::new(right_values, VectorKind::Right)?;
+        validate_dimensions(&left_vector, &right_vector)?;
+        let left_norm = Norm::from_vector(&left_vector, VectorKind::Left)?;
+        let right_norm = Norm::from_vector(&right_vector, VectorKind::Right)?;
+        Ok(Self {
+            left: left_norm,
+            right: right_norm,
+        })
     }
 
     /// Returns the stored norm for the left vector.
     #[must_use]
-    pub fn left(&self) -> f32 {
+    pub const fn left(&self) -> f32 {
         self.left.value()
     }
 
     /// Returns the stored norm for the right vector.
     #[must_use]
-    pub fn right(&self) -> f32 {
+    pub const fn right(&self) -> f32 {
         self.right.value()
     }
 
     /// Returns the validated norm for the left vector.
     #[must_use]
-    pub fn left_norm(&self) -> Norm {
+    pub const fn left_norm(&self) -> Norm {
         self.left
     }
 
     /// Returns the validated norm for the right vector.
     #[must_use]
-    pub fn right_norm(&self) -> Norm {
+    pub const fn right_norm(&self) -> Norm {
         self.right
     }
 }

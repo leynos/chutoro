@@ -6,8 +6,11 @@
 use std::collections::HashSet;
 use thiserror::Error;
 
+/// Largest `usize` value represented as an unsigned 64-bit integer.
 const USIZE_MAX_U64: u64 = usize::MAX as u64;
 
+/// Report whether the contiguous count represented by `value + 1` cannot fit
+/// in `usize`, including when `value` is `usize::MAX`.
 #[inline]
 fn exceeds_pointer_width(value: u64) -> bool {
     value == USIZE_MAX_U64 || usize::try_from(value).is_err()
@@ -25,7 +28,9 @@ fn exceeds_pointer_width(value: u64) -> bool {
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClusteringResult {
+    /// One cluster assignment for each input point.
     assignments: Vec<ClusterId>,
+    /// Number of distinct contiguous cluster identifiers.
     cluster_count: usize,
 }
 
@@ -59,6 +64,10 @@ impl ClusteringResult {
     /// let result = ClusteringResult::from_assignments(vec![ClusterId::new(0)]);
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
+    ///
+    /// # Panics
+    ///
+    /// Panics when identifiers do not start at zero or are not contiguous.
     #[must_use]
     pub fn from_assignments(assignments: Vec<ClusterId>) -> Self {
         match Self::try_from_assignments(assignments) {
@@ -164,7 +173,7 @@ impl ClusteringResult {
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
     #[must_use]
-    pub fn cluster_count(&self) -> usize {
+    pub const fn cluster_count(&self) -> usize {
         self.cluster_count
     }
 }
@@ -193,7 +202,7 @@ impl ClusterId {
     /// ```
     #[rustfmt::skip]
     #[must_use]
-    pub fn new(id: u64) -> Self { Self(id) }
+    pub const fn new(id: u64) -> Self { Self(id) }
 
     /// Returns the underlying numeric identifier.
     ///
@@ -206,5 +215,5 @@ impl ClusterId {
     /// ```
     #[rustfmt::skip]
     #[must_use]
-    pub fn get(self) -> u64 { self.0 }
+    pub const fn get(self) -> u64 { self.0 }
 }

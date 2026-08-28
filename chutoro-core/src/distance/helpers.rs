@@ -1,9 +1,11 @@
 //! Shared helpers for distance implementations.
 
+use core::ops::{AddAssign, Mul};
+
 use super::types::{DistanceError, Norm, Result, Vector, VectorKind};
 
 /// Ensures both vectors share the same dimensionality.
-pub(crate) fn validate_dimensions(left: &Vector<'_>, right: &Vector<'_>) -> Result<()> {
+pub(crate) const fn validate_dimensions(left: &Vector<'_>, right: &Vector<'_>) -> Result<()> {
     if left.dimension() != right.dimension() {
         return Err(DistanceError::DimensionMismatch {
             left: left.dimension(),
@@ -20,9 +22,9 @@ pub(crate) fn accumulate_components(left: &Vector<'_>, right: &Vector<'_>) -> (f
     let mut right_squares = 0.0f64;
 
     for (&l, &r) in left.iter().zip(right.iter()) {
-        dot += f64::from(l) * f64::from(r);
-        left_squares += f64::from(l) * f64::from(l);
-        right_squares += f64::from(r) * f64::from(r);
+        dot.add_assign(f64::from(l).mul(f64::from(r)));
+        left_squares.add_assign(f64::from(l).mul(f64::from(l)));
+        right_squares.add_assign(f64::from(r).mul(f64::from(r)));
     }
 
     (dot, left_squares, right_squares)

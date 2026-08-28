@@ -8,6 +8,7 @@
 
 use super::{EvaluationMode, GraphContext, HnswInvariantViolation};
 
+/// Record nodes whose adjacency lists exceed their configured level bounds.
 pub(super) fn check_degree_bounds(
     ctx: GraphContext<'_>,
     mode: &mut EvaluationMode<'_>,

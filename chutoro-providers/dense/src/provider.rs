@@ -1,5 +1,5 @@
 //! Dense matrix provider implementation and ingestion utilities.
-use std::{fs::File, path::Path};
+use std::path::Path;
 
 use arrow_array::{Array, FixedSizeListArray, RecordBatchReader};
 
@@ -14,9 +14,13 @@ use crate::simd;
 /// Dense matrix provider backed by a contiguous row-major buffer.
 #[derive(Debug)]
 pub struct DenseMatrixProvider {
+    /// Provider name reported through the data-source interface.
     name: String,
+    /// Number of rows in the flattened matrix.
     rows: usize,
+    /// Number of coordinates in every matrix row.
     dimension: usize,
+    /// Row-major matrix values.
     values: Vec<f32>,
 }
 
@@ -39,7 +43,7 @@ impl DenseMatrixProvider {
 
     /// Returns the dimensionality of each row.
     #[must_use]
-    pub fn dimension(&self) -> usize {
+    pub const fn dimension(&self) -> usize {
         self.dimension
     }
 
@@ -50,6 +54,11 @@ impl DenseMatrixProvider {
     }
 
     /// Loads data from an Arrow [`FixedSizeListArray`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the array has an unsupported element type,
+    /// contains null data, or cannot form a consistently sized dense matrix.
     pub fn try_from_fixed_size_list(
         name: impl Into<String>,
         array: &FixedSizeListArray,
@@ -60,16 +69,26 @@ impl DenseMatrixProvider {
     }
 
     /// Loads data from a Parquet column containing `FixedSizeList<Float32, D>` rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the path cannot be opened, the requested column
+    /// is unavailable or incompatible, or its rows cannot form a dense matrix.
     pub fn try_from_parquet_path(
         name: impl Into<String>,
         path: impl AsRef<Path>,
         column: &str,
     ) -> Result<Self, DenseMatrixProviderError> {
-        let file = File::open(path)?;
+        let file = crate::parquet_path::open(path)?;
         Self::try_from_parquet_reader(name, file, column)
     }
 
     /// Loads data from a Parquet reader.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Parquet decoding fails, the requested column is
+    /// unavailable or incompatible, or its rows cannot form a dense matrix.
     pub fn try_from_parquet_reader<R>(
         name: impl Into<String>,
         reader: R,
@@ -80,8 +99,8 @@ impl DenseMatrixProvider {
     {
         let builder = ParquetRecordBatchReaderBuilder::try_new(reader)?;
         let mask = ProjectionMask::columns(builder.parquet_schema(), [column]);
-        let reader = builder.with_projection(mask).build()?;
-        let schema = reader.schema();
+        let batch_reader = builder.with_projection(mask).build()?;
+        let schema = batch_reader.schema();
         let column_index =
             schema
                 .index_of(column)
@@ -92,9 +111,9 @@ impl DenseMatrixProvider {
         let dimension = validate_fixed_size_list_field(field, column)?;
         let mut values = Vec::new();
         let mut rows = 0_usize;
-        for batch in reader {
-            let batch = batch?;
-            let column_array = batch.column(column_index);
+        for batch_result in batch_reader {
+            let record_batch = batch_result?;
+            let column_array = record_batch.column(column_index);
             let list = column_array
                 .as_any()
                 .downcast_ref::<FixedSizeListArray>()
@@ -108,6 +127,7 @@ impl DenseMatrixProvider {
         Ok(Self::from_parts(name, rows, dimension, values))
     }
 
+    /// Return one validated matrix row as a coordinate slice.
     fn row_slice(&self, index: usize) -> Result<&[f32], DataSourceError> {
         if index >= self.rows {
             return Err(DataSourceError::OutOfBounds { index });
@@ -121,7 +141,9 @@ impl DenseMatrixProvider {
         if end > self.values.len() {
             return Err(DataSourceError::OutOfBounds { index });
         }
-        Ok(&self.values[start..end])
+        self.values
+            .get(start..end)
+            .ok_or(DataSourceError::OutOfBounds { index })
     }
 }
 

@@ -11,6 +11,7 @@ use crate::{Fetcher, PortName, RecipeError, SourceUrl};
 /// Fetcher that reads `file://` URLs relative to a fixture root.
 #[derive(Clone, Debug)]
 pub struct FilesystemFetcher {
+    /// Ambient fixture directory used as the fetcher's capability root.
     root: Utf8PathBuf,
 }
 
@@ -63,6 +64,7 @@ impl Fetcher for FilesystemFetcher {
     }
 }
 
+/// Validate and extract a relative file path from a `file://` source URL.
 fn relative_file_path(url: &SourceUrl) -> Result<&Utf8Path, RecipeError> {
     let value = url.as_ref();
     let relative = value

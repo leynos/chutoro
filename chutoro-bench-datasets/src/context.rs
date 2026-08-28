@@ -4,8 +4,11 @@ use crate::{Fetcher, Publisher, Storage};
 
 /// Borrowed port bundle supplied to recipe phases.
 pub struct RecipeContext<'a> {
+    /// Port that retrieves the recipe's source artefacts.
     fetcher: &'a dyn Fetcher,
+    /// Port that persists validated and prepared artefacts.
     storage: &'a dyn Storage,
+    /// Port that publishes the completed dataset representation.
     publisher: &'a dyn Publisher,
 }
 

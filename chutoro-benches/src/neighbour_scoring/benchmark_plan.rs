@@ -1,17 +1,24 @@
 //! Candidate-bucket and dimension planning for neighbour-scoring benchmarks.
 
+/// Candidate counts representing expected production workloads.
 const REALISTIC_BUCKETS: &[usize] = &[8, 16, 24, 32, 48];
+/// Candidate counts used to expose large-workload behaviour.
 const DIAGNOSTIC_BUCKETS: &[usize] = &[256, 1_024];
 
+/// Vector dimensions covered by the scoring benchmark matrix.
 pub(super) const DIMENSIONS: &[usize] = &[32, 128, 768];
 
+/// Intended workload class for a candidate-count bucket.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BucketKind {
+    /// Expected production-sized candidate count.
     Realistic,
+    /// Larger candidate count used for diagnostics.
     Diagnostic,
 }
 
 impl BucketKind {
+    /// Return the stable label for this workload class.
     const fn as_str(self) -> &'static str {
         match self {
             Self::Realistic => "realistic",
@@ -20,26 +27,33 @@ impl BucketKind {
     }
 }
 
+/// Candidate-count bucket paired with its workload class.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct CandidateBucket {
+    /// Number of candidate points in the bucket.
     size: usize,
+    /// Workload class represented by the bucket.
     kind: BucketKind,
 }
 
 impl CandidateBucket {
+    /// Construct one candidate bucket.
     const fn new(size: usize, kind: BucketKind) -> Self {
         Self { size, kind }
     }
 
+    /// Return the number of candidates in this bucket.
     pub(super) const fn size(self) -> usize {
         self.size
     }
 
+    /// Return the stable workload-class label for this bucket.
     pub(super) const fn kind_name(self) -> &'static str {
         self.kind.as_str()
     }
 }
 
+/// Iterate over every planned candidate bucket.
 pub(super) fn all_buckets() -> impl Iterator<Item = CandidateBucket> {
     REALISTIC_BUCKETS
         .iter()
@@ -53,6 +67,7 @@ pub(super) fn all_buckets() -> impl Iterator<Item = CandidateBucket> {
         )
 }
 
+/// Build the Cartesian product of dimensions and candidate buckets.
 pub(super) fn scoring_plan() -> Vec<(usize, CandidateBucket)> {
     DIMENSIONS
         .iter()

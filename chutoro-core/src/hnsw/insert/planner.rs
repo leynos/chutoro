@@ -11,8 +11,10 @@ use crate::{
     },
 };
 
+/// Plans graph searches needed to insert a node without mutating the graph.
 #[derive(Debug)]
 pub(crate) struct InsertionPlanner<'graph> {
+    /// Graph searched to select insertion neighbours.
     graph: &'graph Graph,
 }
 
@@ -59,14 +61,19 @@ pub(crate) struct InsertionPlanner<'graph> {
 /// ```
 #[derive(Clone, Copy)]
 pub(crate) struct PlanningInputs<'a, D: DataSource + Sync> {
+    /// Node identity, level, and sequence being planned.
     pub(crate) ctx: NodeContext,
+    /// HNSW parameters controlling layer-search breadth.
     pub(crate) params: &'a HnswParams,
+    /// Data source used for distances during graph traversal.
     pub(crate) source: &'a D,
+    /// Optional shared cache for traversal distance lookups.
     pub(crate) cache: Option<&'a DistanceCache>,
 }
 
 impl<'graph> InsertionPlanner<'graph> {
-    pub(crate) fn new(graph: &'graph Graph) -> Self {
+    /// Bind an insertion planner to a graph searched without mutation.
+    pub(crate) const fn new(graph: &'graph Graph) -> Self {
         Self { graph }
     }
 
@@ -77,24 +84,24 @@ impl<'graph> InsertionPlanner<'graph> {
     /// to identify candidate neighbours for bidirectional linking.
     pub(crate) fn plan<D: DataSource + Sync>(
         &self,
-        inputs: PlanningInputs<'_, D>,
+        inputs: &PlanningInputs<'_, D>,
     ) -> Result<InsertionPlan, HnswError> {
-        let PlanningInputs {
-            ctx,
-            params,
-            source,
-            cache,
-        } = inputs;
         let entry = self.graph.entry().ok_or(HnswError::GraphEmpty)?;
-        let target_level = ctx.level.min(entry.level);
-        let descent_ctx = DescentContext::new(ctx.node, entry, target_level);
-        let current = self.greedy_descend_to_target_level(source, descent_ctx, cache)?;
-        let layer_ctx =
-            LayerPlanContext::new(ctx.node, current, target_level, params.ef_construction());
-        let layers = self.build_layer_plans_from_target(source, layer_ctx, cache)?;
+        let target_level = inputs.ctx.level.min(entry.level);
+        let descent_ctx = DescentContext::new(inputs.ctx.node, entry, target_level);
+        let current =
+            self.greedy_descend_to_target_level(inputs.source, descent_ctx, inputs.cache)?;
+        let layer_ctx = LayerPlanContext::new(
+            inputs.ctx.node,
+            current,
+            target_level,
+            inputs.params.ef_construction(),
+        );
+        let layers = self.build_layer_plans_from_target(inputs.source, layer_ctx, inputs.cache)?;
         Ok(InsertionPlan { layers })
     }
 
+    /// Descend greedily from the entry point to the insertion target level.
     fn greedy_descend_to_target_level<D: DataSource + Sync>(
         &self,
         source: &D,
@@ -119,6 +126,7 @@ impl<'graph> InsertionPlanner<'graph> {
         Ok(current)
     }
 
+    /// Search target layers and collect neighbour candidates for each one.
     fn build_layer_plans_from_target<D: DataSource + Sync>(
         &self,
         source: &D,

@@ -81,26 +81,26 @@ impl Drop for WriteGraphScope {
 }
 
 impl CpuHnsw {
-    pub(super) fn insert_initial(
-        &self,
-        graph: &mut Graph,
-        ctx: NodeContext,
-    ) -> Result<(), HnswError> {
+    /// Insert the first graph node using the supplied node context.
+    pub(super) fn insert_initial(graph: &mut Graph, ctx: NodeContext) -> Result<(), HnswError> {
         graph.insert_first(ctx)
     }
 
+    /// Acquire a shared graph lock or map poisoning to an HNSW error.
     pub(super) fn read_graph_guard(&self) -> Result<RwLockReadGuard<'_, Graph>, HnswError> {
         self.graph
             .read()
             .map_err(|_| HnswError::LockPoisoned { resource: "graph" })
     }
 
+    /// Acquire an exclusive graph lock or map poisoning to an HNSW error.
     pub(super) fn write_graph_guard(&self) -> Result<RwLockWriteGuard<'_, Graph>, HnswError> {
         self.graph
             .write()
             .map_err(|_| HnswError::LockPoisoned { resource: "graph" })
     }
 
+    /// Run a fallible operation while holding the shared graph lock.
     pub(super) fn read_graph<R>(
         &self,
         f: impl FnOnce(&Graph) -> Result<R, HnswError>,
@@ -109,6 +109,7 @@ impl CpuHnsw {
         f(&guard)
     }
 
+    /// Run a fallible operation while holding the exclusive graph lock.
     pub(crate) fn write_graph<R>(
         &self,
         f: impl FnOnce(&mut Graph) -> Result<R, HnswError>,
@@ -119,10 +120,12 @@ impl CpuHnsw {
         f(&mut guard)
     }
 
+    /// Allocate the next deterministic insertion sequence.
     pub(super) fn allocate_sequence(&self) -> u64 {
         self.next_sequence.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// Insert an initial node only when the graph remains empty.
     pub(super) fn try_insert_initial<D: DataSource + Sync>(
         &self,
         ctx: NodeContext,
@@ -135,7 +138,7 @@ impl CpuHnsw {
         validate_distance(Some(&self.distance_cache), source, ctx.node, ctx.node)?;
         self.write_graph(|graph| {
             if graph.entry().is_none() {
-                self.insert_initial(graph, ctx)?;
+                Self::insert_initial(graph, ctx)?;
                 Ok(true)
             } else {
                 Ok(false)

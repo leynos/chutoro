@@ -18,7 +18,7 @@ pub(super) struct SearchPropertyConfig {
     min_max_connections: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 /// Newtype wrapper for recognized environment keys used by this config parser.
 struct EnvKey(&'static str);
 
@@ -45,20 +45,30 @@ impl SearchPropertyConfig {
     pub(super) const DEFAULT_MIN_MAX_CONNECTIONS: usize = 12;
 
     pub(super) fn load() -> Self {
+        Self::load_with_lookup(|key| env::var(key.as_str()).ok())
+    }
+
+    fn load_with_lookup<F>(lookup: F) -> Self
+    where
+        F: Fn(EnvKey) -> Option<String>,
+    {
         let min_recall = Self::read_env_or_default(
             Self::ENV_KEY,
             Self::DEFAULT_MIN_RECALL,
             Self::parse_min_recall,
+            &lookup,
         );
         let max_fixture_len = Self::read_env_or_default(
             Self::MAX_FIXTURE_LEN_ENV_KEY,
             Self::DEFAULT_MAX_FIXTURE_LEN,
             Self::parse_max_fixture_len,
+            &lookup,
         );
         let min_max_connections = Self::read_env_or_default(
             Self::MIN_MAX_CONNECTIONS_ENV_KEY,
             Self::DEFAULT_MIN_MAX_CONNECTIONS,
             Self::parse_min_max_connections,
+            &lookup,
         );
 
         Self {
@@ -80,26 +90,24 @@ impl SearchPropertyConfig {
         self.min_max_connections
     }
 
-    fn read_env_or_default<T, F>(key: EnvKey, default: T, parser: F) -> T
+    fn read_env_or_default<T, P, L>(key: EnvKey, default: T, parser: P, lookup: &L) -> T
     where
         T: Copy,
-        F: for<'a> Fn(RawConfigValue<'a>) -> Result<T, String>,
+        P: for<'a> Fn(RawConfigValue<'a>) -> Result<T, String>,
+        L: Fn(EnvKey) -> Option<String>,
     {
-        match env::var(key.as_str()) {
-            Ok(raw) => match parser(RawConfigValue(raw.as_str())) {
-                Ok(value) => value,
-                Err(reason) => {
-                    tracing::warn!(
-                        env = key.as_str(),
-                        raw = %raw,
-                        reason = %reason,
-                        "invalid config override, falling back to default",
-                    );
-                    default
-                }
-            },
-            Err(_) => default,
-        }
+        lookup(key).map_or(default, |raw| match parser(RawConfigValue(raw.as_str())) {
+            Ok(value) => value,
+            Err(reason) => {
+                tracing::warn!(
+                    env = key.as_str(),
+                    raw = %raw,
+                    reason = %reason,
+                    "invalid config override, falling back to default",
+                );
+                default
+            }
+        })
     }
 
     fn parse_min_recall(raw: RawConfigValue<'_>) -> Result<f32, String> {
@@ -143,13 +151,12 @@ mod tests {
 
     use super::*;
     use rstest::rstest;
-    use std::{env, sync::Mutex};
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    fn unset_min_max_connections_env() {
-        // SAFETY: tests serialize environment access with ENV_LOCK.
-        unsafe { env::remove_var(SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str()) };
+    fn config_with_min_max_connections(value: Option<&str>) -> SearchPropertyConfig {
+        SearchPropertyConfig::load_with_lookup(|key| {
+            (key == SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY)
+                .then(|| value.map(str::to_owned))
+                .flatten()
+        })
     }
 
     #[rstest]
@@ -159,7 +166,7 @@ mod tests {
     fn parse_recall_threshold_accepts_valid_values(#[case] input: &str, #[case] expected: f32) {
         let parsed = parse_recall_threshold(RawConfigValue(input)).expect("value should parse");
         assert!(
-            (parsed - expected).abs() < f32::EPSILON,
+            parsed.total_cmp(&expected).is_eq(),
             "parsed {parsed} vs {expected}"
         );
     }
@@ -224,10 +231,7 @@ mod tests {
 
     #[test]
     fn load_uses_default_min_max_connections_when_env_unset() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
-        unset_min_max_connections_env();
-
-        let config = SearchPropertyConfig::load();
+        let config = config_with_min_max_connections(None);
         assert_eq!(
             config.min_max_connections(),
             SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS
@@ -236,43 +240,17 @@ mod tests {
 
     #[test]
     fn load_uses_env_min_max_connections_when_valid() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
-        unset_min_max_connections_env();
-
         let override_val = SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS + 4;
-        // SAFETY: tests serialize environment access with ENV_LOCK.
-        unsafe {
-            env::set_var(
-                SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(),
-                override_val.to_string(),
-            )
-        };
-
-        let config = SearchPropertyConfig::load();
+        let config = config_with_min_max_connections(Some(&override_val.to_string()));
         assert_eq!(config.min_max_connections(), override_val);
-
-        unset_min_max_connections_env();
     }
 
     #[test]
     fn load_falls_back_to_default_min_max_connections_on_invalid_env() {
-        let _lock = ENV_LOCK.lock().expect("env lock");
-        unset_min_max_connections_env();
-
-        // SAFETY: tests serialize environment access with ENV_LOCK.
-        unsafe {
-            env::set_var(
-                SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(),
-                "not-a-number",
-            )
-        };
-
-        let config = SearchPropertyConfig::load();
+        let config = config_with_min_max_connections(Some("not-a-number"));
         assert_eq!(
             config.min_max_connections(),
             SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS
         );
-
-        unset_min_max_connections_env();
     }
 }

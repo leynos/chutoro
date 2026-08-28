@@ -14,6 +14,7 @@
 /// Rayon thread-local buffers, and transient allocations.  1.5× is chosen as
 /// a balance between avoiding false positives and catching genuine OOM risks.
 const SAFETY_MULTIPLIER_NUMERATOR: u64 = 3;
+/// Denominator paired with the safety multiplier numerator.
 const SAFETY_MULTIPLIER_DENOMINATOR: u64 = 2;
 
 /// Default maximum distance cache entries.  Mirrors the value in
@@ -77,7 +78,7 @@ const USIZE_BYTES: u64 = std::mem::size_of::<usize>() as u64;
 /// assert_eq!(zero, 0, "empty dataset requires no memory");
 /// ```
 #[must_use]
-pub fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> u64 {
+pub const fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> u64 {
     if point_count == 0 {
         return 0;
     }
@@ -126,13 +127,17 @@ pub fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> u64 {
 // Formatting
 // ---------------------------------------------------------------------------
 
+/// Number of bytes in one kibibyte.
 const KIB: u64 = 1024;
+/// Number of bytes in one mebibyte.
 const MIB: u64 = 1024 * KIB;
+/// Number of bytes in one gibibyte.
 const GIB: u64 = 1024 * MIB;
+/// Number of bytes in one tebibyte.
 const TIB: u64 = 1024 * GIB;
 
 /// Selects the appropriate binary unit and divisor for a byte count.
-fn binary_unit(bytes: u64) -> (&'static str, u64) {
+const fn binary_unit(bytes: u64) -> (&'static str, u64) {
     if bytes >= TIB {
         ("TiB", TIB)
     } else if bytes >= GIB {
@@ -165,7 +170,20 @@ pub fn format_bytes(bytes: u64) -> String {
         return format!("{bytes} B");
     }
     let (label, divisor) = binary_unit(bytes);
-    format!("{:.1} {label}", bytes as f64 / divisor as f64)
+    let whole = bytes.div_euclid(divisor);
+    let scaled_remainder = bytes.rem_euclid(divisor).saturating_mul(10);
+    let tenths = scaled_remainder.div_euclid(divisor);
+    let remaining_fraction = scaled_remainder.rem_euclid(divisor);
+    let half_divisor = divisor.div_euclid(2);
+    let should_round_up = remaining_fraction > half_divisor
+        || (remaining_fraction == half_divisor && tenths.rem_euclid(2) == 1);
+
+    if should_round_up && tenths == 9 {
+        format!("{}.0 {label}", whole.saturating_add(1))
+    } else {
+        let displayed_tenths = tenths + u64::from(should_round_up);
+        format!("{whole}.{displayed_tenths} {label}")
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -270,7 +288,9 @@ mod tests {
     #[case::small(512, "512 B")]
     #[case::just_below_kib(1023, "1023 B")]
     #[case::one_kib(1024, "1.0 KiB")]
+    #[case::rounds_half_to_even_down(1280, "1.2 KiB")]
     #[case::one_and_half_kib(1536, "1.5 KiB")]
+    #[case::rounds_half_to_even_up(1792, "1.8 KiB")]
     #[case::one_mib(1_048_576, "1.0 MiB")]
     #[case::one_gib(1_073_741_824, "1.0 GiB")]
     #[case::one_tib(1_099_511_627_776, "1.0 TiB")]

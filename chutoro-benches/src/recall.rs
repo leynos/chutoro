@@ -128,10 +128,12 @@ pub struct RecallMeasurement {
 }
 
 impl RecallMeasurement {
+    /// Return the CSV column header for recall measurements.
     const fn csv_header() -> &'static str {
         "point_count,max_connections,ef_construction,recall_hits,recall_total,recall_fraction,build_time_ms\n"
     }
 
+    /// Format this recall measurement as one CSV record.
     fn to_csv_row(&self) -> String {
         let fraction = recall_fraction(self.recall);
         format!(

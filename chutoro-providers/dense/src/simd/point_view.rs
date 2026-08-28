@@ -10,16 +10,20 @@ use chutoro_core::DataSourceError;
 
 use super::{Dimension, MAX_SIMD_LANES, RowIndex, RowMajorMatrix};
 
+/// One 64-byte-aligned SIMD block.
 #[repr(C, align(64))]
 #[derive(Clone, Copy, Debug)]
 struct AlignedBlock([f32; MAX_SIMD_LANES]);
 
+/// Owns lane-aligned blocks for a packed Structure-of-Arrays view.
 #[derive(Debug)]
 struct PackedSoaStorage {
+    /// Consecutive aligned storage blocks.
     blocks: Vec<AlignedBlock>,
 }
 
 impl PackedSoaStorage {
+    /// Allocate zero-filled storage for the requested scalar value count.
     fn zeroed(len: usize) -> Self {
         let blocks = len.div_ceil(MAX_SIMD_LANES);
         Self {
@@ -27,25 +31,33 @@ impl PackedSoaStorage {
         }
     }
 
+    /// Return the scalar capacity represented by the aligned blocks.
     #[inline]
-    fn len(&self) -> usize {
+    const fn len(&self) -> usize {
         self.blocks.len() * MAX_SIMD_LANES
     }
 
-    fn as_slice(&self) -> &[f32] {
+    /// View the aligned blocks as contiguous scalar values.
+    const fn as_slice(&self) -> &[f32] {
         let ptr = self.blocks.as_ptr().cast::<f32>();
-        // Safety: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
+        // SAFETY: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
         // the blocks are contiguous `f32` values with no interior padding.
         unsafe { std::slice::from_raw_parts(ptr, self.len()) }
     }
 
-    fn as_mut_slice(&mut self) -> &mut [f32] {
+    /// View the aligned blocks as mutable contiguous scalar values.
+    const fn as_mut_slice(&mut self) -> &mut [f32] {
         let ptr = self.blocks.as_mut_ptr().cast::<f32>();
-        // Safety: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
+        // SAFETY: `AlignedBlock` is `repr(C)` over `[f32; MAX_SIMD_LANES]`, so
         // the blocks are contiguous `f32` values with no interior padding.
         unsafe { std::slice::from_raw_parts_mut(ptr, self.len()) }
     }
 
+    /// Return the packed coordinate block for one dimension.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "packed storage is allocated for every dimension and padded point before block access"
+    )]
     fn block(&self, dimension_index: usize, padded_point_count: usize) -> &[f32] {
         let start = dimension_index * padded_point_count;
         let end = start + padded_point_count;
@@ -56,15 +68,24 @@ impl PackedSoaStorage {
 /// Aligned Structure of Arrays packing for a selected dense point batch.
 #[derive(Debug)]
 pub(crate) struct DensePointView<'a> {
+    /// Aligned Structure-of-Arrays storage for selected points.
     storage: PackedSoaStorage,
+    /// Number of original points represented by the view.
     point_count: usize,
+    /// Lane-padded number of points in every coordinate block.
     padded_point_count: usize,
+    /// Number of coordinates in every packed point.
     dimension: Dimension,
+    /// Binds the view lifetime to the source matrix values.
     _marker: std::marker::PhantomData<&'a [f32]>,
 }
 
 impl<'a> DensePointView<'a> {
-    /// Packs the selected row indices into an aligned SoA layout.
+    /// Packs the selected row indices into an aligned `SoA` layout.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "packed storage reserves one padded coordinate block for every validated row dimension"
+    )]
     pub(crate) fn from_row_indices(
         matrix: RowMajorMatrix<'a>,
         point_indices: &[RowIndex],
@@ -94,7 +115,7 @@ impl<'a> DensePointView<'a> {
 
     /// Returns the number of logical points in the packed view.
     #[must_use]
-    pub(crate) fn point_count(&self) -> usize {
+    pub(crate) const fn point_count(&self) -> usize {
         self.point_count
     }
 
@@ -117,19 +138,19 @@ impl<'a> DensePointView<'a> {
         all(feature = "nightly_portable_simd", nightly)
     ))]
     #[must_use]
-    pub(crate) fn padded_point_count(&self) -> usize {
+    pub(crate) const fn padded_point_count(&self) -> usize {
         self.padded_point_count
     }
 
     /// Returns the number of scalar dimensions in each logical point.
     #[must_use]
-    pub(crate) fn dimension(&self) -> Dimension {
+    pub(crate) const fn dimension(&self) -> Dimension {
         self.dimension
     }
 
     /// Returns whether scalar fallback should be preferred for this view.
     #[must_use]
-    pub(crate) fn prefers_scalar_fallback(&self) -> bool {
+    pub(crate) const fn prefers_scalar_fallback(&self) -> bool {
         self.point_count <= 1 || self.dimension.get() == 0
     }
 
@@ -150,6 +171,7 @@ impl<'a> DensePointView<'a> {
     }
 }
 
-pub(super) fn padded_point_count(point_count: usize) -> usize {
+/// Round a point count up to the SIMD lane width.
+pub(super) const fn padded_point_count(point_count: usize) -> usize {
     point_count.next_multiple_of(MAX_SIMD_LANES)
 }

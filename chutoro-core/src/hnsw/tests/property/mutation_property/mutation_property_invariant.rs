@@ -28,8 +28,18 @@ fn graph_invariant_violation_on_delete_is_reported_as_skipped() {
                 level: 0,
                 sequence: 2,
             })?;
-            graph.node_mut(0).expect("node 0").neighbours_mut(0).push(1);
-            graph.node_mut(1).expect("node 1").neighbours_mut(0).push(0);
+            graph
+                .node_mut(0)
+                .expect("node 0")
+                .neighbours_mut(0)
+                .expect("node 0 must expose level 0")
+                .push(1);
+            graph
+                .node_mut(1)
+                .expect("node 1")
+                .neighbours_mut(0)
+                .expect("node 1 must expose level 0")
+                .push(0);
             Ok(())
         })
         .expect("graph construction must succeed");

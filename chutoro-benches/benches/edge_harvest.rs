@@ -37,6 +37,7 @@ const POINT_COUNTS: &[usize] = &[100, 500, 1_000];
 /// HNSW M parameter used for edge generation.
 const M: usize = 16;
 
+/// Register edge-harvest construction measurements and propagate setup errors.
 fn edge_harvest_construction_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     let mut group = c.benchmark_group("edge_harvest_construction");
     group.sample_size(20);
@@ -81,6 +82,7 @@ fn edge_harvest_construction_impl(c: &mut Criterion) -> Result<(), BenchSetupErr
     Ok(())
 }
 
+/// Register the public Criterion edge-harvest benchmark entrypoint.
 fn edge_harvest_construction(c: &mut Criterion) {
     if let Err(err) = edge_harvest_construction_impl(c) {
         panic!("edge_harvest_construction benchmark setup failed: {err}");

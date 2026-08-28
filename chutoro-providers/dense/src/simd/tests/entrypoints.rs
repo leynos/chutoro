@@ -21,7 +21,7 @@ use super::{DensePointView, Dimension, MatrixValues, RowCount, RowIndex, RowMajo
     ),
     all(feature = "nightly_portable_simd", nightly)
 ))]
-use super::{Distance, close};
+use super::{Distance, assert_close};
 #[cfg(any(
     all(
         any(target_arch = "x86", target_arch = "x86_64"),
@@ -68,16 +68,11 @@ fn x86_entrypoint_matches_scalar_when_available(
     }
 
     let (len, left_scale, right_scale) = input;
-    let left: Vec<f32> = (0_u32..len)
-        .map(|index| index as f32 * left_scale)
-        .collect();
-    let right: Vec<f32> = (0_u32..len)
-        .map(|index| (len - index) as f32 * right_scale)
-        .collect();
+    let (left, right) = scaled_pair_fixture(len, left_scale, right_scale);
 
     let expected = kernels::euclidean_distance_scalar(&left, &right);
     let actual = entry(&left, &right);
-    close(Distance::new(actual), Distance::new(expected));
+    assert_close!(Distance::new(actual), Distance::new(expected));
 }
 
 #[cfg(all(
@@ -124,15 +119,12 @@ fn x86_entrypoint_canonicalizes_non_finite_to_nan_when_available(
 #[case(67_u32)]
 #[case(128_u32)]
 fn portable_simd_pairwise_matches_scalar(#[case] len: u32) {
-    let left: Vec<f32> = (0_u32..len).map(|index| index as f32 * 0.5_f32).collect();
-    let right: Vec<f32> = (0_u32..len)
-        .map(|index| (len - index) as f32 * 0.25_f32)
-        .collect();
+    let (left, right) = scaled_pair_fixture(len, 0.5_f32, 0.25_f32);
 
     let expected = kernels::euclidean_distance_scalar(&left, &right);
     let actual = kernels::euclidean_distance_portable_simd_entry(&left, &right);
 
-    close(Distance::new(actual), Distance::new(expected));
+    assert_close!(Distance::new(actual), Distance::new(expected));
 }
 
 #[cfg(all(feature = "nightly_portable_simd", nightly))]
@@ -164,7 +156,7 @@ fn portable_simd_query_points_matches_scalar() {
     );
 
     for (actual_distance, expected_distance) in actual.into_iter().zip(expected) {
-        close(
+        assert_close!(
             Distance::new(actual_distance),
             Distance::new(expected_distance),
         );
@@ -206,6 +198,25 @@ fn x86_feature_detected(feature: &str) -> bool {
     match feature {
         "avx2" => std::arch::is_x86_feature_detected!("avx2"),
         "avx512f" => std::arch::is_x86_feature_detected!("avx512f"),
-        _ => unreachable!("unexpected x86 runtime feature"),
+        unexpected => panic!("unexpected x86 runtime feature: {unexpected}"),
     }
+}
+
+/// Builds a bounded, scaled vector pair for pairwise backend comparisons.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the bounded u32 fixture lengths fit exactly in f32"
+)]
+#[expect(
+    clippy::float_arithmetic,
+    reason = "the fixture deliberately generates scaled floating-point vectors"
+)]
+fn scaled_pair_fixture(len: u32, left_scale: f32, right_scale: f32) -> (Vec<f32>, Vec<f32>) {
+    let left = (0_u32..len)
+        .map(|index| index as f32 * left_scale)
+        .collect();
+    let right = (0_u32..len)
+        .map(|index| (len - index) as f32 * right_scale)
+        .collect();
+    (left, right)
 }

@@ -41,9 +41,8 @@ pub(super) fn check_reachability(
         return Ok(());
     }
 
-    let entry = match ctx.graph.entry() {
-        Some(entry) => entry,
-        None => return mode.record(HnswInvariantViolation::MissingEntryPoint),
+    let Some(entry) = ctx.graph.entry() else {
+        return mode.record(HnswInvariantViolation::MissingEntryPoint);
     };
 
     let validator = LayerValidator::new(ctx.graph);
@@ -89,17 +88,14 @@ fn process_single_node(
     context: &mut BfsContext,
     mode: &mut EvaluationMode<'_>,
 ) -> Result<(), HnswInvariantViolation> {
-    let node = match traversal.graph.node(node_id) {
-        Some(node) => node,
-        None => {
-            mode.record(HnswInvariantViolation::LayerConsistency {
-                origin: node_id,
-                target: node_id,
-                layer: 0,
-                detail: super::LayerConsistencyDetail::MissingNode,
-            })?;
-            return Ok(());
-        }
+    let Some(node) = traversal.graph.node(node_id) else {
+        mode.record(HnswInvariantViolation::LayerConsistency {
+            origin: node_id,
+            target: node_id,
+            layer: 0,
+            detail: super::LayerConsistencyDetail::MissingNode,
+        })?;
+        return Ok(());
     };
 
     for (level, target) in node.iter_neighbours() {
@@ -108,38 +104,44 @@ fn process_single_node(
             level,
             target,
         };
-        process_neighbour(traversal, task, context, mode)?;
+        process_neighbour(traversal, &task, context, mode)?;
     }
     Ok(())
 }
 
+/// Validate one neighbour edge and enqueue a newly reachable target.
 fn process_neighbour(
     traversal: &TraversalContext<'_>,
-    task: NeighbourTask,
+    task: &NeighbourTask,
     context: &mut BfsContext,
     mode: &mut EvaluationMode<'_>,
 ) -> Result<(), HnswInvariantViolation> {
-    let NeighbourTask {
-        origin,
-        level,
-        target,
-    } = task;
-    match traversal.validator.ensure(origin, target, level) {
-        Ok(_) if context.visited[target] => {}
-        Ok(_) => context.visit(target),
+    match traversal
+        .validator
+        .ensure(task.origin, task.target, task.level)
+    {
+        Ok(_) if context.is_visited(task.target) => {}
+        Ok(_) => context.visit(task.target),
         Err(err) => mode.record(err)?,
     }
     Ok(())
 }
 
+/// One directed edge awaiting reachability validation.
 struct NeighbourTask {
+    /// Node exposing the neighbour reference.
     origin: usize,
+    /// Layer containing the neighbour reference.
     level: usize,
+    /// Referenced neighbour node.
     target: usize,
 }
 
+/// Immutable dependencies shared while traversing reachable nodes.
 struct TraversalContext<'a> {
+    /// Graph whose nodes are traversed.
     graph: &'a crate::hnsw::graph::Graph,
+    /// Layer validator used for every discovered edge.
     validator: &'a LayerValidator<'a>,
 }
 
@@ -153,19 +155,23 @@ fn check_all_nodes_visited(
     mode: &mut EvaluationMode<'_>,
 ) -> Result<(), HnswInvariantViolation> {
     for (node_id, _) in graph.nodes_iter() {
-        if !context.visited[node_id] {
+        if !context.is_visited(node_id) {
             mode.record(HnswInvariantViolation::UnreachableNode { node: node_id })?;
         }
     }
     Ok(())
 }
 
+/// Mutable breadth-first traversal state.
 struct BfsContext {
+    /// Per-node reachability flags.
     visited: Vec<bool>,
+    /// Nodes awaiting expansion.
     queue: VecDeque<usize>,
 }
 
 impl BfsContext {
+    /// Allocate traversal state sized for the graph node capacity.
     fn new(capacity: usize) -> Self {
         Self {
             visited: vec![false; capacity],
@@ -173,10 +179,17 @@ impl BfsContext {
         }
     }
 
+    /// Mark a node reached and enqueue it for expansion.
     fn visit(&mut self, node: usize) {
-        debug_assert!(node < self.visited.len(), "node ID exceeds graph capacity");
-        self.visited[node] = true;
-        self.queue.push_back(node);
+        if let Some(is_visited) = self.visited.get_mut(node) {
+            *is_visited = true;
+            self.queue.push_back(node);
+        }
+    }
+
+    /// Report whether breadth-first traversal has reached a node.
+    fn is_visited(&self, node: usize) -> bool {
+        self.visited.get(node).is_some_and(|is_visited| *is_visited)
     }
 }
 
@@ -206,25 +219,39 @@ mod tests {
             level: 0,
             sequence: 1,
         })?;
-        let Some(node_zero) = graph.node_mut(0) else {
-            panic!("node 0 should exist");
-        };
-        node_zero.neighbours_mut(0).push(1);
-        let Some(node_one) = graph.node_mut(1) else {
-            panic!("node 1 should exist");
-        };
-        node_one.neighbours_mut(0).push(0);
+        let node_zero = graph
+            .node_mut(0)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: "node 0 should exist".to_owned(),
+            })?;
+        node_zero
+            .neighbours_mut(0)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: "node 0 should expose level 0".to_owned(),
+            })?
+            .push(1);
+        let node_one = graph
+            .node_mut(1)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: "node 1 should exist".to_owned(),
+            })?;
+        node_one
+            .neighbours_mut(0)
+            .ok_or_else(|| HnswError::GraphInvariantViolation {
+                message: "node 1 should expose level 0".to_owned(),
+            })?
+            .push(0);
         Ok(graph)
     }
 
     #[rstest]
     fn process_neighbour_visits_unseen_targets(
         demo_graph: Result<Graph, HnswError>,
-    ) -> Result<(), HnswError> {
-        let demo_graph = demo_graph?;
-        let validator = LayerValidator::new(&demo_graph);
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let graph = demo_graph?;
+        let validator = LayerValidator::new(&graph);
         let traversal = TraversalContext {
-            graph: &demo_graph,
+            graph: &graph,
             validator: &validator,
         };
         let mut context = BfsContext::new(validator.capacity());
@@ -235,22 +262,31 @@ mod tests {
             target: 1,
         };
 
-        process_neighbour(&traversal, task, &mut context, &mut mode)
-            .expect("fresh targets should be enqueued");
+        process_neighbour(&traversal, &task, &mut context, &mut mode)?;
 
-        assert!(context.visited[1], "expected node 1 to be marked visited");
-        assert_eq!(context.queue.pop_front(), Some(1));
+        if !context.is_visited(1) {
+            return Err(HnswError::GraphInvariantViolation {
+                message: "expected node 1 to be marked visited".to_owned(),
+            }
+            .into());
+        }
+        if context.queue.pop_front() != Some(1) {
+            return Err(HnswError::GraphInvariantViolation {
+                message: "expected node 1 to be queued".to_owned(),
+            }
+            .into());
+        }
         Ok(())
     }
 
     #[rstest]
     fn process_neighbour_skips_already_visited_targets(
         demo_graph: Result<Graph, HnswError>,
-    ) -> Result<(), HnswError> {
-        let demo_graph = demo_graph?;
-        let validator = LayerValidator::new(&demo_graph);
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let graph = demo_graph?;
+        let validator = LayerValidator::new(&graph);
         let traversal = TraversalContext {
-            graph: &demo_graph,
+            graph: &graph,
             validator: &validator,
         };
         let mut context = BfsContext::new(validator.capacity());
@@ -260,31 +296,32 @@ mod tests {
 
         process_neighbour(
             &traversal,
-            NeighbourTask {
+            &NeighbourTask {
                 origin: 0,
                 level: 0,
                 target: 1,
             },
             &mut context,
             &mut mode,
-        )
-        .expect("visited nodes should be ignored");
+        )?;
 
-        assert!(
-            context.queue.is_empty(),
-            "no duplicate visits should be queued"
-        );
+        if !context.queue.is_empty() {
+            return Err(HnswError::GraphInvariantViolation {
+                message: "no duplicate visits should be queued".to_owned(),
+            }
+            .into());
+        }
         Ok(())
     }
 
     #[rstest]
     fn process_neighbour_records_layer_consistency_violations(
         demo_graph: Result<Graph, HnswError>,
-    ) -> Result<(), HnswError> {
-        let demo_graph = demo_graph?;
-        let validator = LayerValidator::new(&demo_graph);
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let graph = demo_graph?;
+        let validator = LayerValidator::new(&graph);
         let traversal = TraversalContext {
-            graph: &demo_graph,
+            graph: &graph,
             validator: &validator,
         };
         let mut context = BfsContext::new(validator.capacity());
@@ -296,20 +333,24 @@ mod tests {
 
         process_neighbour(
             &traversal,
-            NeighbourTask {
+            &NeighbourTask {
                 origin: 0,
                 level: 0,
                 target: 3,
             },
             &mut context,
             &mut mode,
-        )
-        .expect("collect mode should absorb violations");
+        )?;
 
-        assert!(matches!(
+        if !matches!(
             violations.as_slice(),
             [HnswInvariantViolation::LayerConsistency { target: 3, .. }]
-        ));
+        ) {
+            return Err(HnswError::GraphInvariantViolation {
+                message: "expected layer-consistency violation for node 3".to_owned(),
+            }
+            .into());
+        }
         Ok(())
     }
 }

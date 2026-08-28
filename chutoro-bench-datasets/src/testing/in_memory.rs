@@ -12,7 +12,9 @@ use crate::{CacheKey, Fetcher, ObjectKey, PortName, Publisher, RecipeError, Sour
 /// In-memory source fetcher.
 #[derive(Clone, Debug, Default)]
 pub struct InMemoryFetcher {
+    /// Bytes available for each configured source URL.
     sources: Arc<HashMap<SourceUrl, Bytes>>,
+    /// Request order captured for fixture assertions.
     requested: Arc<Mutex<Vec<SourceUrl>>>,
 }
 
@@ -94,6 +96,7 @@ impl Fetcher for InMemoryFetcher {
 /// cross-process cache coordination.
 #[derive(Debug, Default)]
 pub struct InMemoryStorage {
+    /// Mutable cache records retained by the in-process adapter.
     records: Mutex<HashMap<CacheKey, Bytes>>,
 }
 
@@ -148,6 +151,7 @@ impl Storage for InMemoryStorage {
 /// In-memory publisher for final artefacts.
 #[derive(Debug, Default)]
 pub struct InMemoryPublisher {
+    /// Published object records retained by the in-process adapter.
     records: Mutex<HashMap<ObjectKey, Bytes>>,
 }
 

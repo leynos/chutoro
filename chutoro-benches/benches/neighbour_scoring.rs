@@ -6,6 +6,7 @@
 use chutoro_benches::neighbour_scoring::run_neighbour_scoring;
 use criterion::{Criterion, criterion_main};
 
+/// Register the neighbour-scoring Criterion benchmark.
 fn neighbour_scoring(c: &mut Criterion) {
     run_neighbour_scoring(c);
 }
