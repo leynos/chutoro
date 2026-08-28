@@ -13,8 +13,7 @@ use std::{num::NonZeroUsize, sync::Arc};
 
 use crate::{
     CandidateEdge, ClusterId, CpuHnsw, DataSource, EdgeHarvest, HierarchyConfig, HnswError,
-    HnswParams, MstError, Result, error::ChutoroError, parallel_kruskal,
-    result::ClusteringResult,
+    HnswParams, MstError, Result, error::ChutoroError, parallel_kruskal, result::ClusteringResult,
 };
 
 /// Runs the CPU pipeline end-to-end for the provided [`DataSource`].
