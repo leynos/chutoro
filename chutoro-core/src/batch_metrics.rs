@@ -6,14 +6,19 @@
 
 use crate::Result;
 
+/// Counter name for final one-shot batch outcomes.
 const RUNS_TOTAL: &str = "chutoro.batch.runs_total";
 #[cfg(feature = "cpu")]
+/// Histogram name for configured CPU HNSW connection counts.
 const MAX_CONNECTIONS: &str = "chutoro.batch.max_connections";
 #[cfg(feature = "cpu")]
+/// Histogram name for dataset-bounded CPU construction search width.
 const EFFECTIVE_EF_CONSTRUCTION: &str = "chutoro.batch.effective_ef_construction";
 #[cfg(feature = "cpu")]
+/// Histogram name for the estimated CPU batch peak-memory requirement.
 const ESTIMATED_BYTES: &str = "chutoro.batch.estimated_bytes";
 #[cfg(feature = "cpu")]
+/// Histogram name for configured CPU batch memory limits.
 const MEMORY_LIMIT_BYTES: &str = "chutoro.batch.memory_limit_bytes";
 
 /// Records the final outcome of a one-shot batch run.
@@ -60,10 +65,12 @@ pub(crate) fn record_cpu_resources(
         metrics::Unit::Bytes,
         "Estimated peak bytes for one-shot CPU batch runs."
     );
-    metrics::histogram!(MAX_CONNECTIONS, "backend" => "cpu").record(max_connections as f64);
+    metrics::histogram!(MAX_CONNECTIONS, "backend" => "cpu")
+        .record(bounded_count_as_f64(max_connections));
     metrics::histogram!(EFFECTIVE_EF_CONSTRUCTION, "backend" => "cpu")
-        .record(effective_ef_construction as f64);
-    metrics::histogram!(ESTIMATED_BYTES, "backend" => "cpu").record(estimated_bytes as f64);
+        .record(bounded_count_as_f64(effective_ef_construction));
+    metrics::histogram!(ESTIMATED_BYTES, "backend" => "cpu")
+        .record(bounded_bytes_as_f64(estimated_bytes));
 
     if let Some(limit) = memory_limit_bytes {
         metrics::describe_histogram!(
@@ -71,6 +78,19 @@ pub(crate) fn record_cpu_resources(
             metrics::Unit::Bytes,
             "Configured memory-limit bytes for one-shot CPU batch runs."
         );
-        metrics::histogram!(MEMORY_LIMIT_BYTES, "backend" => "cpu").record(limit as f64);
+        metrics::histogram!(MEMORY_LIMIT_BYTES, "backend" => "cpu")
+            .record(bounded_bytes_as_f64(limit));
     }
+}
+
+/// Converts a count to the exact range representable by the metrics recorder.
+#[cfg(feature = "cpu")]
+fn bounded_count_as_f64(value: usize) -> f64 {
+    f64::from(u32::try_from(value).unwrap_or(u32::MAX))
+}
+
+/// Converts a byte value to the exact range representable by the metrics recorder.
+#[cfg(feature = "cpu")]
+fn bounded_bytes_as_f64(value: u64) -> f64 {
+    f64::from(u32::try_from(value).unwrap_or(u32::MAX))
 }

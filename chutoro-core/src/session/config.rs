@@ -8,7 +8,7 @@
 
 use std::num::NonZeroUsize;
 
-use crate::{execution_config::ExecutionConfig, HnswParams};
+use crate::{HnswParams, execution_config::ExecutionConfig};
 
 /// Refresh behaviour for a [`super::ClusteringSession`].
 ///

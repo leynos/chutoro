@@ -26,20 +26,20 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
     hnsw_params: &HnswParams,
 ) -> Result<ClusteringResult> {
     let configured_ef_construction = hnsw_params.ef_construction();
-    let hnsw_params = hnsw_params.clone().bounded_for_point_count(items);
+    let effective_hnsw_params = hnsw_params.clone().bounded_for_point_count(items);
     debug!(
-        max_connections = hnsw_params.max_connections(),
+        max_connections = effective_hnsw_params.max_connections(),
         configured_ef_construction,
-        effective_ef_construction = hnsw_params.ef_construction(),
+        effective_ef_construction = effective_hnsw_params.ef_construction(),
         "building CPU HNSW index"
     );
-    let (index, harvested) = CpuHnsw::build_with_edges(source, hnsw_params.clone())
+    let (index, harvested) = CpuHnsw::build_with_edges(source, effective_hnsw_params.clone())
         .map_err(|error| map_cpu_hnsw_error(source, error))?;
 
     let desired = min_cluster_size
         .get()
         .saturating_add(1)
-        .max(hnsw_params.ef_construction())
+        .max(effective_hnsw_params.ef_construction())
         .min(items);
     let ef = NonZeroUsize::new(desired).unwrap_or(NonZeroUsize::MIN);
 

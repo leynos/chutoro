@@ -6,28 +6,17 @@
 use std::{num::NonZeroUsize, sync::Arc};
 
 use crate::{
-    Result, builder::ExecutionStrategy, datasource::DataSource, error::ChutoroError,
-    execution_config::ExecutionConfig, result::ClusteringResult,
+    Result,
+    backend::{BackendChoice, backend_label, choose_backend, is_backend_unavailable},
+    builder::ExecutionStrategy,
+    datasource::DataSource,
+    error::ChutoroError,
+    execution_config::ExecutionConfig,
+    result::ClusteringResult,
 };
 #[cfg(feature = "cpu")]
 use tracing::debug;
 use tracing::{instrument, warn};
-
-/// Whether this build includes the CPU execution pipeline.
-const CPU_PATH_AVAILABLE: bool = cfg!(feature = "cpu");
-// The `gpu` feature currently exposes the orchestration surface only;
-// no accelerated implementation ships yet.
-/// Whether this build includes a usable GPU execution pipeline.
-const GPU_PATH_AVAILABLE: bool = false;
-
-/// Concrete backend selected after resolving an execution strategy.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum BackendChoice {
-    /// Execute through the CPU pipeline.
-    Cpu,
-    /// Execute through the GPU pipeline.
-    Gpu,
-}
 
 /// Entry point for running the clustering pipeline.
 ///
@@ -101,7 +90,7 @@ impl Chutoro {
 
     /// Returns the HNSW parameters configured for CPU execution.
     #[cfg(feature = "cpu")]
-    pub(crate) fn hnsw_params(&self) -> &crate::HnswParams {
+    pub(crate) const fn hnsw_params(&self) -> &crate::HnswParams {
         self.execution_config.hnsw_params()
     }
 
@@ -186,7 +175,7 @@ impl Chutoro {
             items = items,
             min_cluster_size = %self.min_cluster_size(),
             strategy = ?self.execution_strategy,
-            backend = self.backend_label()
+            backend = backend_label(self.execution_strategy)
         ),
     )]
     /// Run clustering after the caller has measured the source length.
@@ -195,7 +184,7 @@ impl Chutoro {
         source: &D,
         items: usize,
     ) -> Result<ClusteringResult> {
-        let backend = self.backend_label();
+        let backend = backend_label(self.execution_strategy);
         if items == 0 {
             let error = ChutoroError::EmptySource {
                 data_source: Arc::from(source.name()),
@@ -205,7 +194,7 @@ impl Chutoro {
                 error_code = error.code().as_str(),
                 "data source is empty, returning error"
             );
-            return self.record_batch_result(backend, Err(error));
+            return Self::record_batch_result(backend, Err(error));
         }
         if items < self.min_cluster_size().get() {
             let error = ChutoroError::InsufficientItems {
@@ -218,7 +207,7 @@ impl Chutoro {
                 error_code = error.code().as_str(),
                 "data source has insufficient items for configured cluster size"
             );
-            return self.record_batch_result(backend, Err(error));
+            return Self::record_batch_result(backend, Err(error));
         }
         if let Some(err) = self.backend_unavailable_error() {
             warn!(
@@ -226,16 +215,16 @@ impl Chutoro {
                 error_code = err.code().as_str(),
                 "requested batch backend is unavailable"
             );
-            return self.record_batch_result(backend, Err(err));
+            return Self::record_batch_result(backend, Err(err));
         }
 
         self.record_batch_resources(items);
 
         if let Err(error) = self.check_memory_limit(source, items) {
-            return self.record_batch_result(backend, Err(error));
+            return Self::record_batch_result(backend, Err(error));
         }
 
-        let result = match self.choose_backend() {
+        let result = match choose_backend(self.execution_strategy) {
             BackendChoice::Cpu => self.run_cpu(source, items),
             BackendChoice::Gpu => Self::run_gpu(source, items),
         };
@@ -246,10 +235,11 @@ impl Chutoro {
                 "batch execution failed after precondition checks"
             );
         }
-        self.record_batch_result(backend, result)
+        Self::record_batch_result(backend, result)
     }
 
-    fn record_batch_result<T>(&self, backend: &'static str, result: Result<T>) -> Result<T> {
+    /// Records the stable outcome dimensions for a completed batch attempt.
+    fn record_batch_result<T>(backend: &'static str, result: Result<T>) -> Result<T> {
         #[cfg(feature = "metrics")]
         crate::batch_metrics::record_outcome(backend, &result);
 
@@ -259,6 +249,7 @@ impl Chutoro {
         result
     }
 
+    /// Records bounded CPU resource observations before the memory guard runs.
     fn record_batch_resources(&self, items: usize) {
         #[cfg(all(feature = "cpu", feature = "metrics"))]
         {
@@ -321,32 +312,6 @@ impl Chutoro {
         Ok(())
     }
 
-    /// Resolve the configured strategy to the backend that should run.
-    const fn choose_backend(&self) -> BackendChoice {
-        match self.execution_strategy {
-            ExecutionStrategy::Auto => {
-                if CPU_PATH_AVAILABLE {
-                    BackendChoice::Cpu
-                } else {
-                    BackendChoice::Gpu
-                }
-            }
-            ExecutionStrategy::CpuOnly => BackendChoice::Cpu,
-            ExecutionStrategy::GpuPreferred => BackendChoice::Gpu,
-        }
-    }
-
-    fn backend_label(&self) -> &'static str {
-        if self.is_backend_unavailable() {
-            return "unavailable";
-        }
-
-        match self.choose_backend() {
-            BackendChoice::Cpu => "cpu",
-            BackendChoice::Gpu => "gpu",
-        }
-    }
-
     /// Execute the CPU FISHDBC pipeline; available with the `cpu` feature.
     #[instrument(
         name = "core.run_cpu",
@@ -381,20 +346,11 @@ impl Chutoro {
 
     /// Return the unavailable-backend error when the strategy cannot execute.
     fn backend_unavailable_error(&self) -> Option<ChutoroError> {
-        let unavailable = self.is_backend_unavailable();
+        let unavailable = is_backend_unavailable(self.execution_strategy);
 
         unavailable.then_some(ChutoroError::BackendUnavailable {
             requested: self.execution_strategy,
         })
-    }
-
-    /// Report whether the configured strategy has no compiled implementation.
-    const fn is_backend_unavailable(&self) -> bool {
-        match self.execution_strategy {
-            ExecutionStrategy::Auto => !(CPU_PATH_AVAILABLE || GPU_PATH_AVAILABLE),
-            ExecutionStrategy::CpuOnly => !CPU_PATH_AVAILABLE,
-            ExecutionStrategy::GpuPreferred => !GPU_PATH_AVAILABLE,
-        }
     }
 }
 

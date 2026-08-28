@@ -50,7 +50,9 @@ fn assert_histogram_sample(value: &DebugValue, expected: f64) {
         panic!("expected a Histogram metric value, got {value:?}");
     };
     assert!(
-        samples.iter().any(|sample| sample.into_inner() == expected),
+        samples
+            .iter()
+            .any(|sample| sample.into_inner().to_bits() == expected.to_bits()),
         "expected histogram sample {expected}, got {samples:?}"
     );
 }
@@ -109,7 +111,7 @@ fn successful_cpu_run_records_bounded_resources_and_tracing() {
     );
     assert_histogram_sample(
         metric_value!(&snapshot, ESTIMATED_BYTES, &[("backend", "cpu")]),
-        estimate as f64,
+        f64::from(u32::try_from(estimate).expect("test estimate must fit in u32")),
     );
 
     let run_span = layer
@@ -160,11 +162,11 @@ fn memory_limit_rejection_records_bounded_metrics_and_tracing() {
     );
     assert_histogram_sample(
         metric_value!(&snapshot, ESTIMATED_BYTES, &[("backend", "cpu")]),
-        estimate as f64,
+        f64::from(u32::try_from(estimate).expect("test estimate must fit in u32")),
     );
     assert_histogram_sample(
         metric_value!(&snapshot, MEMORY_LIMIT_BYTES, &[("backend", "cpu")],),
-        limit as f64,
+        f64::from(u32::try_from(limit).expect("test limit must fit in u32")),
     );
     let event = layer
         .events()

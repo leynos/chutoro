@@ -120,10 +120,11 @@ pub fn estimate_peak_bytes_for_hnsw_params(
     )
 }
 
+/// Calculates the shared estimate from graph, search-state, and cache capacities.
 const fn estimate_peak_bytes_with_search_width(
     point_count: usize,
     max_connections: usize,
-    search_width: usize,
+    effective_search_width: usize,
     distance_cache_capacity: usize,
 ) -> u64 {
     if point_count == 0 {
@@ -132,7 +133,7 @@ const fn estimate_peak_bytes_with_search_width(
 
     let n = point_count as u64;
     let m = max_connections as u64;
-    let search_width = search_width as u64;
+    let search_width = effective_search_width as u64;
 
     // HNSW level-0 adjacency: each node keeps up to 2*M neighbour IDs.
     let hnsw_adjacency = n.saturating_mul(2_u64.saturating_mul(m).saturating_mul(USIZE_BYTES));

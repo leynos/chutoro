@@ -1,5 +1,6 @@
 //! Chutoro core library.
 
+mod backend;
 #[cfg(feature = "metrics")]
 mod batch_metrics;
 mod builder;

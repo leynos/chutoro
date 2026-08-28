@@ -36,7 +36,9 @@ proptest! {
         let params = HnswParams::new(max_connections, ef_construction)
             .map_err(|error| TestCaseError::fail(error.to_string()))?;
         let source = CountingSource::new(
-            (0..point_count).map(|point| point as f32).collect(),
+            (0..point_count)
+                .map(|point| f32::from(u8::try_from(point).expect("bounded point index")))
+                .collect(),
             Arc::new(AtomicUsize::new(0)),
         );
         let estimate = estimate_peak_bytes_for_hnsw_params(point_count, &params);

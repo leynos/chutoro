@@ -12,15 +12,17 @@ use crate::HnswParams;
 /// Validated clustering settings shared by all execution paths.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ExecutionConfig {
+    /// Validated minimum number of items required for a retained cluster.
     min_cluster_size: NonZeroUsize,
     #[cfg(feature = "cpu")]
+    /// Validated HNSW construction and search policy for CPU execution.
     hnsw_params: HnswParams,
 }
 
 impl ExecutionConfig {
     /// Creates a configuration from values already validated by the builder.
     #[cfg(feature = "cpu")]
-    pub(crate) fn new(min_cluster_size: NonZeroUsize, hnsw_params: HnswParams) -> Self {
+    pub(crate) const fn new(min_cluster_size: NonZeroUsize, hnsw_params: HnswParams) -> Self {
         Self {
             min_cluster_size,
             hnsw_params,
@@ -29,7 +31,7 @@ impl ExecutionConfig {
 
     /// Creates a configuration from values already validated by the builder.
     #[cfg(not(feature = "cpu"))]
-    pub(crate) fn new(min_cluster_size: NonZeroUsize) -> Self {
+    pub(crate) const fn new(min_cluster_size: NonZeroUsize) -> Self {
         Self { min_cluster_size }
     }
 
