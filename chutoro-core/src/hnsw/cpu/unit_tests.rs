@@ -92,6 +92,7 @@ fn heal_for_test_repairs_inserted_edges_without_sweeping_unrelated_edges() {
                 .node_mut(0)
                 .expect("entry must exist")
                 .neighbours_mut(0)
+                .expect("entry must expose the base layer")
                 .retain(|neighbour| *neighbour != 1);
             add_edge_if_missing(graph, 0, 2, 0);
             add_edge_if_missing(graph, 2, 0, 0);
@@ -163,10 +164,13 @@ fn heal_for_test_drains_tracking_created_by_deletion() {
     index.heal_for_test();
 
     assert!(index.inspect_graph(|graph| graph.node(1).is_none()));
-    let touched = index
+    let healed_touched = index
         .write_graph(|graph| Ok(graph.take_touched_nodes()))
         .expect("read healing queue");
-    assert!(touched.is_empty(), "healing must drain the deletion queue");
+    assert!(
+        healed_touched.is_empty(),
+        "healing must drain the deletion queue"
+    );
 }
 
 #[test]

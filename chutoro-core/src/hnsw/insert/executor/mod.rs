@@ -250,7 +250,6 @@ impl<'graph> InsertionExecutor<'graph> {
         super::test_helpers::TestHelpers::new(self.graph)
             .enforce_bidirectional_for_touched(touched, max_connections);
     }
-
 }
 
 #[cfg(test)]
