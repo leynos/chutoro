@@ -61,19 +61,14 @@ impl ClusteringResult {
     /// Cluster identifiers must start at zero and be contiguous. Use
     /// [`Self::try_from_assignments`] to handle arbitrary identifiers.
     ///
-    /// # Examples
-    /// ```
-    /// use chutoro_core::{ClusteringResult, ClusterId};
-    ///
-    /// let result = ClusteringResult::from_assignments(vec![ClusterId::new(0)]);
-    /// assert_eq!(result.cluster_count(), 1);
-    /// ```
-    ///
     /// # Panics
     ///
-    /// Panics when identifiers do not start at zero or are not contiguous.
+    /// Panics when identifiers do not start at zero and are not contiguous.
+    /// Use [`Self::try_from_assignments`] as the public fallible constructor
+    /// for untrusted input.
+    #[cfg(feature = "cpu")]
     #[must_use]
-    pub fn from_assignments(assignments: Vec<ClusterId>) -> Self {
+    pub(crate) fn from_assignments(assignments: Vec<ClusterId>) -> Self {
         match Self::try_from_assignments(assignments) {
             Ok(result) => result,
             Err(err) => panic!("cluster identifiers must start at zero and be contiguous: {err}"),
@@ -103,10 +98,8 @@ impl ClusteringResult {
     ///     .expect("assignments are contiguous");
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
-
     pub fn try_from_assignments(
         assignments: Vec<ClusterId>,
-
     ) -> Result<Self, NonContiguousClusterIds> {
         if assignments.is_empty() {
             return Ok(Self {
@@ -166,7 +159,6 @@ impl ClusteringResult {
     /// assert_eq!(result.assignments()[0].get(), 0);
     /// ```
     #[must_use]
-
     pub fn assignments(&self) -> &[ClusterId] {
         &self.assignments
     }
@@ -182,53 +174,9 @@ impl ClusteringResult {
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
     #[must_use]
-
     pub const fn cluster_count(&self) -> usize {
         self.cluster_count
     }
-
-    /// Builds a result from explicit cluster assignments.
-    ///
-    /// Cluster identifiers must start at zero and be contiguous. Use
-    /// [`Self::try_from_assignments`] to handle arbitrary identifiers.
-    ///
-    /// # Panics
-    ///
-    /// Panics when identifiers do not start at zero and are not contiguous.
-    /// Use [`Self::try_from_assignments`] as the public fallible constructor
-    /// for untrusted input.
-    #[cfg(feature = "cpu")]
-    #[must_use]
-    pub(crate) fn from_assignments(assignments: Vec<ClusterId>) -> Self {
-        match Self::try_from_assignments(assignments) {
-            Ok(result) => result,
-            Err(err) => panic!("cluster identifiers must start at zero and be contiguous: {err}"),
-        }
-    }
-
-    /// Attempts to build a result from cluster assignments.
-    ///
-    /// The assignments must be contiguous starting at zero. This helper allows
-    /// callers to surface meaningful errors instead of panicking when the
-    /// invariant is violated.
-    ///
-    /// An empty `assignments` vector is accepted and yields `cluster_count == 0`.
-    ///
-    /// # Errors
-    /// Returns [`NonContiguousClusterIds::MissingZero`] when the assignments omit
-    /// cluster `0`, [`NonContiguousClusterIds::Gap`] when identifiers skip values,
-    /// [`NonContiguousClusterIds::Duplicate`] when duplicates hide missing identifiers,
-    /// and [`NonContiguousClusterIds::Overflow`] when identifiers exceed the host
-    /// pointer width.
-    ///
-    /// # Examples
-    /// ```
-    /// use chutoro_core::{ClusteringResult, ClusterId};
-    ///
-    /// let result = ClusteringResult::try_from_assignments(vec![ClusterId::new(0)])
-    ///     .expect("assignments are contiguous");
-    /// assert_eq!(result.cluster_count(), 1);
-    /// ```
 }
 
 /// Identifier assigned to a cluster.

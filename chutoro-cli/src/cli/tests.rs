@@ -191,7 +191,8 @@ fn render_summary_outputs_assignments() {
         result: ClusteringResult::try_from_assignments(vec![
             chutoro_core::ClusterId::new(0),
             chutoro_core::ClusterId::new(1),
-        ])?,
+        ])
+        .expect("test assignments must be contiguous"),
     };
     let mut buffer = Vec::new();
     render_summary(&summary, &mut buffer).expect("rendering must succeed");
