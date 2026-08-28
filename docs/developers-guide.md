@@ -619,7 +619,6 @@ contracts:
 These contracts let `hnsw/validate.rs` and `hnsw/helpers.rs` merge cache hits
 and misses without corrupting caller buffers after a provider error.
 
-
 ## Test-only HNSW mutation healing
 
 The mutation property harness is the only consumer of the graph-owned,
