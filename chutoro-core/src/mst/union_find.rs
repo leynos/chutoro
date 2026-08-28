@@ -164,7 +164,8 @@ impl ConcurrentUnionFind {
     }
 
     #[cfg(test)]
-    pub(super) fn root_of(&self, node: usize) -> usize {
+    /// Return a node's current root for partition assertions.
+    pub(super) fn root_of(&self, node: usize) -> Result<usize, MstError> {
         self.find(node)
     }
 }
@@ -206,6 +207,7 @@ mod tests {
     use rand::rngs::SmallRng;
     use rstest::rstest;
 
+    use super::super::MstError;
     use super::ConcurrentUnionFind;
 
     const NODE_COUNT: usize = 8;
@@ -228,30 +230,41 @@ mod tests {
 
         let handles: Vec<_> = (0..thread_count)
             .map(|worker_index| {
-                let edges = Arc::clone(&edges);
-                let union_find = Arc::clone(&union_find);
-                let start = Arc::clone(&start);
+                let worker_edges = Arc::clone(&edges);
+                let worker_union_find = Arc::clone(&union_find);
+                let worker_start = Arc::clone(&start);
                 let first = worker_index * chunk_size;
                 let last = (first + chunk_size).min(edges.len());
 
-                std::thread::spawn(move || {
-                    start.wait();
-                    for &(left, right) in &edges[first..last] {
-                        union_find
-                            .try_union(left, right)
-                            .expect("generated nodes must be valid");
+                std::thread::spawn(move || -> Result<(), MstError> {
+                    worker_start.wait();
+                    let edge_slice = worker_edges.get(first..last).ok_or_else(|| {
+                        test_invariant(
+                            "worker edge range must remain within the generated stream",
+                            last,
+                            worker_edges.len(),
+                        )
+                    })?;
+                    for &(left, right) in edge_slice {
+                        worker_union_find.try_union(left, right)?;
                     }
+                    Ok(())
                 })
             })
             .collect();
 
         start.wait();
         for handle in handles {
-            handle.join().expect("union worker must not panic");
+            handle
+                .join()
+                .expect("union worker must not panic")
+                .expect("generated worker range and node identifiers must be valid");
         }
 
-        let concurrent_labels = normalised_labels(|node| union_find.root_of(node));
-        let (oracle_labels, oracle_components) = sequential_oracle(&edges);
+        let concurrent_labels = normalised_labels(|node| union_find.root_of(node))
+            .expect("concurrent union-find nodes must remain valid");
+        let (oracle_labels, oracle_components) =
+            sequential_oracle(&edges).expect("sequential oracle nodes must remain valid");
 
         assert_eq!(concurrent_labels, oracle_labels);
         assert_eq!(union_find.components(), oracle_components);
@@ -264,42 +277,96 @@ mod tests {
             .collect()
     }
 
-    fn normalised_labels(root_of: impl Fn(usize) -> usize) -> Vec<usize> {
+    fn normalised_labels(
+        root_of: impl Fn(usize) -> Result<usize, MstError>,
+    ) -> Result<Vec<usize>, MstError> {
         let mut component_minimums = [NODE_COUNT; NODE_COUNT];
+        let component_count = component_minimums.len();
         for node in 0..NODE_COUNT {
-            let root = root_of(node);
-            component_minimums[root] = component_minimums[root].min(node);
+            let root = root_of(node)?;
+            let component_minimum = component_minimums.get_mut(root).ok_or_else(|| {
+                test_invariant(
+                    "component root must be within the normalisation table",
+                    root,
+                    component_count,
+                )
+            })?;
+            *component_minimum = (*component_minimum).min(node);
         }
 
         (0..NODE_COUNT)
-            .map(|node| component_minimums[root_of(node)])
+            .map(|node| {
+                let root = root_of(node)?;
+                component_minimums.get(root).copied().ok_or_else(|| {
+                    test_invariant(
+                        "component root must be within the normalisation table",
+                        root,
+                        component_minimums.len(),
+                    )
+                })
+            })
             .collect()
     }
 
-    fn sequential_oracle(edges: &[(usize, usize)]) -> (Vec<usize>, usize) {
+    fn sequential_oracle(edges: &[(usize, usize)]) -> Result<(Vec<usize>, usize), MstError> {
         let mut parents: Vec<usize> = (0..NODE_COUNT).collect();
+        let parent_count = parents.len();
         let mut components = NODE_COUNT;
 
         for &(left, right) in edges {
-            let left_root = scalar_find(&parents, left);
-            let right_root = scalar_find(&parents, right);
+            let left_root = scalar_find(&parents, left)?;
+            let right_root = scalar_find(&parents, right)?;
             if left_root != right_root {
-                parents[right_root] = left_root;
+                set_parent(&mut parents, right_root, left_root, parent_count)?;
                 components -= 1;
             }
         }
 
-        (
-            normalised_labels(|node| scalar_find(&parents, node)),
+        Ok((
+            normalised_labels(|node| scalar_find(&parents, node))?,
             components,
-        )
+        ))
     }
 
-    fn scalar_find(parents: &[usize], node: usize) -> usize {
+    fn set_parent(
+        parents: &mut [usize],
+        child_root: usize,
+        parent_root: usize,
+        parent_count: usize,
+    ) -> Result<(), MstError> {
+        let parent = parents.get_mut(child_root).ok_or_else(|| {
+            test_invariant(
+                "sequential root must be within the parent table",
+                child_root,
+                parent_count,
+            )
+        })?;
+        *parent = parent_root;
+        Ok(())
+    }
+
+    fn scalar_find(parents: &[usize], node: usize) -> Result<usize, MstError> {
         let mut current = node;
-        while parents[current] != current {
-            current = parents[current];
+        loop {
+            let parent = *parents.get(current).ok_or_else(|| {
+                test_invariant(
+                    "sequential node must be within the parent table",
+                    current,
+                    parents.len(),
+                )
+            })?;
+            if parent == current {
+                return Ok(current);
+            }
+            current = parent;
         }
-        current
+    }
+
+    fn test_invariant(invariant: &'static str, index: usize, lock_count: usize) -> MstError {
+        MstError::InvariantViolation {
+            invariant,
+            index,
+            lock_count,
+        }
     }
 }
