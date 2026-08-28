@@ -211,26 +211,13 @@ pub(crate) struct Graph {
 /// Shared by the production and Kani constructors so both map the same
 /// checks to their own error representations.
 #[derive(Clone, Copy, Debug)]
-enum AttachNodeError {
+pub(super) enum AttachNodeError {
+    /// The node's requested level exceeds the configured maximum.
     LevelExceedsMax,
+    /// The node identifier lies outside the graph's preallocated slots.
     OutsideCapacity,
+    /// The node identifier already occupies a graph slot.
     Duplicate,
-}
-
-#[cfg(kani)]
-impl AttachNodeError {
-    /// Returns the static reason used by the Kani constructors.
-    fn static_reason(self) -> &'static str {
-        match self {
-            Self::LevelExceedsMax => "node level exceeds max_level",
-            Self::OutsideCapacity => "node is outside pre-allocated capacity",
-            Self::Duplicate => "node already exists",
-        }
-    }
-}
-/// Report whether `level` should replace the graph's current entry level.
-fn should_promote_entry(current: Option<EntryPoint>, level: usize) -> bool {
-    level > current.map_or(0, |entry| entry.level)
 }
 
 impl Graph {
@@ -313,7 +300,7 @@ impl Graph {
     ///
     /// Shared by the production and Kani constructors; returns a static
     /// reason so the Kani path never constructs formatted errors.
-    fn attach_node_inner(&mut self, ctx: NodeContext) -> Result<(), AttachNodeError> {
+    pub(super) fn attach_node_inner(&mut self, ctx: NodeContext) -> Result<(), AttachNodeError> {
         if ctx.level > self.params.max_level() {
             return Err(AttachNodeError::LevelExceedsMax);
         }
@@ -328,37 +315,16 @@ impl Graph {
     }
 
     /// Records the node as the graph entry point.
-    fn promote_entry_to(&mut self, ctx: NodeContext) {
+    pub(super) const fn promote_entry_to(&mut self, ctx: NodeContext) {
         self.entry = Some(EntryPoint {
             node: ctx.node,
             level: ctx.level,
         });
     }
 
-    /// Inserts the first Kani node without constructing formatted production errors.
-    #[cfg(kani)]
-    pub(crate) fn insert_first_for_kani(&mut self, ctx: NodeContext) -> Result<(), &'static str> {
-        self.attach_node_for_kani(ctx)?;
-        self.promote_entry_to(ctx);
-        Ok(())
-    }
-
-    /// Attaches a Kani node without constructing formatted production errors.
-    #[cfg(kani)]
-    pub(crate) fn attach_node_for_kani(&mut self, ctx: NodeContext) -> Result<(), &'static str> {
-        self.attach_node_inner(ctx)
-            .map_err(AttachNodeError::static_reason)
-    }
-
-    #[cfg(kani)]
-    /// Expose entry-promotion criteria to Kani proofs.
-    pub(crate) fn should_promote_entry_for_kani(current: Option<EntryPoint>, level: usize) -> bool {
-        should_promote_entry(current, level)
-    }
-
     /// Promote a node when its layer is above the current entry point.
     pub(crate) fn promote_entry(&mut self, node: usize, level: usize) {
-        if should_promote_entry(self.entry, level) {
+        if level > self.entry.map_or(0, |entry| entry.level) {
             self.entry = Some(EntryPoint { node, level });
         }
     }
