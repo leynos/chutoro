@@ -124,6 +124,7 @@ impl BenchmarkRegressionProfile {
         Self::load_with_env(default_policy, &DefaultEnv)
     }
 
+    /// Load through an injected reader so tests avoid process-global state.
     fn load_with_env(default_policy: BenchmarkCiPolicy, env: &dyn Env) -> Self {
         let policy = env
             .string(CHUTORO_BENCH_CI_POLICY_ENV_KEY)

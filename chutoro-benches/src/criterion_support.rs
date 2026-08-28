@@ -116,6 +116,7 @@ pub fn is_nextest_exact_benchmark_probe() -> bool {
     is_nextest_exact_benchmark_probe_with_env(&DefaultEnv)
 }
 
+/// Detect an exact Nextest probe through an injected environment reader.
 fn is_nextest_exact_benchmark_probe_with_env(env: &dyn Env) -> bool {
     is_nextest_exact_benchmark_probe_args(
         std::env::args(),

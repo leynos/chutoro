@@ -100,6 +100,7 @@ pub fn should_collect_build_profile() -> bool {
     should_collect_build_profile_with_env(&DefaultEnv)
 }
 
+/// Read build-profile collection configuration through an injected reader.
 fn should_collect_build_profile_with_env(env: &dyn Env) -> bool {
     should_collect_build_profile_value(env.string(BUILD_PROFILE_ENV).as_deref())
 }
@@ -135,6 +136,7 @@ pub fn report_parent_dir() -> Utf8PathBuf {
     report_parent_dir_with_env(&DefaultEnv)
 }
 
+/// Resolve the report parent directory through an injected environment reader.
 fn report_parent_dir_with_env(env: &dyn Env) -> Utf8PathBuf {
     report_parent_dir_value(env.string(CARGO_TARGET_DIR_ENV).as_deref())
 }
@@ -216,6 +218,7 @@ pub fn build_profile_report_target() -> Option<ReportTarget> {
     build_profile_report_target_with_env(&DefaultEnv)
 }
 
+/// Resolve an enabled build-profile report target through an injected reader.
 fn build_profile_report_target_with_env(env: &dyn Env) -> Option<ReportTarget> {
     let report_parent_dir = report_parent_dir_with_env(env);
     build_profile_report_target_value(env.string(BUILD_PROFILE_ENV).as_deref(), &report_parent_dir)

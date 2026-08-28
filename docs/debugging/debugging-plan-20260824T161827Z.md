@@ -100,11 +100,40 @@ The H2 falsification steps were:
 
 ______________________________________________________________________
 
+### H3: shared host load delays nested Cargo benchmark commands
+
+**Claim**: The full-suite timeout comes from host and shared Cargo-cache
+contention while this integration test launches five nested `cargo bench`
+commands, rather than from the environment-reader rebase.
+
+**Plausibility**: Medium — the timeout occurred alongside a long-running
+dataset test, and the smoke test already gives its nested benchmarks all eight
+Nextest worker permits to avoid overlap with expensive test targets.
+
+**Prediction**: The exact smoke test completes within its 300-second limit when
+it is the only Nextest workload.
+
+#### H3 Falsification Plan
+
+| Step | Action                                                                 | Expected negative result                                               |
+| ---- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 1    | Run the exact Nextest selector without changing environment variables. | A timeout or failure disproves contention as a sufficient explanation. |
+
+**Tooling**: Cargo Nextest and the existing shared Cargo cache.
+
+**Confidence on falsification**: High — this removes the concurrent workspace
+test load while retaining the same smoke binary, nested Cargo invocations, and
+timeout policy.
+
+______________________________________________________________________
+
 ## Recommended execution order
 
 1. **H1** — it is the cheapest decisive experiment and may identify a bounded
    smoke-fixture configuration fix.
 2. **H2** — it follows directly only if the one-worker run stalls.
+3. **H3** — it distinguishes the current post-rebase timeout from an
+   implementation regression without weakening the test.
 
 ## Termination criteria
 
@@ -133,3 +162,19 @@ results and timing evidence.
   falsifies both the one-worker-completes and all-worker-counts-stall claims.
   The smoke fixture now gives only its spawned benchmark commands two workers;
   it still exercises the same fixed-seed benchmark label and Criterion path.
+- 2026-08-28: A full `make test` timed out this integration test at 300 seconds
+  while the workspace was compiling and running other resource-intensive test
+  targets. H3 is that shared host and Cargo-cache contention, rather than the
+  environment-reader rebase, caused the timeout. Its prediction is that
+  `cargo nextest run -p chutoro-benches
+  benchmark_binaries_cover_discovery_and_exact_smoke_paths`
+  completes within the same 300-second budget when it is the only test
+  workload. An `alchemist` sub-agent will run that command without editing
+  files or changing environment variables. A timeout or a test failure
+  falsifies H3; a pass leaves it not-falsified and justifies one fresh
+  sequential full-suite gate.
+- 2026-08-28: H3 was not falsified. The isolated selector passed in 192.626
+  seconds, within the 300-second Nextest limit. Its 381-second wall time
+  included dependency compilation after waiting on Cargo's shared package-cache
+  lock. Evidence:
+  `/tmp/h3-benchmark-timeout-issue-177-221-remove-in-process-env-mutation.out`.

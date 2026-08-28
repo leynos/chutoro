@@ -156,6 +156,8 @@ fn file_url(config: &MnistConfig, file_name: &str) -> String {
 }
 
 /// Resolve the conventional local cache directory for MNIST archives.
+///
+/// The injected reader keeps configuration tests independent of process state.
 fn default_cache_dir_with_env(env: &dyn Env) -> PathBuf {
     if let Some(explicit) = env.os_string("CHUTORO_MNIST_CACHE_DIR") {
         return PathBuf::from(explicit);

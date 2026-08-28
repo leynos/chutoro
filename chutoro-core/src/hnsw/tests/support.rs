@@ -10,6 +10,7 @@ pub(super) fn is_coverage_job() -> bool {
     is_coverage_job_with_env(&DefaultEnv)
 }
 
+/// Detect coverage configuration through an injected environment reader.
 fn is_coverage_job_with_env(env: &dyn Env) -> bool {
     cfg!(coverage)
         || option_env!("CARGO_LLVM_COV").is_some()

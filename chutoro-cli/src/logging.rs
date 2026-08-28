@@ -106,6 +106,7 @@ fn install_subscriber() -> Result<(), LoggingError> {
     install_subscriber_with_env(&DefaultEnv)
 }
 
+/// Install logging using an injected environment reader for test isolation.
 fn install_subscriber_with_env(env: &dyn Env) -> Result<(), LoggingError> {
     let use_json = match env.raw(LOG_FORMAT_ENV) {
         Ok(raw) => parse_log_format(&raw)?,

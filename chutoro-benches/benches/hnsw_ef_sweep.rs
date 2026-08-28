@@ -133,6 +133,7 @@ fn should_collect_recall_report() -> bool {
     should_collect_recall_report_with_env(&DefaultEnv)
 }
 
+/// Read recall-report configuration through an injected environment reader.
 fn should_collect_recall_report_with_env(env: &dyn Env) -> bool {
     parse_bool_env_var(env, "CHUTORO_BENCH_HNSW_RECALL_REPORT")
         .unwrap_or_else(|| !is_discovery_mode())
@@ -142,6 +143,7 @@ fn recall_report_path() -> PathBuf {
     recall_report_path_with_env(&DefaultEnv)
 }
 
+/// Resolve the recall-report path through an injected environment reader.
 fn recall_report_path_with_env(env: &dyn Env) -> PathBuf {
     env.os_string("CHUTORO_BENCH_HNSW_RECALL_REPORT_PATH")
         .map_or_else(|| PathBuf::from(RECALL_REPORT_PATH), PathBuf::from)
@@ -151,6 +153,7 @@ fn should_collect_cluster_quality_report() -> bool {
     should_collect_cluster_quality_report_with_env(&DefaultEnv)
 }
 
+/// Read clustering-quality configuration through an injected reader.
 fn should_collect_cluster_quality_report_with_env(env: &dyn Env) -> bool {
     parse_bool_env_var(env, "CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT")
         .unwrap_or_else(|| !is_discovery_mode())
@@ -160,6 +163,7 @@ fn cluster_quality_report_path() -> PathBuf {
     cluster_quality_report_path_with_env(&DefaultEnv)
 }
 
+/// Resolve the clustering-quality path through an injected reader.
 fn cluster_quality_report_path_with_env(env: &dyn Env) -> PathBuf {
     env.os_string("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH")
         .map_or_else(

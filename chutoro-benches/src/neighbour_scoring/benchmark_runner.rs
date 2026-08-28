@@ -43,6 +43,7 @@ fn should_use_short_measurement() -> bool {
     should_use_short_measurement_with_env(&DefaultEnv)
 }
 
+/// Read short-measurement configuration through an injected environment reader.
 fn should_use_short_measurement_with_env(env: &dyn Env) -> bool {
     should_use_short_measurement_value(env.string(SHORT_MEASUREMENT_ENV).as_deref())
 }

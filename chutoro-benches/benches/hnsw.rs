@@ -290,6 +290,7 @@ fn should_collect_memory_profile_with_env(env: &dyn Env) -> bool {
     !is_benchmark_discovery() && !is_exact_benchmark_probe()
 }
 
+/// Resolve the memory-report path through an injected environment reader.
 fn memory_report_path_with_env(env: &dyn Env) -> PathBuf {
     env.os_string("CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH")
         .map_or_else(|| PathBuf::from(MEMORY_REPORT_PATH), PathBuf::from)
@@ -299,6 +300,7 @@ fn profile_hnsw_memory_impl() -> Result<Option<PathBuf>, BenchSetupError> {
     profile_hnsw_memory_impl_with_env(&DefaultEnv)
 }
 
+/// Collect memory measurements through an injected environment reader.
 fn profile_hnsw_memory_impl_with_env(env: &dyn Env) -> Result<Option<PathBuf>, BenchSetupError> {
     if !should_collect_memory_profile_with_env(env) {
         return Ok(None);
@@ -359,6 +361,7 @@ fn hnsw_build_diverse_sources_impl(c: &mut Criterion) -> Result<(), BenchSetupEr
     hnsw_build_diverse_sources_impl_with_env(c, &DefaultEnv)
 }
 
+/// Register diverse-source measurements through an injected environment reader.
 fn hnsw_build_diverse_sources_impl_with_env(
     c: &mut Criterion,
     env: &dyn Env,

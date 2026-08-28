@@ -64,6 +64,7 @@ impl ConcurrencyConfig {
         Self::load_with_env(&DefaultEnv)
     }
 
+    /// Load property-test configuration through an injected environment reader.
     fn load_with_env(env: &dyn Env) -> Self {
         let repetitions = env
             .string("CHUTORO_MST_PBT_CONCURRENCY_REPS")
