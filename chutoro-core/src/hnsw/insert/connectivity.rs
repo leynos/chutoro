@@ -17,7 +17,7 @@ use crate::hnsw::graph::Graph;
 /// Visited-node set for the iterative healing queues.
 ///
 /// Production builds use a `HashSet`. Under Kani the default hasher's
-/// randomized SipHash state is symbolic, which makes bounded verification of
+/// randomized `SipHash` state is symbolic, which makes bounded verification of
 /// any healing path intractable, so the linear-scan set below is substituted;
 /// healing queues visit each node at most once, so the scan stays bounded.
 #[cfg(not(kani))]
@@ -57,6 +57,7 @@ impl LinearVisitedSet {
     }
 }
 
+/// Repairs base-layer connectivity after insertion reconciliation.
 #[derive(Debug)]
 pub(super) struct ConnectivityHealer<'graph> {
     /// Graph whose adjacency lists are repaired during healing.

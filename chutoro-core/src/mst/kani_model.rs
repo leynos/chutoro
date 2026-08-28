@@ -7,6 +7,14 @@
 //! It is compiled only for Kani harnesses and for the exhaustive
 //! model-equivalence tests; production callers must not use it.
 
+#![expect(
+    clippy::float_cmp,
+    clippy::indexing_slicing,
+    clippy::missing_const_for_fn,
+    clippy::shadow_reuse,
+    reason = "the proof model uses fixed arrays and direct indexing to keep CBMC's symbolic formula tractable"
+)]
+
 use crate::CandidateEdge;
 
 #[cfg(kani)]

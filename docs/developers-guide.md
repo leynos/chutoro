@@ -470,7 +470,6 @@ production modules, the Makefile, or the Cargo dependency graph changes.
 `.github/workflows/nightly-kani.yml` workflow checks out `main` and runs the
 full suite only when its commit-recency gate permits it.
 
-
 ### Installing Kani
 
 CI and local runs use the kani-verifier release pinned in

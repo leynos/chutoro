@@ -146,9 +146,9 @@ impl<'graph> EdgeReconciler<'graph> {
             );
         }
 
-        if let Some(evicted_origin) = evicted_origin {
+        if let Some(evicted) = evicted_origin {
             self.deferred_scrubs.push(DeferredScrub {
-                origin: evicted_origin,
+                origin: evicted,
                 target,
                 level: ctx.level,
             });

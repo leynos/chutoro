@@ -34,6 +34,11 @@ enum WeightScheme {
 
 impl WeightScheme {
     /// Returns the weight this scheme assigns to the edge at `index`.
+    #[expect(
+        clippy::integer_division,
+        clippy::integer_division_remainder_used,
+        reason = "paired duplicate weights use integer pairs in the bounded six-edge test domain"
+    )]
     fn weight(self, index: usize, edge_total: usize) -> f32 {
         #[expect(
             clippy::cast_precision_loss,

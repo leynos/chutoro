@@ -28,7 +28,6 @@ pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usiz
             neighbours.push(target);
         }
     }
-
     #[cfg(not(kani))]
     {
         let Some(node) = graph.node_mut(origin) else {
@@ -137,7 +136,6 @@ macro_rules! assert_bidirectional_edge {
         );
     }};
 }
-
 #[cfg(test)]
 pub(crate) use assert_bidirectional_edge;
 
@@ -375,6 +373,7 @@ impl<'graph> TestHelpers<'graph> {
 
 /// Describes why an edge left by [`TestHelpers::enforce_bidirectional_all`]
 /// fails the reciprocity invariant.
+#[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ReciprocityViolation {
     /// The edge points at a node that is absent from the graph.
