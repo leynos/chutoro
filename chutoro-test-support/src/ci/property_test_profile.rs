@@ -126,6 +126,7 @@ impl ProptestRunProfile {
         max_global_rejects_for(self.cases)
     }
 
+    /// Load through an injected reader so tests avoid process-global state.
     fn load_with_env(default_cases: u32, default_fork: bool, env: &dyn Env) -> Self {
         let cases = read_cases_or_default(default_cases, env);
         let fork = read_env_or_default(CHUTORO_PBT_FORK_ENV_KEY, default_fork, parse_bool, env);

@@ -68,6 +68,7 @@ pub fn find_test_binary(name: &str) -> Result<PathBuf, TestBinaryError> {
     find_test_binary_with_env(name, &DefaultEnv)
 }
 
+/// Resolve a binary through an injected environment reader before probing disk.
 fn find_test_binary_with_env(name: &str, env: &dyn Env) -> Result<PathBuf, TestBinaryError> {
     if let Ok(value) = env.raw(&format!("CARGO_BIN_EXE_{name}")) {
         return Ok(with_exe_suffix(PathBuf::from(value)));

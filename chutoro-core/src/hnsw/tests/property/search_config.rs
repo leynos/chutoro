@@ -108,6 +108,7 @@ impl SearchPropertyConfig {
         Ok(parsed)
     }
 
+    /// Load property configuration through an injected environment reader.
     fn load_with_env(env: &dyn Env) -> Self {
         let min_recall = Self::read_env_or_default(
             Self::ENV_KEY,

@@ -69,10 +69,38 @@ tests while retaining the same compiled test and nextest timeout policy.
 
 ______________________________________________________________________
 
+### H2: Shared full-suite load delays edge-harvest sorting coverage
+
+**Claim**: The post-rebase timeout in
+`build_with_edges_edges_sorted_by_sequence` is caused by shared machine load,
+not by a change to edge-harvest behaviour.
+
+**Plausibility**: Medium — it was the final test after 1,095 successful tests,
+and the configuration explicitly permits 180 seconds for this heavy test under
+parallel load.
+
+**Prediction**: The exact selector completes within 180 seconds when it is the
+only Nextest workload.
+
+#### H2 Falsification Plan
+
+| Step | Action                                                                 | Expected negative result                                               |
+| ---- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| 1    | Run the exact Nextest selector without changing environment variables. | A timeout or failure disproves contention as a sufficient explanation. |
+
+**Tooling**: Cargo Nextest and the existing shared Cargo cache.
+
+**Confidence on falsification**: High — the experiment retains the same test
+and timeout policy while removing other workspace tests.
+
+______________________________________________________________________
+
 ## Recommended Execution Order
 
 1. **H1** — It is the smallest decisive experiment and does not alter test
    configuration, code, or process-global environment state.
+2. **H2** — It tests the only remaining non-lint full-gate failure without
+   weakening the edge-harvest coverage workload.
 
 ## Termination Criteria
 
@@ -95,3 +123,10 @@ H1 was not falsified on 2026-08-24. The isolated command passed in 0.213
 seconds (13.886 seconds including compilation), so the prior 600-second timeout
 is consistent with shared full-suite contention rather than a regression in the
 rebased HNSW idempotency property.
+
+H2 is pending delegated falsification on 2026-08-28. The exact command is
+`cargo nextest run -p chutoro-core build_with_edges_edges_sorted_by_sequence`.
+H2 was not falsified: the isolated test passed in 0.041 seconds (17 seconds
+including package-cache overhead), well below the configured 180-second limit.
+Evidence:
+`/tmp/h2-hnsw-idempotency-timeout-issue-177-221-remove-in-process-env-mutation.out`.
