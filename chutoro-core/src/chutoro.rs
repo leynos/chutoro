@@ -239,31 +239,34 @@ impl Chutoro {
     }
 
     /// Records the stable outcome dimensions for a completed batch attempt.
+    #[cfg(feature = "metrics")]
     fn record_batch_result<T>(backend: &'static str, result: Result<T>) -> Result<T> {
-        #[cfg(feature = "metrics")]
         crate::batch_metrics::record_outcome(backend, &result);
+        result
+    }
 
-        #[cfg(not(feature = "metrics"))]
-        let _ = backend;
-
+    /// Returns a batch result unchanged when metrics are unavailable.
+    #[cfg(not(feature = "metrics"))]
+    const fn record_batch_result<T>(_backend: &'static str, result: Result<T>) -> Result<T> {
         result
     }
 
     /// Records bounded CPU resource observations before the memory guard runs.
+    #[cfg(all(feature = "cpu", feature = "metrics"))]
     fn record_batch_resources(&self, items: usize) {
-        #[cfg(all(feature = "cpu", feature = "metrics"))]
-        {
-            let hnsw_params = self.hnsw_params();
-            crate::batch_metrics::record_cpu_resources(
-                hnsw_params.max_connections(),
-                hnsw_params.effective_ef_construction(items),
-                crate::memory::estimate_peak_bytes_for_hnsw_params(items, hnsw_params),
-                self.max_bytes,
-            );
-        }
+        let hnsw_params = self.hnsw_params();
+        crate::batch_metrics::record_cpu_resources(
+            hnsw_params.max_connections(),
+            hnsw_params.effective_ef_construction(items),
+            crate::memory::estimate_peak_bytes_for_hnsw_params(items, hnsw_params),
+            self.max_bytes,
+        );
+    }
 
-        #[cfg(not(all(feature = "cpu", feature = "metrics")))]
-        let _ = items;
+    /// Does not record CPU resources when the required features are unavailable.
+    #[cfg(not(all(feature = "cpu", feature = "metrics")))]
+    const fn record_batch_resources(&self, items: usize) {
+        let _ = (self, items);
     }
 
     /// Returns an error if the estimated peak memory exceeds `max_bytes`.
