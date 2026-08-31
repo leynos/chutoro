@@ -49,11 +49,14 @@ def _workflow_files() -> list[Path]:
 
 def _iter_uses(document: object) -> Iterator[str]:
     """Yield every ``uses:`` value anywhere in a parsed workflow."""
-    if isinstance(document, dict):
-        yield from _iter_uses_in_mapping(document)
-    elif isinstance(document, list):
-        for item in document:
-            yield from _iter_uses(item)
+    match document:
+        case dict() as mapping:
+            yield from _iter_uses_in_mapping(mapping)
+        case list() as items:
+            for item in items:
+                yield from _iter_uses(item)
+        case _:
+            return
 
 
 def _iter_uses_in_mapping(mapping: dict[str, object]) -> Iterator[str]:

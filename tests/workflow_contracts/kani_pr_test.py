@@ -23,6 +23,7 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import re
+import subprocess
 from pathlib import Path
 
 import pathspec
@@ -32,6 +33,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "kani-pr.yml"
 NIGHTLY_PATH = REPO_ROOT / ".github" / "workflows" / "nightly-kani.yml"
+MAKEFILE_PATH = REPO_ROOT / "Makefile"
 #: Single source of truth for the pinned Kani verifier version.
 KANI_VERSION_PATH = REPO_ROOT / "tools" / "kani" / "VERSION"
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
@@ -46,7 +48,14 @@ SETUP_RUST_RE = re.compile(
 
 #: Non-source inputs that change what the gate runs, so a change to any of
 #: them must trigger it. Everything else is derived from the tree below.
-GATE_INPUTS = ("Makefile", "Cargo.lock", "tools/kani/VERSION")
+GATE_INPUTS = (
+    "Makefile",
+    "Cargo.lock",
+    "Cargo.toml",
+    "chutoro-core/Cargo.toml",
+    "chutoro-providers/dense/Cargo.toml",
+    "tools/kani/VERSION",
+)
 
 
 def _kani_surface() -> list[str]:
@@ -72,6 +81,29 @@ def _uncovered(paths: list[str], patterns: list[str]) -> list[str]:
     """Return the paths no filter pattern matches."""
     spec = pathspec.PathSpec.from_lines("gitignore", patterns)
     return [path for path in paths if not spec.match_file(path)]
+
+
+@pytest.mark.parametrize("version", ("1.2", "1.2.3.4", "1..2", "1.2.x"))
+def test_makefile_rejects_invalid_kani_versions(tmp_path: Path, version: str) -> None:
+    """The Makefile must reject malformed pins before constructing Kani paths."""
+    version_file = tmp_path / "VERSION"
+    version_file.write_text(f"{version}\n", encoding="utf-8")
+
+    completed = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            f"KANI_VERSION_FILE={version_file}",
+            "help",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "KANI_VERSION must be MAJOR.MINOR.PATCH" in completed.stderr
 
 
 

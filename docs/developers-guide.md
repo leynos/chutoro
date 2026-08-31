@@ -538,6 +538,38 @@ increase a default bound to compensate for proof cost. For a demonstrably slow
 full-tier harness, benchmark `#[kani::solver(kissat)]` or
 `#[kani::solver(cadical)]` and retain the faster verified configuration.
 
+For screen readers: This flowchart shows that a relevant code or proof change
+enters the fast `make kani` tier for narrow bounded proofs and the sequential
+MST model, or the full `make kani-full` tier for narrow bounded proofs and
+deterministic unit-test twins. The MST model feeds exhaustive equivalence tests;
+both those tests and the unit-test twins lead to successful verification within
+the CI budget.
+
+```mermaid
+flowchart TD
+    Change[Relevant code or proof change]
+    Fast[make kani]
+    Full[make kani-full]
+    Narrow[Narrow bounded proofs]
+    Model[Sequential MST model]
+    Equivalence[Exhaustive model equivalence tests]
+    Unit[Deterministic unit-test twins]
+    Success[Verification completes within CI budget]
+
+    Change --> Fast
+    Fast --> Narrow
+    Fast --> Model
+    Model --> Equivalence
+    Change --> Full
+    Full --> Narrow
+    Full --> Unit
+    Equivalence --> Success
+    Unit --> Success
+```
+
+*Figure: Kani fast- and full-tier verification paths from a relevant change to
+successful verification within the CI budget.*
+
 ## Benchmarks
 
 The `chutoro-benches` crate provides Criterion benchmarks for the four CPU
