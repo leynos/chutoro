@@ -42,20 +42,8 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
         .max(effective_hnsw_params.ef_construction())
         .min(items);
     let ef = NonZeroUsize::new(desired).unwrap_or(NonZeroUsize::MIN);
-
-    let mut core_distances = Vec::with_capacity(items);
-    for point in 0..items {
-        let neighbours = index
-            .search(source, point, ef)
-            .map_err(|error| map_cpu_hnsw_error(source, error))?;
-        let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
-        let core = others
-            .get(min_cluster_size.get().saturating_sub(1))
-            .or_else(|| others.last())
-            .map_or(0.0, |neighbour| neighbour.distance);
-        core_distances.push(core);
-    }
-
+    let core_distance_inputs = CoreDistanceInputs::new(items, min_cluster_size, ef);
+    let core_distances = compute_core_distances(source, &index, &core_distance_inputs)?;
     let mutual_edges: Vec<CandidateEdge> = harvested
         .iter()
         .map(|edge| {
@@ -86,7 +74,6 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
 
     let forest =
         parallel_kruskal(items, &mutual_harvest).map_err(|error| map_cpu_mst_error(&error))?;
-
     let labels = crate::extract_labels_from_mst(
         items,
         forest.edges(),
@@ -100,6 +87,55 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
         .collect();
 
     Ok(ClusteringResult::from_assignments(assignments))
+}
+
+/// Computes every point's core distance from its nearest non-self neighbours.
+#[cfg(feature = "cpu")]
+fn compute_core_distances<D: DataSource + Sync>(
+    source: &D,
+    index: &CpuHnsw,
+    inputs: &CoreDistanceInputs,
+) -> Result<Vec<f32>> {
+    let mut core_distances = Vec::with_capacity(inputs.items);
+    for point in 0..inputs.items {
+        let neighbours = index
+            .search(source, point, inputs.ef)
+            .map_err(|error| map_cpu_hnsw_error(source, error))?;
+        let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
+        let core = others
+            .get(inputs.min_cluster_size.get().saturating_sub(1))
+            .or_else(|| others.last())
+            .map_or(0.0, |neighbour| neighbour.distance);
+        core_distances.push(core);
+    }
+
+    Ok(core_distances)
+}
+
+/// Groups the controls for a single CPU batch core-distance computation.
+///
+/// This private type serves only [`compute_core_distances`]; do not reuse it
+/// outside this pipeline boundary.
+#[cfg(feature = "cpu")]
+struct CoreDistanceInputs {
+    /// Number of source points to process.
+    items: usize,
+    /// Requested non-self neighbour rank.
+    min_cluster_size: NonZeroUsize,
+    /// Search width used for every point lookup.
+    ef: NonZeroUsize,
+}
+
+#[cfg(feature = "cpu")]
+impl CoreDistanceInputs {
+    /// Creates inputs for one batch core-distance computation.
+    const fn new(items: usize, min_cluster_size: NonZeroUsize, ef: NonZeroUsize) -> Self {
+        Self {
+            items,
+            min_cluster_size,
+            ef,
+        }
+    }
 }
 
 /// Translate an HNSW failure into the public CPU-pipeline error type.
