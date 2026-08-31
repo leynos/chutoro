@@ -27,6 +27,7 @@ path = "../chutoro-providers/text"
 [dev-dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+mockable = { workspace = true, features = ["mock"] }
 parquet = { workspace = true, features = ["arrow"] }
 rstest = "0.26"
 tempfile = "3.10"
