@@ -156,14 +156,14 @@ mod tests {
     use mockable::MockEnv;
     use rstest::rstest;
 
-    fn env_with_min_max_connections(raw_value: Option<&str>) -> MockEnv {
+    fn env_with_overrides(overrides: &[(&str, &str)]) -> MockEnv {
         let mut env = MockEnv::new();
-        let configured_value = raw_value.map(str::to_owned);
-        env.expect_string().returning(move |key| {
-            (key == SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str())
-                .then(|| configured_value.clone())
-                .flatten()
-        });
+        let configured_values = overrides
+            .iter()
+            .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+            .collect::<std::collections::HashMap<_, _>>();
+        env.expect_string()
+            .returning(move |key| configured_values.get(key).cloned());
         env
     }
 
@@ -239,7 +239,7 @@ mod tests {
 
     #[test]
     fn load_uses_default_min_max_connections_when_env_unset() {
-        let env = env_with_min_max_connections(None);
+        let env = env_with_overrides(&[]);
         let config = SearchPropertyConfig::load_with_env(&env);
         assert_eq!(
             config.min_max_connections(),
@@ -251,18 +251,90 @@ mod tests {
     fn load_uses_env_min_max_connections_when_valid() {
         let override_val = SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS + 4;
         let value = override_val.to_string();
-        let env = env_with_min_max_connections(Some(&value));
+        let env = env_with_overrides(&[(
+            SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(),
+            &value,
+        )]);
         let config = SearchPropertyConfig::load_with_env(&env);
         assert_eq!(config.min_max_connections(), override_val);
     }
 
     #[test]
     fn load_falls_back_to_default_min_max_connections_on_invalid_env() {
-        let env = env_with_min_max_connections(Some("not-a-number"));
+        let env = env_with_overrides(&[(
+            SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(),
+            "not-a-number",
+        )]);
         let config = SearchPropertyConfig::load_with_env(&env);
         assert_eq!(
             config.min_max_connections(),
             SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS
+        );
+    }
+
+    #[test]
+    fn load_uses_default_min_recall_when_env_unset() {
+        let env = env_with_overrides(&[]);
+        let config = SearchPropertyConfig::load_with_env(&env);
+
+        assert!(
+            config
+                .min_recall()
+                .total_cmp(&SearchPropertyConfig::DEFAULT_MIN_RECALL)
+                .is_eq()
+        );
+    }
+
+    #[test]
+    fn load_uses_valid_min_recall_override() {
+        let env = env_with_overrides(&[(SearchPropertyConfig::ENV_KEY.as_str(), "0.75")]);
+        let config = SearchPropertyConfig::load_with_env(&env);
+
+        assert!(config.min_recall().total_cmp(&0.75).is_eq());
+    }
+
+    #[test]
+    fn load_falls_back_when_min_recall_override_is_invalid() {
+        let env = env_with_overrides(&[(SearchPropertyConfig::ENV_KEY.as_str(), "1.1")]);
+        let config = SearchPropertyConfig::load_with_env(&env);
+
+        assert!(
+            config
+                .min_recall()
+                .total_cmp(&SearchPropertyConfig::DEFAULT_MIN_RECALL)
+                .is_eq()
+        );
+    }
+
+    #[test]
+    fn load_uses_default_max_fixture_len_when_env_unset() {
+        let env = env_with_overrides(&[]);
+        let config = SearchPropertyConfig::load_with_env(&env);
+
+        assert_eq!(
+            config.max_fixture_len(),
+            SearchPropertyConfig::DEFAULT_MAX_FIXTURE_LEN
+        );
+    }
+
+    #[test]
+    fn load_uses_valid_max_fixture_len_override() {
+        let env =
+            env_with_overrides(&[(SearchPropertyConfig::MAX_FIXTURE_LEN_ENV_KEY.as_str(), "64")]);
+        let config = SearchPropertyConfig::load_with_env(&env);
+
+        assert_eq!(config.max_fixture_len(), 64);
+    }
+
+    #[test]
+    fn load_falls_back_when_max_fixture_len_override_is_invalid() {
+        let env =
+            env_with_overrides(&[(SearchPropertyConfig::MAX_FIXTURE_LEN_ENV_KEY.as_str(), "1")]);
+        let config = SearchPropertyConfig::load_with_env(&env);
+
+        assert_eq!(
+            config.max_fixture_len(),
+            SearchPropertyConfig::DEFAULT_MAX_FIXTURE_LEN
         );
     }
 }

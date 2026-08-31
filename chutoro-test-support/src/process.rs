@@ -70,13 +70,22 @@ pub fn find_test_binary(name: &str) -> Result<PathBuf, TestBinaryError> {
 
 /// Resolve a binary through an injected environment reader before probing disk.
 fn find_test_binary_with_env(name: &str, env: &dyn Env) -> Result<PathBuf, TestBinaryError> {
-    if let Ok(value) = env.raw(&format!("CARGO_BIN_EXE_{name}")) {
-        return Ok(with_exe_suffix(PathBuf::from(value)));
+    if let Some(path) = env.path_buf(&format!("CARGO_BIN_EXE_{name}")) {
+        return Ok(with_exe_suffix(path));
     }
 
     let current_exe =
         env::current_exe().map_err(|error| TestBinaryError::CurrentExe(error.to_string()))?;
-    let deps_dir = current_exe
+    resolve_test_binary_from_executable(name, Ok(current_exe))
+}
+
+/// Resolve a named binary from the supplied current executable's target layout.
+fn resolve_test_binary_from_executable(
+    name: &str,
+    current_exe: Result<PathBuf, TestBinaryError>,
+) -> Result<PathBuf, TestBinaryError> {
+    let executable_path = current_exe?;
+    let deps_dir = executable_path
         .parent()
         .map(Path::to_path_buf)
         .ok_or(TestBinaryError::DepsDir)?;
@@ -105,23 +114,7 @@ fn find_test_binary_with(
         return Ok(with_exe_suffix(path));
     }
 
-    let executable_path = current_exe?;
-    let deps_dir = executable_path
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or(TestBinaryError::DepsDir)?;
-    let target_dir = deps_dir
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or(TestBinaryError::TargetDir)?;
-    let direct = with_exe_suffix(target_dir.join(name));
-    if direct.exists() {
-        return Ok(direct);
-    }
-
-    find_in_deps(&deps_dir, name).ok_or_else(|| TestBinaryError::NotFound {
-        name: name.to_owned(),
-    })
+    resolve_test_binary_from_executable(name, current_exe)
 }
 
 /// Search the compiled dependency directory for a binary matching `name`.
@@ -193,14 +186,47 @@ mod tests {
     #[test]
     fn resolves_binary_from_environment_path() {
         let mut env = MockEnv::new();
-        env.expect_raw().returning(|key| {
+        env.expect_path_buf().returning(|key| {
             assert_eq!(key, "CARGO_BIN_EXE_test-binary");
-            Ok("test-binary".to_owned())
+            Some(PathBuf::from("test-binary"))
         });
         let path = find_test_binary_with_env("test-binary", &env)
             .expect("environment path should resolve the test binary");
 
         assert_eq!(path, with_exe_suffix(PathBuf::from("test-binary")));
+    }
+
+    #[test]
+    fn resolves_binary_from_environment_fallback() {
+        let mut env = MockEnv::new();
+        env.expect_path_buf().returning(|key| {
+            assert_eq!(key, "CARGO_BIN_EXE_chutoro_test_support");
+            None
+        });
+
+        let path = find_test_binary_with_env("chutoro_test_support", &env)
+            .expect("fallback should resolve this test binary");
+
+        assert!(path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolves_non_unicode_binary_from_environment_path() {
+        use std::{ffi::OsString, os::unix::ffi::OsStringExt};
+
+        let expected = PathBuf::from(OsString::from_vec(b"test-binary-\xFF".to_vec()));
+        let expected_for_mock = expected.clone();
+        let mut env = MockEnv::new();
+        env.expect_path_buf().returning(move |key| {
+            assert_eq!(key, "CARGO_BIN_EXE_test-binary");
+            Some(expected_for_mock.clone())
+        });
+
+        let path = find_test_binary_with_env("test-binary", &env)
+            .expect("non-Unicode environment path should resolve the test binary");
+
+        assert_eq!(path, expected);
     }
 
     #[test]

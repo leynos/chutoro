@@ -16,6 +16,8 @@ use tracing_subscriber::{
 
 /// Environment variable selecting human-readable or JSON log output.
 const LOG_FORMAT_ENV: &str = "CHUTORO_LOG_FORMAT";
+/// Environment variable selecting tracing directives.
+const RUST_LOG_ENV: &str = "RUST_LOG";
 
 /// Marker indicating that global logging initialization has completed.
 static INITIALIZED: OnceLock<()> = OnceLock::new();
@@ -108,18 +110,9 @@ fn install_subscriber() -> Result<(), LoggingError> {
 
 /// Install logging using an injected environment reader for test isolation.
 fn install_subscriber_with_env(env: &dyn Env) -> Result<(), LoggingError> {
-    let use_json = match env.raw(LOG_FORMAT_ENV) {
-        Ok(raw) => parse_log_format(&raw)?,
-        Err(env::VarError::NotPresent) => false,
-        Err(err @ env::VarError::NotUnicode(_)) => {
-            return Err(LoggingError::InvalidUnicode {
-                name: LOG_FORMAT_ENV,
-                source: err,
-            });
-        }
-    };
+    let use_json = log_format_from_env(env)?;
 
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = env_filter_from_env(env);
 
     let base_fmt_layer = tracing_subscriber::fmt::layer()
         .with_span_events(FmtSpan::FULL)
@@ -141,6 +134,26 @@ fn install_subscriber_with_env(env: &dyn Env) -> Result<(), LoggingError> {
         .with(fmt_layer)
         .try_init()
         .map_err(|source| LoggingError::InstallFailed { source })
+}
+
+/// Read the requested output format through an injected environment reader.
+fn log_format_from_env(env: &dyn Env) -> Result<bool, LoggingError> {
+    match env.raw(LOG_FORMAT_ENV) {
+        Ok(raw) => Ok(parse_log_format(&raw)?),
+        Err(env::VarError::NotPresent) => Ok(false),
+        Err(err @ env::VarError::NotUnicode(_)) => Err(LoggingError::InvalidUnicode {
+            name: LOG_FORMAT_ENV,
+            source: err,
+        }),
+    }
+}
+
+/// Build a tracing filter from an injected reader, defaulting to `info`.
+fn env_filter_from_env(env: &dyn Env) -> EnvFilter {
+    env.raw(RUST_LOG_ENV)
+        .ok()
+        .and_then(|directives| EnvFilter::try_new(directives).ok())
+        .unwrap_or_else(|| EnvFilter::new("info"))
 }
 /// Emit a pre-initialization diagnostic to stderr when structured logging
 /// initialization collides with an existing subscriber.
@@ -182,6 +195,7 @@ mod tests {
 
     use super::*;
 
+    use mockable::MockEnv;
     use rstest::rstest;
 
     #[rstest]
@@ -200,6 +214,69 @@ mod tests {
             LoggingError::UnsupportedFormat { provided } => assert_eq!(provided, "xml"),
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[rstest]
+    #[case(Ok("human".to_owned()), false)]
+    #[case(Ok("json".to_owned()), true)]
+    #[case(Err(env::VarError::NotPresent), false)]
+    fn log_format_uses_injected_environment(
+        #[case] value: Result<String, env::VarError>,
+        #[case] expected: bool,
+    ) {
+        let mut env = MockEnv::new();
+        env.expect_raw().returning(move |key| {
+            assert_eq!(key, LOG_FORMAT_ENV);
+            value.clone()
+        });
+
+        let result = log_format_from_env(&env).expect("format must resolve");
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn log_format_rejects_invalid_injected_value() {
+        let mut env = MockEnv::new();
+        env.expect_raw().returning(|key| {
+            assert_eq!(key, LOG_FORMAT_ENV);
+            Ok("xml".to_owned())
+        });
+
+        let error = log_format_from_env(&env).expect_err("invalid format must fail");
+        assert!(matches!(error, LoggingError::UnsupportedFormat { .. }));
+    }
+
+    #[test]
+    fn env_filter_uses_injected_rust_log() {
+        let mut env = MockEnv::new();
+        env.expect_raw().returning(|key| {
+            assert_eq!(key, RUST_LOG_ENV);
+            Ok("debug".to_owned())
+        });
+
+        assert_eq!(env_filter_from_env(&env).to_string(), "debug");
+    }
+
+    #[test]
+    fn env_filter_defaults_when_rust_log_is_unavailable() {
+        let mut env = MockEnv::new();
+        env.expect_raw().returning(|key| {
+            assert_eq!(key, RUST_LOG_ENV);
+            Err(env::VarError::NotPresent)
+        });
+
+        assert_eq!(env_filter_from_env(&env).to_string(), "info");
+    }
+
+    #[test]
+    fn env_filter_defaults_when_rust_log_is_invalid() {
+        let mut env = MockEnv::new();
+        env.expect_raw().returning(|key| {
+            assert_eq!(key, RUST_LOG_ENV);
+            Ok("chutoro=not-a-level".to_owned())
+        });
+
+        assert_eq!(env_filter_from_env(&env).to_string(), "info");
     }
 
     #[test]

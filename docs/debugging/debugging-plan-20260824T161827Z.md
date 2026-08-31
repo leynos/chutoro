@@ -113,11 +113,13 @@ Nextest worker permits to avoid overlap with expensive test targets.
 **Prediction**: The exact smoke test completes within its 300-second limit when
 it is the only Nextest workload.
 
-#### H3 Falsification Plan
+#### H3 falsification plan
 
 | Step | Action                                                                 | Expected negative result                                               |
 | ---- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | 1    | Run the exact Nextest selector without changing environment variables. | A timeout or failure disproves contention as a sufficient explanation. |
+
+_Table 3: H3 falsification plan._
 
 **Tooling**: Cargo Nextest and the existing shared Cargo cache.
 
@@ -138,16 +140,22 @@ ______________________________________________________________________
 ## Termination criteria
 
 - **Root cause identified**: One worker count completes while another stalls,
-  or every tested worker count stalls.
-- **Escalation trigger**: Both bounded runs time out or show a different stack
-  signature; revise the hypotheses before modifying production code.
+  or every tested worker count stalls. The H3 selector also completes within
+  300 seconds, supporting shared host and Cargo-cache contention as the cause
+  of the full-suite timeout.
+- **Escalation trigger**: Both bounded H1 runs time out or show a different
+  stack signature, or the H3 selector times out or fails; revise the hypotheses
+  before modifying production code.
 
 ## Notes for executing agent
 
-Run only the two stated experiments. Do not edit tracked files, run full
-repository gates, or terminate unrelated processes. Return `falsified`,
-`not-falsified`, or `inconclusive` for each hypothesis, with exact command
-results and timing evidence.
+The H1 and H2 experiments and the H3 selector have now been run. H3 was not
+falsified: the isolated selector passed in 192.626 seconds, within the
+300-second Nextest limit; its 381-second wall time included dependency
+compilation after waiting on Cargo's shared package-cache lock. Do not edit
+tracked files, run full repository gates, or terminate unrelated processes.
+Evidence:
+`/tmp/h3-benchmark-timeout-issue-177-221-remove-in-process-env-mutation.out`.
 
 ## Falsification record
 

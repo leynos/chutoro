@@ -1,14 +1,12 @@
-# Debugging Plan: HNSW idempotency property timeout after stack rebase
+# Debugging plan: HNSW idempotency property timeout after stack rebase
 
-**Generated**: 2026-08-24
-**Issue ID**: Rebase of #223 onto #228
-**Severity**: High — blocks the required rebase validation gate
-**Falsification sub-agent**: alchemist
-**Planning agent boundary**: This document was prepared by the planning agent.
-Falsification must be executed by the named sub-agent, not by the planning
-agent.
+**Generated**: 2026-08-24 **Issue ID**: Rebase of #223 onto #228 **Severity**:
+High — blocks the required rebase validation gate **Falsification sub-agent**:
+alchemist **Planning agent boundary**: This document was prepared by the
+planning agent. Falsification must be executed by the named sub-agent, not by
+the planning agent.
 
-## Problem Statement
+## Problem statement
 
 After rebasing the environment-reader branch onto the lint-policy stack,
 `make test` passed 1,081 tests but timed out
@@ -17,7 +15,7 @@ branch passed the complete test gate before the stack rebase. The expected
 behaviour is that the idempotency property completes within the configured
 timeout without weakening its workload or timeout.
 
-## Context Summary
+## Context summary
 
 | Aspect              | Details                                                           |
 | ------------------- | ----------------------------------------------------------------- |
@@ -26,7 +24,9 @@ timeout without weakening its workload or timeout.
 | Affected components | HNSW idempotency property test and nextest scheduling             |
 | Recent changes      | Rebase onto #228; `is_coverage_job` now reads via `mockable::Env` |
 
-### Error Artefacts
+_Table 1: Context summary for the HNSW idempotency timeout._
+
+### Error artefacts
 
 ```plaintext
 TIMEOUT [600.004s] chutoro-core
@@ -34,7 +34,7 @@ hnsw::tests::property::tests::hnsw_idempotency_preserved_proptest
 Summary 1082 tests run: 1081 passed, 1 timed out, 1 skipped
 ```
 
-### Information Gaps
+### Information gaps
 
 - The isolated runtime of the affected property test is not yet known.
 - A one-run timeout cannot distinguish shared-machine contention from a
@@ -56,11 +56,13 @@ the end of a concurrent workspace run.
 **Prediction**: An isolated nextest invocation of the exact property test
 completes successfully within 600 seconds.
 
-#### H1 Falsification Plan
+#### H1 falsification plan
 
 | Step | Action                                                                                                                    | Expected Negative Result                                               |
 | ---- | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | 1    | Run `cargo nextest run -p chutoro-core hnsw_idempotency_preserved_proptest` once, without changing environment variables. | A timeout or failure disproves contention as a sufficient explanation. |
+
+_Table 2: H1 falsification plan._
 
 **Tooling**: Cargo Nextest, existing shared Cargo cache, and a `/tmp` log.
 
@@ -82,11 +84,13 @@ parallel load.
 **Prediction**: The exact selector completes within 180 seconds when it is the
 only Nextest workload.
 
-#### H2 Falsification Plan
+#### H2 falsification plan
 
 | Step | Action                                                                 | Expected negative result                                               |
 | ---- | ---------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | 1    | Run the exact Nextest selector without changing environment variables. | A timeout or failure disproves contention as a sufficient explanation. |
+
+_Table 3: H2 falsification plan._
 
 **Tooling**: Cargo Nextest and the existing shared Cargo cache.
 
@@ -95,14 +99,14 @@ and timeout policy while removing other workspace tests.
 
 ______________________________________________________________________
 
-## Recommended Execution Order
+## Recommended execution order
 
 1. **H1** — It is the smallest decisive experiment and does not alter test
    configuration, code, or process-global environment state.
 2. **H2** — It tests the only remaining non-lint full-gate failure without
    weakening the edge-harvest coverage workload.
 
-## Termination Criteria
+## Termination criteria
 
 - **Root cause identified**: The isolated test either completes, isolating
   shared-run contention, or times out, falsifying H1 and requiring a revised
@@ -110,23 +114,19 @@ ______________________________________________________________________
 - **Escalation trigger**: If the isolated command times out or fails, stop and
   revise the hypothesis plan before altering implementation or test budgets.
 
-## Notes for Executing Agent
+## Notes for executing agent
 
-Run only the exact command in H1 and return a verdict of falsified,
-not-falsified, or inconclusive with the log path and elapsed time. Do not edit
-tracked files, modify environment variables, run the full workspace gate, or
-change nextest timeouts.
+Historical execution note: H1 and H2 were run sequentially. Both isolated
+commands passed, so neither hypothesis was falsified. Do not edit tracked
+files, modify environment variables, run the full workspace gate, or change
+nextest timeouts.
 
-## Recorded Result
+## Recorded result
 
 H1 was not falsified on 2026-08-24. The isolated command passed in 0.213
 seconds (13.886 seconds including compilation), so the prior 600-second timeout
 is consistent with shared full-suite contention rather than a regression in the
-rebased HNSW idempotency property.
-
-H2 is pending delegated falsification on 2026-08-28. The exact command is
-`cargo nextest run -p chutoro-core build_with_edges_edges_sorted_by_sequence`.
-H2 was not falsified: the isolated test passed in 0.041 seconds (17 seconds
-including package-cache overhead), well below the configured 180-second limit.
-Evidence:
+rebased HNSW idempotency property. H2 was not falsified on 2026-08-28. The
+isolated test passed in 0.041 seconds (17 seconds including package-cache
+overhead), well below the configured 180-second limit. Evidence:
 `/tmp/h2-hnsw-idempotency-timeout-issue-177-221-remove-in-process-env-mutation.out`.

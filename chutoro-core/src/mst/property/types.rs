@@ -74,3 +74,31 @@ impl ConcurrencyConfig {
         Self { repetitions }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Unit tests for MST property configuration.
+
+    use super::*;
+    use mockable::MockEnv;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case(None, 5)]
+    #[case(Some("8"), 8)]
+    #[case(Some("invalid"), 5)]
+    #[case(Some("1"), MIN_CONCURRENCY_REPS)]
+    fn load_with_env_uses_valid_overrides_and_safe_defaults(
+        #[case] value: Option<&str>,
+        #[case] expected: usize,
+    ) {
+        let configured_value = value.map(str::to_owned);
+        let mut env = MockEnv::new();
+        env.expect_string().returning(move |key| {
+            assert_eq!(key, "CHUTORO_MST_PBT_CONCURRENCY_REPS");
+            configured_value.clone()
+        });
+
+        assert_eq!(ConcurrencyConfig::load_with_env(&env).repetitions, expected);
+    }
+}
