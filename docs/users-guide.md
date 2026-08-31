@@ -271,8 +271,8 @@ last base-layer neighbour is displaced by later insertions is re-linked
 through the entry point rather than left unreachable. Search therefore
 never strands an inserted point, and `search` results reflect every
 point accepted by `insert` or `insert_harvesting`. These guarantees are
-verified by bounded Kani proofs and property tests; see the developers'
-guide for the verification policy.
+verified by bounded Kani proofs and property tests; see the
+[developers' guide](developers-guide.md) for the verification policy.
 
 ## Results and assignments
 
@@ -344,6 +344,13 @@ When the `metrics` feature is enabled, the distance cache emits four metrics:
 lookups that require computation, and `distance_cache_evictions` counts LRU
 entries removed from the cache. `distance_cache_lookup_latency_histogram`
 records lookup latency for both hits and completed misses.
+
+The HNSW reconciliation path also emits two counters when the `metrics` feature
+is enabled. `chutoro.hnsw.reconciliation.healed_nodes_total` counts nodes that
+removed-edge reconciliation isolated at the base layer and that were re-linked
+to the entry node. `chutoro.hnsw.reconciliation.orphan_scrubs_total` increments
+once for each deferred scrub that removes an orphaned forward edge; its `layer`
+label is `base` for base-layer scrubs and `upper` for upper-layer scrubs.
 
 Choose an `ExecutionStrategy` that matches the compiled features. Allowing
 `Auto` keeps behaviour stable across builds while seamlessly adopting GPU

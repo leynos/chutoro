@@ -7,14 +7,6 @@
 //! It is compiled only for Kani harnesses and for the exhaustive
 //! model-equivalence tests; production callers must not use it.
 
-#![expect(
-    clippy::float_cmp,
-    clippy::indexing_slicing,
-    clippy::missing_const_for_fn,
-    clippy::shadow_reuse,
-    reason = "the proof model uses fixed arrays and direct indexing to keep CBMC's symbolic formula tractable"
-)]
-
 use crate::CandidateEdge;
 
 #[cfg(kani)]
@@ -43,11 +35,19 @@ pub(super) struct ModelForest {
 impl ModelForest {
     /// Returns the accepted forest edges in sorted order.
     #[cfg(test)]
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "the fixed model buffer is sliced by its proved active-edge count"
+    )]
     #[rustfmt::skip]
     pub(super) fn edges(&self) -> &[MstEdge] { &self.edges[..self.edge_count] }
 
     /// Returns the number of connected components in the resulting forest.
     #[cfg(test)]
+    #[expect(
+        clippy::missing_const_for_fn,
+        reason = "the test-only accessor remains an ordinary method alongside the model API"
+    )]
     #[rustfmt::skip]
     pub(super) fn component_count(&self) -> usize { self.component_count }
 }
@@ -68,6 +68,14 @@ pub(super) fn parallel_kruskal_from_edges_for_kani<'a>(
 
 /// Runs the bounded sequential Kruskal model shared by Kani and the
 /// equivalence tests.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the bounded four-node proof model uses direct fixed-array access to limit CBMC state"
+)]
+#[expect(
+    clippy::shadow_reuse,
+    reason = "the canonicalized edge intentionally replaces the raw iterator edge in the proof loop"
+)]
 pub(super) fn kruskal_model<'a>(
     node_count: usize,
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
@@ -161,6 +169,10 @@ fn sort_edges_for_kani(edges: &mut [Option<MstEdge>], edge_count: usize) {
 /// Compacts adjacent duplicates out of the sorted prefix.
 ///
 /// Returns the number of unique edges retained.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the sorted fixed edge buffer is indexed directly to keep the bounded model tractable"
+)]
 fn deduplicate_edges_for_kani(edges: &mut [Option<MstEdge>], edge_count: usize) -> usize {
     let mut unique_count = 0;
     let mut index = 0;
@@ -178,6 +190,10 @@ fn deduplicate_edges_for_kani(edges: &mut [Option<MstEdge>], edge_count: usize) 
 }
 
 /// Insertion-sorts the accepted forest edges into canonical order.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the three-slot forest buffer uses direct insertion-sort access in the bounded model"
+)]
 fn sort_forest_edges_for_kani(edges: &mut [MstEdge], edge_count: usize) {
     let mut index = 1;
     while index < edge_count {
@@ -194,6 +210,14 @@ fn sort_forest_edges_for_kani(edges: &mut [MstEdge], edge_count: usize) {
 ///
 /// Pairs involving an empty slot never swap; the sorted prefix is fully
 /// populated at the only call site, so that arm is defensive.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the caller proves adjacent indices lie inside the bounded sorted prefix"
+)]
+#[expect(
+    clippy::shadow_reuse,
+    reason = "the matched edge value intentionally reuses the adjacent-index name"
+)]
 fn should_swap_edges(edges: &[Option<MstEdge>], current: usize) -> bool {
     match (edges[current], edges[current - 1]) {
         (Some(current), Some(previous)) => current < previous,
@@ -202,6 +226,14 @@ fn should_swap_edges(edges: &[Option<MstEdge>], current: usize) -> bool {
 }
 
 /// Reports whether two edges share weight and canonical endpoints.
+#[expect(
+    clippy::float_cmp,
+    reason = "deduplication preserves exact validated edge weights rather than approximate equality"
+)]
+#[expect(
+    clippy::shadow_reuse,
+    reason = "the populated left edge intentionally reuses the optional input name"
+)]
 fn duplicate_edges(left: Option<MstEdge>, right: MstEdge) -> bool {
     left.is_some_and(|left| {
         left.weight == right.weight && left.source == right.source && left.target == right.target
@@ -209,6 +241,14 @@ fn duplicate_edges(left: Option<MstEdge>, right: MstEdge) -> bool {
 }
 
 /// Finds the union-find root of `node`, halving paths as it walks.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "union-find parents are fixed to the proved four-node domain"
+)]
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "keeping this runtime helper non-const avoids changing the proof model's execution surface"
+)]
 fn find_root(parents: &mut [usize; 4], node: usize) -> usize {
     let mut current = node;
     while parents[current] != current {
@@ -223,6 +263,14 @@ fn find_root(parents: &mut [usize; 4], node: usize) -> usize {
 }
 
 /// Unions two roots by rank, breaking ties towards the smaller id.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "union-find ranks and parents are fixed to the proved four-node domain"
+)]
+#[expect(
+    clippy::missing_const_for_fn,
+    reason = "keeping this runtime helper non-const avoids changing the proof model's execution surface"
+)]
 fn union_roots(parents: &mut [usize; 4], ranks: &mut [usize; 4], left: usize, right: usize) {
     let (parent, child) = if ranks[left] > ranks[right] {
         (left, right)

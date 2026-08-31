@@ -1453,6 +1453,30 @@ limit; production builds skip the scan entirely. The fallback healing path
 remains unchanged, so trimmed evictions still replace the weakest candidate
 with the new node to guarantee at least one reciprocal link per level.
 
+For screen readers: This sequence diagram shows `CommitApplicator` reconciling
+added edges, writing the origin neighbour list to `Graph`, and reconciling
+removed edges. The removed-edge reconciliation asks `ConnectivityHealer` to
+ensure base connectivity; the healer updates `Graph` against the entry node,
+and `EdgeReconciler` returns preserved bidirectional links to the applicator.
+
+```mermaid
+sequenceDiagram
+    participant CommitApplicator
+    participant EdgeReconciler
+    participant Graph
+    participant ConnectivityHealer
+
+    CommitApplicator->>EdgeReconciler: reconcile_added_edges(ctx, next)
+    CommitApplicator->>Graph: write origin neighbour list
+    CommitApplicator->>EdgeReconciler: reconcile_removed_edges(ctx, previous, next)
+    EdgeReconciler->>ConnectivityHealer: ensure_base_connectivity(...)
+    ConnectivityHealer->>Graph: heal connectivity against entry node
+    EdgeReconciler-->>CommitApplicator: preserve bidirectional links
+```
+
+_Figure: Inline reciprocity sequence from commit application through edge
+reconciliation, connectivity healing, and preserved bidirectional links._
+
 ## Part III: GPU Acceleration Strategy
 
 To achieve the highest possible performance on large datasets, the design

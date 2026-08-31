@@ -34,6 +34,14 @@ KANI_TARGET_RE = re.compile(
     re.MULTILINE,
 )
 
+#: An executable Kani command in the ``kani:`` recipe. The optional leading
+#: variable expansions cover the environment prefix; comments and shell text
+#: cannot satisfy this pattern.
+KANI_COMMAND_RE = re.compile(
+    r"^\t@?(?:\$\([A-Z_]+\)\s+)*\$\(CARGO\)\s+kani\b(?P<arguments>.*)$"
+)
+HARNESS_ARGUMENT_RE = re.compile(r"(?:^|\s)--harness\s+(verify_\w+)(?:\s|$)")
+
 
 def _fast_tier_harnesses() -> list[str]:
     """Return every proof name declared in the fast-tier harness modules."""
@@ -41,6 +49,29 @@ def _fast_tier_harnesses() -> list[str]:
     for source in FAST_TIER_SOURCES:
         names.extend(PROOF_RE.findall(source.read_text(encoding="utf-8")))
     return names
+
+
+def _executed_harnesses(kani_target: str) -> set[str]:
+    """Return harnesses passed to executable Kani commands in one recipe."""
+    harnesses: set[str] = set()
+    for line in kani_target.splitlines():
+        match = KANI_COMMAND_RE.match(line)
+        if match:
+            harnesses.update(HARNESS_ARGUMENT_RE.findall(match["arguments"]))
+    return harnesses
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    (
+        "\t# $(CARGO) kani --harness verify_mst_structural_correctness_4_nodes",
+        "\techo $(CARGO) kani --harness verify_mst_structural_correctness_4_nodes",
+        "\tprintf '%s\\n' '--harness verify_mst_structural_correctness_4_nodes'",
+    ),
+)
+def test_executed_harnesses_rejects_nonexecuting_recipe_text(recipe: str) -> None:
+    """Proof names in comments or output commands cannot satisfy the contract."""
+    assert not _executed_harnesses(recipe)
 
 
 @pytest.fixture(scope="module")
@@ -63,9 +94,10 @@ def test_fast_tier_sources_declare_harnesses() -> None:
 
 
 def test_make_kani_runs_every_fast_tier_harness(kani_target: str) -> None:
-    """Each documented fast-tier proof appears in the gating target."""
+    """Each documented fast-tier proof is an executed Kani harness argument."""
+    executed_harnesses = _executed_harnesses(kani_target)
     missing = [
-        name for name in _fast_tier_harnesses() if name not in kani_target
+        name for name in _fast_tier_harnesses() if name not in executed_harnesses
     ]
     assert not missing, (
         "the Makefile kani: target must run every fast-tier harness declared "

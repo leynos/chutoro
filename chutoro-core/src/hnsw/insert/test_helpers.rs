@@ -44,8 +44,8 @@ pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usiz
     }
 }
 
-#[cfg(test)]
 /// Panics when the directed edge is present at the given level.
+#[cfg(test)]
 pub(super) fn assert_no_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
     if let Some(node) = graph.node(origin)
         && level < node.level_count()
