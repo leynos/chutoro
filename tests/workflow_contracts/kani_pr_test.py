@@ -94,6 +94,7 @@ def test_makefile_rejects_invalid_kani_versions(tmp_path: Path, version: str) ->
             "make",
             "--no-print-directory",
             f"KANI_VERSION_FILE={version_file}",
+            "KANI_VERSION=99.99.99",
             "help",
         ],
         cwd=REPO_ROOT,

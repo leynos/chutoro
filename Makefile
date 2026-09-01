@@ -22,7 +22,7 @@ TYPOS_CONFIG_BUILDER := $(UV_ENV) $(UV) tool run --python 3.14 \
 	--from "$(TYPOS_CONFIG_BUILDER_SOURCE)" typos-config-builder
 VERUS_BIN ?= verus
 KANI_VERSION_FILE ?= tools/kani/VERSION
-KANI_VERSION ?= $(strip $(file <$(KANI_VERSION_FILE)))
+override KANI_VERSION := $(strip $(file <$(KANI_VERSION_FILE)))
 KANI_VERSION_PARTS := $(subst ., ,$(KANI_VERSION))
 # Remove the valid SemVer characters so the parse-time checks below can reject
 # malformed file contents before deriving the toolchain library path.
