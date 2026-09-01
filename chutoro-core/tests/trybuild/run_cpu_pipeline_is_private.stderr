@@ -1,0 +1,8 @@
+error[E0432]: unresolved import `chutoro_core::run_cpu_pipeline`
+ --> tests/trybuild/run_cpu_pipeline_is_private.rs:1:5
+  |
+1 | use chutoro_core::run_cpu_pipeline;
+  |     ^^^^^^^^^^^^^^----------------
+  |     |             |
+  |     |             help: a similar name exists in the module: `cpu_pipeline`
+  |     no `run_cpu_pipeline` in the root

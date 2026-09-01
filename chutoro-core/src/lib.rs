@@ -1,5 +1,8 @@
 //! Chutoro core library.
 
+mod backend;
+#[cfg(feature = "metrics")]
+mod batch_metrics;
 mod builder;
 mod chutoro;
 mod clustering_quality;
@@ -8,6 +11,7 @@ mod cpu_pipeline;
 mod datasource;
 mod distance;
 mod error;
+mod execution_config;
 #[cfg(feature = "cpu")]
 mod hierarchy;
 #[cfg(feature = "cpu")]
@@ -37,7 +41,7 @@ pub use crate::{
 };
 
 #[cfg(feature = "cpu")]
-pub use crate::cpu_pipeline::run_cpu_pipeline;
+pub use crate::memory::estimate_peak_bytes_for_hnsw_params;
 
 #[cfg(feature = "cpu")]
 /// CPU-accelerated HNSW index components; requires the `cpu` feature.

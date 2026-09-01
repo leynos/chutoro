@@ -96,6 +96,14 @@ pub fn snapshot_version(&self) -> u64;
 returns an inert session whose initial observable state is `point_count() == 0`
 and `snapshot_version() == 0`.
 
+The internal `ExecutionConfig` is the single validated source for
+`min_cluster_size` and CPU `HnswParams`. `ChutoroBuilder` creates it after
+validation and passes it unchanged to batch `Chutoro` or `SessionConfig`.
+One-shot runs use these same HNSW settings for both CPU pipeline construction
+and memory estimates. It is a composition boundary only: execution and session
+code may read it, but must not create or revalidate alternate copies of those
+settings.
+
 `append` inserts source indices into the live HNSW index by calling
 `CpuHnsw::insert_harvesting` for each index. It must not duplicate HNSW
 insertion logic or inspect private HNSW adapter internals. The session stores

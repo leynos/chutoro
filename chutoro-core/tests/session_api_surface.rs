@@ -24,6 +24,7 @@ fn session_api_compiles_when_cpu_feature_is_enabled() {
     cases.pass("tests/trybuild/public_const_apis.rs");
     cases.pass("tests/trybuild/session_api_cpu_enabled.rs");
     cases.compile_fail("tests/trybuild/session_api_non_send_sync_source.rs");
+    cases.compile_fail("tests/trybuild/run_cpu_pipeline_is_private.rs");
 }
 
 #[test]

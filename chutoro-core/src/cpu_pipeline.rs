@@ -15,33 +15,7 @@ use crate::{
     CandidateEdge, ClusterId, CpuHnsw, DataSource, EdgeHarvest, HierarchyConfig, HnswError,
     HnswParams, MstError, Result, error::ChutoroError, parallel_kruskal, result::ClusteringResult,
 };
-
-/// Runs the CPU pipeline end-to-end for the provided [`DataSource`].
-///
-/// # Errors
-/// Returns the same errors as [`crate::Chutoro::run`], including empty or
-/// undersized sources, data source failures, and CPU pipeline failures.
-#[cfg(feature = "cpu")]
-pub fn run_cpu_pipeline<D: DataSource + Sync>(
-    source: &D,
-    min_cluster_size: NonZeroUsize,
-) -> Result<ClusteringResult> {
-    let items = source.len();
-    if items == 0 {
-        return Err(ChutoroError::EmptySource {
-            data_source: Arc::from(source.name()),
-        });
-    }
-    if items < min_cluster_size.get() {
-        return Err(ChutoroError::InsufficientItems {
-            data_source: Arc::from(source.name()),
-            items,
-            min_cluster_size,
-        });
-    }
-
-    run_cpu_pipeline_with_len(source, items, min_cluster_size)
-}
+use tracing::debug;
 
 /// Run the CPU pipeline after source-length validation.
 #[cfg(feature = "cpu")]
@@ -49,31 +23,27 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
     source: &D,
     items: usize,
     min_cluster_size: NonZeroUsize,
+    hnsw_params: &HnswParams,
 ) -> Result<ClusteringResult> {
-    let params = HnswParams::default();
-    let (index, harvested) = CpuHnsw::build_with_edges(source, params.clone())
+    let configured_ef_construction = hnsw_params.ef_construction();
+    let effective_hnsw_params = hnsw_params.clone().bounded_for_point_count(items);
+    debug!(
+        max_connections = effective_hnsw_params.max_connections(),
+        configured_ef_construction,
+        effective_ef_construction = effective_hnsw_params.ef_construction(),
+        "building CPU HNSW index"
+    );
+    let (index, harvested) = CpuHnsw::build_with_edges(source, effective_hnsw_params.clone())
         .map_err(|error| map_cpu_hnsw_error(source, error))?;
 
     let desired = min_cluster_size
         .get()
         .saturating_add(1)
-        .max(params.ef_construction())
+        .max(effective_hnsw_params.ef_construction())
         .min(items);
     let ef = NonZeroUsize::new(desired).unwrap_or(NonZeroUsize::MIN);
-
-    let mut core_distances = Vec::with_capacity(items);
-    for point in 0..items {
-        let neighbours = index
-            .search(source, point, ef)
-            .map_err(|error| map_cpu_hnsw_error(source, error))?;
-        let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
-        let core = others
-            .get(min_cluster_size.get().saturating_sub(1))
-            .or_else(|| others.last())
-            .map_or(0.0, |neighbour| neighbour.distance);
-        core_distances.push(core);
-    }
-
+    let core_distance_inputs = CoreDistanceInputs::new(items, min_cluster_size, ef);
+    let core_distances = compute_core_distances(source, &index, &core_distance_inputs)?;
     let mutual_edges: Vec<CandidateEdge> = harvested
         .iter()
         .map(|edge| {
@@ -104,7 +74,6 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
 
     let forest =
         parallel_kruskal(items, &mutual_harvest).map_err(|error| map_cpu_mst_error(&error))?;
-
     let labels = crate::extract_labels_from_mst(
         items,
         forest.edges(),
@@ -118,6 +87,55 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
         .collect();
 
     Ok(ClusteringResult::from_assignments(assignments))
+}
+
+/// Computes every point's core distance from its nearest non-self neighbours.
+#[cfg(feature = "cpu")]
+fn compute_core_distances<D: DataSource + Sync>(
+    source: &D,
+    index: &CpuHnsw,
+    inputs: &CoreDistanceInputs,
+) -> Result<Vec<f32>> {
+    let mut core_distances = Vec::with_capacity(inputs.items);
+    for point in 0..inputs.items {
+        let neighbours = index
+            .search(source, point, inputs.ef)
+            .map_err(|error| map_cpu_hnsw_error(source, error))?;
+        let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
+        let core = others
+            .get(inputs.min_cluster_size.get().saturating_sub(1))
+            .or_else(|| others.last())
+            .map_or(0.0, |neighbour| neighbour.distance);
+        core_distances.push(core);
+    }
+
+    Ok(core_distances)
+}
+
+/// Groups the controls for a single CPU batch core-distance computation.
+///
+/// This private type serves only [`compute_core_distances`]; do not reuse it
+/// outside this pipeline boundary.
+#[cfg(feature = "cpu")]
+struct CoreDistanceInputs {
+    /// Number of source points to process.
+    items: usize,
+    /// Requested non-self neighbour rank.
+    min_cluster_size: NonZeroUsize,
+    /// Search width used for every point lookup.
+    ef: NonZeroUsize,
+}
+
+#[cfg(feature = "cpu")]
+impl CoreDistanceInputs {
+    /// Creates inputs for one batch core-distance computation.
+    const fn new(items: usize, min_cluster_size: NonZeroUsize, ef: NonZeroUsize) -> Self {
+        Self {
+            items,
+            min_cluster_size,
+            ef,
+        }
+    }
 }
 
 /// Translate an HNSW failure into the public CPU-pipeline error type.

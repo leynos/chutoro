@@ -6,28 +6,17 @@
 use std::{num::NonZeroUsize, sync::Arc};
 
 use crate::{
-    Result, builder::ExecutionStrategy, datasource::DataSource, error::ChutoroError,
+    Result,
+    backend::{BackendChoice, backend_label, choose_backend, is_backend_unavailable},
+    builder::ExecutionStrategy,
+    datasource::DataSource,
+    error::ChutoroError,
+    execution_config::ExecutionConfig,
     result::ClusteringResult,
 };
+#[cfg(feature = "cpu")]
+use tracing::debug;
 use tracing::{instrument, warn};
-
-/// Whether this build includes the CPU execution pipeline.
-const CPU_PATH_AVAILABLE: bool = cfg!(feature = "cpu");
-/// HNSW connection cap used by the default memory-estimation path.
-const DEFAULT_MAX_CONNECTIONS: usize = 16;
-// The `gpu` feature currently exposes the orchestration surface only;
-// no accelerated implementation ships yet.
-/// Whether this build includes a usable GPU execution pipeline.
-const GPU_PATH_AVAILABLE: bool = false;
-
-/// Concrete backend selected after resolving an execution strategy.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum BackendChoice {
-    /// Execute through the CPU pipeline.
-    Cpu,
-    /// Execute through the GPU pipeline.
-    Gpu,
-}
 
 /// Entry point for running the clustering pipeline.
 ///
@@ -60,8 +49,8 @@ enum BackendChoice {
 /// ```
 #[derive(Debug, Clone)]
 pub struct Chutoro {
-    /// Validated minimum number of items per result cluster.
-    min_cluster_size: NonZeroUsize,
+    /// Validated clustering and CPU HNSW policy selected by the builder.
+    execution_config: ExecutionConfig,
     /// Backend-selection policy chosen by the builder.
     execution_strategy: ExecutionStrategy,
     /// Optional guard for estimated peak memory consumption.
@@ -71,12 +60,12 @@ pub struct Chutoro {
 impl Chutoro {
     /// Construct an orchestrator from already validated builder state.
     pub(crate) const fn new(
-        min_cluster_size: NonZeroUsize,
+        execution_config: ExecutionConfig,
         execution_strategy: ExecutionStrategy,
         max_bytes: Option<u64>,
     ) -> Self {
         Self {
-            min_cluster_size,
+            execution_config,
             execution_strategy,
             max_bytes,
         }
@@ -96,7 +85,13 @@ impl Chutoro {
     /// ```
     #[must_use]
     pub const fn min_cluster_size(&self) -> NonZeroUsize {
-        self.min_cluster_size
+        self.execution_config.min_cluster_size()
+    }
+
+    /// Returns the HNSW parameters configured for CPU execution.
+    #[cfg(feature = "cpu")]
+    pub(crate) const fn hnsw_params(&self) -> &crate::HnswParams {
+        self.execution_config.hnsw_params()
     }
 
     /// Returns the execution strategy that will be used when running.
@@ -175,13 +170,12 @@ impl Chutoro {
 
     #[instrument(
         name = "core.run",
-        err,
         skip(self, source),
         fields(
-            data_source = %source.name(),
             items = items,
-            min_cluster_size = %self.min_cluster_size,
-            strategy = ?self.execution_strategy
+            min_cluster_size = %self.min_cluster_size(),
+            strategy = ?self.execution_strategy,
+            backend = backend_label(self.execution_strategy)
         ),
     )]
     /// Run clustering after the caller has measured the source length.
@@ -190,32 +184,89 @@ impl Chutoro {
         source: &D,
         items: usize,
     ) -> Result<ClusteringResult> {
+        let backend = backend_label(self.execution_strategy);
         if items == 0 {
+            let error = ChutoroError::EmptySource {
+                data_source: Arc::from(source.name()),
+            };
             warn!(
-                data_source = source.name(),
+                backend,
+                error_code = error.code().as_str(),
                 "data source is empty, returning error"
             );
-            return Err(ChutoroError::EmptySource {
-                data_source: Arc::from(source.name()),
-            });
+            return Self::record_batch_result(backend, Err(error));
         }
-        if items < self.min_cluster_size.get() {
-            return Err(ChutoroError::InsufficientItems {
+        if items < self.min_cluster_size().get() {
+            let error = ChutoroError::InsufficientItems {
                 data_source: Arc::from(source.name()),
                 items,
-                min_cluster_size: self.min_cluster_size,
-            });
+                min_cluster_size: self.min_cluster_size(),
+            };
+            warn!(
+                backend,
+                error_code = error.code().as_str(),
+                "data source has insufficient items for configured cluster size"
+            );
+            return Self::record_batch_result(backend, Err(error));
         }
         if let Some(err) = self.backend_unavailable_error() {
-            return Err(err);
+            warn!(
+                backend,
+                error_code = err.code().as_str(),
+                "requested batch backend is unavailable"
+            );
+            return Self::record_batch_result(backend, Err(err));
         }
 
-        self.check_memory_limit(source, items)?;
+        self.record_batch_resources(items);
 
-        match self.choose_backend() {
+        if let Err(error) = self.check_memory_limit(source, items) {
+            return Self::record_batch_result(backend, Err(error));
+        }
+
+        let result = match choose_backend(self.execution_strategy) {
             BackendChoice::Cpu => self.run_cpu(source, items),
             BackendChoice::Gpu => Self::run_gpu(source, items),
+        };
+        if let Err(error) = &result {
+            warn!(
+                backend,
+                error_code = error.code().as_str(),
+                "batch execution failed after precondition checks"
+            );
         }
+        Self::record_batch_result(backend, result)
+    }
+
+    /// Records the stable outcome dimensions for a completed batch attempt.
+    #[cfg(feature = "metrics")]
+    fn record_batch_result<T>(backend: &'static str, result: Result<T>) -> Result<T> {
+        crate::batch_metrics::record_outcome(backend, &result);
+        result
+    }
+
+    /// Returns a batch result unchanged when metrics are unavailable.
+    #[cfg(not(feature = "metrics"))]
+    const fn record_batch_result<T>(_backend: &'static str, result: Result<T>) -> Result<T> {
+        result
+    }
+
+    /// Records bounded CPU resource observations before the memory guard runs.
+    #[cfg(all(feature = "cpu", feature = "metrics"))]
+    fn record_batch_resources(&self, items: usize) {
+        let hnsw_params = self.hnsw_params();
+        crate::batch_metrics::record_cpu_resources(
+            hnsw_params.max_connections(),
+            hnsw_params.effective_ef_construction(items),
+            crate::memory::estimate_peak_bytes_for_hnsw_params(items, hnsw_params),
+            self.max_bytes,
+        );
+    }
+
+    /// Does not record CPU resources when the required features are unavailable.
+    #[cfg(not(all(feature = "cpu", feature = "metrics")))]
+    const fn record_batch_resources(&self, items: usize) {
+        let _ = (self, items);
     }
 
     /// Returns an error if the estimated peak memory exceeds `max_bytes`.
@@ -224,51 +275,61 @@ impl Chutoro {
             return Ok(());
         };
 
-        // Use the default HNSW max_connections for estimation.  The pipeline
-        // always constructs params via `HnswParams::default()`, so this is
-        // consistent with actual usage.  Validated by the
-        // `default_max_connections_matches_hnsw_params` test.
-        let estimated = crate::memory::estimate_peak_bytes(items, DEFAULT_MAX_CONNECTIONS);
+        #[cfg(feature = "cpu")]
+        let estimated =
+            crate::memory::estimate_peak_bytes_for_hnsw_params(items, self.hnsw_params());
+        #[cfg(not(feature = "cpu"))]
+        let estimated = 0;
+
+        #[cfg(feature = "cpu")]
+        debug!(
+            backend = "cpu",
+            max_connections = self.hnsw_params().max_connections(),
+            configured_ef_construction = self.hnsw_params().ef_construction(),
+            effective_ef_construction = self.hnsw_params().effective_ef_construction(items),
+            estimated_bytes = estimated,
+            max_bytes = limit,
+            "checked CPU memory limit"
+        );
 
         if estimated > limit {
-            return Err(ChutoroError::MemoryLimitExceeded {
+            let error = ChutoroError::MemoryLimitExceeded {
                 data_source: Arc::from(source.name()),
                 point_count: items,
                 estimated_bytes: estimated,
                 max_bytes: limit,
                 estimated_display: Arc::from(crate::memory::format_bytes(estimated)),
                 limit_display: Arc::from(crate::memory::format_bytes(limit)),
-            });
+            };
+            #[cfg(feature = "cpu")]
+            warn!(
+                backend = "cpu",
+                max_connections = self.hnsw_params().max_connections(),
+                estimated_bytes = estimated,
+                max_bytes = limit,
+                error_code = error.code().as_str(),
+                "CPU memory estimate exceeds configured limit"
+            );
+            return Err(error);
         }
         Ok(())
-    }
-
-    /// Resolve the configured strategy to the backend that should run.
-    const fn choose_backend(&self) -> BackendChoice {
-        match self.execution_strategy {
-            ExecutionStrategy::Auto => {
-                if CPU_PATH_AVAILABLE {
-                    BackendChoice::Cpu
-                } else {
-                    BackendChoice::Gpu
-                }
-            }
-            ExecutionStrategy::CpuOnly => BackendChoice::Cpu,
-            ExecutionStrategy::GpuPreferred => BackendChoice::Gpu,
-        }
     }
 
     /// Execute the CPU FISHDBC pipeline; available with the `cpu` feature.
     #[instrument(
         name = "core.run_cpu",
-        err,
         skip(self, source),
-        fields(items = items, min_cluster_size = %self.min_cluster_size),
+        fields(items = items, min_cluster_size = %self.min_cluster_size()),
     )]
     fn run_cpu<D: DataSource + Sync>(&self, source: &D, items: usize) -> Result<ClusteringResult> {
         #[cfg(feature = "cpu")]
         {
-            crate::cpu_pipeline::run_cpu_pipeline_with_len(source, items, self.min_cluster_size)
+            crate::cpu_pipeline::run_cpu_pipeline_with_len(
+                source,
+                items,
+                self.min_cluster_size(),
+                self.hnsw_params(),
+            )
         }
         #[cfg(not(feature = "cpu"))]
         {
@@ -288,97 +349,18 @@ impl Chutoro {
 
     /// Return the unavailable-backend error when the strategy cannot execute.
     fn backend_unavailable_error(&self) -> Option<ChutoroError> {
-        let unavailable = self.is_backend_unavailable();
+        let unavailable = is_backend_unavailable(self.execution_strategy);
 
         unavailable.then_some(ChutoroError::BackendUnavailable {
             requested: self.execution_strategy,
         })
     }
-
-    /// Report whether the configured strategy has no compiled implementation.
-    const fn is_backend_unavailable(&self) -> bool {
-        match self.execution_strategy {
-            ExecutionStrategy::Auto => !(CPU_PATH_AVAILABLE || GPU_PATH_AVAILABLE),
-            ExecutionStrategy::CpuOnly => !CPU_PATH_AVAILABLE,
-            ExecutionStrategy::GpuPreferred => !GPU_PATH_AVAILABLE,
-        }
-    }
 }
 
 #[cfg(test)]
-mod tests {
-    //! Unit tests for the Chutoro builder facade.
+#[path = "chutoro_tests.rs"]
+mod tests;
 
-    use super::*;
-    use crate::ChutoroBuilder;
-
-    #[test]
-    fn gpu_preferred_requires_gpu_feature() {
-        let chutoro = Chutoro::new(
-            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
-            ExecutionStrategy::GpuPreferred,
-            None,
-        );
-        let err = chutoro.backend_unavailable_error();
-        assert!(matches!(
-            err,
-            Some(ChutoroError::BackendUnavailable {
-                requested: ExecutionStrategy::GpuPreferred
-            })
-        ));
-    }
-
-    #[test]
-    fn backend_available_when_features_enabled() {
-        if cfg!(feature = "cpu") {
-            for strategy in [ExecutionStrategy::Auto, ExecutionStrategy::CpuOnly] {
-                let chutoro = Chutoro::new(
-                    NonZeroUsize::new(1).expect("literal 1 is non-zero"),
-                    strategy,
-                    None,
-                );
-                assert!(chutoro.backend_unavailable_error().is_none());
-            }
-        }
-
-        let chutoro = Chutoro::new(
-            NonZeroUsize::new(1).expect("literal 1 is non-zero"),
-            ExecutionStrategy::GpuPreferred,
-            None,
-        );
-        assert!(matches!(
-            chutoro.backend_unavailable_error(),
-            Some(ChutoroError::BackendUnavailable {
-                requested: ExecutionStrategy::GpuPreferred
-            })
-        ));
-    }
-
-    #[test]
-    fn max_bytes_none_imposes_no_limit() {
-        let chutoro = ChutoroBuilder::new().build().expect("build must succeed");
-        assert_eq!(chutoro.max_bytes(), None);
-    }
-
-    #[test]
-    fn max_bytes_propagates_through_builder() {
-        let chutoro = ChutoroBuilder::new()
-            .with_max_bytes(1_000_000)
-            .build()
-            .expect("build must succeed");
-        assert_eq!(chutoro.max_bytes(), Some(1_000_000));
-    }
-
-    /// Guards against silent drift if `HnswParams::default().max_connections`
-    /// ever changes.  The constant in `check_memory_limit` must stay in sync.
-    #[cfg(feature = "cpu")]
-    #[test]
-    fn default_max_connections_matches_hnsw_params() {
-        let params = crate::HnswParams::default();
-        assert_eq!(
-            params.max_connections(),
-            16,
-            "DEFAULT_MAX_CONNECTIONS in check_memory_limit must be updated to match"
-        );
-    }
-}
+#[cfg(all(test, feature = "cpu"))]
+#[path = "chutoro/properties.rs"]
+mod properties;

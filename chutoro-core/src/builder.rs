@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "cpu")]
 use crate::{ClusteringSession, DataSource, HnswParams, SessionConfig, SessionRefreshPolicy};
-use crate::{Result, chutoro::Chutoro, error::ChutoroError};
+use crate::{Result, chutoro::Chutoro, error::ChutoroError, execution_config::ExecutionConfig};
 #[cfg(feature = "cpu")]
 use tracing::debug;
 use tracing::warn;
@@ -209,7 +209,7 @@ impl ChutoroBuilder {
     #[must_use]
     pub const fn max_bytes(&self) -> Option<u64> { self.max_bytes }
 
-    /// Sets the HNSW parameters used when constructing clustering sessions.
+    /// Sets the HNSW parameters used by CPU execution and sessions.
     ///
     /// # Examples
     /// ```
@@ -226,7 +226,7 @@ impl ChutoroBuilder {
         self
     }
 
-    /// Returns the HNSW parameters used for session construction.
+    /// Returns the HNSW parameters used by CPU execution and sessions.
     #[cfg(feature = "cpu")]
     #[must_use]
     pub const fn hnsw_params(&self) -> &HnswParams {
@@ -280,8 +280,13 @@ impl ChutoroBuilder {
             (!cfg!(feature = "gpu")).then_some(GpuRejectionReason::BackendNotCompiled);
         self.validate_execution_strategy(gpu_rejection_reason)?;
 
+        #[cfg(feature = "cpu")]
+        let execution_config = ExecutionConfig::new(min_cluster_size, self.hnsw_params);
+        #[cfg(not(feature = "cpu"))]
+        let execution_config = ExecutionConfig::new(min_cluster_size);
+
         Ok(Chutoro::new(
-            min_cluster_size,
+            execution_config,
             self.execution_strategy,
             self.max_bytes,
         ))
@@ -320,11 +325,8 @@ impl ChutoroBuilder {
     ) -> Result<ClusteringSession<D>> {
         let min_cluster_size = self.validate_min_cluster_size()?;
         self.validate_execution_strategy(Some(GpuRejectionReason::SessionsCpuOnly))?;
-        let config = SessionConfig::new(
-            min_cluster_size,
-            self.hnsw_params,
-            self.session_refresh_policy,
-        );
+        let execution_config = ExecutionConfig::new(min_cluster_size, self.hnsw_params);
+        let config = SessionConfig::new(execution_config, self.session_refresh_policy);
         debug!(
             min_cluster_size = %config.min_cluster_size(),
             "build_session: constructing empty ClusteringSession"

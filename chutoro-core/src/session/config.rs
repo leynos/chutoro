@@ -8,7 +8,7 @@
 
 use std::num::NonZeroUsize;
 
-use crate::HnswParams;
+use crate::{HnswParams, execution_config::ExecutionConfig};
 
 /// Refresh behaviour for a [`super::ClusteringSession`].
 ///
@@ -98,24 +98,20 @@ impl SessionRefreshPolicy {
 /// ```
 #[derive(Clone, Debug, PartialEq)]
 pub struct SessionConfig {
-    /// Minimum membership required for a retained cluster.
-    min_cluster_size: NonZeroUsize,
-    /// HNSW construction and search parameters.
-    hnsw_params: HnswParams,
+    /// Validated clustering and CPU HNSW policy selected by the builder.
+    execution_config: ExecutionConfig,
     /// Policy controlling when a refresh is requested.
     refresh_policy: SessionRefreshPolicy,
 }
 
 impl SessionConfig {
-    /// Combine already-validated clustering, index, and refresh settings.
+    /// Combine already-validated execution and refresh settings.
     pub(crate) const fn new(
-        min_cluster_size: NonZeroUsize,
-        hnsw_params: HnswParams,
+        execution_config: ExecutionConfig,
         refresh_policy: SessionRefreshPolicy,
     ) -> Self {
         Self {
-            min_cluster_size,
-            hnsw_params,
+            execution_config,
             refresh_policy,
         }
     }
@@ -123,13 +119,13 @@ impl SessionConfig {
     /// Returns the minimum cluster size carried into the session.
     #[must_use]
     pub const fn min_cluster_size(&self) -> NonZeroUsize {
-        self.min_cluster_size
+        self.execution_config.min_cluster_size()
     }
 
     /// Returns the HNSW parameters used for the session index.
     #[must_use]
     pub const fn hnsw_params(&self) -> &HnswParams {
-        &self.hnsw_params
+        self.execution_config.hnsw_params()
     }
 
     /// Returns the session refresh policy.

@@ -144,6 +144,22 @@ impl HnswParams {
         let clamped = draw.clamp(1.0e-12, LARGEST_DRAW_BELOW_ONE);
         clamped.ln().mul_add(self.level_multiplier.neg(), 0.0) < 1.0
     }
+
+    /// Returns the construction search width useful for `point_count` items.
+    ///
+    /// The returned width preserves the `ef_construction >= max_connections`
+    /// invariant while avoiding allocations for neighbours that cannot exist
+    /// in the supplied batch.
+    pub(crate) fn effective_ef_construction(&self, point_count: usize) -> usize {
+        self.ef_construction
+            .min(point_count.max(self.max_connections))
+    }
+
+    /// Caps construction search width to the useful width for a batch.
+    pub(crate) fn bounded_for_point_count(mut self, point_count: usize) -> Self {
+        self.ef_construction = self.effective_ef_construction(point_count);
+        self
+    }
 }
 
 impl Default for HnswParams {
