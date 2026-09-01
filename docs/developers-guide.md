@@ -4,6 +4,19 @@ This guide collects day-to-day practices for contributors working on the
 Chutoro codebase. It complements the more specialized documents in `docs/` and
 keeps operational guidance in one place.
 
+## GitHub Actions runner profiles
+
+The bounded nightly portable-SIMD verification job uses the shared uncached
+`namespace-profile-default` runner (Ubuntu 22.04, amd64, 4 vCPU, and 16 GB).
+Its cache volume is disabled, so this initial migration adds no cache owner or
+cache-write policy.
+
+The property-test jobs retain `ubicloud-standard-8`: the nextest CI profile
+requires eight threads. Benchmark regressions, Kani, coverage, and the broad
+CI test jobs remain GitHub-hosted until each workload has been measured against
+an equivalent Namespace capacity profile. Externally owned reusable workflows
+retain their existing runner selection.
+
 ## CPU HNSW public APIs
 
 `chutoro-core` exposes `CpuHnsw` as the public CPU-resident Hierarchical
