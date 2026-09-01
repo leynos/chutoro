@@ -302,6 +302,8 @@ fn eviction_scrubs_orphaned_forward_edge(
 }
 
 mod deferred_scrub;
+#[cfg(feature = "metrics")]
+mod metrics;
 
 /// Regression test: replacing a neighbour whose only base-layer edge was to
 /// the origin must not leave a dangling reverse edge.
@@ -335,6 +337,8 @@ fn isolation_replacement_keeps_bidirectionality(
         applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
     applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
 
+    assert_bidirectional_edge!(&graph, 0, 2, 0);
+    assert_bidirectional_edge!(&graph, 0, 1, 0);
     assert_graph_bidirectional(&graph, 3);
     Ok(())
 }

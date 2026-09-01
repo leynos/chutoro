@@ -25,7 +25,7 @@ VERUS_BIN ?= verus
 # KANI_HOME and links the pinned nightly toolchain into it.
 KANI_HOME ?= $(HOME)/.kani
 KANI_VERSION_FILE ?= tools/kani/VERSION
-KANI_VERSION ?= $(strip $(file <$(KANI_VERSION_FILE)))
+override KANI_VERSION := $(strip $(file <$(KANI_VERSION_FILE)))
 KANI_VERSION_PARTS := $(subst ., ,$(KANI_VERSION))
 # Remove the valid SemVer characters so the parse-time checks below can reject
 # malformed file contents before deriving the toolchain library path.
