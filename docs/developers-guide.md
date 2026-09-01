@@ -214,7 +214,6 @@ staging, and the separately compiled CI gate binaries. Keep the rest of each
 workspace crate under `no_std_fs_operations` enforcement and add an explanatory
 comment whenever a new boundary is unavoidable.
 
-
 ## Injected environment access
 
 Read environment values through `mockable::Env`, not ambient `std::env`
