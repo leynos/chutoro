@@ -151,6 +151,7 @@ fn nextest_profiles_keep_trybuild_timeout_guards(#[case] profile_name: &str) {
     assert_override_present!(
         profile_name,
         [
+            "arrow_parquet_types_share_one_family",
             "portable_simd_gating_compile_checks",
             "session_api_compiles_when_cpu_feature_is_enabled",
             "threads-required = 4",

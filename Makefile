@@ -21,7 +21,29 @@ TYPOS_CONFIG_BUILDER_SOURCE := git+https://github.com/leynos/typos-config-builde
 TYPOS_CONFIG_BUILDER := $(UV_ENV) $(UV) tool run --python 3.14 \
 	--from "$(TYPOS_CONFIG_BUILDER_SOURCE)" typos-config-builder
 VERUS_BIN ?= verus
-KANI_VERSION ?= $(shell $(CARGO) kani -V | awk '{print $$2}')
+KANI_VERSION_FILE ?= tools/kani/VERSION
+override KANI_VERSION := $(strip $(file <$(KANI_VERSION_FILE)))
+KANI_VERSION_PARTS := $(subst ., ,$(KANI_VERSION))
+# Remove the valid SemVer characters so the parse-time checks below can reject
+# malformed file contents before deriving the toolchain library path.
+KANI_VERSION_REMAINDER := $(KANI_VERSION)
+KANI_VERSION_REMAINDER := $(subst 0,,$(KANI_VERSION_REMAINDER))
+KANI_VERSION_REMAINDER := $(subst 1,,$(KANI_VERSION_REMAINDER))
+KANI_VERSION_REMAINDER := $(subst 2,,$(KANI_VERSION_REMAINDER))
+KANI_VERSION_REMAINDER := $(subst 3,,$(KANI_VERSION_REMAINDER))
+KANI_VERSION_REMAINDER := $(subst 4,,$(KANI_VERSION_REMAINDER))
+KANI_VERSION_REMAINDER := $(subst 5,,$(KANI_VERSION_REMAINDER))
+KANI_VERSION_REMAINDER := $(subst 6,,$(KANI_VERSION_REMAINDER))
+KANI_VERSION_REMAINDER := $(subst 7,,$(KANI_VERSION_REMAINDER))
+KANI_VERSION_REMAINDER := $(subst 8,,$(KANI_VERSION_REMAINDER))
+KANI_VERSION_REMAINDER := $(subst 9,,$(KANI_VERSION_REMAINDER))
+KANI_VERSION_REMAINDER := $(subst .,,$(KANI_VERSION_REMAINDER))
+ifneq ($(words $(KANI_VERSION_PARTS)),3)
+$(error KANI_VERSION must be MAJOR.MINOR.PATCH)
+endif
+ifneq ($(strip $(KANI_VERSION_REMAINDER)),)
+$(error KANI_VERSION must be MAJOR.MINOR.PATCH)
+endif
 KANI_LIB_PATH ?= $(HOME)/.kani/kani-$(KANI_VERSION)/toolchain/lib
 KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
 SPELLING_PY_SRCS := \
@@ -95,6 +117,8 @@ nixie: ## Validate Mermaid diagrams
 kani: ## Run Kani practical harnesses
 	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_smoke_2_nodes_1_layer
 	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_reconciliation_2_nodes_1_layer
+	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 12 --harness verify_mst_structural_correctness_4_nodes
+	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 10 --harness verify_mst_minimality_3_nodes
 	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 4 --harness verify_dense_simd_dispatch_selection_respects_support_masks
 	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 18 --harness verify_dense_simd_tail_padding_lane_bounds
 
@@ -108,8 +132,8 @@ verus: ## Run Verus proofs for edge harvest primitives
 bench: ## Run Criterion benchmarks
 	$(CARGO) bench -p chutoro-benches
 
-test-workflow-contracts: ## Validate the mutation-testing caller contract
-	uv run --with 'pytest>=8' --with 'pyyaml>=6' pytest tests/workflow_contracts -q
+test-workflow-contracts: ## Validate the CI workflow contracts
+	uv run --with 'pytest>=8' --with 'pyyaml>=6' --with 'pathspec>=0.12' pytest tests/workflow_contracts -q
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \

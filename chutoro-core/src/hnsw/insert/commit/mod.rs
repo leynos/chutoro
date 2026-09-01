@@ -91,7 +91,6 @@ impl<'graph> CommitApplicator<'graph> {
                 max_connections,
             };
 
-            reconciler.reconcile_removed_edges(&ctx, &previous, &next);
             reconciler.reconcile_added_edges(&ctx, &mut next);
 
             let node_ref = reconciler
@@ -109,7 +108,15 @@ impl<'graph> CommitApplicator<'graph> {
                 }
             })?;
             list.clear();
-            list.extend(next);
+            list.extend(next.iter().copied());
+
+            // Removed-edge reconciliation must run after the origin's list is
+            // written back. Removing a neighbour's only base-layer edge makes
+            // the connectivity healer link it to the entry node; when the
+            // entry is the origin, healing against the stale pre-write-back
+            // list is clobbered by the write-back, leaving a dangling reverse
+            // edge.
+            reconciler.reconcile_removed_edges(&ctx, &previous, &next);
 
             touched.push((update.node, level));
         }

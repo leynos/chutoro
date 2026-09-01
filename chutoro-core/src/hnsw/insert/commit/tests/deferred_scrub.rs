@@ -285,3 +285,48 @@ fn eviction_at_base_layer_triggers_healing() {
         "node 2 should be healed to connect to entry node 0",
     );
 }
+
+/// Twin of the retired `verify_bidirectional_links_commit_path_3_nodes` Kani
+/// harness, which exceeded the tractable CBMC state space.
+///
+/// Scenario: node 0's level-1 list is at capacity with node 2. Node 1's
+/// update adds node 0, so `ensure_reverse_edge` evicts node 2 from node 0
+/// and defers a scrub for the orphaned (2 -> 0) forward edge.
+#[rstest]
+fn commit_path_reconciliation_keeps_bidirectionality(
+    #[from(params_one_connection)] params_res: Result<HnswParams, HnswError>,
+) -> Result<(), HnswError> {
+    // Seed node 0 at level-1 capacity with node 2 (bidirectional).
+    let ctx =
+        EvictionTestContext::seeded(params_res?, 3, (0, 2), NewNodeContext { id: 1, level: 1 })?;
+    let update = build_update(1, 1, vec![0], ctx.max_connections);
+    let graph = ctx.apply_updates(vec![update])?;
+
+    assert_graph_bidirectional(&graph, 3);
+    assert_no_edge(&graph, 2, 0, 1);
+
+    Ok(())
+}
+
+/// Twin of the retired `verify_eviction_deferred_scrub_reciprocity` Kani
+/// harness, which exceeded the tractable CBMC state space.
+///
+/// Scenario: node 1 is at level-1 capacity with node 2. Node 0's update adds
+/// node 1, evicting node 2 from node 1 and deferring a scrub that removes the
+/// orphaned (2 -> 1) forward edge.
+#[rstest]
+fn eviction_deferred_scrub_keeps_reciprocity(
+    #[from(params_one_connection)] params_res: Result<HnswParams, HnswError>,
+) -> Result<(), HnswError> {
+    // The default fixture seeds node 1 at level-1 capacity with node 2.
+    let ctx = EvictionTestContext::new(params_res?)?;
+    let update = build_update(0, 1, vec![1], ctx.max_connections);
+    let graph = ctx.apply_updates(vec![update])?;
+
+    assert_has_edge(&graph, 1, 0, 1);
+    assert_no_edge(&graph, 2, 1, 1);
+    assert_no_edge(&graph, 1, 2, 1);
+    assert_graph_bidirectional(&graph, 4);
+
+    Ok(())
+}

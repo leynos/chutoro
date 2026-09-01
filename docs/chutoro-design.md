@@ -1264,44 +1264,59 @@ nodes) while preserving the previous short-circuit behaviour for fail-fast
 callers.
 
 The formal verification harnesses extend these guarantees by exercising the
-commit path under bounded conditions, ensuring reconciliation and deferred
-scrubs still satisfy the bidirectional edge invariant. The sequence below
-illustrates the commit-path harness flow used by Kani.
+production reconciliation entry points under bounded conditions. Multi-node
+harnesses that drove the whole commit sequence (trimmed write-back, reverse
+edge reconciliation, and deferred scrubs) in one formula proved intractable
+for the Bounded Model Checker for C (CBMC) and were retired in favour of
+exact unit-test twins in `chutoro-core/src/hnsw/insert/commit/tests/`; the
+investigation and the resulting tractability policy are recorded in
+[the hypothesis document](./kani-full-hnsw-hypothesis-testing.md) and the
+developers' guide "Kani CI policy" section. The remaining Kani proofs drive
+`EdgeReconciler::ensure_reverse_edge` directly on two-node graphs, as the
+sequence below illustrates.
 
 ```mermaid
 sequenceDiagram
     actor KaniVerifier
     participant KaniHarness
     participant HnswGraph
-    participant KaniCommitHelper
-    participant CommitApplicator
-    participant DeferredScrubLogic
+    participant KaniReverseEdgeHelper
+    participant EdgeReconciler
     participant Invariants
 
-    KaniVerifier->>KaniHarness: run_commit_path_harness
-    KaniHarness->>HnswGraph: build_3_node_single_layer_graph
-    KaniHarness->>HnswGraph: seed_neighbour_lists_with_eviction_case
+    KaniVerifier->>KaniHarness: run_reverse_edge_harness
+    KaniHarness->>HnswGraph: build_2_node_graph_via_lean_constructors
+    KaniHarness->>HnswGraph: nondeterministically_seed_forward_edge
 
-    KaniHarness->>KaniCommitHelper: apply_commit_updates_for_kani(graph, update_specs)
-    KaniCommitHelper->>KaniCommitHelper: kani_assume_preconditions(graph, update_specs)
-    KaniCommitHelper->>CommitApplicator: apply_neighbour_updates(final_updates, max_connections, new_node)
+    KaniHarness->>KaniReverseEdgeHelper: ensure_reverse_edge_for_kani(graph, ctx, target)
+    KaniReverseEdgeHelper->>KaniReverseEdgeHelper: kani_assume_preconditions(graph, ctx, target)
+    KaniReverseEdgeHelper->>EdgeReconciler: ensure_reverse_edge(ctx, target)
+    EdgeReconciler->>HnswGraph: insert_or_confirm_reverse_edge
 
-    CommitApplicator->>HnswGraph: apply_trimmed_neighbour_lists
-    CommitApplicator->>HnswGraph: reconcile_reverse_edges
-    CommitApplicator->>DeferredScrubLogic: schedule_deferred_scrubs
-    DeferredScrubLogic->>HnswGraph: remove_one_way_edges
+    EdgeReconciler-->>KaniReverseEdgeHelper: bool
+    KaniReverseEdgeHelper-->>KaniHarness: bool
 
-    CommitApplicator-->>KaniCommitHelper: Result
-    KaniCommitHelper-->>KaniHarness: Result
-
-    KaniHarness->>Invariants: is_bidirectional(graph)
+    KaniHarness->>Invariants: is_bidirectional / has_no_self_loops / neighbours_are_unique
     Invariants-->>KaniHarness: bool
     KaniHarness-->>KaniVerifier: assert_invariant_holds
 ```
 
-_Figure 2: Commit-path Kani harness flow for bidirectional invariant checks,
-using a bounded three-node scenario (the implementation uses level 1 to
-exercise eviction and deferred scrubs)._
+_Figure 2: Reverse-edge Kani harness flow for the bidirectional, no-self-loop,
+and neighbour-uniqueness invariant checks, using bounded two-node scenarios
+with one concrete level per proof entry point._
+
+Minimum spanning tree (MST) proofs verify a bounded sequential model of
+the parallel Kruskal implementation, compiled only under `cfg(kani)`,
+because the Bounded Model Checker for C (CBMC) cannot absorb the Rayon
+and concurrent union-find machinery. The model is bounded at four nodes
+and six canonical edges, represents the forest as a fixed `[MstEdge; 3]`
+array in place of production's growable vector, and preserves the
+production edge ordering, deduplication, and deterministic union
+selection. Inputs outside those bounds fail with an invariant violation
+rather than silently truncating. The model's fidelity to production is
+pinned by exhaustive equivalence tests over every edge subset of one- to
+four-node complete graphs
+(`chutoro-core/src/mst/tests/kani_model_equivalence.rs`).
 
 _Implementation update (2026-01-17)._ A nightly slow CI job runs
 `make kani-full` only when the `main` branch has a commit within the last 24
@@ -1310,6 +1325,11 @@ the job, allowing verification without waiting for fresh commits. The default
 PR CI path remains unchanged so formal verification stays opt-in for daily
 development loops. Small future timestamp skews (up to 300 seconds) are treated
 as skips rather than failures to avoid false negatives from clock drift.
+
+_Implementation update (2026-08-24)._ Formal verification is no longer
+opt-in for pull requests: the path-filtered `kani-pr.yml` workflow runs
+`make kani` whenever Kani harnesses, the modules under proof, the Makefile,
+or the Cargo manifests change. The nightly `kani-full` sweep is unchanged.
 
 _Implementation update (2026-02-02)._ Verus proofs now cover the edge harvest
 primitives described in `docs/property-testing-design.md` Appendix A. The
@@ -1432,6 +1452,30 @@ touched node keeps a reciprocal back-link and stays within the per-level degree
 limit; production builds skip the scan entirely. The fallback healing path
 remains unchanged, so trimmed evictions still replace the weakest candidate
 with the new node to guarantee at least one reciprocal link per level.
+
+For screen readers: This sequence diagram shows `CommitApplicator` reconciling
+added edges, writing the origin neighbour list to `Graph`, and reconciling
+removed edges. The removed-edge reconciliation asks `ConnectivityHealer` to
+ensure base connectivity; the healer updates `Graph` against the entry node,
+and `EdgeReconciler` returns preserved bidirectional links to the applicator.
+
+```mermaid
+sequenceDiagram
+    participant CommitApplicator
+    participant EdgeReconciler
+    participant Graph
+    participant ConnectivityHealer
+
+    CommitApplicator->>EdgeReconciler: reconcile_added_edges(ctx, next)
+    CommitApplicator->>Graph: write origin neighbour list
+    CommitApplicator->>EdgeReconciler: reconcile_removed_edges(ctx, previous, next)
+    EdgeReconciler->>ConnectivityHealer: ensure_base_connectivity(...)
+    ConnectivityHealer->>Graph: heal connectivity against entry node
+    EdgeReconciler-->>CommitApplicator: preserve bidirectional links
+```
+
+_Figure: Inline reciprocity sequence from commit application through edge
+reconciliation, connectivity healing, and preserved bidirectional links._
 
 ## Part III: GPU Acceleration Strategy
 

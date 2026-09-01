@@ -460,6 +460,116 @@ selection:
 `chutoro-providers-dense`. Keep new dense harnesses small enough for
 `make kani` unless they are intentionally slow-lane proofs.
 
+## Kani CI policy
+
+`make kani` is the pull-request gate. The path-filtered
+`.github/workflows/kani-pr.yml` workflow runs it when Kani harnesses, their
+production modules, the Makefile, or the Cargo dependency graph changes.
+
+`make kani-full` is the post-merge nightly tier. The
+`.github/workflows/nightly-kani.yml` workflow checks out `main` and runs the
+full suite only when its commit-recency gate permits it.
+
+### Installing Kani
+
+CI and local runs use the kani-verifier release pinned in
+`tools/kani/VERSION`, which is the single source of truth for the version.
+`prover-tools kani install` reads that file by default; install it directly
+with:
+
+```sh
+cargo install --locked kani-verifier --version "$(cat tools/kani/VERSION)"
+cargo kani setup
+```
+
+The Makefile derives `KANI_VERSION` from the same file, the `kani-pr.yml`
+workflow interpolates it rather than restating it, and a workflow contract
+test fails the build if a version literal reappears in the workflow.
+Bumping Kani is therefore a one-line change to `tools/kani/VERSION`.
+
+The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
+`make kani`. The full tier remains the package-wide sweep across every
+declared harness, including the distance and HNSW invariant proofs that are
+not in the fast list.
+
+Kani harnesses must stay within the tractable CBMC state space. For graph
+code there is a sharp combinatorial cliff between two-node and three-node
+configurations that drive the full commit machinery: three deterministic
+multi-node harnesses (three-node reconciliation, three-node commit path, and
+four-node eviction scrub) each exceeded 15 to 20 minutes without concluding
+and were retired. A deterministic harness explores a single concrete path, so
+its value over a unit test is only the absence of undefined behaviour along
+that path; each retired harness is replaced by an exact unit-test twin in
+`chutoro-core/src/hnsw/insert/commit/tests/deferred_scrub.rs` and
+`.../commit/tests/mod.rs`. Reserve Kani proofs for small nondeterministic
+state spaces where exhaustive exploration adds coverage a test cannot.
+
+Two further tractability rules follow from the same investigation. Keep
+symbolic values out of index positions: a symbolic node id or level index
+multiplies solver aliasing through every `node_mut` and `neighbours(level)`
+access, so fix the origin and split per-level proof entry points with a
+concrete level argument instead. Keep each proof on a narrow production
+surface: a helper that chains added-edge reconciliation, write-back,
+removed-edge reconciliation, and deferred scrubs in one formula was
+intractable even on a two-node graph, while per-call proofs of
+`ensure_reverse_edge` verify in about a minute.
+
+Harness construction must avoid panic-capable paths such as `.expect(...)` and
+production errors that build messages with `format!` before an invariant
+assertion. Prefer
+`let Ok(value) = operation else { kani::assert(false, "..."); return; };` and
+lean `#[cfg(kani)]` constructors that return static reasons.
+
+Where production code relies on concurrency that Kani models sequentially, a
+`#[cfg(kani)]` model must preserve the production ordering and selection
+semantics while omitting only unsupported runtime machinery. Every such model
+must be backed by exhaustive finite-state equivalence tests against the
+production implementation over the model's full bounded input domain; see
+`chutoro-core/src/mst/tests/kani_model_equivalence.rs`.
+
+Standard hash collections must not appear on any Kani-reachable path. The
+default `HashMap`/`HashSet` hasher seeds symbolic SipHash state that makes even
+fully deterministic harnesses intractable. Substitute a bounded linear-scan
+structure under `#[cfg(kani)]`, as `ConnectivityHealer`'s visited set does in
+`chutoro-core/src/hnsw/insert/connectivity.rs`.
+
+Keep each `#[kani::unwind(N)]` bound as tight as the harness permits; do not
+increase a default bound to compensate for proof cost. For a demonstrably slow
+full-tier harness, benchmark `#[kani::solver(kissat)]` or
+`#[kani::solver(cadical)]` and retain the faster verified configuration.
+
+For screen readers: This flowchart shows that a relevant code or proof change
+enters the fast `make kani` tier for narrow bounded proofs and the sequential
+MST model, or the full `make kani-full` tier for narrow bounded proofs and
+deterministic unit-test twins. The MST model feeds exhaustive equivalence tests;
+both those tests and the unit-test twins lead to successful verification within
+the CI budget.
+
+```mermaid
+flowchart TD
+    Change[Relevant code or proof change]
+    Fast[make kani]
+    Full[make kani-full]
+    Narrow[Narrow bounded proofs]
+    Model[Sequential MST model]
+    Equivalence[Exhaustive model equivalence tests]
+    Unit[Deterministic unit-test twins]
+    Success[Verification completes within CI budget]
+
+    Change --> Fast
+    Fast --> Narrow
+    Fast --> Model
+    Model --> Equivalence
+    Change --> Full
+    Full --> Narrow
+    Full --> Unit
+    Equivalence --> Success
+    Unit --> Success
+```
+
+*Figure: Kani fast- and full-tier verification paths from a relevant change to
+successful verification within the CI budget.*
+
 ## Benchmarks
 
 The `chutoro-benches` crate provides Criterion benchmarks for the four CPU
