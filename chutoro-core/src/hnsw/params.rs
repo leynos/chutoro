@@ -210,20 +210,7 @@ impl HnswParams {
 }
 
 impl Default for HnswParams {
-    #[cfg(kani)]
-    fn default() -> Self {
-        Self {
-            max_connections: 16,
-            ef_construction: 64,
-            level_multiplier: (16.0_f64).ln().recip(),
-            max_level: 12,
-            rng_seed: 0x5EED_CAFE,
-            distance_cache: DistanceCacheConfig::default(),
-        }
-    }
-
     /// Returns the documented default parameters of sixteen and sixty-four.
-    #[cfg(not(kani))]
     fn default() -> Self {
         Self {
             max_connections: 16,
