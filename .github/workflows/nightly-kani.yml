@@ -28,7 +28,7 @@ jobs:
         with:
           ref: main
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
+        uses: leynos/shared-actions/.github/actions/setup-rust@32c8ea649ea44d40119f348ad48861212532061f
       - name: Decide whether to run Kani
         id: gate
         env:
