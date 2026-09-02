@@ -15,7 +15,12 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _job(workflow_name: str, job_name: str) -> dict[str, object]:
-    """Load one named job from a repository workflow."""
+    """Load one named job from a repository workflow.
+
+    For example, ``_job("property-tests.yml", "property-tests-pr")`` returns
+    that job's mapping, including its ``runs-on`` entry. This helper remains a
+    read-only, test-local seam for this module's workflow contract checks.
+    """
     workflow_path = ROOT / ".github" / "workflows" / workflow_name
     workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
     assert isinstance(workflow, dict), f"{workflow_name} must parse to a mapping"
