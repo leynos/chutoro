@@ -23,7 +23,9 @@ existing runner selection.
 The private `_job` helper in
 `tests/workflow_contracts/namespace_runners_test.py` is owned by that module.
 Keep its call sites there for read-only workflow YAML parsing; do not reuse it
-in production code or for external workflow control.
+in production code or for external workflow control. For example,
+`_job("property-tests.yml", "property-tests-pr")` returns that job's mapping,
+including its `runs-on` entry.
 
 ## CPU HNSW public APIs
 
