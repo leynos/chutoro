@@ -1,4 +1,9 @@
-"""Contract-test Chutoro's initial Namespace runner assignment."""
+"""Contract-test Chutoro's initial Namespace runner assignment.
+
+Parse the workflow YAML and assert the runner labels that protect the
+Namespace migration and retained property-test capacity from drift. Run these
+checks with ``make test-workflow-contracts``.
+"""
 
 from __future__ import annotations
 
@@ -24,12 +29,18 @@ def _job(workflow_name: str, job_name: str) -> dict[str, object]:
 def test_bounded_simd_verification_uses_the_shared_namespace_profile() -> None:
     """Keep the compatible nightly verification runner assignment stable."""
     job = _job("nightly-portable-simd.yml", "nightly-portable-simd")
-    assert job.get("runs-on") == "namespace-profile-default"
+    assert job.get("runs-on") == "namespace-profile-default", (
+        "nightly-portable-simd.yml:nightly-portable-simd must use namespace-profile-default"
+    )
 
 
 def test_eight_core_property_jobs_remain_on_their_current_runner() -> None:
     """Preserve the nextest CI profile's required eight-core capacity."""
     pr_job = _job("property-tests.yml", "property-tests-pr")
     weekly_job = _job("property-tests.yml", "property-tests-weekly")
-    assert pr_job.get("runs-on") == "ubicloud-standard-8"
-    assert weekly_job.get("runs-on") == "ubicloud-standard-8"
+    assert pr_job.get("runs-on") == "ubicloud-standard-8", (
+        "property-tests.yml:property-tests-pr must use ubicloud-standard-8"
+    )
+    assert weekly_job.get("runs-on") == "ubicloud-standard-8", (
+        "property-tests.yml:property-tests-weekly must use ubicloud-standard-8"
+    )
