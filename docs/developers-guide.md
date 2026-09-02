@@ -4,6 +4,29 @@ This guide collects day-to-day practices for contributors working on the
 Chutoro codebase. It complements the more specialized documents in `docs/` and
 keeps operational guidance in one place.
 
+## GitHub Actions runner profiles
+
+The bounded nightly portable-SIMD verification job uses the shared uncached
+`namespace-profile-default` runner (Ubuntu 22.04, amd64, 4 vCPU, and 16 GB).
+Its cache volume is disabled, so this initial migration adds no cache owner or
+cache-write policy.
+
+The property-test jobs retain `ubicloud-standard-8` because their CPU-bound
+HNSW, edge-harvest, MST, and SIMD suites were sized for that runner's eight-core
+capacity. The `ci` nextest profile caps test concurrency at four; the runner's
+larger capacity also preserves the existing build and workload headroom.
+Benchmark regressions, Kani, coverage, and the broad CI test jobs remain
+GitHub-hosted until each workload has been measured against an equivalent
+Namespace capacity profile. Externally owned reusable workflows retain their
+existing runner selection.
+
+The private `_job` helper in
+`tests/workflow_contracts/namespace_runners_test.py` is owned by that module.
+Keep its call sites there for read-only workflow YAML parsing; do not reuse it
+in production code or for external workflow control. For example,
+`_job("property-tests.yml", "property-tests-pr")` returns that job's mapping,
+including its `runs-on` entry.
+
 ## CPU HNSW public APIs
 
 `chutoro-core` exposes `CpuHnsw` as the public CPU-resident Hierarchical

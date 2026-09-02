@@ -1,5 +1,6 @@
 self-hosted-runner:
   labels:
+    - namespace-profile-default
     - ubicloud-standard-8
 
 config-variables: null
