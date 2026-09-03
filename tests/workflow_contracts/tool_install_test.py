@@ -12,7 +12,9 @@ Run via ``make test-workflow-contracts``.
 
 from __future__ import annotations
 
+import collections.abc as cabc
 import re
+import typing as typ
 from pathlib import Path
 
 import pytest
@@ -43,23 +45,43 @@ FORBIDDEN_INSTALL_PATTERNS = (
 #: Every third-party install action must name a 40-hex commit, never a tag.
 UNPINNED_USES_RE = re.compile(r"^[^@]+@(?!\b[0-9a-f]{40}\b)")
 
-#: Each installer script and the first command that needs its tool.
-INSTALLER_ORDER = (
-    ("scripts/install-nextest.sh", re.compile(r"cargo\s+nextest\b")),
-    ("scripts/install-kani.sh", re.compile(r"\bmake\s+kani(-full)?\b")),
-    ("scripts/install-verus.sh", re.compile(r"\bmake\s+verus\b")),
-)
+#: How a step provides a tool: by running a repository installer script, or
+#: by using a shared installer action.
+SCRIPT = "script"
+ACTION = "action"
 
-#: Shared actions whose installed tool a later step invokes.
-SHARED_INSTALLER_ORDER = (("install-whitaker", re.compile(r"\bmake\s+lint\b")),)
+#: Each installer and the first command that needs the tool it provides.
+INSTALLER_ORDER = (
+    (SCRIPT, "scripts/install-nextest.sh", re.compile(r"cargo\s+nextest\b")),
+    (SCRIPT, "scripts/install-kani.sh", re.compile(r"\bmake\s+kani(-full)?\b")),
+    (SCRIPT, "scripts/install-verus.sh", re.compile(r"\bmake\s+verus\b")),
+    (ACTION, "install-whitaker", re.compile(r"\bmake\s+lint\b")),
+)
 
 #: Tool pins that must exist as a version file and a digest manifest.
 PINNED_TOOLS = ("kani", "nextest", "verus")
 
-#: Installer scripts a workflow invokes directly, so the committed file
-#: mode is part of the contract: a non-executable script fails the job
-#: with "Permission denied" rather than anything diagnosable.
-INSTALLER_SCRIPTS = tuple(installer for installer, _ in INSTALLER_ORDER)
+#: Installer scripts a workflow invokes directly, so the committed file mode
+#: is part of the contract: a non-executable script fails the job with
+#: "Permission denied" rather than anything diagnosable.
+INSTALLER_SCRIPTS = tuple(name for kind, name, _ in INSTALLER_ORDER if kind == SCRIPT)
+
+
+def _provides_tool(step: dict[str, typ.Any], kind: str, name: str) -> bool:
+    """Report whether a step installs the named tool."""
+    if kind == SCRIPT:
+        return name in run_script(step)
+    return f"/{name}@" in uses_reference(step)
+
+
+def _first_step(
+    job_steps: list[dict[str, typ.Any]],
+    predicate: cabc.Callable[[dict[str, typ.Any]], bool],
+) -> int | None:
+    """Return the index of the first step satisfying the predicate."""
+    return next(
+        (index for index, step in enumerate(job_steps) if predicate(step)), None
+    )
 
 
 @pytest.mark.parametrize("workflow_path", workflow_paths(), ids=workflow_names())
@@ -140,51 +162,22 @@ def test_every_action_reference_is_pinned_to_a_commit(workflow_name: str) -> Non
 def test_installers_run_before_the_tools_they_provide(workflow_name: str) -> None:
     """A tool installed after its first use was never actually installed."""
     for job_name, definition in jobs(load_workflow(workflow_name)).items():
-        scripts = [run_script(step) for step in steps(definition)]
-        for installer, consumer in INSTALLER_ORDER:
-            uses_at = [
-                index for index, script in enumerate(scripts) if consumer.search(script)
-            ]
-            if not uses_at:
-                continue
-            installs_at = [
-                index for index, script in enumerate(scripts) if installer in script
-            ]
-            assert installs_at, (
-                f"{workflow_name}:{job_name} runs {consumer.pattern} without "
-                f"first running {installer}"
-            )
-            assert min(installs_at) < min(uses_at), (
-                f"{workflow_name}:{job_name} runs {installer} after its first use"
-            )
-
-
-@pytest.mark.parametrize("workflow_name", workflow_names())
-def test_shared_installers_run_before_the_tools_they_provide(
-    workflow_name: str,
-) -> None:
-    """Apply the same ordering rule to shared installer actions."""
-    for job_name, definition in jobs(load_workflow(workflow_name)).items():
         job_steps = steps(definition)
-        scripts = [run_script(step) for step in job_steps]
-        references = [uses_reference(step) for step in job_steps]
-        for action, consumer in SHARED_INSTALLER_ORDER:
-            uses_at = [
-                index for index, script in enumerate(scripts) if consumer.search(script)
-            ]
-            if not uses_at:
-                continue
-            installs_at = [
-                index
-                for index, reference in enumerate(references)
-                if f"/{action}@" in reference
-            ]
-            assert installs_at, (
-                f"{workflow_name}:{job_name} runs {consumer.pattern} without "
-                f"first using the {action} action"
+        for kind, name, consumer in INSTALLER_ORDER:
+            uses_at = _first_step(
+                job_steps, lambda step, c=consumer: bool(c.search(run_script(step)))
             )
-            assert min(installs_at) < min(uses_at), (
-                f"{workflow_name}:{job_name} uses {action} after its first use"
+            if uses_at is None:
+                continue
+            installs_at = _first_step(
+                job_steps, lambda step, k=kind, n=name: _provides_tool(step, k, n)
+            )
+            assert installs_at is not None, (
+                f"{workflow_name}:{job_name} runs {consumer.pattern} without "
+                f"first installing {name}"
+            )
+            assert installs_at < uses_at, (
+                f"{workflow_name}:{job_name} installs {name} after its first use"
             )
 
 
