@@ -104,6 +104,14 @@ Three consequences follow, and each is asserted by a contract test:
   cache entry would cost more restore and save time than the download it
   avoids, and a cache that does not pay is rejected.
 
+The Kani cache is the one entry whose payoff is not yet proven. A local
+install measures about 483 MB under `KANI_HOME` and 1.3 GB in the
+Kani-specific rustup home, against roughly 137 MB of downloads plus a
+toolchain install. The nightly job reports both directory sizes and its
+restore hit to the job summary; if a warm run's restore and save cost more
+than the install it avoids, the entry must be narrowed or dropped rather
+than kept out of habit.
+
 Compiled-tool keys include `runner.environment` alongside `runner.os` and
 `runner.arch`. That value is `github-hosted` on GitHub's runners and
 `self-hosted` on Ubicloud, which is exactly the isolation needed to stop a
