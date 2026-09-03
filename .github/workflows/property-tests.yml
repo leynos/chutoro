@@ -96,7 +96,10 @@ jobs:
 
   property-tests-weekly:
     if: ${{ github.event_name != 'pull_request' }}
-    runs-on: ubicloud-standard-8
+    # Weekly and scheduled work never runs on a paid runner: it is off the
+    # developer feedback path, so it does not benefit from shorter queues
+    # and its long, forked 25,000-case suites would dominate the bill.
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
       contents: read
