@@ -6,26 +6,113 @@ keeps operational guidance in one place.
 
 ## GitHub Actions runner profiles
 
-The bounded nightly portable-SIMD verification job uses the shared uncached
-`namespace-profile-default` runner (Ubuntu 22.04, amd64, 4 vCPU, and 16 GB).
-Its cache volume is disabled, so this initial migration adds no cache owner or
-cache-write policy.
+Exactly one job runs on a paid runner: `property-tests-pr`, on
+`ubicloud-standard-8`. It sits on the developer feedback path, where GitHub's
+queue can stretch to hours during busy periods, and its CPU-bound HNSW,
+edge-harvest, MST, and SIMD suites were sized for that runner's eight-core
+capacity. The `ci` nextest profile caps test concurrency at four, so the larger
+shape also preserves build headroom.
 
-The property-test jobs retain `ubicloud-standard-8` because their CPU-bound
-HNSW, edge-harvest, MST, and SIMD suites were sized for that runner's eight-core
-capacity. The `ci` nextest profile caps test concurrency at four; the runner's
-larger capacity also preserves the existing build and workload headroom.
-Benchmark regressions, Kani, coverage, and the broad CI test jobs remain
-GitHub-hosted until each workload has been measured against an equivalent
-Namespace capacity profile. Externally owned reusable workflows retain their
-existing runner selection.
+Everything else is GitHub-hosted on `ubuntu-latest`, and the placement rule
+that keeps it that way is deliberate rather than incidental:
 
-The private `_job` helper in
-`tests/workflow_contracts/namespace_runners_test.py` is owned by that module.
-Keep its call sites there for read-only workflow YAML parsing; do not reuse it
-in production code or for external workflow control. For example,
-`_job("property-tests.yml", "property-tests-pr")` returns that job's mapping,
-including its `runs-on` entry.
+> Weekly, nightly, mutation, scheduled, and application-programming-interface
+> (API) bound jobs never run on a paid runner.
+
+Those jobs are off the feedback path, so a shorter queue buys them nothing,
+while their long runtimes would dominate the bill. `property-tests-weekly`
+runs 25,000 forked cases per suite and `nightly-kani` can run for two hours;
+neither blocks a pull request. Externally owned reusable workflows
+(`mutation-testing.yml`, `dependabot-automerge.yml`) keep their callee's
+runner selection.
+
+`.github/actionlint.yaml` registers every label outside GitHub's hosted pool.
+It must list exactly the labels the workflows use: an unregistered label fails
+actionlint, and a registered but unused label hides a runner assignment that
+has already been retired.
+
+### Job inventory
+
+| Workflow | Job | Runner | Purpose |
+| --- | --- | --- | --- |
+| `benchmark-regressions.yml` | `benchmark-policy` | `ubuntu-latest` | Resolve the benchmark mode and matrix |
+| `benchmark-regressions.yml` | `benchmark-smoke` | `ubuntu-latest` | Criterion discovery smoke check |
+| `benchmark-regressions.yml` | `benchmark-baseline-compare` | `ubuntu-latest` | Compare against the previous commit |
+| `ci.yml` | `build-test` | `ubuntu-latest` | Format, lint, spelling, contracts, coverage |
+| `ci.yml` | `verus-proofs` | `ubuntu-latest` | Verus edge-harvest proofs |
+| `coverage-main.yml` | `coverage-upload` | `ubuntu-latest` | Upload trunk coverage and advance the ratchet |
+| `dependabot-automerge.yml` | `automerge` | callee-selected | Reusable workflow, API-bound |
+| `mutation-testing.yml` | `mutation` | callee-selected | Reusable workflow, scheduled |
+| `nightly-kani.yml` | `kani-full` | `ubuntu-latest` | Full Kani harness suite |
+| `nightly-portable-simd.yml` | `nightly-portable-simd` | `ubuntu-latest` | Nightly portable-SIMD backend |
+| `property-tests.yml` | `property-tests-pr` | `ubicloud-standard-8` | Pull-request property suites |
+| `property-tests.yml` | `property-tests-weekly` | `ubuntu-latest` | Weekly deep property suites |
+
+### Tool installers
+
+Continuous integration (CI) never builds a tool from source. A source build
+turns a cache miss into minutes of paid compilation, so every tool arrives as
+a pinned, checksum-verified prebuilt archive:
+
+| Tool | Installer | Pin |
+| --- | --- | --- |
+| Whitaker | `leynos/shared-actions/.github/actions/install-whitaker` | Action input, currently 0.2.7 |
+| cargo-nextest | `scripts/install-nextest.sh` | `tools/nextest/VERSION` and `SHA256SUMS` |
+| Kani | `scripts/install-kani.sh` | `tools/kani/VERSION` and `SHA256SUMS` |
+| Verus | `scripts/install-verus.sh` | `tools/verus/VERSION` and `SHA256SUMS` |
+
+The three repository scripts share `scripts/lib/pinned-download.sh`, which
+reads the pinned version, looks the archive's SHA-256 up in the sibling
+manifest, and fails closed when either is missing or does not match. That
+helper is for repository installer scripts only; it is not a general download
+utility and must not be sourced from application code. Each script also probes
+for its own executable first, so a warm cache repeats no download.
+
+Kani is a two-part tool and needs both parts pinned to the same version. The
+`cargo-kani` front-end comes from a Cargo QuickInstall binary archive and the
+CBMC-backed verifier bundle from the Kani release; extracting only the bundle
+leaves `cargo kani` unavailable, and installing only the front-end leaves the
+verifier missing. `kani setup --use-local-bundle` consumes the verified
+download instead of fetching its own, and installs its pinned nightly
+toolchain into a Kani-specific rustup home so it never shares ownership with
+the job's ordinary Cargo cache.
+
+### Cache owners
+
+Every cached path has exactly one owner per job. Two owners means two keys
+racing to describe the same directory, so one of them always restores work the
+other has invalidated. `tests/workflow_contracts/cache_ownership_test.py`
+enforces this, including the paths the shared actions own implicitly.
+
+| Path | Owner | Key input |
+| --- | --- | --- |
+| `~/.cargo/registry`, `~/.cargo/git` | `setup-rust` | Toolchain file and `Cargo.lock` |
+| `~/.cache/uv` | `setup-rust`'s `setup-uv` invocation | `pyproject.toml`, `uv.lock`, helper scripts |
+| `~/.cargo/bin/whitaker-installer`, `~/.local/share/whitaker` | `install-whitaker` | Installer version and `dylint.toml` |
+| `.verus` | `ci.yml`'s Cache Verus step | Pinned Verus version and digest |
+| `~/.cargo/bin/cargo-kani`, `~/.cargo/bin/kani`, `~/.kani`, `~/.kani-rustup` | `nightly-kani.yml`'s Cache Kani step | Pinned Kani version and digests |
+
+Three consequences follow, and each is asserted by a contract test:
+
+- `generate-coverage` takes `cache-provider: external` wherever `setup-rust`
+  already owns the Cargo home, and the explicit `setup-uv` step in `ci.yml`
+  takes `enable-cache: false` for the same reason.
+- No cache step archives a `target` tree. sccache owns compiler output;
+  archiving `target` beside it duplicates that ownership and risks restoring
+  one build shape's objects under another shape's flags.
+- cargo-nextest is deliberately uncached. Its archive is a few megabytes, so a
+  cache entry would cost more restore and save time than the download it
+  avoids, and a cache that does not pay is rejected.
+
+Compiled-tool keys include `runner.environment` alongside `runner.os` and
+`runner.arch`. That value is `github-hosted` on GitHub's runners and
+`self-hosted` on Ubicloud, which is exactly the isolation needed to stop a
+binary built against one image being restored onto another.
+
+All cache steps use `actions/cache` (or its `restore` and `save` halves)
+pinned to v6.1.0. Ubicloud's transparent cache proxy intercepts that version's
+traffic, so the deprecated `ubicloud/cache` fork is unnecessary and would
+otherwise diverge from the GitHub-hosted lanes.
 
 ## CPU HNSW public APIs
 
@@ -257,11 +344,14 @@ by installing `whitaker-installer` and letting it place the wrapper on your
 
 ```shell
 cargo binstall --no-confirm --locked whitaker-installer
-# or, if cargo-binstall is unavailable:
-cargo install --locked whitaker-installer
-
 whitaker-installer
 ```
+
+CI does not use this path. It installs Whitaker through the shared
+`install-whitaker` action, which resolves a pinned prebuilt release and
+verifies its published digest. The former crates.io source-build fallback has
+been removed: a fallback that compiles is a policy failure in CI, not a
+convenience.
 
 `whitaker-installer` installs the `whitaker` wrapper itself; the Makefile
 invokes it by bare name, so it must resolve on `PATH`. Override the `WHITAKER`
@@ -365,8 +455,10 @@ sections on fallible helpers.
 
 ## Continuous integration
 
-Property-test CI jobs (`property-tests-pr` and `property-tests-weekly`) run on
-`ubicloud-standard-8`, an 8-core Ubicloud runner, rather than `ubuntu-latest`.
+`property-tests-pr` runs on `ubicloud-standard-8`, an 8-core Ubicloud runner.
+`property-tests-weekly` runs on GitHub-hosted `ubuntu-latest`; see
+[GitHub Actions runner profiles](#github-actions-runner-profiles) for the
+placement rule that separates them.
 
 The PR job has a `timeout-minutes: 20` budget, sized to exceed the longest
 `nextest` `slow-timeout` (600 s for HNSW idempotency) so earlier setup and
@@ -414,6 +506,13 @@ def test_uses_pinned_full_sha(caller_step):
 If a workflow's behaviour genuinely depends on a feature only present from a
 particular commit onwards, express that as a comment or a changelog note, not
 as a test assertion on the SHA string.
+
+One documented exception exists. `tests/workflow_contracts/workflow_support.py`
+asserts the `actions/cache` pin by value, because Ubicloud's transparent cache
+proxy is confirmed to intercept v6.1.0's traffic specifically. That is a
+compatibility fact about a release rather than a floating preference, so a
+Dependabot bump must be revalidated against the proxy and the constant updated
+deliberately in the same pull request. No other pin is asserted by value.
 
 ### Arrow and Parquet family updates
 
@@ -678,9 +777,11 @@ pipeline is described in
 
 ## Verus proofs
 
-Verus is used for formal verification of edge harvest primitives. Run proofs via
-`make verus`, which is idempotent and installs the pinned Verus release and
-required Rust toolchain as needed.
+Verus is used for formal verification of edge harvest primitives. Run proofs
+via `make verus`. `scripts/install-verus.sh` is idempotent: it probes for the
+installed executable first and otherwise downloads the pinned release archive
+recorded in `tools/verus/VERSION` and verifies it against
+`tools/verus/SHA256SUMS`.
 
 ### Quantifier trigger annotations
 
