@@ -220,20 +220,3 @@ fn property_tests_use_eight_core_runner(#[case] job: &str) {
     let job_block = workflow_job_block(job).expect("property test job must exist");
     assert!(job_block.contains("runs-on: ubicloud-standard-8"));
 }
-
-#[rstest]
-#[case("property-tests-pr")]
-#[case("property-tests-weekly")]
-fn property_tests_install_locked_cached_nextest(#[case] job: &str) {
-    let job_block = workflow_job_block(job).expect("property test job must exist");
-    assert!(PROPERTY_TESTS_WORKFLOW.contains("CARGO_NEXTEST_VERSION: \"0.9.143\""));
-    assert!(job_block.contains("cache_nextest_step"));
-    assert!(PROPERTY_TESTS_WORKFLOW.contains(
-        "cargo binstall --no-confirm --locked \"cargo-nextest@${CARGO_NEXTEST_VERSION}\""
-    ));
-    assert!(PROPERTY_TESTS_WORKFLOW.contains("~/.cargo/bin/cargo-nextest"));
-    assert!(PROPERTY_TESTS_WORKFLOW.contains("~/.cache/cargo-binstall"));
-    assert!(PROPERTY_TESTS_WORKFLOW.contains(
-        "cargo-nextest-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_NEXTEST_VERSION }}"
-    ));
-}

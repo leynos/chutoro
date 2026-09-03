@@ -29,7 +29,7 @@ jobs:
           # full history must be fetched for the merge base to be reachable.
           fetch-depth: 0
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
+        uses: leynos/shared-actions/.github/actions/setup-rust@7d46a399558914f5a05074e55a560fec0269fd0d
       - name: Dense stable SIMD gating
         run: |
           cargo clippy -p chutoro-providers-dense \
@@ -49,47 +49,28 @@ jobs:
             **/*.md
             !**/target/**
             !**/dist/**
-      - name: Resolve latest Whitaker installer release
-        id: whitaker
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          version="$(gh api repos/leynos/whitaker/releases/latest --jq '.tag_name')"
-          version="${version#v}"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-      - name: Cache Whitaker installer
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            ~/.cargo/bin/whitaker-installer
-            ~/.cache/cargo-binstall
-          key: whitaker-installer-${{ runner.os }}-${{ runner.arch }}-${{ steps.whitaker.outputs.version }}
+      # The shared action resolves a pinned prebuilt whitaker-installer
+      # release and verifies its published digest, replacing the former
+      # crates.io source-build fallback. It owns the installer binary and
+      # the ~/.local/share/whitaker suite cache.
       - name: Install Whitaker
-        env:
-          WHITAKER_INSTALLER_VERSION: ${{ steps.whitaker.outputs.version }}
-        run: |
-          if ! command -v whitaker-installer >/dev/null 2>&1; then
-            if cargo binstall --version >/dev/null 2>&1; then
-              cargo binstall --no-confirm --locked "whitaker-installer@${WHITAKER_INSTALLER_VERSION}"
-            else
-              echo "cargo-binstall unavailable; building whitaker-installer from crates.io"
-              cargo install --locked whitaker-installer --version "${WHITAKER_INSTALLER_VERSION}"
-            fi
-          fi
-          whitaker-installer
+        uses: leynos/shared-actions/.github/actions/install-whitaker@7d46a399558914f5a05074e55a560fec0269fd0d
       - name: Lint
         run: make lint
       - name: Setup uv
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
         with:
           python-version: '3.14'
-          enable-cache: true
+          # Setup Rust already invoked setup-uv with caching enabled, so it
+          # owns ~/.cache/uv. Enabling the cache again here would give that
+          # path a second owner with a competing key.
+          enable-cache: false
       - name: Spelling
         run: make spelling
       - name: Workflow contract tests
         run: make test-workflow-contracts
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
+        uses: leynos/shared-actions/.github/actions/generate-coverage@7d46a399558914f5a05074e55a560fec0269fd0d
         with:
           output-path: lcov.info
           format: lcov
@@ -97,11 +78,16 @@ jobs:
           # but fails under plain cargo test, so coverage stays on nextest.
           use-cargo-nextest: 'true'
           with-ratchet: 'true'
+          # Setup Rust owns ~/.cargo/registry and ~/.cargo/git for this job
+          # and restores them before the first build step. Leaving this
+          # action's cache enabled would archive the same paths under a
+          # second key, so it reads the already-restored Cargo home instead.
+          cache-provider: external
       - name: Check coverage against CodeScene gates
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
         if: env.CS_ACCESS_TOKEN != '' && github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@7d46a399558914f5a05074e55a560fec0269fd0d
         with:
           format: lcov
           mode: check
@@ -111,17 +97,40 @@ jobs:
 
   verus-proofs:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
     env:
       CARGO_TERM_COLOR: always
+      # Install into the gitignored workspace .verus directory rather than
+      # RUNNER_TEMP so the cache archives a stable, predictable path.
+      VERUS_INSTALL_DIR: ${{ github.workspace }}/.verus
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # Sole owner of .verus. The key is the pinned version plus the digest
+      # manifest, so the only way to miss is to change the pin, and the
+      # archive restored under a key can never disagree with its checksum.
+      - name: Cache Verus
+        id: verus-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.verus
+          key: >-
+            verus-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ hashFiles('tools/verus/VERSION', 'tools/verus/SHA256SUMS') }}
       - name: Install Verus
         run: scripts/install-verus.sh
-        env:
-          VERUS_INSTALL_DIR: ${{ runner.temp }}/verus
       - name: Run Verus proofs
         run: make verus
         env:
-          VERUS_BIN: ${{ runner.temp }}/verus/verus/verus
+          VERUS_BIN: ${{ github.workspace }}/.verus/verus/verus
+      - name: Record Verus cache state
+        if: ${{ always() }}
+        env:
+          VERUS_CACHE_HIT: ${{ steps.verus-cache.outputs.cache-hit }}
+        run: |
+          {
+            printf '### Verus cache\n\n'
+            printf -- '- restore hit: %s\n' "${VERUS_CACHE_HIT:-false}"
+            printf -- '- size: %s\n' \
+              "$(du -sh "${VERUS_INSTALL_DIR}" 2>/dev/null | cut -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"
