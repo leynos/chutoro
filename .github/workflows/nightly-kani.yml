@@ -17,6 +17,8 @@ concurrency:
 
 jobs:
   kani-full:
+    # Nightly work stays GitHub-hosted: it is off the developer feedback
+    # path and gains nothing from a shorter paid queue.
     runs-on: ubuntu-latest
     timeout-minutes: 120
     permissions:
@@ -28,12 +30,48 @@ jobs:
         with:
           ref: main
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@f4764bea8d813b1a8f7ebc37a44907d3c3b1e0e4
+        uses: leynos/shared-actions/.github/actions/setup-rust@7d46a399558914f5a05074e55a560fec0269fd0d
       - name: Decide whether to run Kani
         id: gate
         env:
           CHUTORO_KANI_FORCE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_run || 'false' }}
         run: cargo run -p chutoro-test-support --bin kani_nightly_gate
+      # Kani is a multi-part tool: the cargo-kani front-end, the CBMC
+      # verifier bundle under KANI_HOME, and the pinned nightly toolchain
+      # that `kani setup` installs into a Kani-specific rustup home. All
+      # three restore and save as one generation under a key derived from
+      # the pinned version and its digest manifest, and
+      # scripts/install-kani.sh probes for each executable so a warm cache
+      # repeats neither download. Setup Rust owns ~/.cargo/registry and
+      # ~/.cargo/git; this entry owns only the two front-end executables.
+      - name: Cache Kani
+        id: kani-cache
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/cargo-kani
+            ~/.cargo/bin/kani
+            ~/.kani
+            ~/.kani-rustup
+          key: >-
+            kani-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ hashFiles('tools/kani/VERSION', 'tools/kani/SHA256SUMS') }}
+      - name: Install Kani
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        run: scripts/install-kani.sh
       - name: Run Kani full suite
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: make kani-full
+      - name: Record Kani cache state
+        if: ${{ always() && steps.gate.outputs.should_run == 'true' }}
+        env:
+          KANI_CACHE_HIT: ${{ steps.kani-cache.outputs.cache-hit }}
+        run: |
+          {
+            printf '### Kani cache\n\n'
+            printf -- '- restore hit: %s\n' "${KANI_CACHE_HIT:-false}"
+            printf -- '- KANI_HOME size: %s\n' \
+              "$(du -sh "${HOME}/.kani" 2>/dev/null | cut -f1)"
+            printf -- '- Kani rustup home size: %s\n' \
+              "$(du -sh "${HOME}/.kani-rustup" 2>/dev/null | cut -f1)"
+          } >> "$GITHUB_STEP_SUMMARY"

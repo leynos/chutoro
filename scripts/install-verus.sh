@@ -1,63 +1,40 @@
 #!/usr/bin/env bash
+#
+# Install the pinned Verus release archive.
+#
+# Verus publishes a prebuilt archive per target, so CI never builds it from
+# source. The archive's SHA-256 is pinned in tools/verus/SHA256SUMS and a
+# mismatch is a hard error.
 
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VERSION_FILE="${ROOT_DIR}/tools/verus/VERSION"
-CHECKSUM_FILE="${ROOT_DIR}/tools/verus/SHA256SUMS"
+# shellcheck source=scripts/lib/pinned-download.sh
+source "${ROOT_DIR}/scripts/lib/pinned-download.sh"
 
-if [[ ! -f "${VERSION_FILE}" ]]; then
-  echo "Missing Verus version file: ${VERSION_FILE}" >&2
-  exit 1
-fi
-if [[ ! -f "${CHECKSUM_FILE}" ]]; then
-  echo "Missing Verus checksum file: ${CHECKSUM_FILE}" >&2
-  exit 1
-fi
-
-VERUS_VERSION="$(cat "${VERSION_FILE}")"
+VERUS_VERSION="$(pinned_version "${ROOT_DIR}/tools/verus/VERSION")"
 VERUS_TARGET="${VERUS_TARGET:-x86-linux}"
 INSTALL_DIR="${VERUS_INSTALL_DIR:-${ROOT_DIR}/.verus/${VERUS_VERSION}}"
 ARCHIVE="verus-${VERUS_VERSION}-${VERUS_TARGET}.zip"
 URL="https://github.com/verus-lang/verus/releases/download/release/${VERUS_VERSION}/${ARCHIVE}"
-EXPECTED_SHA="$(
-  awk -v archive="${ARCHIVE}" '$2 == archive {print $1; exit}' "${CHECKSUM_FILE}"
-)"
-if [[ -z "${EXPECTED_SHA}" ]]; then
-  echo "Missing SHA-256 for ${ARCHIVE} in ${CHECKSUM_FILE}" >&2
-  exit 1
-fi
 
+# Executable probe: a warm cache must not repeat the download.
 if [[ -x "${INSTALL_DIR}/verus/verus" ]]; then
   echo "Verus ${VERUS_VERSION} already installed at ${INSTALL_DIR}/verus"
   exit 0
 fi
 
+EXPECTED_SHA="$(pinned_expected_sha "${ROOT_DIR}/tools/verus/SHA256SUMS" "${ARCHIVE}")"
+
 mkdir -p "${INSTALL_DIR}"
 
 TMP_DIR="$(mktemp -d)"
 cleanup() {
-  rm -rf "${TMP_DIR}"
+  rm -rf -- "${TMP_DIR}"
 }
 trap cleanup EXIT
 
-curl -sSfL "${URL}" -o "${TMP_DIR}/${ARCHIVE}"
-
-if command -v sha256sum >/dev/null 2>&1; then
-  ACTUAL_SHA="$(sha256sum "${TMP_DIR}/${ARCHIVE}" | awk '{print $1}')"
-elif command -v shasum >/dev/null 2>&1; then
-  ACTUAL_SHA="$(shasum -a 256 "${TMP_DIR}/${ARCHIVE}" | awk '{print $1}')"
-else
-  echo "Missing SHA-256 tool (sha256sum or shasum)." >&2
-  exit 1
-fi
-
-if [[ "${ACTUAL_SHA}" != "${EXPECTED_SHA}" ]]; then
-  echo "SHA-256 mismatch for ${ARCHIVE}." >&2
-  echo "Expected: ${EXPECTED_SHA}" >&2
-  echo "Actual:   ${ACTUAL_SHA}" >&2
-  exit 1
-fi
+pinned_fetch_verified "${URL}" "${TMP_DIR}/${ARCHIVE}" "${EXPECTED_SHA}"
 
 unzip -q "${TMP_DIR}/${ARCHIVE}" -d "${INSTALL_DIR}"
 
@@ -67,12 +44,14 @@ if [[ ! -d "${EXTRACTED_DIR}" ]]; then
 fi
 
 if [[ -z "${EXTRACTED_DIR}" || ! -d "${EXTRACTED_DIR}" ]]; then
-  echo "Unable to locate extracted Verus directory under ${INSTALL_DIR}" >&2
-  exit 1
+  pinned_die "Unable to locate extracted Verus directory under ${INSTALL_DIR}"
 fi
 
-rm -rf "${INSTALL_DIR}/verus"
+rm -rf -- "${INSTALL_DIR}/verus"
 mv "${EXTRACTED_DIR}" "${INSTALL_DIR}/verus"
+
+[[ -x "${INSTALL_DIR}/verus/verus" ]] ||
+  pinned_die "Verus installation left ${INSTALL_DIR}/verus/verus missing"
 
 cat <<EOM
 Installed Verus ${VERUS_VERSION} in ${INSTALL_DIR}/verus

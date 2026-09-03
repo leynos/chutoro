@@ -1,6 +1,8 @@
+# Register every intentional non-GitHub runner label so actionlint does not
+# reject it as an unknown runner. List only labels this repository actually
+# references; an unused label here hides a stranded runner assignment.
 self-hosted-runner:
   labels:
-    - namespace-profile-default
     - ubicloud-standard-8
 
 config-variables: null

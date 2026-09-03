@@ -213,27 +213,25 @@ fn benchmark_smoke_job_covers_hnsw_exact_probe() {
     );
 }
 
+/// The `ci` profile runs four test threads, so both property jobs need at
+/// least four cores. The pull-request job keeps eight for build headroom;
+/// the weekly job is off the feedback path and runs on GitHub's four-core
+/// hosted runner. Runner placement policy, tool installation, and cache
+/// ownership are asserted in `tests/workflow_contracts/`; this test covers
+/// only the capacity the nextest profile depends on.
 #[rstest]
-#[case("property-tests-pr")]
-#[case("property-tests-weekly")]
-fn property_tests_use_eight_core_runner(#[case] job: &str) {
-    let job_block = workflow_job_block(job).expect("property test job must exist");
-    assert!(job_block.contains("runs-on: ubicloud-standard-8"));
-}
+#[case("property-tests-pr", "runs-on: ubicloud-standard-8")]
+#[case("property-tests-weekly", "runs-on: ubuntu-latest")]
+fn property_tests_runners_satisfy_the_ci_thread_count(
+    #[case] job: &str,
+    #[case] expected_runner: &str,
+) {
+    assert!(NEXTEST_CONFIG.contains("[profile.ci]"));
+    assert!(NEXTEST_CONFIG.contains("test-threads = 4"));
 
-#[rstest]
-#[case("property-tests-pr")]
-#[case("property-tests-weekly")]
-fn property_tests_install_locked_cached_nextest(#[case] job: &str) {
     let job_block = workflow_job_block(job).expect("property test job must exist");
-    assert!(PROPERTY_TESTS_WORKFLOW.contains("CARGO_NEXTEST_VERSION: \"0.9.143\""));
-    assert!(job_block.contains("cache_nextest_step"));
-    assert!(PROPERTY_TESTS_WORKFLOW.contains(
-        "cargo binstall --no-confirm --locked \"cargo-nextest@${CARGO_NEXTEST_VERSION}\""
-    ));
-    assert!(PROPERTY_TESTS_WORKFLOW.contains("~/.cargo/bin/cargo-nextest"));
-    assert!(PROPERTY_TESTS_WORKFLOW.contains("~/.cache/cargo-binstall"));
-    assert!(PROPERTY_TESTS_WORKFLOW.contains(
-        "cargo-nextest-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_NEXTEST_VERSION }}"
-    ));
+    assert!(
+        job_block.contains(expected_runner),
+        "{job} should declare '{expected_runner}'",
+    );
 }
