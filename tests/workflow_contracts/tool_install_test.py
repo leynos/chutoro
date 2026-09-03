@@ -56,6 +56,11 @@ SHARED_INSTALLER_ORDER = (("install-whitaker", re.compile(r"\bmake\s+lint\b")),)
 #: Tool pins that must exist as a version file and a digest manifest.
 PINNED_TOOLS = ("kani", "nextest", "verus")
 
+#: Installer scripts a workflow invokes directly, so the committed file
+#: mode is part of the contract: a non-executable script fails the job
+#: with "Permission denied" rather than anything diagnosable.
+INSTALLER_SCRIPTS = tuple(installer for installer, _ in INSTALLER_ORDER)
+
 
 @pytest.mark.parametrize("workflow_path", workflow_paths(), ids=workflow_names())
 def test_no_workflow_builds_a_tool_from_source(workflow_path: Path) -> None:
@@ -181,3 +186,13 @@ def test_shared_installers_run_before_the_tools_they_provide(
             assert min(installs_at) < min(uses_at), (
                 f"{workflow_name}:{job_name} uses {action} after its first use"
             )
+
+
+@pytest.mark.parametrize("installer", INSTALLER_SCRIPTS)
+def test_installer_scripts_are_executable(installer: str) -> None:
+    """A workflow runs these by path, so the mode bit is load-bearing."""
+    path = ROOT / installer
+    assert path.is_file(), f"{installer} must exist"
+    assert path.stat().st_mode & 0o111, (
+        f"{installer} is invoked directly by a workflow and must be executable"
+    )

@@ -13,6 +13,7 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import collections
+import collections.abc as cabc
 import re
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from workflow_support import (
     jobs,
     load_workflow,
     shared_action_name,
+    run_script,
     steps,
     uses_reference,
     workflow_names,
@@ -55,22 +57,35 @@ def _cache_steps(definition: dict) -> list[dict]:
     ]
 
 
+def _explicit_owner(step: dict, reference: str) -> list[tuple[str, str]]:
+    """Return the paths a cache step names outright."""
+    label = step.get("name", reference)
+    return [(path, label) for path in declared_cache_paths(step)]
+
+
+def _implicit_owner(step: dict, reference: str) -> list[tuple[str, str]]:
+    """Return the paths an action caches without the caller naming them."""
+    if not cache_is_enabled(step):
+        return []
+    if reference.startswith("astral-sh/setup-uv@"):
+        return [(UV_CACHE_PATH, "astral-sh/setup-uv")]
+    action = shared_action_name(reference)
+    if action in SHARED_ACTION_OWNED_PATHS:
+        return [(path, action) for path in SHARED_ACTION_OWNED_PATHS[action]]
+    return []
+
+
+def _step_owners(step: dict) -> list[tuple[str, str]]:
+    """Return every (path, owner) pair one step establishes."""
+    reference = uses_reference(step)
+    if CACHE_ACTION_RE.match(reference):
+        return _explicit_owner(step, reference)
+    return _implicit_owner(step, reference)
+
+
 def _owned_paths(definition: dict) -> list[tuple[str, str]]:
     """Return every (path, owner) pair a job establishes."""
-    owners: list[tuple[str, str]] = []
-    for step in steps(definition):
-        reference = uses_reference(step)
-        if CACHE_ACTION_RE.match(reference):
-            label = step.get("name", reference)
-            owners += [(path, label) for path in declared_cache_paths(step)]
-            continue
-        if reference.startswith("astral-sh/setup-uv@") and cache_is_enabled(step):
-            owners.append((UV_CACHE_PATH, "astral-sh/setup-uv"))
-            continue
-        action = shared_action_name(reference)
-        if action in SHARED_ACTION_OWNED_PATHS and cache_is_enabled(step):
-            owners += [(path, action) for path in SHARED_ACTION_OWNED_PATHS[action]]
-    return owners
+    return [pair for step in steps(definition) for pair in _step_owners(step)]
 
 
 @pytest.mark.parametrize("workflow_name", workflow_names())
@@ -154,32 +169,47 @@ def test_kani_restores_its_front_end_bundle_and_toolchain_together() -> None:
         )
 
 
+#: Each installer script and the cache-step path that must restore its work
+#: first. Pairing them by tool keeps the ordering check meaningful once a job
+#: installs more than one tool.
+INSTALLER_CACHE_PAIRS = (
+    ("scripts/install-kani.sh", "~/.kani"),
+    ("scripts/install-verus.sh", ".verus"),
+)
+
+
+def _first_index(items: list[str], predicate: cabc.Callable[[str], bool]) -> int | None:
+    """Return the first index whose item satisfies the predicate."""
+    return next((index for index, item in enumerate(items) if predicate(item)), None)
+
+
 @pytest.mark.parametrize("workflow_name", workflow_names())
 def test_cache_setup_precedes_the_install_it_protects(workflow_name: str) -> None:
     """A cache restored after an install has already paid for the install."""
     for job_name, definition in jobs(load_workflow(workflow_name)).items():
         job_steps = steps(definition)
-        first_cache = next(
-            (
-                index
-                for index, step in enumerate(job_steps)
-                if CACHE_ACTION_RE.match(uses_reference(step))
-            ),
-            None,
-        )
-        if first_cache is None:
-            continue
-        first_install = next(
-            (
-                index
-                for index, step in enumerate(job_steps)
-                if "scripts/install-" in (step.get("run") or "")
-            ),
-            None,
-        )
-        if first_install is None:
-            continue
-        assert first_cache < first_install, (
-            f"{workflow_name}:{job_name} restores its cache after the install "
-            "it is meant to avoid"
-        )
+        scripts = [run_script(step) for step in job_steps]
+        for installer, cached_path in INSTALLER_CACHE_PAIRS:
+            install_at = _first_index(scripts, lambda s, i=installer: i in s)
+            if install_at is None:
+                continue
+            cache_at = next(
+                (
+                    index
+                    for index, step in enumerate(job_steps)
+                    if CACHE_ACTION_RE.match(uses_reference(step))
+                    and any(
+                        path.endswith(cached_path)
+                        for path in declared_cache_paths(step)
+                    )
+                ),
+                None,
+            )
+            assert cache_at is not None, (
+                f"{workflow_name}:{job_name} runs {installer} with no cache step "
+                f"owning {cached_path}"
+            )
+            assert cache_at < install_at, (
+                f"{workflow_name}:{job_name} restores the {cached_path} cache "
+                "after the install it is meant to avoid"
+            )

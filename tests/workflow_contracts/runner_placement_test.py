@@ -62,7 +62,10 @@ def test_only_the_pull_request_property_suite_uses_a_paid_runner(
 def test_the_paid_property_job_keeps_its_current_label() -> None:
     """Preserve the pull-request suite's eight-core capacity."""
     for (workflow_name, job_name), label in PAID_JOBS.items():
-        assert runner_labels(job(workflow_name, job_name)) == [label]
+        labels = runner_labels(job(workflow_name, job_name))
+        assert labels == [label], (
+            f"{workflow_name}:{job_name} must keep {label}, found {labels}"
+        )
 
 
 @pytest.mark.parametrize("workflow_name", workflow_names())

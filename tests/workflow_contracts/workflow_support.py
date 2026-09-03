@@ -56,9 +56,16 @@ SHARED_ACTION_OWNED_PATHS: typ.Final[dict[str, tuple[str, ...]]] = {
 }
 
 
+#: GitHub accepts either extension for a workflow file. Matching only one
+#: would let a workflow escape every contract below without failing a test.
+WORKFLOW_SUFFIXES = ("*.yml", "*.yaml")
+
+
 def workflow_paths() -> list[Path]:
     """Return every workflow file, sorted for stable test identifiers."""
-    return sorted(WORKFLOW_DIR.glob("*.yml"))
+    return sorted(
+        path for suffix in WORKFLOW_SUFFIXES for path in WORKFLOW_DIR.glob(suffix)
+    )
 
 
 def workflow_names() -> list[str]:
