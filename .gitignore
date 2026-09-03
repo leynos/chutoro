@@ -18,3 +18,4 @@ __pycache__/
 .claude/
 *.swo
 *~
+.pytest_cache/
