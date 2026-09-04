@@ -167,40 +167,70 @@ def _has_glob(pattern: str) -> bool:
     return any(character in pattern for character in GLOB_METACHARACTERS)
 
 
-def _glob_to_regex(pattern: str) -> re.Pattern[str]:
-    """Translate an `@actions/glob` pattern into an equivalent regex.
+#: One glob token, as a regex fragment and the number of characters it
+#: consumed. Splitting the translation into matchers keeps the loop below a
+#: single statement; a `while` with a branch per token kind is the shape
+#: that turns a small grammar into an unreadable one.
+GlobToken = tuple[str, int]
 
-    `**` crosses separators; `*` and `?` do not. A bracket expression is
-    copied through as a character class, with `!` rewritten to the regex
-    spelling of negation.
-    """
-    parts: list[str] = []
+
+def _match_recursive_wildcard(pattern: str, index: int) -> GlobToken | None:
+    """Match `**`, which crosses path separators."""
+    return (".*", 2) if pattern.startswith("**", index) else None
+
+
+def _match_wildcard(pattern: str, index: int) -> GlobToken | None:
+    """Match `*`, which stays within one path segment."""
+    return ("[^/]*", 1) if pattern[index] == "*" else None
+
+
+def _match_single_character(pattern: str, index: int) -> GlobToken | None:
+    """Match `?`, which stands for one non-separator character."""
+    return ("[^/]", 1) if pattern[index] == "?" else None
+
+
+def _match_bracket_expression(pattern: str, index: int) -> GlobToken | None:
+    """Match `[...]`, rewriting `!` negation to the regex spelling."""
+    if pattern[index] != "[":
+        return None
+    close = pattern.find("]", index + 1)
+    if close == -1:
+        return None
+    body = pattern[index + 1 : close]
+    if body.startswith("!"):
+        body = f"^{body[1:]}"
+    return (f"[{body}]", close + 1 - index)
+
+
+def _match_literal(pattern: str, index: int) -> GlobToken:
+    """Match anything else, as itself."""
+    return (re.escape(pattern[index]), 1)
+
+
+#: Ordered because `**` must be tried before `*`, and an unterminated `[`
+#: must fall through to the literal matcher rather than being dropped.
+GLOB_TOKEN_MATCHERS = (
+    _match_recursive_wildcard,
+    _match_wildcard,
+    _match_single_character,
+    _match_bracket_expression,
+    _match_literal,
+)
+
+
+def _glob_to_regex(pattern: str) -> re.Pattern[str]:
+    """Translate an `@actions/glob` pattern into an equivalent regex."""
+    fragments: list[str] = []
     index = 0
     while index < len(pattern):
-        if pattern.startswith("**", index):
-            parts.append(".*")
-            index += 2
-        elif pattern[index] == "*":
-            parts.append("[^/]*")
-            index += 1
-        elif pattern[index] == "?":
-            parts.append("[^/]")
-            index += 1
-        elif pattern[index] == "[":
-            close = pattern.find("]", index + 1)
-            if close == -1:
-                parts.append(re.escape("["))
-                index += 1
-                continue
-            body = pattern[index + 1 : close]
-            if body.startswith("!"):
-                body = "^" + body[1:]
-            parts.append(f"[{body}]")
-            index = close + 1
-        else:
-            parts.append(re.escape(pattern[index]))
-            index += 1
-    return re.compile("".join(parts) + r"\Z")
+        fragment, width = next(
+            token
+            for matcher in GLOB_TOKEN_MATCHERS
+            if (token := matcher(pattern, index)) is not None
+        )
+        fragments.append(fragment)
+        index += width
+    return re.compile("".join(fragments) + r"\Z")
 
 
 def _literal_prefix(pattern: str) -> str:
