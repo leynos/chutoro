@@ -60,10 +60,10 @@ jobs:
       # action fails closed on a GitHub-hosted runner, which is why the weekly
       # job does not alias it.
       - name: Export Ubicloud cache credentials
-        uses: leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@b694f68ff5bcb0350b720b71051bf8fa51d3e413
+        uses: leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@c6125f19593668cbfefd65a59c08cb7aefe90d93
       - &setup_rust_step
         name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@b694f68ff5bcb0350b720b71051bf8fa51d3e413
+        uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
       # Downloads the pinned nextest release archive and verifies the
       # SHA-256 recorded in tools/nextest/SHA256SUMS, replacing the former
       # unpinned binary resolution. The archive is a few megabytes, so a
