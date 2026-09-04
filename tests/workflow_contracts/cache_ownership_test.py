@@ -15,6 +15,7 @@ from __future__ import annotations
 import collections
 import collections.abc as cabc
 import re
+import typing as typ
 from pathlib import Path
 
 import pytest
@@ -40,7 +41,7 @@ CACHE_ACTION_RE = re.compile(r"^actions/cache(?:/(?:restore|save))?@(?P<sha>\S+)
 UV_CACHE_PATH = "~/.cache/uv"
 
 
-def _cache_steps(definition: dict) -> list[dict]:
+def _cache_steps(definition: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
     """Return the job's explicit cache steps."""
     return [
         step
@@ -49,13 +50,13 @@ def _cache_steps(definition: dict) -> list[dict]:
     ]
 
 
-def _explicit_owner(step: dict, reference: str) -> list[tuple[str, str]]:
+def _explicit_owner(step: dict[str, typ.Any], reference: str) -> list[tuple[str, str]]:
     """Return the paths a cache step names outright."""
     label = step.get("name", reference)
     return [(path, label) for path in declared_cache_paths(step)]
 
 
-def _implicit_owner(step: dict, reference: str) -> list[tuple[str, str]]:
+def _implicit_owner(step: dict[str, typ.Any], reference: str) -> list[tuple[str, str]]:
     """Return the paths an action caches without the caller naming them."""
     if not cache_is_enabled(step):
         return []
@@ -67,7 +68,7 @@ def _implicit_owner(step: dict, reference: str) -> list[tuple[str, str]]:
     return []
 
 
-def _step_owners(step: dict) -> list[tuple[str, str]]:
+def _step_owners(step: dict[str, typ.Any]) -> list[tuple[str, str]]:
     """Return every (path, owner) pair one step establishes."""
     reference = uses_reference(step)
     if CACHE_ACTION_RE.match(reference):
@@ -84,35 +85,55 @@ def _step_owners(step: dict) -> list[tuple[str, str]]:
 SPLIT_CACHE_ACTIONS = ("actions/cache/restore", "actions/cache/save")
 
 
-def _split_cache_key(step: dict, reference: str) -> str | None:
-    """Return a restore/save step's key, or None if it is not one half."""
-    if reference.split("@", 1)[0] not in SPLIT_CACHE_ACTIONS:
+#: A (path, key) combination, mapped to the halves that have claimed it.
+CacheClaims = dict[tuple[str, str], set[str]]
+
+
+def _split_cache_half(
+    step: dict[str, typ.Any], reference: str
+) -> tuple[str, str] | None:
+    """Return a restore/save step's (half, key), or None if it is neither.
+
+    The half matters as much as the key. Only one `restore` and one `save`
+    make a pair; a second `restore` under the same key is a duplicate owner,
+    which is exactly what this module exists to catch.
+    """
+    half = reference.split("@", 1)[0]
+    if half not in SPLIT_CACHE_ACTIONS:
         return None
     with_block = step.get("with")
-    return with_block.get("key", "") if isinstance(with_block, dict) else ""
+    key = with_block.get("key", "") if isinstance(with_block, dict) else ""
+    return half, key
 
 
 def _deduplicated_step_owners(
-    step: dict, claimed: set[tuple[str, str]]
+    step: dict[str, typ.Any], claimed: CacheClaims
 ) -> list[tuple[str, str]]:
-    """Return a step's (path, owner) pairs, counting a split pair once.
+    """Return a step's (path, owner) pairs, counting one split pair once.
 
-    `claimed` carries the (path, key) combinations already contributed by an
-    earlier half, and is updated in place.
+    `claimed` records which halves have already claimed each (path, key), and
+    is updated in place. A path counts as a fresh owner when nothing has
+    claimed it yet, or when this same half has already claimed it, which is a
+    genuine duplicate. Only the complementary half is absorbed.
     """
     reference = uses_reference(step)
-    key = _split_cache_key(step, reference)
-    if key is None:
+    found = _split_cache_half(step, reference)
+    if found is None:
         return _step_owners(step)
+    half, key = found
     label = step.get("name", reference)
-    fresh = [path for path in declared_cache_paths(step) if (path, key) not in claimed]
-    claimed.update((path, key) for path in fresh)
+    fresh: list[str] = []
+    for path in declared_cache_paths(step):
+        halves = claimed.setdefault((path, key), set())
+        if not halves or half in halves:
+            fresh.append(path)
+        halves.add(half)
     return [(path, label) for path in fresh]
 
 
-def _owned_paths(definition: dict) -> list[tuple[str, str]]:
+def _owned_paths(definition: dict[str, typ.Any]) -> list[tuple[str, str]]:
     """Return every (path, owner) pair a job establishes."""
-    claimed: set[tuple[str, str]] = set()
+    claimed: CacheClaims = {}
     return [
         pair
         for step in steps(definition)
@@ -164,6 +185,48 @@ def test_each_cached_path_has_exactly_one_owner(workflow_name: str) -> None:
             f"{workflow_name}:{job_name} gives these paths more than one cache "
             f"owner: {sorted(duplicated)}"
         )
+
+
+def _cache_half(half: str, name: str, path: str, key: str) -> dict[str, typ.Any]:
+    """Build one restore or save step, for the ownership unit tests."""
+    return {
+        "name": name,
+        "uses": f"actions/cache/{half}@{CACHE_ACTION_SHA}",
+        "with": {"path": path, "key": key},
+    }
+
+
+@pytest.mark.parametrize(
+    ("halves", "expected_owners"),
+    [
+        pytest.param(("restore", "save"), 1, id="complementary-pair"),
+        pytest.param(("save", "restore"), 1, id="pair-in-either-order"),
+        pytest.param(("restore", "restore"), 2, id="two-restores"),
+        pytest.param(("save", "save"), 2, id="two-saves"),
+        pytest.param(("restore", "save", "restore"), 2, id="pair-plus-a-third"),
+    ],
+)
+def test_split_cache_halves_collapse_only_in_complementary_pairs(
+    halves: tuple[str, ...], expected_owners: int
+) -> None:
+    """One restore and one save are one owner; two of a kind are two.
+
+    The first version of this collapsed on (path, key) alone, so a job with
+    two `restore` steps naming the same path passed the single-owner
+    contract. That is the duplicate the contract exists to catch, so it gets
+    a test of its own rather than relying on no workflow happening to do it.
+    """
+    path = "${{ github.workspace }}/.example"
+    definition = {
+        "steps": [
+            _cache_half(half, f"cache {index}", path, "example-key-v1")
+            for index, half in enumerate(halves)
+        ]
+    }
+    owners = [owner for owned, owner in _owned_paths(definition) if owned == path]
+    assert len(owners) == expected_owners, (
+        f"{halves} should establish {expected_owners} owner(s), found {owners}"
+    )
 
 
 @pytest.mark.parametrize("workflow_name", workflow_names())

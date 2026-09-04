@@ -70,6 +70,8 @@ has already been retired.
 
 ### Job inventory
 
+Table: Every workflow job, the runner it uses, and what it does.
+
 | Workflow | Job | Runner | Purpose |
 | --- | --- | --- | --- |
 | `benchmark-regressions.yml` | `benchmark-policy` | `ubuntu-latest` | Resolve the benchmark mode and matrix |
@@ -90,6 +92,9 @@ has already been retired.
 Continuous integration (CI) never builds a tool from source. A source build
 turns a cache miss into minutes of paid compilation, so every tool arrives as
 a pinned, checksum-verified prebuilt archive:
+
+Table: Each tool CI installs, the installer that fetches it, and where its
+version and digest are pinned.
 
 | Tool | Installer | Pin |
 | --- | --- | --- |
@@ -127,6 +132,9 @@ Every cached path has exactly one owner per job. Two owners means two keys
 racing to describe the same directory, so one of them always restores work the
 other has invalidated. `tests/workflow_contracts/cache_ownership_test.py`
 enforces this, including the paths the shared actions own implicitly.
+
+Table: Each cached path, its single owner, and the input its key is derived
+from.
 
 | Path | Owner | Key input |
 | --- | --- | --- |
@@ -188,7 +196,7 @@ The arrangement that works has five parts:
    later step in the job, which is how the Ubicloud lane's writes ended up
    at GitHub rather than at the local proxy. Keeping the step out is what
    makes the local backend's indifference to those variables count.
-3. `SCCACHE_DIR` pointed at `.sccache` under the workspace, with
+3. `SCCACHE_DIR` pointing at `.sccache` under the workspace, with
    `SCCACHE_CACHE_SIZE: 2G`. The default is `~/.cache/sccache`, outside the
    workspace, where no cache step can reach it; the bound keeps the compiler
    cache from evicting its neighbours out of the repository's 10 GB quota.
