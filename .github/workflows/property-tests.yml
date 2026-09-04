@@ -19,7 +19,14 @@ name: Property Tests
 jobs:
   property-tests-pr:
     if: ${{ github.event_name == 'pull_request' }}
-    runs-on: ubicloud-standard-8
+    # Right-sized on measurement. On `ubicloud-standard-8` the whole "Run
+    # property suite" step, compilation and 250 cases together, measured 21
+    # to 24 seconds across the four suites (run 33852441511), inside jobs of
+    # 51 to 57 seconds. A 15-second compile does not need eight cores, and
+    # the four suites run in parallel off the critical path that
+    # build-test's coverage step defines. Before and after wall times are
+    # recorded in the developers guide.
+    runs-on: ubicloud-standard-2
     # Keep this above the 600-second HNSW idempotency nextest timeout so setup
     # and the earlier property tests do not consume the whole job budget.
     timeout-minutes: 20

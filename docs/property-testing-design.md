@@ -747,7 +747,7 @@ workflow.
 | **Trigger**            | `on: pull_request`             | `on: schedule` (e.g., weekly)           |
 | **`Proptest` Cases**   | `250` (default)                | `25,000` (via env var `PROGTEST_CASES`) |
 | **`Proptest` Forking** | `false`                        | `true`                                  |
-| **Runner**             | `ubicloud-standard-8`          | `ubicloud-standard-8`                   |
+| **Runner**             | `ubicloud-standard-2`          | `ubuntu-latest`                         |
 | **Job Timeout**        | `20 minutes`                   | `120 minutes`                           |
 | **Execution Scope**    | Path-filtered (selective jobs) | Full repository test suite              |
 | **Failure Action**     | Block PR merge                 | Alert team & upload failure artefact    |

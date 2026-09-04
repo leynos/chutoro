@@ -28,8 +28,15 @@ from workflow_support import (
     workflow_names,
 )
 
-#: The single job authorized to use a paid runner, and its label.
-PAID_JOBS = {("property-tests.yml", "property-tests-pr"): "ubicloud-standard-8"}
+#: The single job authorized to use a paid runner, and its label. The shape
+#: is asserted by value rather than left free, because a paid runner is the
+#: one thing here that silently costs more when someone reaches for a bigger
+#: one. Two cores is what the measurement supports: the whole "Run property
+#: suite" step, compilation and 250 cases together, took 21 to 24 seconds on
+#: eight cores (run 33852441511), so the compile is around fifteen seconds
+#: and the suites run four ways in parallel off the critical path. Raising
+#: this needs a wall-time measurement in the pull request that raises it.
+PAID_JOBS = {("property-tests.yml", "property-tests-pr"): "ubicloud-standard-2"}
 
 #: Event names that never represent a pull-request feedback loop.
 OFF_PATH_EVENTS = frozenset({"schedule", "push", "workflow_dispatch"})
@@ -60,7 +67,7 @@ def test_only_the_pull_request_property_suite_uses_a_paid_runner(
 
 
 def test_the_paid_property_job_keeps_its_current_label() -> None:
-    """Preserve the pull-request suite's eight-core capacity."""
+    """Pin the paid runner's shape, the one setting that costs more silently."""
     for (workflow_name, job_name), label in PAID_JOBS.items():
         labels = runner_labels(job(workflow_name, job_name))
         assert labels == [label], (

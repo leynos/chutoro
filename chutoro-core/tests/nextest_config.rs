@@ -213,14 +213,27 @@ fn benchmark_smoke_job_covers_hnsw_exact_probe() {
     );
 }
 
-/// The `ci` profile runs four test threads, so both property jobs need at
-/// least four cores. The pull-request job keeps eight for build headroom;
-/// the weekly job is off the feedback path and runs on GitHub's four-core
-/// hosted runner. Runner placement policy, tool installation, and cache
-/// ownership are asserted in `tests/workflow_contracts/`; this test covers
-/// only the capacity the nextest profile depends on.
+/// The `ci` profile runs four test threads, which is why the shape each
+/// property job runs on is worth pinning rather than leaving to whoever
+/// edits the workflow next.
+///
+/// The pull-request job ran on eight cores until the shape was measured.
+/// Its whole "Run property suite" step, compilation and 250 cases together,
+/// took 21 to 24 seconds across the four suites on eight cores (run
+/// 33852441511), inside jobs of 51 to 57 seconds, four ways in parallel and
+/// off the critical path. Eight cores bought nothing worth paying for, so
+/// it runs on two and the profile oversubscribes them. That doubles the step,
+/// to 52 to 55 seconds, and grows the whole job from 51 to 57 seconds to 79
+/// to 87 seconds: a deliberate trade of about thirty seconds of parallel
+/// wall time for roughly 60 % of this job's cost. The full before and after
+/// table is in the developers guide. The weekly job is off the feedback path
+/// and runs on GitHub's four-core hosted runner.
+///
+/// Runner placement policy, tool installation, and cache ownership are
+/// asserted in `tests/workflow_contracts/`; this test covers only the
+/// relationship between the profile and the shapes.
 #[rstest]
-#[case("property-tests-pr", "runs-on: ubicloud-standard-8")]
+#[case("property-tests-pr", "runs-on: ubicloud-standard-2")]
 #[case("property-tests-weekly", "runs-on: ubuntu-latest")]
 fn property_tests_runners_satisfy_the_ci_thread_count(
     #[case] job: &str,

@@ -3,7 +3,7 @@
 # references; an unused label here hides a stranded runner assignment.
 self-hosted-runner:
   labels:
-    - ubicloud-standard-8
+    - ubicloud-standard-2
 
 config-variables: null
 paths: {}

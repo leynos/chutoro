@@ -49,10 +49,12 @@ jobs:
         uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
         with:
           # The action installs sccache through mozilla-actions/sccache-action,
-          # which starts the server inside an action step. The runner
-          # re-injects the reserved cache variables into action steps, so a
-          # server started there binds GitHub's cache service whatever the
-          # job asked for. This job owns its server instead.
+          # whose last act is to write ACTIONS_CACHE_SERVICE_V2=on and
+          # GitHub's results URL and token to GITHUB_ENV. That clobbers any
+          # earlier cache-endpoint export for every later step, which is how
+          # the Ubicloud lane's writes ended up at GitHub. Keeping the step
+          # out is what makes the local backend's indifference to those
+          # variables count.
           use-sccache: 'false'
       # Pinned, checksum-verified release archive; nothing is built from
       # source in CI.

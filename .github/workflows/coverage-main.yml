@@ -42,9 +42,10 @@ jobs:
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
         with:
-          # A server started inside an action step binds GitHub's cache
-          # service, because the runner re-injects the reserved cache
-          # variables there. This job owns its server. See ci.yml.
+          # mozilla-actions/sccache-action writes GitHub's cache endpoint
+          # to GITHUB_ENV on its way out, clobbering any earlier export for
+          # the rest of the job. Keeping the step out avoids that. See
+          # ci.yml.
           use-sccache: 'false'
       # Pinned, checksum-verified release archive; nothing is built from
       # source in CI.

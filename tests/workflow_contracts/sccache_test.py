@@ -12,8 +12,8 @@ pushing the coverage step into the 600 s nextest timeout.
 What survives both is the local-disk arm: a pinned sccache binary, a
 directory under the workspace, and `actions/cache` moving that directory.
 These tests pin the parts that make it real. The wrapper is named. The
-binary comes from the pinned archive, not from an action that would start
-the server where the runner re-injects the reserved cache variables. The
+binary comes from the pinned archive, not from an action that would write
+GitHub's cache endpoint over the job's environment on its way out. The
 directory is restored before the server starts. The counters are zeroed
 before the build so the statistics describe this run. The statistics reach
 the log, not only the job summary. And exactly one job writes the key, on
@@ -87,9 +87,9 @@ EXPORT_ACTION = (
 )
 
 #: The shared action whose sccache install must stay switched off. It runs
-#: mozilla-actions/sccache-action, which starts the server inside an action
-#: step; the runner re-injects the reserved cache variables there, so such a
-#: server binds GitHub's cache service whatever the job asked for.
+#: mozilla-actions/sccache-action, whose last act is to write
+#: ACTIONS_CACHE_SERVICE_V2 and GitHub's results URL and token to GITHUB_ENV,
+#: clobbering any earlier cache-endpoint export for the rest of the job.
 SETUP_RUST = "/actions/setup-rust@"
 
 
@@ -236,10 +236,10 @@ def test_no_job_installs_a_cache_it_cannot_store(
 ) -> None:
     """A cache with no store is worse than none: it reports success anyway.
 
-    `setup-rust` would install sccache and start its server inside an
-    action step, where the runner re-injects the reserved cache variables.
-    Every job here installs the pinned binary from a `run:` step instead,
-    and jobs with no cache entry to read do not install it at all.
+    `setup-rust` would install sccache through an action whose last act
+    overwrites the job's cache endpoint in `GITHUB_ENV`. Every job here
+    installs the pinned binary from a `run:` step instead, and jobs with no
+    cache entry to read do not install it at all.
     """
     for step in steps(definition):
         if SETUP_RUST not in uses_reference(step):
@@ -251,9 +251,9 @@ def test_no_job_installs_a_cache_it_cannot_store(
             else "true"
         )
         assert str(enabled) == "false", (
-            f"{workflow_name}:{job_name} lets Setup Rust install and start "
-            "sccache; that server binds GitHub's cache service regardless of "
-            "the job's settings. Pass use-sccache: 'false'."
+            f"{workflow_name}:{job_name} lets Setup Rust install sccache; "
+            "that action rewrites the job's cache endpoint in GITHUB_ENV on "
+            "its way out. Pass use-sccache: 'false'."
         )
 
 
