@@ -109,7 +109,10 @@ Three consequences follow, and each is asserted by a contract test:
   so rather than because caching them was hard.
 
 The two rejections are worth keeping, because a cache that costs more than it
-saves is easy to add and hard to notice:
+saves is easy to add and hard to notice.
+
+Table: What a cache would save against what it would move, for the two tools
+whose caches were measured and rejected.
 
 | Tool | Work a cache would avoid | Archive it would move |
 | --- | --- | --- |

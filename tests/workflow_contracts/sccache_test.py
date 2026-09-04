@@ -19,6 +19,9 @@ Run via ``make test-workflow-contracts``.
 
 from __future__ import annotations
 
+import re
+import typing as typ
+
 import pytest
 from workflow_support import (
     GITHUB_HOSTED_LABELS,
@@ -50,13 +53,28 @@ WRAPPER_REQUIRED = (
     ("property-tests.yml", "property-tests-weekly"),
 )
 
+#: A step that actually compiles something. The statistics are meaningless
+#: unless one of these runs between the reset and the report. Compilation
+#: also happens inside shared actions, so those count as build steps too.
+BUILD_COMMAND = re.compile(r"\bcargo\s+(nextest|test|build|clippy|llvm-cov)\b")
+BUILD_ACTIONS = ("/actions/generate-coverage@", "/actions/rust-build-release@")
+
+
+def _is_build_step(step: dict[str, typ.Any]) -> bool:
+    """Report whether a step compiles Rust."""
+    if BUILD_COMMAND.search(run_script(step)):
+        return True
+    reference = uses_reference(step)
+    return any(action in reference for action in BUILD_ACTIONS)
+
+
 #: The shared action that republishes Ubicloud's cache-proxy credentials.
 EXPORT_ACTION = (
     "leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@"
 )
 
 
-def _wrapper_jobs() -> list[tuple[str, str, dict]]:
+def _wrapper_jobs() -> list[tuple[str, str, dict[str, typ.Any]]]:
     """Return every job that names a compiler wrapper."""
     return [
         (workflow_name, job_name, definition)
@@ -90,7 +108,7 @@ def test_the_compile_heavy_jobs_name_the_wrapper(
     ids=_wrapper_job_ids(),
 )
 def test_the_wrapper_names_sccache(
-    workflow_name: str, job_name: str, definition: dict
+    workflow_name: str, job_name: str, definition: dict[str, typ.Any]
 ) -> None:
     """Only sccache is a supported wrapper here."""
     wrapper = definition["env"]["RUSTC_WRAPPER"]
@@ -106,7 +124,7 @@ def test_the_wrapper_names_sccache(
     ids=_wrapper_job_ids(),
 )
 def test_counters_are_zeroed_then_reported(
-    workflow_name: str, job_name: str, definition: dict
+    workflow_name: str, job_name: str, definition: dict[str, typ.Any]
 ) -> None:
     """Statistics only mean something when they describe one build."""
     scripts = [run_script(step) for step in steps(definition)]
@@ -129,9 +147,32 @@ def test_counters_are_zeroed_then_reported(
     assert zero_at < show_at, (
         f"{workflow_name}:{job_name} zeroes its counters after reporting them"
     )
-    assert "GITHUB_STEP_SUMMARY" in scripts[show_at], (
+    # The build has to sit between the two. Zeroing after compilation and
+    # before reporting satisfies the ordering above while reporting nothing
+    # but zeros, which looks like a working cache that did no work.
+    build_at = next(
+        (
+            index
+            for index, step in enumerate(steps(definition))
+            if index > zero_at and _is_build_step(step)
+        ),
+        None,
+    )
+    assert build_at is not None and build_at < show_at, (
+        f"{workflow_name}:{job_name} must compile between zeroing its "
+        "counters and reporting them, or the statistics describe no work"
+    )
+    report = scripts[show_at]
+    assert "GITHUB_STEP_SUMMARY" in report, (
         f"{workflow_name}:{job_name} must write its statistics to the job "
-        "summary, not only to the log"
+        "summary, where an operator can read them without opening the log"
+    )
+    # Job summaries are not exposed through the REST API, so statistics that
+    # only reach the summary cannot be checked by anything except a human
+    # with a browser. `tee` puts them in both places.
+    assert "tee" in report, (
+        f"{workflow_name}:{job_name} must also emit its statistics to the "
+        "log; a summary-only report is unreadable by tooling"
     )
 
 

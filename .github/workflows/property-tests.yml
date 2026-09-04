@@ -107,10 +107,12 @@ jobs:
         run: |
           {
             printf '### sccache (${{ matrix.suite }})\n\n'
+            printf -- '- cache service v2 selected: %s\n\n' \
+              "${ACTIONS_CACHE_SERVICE_V2:-unset}"
             printf '```\n'
             sccache --show-stats
             printf '```\n'
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - &upload_proptest_regressions_step
         name: Upload proptest regressions
         if: failure()

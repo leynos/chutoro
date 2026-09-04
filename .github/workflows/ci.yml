@@ -95,10 +95,12 @@ jobs:
         run: |
           {
             printf '### sccache (build-test)\n\n'
+            printf -- '- cache service v2 selected: %s\n\n' \
+              "${ACTIONS_CACHE_SERVICE_V2:-unset}"
             printf '```\n'
             sccache --show-stats
             printf '```\n'
-          } >> "$GITHUB_STEP_SUMMARY"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Check coverage against CodeScene gates
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}

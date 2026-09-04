@@ -138,6 +138,30 @@ def test_every_cache_step_declares_an_explainable_key(workflow_name: str) -> Non
             )
 
 
+#: Paths that must never reappear in a cache step. Kani's three parts total
+#: about 1.8 GB against a 16 s cold install (run 33819842254), so caching them
+#: costs far more runner time than it saves. Removing the old contract without
+#: this one would let the archive come back unnoticed.
+REJECTED_CACHE_PATHS = (
+    "~/.cargo/bin/cargo-kani",
+    "~/.cargo/bin/kani",
+    "~/.kani",
+    "~/.kani-rustup",
+)
+
+
+@pytest.mark.parametrize("workflow_name", workflow_names())
+def test_the_rejected_caches_stay_rejected(workflow_name: str) -> None:
+    """A cache that failed the payoff rule must not quietly return."""
+    for job_name, definition in jobs(load_workflow(workflow_name)).items():
+        for step in _cache_steps(definition):
+            for path in declared_cache_paths(step):
+                assert path not in REJECTED_CACHE_PATHS, (
+                    f"{workflow_name}:{job_name} caches {path}, which was "
+                    "measured and rejected; see the developers guide"
+                )
+
+
 #: Each installer script and the cache-step path that must restore its work
 #: first. Pairing them by tool keeps the ordering check meaningful once a job
 #: installs more than one tool.
