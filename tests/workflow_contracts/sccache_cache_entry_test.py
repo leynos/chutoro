@@ -177,6 +177,27 @@ def _command_lines(script: str) -> list[str]:
     return [" ".join(line.split()) for line in joined.splitlines() if line.strip()]
 
 
+def _script_shapes(step: dict[str, typ.Any]) -> set[str]:
+    """Return the compiling commands a step's `run:` script invokes."""
+    return {
+        line
+        for line in _command_lines(run_script(step))
+        if COMPILING_CARGO.match(line) or COMPILING_MAKE.match(line)
+    }
+
+
+def _action_shapes(step: dict[str, typ.Any]) -> set[str]:
+    """Return the compiling shared action a step uses, if it uses one.
+
+    The action's path stands in for the command, because the caller cannot
+    see what it runs.
+    """
+    reference = uses_reference(step)
+    return {
+        reference.split("@", 1)[0] for action in BUILD_ACTIONS if action in reference
+    }
+
+
 def _compile_shapes(definition: dict[str, typ.Any]) -> set[str]:
     """Return every distinct compilation a job performs.
 
@@ -185,20 +206,12 @@ def _compile_shapes(definition: dict[str, typ.Any]) -> set[str]:
     produces different objects from a plain workspace Clippy run, and
     sccache keys them separately, so a writer that runs only the latter
     leaves the former missing forever.
-
-    A step that compiles inside a shared action contributes that action's
-    path instead, because the caller cannot see the command it runs.
     """
-    shapes: set[str] = set()
-    for step in steps(definition):
-        for line in _command_lines(run_script(step)):
-            if COMPILING_CARGO.match(line) or COMPILING_MAKE.match(line):
-                shapes.add(line)
-        reference = uses_reference(step)
-        for action in BUILD_ACTIONS:
-            if action in reference:
-                shapes.add(reference.split("@", 1)[0])
-    return shapes
+    return {
+        shape
+        for step in steps(definition)
+        for shape in _script_shapes(step) | _action_shapes(step)
+    }
 
 
 def test_the_writer_compiles_every_shape_the_reader_reads() -> None:
