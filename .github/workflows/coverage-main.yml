@@ -28,15 +28,53 @@ jobs:
       # would compare a deterministic PR measurement against a non-deterministic
       # baseline. See ci.yml for the full rationale.
       RAYON_NUM_THREADS: '1'
-      # sccache is installed by Setup Rust but does nothing unless something
-      # names it as the compiler wrapper; setup-rust does not. Without this,
-      # every compilation bypasses the cache and the job recompiles the world
-      # each run. sccache-action puts the binary on PATH.
+      # Name the wrapper at job level so the compilation inside
+      # generate-coverage routes through the cache. Installing sccache is
+      # not enough on its own; nothing else names it.
       RUSTC_WRAPPER: sccache
+      # The local-disk arm, and the same directory and bound as ci.yml's
+      # build-test, because this job writes the key that job reads. See
+      # ci.yml for why the GitHub Actions backend was abandoned.
+      SCCACHE_DIR: ${{ github.workspace }}/.sccache
+      SCCACHE_CACHE_SIZE: 2G
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        with:
+          # mozilla-actions/sccache-action writes GitHub's cache endpoint
+          # to GITHUB_ENV on its way out, clobbering any earlier export for
+          # the rest of the job. Keeping the step out avoids that. See
+          # ci.yml.
+          use-sccache: 'false'
+      # Pinned, checksum-verified release archive; nothing is built from
+      # source in CI.
+      - name: Install sccache
+        run: scripts/install-sccache.sh
+      # A cache key that never varies can be written once and never again:
+      # actions/cache refuses to overwrite an existing key, so the entry
+      # would freeze at the first push that used a given lockfile. The date
+      # stamp gives the writer a fresh key each day while the restore-keys
+      # prefix keeps readers on the newest entry. Computed once per job so
+      # the restore and the save below cannot straddle midnight.
+      - name: Stamp the compiler-cache key
+        id: sccache-key
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      # Restore before writing, so a push that changes one crate carries the
+      # rest of the workspace forward instead of recompiling it. Pairs with
+      # the save below; this job is the only writer of this key.
+      - name: Restore compiler cache
+        id: sccache-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.sccache
+          key: >-
+            sccache-build-test-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ steps.sccache-key.outputs.date }}
+          restore-keys: |
+            sccache-build-test-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
+            sccache-build-test-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-
+      # Starts the server against SCCACHE_DIR and resets the counters, so
+      # the statistics below describe this run alone.
       - name: Reset compiler-cache counters
         run: sccache --zero-stats
       - name: Test and Measure Coverage
@@ -54,11 +92,20 @@ jobs:
           cache-provider: external
       - name: Record compiler-cache statistics
         if: ${{ always() }}
+        env:
+          SCCACHE_RESTORE_HIT: ${{ steps.sccache-restore.outputs.cache-hit }}
+          SCCACHE_RESTORE_KEY: ${{ steps.sccache-restore.outputs.cache-matched-key }}
         run: |
           {
             printf '### sccache (coverage-upload)\n\n'
-            printf -- '- cache service v2 selected: %s\n\n' \
+            printf -- '- cache service v2 selected: %s\n' \
               "${ACTIONS_CACHE_SERVICE_V2:-unset}"
+            printf -- '- restore exact hit: %s\n' \
+              "${SCCACHE_RESTORE_HIT:-false}"
+            printf -- '- restored key: %s\n' \
+              "${SCCACHE_RESTORE_KEY:-none}"
+            printf -- '- cache size on disk: %s\n\n' \
+              "$(du -sh "${SCCACHE_DIR}" 2>/dev/null | cut -f1)"
             printf '```\n'
             sccache --show-stats
             printf '```\n'
@@ -73,3 +120,28 @@ jobs:
           project-url: https://api.codescene.io/v2/projects/71838
           access-token: ${{ env.CS_ACCESS_TOKEN }}
           installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
+      # The save has to archive a quiescent directory, so the server stops
+      # first; its statistics have already been read above. The coverage
+      # scratch tree has no later consumer and is the largest thing on the
+      # disk, so it goes before the archive is built. `df -h` on both sides
+      # records the headroom the save actually had.
+      - name: Reclaim disk before the cache save
+        if: ${{ github.event_name == 'push' }}
+        run: |
+          set -euo pipefail
+          df -h .
+          sccache --stop-server >/dev/null 2>&1 || true
+          rm -rf target/llvm-cov-target
+          du -sh "${SCCACHE_DIR}" || true
+          df -h .
+      # Sole writer of this key. ci.yml's build-test reads it on every pull
+      # request and never writes, so there is exactly one owner and no race
+      # on merge. Dispatches restore but never save, which keeps a manual
+      # re-upload from overwriting the entry a real merge produced.
+      - name: Save compiler cache
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.sccache
+          key: >-
+            sccache-build-test-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ steps.sccache-key.outputs.date }}

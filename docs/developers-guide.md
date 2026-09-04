@@ -7,11 +7,48 @@ keeps operational guidance in one place.
 ## GitHub Actions runner profiles
 
 Exactly one job runs on a paid runner: `property-tests-pr`, on
-`ubicloud-standard-8`. It sits on the developer feedback path, where GitHub's
-queue can stretch to hours during busy periods, and its CPU-bound HNSW,
-edge-harvest, MST, and SIMD suites were sized for that runner's eight-core
-capacity. The `ci` nextest profile caps test concurrency at four, so the larger
-shape also preserves build headroom.
+`ubicloud-standard-2`. It sits on the developer feedback path, where GitHub's
+queue can stretch to hours during busy periods, which is what the paid queue
+buys; the core count is a separate question, and was answered by measurement
+rather than by the suites' names.
+
+It ran on `ubicloud-standard-8` until the shape was measured. On eight cores
+the whole "Run property suite" step, compilation and 250 cases together, took
+21 to 24 seconds across the four suites (run 33852441511), inside jobs of 51
+to 57 seconds. That is roughly a fifteen-second compile, four ways in parallel,
+far off the critical path that `build-test`'s coverage step defines. Eight
+cores bought nothing worth paying for, so the job runs on two. Wall times
+are in "Property suite runner shape" below.
+`tests/workflow_contracts/runner_placement_test.py` and
+`chutoro-core/tests/nextest_config.rs` both assert the label by value,
+because a paid runner is the one setting here that costs more when somebody
+quietly reaches for a bigger one.
+
+### Property suite runner shape
+
+Table: The four pull-request property suites before and after the move from
+eight cores to two, measured on run 33852441511 and on the run of the pull
+request that made the change.
+
+| Suite | Step, 8 cores | Step, 2 cores | Job, 8 cores | Job, 2 cores |
+| --- | --- | --- | --- | --- |
+| hnsw | 24 s | 53 s | 57 s | 79 s |
+| dense_simd | 23 s | 52 s | 54 s | 82 s |
+| edge_harvest | 21 s | 55 s | 53 s | 87 s |
+| mst | 21 s | 52 s | 51 s | 81 s |
+
+The step is compilation and 250 cases together, so it roughly doubles, and
+the whole job grows by about half. Nothing approaches the `timeout-minutes:
+20` budget, and the four suites still run in parallel, so the pull request
+waits about thirty seconds longer on a path already defined by `build-test`
+at over 700 seconds. Two cores at a quarter of the per-minute rate for
+around 1.55 times the minutes is roughly a 60 % saving on this job.
+
+The `ci` nextest profile still asks for four test threads, so two cores
+oversubscribe. That is the deliberate part of the trade, and the doubled
+step time above is what it costs. Raising the shape again needs a wall-time
+measurement in the pull request that raises it, not an argument from the
+suites' names.
 
 Everything else is GitHub-hosted on `ubuntu-latest`, and the placement rule
 that keeps it that way is deliberate rather than incidental:
@@ -33,6 +70,8 @@ has already been retired.
 
 ### Job inventory
 
+Table: Every workflow job, the runner it uses, and what it does.
+
 | Workflow | Job | Runner | Purpose |
 | --- | --- | --- | --- |
 | `benchmark-regressions.yml` | `benchmark-policy` | `ubuntu-latest` | Resolve the benchmark mode and matrix |
@@ -45,7 +84,7 @@ has already been retired.
 | `mutation-testing.yml` | `mutation` | callee-selected | Reusable workflow, scheduled |
 | `nightly-kani.yml` | `kani-full` | `ubuntu-latest` | Full Kani harness suite |
 | `nightly-portable-simd.yml` | `nightly-portable-simd` | `ubuntu-latest` | Nightly portable-SIMD backend |
-| `property-tests.yml` | `property-tests-pr` | `ubicloud-standard-8` | Pull-request property suites |
+| `property-tests.yml` | `property-tests-pr` | `ubicloud-standard-2` | Pull-request property suites |
 | `property-tests.yml` | `property-tests-weekly` | `ubuntu-latest` | Weekly deep property suites |
 
 ### Tool installers
@@ -54,14 +93,18 @@ Continuous integration (CI) never builds a tool from source. A source build
 turns a cache miss into minutes of paid compilation, so every tool arrives as
 a pinned, checksum-verified prebuilt archive:
 
+Table: Each tool CI installs, the installer that fetches it, and where its
+version and digest are pinned.
+
 | Tool | Installer | Pin |
 | --- | --- | --- |
 | Whitaker | `leynos/shared-actions/.github/actions/install-whitaker` | Action input, currently 0.2.7 |
 | cargo-nextest | `scripts/install-nextest.sh` | `tools/nextest/VERSION` and `SHA256SUMS` |
+| sccache | `scripts/install-sccache.sh` | `tools/sccache/VERSION` and `SHA256SUMS` |
 | Kani | `scripts/install-kani.sh` | `tools/kani/VERSION` and `SHA256SUMS` |
 | Verus | `scripts/install-verus.sh` | `tools/verus/VERSION` and `SHA256SUMS` |
 
-The three repository scripts share `scripts/lib/pinned-download.sh`, which
+The four repository scripts share `scripts/lib/pinned-download.sh`, which
 reads the pinned version, looks the archive's SHA-256 up in the sibling
 manifest, and fails closed when either is missing or does not match. That
 helper is for repository installer scripts only; it is not a general download
@@ -88,7 +131,13 @@ it belongs, on `ci.yml`'s lint and build steps.
 Every cached path has exactly one owner per job. Two owners means two keys
 racing to describe the same directory, so one of them always restores work the
 other has invalidated. `tests/workflow_contracts/cache_ownership_test.py`
-enforces this, including the paths the shared actions own implicitly.
+enforces this, including the paths the shared actions own implicitly. The
+caches that were measured and rejected outright are pinned separately, in
+`rejected_caches_test.py`, which matches declared paths through the
+`@actions/glob` translation in `cache_path_globs.py` rather than as strings.
+
+Table: Each cached path, its single owner, and the input its key is derived
+from.
 
 | Path | Owner | Key input |
 | --- | --- | --- |
@@ -96,6 +145,7 @@ enforces this, including the paths the shared actions own implicitly.
 | `~/.cache/uv` | `setup-rust`'s `setup-uv` invocation | `pyproject.toml`, `uv.lock`, helper scripts |
 | `~/.cargo/bin/whitaker-installer`, `~/.local/share/whitaker` | `install-whitaker` | Installer version and `dylint.toml` |
 | `.verus` | `ci.yml`'s Cache Verus step | Pinned Verus version and digest |
+| `.sccache` | `coverage-main.yml`'s Save compiler cache step | Toolchain file, `Cargo.lock` and a date stamp |
 
 Three consequences follow, and each is asserted by a contract test:
 
@@ -130,47 +180,76 @@ archives with executable probes; only the archive is gone.
 ### The compiler cache
 
 sccache is the sole owner of compiler output, which is why no cache step
-archives a `target` tree. Making that true took three things beyond installing
-it, and each is asserted by `tests/workflow_contracts/sccache_test.py`:
+archives a `target` tree. Owning it is not the same as storing it, and this
+repository has now failed at that twice. Both failures reported success.
+Every part below is asserted by the contracts in
+`tests/workflow_contracts/`: `sccache_wiring_test.py` for whether the
+cache is switched on and pointed somewhere real, and
+`sccache_cache_entry_test.py` for who reads it, who writes it, and in
+what order.
 
-1. `RUSTC_WRAPPER: sccache` at job level. `setup-rust` installs sccache but
-   never names it as the wrapper, so before this every compilation bypassed
-   the cache while the logs still reported a healthy server with zero compile
+The arrangement that works has five parts:
+
+1. `RUSTC_WRAPPER: sccache` at job level, so every compiling step routes
+   through the cache, including the ones inside shared actions. `setup-rust`
+   never names the wrapper itself, so before this every compilation bypassed
+   the cache while the logs reported a healthy server with zero compile
    requests.
-2. `sccache --zero-stats` before the build and `--show-stats` afterwards,
-   teed into both the log and the job summary. Job summaries are not exposed
-   through the REST API, so a summary-only report cannot be checked by
-   anything except a human with a browser.
-3. On Ubicloud, the `export-ubicloud-cache-credentials` shared action
-   immediately after checkout and before `setup-rust`. The runner exposes its
-   local cache proxy's URL and token to action steps only, never to a `run:`
-   step, so the sccache server would otherwise never see them. Ordering is
-   load-bearing: `setup-rust` starts the server, so an export after it arrives
-   too late to change the backend. The action also clears
-   `ACTIONS_CACHE_SERVICE_V2`, because the proxy serves v1 and leaving v2
-   selected sends writes to GitHub instead. It fails closed on a
-   GitHub-hosted runner, so it must not appear on one. Those jobs leave the
-   v2 service available and unused: they still compile to local disk because
-   nothing here sets `SCCACHE_GHA_ENABLED` and no backend is selected without
-   it.
+2. `use-sccache: 'false'` on every `setup-rust` step, and the binary
+   installed by `scripts/install-sccache.sh` from a `run:` step instead. The
+   shared action runs `mozilla-actions/sccache-action`, whose last act is to
+   write `ACTIONS_CACHE_SERVICE_V2=on` and GitHub's results URL and token to
+   `GITHUB_ENV`. That clobbers any earlier cache-endpoint export for every
+   later step in the job, which is how the Ubicloud lane's writes ended up
+   at GitHub rather than at the local proxy. Keeping the step out is what
+   makes the local backend's indifference to those variables count.
+3. `SCCACHE_DIR` pointing at `.sccache` under the workspace, with
+   `SCCACHE_CACHE_SIZE: 2G`. The default is `~/.cache/sccache`, outside the
+   workspace, where no cache step can reach it; the bound keeps the compiler
+   cache from evicting its neighbours out of the repository's 10 GB quota.
+4. An `actions/cache/restore` of that directory before the server starts.
+   Unpacking the archive underneath a running server leaves the run
+   compiling from scratch while the statistics report a full cache.
+5. `sccache --zero-stats` before the build and `--show-stats` afterwards,
+   teed into both the log and the job summary, alongside the restored key.
+   Job summaries are not exposed through the REST API, so a summary-only
+   report cannot be checked by anything except a human with a browser, and a
+   restore that silently missed produces exactly the numbers a cold run
+   produces.
 
-There is a wrinkle worth knowing before repeating this elsewhere. On Ubicloud
-the export cannot win because `setup-rust` starts the sccache server inside
-an action step and the runner re-injects `ACTIONS_CACHE_SERVICE_V2=on` and
-GitHub's results URL into action steps. The server binds to GitHub's v2
-service whatever `GITHUB_ENV` says. Starting sccache from a `run:` step after
-the export, with `use-sccache: false`, sidesteps it.
+#### Who reads and who writes
 
-`Cache location` in the reported statistics names the backend. It currently
-reads `Local disk`, which means nothing survives the job: sccache selects its
-GitHub Actions backend only when `SCCACHE_GHA_ENABLED` is set, and neither
-this repository nor the shared action sets it.
+`ci.yml`'s `build-test` restores the key and never saves.
+`coverage-main.yml`'s `coverage-upload` restores it, compiles the same
+workspace under the same instrumentation on `push` to `main`, and is the
+only job that saves. One owner means no race on merge and no run discarding
+another's work. The save is guarded on `github.event_name == 'push'`, so a
+dispatch restores and never saves and a manual re-upload cannot overwrite
+the entry a real merge produced.
 
-That is deliberate, and it is the second measurement in this area worth
-keeping. Enabling the backend was tried and reverted:
+The key carries `runner.os`, `runner.arch`, `runner.environment`, the hash
+of `rust-toolchain.toml` and `Cargo.lock`, and a UTC date stamp. The date
+stamp is not decoration: `actions/cache` refuses to overwrite an existing
+key, so without a component that moves, the entry would freeze at the first
+push that used a given lockfile and never take another day's work. Readers
+carry two `restore-keys` prefixes, one dropping the date and one dropping
+the lockfile too, so a dependency bump starts from the newest older entry
+rather than from nothing. The stamp is computed once per job, so a job
+running across midnight cannot restore under one date and save under
+another.
 
-Table: `build-test` across four states, showing that neither sccache
-configuration has yet recovered the time the `target` archive used to save.
+Before the save, `coverage-upload` stops the server, deletes
+`target/llvm-cov-target`, and prints `df -h` on both sides. The scratch tree
+has no consumer after the coverage report and is the largest thing on the
+disk; deleting it is what leaves room to build the archive, and the `df -h`
+pair is how the next reader knows how much headroom the save actually had.
+
+#### Why the GitHub Actions backend is gone
+
+sccache's `ghac` backend was tried and reverted on measurement, not taste.
+
+Table: `build-test` across four states, showing what each sccache
+configuration cost.
 
 | Step | Before the pin bump | No wrapper | Wrapper, local disk | Wrapper plus `ghac` |
 | --- | --- | --- | --- | --- |
@@ -184,24 +263,55 @@ and failed. The statistics say why: 273 rejected writes, and a cache read hit
 averaging 0.280 s against 0.420 s to simply compile the unit. A backend whose
 reads cost nearly as much as compiling cannot pay even at a perfect hit rate,
 so it fails the same rule that rejected the Kani and cargo-nextest caches.
+The Ubicloud lane failed differently, with 164 rejected writes, and the
+cause is worth stating precisely because the obvious explanation is wrong.
+`run:` steps do see the credentials export. What defeats it is that
+`mozilla-actions/sccache-action`, which `setup-rust` invokes, writes
+`ACTIONS_CACHE_SERVICE_V2=on` and GitHub's results URL and token to
+`GITHUB_ENV` as its last act, clobbering the export for every later step in
+the job. The server then wrote to GitHub rather than to the local proxy.
 
-The wrapper stays, because it costs almost nothing and is a precondition for
-any backend. Choosing one is open work: the alternative is an `actions/cache`
-entry for `~/.cache/sccache`, restored on pull requests and written only by
-`coverage-main.yml` on `main`. Until that is settled, the coverage gate
-remains slower than its 494-second baseline, and the cause is the removed
-`target` archive rather than anything in this configuration.
+Nothing sets `SCCACHE_GHA_ENABLED` now, and a contract test sweeps every
+job, every step and every script to keep it that way. The
+`export-ubicloud-cache-credentials` shared action is gone with it: it exists
+to let a `run:`-started server reach the proxy's v1 cache service, which
+only that backend spoke. `actions/cache` is an action step, so the runner
+hands it those variables directly, and the local disk backend ignores them
+entirely.
 
-Four jobs name the wrapper: `build-test`, `coverage-upload`, and both property
-suites. The exclusions are deliberate. `verus-proofs` and
-`nightly-portable-simd` do not use `setup-rust` and so have no sccache to
-name, and `nightly-kani` compiles through `kani-compiler`, which sccache does
-not support.
+`Cache location` in the reported statistics names the backend. It must read
+the workspace `.sccache` directory. `Local disk: ~/.cache/sccache` means the
+job is compiling into a directory nothing moves, which is the failure that
+reads as success.
+
+#### Which jobs carry a cache, and which do not
+
+Two jobs name the wrapper: `build-test` and `coverage-upload`, the reader
+and the writer of the one key. Every other job passes
+`use-sccache: 'false'` and carries no compiler cache at all, which is a
+deliberate choice rather than an oversight:
+
+- The property suites would need their own writer. Their readers sit on
+  Ubicloud, so only an Ubicloud writer lands in the store they read, which
+  means a paid job on every merge. The whole "Run property suite" step,
+  compilation and 250 cases together, measures 21 to 24 seconds on run
+  33852441511, and the four suites run in parallel far off the critical
+  path that the 495-second coverage step defines. A writer would buy about
+  ten seconds.
+- The benchmark jobs and `nightly-kani` have no writer on `main` either.
+  `nightly-kani` additionally compiles through `kani-compiler`, which
+  sccache does not support.
+- `verus-proofs` and `nightly-portable-simd` do not use `setup-rust`, so
+  there was never an sccache to name.
+
+Installing sccache in any of those would be worse than leaving it out: the
+server starts, the statistics look plausible, and the directory dies with
+the runner.
 
 This matters more than it looks. When `setup-rust` stopped archiving
-`target/${BUILD_PROFILE}`, correctly, the coverage gate grew from a 494-second
-median to over 800 seconds, because the mechanism meant to replace that
-archive had never been switched on.
+`target/${BUILD_PROFILE}`, correctly, the coverage gate grew from a
+494-second median to over 800 seconds, because the mechanism meant to
+replace that archive had never been switched on.
 
 Compiled-tool keys include `runner.environment` alongside `runner.os` and
 `runner.arch`. That value is `github-hosted` on GitHub's runners and
@@ -554,7 +664,8 @@ sections on fallible helpers.
 
 ## Continuous integration
 
-`property-tests-pr` runs on `ubicloud-standard-8`, an 8-core Ubicloud runner.
+`property-tests-pr` runs on `ubicloud-standard-2`, a 2-core Ubicloud runner,
+right-sized from eight cores on measured wall times.
 `property-tests-weekly` runs on GitHub-hosted `ubuntu-latest`; see
 [GitHub Actions runner profiles](#github-actions-runner-profiles) for the
 placement rule that separates them.

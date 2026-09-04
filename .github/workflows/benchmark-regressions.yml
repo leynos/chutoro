@@ -32,8 +32,14 @@ jobs:
       bench_matrix: ${{ steps.bench-matrix.outputs.bench_matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # No compiler cache here. These jobs have no writer on main, so an
+      # installed sccache would start a server against a local directory
+      # nothing ever moves, which reports a healthy cache that stores
+      # nothing. Skipping the install also saves the download.
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        with:
+          use-sccache: 'false'
       - name: Resolve benchmark CI mode
         id: gate
         env:
@@ -62,8 +68,14 @@ jobs:
       CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT: '0'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # No compiler cache here. These jobs have no writer on main, so an
+      # installed sccache would start a server against a local directory
+      # nothing ever moves, which reports a healthy cache that stores
+      # nothing. Skipping the install also saves the download.
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        with:
+          use-sccache: 'false'
       - name: Run benchmark discovery smoke check
         run: |
           set -o pipefail
@@ -104,8 +116,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 2
+      # No compiler cache here. These jobs have no writer on main, so an
+      # installed sccache would start a server against a local directory
+      # nothing ever moves, which reports a healthy cache that stores
+      # nothing. Skipping the install also saves the download.
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        with:
+          use-sccache: 'false'
       - name: Resolve benchmark reference commit
         id: reference
         run: |

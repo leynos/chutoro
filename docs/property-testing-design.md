@@ -729,9 +729,12 @@ workflow.
         It still prevents a misbehaving or non-terminating test from blocking
         the entire CI queue.
 
-  - **Runner:** The workflow uses an 8-core Ubicloud executor so the CPU-bound
-        HNSW, edge-harvest, and MST property suites have enough parallel
-        capacity without relying on the smaller default GitHub-hosted runner.
+  - **Runner:** The workflow uses a 2-core Ubicloud executor. What the paid
+        runner buys is the queue, not the cores: GitHub's hosted queue can
+        stretch to hours during busy periods, while the suites themselves
+        were measured at 21 to 24 seconds of compilation and 250 cases on
+        eight cores, so eight cores bought nothing worth paying for. Wall
+        times before and after the change are in the developers guide.
 
 - **Optimization via selective execution:** To minimize CI costs and feedback
     time, the workflow will be structured into separate jobs for each major
@@ -747,7 +750,7 @@ workflow.
 | **Trigger**            | `on: pull_request`             | `on: schedule` (e.g., weekly)           |
 | **`Proptest` Cases**   | `250` (default)                | `25,000` (via env var `PROGTEST_CASES`) |
 | **`Proptest` Forking** | `false`                        | `true`                                  |
-| **Runner**             | `ubicloud-standard-8`          | `ubicloud-standard-8`                   |
+| **Runner**             | `ubicloud-standard-2`          | `ubuntu-latest`                         |
 | **Job Timeout**        | `20 minutes`                   | `120 minutes`                           |
 | **Execution Scope**    | Path-filtered (selective jobs) | Full repository test suite              |
 | **Failure Action**     | Block PR merge                 | Alert team & upload failure artefact    |
@@ -812,7 +815,7 @@ jobs:
     if: |
       github.event.pull_request.draft == false &&
       (contains(github.event.pull_request.labels.*.name, 'run-ci'))
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-2
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v3
@@ -828,7 +831,7 @@ jobs:
     if: |
       github.event.pull_request.draft == false &&
       (contains(github.event.pull_request.labels.*.name, 'run-ci'))
-    runs-on: ubicloud-standard-8
+    runs-on: ubicloud-standard-2
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v3
@@ -857,7 +860,9 @@ on:
 
 jobs:
   deep-test:
-    runs-on: ubicloud-standard-8
+    # Weekly work is off the feedback path, so it never runs on a paid
+    # runner; see the developers guide's placement rule.
+    runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v3

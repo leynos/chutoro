@@ -6,6 +6,7 @@ coverage.xml
 .grepai/
 .memdb/
 .verus/
+.sccache/
 *.swp
 __pycache__/
 

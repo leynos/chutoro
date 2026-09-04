@@ -5,7 +5,8 @@ one of them always restores work the other has already invalidated. Every
 path below therefore has exactly one owner per job, and every key is
 derived from a correctness input a reader can explain. Compiler output is
 excluded outright: sccache owns it, and archiving a ``target`` tree beside
-sccache duplicates that ownership and inflates the weekly quota.
+sccache duplicates that ownership and inflates the weekly quota. The caches
+that were measured and rejected outright live in ``rejected_caches_test``.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -15,6 +16,7 @@ from __future__ import annotations
 import collections
 import collections.abc as cabc
 import re
+import typing as typ
 from pathlib import Path
 
 import pytest
@@ -40,7 +42,7 @@ CACHE_ACTION_RE = re.compile(r"^actions/cache(?:/(?:restore|save))?@(?P<sha>\S+)
 UV_CACHE_PATH = "~/.cache/uv"
 
 
-def _cache_steps(definition: dict) -> list[dict]:
+def _cache_steps(definition: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
     """Return the job's explicit cache steps."""
     return [
         step
@@ -49,13 +51,13 @@ def _cache_steps(definition: dict) -> list[dict]:
     ]
 
 
-def _explicit_owner(step: dict, reference: str) -> list[tuple[str, str]]:
+def _explicit_owner(step: dict[str, typ.Any], reference: str) -> list[tuple[str, str]]:
     """Return the paths a cache step names outright."""
     label = step.get("name", reference)
     return [(path, label) for path in declared_cache_paths(step)]
 
 
-def _implicit_owner(step: dict, reference: str) -> list[tuple[str, str]]:
+def _implicit_owner(step: dict[str, typ.Any], reference: str) -> list[tuple[str, str]]:
     """Return the paths an action caches without the caller naming them."""
     if not cache_is_enabled(step):
         return []
@@ -67,7 +69,7 @@ def _implicit_owner(step: dict, reference: str) -> list[tuple[str, str]]:
     return []
 
 
-def _step_owners(step: dict) -> list[tuple[str, str]]:
+def _step_owners(step: dict[str, typ.Any]) -> list[tuple[str, str]]:
     """Return every (path, owner) pair one step establishes."""
     reference = uses_reference(step)
     if CACHE_ACTION_RE.match(reference):
@@ -75,9 +77,69 @@ def _step_owners(step: dict) -> list[tuple[str, str]]:
     return _implicit_owner(step, reference)
 
 
-def _owned_paths(definition: dict) -> list[tuple[str, str]]:
+#: The split cache actions. A `restore` and a `save` naming the same path
+#: under the same key are two halves of one owner, not two owners: the pair
+#: is how a job reads an entry at the start and writes it at the end without
+#: the combined action's implicit post-step. Counting them separately would
+#: make the single-owner contract reject the very shape it exists to
+#: encourage.
+SPLIT_CACHE_ACTIONS = ("actions/cache/restore", "actions/cache/save")
+
+
+#: A (path, key) combination, mapped to the halves that have claimed it.
+CacheClaims = dict[tuple[str, str], set[str]]
+
+
+def _split_cache_half(
+    step: dict[str, typ.Any], reference: str
+) -> tuple[str, str] | None:
+    """Return a restore/save step's (half, key), or None if it is neither.
+
+    The half matters as much as the key. Only one `restore` and one `save`
+    make a pair; a second `restore` under the same key is a duplicate owner,
+    which is exactly what this module exists to catch.
+    """
+    half = reference.split("@", 1)[0]
+    if half not in SPLIT_CACHE_ACTIONS:
+        return None
+    with_block = step.get("with")
+    key = with_block.get("key", "") if isinstance(with_block, dict) else ""
+    return half, key
+
+
+def _deduplicated_step_owners(
+    step: dict[str, typ.Any], claimed: CacheClaims
+) -> list[tuple[str, str]]:
+    """Return a step's (path, owner) pairs, counting one split pair once.
+
+    `claimed` records which halves have already claimed each (path, key), and
+    is updated in place. A path counts as a fresh owner when nothing has
+    claimed it yet, or when this same half has already claimed it, which is a
+    genuine duplicate. Only the complementary half is absorbed.
+    """
+    reference = uses_reference(step)
+    found = _split_cache_half(step, reference)
+    if found is None:
+        return _step_owners(step)
+    half, key = found
+    label = step.get("name", reference)
+    fresh: list[str] = []
+    for path in declared_cache_paths(step):
+        halves = claimed.setdefault((path, key), set())
+        if not halves or half in halves:
+            fresh.append(path)
+        halves.add(half)
+    return [(path, label) for path in fresh]
+
+
+def _owned_paths(definition: dict[str, typ.Any]) -> list[tuple[str, str]]:
     """Return every (path, owner) pair a job establishes."""
-    return [pair for step in steps(definition) for pair in _step_owners(step)]
+    claimed: CacheClaims = {}
+    return [
+        pair
+        for step in steps(definition)
+        for pair in _deduplicated_step_owners(step, claimed)
+    ]
 
 
 @pytest.mark.parametrize("workflow_name", workflow_names())
@@ -126,6 +188,48 @@ def test_each_cached_path_has_exactly_one_owner(workflow_name: str) -> None:
         )
 
 
+def _cache_half(half: str, name: str, path: str, key: str) -> dict[str, typ.Any]:
+    """Build one restore or save step, for the ownership unit tests."""
+    return {
+        "name": name,
+        "uses": f"actions/cache/{half}@{CACHE_ACTION_SHA}",
+        "with": {"path": path, "key": key},
+    }
+
+
+@pytest.mark.parametrize(
+    ("halves", "expected_owners"),
+    [
+        pytest.param(("restore", "save"), 1, id="complementary-pair"),
+        pytest.param(("save", "restore"), 1, id="pair-in-either-order"),
+        pytest.param(("restore", "restore"), 2, id="two-restores"),
+        pytest.param(("save", "save"), 2, id="two-saves"),
+        pytest.param(("restore", "save", "restore"), 2, id="pair-plus-a-third"),
+    ],
+)
+def test_split_cache_halves_collapse_only_in_complementary_pairs(
+    halves: tuple[str, ...], expected_owners: int
+) -> None:
+    """One restore and one save are one owner; two of a kind are two.
+
+    The first version of this collapsed on (path, key) alone, so a job with
+    two `restore` steps naming the same path passed the single-owner
+    contract. That is the duplicate the contract exists to catch, so it gets
+    a test of its own rather than relying on no workflow happening to do it.
+    """
+    path = "${{ github.workspace }}/.example"
+    definition = {
+        "steps": [
+            _cache_half(half, f"cache {index}", path, "example-key-v1")
+            for index, half in enumerate(halves)
+        ]
+    }
+    owners = [owner for owned, owner in _owned_paths(definition) if owned == path]
+    assert len(owners) == expected_owners, (
+        f"{halves} should establish {expected_owners} owner(s), found {owners}"
+    )
+
+
 @pytest.mark.parametrize("workflow_name", workflow_names())
 def test_every_cache_step_declares_an_explainable_key(workflow_name: str) -> None:
     """A cache without a key cannot explain a miss."""
@@ -136,191 +240,6 @@ def test_every_cache_step_declares_an_explainable_key(workflow_name: str) -> Non
             assert isinstance(key, str) and key.strip(), (
                 f"{workflow_name}:{job_name} declares a cache step without a key"
             )
-
-
-#: Paths that must never reappear in a cache step. Kani's three parts total
-#: about 1.8 GB against a 16 s cold install (run 33819842254), so caching them
-#: costs far more runner time than it saves. Removing the old contract without
-#: this one would let the archive come back unnoticed.
-REJECTED_CACHE_PATHS: tuple[str, ...] = (
-    "~/.cargo/bin/cargo-kani",
-    "~/.cargo/bin/kani",
-    "~/.kani",
-    "~/.kani-rustup",
-)
-
-
-def _normalize(path: str) -> str:
-    """Strip a trailing separator so equivalent spellings compare equal."""
-    return path.rstrip("/") or "/"
-
-
-#: Characters that make an `actions/cache` path a pattern rather than a
-#: literal. The action resolves its paths through `@actions/glob`, so a
-#: contract that compares them as plain strings can be walked straight past:
-#: `~/.cargo/bin/*` archives `cargo-kani` while never spelling its name.
-GLOB_METACHARACTERS = "*?["
-
-
-def _has_glob(pattern: str) -> bool:
-    """Report whether a declared path is a glob pattern."""
-    return any(character in pattern for character in GLOB_METACHARACTERS)
-
-
-#: One glob token, as a regex fragment and the number of characters it
-#: consumed. Splitting the translation into matchers keeps the loop below a
-#: single statement; a `while` with a branch per token kind is the shape
-#: that turns a small grammar into an unreadable one.
-GlobToken = tuple[str, int]
-
-
-def _match_recursive_wildcard(pattern: str, index: int) -> GlobToken | None:
-    """Match `**`, which crosses path separators."""
-    return (".*", 2) if pattern.startswith("**", index) else None
-
-
-def _match_wildcard(pattern: str, index: int) -> GlobToken | None:
-    """Match `*`, which stays within one path segment."""
-    return ("[^/]*", 1) if pattern[index] == "*" else None
-
-
-def _match_single_character(pattern: str, index: int) -> GlobToken | None:
-    """Match `?`, which stands for one non-separator character."""
-    return ("[^/]", 1) if pattern[index] == "?" else None
-
-
-def _match_bracket_expression(pattern: str, index: int) -> GlobToken | None:
-    """Match `[...]`, rewriting `!` negation to the regex spelling."""
-    if pattern[index] != "[":
-        return None
-    close = pattern.find("]", index + 1)
-    if close == -1:
-        return None
-    body = pattern[index + 1 : close]
-    if body.startswith("!"):
-        body = f"^{body[1:]}"
-    return (f"[{body}]", close + 1 - index)
-
-
-def _match_literal(pattern: str, index: int) -> GlobToken:
-    """Match anything else, as itself."""
-    return (re.escape(pattern[index]), 1)
-
-
-#: Ordered because `**` must be tried before `*`, and an unterminated `[`
-#: must fall through to the literal matcher rather than being dropped.
-GLOB_TOKEN_MATCHERS = (
-    _match_recursive_wildcard,
-    _match_wildcard,
-    _match_single_character,
-    _match_bracket_expression,
-    _match_literal,
-)
-
-
-def _glob_to_regex(pattern: str) -> re.Pattern[str]:
-    """Translate an `@actions/glob` pattern into an equivalent regex."""
-    fragments: list[str] = []
-    index = 0
-    while index < len(pattern):
-        fragment, width = next(
-            token
-            for matcher in GLOB_TOKEN_MATCHERS
-            if (token := matcher(pattern, index)) is not None
-        )
-        fragments.append(fragment)
-        index += width
-    return re.compile("".join(fragments) + r"\Z")
-
-
-def _literal_prefix(pattern: str) -> str:
-    """Return the leading segments of a pattern that contain no wildcard.
-
-    Everything a pattern can match lives under this directory, which is what
-    makes it the right thing to compare against when asking whether the
-    archive would reach inside a rejected tree.
-    """
-    kept: list[str] = []
-    for segment in pattern.split("/"):
-        if _has_glob(segment):
-            break
-        kept.append(segment)
-    return "/".join(kept) or "/"
-
-
-def _ancestors(path: str) -> list[str]:
-    """Return every proper ancestor directory of a path, shallowest first."""
-    segments = path.split("/")
-    return ["/".join(segments[:count]) for count in range(1, len(segments))]
-
-
-def _covers(declared: str, rejected: str) -> bool:
-    """Report whether a declared cache path would archive a rejected one.
-
-    Exact equality is not enough, in three separate ways. `actions/cache`
-    accepts a directory with or without a trailing separator. Caching a
-    parent sweeps its children in, so `~/.cargo/bin` archives `cargo-kani`
-    just as surely as naming it; `@actions/glob` sets `implicitDescendants`,
-    so a pattern matching that parent does the same. And a child counts too:
-    `~/.kani-rustup/toolchains` is most of the 1.3 GB.
-    """
-    left, right = _normalize(declared), _normalize(rejected)
-    matches = _glob_to_regex(left).fullmatch
-    if matches(right):
-        return True
-    if any(matches(ancestor) for ancestor in _ancestors(right)):
-        return True
-    prefix = _normalize(_literal_prefix(left))
-    return prefix == right or prefix.startswith(f"{right}/")
-
-
-@pytest.mark.parametrize("workflow_name", workflow_names())
-def test_the_rejected_caches_stay_rejected(workflow_name: str) -> None:
-    """A cache that failed the payoff rule must not quietly return."""
-    for job_name, definition in jobs(load_workflow(workflow_name)).items():
-        for step in _cache_steps(definition):
-            for path in declared_cache_paths(step):
-                covered = [
-                    rejected
-                    for rejected in REJECTED_CACHE_PATHS
-                    if _covers(path, rejected)
-                ]
-                assert not covered, (
-                    f"{workflow_name}:{job_name} caches {path}, which covers "
-                    f"{covered}; those were measured and rejected. See the "
-                    "developers guide."
-                )
-
-
-@pytest.mark.parametrize(
-    ("declared", "is_covered"),
-    [
-        pytest.param("~/.kani", True, id="exact"),
-        pytest.param("~/.kani/", True, id="trailing-separator"),
-        pytest.param("~/.cargo/bin", True, id="parent-directory"),
-        pytest.param("~/.kani-rustup/toolchains", True, id="child-directory"),
-        pytest.param("~/.cargo/registry", False, id="unrelated-sibling"),
-        pytest.param("~/.cargo/bin/whitaker-installer", False, id="other-tool"),
-        pytest.param("~/.kani-extra", False, id="shared-prefix-only"),
-        pytest.param("~/.cargo/bin/*", True, id="globbed-parent"),
-        pytest.param("~/.cargo/**", True, id="recursive-glob"),
-        pytest.param("~/.kani*", True, id="glob-matching-the-path-itself"),
-        pytest.param("~/.kani-rustup/*/lib", True, id="glob-inside-a-rejected-tree"),
-        pytest.param("~/.cargo/bin/whitaker-*", False, id="glob-for-another-tool"),
-        pytest.param("~/.cargo/registry/**", False, id="recursive-glob-elsewhere"),
-        pytest.param("~/.cargo/bin/?ani", True, id="single-character-wildcard"),
-        pytest.param("~/.cargo/bin/[ck]ani", True, id="bracket-expression"),
-    ],
-)
-def test_rejected_path_coverage_recognizes_equivalent_spellings(
-    declared: str, is_covered: bool
-) -> None:
-    """Guard the guard, since exact equality was the original hole."""
-    covered = any(_covers(declared, rejected) for rejected in REJECTED_CACHE_PATHS)
-    assert covered is is_covered, (
-        f"{declared} should {'' if is_covered else 'not '}count as covering a "
-        "rejected cache path"
-    )
 
 
 #: Each installer script and the cache-step path that must restore its work
