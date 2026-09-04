@@ -137,16 +137,11 @@ it, and each is asserted by `tests/workflow_contracts/sccache_test.py`:
    never names it as the wrapper, so before this every compilation bypassed
    the cache while the logs still reported a healthy server with zero compile
    requests.
-2. `SCCACHE_GHA_ENABLED: 'true'` beside it. Naming the wrapper is necessary
-   and not sufficient: sccache selects its GitHub Actions backend only when
-   this is set, and otherwise falls back to a local disk that nothing caches
-   and the runner discards. The job then pays the wrapper's overhead and
-   keeps a zero hit rate, which is exactly what the first attempt measured.
-3. `sccache --zero-stats` before the build and `--show-stats` afterwards,
+2. `sccache --zero-stats` before the build and `--show-stats` afterwards,
    teed into both the log and the job summary. Job summaries are not exposed
    through the REST API, so a summary-only report cannot be checked by
    anything except a human with a browser.
-4. On Ubicloud, the `export-ubicloud-cache-credentials` shared action
+3. On Ubicloud, the `export-ubicloud-cache-credentials` shared action
    immediately after checkout and before `setup-rust`. The runner exposes its
    local cache proxy's URL and token to action steps only, never to a `run:`
    step, so the sccache server would otherwise never see them. Ordering is
@@ -157,10 +152,36 @@ it, and each is asserted by `tests/workflow_contracts/sccache_test.py`:
    GitHub-hosted runner, so it must not appear on one; those jobs use v2
    against GitHub's own cache, which is correct there.
 
-Read `Cache location` in the reported statistics to tell whether any of this
-worked. It must say `ghac`. `Local disk` means the backend was never
-selected, and every number beside it describes a cache that will not survive
-the job.
+`Cache location` in the reported statistics names the backend. It currently
+reads `Local disk`, which means nothing survives the job: sccache selects its
+GitHub Actions backend only when `SCCACHE_GHA_ENABLED` is set, and neither
+this repository nor the shared action sets it.
+
+That is deliberate, and it is the second measurement in this area worth
+keeping. Enabling the backend was tried and reverted:
+
+Table: `build-test` across four states, showing that neither sccache
+configuration has yet recovered the time the `target` archive used to save.
+
+| Step | Before the pin bump | No wrapper | Wrapper, local disk | Wrapper plus `ghac` |
+| --- | --- | --- | --- | --- |
+| Dense stable SIMD gating | 50 s | 103 s | 104 s | 154 s |
+| Lint | 93 s | 155 s | 139 s | 279 s |
+| Test and Measure Coverage | 331 s | 444 s | 494 s | 607 s, killed |
+| Whole job | 494 s median | 749 to 814 s | 813 s | red |
+
+With `ghac` selected the job exceeded the 600-second nextest global timeout
+and failed. The statistics say why: 273 rejected writes, and a cache read hit
+averaging 0.280 s against 0.420 s to simply compile the unit. A backend whose
+reads cost nearly as much as compiling cannot pay even at a perfect hit rate,
+so it fails the same rule that rejected the Kani and cargo-nextest caches.
+
+The wrapper stays, because it costs almost nothing and is a precondition for
+any backend. Choosing one is open work: the alternative is an `actions/cache`
+entry for `~/.cache/sccache`, restored on pull requests and written only by
+`coverage-main.yml` on `main`. Until that is settled, the coverage gate
+remains slower than its 494-second baseline, and the cause is the removed
+`target` archive rather than anything in this configuration.
 
 Four jobs name the wrapper: `build-test`, `coverage-upload`, and both property
 suites. The exclusions are deliberate. `verus-proofs` and

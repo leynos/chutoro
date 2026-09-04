@@ -27,13 +27,6 @@ jobs:
       # every compilation bypasses the cache and the job recompiles the world
       # each run. sccache-action puts the binary on PATH.
       RUSTC_WRAPPER: sccache
-      # ... and naming the wrapper is still not enough. sccache selects its
-      # GitHub Actions backend only when this is true; otherwise it falls back
-      # to a local disk that nothing caches and that the runner discards, so
-      # the hit rate stays at zero however warm the cache ought to be. Setup
-      # Rust does not set this either. Confirm from `Cache location` in the
-      # reported statistics: it must read `ghac`, never `Local disk`.
-      SCCACHE_GHA_ENABLED: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
