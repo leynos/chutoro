@@ -22,6 +22,11 @@ jobs:
       # coverage wobble run-to-run and false-tripped the ratchet. One worker keeps
       # the ratchet input reproducible and matched to the coverage-main baseline.
       RAYON_NUM_THREADS: '1'
+      # sccache is installed by Setup Rust but does nothing unless something
+      # names it as the compiler wrapper; setup-rust does not. Without this,
+      # every compilation bypasses the cache and the job recompiles the world
+      # each run. sccache-action puts the binary on PATH.
+      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -30,6 +35,8 @@ jobs:
           fetch-depth: 0
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@b694f68ff5bcb0350b720b71051bf8fa51d3e413
+      - name: Reset compiler-cache counters
+        run: sccache --zero-stats
       - name: Dense stable SIMD gating
         run: |
           cargo clippy -p chutoro-providers-dense \
@@ -83,6 +90,15 @@ jobs:
           # action's cache enabled would archive the same paths under a
           # second key, so it reads the already-restored Cargo home instead.
           cache-provider: external
+      - name: Record compiler-cache statistics
+        if: ${{ always() }}
+        run: |
+          {
+            printf '### sccache (build-test)\n\n'
+            printf '```\n'
+            sccache --show-stats
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Check coverage against CodeScene gates
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}

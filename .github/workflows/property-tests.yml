@@ -37,9 +37,23 @@ jobs:
       PROPTEST_FORK: "false"
       CHUTORO_HNSW_PBT_MIN_RECALL: "0.60"
       CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
+      # sccache is installed by Setup Rust but does nothing unless something
+      # names it as the compiler wrapper; setup-rust does not. Without this,
+      # every compilation bypasses the cache and the job recompiles the world
+      # each run. sccache-action puts the binary on PATH.
+      RUSTC_WRAPPER: sccache
     steps:
       - &checkout_step
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # Ubicloud only. The runner exposes its local cache proxy's URL and
+      # token to action steps but not to `run:` steps, so the sccache server
+      # started later cannot see them. This republishes both through
+      # GITHUB_ENV and clears ACTIONS_CACHE_SERVICE_V2, because the proxy
+      # serves v1 and leaving v2 selected sends writes to GitHub instead. The
+      # action fails closed on a GitHub-hosted runner, which is why the weekly
+      # job does not alias it.
+      - name: Export Ubicloud cache credentials
+        uses: leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@b694f68ff5bcb0350b720b71051bf8fa51d3e413
       - &setup_rust_step
         name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@b694f68ff5bcb0350b720b71051bf8fa51d3e413
@@ -51,6 +65,9 @@ jobs:
       - &install_nextest_step
         name: Install cargo-nextest
         run: scripts/install-nextest.sh
+      - &zero_sccache_stats_step
+        name: Reset compiler-cache counters
+        run: sccache --zero-stats
       - &run_property_suite_step
         name: Run property suite
         run: |
@@ -84,6 +101,16 @@ jobs:
               exit 1
               ;;
           esac
+      - &record_sccache_stats_step
+        name: Record compiler-cache statistics
+        if: ${{ always() }}
+        run: |
+          {
+            printf '### sccache (${{ matrix.suite }})\n\n'
+            printf '```\n'
+            sccache --show-stats
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
       - &upload_proptest_regressions_step
         name: Upload proptest regressions
         if: failure()
@@ -116,9 +143,16 @@ jobs:
       PROPTEST_FORK: "true"
       CHUTORO_HNSW_PBT_MIN_RECALL: "0.60"
       CHUTORO_HNSW_PBT_MIN_MAX_CONNECTIONS: "12"
+      # sccache is installed by Setup Rust but does nothing unless something
+      # names it as the compiler wrapper; setup-rust does not. Without this,
+      # every compilation bypasses the cache and the job recompiles the world
+      # each run. sccache-action puts the binary on PATH.
+      RUSTC_WRAPPER: sccache
     steps:
       - *checkout_step
       - *setup_rust_step
       - *install_nextest_step
+      - *zero_sccache_stats_step
       - *run_property_suite_step
+      - *record_sccache_stats_step
       - *upload_proptest_regressions_step
