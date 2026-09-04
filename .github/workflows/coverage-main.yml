@@ -77,6 +77,39 @@ jobs:
       # the statistics below describe this run alone.
       - name: Reset compiler-cache counters
         run: sccache --zero-stats
+      # The three steps below exist only to fill the cache. This job is the
+      # sole writer of a key that ci.yml's build-test reads, and build-test
+      # compiles three different shapes: the dense-SIMD gate with its own
+      # feature set, `make lint`'s rustdoc and Clippy pass, and the
+      # instrumented coverage run. Writing only the third left everything
+      # the other two build missing on every pull request, forever, which
+      # measured as a warm hit rate stuck at 47.94 % with byte-identical
+      # counters across two dispatches (runs 33921148583 and 33921943137).
+      # A second writer is not the answer, because one key may have only
+      # one owner; the answer is for that owner to build what its reader
+      # builds. `tests/workflow_contracts/sccache_cache_entry_test.py`
+      # asserts the superset relation so the two cannot drift apart.
+      #
+      # The commands are duplicated from ci.yml rather than shared, because
+      # YAML anchors do not cross files. The contract is what keeps them
+      # equal.
+      - name: Dense stable SIMD gating
+        run: |
+          cargo clippy -p chutoro-providers-dense \
+            --all-targets \
+            --no-default-features \
+            --features simd_avx2,simd_avx512,simd_neon \
+            -- -D warnings
+          cargo test -p chutoro-providers-dense \
+            --no-default-features \
+            --features simd_avx2,simd_avx512,simd_neon
+      # `make lint` runs the Whitaker Dylint suite, which needs the suite
+      # installed. The shared action owns the installer binary and the
+      # ~/.local/share/whitaker cache for this job.
+      - name: Install Whitaker
+        uses: leynos/shared-actions/.github/actions/install-whitaker@c6125f19593668cbfefd65a59c08cb7aefe90d93
+      - name: Lint
+        run: make lint
       - name: Test and Measure Coverage
         uses: leynos/shared-actions/.github/actions/generate-coverage@c6125f19593668cbfefd65a59c08cb7aefe90d93
         with:
