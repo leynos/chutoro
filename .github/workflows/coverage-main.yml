@@ -31,9 +31,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@7d46a399558914f5a05074e55a560fec0269fd0d
+        uses: leynos/shared-actions/.github/actions/setup-rust@b694f68ff5bcb0350b720b71051bf8fa51d3e413
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@7d46a399558914f5a05074e55a560fec0269fd0d
+        uses: leynos/shared-actions/.github/actions/generate-coverage@b694f68ff5bcb0350b720b71051bf8fa51d3e413
         with:
           output-path: lcov.info
           format: lcov
@@ -49,7 +49,7 @@ jobs:
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
         if: env.CS_ACCESS_TOKEN != ''
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@7d46a399558914f5a05074e55a560fec0269fd0d
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@b694f68ff5bcb0350b720b71051bf8fa51d3e413
         with:
           format: lcov
           project-url: https://api.codescene.io/v2/projects/71838
