@@ -66,7 +66,14 @@ def test_the_cache_is_restored_before_the_server_starts(
         f"{workflow_name}:{job_name} names sccache as its wrapper with no "
         "cache step for its directory, so nothing survives the runner"
     )
-    assert install_at is not None and start_at is not None
+    assert install_at is not None, (
+        f"{workflow_name}:{job_name} names sccache as its wrapper but never "
+        f"runs {INSTALLER}, so there is no server to restore into"
+    )
+    assert start_at is not None, (
+        f"{workflow_name}:{job_name} restores the cache but never starts the "
+        "server with --zero-stats, so the directory is never read"
+    )
     assert install_at < restore_at < start_at, (
         f"{workflow_name}:{job_name} must install, then restore, then start "
         f"the server; found install={install_at}, restore={restore_at}, "
@@ -155,7 +162,14 @@ def test_the_writer_reclaims_disk_before_saving() -> None:
         f"{EXPECTED_WRITER[0]}:{EXPECTED_WRITER[1]} must delete its scratch "
         "trees and print df -h before building the cache archive"
     )
-    assert save_at is not None and build_at is not None
+    assert save_at is not None, (
+        f"{EXPECTED_WRITER[0]}:{EXPECTED_WRITER[1]} is the designated writer "
+        "but declares no cache save step"
+    )
+    assert build_at is not None, (
+        f"{EXPECTED_WRITER[0]}:{EXPECTED_WRITER[1]} saves a compiler cache "
+        "without compiling anything, so the archive would hold nothing new"
+    )
     assert build_at < reclaim_at < save_at, (
         "the reclaim must sit between the build and the save; found "
         f"build={build_at}, reclaim={reclaim_at}, save={save_at}"

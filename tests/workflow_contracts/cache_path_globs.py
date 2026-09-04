@@ -17,7 +17,31 @@ import re
 
 
 def normalize(path: str) -> str:
-    """Strip a trailing separator so equivalent spellings compare equal."""
+    """Strip a trailing separator so equivalent spellings compare equal.
+
+    `actions/cache` accepts a directory named with or without a trailing
+    separator, so `~/.kani` and `~/.kani/` describe the same archive. A
+    comparison that treats them as different values reports no coverage for
+    one of the two spellings.
+
+    Parameters
+    ----------
+    path : str
+        A cache path or pattern, as written in a workflow.
+
+    Returns
+    -------
+    str
+        The same path without its trailing separator, or ``"/"`` when the
+        path was nothing but separators.
+
+    Examples
+    --------
+    >>> normalize("~/.kani/")
+    '~/.kani'
+    >>> normalize("~/.kani")
+    '~/.kani'
+    """
     return path.rstrip("/") or "/"
 
 
@@ -129,6 +153,32 @@ def covers(declared: str, rejected: str) -> bool:
     just as surely as naming it; `@actions/glob` sets `implicitDescendants`,
     so a pattern matching that parent does the same. And a child counts too:
     `~/.kani-rustup/toolchains` is most of the 1.3 GB.
+
+    The answer is deliberately conservative. A pattern whose fixed prefix
+    lands inside the rejected tree counts even when the wildcard part might
+    match nothing, because a contract that guesses in the permissive
+    direction is one that lets the archive back in.
+
+    Parameters
+    ----------
+    declared : str
+        The `path` value a cache step declares. May be a glob pattern.
+    rejected : str
+        A concrete path that must never be archived.
+
+    Returns
+    -------
+    bool
+        True when `declared` would archive `rejected`, in whole or in part.
+
+    Examples
+    --------
+    >>> covers("~/.cargo/bin/*", "~/.cargo/bin/cargo-kani")
+    True
+    >>> covers("~/.kani-rustup/toolchains", "~/.kani-rustup")
+    True
+    >>> covers("~/.cargo/bin/whitaker-*", "~/.cargo/bin/cargo-kani")
+    False
     """
     left, right = normalize(declared), normalize(rejected)
     matches = _glob_to_regex(left).fullmatch

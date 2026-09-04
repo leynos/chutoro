@@ -12,6 +12,7 @@ The measurements behind those choices are in the developers guide, under
 
 from __future__ import annotations
 
+import functools
 import re
 import typing as typ
 
@@ -93,13 +94,28 @@ def is_sccache_cache_step(step: dict[str, typ.Any]) -> bool:
     return EXPECTED_CACHE_DIR in declared_cache_paths(step)
 
 
-def all_jobs() -> list[tuple[str, str, dict[str, typ.Any]]]:
-    """Return every job in every workflow."""
-    return [
+#: One job, as (workflow file name, job name, job definition).
+JobEntry = tuple[str, str, dict[str, typ.Any]]
+
+
+@functools.cache
+def all_jobs() -> tuple[JobEntry, ...]:
+    """Return every job in every workflow.
+
+    Cached, and a tuple rather than a list, because the parametrization
+    decorators in both contract modules call this at collection time and
+    `all_job_ids`, `wrapper_jobs` and `wrapper_job_ids` each call it again.
+    Without the cache the workflow directory is parsed about a dozen times
+    per run. The tuple is what makes the cache safe to share: a caller
+    cannot append to it and change what the next caller sees. The job
+    definitions inside are still the parsed mappings, and no contract
+    mutates them.
+    """
+    return tuple(
         (workflow_name, job_name, definition)
         for workflow_name in workflow_names()
         for job_name, definition in jobs(load_workflow(workflow_name)).items()
-    ]
+    )
 
 
 def all_job_ids() -> list[str]:
@@ -107,14 +123,15 @@ def all_job_ids() -> list[str]:
     return [f"{workflow}:{name}" for workflow, name, _ in all_jobs()]
 
 
-def wrapper_jobs() -> list[tuple[str, str, dict[str, typ.Any]]]:
+@functools.cache
+def wrapper_jobs() -> tuple[JobEntry, ...]:
     """Return every job that names a compiler wrapper."""
-    return [
+    return tuple(
         (workflow_name, job_name, definition)
         for workflow_name, job_name, definition in all_jobs()
         if isinstance(definition.get("env"), dict)
         and "RUSTC_WRAPPER" in definition["env"]
-    ]
+    )
 
 
 def wrapper_job_ids() -> list[str]:
