@@ -22,11 +22,23 @@ jobs:
       # coverage wobble run-to-run and false-tripped the ratchet. One worker keeps
       # the ratchet input reproducible and matched to the coverage-main baseline.
       RAYON_NUM_THREADS: '1'
-      # sccache is installed by Setup Rust but does nothing unless something
-      # names it as the compiler wrapper; setup-rust does not. Without this,
-      # every compilation bypasses the cache and the job recompiles the world
-      # each run. sccache-action puts the binary on PATH.
+      # Name the wrapper at job level so every compiling step routes through
+      # the cache, including the ones inside shared actions. Installing
+      # sccache is not enough on its own; nothing else names it.
       RUSTC_WRAPPER: sccache
+      # The local-disk arm. sccache's GitHub Actions backend was measured to
+      # be a net loss for Rust here: a hit cost 0.28 s against 0.42 s to
+      # compile, and GitHub rejected 273 of this job's writes, which pushed
+      # the coverage step into the 600 s nextest timeout. A plain directory
+      # under the workspace, moved by actions/cache, has no such per-object
+      # round trip. The directory must sit inside the workspace so the cache
+      # action's relative path resolves and .gitignore keeps it out of the
+      # tree that coverage and CodeScene read.
+      SCCACHE_DIR: ${{ github.workspace }}/.sccache
+      # Bound the archive. The GitHub cache allows 10 GB per repository and
+      # the Verus cache already owns part of that, so an unbounded compiler
+      # cache would evict its own neighbours.
+      SCCACHE_CACHE_SIZE: 2G
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -35,6 +47,44 @@ jobs:
           fetch-depth: 0
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        with:
+          # The action installs sccache through mozilla-actions/sccache-action,
+          # which starts the server inside an action step. The runner
+          # re-injects the reserved cache variables into action steps, so a
+          # server started there binds GitHub's cache service whatever the
+          # job asked for. This job owns its server instead.
+          use-sccache: 'false'
+      # Pinned, checksum-verified release archive; nothing is built from
+      # source in CI.
+      - name: Install sccache
+        run: scripts/install-sccache.sh
+      # A cache key that never varies can be written once and never again:
+      # actions/cache refuses to overwrite an existing key, so the entry
+      # would freeze at the first push that used a given lockfile. The date
+      # stamp gives the writer a fresh key each day while the restore-keys
+      # prefix keeps readers on the newest entry. Computed once per job so
+      # the restore and the save below cannot straddle midnight.
+      - name: Stamp the compiler-cache key
+        id: sccache-key
+        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+      # Reader only. coverage-main.yml is the sole writer of this key: it
+      # compiles the same workspace under the same instrumentation on push
+      # to main. A second writer here would race it on every merge and the
+      # loser's work would be discarded. The restore-keys prefix lets a run
+      # whose lockfile has moved start from the newest older entry instead
+      # of from nothing.
+      - name: Restore compiler cache
+        id: sccache-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ${{ github.workspace }}/.sccache
+          key: >-
+            sccache-build-test-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ steps.sccache-key.outputs.date }}
+          restore-keys: |
+            sccache-build-test-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
+            sccache-build-test-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-
+      # Starts the server against SCCACHE_DIR and resets the counters, so
+      # the statistics below describe this run alone.
       - name: Reset compiler-cache counters
         run: sccache --zero-stats
       - name: Dense stable SIMD gating
@@ -92,11 +142,20 @@ jobs:
           cache-provider: external
       - name: Record compiler-cache statistics
         if: ${{ always() }}
+        env:
+          SCCACHE_RESTORE_HIT: ${{ steps.sccache-restore.outputs.cache-hit }}
+          SCCACHE_RESTORE_KEY: ${{ steps.sccache-restore.outputs.cache-matched-key }}
         run: |
           {
             printf '### sccache (build-test)\n\n'
-            printf -- '- cache service v2 selected: %s\n\n' \
+            printf -- '- cache service v2 selected: %s\n' \
               "${ACTIONS_CACHE_SERVICE_V2:-unset}"
+            printf -- '- restore exact hit: %s\n' \
+              "${SCCACHE_RESTORE_HIT:-false}"
+            printf -- '- restored key: %s\n' \
+              "${SCCACHE_RESTORE_KEY:-none}"
+            printf -- '- cache size on disk: %s\n\n' \
+              "$(du -sh "${SCCACHE_DIR}" 2>/dev/null | cut -f1)"
             printf '```\n'
             sccache --show-stats
             printf '```\n'

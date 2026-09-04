@@ -54,13 +54,14 @@ ACTION = "action"
 #: Each installer and the first command that needs the tool it provides.
 INSTALLER_ORDER = (
     (SCRIPT, "scripts/install-nextest.sh", re.compile(r"cargo\s+nextest\b")),
+    (SCRIPT, "scripts/install-sccache.sh", re.compile(r"\bsccache\s+--")),
     (SCRIPT, "scripts/install-kani.sh", re.compile(r"\bmake\s+kani(-full)?\b")),
     (SCRIPT, "scripts/install-verus.sh", re.compile(r"\bmake\s+verus\b")),
     (ACTION, "install-whitaker", re.compile(r"\bmake\s+lint\b")),
 )
 
 #: Tool pins that must exist as a version file and a digest manifest.
-PINNED_TOOLS = ("kani", "nextest", "verus")
+PINNED_TOOLS = ("kani", "nextest", "sccache", "verus")
 
 #: Installer scripts a workflow invokes directly, so the committed file mode
 #: is part of the contract: a non-executable script fails the job with

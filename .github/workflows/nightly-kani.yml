@@ -32,6 +32,9 @@ jobs:
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
         with:
+          # Kani compiles through `kani-compiler`, which sccache does not
+          # support, so the binary would be installed and never named.
+          use-sccache: 'false'
           # Do not force `-D warnings` on this job. Under `cfg(kani)` the
           # proof-harness helpers in chutoro-core are only partly used, so
           # dead_code fires and denial turns it into a compilation error that

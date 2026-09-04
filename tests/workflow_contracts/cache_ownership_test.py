@@ -75,9 +75,49 @@ def _step_owners(step: dict) -> list[tuple[str, str]]:
     return _implicit_owner(step, reference)
 
 
+#: The split cache actions. A `restore` and a `save` naming the same path
+#: under the same key are two halves of one owner, not two owners: the pair
+#: is how a job reads an entry at the start and writes it at the end without
+#: the combined action's implicit post-step. Counting them separately would
+#: make the single-owner contract reject the very shape it exists to
+#: encourage.
+SPLIT_CACHE_ACTIONS = ("actions/cache/restore", "actions/cache/save")
+
+
+def _split_cache_key(step: dict, reference: str) -> str | None:
+    """Return a restore/save step's key, or None if it is not one half."""
+    if reference.split("@", 1)[0] not in SPLIT_CACHE_ACTIONS:
+        return None
+    with_block = step.get("with")
+    return with_block.get("key", "") if isinstance(with_block, dict) else ""
+
+
+def _deduplicated_step_owners(
+    step: dict, claimed: set[tuple[str, str]]
+) -> list[tuple[str, str]]:
+    """Return a step's (path, owner) pairs, counting a split pair once.
+
+    `claimed` carries the (path, key) combinations already contributed by an
+    earlier half, and is updated in place.
+    """
+    reference = uses_reference(step)
+    key = _split_cache_key(step, reference)
+    if key is None:
+        return _step_owners(step)
+    label = step.get("name", reference)
+    fresh = [path for path in declared_cache_paths(step) if (path, key) not in claimed]
+    claimed.update((path, key) for path in fresh)
+    return [(path, label) for path in fresh]
+
+
 def _owned_paths(definition: dict) -> list[tuple[str, str]]:
     """Return every (path, owner) pair a job establishes."""
-    return [pair for step in steps(definition) for pair in _step_owners(step)]
+    claimed: set[tuple[str, str]] = set()
+    return [
+        pair
+        for step in steps(definition)
+        for pair in _deduplicated_step_owners(step, claimed)
+    ]
 
 
 @pytest.mark.parametrize("workflow_name", workflow_names())
