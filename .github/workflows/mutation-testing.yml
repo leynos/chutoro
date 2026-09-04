@@ -26,7 +26,7 @@ jobs:
     permissions:
       contents: read
       id-token: write # OIDC workflow-source resolution
-    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@7d46a399558914f5a05074e55a560fec0269fd0d
+    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@b694f68ff5bcb0350b720b71051bf8fa51d3e413
     with:
       # Workspace crates live in top-level directories, not a root
       # src/. chutoro-test-support (test scaffolding) and the root
