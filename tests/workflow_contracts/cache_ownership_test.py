@@ -23,7 +23,6 @@ from workflow_support import (
     SHARED_ACTION_OWNED_PATHS,
     cache_is_enabled,
     declared_cache_paths,
-    job,
     jobs,
     load_workflow,
     shared_action_name,
@@ -39,13 +38,6 @@ CACHE_ACTION_RE = re.compile(r"^actions/cache(?:/(?:restore|save))?@(?P<sha>\S+)
 #: setup-uv owns ~/.cache/uv whenever its cache is enabled, wherever it is
 #: invoked from.
 UV_CACHE_PATH = "~/.cache/uv"
-
-#: The three parts of a Kani installation. Restoring fewer than all three
-#: leaves either `cargo kani` missing or the verifier toolchain symlink
-#: dangling, so they form one cache generation.
-KANI_CACHE_PATHS = frozenset(
-    {"~/.cargo/bin/cargo-kani", "~/.cargo/bin/kani", "~/.kani", "~/.kani-rustup"}
-)
 
 
 def _cache_steps(definition: dict) -> list[dict]:
@@ -146,36 +138,195 @@ def test_every_cache_step_declares_an_explainable_key(workflow_name: str) -> Non
             )
 
 
-def test_kani_restores_its_front_end_bundle_and_toolchain_together() -> None:
-    """Pin Kani's multi-part cache contract.
+#: Paths that must never reappear in a cache step. Kani's three parts total
+#: about 1.8 GB against a 16 s cold install (run 33819842254), so caching them
+#: costs far more runner time than it saves. Removing the old contract without
+#: this one would let the archive come back unnoticed.
+REJECTED_CACHE_PATHS: tuple[str, ...] = (
+    "~/.cargo/bin/cargo-kani",
+    "~/.cargo/bin/kani",
+    "~/.kani",
+    "~/.kani-rustup",
+)
 
-    The front-end lives in Cargo home, the verifier bundle under KANI_HOME,
-    and the pinned nightly toolchain in a Kani-specific rustup home that the
-    bundle symlinks into. Caching any subset leaves a warm run either
-    without ``cargo kani`` or with a dangling toolchain link.
-    """
-    definition = job("nightly-kani.yml", "kani-full")
-    cache_steps = _cache_steps(definition)
-    assert len(cache_steps) == 1, "the Kani job must declare exactly one cache step"
-    paths = set(declared_cache_paths(cache_steps[0]))
-    assert paths == KANI_CACHE_PATHS, (
-        f"the Kani cache must cover {sorted(KANI_CACHE_PATHS)}, found {sorted(paths)}"
-    )
-    key = cache_steps[0]["with"]["key"]
-    for pin_file in ("tools/kani/VERSION", "tools/kani/SHA256SUMS"):
-        assert pin_file in key, (
-            f"the Kani cache key must derive from {pin_file} so a pin bump "
-            "invalidates it"
+
+def _normalize(path: str) -> str:
+    """Strip a trailing separator so equivalent spellings compare equal."""
+    return path.rstrip("/") or "/"
+
+
+#: Characters that make an `actions/cache` path a pattern rather than a
+#: literal. The action resolves its paths through `@actions/glob`, so a
+#: contract that compares them as plain strings can be walked straight past:
+#: `~/.cargo/bin/*` archives `cargo-kani` while never spelling its name.
+GLOB_METACHARACTERS = "*?["
+
+
+def _has_glob(pattern: str) -> bool:
+    """Report whether a declared path is a glob pattern."""
+    return any(character in pattern for character in GLOB_METACHARACTERS)
+
+
+#: One glob token, as a regex fragment and the number of characters it
+#: consumed. Splitting the translation into matchers keeps the loop below a
+#: single statement; a `while` with a branch per token kind is the shape
+#: that turns a small grammar into an unreadable one.
+GlobToken = tuple[str, int]
+
+
+def _match_recursive_wildcard(pattern: str, index: int) -> GlobToken | None:
+    """Match `**`, which crosses path separators."""
+    return (".*", 2) if pattern.startswith("**", index) else None
+
+
+def _match_wildcard(pattern: str, index: int) -> GlobToken | None:
+    """Match `*`, which stays within one path segment."""
+    return ("[^/]*", 1) if pattern[index] == "*" else None
+
+
+def _match_single_character(pattern: str, index: int) -> GlobToken | None:
+    """Match `?`, which stands for one non-separator character."""
+    return ("[^/]", 1) if pattern[index] == "?" else None
+
+
+def _match_bracket_expression(pattern: str, index: int) -> GlobToken | None:
+    """Match `[...]`, rewriting `!` negation to the regex spelling."""
+    if pattern[index] != "[":
+        return None
+    close = pattern.find("]", index + 1)
+    if close == -1:
+        return None
+    body = pattern[index + 1 : close]
+    if body.startswith("!"):
+        body = f"^{body[1:]}"
+    return (f"[{body}]", close + 1 - index)
+
+
+def _match_literal(pattern: str, index: int) -> GlobToken:
+    """Match anything else, as itself."""
+    return (re.escape(pattern[index]), 1)
+
+
+#: Ordered because `**` must be tried before `*`, and an unterminated `[`
+#: must fall through to the literal matcher rather than being dropped.
+GLOB_TOKEN_MATCHERS = (
+    _match_recursive_wildcard,
+    _match_wildcard,
+    _match_single_character,
+    _match_bracket_expression,
+    _match_literal,
+)
+
+
+def _glob_to_regex(pattern: str) -> re.Pattern[str]:
+    """Translate an `@actions/glob` pattern into an equivalent regex."""
+    fragments: list[str] = []
+    index = 0
+    while index < len(pattern):
+        fragment, width = next(
+            token
+            for matcher in GLOB_TOKEN_MATCHERS
+            if (token := matcher(pattern, index)) is not None
         )
+        fragments.append(fragment)
+        index += width
+    return re.compile("".join(fragments) + r"\Z")
+
+
+def _literal_prefix(pattern: str) -> str:
+    """Return the leading segments of a pattern that contain no wildcard.
+
+    Everything a pattern can match lives under this directory, which is what
+    makes it the right thing to compare against when asking whether the
+    archive would reach inside a rejected tree.
+    """
+    kept: list[str] = []
+    for segment in pattern.split("/"):
+        if _has_glob(segment):
+            break
+        kept.append(segment)
+    return "/".join(kept) or "/"
+
+
+def _ancestors(path: str) -> list[str]:
+    """Return every proper ancestor directory of a path, shallowest first."""
+    segments = path.split("/")
+    return ["/".join(segments[:count]) for count in range(1, len(segments))]
+
+
+def _covers(declared: str, rejected: str) -> bool:
+    """Report whether a declared cache path would archive a rejected one.
+
+    Exact equality is not enough, in three separate ways. `actions/cache`
+    accepts a directory with or without a trailing separator. Caching a
+    parent sweeps its children in, so `~/.cargo/bin` archives `cargo-kani`
+    just as surely as naming it; `@actions/glob` sets `implicitDescendants`,
+    so a pattern matching that parent does the same. And a child counts too:
+    `~/.kani-rustup/toolchains` is most of the 1.3 GB.
+    """
+    left, right = _normalize(declared), _normalize(rejected)
+    matches = _glob_to_regex(left).fullmatch
+    if matches(right):
+        return True
+    if any(matches(ancestor) for ancestor in _ancestors(right)):
+        return True
+    prefix = _normalize(_literal_prefix(left))
+    return prefix == right or prefix.startswith(f"{right}/")
+
+
+@pytest.mark.parametrize("workflow_name", workflow_names())
+def test_the_rejected_caches_stay_rejected(workflow_name: str) -> None:
+    """A cache that failed the payoff rule must not quietly return."""
+    for job_name, definition in jobs(load_workflow(workflow_name)).items():
+        for step in _cache_steps(definition):
+            for path in declared_cache_paths(step):
+                covered = [
+                    rejected
+                    for rejected in REJECTED_CACHE_PATHS
+                    if _covers(path, rejected)
+                ]
+                assert not covered, (
+                    f"{workflow_name}:{job_name} caches {path}, which covers "
+                    f"{covered}; those were measured and rejected. See the "
+                    "developers guide."
+                )
+
+
+@pytest.mark.parametrize(
+    ("declared", "is_covered"),
+    [
+        pytest.param("~/.kani", True, id="exact"),
+        pytest.param("~/.kani/", True, id="trailing-separator"),
+        pytest.param("~/.cargo/bin", True, id="parent-directory"),
+        pytest.param("~/.kani-rustup/toolchains", True, id="child-directory"),
+        pytest.param("~/.cargo/registry", False, id="unrelated-sibling"),
+        pytest.param("~/.cargo/bin/whitaker-installer", False, id="other-tool"),
+        pytest.param("~/.kani-extra", False, id="shared-prefix-only"),
+        pytest.param("~/.cargo/bin/*", True, id="globbed-parent"),
+        pytest.param("~/.cargo/**", True, id="recursive-glob"),
+        pytest.param("~/.kani*", True, id="glob-matching-the-path-itself"),
+        pytest.param("~/.kani-rustup/*/lib", True, id="glob-inside-a-rejected-tree"),
+        pytest.param("~/.cargo/bin/whitaker-*", False, id="glob-for-another-tool"),
+        pytest.param("~/.cargo/registry/**", False, id="recursive-glob-elsewhere"),
+        pytest.param("~/.cargo/bin/?ani", True, id="single-character-wildcard"),
+        pytest.param("~/.cargo/bin/[ck]ani", True, id="bracket-expression"),
+    ],
+)
+def test_rejected_path_coverage_recognizes_equivalent_spellings(
+    declared: str, is_covered: bool
+) -> None:
+    """Guard the guard, since exact equality was the original hole."""
+    covered = any(_covers(declared, rejected) for rejected in REJECTED_CACHE_PATHS)
+    assert covered is is_covered, (
+        f"{declared} should {'' if is_covered else 'not '}count as covering a "
+        "rejected cache path"
+    )
 
 
 #: Each installer script and the cache-step path that must restore its work
 #: first. Pairing them by tool keeps the ordering check meaningful once a job
 #: installs more than one tool.
-INSTALLER_CACHE_PAIRS = (
-    ("scripts/install-kani.sh", "~/.kani"),
-    ("scripts/install-verus.sh", ".verus"),
-)
+INSTALLER_CACHE_PAIRS = (("scripts/install-verus.sh", ".verus"),)
 
 
 def _first_index(items: list[str], predicate: cabc.Callable[[str], bool]) -> int | None:

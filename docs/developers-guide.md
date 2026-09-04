@@ -77,6 +77,12 @@ download instead of fetching its own, and installs its pinned nightly
 toolchain into a Kani-specific rustup home so it never shares ownership with
 the job's ordinary Cargo cache.
 
+`nightly-kani` passes an empty `rustflags` to `setup-rust`. The default is
+`-D warnings`, and under `cfg(kani)` the proof-harness helpers in
+`chutoro-core` are only partly used, so `dead_code` fires and denial turns it
+into a compilation error unrelated to verification. Warning denial stays where
+it belongs, on `ci.yml`'s lint and build steps.
+
 ### Cache owners
 
 Every cached path has exactly one owner per job. Two owners means two keys
@@ -90,7 +96,6 @@ enforces this, including the paths the shared actions own implicitly.
 | `~/.cache/uv` | `setup-rust`'s `setup-uv` invocation | `pyproject.toml`, `uv.lock`, helper scripts |
 | `~/.cargo/bin/whitaker-installer`, `~/.local/share/whitaker` | `install-whitaker` | Installer version and `dylint.toml` |
 | `.verus` | `ci.yml`'s Cache Verus step | Pinned Verus version and digest |
-| `~/.cargo/bin/cargo-kani`, `~/.cargo/bin/kani`, `~/.kani`, `~/.kani-rustup` | `nightly-kani.yml`'s Cache Kani step | Pinned Kani version and digests |
 
 Three consequences follow, and each is asserted by a contract test:
 
@@ -100,17 +105,103 @@ Three consequences follow, and each is asserted by a contract test:
 - No cache step archives a `target` tree. sccache owns compiler output;
   archiving `target` beside it duplicates that ownership and risks restoring
   one build shape's objects under another shape's flags.
-- cargo-nextest is deliberately uncached. Its archive is a few megabytes, so a
-  cache entry would cost more restore and save time than the download it
-  avoids, and a cache that does not pay is rejected.
+- cargo-nextest and Kani are deliberately uncached, because measurement said
+  so rather than because caching them was hard.
 
-The Kani cache is the one entry whose payoff is not yet proven. A local
-install measures about 483 MB under `KANI_HOME` and 1.3 GB in the
-Kani-specific rustup home, against roughly 137 MB of downloads plus a
-toolchain install. The nightly job reports both directory sizes and its
-restore hit to the job summary; if a warm run's restore and save cost more
-than the install it avoids, the entry must be narrowed or dropped rather
-than kept out of habit.
+The two rejections are worth keeping, because a cache that costs more than it
+saves is easy to add and hard to notice.
+
+Table: What a cache would save against what it would move, for the two tools
+whose caches were measured and rejected.
+
+| Tool | Work a cache would avoid | Archive it would move |
+| --- | --- | --- |
+| cargo-nextest | An 11 MB release archive | About 11 MB |
+| Kani | A 16 s cold install, measured on run 33819842254 | About 1.8 GB |
+
+Kani is the sharper case. It is a multi-part tool, so a cache has to cover the
+front-end, the verifier bundle under `KANI_HOME`, and the pinned nightly
+toolchain together or the toolchain symlink dangles; that is 483 MB plus
+1.3 GB. Moving 1.8 GB to save sixteen seconds fails the payoff rule outright
+and would consume most of the repository's cache quota for a nightly job that
+blocks nobody. Both tools still install from pinned, checksum-verified
+archives with executable probes; only the archive is gone.
+
+### The compiler cache
+
+sccache is the sole owner of compiler output, which is why no cache step
+archives a `target` tree. Making that true took three things beyond installing
+it, and each is asserted by `tests/workflow_contracts/sccache_test.py`:
+
+1. `RUSTC_WRAPPER: sccache` at job level. `setup-rust` installs sccache but
+   never names it as the wrapper, so before this every compilation bypassed
+   the cache while the logs still reported a healthy server with zero compile
+   requests.
+2. `sccache --zero-stats` before the build and `--show-stats` afterwards,
+   teed into both the log and the job summary. Job summaries are not exposed
+   through the REST API, so a summary-only report cannot be checked by
+   anything except a human with a browser.
+3. On Ubicloud, the `export-ubicloud-cache-credentials` shared action
+   immediately after checkout and before `setup-rust`. The runner exposes its
+   local cache proxy's URL and token to action steps only, never to a `run:`
+   step, so the sccache server would otherwise never see them. Ordering is
+   load-bearing: `setup-rust` starts the server, so an export after it arrives
+   too late to change the backend. The action also clears
+   `ACTIONS_CACHE_SERVICE_V2`, because the proxy serves v1 and leaving v2
+   selected sends writes to GitHub instead. It fails closed on a
+   GitHub-hosted runner, so it must not appear on one. Those jobs leave the
+   v2 service available and unused: they still compile to local disk because
+   nothing here sets `SCCACHE_GHA_ENABLED` and no backend is selected without
+   it.
+
+There is a wrinkle worth knowing before repeating this elsewhere. On Ubicloud
+the export cannot win because `setup-rust` starts the sccache server inside
+an action step and the runner re-injects `ACTIONS_CACHE_SERVICE_V2=on` and
+GitHub's results URL into action steps. The server binds to GitHub's v2
+service whatever `GITHUB_ENV` says. Starting sccache from a `run:` step after
+the export, with `use-sccache: false`, sidesteps it.
+
+`Cache location` in the reported statistics names the backend. It currently
+reads `Local disk`, which means nothing survives the job: sccache selects its
+GitHub Actions backend only when `SCCACHE_GHA_ENABLED` is set, and neither
+this repository nor the shared action sets it.
+
+That is deliberate, and it is the second measurement in this area worth
+keeping. Enabling the backend was tried and reverted:
+
+Table: `build-test` across four states, showing that neither sccache
+configuration has yet recovered the time the `target` archive used to save.
+
+| Step | Before the pin bump | No wrapper | Wrapper, local disk | Wrapper plus `ghac` |
+| --- | --- | --- | --- | --- |
+| Dense stable SIMD gating | 50 s | 103 s | 104 s | 154 s |
+| Lint | 93 s | 155 s | 139 s | 279 s |
+| Test and Measure Coverage | 331 s | 444 s | 494 s | 607 s, killed |
+| Whole job | 494 s median | 749 to 814 s | 813 s | red |
+
+With `ghac` selected the job exceeded the 600-second nextest global timeout
+and failed. The statistics say why: 273 rejected writes, and a cache read hit
+averaging 0.280 s against 0.420 s to simply compile the unit. A backend whose
+reads cost nearly as much as compiling cannot pay even at a perfect hit rate,
+so it fails the same rule that rejected the Kani and cargo-nextest caches.
+
+The wrapper stays, because it costs almost nothing and is a precondition for
+any backend. Choosing one is open work: the alternative is an `actions/cache`
+entry for `~/.cache/sccache`, restored on pull requests and written only by
+`coverage-main.yml` on `main`. Until that is settled, the coverage gate
+remains slower than its 494-second baseline, and the cause is the removed
+`target` archive rather than anything in this configuration.
+
+Four jobs name the wrapper: `build-test`, `coverage-upload`, and both property
+suites. The exclusions are deliberate. `verus-proofs` and
+`nightly-portable-simd` do not use `setup-rust` and so have no sccache to
+name, and `nightly-kani` compiles through `kani-compiler`, which sccache does
+not support.
+
+This matters more than it looks. When `setup-rust` stopped archiving
+`target/${BUILD_PROFILE}`, correctly, the coverage gate grew from a 494-second
+median to over 800 seconds, because the mechanism meant to replace that
+archive had never been switched on.
 
 Compiled-tool keys include `runner.environment` alongside `runner.os` and
 `runner.arch`. That value is `github-hosted` on GitHub's runners and

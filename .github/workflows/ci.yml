@@ -22,6 +22,11 @@ jobs:
       # coverage wobble run-to-run and false-tripped the ratchet. One worker keeps
       # the ratchet input reproducible and matched to the coverage-main baseline.
       RAYON_NUM_THREADS: '1'
+      # sccache is installed by Setup Rust but does nothing unless something
+      # names it as the compiler wrapper; setup-rust does not. Without this,
+      # every compilation bypasses the cache and the job recompiles the world
+      # each run. sccache-action puts the binary on PATH.
+      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -29,7 +34,9 @@ jobs:
           # full history must be fetched for the merge base to be reachable.
           fetch-depth: 0
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@b694f68ff5bcb0350b720b71051bf8fa51d3e413
+        uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
+      - name: Reset compiler-cache counters
+        run: sccache --zero-stats
       - name: Dense stable SIMD gating
         run: |
           cargo clippy -p chutoro-providers-dense \
@@ -54,7 +61,7 @@ jobs:
       # crates.io source-build fallback. It owns the installer binary and
       # the ~/.local/share/whitaker suite cache.
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@b694f68ff5bcb0350b720b71051bf8fa51d3e413
+        uses: leynos/shared-actions/.github/actions/install-whitaker@c6125f19593668cbfefd65a59c08cb7aefe90d93
       - name: Lint
         run: make lint
       - name: Setup uv
@@ -70,7 +77,7 @@ jobs:
       - name: Workflow contract tests
         run: make test-workflow-contracts
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@b694f68ff5bcb0350b720b71051bf8fa51d3e413
+        uses: leynos/shared-actions/.github/actions/generate-coverage@c6125f19593668cbfefd65a59c08cb7aefe90d93
         with:
           output-path: lcov.info
           format: lcov
@@ -83,11 +90,22 @@ jobs:
           # action's cache enabled would archive the same paths under a
           # second key, so it reads the already-restored Cargo home instead.
           cache-provider: external
+      - name: Record compiler-cache statistics
+        if: ${{ always() }}
+        run: |
+          {
+            printf '### sccache (build-test)\n\n'
+            printf -- '- cache service v2 selected: %s\n\n' \
+              "${ACTIONS_CACHE_SERVICE_V2:-unset}"
+            printf '```\n'
+            sccache --show-stats
+            printf '```\n'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Check coverage against CodeScene gates
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
         if: env.CS_ACCESS_TOKEN != '' && github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@b694f68ff5bcb0350b720b71051bf8fa51d3e413
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@c6125f19593668cbfefd65a59c08cb7aefe90d93
         with:
           format: lcov
           mode: check

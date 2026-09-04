@@ -30,48 +30,30 @@ jobs:
         with:
           ref: main
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@b694f68ff5bcb0350b720b71051bf8fa51d3e413
+        uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        with:
+          # Do not force `-D warnings` on this job. Under `cfg(kani)` the
+          # proof-harness helpers in chutoro-core are only partly used, so
+          # dead_code fires and denial turns it into a compilation error that
+          # has nothing to do with verification. Warning denial stays where it
+          # belongs, on ci.yml's lint and build steps.
+          rustflags: ''
       - name: Decide whether to run Kani
         id: gate
         env:
           CHUTORO_KANI_FORCE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_run || 'false' }}
         run: cargo run -p chutoro-test-support --bin kani_nightly_gate
-      # Kani is a multi-part tool: the cargo-kani front-end, the CBMC
-      # verifier bundle under KANI_HOME, and the pinned nightly toolchain
-      # that `kani setup` installs into a Kani-specific rustup home. All
-      # three restore and save as one generation under a key derived from
-      # the pinned version and its digest manifest, and
-      # scripts/install-kani.sh probes for each executable so a warm cache
-      # repeats neither download. Setup Rust owns ~/.cargo/registry and
-      # ~/.cargo/git; this entry owns only the two front-end executables.
-      - name: Cache Kani
-        id: kani-cache
-        if: ${{ steps.gate.outputs.should_run == 'true' }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: |
-            ~/.cargo/bin/cargo-kani
-            ~/.cargo/bin/kani
-            ~/.kani
-            ~/.kani-rustup
-          key: >-
-            kani-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ hashFiles('tools/kani/VERSION', 'tools/kani/SHA256SUMS') }}
+      # Deliberately uncached. Kani is a multi-part tool, so a cache would
+      # have to cover the front-end, the verifier bundle under KANI_HOME, and
+      # the pinned nightly toolchain together, which measures about 1.8 GB. A
+      # cold install of all three takes 16 s on a GitHub runner (run
+      # 33819842254), so the archive would cost more to move than the work it
+      # avoids and would consume most of the repository's cache quota.
+      # scripts/install-kani.sh verifies both archives against
+      # tools/kani/SHA256SUMS and probes for each executable regardless.
       - name: Install Kani
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: scripts/install-kani.sh
       - name: Run Kani full suite
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: make kani-full
-      - name: Record Kani cache state
-        if: ${{ always() && steps.gate.outputs.should_run == 'true' }}
-        env:
-          KANI_CACHE_HIT: ${{ steps.kani-cache.outputs.cache-hit }}
-        run: |
-          {
-            printf '### Kani cache\n\n'
-            printf -- '- restore hit: %s\n' "${KANI_CACHE_HIT:-false}"
-            printf -- '- KANI_HOME size: %s\n' \
-              "$(du -sh "${HOME}/.kani" 2>/dev/null | cut -f1)"
-            printf -- '- Kani rustup home size: %s\n' \
-              "$(du -sh "${HOME}/.kani-rustup" 2>/dev/null | cut -f1)"
-          } >> "$GITHUB_STEP_SUMMARY"

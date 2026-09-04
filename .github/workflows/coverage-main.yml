@@ -28,12 +28,19 @@ jobs:
       # would compare a deterministic PR measurement against a non-deterministic
       # baseline. See ci.yml for the full rationale.
       RAYON_NUM_THREADS: '1'
+      # sccache is installed by Setup Rust but does nothing unless something
+      # names it as the compiler wrapper; setup-rust does not. Without this,
+      # every compilation bypasses the cache and the job recompiles the world
+      # each run. sccache-action puts the binary on PATH.
+      RUSTC_WRAPPER: sccache
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@b694f68ff5bcb0350b720b71051bf8fa51d3e413
+        uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
+      - name: Reset compiler-cache counters
+        run: sccache --zero-stats
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@b694f68ff5bcb0350b720b71051bf8fa51d3e413
+        uses: leynos/shared-actions/.github/actions/generate-coverage@c6125f19593668cbfefd65a59c08cb7aefe90d93
         with:
           output-path: lcov.info
           format: lcov
@@ -45,11 +52,22 @@ jobs:
           # job and restores them first. Leaving this action's cache
           # enabled would archive the same paths under a second key.
           cache-provider: external
+      - name: Record compiler-cache statistics
+        if: ${{ always() }}
+        run: |
+          {
+            printf '### sccache (coverage-upload)\n\n'
+            printf -- '- cache service v2 selected: %s\n\n' \
+              "${ACTIONS_CACHE_SERVICE_V2:-unset}"
+            printf '```\n'
+            sccache --show-stats
+            printf '```\n'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload coverage data to CodeScene
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
         if: env.CS_ACCESS_TOKEN != ''
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@b694f68ff5bcb0350b720b71051bf8fa51d3e413
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@c6125f19593668cbfefd65a59c08cb7aefe90d93
         with:
           format: lcov
           project-url: https://api.codescene.io/v2/projects/71838
