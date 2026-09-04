@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 from workflow_support import (
     ROOT,
+    job,
     is_reusable_call,
     jobs,
     load_workflow,
@@ -188,4 +189,24 @@ def test_installer_scripts_are_executable(installer: str) -> None:
     assert path.is_file(), f"{installer} must exist"
     assert path.stat().st_mode & 0o111, (
         f"{installer} is invoked directly by a workflow and must be executable"
+    )
+
+
+def test_the_kani_job_does_not_force_warning_denial() -> None:
+    """`cfg(kani)` leaves proof helpers partly unused, so denial breaks it.
+
+    Setup Rust exports `-D warnings` by default. Under `cargo kani` that
+    turns expected dead-code warnings in the harness helpers into
+    compilation errors, which is how the suite failed the first time it ever
+    got far enough to compile.
+    """
+    definition = job("nightly-kani.yml", "kani-full")
+    setup = next(
+        step
+        for step in steps(definition)
+        if "/actions/setup-rust@" in uses_reference(step)
+    )
+    assert setup.get("with", {}).get("rustflags") == "", (
+        "nightly-kani must pass an empty rustflags to Setup Rust so the "
+        "verification build is not compiled with -D warnings"
     )

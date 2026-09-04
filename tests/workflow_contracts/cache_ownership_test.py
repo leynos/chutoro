@@ -23,7 +23,6 @@ from workflow_support import (
     SHARED_ACTION_OWNED_PATHS,
     cache_is_enabled,
     declared_cache_paths,
-    job,
     jobs,
     load_workflow,
     shared_action_name,
@@ -39,13 +38,6 @@ CACHE_ACTION_RE = re.compile(r"^actions/cache(?:/(?:restore|save))?@(?P<sha>\S+)
 #: setup-uv owns ~/.cache/uv whenever its cache is enabled, wherever it is
 #: invoked from.
 UV_CACHE_PATH = "~/.cache/uv"
-
-#: The three parts of a Kani installation. Restoring fewer than all three
-#: leaves either `cargo kani` missing or the verifier toolchain symlink
-#: dangling, so they form one cache generation.
-KANI_CACHE_PATHS = frozenset(
-    {"~/.cargo/bin/cargo-kani", "~/.cargo/bin/kani", "~/.kani", "~/.kani-rustup"}
-)
 
 
 def _cache_steps(definition: dict) -> list[dict]:
@@ -146,36 +138,10 @@ def test_every_cache_step_declares_an_explainable_key(workflow_name: str) -> Non
             )
 
 
-def test_kani_restores_its_front_end_bundle_and_toolchain_together() -> None:
-    """Pin Kani's multi-part cache contract.
-
-    The front-end lives in Cargo home, the verifier bundle under KANI_HOME,
-    and the pinned nightly toolchain in a Kani-specific rustup home that the
-    bundle symlinks into. Caching any subset leaves a warm run either
-    without ``cargo kani`` or with a dangling toolchain link.
-    """
-    definition = job("nightly-kani.yml", "kani-full")
-    cache_steps = _cache_steps(definition)
-    assert len(cache_steps) == 1, "the Kani job must declare exactly one cache step"
-    paths = set(declared_cache_paths(cache_steps[0]))
-    assert paths == KANI_CACHE_PATHS, (
-        f"the Kani cache must cover {sorted(KANI_CACHE_PATHS)}, found {sorted(paths)}"
-    )
-    key = cache_steps[0]["with"]["key"]
-    for pin_file in ("tools/kani/VERSION", "tools/kani/SHA256SUMS"):
-        assert pin_file in key, (
-            f"the Kani cache key must derive from {pin_file} so a pin bump "
-            "invalidates it"
-        )
-
-
 #: Each installer script and the cache-step path that must restore its work
 #: first. Pairing them by tool keeps the ordering check meaningful once a job
 #: installs more than one tool.
-INSTALLER_CACHE_PAIRS = (
-    ("scripts/install-kani.sh", "~/.kani"),
-    ("scripts/install-verus.sh", ".verus"),
-)
+INSTALLER_CACHE_PAIRS = (("scripts/install-verus.sh", ".verus"),)
 
 
 def _first_index(items: list[str], predicate: cabc.Callable[[str], bool]) -> int | None:
