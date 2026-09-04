@@ -155,16 +155,93 @@ def _normalize(path: str) -> str:
     return path.rstrip("/") or "/"
 
 
+#: Characters that make an `actions/cache` path a pattern rather than a
+#: literal. The action resolves its paths through `@actions/glob`, so a
+#: contract that compares them as plain strings can be walked straight past:
+#: `~/.cargo/bin/*` archives `cargo-kani` while never spelling its name.
+GLOB_METACHARACTERS = "*?["
+
+
+def _has_glob(pattern: str) -> bool:
+    """Report whether a declared path is a glob pattern."""
+    return any(character in pattern for character in GLOB_METACHARACTERS)
+
+
+def _glob_to_regex(pattern: str) -> re.Pattern[str]:
+    """Translate an `@actions/glob` pattern into an equivalent regex.
+
+    `**` crosses separators; `*` and `?` do not. A bracket expression is
+    copied through as a character class, with `!` rewritten to the regex
+    spelling of negation.
+    """
+    parts: list[str] = []
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("**", index):
+            parts.append(".*")
+            index += 2
+        elif pattern[index] == "*":
+            parts.append("[^/]*")
+            index += 1
+        elif pattern[index] == "?":
+            parts.append("[^/]")
+            index += 1
+        elif pattern[index] == "[":
+            close = pattern.find("]", index + 1)
+            if close == -1:
+                parts.append(re.escape("["))
+                index += 1
+                continue
+            body = pattern[index + 1 : close]
+            if body.startswith("!"):
+                body = "^" + body[1:]
+            parts.append(f"[{body}]")
+            index = close + 1
+        else:
+            parts.append(re.escape(pattern[index]))
+            index += 1
+    return re.compile("".join(parts) + r"\Z")
+
+
+def _literal_prefix(pattern: str) -> str:
+    """Return the leading segments of a pattern that contain no wildcard.
+
+    Everything a pattern can match lives under this directory, which is what
+    makes it the right thing to compare against when asking whether the
+    archive would reach inside a rejected tree.
+    """
+    kept: list[str] = []
+    for segment in pattern.split("/"):
+        if _has_glob(segment):
+            break
+        kept.append(segment)
+    return "/".join(kept) or "/"
+
+
+def _ancestors(path: str) -> list[str]:
+    """Return every proper ancestor directory of a path, shallowest first."""
+    segments = path.split("/")
+    return ["/".join(segments[:count]) for count in range(1, len(segments))]
+
+
 def _covers(declared: str, rejected: str) -> bool:
     """Report whether a declared cache path would archive a rejected one.
 
-    Exact equality is not enough. `actions/cache` accepts a directory with or
-    without a trailing separator, and caching a parent sweeps its children in,
-    so `~/.cargo/bin` would archive `cargo-kani` just as surely as naming it.
-    A child counts too: `~/.kani-rustup/toolchains` is most of the 1.3 GB.
+    Exact equality is not enough, in three separate ways. `actions/cache`
+    accepts a directory with or without a trailing separator. Caching a
+    parent sweeps its children in, so `~/.cargo/bin` archives `cargo-kani`
+    just as surely as naming it; `@actions/glob` sets `implicitDescendants`,
+    so a pattern matching that parent does the same. And a child counts too:
+    `~/.kani-rustup/toolchains` is most of the 1.3 GB.
     """
     left, right = _normalize(declared), _normalize(rejected)
-    return left == right or left.startswith(f"{right}/") or right.startswith(f"{left}/")
+    matches = _glob_to_regex(left).fullmatch
+    if matches(right):
+        return True
+    if any(matches(ancestor) for ancestor in _ancestors(right)):
+        return True
+    prefix = _normalize(_literal_prefix(left))
+    return prefix == right or prefix.startswith(f"{right}/")
 
 
 @pytest.mark.parametrize("workflow_name", workflow_names())
@@ -195,6 +272,14 @@ def test_the_rejected_caches_stay_rejected(workflow_name: str) -> None:
         pytest.param("~/.cargo/registry", False, id="unrelated-sibling"),
         pytest.param("~/.cargo/bin/whitaker-installer", False, id="other-tool"),
         pytest.param("~/.kani-extra", False, id="shared-prefix-only"),
+        pytest.param("~/.cargo/bin/*", True, id="globbed-parent"),
+        pytest.param("~/.cargo/**", True, id="recursive-glob"),
+        pytest.param("~/.kani*", True, id="glob-matching-the-path-itself"),
+        pytest.param("~/.kani-rustup/*/lib", True, id="glob-inside-a-rejected-tree"),
+        pytest.param("~/.cargo/bin/whitaker-*", False, id="glob-for-another-tool"),
+        pytest.param("~/.cargo/registry/**", False, id="recursive-glob-elsewhere"),
+        pytest.param("~/.cargo/bin/?ani", True, id="single-character-wildcard"),
+        pytest.param("~/.cargo/bin/[ck]ani", True, id="bracket-expression"),
     ],
 )
 def test_rejected_path_coverage_recognizes_equivalent_spellings(

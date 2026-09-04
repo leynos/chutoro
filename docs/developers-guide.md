@@ -150,12 +150,12 @@ it, and each is asserted by `tests/workflow_contracts/sccache_test.py`:
    `ACTIONS_CACHE_SERVICE_V2`, because the proxy serves v1 and leaving v2
    selected sends writes to GitHub instead. It fails closed on a
    GitHub-hosted runner, so it must not appear on one. Those jobs leave the
-   v2 service available and unused: they still compile to local disk, because
+   v2 service available and unused: they still compile to local disk because
    nothing here sets `SCCACHE_GHA_ENABLED` and no backend is selected without
    it.
 
 There is a wrinkle worth knowing before repeating this elsewhere. On Ubicloud
-the export cannot win, because `setup-rust` starts the sccache server inside
+the export cannot win because `setup-rust` starts the sccache server inside
 an action step and the runner re-injects `ACTIONS_CACHE_SERVICE_V2=on` and
 GitHub's results URL into action steps. The server binds to GitHub's v2
 service whatever `GITHUB_ENV` says. Starting sccache from a `run:` step after
