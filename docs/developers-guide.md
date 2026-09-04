@@ -131,7 +131,10 @@ it belongs, on `ci.yml`'s lint and build steps.
 Every cached path has exactly one owner per job. Two owners means two keys
 racing to describe the same directory, so one of them always restores work the
 other has invalidated. `tests/workflow_contracts/cache_ownership_test.py`
-enforces this, including the paths the shared actions own implicitly.
+enforces this, including the paths the shared actions own implicitly. The
+caches that were measured and rejected outright are pinned separately, in
+`rejected_caches_test.py`, which matches declared paths through the
+`@actions/glob` translation in `cache_path_globs.py` rather than as strings.
 
 Table: Each cached path, its single owner, and the input its key is derived
 from.
@@ -179,7 +182,11 @@ archives with executable probes; only the archive is gone.
 sccache is the sole owner of compiler output, which is why no cache step
 archives a `target` tree. Owning it is not the same as storing it, and this
 repository has now failed at that twice. Both failures reported success.
-Every part below is asserted by `tests/workflow_contracts/sccache_test.py`.
+Every part below is asserted by the contracts in
+`tests/workflow_contracts/`: `sccache_wiring_test.py` for whether the
+cache is switched on and pointed somewhere real, and
+`sccache_cache_entry_test.py` for who reads it, who writes it, and in
+what order.
 
 The arrangement that works has five parts:
 
