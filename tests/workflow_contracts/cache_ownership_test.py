@@ -142,12 +142,29 @@ def test_every_cache_step_declares_an_explainable_key(workflow_name: str) -> Non
 #: about 1.8 GB against a 16 s cold install (run 33819842254), so caching them
 #: costs far more runner time than it saves. Removing the old contract without
 #: this one would let the archive come back unnoticed.
-REJECTED_CACHE_PATHS = (
+REJECTED_CACHE_PATHS: tuple[str, ...] = (
     "~/.cargo/bin/cargo-kani",
     "~/.cargo/bin/kani",
     "~/.kani",
     "~/.kani-rustup",
 )
+
+
+def _normalize(path: str) -> str:
+    """Strip a trailing separator so equivalent spellings compare equal."""
+    return path.rstrip("/") or "/"
+
+
+def _covers(declared: str, rejected: str) -> bool:
+    """Report whether a declared cache path would archive a rejected one.
+
+    Exact equality is not enough. `actions/cache` accepts a directory with or
+    without a trailing separator, and caching a parent sweeps its children in,
+    so `~/.cargo/bin` would archive `cargo-kani` just as surely as naming it.
+    A child counts too: `~/.kani-rustup/toolchains` is most of the 1.3 GB.
+    """
+    left, right = _normalize(declared), _normalize(rejected)
+    return left == right or left.startswith(f"{right}/") or right.startswith(f"{left}/")
 
 
 @pytest.mark.parametrize("workflow_name", workflow_names())
@@ -156,10 +173,39 @@ def test_the_rejected_caches_stay_rejected(workflow_name: str) -> None:
     for job_name, definition in jobs(load_workflow(workflow_name)).items():
         for step in _cache_steps(definition):
             for path in declared_cache_paths(step):
-                assert path not in REJECTED_CACHE_PATHS, (
-                    f"{workflow_name}:{job_name} caches {path}, which was "
-                    "measured and rejected; see the developers guide"
+                covered = [
+                    rejected
+                    for rejected in REJECTED_CACHE_PATHS
+                    if _covers(path, rejected)
+                ]
+                assert not covered, (
+                    f"{workflow_name}:{job_name} caches {path}, which covers "
+                    f"{covered}; those were measured and rejected. See the "
+                    "developers guide."
                 )
+
+
+@pytest.mark.parametrize(
+    ("declared", "is_covered"),
+    [
+        pytest.param("~/.kani", True, id="exact"),
+        pytest.param("~/.kani/", True, id="trailing-separator"),
+        pytest.param("~/.cargo/bin", True, id="parent-directory"),
+        pytest.param("~/.kani-rustup/toolchains", True, id="child-directory"),
+        pytest.param("~/.cargo/registry", False, id="unrelated-sibling"),
+        pytest.param("~/.cargo/bin/whitaker-installer", False, id="other-tool"),
+        pytest.param("~/.kani-extra", False, id="shared-prefix-only"),
+    ],
+)
+def test_rejected_path_coverage_recognizes_equivalent_spellings(
+    declared: str, is_covered: bool
+) -> None:
+    """Guard the guard, since exact equality was the original hole."""
+    covered = any(_covers(declared, rejected) for rejected in REJECTED_CACHE_PATHS)
+    assert covered is is_covered, (
+        f"{declared} should {'' if is_covered else 'not '}count as covering a "
+        "rejected cache path"
+    )
 
 
 #: Each installer script and the cache-step path that must restore its work

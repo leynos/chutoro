@@ -158,9 +158,13 @@ def test_counters_are_zeroed_then_reported(
         ),
         None,
     )
-    assert build_at is not None and build_at < show_at, (
-        f"{workflow_name}:{job_name} must compile between zeroing its "
-        "counters and reporting them, or the statistics describe no work"
+    assert build_at is not None, (
+        f"{workflow_name}:{job_name} zeroes its counters but never compiles "
+        "afterwards, so the statistics describe no work"
+    )
+    assert build_at < show_at, (
+        f"{workflow_name}:{job_name} reports its statistics before the build "
+        "they are meant to describe"
     )
     report = scripts[show_at]
     assert "GITHUB_STEP_SUMMARY" in report, (
@@ -173,6 +177,13 @@ def test_counters_are_zeroed_then_reported(
     assert "tee" in report, (
         f"{workflow_name}:{job_name} must also emit its statistics to the "
         "log; a summary-only report is unreadable by tooling"
+    )
+    # Which backend sccache bound to decides whether any other number in the
+    # report means anything, and it is not in `--show-stats` output until the
+    # `Cache location` line, which is easy to miss. Name it explicitly.
+    assert "ACTIONS_CACHE_SERVICE_V2" in report, (
+        f"{workflow_name}:{job_name} must report which cache service was "
+        "selected; without it the statistics cannot be interpreted"
     )
 
 
