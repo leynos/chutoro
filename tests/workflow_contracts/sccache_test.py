@@ -123,6 +123,28 @@ def test_the_wrapper_names_sccache(
     _wrapper_jobs(),
     ids=_wrapper_job_ids(),
 )
+def test_the_backend_is_enabled_wherever_the_wrapper_is(
+    workflow_name: str, job_name: str, definition: dict[str, typ.Any]
+) -> None:
+    """Naming the wrapper without a backend caches nothing.
+
+    sccache falls back to a local disk that nothing caches and the runner
+    discards, so the job pays the wrapper's overhead and keeps a zero hit
+    rate. The two settings only mean anything together.
+    """
+    enabled = definition["env"].get("SCCACHE_GHA_ENABLED")
+    assert enabled == "true", (
+        f"{workflow_name}:{job_name} names a compiler wrapper but leaves "
+        f"SCCACHE_GHA_ENABLED as {enabled!r}, so sccache falls back to a "
+        "local disk and caches nothing between runs"
+    )
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name", "definition"),
+    _wrapper_jobs(),
+    ids=_wrapper_job_ids(),
+)
 def test_counters_are_zeroed_then_reported(
     workflow_name: str, job_name: str, definition: dict[str, typ.Any]
 ) -> None:

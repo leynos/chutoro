@@ -137,16 +137,30 @@ it, and each is asserted by `tests/workflow_contracts/sccache_test.py`:
    never names it as the wrapper, so before this every compilation bypassed
    the cache while the logs still reported a healthy server with zero compile
    requests.
-2. `sccache --zero-stats` before the build and `--show-stats` into the job
-   summary after it, so the statistics describe one run and an operator can
-   read them without opening the log.
-3. On Ubicloud, the `export-ubicloud-cache-credentials` shared action between
-   checkout and `setup-rust`. The runner exposes its local cache proxy's URL
-   and token to action steps only, never to a `run:` step, so the sccache
-   server would otherwise never see them. The action also clears
+2. `SCCACHE_GHA_ENABLED: 'true'` beside it. Naming the wrapper is necessary
+   and not sufficient: sccache selects its GitHub Actions backend only when
+   this is set, and otherwise falls back to a local disk that nothing caches
+   and the runner discards. The job then pays the wrapper's overhead and
+   keeps a zero hit rate, which is exactly what the first attempt measured.
+3. `sccache --zero-stats` before the build and `--show-stats` afterwards,
+   teed into both the log and the job summary. Job summaries are not exposed
+   through the REST API, so a summary-only report cannot be checked by
+   anything except a human with a browser.
+4. On Ubicloud, the `export-ubicloud-cache-credentials` shared action
+   immediately after checkout and before `setup-rust`. The runner exposes its
+   local cache proxy's URL and token to action steps only, never to a `run:`
+   step, so the sccache server would otherwise never see them. Ordering is
+   load-bearing: `setup-rust` starts the server, so an export after it arrives
+   too late to change the backend. The action also clears
    `ACTIONS_CACHE_SERVICE_V2`, because the proxy serves v1 and leaving v2
    selected sends writes to GitHub instead. It fails closed on a
-   GitHub-hosted runner, so it must not appear on one.
+   GitHub-hosted runner, so it must not appear on one; those jobs use v2
+   against GitHub's own cache, which is correct there.
+
+Read `Cache location` in the reported statistics to tell whether any of this
+worked. It must say `ghac`. `Local disk` means the backend was never
+selected, and every number beside it describes a cache that will not survive
+the job.
 
 Four jobs name the wrapper: `build-test`, `coverage-upload`, and both property
 suites. The exclusions are deliberate. `verus-proofs` and
