@@ -221,9 +221,8 @@ def _action_shapes(step: dict[str, typ.Any]) -> set[str]:
     if not any(action in reference for action in BUILD_ACTIONS):
         return set()
     with_block = step.get("with")
-    return {
-        _action_shape(reference, with_block if isinstance(with_block, dict) else {})
-    }
+    inputs = with_block if isinstance(with_block, dict) else {}
+    return {_action_shape(reference, inputs)}
 
 
 # A shape is a whole command, not just its subcommand. `cargo clippy -p
