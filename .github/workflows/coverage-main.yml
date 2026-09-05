@@ -40,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        uses: leynos/shared-actions/.github/actions/setup-rust@197d04cbc6f20cd7d1a08b4e445a5c35910e5364
         with:
           # mozilla-actions/sccache-action writes GitHub's cache endpoint
           # to GITHUB_ENV on its way out, clobbering any earlier export for
@@ -107,11 +107,11 @@ jobs:
       # installed. The shared action owns the installer binary and the
       # ~/.local/share/whitaker cache for this job.
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        uses: leynos/shared-actions/.github/actions/install-whitaker@197d04cbc6f20cd7d1a08b4e445a5c35910e5364
       - name: Lint
         run: make lint
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        uses: leynos/shared-actions/.github/actions/generate-coverage@197d04cbc6f20cd7d1a08b4e445a5c35910e5364
         with:
           output-path: lcov.info
           format: lcov
@@ -147,7 +147,7 @@ jobs:
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
         if: env.CS_ACCESS_TOKEN != ''
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@197d04cbc6f20cd7d1a08b4e445a5c35910e5364
         with:
           format: lcov
           project-url: https://api.codescene.io/v2/projects/71838
