@@ -53,6 +53,7 @@ fn delete_node_reconnects_neighbours_and_preserves_reachability(mut small_graph:
         .expect("attach second neighbour");
     small_graph.try_add_bidirectional_edge(0, 1, 0);
     small_graph.try_add_bidirectional_edge(1, 2, 0);
+    let _ = small_graph.take_touched_nodes();
 
     let deleted = small_graph.delete_node(1).expect("delete must succeed");
 
@@ -66,6 +67,11 @@ fn delete_node_reconnects_neighbours_and_preserves_reachability(mut small_graph:
     let node2 = small_graph.node(2).expect("node 2 must remain");
     assert_eq!(node2.neighbours(0), &[0], "node 2 must connect to node 0");
     assert_eq!(small_graph.entry().map(|entry| entry.node), Some(0));
+    assert_eq!(
+        small_graph.take_touched_nodes(),
+        vec![(0, 0), (2, 0)],
+        "delete must queue only adjacency lists that it changed",
+    );
 }
 
 #[rstest]
@@ -131,6 +137,8 @@ fn delete_node_reverts_when_it_would_disconnect_graph(restricted_params: HnswPar
     graph.try_add_bidirectional_edge(0, 3, 0);
     graph.try_add_bidirectional_edge(1, 4, 0);
     graph.try_add_bidirectional_edge(2, 4, 0);
+    let _ = graph.take_touched_nodes();
+    graph.record_touched_nodes([(4, 0)]);
 
     let result = graph.delete_node(0);
 
@@ -152,5 +160,10 @@ fn delete_node_reverts_when_it_would_disconnect_graph(restricted_params: HnswPar
         graph.entry().map(|entry| entry.node),
         Some(0),
         "entry point must roll back on failure"
+    );
+    assert_eq!(
+        graph.take_touched_nodes(),
+        vec![(4, 0)],
+        "failed deletion must restore the pre-mutation healing queue",
     );
 }
