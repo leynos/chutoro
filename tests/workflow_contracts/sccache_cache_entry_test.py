@@ -145,11 +145,24 @@ def test_exactly_one_job_writes_the_compiler_cache() -> None:
 
 #: The job that reads the compiler-cache key. Its compile steps are the
 #: shapes the writer has to produce.
-EXPECTED_READER = ("ci.yml", "build-test")
+EXPECTED_READER: tuple[str, str] = ("ci.yml", "build-test")
+
+#: Inputs that change what a shared action compiles, per action. Only these
+#: belong in a shape. `output-path` and `format` decide where the report
+#: goes; `use-cargo-nextest` decides whether the workspace is built for
+#: nextest or for `cargo test`, which is a different set of objects, and
+#: `with-ratchet` adds a baseline comparison build. An action input absent
+#: from this mapping is deliberately ignored, so a reader and a writer may
+#: differ on where they write their coverage file without failing the
+#: contract.
+COMPILATION_RELEVANT_INPUTS: dict[str, tuple[str, ...]] = {
+    "generate-coverage": ("use-cargo-nextest", "with-ratchet"),
+    "rust-build-release": ("target", "features", "profile"),
+}
 
 #: Cargo subcommands that produce compiler output. `fmt` and `metadata` do
 #: not, so they are not shapes the cache has to hold.
-COMPILING_CARGO = re.compile(
+COMPILING_CARGO: re.Pattern[str] = re.compile(
     r"^cargo\s+(?:\+\S+\s+)?(?:nextest|test|build|clippy|check|doc|bench|run|llvm-cov)\b"
 )
 
@@ -159,20 +172,18 @@ COMPILING_CARGO = re.compile(
 #: the shape whose absence left the warm hit rate stuck.
 #: The trailing guard is load-bearing: a `\b` after `test` would also match
 #: `make test-workflow-contracts`, which runs pytest and compiles nothing.
-COMPILING_MAKE = re.compile(
+COMPILING_MAKE: re.Pattern[str] = re.compile(
     r"^make\s+(?:lint|lint-clippy|lint-whitaker|test|typecheck|build|release|bench)"
     r"(?:\s|$)"
 )
 
 
+# A shell line continuation is a formatting choice, not a different command,
+# so a `cargo clippy` split across four lines has to read as the single shape
+# it is. Whitespace is collapsed for the same reason: a reflow must not look
+# like a new command to the contract.
 def _command_lines(script: str) -> list[str]:
-    """Return a script's commands, one per line, with continuations joined.
-
-    A shell line continuation is a formatting choice, not a different
-    command, so `cargo clippy -p x \\\n  --features y` has to read as the
-    single shape it is. Whitespace is collapsed for the same reason: a
-    reflow must not look like a new command to the contract.
-    """
+    """Return a script's commands, one per line, with continuations joined."""
     joined = script.replace("\\\n", " ")
     return [" ".join(line.split()) for line in joined.splitlines() if line.strip()]
 
@@ -186,27 +197,42 @@ def _script_shapes(step: dict[str, typ.Any]) -> set[str]:
     }
 
 
-def _action_shapes(step: dict[str, typ.Any]) -> set[str]:
-    """Return the compiling shared action a step uses, if it uses one.
+# The action's reference stands in for the command, because the caller cannot
+# see what it runs. The pinned revision is part of the shape: two jobs on
+# different revisions of `generate-coverage` may compile differently, and
+# reducing both to the bare path would hide exactly that drift. So are the
+# inputs that change what is built, which is why they are named explicitly
+# rather than folded in wholesale; see COMPILATION_RELEVANT_INPUTS.
+def _action_shape(reference: str, with_block: dict[str, typ.Any]) -> str:
+    """Return the canonical shape for one compiling action reference."""
+    path, _, revision = reference.partition("@")
+    action = path.rsplit("/", 1)[-1]
+    relevant = COMPILATION_RELEVANT_INPUTS.get(action, ())
+    inputs = " ".join(
+        f"{name}={with_block[name]}" for name in relevant if name in with_block
+    )
+    canonical = f"{path}@{revision}" if revision else path
+    return f"{canonical} {inputs}".rstrip()
 
-    The action's path stands in for the command, because the caller cannot
-    see what it runs.
-    """
+
+def _action_shapes(step: dict[str, typ.Any]) -> set[str]:
+    """Return the compiling shared action a step uses, if it uses one."""
     reference = uses_reference(step)
+    if not any(action in reference for action in BUILD_ACTIONS):
+        return set()
+    with_block = step.get("with")
     return {
-        reference.split("@", 1)[0] for action in BUILD_ACTIONS if action in reference
+        _action_shape(reference, with_block if isinstance(with_block, dict) else {})
     }
 
 
+# A shape is a whole command, not just its subcommand. `cargo clippy -p
+# chutoro-providers-dense --no-default-features --features simd_avx2` produces
+# different objects from a plain workspace Clippy run, and sccache keys them
+# separately, so a writer that runs only the latter leaves the former missing
+# forever.
 def _compile_shapes(definition: dict[str, typ.Any]) -> set[str]:
-    """Return every distinct compilation a job performs.
-
-    A shape is a whole command, not just its subcommand. `cargo clippy -p
-    chutoro-providers-dense --no-default-features --features simd_avx2`
-    produces different objects from a plain workspace Clippy run, and
-    sccache keys them separately, so a writer that runs only the latter
-    leaves the former missing forever.
-    """
+    """Return every distinct compilation a job performs."""
     return {
         shape
         for step in steps(definition)
