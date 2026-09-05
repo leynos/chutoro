@@ -1,9 +1,9 @@
 //! Property-based test runners for the parallel Kruskal MST implementation.
 //!
-//! Hosts proptest runners for all three properties (oracle equivalence,
-//! structural invariants, concurrency safety), rstest parameterized cases
-//! for targeted distribution coverage, and unit tests for the sequential
-//! oracle itself.
+//! Hosts proptest runners for all four properties (oracle equivalence,
+//! structural invariants, repeatability, thread-pool determinism), rstest
+//! parameterized cases for targeted distribution coverage, and unit tests for
+//! the sequential oracle itself.
 
 use proptest::prelude::*;
 use rand::SeedableRng;
@@ -12,7 +12,7 @@ use rand::rngs::SmallRng;
 use crate::CandidateEdge;
 use crate::test_utils::suite_proptest_config;
 
-use super::concurrency::run_concurrency_safety_property;
+use super::concurrency::{run_concurrency_safety_property, run_thread_pool_determinism_property};
 use super::equivalence::run_oracle_equivalence_property;
 use super::oracle::{SequentialMstResult, sequential_kruskal};
 use super::strategies::{generate_fixture, mst_fixture_strategy};
@@ -89,6 +89,11 @@ proptest! {
     fn mst_concurrency_safety(fixture in mst_fixture_strategy()) {
         run_concurrency_safety_property(&fixture)?;
     }
+
+    #[test]
+    fn mst_thread_pool_determinism(fixture in mst_fixture_strategy()) {
+        run_thread_pool_determinism_property(&fixture)?;
+    }
 }
 
 // ========================================================================
@@ -111,6 +116,12 @@ parameterised_property_test!(
     concurrency_safety_rstest,
     run_concurrency_safety_property,
     "concurrency safety must hold"
+);
+
+parameterised_property_test!(
+    thread_pool_determinism_rstest,
+    run_thread_pool_determinism_property,
+    "thread-pool determinism must hold"
 );
 
 // ========================================================================

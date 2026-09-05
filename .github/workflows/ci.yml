@@ -20,7 +20,11 @@ jobs:
       # insertion order and the random draws, producing a different graph — and
       # therefore different covered lines — on each run. That made whole-workspace
       # coverage wobble run-to-run and false-tripped the ratchet. One worker keeps
-      # the ratchet input reproducible and matched to the coverage-main baseline.
+      # the ratchet input reproducible and matched to the coverage-main baseline;
+      # it controls coverage-ratchet determinism only. MST concurrency coverage
+      # comes from a `std::thread` `try_union` stress test and an explicit
+      # `ThreadPoolBuilder` 1-versus-8-thread determinism test, both of which use
+      # real concurrency regardless of this pin.
       RAYON_NUM_THREADS: '1'
       # Name the wrapper at job level so every compiling step routes through
       # the cache, including the ones inside shared actions. Installing
