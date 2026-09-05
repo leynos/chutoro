@@ -680,6 +680,96 @@ file focused on the behaviour under test. Current examples:
 Support modules carry `//!` module docs and `///` item docs, with `# Errors`
 sections on fallible helpers.
 
+## Test timeouts: four tiers, outermost last
+
+Four independent timers can end a test run, and they are set in four different
+places. A run that dies without an obvious cause is nearly always one of them,
+so it is worth knowing which is which and in what order they can fire.
+
+Table: the four timers, innermost first, with where each is set.
+
+| Tier | What it bounds | Where it is set | Current value |
+| --- | --- | --- | --- |
+| Per-test `slow-timeout` | one test | `.config/nextest.toml` | 60 s default, 900 s for the slowest override |
+| nextest `global-timeout` | the whole test run | `.config/nextest.toml` | 40 m |
+| Cargo watchdog | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m) |
+| Job `timeout-minutes` | the whole job | the job holding the coverage step | 85 m |
+
+Each tier must sit above the one before it.
+
+### The cargo watchdog is the tier nobody expects
+
+The first two tiers are nextest's. The watchdog belongs to the shared
+`generate-coverage` action, which wraps the `cargo` invocation and kills it after
+a wall-clock budget. It defaults to 1,800 s, and until this was written no
+workflow here set it, so the coverage lanes ran under a budget this repository
+had not chosen and did not mention. Underneath a 40 m nextest budget, that
+default would have killed a cold run before nextest had spent three quarters of
+what it was given.
+
+When the watchdog fires the step prints:
+
+```text
+::error::cargo did not exit within 3300.0s; killing. This is a budget, not a
+detected hang: raise the cargo-wait-timeout input, or
+RUN_RUST_CARGO_WAIT_TIMEOUT, if the build is legitimately slower. A cold
+sccache store makes the first run on a branch compile everything inside this
+budget.
+```
+
+Take the message at its word. Nothing was detected as hung. A budget expired,
+and on a cold compiler cache that is the expected outcome rather than a symptom.
+
+### The clocks do not start together
+
+Comparing the configured numbers is not enough because two of the four timers
+start at different moments and cover different work.
+
+The watchdog starts when `cargo` starts, so it covers the build as well as the
+test run, while nextest's global timeout starts only once tests begin. A
+watchdog merely larger than the global timeout is still pre-empting it whenever
+the build takes longer than the difference.
+
+The far end matters as well. A test already running when the global timeout
+expires is allowed to finish, so a run can outlast that budget by the longest
+per-test allowance, 900 s here. Whether that tail is ever reached or not,
+allowing for it costs nothing, because the watchdog only fires on an overrun.
+
+The watchdog is therefore sized as the global timeout, plus the running-test
+tail, plus a cold-build allowance: 40 m + 15 m + 15 m = 70 m.
+
+The job timer starts when the job starts, before the formatting, linting,
+spelling and contract steps that precede coverage. Measured on run 33939048036:
+6 m 08 s before coverage and 16 s after. The job ceiling is 70 m + 15 m = 85 m.
+A ceiling merely above the watchdog would cancel the run before the watchdog
+could report it, and a cancellation discards the log that would have explained
+the overrun.
+
+### What the current values are sized against
+
+The coverage step is fast here. Measured on `ubuntu-latest`:
+
+Table: measured coverage-step and whole-job durations.
+
+| Run | Coverage step | Whole job |
+| --- | --- | --- |
+| 33977183018 | 3 m 29 s | 7 m 24 s |
+| 33939048036 | 3 m 29 s | 9 m 45 s |
+| 33938591932 | 3 m 52 s | 10 m 15 s |
+
+So none of these budgets is close to binding today, and that is the point:
+the values are sized against the tier below rather than against current
+runtimes, so a suite that grows or a cache that goes cold does not silently
+change which timer fires first.
+
+`timeout_ordering_test.py` asserts the ordering by value: the watchdog per
+coverage step, the job ceiling per job, so the Verus job's own ceiling is not
+compared against the coverage lane's watchdog. It also requires every step
+invoking the shared coverage action to set the watchdog explicitly, since a step
+without it inherits the 1,800 s default, which is where this repository started.
+Both workflow extensions are scanned, because a coverage lane in a `.yaml` file
+would otherwise inherit that default without failing anything.
+
 ## Continuous integration
 
 `property-tests-pr` runs on `ubicloud-standard-2`, a 2-core Ubicloud runner,

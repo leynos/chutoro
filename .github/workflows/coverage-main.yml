@@ -17,6 +17,10 @@ name: Coverage (main)
 jobs:
   coverage-upload:
     runs-on: ubuntu-latest
+    # Above the 3,300 s cargo watchdog on the coverage step plus the
+    # work either side of it, so an overrun is reported by the
+    # watchdog rather than discarded as a job cancellation.
+    timeout-minutes: 85
     permissions:
       contents: read
     env:
@@ -112,6 +116,13 @@ jobs:
         run: make lint
       - name: Test and Measure Coverage
         uses: leynos/shared-actions/.github/actions/generate-coverage@197d04cbc6f20cd7d1a08b4e445a5c35910e5364
+        env:
+          # The cargo watchdog, one of four tiers that can end a run. It must
+          # stay above the 40 m nextest global-timeout in .config/nextest.toml
+          # plus the build that runs inside the same cargo invocation, or a
+          # cold run is killed before nextest can use its budget. See "Test
+          # timeouts: four tiers, outermost last" in docs/developers-guide.md.
+          RUN_RUST_CARGO_WAIT_TIMEOUT: '4200'
         with:
           output-path: lcov.info
           format: lcov
