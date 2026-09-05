@@ -20,10 +20,12 @@ Run via ``make test-workflow-contracts``.
 
 from __future__ import annotations
 
+import re
 import typing as typ
 
 import pytest
 from sccache_support import (
+    BUILD_ACTIONS,
     EXPECTED_CACHE_DIR,
     EXPECTED_WRITE_EVENT,
     EXPECTED_WRITER,
@@ -138,6 +140,126 @@ def test_exactly_one_job_writes_the_compiler_cache() -> None:
         "the compiler-cache save must be guarded by "
         f"{EXPECTED_WRITE_EVENT!r}; a dispatch restores and never saves, or a "
         "manual re-run overwrites the entry a merge produced"
+    )
+
+
+#: The job that reads the compiler-cache key. Its compile steps are the
+#: shapes the writer has to produce.
+EXPECTED_READER: tuple[str, str] = ("ci.yml", "build-test")
+
+#: Inputs that change what a shared action compiles, per action. Only these
+#: belong in a shape. `output-path` and `format` decide where the report
+#: goes; `use-cargo-nextest` decides whether the workspace is built for
+#: nextest or for `cargo test`, which is a different set of objects, and
+#: `with-ratchet` adds a baseline comparison build. An action input absent
+#: from this mapping is deliberately ignored, so a reader and a writer may
+#: differ on where they write their coverage file without failing the
+#: contract.
+COMPILATION_RELEVANT_INPUTS: dict[str, tuple[str, ...]] = {
+    "generate-coverage": ("use-cargo-nextest", "with-ratchet"),
+    "rust-build-release": ("target", "features", "profile"),
+}
+
+#: Cargo subcommands that produce compiler output. `fmt` and `metadata` do
+#: not, so they are not shapes the cache has to hold.
+COMPILING_CARGO: re.Pattern[str] = re.compile(
+    r"^cargo\s+(?:\+\S+\s+)?(?:nextest|test|build|clippy|check|doc|bench|run|llvm-cov)\b"
+)
+
+#: Make targets that compile. `check-fmt`, `spelling` and
+#: `test-workflow-contracts` do not, so a writer need not run them; `lint`
+#: does, through rustdoc, Clippy and the Whitaker Dylint suite, and it is
+#: the shape whose absence left the warm hit rate stuck.
+#: The trailing guard is load-bearing: a `\b` after `test` would also match
+#: `make test-workflow-contracts`, which runs pytest and compiles nothing.
+COMPILING_MAKE: re.Pattern[str] = re.compile(
+    r"^make\s+(?:lint|lint-clippy|lint-whitaker|test|typecheck|build|release|bench)"
+    r"(?:\s|$)"
+)
+
+
+# A shell line continuation is a formatting choice, not a different command,
+# so a `cargo clippy` split across four lines has to read as the single shape
+# it is. Whitespace is collapsed for the same reason: a reflow must not look
+# like a new command to the contract.
+def _command_lines(script: str) -> list[str]:
+    """Return a script's commands, one per line, with continuations joined."""
+    joined = script.replace("\\\n", " ")
+    return [" ".join(line.split()) for line in joined.splitlines() if line.strip()]
+
+
+def _script_shapes(step: dict[str, typ.Any]) -> set[str]:
+    """Return the compiling commands a step's `run:` script invokes."""
+    return {
+        line
+        for line in _command_lines(run_script(step))
+        if COMPILING_CARGO.match(line) or COMPILING_MAKE.match(line)
+    }
+
+
+# The action's reference stands in for the command, because the caller cannot
+# see what it runs. The pinned revision is part of the shape: two jobs on
+# different revisions of `generate-coverage` may compile differently, and
+# reducing both to the bare path would hide exactly that drift. So are the
+# inputs that change what is built, which is why they are named explicitly
+# rather than folded in wholesale; see COMPILATION_RELEVANT_INPUTS.
+def _action_shape(reference: str, with_block: dict[str, typ.Any]) -> str:
+    """Return the canonical shape for one compiling action reference."""
+    path, _, revision = reference.partition("@")
+    action = path.rsplit("/", 1)[-1]
+    relevant = COMPILATION_RELEVANT_INPUTS.get(action, ())
+    inputs = " ".join(
+        f"{name}={with_block[name]}" for name in relevant if name in with_block
+    )
+    canonical = f"{path}@{revision}" if revision else path
+    return f"{canonical} {inputs}".rstrip()
+
+
+def _action_shapes(step: dict[str, typ.Any]) -> set[str]:
+    """Return the compiling shared action a step uses, if it uses one."""
+    reference = uses_reference(step)
+    if not any(action in reference for action in BUILD_ACTIONS):
+        return set()
+    with_block = step.get("with")
+    inputs = with_block if isinstance(with_block, dict) else {}
+    return {_action_shape(reference, inputs)}
+
+
+# A shape is a whole command, not just its subcommand. `cargo clippy -p
+# chutoro-providers-dense --no-default-features --features simd_avx2` produces
+# different objects from a plain workspace Clippy run, and sccache keys them
+# separately, so a writer that runs only the latter leaves the former missing
+# forever.
+def _compile_shapes(definition: dict[str, typ.Any]) -> set[str]:
+    """Return every distinct compilation a job performs."""
+    return {
+        shape
+        for step in steps(definition)
+        for shape in _script_shapes(step) | _action_shapes(step)
+    }
+
+
+def test_the_writer_compiles_every_shape_the_reader_reads() -> None:
+    """A writer that builds less than its reader leaves permanent misses.
+
+    One key may have exactly one owner, so a shape the writer never builds
+    is a shape no pull request can ever hit. That is not a cache fault and
+    it does not heal: it measured as a warm hit rate stuck at 47.94 % with
+    byte-identical counters across two dispatches, 1375 hits and 1493
+    misses each time. A flaky cache varies; a structurally incomplete
+    archive does not.
+
+    The two jobs live in different files, so YAML anchors cannot hold them
+    together. This does.
+    """
+    reader = _compile_shapes(job(*EXPECTED_READER))
+    writer = _compile_shapes(job(*EXPECTED_WRITER))
+    missing = sorted(reader - writer)
+    assert not missing, (
+        f"{EXPECTED_WRITER[0]}:{EXPECTED_WRITER[1]} writes the compiler-cache "
+        f"key that {EXPECTED_READER[0]}:{EXPECTED_READER[1]} reads, but never "
+        f"compiles {missing}. Every object those commands produce would miss "
+        "on every pull request, permanently."
     )
 
 

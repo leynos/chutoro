@@ -220,12 +220,30 @@ The arrangement that works has five parts:
 #### Who reads and who writes
 
 `ci.yml`'s `build-test` restores the key and never saves.
-`coverage-main.yml`'s `coverage-upload` restores it, compiles the same
-workspace under the same instrumentation on `push` to `main`, and is the
-only job that saves. One owner means no race on merge and no run discarding
-another's work. The save is guarded on `github.event_name == 'push'`, so a
-dispatch restores and never saves and a manual re-upload cannot overwrite
-the entry a real merge produced.
+`coverage-main.yml`'s `coverage-upload` restores it, compiles on `push` to
+`main`, and is the only job that saves. One owner means no race on merge and
+no run discarding another's work. The save is guarded on
+`github.event_name == 'push'`, so a dispatch restores and never saves and a
+manual re-upload cannot overwrite the entry a real merge produced.
+
+One owner has a consequence that is easy to miss and expensive to leave
+alone: a shape the writer never builds is a shape no pull request can ever
+hit. `build-test` compiles three of them, the dense-SIMD gate with its own
+feature set, `make lint`'s rustdoc and Clippy pass, and the instrumented
+coverage run. When `coverage-upload` built only the third, the warm hit rate
+stalled at 47.94 % with byte-identical counters across two dispatches, 1375
+hits and 1493 misses each time. Identical numbers across runs are the tell.
+A flaky cache varies; a structurally incomplete archive does not.
+
+The fix is not a second writer, because one key may have only one owner. It
+is for that owner to build what its reader builds, so `coverage-upload` now
+runs the dense-SIMD gate and `make lint` before its coverage step, purely to
+fill the cache. The two jobs live in different files, so YAML anchors cannot
+hold them together;
+`tests/workflow_contracts/sccache_cache_entry_test.py` asserts that the
+writer's compile commands are a superset of the reader's, comparing whole
+command lines rather than subcommands. A change to the dense-SIMD feature
+list in one file fails the contract until the other matches.
 
 The key carries `runner.os`, `runner.arch`, `runner.environment`, the hash
 of `rust-toolchain.toml` and `Cargo.lock`, and a UTC date stamp. The date
