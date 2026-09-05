@@ -46,7 +46,7 @@ jobs:
           # full history must be fetched for the merge base to be reachable.
           fetch-depth: 0
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        uses: leynos/shared-actions/.github/actions/setup-rust@197d04cbc6f20cd7d1a08b4e445a5c35910e5364
         with:
           # The action installs sccache through mozilla-actions/sccache-action,
           # whose last act is to write ACTIONS_CACHE_SERVICE_V2=on and
@@ -113,7 +113,7 @@ jobs:
       # crates.io source-build fallback. It owns the installer binary and
       # the ~/.local/share/whitaker suite cache.
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        uses: leynos/shared-actions/.github/actions/install-whitaker@197d04cbc6f20cd7d1a08b4e445a5c35910e5364
       - name: Lint
         run: make lint
       - name: Setup uv
@@ -129,7 +129,7 @@ jobs:
       - name: Workflow contract tests
         run: make test-workflow-contracts
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        uses: leynos/shared-actions/.github/actions/generate-coverage@197d04cbc6f20cd7d1a08b4e445a5c35910e5364
         with:
           output-path: lcov.info
           format: lcov
@@ -166,7 +166,7 @@ jobs:
         env:
           CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
         if: env.CS_ACCESS_TOKEN != '' && github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@c6125f19593668cbfefd65a59c08cb7aefe90d93
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@197d04cbc6f20cd7d1a08b4e445a5c35910e5364
         with:
           format: lcov
           mode: check
