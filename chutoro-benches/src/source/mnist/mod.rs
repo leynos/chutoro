@@ -2,7 +2,7 @@
 
 use crate::source::{SyntheticError, numeric::SyntheticSource};
 use flate2::read::GzDecoder;
-use std::env;
+use mockable::{DefaultEnv, Env};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -30,7 +30,7 @@ pub struct MnistConfig {
 impl Default for MnistConfig {
     fn default() -> Self {
         Self {
-            cache_dir: default_cache_dir(),
+            cache_dir: default_cache_dir_with_env(&DefaultEnv),
             base_url: "https://storage.googleapis.com/cvdf-datasets/mnist".to_owned(),
         }
     }
@@ -156,23 +156,25 @@ fn file_url(config: &MnistConfig, file_name: &str) -> String {
 }
 
 /// Resolve the conventional local cache directory for MNIST archives.
-fn default_cache_dir() -> PathBuf {
-    if let Some(explicit) = env::var_os("CHUTORO_MNIST_CACHE_DIR") {
+///
+/// The injected reader keeps configuration tests independent of process state.
+fn default_cache_dir_with_env(env: &dyn Env) -> PathBuf {
+    if let Some(explicit) = env.os_string("CHUTORO_MNIST_CACHE_DIR") {
         return PathBuf::from(explicit);
     }
 
-    if let Some(xdg_cache) = env::var_os("XDG_CACHE_HOME") {
+    if let Some(xdg_cache) = env.os_string("XDG_CACHE_HOME") {
         return PathBuf::from(xdg_cache).join("chutoro").join("mnist");
     }
 
-    if let Some(home) = env::var_os("HOME") {
+    if let Some(home) = env.os_string("HOME") {
         return PathBuf::from(home)
             .join(".cache")
             .join("chutoro")
             .join("mnist");
     }
 
-    env::temp_dir().join("chutoro").join("mnist")
+    std::env::temp_dir().join("chutoro").join("mnist")
 }
 
 /// Parsed metadata and flattened pixel data for one MNIST archive.

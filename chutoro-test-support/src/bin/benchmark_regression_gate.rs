@@ -1,6 +1,6 @@
 //! Emit benchmark regression mode for CI workflows.
 
-use std::env;
+use std::env::VarError;
 use std::error::Error;
 use std::fs::OpenOptions;
 use std::io::Write;
@@ -8,6 +8,7 @@ use std::io::Write;
 use chutoro_test_support::ci::benchmark_regression_profile::{
     BenchmarkCiPolicy, BenchmarkRegressionProfile,
 };
+use mockable::{DefaultEnv, Env};
 
 fn main() -> Result<(), Box<dyn Error>> {
     init_tracing();
@@ -50,7 +51,7 @@ fn emit_github_output(
     profile: BenchmarkRegressionProfile,
     reason: &str,
 ) -> Result<(), Box<dyn Error>> {
-    let output_path = read_optional_env("GITHUB_OUTPUT")?.unwrap_or_default();
+    let output_path = read_optional_env(&DefaultEnv, "GITHUB_OUTPUT")?.unwrap_or_default();
     if output_path.is_empty() {
         return Ok(());
     }
@@ -94,10 +95,10 @@ fn write_github_output_value(
 }
 
 /// Return the optional environment value named `name`.
-fn read_optional_env(name: &str) -> Result<Option<String>, Box<dyn Error>> {
-    match env::var(name) {
+fn read_optional_env(env: &dyn Env, name: &str) -> Result<Option<String>, Box<dyn Error>> {
+    match env.raw(name) {
         Ok(value) => Ok(Some(value)),
-        Err(env::VarError::NotPresent) => Ok(None),
+        Err(VarError::NotPresent) => Ok(None),
         Err(error) => Err(error.into()),
     }
 }

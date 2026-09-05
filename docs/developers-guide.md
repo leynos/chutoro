@@ -551,6 +551,27 @@ staging, and the separately compiled CI gate binaries. Keep the rest of each
 workspace crate under `no_std_fs_operations` enforcement and add an explanatory
 comment whenever a new boundary is unavoidable.
 
+## Injected environment access
+
+Read environment values through `mockable::Env`, not ambient `std::env`
+functions. The workspace pins `mockable` 3.0.0 at the root; production code uses
+`DefaultEnv` only at the application boundary and passes `&impl Env` into the
+configuration logic. Select the accessor that preserves the required value:
+`raw` returns `Result<String, VarError>` and distinguishes missing from
+non-Unicode values; `string` returns `Option<String>` and discards both;
+`os_string` returns `Option<OsString>` and preserves non-Unicode values; and
+`path_buf` returns `Option<PathBuf>` for path-valued variables, including
+non-Unicode paths.
+
+In tests, use `MockEnv` from `mockable`'s `mock` feature and configure
+`mockall` expectations such as `expect_string`, `expect_os_string`, or
+`expect_path_buf` for the accessors exercised by the code under test. Do not
+call `std::env::{var, var_os, vars, vars_os, set_var, remove_var}` in library
+or test code. The root Clippy policy denies these methods so that environment
+access remains injectable and in-process tests do not mutate process-global
+state. Subprocess tests may configure a child explicitly with `Command::env` or
+`Command::env_remove`.
+
 ## Whitaker lint suite
 
 Whitaker is a Dylint lint suite that runs as a commit gate alongside Clippy.

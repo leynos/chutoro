@@ -6,6 +6,7 @@
 use std::{fmt::Display, time::Duration};
 
 use criterion::{BenchmarkGroup, BenchmarkId, Criterion, measurement::WallTime};
+use mockable::{DefaultEnv, Env};
 
 /// Returns whether the current command line includes `flag`.
 ///
@@ -112,12 +113,16 @@ pub fn is_exact_benchmark_probe() -> bool {
 /// ```
 #[must_use]
 pub fn is_nextest_exact_benchmark_probe() -> bool {
-    is_nextest_exact_benchmark_probe_args(
-        std::env::args(),
-        std::env::var_os("NEXTEST_TEST_NAME").is_some(),
-    )
+    is_nextest_exact_benchmark_probe_with_env(&DefaultEnv)
 }
 
+/// Detect an exact Nextest probe through an injected environment reader.
+fn is_nextest_exact_benchmark_probe_with_env(env: &dyn Env) -> bool {
+    is_nextest_exact_benchmark_probe_args(
+        std::env::args(),
+        env.os_string("NEXTEST_TEST_NAME").is_some(),
+    )
+}
 /// Determine whether arguments describe a nextest exact benchmark probe.
 fn is_nextest_exact_benchmark_probe_args<I, S>(args: I, has_nextest_test_name: bool) -> bool
 where
