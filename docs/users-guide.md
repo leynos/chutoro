@@ -266,12 +266,12 @@ For an end-to-end example, see the Rustdoc for
 ## Results and assignments
 
 `Chutoro::run` returns a `ClusteringResult`, which exposes the per-item
-`assignments` and a pre-computed `cluster_count`. The helper enforces that
-cluster identifiers start at `0` and are contiguous.
-`ClusteringResult::try_from_assignments` is available when validation of
-identifiers is required before constructing a result manually. Errors are
-reported via the `NonContiguousClusterIds` enum so actionable feedback can be
-surfaced upstream.
+`assignments` and a pre-computed `cluster_count`. To construct a result
+manually, use the public fallible `ClusteringResult::try_from_assignments`. It
+verifies that cluster identifiers start at `0` and are contiguous, reporting
+invalid input through the `NonContiguousClusterIds` enum so actionable feedback
+can be surfaced upstream. The panicking `from_assignments` convenience is
+internal to `chutoro-core`, where the CPU pipeline guarantees the precondition.
 
 Each assignment stores a `ClusterId`. The underlying value can be accessed with
 `get()` when serializing or displaying results.
