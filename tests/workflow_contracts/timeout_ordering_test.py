@@ -32,7 +32,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from workflow_support import ROOT, WORKFLOW_DIR
+from workflow_support import ROOT, workflow_paths
 
 NEXTEST_CONFIG: typ.Final[Path] = ROOT / ".config" / "nextest.toml"
 
@@ -47,6 +47,10 @@ COVERAGE_ACTION: typ.Final[str] = "shared-actions/.github/actions/generate-cover
 #: Fifteen minutes is far above anything measured here, where the whole
 #: coverage step runs in under four.
 COLD_BUILD_ALLOWANCE_SECONDS: typ.Final[float] = 15 * 60.0
+
+# The running-test tail is not a constant here: it is the largest
+# slow-timeout in the file, read at test time, so moving an override
+# moves the requirement with it.
 
 #: Everything in the job that is not the coverage step. The job timer
 #: covers it; the watchdog does not. Measured at 6 m 08 s before and
@@ -136,28 +140,55 @@ def _optional_seconds(value: object) -> float | None:
     return None if value is None else float(str(value)) * 60.0
 
 
+def _job_lanes(
+    workflow: str, job_name: str, job: dict[str, typ.Any]
+) -> cabc.Iterator[CoverageLane]:
+    """Yield one lane per coverage step in a single job.
+
+    Parameters
+    ----------
+    workflow : str
+        The workflow file name.
+    job_name : str
+        The job's key.
+    job : dict[str, typ.Any]
+        The job document.
+
+    Yields
+    ------
+    CoverageLane
+        Each coverage step in this job, carrying the job's own ceiling.
+    """
+    job_timeout = _optional_seconds(job.get("timeout-minutes"))
+    for step in job.get("steps") or []:
+        if COVERAGE_ACTION not in str(step.get("uses", "")):
+            continue
+        raw = (step.get("env") or {}).get(WATCHDOG_VARIABLE)
+        yield CoverageLane(
+            workflow=workflow,
+            job=str(job_name),
+            step=str(step.get("name", "")) or str(job_name),
+            watchdog=None if raw is None else float(str(raw)),
+            job_timeout=job_timeout,
+        )
+
+
 def _lanes() -> cabc.Iterator[CoverageLane]:
     """Yield every step that invokes the shared coverage action.
+
+    Both workflow extensions are scanned. A coverage lane in a ``.yaml``
+    file would otherwise inherit the action's default watchdog without
+    failing anything here.
 
     Yields
     ------
     CoverageLane
         One lane per coverage step, across every workflow.
     """
-    for path in sorted(WORKFLOW_DIR.glob("*.yml")):
+    for path in sorted(workflow_paths()):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         for job_name, job in (document.get("jobs") or {}).items():
-            for step in job.get("steps") or []:
-                if COVERAGE_ACTION not in str(step.get("uses", "")):
-                    continue
-                raw = (step.get("env") or {}).get(WATCHDOG_VARIABLE)
-                yield CoverageLane(
-                    workflow=path.name,
-                    job=str(job_name),
-                    step=str(step.get("name", "")) or str(job_name),
-                    watchdog=None if raw is None else float(str(raw)),
-                    job_timeout=_optional_seconds(job.get("timeout-minutes")),
-                )
+            yield from _job_lanes(path.name, job_name, job)
 
 
 @pytest.fixture(scope="module")
@@ -248,6 +279,7 @@ def test_every_coverage_step_declares_a_watchdog_budget(
 def test_the_watchdog_covers_the_nextest_budget_and_the_build(
     lanes: tuple[CoverageLane, ...],
     global_timeout: float,
+    largest_slow_timeout: float,
 ) -> None:
     """Tier three must not pre-empt tier two.
 
@@ -255,14 +287,22 @@ def test_the_watchdog_covers_the_nextest_budget_and_the_build(
     ``cargo`` and covers the build; nextest's global timeout starts only
     once tests begin. A watchdog merely above the global timeout still
     pre-empts it whenever the build takes longer than the difference.
+
+    The far end matters too. A test already running when the global
+    timeout expires is allowed to finish, so the run can outlast that
+    budget by the longest per-test allowance. Whether that tail is ever
+    reached or not, allowing for it costs nothing: the watchdog only
+    fires on an overrun.
     """
-    required = global_timeout + COLD_BUILD_ALLOWANCE_SECONDS
+    required = global_timeout + largest_slow_timeout + COLD_BUILD_ALLOWANCE_SECONDS
     for lane in lanes:
         assert lane.watchdog is not None, str(lane)
         assert lane.watchdog >= required, (
             f"{lane} sets {WATCHDOG_VARIABLE}={lane.watchdog:.0f}s, below the "
             f"{required:.0f}s needed to cover the {global_timeout:.0f}s nextest "
-            f"budget plus {COLD_BUILD_ALLOWANCE_SECONDS:.0f}s of cold build"
+            f"budget, the {largest_slow_timeout:.0f}s a test already running "
+            f"may still take, and {COLD_BUILD_ALLOWANCE_SECONDS:.0f}s of cold "
+            f"build"
         )
 
 

@@ -20,7 +20,7 @@ jobs:
     # Above the 3,300 s cargo watchdog on the coverage step plus the
     # work either side of it, so an overrun is reported by the
     # watchdog rather than discarded as a job cancellation.
-    timeout-minutes: 70
+    timeout-minutes: 85
     permissions:
       contents: read
     env:
@@ -122,7 +122,7 @@ jobs:
           # plus the build that runs inside the same cargo invocation, or a
           # cold run is killed before nextest can use its budget. See "Test
           # timeouts: four tiers, outermost last" in docs/developers-guide.md.
-          RUN_RUST_CARGO_WAIT_TIMEOUT: '3300'
+          RUN_RUST_CARGO_WAIT_TIMEOUT: '4200'
         with:
           output-path: lcov.info
           format: lcov
