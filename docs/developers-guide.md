@@ -732,20 +732,23 @@ test run, while nextest's global timeout starts only once tests begin. A
 watchdog merely larger than the global timeout is still pre-empting it whenever
 the build takes longer than the difference.
 
-The far end matters as well. A test already running when the global timeout
-expires is allowed to finish, so a run can outlast that budget by the longest
-per-test allowance, 900 s here. Whether that tail is ever reached or not,
-allowing for it costs nothing, because the watchdog only fires on an overrun.
+The far end matters as well, though less than it first appears. Hitting the
+global timeout starts nextest's termination procedure rather than stopping the
+run instantly: on Unix it signals the process group and waits
+`slow-timeout.grace-period`, five seconds here, before killing it. On Windows
+termination is immediate and the grace period is ignored for timeouts. That
+allowance is seconds rather than minutes, but it is not zero.
 
-The watchdog is therefore sized as the global timeout, plus the running-test
-tail, plus a cold-build allowance: 40 m + 15 m + 15 m = 70 m.
+The watchdog is therefore sized as the global timeout, plus a termination
+allowance of one minute, plus a cold-build allowance: 40 m + 1 m + 15 m, taken
+up to 70 m.
 
 The job timer starts when the job starts, before the formatting, linting,
 spelling and contract steps that precede coverage. Measured on run 33939048036:
-6 m 08 s before coverage and 16 s after. The job ceiling is 70 m + 15 m = 85 m.
-A ceiling merely above the watchdog would cancel the run before the watchdog
-could report it, and a cancellation discards the log that would have explained
-the overrun.
+6 m 08 s before coverage and 16 s after, read across three runs rather than
+one. The job ceiling is 70 m + 15 m = 85 m. A ceiling merely above the watchdog
+would cancel the run before the watchdog could report it, and a cancellation
+discards the log that would have explained the overrun.
 
 ### What the current values are sized against
 
@@ -769,7 +772,7 @@ coverage step, the job ceiling per job, so the Verus job's own ceiling is not
 compared against the coverage lane's watchdog. It also requires every step
 invoking the shared coverage action to set the watchdog explicitly, since a step
 without it inherits the 1,800 s default, which is where this repository started.
-Both workflow extensions are scanned, because a coverage lane in a `.yaml` file
+Both workflow extensions are scanned because a coverage lane in a `.yaml` file
 would otherwise inherit that default without failing anything.
 
 ## Continuous integration
