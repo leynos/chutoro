@@ -48,13 +48,10 @@ COVERAGE_ACTION: typ.Final[str] = "shared-actions/.github/actions/generate-cover
 #: coverage step runs in under four.
 COLD_BUILD_ALLOWANCE_SECONDS: typ.Final[float] = 15 * 60.0
 
-#: Hitting the global timeout starts a termination procedure rather
-#: than stopping the run: on Unix nextest signals the process group and
-#: waits `slow-timeout.grace-period`, five seconds here, before killing
-#: it; on Windows termination is immediate, and the grace period is
-#: ignored for timeouts. Sixty seconds covers that with room, and is far
+#: Floor for the termination allowance, used when the configuration sets
+#: no grace period. Generous against nextest's ten-second default and far
 #: too small to hide a real overrun.
-TERMINATION_ALLOWANCE_SECONDS: typ.Final[float] = 60.0
+MINIMUM_TERMINATION_ALLOWANCE_SECONDS: typ.Final[float] = 60.0
 
 #: Everything in the job that is not the coverage step. The job timer
 #: covers it; the watchdog does not. Measured at 6 m 08 s before and
@@ -72,6 +69,14 @@ _UNIT_SECONDS: typ.Final[dict[str, float]] = {
     "m": 60.0,
     "h": 3600.0,
 }
+
+#: ``period`` as its own key. The lookbehind is what keeps
+#: ``grace-period`` out: the two sit in the same inline table, and a
+#: substring match would read a termination allowance as a per-test
+#: budget whenever the former were the larger.
+_PERIOD: typ.Final[re.Pattern[str]] = re.compile(r'(?<![\w-])period\s*=\s*"([^"]+)"')
+
+_GRACE_PERIOD: typ.Final[re.Pattern[str]] = re.compile(r'grace-period\s*=\s*"([^"]+)"')
 
 
 class CoverageLane(typ.NamedTuple):
@@ -240,9 +245,79 @@ def largest_slow_timeout(nextest_config: str) -> float:
     float
         The longest per-test budget.
     """
-    periods = re.findall(r'period\s*=\s*"([^"]+)"', nextest_config)
+    return largest_slow_timeout_of(nextest_config)
+
+
+def largest_slow_timeout_of(config_text: str) -> float:
+    """Return the longest per-test allowance a configuration sets.
+
+    Separated from the fixture for the same reason as
+    :func:`termination_allowance_of`: the matcher's behaviour where a
+    grace period exceeds every per-test period cannot be reached with
+    this repository's own file.
+
+    Parameters
+    ----------
+    config_text : str
+        A nextest configuration file's text.
+
+    Returns
+    -------
+    float
+        The longest per-test budget.
+    """
+    periods = _PERIOD.findall(config_text)
     assert periods, "nextest.toml must set at least one slow-timeout period"
     return max(_seconds(period) for period in periods)
+
+
+def termination_allowance_of(config_text: str) -> float:
+    """Return the termination allowance a configuration implies.
+
+    Separated from the fixture so it can be driven with configurations
+    this repository does not have. Every ``grace-period`` here is five
+    seconds, so the fixture only ever reaches the floor, and a contract
+    that sees only the floor cannot tell this rule from one that ignored
+    the configuration entirely.
+
+    Parameters
+    ----------
+    config_text : str
+        A nextest configuration file's text.
+
+    Returns
+    -------
+    float
+        The largest configured grace period, or the floor when that is
+        smaller or absent.
+    """
+    periods = _GRACE_PERIOD.findall(config_text)
+    largest = max((_seconds(period) for period in periods), default=0.0)
+    return max(largest, MINIMUM_TERMINATION_ALLOWANCE_SECONDS)
+
+
+@pytest.fixture(scope="module")
+def termination_allowance(nextest_config: str) -> float:
+    """Return the time nextest may take to stop the run, in seconds.
+
+    Read from the configuration rather than fixed, because a profile that
+    raised its grace period past a hard-coded allowance would drift out
+    of the requirement this contract exists to hold. The canonical
+    section this repository copies says to take the allowance from
+    ``slow-timeout.grace-period`` where one is set.
+
+    Parameters
+    ----------
+    nextest_config : str
+        The nextest configuration file's text.
+
+    Returns
+    -------
+    float
+        The largest configured grace period, or the floor when that is
+        smaller or absent.
+    """
+    return termination_allowance_of(nextest_config)
 
 
 def test_every_coverage_step_declares_a_watchdog_budget(
@@ -268,6 +343,7 @@ def test_every_coverage_step_declares_a_watchdog_budget(
 def test_the_watchdog_covers_the_nextest_budget_and_the_build(
     lanes: tuple[CoverageLane, ...],
     global_timeout: float,
+    termination_allowance: float,
 ) -> None:
     """Tier three must not pre-empt tier two.
 
@@ -282,15 +358,13 @@ def test_the_watchdog_covers_the_nextest_budget_and_the_build(
     grace period before killing it. That allowance is seconds, not
     minutes, but it is not zero.
     """
-    required = (
-        global_timeout + TERMINATION_ALLOWANCE_SECONDS + COLD_BUILD_ALLOWANCE_SECONDS
-    )
+    required = global_timeout + termination_allowance + COLD_BUILD_ALLOWANCE_SECONDS
     for lane in lanes:
         assert lane.watchdog is not None, str(lane)
         assert lane.watchdog >= required, (
             f"{lane} sets {WATCHDOG_VARIABLE}={lane.watchdog:.0f}s, below the "
             f"{required:.0f}s needed to cover the {global_timeout:.0f}s nextest "
-            f"budget, {TERMINATION_ALLOWANCE_SECONDS:.0f}s for nextest to "
+            f"budget, {termination_allowance:.0f}s for nextest to "
             f"terminate the run, and {COLD_BUILD_ALLOWANCE_SECONDS:.0f}s of "
             f"cold build"
         )
