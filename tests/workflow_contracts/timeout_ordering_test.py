@@ -51,7 +51,7 @@ COLD_BUILD_ALLOWANCE_SECONDS: typ.Final[float] = 15 * 60.0
 #: Hitting the global timeout starts a termination procedure rather
 #: than stopping the run: on Unix nextest signals the process group and
 #: waits `slow-timeout.grace-period`, five seconds here, before killing
-#: it; on Windows termination is immediate and the grace period is
+#: it; on Windows termination is immediate, and the grace period is
 #: ignored for timeouts. Sixty seconds covers that with room, and is far
 #: too small to hide a real overrun.
 TERMINATION_ALLOWANCE_SECONDS: typ.Final[float] = 60.0

@@ -8,7 +8,7 @@ name: CI
 jobs:
   build-test:
     runs-on: ubuntu-latest
-    # Above the 3,300 s cargo watchdog on the coverage step plus the
+    # Above the 4,200 s cargo watchdog on the coverage step plus the
     # work either side of it, so an overrun is reported by the
     # watchdog rather than discarded as a job cancellation.
     timeout-minutes: 85
