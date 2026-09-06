@@ -711,7 +711,7 @@ what it was given.
 When the watchdog fires the step prints:
 
 ```text
-::error::cargo did not exit within 3300.0s; killing. This is a budget, not a
+::error::cargo did not exit within 4200.0s; killing. This is a budget, not a
 detected hang: raise the cargo-wait-timeout input, or
 RUN_RUST_CARGO_WAIT_TIMEOUT, if the build is legitimately slower. A cold
 sccache store makes the first run on a branch compile everything inside this
@@ -720,7 +720,6 @@ budget.
 
 Take the message at its word. Nothing was detected as hung. A budget expired,
 and on a cold compiler cache that is the expected outcome rather than a symptom.
-
 
 ### The clocks do not start together
 
@@ -736,7 +735,7 @@ The far end matters as well, though less than it first appears. Hitting the
 global timeout starts nextest's termination procedure rather than stopping the
 run instantly: on Unix it signals the process group and waits
 `slow-timeout.grace-period`, five seconds here, before killing it. On Windows
-termination is immediate and the grace period is ignored for timeouts. That
+termination is immediate, and the grace period is ignored for timeouts. That
 allowance is seconds rather than minutes, but it is not zero.
 
 The watchdog is therefore sized as the global timeout, plus a termination
