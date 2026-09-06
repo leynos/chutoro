@@ -742,6 +742,14 @@ The watchdog is therefore sized as the global timeout, plus a termination
 allowance of one minute, plus a cold-build allowance: 40 m + 1 m + 15 m, taken
 up to 70 m.
 
+The contract reads that middle term from `slow-timeout.grace-period` rather
+than fixing it, so a profile that raised its grace period would raise the
+requirement with it. Every grace period here is five seconds, well under the
+one-minute floor, so the figure above is the floor rather than a reading of the
+file. `timeout_derivation_test.py` drives the reading with configurations this
+repository does not have, because a contract that only ever sees the floor
+cannot tell that rule from one that ignored the configuration entirely.
+
 The job timer starts when the job starts, before the formatting, linting,
 spelling and contract steps that precede coverage. Measured on run 33939048036:
 6 m 08 s before coverage and 16 s after, read across three runs rather than
