@@ -701,8 +701,8 @@ Each tier must sit above the one before it.
 ### The cargo watchdog is the tier nobody expects
 
 The first two tiers are nextest's. The watchdog belongs to the shared
-`generate-coverage` action, which wraps the `cargo` invocation and kills it after
-a wall-clock budget. It defaults to 1,800 s, and until this was written no
+`generate-coverage` action, which wraps the `cargo` invocation and kills it
+after a wall-clock budget. It defaults to 1,800 s, and until this was written no
 workflow here set it, so the coverage lanes ran under a budget this repository
 had not chosen and did not mention. Underneath a 40 m nextest budget, that
 default would have killed a cold run before nextest had spent three quarters of

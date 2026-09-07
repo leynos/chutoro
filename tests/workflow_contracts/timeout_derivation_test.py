@@ -13,8 +13,14 @@ See "Test timeouts: four tiers, outermost last" in
 ``docs/developers-guide.md``.
 """
 
+import typing as typ
+
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from timeout_ordering_test import (
+    MINIMUM_TERMINATION_ALLOWANCE_SECONDS,
+    _seconds,
     largest_slow_timeout_of,
     termination_allowance_of,
 )
@@ -23,32 +29,58 @@ from timeout_ordering_test import (
 @pytest.mark.parametrize(
     ("config_text", "expected"),
     [
-        pytest.param("[profile.default]\n", 60.0, id="no-grace-period-at-all"),
         pytest.param(
-            '[profile.default]\ngrace-period = "5s"\n',
+            '[profile.default]\nslow-timeout = { period = "60s" }\n',
+            60.0,
+            id="no-grace-period-at-all",
+        ),
+        pytest.param(
+            "[profile.default]\n"
+            'slow-timeout = { period = "60s", grace-period = "5s" }\n',
             60.0,
             id="grace-period-below-the-floor",
         ),
         pytest.param(
-            '[profile.default]\ngrace-period = "60s"\n',
+            "[profile.default]\n"
+            'slow-timeout = { period = "60s", grace-period = "60s" }\n',
             60.0,
             id="grace-period-at-the-floor",
         ),
         pytest.param(
-            '[profile.default]\ngrace-period = "90s"\n',
+            "[profile.default]\n"
+            'slow-timeout = { period = "60s", grace-period = "90s" }\n',
             90.0,
             id="grace-period-above-the-floor",
         ),
         pytest.param(
-            '[profile.default]\ngrace-period = "3m"\n',
+            "[profile.default]\n"
+            'slow-timeout = { period = "60s", grace-period = "3m" }\n',
             180.0,
             id="grace-period-in-minutes",
         ),
         pytest.param(
-            '[profile.default]\ngrace-period = "5s"\n'
-            '[profile.long]\ngrace-period = "2m"\n',
+            "[profile.default]\n"
+            'slow-timeout = { period = "60s", grace-period = "5s" }\n'
+            "[profile.long]\n"
+            'slow-timeout = { period = "60s", grace-period = "2m" }\n',
             120.0,
             id="largest-of-several-profiles",
+        ),
+        pytest.param(
+            "[profile.default]\n"
+            'slow-timeout = { period = "60s", grace-period = "5s" }\n'
+            "[[profile.default.overrides]]\n"
+            'filter = "all()"\n'
+            'slow-timeout = { period = "60s", grace-period = "4m" }\n',
+            240.0,
+            id="the-longest-lives-in-an-override",
+        ),
+        pytest.param(
+            "[profile.default]\n"
+            'slow-timeout = { period = "60s", grace-period = "5s" }\n'
+            '# slow-timeout = { period = "60s", grace-period = "30m" }\n',
+            60.0,
+            id="a-commented-grace-period-is-not-a-value",
         ),
     ],
 )
@@ -61,6 +93,12 @@ def test_the_termination_allowance_follows_the_configured_grace_period(
     profile that gives nextest three minutes to stop the run needs three
     minutes of watchdog to cover it, and the hard-coded 60 s this
     replaces would silently stop covering the case it exists for.
+
+    The configurations are shaped as nextest accepts them, with the grace
+    period inside the ``slow-timeout`` table rather than beside it, so
+    the reading is exercised against the structure it will meet. The last
+    case is the one a regular expression got wrong: a commented-out grace
+    period is not a value.
     """
     assert termination_allowance_of(config_text) == pytest.approx(expected), (
         f"{config_text!r} must yield a {expected:.0f}s termination allowance"
@@ -79,6 +117,52 @@ def test_the_termination_allowance_ignores_the_per_test_period() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("config_text", "expected"),
+    [
+        pytest.param(
+            '[profile.default]\nslow-timeout = { period = "180s" }\n',
+            180.0,
+            id="no-multiplier-means-one",
+        ),
+        pytest.param(
+            "[profile.default]\n"
+            'slow-timeout = { period = "180s", terminate-after = 1 }\n',
+            180.0,
+            id="a-multiplier-of-one",
+        ),
+        pytest.param(
+            "[profile.default]\n"
+            'slow-timeout = { period = "60s", terminate-after = 5 }\n',
+            300.0,
+            id="five-warning-periods",
+        ),
+        pytest.param(
+            "[profile.default]\n"
+            'slow-timeout = { period = "2m", terminate-after = 3 }\n',
+            360.0,
+            id="minutes-times-three",
+        ),
+    ],
+)
+def test_the_largest_slow_timeout_counts_the_multiplier(
+    config_text: str, expected: float
+) -> None:
+    """``terminate-after`` scales the period; the budget is their product.
+
+    nextest warns once per period and terminates after that many of them,
+    so a test given five sixty-second periods may run for five minutes.
+    Every multiplier in this repository is one, so a reading that ignored
+    it entirely would give the same answer against the real file and a
+    wrong one the moment somebody raises a multiplier. That is why this
+    is driven with configurations this repository does not have.
+    """
+    assert largest_slow_timeout_of(config_text) == pytest.approx(expected), (
+        f"{config_text!r} must yield a {expected:.0f}s largest per-test "
+        f"allowance; terminate-after scales the period"
+    )
+
+
 def test_the_largest_slow_timeout_ignores_the_grace_period() -> None:
     """The per-test ceiling must not read a grace period either.
 
@@ -91,4 +175,107 @@ def test_the_largest_slow_timeout_ignores_the_grace_period() -> None:
     )
     assert largest_slow_timeout_of(config_text) == pytest.approx(60.0), (
         "the per-test ceiling read a grace period as a slow-timeout"
+    )
+
+
+_UNITS: typ.Final[dict[str, float]] = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
+
+_GRACE_SECONDS = st.integers(min_value=0, max_value=7200)
+_PERIOD_SECONDS = st.integers(min_value=1, max_value=7200)
+_MULTIPLIERS = st.integers(min_value=1, max_value=20)
+
+
+def _profile_text(entries: list[tuple[int, int, int | None]]) -> str:
+    """Render slow-timeout tables as a nextest configuration.
+
+    Parameters
+    ----------
+    entries : list[tuple[int, int, int | None]]
+        One tuple per table: period in seconds, terminate-after, and a
+        grace period in seconds or None for a table that sets none.
+
+    Returns
+    -------
+    str
+        A configuration nextest would accept.
+    """
+    lines = ["[profile.default]"]
+    for index, (period, multiplier, grace) in enumerate(entries):
+        if index:
+            lines.extend(["", "[[profile.default.overrides]]", 'filter = "all()"'])
+        table = f'period = "{period}s", terminate-after = {multiplier}'
+        if grace is not None:
+            table += f', grace-period = "{grace}s"'
+        lines.append(f"slow-timeout = {{ {table} }}")
+    return "\n".join(lines) + "\n"
+
+
+@given(
+    value=st.integers(min_value=0, max_value=100_000),
+    unit=st.sampled_from(sorted(_UNITS)),
+)
+def test_a_duration_converts_to_its_unit_times_its_value(value: int, unit: str) -> None:
+    """Every duration nextest accepts converts by its unit alone.
+
+    Stated as a property because the four units are a fixed set and the
+    values are not: a table of examples fixes which numbers were tried,
+    and the failure this guards against is a unit applied to the wrong
+    magnitude, which any single example can miss.
+    """
+    assert _seconds(f"{value}{unit}") == pytest.approx(value * _UNITS[unit]), (
+        f"{value}{unit} must convert to {value * _UNITS[unit]}s"
+    )
+
+
+@given(
+    entries=st.lists(
+        st.tuples(_PERIOD_SECONDS, _MULTIPLIERS, st.none() | _GRACE_SECONDS),
+        min_size=1,
+        max_size=6,
+    )
+)
+def test_the_termination_allowance_is_the_floor_or_the_largest_grace_period(
+    entries: list[tuple[int, int, int | None]],
+) -> None:
+    """Two clauses, and the property is that no third one exists.
+
+    The allowance is never below the floor, and never below a grace
+    period the configuration sets. Examples can show both clauses hold
+    somewhere; the property is that they hold together everywhere,
+    including where a table sets no grace period at all and where several
+    do.
+    """
+    allowance = termination_allowance_of(_profile_text(entries))
+    graces = [grace for _, _, grace in entries if grace is not None]
+    expected = max([MINIMUM_TERMINATION_ALLOWANCE_SECONDS, *graces])
+    assert allowance == pytest.approx(expected), (
+        f"the allowance must be the larger of the floor and the largest "
+        f"configured grace period; got {allowance} for {entries}"
+    )
+
+
+@given(
+    entries=st.lists(
+        st.tuples(_PERIOD_SECONDS, _MULTIPLIERS, st.none() | _GRACE_SECONDS),
+        min_size=1,
+        max_size=6,
+    )
+)
+def test_the_largest_per_test_allowance_is_the_largest_product(
+    entries: list[tuple[int, int, int | None]],
+) -> None:
+    """The budget is a product, and the answer is the largest of them.
+
+    Two things can go wrong and only one is visible in examples: reading
+    the period without its multiplier, and taking the largest period
+    rather than the largest product. A table with a long period and a
+    multiplier of one, beside a short period with a large multiplier,
+    tells them apart, and the generator produces that case without anyone
+    having to think of it.
+    """
+    largest = largest_slow_timeout_of(_profile_text(entries))
+    expected = max(period * multiplier for period, multiplier, _ in entries)
+    assert largest == pytest.approx(expected), (
+        f"the largest per-test allowance must be the largest period times its "
+        f"terminate-after; got {largest} for {entries}"
     )
