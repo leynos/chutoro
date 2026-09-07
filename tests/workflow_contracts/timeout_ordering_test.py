@@ -64,6 +64,15 @@ TERMINATION_SAFETY_MARGIN_SECONDS: typ.Final[float] = 60.0
 #: 16 s after on run 33939048036.
 NON_COVERAGE_ALLOWANCE_SECONDS: typ.Final[float] = 15 * 60.0
 
+#: How far a ceiling must sit above the sum it contains, rather than
+#: merely reaching it. A ceiling equal to that sum cancels the job at
+#: the moment the watchdog would have reported the overrun, and the
+#: report is the only thing that makes an overrun actionable, so
+#: equality buys nothing: it converts a legible failure into a
+#: cancellation with no log. This lane is always the cold writer, so
+#: that is the likely case rather than the remote one.
+CEILING_MARGIN_SECONDS: typ.Final[float] = 15 * 60.0
+
 #: ``30s``, ``5m``, ``20 m``: the durations nextest accepts here.
 _DURATION: typ.Final[re.Pattern[str]] = re.compile(
     r"^\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>ms|s|m|h)\s*$"
@@ -147,20 +156,128 @@ def _optional_seconds(value: object) -> float | None:
     return None if value is None else float(str(value)) * 60.0
 
 
+def required_ceiling(watchdog: float, allowance: float) -> float:
+    """Return the smallest acceptable job ceiling, in seconds.
+
+    Three terms. The watchdog is what one `cargo` invocation may
+    legitimately spend. The allowance is the measured work either side
+    of it, which the job timer covers and the watchdog does not. The
+    margin is added because a ceiling equal to that sum cancels the job
+    at the moment the watchdog would have reported the overrun, and the
+    report is the only thing that makes an overrun actionable.
+
+    Parameters
+    ----------
+    watchdog : float
+        The coverage step's watchdog budget, in seconds.
+    allowance : float
+        The measured work outside that window, in seconds.
+
+    Returns
+    -------
+    float
+        The smallest acceptable ceiling, in seconds.
+    """
+    return watchdog + allowance + CEILING_MARGIN_SECONDS
+
+
+def _watchdog_seconds(raw: object) -> float | None:
+    """Return one source's watchdog budget, or None when it sets none.
+
+    A blank or whitespace-only value is not a budget of zero, it is a
+    source that says nothing, so it falls through to the next one. That
+    is what a workflow writes when it interpolates an expression that
+    resolved to nothing, and converting it directly raises before the
+    contract can name the lane at fault.
+
+    Zero and negative values are refused rather than returned. The
+    shared action reads them as no timeout at all, so a lane carrying
+    one has no third tier while appearing to declare one, which is the
+    inversion this contract exists to catch rather than to propagate.
+
+    Parameters
+    ----------
+    raw : object
+        The value the workflow set, as the YAML parser returned it.
+
+    Returns
+    -------
+    float | None
+        The budget in seconds, or None when the source sets none.
+
+    Raises
+    ------
+    ValueError
+        If the value is present and non-blank but not a positive number
+        of seconds.
+    """
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    seconds = float(text)
+    if seconds <= 0:
+        message = (
+            f"{WATCHDOG_VARIABLE} must be a positive number of seconds; "
+            f"{raw!r} would leave the cargo invocation unbounded while "
+            f"appearing to bound it"
+        )
+        raise ValueError(message)
+    return seconds
+
+
+def _watchdog_of(
+    document: dict[str, typ.Any], job: dict[str, typ.Any], step: dict[str, typ.Any]
+) -> float | None:
+    """Return the watchdog budget in force for one coverage step.
+
+    All three environment levels are read, innermost first, as GitHub
+    resolves them. Both lanes here set the value on the step, so a
+    contract reading only that scope agrees with this one today and
+    would stop agreeing the moment a lane moved it to the job, reporting
+    a lane that is bounded as inheriting the action's default.
+
+    Parameters
+    ----------
+    document : dict[str, typ.Any]
+        The whole workflow document.
+    job : dict[str, typ.Any]
+        The enclosing job.
+    step : dict[str, typ.Any]
+        The coverage step.
+
+    Returns
+    -------
+    float | None
+        The budget in seconds, or None when no level sets one.
+    """
+    for owner in (step, job, document):
+        environment = owner.get("env")
+        if not isinstance(environment, dict):
+            continue
+        seconds = _watchdog_seconds(environment.get(WATCHDOG_VARIABLE))
+        if seconds is not None:
+            return seconds
+    return None
+
+
 def _job_lanes(
-    workflow: str, job_name: str, job: dict[str, typ.Any]
+    workflow: str,
+    job_name: str,
+    job: dict[str, typ.Any],
+    document: dict[str, typ.Any] | None = None,
 ) -> cabc.Iterator[CoverageLane]:
     """Yield one lane per coverage step in a single job."""
     job_timeout = _optional_seconds(job.get("timeout-minutes"))
     for step in job.get("steps") or []:
         if COVERAGE_ACTION not in str(step.get("uses", "")):
             continue
-        raw = (step.get("env") or {}).get(WATCHDOG_VARIABLE)
         yield CoverageLane(
             workflow=workflow,
             job=str(job_name),
             step=str(step.get("name", "")) or str(job_name),
-            watchdog=None if raw is None else float(str(raw)),
+            watchdog=_watchdog_of(document or {}, job, step),
             job_timeout=job_timeout,
         )
 
@@ -180,7 +297,7 @@ def _lanes() -> cabc.Iterator[CoverageLane]:
     for path in sorted(workflow_paths()):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         for job_name, job in (document.get("jobs") or {}).items():
-            yield from _job_lanes(path.name, job_name, job)
+            yield from _job_lanes(path.name, job_name, job, document)
 
 
 @pytest.fixture(scope="module")
@@ -506,10 +623,11 @@ def test_the_job_timeout_covers_the_watchdog_and_the_rest_of_the_job(
             f"{lane} runs cargo under a {lane.watchdog:.0f}s watchdog in a job "
             f"with no timeout-minutes; the outermost tier is missing"
         )
-        required = lane.watchdog + NON_COVERAGE_ALLOWANCE_SECONDS
+        required = required_ceiling(lane.watchdog, NON_COVERAGE_ALLOWANCE_SECONDS)
         assert lane.job_timeout >= required, (
             f"{lane} has a job timeout of {lane.job_timeout:.0f}s, below the "
             f"{required:.0f}s needed to cover its {lane.watchdog:.0f}s watchdog "
-            f"plus {NON_COVERAGE_ALLOWANCE_SECONDS:.0f}s of work outside it; an "
-            f"overrun would be cancelled rather than reported"
+            f"plus {NON_COVERAGE_ALLOWANCE_SECONDS:.0f}s of work outside it and "
+            f"a {CEILING_MARGIN_SECONDS:.0f}s margin above that sum; an overrun "
+            f"would be cancelled rather than reported"
         )

@@ -8,10 +8,13 @@ name: CI
 jobs:
   build-test:
     runs-on: ubuntu-latest
-    # Above the 4,200 s cargo watchdog on the coverage step plus the
-    # work either side of it, so an overrun is reported by the
-    # watchdog rather than discarded as a job cancellation.
-    timeout-minutes: 85
+    # Above the 4,200 s cargo watchdog on the coverage step plus the 900 s
+    # of work either side of it, and fifteen minutes above that sum rather
+    # than equal to it. A ceiling sitting on its requirement cancels the
+    # job at the moment the watchdog would have reported the overrun, and
+    # the report is the only thing that makes an overrun actionable. This
+    # was 85, exactly the requirement.
+    timeout-minutes: 100
     permissions:
       contents: read
     env:
