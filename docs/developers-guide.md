@@ -694,7 +694,7 @@ Table: the four timers, innermost first, with where each is set.
 | Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default, 900 s for the slowest override |
 | nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 40 m                                         |
 | Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m)                               |
-| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 85 m                                         |
+| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 100 m                                        |
 
 Each tier must sit above the one before it.
 
@@ -756,12 +756,29 @@ here is five seconds, so the file only ever shows one value, and
 repository does not have. A contract that only ever sees one value cannot tell
 that rule from one that ignored the configuration entirely.
 
+The same applies to the watchdog itself. It is resolved from the step, then the
+job, then the workflow, as GitHub does, and both lanes here set it on the step,
+so a reading that consulted only that scope would agree with a correct one
+against this tree and stop agreeing the moment a lane moved the value. A blank
+value at any scope is treated as a source that says nothing and falls through,
+which is what a workflow writes when it interpolates an expression that
+resolved to nothing; a zero or a negative one is refused, because the shared
+action reads those as no timeout at all and a lane carrying one has no third
+tier while appearing to declare one.
+
 The job timer starts when the job starts, before the formatting, linting,
 spelling and contract steps that precede coverage. Measured on run 33939048036:
 6 m 08 s before coverage and 16 s after, read across three runs rather than
-one. The job ceiling is 70 m + 15 m = 85 m. A ceiling merely above the watchdog
-would cancel the run before the watchdog could report it, and a cancellation
-discards the log that would have explained the overrun.
+one. So the requirement is 70 m + 15 m = 85 m, and the ceiling is 100.
+
+The ceiling is not that requirement. It is the requirement plus fifteen
+minutes, because a ceiling equal to the sum it contains cancels the job at the
+moment the watchdog would have reported the overrun, and the report is the only
+thing that makes an overrun actionable. Equality buys nothing: it converts a
+legible failure into a cancellation with no log.
+
+This section first set the ceiling to 85, exactly the requirement, on a lane
+that is always the cold writer, which is where that trade is least affordable.
 
 ### What the current values are sized against
 

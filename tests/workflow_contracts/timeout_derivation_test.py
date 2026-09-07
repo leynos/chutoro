@@ -19,10 +19,13 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from timeout_ordering_test import (
+    CEILING_MARGIN_SECONDS,
     NEXTEST_DEFAULT_GRACE_PERIOD_SECONDS,
     TERMINATION_SAFETY_MARGIN_SECONDS,
     _seconds,
+    _watchdog_of,
     largest_slow_timeout_of,
+    required_ceiling,
     termination_allowance_of,
 )
 
@@ -284,4 +287,98 @@ def test_the_largest_per_test_allowance_is_the_largest_product(
     assert largest == pytest.approx(expected), (
         f"the largest per-test allowance must be the largest period times its "
         f"terminate-after; got {largest} for {entries}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("step", "job", "document", "expected"),
+    [
+        pytest.param(
+            {"env": {"RUN_RUST_CARGO_WAIT_TIMEOUT": "4200"}},
+            {"env": {"RUN_RUST_CARGO_WAIT_TIMEOUT": "3600"}},
+            {"env": {"RUN_RUST_CARGO_WAIT_TIMEOUT": "1800"}},
+            4200.0,
+            id="the-step-wins",
+        ),
+        pytest.param(
+            {},
+            {"env": {"RUN_RUST_CARGO_WAIT_TIMEOUT": "3600"}},
+            {"env": {"RUN_RUST_CARGO_WAIT_TIMEOUT": "1800"}},
+            3600.0,
+            id="then-the-job",
+        ),
+        pytest.param(
+            {},
+            {},
+            {"env": {"RUN_RUST_CARGO_WAIT_TIMEOUT": "1800"}},
+            1800.0,
+            id="then-the-workflow",
+        ),
+        pytest.param(
+            {"env": {"RUN_RUST_CARGO_WAIT_TIMEOUT": "   "}},
+            {"env": {"RUN_RUST_CARGO_WAIT_TIMEOUT": "3600"}},
+            {},
+            3600.0,
+            id="a-blank-step-value-falls-through",
+        ),
+        pytest.param({}, {}, {}, None, id="nothing-sets-one"),
+    ],
+)
+def test_the_watchdog_resolves_innermost_first(
+    step: dict[str, object],
+    job: dict[str, object],
+    document: dict[str, object],
+    expected: float | None,
+) -> None:
+    """Step, then job, then workflow, as GitHub resolves them.
+
+    Both lanes here set the value on the step, so a reading that
+    consulted only that scope agrees with this one against the tree and
+    would stop agreeing the moment a lane moved the value to the job,
+    reporting a bounded lane as inheriting the action's default.
+
+    A blank source is not a budget of zero. It is what a workflow writes
+    when it interpolates an expression that resolved to nothing, and
+    converting it directly raises before the contract can name the lane.
+    """
+    resolved = _watchdog_of(document, job, step)
+    if expected is None:
+        assert resolved is None, f"no scope sets one, got {resolved!r}"
+    else:
+        assert resolved == pytest.approx(expected), (
+            f"step={step!r} job={job!r} document={document!r} must resolve to "
+            f"{expected}, got {resolved!r}"
+        )
+
+
+@pytest.mark.parametrize("value", ["0", "-1", " -30 "], ids=str)
+def test_a_non_positive_watchdog_is_refused(value: str) -> None:
+    """Zero is not a watchdog, it is the absence of one.
+
+    The shared action reads a non-positive value as no timeout, so a
+    lane carrying one has no third tier while appearing to declare one.
+    Returning it would let the ceiling arithmetic certify a lane whose
+    cargo invocation is unbounded.
+    """
+    with pytest.raises(ValueError, match="positive number of seconds"):
+        _watchdog_of({}, {}, {"env": {"RUN_RUST_CARGO_WAIT_TIMEOUT": value}})
+
+
+def test_the_required_ceiling_carries_all_three_terms() -> None:
+    """Watchdog, measured work outside it, and the margin above them.
+
+    Both lanes here now sit fifteen minutes above their requirement, so
+    dropping the margin from the derivation changes nothing the
+    assertion over the workflows can see: the ceiling still clears the
+    smaller number. Driving the derivation with controlled values is
+    what makes the missing term visible.
+    """
+    assert required_ceiling(4200.0, 900.0) == pytest.approx(
+        4200.0 + 900.0 + CEILING_MARGIN_SECONDS
+    ), "all three terms are added"
+    assert required_ceiling(4200.0, 0.0) == pytest.approx(
+        4200.0 + CEILING_MARGIN_SECONDS
+    ), "the margin applies even when nothing runs outside the watchdog"
+    assert required_ceiling(0.0, 0.0) == pytest.approx(CEILING_MARGIN_SECONDS), (
+        "the margin is a term of its own, not a fraction of the others"
     )
