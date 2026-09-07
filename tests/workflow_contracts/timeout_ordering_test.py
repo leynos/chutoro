@@ -37,6 +37,7 @@ from timeout_budgets import (
     NON_COVERAGE_ALLOWANCE_SECONDS,
     WATCHDOG_VARIABLE,
     _seconds,
+    bounds_a_single_test,
     largest_slow_timeout_of,
     parse_config,
     required_ceiling,
@@ -284,4 +285,28 @@ def test_each_coverage_lane_carries_the_condition_it_is_meant_to(
         f"these coverage lanes do not carry the conditions the developers' "
         f"guide records, as expected versus found: {wrong}; a lane that is "
         f"skipped runs no cargo, so its watchdog never arms"
+    )
+
+
+def test_the_default_profile_bounds_a_test_no_override_matches(
+    nextest_config: str,
+) -> None:
+    """An override bounds its filter's tests; the profile bounds the rest.
+
+    `largest_slow_timeout_of` reports the largest budget anywhere in the
+    file, so deleting `[profile.default]`'s own `slow-timeout` and
+    leaving the fifteen overrides behind still reports a comfortable
+    number while every test none of them matches runs with no bound at
+    all. Nothing else here would notice.
+
+    `[profile.ci]` declares none of its own and does not need to:
+    nextest's other profiles inherit the default profile's own keys.
+
+    Proved by mutation: commenting out the default profile's own
+    `slow-timeout` fails this test and nothing else.
+    """
+    assert bounds_a_single_test(nextest_config), (
+        "[profile.default] itself must set slow-timeout with terminate-after; "
+        "an override satisfies the file as a whole while leaving every test it "
+        "does not match unbounded"
     )
