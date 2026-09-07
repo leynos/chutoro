@@ -237,6 +237,39 @@ def largest_slow_timeout_of(config_text: str) -> float:
     return max(budgets)
 
 
+def bounds_a_single_test(config_text: str, profile: str = "default") -> bool:
+    """Return whether a profile's own table terminates a slow test.
+
+    Only the profile's own ``slow-timeout`` counts. An override bounds
+    the tests its filter matches; the profile's own bounds the rest, so
+    a profile whose only ``terminate-after`` sits in an override leaves
+    every unmatched test running with no bound at all while
+    :func:`largest_slow_timeout_of` still reports a comfortable number.
+
+    nextest's other profiles inherit ``[profile.default]``'s own keys,
+    so a profile that declares no ``slow-timeout`` of its own is bounded
+    by the default's rather than unbounded; only the default profile's
+    absence is a hole.
+
+    Parameters
+    ----------
+    config_text : str
+        The nextest configuration file's text.
+    profile : str
+        The profile to read.
+
+    Returns
+    -------
+    bool
+        True when that profile's own ``slow-timeout`` is a table setting
+        ``terminate-after``.
+    """
+    profiles = parse_config(config_text).get("profile")
+    own = profiles.get(profile) if isinstance(profiles, dict) else None
+    table = own.get("slow-timeout") if isinstance(own, dict) else None
+    return isinstance(table, dict) and table.get("terminate-after") is not None
+
+
 def termination_allowance_of(config_text: str) -> float:
     """Return the termination allowance a configuration implies.
 
