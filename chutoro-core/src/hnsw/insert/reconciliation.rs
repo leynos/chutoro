@@ -60,22 +60,7 @@ impl<'graph> EdgeReconciler<'graph> {
             if next.contains(&target) {
                 continue;
             }
-            let Some(target_node) = self.graph.node_mut(target) else {
-                continue;
-            };
-            if ctx.level >= target_node.level_count() {
-                continue;
-            }
-
-            let Some(neighbours) = target_node.neighbours_mut(ctx.level) else {
-                continue;
-            };
-            let Some(pos) = neighbours.iter().position(|&id| id == ctx.origin) else {
-                continue;
-            };
-
-            neighbours.remove(pos);
-            if ctx.level == 0 && neighbours.is_empty() {
+            if self.remove_reverse_edge(ctx, target) {
                 isolated.push(target);
             }
         }
@@ -97,6 +82,29 @@ impl<'graph> EdgeReconciler<'graph> {
         for node in isolated {
             healer.ensure_base_connectivity(node, ctx.max_connections);
         }
+    }
+
+    /// Removes the target's reciprocal edge to the origin.
+    ///
+    /// Returns whether the removal leaves a base-layer target isolated, so the
+    /// caller can defer healing until all removals are complete.
+    fn remove_reverse_edge(&mut self, ctx: &UpdateContext, target: usize) -> bool {
+        let Some(target_node) = self.graph.node_mut(target) else {
+            return false;
+        };
+        if ctx.level >= target_node.level_count() {
+            return false;
+        }
+
+        let Some(neighbours) = target_node.neighbours_mut(ctx.level) else {
+            return false;
+        };
+        let Some(pos) = neighbours.iter().position(|&id| id == ctx.origin) else {
+            return false;
+        };
+
+        neighbours.remove(pos);
+        ctx.level == 0 && neighbours.is_empty()
     }
 
     /// Retains only targets whose reverse edge could be ensured.
@@ -238,5 +246,104 @@ impl<'graph> EdgeReconciler<'graph> {
                 healer.ensure_base_connectivity(ctx.origin, ctx.max_connections);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests reverse-edge removal during insertion reconciliation.
+
+    use super::{EdgeReconciler, UpdateContext};
+    use crate::hnsw::{
+        error::HnswError,
+        graph::{Graph, NodeContext},
+        params::HnswParams,
+    };
+
+    fn graph_with_two_nodes(level: usize) -> Result<Graph, HnswError> {
+        let params = HnswParams::new(2, 4)?;
+        let mut graph = Graph::with_capacity(params, 2);
+        graph.insert_first(NodeContext {
+            node: 0,
+            level,
+            sequence: 0,
+        })?;
+        graph.attach_node(NodeContext {
+            node: 1,
+            level,
+            sequence: 1,
+        })?;
+        Ok(graph)
+    }
+
+    fn update_context(level: usize) -> UpdateContext {
+        UpdateContext {
+            origin: 0,
+            level,
+            max_connections: 2,
+        }
+    }
+
+    #[test]
+    fn remove_reverse_edge_reports_a_base_layer_target_it_isolates() {
+        let mut graph = graph_with_two_nodes(0).expect("test graph must be valid");
+        graph
+            .node_mut(1)
+            .expect("target node must be present")
+            .neighbours_mut(0)
+            .expect("target must have a base layer")
+            .push(0);
+
+        let mut reconciler = EdgeReconciler::new(&mut graph);
+
+        assert!(reconciler.remove_reverse_edge(&update_context(0), 1));
+        assert!(
+            reconciler
+                .graph
+                .node(1)
+                .expect("target node must be present")
+                .neighbours(0)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn remove_reverse_edge_does_not_report_an_upper_layer_target_as_isolated() {
+        let mut graph = graph_with_two_nodes(1).expect("test graph must be valid");
+        graph
+            .node_mut(1)
+            .expect("target node must be present")
+            .neighbours_mut(1)
+            .expect("target must have an upper layer")
+            .push(0);
+
+        let mut reconciler = EdgeReconciler::new(&mut graph);
+
+        assert!(!reconciler.remove_reverse_edge(&update_context(1), 1));
+        assert!(
+            reconciler
+                .graph
+                .node(1)
+                .expect("target node must be present")
+                .neighbours(1)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn remove_reverse_edge_returns_false_when_the_reverse_edge_is_missing() {
+        let mut graph = graph_with_two_nodes(0).expect("test graph must be valid");
+        let mut reconciler = EdgeReconciler::new(&mut graph);
+
+        assert!(!reconciler.remove_reverse_edge(&update_context(0), 1));
+    }
+
+    #[test]
+    fn remove_reverse_edge_returns_false_when_target_or_level_is_missing() {
+        let mut graph = graph_with_two_nodes(0).expect("test graph must be valid");
+        let mut reconciler = EdgeReconciler::new(&mut graph);
+
+        assert!(!reconciler.remove_reverse_edge(&update_context(0), 2));
+        assert!(!reconciler.remove_reverse_edge(&update_context(1), 1));
     }
 }

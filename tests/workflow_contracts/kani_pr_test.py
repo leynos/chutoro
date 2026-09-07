@@ -37,10 +37,6 @@ MAKEFILE_PATH = REPO_ROOT / "Makefile"
 #: Single source of truth for the pinned Kani verifier version.
 KANI_VERSION_PATH = REPO_ROOT / "tools" / "kani" / "VERSION"
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
-#: A literal version argument, e.g. ``--version 1.2.3``. The workflow must
-#: interpolate the pin file instead, so this pattern must never match.
-VERSION_LITERAL_RE = re.compile(r"--version\s+[\"']?\d")
-
 CHECKOUT_RE = re.compile(r"^actions/checkout@[0-9a-f]{40}$")
 SETUP_RUST_RE = re.compile(
     r"^leynos/shared-actions/\.github/actions/setup-rust@[0-9a-f]{40}$"
@@ -254,33 +250,16 @@ def test_setup_rust_is_pinned_to_a_commit_sha(workflow: dict[str, object]) -> No
     )
 
 
-def test_kani_install_is_locked_and_version_pinned(
-    workflow: dict[str, object],
-) -> None:
-    """The verifier installs with --locked at an exact approved version."""
+def test_kani_install_uses_the_pinned_installer(workflow: dict[str, object]) -> None:
+    """The verifier installs through the checksum-verified repository script."""
     steps = _steps(workflow)
     install_runs = [
         step.get("run")
         for step in steps
-        if isinstance(step.get("run"), str) and "kani-verifier" in step["run"]
+        if step.get("run") == "scripts/install-kani.sh"
     ]
     assert len(install_runs) == 1, (
         f"expected exactly one Kani install step, found {len(install_runs)}"
-    )
-    run = install_runs[0]
-    assert "--locked" in run, (
-        f"the install step must pass --locked, got {run!r}"
-    )
-    assert "tools/kani/VERSION" in run, (
-        "the install step must read the pinned version from "
-        f"tools/kani/VERSION rather than restating it, got {run!r}"
-    )
-    assert VERSION_LITERAL_RE.search(run) is None, (
-        "the install step must not hardcode a version literal; the pin "
-        f"belongs solely in tools/kani/VERSION, got {run!r}"
-    )
-    assert "cargo kani setup" in run, (
-        f"the install step must run cargo kani setup, got {run!r}"
     )
 
 
