@@ -49,10 +49,15 @@ COVERAGE_ACTION: typ.Final[str] = "shared-actions/.github/actions/generate-cover
 #: coverage step runs in under four.
 COLD_BUILD_ALLOWANCE_SECONDS: typ.Final[float] = 15 * 60.0
 
-#: Floor for the termination allowance, used when the configuration sets
-#: no grace period. Generous against nextest's ten-second default and far
-#: too small to hide a real overrun.
-MINIMUM_TERMINATION_ALLOWANCE_SECONDS: typ.Final[float] = 60.0
+#: What nextest allows a test between `SIGTERM` and `SIGKILL` when the
+#: configuration names no `grace-period`.
+NEXTEST_DEFAULT_GRACE_PERIOD_SECONDS: typ.Final[float] = 10.0
+
+#: Added to that grace period to cover the teardown and report writing
+#: that follow it. A separate term rather than a floor over the two, so
+#: raising a grace period raises the requirement instead of vanishing
+#: into it.
+TERMINATION_SAFETY_MARGIN_SECONDS: typ.Final[float] = 60.0
 
 #: Everything in the job that is not the coverage step. The job timer
 #: covers it; the watchdog does not. Measured at 6 m 08 s before and
@@ -218,18 +223,42 @@ def _slow_timeouts(config: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
     list[dict[str, typ.Any]]
         The inline tables, in no particular order.
     """
-    found: list[dict[str, typ.Any]] = []
-    for profile in (config.get("profile") or {}).values():
-        if not isinstance(profile, dict):
-            continue
-        sections = [profile, *(profile.get("overrides") or [])]
-        for section in sections:
-            if not isinstance(section, dict):
-                continue
-            table = section.get("slow-timeout")
-            if isinstance(table, dict):
-                found.append(table)
-    return found
+    return [
+        table
+        for section in _budget_sections(config)
+        if isinstance(table := section.get("slow-timeout"), dict)
+    ]
+
+
+def _budget_sections(config: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
+    """Return every section that may declare a budget.
+
+    A profile and each of its overrides are the same shape as far as
+    this contract is concerned: a mapping that may carry a
+    ``slow-timeout``. Flattening them here is what lets the reading
+    above be one comprehension rather than a loop inside a loop.
+
+    Parameters
+    ----------
+    config : dict[str, typ.Any]
+        A parsed nextest configuration.
+
+    Returns
+    -------
+    list[dict[str, typ.Any]]
+        Each profile followed by its overrides, in no particular order.
+    """
+    profiles = [
+        profile
+        for profile in (config.get("profile") or {}).values()
+        if isinstance(profile, dict)
+    ]
+    return [
+        section
+        for profile in profiles
+        for section in (profile, *(profile.get("overrides") or []))
+        if isinstance(section, dict)
+    ]
 
 
 def parse_config(config_text: str) -> dict[str, typ.Any]:
@@ -336,11 +365,17 @@ def largest_slow_timeout_of(config_text: str) -> float:
 def termination_allowance_of(config_text: str) -> float:
     """Return the termination allowance a configuration implies.
 
+    Two terms, not one: what nextest promises a test after ``SIGTERM``,
+    plus a margin for the teardown and report writing that follow it. A
+    single floor over the two would absorb every grace period below the
+    margin, so raising this file's five seconds to thirty would demand
+    nothing more of the watchdog above it.
+
     Separated from the fixture so it can be driven with configurations
     this repository does not have. Every ``grace-period`` here is five
-    seconds, so the fixture only ever reaches the floor, and a contract
-    that sees only the floor cannot tell this rule from one that ignored
-    the configuration entirely.
+    seconds, so the fixture only ever sees one value, and a contract
+    that sees only that cannot tell this rule from one that ignored the
+    configuration entirely.
 
     Parameters
     ----------
@@ -350,16 +385,19 @@ def termination_allowance_of(config_text: str) -> float:
     Returns
     -------
     float
-        The largest configured grace period, or the floor when that is
-        smaller or absent.
+        The largest configured grace period, or nextest's default when
+        none is set, plus the safety margin.
     """
     periods = [
         table["grace-period"]
         for table in _slow_timeouts(parse_config(config_text))
         if isinstance(table.get("grace-period"), str)
     ]
-    largest = max((_seconds(period) for period in periods), default=0.0)
-    return max(largest, MINIMUM_TERMINATION_ALLOWANCE_SECONDS)
+    largest = max(
+        (_seconds(period) for period in periods),
+        default=NEXTEST_DEFAULT_GRACE_PERIOD_SECONDS,
+    )
+    return largest + TERMINATION_SAFETY_MARGIN_SECONDS
 
 
 @pytest.fixture(scope="module")
