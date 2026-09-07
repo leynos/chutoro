@@ -689,12 +689,12 @@ so it is worth knowing which is which and in what order they can fire.
 
 Table: the four timers, innermost first, with where each is set.
 
-| Tier | What it bounds | Where it is set | Current value |
-| --- | --- | --- | --- |
-| Per-test `slow-timeout` | one test | `.config/nextest.toml` | 60 s default, 900 s for the slowest override |
-| nextest `global-timeout` | the whole test run | `.config/nextest.toml` | 40 m |
-| Cargo watchdog | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m) |
-| Job `timeout-minutes` | the whole job | the job holding the coverage step | 85 m |
+| Tier                     | What it bounds                     | Where it is set                                     | Current value                                |
+| ------------------------ | ---------------------------------- | --------------------------------------------------- | -------------------------------------------- |
+| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default, 900 s for the slowest override |
+| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 40 m                                         |
+| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m)                               |
+| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 85 m                                         |
 
 Each tier must sit above the one before it.
 
@@ -702,11 +702,11 @@ Each tier must sit above the one before it.
 
 The first two tiers are nextest's. The watchdog belongs to the shared
 `generate-coverage` action, which wraps the `cargo` invocation and kills it
-after a wall-clock budget. It defaults to 1,800 s, and until this was written no
-workflow here set it, so the coverage lanes ran under a budget this repository
-had not chosen and did not mention. Underneath a 40 m nextest budget, that
-default would have killed a cold run before nextest had spent three quarters of
-what it was given.
+after a wall-clock budget. It defaults to 1,800 s, and until this was written
+no workflow here set it, so the coverage lanes ran under a budget this
+repository had not chosen and did not mention. Underneath a 40 m nextest
+budget, that default would have killed a cold run before nextest had spent
+three quarters of what it was given.
 
 When the watchdog fires the step prints:
 
@@ -739,16 +739,22 @@ termination is immediate, and the grace period is ignored for timeouts. That
 allowance is seconds rather than minutes, but it is not zero.
 
 The watchdog is therefore sized as the global timeout, plus a termination
-allowance of one minute, plus a cold-build allowance: 40 m + 1 m + 15 m, taken
-up to 70 m.
+allowance, plus a cold-build allowance: 40 m + 65 s + 15 m, taken up to 70 m.
 
-The contract reads that middle term from `slow-timeout.grace-period` rather
-than fixing it, so a profile that raised its grace period would raise the
-requirement with it. Every grace period here is five seconds, well under the
-one-minute floor, so the figure above is the floor rather than a reading of the
-file. `timeout_derivation_test.py` drives the reading with configurations this
-repository does not have, because a contract that only ever sees the floor
-cannot tell that rule from one that ignored the configuration entirely.
+The termination allowance is two terms, not one: the largest
+`slow-timeout.grace-period` the configuration sets, five seconds here, plus a
+fixed 60-second safety margin. The grace period is what nextest promises a test
+after `SIGTERM`; the margin covers the process teardown and report writing that
+follow it. Folding them into a single one-minute floor, as this section first
+did, would make raising the grace period from five seconds to thirty look free,
+since both values vanish below the margin.
+
+The first term is read from the configuration rather than fixed, so a profile
+that raised its grace period raises the requirement with it. Every grace period
+here is five seconds, so the file only ever shows one value, and
+`timeout_derivation_test.py` drives the reading with configurations this
+repository does not have. A contract that only ever sees one value cannot tell
+that rule from one that ignored the configuration entirely.
 
 The job timer starts when the job starts, before the formatting, linting,
 spelling and contract steps that precede coverage. Measured on run 33939048036:
@@ -763,24 +769,24 @@ The coverage step is fast here. Measured on `ubuntu-latest`:
 
 Table: measured coverage-step and whole-job durations.
 
-| Run | Coverage step | Whole job |
-| --- | --- | --- |
-| 33977183018 | 3 m 29 s | 7 m 24 s |
-| 33939048036 | 3 m 29 s | 9 m 45 s |
-| 33938591932 | 3 m 52 s | 10 m 15 s |
+| Run         | Coverage step | Whole job |
+| ----------- | ------------- | --------- |
+| 33977183018 | 3 m 29 s      | 7 m 24 s  |
+| 33939048036 | 3 m 29 s      | 9 m 45 s  |
+| 33938591932 | 3 m 52 s      | 10 m 15 s |
 
-So none of these budgets is close to binding today, and that is the point:
-the values are sized against the tier below rather than against current
-runtimes, so a suite that grows or a cache that goes cold does not silently
-change which timer fires first.
+So none of these budgets is close to binding today, and that is the point: the
+values are sized against the tier below rather than against current runtimes,
+so a suite that grows or a cache that goes cold does not silently change which
+timer fires first.
 
 `timeout_ordering_test.py` asserts the ordering by value: the watchdog per
 coverage step, the job ceiling per job, so the Verus job's own ceiling is not
 compared against the coverage lane's watchdog. It also requires every step
-invoking the shared coverage action to set the watchdog explicitly, since a step
-without it inherits the 1,800 s default, which is where this repository started.
-Both workflow extensions are scanned because a coverage lane in a `.yaml` file
-would otherwise inherit that default without failing anything.
+invoking the shared coverage action to set the watchdog explicitly, since a
+step without it inherits the 1,800 s default, which is where this repository
+started. Both workflow extensions are scanned because a coverage lane in a
+`.yaml` file would otherwise inherit that default without failing anything.
 
 ## Continuous integration
 

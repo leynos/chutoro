@@ -19,7 +19,8 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from timeout_ordering_test import (
-    MINIMUM_TERMINATION_ALLOWANCE_SECONDS,
+    NEXTEST_DEFAULT_GRACE_PERIOD_SECONDS,
+    TERMINATION_SAFETY_MARGIN_SECONDS,
     _seconds,
     largest_slow_timeout_of,
     termination_allowance_of,
@@ -31,31 +32,31 @@ from timeout_ordering_test import (
     [
         pytest.param(
             '[profile.default]\nslow-timeout = { period = "60s" }\n',
-            60.0,
-            id="no-grace-period-at-all",
+            70.0,
+            id="no-grace-period-falls-back-to-nextest-s-default",
         ),
         pytest.param(
             "[profile.default]\n"
             'slow-timeout = { period = "60s", grace-period = "5s" }\n',
-            60.0,
-            id="grace-period-below-the-floor",
+            65.0,
+            id="a-short-grace-period-still-counts",
         ),
         pytest.param(
             "[profile.default]\n"
             'slow-timeout = { period = "60s", grace-period = "60s" }\n',
-            60.0,
-            id="grace-period-at-the-floor",
+            120.0,
+            id="a-grace-period-equal-to-the-margin",
         ),
         pytest.param(
             "[profile.default]\n"
             'slow-timeout = { period = "60s", grace-period = "90s" }\n',
-            90.0,
-            id="grace-period-above-the-floor",
+            150.0,
+            id="a-long-grace-period",
         ),
         pytest.param(
             "[profile.default]\n"
             'slow-timeout = { period = "60s", grace-period = "3m" }\n',
-            180.0,
+            240.0,
             id="grace-period-in-minutes",
         ),
         pytest.param(
@@ -63,7 +64,7 @@ from timeout_ordering_test import (
             'slow-timeout = { period = "60s", grace-period = "5s" }\n'
             "[profile.long]\n"
             'slow-timeout = { period = "60s", grace-period = "2m" }\n',
-            120.0,
+            180.0,
             id="largest-of-several-profiles",
         ),
         pytest.param(
@@ -72,14 +73,14 @@ from timeout_ordering_test import (
             "[[profile.default.overrides]]\n"
             'filter = "all()"\n'
             'slow-timeout = { period = "60s", grace-period = "4m" }\n',
-            240.0,
+            300.0,
             id="the-longest-lives-in-an-override",
         ),
         pytest.param(
             "[profile.default]\n"
             'slow-timeout = { period = "60s", grace-period = "5s" }\n'
             '# slow-timeout = { period = "60s", grace-period = "30m" }\n',
-            60.0,
+            65.0,
             id="a-commented-grace-period-is-not-a-value",
         ),
     ],
@@ -87,12 +88,14 @@ from timeout_ordering_test import (
 def test_the_termination_allowance_follows_the_configured_grace_period(
     config_text: str, expected: float
 ) -> None:
-    """A raised grace period raises the allowance; the floor catches the rest.
+    """A raised grace period raises the allowance, by the same amount.
 
     This is the whole point of reading the value rather than fixing it. A
     profile that gives nextest three minutes to stop the run needs three
-    minutes of watchdog to cover it, and the hard-coded 60 s this
-    replaces would silently stop covering the case it exists for.
+    minutes of watchdog to cover it, plus the margin, and the hard-coded
+    60 s this replaces would silently stop covering the case it exists
+    for. The allowance is the two terms added, so a grace period below
+    the margin is not absorbed by it.
 
     The configurations are shaped as nextest accepts them, with the grace
     period inside the ``slow-timeout`` table rather than beside it, so
@@ -112,7 +115,7 @@ def test_the_termination_allowance_ignores_the_per_test_period() -> None:
     a five-second termination belongs.
     """
     config_text = '[profile.default]\nslow-timeout = { period = "900s" }\n'
-    assert termination_allowance_of(config_text) == pytest.approx(60.0), (
+    assert termination_allowance_of(config_text) == pytest.approx(70.0), (
         "the termination allowance read a per-test period as a grace period"
     )
 
@@ -234,23 +237,26 @@ def test_a_duration_converts_to_its_unit_times_its_value(value: int, unit: str) 
         max_size=6,
     )
 )
-def test_the_termination_allowance_is_the_floor_or_the_largest_grace_period(
+def test_the_termination_allowance_is_the_grace_period_plus_the_margin(
     entries: list[tuple[int, int, int | None]],
 ) -> None:
-    """Two clauses, and the property is that no third one exists.
+    """Two terms added, and the property is that neither is absorbed.
 
-    The allowance is never below the floor, and never below a grace
-    period the configuration sets. Examples can show both clauses hold
-    somewhere; the property is that they hold together everywhere,
-    including where a table sets no grace period at all and where several
-    do.
+    A single floor over the grace period and the margin would swallow
+    every grace period below the margin, so raising one would look free
+    until the run it cancelled. Adding them keeps a raised grace period
+    visible in the requirement, and the generator produces the cases
+    where the two readings differ without anyone having to think of
+    them: several tables, some naming no grace period at all.
     """
     allowance = termination_allowance_of(_profile_text(entries))
     graces = [grace for _, _, grace in entries if grace is not None]
-    expected = max([MINIMUM_TERMINATION_ALLOWANCE_SECONDS, *graces])
+    largest = max(graces) if graces else NEXTEST_DEFAULT_GRACE_PERIOD_SECONDS
+    expected = largest + TERMINATION_SAFETY_MARGIN_SECONDS
     assert allowance == pytest.approx(expected), (
-        f"the allowance must be the larger of the floor and the largest "
-        f"configured grace period; got {allowance} for {entries}"
+        f"the allowance must be the largest configured grace period, or "
+        f"nextest's default when none is set, plus the safety margin; got "
+        f"{allowance} for {entries}"
     )
 
 
