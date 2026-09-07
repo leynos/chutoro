@@ -29,14 +29,16 @@ import typing as typ
 
 import pytest
 from coverage_lanes import CoverageLane, _lanes
+from nextest_durations import (
+    _seconds,
+)
 from timeout_budgets import (
     CEILING_MARGIN_SECONDS,
-    COVERAGE_ACTION,
     COLD_BUILD_ALLOWANCE_SECONDS,
+    COVERAGE_ACTION,
     NEXTEST_CONFIG,
     NON_COVERAGE_ALLOWANCE_SECONDS,
     WATCHDOG_VARIABLE,
-    _seconds,
     bounds_a_single_test,
     largest_slow_timeout_of,
     parse_config,

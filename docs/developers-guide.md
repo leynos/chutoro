@@ -804,8 +804,22 @@ invoking the shared coverage action to set the watchdog explicitly, since a
 step without it inherits the 1,800 s default, which is where this repository
 started. Both workflow extensions are scanned because a coverage lane in a
 `.yaml` file would otherwise inherit that default without failing anything. The
-readings it rests on live in `timeout_budgets.py` and `coverage_lanes.py`, and
-are driven past this repository's own numbers in `timeout_derivation_test.py`.
+readings it rests on live in `timeout_budgets.py`, `nextest_durations.py` and
+`coverage_lanes.py`, and are driven past this repository's own numbers in
+`timeout_derivation_test.py` and `duration_reading_test.py`.
+
+Durations are read the way nextest reads them, with `humantime`'s grammar: a
+sequence of whole numbers each followed by a unit, summed, so `2h 37min` and
+`1m30s` are valid and `1.5m` is not. A reader taking one value and one unit
+would have refused configuration the runner accepts and failed a repository
+whose timeouts were fine.
+
+`terminate-after` is optional, and cargo-nextest treats its absence as no
+termination: the test is reported slow, once per period, and runs on. The
+reading refuses that form rather than counting it as one period, because a
+number on a tier that does not exist makes every comparison above it pass
+against a budget nextest never applies. Every table in `.config/nextest.toml`
+sets it explicitly, so no value here changes.
 
 The contract also pins the condition each lane carries. A skipped step runs no
 `cargo`, so its watchdog never arms and the tiers say nothing about it:

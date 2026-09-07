@@ -10,11 +10,11 @@ See "Test timeouts: four tiers, outermost last" in
 ``docs/developers-guide.md``.
 """
 
-import re
 import tomllib
 import typing as typ
 from pathlib import Path
 
+from nextest_durations import _seconds
 from workflow_support import ROOT
 
 NEXTEST_CONFIG: typ.Final[Path] = ROOT / ".config" / "nextest.toml"
@@ -55,35 +55,17 @@ NON_COVERAGE_ALLOWANCE_SECONDS: typ.Final[float] = 15 * 60.0
 #: that is the likely case rather than the remote one.
 CEILING_MARGIN_SECONDS: typ.Final[float] = 15 * 60.0
 
+
 #: ``30s``, ``5m``, ``20 m``: the durations nextest accepts here.
-_DURATION: typ.Final[re.Pattern[str]] = re.compile(
-    r"^\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>ms|s|m|h)\s*$"
-)
+class UnboundedTestError(ValueError):
+    """Raised when a ``slow-timeout`` terminates no test.
 
-_UNIT_SECONDS: typ.Final[dict[str, float]] = {
-    "ms": 0.001,
-    "s": 1.0,
-    "m": 60.0,
-    "h": 3600.0,
-}
-
-
-def _seconds(duration: str) -> float:
-    """Convert a nextest duration to seconds.
-
-    Parameters
-    ----------
-    duration : str
-        A duration as nextest spells it, such as ``"40m"``.
-
-    Returns
-    -------
-    float
-        The duration in seconds.
+    ``terminate-after`` is optional, and cargo-nextest treats its
+    absence as no termination at all: the test is reported slow, once
+    per period, and runs on. Reading that as a single period would put a
+    number on the tier that is missing, and every comparison above it
+    would pass against a budget nextest never applies.
     """
-    match = _DURATION.match(duration)
-    assert match is not None, f"unrecognized nextest duration {duration!r}"
-    return float(match["value"]) * _UNIT_SECONDS[match["unit"]]
 
 
 def _optional_seconds(value: object) -> float | None:
@@ -230,9 +212,15 @@ def largest_slow_timeout_of(config_text: str) -> float:
         period = table.get("period")
         if not isinstance(period, str):
             continue
-        terminate = table.get("terminate-after")
-        multiplier = terminate if isinstance(terminate, int) else 1
-        budgets.append(_seconds(period) * multiplier)
+        if table.get("terminate-after") is None:
+            message = (
+                f"slow-timeout {table!r} sets no terminate-after, so nextest "
+                f"reports the test as slow once per period and never stops it; "
+                f"there is no per-test tier to compare against"
+            )
+            raise UnboundedTestError(message)
+        terminate = table["terminate-after"]
+        budgets.append(_seconds(period) * float(str(terminate)))
     assert budgets, "nextest.toml must set at least one slow-timeout period"
     return max(budgets)
 
