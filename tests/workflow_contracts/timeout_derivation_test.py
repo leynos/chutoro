@@ -16,14 +16,16 @@ See "Test timeouts: four tiers, outermost last" in
 import typing as typ
 
 import pytest
+from coverage_lanes import _watchdog_of
 from hypothesis import given
 from hypothesis import strategies as st
-from coverage_lanes import _watchdog_of
+from nextest_durations import (
+    _seconds,
+)
 from timeout_budgets import (
     CEILING_MARGIN_SECONDS,
     NEXTEST_DEFAULT_GRACE_PERIOD_SECONDS,
     TERMINATION_SAFETY_MARGIN_SECONDS,
-    _seconds,
     largest_slow_timeout_of,
     required_ceiling,
     termination_allowance_of,
@@ -127,11 +129,6 @@ def test_the_termination_allowance_ignores_the_per_test_period() -> None:
     ("config_text", "expected"),
     [
         pytest.param(
-            '[profile.default]\nslow-timeout = { period = "180s" }\n',
-            180.0,
-            id="no-multiplier-means-one",
-        ),
-        pytest.param(
             "[profile.default]\n"
             'slow-timeout = { period = "180s", terminate-after = 1 }\n',
             180.0,
@@ -177,7 +174,9 @@ def test_the_largest_slow_timeout_ignores_the_grace_period() -> None:
     which would hold the global timeout to a ceiling no test can spend.
     """
     config_text = (
-        '[profile.default]\nslow-timeout = { period = "60s", grace-period = "30m" }\n'
+        "[profile.default]\n"
+        'slow-timeout = { period = "60s", terminate-after = 1, '
+        'grace-period = "30m" }\n'
     )
     assert largest_slow_timeout_of(config_text) == pytest.approx(60.0), (
         "the per-test ceiling read a grace period as a slow-timeout"
