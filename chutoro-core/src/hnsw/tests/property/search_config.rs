@@ -167,6 +167,18 @@ mod tests {
         env
     }
 
+    fn assert_default_min_recall(overrides: &[(&str, &str)]) {
+        let env = env_with_overrides(overrides);
+        let config = SearchPropertyConfig::load_with_env(&env);
+
+        assert!(
+            config
+                .min_recall()
+                .total_cmp(&SearchPropertyConfig::DEFAULT_MIN_RECALL)
+                .is_eq()
+        );
+    }
+
     #[rstest]
     #[case("0.5", 0.5)]
     #[case("1.0", 1.0)]
@@ -272,24 +284,9 @@ mod tests {
         );
     }
 
-    #[rstest]
-    #[case::unset(None)]
-    #[case::invalid(Some("1.1"))]
-    fn load_uses_default_min_recall_when_override_is_missing_or_invalid(
-        #[case] override_value: Option<&str>,
-    ) {
-        let env = override_value.map_or_else(
-            || env_with_overrides(&[]),
-            |value| env_with_overrides(&[(SearchPropertyConfig::ENV_KEY.as_str(), value)]),
-        );
-        let config = SearchPropertyConfig::load_with_env(&env);
-
-        assert!(
-            config
-                .min_recall()
-                .total_cmp(&SearchPropertyConfig::DEFAULT_MIN_RECALL)
-                .is_eq()
-        );
+    #[test]
+    fn load_uses_default_min_recall_when_env_unset() {
+        assert_default_min_recall(&[]);
     }
 
     #[test]
@@ -298,6 +295,11 @@ mod tests {
         let config = SearchPropertyConfig::load_with_env(&env);
 
         assert!(config.min_recall().total_cmp(&0.75).is_eq());
+    }
+
+    #[test]
+    fn load_falls_back_when_min_recall_override_is_invalid() {
+        assert_default_min_recall(&[(SearchPropertyConfig::ENV_KEY.as_str(), "1.1")]);
     }
 
     #[test]
