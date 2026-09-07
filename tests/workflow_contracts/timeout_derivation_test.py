@@ -18,12 +18,12 @@ import typing as typ
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
-from timeout_ordering_test import (
+from coverage_lanes import _watchdog_of
+from timeout_budgets import (
     CEILING_MARGIN_SECONDS,
     NEXTEST_DEFAULT_GRACE_PERIOD_SECONDS,
     TERMINATION_SAFETY_MARGIN_SECONDS,
     _seconds,
-    _watchdog_of,
     largest_slow_timeout_of,
     required_ceiling,
     termination_allowance_of,

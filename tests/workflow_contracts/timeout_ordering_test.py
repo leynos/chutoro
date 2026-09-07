@@ -25,279 +25,37 @@ See "Test timeouts: four tiers, outermost last" in
 ``docs/developers-guide.md``.
 """
 
-import collections.abc as cabc
-import re
-import tomllib
 import typing as typ
-from pathlib import Path
 
 import pytest
-import yaml
-from workflow_support import ROOT, workflow_paths
-
-NEXTEST_CONFIG: typ.Final[Path] = ROOT / ".config" / "nextest.toml"
-
-#: The environment variable the shared coverage action reads.
-WATCHDOG_VARIABLE: typ.Final[str] = "RUN_RUST_CARGO_WAIT_TIMEOUT"
-
-#: The action whose steps must declare a watchdog budget.
-COVERAGE_ACTION: typ.Final[str] = "shared-actions/.github/actions/generate-coverage"
-
-#: Build time inside the `cargo` invocation, before nextest starts its
-#: own clock. The watchdog covers it; the global timeout does not.
-#: Fifteen minutes is far above anything measured here, where the whole
-#: coverage step runs in under four.
-COLD_BUILD_ALLOWANCE_SECONDS: typ.Final[float] = 15 * 60.0
-
-#: What nextest allows a test between `SIGTERM` and `SIGKILL` when the
-#: configuration names no `grace-period`.
-NEXTEST_DEFAULT_GRACE_PERIOD_SECONDS: typ.Final[float] = 10.0
-
-#: Added to that grace period to cover the teardown and report writing
-#: that follow it. A separate term rather than a floor over the two, so
-#: raising a grace period raises the requirement instead of vanishing
-#: into it.
-TERMINATION_SAFETY_MARGIN_SECONDS: typ.Final[float] = 60.0
-
-#: Everything in the job that is not the coverage step. The job timer
-#: covers it; the watchdog does not. Measured at 6 m 08 s before and
-#: 16 s after on run 33939048036.
-NON_COVERAGE_ALLOWANCE_SECONDS: typ.Final[float] = 15 * 60.0
-
-#: How far a ceiling must sit above the sum it contains, rather than
-#: merely reaching it. A ceiling equal to that sum cancels the job at
-#: the moment the watchdog would have reported the overrun, and the
-#: report is the only thing that makes an overrun actionable, so
-#: equality buys nothing: it converts a legible failure into a
-#: cancellation with no log. This lane is always the cold writer, so
-#: that is the likely case rather than the remote one.
-CEILING_MARGIN_SECONDS: typ.Final[float] = 15 * 60.0
-
-#: ``30s``, ``5m``, ``20 m``: the durations nextest accepts here.
-_DURATION: typ.Final[re.Pattern[str]] = re.compile(
-    r"^\s*(?P<value>\d+(?:\.\d+)?)\s*(?P<unit>ms|s|m|h)\s*$"
+from coverage_lanes import CoverageLane, _lanes
+from timeout_budgets import (
+    CEILING_MARGIN_SECONDS,
+    COVERAGE_ACTION,
+    COLD_BUILD_ALLOWANCE_SECONDS,
+    NEXTEST_CONFIG,
+    NON_COVERAGE_ALLOWANCE_SECONDS,
+    WATCHDOG_VARIABLE,
+    _seconds,
+    largest_slow_timeout_of,
+    parse_config,
+    required_ceiling,
+    termination_allowance_of,
 )
 
-_UNIT_SECONDS: typ.Final[dict[str, float]] = {
-    "ms": 0.001,
-    "s": 1.0,
-    "m": 60.0,
-    "h": 3600.0,
+#: The condition each coverage lane legitimately carries, keyed by
+#: workflow and job, as the step's ``if`` and its job's.
+#:
+#: Neither lane carries one, and both are pinned at ``None`` rather than
+#: merely unchecked. A skipped step runs no `cargo`, so its watchdog
+#: never arms and every assertion below says nothing about it:
+#: `if: false` on the step or on its job would leave a lane that looks
+#: bounded and is not, and so would a plausible condition that quietly
+#: excluded the event the lane exists for.
+REQUIRED_CONDITIONS: typ.Final[dict[tuple[str, str], tuple[object, object]]] = {
+    ("ci.yml", "build-test"): (None, None),
+    ("coverage-main.yml", "coverage-upload"): (None, None),
 }
-
-
-class CoverageLane(typ.NamedTuple):
-    """One coverage step, with the job budget that encloses it.
-
-    Attributes
-    ----------
-    workflow : str
-        The workflow file name.
-    job : str
-        The job the step belongs to.
-    step : str
-        The step's declared name.
-    watchdog : float | None
-        The step's watchdog budget in seconds, or ``None`` when it sets
-        none and so inherits the action's default.
-    job_timeout : float | None
-        The enclosing job's ``timeout-minutes`` in seconds, or ``None``
-        when the job declares none.
-    """
-
-    workflow: str
-    job: str
-    step: str
-    watchdog: float | None
-    job_timeout: float | None
-
-    def __str__(self) -> str:
-        """Return a location suitable for a failure message.
-
-        Returns
-        -------
-        str
-            ``workflow:job:step`` for this lane.
-        """
-        return f"{self.workflow}:{self.job}:{self.step!r}"
-
-
-def _seconds(duration: str) -> float:
-    """Convert a nextest duration to seconds.
-
-    Parameters
-    ----------
-    duration : str
-        A duration as nextest spells it, such as ``"40m"``.
-
-    Returns
-    -------
-    float
-        The duration in seconds.
-    """
-    match = _DURATION.match(duration)
-    assert match is not None, f"unrecognized nextest duration {duration!r}"
-    return float(match["value"]) * _UNIT_SECONDS[match["unit"]]
-
-
-def _optional_seconds(value: object) -> float | None:
-    """Return a ``timeout-minutes`` value in seconds, or None.
-
-    Parameters
-    ----------
-    value : object
-        The declared value, or ``None`` when the job declares none.
-
-    Returns
-    -------
-    float | None
-        The budget in seconds.
-    """
-    return None if value is None else float(str(value)) * 60.0
-
-
-def required_ceiling(watchdog: float, allowance: float) -> float:
-    """Return the smallest acceptable job ceiling, in seconds.
-
-    Three terms. The watchdog is what one `cargo` invocation may
-    legitimately spend. The allowance is the measured work either side
-    of it, which the job timer covers and the watchdog does not. The
-    margin is added because a ceiling equal to that sum cancels the job
-    at the moment the watchdog would have reported the overrun, and the
-    report is the only thing that makes an overrun actionable.
-
-    Parameters
-    ----------
-    watchdog : float
-        The coverage step's watchdog budget, in seconds.
-    allowance : float
-        The measured work outside that window, in seconds.
-
-    Returns
-    -------
-    float
-        The smallest acceptable ceiling, in seconds.
-    """
-    return watchdog + allowance + CEILING_MARGIN_SECONDS
-
-
-def _watchdog_seconds(raw: object) -> float | None:
-    """Return one source's watchdog budget, or None when it sets none.
-
-    A blank or whitespace-only value is not a budget of zero, it is a
-    source that says nothing, so it falls through to the next one. That
-    is what a workflow writes when it interpolates an expression that
-    resolved to nothing, and converting it directly raises before the
-    contract can name the lane at fault.
-
-    Zero and negative values are refused rather than returned. The
-    shared action reads them as no timeout at all, so a lane carrying
-    one has no third tier while appearing to declare one, which is the
-    inversion this contract exists to catch rather than to propagate.
-
-    Parameters
-    ----------
-    raw : object
-        The value the workflow set, as the YAML parser returned it.
-
-    Returns
-    -------
-    float | None
-        The budget in seconds, or None when the source sets none.
-
-    Raises
-    ------
-    ValueError
-        If the value is present and non-blank but not a positive number
-        of seconds.
-    """
-    if raw is None:
-        return None
-    text = str(raw).strip()
-    if not text:
-        return None
-    seconds = float(text)
-    if seconds <= 0:
-        message = (
-            f"{WATCHDOG_VARIABLE} must be a positive number of seconds; "
-            f"{raw!r} would leave the cargo invocation unbounded while "
-            f"appearing to bound it"
-        )
-        raise ValueError(message)
-    return seconds
-
-
-def _watchdog_of(
-    document: dict[str, typ.Any], job: dict[str, typ.Any], step: dict[str, typ.Any]
-) -> float | None:
-    """Return the watchdog budget in force for one coverage step.
-
-    All three environment levels are read, innermost first, as GitHub
-    resolves them. Both lanes here set the value on the step, so a
-    contract reading only that scope agrees with this one today and
-    would stop agreeing the moment a lane moved it to the job, reporting
-    a lane that is bounded as inheriting the action's default.
-
-    Parameters
-    ----------
-    document : dict[str, typ.Any]
-        The whole workflow document.
-    job : dict[str, typ.Any]
-        The enclosing job.
-    step : dict[str, typ.Any]
-        The coverage step.
-
-    Returns
-    -------
-    float | None
-        The budget in seconds, or None when no level sets one.
-    """
-    for owner in (step, job, document):
-        environment = owner.get("env")
-        if not isinstance(environment, dict):
-            continue
-        seconds = _watchdog_seconds(environment.get(WATCHDOG_VARIABLE))
-        if seconds is not None:
-            return seconds
-    return None
-
-
-def _job_lanes(
-    workflow: str,
-    job_name: str,
-    job: dict[str, typ.Any],
-    document: dict[str, typ.Any] | None = None,
-) -> cabc.Iterator[CoverageLane]:
-    """Yield one lane per coverage step in a single job."""
-    job_timeout = _optional_seconds(job.get("timeout-minutes"))
-    for step in job.get("steps") or []:
-        if COVERAGE_ACTION not in str(step.get("uses", "")):
-            continue
-        yield CoverageLane(
-            workflow=workflow,
-            job=str(job_name),
-            step=str(step.get("name", "")) or str(job_name),
-            watchdog=_watchdog_of(document or {}, job, step),
-            job_timeout=job_timeout,
-        )
-
-
-def _lanes() -> cabc.Iterator[CoverageLane]:
-    """Yield every step that invokes the shared coverage action.
-
-    Both workflow extensions are scanned. A coverage lane in a ``.yaml``
-    file would otherwise inherit the action's default watchdog without
-    failing anything here.
-
-    Yields
-    ------
-    CoverageLane
-        One lane per coverage step, across every workflow.
-    """
-    for path in sorted(workflow_paths()):
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
-        for job_name, job in (document.get("jobs") or {}).items():
-            yield from _job_lanes(path.name, job_name, job, document)
 
 
 @pytest.fixture(scope="module")
@@ -322,82 +80,6 @@ def nextest_config() -> str:
         The file's contents.
     """
     return NEXTEST_CONFIG.read_text(encoding="utf-8")
-
-
-def _slow_timeouts(config: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
-    """Return every ``slow-timeout`` table the configuration sets.
-
-    Both the profiles' own and their overrides', because an override is
-    where the longest allowances live.
-
-    Parameters
-    ----------
-    config : dict[str, typ.Any]
-        A parsed nextest configuration.
-
-    Returns
-    -------
-    list[dict[str, typ.Any]]
-        The inline tables, in no particular order.
-    """
-    return [
-        table
-        for section in _budget_sections(config)
-        if isinstance(table := section.get("slow-timeout"), dict)
-    ]
-
-
-def _budget_sections(config: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
-    """Return every section that may declare a budget.
-
-    A profile and each of its overrides are the same shape as far as
-    this contract is concerned: a mapping that may carry a
-    ``slow-timeout``. Flattening them here is what lets the reading
-    above be one comprehension rather than a loop inside a loop.
-
-    Parameters
-    ----------
-    config : dict[str, typ.Any]
-        A parsed nextest configuration.
-
-    Returns
-    -------
-    list[dict[str, typ.Any]]
-        Each profile followed by its overrides, in no particular order.
-    """
-    profiles = [
-        profile
-        for profile in (config.get("profile") or {}).values()
-        if isinstance(profile, dict)
-    ]
-    return [
-        section
-        for profile in profiles
-        for section in (profile, *(profile.get("overrides") or []))
-        if isinstance(section, dict)
-    ]
-
-
-def parse_config(config_text: str) -> dict[str, typ.Any]:
-    """Parse a nextest configuration.
-
-    Parsed rather than matched. A commented-out
-    ``grace-period = "30m"`` reads as an active value to a regular
-    expression, so a line nobody meant would inflate the termination
-    allowance and fail this contract without changing what nextest does.
-    TOML is the only reading that distinguishes the two.
-
-    Parameters
-    ----------
-    config_text : str
-        A nextest configuration file's text.
-
-    Returns
-    -------
-    dict[str, typ.Any]
-        The parsed document.
-    """
-    return tomllib.loads(config_text)
 
 
 @pytest.fixture(scope="module")
@@ -443,78 +125,6 @@ def largest_slow_timeout(nextest_config: str) -> float:
         The longest per-test budget.
     """
     return largest_slow_timeout_of(nextest_config)
-
-
-def largest_slow_timeout_of(config_text: str) -> float:
-    """Return the longest per-test allowance a configuration sets.
-
-    The budget a test gets is ``period`` multiplied by
-    ``terminate-after``: nextest warns once per period and terminates
-    after that many of them. Every multiplier here is one, so reading the
-    period alone gives the same answer against this file and a different
-    one the moment somebody raises a multiplier.
-
-    Separated from the fixture so it can be driven with configurations
-    this repository does not have.
-
-    Parameters
-    ----------
-    config_text : str
-        A nextest configuration file's text.
-
-    Returns
-    -------
-    float
-        The longest per-test budget.
-    """
-    budgets: list[float] = []
-    for table in _slow_timeouts(parse_config(config_text)):
-        period = table.get("period")
-        if not isinstance(period, str):
-            continue
-        terminate = table.get("terminate-after")
-        multiplier = terminate if isinstance(terminate, int) else 1
-        budgets.append(_seconds(period) * multiplier)
-    assert budgets, "nextest.toml must set at least one slow-timeout period"
-    return max(budgets)
-
-
-def termination_allowance_of(config_text: str) -> float:
-    """Return the termination allowance a configuration implies.
-
-    Two terms, not one: what nextest promises a test after ``SIGTERM``,
-    plus a margin for the teardown and report writing that follow it. A
-    single floor over the two would absorb every grace period below the
-    margin, so raising this file's five seconds to thirty would demand
-    nothing more of the watchdog above it.
-
-    Separated from the fixture so it can be driven with configurations
-    this repository does not have. Every ``grace-period`` here is five
-    seconds, so the fixture only ever sees one value, and a contract
-    that sees only that cannot tell this rule from one that ignored the
-    configuration entirely.
-
-    Parameters
-    ----------
-    config_text : str
-        A nextest configuration file's text.
-
-    Returns
-    -------
-    float
-        The largest configured grace period, or nextest's default when
-        none is set, plus the safety margin.
-    """
-    periods = [
-        table["grace-period"]
-        for table in _slow_timeouts(parse_config(config_text))
-        if isinstance(table.get("grace-period"), str)
-    ]
-    largest = max(
-        (_seconds(period) for period in periods),
-        default=NEXTEST_DEFAULT_GRACE_PERIOD_SECONDS,
-    )
-    return largest + TERMINATION_SAFETY_MARGIN_SECONDS
 
 
 @pytest.fixture(scope="module")
@@ -631,3 +241,47 @@ def test_the_job_timeout_covers_the_watchdog_and_the_rest_of_the_job(
             f"a {CEILING_MARGIN_SECONDS:.0f}s margin above that sum; an overrun "
             f"would be cancelled rather than reported"
         )
+
+
+def test_each_coverage_lane_carries_the_condition_it_is_meant_to(
+    lanes: tuple[CoverageLane, ...],
+) -> None:
+    """A skipped step runs no `cargo`, so its watchdog never arms.
+
+    Every assertion above reads a lane's declared budgets and says
+    nothing about whether the step runs. `if: false` on the step or on
+    its job would leave a lane that looks bounded and is not, and this
+    contract would certify it. So would a plausible condition that
+    quietly excluded the event the lane exists for, which is why the
+    conditions are pinned by value rather than checked for falsity:
+    YAML parses `false` to a boolean, and enumerating spellings would
+    miss the plausible ones anyway.
+
+    Neither lane here carries a condition, so both are pinned at
+    ``None``. The coordinates are compared both ways first, so a new
+    lane with no entry fails rather than passing unexamined, and a lane
+    that disappeared fails rather than being skipped.
+
+    Proved by mutation: `if: false` on the coverage step, the same on
+    its job, a push-only condition on the job, and a coordinate dropped
+    from ``REQUIRED_CONDITIONS`` each fail this test.
+    """
+    found: dict[tuple[str, str], set[tuple[object, object]]] = {}
+    for lane in lanes:
+        found.setdefault((lane.workflow, lane.job), set()).add(lane.condition)
+    assert set(found) == set(REQUIRED_CONDITIONS), (
+        f"the coverage lanes are not the ones this contract pins: "
+        f"unlisted {sorted(set(found) - set(REQUIRED_CONDITIONS))}, missing "
+        f"{sorted(set(REQUIRED_CONDITIONS) - set(found))}; a lane with no "
+        f"entry here is a lane whose condition nobody has judged"
+    )
+    wrong = {
+        coordinate: (expected, found[coordinate])
+        for coordinate, expected in REQUIRED_CONDITIONS.items()
+        if found[coordinate] != {expected}
+    }
+    assert not wrong, (
+        f"these coverage lanes do not carry the conditions the developers' "
+        f"guide records, as expected versus found: {wrong}; a lane that is "
+        f"skipped runs no cargo, so its watchdog never arms"
+    )

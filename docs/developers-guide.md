@@ -803,7 +803,17 @@ compared against the coverage lane's watchdog. It also requires every step
 invoking the shared coverage action to set the watchdog explicitly, since a
 step without it inherits the 1,800 s default, which is where this repository
 started. Both workflow extensions are scanned because a coverage lane in a
-`.yaml` file would otherwise inherit that default without failing anything.
+`.yaml` file would otherwise inherit that default without failing anything. The
+readings it rests on live in `timeout_budgets.py` and `coverage_lanes.py`, and
+are driven past this repository's own numbers in `timeout_derivation_test.py`.
+
+The contract also pins the condition each lane carries. A skipped step runs no
+`cargo`, so its watchdog never arms and the tiers say nothing about it:
+`if: false` on the step or on its job would leave a lane that looks bounded and
+is not, and so would a plausible condition that quietly excluded the event the
+lane exists for. Neither lane carries a condition today, so both are pinned at
+none by coordinate. A lane gaining, losing or changing one has to change this
+section with it, and a lane appearing without an entry fails the contract too.
 
 ## Continuous integration
 
