@@ -27,6 +27,7 @@ See "Test timeouts: four tiers, outermost last" in
 
 import collections.abc as cabc
 import re
+import tomllib
 import typing as typ
 from pathlib import Path
 
@@ -69,14 +70,6 @@ _UNIT_SECONDS: typ.Final[dict[str, float]] = {
     "m": 60.0,
     "h": 3600.0,
 }
-
-#: ``period`` as its own key. The lookbehind is what keeps
-#: ``grace-period`` out: the two sit in the same inline table, and a
-#: substring match would read a termination allowance as a per-test
-#: budget whenever the former were the larger.
-_PERIOD: typ.Final[re.Pattern[str]] = re.compile(r'(?<![\w-])period\s*=\s*"([^"]+)"')
-
-_GRACE_PERIOD: typ.Final[re.Pattern[str]] = re.compile(r'grace-period\s*=\s*"([^"]+)"')
 
 
 class CoverageLane(typ.NamedTuple):
@@ -209,36 +202,94 @@ def nextest_config() -> str:
     return NEXTEST_CONFIG.read_text(encoding="utf-8")
 
 
+def _slow_timeouts(config: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
+    """Return every ``slow-timeout`` table the configuration sets.
+
+    Both the profiles' own and their overrides', because an override is
+    where the longest allowances live.
+
+    Parameters
+    ----------
+    config : dict[str, typ.Any]
+        A parsed nextest configuration.
+
+    Returns
+    -------
+    list[dict[str, typ.Any]]
+        The inline tables, in no particular order.
+    """
+    found: list[dict[str, typ.Any]] = []
+    for profile in (config.get("profile") or {}).values():
+        if not isinstance(profile, dict):
+            continue
+        sections = [profile, *(profile.get("overrides") or [])]
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            table = section.get("slow-timeout")
+            if isinstance(table, dict):
+                found.append(table)
+    return found
+
+
+def parse_config(config_text: str) -> dict[str, typ.Any]:
+    """Parse a nextest configuration.
+
+    Parsed rather than matched. A commented-out
+    ``grace-period = "30m"`` reads as an active value to a regular
+    expression, so a line nobody meant would inflate the termination
+    allowance and fail this contract without changing what nextest does.
+    TOML is the only reading that distinguishes the two.
+
+    Parameters
+    ----------
+    config_text : str
+        A nextest configuration file's text.
+
+    Returns
+    -------
+    dict[str, typ.Any]
+        The parsed document.
+    """
+    return tomllib.loads(config_text)
+
+
 @pytest.fixture(scope="module")
 def global_timeout(nextest_config: str) -> float:
     """Return the default profile's ``global-timeout`` in seconds.
 
-    Read textually rather than through a TOML parser, because the value
-    must be matched to the profile it belongs to and the file declares
-    more than one profile.
+    Parameters
+    ----------
+    nextest_config : str
+        The nextest configuration file's text.
 
     Returns
     -------
     float
         The default profile's whole-run budget, in seconds.
     """
-    blocks = re.split(r"^\[profile\.", nextest_config, flags=re.MULTILINE)
-    default = next((block for block in blocks if block.startswith("default]")), None)
-    assert default is not None, (
+    profiles = parse_config(nextest_config).get("profile") or {}
+    default = profiles.get("default")
+    assert isinstance(default, dict), (
         "nextest.toml must declare a [profile.default] section; the ordering "
         "contract has nothing to compare against without one"
     )
-    match = re.search(r'^global-timeout\s*=\s*"([^"]+)"', default, re.MULTILINE)
-    assert match is not None, (
+    budget = default.get("global-timeout")
+    assert isinstance(budget, str), (
         "[profile.default] must set global-timeout; without it the whole-run "
         "budget is unbounded and the watchdog becomes the only limit"
     )
-    return _seconds(match[1])
+    return _seconds(budget)
 
 
 @pytest.fixture(scope="module")
 def largest_slow_timeout(nextest_config: str) -> float:
     """Return the longest single-test allowance in seconds.
+
+    Parameters
+    ----------
+    nextest_config : str
+        The nextest configuration file's text.
 
     Returns
     -------
@@ -251,10 +302,14 @@ def largest_slow_timeout(nextest_config: str) -> float:
 def largest_slow_timeout_of(config_text: str) -> float:
     """Return the longest per-test allowance a configuration sets.
 
-    Separated from the fixture for the same reason as
-    :func:`termination_allowance_of`: the matcher's behaviour where a
-    grace period exceeds every per-test period cannot be reached with
-    this repository's own file.
+    The budget a test gets is ``period`` multiplied by
+    ``terminate-after``: nextest warns once per period and terminates
+    after that many of them. Every multiplier here is one, so reading the
+    period alone gives the same answer against this file and a different
+    one the moment somebody raises a multiplier.
+
+    Separated from the fixture so it can be driven with configurations
+    this repository does not have.
 
     Parameters
     ----------
@@ -266,9 +321,16 @@ def largest_slow_timeout_of(config_text: str) -> float:
     float
         The longest per-test budget.
     """
-    periods = _PERIOD.findall(config_text)
-    assert periods, "nextest.toml must set at least one slow-timeout period"
-    return max(_seconds(period) for period in periods)
+    budgets: list[float] = []
+    for table in _slow_timeouts(parse_config(config_text)):
+        period = table.get("period")
+        if not isinstance(period, str):
+            continue
+        terminate = table.get("terminate-after")
+        multiplier = terminate if isinstance(terminate, int) else 1
+        budgets.append(_seconds(period) * multiplier)
+    assert budgets, "nextest.toml must set at least one slow-timeout period"
+    return max(budgets)
 
 
 def termination_allowance_of(config_text: str) -> float:
@@ -291,7 +353,11 @@ def termination_allowance_of(config_text: str) -> float:
         The largest configured grace period, or the floor when that is
         smaller or absent.
     """
-    periods = _GRACE_PERIOD.findall(config_text)
+    periods = [
+        table["grace-period"]
+        for table in _slow_timeouts(parse_config(config_text))
+        if isinstance(table.get("grace-period"), str)
+    ]
     largest = max((_seconds(period) for period in periods), default=0.0)
     return max(largest, MINIMUM_TERMINATION_ALLOWANCE_SECONDS)
 
