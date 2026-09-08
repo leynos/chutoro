@@ -20,7 +20,7 @@
     },
     {
       "matching_content_path": "**/kani_proofs.rs",
-      "matching_content_path_doc": "Single-file Kani proof module; same solver constraint as `**/kani_proofs/**`.",
+      "matching_content_path_doc": "Single-file Kani proof module, held to the same exemptions as `**/kani_proofs/**`: harnesses are written for the solver rather than for a reader, so they repeat bounded setup verbatim and take the model's arguments individually.",
       "rules": [
         { "name": "Code Duplication", "weight": 0.0 },
         { "name": "Primitive Obsession", "weight": 0.0 },

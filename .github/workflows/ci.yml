@@ -8,6 +8,13 @@ name: CI
 jobs:
   build-test:
     runs-on: ubuntu-latest
+    # Above the 4,200 s cargo watchdog on the coverage step plus the 900 s
+    # of work either side of it, and fifteen minutes above that sum rather
+    # than equal to it. A ceiling sitting on its requirement cancels the
+    # job at the moment the watchdog would have reported the overrun, and
+    # the report is the only thing that makes an overrun actionable. This
+    # was 85, exactly the requirement.
+    timeout-minutes: 100
     permissions:
       contents: read
     env:
@@ -130,6 +137,13 @@ jobs:
         run: make test-workflow-contracts
       - name: Test and Measure Coverage
         uses: leynos/shared-actions/.github/actions/generate-coverage@197d04cbc6f20cd7d1a08b4e445a5c35910e5364
+        env:
+          # The cargo watchdog, one of four tiers that can end a run. It must
+          # stay above the 40 m nextest global-timeout in .config/nextest.toml
+          # plus the build that runs inside the same cargo invocation, or a
+          # cold run is killed before nextest can use its budget. See "Test
+          # timeouts: four tiers, outermost last" in docs/developers-guide.md.
+          RUN_RUST_CARGO_WAIT_TIMEOUT: '4200'
         with:
           output-path: lcov.info
           format: lcov

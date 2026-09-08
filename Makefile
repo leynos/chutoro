@@ -136,7 +136,8 @@ bench: ## Run Criterion benchmarks
 	$(CARGO) bench -p chutoro-benches
 
 test-workflow-contracts: ## Validate the CI workflow contracts
-	uv run --with 'pytest>=8' --with 'pyyaml>=6' --with 'pathspec>=0.12' pytest tests/workflow_contracts -q
+	uv run --with 'pytest>=8' --with 'pyyaml>=6' --with 'pathspec>=0.12' \
+		--with 'hypothesis>=6' pytest tests/workflow_contracts -q
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \

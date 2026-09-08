@@ -680,6 +680,171 @@ file focused on the behaviour under test. Current examples:
 Support modules carry `//!` module docs and `///` item docs, with `# Errors`
 sections on fallible helpers.
 
+## Test timeouts: four tiers, outermost last
+
+Four independent timers can end a test run, and they are set in four different
+places. A run that dies without an obvious cause is nearly always one of them,
+so it is worth knowing which is which and in what order they can fire.
+
+Table: the four timers, innermost first, with where each is set.
+
+| Tier                     | What it bounds                     | Where it is set                                     | Current value                                |
+| ------------------------ | ---------------------------------- | --------------------------------------------------- | -------------------------------------------- |
+| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default, 900 s for the slowest override |
+| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 40 m                                         |
+| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m)                               |
+| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 100 m                                        |
+
+Each tier must sit above the one before it.
+
+### The cargo watchdog is the tier nobody expects
+
+The first two tiers are nextest's. The watchdog belongs to the shared
+`generate-coverage` action, which wraps the `cargo` invocation and kills it
+after a wall-clock budget. It defaults to 1,800 s, and until this was written
+no workflow here set it, so the coverage lanes ran under a budget this
+repository had not chosen and did not mention. Underneath a 40 m nextest
+budget, that default would have killed a cold run before nextest had spent
+three quarters of what it was given.
+
+When the watchdog fires the step prints:
+
+```text
+::error::cargo did not exit within 4200.0s; killing. This is a budget, not a
+detected hang: raise the cargo-wait-timeout input, or
+RUN_RUST_CARGO_WAIT_TIMEOUT, if the build is legitimately slower. A cold
+sccache store makes the first run on a branch compile everything inside this
+budget.
+```
+
+Take the message at its word. Nothing was detected as hung. A budget expired,
+and on a cold compiler cache that is the expected outcome rather than a symptom.
+
+### The clocks do not start together
+
+Comparing the configured numbers is not enough because two of the four timers
+start at different moments and cover different work.
+
+The watchdog starts when `cargo` starts, so it covers the build as well as the
+test run, while nextest's global timeout starts only once tests begin. A
+watchdog merely larger than the global timeout is still pre-empting it whenever
+the build takes longer than the difference.
+
+The far end matters as well, though less than it first appears. Hitting the
+global timeout starts nextest's termination procedure rather than stopping the
+run instantly: on Unix it signals the process group and waits
+`slow-timeout.grace-period`, five seconds here, before killing it. On Windows
+termination is immediate, and the grace period is ignored for timeouts. That
+allowance is seconds rather than minutes, but it is not zero.
+
+The watchdog is therefore sized as the global timeout, plus a termination
+allowance, plus a cold-build allowance: 40 m + 65 s + 15 m, taken up to 70 m.
+
+The termination allowance is two terms, not one: the largest
+`slow-timeout.grace-period` the configuration sets, five seconds here, plus a
+fixed 60-second safety margin. The grace period is what nextest promises a test
+after `SIGTERM`; the margin covers the process teardown and report writing that
+follow it. Folding them into a single one-minute floor, as this section first
+did, would make raising the grace period from five seconds to thirty look free,
+since both values vanish below the margin.
+
+The first term is read from the configuration rather than fixed, so a profile
+that raised its grace period raises the requirement with it. Every grace period
+here is five seconds, so the file only ever shows one value, and
+`timeout_derivation_test.py` drives the reading with configurations this
+repository does not have. A contract that only ever sees one value cannot tell
+that rule from one that ignored the configuration entirely.
+
+The same applies to the watchdog itself. It is resolved from the step, then the
+job, then the workflow, as GitHub does, and both lanes here set it on the step,
+so a reading that consulted only that scope would agree with a correct one
+against this tree and stop agreeing the moment a lane moved the value. A blank
+value at any scope is treated as a source that says nothing and falls through,
+which is what a workflow writes when it interpolates an expression that
+resolved to nothing; a zero or a negative one is refused, because the shared
+action reads those as no timeout at all and a lane carrying one has no third
+tier while appearing to declare one.
+
+The job timer starts when the job starts, before the formatting, linting,
+spelling and contract steps that precede coverage. Measured on run 33939048036:
+6 m 08 s before coverage and 16 s after, read across three runs rather than
+one. So the requirement is 70 m + 15 m = 85 m, and the ceiling is 100.
+
+The ceiling is not that requirement. It is the requirement plus fifteen
+minutes, because a ceiling equal to the sum it contains cancels the job at the
+moment the watchdog would have reported the overrun, and the report is the only
+thing that makes an overrun actionable. Equality buys nothing: it converts a
+legible failure into a cancellation with no log.
+
+This section first set the ceiling to 85, exactly the requirement, on a lane
+that is always the cold writer, which is where that trade is least affordable.
+
+### What the current values are sized against
+
+The coverage step is fast here. Measured on `ubuntu-latest`:
+
+Table: measured coverage-step and whole-job durations.
+
+| Run         | Coverage step | Whole job |
+| ----------- | ------------- | --------- |
+| 33977183018 | 3 m 29 s      | 7 m 24 s  |
+| 33939048036 | 3 m 29 s      | 9 m 45 s  |
+| 33938591932 | 3 m 52 s      | 10 m 15 s |
+
+So none of these budgets is close to binding today, and that is the point: the
+values are sized against the tier below rather than against current runtimes,
+so a suite that grows or a cache that goes cold does not silently change which
+timer fires first.
+
+`timeout_ordering_test.py` asserts the ordering by value: the watchdog per
+coverage step, the job ceiling per job, so the Verus job's own ceiling is not
+compared against the coverage lane's watchdog. It also requires every step
+invoking the shared coverage action to set the watchdog explicitly, since a
+step without it inherits the 1,800 s default, which is where this repository
+started. Both workflow extensions are scanned because a coverage lane in a
+`.yaml` file would otherwise inherit that default without failing anything. The
+readings it rests on live in `timeout_budgets.py`, `nextest_durations.py` and
+`coverage_lanes.py`, and are driven past this repository's own numbers in
+`timeout_derivation_test.py` and `duration_reading_test.py`.
+
+Durations are read the way nextest reads them, with `humantime`'s grammar: a
+sequence of values each followed by a unit, summed, so `2h 37min` and `1m30s`
+are valid. A reader taking one value and one unit would have refused
+configuration the runner accepts and failed a repository whose timeouts were
+fine.
+
+A value may carry a fractional part, and `humantime` tolerates whitespace
+around the point, so `1.5m` and `1 . 5 m` both read as 90 seconds. It also
+accepts the abbreviations `wk`, `wks`, `yr` and `yrs` alongside the spellings
+this repository uses. The grammar was measured against humantime 2.4.0, the
+version cargo-nextest resolves through `humantime_serde`, rather than assumed:
+the reading had refused all of those and would have called a working file
+broken. What it still refuses is what `humantime` refuses, checked the same
+way: a point with no whole part before it or no digit after it, two points, a
+signed value, and a digit separator.
+
+`terminate-after` is optional, and cargo-nextest treats its absence as no
+termination: the test is reported slow, once per period, and runs on. The
+reading refuses that form rather than counting it as one period because a
+number on a tier that does not exist makes every comparison above it pass
+against a budget nextest never applies. Every table in `.config/nextest.toml`
+sets it explicitly, so no value here changes.
+
+When it is present it must be a positive integer, which is how cargo-nextest
+deserializes it (`Option<NonZeroUsize>`). Converting the text of whatever the
+document held accepted zero, negatives, fractions, `true` and quoted numbers,
+each of them a configuration the runner refuses to start with. Zero is the
+dangerous one: read as a multiplier it makes the per-test allowance vanish, and
+every comparison above it then passes against nothing.
+
+The contract also pins the condition each lane carries. A skipped step runs no
+`cargo`, so its watchdog never arms and the tiers say nothing about it:
+`if: false` on the step or on its job would leave a lane that looks bounded and
+is not, and so would a plausible condition that quietly excluded the event the
+lane exists for. Neither lane carries a condition today, so both are pinned at
+none by coordinate. A lane gaining, losing or changing one has to change this
+section with it, and a lane appearing without an entry fails the contract too.
+
 ## Continuous integration
 
 `property-tests-pr` runs on `ubicloud-standard-2`, a 2-core Ubicloud runner,
