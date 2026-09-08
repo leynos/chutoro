@@ -102,3 +102,53 @@ fn read_optional_env(env: &dyn Env, name: &str) -> Result<Option<String>, Box<dy
         Err(error) => Err(error.into()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Tests for benchmark-regression gate environment handling.
+
+    use std::{env::VarError, ffi::OsString};
+
+    use mockable::MockEnv;
+
+    use super::read_optional_env;
+
+    #[test]
+    fn optional_environment_returns_present_value() {
+        let mut env = MockEnv::new();
+        env.expect_raw().returning(|key| {
+            assert_eq!(key, "GITHUB_OUTPUT");
+            Ok("output.txt".to_owned())
+        });
+
+        assert_eq!(
+            read_optional_env(&env, "GITHUB_OUTPUT").expect("environment read must succeed"),
+            Some("output.txt".to_owned())
+        );
+    }
+
+    #[test]
+    fn optional_environment_maps_not_present_to_none() {
+        let mut env = MockEnv::new();
+        env.expect_raw().returning(|key| {
+            assert_eq!(key, "GITHUB_OUTPUT");
+            Err(VarError::NotPresent)
+        });
+
+        assert_eq!(
+            read_optional_env(&env, "GITHUB_OUTPUT").expect("environment read must succeed"),
+            None
+        );
+    }
+
+    #[test]
+    fn optional_environment_returns_non_not_present_errors() {
+        let mut env = MockEnv::new();
+        env.expect_raw().returning(|key| {
+            assert_eq!(key, "GITHUB_OUTPUT");
+            Err(VarError::NotUnicode(OsString::from("invalid")))
+        });
+
+        assert!(read_optional_env(&env, "GITHUB_OUTPUT").is_err());
+    }
+}
