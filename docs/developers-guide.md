@@ -680,7 +680,6 @@ file focused on the behaviour under test. Current examples:
 Support modules carry `//!` module docs and `///` item docs, with `# Errors`
 sections on fallible helpers.
 
-
 ## Test timeouts: four tiers, outermost last
 
 Four independent timers can end a test run, and they are set in four different
@@ -809,17 +808,34 @@ readings it rests on live in `timeout_budgets.py`, `nextest_durations.py` and
 `timeout_derivation_test.py` and `duration_reading_test.py`.
 
 Durations are read the way nextest reads them, with `humantime`'s grammar: a
-sequence of whole numbers each followed by a unit, summed, so `2h 37min` and
-`1m30s` are valid and `1.5m` is not. A reader taking one value and one unit
-would have refused configuration the runner accepts and failed a repository
-whose timeouts were fine.
+sequence of values each followed by a unit, summed, so `2h 37min` and `1m30s`
+are valid. A reader taking one value and one unit would have refused
+configuration the runner accepts and failed a repository whose timeouts were
+fine.
+
+A value may carry a fractional part, and `humantime` tolerates whitespace
+around the point, so `1.5m` and `1 . 5 m` both read as 90 seconds. It also
+accepts the abbreviations `wk`, `wks`, `yr` and `yrs` alongside the spellings
+this repository uses. The grammar was measured against humantime 2.4.0, the
+version cargo-nextest resolves through `humantime_serde`, rather than assumed:
+the reading had refused all of those and would have called a working file
+broken. What it still refuses is what `humantime` refuses, checked the same
+way: a point with no whole part before it or no digit after it, two points, a
+signed value, and a digit separator.
 
 `terminate-after` is optional, and cargo-nextest treats its absence as no
 termination: the test is reported slow, once per period, and runs on. The
-reading refuses that form rather than counting it as one period, because a
+reading refuses that form rather than counting it as one period because a
 number on a tier that does not exist makes every comparison above it pass
 against a budget nextest never applies. Every table in `.config/nextest.toml`
 sets it explicitly, so no value here changes.
+
+When it is present it must be a positive integer, which is how cargo-nextest
+deserializes it (`Option<NonZeroUsize>`). Converting the text of whatever the
+document held accepted zero, negatives, fractions, `true` and quoted numbers,
+each of them a configuration the runner refuses to start with. Zero is the
+dangerous one: read as a multiplier it makes the per-test allowance vanish, and
+every comparison above it then passes against nothing.
 
 The contract also pins the condition each lane carries. A skipped step runs no
 `cargo`, so its watchdog never arms and the tiers say nothing about it:

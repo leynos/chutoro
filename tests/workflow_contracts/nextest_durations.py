@@ -28,8 +28,14 @@ class NextestDurationError(ValueError):
 #: durations with `humantime`, which takes a sequence of these and sums
 #: them, so `2h 37min` and `1m30s` are both valid and a parser reading
 #: one pair would refuse configuration the runner accepts.
+#:
+#: The value may carry a fractional part, and humantime tolerates
+#: whitespace around the point, so `1.5m` and `1 . 5 m` both read as 90
+#: seconds. Measured against humantime 2.4.0, the version cargo-nextest
+#: resolves through humantime_serde. A leading point, a trailing point
+#: and a second point are all refused there and are refused here.
 _DURATION_TOKEN: typ.Final[re.Pattern[str]] = re.compile(
-    r"(?P<value>\d+)\s*(?P<unit>[A-Za-z\u00b5]+)\s*"
+    r"(?P<value>\d+(?:\s*\.\s*\d+)?)\s*(?P<unit>[A-Za-z\u00b5]+)\s*"
 )
 
 #: Every unit `humantime` accepts, with its length in seconds, using
@@ -66,45 +72,29 @@ _UNIT_SECONDS: typ.Final[dict[str, float]] = {
     "d": 86400.0,
     "weeks": 604800.0,
     "week": 604800.0,
+    "wks": 604800.0,
+    "wk": 604800.0,
     "w": 604800.0,
     "months": 2630016.0,
     "month": 2630016.0,
     "M": 2630016.0,
     "years": 31557600.0,
     "year": 31557600.0,
+    "yrs": 31557600.0,
+    "yr": 31557600.0,
     "y": 31557600.0,
 }
 
 
 def _seconds(duration: str) -> float:
-    """Convert a nextest duration to seconds.
-
-    nextest parses durations with `humantime`, which reads a sequence of
-    value-and-unit pairs and sums them, so ``"2h 37min"`` and
-    ``"1m30s"`` are as valid as ``"40m"``. A parser accepting one pair
-    would refuse configuration the runner accepts, and this contract
-    would fail a repository whose timeouts were fine.
-
-    `humantime` takes integers only, so a decimal is refused here as it
-    would be by the runner. Refusing it is the point: a configuration
-    nextest cannot parse has no budgets to compare.
-
-    Parameters
-    ----------
-    duration : str
-        A duration as nextest spells it, such as ``"40m"`` or
-        ``"2h 37min"``.
-
-    Returns
-    -------
-    float
-        The duration in seconds.
-
-    Raises
-    ------
-    NextestDurationError
-        If the text is not a duration `humantime` would accept.
-    """
+    """Convert a nextest duration to seconds, or raise."""
+    # nextest parses durations with `humantime`, which reads a sequence
+    # of value-and-unit pairs and sums them, so "2h 37min" and "1m30s"
+    # are as valid as "40m". A parser accepting one pair would refuse
+    # configuration the runner accepts, and this contract would fail a
+    # repository whose timeouts were fine. Anything humantime refuses
+    # raises `NextestDurationError`, because a configuration nextest
+    # cannot parse has no budgets to compare.
     text = duration.strip()
     if not text:
         message = f"unrecognized nextest duration {duration!r}: it is empty"
@@ -126,6 +116,9 @@ def _seconds(duration: str) -> float:
                 f"unit humantime accepts"
             )
             raise NextestDurationError(message)
-        total += float(match["value"]) * _UNIT_SECONDS[unit]
+        # humantime tolerates whitespace around the fractional point,
+        # so the matched value can read "1 . 5"; float cannot.
+        value = "".join(match["value"].split())
+        total += float(value) * _UNIT_SECONDS[unit]
         position = match.end()
     return total

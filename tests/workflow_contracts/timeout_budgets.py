@@ -56,7 +56,6 @@ NON_COVERAGE_ALLOWANCE_SECONDS: typ.Final[float] = 15 * 60.0
 CEILING_MARGIN_SECONDS: typ.Final[float] = 15 * 60.0
 
 
-#: ``30s``, ``5m``, ``20 m``: the durations nextest accepts here.
 class UnboundedTestError(ValueError):
     """Raised when a ``slow-timeout`` terminates no test.
 
@@ -65,6 +64,18 @@ class UnboundedTestError(ValueError):
     per period, and runs on. Reading that as a single period would put a
     number on the tier that is missing, and every comparison above it
     would pass against a budget nextest never applies.
+    """
+
+
+class TerminateAfterError(ValueError):
+    """Raised when ``terminate-after`` is not a multiplier nextest reads.
+
+    cargo-nextest deserializes the field as ``Option<NonZeroUsize>``, so
+    it is a positive TOML integer or the configuration does not load at
+    all. Converting the text of whatever the document held would read
+    zero, a negative, a fraction, a quoted number and ``true`` as
+    multipliers, and each of them would put a budget on a configuration
+    the runner refuses to start with.
     """
 
 
@@ -185,6 +196,28 @@ def parse_config(config_text: str) -> dict[str, typ.Any]:
     return tomllib.loads(config_text)
 
 
+def _is_positive_integer(value: object) -> bool:
+    """Return whether a value is a TOML integer above zero."""
+    # `bool` is refused before `int` because it is an `int` in Python,
+    # and `terminate-after = true` would otherwise read as one period.
+    if isinstance(value, bool):
+        return False
+    return isinstance(value, int) and value >= 1
+
+
+def _multiplier(value: object) -> float:
+    """Return a ``terminate-after`` as a multiplier, or raise."""
+    # cargo-nextest reads the field as `Option<NonZeroUsize>`: a
+    # positive TOML integer, or the configuration fails to load.
+    if not _is_positive_integer(value):
+        message = (
+            f"terminate-after must be a positive integer, as cargo-nextest "
+            f"reads it; {value!r} is a configuration the runner refuses"
+        )
+        raise TerminateAfterError(message)
+    return float(value)
+
+
 def largest_slow_timeout_of(config_text: str) -> float:
     """Return the longest per-test allowance a configuration sets.
 
@@ -219,8 +252,7 @@ def largest_slow_timeout_of(config_text: str) -> float:
                 f"there is no per-test tier to compare against"
             )
             raise UnboundedTestError(message)
-        terminate = table["terminate-after"]
-        budgets.append(_seconds(period) * float(str(terminate)))
+        budgets.append(_seconds(period) * _multiplier(table["terminate-after"]))
     assert budgets, "nextest.toml must set at least one slow-timeout period"
     return max(budgets)
 
