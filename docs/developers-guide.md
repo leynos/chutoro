@@ -771,7 +771,7 @@ that matches no file leaves the file valid JSON, leaves
 `cs rules-config validate` passing, and leaves CodeScene's verdicts running
 without the override. That is what happened when the module root moved from
 `kernels.rs` to `kernels/mod.rs`: the waiver stopped applying and nothing
-reported it (#253).
+reported it ([#253](https://github.com/leynos/chutoro/issues/253)).
 
 Check a path against the rule set with the CodeScene CLI, which prints the
 matching rule or says there is none:
@@ -791,7 +791,7 @@ and weights between 0.0 and 1.0; every rule set carries a
 `matching_content_path` matches at least one file git tracks. The last is the
 one that fails on a stale path, and the suite proves each assertion by
 feeding it the shape it exists to reject, including the exact stale path
-from #253.
+from [#253](https://github.com/leynos/chutoro/issues/253).
 
 Matching is glob-based, so `kernels/*.rs` would cover the whole directory.
 Keep the path as narrow as the justification: the backend files beside

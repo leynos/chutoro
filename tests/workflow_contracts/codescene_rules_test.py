@@ -43,12 +43,10 @@ RULE_SET_KEYS = frozenset({
 
 
 def _tracked_files() -> frozenset[str]:
-    """Return every path git tracks, as repository-relative POSIX strings.
-
-    Matching against the index rather than the working tree keeps the check
-    honest: an exemption satisfied only by an untracked or ignored file is an
-    exemption no reviewer or CI run would ever see.
-    """
+    """Return every path git tracks, as repository-relative POSIX strings."""
+    # Matching against the index rather than the working tree keeps the check
+    # honest: an exemption satisfied only by an untracked or ignored file is an
+    # exemption no reviewer or CI run would ever see.
     listing = subprocess.run(
         ["git", "-C", str(ROOT), "ls-files", "-z"],
         capture_output=True,
@@ -85,7 +83,13 @@ def test_the_rule_file_uses_the_documented_schema() -> None:
             f"unrecognized rule set keys {sorted(unexpected)}; CodeScene "
             "ignores what it does not recognize"
         )
-        for rule in rule_set.get("rules", []):
+        rules = rule_set.get("rules")
+        assert isinstance(rules, list) and rules, (
+            "each rule set must override at least one rule; a rule set with no "
+            "rules matches files and changes nothing, which is the same silent "
+            "no-op as a path that matches nothing"
+        )
+        for rule in rules:
             assert set(rule) == {"name", "weight"}, (
                 f"a rule override carries exactly a name and a weight: {rule}"
             )
@@ -174,6 +178,45 @@ def test_every_exemption_still_matches_a_tracked_file() -> None:
             {"rules": {"primitive-obsession": {"threshold-by-pattern": {"**": 100}}}},
             "test_the_rule_file_uses_the_documented_schema",
             id="a-top-level-rules-object",
+        ),
+        pytest.param(
+            {
+                "rule_sets": [
+                    {
+                        "matching_content_path": (
+                            "chutoro-providers/dense/src/simd/kernels/mod.rs"
+                        ),
+                        "matching_content_path_doc": (
+                            "Kernel functions operate directly on `&[f32]` "
+                            "slices and `usize` offsets because SIMD "
+                            "intrinsics require contiguous, unboxed memory "
+                            "and raw index arithmetic"
+                        ),
+                    }
+                ]
+            },
+            "test_the_rule_file_uses_the_documented_schema",
+            id="a-rule-set-with-no-rules-key",
+        ),
+        pytest.param(
+            {
+                "rule_sets": [
+                    {
+                        "matching_content_path": (
+                            "chutoro-providers/dense/src/simd/kernels/mod.rs"
+                        ),
+                        "matching_content_path_doc": (
+                            "Kernel functions operate directly on `&[f32]` "
+                            "slices and `usize` offsets because SIMD "
+                            "intrinsics require contiguous, unboxed memory "
+                            "and raw index arithmetic"
+                        ),
+                        "rules": [],
+                    }
+                ]
+            },
+            "test_the_rule_file_uses_the_documented_schema",
+            id="a-rule-set-with-an-empty-rules-array",
         ),
         pytest.param(
             {
