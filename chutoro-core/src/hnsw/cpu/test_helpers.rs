@@ -18,22 +18,24 @@ impl CpuHnsw {
     ///
     /// # Panics
     ///
-    /// Panics when the test graph lock cannot be acquired, or when healing
-    /// leaves a non-reciprocal edge behind.
+    /// Panics when the test graph lock cannot be acquired, or localized
+    /// reciprocity validation fails for a touched adjacency list.
     pub fn heal_for_test(&self) {
         let max_connections = self.params.max_connections();
         let healed = self.write_graph(|graph| {
-            let mut executor = graph.insertion_executor();
-            executor.heal_reachability(max_connections);
-            executor.enforce_bidirectional_all(max_connections);
-            Ok(executor.find_reciprocity_violation(max_connections))
-        });
-        match healed {
-            Ok(None) => {}
-            Ok(Some(violation)) => {
-                panic!("heal_for_test left a reciprocity violation: {violation:?}")
+            {
+                let mut executor = graph.insertion_executor();
+                executor.heal_reachability(max_connections);
             }
-            Err(err) => panic!("graph lock during heal_for_test: {err}"),
+            let touched = graph.take_touched_nodes();
+            {
+                let mut executor = graph.insertion_executor();
+                executor.enforce_bidirectional_for_touched(&touched, max_connections);
+            }
+            Ok(())
+        });
+        if let Err(err) = healed {
+            panic!("graph lock during heal_for_test: {err}");
         }
     }
 

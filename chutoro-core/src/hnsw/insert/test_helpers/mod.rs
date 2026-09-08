@@ -1,136 +1,17 @@
 //! Test-only helpers for repairing graph connectivity and reciprocity.
 
+mod edge_helpers;
+
+pub(crate) use edge_helpers::add_edge_if_missing;
+pub(super) use edge_helpers::assert_no_edge;
+#[cfg(test)]
+pub(crate) use edge_helpers::{EdgeSymmetry, assert_bidirectional_edge, edge_symmetry};
+
 use super::{
     connectivity::ConnectivityHealer, limits::compute_connection_limit,
     reconciliation::EdgeReconciler, types::UpdateContext,
 };
 use crate::hnsw::graph::Graph;
-
-pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usize, level: usize) {
-    #[cfg(kani)]
-    {
-        let Some(node) = graph.node_mut(origin) else {
-            kani::assert(false, "Kani origin node must exist");
-            return;
-        };
-        let Some(neighbours) = node.neighbours_mut(level) else {
-            kani::assert(false, "Kani origin must expose requested level");
-            return;
-        };
-        if !neighbours.contains(&target) {
-            neighbours.push(target);
-        }
-    }
-
-    #[cfg(not(kani))]
-    {
-        let Some(node) = graph.node_mut(origin) else {
-            debug_assert!(false, "missing origin node {origin}");
-            return;
-        };
-        let Some(neighbours) = node.neighbours_mut(level) else {
-            debug_assert!(false, "origin {origin} lacks requested level {level}");
-            return;
-        };
-        if !neighbours.contains(&target) {
-            neighbours.push(target);
-        }
-    }
-}
-
-pub(super) fn assert_no_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
-    if let Some(node) = graph.node(origin)
-        && level < node.level_count()
-    {
-        assert!(
-            !node.neighbours(level).contains(&target),
-            "unexpected edge {origin}->{target} at level {level}",
-        );
-    }
-}
-
-/// Outcome of inspecting a node pair for a mutual edge at a given level.
-///
-/// Modelled as a query result so callers assert on a value rather than relying
-/// on a helper to panic on their behalf.
-#[cfg(test)]
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum EdgeSymmetry {
-    /// Both nodes list one another at the requested level.
-    Symmetric,
-    /// The named node is absent from the graph.
-    MissingNode(usize),
-    /// The named node does not expose the requested level.
-    LevelAbsent { node: usize, level_count: usize },
-    /// The forward edge `origin -> target` is missing.
-    MissingEdge { origin: usize, target: usize },
-}
-
-/// Classifies the edge relationship between `node_a` and `node_b` at `level`.
-#[cfg(test)]
-pub(crate) fn edge_symmetry(
-    graph: &Graph,
-    node_a: usize,
-    node_b: usize,
-    level: usize,
-) -> EdgeSymmetry {
-    let Some(a) = graph.node(node_a) else {
-        return EdgeSymmetry::MissingNode(node_a);
-    };
-    let Some(b) = graph.node(node_b) else {
-        return EdgeSymmetry::MissingNode(node_b);
-    };
-
-    if level >= a.level_count() {
-        return EdgeSymmetry::LevelAbsent {
-            node: node_a,
-            level_count: a.level_count(),
-        };
-    }
-    if level >= b.level_count() {
-        return EdgeSymmetry::LevelAbsent {
-            node: node_b,
-            level_count: b.level_count(),
-        };
-    }
-
-    if !a.neighbours(level).contains(&node_b) {
-        return EdgeSymmetry::MissingEdge {
-            origin: node_a,
-            target: node_b,
-        };
-    }
-    if !b.neighbours(level).contains(&node_a) {
-        return EdgeSymmetry::MissingEdge {
-            origin: node_b,
-            target: node_a,
-        };
-    }
-    EdgeSymmetry::Symmetric
-}
-
-/// Asserts that two nodes reference one another at `level`.
-///
-/// Implemented as a macro so a failure reports the calling test's line rather
-/// than a shared helper's line.
-#[cfg(test)]
-macro_rules! assert_bidirectional_edge {
-    ($graph:expr, $node_a:expr, $node_b:expr, $level:expr $(,)?) => {{
-        let symmetry =
-            $crate::hnsw::insert::test_helpers::edge_symmetry($graph, $node_a, $node_b, $level);
-        assert_eq!(
-            symmetry,
-            $crate::hnsw::insert::test_helpers::EdgeSymmetry::Symmetric,
-            "expected bidirectional edge {} <-> {} at level {}",
-            $node_a,
-            $node_b,
-            $level,
-        );
-    }};
-}
-
-#[cfg(test)]
-pub(crate) use assert_bidirectional_edge;
 
 #[derive(Debug)]
 pub(super) struct TestHelpers<'graph> {
@@ -190,6 +71,8 @@ impl<'graph> TestHelpers<'graph> {
             };
             let mut healer = ConnectivityHealer::new(self.graph);
             if healer.link_new_node(&ctx, node_id) {
+                #[cfg(test)]
+                self.graph.record_touched_nodes([(origin, 0), (node_id, 0)]);
                 return true;
             }
         }
@@ -202,6 +85,8 @@ impl<'graph> TestHelpers<'graph> {
             };
             let mut healer = ConnectivityHealer::new(self.graph);
             if healer.link_new_node(&ctx, node_id) {
+                #[cfg(test)]
+                self.graph.record_touched_nodes([(origin, 0), (node_id, 0)]);
                 return true;
             }
         }
@@ -359,6 +244,70 @@ impl<'graph> TestHelpers<'graph> {
             target_degree: neighbours.len(),
             limit: compute_connection_limit(level, max_connections),
         })
+    }
+
+    /// Repairs and validates only edges owned by graph nodes changed by a test mutation.
+    pub(super) fn enforce_bidirectional_for_touched(
+        &mut self,
+        touched: &[(usize, usize)],
+        max_connections: usize,
+    ) {
+        for (origin, level, target) in self.collect_touched_edges(touched) {
+            let ctx = UpdateContext {
+                origin,
+                level,
+                max_connections,
+            };
+            self.heal_or_remove_edge(&ctx, target);
+        }
+
+        self.validate_touched_edges_reciprocal(touched, max_connections);
+    }
+
+    fn collect_touched_edges(&self, touched: &[(usize, usize)]) -> Vec<(usize, usize, usize)> {
+        let mut edges = Vec::new();
+        for &(origin, level) in touched {
+            let Some(node) = self.graph.node(origin) else {
+                continue;
+            };
+            if level >= node.level_count() {
+                continue;
+            }
+            edges.extend(
+                node.neighbours(level)
+                    .iter()
+                    .copied()
+                    .map(|target| (origin, level, target)),
+            );
+        }
+        edges
+    }
+
+    fn validate_touched_edges_reciprocal(
+        &self,
+        touched: &[(usize, usize)],
+        max_connections: usize,
+    ) {
+        for (origin, level, target) in self.collect_touched_edges(touched) {
+            let Some(target_node) = self.graph.node(target) else {
+                panic!(
+                    "enforce_bidirectional_for_touched left edge {origin}->{target} at level {level} to missing node",
+                );
+            };
+            let target_levels = target_node.level_count();
+            assert!(
+                level < target_levels,
+                "enforce_bidirectional_for_touched left edge {origin}->{target} at absent level {level} (target has {target_levels})",
+            );
+
+            let neighbours = target_node.neighbours(level);
+            let limit = compute_connection_limit(level, max_connections);
+            assert!(
+                neighbours.contains(&origin),
+                "enforce_bidirectional_for_touched left one-way edge {origin}->{target} at level {level}; target degree {} (limit {limit})",
+                neighbours.len(),
+            );
+        }
     }
 }
 

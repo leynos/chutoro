@@ -9,6 +9,9 @@ use crate::hnsw::{
     types::{EntryPoint, InsertionPlan},
 };
 
+#[cfg(test)]
+use std::collections::BTreeSet;
+
 /// Context for attaching or inserting a node into the HNSW graph.
 ///
 /// The insertion `sequence` is used for deterministic neighbour ordering and
@@ -204,6 +207,8 @@ pub(crate) struct Graph {
     pub(super) nodes: Vec<Option<Node>>,
     /// Highest-level node used to enter the graph, when populated.
     pub(super) entry: Option<EntryPoint>,
+    #[cfg(test)]
+    pub(super) touched: BTreeSet<(usize, usize)>,
 }
 
 /// Report whether `level` should replace the graph's current entry level.
@@ -221,6 +226,8 @@ impl Graph {
             params,
             nodes: vec![None; capacity],
             entry: None,
+            #[cfg(test)]
+            touched: BTreeSet::new(),
         }
     }
 
