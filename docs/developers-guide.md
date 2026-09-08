@@ -756,6 +756,48 @@ single-package update from either category: update all three direct workspace
 requirements together, regenerate `Cargo.lock`, and run the Arrow/Parquet
 compile-pass test before the full quality gates.
 
+## CodeScene rule overrides
+
+`.codescene/code-health-rules.json` holds this repository's CodeScene code
+health overrides. It carries one rule set, which waives Primitive Obsession
+for `chutoro-providers/dense/src/simd/kernels/mod.rs`, where the kernel
+functions take `&[f32]` slice pairs and `usize` offsets because SIMD
+intrinsics need contiguous unboxed memory and raw index arithmetic. The rule
+set's `matching_content_path_doc` records that reason; write one for any rule
+set added later.
+
+The failure mode this configuration has is silence. A `matching_content_path`
+that matches no file leaves the file valid JSON, leaves
+`cs rules-config validate` passing, and leaves CodeScene's verdicts running
+without the override. That is what happened when the module root moved from
+`kernels.rs` to `kernels/mod.rs`: the waiver stopped applying and nothing
+reported it ([#253](https://github.com/leynos/chutoro/issues/253)).
+
+Check a path against the rule set with the CodeScene CLI, which prints the
+matching rule or says there is none:
+
+```console
+$ CS_ACCESS_TOKEN=$(cat ~/__codescene_token) \
+    cs check-rules chutoro-providers/dense/src/simd/kernels/mod.rs
+Matching code health rule path: chutoro-providers/dense/src/simd/kernels/mod.rs
+```
+
+The CLI is not installed on the CI runners, so the standing guard is
+`tests/workflow_contracts/codescene_rules_test.py`, run by
+`make test-workflow-contracts` in the `build-test` job. It asserts three
+things: the file uses the documented `rule_sets` shape with prose rule names
+and weights between 0.0 and 1.0; every rule set carries a
+`matching_content_path_doc` long enough to justify itself; and every
+`matching_content_path` matches at least one file git tracks. The last is the
+one that fails on a stale path, and the suite proves each assertion by
+feeding it the shape it exists to reject, including the exact stale path
+from [#253](https://github.com/leynos/chutoro/issues/253).
+
+Matching is glob-based, so `kernels/*.rs` would cover the whole directory.
+Keep the path as narrow as the justification: the backend files beside
+`mod.rs` carry the same primitive signatures but were never covered by this
+waiver, and widening it is a policy decision rather than a rename.
+
 ## Dense SIMD parity suite
 
 Dense Euclidean backend parity tests live in
