@@ -20,7 +20,7 @@
     },
     {
       "matching_content_path": "**/kani_proofs.rs",
-      "matching_content_path_doc": "Single-file Kani proof module; same solver constraint as `**/kani_proofs/**`.",
+      "matching_content_path_doc": "Single-file Kani proof module. It carries the same solver constraint as `**/kani_proofs/**`: harness setup is repeated per proof entry point because a shared abstraction multiplies CBMC aliasing past the tractable state space. See the `Kani CI policy` section of docs/developers-guide.md.",
       "rules": [
         { "name": "Code Duplication", "weight": 0.0 },
         { "name": "Primitive Obsession", "weight": 0.0 },
