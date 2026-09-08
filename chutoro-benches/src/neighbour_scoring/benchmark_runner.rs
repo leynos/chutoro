@@ -173,6 +173,8 @@ pub fn neighbour_scoring(c: &mut Criterion) {
 mod tests {
     //! Tests for neighbour-scoring benchmark orchestration.
 
+    use mockable::MockEnv;
+
     // `should_use_short_measurement_value` is a thin delegate to the
     // canonical `truthy_env_value`, whose full truthy/falsy case table is
     // exercised by `chutoro-benches/tests/neighbour_scoring_support.rs`.
@@ -187,6 +189,23 @@ mod tests {
         use super::should_use_short_measurement_value;
 
         assert_eq!(should_use_short_measurement_value(value), expected);
+    }
+
+    #[rstest::rstest]
+    #[case::unset(None, false)]
+    #[case::truthy(Some("true"), true)]
+    #[case::falsy(Some("false"), false)]
+    fn short_measurement_reads_environment(#[case] value: Option<&str>, #[case] expected: bool) {
+        use super::should_use_short_measurement_with_env;
+
+        let configured_value = value.map(str::to_owned);
+        let mut env = MockEnv::new();
+        env.expect_string().returning(move |key| {
+            assert_eq!(key, "CHUTORO_BENCH_NEIGHBOUR_SHORT_MEASUREMENT");
+            configured_value.clone()
+        });
+
+        assert_eq!(should_use_short_measurement_with_env(&env), expected);
     }
 
     #[test]

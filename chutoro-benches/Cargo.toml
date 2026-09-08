@@ -33,6 +33,14 @@ harness = false
 name = "hnsw_ef_sweep"
 harness = false
 
+[[test]]
+name = "hnsw_environment"
+path = "benches/hnsw.rs"
+
+[[test]]
+name = "hnsw_ef_sweep_environment"
+path = "benches/hnsw_ef_sweep.rs"
+
 [[bench]]
 name = "edge_harvest"
 harness = false

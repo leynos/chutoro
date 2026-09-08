@@ -118,10 +118,16 @@ pub fn is_nextest_exact_benchmark_probe() -> bool {
 
 /// Detect an exact Nextest probe through an injected environment reader.
 fn is_nextest_exact_benchmark_probe_with_env(env: &dyn Env) -> bool {
-    is_nextest_exact_benchmark_probe_args(
-        std::env::args(),
-        env.os_string("NEXTEST_TEST_NAME").is_some(),
-    )
+    is_nextest_exact_benchmark_probe_args_with_env(std::env::args(), env)
+}
+
+/// Detect an exact Nextest probe from supplied arguments and environment.
+fn is_nextest_exact_benchmark_probe_args_with_env<I, S>(args: I, env: &dyn Env) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    is_nextest_exact_benchmark_probe_args(args, env.os_string("NEXTEST_TEST_NAME").is_some())
 }
 /// Determine whether arguments describe a nextest exact benchmark probe.
 fn is_nextest_exact_benchmark_probe_args<I, S>(args: I, has_nextest_test_name: bool) -> bool
@@ -225,11 +231,13 @@ pub fn configure_short_measurement_group(
 mod tests {
     //! Unit tests for Criterion command-line helper behaviour.
 
+    use mockable::MockEnv;
     use rstest::rstest;
 
     use super::{
         args_contain_flag, is_exact_benchmark_probe_args, is_nextest_exact_benchmark_probe_args,
-        point_count_for_exact_probe_args, should_short_circuit_exact_label_probe_args,
+        is_nextest_exact_benchmark_probe_args_with_env, point_count_for_exact_probe_args,
+        should_short_circuit_exact_label_probe_args,
     };
 
     #[test]
@@ -275,6 +283,34 @@ mod tests {
             is_nextest_exact_benchmark_probe_args(args, has_nextest_test_name),
             expected,
         );
+    }
+
+    #[test]
+    fn nextest_exact_probe_reads_present_environment_marker() {
+        let mut env = MockEnv::new();
+        env.expect_os_string().returning(|key| {
+            assert_eq!(key, "NEXTEST_TEST_NAME");
+            Some("criterion-probe".into())
+        });
+
+        assert!(is_nextest_exact_benchmark_probe_args_with_env(
+            ["bench", "--exact"],
+            &env
+        ));
+    }
+
+    #[test]
+    fn nextest_exact_probe_reads_absent_environment_marker() {
+        let mut env = MockEnv::new();
+        env.expect_os_string().returning(|key| {
+            assert_eq!(key, "NEXTEST_TEST_NAME");
+            None
+        });
+
+        assert!(!is_nextest_exact_benchmark_probe_args_with_env(
+            ["bench", "--exact"],
+            &env
+        ));
     }
 
     #[rstest]
