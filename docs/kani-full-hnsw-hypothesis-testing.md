@@ -254,12 +254,59 @@ conditions.
 
 ## Current conclusion
 
-The likely immediate blocker is the HNSW `verify_entry_point_validity_4_nodes`
-full-tier harness. The dense SIMD 2.2.7 harnesses are not the direct cause, and
-the run does not appear to be blocked by obvious resource contention. The
-strongest surviving theory is that the HNSW harness construction leaves
-panic-capable paths available to Kani, causing CBMC to spend the budget in Rust
-`core::str` panic and slice-error formatting.
+`verify_entry_point_validity_4_nodes` is panic-free in the current split-module
+layout. With the `kissat` solver it verifies 63 checks in 0.17 seconds. The
+surviving formatting cost came from sibling harnesses that reached
+`format!`-based production error paths during graph and parameter construction.
+
+Phase 1 replaced those construction paths with `#[cfg(kani)]` lean constructors
+returning static error reasons, and replaced harness `.expect(...)` calls with
+Kani assertions and early returns.
+
+The residual non-completion had three further causes, all resolved:
+
+1. **Symbolic hashing in connectivity healing.** `ConnectivityHealer` tracked
+   visited nodes with `std::collections::HashSet`, whose randomized SipHash
+   seed is symbolic under Kani. The three-node reconciliation harness is the
+   only harness reaching the healer (via base-layer isolation), which made it
+   intractable while the two-node harness stayed fast. The healer now uses a
+   bounded linear-scan visited set under `#[cfg(kani)]`.
+
+2. **Deterministic multi-node harnesses past the CBMC cliff.** Even after the
+   hashing fix, `verify_bidirectional_links_reconciliation_3_nodes_1_layer`
+   exceeded 20 minutes in symbolic execution, and
+   `verify_bidirectional_links_commit_path_3_nodes` exceeded a 15-minute
+   budget while solving. These harnesses were fully deterministic (no
+   `kani::any`), so their value over a unit test was only the absence of
+   undefined behaviour along one concrete path. Hand-tracing the three-node
+   reconciliation harness exposed a genuine production defect: removed-edge
+   reconciliation ran before the origin's neighbour-list write-back, so
+   base-layer connectivity healing against the entry node could be clobbered
+   by the write-back, leaving a dangling reverse edge. The commit path now
+   writes the origin's list back before removed-edge reconciliation, and a
+   deterministic regression test
+   (`isolation_replacement_keeps_bidirectionality`) pins the fix. The three
+   deterministic heavy harnesses (three-node reconciliation, three-node
+   commit path, four-node eviction scrub) are retired in favour of exact
+   unit-test twins in `chutoro-core/src/hnsw/insert/commit/tests/`.
+
+3. **The full reconciled-update helper is intractable at any bound.** The
+   no-self-loop and neighbour-uniqueness harnesses drove
+   `apply_reconciled_update_for_kani`, which chains added-edge
+   reconciliation, write-back, removed-edge reconciliation (including the
+   base-layer healing cascade), and deferred scrubs in one formula. The
+   harnesses timed out at 20 minutes even on a two-node graph with a
+   concrete origin and concrete level. The helper was removed and both
+   invariants are now proved on the `ensure_reverse_edge` surface: per-level
+   two-node proofs with nondeterministic edge seeding
+   (`verify_no_self_loops_2_nodes_base_layer` and siblings), which verify in
+   18 to 66 seconds each. Broader configurations remain covered by the
+   graph-topology property suites.
+
+The investigation is resolved. `make kani-full` completes: all 17 harnesses
+across `chutoro-core` and `chutoro-providers-dense` verify successfully in
+17 minutes 50 seconds of wall-clock time (including Kani compilation) on a
+six-core development machine, well within the nightly 120-minute budget.
 
 ## Notes for executing agent
 

@@ -11,13 +11,13 @@ use crate::hnsw::{
 };
 use rstest::{fixture, rstest};
 
-/// Parameters allowing two connections per node; fallible so tests, rather
-/// than the fixture, surface any configuration error.
+/// Provides parameters with a fan-out of two for commit tests.
 #[fixture]
 fn params_two_connections() -> Result<HnswParams, HnswError> {
     HnswParams::new(2, 4)
 }
 
+/// Inserts a node, seeding the entry point on the first insertion.
 fn insert_node(
     graph: &mut Graph,
     node: usize,
@@ -36,6 +36,7 @@ fn insert_node(
     }
 }
 
+/// Builds a staged update paired with its finalized neighbour list.
 fn build_update(
     node: usize,
     level: usize,
@@ -165,13 +166,42 @@ fn commit_updates_report_missing_origin(
 // Eviction and deferred scrub tests
 // ---------------------------------------------------------------------------
 
-/// Parameters allowing a single connection per node; fallible so tests, rather
-/// than the fixture, surface any configuration error.
+/// Provides parameters with a fan-out of one so level 1 evicts.
 #[fixture]
 fn params_one_connection() -> Result<HnswParams, HnswError> {
     HnswParams::new(1, 4)
 }
 
+/// Asserts that every edge in the graph has its reverse edge at every level.
+fn assert_graph_bidirectional(graph: &Graph, node_count: usize) {
+    for node_id in 0..node_count {
+        let Some(node) = graph.node(node_id) else {
+            panic!("node {node_id} should exist");
+        };
+        for level in 0..node.level_count() {
+            assert_level_edges_reciprocated(graph, node_id, node.neighbours(level), level);
+        }
+    }
+}
+
+/// Asserts that each listed neighbour links back to `node_id` at `level`.
+fn assert_level_edges_reciprocated(
+    graph: &Graph,
+    node_id: usize,
+    neighbours: &[usize],
+    level: usize,
+) {
+    for &neighbour in neighbours {
+        let Some(other) = graph.node(neighbour) else {
+            panic!("neighbour {neighbour} should exist");
+        };
+        assert!(
+            level < other.level_count() && other.neighbours(level).contains(&node_id),
+            "edge {node_id}->{neighbour} at level {level} has no reverse edge",
+        );
+    }
+}
+/// Panics unless the directed edge is present at the level.
 fn assert_has_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
     let Some(node) = graph.node(origin) else {
         panic!("node {origin} should exist");
@@ -186,7 +216,7 @@ fn assert_has_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
     );
 }
 
-/// Context for eviction tests with a 4-node graph where node 1 is at capacity.
+/// Context for eviction tests over a level-1 graph with one seeded edge pair.
 struct EvictionTestContext {
     graph: Graph,
     max_connections: usize,
@@ -197,19 +227,30 @@ impl EvictionTestContext {
     /// Creates a test graph with 4 nodes at level 1, where node 1 is seeded
     /// at capacity with a bidirectional edge to node 2.
     fn new(params: HnswParams) -> Result<Self, HnswError> {
+        Self::seeded(params, 4, (1, 2), NewNodeContext { id: 3, level: 1 })
+    }
+
+    /// Creates a test graph with `node_count` nodes at level 1, seeding the
+    /// `seeded_pair` nodes with a bidirectional level-1 edge so the first of
+    /// the pair sits at capacity.
+    fn seeded(
+        params: HnswParams,
+        node_count: usize,
+        seeded_pair: (usize, usize),
+        new_node: NewNodeContext,
+    ) -> Result<Self, HnswError> {
         let max_connections = params.max_connections();
-        let mut graph = Graph::with_capacity(params, 4);
+        let mut graph = Graph::with_capacity(params, node_count);
 
-        insert_node(&mut graph, 0, 1, 0)?;
-        insert_node(&mut graph, 1, 1, 1)?;
-        insert_node(&mut graph, 2, 1, 2)?;
-        insert_node(&mut graph, 3, 1, 3)?;
+        for node in 0..node_count {
+            let sequence = u64::try_from(node).unwrap_or(u64::MAX);
+            insert_node(&mut graph, node, 1, sequence)?;
+        }
 
-        // Seed node 1 at capacity with node 2 (bidirectional)
-        add_edge_if_missing(&mut graph, 1, 2, 1);
-        add_edge_if_missing(&mut graph, 2, 1, 1);
+        let (first, second) = seeded_pair;
+        add_edge_if_missing(&mut graph, first, second, 1);
+        add_edge_if_missing(&mut graph, second, first, 1);
 
-        let new_node = NewNodeContext { id: 3, level: 1 };
         Ok(Self {
             graph,
             max_connections,
@@ -261,3 +302,43 @@ fn eviction_scrubs_orphaned_forward_edge(
 }
 
 mod deferred_scrub;
+#[cfg(feature = "metrics")]
+mod metrics;
+
+/// Regression test: replacing a neighbour whose only base-layer edge was to
+/// the origin must not leave a dangling reverse edge.
+///
+/// Removing node 1 from node 0's list isolates node 1 at the base layer, so
+/// the connectivity healer links it back to the entry node, which is node 0
+/// itself. Removed-edge reconciliation therefore has to run after node 0's
+/// neighbour list is written back; healing against the stale pre-write-back
+/// list is clobbered by the write-back, leaving `1 -> 0` without `0 -> 1`.
+#[rstest]
+fn isolation_replacement_keeps_bidirectionality(
+    #[from(params_two_connections)] params_res: Result<HnswParams, HnswError>,
+) -> Result<(), HnswError> {
+    let params = params_res.expect("params should be valid for tests");
+    let max_connections = params.max_connections();
+    let mut graph = Graph::with_capacity(params, 3);
+
+    insert_node(&mut graph, 0, 0, 0)?;
+    insert_node(&mut graph, 1, 0, 1)?;
+    insert_node(&mut graph, 2, 0, 2)?;
+
+    add_edge_if_missing(&mut graph, 0, 1, 0);
+    add_edge_if_missing(&mut graph, 1, 0, 0);
+
+    // Node 0 replaces neighbour 1 with neighbour 2, isolating node 1.
+    let update = build_update(0, 0, vec![2], max_connections);
+    let new_node = NewNodeContext { id: 2, level: 0 };
+
+    let mut applicator = CommitApplicator::new(&mut graph);
+    let (reciprocated, _) =
+        applicator.apply_neighbour_updates(vec![update], max_connections, new_node)?;
+    applicator.apply_new_node_neighbours(new_node.id, new_node.level, reciprocated)?;
+
+    assert_bidirectional_edge!(&graph, 0, 2, 0);
+    assert_bidirectional_edge!(&graph, 0, 1, 0);
+    assert_graph_bidirectional(&graph, 3);
+    Ok(())
+}

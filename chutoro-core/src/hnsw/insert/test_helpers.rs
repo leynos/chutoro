@@ -1,11 +1,18 @@
 //! Test-only helpers for repairing graph connectivity and reciprocity.
 
+// `cargo kani` sets `cfg(kani)` but not `cfg(test)`, so anything reachable
+// only from tests must be gated or it becomes dead code under `-D warnings`.
+#[cfg(test)]
 use super::{
     connectivity::ConnectivityHealer, limits::compute_connection_limit,
     reconciliation::EdgeReconciler, types::UpdateContext,
 };
 use crate::hnsw::graph::Graph;
 
+/// Appends a directed edge unless it is already present.
+///
+/// The Kani body asserts the origin exists so proofs stay non-vacuous;
+/// the test body downgrades that to a debug assertion.
 pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usize, level: usize) {
     #[cfg(kani)]
     {
@@ -21,7 +28,6 @@ pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usiz
             neighbours.push(target);
         }
     }
-
     #[cfg(not(kani))]
     {
         let Some(node) = graph.node_mut(origin) else {
@@ -38,6 +44,8 @@ pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usiz
     }
 }
 
+/// Panics when the directed edge is present at the given level.
+#[cfg(test)]
 pub(super) fn assert_no_edge(graph: &Graph, origin: usize, target: usize, level: usize) {
     if let Some(node) = graph.node(origin)
         && level < node.level_count()
@@ -128,15 +136,16 @@ macro_rules! assert_bidirectional_edge {
         );
     }};
 }
-
 #[cfg(test)]
 pub(crate) use assert_bidirectional_edge;
 
+#[cfg(test)]
 #[derive(Debug)]
 pub(super) struct TestHelpers<'graph> {
     pub(super) graph: &'graph mut Graph,
 }
 
+#[cfg(test)]
 impl<'graph> TestHelpers<'graph> {
     pub(super) const fn new(graph: &'graph mut Graph) -> Self {
         Self { graph }
@@ -364,6 +373,7 @@ impl<'graph> TestHelpers<'graph> {
 
 /// Describes why an edge left by [`TestHelpers::enforce_bidirectional_all`]
 /// fails the reciprocity invariant.
+#[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum ReciprocityViolation {
     /// The edge points at a node that is absent from the graph.

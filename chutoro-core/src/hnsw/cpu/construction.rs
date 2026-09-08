@@ -180,6 +180,22 @@ impl CpuHnsw {
                 reason: "capacity must be greater than zero".into(),
             });
         }
+        #[cfg(feature = "metrics")]
+        {
+            metrics::describe_counter!(
+                "chutoro.hnsw.reconciliation.healed_nodes_total",
+                metrics::Unit::Count,
+                "Nodes re-linked to the entry after removed-edge \
+                 reconciliation isolated them at the base layer."
+            );
+            metrics::describe_counter!(
+                "chutoro.hnsw.reconciliation.orphan_scrubs_total",
+                metrics::Unit::Count,
+                "Orphaned forward edges removed by deferred scrubs, \
+                 labelled by base or upper layer."
+            );
+        }
+
         let base_seed = params.rng_seed();
         let worker_rngs = build_worker_rngs(base_seed);
 

@@ -220,6 +220,27 @@ demonstrates:
 - Added explicit `kani::assume` preconditions in the commit-path helper to
   align with production invariants and keep Kani runtimes manageable.
 
+### 2026-08-24: Tractability Restructure and CI Gating
+
+- Hand-tracing the three-node reconciliation harness exposed a production
+  ordering defect (healing clobbered by the origin's write-back); the fix and
+  the retirement of the intractable deterministic harnesses are recorded in
+  [kani-full-hnsw-hypothesis-testing.md](./kani-full-hnsw-hypothesis-testing.md)
+  and the developers' guide "Kani CI policy" section.
+- The commit-path, three-node reconciliation, and eviction-scrub harnesses
+  exceeded practical CBMC budgets and are replaced by exact unit-test twins;
+  the no-self-loop and neighbour-uniqueness invariants are now proved on the
+  `ensure_reverse_edge` surface with per-level two-node harnesses.
+- `make kani` gates pull requests via the path-filtered `kani-pr.yml`
+  workflow, and `make kani-full` (17 harnesses, roughly 18 minutes) runs
+  nightly post-merge.
+- MST proofs verify a bounded `cfg(kani)` sequential model of parallel
+  Kruskal (at most four nodes, six canonical edges, fixed-size forest
+  representation) rather than the Rayon production path; the modelling
+  boundary is closed by exhaustive equivalence tests in
+  `chutoro-core/src/mst/tests/kani_model_equivalence.rs`, and
+  out-of-domain inputs fail loudly with invariant violations.
+
 ### Verification Targets (Next Invariants)
 
 The following invariants are explicitly defined to avoid ambiguity, and are
@@ -284,6 +305,12 @@ intended as future formal verification targets:
 - 2025-12-27: Recorded audit recommendations, added explicit verification
   targets (five additional invariants), and clarified the plan for a nightly
   "slow" Kani CI job while keeping normal test runs unchanged.
+- 2026-08-24: Retired harnesses past the CBMC tractability cliff in favour of
+  unit-test twins and narrow-surface proofs, fixed the reconciliation
+  write-back ordering defect the investigation exposed, and wired `make kani`
+  into pull-request CI with `make kani-full` remaining the nightly tier.
+- 2026-08-24: Documented the MST Kani model boundary and its equivalence-test
+  closure in the design document and this ADR.
 
 ## References
 

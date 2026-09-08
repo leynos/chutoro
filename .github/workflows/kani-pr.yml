@@ -1,0 +1,49 @@
+name: Kani PR
+
+"on":
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/kani-pr.yml"
+      - "**/kani_*.rs"
+      - "chutoro-core/src/hnsw/kani_proofs/**"
+      - "chutoro-core/src/mst/kani_harness.rs"
+      - "chutoro-providers/dense/src/simd/kani_proofs.rs"
+      - "chutoro-core/src/hnsw/**"
+      - "chutoro-core/src/mst/**"
+      - "chutoro-providers/dense/src/simd/**"
+      - "Makefile"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "chutoro-core/Cargo.toml"
+      - "chutoro-providers/dense/Cargo.toml"
+      - "tools/kani/VERSION"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kani-pr-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  kani:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@197d04cbc6f20cd7d1a08b4e445a5c35910e5364
+        with:
+          use-sccache: 'false'
+      - name: Install Kani
+        run: scripts/install-kani.sh
+      - name: Run Kani practical suite
+        run: make kani
