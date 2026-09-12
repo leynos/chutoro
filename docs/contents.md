@@ -92,6 +92,8 @@ open each document.
     execplans/2-2-7-kani-harnesses-for-tail-padding-and-dispatch-selection.md)
   - [2-3-1 HNSW neighbour evaluation using packed
     indices](execplans/2-3-1-hnsw-neighbour-evaluation-using-packed-indices.md)
+  - [2-3-2 Vectorize edge-weight transforms and candidate filtering](
+    execplans/2-3-2-vectorize-edge-weight-transforms-and-candidate-filtering.md)
   - [Phase 1 bounded Kani harness](execplans/phase-1-bounded-kani-harness.md)
   - [Phase 1 candidate edge harvest property suite](
     execplans/phase-1-candidate-edge-harvest-property-suite.md)
