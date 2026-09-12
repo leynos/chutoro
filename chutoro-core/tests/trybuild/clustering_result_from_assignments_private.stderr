@@ -1,0 +1,10 @@
+error[E0624]: associated function `from_assignments` is private
+ --> tests/trybuild/clustering_result_from_assignments_private.rs:6:31
+  |
+6 |     let _ = ClusteringResult::from_assignments(vec![ClusterId::new(0)]);
+  |                               ^^^^^^^^^^^^^^^^ private associated function
+  |
+ ::: src/result.rs
+  |
+  |     pub(crate) fn from_assignments(assignments: Vec<ClusterId>) -> Self {
+  |     ------------------------------------------------------------------- private associated function defined here

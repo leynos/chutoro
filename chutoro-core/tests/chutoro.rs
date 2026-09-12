@@ -297,7 +297,8 @@ fn cluster_count_matches_unique_assignments(
     #[case] assignments: Vec<ClusterId>,
     #[case] expected: usize,
 ) {
-    let result = ClusteringResult::from_assignments(assignments);
+    let result = ClusteringResult::try_from_assignments(assignments)
+        .expect("test assignments must be contiguous");
     assert_eq!(result.cluster_count(), expected);
 }
 
