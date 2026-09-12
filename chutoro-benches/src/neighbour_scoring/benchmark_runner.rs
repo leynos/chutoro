@@ -16,6 +16,7 @@ use chutoro_core::DataSource;
 use criterion::{
     BenchmarkGroup, BenchmarkId, Criterion, Throughput, black_box, measurement::WallTime,
 };
+use mockable::{DefaultEnv, Env};
 
 use super::{
     CandidateBucket, ScoringFixture, benchmark_support::BenchError, benchmark_support::BenchResult,
@@ -39,9 +40,13 @@ fn should_use_short_measurement_value(value: Option<&str>) -> bool {
 
 /// Read whether short benchmark measurements are enabled.
 fn should_use_short_measurement() -> bool {
-    should_use_short_measurement_value(std::env::var(SHORT_MEASUREMENT_ENV).ok().as_deref())
+    should_use_short_measurement_with_env(&DefaultEnv)
 }
 
+/// Read short-measurement configuration through an injected environment reader.
+fn should_use_short_measurement_with_env(env: &dyn Env) -> bool {
+    should_use_short_measurement_value(env.string(SHORT_MEASUREMENT_ENV).as_deref())
+}
 /// Measure distances from the benchmark query to selected candidates.
 fn score_candidates(
     scoring_fixture: &ScoringFixture,
@@ -121,7 +126,7 @@ fn neighbour_scoring_impl_with(
 ) -> BenchResult<()> {
     let report_parent_dir = report_parent_dir();
     let build_profile_target = build_profile_report_target_value(
-        std::env::var(BUILD_PROFILE_ENV).ok().as_deref(),
+        DefaultEnv.string(BUILD_PROFILE_ENV).as_deref(),
         &report_parent_dir,
     );
     let build_profile_report_dir = build_profile_target
@@ -168,6 +173,8 @@ pub fn neighbour_scoring(c: &mut Criterion) {
 mod tests {
     //! Tests for neighbour-scoring benchmark orchestration.
 
+    use mockable::MockEnv;
+
     // `should_use_short_measurement_value` is a thin delegate to the
     // canonical `truthy_env_value`, whose full truthy/falsy case table is
     // exercised by `chutoro-benches/tests/neighbour_scoring_support.rs`.
@@ -182,6 +189,23 @@ mod tests {
         use super::should_use_short_measurement_value;
 
         assert_eq!(should_use_short_measurement_value(value), expected);
+    }
+
+    #[rstest::rstest]
+    #[case::unset(None, false)]
+    #[case::truthy(Some("true"), true)]
+    #[case::falsy(Some("false"), false)]
+    fn short_measurement_reads_environment(#[case] value: Option<&str>, #[case] expected: bool) {
+        use super::should_use_short_measurement_with_env;
+
+        let configured_value = value.map(str::to_owned);
+        let mut env = MockEnv::new();
+        env.expect_string().returning(move |key| {
+            assert_eq!(key, "CHUTORO_BENCH_NEIGHBOUR_SHORT_MEASUREMENT");
+            configured_value.clone()
+        });
+
+        assert_eq!(should_use_short_measurement_with_env(&env), expected);
     }
 
     #[test]

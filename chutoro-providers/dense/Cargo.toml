@@ -21,6 +21,8 @@ path = "../../chutoro-core"
 default-features = false
 features = ["skeleton"]
 
+[build-dependencies]
+mockable = { workspace = true }
 [dev-dependencies]
 bytes = "1.10"
 proptest = "1.8.0"

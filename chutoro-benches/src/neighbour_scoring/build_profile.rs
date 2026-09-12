@@ -1,6 +1,7 @@
 //! Build-profile report path and environment helpers.
 
 use camino::{Utf8Path, Utf8PathBuf};
+use mockable::{DefaultEnv, Env};
 
 /// Environment variable that enables HNSW build-profile report generation.
 pub const BUILD_PROFILE_ENV: &str = "CHUTORO_BENCH_NEIGHBOUR_PROFILE";
@@ -96,9 +97,13 @@ pub fn should_collect_build_profile_value(value: Option<&str>) -> bool {
 /// ```
 #[must_use]
 pub fn should_collect_build_profile() -> bool {
-    should_collect_build_profile_value(std::env::var(BUILD_PROFILE_ENV).ok().as_deref())
+    should_collect_build_profile_with_env(&DefaultEnv)
 }
 
+/// Read build-profile collection configuration through an injected reader.
+fn should_collect_build_profile_with_env(env: &dyn Env) -> bool {
+    should_collect_build_profile_value(env.string(BUILD_PROFILE_ENV).as_deref())
+}
 /// Returns the parent directory used for benchmark reports.
 ///
 /// # Examples
@@ -128,9 +133,13 @@ pub fn report_parent_dir_value(cargo_target_dir: Option<&str>) -> Utf8PathBuf {
 /// ```
 #[must_use]
 pub fn report_parent_dir() -> Utf8PathBuf {
-    report_parent_dir_value(std::env::var(CARGO_TARGET_DIR_ENV).ok().as_deref())
+    report_parent_dir_with_env(&DefaultEnv)
 }
 
+/// Resolve the report parent directory through an injected environment reader.
+fn report_parent_dir_with_env(env: &dyn Env) -> Utf8PathBuf {
+    report_parent_dir_value(env.string(CARGO_TARGET_DIR_ENV).as_deref())
+}
 /// Returns a benchmark report target below the supplied report parent directory.
 ///
 /// # Examples
@@ -206,9 +215,99 @@ pub fn build_profile_report_target_value(
 /// ```
 #[must_use]
 pub fn build_profile_report_target() -> Option<ReportTarget> {
-    let report_parent_dir = report_parent_dir();
-    build_profile_report_target_value(
-        std::env::var(BUILD_PROFILE_ENV).ok().as_deref(),
-        &report_parent_dir,
-    )
+    build_profile_report_target_with_env(&DefaultEnv)
+}
+
+/// Resolve an enabled build-profile report target through an injected reader.
+fn build_profile_report_target_with_env(env: &dyn Env) -> Option<ReportTarget> {
+    let report_parent_dir = report_parent_dir_with_env(env);
+    build_profile_report_target_value(env.string(BUILD_PROFILE_ENV).as_deref(), &report_parent_dir)
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for build-profile environment configuration.
+
+    use camino::Utf8PathBuf;
+    use mockable::MockEnv;
+    use rstest::rstest;
+
+    use super::{
+        BUILD_PROFILE_ENV, BUILD_PROFILE_REPORT, CARGO_TARGET_DIR_ENV, DEFAULT_REPORT_PARENT_DIR,
+        build_profile_report_target_with_env, report_parent_dir_with_env,
+        should_collect_build_profile_with_env,
+    };
+
+    #[rstest]
+    #[case::disabled("false", false)]
+    #[case::enabled("true", true)]
+    fn build_profile_collection_reads_environment(
+        #[case] value: &'static str,
+        #[case] expected: bool,
+    ) {
+        let mut env = MockEnv::new();
+        env.expect_string().returning(move |key| {
+            assert_eq!(key, BUILD_PROFILE_ENV);
+            Some(value.to_owned())
+        });
+
+        assert_eq!(should_collect_build_profile_with_env(&env), expected);
+    }
+
+    #[test]
+    fn report_parent_directory_defaults_when_target_directory_is_unset() {
+        let mut env = MockEnv::new();
+        env.expect_string().returning(|key| {
+            assert_eq!(key, CARGO_TARGET_DIR_ENV);
+            None
+        });
+
+        assert_eq!(
+            report_parent_dir_with_env(&env),
+            Utf8PathBuf::from(DEFAULT_REPORT_PARENT_DIR)
+        );
+    }
+
+    #[test]
+    fn report_parent_directory_uses_configured_target_directory() {
+        let mut env = MockEnv::new();
+        env.expect_string().returning(|key| {
+            assert_eq!(key, CARGO_TARGET_DIR_ENV);
+            Some("configured-target".to_owned())
+        });
+
+        assert_eq!(
+            report_parent_dir_with_env(&env),
+            Utf8PathBuf::from("configured-target")
+        );
+    }
+
+    #[test]
+    fn build_profile_report_target_is_absent_when_disabled() {
+        let mut env = MockEnv::new();
+        env.expect_string().returning(|key| match key {
+            CARGO_TARGET_DIR_ENV => None,
+            BUILD_PROFILE_ENV => Some("false".to_owned()),
+            unexpected => panic!("unexpected environment key: {unexpected}"),
+        });
+
+        assert!(build_profile_report_target_with_env(&env).is_none());
+    }
+
+    #[test]
+    fn build_profile_report_target_uses_configured_parent_when_enabled() {
+        let mut env = MockEnv::new();
+        env.expect_string().returning(|key| match key {
+            CARGO_TARGET_DIR_ENV => Some("configured-target".to_owned()),
+            BUILD_PROFILE_ENV => Some("true".to_owned()),
+            unexpected => panic!("unexpected environment key: {unexpected}"),
+        });
+
+        let target = build_profile_report_target_with_env(&env)
+            .expect("enabled build-profile report must have a target");
+        assert_eq!(
+            target.path(),
+            Utf8PathBuf::from("configured-target/benchmarks").join(BUILD_PROFILE_REPORT)
+        );
+    }
 }

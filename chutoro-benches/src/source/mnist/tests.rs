@@ -1,18 +1,74 @@
 //! Unit tests for MNIST parsing and cache helpers.
-
 use super::*;
 use chutoro_core::DataSource;
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use mockable::MockEnv;
 use rstest::rstest;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::env;
+use std::ffi::OsString;
 use std::io::{self, Write};
 use std::time::{SystemTime, UNIX_EPOCH};
-
 struct FakeClient {
     payloads: HashMap<String, Vec<u8>>,
     call_count: RefCell<usize>,
+}
+
+fn cache_env(overrides: &[(&str, &str)]) -> MockEnv {
+    let configured_values = overrides
+        .iter()
+        .map(|(key, value)| ((*key).to_owned(), OsString::from(*value)))
+        .collect::<HashMap<_, _>>();
+    let mut env = MockEnv::new();
+    env.expect_os_string()
+        .returning(move |key| configured_values.get(key).cloned());
+    env
+}
+
+#[test]
+fn default_cache_dir_prefers_explicit_override() {
+    let env = cache_env(&[
+        ("CHUTORO_MNIST_CACHE_DIR", "explicit"),
+        ("XDG_CACHE_HOME", "xdg"),
+        ("HOME", "home"),
+    ]);
+
+    assert_eq!(default_cache_dir_with_env(&env), PathBuf::from("explicit"));
+}
+
+#[test]
+fn default_cache_dir_uses_xdg_before_home() {
+    let env = cache_env(&[("XDG_CACHE_HOME", "xdg"), ("HOME", "home")]);
+
+    assert_eq!(
+        default_cache_dir_with_env(&env),
+        PathBuf::from("xdg").join("chutoro").join("mnist")
+    );
+}
+
+#[test]
+fn default_cache_dir_uses_home_when_higher_precedence_values_are_unset() {
+    let env = cache_env(&[("HOME", "home")]);
+
+    assert_eq!(
+        default_cache_dir_with_env(&env),
+        PathBuf::from("home")
+            .join(".cache")
+            .join("chutoro")
+            .join("mnist")
+    );
+}
+
+#[test]
+fn default_cache_dir_uses_temp_dir_when_no_override_is_set() {
+    let env = cache_env(&[]);
+
+    assert_eq!(
+        default_cache_dir_with_env(&env),
+        env::temp_dir().join("chutoro").join("mnist")
+    );
 }
 
 impl FakeClient {

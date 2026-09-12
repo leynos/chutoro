@@ -17,10 +17,10 @@ This leads to several problems:
   the environment, poisoning subsequent tests.
 
 The solution is a classic software design pattern: **Dependency Injection
-(DI)**. Instead of a function reaching out to the global state, its
-dependencies are provided as arguments. The `mockable` crate offers a
-convenient set of traits (`Env`, `Clock`, etc.) to implement this pattern for
-common system interactions in Rust.
+(DI)**. Instead of a function reaching out to global state, its dependencies
+are provided as arguments. The workspace uses `mockable` 3.0.0 for this
+pattern. Its `Env` and `Clock` traits model common system interactions while
+keeping the production implementation at the application boundary.
 
 ______________________________________________________________________
 
@@ -28,11 +28,20 @@ ______________________________________________________________________
 
 ### 1. Add `mockable`
 
-First, add the crate to development dependencies in `Cargo.toml`.
+The workspace declares the approved version once at its root. A crate that uses
+environment access inherits that declaration:
+
+```toml
+[dependencies]
+mockable = { workspace = true }
+```
+
+Tests that use `MockEnv` enable its `mock` feature in their development
+dependency:
 
 ```toml
 [dev-dependencies]
-mockable = "0.3"
+mockable = { workspace = true, features = ["mock"] }
 ```
 
 ### 2. The Untestable Code (Before)
@@ -41,10 +50,7 @@ Directly calling `std::env` makes it hard to test all logic paths.
 
 ```rust
 pub fn get_api_key() -> Option<String> {
-    match std::env::var("API_KEY") {
-        Ok(key) if !key.is_empty() => Some(key),
-        _ => None,
-    }
+    std::env::var("API_KEY").ok().filter(|key| !key.is_empty())
 }
 ```
 
@@ -57,10 +63,7 @@ The function is refactored to accept a generic type that implements the
 use mockable::Env;
 
 pub fn get_api_key(env: &impl Env) -> Option<String> {
-    match env.var("API_KEY") {
-        Ok(key) if !key.is_empty() => Some(key),
-        _ => None,
-    }
+    env.string("API_KEY").filter(|key| !key.is_empty())
 }
 ```
 
@@ -69,32 +72,44 @@ environment is now explicit and injectable.
 
 ### 4. Writing Isolated Unit Tests
 
-Tests can use `MockEnv`, an in-memory mock, to simulate any environmental
-condition without touching the actual process environment.
+Tests use `MockEnv`, the `mockall`-backed implementation supplied by
+`mockable`'s `mock` feature, to simulate environmental conditions without
+touching the process environment. Configure expectations for the method that
+the code under test calls; do not populate or mutate the real environment.
 
 ```rust
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mockable::{MockEnv, Env};
+    use mockable::{Env, MockEnv};
 
     #[test]
     fn test_get_api_key_present() {
         let mut env = MockEnv::new();
-        env.set_var("API_KEY", "secret123");
+        env.expect_string().returning(|key| {
+            assert_eq!(key, "API_KEY");
+            Some("secret123".to_owned())
+        });
         assert_eq!(get_api_key(&env), Some("secret123".to_string()));
     }
 
     #[test]
     fn test_get_api_key_missing() {
-        let env = MockEnv::new();
+        let mut env = MockEnv::new();
+        env.expect_string().returning(|key| {
+            assert_eq!(key, "API_KEY");
+            None
+        });
         assert_eq!(get_api_key(&env), None);
     }
 
     #[test]
     fn test_get_api_key_present_but_empty() {
         let mut env = MockEnv::new();
-        env.set_var("API_KEY", "");
+        env.expect_string().returning(|key| {
+            assert_eq!(key, "API_KEY");
+            Some(String::new())
+        });
         assert_eq!(get_api_key(&env), None);
     }
 }
@@ -103,16 +118,28 @@ mod tests {
 These tests are fast, completely isolated from each other, and will never fail
 due to external state.
 
-### 5. Usage in Production Code
+### 5. Environment value semantics
 
-In production code, inject the "real" implementation, `RealEnv`, which calls
-the actual `std::env` functions.
+`Env` exposes several retrieval methods. Choose the narrowest one that
+preserves the value the caller needs:
+
+- `raw(key)` returns `Result<String, VarError>`, preserving the distinction
+  between an absent variable and a present value that is not valid Unicode.
+- `string(key)` returns `Option<String>` and maps absent or non-Unicode values
+  to `None`.
+- `os_string(key)` returns `Option<OsString>`, preserving non-Unicode values.
+- `path_buf(key)` returns `Option<PathBuf>`, preserving non-Unicode executable
+  and directory paths.
+
+In production code, inject `DefaultEnv` at the application boundary. It is the
+`mockable` 3.0.0 implementation that delegates to `std::env`; functions that
+contain configuration logic should receive `&impl Env` instead.
 
 ```rust
-use mockable::RealEnv;
+use mockable::DefaultEnv;
 
 fn main() {
-    let env = RealEnv::new();
+    let env = DefaultEnv;
     if let Some(api_key) = get_api_key(&env) {
         println!("API Key found!");
     } else {
@@ -126,35 +153,28 @@ ______________________________________________________________________
 ## 🔩 Handling Other Non-Deterministic Dependencies
 
 This dependency injection pattern also applies to other non-deterministic
-dependencies such as the system clock. `mockable` provides a `Clock` trait for
-this purpose.
+dependencies such as the system clock. With `mockable` 3.0.0's `clock` feature,
+the `Clock` trait exposes `local()` and `utc()` methods. Enable both the
+`clock` and `mock` features when tests use `MockClock`.
 
 ### Untestable Code
 
 ```rust
-use std::time::{SystemTime, Duration};
+use chrono::{DateTime, Duration, Utc};
 
-fn is_cache_entry_stale(creation_time: SystemTime) -> bool {
-    let timeout = Duration::from_secs(300);
-    match SystemTime::now().duration_since(creation_time) {
-        Ok(age) => age > timeout,
-        Err(_) => false,
-    }
+fn is_cache_entry_stale(creation_time: DateTime<Utc>) -> bool {
+    Utc::now() >= creation_time + Duration::seconds(300)
 }
 ```
 
 ### Testable Refactor
 
 ```rust
+use chrono::{DateTime, Duration, Utc};
 use mockable::Clock;
-use std::time::{SystemTime, Duration};
 
-fn is_cache_entry_stale(creation_time: SystemTime, clock: &impl Clock) -> bool {
-    let timeout = Duration::from_secs(300);
-    match clock.now().duration_since(creation_time) {
-        Ok(age) => age > timeout,
-        Err(_) => false,
-    }
+fn is_cache_entry_stale(creation_time: DateTime<Utc>, clock: &impl Clock) -> bool {
+    clock.utc() >= creation_time + Duration::seconds(300)
 }
 ```
 
@@ -164,28 +184,32 @@ fn is_cache_entry_stale(creation_time: SystemTime, clock: &impl Clock) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mockable::{MockClock, Clock};
-    use std::time::{Duration, SystemTime};
+    use chrono::{Duration, Utc};
+    use mockable::MockClock;
 
     #[test]
     fn test_cache_is_not_stale() {
+        let creation_time = Utc::now();
         let mut clock = MockClock::new();
-        let creation_time = clock.now();
-        clock.advance(Duration::from_secs(100));
+        clock
+            .expect_utc()
+            .return_const(creation_time + Duration::seconds(100));
         assert!(!is_cache_entry_stale(creation_time, &clock));
     }
 
     #[test]
     fn test_cache_is_stale() {
+        let creation_time = Utc::now();
         let mut clock = MockClock::new();
-        let creation_time = clock.now();
-        clock.advance(Duration::from_secs(301));
+        clock
+            .expect_utc()
+            .return_const(creation_time + Duration::seconds(301));
         assert!(is_cache_entry_stale(creation_time, &clock));
     }
 }
 ```
 
-In production, an instance of `RealClock::new()` would be used.
+In production, pass `DefaultClock` at the application boundary.
 
 ______________________________________________________________________
 
@@ -197,11 +221,10 @@ ______________________________________________________________________
   arguments.
 - **Use** `mockable` **Traits:** Abstract dependencies behind traits such as
   `impl Env` or `impl Clock`.
-- **`Mock*` for Tests:** Use `MockEnv` and `MockClock` in unit tests for
-  isolated, deterministic control.
-- **`Real*` for Production:** Use `RealEnv` and `RealClock` in the application
-  to interact with the actual system.
-- **`RealEnv` is NOT a Scope Guard:** `RealEnv` directly mutates the global
-  process environment without automatic cleanup. For integration tests that
-  require modifying the live environment, consider a crate such as `temp_env`.
-  For unit tests, `MockEnv` is preferable.
+- **`Mock*` for Tests:** Use `MockEnv` and `MockClock` with `mockall`
+  expectations for isolated, deterministic control.
+- **`Default*` for Production:** Pass `DefaultEnv` and `DefaultClock` at the
+  application boundary; keep configuration and time logic injectable.
+- **Never mutate the process environment in tests:** Use `MockEnv` for
+  in-process tests. For subprocess tests, configure the child command's
+  environment explicitly.

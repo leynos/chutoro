@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.86"
 clap = { version = "4.5.51", features = ["derive"] }
+mockable = { workspace = true }
 thiserror = "2.0.17"
 tracing = { version = "0.1.41", features = ["attributes"] }
 tracing-log = "0.2.0"
@@ -26,6 +27,7 @@ path = "../chutoro-providers/text"
 [dev-dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+mockable = { workspace = true, features = ["mock"] }
 parquet = { workspace = true, features = ["arrow"] }
 rstest = "0.26"
 tempfile = "3.10"
