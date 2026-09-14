@@ -39,6 +39,8 @@ from timeout_budgets import (
         pytest.param("2wks", 1209600.0, id="the-abbreviated-plural-week"),
         pytest.param("1yr", 31557600.0, id="the-abbreviated-year"),
         pytest.param("3yrs", 94672800.0, id="the-abbreviated-plural-year"),
+        pytest.param("1 0s", 10.0, id="whitespace-inside-the-number"),
+        pytest.param("0", 0.0, id="a-bare-zero-with-no-unit"),
     ],
 )
 def test_every_duration_humantime_accepts_is_read(
@@ -52,10 +54,14 @@ def test_every_duration_humantime_accepts_is_read(
     the same reason: `humantime` accepts them and a reader that did not
     would call a working file broken.
 
-    The fractional values and the `wk`, `wks`, `yr` and `yrs` aliases
-    were measured against humantime 2.4.0, the version cargo-nextest
-    resolves through humantime_serde, rather than assumed: this reader
-    had refused all of them.
+    The fractional values, the `wk`, `wks`, `yr` and `yrs` aliases, the
+    number carrying whitespace and the bare zero were measured against
+    humantime 2.3.0, the version the lockfile of the pinned
+    cargo-nextest release resolves through humantime_serde, rather than
+    assumed: this reader had refused all of them. humantime's parser
+    ignores whitespace while it accumulates a number, so `1 0s` is ten
+    seconds, and it special-cases `0` before reading a character, so a
+    zero duration needs no unit.
     """
     assert _seconds(duration) == pytest.approx(expected), (
         f"{duration!r} must read as {expected}s, as humantime reads it"
@@ -82,9 +88,10 @@ def test_a_duration_humantime_would_refuse_is_refused(duration: str) -> None:
 
     Reading a duration nextest rejects would compare the tiers against a
     budget that never applies. Each of these was checked against
-    humantime 2.4.0 and refused there: a fraction needs a whole part
+    humantime 2.3.0 and refused there: a fraction needs a whole part
     before the point and a digit after it, values are unsigned, and the
-    only separators are whitespace.
+    only separators are whitespace. `0` is the one value that may carry
+    no unit, so `30` stays refused.
     """
     with pytest.raises(NextestDurationError):
         _seconds(duration)

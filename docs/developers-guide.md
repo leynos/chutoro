@@ -843,14 +843,17 @@ configuration the runner accepts and failed a repository whose timeouts were
 fine.
 
 A value may carry a fractional part, and `humantime` tolerates whitespace
-around the point, so `1.5m` and `1 . 5 m` both read as 90 seconds. It also
-accepts the abbreviations `wk`, `wks`, `yr` and `yrs` alongside the spellings
-this repository uses. The grammar was measured against humantime 2.4.0, the
-version cargo-nextest resolves through `humantime_serde`, rather than assumed:
-the reading had refused all of those and would have called a working file
-broken. What it still refuses is what `humantime` refuses, checked the same
-way: a point with no whole part before it or no digit after it, two points, a
-signed value, and a digit separator.
+around the point, so `1.5m` and `1 . 5 m` both read as 90 seconds. Whitespace
+inside the number is ignored as well, so `1 0s` is ten seconds, and a bare `0`
+is the one duration that needs no unit, special-cased before the parser reads a
+character. It also accepts the abbreviations `wk`, `wks`, `yr`, and `yrs`
+alongside the spellings this repository uses. The grammar was measured against
+humantime 2.3.0, the version the lockfile of the pinned `cargo-nextest` release
+resolves through `humantime_serde`, rather than assumed: the reading had
+refused all of those and would have called a working file broken. What it still
+refuses is what `humantime` refuses, checked the same way: a point with no
+whole part before it or no digit after it, two points, a signed value, a digit
+separator, and any other number carrying no unit.
 
 `terminate-after` is optional, and cargo-nextest treats its absence as no
 termination: the test is reported slow, once per period, and runs on. The
