@@ -231,6 +231,21 @@ def _fraction_nanoseconds(duration: str, matched: str, unit: _Unit) -> int:
     NextestDurationError
         If humantime would refuse the fraction: on a nanosecond, which
         has no smaller step, or where the division leaves a remainder.
+
+    Examples
+    --------
+    Half a minute divides exactly, into thirty seconds of nanoseconds:
+
+    >>> _fraction_nanoseconds("1.5m", "5", _UNITS["m"])
+    30000000000
+
+    A thousandth of an hour does not, because the division there is
+    over whole seconds and 3.6 is not one:
+
+    >>> _fraction_nanoseconds("1.001h", "001", _UNITS["h"])
+    Traceback (most recent call last):
+    ...
+    NextestDurationError: unrecognized nextest duration '1.001h': ...
     """
     digits = _digits(matched)
     numerator = int(digits)
