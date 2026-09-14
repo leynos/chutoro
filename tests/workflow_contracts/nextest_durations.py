@@ -106,7 +106,8 @@ def _seconds(duration: str) -> float:
         if match is None:
             message = (
                 f"unrecognized nextest duration {duration!r}: humantime reads a "
-                f"sequence of whole numbers each followed by a unit"
+                f"sequence of values, each optionally fractional and each "
+                f"followed by a unit"
             )
             raise NextestDurationError(message)
         unit = match["unit"]
