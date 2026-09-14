@@ -404,8 +404,8 @@ fn hnsw_build_diverse_sources_impl_with_env(
         &params,
     );
 
-    if env.string("CHUTORO_BENCH_ENABLE_MNIST").as_deref() == Some("1") {
-        let mnist = SyntheticSource::load_mnist(&MnistConfig::default())?;
+    if should_include_mnist_with_env(env) {
+        let mnist = SyntheticSource::load_mnist(&MnistConfig::default_with_env(env))?;
         bench_build_source(
             &mut group,
             SourceBenchSpec {
@@ -420,6 +420,11 @@ fn hnsw_build_diverse_sources_impl_with_env(
 
     group.finish();
     Ok(())
+}
+
+/// Determine whether the diverse-source benchmark should include MNIST.
+fn should_include_mnist_with_env(env: &dyn Env) -> bool {
+    env.string("CHUTORO_BENCH_ENABLE_MNIST").as_deref() == Some("1")
 }
 /// Register the public Criterion diverse-source HNSW entrypoint.
 fn hnsw_build_diverse_sources(c: &mut Criterion) {
@@ -493,6 +498,39 @@ mod tests {
         });
 
         assert_eq!(super::memory_report_path_with_env(&env), expected_path);
+    }
+
+    #[test]
+    fn mnist_is_excluded_when_environment_is_unset() {
+        let mut env = mockable::MockEnv::new();
+        env.expect_string().returning(|key| {
+            assert_eq!(key, "CHUTORO_BENCH_ENABLE_MNIST");
+            None
+        });
+
+        assert!(!super::should_include_mnist_with_env(&env));
+    }
+
+    #[test]
+    fn mnist_is_excluded_when_environment_is_disabled() {
+        let mut env = mockable::MockEnv::new();
+        env.expect_string().returning(|key| {
+            assert_eq!(key, "CHUTORO_BENCH_ENABLE_MNIST");
+            Some("0".to_owned())
+        });
+
+        assert!(!super::should_include_mnist_with_env(&env));
+    }
+
+    #[test]
+    fn mnist_is_included_when_environment_is_enabled() {
+        let mut env = mockable::MockEnv::new();
+        env.expect_string().returning(|key| {
+            assert_eq!(key, "CHUTORO_BENCH_ENABLE_MNIST");
+            Some("1".to_owned())
+        });
+
+        assert!(super::should_include_mnist_with_env(&env));
     }
 }
 

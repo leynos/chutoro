@@ -154,9 +154,10 @@ mod tests {
 
     use super::*;
     use mockable::MockEnv;
-    use rstest::rstest;
+    use rstest::{fixture, rstest};
 
-    fn env_with_overrides(overrides: &[(&str, &str)]) -> MockEnv {
+    #[fixture]
+    fn env_with_overrides(#[default(&[])] overrides: &[(&str, &str)]) -> MockEnv {
         let mut env = MockEnv::new();
         let configured_values = overrides
             .iter()
@@ -167,9 +168,8 @@ mod tests {
         env
     }
 
-    fn assert_default_min_recall(overrides: &[(&str, &str)]) {
-        let env = env_with_overrides(overrides);
-        let config = SearchPropertyConfig::load_with_env(&env);
+    fn assert_default_min_recall(env: &MockEnv) {
+        let config = SearchPropertyConfig::load_with_env(env);
 
         assert!(
             config
@@ -249,63 +249,62 @@ mod tests {
         assert!(!err.is_empty(), "error message should be non-empty");
     }
 
-    #[test]
-    fn load_uses_default_min_max_connections_when_env_unset() {
-        let env = env_with_overrides(&[]);
-        let config = SearchPropertyConfig::load_with_env(&env);
+    #[rstest]
+    fn load_uses_default_min_max_connections_when_env_unset(
+        #[with(&[])] env_with_overrides: MockEnv,
+    ) {
+        let config = SearchPropertyConfig::load_with_env(&env_with_overrides);
         assert_eq!(
             config.min_max_connections(),
             SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS
         );
     }
 
-    #[test]
-    fn load_uses_env_min_max_connections_when_valid() {
-        let override_val = SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS + 4;
-        let value = override_val.to_string();
-        let env = env_with_overrides(&[(
-            SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(),
-            &value,
-        )]);
-        let config = SearchPropertyConfig::load_with_env(&env);
-        assert_eq!(config.min_max_connections(), override_val);
+    #[rstest]
+    fn load_uses_env_min_max_connections_when_valid(
+        #[with(&[(SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(), "16")])]
+        env_with_overrides: MockEnv,
+    ) {
+        let config = SearchPropertyConfig::load_with_env(&env_with_overrides);
+        assert_eq!(config.min_max_connections(), 16);
     }
 
-    #[test]
-    fn load_falls_back_to_default_min_max_connections_on_invalid_env() {
-        let env = env_with_overrides(&[(
-            SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(),
-            "not-a-number",
-        )]);
-        let config = SearchPropertyConfig::load_with_env(&env);
+    #[rstest]
+    fn load_falls_back_to_default_min_max_connections_on_invalid_env(
+        #[with(&[(SearchPropertyConfig::MIN_MAX_CONNECTIONS_ENV_KEY.as_str(), "not-a-number")])]
+        env_with_overrides: MockEnv,
+    ) {
+        let config = SearchPropertyConfig::load_with_env(&env_with_overrides);
         assert_eq!(
             config.min_max_connections(),
             SearchPropertyConfig::DEFAULT_MIN_MAX_CONNECTIONS
         );
     }
 
-    #[test]
-    fn load_uses_default_min_recall_when_env_unset() {
-        assert_default_min_recall(&[]);
+    #[rstest]
+    fn load_uses_default_min_recall_when_env_unset(#[with(&[])] env_with_overrides: MockEnv) {
+        assert_default_min_recall(&env_with_overrides);
     }
 
-    #[test]
-    fn load_uses_valid_min_recall_override() {
-        let env = env_with_overrides(&[(SearchPropertyConfig::ENV_KEY.as_str(), "0.75")]);
-        let config = SearchPropertyConfig::load_with_env(&env);
+    #[rstest]
+    fn load_uses_valid_min_recall_override(
+        #[with(&[(SearchPropertyConfig::ENV_KEY.as_str(), "0.75")])] env_with_overrides: MockEnv,
+    ) {
+        let config = SearchPropertyConfig::load_with_env(&env_with_overrides);
 
         assert!(config.min_recall().total_cmp(&0.75).is_eq());
     }
 
-    #[test]
-    fn load_falls_back_when_min_recall_override_is_invalid() {
-        assert_default_min_recall(&[(SearchPropertyConfig::ENV_KEY.as_str(), "1.1")]);
+    #[rstest]
+    fn load_falls_back_when_min_recall_override_is_invalid(
+        #[with(&[(SearchPropertyConfig::ENV_KEY.as_str(), "1.1")])] env_with_overrides: MockEnv,
+    ) {
+        assert_default_min_recall(&env_with_overrides);
     }
 
-    #[test]
-    fn load_uses_default_max_fixture_len_when_env_unset() {
-        let env = env_with_overrides(&[]);
-        let config = SearchPropertyConfig::load_with_env(&env);
+    #[rstest]
+    fn load_uses_default_max_fixture_len_when_env_unset(#[with(&[])] env_with_overrides: MockEnv) {
+        let config = SearchPropertyConfig::load_with_env(&env_with_overrides);
 
         assert_eq!(
             config.max_fixture_len(),
@@ -313,20 +312,22 @@ mod tests {
         );
     }
 
-    #[test]
-    fn load_uses_valid_max_fixture_len_override() {
-        let env =
-            env_with_overrides(&[(SearchPropertyConfig::MAX_FIXTURE_LEN_ENV_KEY.as_str(), "64")]);
-        let config = SearchPropertyConfig::load_with_env(&env);
+    #[rstest]
+    fn load_uses_valid_max_fixture_len_override(
+        #[with(&[(SearchPropertyConfig::MAX_FIXTURE_LEN_ENV_KEY.as_str(), "64")])]
+        env_with_overrides: MockEnv,
+    ) {
+        let config = SearchPropertyConfig::load_with_env(&env_with_overrides);
 
         assert_eq!(config.max_fixture_len(), 64);
     }
 
-    #[test]
-    fn load_falls_back_when_max_fixture_len_override_is_invalid() {
-        let env =
-            env_with_overrides(&[(SearchPropertyConfig::MAX_FIXTURE_LEN_ENV_KEY.as_str(), "1")]);
-        let config = SearchPropertyConfig::load_with_env(&env);
+    #[rstest]
+    fn load_falls_back_when_max_fixture_len_override_is_invalid(
+        #[with(&[(SearchPropertyConfig::MAX_FIXTURE_LEN_ENV_KEY.as_str(), "1")])]
+        env_with_overrides: MockEnv,
+    ) {
+        let config = SearchPropertyConfig::load_with_env(&env_with_overrides);
 
         assert_eq!(
             config.max_fixture_len(),

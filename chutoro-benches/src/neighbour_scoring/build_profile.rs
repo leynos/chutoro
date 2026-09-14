@@ -137,7 +137,7 @@ pub fn report_parent_dir() -> Utf8PathBuf {
 }
 
 /// Resolve the report parent directory through an injected environment reader.
-fn report_parent_dir_with_env(env: &dyn Env) -> Utf8PathBuf {
+pub(super) fn report_parent_dir_with_env(env: &dyn Env) -> Utf8PathBuf {
     report_parent_dir_value(env.string(CARGO_TARGET_DIR_ENV).as_deref())
 }
 /// Returns a benchmark report target below the supplied report parent directory.
