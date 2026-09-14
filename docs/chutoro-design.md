@@ -1376,6 +1376,18 @@ observability. Recall falling below the configured threshold is the only
 failure condition today; speed-up data helps diagnose regressions but does not
 gate CI.
 
+#### 6.6.1. Workspace environment access boundary
+
+Environment configuration is an explicit workspace dependency, not ambient
+process state. Code that interprets environment values accepts a
+`mockable::Env` reference and selects the narrowest accessor that preserves the
+required value. Production entry points construct `DefaultEnv` and pass it
+into that configuration logic; unit tests pass `MockEnv` with Mockall
+expectations. This keeps environment-dependent tests parallel and deterministic
+and prohibits in-process calls to the ambient `std::env` accessors, including
+the mutation methods. Subprocess tests may still configure a child explicitly
+through its command environment.
+
 _Implementation update (2026-02-10)._ Property suites now run in a dedicated
 workflow at `.github/workflows/property-tests.yml` with two tiers:
 

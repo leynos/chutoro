@@ -29,8 +29,26 @@ pub struct MnistConfig {
 
 impl Default for MnistConfig {
     fn default() -> Self {
+        Self::default_with_env(&DefaultEnv)
+    }
+}
+
+impl MnistConfig {
+    /// Creates the default MNIST configuration through an injected environment reader.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_benches::source::MnistConfig;
+    /// use mockable::DefaultEnv;
+    ///
+    /// let config = MnistConfig::default_with_env(&DefaultEnv);
+    /// assert!(!config.cache_dir.as_os_str().is_empty());
+    /// ```
+    #[must_use]
+    pub fn default_with_env(env: &dyn Env) -> Self {
         Self {
-            cache_dir: default_cache_dir_with_env(&DefaultEnv),
+            cache_dir: default_cache_dir_with_env(env),
             base_url: "https://storage.googleapis.com/cvdf-datasets/mnist".to_owned(),
         }
     }

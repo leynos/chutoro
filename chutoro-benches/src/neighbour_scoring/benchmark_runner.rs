@@ -7,8 +7,7 @@
 use crate::{
     criterion_support::configure_short_measurement_group,
     neighbour_scoring::{
-        BUILD_PROFILE_ENV, ReportTarget, build_profile_report_target_value, report_parent_dir,
-        truthy_env_value,
+        BUILD_PROFILE_ENV, ReportTarget, build_profile_report_target_value, truthy_env_value,
     },
 };
 use camino::Utf8Path;
@@ -20,7 +19,8 @@ use mockable::{DefaultEnv, Env};
 
 use super::{
     CandidateBucket, ScoringFixture, benchmark_support::BenchError, benchmark_support::BenchResult,
-    make_fixture, scoring_plan, write_build_profile_report, write_lane_utilisation_report,
+    build_profile::report_parent_dir_with_env, make_fixture, scoring_plan,
+    write_build_profile_report, write_lane_utilisation_report,
 };
 
 /// Query row used for every neighbour-scoring benchmark iteration.
@@ -107,8 +107,11 @@ fn bench_case(
 fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
     neighbour_scoring_impl_with(
         c,
-        |report_parent_dir| write_lane_utilisation_report(report_parent_dir).map(drop),
-        |report_parent_dir| write_build_profile_report(report_parent_dir).map(drop),
+        &DefaultEnv,
+        (
+            |report_parent_dir| write_lane_utilisation_report(report_parent_dir).map(drop),
+            |report_parent_dir| write_build_profile_report(report_parent_dir).map(drop),
+        ),
         bench_case,
     )
 }
@@ -116,22 +119,26 @@ fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
 /// Run the benchmark with injected report writers and case registration.
 fn neighbour_scoring_impl_with(
     c: &mut Criterion,
-    lane_report_writer: impl FnOnce(&Utf8Path) -> BenchResult<()>,
-    build_profile_writer: impl FnOnce(Option<&Utf8Path>) -> BenchResult<()>,
+    env: &dyn Env,
+    report_writers: (
+        impl FnOnce(&Utf8Path) -> BenchResult<()>,
+        impl FnOnce(Option<&Utf8Path>) -> BenchResult<()>,
+    ),
     mut scoring_case: impl FnMut(
         &mut BenchmarkGroup<'_, WallTime>,
         usize,
         CandidateBucket,
     ) -> BenchResult<()>,
 ) -> BenchResult<()> {
-    let report_parent_dir = report_parent_dir();
+    let report_parent_dir = report_parent_dir_with_env(env);
     let build_profile_target = build_profile_report_target_value(
-        DefaultEnv.string(BUILD_PROFILE_ENV).as_deref(),
+        env.string(BUILD_PROFILE_ENV).as_deref(),
         &report_parent_dir,
     );
     let build_profile_report_dir = build_profile_target
         .as_ref()
         .map(ReportTarget::report_parent_dir);
+    let (lane_report_writer, build_profile_writer) = report_writers;
     lane_report_writer(&report_parent_dir)?;
     build_profile_writer(build_profile_report_dir)?;
     let mut group = c.benchmark_group("neighbour_scoring");
@@ -170,147 +177,5 @@ pub fn neighbour_scoring(c: &mut Criterion) {
 }
 
 #[cfg(test)]
-mod tests {
-    //! Tests for neighbour-scoring benchmark orchestration.
-
-    use mockable::MockEnv;
-
-    // `should_use_short_measurement_value` is a thin delegate to the
-    // canonical `truthy_env_value`, whose full truthy/falsy case table is
-    // exercised by `chutoro-benches/tests/neighbour_scoring_support.rs`.
-    // These two cases only confirm the delegation, not the whole table.
-    #[rstest::rstest]
-    #[case::falsy(Some("false"), false)]
-    #[case::truthy(Some("yes"), true)]
-    fn short_measurement_parser_delegates_to_truthy_env_value(
-        #[case] value: Option<&str>,
-        #[case] expected: bool,
-    ) {
-        use super::should_use_short_measurement_value;
-
-        assert_eq!(should_use_short_measurement_value(value), expected);
-    }
-
-    #[rstest::rstest]
-    #[case::unset(None, false)]
-    #[case::truthy(Some("true"), true)]
-    #[case::falsy(Some("false"), false)]
-    fn short_measurement_reads_environment(#[case] value: Option<&str>, #[case] expected: bool) {
-        use super::should_use_short_measurement_with_env;
-
-        let configured_value = value.map(str::to_owned);
-        let mut env = MockEnv::new();
-        env.expect_string().returning(move |key| {
-            assert_eq!(key, "CHUTORO_BENCH_NEIGHBOUR_SHORT_MEASUREMENT");
-            configured_value.clone()
-        });
-
-        assert_eq!(should_use_short_measurement_with_env(&env), expected);
-    }
-
-    #[test]
-    fn score_candidates_returns_one_distance_per_candidate() {
-        use super::{make_fixture, score_candidates};
-
-        let candidate_count = 8;
-        let fixture = make_fixture(32, candidate_count).expect("fixture must be created");
-        let distances =
-            score_candidates(&fixture, &fixture.candidates).expect("scoring must succeed");
-
-        assert_eq!(distances.len(), candidate_count);
-    }
-
-    #[test]
-    fn throughput_conversion_uses_candidate_count() {
-        use super::throughput_for;
-        use crate::neighbour_scoring::all_buckets;
-        use criterion::Throughput;
-
-        let bucket = all_buckets()
-            .next()
-            .expect("neighbour scoring buckets must be non-empty");
-
-        assert!(matches!(
-            throughput_for(bucket).expect("throughput conversion must succeed"),
-            Throughput::Elements(8),
-        ));
-    }
-
-    #[test]
-    fn benchmark_id_uses_kind_dimension_and_candidate_count() {
-        use super::bench_id_for;
-        use crate::neighbour_scoring::all_buckets;
-        use criterion::BenchmarkId;
-
-        let bucket = all_buckets()
-            .next()
-            .expect("neighbour scoring buckets must be non-empty");
-
-        assert!(bench_id_for(bucket, 32) == BenchmarkId::new("realistic", "dim_32_candidates_8"));
-    }
-
-    #[test]
-    fn orchestration_writes_reports_before_all_scoring_cases() {
-        use std::{cell::RefCell, rc::Rc};
-
-        use super::{neighbour_scoring_impl_with, scoring_plan};
-        use criterion::Criterion;
-
-        let events = Rc::new(RefCell::new(Vec::new()));
-        let lane_events = Rc::clone(&events);
-        let build_events = Rc::clone(&events);
-        let scoring_events = Rc::clone(&events);
-        let mut criterion = Criterion::default();
-
-        neighbour_scoring_impl_with(
-            &mut criterion,
-            move |_| {
-                lane_events.borrow_mut().push(("lane", 0, "", 0));
-                Ok(())
-            },
-            move |_| {
-                build_events.borrow_mut().push(("build", 0, "", 0));
-                Ok(())
-            },
-            move |_, dimension, bucket| {
-                scoring_events.borrow_mut().push((
-                    "score",
-                    dimension,
-                    bucket.kind_name(),
-                    bucket.size(),
-                ));
-                Ok(())
-            },
-        )
-        .expect("orchestration must succeed");
-
-        let mut expected_events = vec![("lane", 0, "", 0), ("build", 0, "", 0)];
-        expected_events.extend(
-            scoring_plan()
-                .into_iter()
-                .map(|(dimension, bucket)| ("score", dimension, bucket.kind_name(), bucket.size())),
-        );
-
-        assert_eq!(*events.borrow(), expected_events);
-    }
-
-    #[test]
-    fn orchestration_propagates_scoring_errors() {
-        use std::io;
-
-        use super::{BenchError, neighbour_scoring_impl_with};
-        use criterion::Criterion;
-
-        let mut criterion = Criterion::default();
-
-        let error = neighbour_scoring_impl_with(
-            &mut criterion,
-            |_| Ok(()),
-            |_| Ok(()),
-            |_, _, _| Err(BenchError::Io(io::Error::other("scoring failed"))),
-        )
-        .expect_err("scoring failure must propagate");
-
-        assert!(matches!(error, BenchError::Io(_)));
-    }
-}
+#[path = "benchmark_runner_tests.rs"]
+mod tests;
