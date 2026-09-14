@@ -56,41 +56,22 @@ class CoverageLane(typ.NamedTuple):
 
 
 def _watchdog_seconds(raw: object) -> float | None:
-    """Return one source's watchdog budget, or None when it sets none.
-
-    A blank or whitespace-only value is not a budget of zero, it is a
-    source that says nothing, so it falls through to the next one. That
-    is what a workflow writes when it interpolates an expression that
-    resolved to nothing, and converting it directly raises before the
-    contract can name the lane at fault.
-
-    Zero and negative values are refused rather than returned. The
-    shared action reads them as no timeout at all, so a lane carrying
-    one has no third tier while appearing to declare one, which is the
-    inversion this contract exists to catch rather than to propagate.
-
-    Parameters
-    ----------
-    raw : object
-        The value the workflow set, as the YAML parser returned it.
-
-    Returns
-    -------
-    float | None
-        The budget in seconds, or None when the source sets none.
-
-    Raises
-    ------
-    ValueError
-        If the value is present and non-blank but not a positive number
-        of seconds.
-    """
+    """Return one source's watchdog budget, or None when it sets none."""
     if raw is None:
         return None
+    # A blank or whitespace-only value is not a budget of zero, it is a
+    # source that says nothing, so it falls through to the next one.
+    # That is what a workflow writes when it interpolates an expression
+    # which resolved to nothing, and converting it directly would raise
+    # before the contract could name the lane at fault.
     text = str(raw).strip()
     if not text:
         return None
     seconds = float(text)
+    # Zero and negative values are refused rather than returned. The
+    # shared action reads them as no timeout at all, so a lane carrying
+    # one has no third tier while appearing to declare one, which is the
+    # inversion this contract exists to catch rather than to propagate.
     if seconds <= 0:
         message = (
             f"{WATCHDOG_VARIABLE} must be a positive number of seconds; "
@@ -104,28 +85,12 @@ def _watchdog_seconds(raw: object) -> float | None:
 def _watchdog_of(
     document: dict[str, typ.Any], job: dict[str, typ.Any], step: dict[str, typ.Any]
 ) -> float | None:
-    """Return the watchdog budget in force for one coverage step.
-
-    All three environment levels are read, innermost first, as GitHub
-    resolves them. Both lanes here set the value on the step, so a
-    contract reading only that scope agrees with this one today and
-    would stop agreeing the moment a lane moved it to the job, reporting
-    a lane that is bounded as inheriting the action's default.
-
-    Parameters
-    ----------
-    document : dict[str, typ.Any]
-        The whole workflow document.
-    job : dict[str, typ.Any]
-        The enclosing job.
-    step : dict[str, typ.Any]
-        The coverage step.
-
-    Returns
-    -------
-    float | None
-        The budget in seconds, or None when no level sets one.
-    """
+    """Return the watchdog budget in force for one coverage step."""
+    # All three environment levels are read, innermost first, as GitHub
+    # resolves them. Both lanes here set the value on the step, so a
+    # contract reading only that scope agrees with this one today and
+    # would stop agreeing the moment a lane moved it to the job,
+    # reporting a bounded lane as inheriting the action's default.
     for owner in (step, job, document):
         environment = owner.get("env")
         if not isinstance(environment, dict):
@@ -158,17 +123,10 @@ def _job_lanes(
 
 
 def _lanes() -> cabc.Iterator[CoverageLane]:
-    """Yield every step that invokes the shared coverage action.
-
-    Both workflow extensions are scanned. A coverage lane in a ``.yaml``
-    file would otherwise inherit the action's default watchdog without
-    failing anything here.
-
-    Yields
-    ------
-    CoverageLane
-        One lane per coverage step, across every workflow.
-    """
+    """Yield every step that invokes the shared coverage action."""
+    # Both workflow extensions are scanned. A coverage lane in a `.yaml`
+    # file would otherwise inherit the action's default watchdog without
+    # failing anything here.
     for path in sorted(workflow_paths()):
         document = yaml.safe_load(path.read_text(encoding="utf-8"))
         for job_name, job in (document.get("jobs") or {}).items():

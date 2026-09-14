@@ -191,19 +191,11 @@ _MULTIPLIERS = st.integers(min_value=1, max_value=20)
 
 
 def _profile_text(entries: list[tuple[int, int, int | None]]) -> str:
-    """Render slow-timeout tables as a nextest configuration.
-
-    Parameters
-    ----------
-    entries : list[tuple[int, int, int | None]]
-        One tuple per table: period in seconds, terminate-after, and a
-        grace period in seconds or None for a table that sets none.
-
-    Returns
-    -------
-    str
-        A configuration nextest would accept.
-    """
+    """Render slow-timeout tables as a nextest configuration."""
+    # One entry per table: period in seconds, terminate-after, and a
+    # grace period in seconds or None for a table that sets none. The
+    # first becomes the default profile's own table and the rest become
+    # its overrides.
     lines = ["[profile.default]"]
     for index, (period, multiplier, grace) in enumerate(entries):
         if index:

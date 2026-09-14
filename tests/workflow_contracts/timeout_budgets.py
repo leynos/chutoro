@@ -80,18 +80,9 @@ class TerminateAfterError(ValueError):
 
 
 def _optional_seconds(value: object) -> float | None:
-    """Return a ``timeout-minutes`` value in seconds, or None.
-
-    Parameters
-    ----------
-    value : object
-        The declared value, or ``None`` when the job declares none.
-
-    Returns
-    -------
-    float | None
-        The budget in seconds.
-    """
+    """Return a ``timeout-minutes`` value in seconds, or None."""
+    # `None` is a job declaring no ceiling, which the callers report as
+    # a missing tier rather than a budget of zero.
     return None if value is None else float(str(value)) * 60.0
 
 
@@ -144,23 +135,11 @@ def _slow_timeouts(config: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
 
 
 def _budget_sections(config: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
-    """Return every section that may declare a budget.
-
-    A profile and each of its overrides are the same shape as far as
-    this contract is concerned: a mapping that may carry a
-    ``slow-timeout``. Flattening them here is what lets the reading
-    above be one comprehension rather than a loop inside a loop.
-
-    Parameters
-    ----------
-    config : dict[str, typ.Any]
-        A parsed nextest configuration.
-
-    Returns
-    -------
-    list[dict[str, typ.Any]]
-        Each profile followed by its overrides, in no particular order.
-    """
+    """Return every profile and override that may declare a budget."""
+    # A profile and each of its overrides are the same shape as far as
+    # this contract is concerned: a mapping that may carry a
+    # `slow-timeout`. Flattening them here is what lets the reading
+    # above be one comprehension rather than a loop inside a loop.
     profiles = [
         profile
         for profile in (config.get("profile") or {}).values()
