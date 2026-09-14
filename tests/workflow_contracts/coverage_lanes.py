@@ -8,9 +8,8 @@ the 400-line limit ``AGENTS.md`` sets.
 import collections.abc as cabc
 import typing as typ
 
-import yaml
 from timeout_budgets import COVERAGE_ACTION, WATCHDOG_VARIABLE, _optional_seconds
-from workflow_support import workflow_paths
+from workflow_support import all_workflow_documents
 
 
 class CoverageLane(typ.NamedTuple):
@@ -122,12 +121,18 @@ def _job_lanes(
         )
 
 
-def _lanes() -> cabc.Iterator[CoverageLane]:
+def _lanes(
+    documents: dict[str, dict[str, typ.Any]] | None = None,
+) -> cabc.Iterator[CoverageLane]:
     """Yield every step that invokes the shared coverage action."""
-    # Both workflow extensions are scanned. A coverage lane in a `.yaml`
-    # file would otherwise inherit the action's default watchdog without
-    # failing anything here.
-    for path in sorted(workflow_paths()):
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    # The documents are a parameter, so this derivation reads no file.
+    # Reading them is `workflow_support.all_workflow_documents`, which
+    # scans both workflow extensions and converts every filesystem and
+    # parsing failure to a named `WorkflowReadError`; a coverage lane in
+    # a `.yaml` file would otherwise inherit the action's default
+    # watchdog without failing anything here.
+    if documents is None:
+        documents = all_workflow_documents()
+    for name, document in documents.items():
         for job_name, job in (document.get("jobs") or {}).items():
-            yield from _job_lanes(path.name, job_name, job, document)
+            yield from _job_lanes(name, job_name, job, document)

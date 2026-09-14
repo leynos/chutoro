@@ -680,6 +680,35 @@ file focused on the behaviour under test. Current examples:
 Support modules carry `//!` module docs and `///` item docs, with `# Errors`
 sections on fallible helpers.
 
+## Workflow contracts
+
+The CI workflow files, the nextest configuration and this guide state the same
+facts in three places, and nothing but a contract notices when they drift.
+`make test-workflow-contracts` runs the Python suites under
+`tests/workflow_contracts/`, which is the standing guard for the runner
+placement, the tool installs, the cache ownership, the CodeScene rule set and
+the timeout tiers below.
+
+The target needs `uv` on the path and nothing else installed: it obtains
+`pytest`, `PyYAML`, `pathspec` and `hypothesis` for the run through `uv run
+--with`, so the versions are the target's business rather than the
+developer's. `hypothesis` is there because the timeout derivations are driven
+as properties over generated configurations, not only against the values this
+repository happens to hold. The `build-test` job runs the same target, so a
+contract that passes here passes there.
+
+Reading the workflow files happens at one boundary,
+`workflow_support.all_workflow_documents`, and the derivations above it take
+their documents as a parameter. That is what lets a case this repository does
+not have be described at all: a job running the coverage action twice, a
+workflow directory that is absent, a file that is not YAML. It also gives the
+failures one type. A missing directory, a file that cannot be read, bytes that
+do not decode and text that is not YAML all arrive as `WorkflowReadError`,
+naming the path, because a contract cannot say anything about a workflow it
+never saw, and `Path.glob` yields nothing for a missing directory rather than
+complaining about it: without the guard, every assertion passed having read no
+workflow at all.
+
 ## Test timeouts: four tiers, outermost last
 
 Four independent timers can end a test run, and they are set in four different
