@@ -61,11 +61,67 @@ SHARED_ACTION_OWNED_PATHS: typ.Final[dict[str, tuple[str, ...]]] = {
 WORKFLOW_SUFFIXES = ("*.yml", "*.yaml")
 
 
+class WorkflowReadError(OSError):
+    """Raised when a workflow file or directory cannot be read.
+
+    Reading a workflow is fallible in ways that look nothing alike from
+    the caller: the directory may be absent, a file may be missing, its
+    bytes may not decode, or its text may not be YAML. Letting each
+    raise its own type made the filesystem boundary invisible in the
+    readings above it, which reported an unreadable file with whatever
+    exception the failure happened to produce. One type, naming the
+    path, is what lets a contract say it could not read a workflow
+    rather than fail somewhere unrelated.
+    """
+
+
 def workflow_paths() -> list[Path]:
     """Return every workflow file, sorted for stable test identifiers."""
     return sorted(
         path for suffix in WORKFLOW_SUFFIXES for path in WORKFLOW_DIR.glob(suffix)
     )
+
+
+def read_workflow_document(path: Path) -> object:
+    """Return one workflow file's parsed document, or raise."""
+    # The three failures are converted here rather than left to the
+    # caller: a query that reads the filesystem is where the contract
+    # loses the ability to name the file at fault.
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        message = f"{path} could not be read: {error}"
+        raise WorkflowReadError(message) from error
+    except UnicodeDecodeError as error:
+        message = f"{path} is not UTF-8 text: {error}"
+        raise WorkflowReadError(message) from error
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError as error:
+        message = f"{path} is not YAML: {error}"
+        raise WorkflowReadError(message) from error
+
+
+def all_workflow_documents(
+    directory: Path = WORKFLOW_DIR,
+) -> dict[str, dict[str, typ.Any]]:
+    """Return every workflow document in a directory, keyed by file name."""
+    # `Path.glob` yields nothing for a missing path and for a path that
+    # is not a directory, so without this guard the reading would return
+    # an empty mapping and every contract above it would pass having
+    # read no workflow at all.
+    if not directory.is_dir():
+        message = f"{directory} is not a directory, so no workflow was read"
+        raise WorkflowReadError(message)
+    paths = sorted(
+        path for suffix in WORKFLOW_SUFFIXES for path in directory.glob(suffix)
+    )
+    documents: dict[str, dict[str, typ.Any]] = {}
+    for path in paths:
+        parsed = read_workflow_document(path)
+        if isinstance(parsed, dict):
+            documents[path.name] = parsed
+    return documents
 
 
 def workflow_names() -> list[str]:
