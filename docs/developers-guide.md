@@ -857,6 +857,35 @@ refuses is what `humantime` refuses, checked the same way: a point with no
 whole part before it or no digit after it, two points, a signed value, a digit
 separator, and any other number carrying no unit.
 
+The fractional arithmetic is `humantime`'s own, ported rather than
+approximated. It carries a fraction as a numerator over a power of ten and
+divides with a remainder check, so a fraction that is not a whole step of its
+unit is an error rather than a rounded value. Two consequences a float reader
+cannot express: there is no step below a nanosecond, so `0.5ns` is refused
+outright; and for hours and longer the division is over whole seconds, so
+`0.123h` is refused where `0.123s` is exact. Read as floats those gave 5e-10
+and 442.8, numbers the runner would never have started with, and the tiers
+would then have been compared against a budget nextest rejects. The reading
+works in integer nanoseconds throughout and converts to seconds once, at the
+end.
+
+The port's scope is narrow and deliberately so. `nextest_durations` owns one
+thing: turning the text of a nextest duration into seconds exactly as
+`humantime` would, and refusing what `humantime` refuses. It is a
+workflow-contract helper, not a repository-wide duration parser: its only
+call-sites are `timeout_budgets.py`, which reads `.config/nextest.toml`
+budgets, and `timeout_ordering_test.py`, which drives the reading directly.
+Nothing outside `tests/workflow_contracts` may import it, and nothing inside
+it should grow a second duration reader beside it.
+
+It composes one way round. `nextest_durations` knows nothing of TOML, of
+workflows, or of what a budget means; callers hand it text and receive
+seconds or an error. A reading that needs more than that, such as the
+`timeout-minutes` on a job, belongs with its caller, which is why
+`_optional_seconds` and `_watchdog_seconds` live in `timeout_budgets.py` and
+`coverage_lanes.py` rather than here: they read GitHub Actions values, which
+are minutes and seconds as integers, not `humantime` text.
+
 `terminate-after` is optional, and cargo-nextest treats its absence as no
 termination: the test is reported slow, once per period, and runs on. The
 reading refuses that form rather than counting it as one period because a

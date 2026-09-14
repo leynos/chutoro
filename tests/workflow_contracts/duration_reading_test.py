@@ -44,6 +44,9 @@ from timeout_budgets import (
         pytest.param("500nanos", 5e-7, id="the-long-nanosecond-spelling"),
         pytest.param("250millis", 0.25, id="the-long-millisecond-spelling"),
         pytest.param("750\u00b5s", 0.00075, id="the-micro-sign"),
+        pytest.param("1.5h", 5400.0, id="a-fraction-of-an-hour-in-whole-seconds"),
+        pytest.param("0.123s", 0.123, id="a-fraction-of-a-second-in-nanoseconds"),
+        pytest.param("0.000000001m", 6e-8, id="a-fraction-of-a-minute-in-nanoseconds"),
     ],
 )
 def test_every_duration_humantime_accepts_is_read(
@@ -88,6 +91,12 @@ def test_every_duration_humantime_accepts_is_read(
         pytest.param("1_000s", id="a-digit-separator"),
         pytest.param("", id="empty"),
         pytest.param("   ", id="whitespace-only"),
+        pytest.param("1.5ns", id="a-fractional-nanosecond"),
+        pytest.param("0.5ns", id="half-a-nanosecond"),
+        pytest.param("0.123h", id="a-fraction-of-an-hour-below-a-second"),
+        pytest.param("0.0000000001s", id="a-fraction-below-a-nanosecond"),
+        pytest.param(" 0 ", id="a-padded-bare-zero"),
+        pytest.param("00", id="a-repeated-bare-zero"),
     ],
 )
 def test_a_duration_humantime_would_refuse_is_refused(duration: str) -> None:
@@ -98,7 +107,17 @@ def test_a_duration_humantime_would_refuse_is_refused(duration: str) -> None:
     humantime 2.3.0 and refused there: a fraction needs a whole part
     before the point and a digit after it, values are unsigned, and the
     only separators are whitespace. `0` is the one value that may carry
-    no unit, so `30` stays refused.
+    no unit, so `30` stays refused, and the special case is the exact
+    text, so `" 0 "` and `"00"` are not it.
+
+    The four fractions are the same fault seen from the other side.
+    humantime carries a fraction as a numerator over a power of ten and
+    divides with a remainder check, so it has no step below a
+    nanosecond and refuses a fractional one outright; and for hours and
+    longer it divides whole seconds, which is why `0.123h` is refused
+    where `0.123s` is exact. Read as floats these four became 5e-10,
+    1.5e-09, 442.8 and 1e-10, none of which nextest would have started
+    with.
     """
     with pytest.raises(NextestDurationError):
         _seconds(duration)
