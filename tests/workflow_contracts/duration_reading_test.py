@@ -41,6 +41,9 @@ from timeout_budgets import (
         pytest.param("3yrs", 94672800.0, id="the-abbreviated-plural-year"),
         pytest.param("1 0s", 10.0, id="whitespace-inside-the-number"),
         pytest.param("0", 0.0, id="a-bare-zero-with-no-unit"),
+        pytest.param("500nanos", 5e-7, id="the-long-nanosecond-spelling"),
+        pytest.param("250millis", 0.25, id="the-long-millisecond-spelling"),
+        pytest.param("750\u00b5s", 0.00075, id="the-micro-sign"),
     ],
 )
 def test_every_duration_humantime_accepts_is_read(
@@ -62,6 +65,10 @@ def test_every_duration_humantime_accepts_is_read(
     ignores whitespace while it accumulates a number, so `1 0s` is ten
     seconds, and it special-cases `0` before reading a character, so a
     zero duration needs no unit.
+
+    `nanos` and `millis` come from humantime's own unit table, which
+    takes three spellings each where this reader had two; the micro
+    sign is its one non-ASCII spelling, U+00B5 not U+03BC.
     """
     assert _seconds(duration) == pytest.approx(expected), (
         f"{duration!r} must read as {expected}s, as humantime reads it"

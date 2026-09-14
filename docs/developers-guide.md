@@ -847,7 +847,9 @@ around the point, so `1.5m` and `1 . 5 m` both read as 90 seconds. Whitespace
 inside the number is ignored as well, so `1 0s` is ten seconds, and a bare `0`
 is the one duration that needs no unit, special-cased before the parser reads a
 character. It also accepts the abbreviations `wk`, `wks`, `yr`, and `yrs`
-alongside the spellings this repository uses. The grammar was measured against
+alongside the spellings this repository uses, and `nanos` and `millis` beside
+them: humantime's unit table takes three spellings each for nanoseconds and
+milliseconds, where this reader had two. The grammar was measured against
 humantime 2.3.0, the version the lockfile of the pinned `cargo-nextest` release
 resolves through `humantime_serde`, rather than assumed: the reading had
 refused all of those and would have called a working file broken. What it still
