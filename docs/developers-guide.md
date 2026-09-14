@@ -827,8 +827,13 @@ signed value, and a digit separator.
 termination: the test is reported slow, once per period, and runs on. The
 reading refuses that form rather than counting it as one period because a
 number on a tier that does not exist makes every comparison above it pass
-against a budget nextest never applies. Every table in `.config/nextest.toml`
-sets it explicitly, so no value here changes.
+against a budget nextest never applies. A bare `slow-timeout = "600s"` is the
+same hole written shorthand, since nextest reads it as that period with no
+`terminate-after`, so the reading normalizes it to that table rather than
+keeping only inline tables; dropping it would let a sibling section holding a
+bounded table supply a finite maximum in its place. Every table in
+`.config/nextest.toml` sets `terminate-after` explicitly, so no value here
+changes.
 
 When it is present it must be a positive integer, which is how cargo-nextest
 deserializes it (`Option<NonZeroUsize>`). Converting the text of whatever the

@@ -111,26 +111,28 @@ def required_ceiling(watchdog: float, allowance: float) -> float:
     return watchdog + allowance + CEILING_MARGIN_SECONDS
 
 
+def _as_slow_timeout_table(declaration: object) -> dict[str, typ.Any] | None:
+    """Return a ``slow-timeout`` declaration as a table, or None."""
+    # cargo-nextest accepts a bare duration as shorthand for a table
+    # carrying that period and no `terminate-after`, which reports the
+    # test as slow once per period and never stops it. Keeping only
+    # mapping-valued declarations would drop precisely the unbounded
+    # case `largest_slow_timeout_of` exists to refuse, and a sibling
+    # section holding a bounded table would then supply a comfortable
+    # maximum in its place.
+    if isinstance(declaration, str):
+        return {"period": declaration}
+    return declaration if isinstance(declaration, dict) else None
+
+
 def _slow_timeouts(config: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
-    """Return every ``slow-timeout`` table the configuration sets.
-
-    Both the profiles' own and their overrides', because an override is
-    where the longest allowances live.
-
-    Parameters
-    ----------
-    config : dict[str, typ.Any]
-        A parsed nextest configuration.
-
-    Returns
-    -------
-    list[dict[str, typ.Any]]
-        The inline tables, in no particular order.
-    """
+    """Return every ``slow-timeout`` the configuration sets, as a table."""
+    # Both the profiles' own and their overrides', because an override
+    # is where the longest allowances live.
     return [
         table
         for section in _budget_sections(config)
-        if isinstance(table := section.get("slow-timeout"), dict)
+        if (table := _as_slow_timeout_table(section.get("slow-timeout"))) is not None
     ]
 
 
@@ -226,9 +228,9 @@ def largest_slow_timeout_of(config_text: str) -> float:
             continue
         if table.get("terminate-after") is None:
             message = (
-                f"slow-timeout {table!r} sets no terminate-after, so nextest "
-                f"reports the test as slow once per period and never stops it; "
-                f"there is no per-test tier to compare against"
+                f"the slow-timeout of period {period!r} sets no terminate-after, "
+                f"so nextest reports the test as slow once per period and never "
+                f"stops it; there is no per-test tier to compare against"
             )
             raise UnboundedTestError(message)
         budgets.append(_seconds(period) * _multiplier(table["terminate-after"]))
@@ -244,6 +246,10 @@ def bounds_a_single_test(config_text: str, profile: str = "default") -> bool:
     a profile whose only ``terminate-after`` sits in an override leaves
     every unmatched test running with no bound at all while
     :func:`largest_slow_timeout_of` still reports a comfortable number.
+
+    A bare ``slow-timeout = "60s"`` is nextest's shorthand for a table
+    with no ``terminate-after``, so it bounds nothing and reads False
+    here.
 
     nextest's other profiles inherit ``[profile.default]``'s own keys,
     so a profile that declares no ``slow-timeout`` of its own is bounded
@@ -265,8 +271,9 @@ def bounds_a_single_test(config_text: str, profile: str = "default") -> bool:
     """
     profiles = parse_config(config_text).get("profile")
     own = profiles.get(profile) if isinstance(profiles, dict) else None
-    table = own.get("slow-timeout") if isinstance(own, dict) else None
-    return isinstance(table, dict) and table.get("terminate-after") is not None
+    declaration = own.get("slow-timeout") if isinstance(own, dict) else None
+    table = _as_slow_timeout_table(declaration)
+    return table is not None and table.get("terminate-after") is not None
 
 
 def termination_allowance_of(config_text: str) -> float:

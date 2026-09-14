@@ -18,6 +18,7 @@ from nextest_durations import NextestDurationError, _seconds
 from timeout_budgets import (
     TerminateAfterError,
     UnboundedTestError,
+    bounds_a_single_test,
     largest_slow_timeout_of,
 )
 
@@ -109,6 +110,18 @@ def test_a_duration_humantime_would_refuse_is_refused(duration: str) -> None:
             'slow-timeout = { period = "600s" }\n',
             id="an-override-without-terminate-after",
         ),
+        pytest.param(
+            '[profile.default]\nslow-timeout = "180s"\n',
+            id="a-base-profile-declared-as-a-bare-duration",
+        ),
+        pytest.param(
+            "[profile.default]\n"
+            'slow-timeout = { period = "60s", terminate-after = 1 }\n'
+            "\n[[profile.default.overrides]]\n"
+            "filter = 'binary(slow)'\n"
+            'slow-timeout = "600s"\n',
+            id="an-override-declared-as-a-bare-duration",
+        ),
     ],
 )
 def test_a_slow_timeout_that_terminates_nothing_is_refused(config_text: str) -> None:
@@ -119,6 +132,12 @@ def test_a_slow_timeout_that_terminates_nothing_is_refused(config_text: str) -> 
     that as a single period would put a number on the tier that is
     missing, so the ordering above it would be compared against a budget
     nextest never applies and would pass.
+
+    A bare `slow-timeout = "600s"` is the same hole written shorthand:
+    nextest reads it as that period with no `terminate-after`. A reading
+    that kept only inline tables would drop it, and a sibling section
+    holding a bounded table would then supply a finite maximum in its
+    place, which is the last two cases here.
 
     Every table in `.config/nextest.toml` sets it explicitly, so no
     value in this repository changes; this is what stops one appearing.
@@ -155,3 +174,16 @@ def test_a_terminate_after_nextest_would_refuse_is_refused(
 
     with pytest.raises(TerminateAfterError, match=r"positive integer"):
         largest_slow_timeout_of(config_text)
+
+
+def test_a_base_profile_declared_as_a_bare_duration_bounds_nothing() -> None:
+    """The shorthand carries no `terminate-after`, so it bounds no test.
+
+    `bounds_a_single_test` reads the default profile's own declaration,
+    and a reading that accepted any declaration at all would call this
+    profile bounded while every test it covers runs on after the period
+    elapses.
+    """
+    config_text = '[profile.default]\nslow-timeout = "60s"\n'
+
+    assert not bounds_a_single_test(config_text)
