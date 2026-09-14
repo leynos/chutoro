@@ -857,6 +857,18 @@ refuses is what `humantime` refuses, checked the same way: a point with no
 whole part before it or no digit after it, two points, a signed value, a digit
 separator, and any other number carrying no unit.
 
+The fractional arithmetic is `humantime`'s own, ported rather than
+approximated. It carries a fraction as a numerator over a power of ten and
+divides with a remainder check, so a fraction that is not a whole step of its
+unit is an error rather than a rounded value. Two consequences a float reader
+cannot express: there is no step below a nanosecond, so `0.5ns` is refused
+outright; and for hours and longer the division is over whole seconds, so
+`0.123h` is refused where `0.123s` is exact. Read as floats those gave 5e-10
+and 442.8, numbers the runner would never have started with, and the tiers
+would then have been compared against a budget nextest rejects. The reading
+works in integer nanoseconds throughout and converts to seconds once, at the
+end.
+
 `terminate-after` is optional, and cargo-nextest treats its absence as no
 termination: the test is reported slow, once per period, and runs on. The
 reading refuses that form rather than counting it as one period because a
