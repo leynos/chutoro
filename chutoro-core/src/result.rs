@@ -22,7 +22,11 @@ fn exceeds_pointer_width(value: u64) -> bool {
 /// ```
 /// use chutoro_core::{ClusteringResult, ClusterId};
 ///
-/// let result = ClusteringResult::from_assignments(vec![ClusterId::new(0), ClusterId::new(1)]);
+/// let result = ClusteringResult::try_from_assignments(vec![
+///     ClusterId::new(0),
+///     ClusterId::new(1),
+/// ])
+/// .expect("assignments are contiguous");
 /// assert_eq!(result.assignments().len(), 2);
 /// assert_eq!(result.cluster_count(), 2);
 /// ```
@@ -57,19 +61,14 @@ impl ClusteringResult {
     /// Cluster identifiers must start at zero and be contiguous. Use
     /// [`Self::try_from_assignments`] to handle arbitrary identifiers.
     ///
-    /// # Examples
-    /// ```
-    /// use chutoro_core::{ClusteringResult, ClusterId};
-    ///
-    /// let result = ClusteringResult::from_assignments(vec![ClusterId::new(0)]);
-    /// assert_eq!(result.cluster_count(), 1);
-    /// ```
-    ///
     /// # Panics
     ///
-    /// Panics when identifiers do not start at zero or are not contiguous.
+    /// Panics when identifiers do not start at zero and are not contiguous.
+    /// Use [`Self::try_from_assignments`] as the public fallible constructor
+    /// for untrusted input.
+    #[cfg(feature = "cpu")]
     #[must_use]
-    pub fn from_assignments(assignments: Vec<ClusterId>) -> Self {
+    pub(crate) fn from_assignments(assignments: Vec<ClusterId>) -> Self {
         match Self::try_from_assignments(assignments) {
             Ok(result) => result,
             Err(err) => panic!("cluster identifiers must start at zero and be contiguous: {err}"),
@@ -155,7 +154,8 @@ impl ClusteringResult {
     /// ```
     /// use chutoro_core::{ClusteringResult, ClusterId};
     ///
-    /// let result = ClusteringResult::from_assignments(vec![ClusterId::new(0)]);
+    /// let result = ClusteringResult::try_from_assignments(vec![ClusterId::new(0)])
+    ///     .expect("assignments are contiguous");
     /// assert_eq!(result.assignments()[0].get(), 0);
     /// ```
     #[must_use]
@@ -169,7 +169,8 @@ impl ClusteringResult {
     /// ```
     /// use chutoro_core::{ClusteringResult, ClusterId};
     ///
-    /// let result = ClusteringResult::from_assignments(vec![ClusterId::new(0), ClusterId::new(0)]);
+    /// let result = ClusteringResult::try_from_assignments(vec![ClusterId::new(0), ClusterId::new(0)])
+    ///     .expect("assignments are contiguous");
     /// assert_eq!(result.cluster_count(), 1);
     /// ```
     #[must_use]

@@ -367,10 +367,10 @@ where
 /// # fn main() -> Result<(), Box<dyn Error>> {
 /// let summary = ExecutionSummary {
 ///     data_source: "demo".into(),
-///     result: ClusteringResult::from_assignments(vec![
+///     result: ClusteringResult::try_from_assignments(vec![
 ///         ClusterId::new(0),
 ///         ClusterId::new(1),
-///     ]),
+///     ])?,
 /// };
 /// let mut buffer = Cursor::new(Vec::new());
 /// render_summary(&summary, &mut buffer)?;
