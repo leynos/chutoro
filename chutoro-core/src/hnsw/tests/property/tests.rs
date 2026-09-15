@@ -3,7 +3,7 @@
 //! reachability, and the shared proptest runners/helpers used to orchestrate
 //! these scenarios.
 
-use proptest::{proptest, test_runner::TestCaseResult};
+use proptest::proptest;
 use rstest::rstest;
 
 use super::{
@@ -15,7 +15,7 @@ use super::{
     strategies::graph_fixture_strategy,
     support::DenseVectorSource,
     test_runner_support::{
-        JobKind, ShrinkIterations, StackSize, TestCases, idempotency_cases,
+        JobKind, ShrinkIterations, StackSize, TestCases, forked_proptest, idempotency_cases,
         idempotency_shrink_iters, mutation_cases, mutation_shrink_iters, run_idempotency_test,
         run_mutation_test, run_search_test, search_cases, search_shrink_iters,
         select_idempotency_cases, select_idempotency_shrink_iters, select_mutation_cases,
@@ -66,31 +66,37 @@ fn params_seed_build_propagates_errors(
     assert!(matches!(err, HnswError::InvalidParameters { .. }));
 }
 
-#[test]
-#[ignore = "stress configuration is too expensive for the default test suite"]
-fn hnsw_mutations_preserve_invariants_proptest_stress() -> TestCaseResult {
-    run_mutation_test(
-        TestCases::try_new(640).expect("test cases must be > 0"),
-        ShrinkIterations::new(4096),
-        StackSize::try_new(32 * 1024 * 1024).expect("stack size must be >= minimum"),
-    )
+forked_proptest! {
+    #[ignore = "stress configuration is too expensive for the default test suite"]
+    fn hnsw_mutations_preserve_invariants_proptest_stress(test_path) {
+        run_mutation_test(
+            test_path,
+            TestCases::try_new(640).expect("test cases must be > 0"),
+            ShrinkIterations::new(4096),
+            StackSize::try_new(32 * 1024 * 1024).expect("stack size must be >= minimum"),
+        )
+    }
 }
 
-#[test]
-fn hnsw_search_matches_brute_force_proptest() -> TestCaseResult {
-    run_search_test(
-        search_cases().expect("test cases must be > 0"),
-        search_shrink_iters(),
-    )
+forked_proptest! {
+    fn hnsw_search_matches_brute_force_proptest(test_path) {
+        run_search_test(
+            test_path,
+            search_cases().expect("test cases must be > 0"),
+            search_shrink_iters(),
+        )
+    }
 }
 
-#[test]
-fn hnsw_idempotency_preserved_proptest() -> TestCaseResult {
-    run_idempotency_test(
-        idempotency_cases().expect("test cases must be > 0"),
-        idempotency_shrink_iters(),
-        StackSize::try_new(96 * 1024 * 1024).expect("stack size must be >= minimum"),
-    )
+forked_proptest! {
+    fn hnsw_idempotency_preserved_proptest(test_path) {
+        run_idempotency_test(
+            test_path,
+            idempotency_cases().expect("test cases must be > 0"),
+            idempotency_shrink_iters(),
+            StackSize::try_new(96 * 1024 * 1024).expect("stack size must be >= minimum"),
+        )
+    }
 }
 
 #[rstest]
@@ -198,13 +204,15 @@ fn select_search_shrink_iters_enforces_coverage_budget(
     );
 }
 
-#[test]
-fn hnsw_mutations_preserve_invariants_proptest() -> TestCaseResult {
-    run_mutation_test(
-        mutation_cases().expect("test cases must be > 0"),
-        mutation_shrink_iters(),
-        StackSize::try_new(96 * 1024 * 1024).expect("stack size must be >= minimum"),
-    )
+forked_proptest! {
+    fn hnsw_mutations_preserve_invariants_proptest(test_path) {
+        run_mutation_test(
+            test_path,
+            mutation_cases().expect("test cases must be > 0"),
+            mutation_shrink_iters(),
+            StackSize::try_new(96 * 1024 * 1024).expect("stack size must be >= minimum"),
+        )
+    }
 }
 
 #[test]
