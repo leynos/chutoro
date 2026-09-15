@@ -51,7 +51,7 @@ PAID_JOBS = {
     ("ci.yml", "build-test"): "ubicloud-standard-2",
     ("ci.yml", "verus-proofs"): "ubicloud-standard-2",
     ("coverage-main.yml", "coverage-upload"): "ubicloud-standard-2",
-    ("kani-pr.yml", "kani"): "ubicloud-standard-4",
+    ("kani-pr.yml", "kani"): "ubicloud-standard-2",
     ("property-tests.yml", "property-tests-pr"): "ubicloud-standard-2",
 }
 
