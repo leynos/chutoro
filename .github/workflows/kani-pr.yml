@@ -33,7 +33,12 @@ env:
 
 jobs:
   kani:
-    runs-on: ubicloud-standard-2
+    # Sizing experiment, to be resolved before this merges. Two cores ran
+    # the suite in 641 s against a 630 s median on GitHub's four, so the
+    # proof work looks effectively serial; four cores is measured here to
+    # confirm that rather than assume it. See "Lane wall times before and
+    # after the move" in docs/developers-guide.md.
+    runs-on: ubicloud-standard-4
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -45,5 +50,16 @@ jobs:
           use-sccache: 'false'
       - name: Install Kani
         run: scripts/install-kani.sh
+      # Kani installs a verifier bundle and its own pinned nightly
+      # toolchain, which is the largest thing this job puts on the disk and
+      # the one input a smaller shape could run out of room for. The
+      # reading is taken after the install and again at the end, so a
+      # future shape change is argued from headroom rather than from the
+      # wall time alone.
+      - name: Record disk headroom after the Kani install
+        run: df -h .
       - name: Run Kani practical suite
         run: make kani
+      - name: Record disk headroom after the suite
+        if: ${{ always() }}
+        run: df -h .
