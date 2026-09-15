@@ -11,4 +11,7 @@ pub(super) use budget_selection::{
     select_mutation_cases_for_fork, select_mutation_shrink_iters, select_search_cases,
     select_search_shrink_iters,
 };
-pub(super) use runner_wrappers::{run_idempotency_test, run_mutation_test, run_search_test};
+pub(crate) use runner_wrappers::TestPath;
+pub(super) use runner_wrappers::{
+    forked_proptest, run_idempotency_test, run_mutation_test, run_search_test,
+};

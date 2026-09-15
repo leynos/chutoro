@@ -709,6 +709,30 @@ never saw, and `Path.glob` yields nothing for a missing directory rather than
 complaining about it: without the guard, every assertion passed having read no
 workflow at all.
 
+### Installer flags are only wrong where the tool parses them
+
+`rustup`'s `--component` takes one value. Written as
+`--component clippy rustfmt`, the second name is parsed as a toolchain, and
+rustup exits 1 before installing anything. Nothing in the repository could see
+the difference, because the flag is well-formed YAML, well-formed shell and a
+plausible command line; it is wrong only at the point rustup parses it.
+
+`nightly-portable-simd` shipped that spelling for as long as it existed and
+never once ran its tests. On a day its gate decided there had been a commit to
+`main` it failed at the install step and every step after it was skipped; on
+every other day the gate skipped the work and the run reported success in
+three to eight seconds. The lane was red when it tried to work and green when
+it did nothing, which reads as flakiness rather than as a lane that has never
+run. See issue #262.
+
+`tests/workflow_contracts/toolchain_install_test.py` now reads every `rustup
+toolchain install` in every workflow and requires each `--component` flag to
+carry exactly one value. It joins line continuations first, so a command split
+across lines is one invocation rather than none, and it reads the invocation
+rather than the step's name, so deleting the fix while keeping the step fails
+it. Both correct spellings pass: a repeated flag, and one flag with a
+comma-separated list.
+
 ## Test timeouts: four tiers, outermost last
 
 Four independent timers can end a test run, and they are set in four different
