@@ -21,12 +21,26 @@ moved with the others because it is the sole writer of the compiler-cache key
 GitHub's runners would fill a store its readers cannot see. See "Compiler
 cache ownership" below.
 
-Two of the paid jobs also serve a weekly cron, and neither pays for it. They
-select the label from the event:
+No paid lane names its label outright, because a pull request from a fork
+cannot obtain an Ubicloud runner at all. Without a fallback such a job is
+not slow, it is unassignable: it sits forever and the pull request never
+reports. So every paid lane tests for the fork and falls back to GitHub's
+pool for that case alone:
+
+```yaml
+runs-on: >-
+  ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+```
+
+Two of the paid jobs also serve a weekly cron, and neither pays for it, so
+they carry both conditions at once. Written positively, the paid label is
+the one taken when the lane is a pull request and its head is not a fork:
 
 ```yaml
 runs-on: >-
   ${{ github.event_name == 'pull_request'
+      && !github.event.pull_request.head.repo.fork
       && 'ubicloud-standard-2' || 'ubuntu-latest' }}
 ```
 
@@ -36,16 +50,23 @@ nobody waits for. `benchmark-smoke` is the same story. The placement contract
 reads both arms of that expression and fails if the non-pull-request arm ever
 names a paid label, so the shape cannot quietly become unconditional.
 
-`event_selected_runners` in `tests/workflow_contracts/workflow_support.py` is
-what reads it, and its boundary is deliberately narrow. It belongs to the
-contract package; its only callers are the placement contracts, which have to
-judge each arm separately. A contract asking merely whether a job is paid
-keeps using `runner_labels`. It recognizes one expression shape, keyed on
-`github.event_name` and nothing else, and it composes with nothing: a future
-selector on a different condition gets its own parser rather than a looser
-pattern here. That narrowness is itself contracted, by a mutation that swaps
-`github.event_name` for `github.ref` inside an otherwise identical expression
-and expects the placement tests to reject it.
+`conditional_runner` in `tests/workflow_contracts/workflow_support.py` is
+what reads both shapes, and its boundary is deliberately narrow. It belongs
+to the contract package; its only callers are the placement contracts, which
+have to judge each arm and each condition separately. A contract asking
+merely whether a job is paid keeps using `runner_labels`.
+
+It does not return a boolean. It returns the paid label, the fallback label
+and the set of guards the condition actually supplies, so a contract can
+require a guard rather than infer one from the shape of the expression. The
+condition is matched against exact strings, never patterns: a looser match
+would accept a test on a sibling field and report it as the guard it is not.
+
+That narrowness is contracted rather than asserted. The mutations run against
+it swap `head.repo.fork` for `head.repo.private` in an otherwise identical
+expression, and drop the fork guard from a lane that keeps the event guard.
+Both are rejected. A future selector on some other condition gets its own
+entry in the guard table rather than a looser pattern here.
 
 It ran on `ubicloud-standard-8` until the shape was measured. On eight cores
 the whole "Run property suite" step, compilation and 250 cases together, took
@@ -164,18 +185,18 @@ Table: Every workflow job, the runner it uses, and what it does.
 
 | Workflow | Job | Runner | Purpose |
 | --- | --- | --- | --- |
-| `benchmark-regressions.yml` | `benchmark-policy` | `ubicloud-standard-2` on a pull request, `ubuntu-latest` otherwise | Resolve the benchmark mode and matrix |
-| `benchmark-regressions.yml` | `benchmark-smoke` | `ubicloud-standard-2` on a pull request, `ubuntu-latest` otherwise | Criterion discovery smoke check |
+| `benchmark-regressions.yml` | `benchmark-policy` | `ubicloud-standard-2` on a non-fork pull request, `ubuntu-latest` otherwise | Resolve the benchmark mode and matrix |
+| `benchmark-regressions.yml` | `benchmark-smoke` | `ubicloud-standard-2` on a non-fork pull request, `ubuntu-latest` otherwise | Criterion discovery smoke check |
 | `benchmark-regressions.yml` | `benchmark-baseline-compare` | `ubuntu-latest` | Compare against the previous commit |
-| `ci.yml` | `build-test` | `ubicloud-standard-2` | Format, lint, spelling, contracts, coverage |
-| `ci.yml` | `verus-proofs` | `ubicloud-standard-2` | Verus edge-harvest proofs |
+| `ci.yml` | `build-test` | `ubicloud-standard-2`, `ubuntu-latest` for a fork | Format, lint, spelling, contracts, coverage |
+| `ci.yml` | `verus-proofs` | `ubicloud-standard-2`, `ubuntu-latest` for a fork | Verus edge-harvest proofs |
 | `coverage-main.yml` | `coverage-upload` | `ubicloud-standard-2` | Upload trunk coverage and advance the ratchet |
 | `dependabot-automerge.yml` | `automerge` | callee-selected | Reusable workflow, API-bound |
-| `kani-pr.yml` | `kani` | `ubicloud-standard-2` | Kani practical harnesses |
+| `kani-pr.yml` | `kani` | `ubicloud-standard-2`, `ubuntu-latest` for a fork | Kani practical harnesses |
 | `mutation-testing.yml` | `mutation` | callee-selected | Reusable workflow, scheduled |
 | `nightly-kani.yml` | `kani-full` | `ubuntu-latest` | Full Kani harness suite |
 | `nightly-portable-simd.yml` | `nightly-portable-simd` | `ubuntu-latest` | Nightly portable-SIMD backend |
-| `property-tests.yml` | `property-tests-pr` | `ubicloud-standard-2` | Pull-request property suites |
+| `property-tests.yml` | `property-tests-pr` | `ubicloud-standard-2`, `ubuntu-latest` for a fork | Pull-request property suites |
 | `property-tests.yml` | `property-tests-weekly` | `ubuntu-latest` | Weekly deep property suites |
 
 ### Tool installers

@@ -27,8 +27,10 @@ jobs:
     # benchmark-baseline-compare, which nothing waits for. Selecting the
     # label from the event is what lets one job be both without the
     # scheduled run reaching a paid runner.
+    # A pull request from a fork cannot obtain an Ubicloud runner, so it
+    # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
     runs-on: >-
-      ${{ github.event_name == 'pull_request' && 'ubicloud-standard-2' || 'ubuntu-latest' }}
+      ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && 'ubicloud-standard-2' || 'ubuntu-latest' }}
     # Thirty-three seconds of work on GitHub's four cores. The ceiling is a
     # runaway guard, not a budget, and is set well clear of a cold cargo
     # build of chutoro-test-support on two.
@@ -66,8 +68,10 @@ jobs:
     if: ${{ needs.benchmark-policy.outputs.mode != 'disabled' }}
     # Paid on the feedback path only, for the same reason as
     # benchmark-policy above: the weekly run of this matrix blocks nobody.
+    # A pull request from a fork cannot obtain an Ubicloud runner, so it
+    # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
     runs-on: >-
-      ${{ github.event_name == 'pull_request' && 'ubicloud-standard-2' || 'ubuntu-latest' }}
+      ${{ github.event_name == 'pull_request' && !github.event.pull_request.head.repo.fork && 'ubicloud-standard-2' || 'ubuntu-latest' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false

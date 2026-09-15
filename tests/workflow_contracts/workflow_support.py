@@ -182,33 +182,69 @@ def runner_labels(job_definition: dict[str, typ.Any]) -> list[str]:
     return []
 
 
-#: A ``runs-on`` that picks its runner from the event, written as
-#: ``${{ github.event_name == 'pull_request' && '<paid>' || '<hosted>' }}``.
-#: A job that serves both a pull request and a cron needs this to take a paid
-#: runner on the feedback path without billing the scheduled run, and the
-#: placement contract has to read both arms to say so. The pattern is
-#: deliberately exact: a looser one would accept an expression that selects on
-#: something else entirely and report its arms as if the event chose them.
-EVENT_SELECTED_RUNS_ON = re.compile(
-    r"^\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*"
-    r"&&\s*'(?P<pull_request>[^']+)'\s*"
-    r"\|\|\s*'(?P<otherwise>[^']+)'\s*\}\}$"
+#: The guard that keeps a scheduled run of a lane off a paid runner.
+PULL_REQUEST_EVENT_GUARD = "pull-request event"
+
+#: The guard that keeps a fork's pull request off a paid runner. A fork
+#: cannot obtain one at all, so the lane would not start without it.
+NON_FORK_GUARD = "non-fork head"
+
+#: The whole of a conditional ``runs-on``: one condition, then the label
+#: taken when it holds and the label taken when it does not. Parsing the
+#: outer shape and the condition separately is what lets the contracts ask
+#: which guards a lane carries rather than merely whether it is paid.
+CONDITIONAL_RUNS_ON = re.compile(
+    r"^\$\{\{\s*(?P<condition>.+?)\s*"
+    r"&&\s*'(?P<when_true>[^']+)'\s*"
+    r"\|\|\s*'(?P<when_false>[^']+)'\s*\}\}$"
 )
 
+#: The fork test, written the one way the estate writes it.
+_FORK_TEST = "github.event.pull_request.head.repo.fork"
 
-def event_selected_runners(
+#: Each condition atom the contracts recognize, and the guard it supplies.
+#: Exact strings, not patterns: a looser match would accept a condition
+#: that tests a sibling field and report it as the guard it is not.
+_GUARD_ATOMS: typ.Final[dict[str, str]] = {
+    "github.event_name == 'pull_request'": PULL_REQUEST_EVENT_GUARD,
+    f"!{_FORK_TEST}": NON_FORK_GUARD,
+}
+
+
+class ConditionalRunner(typ.NamedTuple):
+    """The two labels a conditional ``runs-on`` chooses between."""
+
+    paid: str
+    otherwise: str
+    guards: frozenset[str]
+
+
+def _parse_guards(condition: str) -> frozenset[str] | None:
+    """Return the guards a positive condition supplies, or ``None``."""
+    atoms = [atom.strip() for atom in condition.split("&&")]
+    guards = {_GUARD_ATOMS.get(atom) for atom in atoms}
+    if None in guards:
+        return None
+    return frozenset(typ.cast("set[str]", guards))
+
+
+def conditional_runner(
     job_definition: dict[str, typ.Any],
-) -> tuple[str, str] | None:
-    """Return the two runner labels an event-selected ``runs-on`` chooses from.
+) -> ConditionalRunner | None:
+    """Return the labels and guards of a conditional ``runs-on``.
 
-    This parser belongs to the contract package and to nothing else. Its
-    only callers are the placement contracts, which need to judge each arm
-    of the expression separately; a contract asking merely whether a job is
-    paid should keep using :func:`runner_labels`. It answers one question
-    about one expression shape and composes with nothing, so a caller that
-    wants a different selector writes its own parser rather than loosening
-    this one. See "GitHub Actions runner profiles" in
-    docs/developers-guide.md for the policy it serves.
+    Two shapes are recognized, and only two. A lane that runs only on pull
+    requests names the fork test first, because the fork is the case that
+    must fall back; a lane that also serves a schedule names the positive
+    conditions first and joins them with ``&&``. Both are normalized here
+    to the label a non-fork pull request takes, the label everything else
+    takes, and the guards the condition actually supplies, so a contract
+    can require a guard rather than infer it from the shape.
+
+    Anything else returns ``None``, including a condition that tests a
+    sibling field. That narrowness is the point: a parser that accepted
+    any condition would report its arms as though these guards had chosen
+    them.
 
     Parameters
     ----------
@@ -217,31 +253,63 @@ def event_selected_runners(
 
     Returns
     -------
-    tuple[str, str] | None
-        The label taken on a pull request and the label taken on every
-        other event, in that order; ``None`` when ``runs-on`` names a
-        label outright, so the caller can fall back to
-        :func:`runner_labels`.
+    ConditionalRunner | None
+        The paid label, the fallback label and the guards; ``None`` when
+        ``runs-on`` names a label outright or uses an unrecognized
+        condition, so the caller can fall back to :func:`runner_labels`.
 
     Examples
     --------
-    >>> event_selected_runners({"runs-on": "ubuntu-latest"}) is None
-    True
-    >>> event_selected_runners(
+    A lane that only ever runs on a pull request guards the fork alone:
+
+    >>> conditional_runner(
+    ...     {
+    ...         "runs-on": "${{ github.event.pull_request.head.repo.fork"
+    ...         " && 'ubuntu-latest' || 'ubicloud-standard-2' }}"
+    ...     }
+    ... )
+    ConditionalRunner(paid='ubicloud-standard-2', otherwise='ubuntu-latest', guards=frozenset({'non-fork head'}))
+
+    A lane that also serves a cron guards both, and the guards are what a
+    contract reads:
+
+    >>> both = conditional_runner(
     ...     {
     ...         "runs-on": "${{ github.event_name == 'pull_request'"
+    ...         " && !github.event.pull_request.head.repo.fork"
     ...         " && 'ubicloud-standard-2' || 'ubuntu-latest' }}"
     ...     }
     ... )
-    ('ubicloud-standard-2', 'ubuntu-latest')
+    >>> both.paid, sorted(both.guards)
+    ('ubicloud-standard-2', ['non-fork head', 'pull-request event'])
+
+    A plain label, or a condition on some other field, is not one of these:
+
+    >>> conditional_runner({"runs-on": "ubuntu-latest"}) is None
+    True
+    >>> conditional_runner(
+    ...     {
+    ...         "runs-on": "${{ github.event.pull_request.head.repo.private"
+    ...         " && 'ubuntu-latest' || 'ubicloud-standard-2' }}"
+    ...     }
+    ... ) is None
+    True
     """
     runs_on = job_definition.get("runs-on")
     if not isinstance(runs_on, str):
         return None
-    match = EVENT_SELECTED_RUNS_ON.match(runs_on.strip())
+    match = CONDITIONAL_RUNS_ON.match(runs_on.strip())
     if match is None:
         return None
-    return match.group("pull_request"), match.group("otherwise")
+    condition = match.group("condition")
+    when_true = match.group("when_true")
+    when_false = match.group("when_false")
+    if condition == _FORK_TEST:
+        return ConditionalRunner(when_false, when_true, frozenset({NON_FORK_GUARD}))
+    guards = _parse_guards(condition)
+    if guards is None:
+        return None
+    return ConditionalRunner(when_true, when_false, guards)
 
 
 def is_reusable_call(job_definition: dict[str, typ.Any]) -> bool:

@@ -230,11 +230,18 @@ fn benchmark_smoke_job_covers_hnsw_exact_probe() {
 /// table is in the developers guide. The weekly job is off the feedback path
 /// and runs on GitHub's four-core hosted runner.
 ///
+/// The pull-request shape is matched as the quoted label inside the
+/// expression rather than as `runs-on: <label>`, because a fork's pull
+/// request cannot obtain an Ubicloud runner and the lane falls back to
+/// GitHub's pool for that case alone. The fallback runs the same profile on
+/// four cores, so it oversubscribes less rather than more and the thread
+/// count this test exists for still holds.
+///
 /// Runner placement policy, tool installation, and cache ownership are
 /// asserted in `tests/workflow_contracts/`; this test covers only the
 /// relationship between the profile and the shapes.
 #[rstest]
-#[case("property-tests-pr", "runs-on: ubicloud-standard-2")]
+#[case("property-tests-pr", "'ubicloud-standard-2'")]
 #[case("property-tests-weekly", "runs-on: ubuntu-latest")]
 fn property_tests_runners_satisfy_the_ci_thread_count(
     #[case] job: &str,
