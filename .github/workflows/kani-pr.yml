@@ -33,12 +33,16 @@ env:
 
 jobs:
   kani:
-    # Sizing experiment, to be resolved before this merges. Two cores ran
-    # the suite in 641 s against a 630 s median on GitHub's four, so the
-    # proof work looks effectively serial; four cores is measured here to
-    # confirm that rather than assume it. See "Lane wall times before and
-    # after the move" in docs/developers-guide.md.
-    runs-on: ubicloud-standard-4
+    # Two cores, on measurement rather than on the estate default alone.
+    # Four ran the suite in 575 s against 641 s here, so a doubled rate
+    # buys 66 seconds; and this job finishes some 230 seconds before
+    # build-test, which defines the critical path, so those 66 seconds
+    # reach no contributor. Disk is not the constraint either: the Kani
+    # bundle and its nightly toolchain cost about 1 GB against the 31 GB
+    # this shape has free. See "Lane wall times before and after the move"
+    # in docs/developers-guide.md, and raise this only with a measurement
+    # that moves the critical path.
+    runs-on: ubicloud-standard-2
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

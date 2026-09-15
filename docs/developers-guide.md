@@ -131,11 +131,27 @@ directory, so the local-disk arm works unchanged on Ubicloud. The warm
 number arrives once `coverage-upload` writes that key from the first merge
 to `main`.
 
-`kani` is the surprise and the reason it sits on two cores rather than
-four: 641 seconds against a 630-second hosted median. The proof work is
-effectively serial, so halving the cores cost eleven seconds. No larger
-shape is justified, and a pull request proposing one needs a wall time that
-says otherwise.
+`kani` sits on two cores on measurement, not on the estate default alone.
+Halving the cores against GitHub's hosted four cost eleven seconds, and
+doubling them again bought sixty-six:
+
+Table: the Kani practical suite on each shape, from runs 34962285803 and
+34975622704.
+
+| Shape | Wall time | Disk free after the Kani install |
+| --- | --- | --- |
+| `ubuntu-latest`, 4 cores, hosted median | 630 s | not measured |
+| `ubicloud-standard-2` | 641 s | 31 GB of 72 GB |
+| `ubicloud-standard-4` | 575 s | 82 GB of 145 GB |
+
+The proof work is effectively serial, so the sixty-six seconds cost a
+doubled per-minute rate for ninety per cent of the minutes. They also reach
+nobody: this job finishes some 230 seconds before `build-test`, which is
+what defines the critical path, so the pull request waits exactly as long
+either way. Disk is not the constraint on either shape; the Kani bundle and
+its pinned nightly toolchain together cost about 1 GB. Raising this shape
+needs a measurement that moves the critical path, not one that moves this
+lane.
 
 Queue time is the other half of the trade, and it is what the paid runner
 buys. Every job above was admitted within 22 to 76 seconds of the run being
