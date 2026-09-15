@@ -71,14 +71,25 @@ def _self_hosted(labels: list[str]) -> bool:
     return any(label not in GITHUB_HOSTED_LABELS for label in labels)
 
 
-def paid_labels(job_definition: dict[str, typ.Any]) -> list[str]:
+# A job that picks its runner from `github.event_name` is billed only for
+# the arm it takes, so the two arms are read separately. Reading the raw
+# `runs-on` instead would see one unrecognized expression string and treat
+# every such job as if it were always paid, which would put the two
+# benchmark lanes below in breach of a rule they keep.
+def _paid_labels(job_definition: dict[str, typ.Any]) -> list[str]:
     """Return the labels a job can bill for, whether fixed or event-selected.
 
-    A job that picks its runner from ``github.event_name`` is billed only
-    for the arm it takes, so the two arms are read separately and only the
-    ones outside GitHub's pool are returned. Reading the raw ``runs-on``
-    instead would see one unrecognized expression string and treat every
-    such job as if it were always paid.
+    Examples
+    --------
+    >>> _paid_labels({"runs-on": "ubuntu-latest"})
+    []
+    >>> _paid_labels(
+    ...     {
+    ...         "runs-on": "${{ github.event_name == 'pull_request'"
+    ...         " && 'ubicloud-standard-2' || 'ubuntu-latest' }}"
+    ...     }
+    ... )
+    ['ubicloud-standard-2']
     """
     selected = event_selected_runners(job_definition)
     labels = list(selected) if selected else runner_labels(job_definition)
@@ -89,7 +100,7 @@ def paid_labels(job_definition: dict[str, typ.Any]) -> list[str]:
 def test_only_approved_jobs_use_a_paid_runner(workflow_name: str) -> None:
     """Fail when any job other than an approved one leaves GitHub hosting."""
     for job_name, definition in jobs(load_workflow(workflow_name)).items():
-        labels = paid_labels(definition)
+        labels = _paid_labels(definition)
         if not labels:
             continue
         expected = PAID_JOBS.get((workflow_name, job_name))
@@ -112,7 +123,7 @@ def test_each_paid_job_keeps_its_current_label(coordinate: tuple[str, str]) -> N
     """
     workflow_name, job_name = coordinate
     label = PAID_JOBS[coordinate]
-    labels = paid_labels(job(workflow_name, job_name))
+    labels = _paid_labels(job(workflow_name, job_name))
     assert labels == [label], (
         f"{workflow_name}:{job_name} must keep {label}, found {labels}"
     )
@@ -148,7 +159,7 @@ def test_jobs_reachable_off_the_feedback_path_stay_github_hosted(
 def test_every_paid_job_bounds_its_runtime(workflow_name: str) -> None:
     """A runaway paid job must hit a timeout rather than burn the budget."""
     for job_name, definition in jobs(load_workflow(workflow_name)).items():
-        if not paid_labels(definition):
+        if not _paid_labels(definition):
             continue
         assert isinstance(definition.get("timeout-minutes"), int), (
             f"{workflow_name}:{job_name} runs on a paid runner and must set "
@@ -168,7 +179,7 @@ def test_actionlint_registers_exactly_the_labels_in_use() -> None:
         label
         for workflow_name in workflow_names()
         for definition in jobs(load_workflow(workflow_name)).values()
-        for label in paid_labels(definition)
+        for label in _paid_labels(definition)
     }
     assert registered == in_use, (
         f"{ACTIONLINT_CONFIG} registers {sorted(registered)} but the "

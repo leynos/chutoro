@@ -199,21 +199,41 @@ EVENT_SELECTED_RUNS_ON = re.compile(
 def event_selected_runners(
     job_definition: dict[str, typ.Any],
 ) -> tuple[str, str] | None:
-    """Return the pull-request and other-event labels of a selected runner.
+    """Return the two runner labels an event-selected ``runs-on`` chooses from.
 
-    Returns ``None`` for a job whose ``runs-on`` names a label outright, so
-    a caller can fall back to :func:`runner_labels`.
+    This parser belongs to the contract package and to nothing else. Its
+    only callers are the placement contracts, which need to judge each arm
+    of the expression separately; a contract asking merely whether a job is
+    paid should keep using :func:`runner_labels`. It answers one question
+    about one expression shape and composes with nothing, so a caller that
+    wants a different selector writes its own parser rather than loosening
+    this one. See "GitHub Actions runner profiles" in
+    docs/developers-guide.md for the policy it serves.
 
-    Examples:
-        >>> event_selected_runners({"runs-on": "ubuntu-latest"}) is None
-        True
-        >>> event_selected_runners(
-        ...     {
-        ...         "runs-on": "${{ github.event_name == 'pull_request'"
-        ...         " && 'ubicloud-standard-2' || 'ubuntu-latest' }}"
-        ...     }
-        ... )
-        ('ubicloud-standard-2', 'ubuntu-latest')
+    Parameters
+    ----------
+    job_definition : dict[str, typing.Any]
+        One job, as parsed from a workflow document.
+
+    Returns
+    -------
+    tuple[str, str] | None
+        The label taken on a pull request and the label taken on every
+        other event, in that order; ``None`` when ``runs-on`` names a
+        label outright, so the caller can fall back to
+        :func:`runner_labels`.
+
+    Examples
+    --------
+    >>> event_selected_runners({"runs-on": "ubuntu-latest"}) is None
+    True
+    >>> event_selected_runners(
+    ...     {
+    ...         "runs-on": "${{ github.event_name == 'pull_request'"
+    ...         " && 'ubicloud-standard-2' || 'ubuntu-latest' }}"
+    ...     }
+    ... )
+    ('ubicloud-standard-2', 'ubuntu-latest')
     """
     runs_on = job_definition.get("runs-on")
     if not isinstance(runs_on, str):
