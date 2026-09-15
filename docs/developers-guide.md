@@ -36,6 +36,17 @@ nobody waits for. `benchmark-smoke` is the same story. The placement contract
 reads both arms of that expression and fails if the non-pull-request arm ever
 names a paid label, so the shape cannot quietly become unconditional.
 
+`event_selected_runners` in `tests/workflow_contracts/workflow_support.py` is
+what reads it, and its boundary is deliberately narrow. It belongs to the
+contract package; its only callers are the placement contracts, which have to
+judge each arm separately. A contract asking merely whether a job is paid
+keeps using `runner_labels`. It recognizes one expression shape, keyed on
+`github.event_name` and nothing else, and it composes with nothing: a future
+selector on a different condition gets its own parser rather than a looser
+pattern here. That narrowness is itself contracted, by a mutation that swaps
+`github.event_name` for `github.ref` inside an otherwise identical expression
+and expects the placement tests to reject it.
+
 It ran on `ubicloud-standard-8` until the shape was measured. On eight cores
 the whole "Run property suite" step, compilation and 250 cases together, took
 21 to 24 seconds across the four suites (run 33852441511), inside jobs of 51 to
