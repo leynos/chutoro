@@ -242,10 +242,10 @@ def _fraction_nanoseconds(duration: str, matched: str, unit: _Unit) -> int:
     A thousandth of an hour does not, because the division there is
     over whole seconds and 3.6 is not one:
 
-    >>> _fraction_nanoseconds("1.001h", "001", _UNITS["h"])
+    >>> _fraction_nanoseconds("1.001h", "001", _UNITS["h"])  # doctest: +ELLIPSIS
     Traceback (most recent call last):
     ...
-    NextestDurationError: unrecognized nextest duration '1.001h': ...
+    nextest_durations.NextestDurationError: unrecognized nextest duration '1.001h': ...
     """
     digits = _digits(matched)
     numerator = int(digits)
