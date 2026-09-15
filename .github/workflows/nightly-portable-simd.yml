@@ -49,9 +49,16 @@ jobs:
           else
             echo "should_run=false" >> "${GITHUB_OUTPUT}"
           fi
+      # Each component needs its own flag. `--component clippy rustfmt`
+      # reads `rustfmt` as a second toolchain name and rustup exits 1, so
+      # this lane has never once run the steps below it: on a day the gate
+      # fires it dies here, and on every other day the gate skips the work
+      # and the run reports success in seconds. See #262.
       - name: Install nightly Rust
         if: ${{ steps.gate.outputs.should_run == 'true' }}
-        run: rustup toolchain install nightly --profile minimal --component clippy rustfmt
+        run: |
+          rustup toolchain install nightly --profile minimal \
+            --component clippy --component rustfmt
       - name: Test dense portable SIMD backend
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: cargo +nightly test -p chutoro-providers-dense --features nightly_portable_simd
