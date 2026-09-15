@@ -42,7 +42,10 @@ jobs:
     # this shape has free. See "Lane wall times before and after the move"
     # in docs/developers-guide.md, and raise this only with a measurement
     # that moves the critical path.
-    runs-on: ubicloud-standard-2
+    # A pull request from a fork cannot obtain an Ubicloud runner, so it
+    # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

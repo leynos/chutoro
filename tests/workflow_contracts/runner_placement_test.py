@@ -27,7 +27,9 @@ import yaml
 from workflow_support import (
     ACTIONLINT_CONFIG,
     GITHUB_HOSTED_LABELS,
-    event_selected_runners,
+    NON_FORK_GUARD,
+    PULL_REQUEST_EVENT_GUARD,
+    conditional_runner,
     is_pull_request_only,
     is_reusable_call,
     job,
@@ -77,7 +79,7 @@ def _self_hosted(labels: list[str]) -> bool:
 # every such job as if it were always paid, which would put the two
 # benchmark lanes below in breach of a rule they keep.
 def _paid_labels(job_definition: dict[str, typ.Any]) -> list[str]:
-    """Return the labels a job can bill for, whether fixed or event-selected.
+    """Return the labels a job can bill for, fixed or conditional.
 
     Examples
     --------
@@ -85,14 +87,18 @@ def _paid_labels(job_definition: dict[str, typ.Any]) -> list[str]:
     []
     >>> _paid_labels(
     ...     {
-    ...         "runs-on": "${{ github.event_name == 'pull_request'"
-    ...         " && 'ubicloud-standard-2' || 'ubuntu-latest' }}"
+    ...         "runs-on": "${{ github.event.pull_request.head.repo.fork"
+    ...         " && 'ubuntu-latest' || 'ubicloud-standard-2' }}"
     ...     }
     ... )
     ['ubicloud-standard-2']
     """
-    selected = event_selected_runners(job_definition)
-    labels = list(selected) if selected else runner_labels(job_definition)
+    selected = conditional_runner(job_definition)
+    labels = (
+        [selected.paid, selected.otherwise]
+        if selected
+        else runner_labels(job_definition)
+    )
     return [label for label in labels if label not in GITHUB_HOSTED_LABELS]
 
 
@@ -140,18 +146,55 @@ def test_jobs_reachable_off_the_feedback_path_stay_github_hosted(
     for job_name, definition in jobs(workflow).items():
         if is_reusable_call(definition) or is_pull_request_only(definition):
             continue
-        selected = event_selected_runners(definition)
+        selected = conditional_runner(definition)
         if selected is not None:
-            _, otherwise = selected
-            assert otherwise in GITHUB_HOSTED_LABELS, (
-                f"{workflow_name}:{job_name} selects {otherwise} for events "
-                "other than a pull request, which a scheduled run would bill"
+            assert PULL_REQUEST_EVENT_GUARD in selected.guards, (
+                f"{workflow_name}:{job_name} can run for a scheduled event "
+                "and chooses a runner, so its condition must include the "
+                f"{PULL_REQUEST_EVENT_GUARD} guard; found "
+                f"{sorted(selected.guards)}"
+            )
+            assert selected.otherwise in GITHUB_HOSTED_LABELS, (
+                f"{workflow_name}:{job_name} falls back to "
+                f"{selected.otherwise}, which a scheduled run would bill"
             )
             continue
         labels = runner_labels(definition)
         assert not _self_hosted(labels), (
             f"{workflow_name}:{job_name} can run for a non-pull-request event, "
             f"so it must stay GitHub-hosted; found {labels}"
+        )
+
+
+@pytest.mark.parametrize("workflow_name", workflow_names())
+def test_paid_pull_request_lanes_fall_back_for_forks(workflow_name: str) -> None:
+    """A fork's pull request cannot obtain an Ubicloud runner at all.
+
+    Without the fallback the lane does not run slowly, it does not run: the
+    job sits unassignable and the pull request never reports. So every paid
+    lane reachable from a ``pull_request`` event has to name the fork test
+    and fall back to GitHub's pool, and the fallback label is checked too,
+    because falling back to another paid label would fix nothing.
+    """
+    workflow = load_workflow(workflow_name)
+    if "pull_request" not in triggers(workflow):
+        return
+    for job_name, definition in jobs(workflow).items():
+        if is_reusable_call(definition) or not _paid_labels(definition):
+            continue
+        selected = conditional_runner(definition)
+        assert selected is not None, (
+            f"{workflow_name}:{job_name} takes a paid runner on a pull "
+            "request with no fork fallback, so a fork's pull request would "
+            "never be assigned a runner"
+        )
+        assert NON_FORK_GUARD in selected.guards, (
+            f"{workflow_name}:{job_name} chooses a runner without the "
+            f"{NON_FORK_GUARD} guard; found {sorted(selected.guards)}"
+        )
+        assert selected.otherwise in GITHUB_HOSTED_LABELS, (
+            f"{workflow_name}:{job_name} falls back to {selected.otherwise}, "
+            "which a fork cannot obtain either"
         )
 
 

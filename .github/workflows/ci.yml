@@ -7,7 +7,10 @@ name: CI
 
 jobs:
   build-test:
-    runs-on: ubicloud-standard-2
+    # A pull request from a fork cannot obtain an Ubicloud runner, so it
+    # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     # Above the 4,200 s cargo watchdog on the coverage step plus the 900 s
     # of work either side of it, and fifteen minutes above that sum rather
     # than equal to it. A ceiling sitting on its requirement cancels the
@@ -189,7 +192,10 @@ jobs:
           installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
 
   verus-proofs:
-    runs-on: ubicloud-standard-2
+    # A pull request from a fork cannot obtain an Ubicloud runner, so it
+    # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 30
     permissions:
       contents: read

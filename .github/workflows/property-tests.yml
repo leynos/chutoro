@@ -26,7 +26,10 @@ jobs:
     # the four suites run in parallel off the critical path that
     # build-test's coverage step defines. Before and after wall times are
     # recorded in the developers guide.
-    runs-on: ubicloud-standard-2
+    # A pull request from a fork cannot obtain an Ubicloud runner, so it
+    # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     # Keep this above the 600-second HNSW idempotency nextest timeout so setup
     # and the earlier property tests do not consume the whole job budget.
     timeout-minutes: 20
