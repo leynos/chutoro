@@ -16,7 +16,7 @@ name: Coverage (main)
 
 jobs:
   coverage-upload:
-    runs-on: ubuntu-latest
+    runs-on: ubicloud-standard-2
     # Above the 4,200 s cargo watchdog on the coverage step plus the 900 s
     # of work either side of it, and fifteen minutes above that sum rather
     # than equal to it. A ceiling sitting on its requirement cancels the

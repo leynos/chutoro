@@ -26,7 +26,10 @@ jobs:
     # the four suites run in parallel off the critical path that
     # build-test's coverage step defines. Before and after wall times are
     # recorded in the developers guide.
-    runs-on: ubicloud-standard-2
+    # A pull request from a fork cannot obtain an Ubicloud runner, so it
+    # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     # Keep this above the 600-second HNSW idempotency nextest timeout so setup
     # and the earlier property tests do not consume the whole job budget.
     timeout-minutes: 20
@@ -50,11 +53,12 @@ jobs:
       # These suites carry no compiler cache. Their whole "Run property
       # suite" step, compilation and 250 cases together, measures 21 to 24
       # seconds on run 33852441511, and they run four ways in parallel well
-      # off the critical path that build-test's 495-second coverage step
-      # defines. Giving them a cache would mean a second owner: their
-      # readers sit on Ubicloud, so only an Ubicloud writer lands in the
-      # store they read, which is a paid job on every merge to save some
-      # ten seconds. Installing sccache without one would be worse still,
+      # off the critical path that build-test's coverage step defines.
+      # Giving them a cache would mean a second owner: coverage-main.yml
+      # owns the one compiler-cache key in this repository and writes only
+      # the shapes build-test reads, so these suites would need either that
+      # writer to compile their shape too or a second key with a writer of
+      # its own. Installing sccache without either would be worse still,
       # leaving a server writing to a local directory nothing ever moves.
       - &setup_rust_step
         name: Setup Rust

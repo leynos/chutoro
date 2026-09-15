@@ -33,7 +33,19 @@ env:
 
 jobs:
   kani:
-    runs-on: ubuntu-latest
+    # Two cores, on measurement rather than on the estate default alone.
+    # Four ran the suite in 575 s against 641 s here, so a doubled rate
+    # buys 66 seconds; and this job finishes some 230 seconds before
+    # build-test, which defines the critical path, so those 66 seconds
+    # reach no contributor. Disk is not the constraint either: the Kani
+    # bundle and its nightly toolchain cost about 1 GB against the 31 GB
+    # this shape has free. See "Lane wall times before and after the move"
+    # in docs/developers-guide.md, and raise this only with a measurement
+    # that moves the critical path.
+    # A pull request from a fork cannot obtain an Ubicloud runner, so it
+    # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -45,5 +57,16 @@ jobs:
           use-sccache: 'false'
       - name: Install Kani
         run: scripts/install-kani.sh
+      # Kani installs a verifier bundle and its own pinned nightly
+      # toolchain, which is the largest thing this job puts on the disk and
+      # the one input a smaller shape could run out of room for. The
+      # reading is taken after the install and again at the end, so a
+      # future shape change is argued from headroom rather than from the
+      # wall time alone.
+      - name: Record disk headroom after the Kani install
+        run: df -h .
       - name: Run Kani practical suite
         run: make kani
+      - name: Record disk headroom after the suite
+        if: ${{ always() }}
+        run: df -h .

@@ -135,9 +135,15 @@ verus: ## Run Verus proofs for edge harvest primitives
 bench: ## Run Criterion benchmarks
 	$(CARGO) bench -p chutoro-benches
 
+# `--doctest-modules` is what makes the documented examples load-bearing.
+# The support modules carry their examples as doctests, but nothing ran
+# them, so `_fraction_nanoseconds` had shipped an example that does not
+# produce what it claims. An example nobody executes is a comment that
+# looks like evidence.
 test-workflow-contracts: ## Validate the CI workflow contracts
 	uv run --with 'pytest>=8' --with 'pyyaml>=6' --with 'pathspec>=0.12' \
-		--with 'hypothesis>=6' pytest tests/workflow_contracts -q
+		--with 'hypothesis>=6' pytest tests/workflow_contracts \
+		--doctest-modules -q
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
