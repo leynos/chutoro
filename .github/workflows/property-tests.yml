@@ -50,11 +50,12 @@ jobs:
       # These suites carry no compiler cache. Their whole "Run property
       # suite" step, compilation and 250 cases together, measures 21 to 24
       # seconds on run 33852441511, and they run four ways in parallel well
-      # off the critical path that build-test's 495-second coverage step
-      # defines. Giving them a cache would mean a second owner: their
-      # readers sit on Ubicloud, so only an Ubicloud writer lands in the
-      # store they read, which is a paid job on every merge to save some
-      # ten seconds. Installing sccache without one would be worse still,
+      # off the critical path that build-test's coverage step defines.
+      # Giving them a cache would mean a second owner: coverage-main.yml
+      # owns the one compiler-cache key in this repository and writes only
+      # the shapes build-test reads, so these suites would need either that
+      # writer to compile their shape too or a second key with a writer of
+      # its own. Installing sccache without either would be worse still,
       # leaving a server writing to a local directory nothing ever moves.
       - &setup_rust_step
         name: Setup Rust
