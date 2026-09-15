@@ -8,6 +8,7 @@ cache path) live here rather than being restated in each module.
 
 from __future__ import annotations
 
+import re
 import typing as typ
 from pathlib import Path
 
@@ -179,6 +180,48 @@ def runner_labels(job_definition: dict[str, typ.Any]) -> list[str]:
     if isinstance(runs_on, list):
         return [label for label in runs_on if isinstance(label, str)]
     return []
+
+
+#: A ``runs-on`` that picks its runner from the event, written as
+#: ``${{ github.event_name == 'pull_request' && '<paid>' || '<hosted>' }}``.
+#: A job that serves both a pull request and a cron needs this to take a paid
+#: runner on the feedback path without billing the scheduled run, and the
+#: placement contract has to read both arms to say so. The pattern is
+#: deliberately exact: a looser one would accept an expression that selects on
+#: something else entirely and report its arms as if the event chose them.
+EVENT_SELECTED_RUNS_ON = re.compile(
+    r"^\$\{\{\s*github\.event_name\s*==\s*'pull_request'\s*"
+    r"&&\s*'(?P<pull_request>[^']+)'\s*"
+    r"\|\|\s*'(?P<otherwise>[^']+)'\s*\}\}$"
+)
+
+
+def event_selected_runners(
+    job_definition: dict[str, typ.Any],
+) -> tuple[str, str] | None:
+    """Return the pull-request and other-event labels of a selected runner.
+
+    Returns ``None`` for a job whose ``runs-on`` names a label outright, so
+    a caller can fall back to :func:`runner_labels`.
+
+    Examples:
+        >>> event_selected_runners({"runs-on": "ubuntu-latest"}) is None
+        True
+        >>> event_selected_runners(
+        ...     {
+        ...         "runs-on": "${{ github.event_name == 'pull_request'"
+        ...         " && 'ubicloud-standard-2' || 'ubuntu-latest' }}"
+        ...     }
+        ... )
+        ('ubicloud-standard-2', 'ubuntu-latest')
+    """
+    runs_on = job_definition.get("runs-on")
+    if not isinstance(runs_on, str):
+        return None
+    match = EVENT_SELECTED_RUNS_ON.match(runs_on.strip())
+    if match is None:
+        return None
+    return match.group("pull_request"), match.group("otherwise")
 
 
 def is_reusable_call(job_definition: dict[str, typ.Any]) -> bool:

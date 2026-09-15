@@ -6,11 +6,35 @@ keeps operational guidance in one place.
 
 ## GitHub Actions runner profiles
 
-Exactly one job runs on a paid runner: `property-tests-pr`, on
-`ubicloud-standard-2`. It sits on the developer feedback path, where GitHub's
-queue can stretch to hours during busy periods, which is what the paid queue
-buys; the core count is a separate question, and was answered by measurement
-rather than by the suites' names.
+Every job on the developer feedback path runs on a paid Ubicloud runner, at
+`ubicloud-standard-2`: `build-test` and `verus-proofs` in `ci.yml`, `kani` in
+`kani-pr.yml`, `coverage-upload` in `coverage-main.yml`, `property-tests-pr`,
+and the two pull-request benchmark lanes. What the paid queue buys is
+admission: GitHub's own queue can stretch to hours during busy periods, and
+every one of these jobs stands between a contributor and a merge. The core
+count is a separate question, and was answered by measurement rather than by
+the jobs' names.
+
+`coverage-upload` runs on `push` to `main` rather than on a pull request, and
+moved with the others because it is the sole writer of the compiler-cache key
+`build-test` reads. That key carries `runner.environment`, so a writer left on
+GitHub's runners would fill a store its readers cannot see. See "Compiler
+cache ownership" below.
+
+Two of the paid jobs also serve a weekly cron, and neither pays for it. They
+select the label from the event:
+
+```yaml
+runs-on: >-
+  ${{ github.event_name == 'pull_request'
+      && 'ubicloud-standard-2' || 'ubuntu-latest' }}
+```
+
+`benchmark-policy` gates the pull-request benchmark lanes, so a contributor
+waits behind it; on the schedule it gates `benchmark-baseline-compare`, which
+nobody waits for. `benchmark-smoke` is the same story. The placement contract
+reads both arms of that expression and fails if the non-pull-request arm ever
+names a paid label, so the shape cannot quietly become unconditional.
 
 It ran on `ubicloud-standard-8` until the shape was measured. On eight cores
 the whole "Run property suite" step, compilation and 250 cases together, took
@@ -57,11 +81,16 @@ that keeps it that way is deliberate rather than incidental:
 > (API) bound jobs never run on a paid runner.
 
 Those jobs are off the feedback path, so a shorter queue buys them nothing,
-while their long runtimes would dominate the bill. `property-tests-weekly`
-runs 25,000 forked cases per suite and `nightly-kani` can run for two hours;
-neither blocks a pull request. Externally owned reusable workflows
-(`mutation-testing.yml`, `dependabot-automerge.yml`) keep their callee's
-runner selection.
+their long runtimes would dominate the bill, and GitHub's Linux minutes are
+free on a public repository. `property-tests-weekly` runs 25,000 forked cases
+per suite and `nightly-kani` can run for two hours; neither blocks a pull
+request. Externally owned reusable workflows (`mutation-testing.yml`,
+`dependabot-automerge.yml`) keep their callee's runner selection.
+
+A `push` or `workflow_dispatch` trigger does not put a job on the wrong side
+of that rule. A dispatch is a manual re-run of a lane that already runs paid,
+and the only `push` lane here is the cache writer described above.
+`OFF_PATH_EVENTS` in the placement contract is therefore `schedule` alone.
 
 `.github/actionlint.yaml` registers every label outside GitHub's hosted pool.
 It must list exactly the labels the workflows use: an unregistered label fails
@@ -74,13 +103,14 @@ Table: Every workflow job, the runner it uses, and what it does.
 
 | Workflow | Job | Runner | Purpose |
 | --- | --- | --- | --- |
-| `benchmark-regressions.yml` | `benchmark-policy` | `ubuntu-latest` | Resolve the benchmark mode and matrix |
-| `benchmark-regressions.yml` | `benchmark-smoke` | `ubuntu-latest` | Criterion discovery smoke check |
+| `benchmark-regressions.yml` | `benchmark-policy` | `ubicloud-standard-2` on a pull request, `ubuntu-latest` otherwise | Resolve the benchmark mode and matrix |
+| `benchmark-regressions.yml` | `benchmark-smoke` | `ubicloud-standard-2` on a pull request, `ubuntu-latest` otherwise | Criterion discovery smoke check |
 | `benchmark-regressions.yml` | `benchmark-baseline-compare` | `ubuntu-latest` | Compare against the previous commit |
-| `ci.yml` | `build-test` | `ubuntu-latest` | Format, lint, spelling, contracts, coverage |
-| `ci.yml` | `verus-proofs` | `ubuntu-latest` | Verus edge-harvest proofs |
-| `coverage-main.yml` | `coverage-upload` | `ubuntu-latest` | Upload trunk coverage and advance the ratchet |
+| `ci.yml` | `build-test` | `ubicloud-standard-2` | Format, lint, spelling, contracts, coverage |
+| `ci.yml` | `verus-proofs` | `ubicloud-standard-2` | Verus edge-harvest proofs |
+| `coverage-main.yml` | `coverage-upload` | `ubicloud-standard-2` | Upload trunk coverage and advance the ratchet |
 | `dependabot-automerge.yml` | `automerge` | callee-selected | Reusable workflow, API-bound |
+| `kani-pr.yml` | `kani` | `ubicloud-standard-2` | Kani practical harnesses |
 | `mutation-testing.yml` | `mutation` | callee-selected | Reusable workflow, scheduled |
 | `nightly-kani.yml` | `kani-full` | `ubuntu-latest` | Full Kani harness suite |
 | `nightly-portable-simd.yml` | `nightly-portable-simd` | `ubuntu-latest` | Nightly portable-SIMD backend |
