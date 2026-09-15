@@ -1,6 +1,6 @@
 //! Harvested-output property checks for candidate edge harvesting.
 
-use proptest::test_runner::{TestCaseError, TestCaseResult, TestRunner};
+use proptest::test_runner::{Config as ProptestConfig, TestCaseError, TestCaseResult, TestRunner};
 
 use super::super::graph_metrics::{
     compute_node_degrees, compute_rnn_score, count_connected_components,
@@ -97,8 +97,28 @@ fn min_rnn_delta_for_topology(topology: GraphTopology) -> f64 {
 }
 
 /// Runs the harvested-output suite for a specific topology.
+///
+/// This suite does not fork, whatever `CHUTORO_PBT_FORK` asks for, and the
+/// reason is structural rather than a preference. Every case pushes its
+/// metrics into `metrics` below, and the assertions afterwards are over the
+/// whole collection: a median RNN delta and a percentage of connected cases
+/// that stayed connected. proptest's fork runs the cases in a child
+/// process and brings back only the outcome of each one, so those pushes
+/// would land in the child and the parent would assert over an empty
+/// vector.
+///
+/// It also cannot simply keep the profile's setting and supply a
+/// `test_name`. Forking without one aborts before the first case, which is
+/// what the weekly lane did for months (#260). Forking with one would run
+/// the cases, and then fail the count check below at zero, reporting a
+/// suite that found nothing rather than one that was misconfigured.
+/// Fork exists to survive a case that crashes the process; a suite that
+/// reasons across its cases is asking for the opposite.
 pub(super) fn run_harvested_output_suite_for_topology(topology: GraphTopology) -> TestCaseResult {
-    let config = suite_proptest_config(HARVEST_CASES_PER_TOPOLOGY);
+    let config = ProptestConfig {
+        fork: false,
+        ..suite_proptest_config(HARVEST_CASES_PER_TOPOLOGY)
+    };
     let cases = config.cases as usize;
     let mut runner = TestRunner::new(config);
     let strategy = graph_fixture_strategy_for_topology(topology);
