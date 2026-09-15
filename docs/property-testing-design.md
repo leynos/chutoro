@@ -816,6 +816,50 @@ power of PBT to find deep, rare bugs is realized.
         failure, ensuring that the team is promptly alerted to any regressions
         discovered by the deep analysis.
 
+#### 5.2.1. What forking actually requires (2026-09-15)
+
+`fork: true` was configured as above and the weekly lane ran no cases at all
+for months. proptest re-executes the test binary to run the cases in a child
+process and selects the child's test with libtest's `--exact`, so it needs
+`Config::test_name` to hold that test's own path. Suites written with the
+`proptest!` macro get one for free, because the macro derives it from the
+function it is generating. The four suites here that build a `TestRunner` by
+hand did not, and proptest refuses to fork without one: each panicked in six
+to seven milliseconds before drawing a case. Run 34744512753 stopped the
+`edge_harvest` leg at seven of forty-two tests. See issue #260.
+
+Two remedies apply, and which one is right depends on whether the suite
+reasons about a single case or about the whole run.
+
+- **Supply the path.** The HNSW mutation and search suites assert per case,
+  so a child process is exactly the isolation forking is for. They now take
+  their own libtest path from the `forked_proptest!` macro in
+  `chutoro-core/src/hnsw/tests/property/tests.rs`, which derives it from the
+  generated function's identifier. A handwritten string would survive a
+  rename and send the child to select a test that no longer exists, and a
+  child that selects nothing reports nothing.
+
+- **Refuse to fork.** The harvested-output suite collects one metrics record
+  per case and then asserts over the collection, taking a median RNN delta
+  and a percentage of connected cases that stayed connected. Those pushes
+  would land in the child, and the parent would assert over an empty vector.
+  It pins `fork: false` regardless of what the profile asks for, with the
+  reason recorded at the function. Forking there would convert a loud abort
+  into a wrong answer.
+
+The HNSW idempotency suite already pinned `fork: false`, for cost rather than
+correctness; it now carries a path as well, so that re-enabling forking
+cannot reintroduce the defect.
+
+`a_forked_run_executes_at_least_one_case` in
+`chutoro-core/src/hnsw/tests/property/test_runner_support/runner_wrappers_tests.rs`
+holds the whole mechanism up. It forks a property that fails on every input
+and requires the parent to see that failure's own message, which it can only
+do if a child drew a case and ran it. A missing path panics; a path naming no
+real test aborts with proptest's own "no case started" reason. Both are
+reported by name, so a regression here says which it was instead of leaving a
+panic in a log nobody reads.
+
 ### 5.3. YAML configuration blueprints
 
 The following provides skeleton YAML configurations for the two GitHub Actions
