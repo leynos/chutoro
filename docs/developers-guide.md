@@ -97,6 +97,40 @@ It must list exactly the labels the workflows use: an unregistered label fails
 actionlint, and a registered but unused label hides a runner assignment that
 has already been retired.
 
+### Lane wall times before and after the move
+
+Table: each moved lane, its GitHub-hosted median on four cores and its first
+`ubicloud-standard-2` run, from pull request #263 (runs 34962285685,
+34962285766 and 34962285803, 2026-09-15).
+
+| Lane | GitHub-hosted, 4 cores | Ubicloud, 2 cores, cold |
+| --- | --- | --- |
+| `build-test` | 438 s | 796 s |
+| `verus-proofs` | 24 s | 31 s |
+| `kani` | 630 s | 641 s |
+| `benchmark-policy` | 33 s | 46 s |
+| `benchmark-smoke`, median of five | 154 s | 177 s |
+
+`build-test` is the one that grew, and the cold compiler cache is most of
+it. The key carries `runner.environment`, which is `self-hosted` on
+Ubicloud, so the first run there read an empty store: 3,309 compile
+requests, 108 hits, a 0.00 % hit rate on Rust, and 1.1 GB written. Zero read
+errors and zero write errors, with `Cache location` reading the workspace
+directory, so the local-disk arm works unchanged on Ubicloud. The warm
+number arrives once `coverage-upload` writes that key from the first merge
+to `main`.
+
+`kani` is the surprise and the reason it sits on two cores rather than
+four: 641 seconds against a 630-second hosted median. The proof work is
+effectively serial, so halving the cores cost eleven seconds. No larger
+shape is justified, and a pull request proposing one needs a wall time that
+says otherwise.
+
+Queue time is the other half of the trade, and it is what the paid runner
+buys. Every job above was admitted within 22 to 76 seconds of the run being
+created; `kani` alone had waited 47 seconds on GitHub's queue on a quiet
+day, and that queue reaches hours when the account is busy.
+
 ### Job inventory
 
 Table: Every workflow job, the runner it uses, and what it does.
