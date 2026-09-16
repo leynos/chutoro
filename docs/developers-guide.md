@@ -997,6 +997,67 @@ refuses is what `humantime` refuses, checked the same way: a point with no
 whole part before it or no digit after it, two points, a signed value, a digit
 separator, and any other number carrying no unit.
 
+Whitespace is written out rather than abbreviated, and this is the one place
+the obvious Python spelling is wrong. `humantime` skips on Rust's
+`char::is_whitespace`, which is the Unicode White_Space property. Python's `\s`,
+`str.strip` and `str.split` are that property plus U+001C to U+001F, the file,
+group, record and unit separators, and nothing else. A reader spelling the class
+`\s` therefore reads `1\x1cs` as one second and `\x1c45m` as forty-five
+minutes, both of which nextest refuses at startup, which is the
+accept-what-the-runner-refuses direction this reader exists to avoid. The class
+is therefore listed character by character and used at every site: the two
+regular-expression patterns, the trim, and the digit join.
+
+Two contracts hold it. One refuses the four separators by name, with the
+separator between two digits as a case of its own because that is the shape
+nobody would notice: `str.split` removes it silently and `1\x1d0s` becomes ten
+seconds. The other pins the class itself in both directions, asserting that
+Python's whitespace exceeds this reader's by exactly those four characters and
+that this reader's exceeds Python's by nothing, measured over the first 0x11000
+code points, so a change in either language's notion of whitespace fails there
+rather than in a runner. The digit join is unreachable through the reader while
+the pattern refuses a separator, so it is driven directly; it is written with
+the reader's own class anyway, so that a later widening of the pattern cannot
+turn a refusal into a silently different number.
+
+Digits are enumerated for the same reason. Python's `\d` matches every Unicode
+decimal digit and `humantime` matches `'0'..='9'`, so a `\d` reader converts
+`\u0665s` and `1\u0660s` and nextest refuses both at startup. That class is
+pinned in both directions too.
+
+The 64-bit range is the third family. `humantime` accumulates in `u64` and
+checks every multiplication and every addition; Python's integers are
+unbounded, so each of those steps passes through an explicit check here.
+Without it the reader converts fourteen of the differential's inputs that
+nextest refuses, and the numbers it invents are enormous and plausible rather
+than obviously wrong. The fraction's denominator is checked as well, which is
+the least obvious of them: it is a power of ten built one digit at a time, so a
+fraction of twenty digits overflows where one of nineteen does not, whatever
+the digits are.
+
+The total is a pair of whole seconds and nanoseconds, not one count of
+nanoseconds, because that is what `humantime` keeps and the two are not the
+same claim. `18446744073709551615ns` twice over is about 1,169 years, nowhere
+near the seconds ceiling, and `humantime` refuses it because the second value
+overflows the nanosecond accumulator before anything is carried.
+
+The parts are added and carried as they are read, in `humantime`'s order.
+Exactly one input separates that from summing the parts and carrying once:
+`18446744073709551615ns 1ns`, which is accepted only in `humantime`'s order,
+because the first part carries out of the nanosecond accumulator immediately
+and leaves room for the second. It is named in the contracts, or the order
+would be unasserted.
+
+The carry is written once, on `>=`. `humantime` carries in two places, its
+parser on a strict `>` and `Duration::new` on `>=`, and between them they are
+one live branch: a nanosecond part of exactly one second survives the first and
+is carried by the second. Writing both leaves a branch nothing can reach, and
+an unfalsifiable guard is worse than none, so only the `>=` is here. It is what
+refuses `18446744073709551615s 500ms 500ms`.
+
+Measured against humantime 2.3.0 over the seventy-one recorded inputs, the
+reader disagreed on twenty-two before this work and none after it.
+
 The fractional arithmetic is `humantime`'s own, ported rather than
 approximated. It carries a fraction as a numerator over a power of ten and
 divides with a remainder check, so a fraction that is not a whole step of its

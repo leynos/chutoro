@@ -13,8 +13,16 @@ explicitly, so the case can only be driven with a configuration written
 for it.
 """
 
+import re
+
 import pytest
-from nextest_durations import NextestDurationError, _seconds
+from nextest_durations import (
+    _DIGIT_CHARS,
+    _SPACE_CHARS,
+    NextestDurationError,
+    _digits,
+    _seconds,
+)
 from timeout_budgets import (
     TerminateAfterError,
     UnboundedTestError,
@@ -34,6 +42,7 @@ from timeout_budgets import (
         pytest.param("1h 0m 30s", 3630.0, id="three-terms"),
         pytest.param("1.5m", 90.0, id="a-fractional-value"),
         pytest.param("0.5s", 0.5, id="a-fraction-below-one"),
+        pytest.param("0.5s 0.5s", 1.0, id="two-halves-summing-to-a-whole-second"),
         pytest.param("1 . 5 m", 90.0, id="a-fraction-spaced-around-the-point"),
         pytest.param("1wk", 604800.0, id="the-abbreviated-week"),
         pytest.param("2wks", 1209600.0, id="the-abbreviated-plural-week"),
@@ -121,6 +130,209 @@ def test_a_duration_humantime_would_refuse_is_refused(duration: str) -> None:
     """
     with pytest.raises(NextestDurationError):
         _seconds(duration)
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [
+        pytest.param("1\x1cs", id="a-file-separator-inside-a-number"),
+        pytest.param("\x1c45m", id="a-file-separator-leading"),
+        pytest.param("45m\x1f", id="a-unit-separator-trailing"),
+        pytest.param("1\x1d0s", id="a-group-separator-between-digits"),
+    ],
+)
+def test_c0_separators_are_not_whitespace_and_are_refused(duration: str) -> None:
+    """Python calls U+001C to U+001F whitespace; humantime does not.
+
+    Rust's `char::is_whitespace` is the Unicode White_Space property,
+    which excludes the file, group, record and unit separators. Python's
+    `\\s`, `str.strip` and `str.split` all include them, so a reader
+    written the obvious way reads the first of these as one second and
+    the second as forty-five minutes, and reports a budget for a
+    configuration nextest refuses at startup.
+
+    The last is the one nobody would notice: a separator between two
+    digits of an ordinary number, which `str.split` silently removes.
+    """
+    with pytest.raises(NextestDurationError):
+        _seconds(duration)
+
+
+def test_the_whitespace_class_is_rusts_own() -> None:
+    """The class is the Unicode White_Space property, and nothing more.
+
+    Pins the reasoning rather than the consequence. The four separators
+    the previous test refuses are refused because they are absent from
+    this set, and this asserts both directions of that: Python's `\\s`
+    exceeds the set by exactly those four, and the set exceeds `\\s` by
+    nothing. If either language's notion of whitespace moves, this fails
+    here rather than in a runner.
+    """
+    ours = set(_SPACE_CHARS)
+    pythons = {c for c in map(chr, range(0x11000)) if re.fullmatch(r"\s", c)}
+    assert pythons - ours == set("\x1c\x1d\x1e\x1f"), (
+        "Python's whitespace must exceed humantime's by exactly the four "
+        f"C0 separators, exceeds it by {sorted(pythons - ours)!r}"
+    )
+    assert not ours - pythons, (
+        "every character this reader treats as whitespace must be one "
+        f"Python agrees is whitespace, {sorted(ours - pythons)!r} are not"
+    )
+
+
+def test_the_digit_join_removes_only_what_the_pattern_tolerated() -> None:
+    """Driven directly, because the reader cannot reach this case.
+
+    The pattern refuses a separator between two digits, so the join
+    never sees one while the two agree. It is written with the reader's
+    own class rather than `str.split` so that a later widening of the
+    pattern cannot turn a refusal into a silently different number, and
+    that property has to be asserted where it can be: here.
+    """
+    assert _digits("1 0") == "10", (
+        "an ordinary space is whitespace to humantime, so the join must "
+        "remove it and read the digits as one number"
+    )
+    assert _digits("1\u20080") == "10", (
+        "U+2008 is in the Unicode White_Space property, so humantime skips "
+        "it and the join must remove it too"
+    )
+    assert _digits("1\x1d0") == "1\x1d0", (
+        "U+001D is not whitespace to humantime, so the join must leave it "
+        "in place; removing it is what `str.split` would do and is what "
+        "turns a duration the runner refuses into ten seconds"
+    )
+
+
+def test_the_digit_class_is_humantimes_own() -> None:
+    """The class is `0` to `9`, and nothing more.
+
+    Pins the reasoning rather than the consequence, as the whitespace
+    contract does. Python's `\\d` is every Unicode decimal digit;
+    humantime matches `'0'..='9'`. Asserting both directions means a
+    change in either language's notion of a digit fails here rather
+    than in a runner.
+    """
+    ours = set(_DIGIT_CHARS)
+    pythons = {c for c in map(chr, range(0x11000)) if re.fullmatch(r"\d", c)}
+    assert ours == set("0123456789"), (
+        f"humantime reads the ASCII digits and nothing else, {sorted(ours)!r}"
+    )
+    assert ours < pythons, (
+        "Python's digits must be a strict superset of humantime's; this "
+        f"reader treats {sorted(ours - pythons)!r} as digits Python does not"
+    )
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [
+        pytest.param("\u0665s", id="an-arabic-indic-numeral"),
+        pytest.param("\u096ams", id="a-devanagari-numeral"),
+        pytest.param("1\u0660s", id="an-arabic-indic-numeral-inside-a-number"),
+        pytest.param("1.\u0665s", id="an-arabic-indic-numeral-in-a-fraction"),
+    ],
+)
+def test_non_ascii_digits_are_refused(duration: str) -> None:
+    """Python calls these digits; humantime does not.
+
+    A `\\d` reader converts all four and nextest refuses all four at
+    startup. The third is the shape nobody would notice in a file: an
+    ASCII digit followed by an Arabic-Indic one, which reads as ten.
+    """
+    with pytest.raises(NextestDurationError):
+        _seconds(duration)
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [
+        pytest.param("18446744073709551616s", id="seconds-past-the-ceiling"),
+        pytest.param("307445734561825861m", id="a-product-past-the-ceiling"),
+        pytest.param("584542046091y", id="a-year-product-past-the-ceiling"),
+        pytest.param("18446744073709551615s 1s", id="a-sum-past-the-ceiling"),
+        pytest.param(
+            "1.00000000000000000000s", id="a-fraction-denominator-past-the-ceiling"
+        ),
+    ],
+)
+def test_values_beyond_64_bits_are_refused(duration: str) -> None:
+    """humantime accumulates in `u64` and checks every step; Python does not.
+
+    Its parser checks each multiplication and each addition, so a value
+    that leaves the range is an error there and not a large number. A
+    reader on Python's unbounded integers accepts all of these and
+    reports budgets nextest refuses at startup, and the numbers it
+    invents are enormous and plausible rather than obviously wrong.
+
+    The denominator is checked too, and is the least obvious of these:
+    it is a power of ten built one digit at a time, so a fraction of
+    twenty digits overflows where one of nineteen does not, whatever
+    the digits are.
+    """
+    with pytest.raises(NextestDurationError):
+        _seconds(duration)
+
+
+def test_a_nineteen_digit_fraction_is_still_read() -> None:
+    """The denominator check is a ceiling, not a ban on long fractions.
+
+    Without this the range contract above would pass just as well
+    against a reader that refused every fraction over some shorter
+    length, or every fraction at all.
+    """
+    assert _seconds("1.0000000000000000000s") == pytest.approx(1.0), (
+        "nineteen fractional digits give a denominator of 10^19, which fits "
+        "in u64, so humantime reads this as one second and so must this"
+    )
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [
+        pytest.param(
+            "18446744073709551615ns 18446744073709551615ns",
+            id="two-nanosecond-parts-overflowing-their-accumulator",
+        ),
+        pytest.param("18446744073709551615s 500ms 500ms", id="a-carry-past-the-ceiling"),
+        pytest.param("18446744073709551615s 1000ms", id="a-whole-carry-past-the-ceiling"),
+    ],
+)
+def test_a_carry_out_of_the_nanosecond_part_is_checked(duration: str) -> None:
+    """humantime keeps seconds and nanoseconds apart, and carries between them.
+
+    A reader accumulating one count of nanoseconds accepts the first of
+    these: two maximal nanosecond values are about 1,169 years, nowhere
+    near the seconds ceiling. humantime refuses it because the second
+    value overflows the nanosecond accumulator before anything is
+    carried. The other two overflow on the carry itself, which is why
+    the carry is checked and not only the parts.
+    """
+    with pytest.raises(NextestDurationError):
+        _seconds(duration)
+
+
+def test_the_parts_are_summed_in_humantimes_order() -> None:
+    """One input separates the two orders, and this is it.
+
+    `18446744073709551615ns 1ns` is accepted only when each part is
+    added and carried as it is read, which is what humantime does: the
+    first part carries out of the nanosecond accumulator into seconds
+    immediately, leaving room for the second. Summing the parts first
+    and carrying once overflows the nanosecond accumulator and refuses
+    it. Without this case the order is unasserted and either reader
+    passes every other input.
+    """
+    # 18446744073709551616 nanoseconds, which humantime reports as
+    # 18446744073 seconds and 709551616 nanoseconds. Written as the pair
+    # rather than as a decimal, so the expectation is the carry itself.
+    assert _seconds("18446744073709551615ns 1ns") == pytest.approx(
+        18446744073 + 709551616 / 1_000_000_000
+    ), (
+        "the first part must carry into seconds as it is read, leaving the "
+        "nanosecond accumulator room for the second; summing the parts first "
+        "overflows it and refuses a duration humantime accepts"
+    )
 
 
 @pytest.mark.parametrize(
