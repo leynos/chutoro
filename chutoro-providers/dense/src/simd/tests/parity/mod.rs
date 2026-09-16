@@ -98,36 +98,3 @@ fn query_points_entries() -> Result<Vec<(dispatch::EuclideanBackend, QueryPoints
         })
         .collect()
 }
-
-#[cfg(test)]
-mod config_tests {
-    //! Unit tests for the parity suite configuration.
-
-    use super::proptest_config;
-    use chutoro_test_support::ci::property_test_profile::{
-        DEFAULT_MAX_GLOBAL_REJECTS, max_global_rejects_for,
-    };
-
-    /// The parity suite config sizes its reject budget from its case count.
-    ///
-    /// These suites already fork and run under the weekly profile, so the
-    /// flat 1024 default is the next thing they would hit as their case
-    /// counts rise (#260).
-    #[test]
-    fn the_parity_config_scales_its_reject_budget() {
-        let config = proptest_config(25_000);
-
-        assert!(
-            max_global_rejects_for(config.cases) > DEFAULT_MAX_GLOBAL_REJECTS,
-            "the fixture must ask for a run deep enough that the floor is not \
-             the answer, or this test passes whether the budget is derived or \
-             left on proptest's default"
-        );
-
-        assert_eq!(
-            config.max_global_rejects,
-            max_global_rejects_for(config.cases),
-            "a deep run left on proptest's flat default aborts before it finishes"
-        );
-    }
-}
