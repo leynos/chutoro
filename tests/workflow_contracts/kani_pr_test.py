@@ -283,3 +283,87 @@ def test_gating_step_runs_the_practical_suite(workflow: dict[str, object]) -> No
     assert any(run.strip() == "make kani" for run in run_steps), (
         f"a step must run 'make kani' as the gating command, got {run_steps!r}"
     )
+
+
+#: The disk reading itself. The contract matches the command rather than the
+#: step's name, so renaming a step leaves it pinned and deleting the command
+#: while keeping the step fails.
+DISK_READING = "df -h ."
+
+
+def _run_commands(workflow: dict[str, object]) -> list[str]:
+    """Return every step's `run` script, in the order the job executes them."""
+    return [
+        step["run"].strip()
+        for step in _steps(workflow)
+        if isinstance(step.get("run"), str)
+    ]
+
+
+def _index_of(commands: list[str], command: str) -> int:
+    """Return the position of the one step running `command`."""
+    matches = [index for index, run in enumerate(commands) if run == command]
+    assert len(matches) == 1, (
+        f"expected exactly one step running {command!r}, found {len(matches)} "
+        f"in {commands!r}"
+    )
+    return matches[0]
+
+
+def test_disk_headroom_is_read_around_the_suite(workflow: dict[str, object]) -> None:
+    """Headroom is measured after the Kani install and again after the suite.
+
+    The shape of this job is argued from headroom as well as wall time: the
+    verifier bundle and its pinned nightly toolchain are the largest things it
+    puts on the disk, and they are what a smaller runner could run out of room
+    for. One reading either side of the suite is what makes that argument
+    checkable, so the ordering is pinned rather than merely the presence of a
+    `df`.
+    """
+    commands = _run_commands(workflow)
+    readings = [index for index, run in enumerate(commands) if run == DISK_READING]
+    assert len(readings) == 2, (
+        f"expected two {DISK_READING!r} steps, one after the Kani install and "
+        f"one after the suite, found {len(readings)} in {commands!r}"
+    )
+
+    install = _index_of(commands, "scripts/install-kani.sh")
+    suite = _index_of(commands, "make kani")
+    after_install, after_suite = readings
+
+    assert install < after_install < suite, (
+        f"the first {DISK_READING!r} must fall between the Kani install at "
+        f"{install} and the suite at {suite}, so it measures what the install "
+        f"cost; it is at {after_install}"
+    )
+    assert suite < after_suite, (
+        f"the second {DISK_READING!r} must follow the suite at {suite} so it "
+        f"measures what the run cost; it is at {after_suite}"
+    )
+
+
+def test_the_closing_disk_reading_survives_a_failed_suite(
+    workflow: dict[str, object],
+) -> None:
+    """The reading after the suite runs even when the suite fails.
+
+    A verifier that exhausts the disk fails `make kani`, which is precisely
+    the run whose headroom is worth knowing. Without `always()` the step is
+    skipped on exactly that run and the measurement is missing when it
+    matters most.
+    """
+    steps = _steps(workflow)
+    readings = [
+        step
+        for step in steps
+        if isinstance(step.get("run"), str) and step["run"].strip() == DISK_READING
+    ]
+    assert len(readings) == 2, (
+        f"expected two {DISK_READING!r} steps, found {len(readings)}"
+    )
+
+    condition = readings[-1].get("if")
+    assert isinstance(condition, str) and "always()" in condition, (
+        "the disk reading after the suite must carry an always() condition so "
+        f"a failed suite still reports its headroom, got {condition!r}"
+    )

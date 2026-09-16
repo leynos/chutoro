@@ -759,7 +759,10 @@ A fork's pull request cannot obtain an Ubicloud runner, so the PR suite's
 runner is selected from the event rather than named outright. The failure
 without the fallback is not a slow lane but an unassignable job: it waits
 forever and the pull request never reports. Every paid lane in this repository
-carries the same expression, and the blueprints below show it:
+carries the same fork-fallback rule, in the form the pull-request lanes use
+and shown in the blueprints below. A lane that also serves a schedule composes
+that rule with an event guard, so its expression is longer while the rule is
+the same:
 
 ```yaml
 runs-on: >-

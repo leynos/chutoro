@@ -805,6 +805,16 @@ as properties over generated configurations, not only against the values this
 repository happens to hold. The `build-test` job runs the same target, so a
 contract that passes here passes there.
 
+The target runs pytest with `--doctest-modules`, so every example in a
+docstring under `tests/workflow_contracts/` is executed as a test. That is not
+decoration. The support modules write their examples as doctests and nothing
+ran them, so `_fraction_nanoseconds` in `nextest_durations.py` had been
+shipping an example that does not produce what it claims. An example nobody
+executes is a comment that looks like evidence. Collection goes from 332 tests
+to 346 with the flag, and a new example is a new test the moment it is
+written, which is also why an example that cannot be made to pass belongs in
+prose rather than in a docstring.
+
 Reading the workflow files happens at one boundary,
 `workflow_support.all_workflow_documents`, and the derivations above it take
 their documents as a parameter. That is what lets a case this repository does
