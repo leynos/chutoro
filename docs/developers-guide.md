@@ -30,7 +30,7 @@ case alone:
 ```yaml
 runs-on: >-
   ${{ github.event.pull_request.head.repo.fork
-      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+  && 'ubuntu-latest' || 'ubicloud-standard-2' }}
 ```
 
 Two of the paid jobs also serve a weekly cron, and neither pays for it, so they
@@ -40,9 +40,20 @@ taken when the lane is a pull request and its head is not a fork:
 ```yaml
 runs-on: >-
   ${{ github.event_name == 'pull_request'
-      && !github.event.pull_request.head.repo.fork
-      && 'ubicloud-standard-2' || 'ubuntu-latest' }}
+  && !github.event.pull_request.head.repo.fork
+  && 'ubicloud-standard-2' || 'ubuntu-latest' }}
 ```
+
+Keep every continuation at the same indent as the first line. A more-indented
+line inside a folded scalar is not folded: YAML keeps the break, and the
+expression arrives with a newline inside it. GitHub evaluates it regardless and
+the lane runs, so a green run is no evidence that the declaration is well
+formed. Both examples above were indented deeper until 2026-09-16, and the
+contract that reads them could not tell: its pattern separates tokens with a
+whitespace class, and a newline is whitespace, so a broken declaration parsed
+as a correct one with the right labels and the right guard.
+`conditional_runner` now refuses a value carrying a break, and
+`test_no_runs_on_declaration_carries_a_line_break` names the job.
 
 `benchmark-policy` gates the pull-request benchmark lanes, so a contributor
 waits behind it; on the schedule it gates `benchmark-baseline-compare`, which
@@ -915,6 +926,37 @@ Table: the four timers, innermost first, with where each is set.
 | Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 100 m                                        |
 
 Each tier must sit above the one before it.
+
+### The override list and the tests it has to keep up with
+
+The first tier is a pair: a base allowance that terminates, and a list of
+overrides naming the tests that need longer. The two rot apart. The list is
+written once against the names of the day and is never re-derived, and neither
+a passing run nor a green gate notices a test that has fallen out of it,
+because the cost only shows on a cold cache.
+
+This repository had lost one. `session_api_is_unavailable_without_cpu_feature`
+spawns `cargo check` against a fixture manifest in its own target directory,
+which costs what a cold build costs, and it was named in no override on either
+profile while its sibling in the same source file was named in both.
+
+`tests/workflow_contracts/trybuild_override_test.py` discovers the set from the
+tree instead. Three details of its shape are deliberate:
+
+- It reads per test function, not per file. The defect above is a sibling, and
+  a file-level reading would report this repository as fully covered.
+- It reads the cost, not the crate. A constructed `trybuild::TestCases`
+  compiles a scratch crate; a spawned `cargo` builds a fixture workspace. The
+  test that was lost constructs no `TestCases` at all.
+- It requires coverage in every profile rather than in any of them. `ci`
+  declares no base allowance and so inherits `default`'s, which terminates, and
+  pooling the filters would let a name written under one profile satisfy the
+  rule for both.
+
+The set this repository has is pinned as well as discovered. A rule that only
+asks whether the discovered set is covered is satisfied by discovering nothing,
+so a reading narrowed by accident would read as a repository with no such tests
+rather than failing.
 
 ### The cargo watchdog is the tier nobody expects
 
