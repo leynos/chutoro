@@ -287,16 +287,28 @@ def conditional_runner(
 
     >>> conditional_runner({"runs-on": "ubuntu-latest"}) is None
     True
-    >>> conditional_runner(
-    ...     {
-    ...         "runs-on": "${{ github.event.pull_request.head.repo.private"
-    ...         " && 'ubuntu-latest' || 'ubicloud-standard-2' }}"
-    ...     }
-    ... ) is None
+
+    Neither is a declaration whose expression carries a line break, which a
+    folded scalar produces when its continuation is indented deeper than
+    its key. The break is written with ``chr(10)`` rather than an escape,
+    because a docstring holding the escape would end this example's line:
+
+    >>> broken = (
+    ...     "${{ github.event.pull_request.head.repo.fork"
+    ...     + chr(10)
+    ...     + "&& 'ubuntu-latest' || 'ubicloud-standard-2' }}"
+    ... )
+    >>> conditional_runner({"runs-on": broken}) is None
     True
     """
     runs_on = job_definition.get("runs-on")
-    if not isinstance(runs_on, str):
+    if not isinstance(runs_on, str) or "\n" in runs_on.strip():
+        # A value carrying a line break reads as no conditional runner at
+        # all, so `test_no_runs_on_declaration_carries_a_line_break`
+        # reports it rather than this reader parsing through it. The
+        # pattern's inter-token whitespace class would otherwise absorb
+        # the break and return the right labels and the right guard for a
+        # declaration nobody meant to write.
         return None
     match = CONDITIONAL_RUNS_ON.match(runs_on.strip())
     if match is None:

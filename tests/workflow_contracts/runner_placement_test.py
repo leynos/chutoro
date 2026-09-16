@@ -228,3 +228,33 @@ def test_actionlint_registers_exactly_the_labels_in_use() -> None:
         f"{ACTIONLINT_CONFIG} registers {sorted(registered)} but the "
         f"workflows use {sorted(in_use)}"
     )
+
+
+@pytest.mark.parametrize("workflow_name", workflow_names())
+def test_no_runs_on_declaration_carries_a_line_break(workflow_name: str) -> None:
+    """A folded scalar can keep its break, and GitHub evaluates it anyway.
+
+    A continuation indented deeper than its ``runs-on:`` key is a
+    more-indented line inside a folded block, so YAML keeps the newline
+    rather than folding it to a space and the expression arrives with a
+    break inside it. GitHub evaluates the value regardless, so the lane
+    runs and a green run is no evidence that the declaration is well
+    formed.
+
+    Nothing else here could report it. The conditional reader's pattern
+    separates its tokens with a whitespace class, and a newline is
+    whitespace, so before this assertion existed a broken declaration
+    parsed as a correct one: the right paid label, the right fallback and
+    the right guard, from a value nobody meant to write. Every assertion
+    in this module passed on it.
+    """
+    for job_name, definition in jobs(load_workflow(workflow_name)).items():
+        runs_on = definition.get("runs-on")
+        if not isinstance(runs_on, str):
+            continue
+        assert "\n" not in runs_on.strip(), (
+            f"{workflow_name}:{job_name} declares a runs-on carrying a line "
+            f"break: {runs_on!r}. Keep a folded scalar's continuation at the "
+            f"same indent as its first line, so the expression parses to one "
+            f"line"
+        )
