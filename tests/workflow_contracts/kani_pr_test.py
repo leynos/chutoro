@@ -363,7 +363,16 @@ def test_the_closing_disk_reading_survives_a_failed_suite(
     )
 
     condition = readings[-1].get("if")
-    assert isinstance(condition, str) and "always()" in condition, (
-        "the disk reading after the suite must carry an always() condition so "
-        f"a failed suite still reports its headroom, got {condition!r}"
+    # Matched whole rather than as a substring. `always() && false` contains
+    # `always()` and skips the step, which is the state this test exists to
+    # rule out, so a substring check would have accepted its own defect.
+    normalized = (
+        condition.strip().removeprefix("${{").removesuffix("}}").strip()
+        if isinstance(condition, str)
+        else None
+    )
+    assert normalized == "always()", (
+        "the disk reading after the suite must be conditioned on exactly "
+        "always(), so a failed suite still reports its headroom, got "
+        f"{condition!r}"
     )
