@@ -853,12 +853,21 @@ cannot reintroduce the defect.
 
 `a_forked_run_executes_at_least_one_case` in
 `chutoro-core/src/hnsw/tests/property/test_runner_support/runner_wrappers_tests.rs`
-holds the whole mechanism up. It forks a property that fails on every input
-and requires the parent to see that failure's own message, which it can only
-do if a child drew a case and ran it. A missing path panics; a path naming no
-real test aborts with proptest's own "no case started" reason. Both are
-reported by name, so a regression here says which it was instead of leaving a
-panic in a log nobody reads.
+holds the whole mechanism up. It forks a property that fails on every input,
+and then discriminates twice.
+
+That a case ran at all is the difference between `Fail` and `Abort`: proptest
+returns `Abort` when the child appended nothing to its replay file, which is
+what naming a test that does not exist produces, while a missing path does not
+get that far because proptest refuses to fork without one.
+
+That the case ran in a child is the difference between the two `Fail` reasons.
+A child's failure travels back through the replay file, which records that the
+case failed and not what it said, so the parent reports its own wording.
+Seeing the property's own message back would mean the opposite of what is
+wanted: that the run never left the parent process and `fork` was not in
+effect. Each outcome is reported by name, so a regression says which it was
+instead of leaving a panic in a log nobody reads.
 
 ### 5.3. YAML configuration blueprints
 
