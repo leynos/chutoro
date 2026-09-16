@@ -88,7 +88,14 @@ retries = 1
 [[profile.default.overrides]]
 # Trybuild compile checks build fixture crates in isolated target directories
 # and can exceed the generic 60s timeout on shared developer machines.
-filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled|dataset_recipe_phase_order|arrow_parquet_types_share_one_family/)"
+#
+# `session_api_is_unavailable_without_cpu_feature` is not a trybuild harness.
+# It spawns `cargo check` against a fixture manifest in its own target
+# directory, which costs what a cold build costs, and it sat in this file's
+# blind spot: its sibling in the same source file was named here and it was
+# not, so four of the five tests that pay this cost were covered and the fifth
+# was terminated at sixty seconds on a cold cache.
+filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled|session_api_is_unavailable_without_cpu_feature|dataset_recipe_phase_order|arrow_parquet_types_share_one_family/)"
 threads-required = 4
 slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 
@@ -162,8 +169,15 @@ retries = 1
 
 [[profile.ci.overrides]]
 # Trybuild compile checks build fixture crates in isolated target directories
-# and can exceed the generic 60s timeout on shared runners.
-filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled|dataset_recipe_phase_order|arrow_parquet_types_share_one_family/)"
+# and can exceed the generic 60s timeout on shared runners. The set is the same
+# as the default profile's, and `trybuild_override_test` asserts that every
+# test paying a nested build's cost appears in it, so the two cannot drift
+# apart again without failing.
+#
+# `session_api_is_unavailable_without_cpu_feature` spawns `cargo check` rather
+# than constructing a trybuild harness; the cost is the same and so is the
+# allowance.
+filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled|session_api_is_unavailable_without_cpu_feature|dataset_recipe_phase_order|arrow_parquet_types_share_one_family/)"
 threads-required = 4
 slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 
