@@ -6,6 +6,7 @@
 use std::{num::NonZeroUsize, path::PathBuf, time::Duration, time::Instant};
 
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_main};
+use mockable::{DefaultEnv, Env};
 
 use chutoro_benches::{
     ef_sweep::{
@@ -84,8 +85,8 @@ fn warn_unrecognised_bool_env(env_var_name: &str, value: &str) {
 }
 
 /// Parse one optional benchmark boolean environment variable.
-fn parse_bool_env_var(env_var_name: &str) -> Option<bool> {
-    let value = std::env::var(env_var_name).ok()?;
+fn parse_bool_env_var(env: &dyn Env, env_var_name: &str) -> Option<bool> {
+    let value = env.string(env_var_name)?;
     let normalized = value.trim().to_ascii_lowercase();
     if matches!(normalized.as_str(), "0" | "false" | "off") {
         return Some(false);
@@ -129,29 +130,47 @@ fn ef_sweep_point_counts() -> &'static [usize] {
 
 /// Determine whether this invocation should write the recall report.
 fn should_collect_recall_report() -> bool {
-    parse_bool_env_var("CHUTORO_BENCH_HNSW_RECALL_REPORT").unwrap_or_else(|| !is_discovery_mode())
+    should_collect_recall_report_with_env(&DefaultEnv)
 }
 
-/// Resolve the configured destination for the recall report.
-fn recall_report_path() -> PathBuf {
-    std::env::var_os("CHUTORO_BENCH_HNSW_RECALL_REPORT_PATH")
-        .map_or_else(|| PathBuf::from(RECALL_REPORT_PATH), PathBuf::from)
-}
-
-/// Determine whether this invocation should write the clustering-quality report.
-fn should_collect_cluster_quality_report() -> bool {
-    parse_bool_env_var("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT")
+/// Read recall-report configuration through an injected environment reader.
+fn should_collect_recall_report_with_env(env: &dyn Env) -> bool {
+    parse_bool_env_var(env, "CHUTORO_BENCH_HNSW_RECALL_REPORT")
         .unwrap_or_else(|| !is_discovery_mode())
 }
-
-/// Resolve the configured destination for the clustering-quality report.
-fn cluster_quality_report_path() -> PathBuf {
-    std::env::var_os("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH").map_or_else(
-        || PathBuf::from(CLUSTERING_QUALITY_REPORT_PATH),
-        PathBuf::from,
-    )
+/// Resolve the configured destination for the recall report.
+fn recall_report_path() -> PathBuf {
+    recall_report_path_with_env(&DefaultEnv)
 }
 
+/// Resolve the recall-report path through an injected environment reader.
+fn recall_report_path_with_env(env: &dyn Env) -> PathBuf {
+    env.os_string("CHUTORO_BENCH_HNSW_RECALL_REPORT_PATH")
+        .map_or_else(|| PathBuf::from(RECALL_REPORT_PATH), PathBuf::from)
+}
+/// Determine whether this invocation should write the clustering-quality report.
+fn should_collect_cluster_quality_report() -> bool {
+    should_collect_cluster_quality_report_with_env(&DefaultEnv)
+}
+
+/// Read clustering-quality configuration through an injected reader.
+fn should_collect_cluster_quality_report_with_env(env: &dyn Env) -> bool {
+    parse_bool_env_var(env, "CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT")
+        .unwrap_or_else(|| !is_discovery_mode())
+}
+/// Resolve the configured destination for the clustering-quality report.
+fn cluster_quality_report_path() -> PathBuf {
+    cluster_quality_report_path_with_env(&DefaultEnv)
+}
+
+/// Resolve the clustering-quality path through an injected reader.
+fn cluster_quality_report_path_with_env(env: &dyn Env) -> PathBuf {
+    env.os_string("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH")
+        .map_or_else(
+            || PathBuf::from(CLUSTERING_QUALITY_REPORT_PATH),
+            PathBuf::from,
+        )
+}
 /// Returns an evenly-spaced query index for deterministic recall sampling.
 ///
 /// Maps query ordinal `qi` in `0..RECALL_QUERY_COUNT` to an index in
@@ -287,6 +306,159 @@ fn hnsw_build_ef_sweep_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
 fn hnsw_build_ef_sweep(c: &mut Criterion) {
     if let Err(err) = hnsw_build_ef_sweep_impl(c) {
         panic!("hnsw_build_ef_sweep benchmark setup failed: {err}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Tests for HNSW ef-sweep environment configuration.
+
+    #[rstest::rstest]
+    #[case::true_value(Some("true"), Some(true))]
+    #[case::false_value(Some("false"), Some(false))]
+    #[case::invalid_value(Some("unknown"), None)]
+    #[case::absent_value(None, None)]
+    fn parses_boolean_environment_values(
+        #[case] value: Option<&str>,
+        #[case] expected: Option<bool>,
+    ) {
+        let configured_value = value.map(str::to_owned);
+        let mut env = mockable::MockEnv::new();
+        env.expect_string().returning(move |key| {
+            assert_eq!(key, "CHUTORO_BENCH_HNSW_RECALL_REPORT");
+            configured_value.clone()
+        });
+
+        assert_eq!(
+            super::parse_bool_env_var(&env, "CHUTORO_BENCH_HNSW_RECALL_REPORT"),
+            expected
+        );
+    }
+
+    #[rstest::rstest]
+    #[case::recall_enabled(
+        crate::should_collect_recall_report_with_env,
+        "CHUTORO_BENCH_HNSW_RECALL_REPORT",
+        "true"
+    )]
+    #[case::cluster_quality_enabled(
+        crate::should_collect_cluster_quality_report_with_env,
+        "CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT",
+        "true"
+    )]
+    fn explicit_report_enablement_overrides_benchmark_arguments(
+        #[case] should_collect: fn(&dyn mockable::Env) -> bool,
+        #[case] environment_key: &'static str,
+        #[case] value: &'static str,
+    ) {
+        let mut env = mockable::MockEnv::new();
+        env.expect_string().returning(move |key| {
+            assert_eq!(key, environment_key);
+            Some(value.to_owned())
+        });
+
+        assert!(should_collect(&env));
+    }
+
+    #[rstest::rstest]
+    #[case::recall_disabled(
+        crate::should_collect_recall_report_with_env,
+        "CHUTORO_BENCH_HNSW_RECALL_REPORT"
+    )]
+    #[case::cluster_quality_disabled(
+        crate::should_collect_cluster_quality_report_with_env,
+        "CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT"
+    )]
+    fn explicit_report_disablement_overrides_benchmark_arguments(
+        #[case] should_collect: fn(&dyn mockable::Env) -> bool,
+        #[case] environment_key: &'static str,
+    ) {
+        let mut env = mockable::MockEnv::new();
+        env.expect_string().returning(move |key| {
+            assert_eq!(key, environment_key);
+            Some("false".to_owned())
+        });
+
+        assert!(!should_collect(&env));
+    }
+
+    #[rstest::rstest]
+    #[case::recall(
+        crate::should_collect_recall_report_with_env,
+        "CHUTORO_BENCH_HNSW_RECALL_REPORT"
+    )]
+    #[case::cluster_quality(
+        crate::should_collect_cluster_quality_report_with_env,
+        "CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT"
+    )]
+    fn absent_report_configuration_uses_discovery_mode(
+        #[case] should_collect: fn(&dyn mockable::Env) -> bool,
+        #[case] environment_key: &'static str,
+    ) {
+        let mut env = mockable::MockEnv::new();
+        env.expect_string().returning(move |key| {
+            assert_eq!(key, environment_key);
+            None
+        });
+
+        assert_eq!(should_collect(&env), !super::is_discovery_mode());
+    }
+
+    #[test]
+    fn recall_report_path_defaults_when_environment_is_unset() {
+        let mut env = mockable::MockEnv::new();
+        env.expect_os_string().returning(|key| {
+            assert_eq!(key, "CHUTORO_BENCH_HNSW_RECALL_REPORT_PATH");
+            None
+        });
+
+        assert_eq!(
+            super::recall_report_path_with_env(&env),
+            std::path::PathBuf::from(super::RECALL_REPORT_PATH)
+        );
+    }
+
+    #[test]
+    fn recall_report_path_uses_configured_os_string() {
+        let configured_path = std::path::PathBuf::from("reports/recall.csv");
+        let expected_path = configured_path.clone();
+        let mut env = mockable::MockEnv::new();
+        env.expect_os_string().returning(move |key| {
+            assert_eq!(key, "CHUTORO_BENCH_HNSW_RECALL_REPORT_PATH");
+            Some(std::ffi::OsString::from(configured_path.clone()))
+        });
+
+        assert_eq!(super::recall_report_path_with_env(&env), expected_path);
+    }
+
+    #[test]
+    fn cluster_quality_report_path_defaults_when_environment_is_unset() {
+        let mut env = mockable::MockEnv::new();
+        env.expect_os_string().returning(|key| {
+            assert_eq!(key, "CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH");
+            None
+        });
+
+        assert_eq!(
+            super::cluster_quality_report_path_with_env(&env),
+            std::path::PathBuf::from(super::CLUSTERING_QUALITY_REPORT_PATH)
+        );
+    }
+
+    #[test]
+    fn cluster_quality_report_path_uses_configured_os_string() {
+        let configured_path = std::path::PathBuf::from("reports/cluster-quality.csv");
+        let expected_path = configured_path.clone();
+        let mut env = mockable::MockEnv::new();
+        env.expect_os_string().returning(move |key| {
+            assert_eq!(key, "CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT_PATH");
+            Some(std::ffi::OsString::from(configured_path.clone()))
+        });
+
+        assert_eq!(
+            super::cluster_quality_report_path_with_env(&env),
+            expected_path
+        );
     }
 }
 

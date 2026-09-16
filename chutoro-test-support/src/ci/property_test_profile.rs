@@ -3,7 +3,7 @@
 //! This module centralizes environment-driven proptest tuning so multiple
 //! suites can share one policy surface.
 
-use std::env;
+use mockable::{DefaultEnv, Env};
 
 /// Environment variable controlling proptest case counts.
 pub const PROPTEST_CASES_ENV_KEY: &str = "PROPTEST_CASES";
@@ -49,17 +49,7 @@ impl ProptestRunProfile {
     /// ```
     #[must_use]
     pub fn load(default_cases: u32, default_fork: bool) -> Self {
-        Self::load_with_lookup(default_cases, default_fork, |key| env::var(key).ok())
-    }
-
-    /// Resolve a profile through an injected environment lookup for tests.
-    fn load_with_lookup<F>(default_cases: u32, default_fork: bool, lookup: F) -> Self
-    where
-        F: Fn(&'static str) -> Option<String>,
-    {
-        let cases = read_cases_or_default(default_cases, &lookup);
-        let fork = read_env_or_default(CHUTORO_PBT_FORK_ENV_KEY, default_fork, parse_bool, &lookup);
-        Self { cases, fork }
+        Self::load_with_env(default_cases, default_fork, &DefaultEnv)
     }
 
     /// Number of cases to run per property.
@@ -73,36 +63,38 @@ impl ProptestRunProfile {
     pub const fn fork(&self) -> bool {
         self.fork
     }
+
+    /// Load through an injected reader so tests avoid process-global state.
+    fn load_with_env(default_cases: u32, default_fork: bool, env: &dyn Env) -> Self {
+        let cases = read_cases_or_default(default_cases, env);
+        let fork = read_env_or_default(CHUTORO_PBT_FORK_ENV_KEY, default_fork, parse_bool, env);
+        Self { cases, fork }
+    }
 }
 
 /// Read the current or legacy cases override, otherwise return `default`.
-fn read_cases_or_default<L>(default: u32, lookup: &L) -> u32
-where
-    L: Fn(&'static str) -> Option<String>,
-{
-    read_env(PROPTEST_CASES_ENV_KEY, parse_cases, lookup).map_or_else(
-        || read_env_or_default(PROGTEST_CASES_ENV_KEY, default, parse_cases, lookup),
+fn read_cases_or_default(default: u32, env: &dyn Env) -> u32 {
+    read_env(PROPTEST_CASES_ENV_KEY, parse_cases, env).map_or_else(
+        || read_env_or_default(PROGTEST_CASES_ENV_KEY, default, parse_cases, env),
         |cases| cases.unwrap_or(default),
     )
 }
 
 /// Parse an optional environment value, falling back to `default` on failure.
-fn read_env_or_default<T, F, L>(key: &'static str, default: T, parser: F, lookup: &L) -> T
+fn read_env_or_default<T, F>(key: &'static str, default: T, parser: F, env: &dyn Env) -> T
 where
     T: Copy,
     F: Fn(&str) -> Result<T, String>,
-    L: Fn(&'static str) -> Option<String>,
 {
-    read_env(key, parser, lookup).map_or(default, |value| value.unwrap_or(default))
+    read_env(key, parser, env).map_or(default, |value| value.unwrap_or(default))
 }
 
 /// Read and parse an optional environment value, logging invalid overrides.
-fn read_env<T, F, L>(key: &'static str, parser: F, lookup: &L) -> Option<Result<T, String>>
+fn read_env<T, F>(key: &'static str, parser: F, env: &dyn Env) -> Option<Result<T, String>>
 where
     F: Fn(&str) -> Result<T, String>,
-    L: Fn(&'static str) -> Option<String>,
 {
-    lookup(key).map(|raw| {
+    env.string(key).map(|raw| {
         parser(&raw).map_err(|reason| {
             tracing::warn!(
                 env = key,
@@ -142,6 +134,7 @@ mod tests {
     //! Unit tests for property-test profile selection.
 
     use super::*;
+    use mockable::MockEnv;
     use rstest::rstest;
     use std::collections::HashMap;
 
@@ -168,9 +161,10 @@ mod tests {
             env_entries.insert(CHUTORO_PBT_FORK_ENV_KEY, raw.to_owned());
         }
 
-        ProptestRunProfile::load_with_lookup(default_cases, default_fork, |key| {
-            env_entries.get(key).cloned()
-        })
+        let mut env = MockEnv::new();
+        env.expect_string()
+            .returning(move |key| env_entries.get(key).cloned());
+        ProptestRunProfile::load_with_env(default_cases, default_fork, &env)
     }
 
     #[test]
