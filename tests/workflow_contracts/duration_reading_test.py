@@ -16,7 +16,13 @@ for it.
 import re
 
 import pytest
-from nextest_durations import _SPACE_CHARS, NextestDurationError, _digits, _seconds
+from nextest_durations import (
+    _DIGIT_CHARS,
+    _SPACE_CHARS,
+    NextestDurationError,
+    _digits,
+    _seconds,
+)
 from timeout_budgets import (
     TerminateAfterError,
     UnboundedTestError,
@@ -36,6 +42,7 @@ from timeout_budgets import (
         pytest.param("1h 0m 30s", 3630.0, id="three-terms"),
         pytest.param("1.5m", 90.0, id="a-fractional-value"),
         pytest.param("0.5s", 0.5, id="a-fraction-below-one"),
+        pytest.param("0.5s 0.5s", 1.0, id="two-halves-summing-to-a-whole-second"),
         pytest.param("1 . 5 m", 90.0, id="a-fraction-spaced-around-the-point"),
         pytest.param("1wk", 604800.0, id="the-abbreviated-week"),
         pytest.param("2wks", 1209600.0, id="the-abbreviated-plural-week"),
@@ -185,6 +192,130 @@ def test_the_digit_join_removes_only_what_the_pattern_tolerated() -> None:
     assert _digits("1 0") == "10"
     assert _digits("1\u20080") == "10"
     assert _digits("1\x1d0") == "1\x1d0"
+
+
+def test_the_digit_class_is_humantimes_own() -> None:
+    """The class is `0` to `9`, and nothing more.
+
+    Pins the reasoning rather than the consequence, as the whitespace
+    contract does. Python's `\\d` is every Unicode decimal digit;
+    humantime matches `'0'..='9'`. Asserting both directions means a
+    change in either language's notion of a digit fails here rather
+    than in a runner.
+    """
+    ours = set(_DIGIT_CHARS)
+    pythons = {c for c in map(chr, range(0x11000)) if re.fullmatch(r"\d", c)}
+    assert ours == set("0123456789"), (
+        f"humantime reads the ASCII digits and nothing else, {sorted(ours)!r}"
+    )
+    assert ours < pythons, (
+        "Python's digits must be a strict superset of humantime's; this "
+        f"reader treats {sorted(ours - pythons)!r} as digits Python does not"
+    )
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [
+        pytest.param("\u0665s", id="an-arabic-indic-numeral"),
+        pytest.param("\u096ams", id="a-devanagari-numeral"),
+        pytest.param("1\u0660s", id="an-arabic-indic-numeral-inside-a-number"),
+        pytest.param("1.\u0665s", id="an-arabic-indic-numeral-in-a-fraction"),
+    ],
+)
+def test_non_ascii_digits_are_refused(duration: str) -> None:
+    """Python calls these digits; humantime does not.
+
+    A `\\d` reader converts all four and nextest refuses all four at
+    startup. The third is the shape nobody would notice in a file: an
+    ASCII digit followed by an Arabic-Indic one, which reads as ten.
+    """
+    with pytest.raises(NextestDurationError):
+        _seconds(duration)
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [
+        pytest.param("18446744073709551616s", id="seconds-past-the-ceiling"),
+        pytest.param("307445734561825861m", id="a-product-past-the-ceiling"),
+        pytest.param("584542046091y", id="a-year-product-past-the-ceiling"),
+        pytest.param("18446744073709551615s 1s", id="a-sum-past-the-ceiling"),
+        pytest.param(
+            "1.00000000000000000000s", id="a-fraction-denominator-past-the-ceiling"
+        ),
+    ],
+)
+def test_values_beyond_64_bits_are_refused(duration: str) -> None:
+    """humantime accumulates in `u64` and checks every step; Python does not.
+
+    Its parser checks each multiplication and each addition, so a value
+    that leaves the range is an error there and not a large number. A
+    reader on Python's unbounded integers accepts all of these and
+    reports budgets nextest refuses at startup, and the numbers it
+    invents are enormous and plausible rather than obviously wrong.
+
+    The denominator is checked too, and is the least obvious of these:
+    it is a power of ten built one digit at a time, so a fraction of
+    twenty digits overflows where one of nineteen does not, whatever
+    the digits are.
+    """
+    with pytest.raises(NextestDurationError):
+        _seconds(duration)
+
+
+def test_a_nineteen_digit_fraction_is_still_read() -> None:
+    """The denominator check is a ceiling, not a ban on long fractions.
+
+    Without this the range contract above would pass just as well
+    against a reader that refused every fraction over some shorter
+    length, or every fraction at all.
+    """
+    assert _seconds("1.0000000000000000000s") == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [
+        pytest.param(
+            "18446744073709551615ns 18446744073709551615ns",
+            id="two-nanosecond-parts-overflowing-their-accumulator",
+        ),
+        pytest.param("18446744073709551615s 500ms 500ms", id="a-carry-past-the-ceiling"),
+        pytest.param("18446744073709551615s 1000ms", id="a-whole-carry-past-the-ceiling"),
+    ],
+)
+def test_a_carry_out_of_the_nanosecond_part_is_checked(duration: str) -> None:
+    """humantime keeps seconds and nanoseconds apart, and carries between them.
+
+    A reader accumulating one count of nanoseconds accepts the first of
+    these: two maximal nanosecond values are about 1,169 years, nowhere
+    near the seconds ceiling. humantime refuses it because the second
+    value overflows the nanosecond accumulator before anything is
+    carried. The other two overflow on the carry itself, which is why
+    the carry is checked and not only the parts.
+    """
+    with pytest.raises(NextestDurationError):
+        _seconds(duration)
+
+
+def test_the_parts_are_summed_in_humantimes_order() -> None:
+    """One input separates the two orders, and this is it.
+
+    `18446744073709551615ns 1ns` is accepted only when each part is
+    added and carried as it is read, which is what humantime does: the
+    first part carries out of the nanosecond accumulator into seconds
+    immediately, leaving room for the second. Summing the parts first
+    and carrying once overflows the nanosecond accumulator and refuses
+    it. Without this case the order is unasserted and either reader
+    passes every other input.
+    """
+    # 18446744073709551616 nanoseconds, which humantime reports as
+    # 18446744073 seconds and 709551616 nanoseconds. Written as the pair
+    # rather than as a decimal, so the expectation is the carry itself.
+    assert _seconds("18446744073709551615ns 1ns") == pytest.approx(
+        18446744073 + 709551616 / 1_000_000_000
+    )
 
 
 @pytest.mark.parametrize(

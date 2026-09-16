@@ -1020,15 +1020,43 @@ the pattern refuses a separator, so it is driven directly; it is written with
 the reader's own class anyway, so that a later widening of the pattern cannot
 turn a refusal into a silently different number.
 
-The reader is not yet at zero against the estate differential. Measured against
-humantime 2.3.0 over the seventy-one recorded inputs it disagreed on twenty-two
-before this change and eighteen after it. The eighteen are two groups, both in
-the same accept-what-the-runner-refuses direction: `humantime` carries its
-accumulators and intermediate products in `u64` and checks every step, which
-this reader does not, so it converts values `humantime` refuses by overflow;
-and Python's `\d` matches every Unicode decimal digit, so Arabic-Indic and
-Devanagari numerals convert here and are refused at startup. Both are recorded
-rather than fixed here.
+Digits are enumerated for the same reason. Python's `\d` matches every Unicode
+decimal digit and `humantime` matches `'0'..='9'`, so a `\d` reader converts
+`\u0665s` and `1\u0660s` and nextest refuses both at startup. That class is
+pinned in both directions too.
+
+The 64-bit range is the third family. `humantime` accumulates in `u64` and
+checks every multiplication and every addition; Python's integers are
+unbounded, so each of those steps passes through an explicit check here.
+Without it the reader converts fourteen of the differential's inputs that
+nextest refuses, and the numbers it invents are enormous and plausible rather
+than obviously wrong. The fraction's denominator is checked as well, which is
+the least obvious of them: it is a power of ten built one digit at a time, so a
+fraction of twenty digits overflows where one of nineteen does not, whatever
+the digits are.
+
+The total is a pair of whole seconds and nanoseconds, not one count of
+nanoseconds, because that is what `humantime` keeps and the two are not the
+same claim. `18446744073709551615ns` twice over is about 1,169 years, nowhere
+near the seconds ceiling, and `humantime` refuses it because the second value
+overflows the nanosecond accumulator before anything is carried.
+
+The parts are added and carried as they are read, in `humantime`'s order.
+Exactly one input separates that from summing the parts and carrying once:
+`18446744073709551615ns 1ns`, which is accepted only in `humantime`'s order,
+because the first part carries out of the nanosecond accumulator immediately
+and leaves room for the second. It is named in the contracts, or the order
+would be unasserted.
+
+The carry is written once, on `>=`. `humantime` carries in two places, its
+parser on a strict `>` and `Duration::new` on `>=`, and between them they are
+one live branch: a nanosecond part of exactly one second survives the first and
+is carried by the second. Writing both leaves a branch nothing can reach, and
+an unfalsifiable guard is worse than none, so only the `>=` is here. It is what
+refuses `18446744073709551615s 500ms 500ms`.
+
+Measured against humantime 2.3.0 over the seventy-one recorded inputs, the
+reader disagreed on twenty-two before this work and none after it.
 
 The fractional arithmetic is `humantime`'s own, ported rather than
 approximated. It carries a fraction as a numerator over a power of ten and
