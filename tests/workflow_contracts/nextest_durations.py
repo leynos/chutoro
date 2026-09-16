@@ -24,10 +24,33 @@ class NextestDurationError(ValueError):
     """
 
 
+#: The whitespace humantime skips, written out rather than abbreviated.
+#:
+#: humantime skips on Rust's `char::is_whitespace`, which is the Unicode
+#: White_Space property. Python's `\s` is that property plus U+001C to
+#: U+001F, the file, group, record and unit separators, and `str.strip`
+#: and `str.split` carry the same four-character excess. A reader
+#: spelling the class `\s` therefore reads `1\x1cs` as one second and
+#: `\x1c45m` as forty-five minutes, both of which nextest refuses at
+#: startup. That is the accept-what-the-runner-refuses direction this
+#: module exists to avoid, and it is why the class is written out.
+#: `test_the_whitespace_class_is_rusts_own` pins the difference in both
+#: directions, so a change in either language's notion of whitespace
+#: fails there rather than in a runner.
+_SPACE_CHARS: typ.Final[str] = (
+    "\t\n\v\f\r \x85\xa0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005"
+    "\u2006\u2007\u2008\u2009\u200a"
+    "\u2028\u2029\u202f\u205f\u3000"
+)
+
+#: The same set as a regular-expression character class.
+_SPACE: typ.Final[str] = f"[{re.escape(_SPACE_CHARS)}]"
+
 #: Digits with whitespace tolerated between them. humantime's parser
 #: ignores whitespace while it accumulates a number, so `1 0s` is ten
 #: seconds rather than a malformed duration.
-_SPACED_DIGITS: typ.Final[str] = r"\d(?:\s*\d)*"
+_SPACED_DIGITS: typ.Final[str] = rf"\d(?:{_SPACE}*\d)*"
 
 #: One value-and-unit pair of a humantime duration. nextest parses its
 #: durations with `humantime`, which takes a sequence of these and sums
@@ -43,8 +66,8 @@ _SPACED_DIGITS: typ.Final[str] = r"\d(?:\s*\d)*"
 #: captured apart because humantime scales them differently.
 _DURATION_TOKEN: typ.Final[re.Pattern[str]] = re.compile(
     rf"(?P<whole>{_SPACED_DIGITS})"
-    rf"(?:\s*\.\s*(?P<fraction>{_SPACED_DIGITS}))?"
-    r"\s*(?P<unit>[A-Za-z\u00b5]+)\s*"
+    rf"(?:{_SPACE}*\.{_SPACE}*(?P<fraction>{_SPACED_DIGITS}))?"
+    rf"{_SPACE}*(?P<unit>[A-Za-z\u00b5]+){_SPACE}*"
 )
 
 #: The one duration humantime accepts with no unit. Its parser
@@ -198,8 +221,16 @@ def _read_pair(duration: str, text: str, position: int) -> tuple[int, int]:
 
 
 def _digits(matched: str) -> str:
-    """Return a matched digit run with its internal whitespace removed."""
-    return "".join(matched.split())
+    """Return a matched digit run with its internal whitespace removed.
+
+    Removes exactly the characters the pattern tolerated. `str.split`
+    would also remove U+001C to U+001F, which the pattern refuses, so
+    while the two cannot disagree today, a later widening of the pattern
+    would turn a refusal into a silently different number. This site is
+    unreachable through the reader for that reason, and is tested
+    directly.
+    """
+    return re.sub(_SPACE, "", matched)
 
 
 def _fraction_nanoseconds(duration: str, matched: str, unit: _Unit) -> int:
@@ -280,7 +311,7 @@ def _seconds(duration: str) -> float:
     # cannot parse has no budgets to compare.
     if duration == _BARE_ZERO:
         return 0.0
-    text = duration.strip()
+    text = duration.strip(_SPACE_CHARS)
     if not text:
         message = f"unrecognized nextest duration {duration!r}: it is empty"
         raise NextestDurationError(message)

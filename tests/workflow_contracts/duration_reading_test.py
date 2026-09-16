@@ -13,8 +13,10 @@ explicitly, so the case can only be driven with a configuration written
 for it.
 """
 
+import re
+
 import pytest
-from nextest_durations import NextestDurationError, _seconds
+from nextest_durations import _SPACE_CHARS, NextestDurationError, _digits, _seconds
 from timeout_budgets import (
     TerminateAfterError,
     UnboundedTestError,
@@ -121,6 +123,68 @@ def test_a_duration_humantime_would_refuse_is_refused(duration: str) -> None:
     """
     with pytest.raises(NextestDurationError):
         _seconds(duration)
+
+
+@pytest.mark.parametrize(
+    "duration",
+    [
+        pytest.param("1\x1cs", id="a-file-separator-inside-a-number"),
+        pytest.param("\x1c45m", id="a-file-separator-leading"),
+        pytest.param("45m\x1f", id="a-unit-separator-trailing"),
+        pytest.param("1\x1d0s", id="a-group-separator-between-digits"),
+    ],
+)
+def test_c0_separators_are_not_whitespace_and_are_refused(duration: str) -> None:
+    """Python calls U+001C to U+001F whitespace; humantime does not.
+
+    Rust's `char::is_whitespace` is the Unicode White_Space property,
+    which excludes the file, group, record and unit separators. Python's
+    `\\s`, `str.strip` and `str.split` all include them, so a reader
+    written the obvious way reads the first of these as one second and
+    the second as forty-five minutes, and reports a budget for a
+    configuration nextest refuses at startup.
+
+    The last is the one nobody would notice: a separator between two
+    digits of an ordinary number, which `str.split` silently removes.
+    """
+    with pytest.raises(NextestDurationError):
+        _seconds(duration)
+
+
+def test_the_whitespace_class_is_rusts_own() -> None:
+    """The class is the Unicode White_Space property, and nothing more.
+
+    Pins the reasoning rather than the consequence. The four separators
+    the previous test refuses are refused because they are absent from
+    this set, and this asserts both directions of that: Python's `\\s`
+    exceeds the set by exactly those four, and the set exceeds `\\s` by
+    nothing. If either language's notion of whitespace moves, this fails
+    here rather than in a runner.
+    """
+    ours = set(_SPACE_CHARS)
+    pythons = {c for c in map(chr, range(0x11000)) if re.fullmatch(r"\s", c)}
+    assert pythons - ours == set("\x1c\x1d\x1e\x1f"), (
+        "Python's whitespace must exceed humantime's by exactly the four "
+        f"C0 separators, exceeds it by {sorted(pythons - ours)!r}"
+    )
+    assert not ours - pythons, (
+        "every character this reader treats as whitespace must be one "
+        f"Python agrees is whitespace, {sorted(ours - pythons)!r} are not"
+    )
+
+
+def test_the_digit_join_removes_only_what_the_pattern_tolerated() -> None:
+    """Driven directly, because the reader cannot reach this case.
+
+    The pattern refuses a separator between two digits, so the join
+    never sees one while the two agree. It is written with the reader's
+    own class rather than `str.split` so that a later widening of the
+    pattern cannot turn a refusal into a silently different number, and
+    that property has to be asserted where it can be: here.
+    """
+    assert _digits("1 0") == "10"
+    assert _digits("1\u20080") == "10"
+    assert _digits("1\x1d0") == "1\x1d0"
 
 
 @pytest.mark.parametrize(
