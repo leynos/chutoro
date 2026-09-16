@@ -189,9 +189,19 @@ def test_the_digit_join_removes_only_what_the_pattern_tolerated() -> None:
     pattern cannot turn a refusal into a silently different number, and
     that property has to be asserted where it can be: here.
     """
-    assert _digits("1 0") == "10"
-    assert _digits("1\u20080") == "10"
-    assert _digits("1\x1d0") == "1\x1d0"
+    assert _digits("1 0") == "10", (
+        "an ordinary space is whitespace to humantime, so the join must "
+        "remove it and read the digits as one number"
+    )
+    assert _digits("1\u20080") == "10", (
+        "U+2008 is in the Unicode White_Space property, so humantime skips "
+        "it and the join must remove it too"
+    )
+    assert _digits("1\x1d0") == "1\x1d0", (
+        "U+001D is not whitespace to humantime, so the join must leave it "
+        "in place; removing it is what `str.split` would do and is what "
+        "turns a duration the runner refuses into ten seconds"
+    )
 
 
 def test_the_digit_class_is_humantimes_own() -> None:
@@ -271,7 +281,10 @@ def test_a_nineteen_digit_fraction_is_still_read() -> None:
     against a reader that refused every fraction over some shorter
     length, or every fraction at all.
     """
-    assert _seconds("1.0000000000000000000s") == pytest.approx(1.0)
+    assert _seconds("1.0000000000000000000s") == pytest.approx(1.0), (
+        "nineteen fractional digits give a denominator of 10^19, which fits "
+        "in u64, so humantime reads this as one second and so must this"
+    )
 
 
 @pytest.mark.parametrize(
@@ -315,6 +328,10 @@ def test_the_parts_are_summed_in_humantimes_order() -> None:
     # rather than as a decimal, so the expectation is the carry itself.
     assert _seconds("18446744073709551615ns 1ns") == pytest.approx(
         18446744073 + 709551616 / 1_000_000_000
+    ), (
+        "the first part must carry into seconds as it is read, leaving the "
+        "nanosecond accumulator room for the second; summing the parts first "
+        "overflows it and refuses a duration humantime accepts"
     )
 
 
