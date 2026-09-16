@@ -316,21 +316,11 @@ project:
 ## Markdown guidance
 
 - Validate Markdown files using `make markdownlint`. This target also enforces
-  en-GB-oxendict spelling with the pinned `typos` release.
-- The spelling configuration `typos.toml` is generated. Edit
-  `typos.local.toml` for narrow repository terminology; never edit generated
-  entries by hand. Regenerate it with the pinned builder:
-
-  ```sh
-  TYPOS_CONFIG_BUILDER_COMMIT=d6da92f02240a79a945c835f69bdd08a888da1d0
-  uvx --python 3.14 \
-    --from "git+https://github.com/leynos/typos-config-builder.git@${TYPOS_CONFIG_BUILDER_COMMIT}" \
-    typos-config-builder
-  ```
-
-  Use the same command with `--check` to detect drift without rewriting the
-  tracked file. The separate consumer phrase check enforces corrections, such as
-  `hand-written` to `handwritten`, that Typos cannot match as whole phrases.
+  en-GB-oxendict spelling.
+- Enforce spelling with `make spelling`. It regenerates `typos.toml` from the
+  live shared dictionary and the `typos.local.toml` overlay, then checks the
+  tracked Markdown. Never edit generated entries by hand; add narrow
+  repository-specific entries to `typos.local.toml` instead.
 - Quoted APIs and identifiers retain upstream spelling. Put them in backticks
   or fenced code blocks, which the spelling gate ignores, rather than adding
   word-level exceptions.
