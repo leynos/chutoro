@@ -106,15 +106,19 @@ jobs:
           cargo test -p chutoro-providers-dense \
             --no-default-features \
             --features simd_avx2,simd_avx512,simd_neon
+      - name: Install mdtablefix
+        # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
+        # first release with `--check` and `--git`.
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@c5a54701c8603a0fa756a6b34c49bc2af75a6c11
+        with:
+          version: "0.6.0"
+
       - name: Format
         run: make check-fmt
       - name: Markdown lint
         uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff
         with:
-          globs: |
-            **/*.md
-            !**/target/**
-            !**/dist/**
+          globs: '**/*.md'
       # The shared action resolves a pinned prebuilt whitaker-installer
       # release and verifies its published digest, replacing the former
       # crates.io source-build fallback. It owns the installer binary and
