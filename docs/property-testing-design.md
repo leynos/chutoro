@@ -745,15 +745,35 @@ workflow.
 
 ### Table 5.1: Comparison of CI suite configurations
 
-| **Parameter**          | **PR Suite (Lightweight)**     | **Weekly Suite (Exhaustive)**           |
-| ---------------------- | ------------------------------ | --------------------------------------- |
-| **Trigger**            | `on: pull_request`             | `on: schedule` (e.g., weekly)           |
-| **`Proptest` Cases**   | `250` (default)                | `25,000` (via env var `PROGTEST_CASES`) |
-| **`Proptest` Forking** | `false`                        | `true`                                  |
-| **Runner**             | `ubicloud-standard-2`          | `ubuntu-latest`                         |
-| **Job Timeout**        | `20 minutes`                   | `120 minutes`                           |
-| **Execution Scope**    | Path-filtered (selective jobs) | Full repository test suite              |
-| **Failure Action**     | Block PR merge                 | Alert team & upload failure artefact    |
+| **Parameter**          | **PR Suite (Lightweight)**       | **Weekly Suite (Exhaustive)**           |
+| ---------------------- | -------------------------------- | --------------------------------------- |
+| **Trigger**            | `on: pull_request`               | `on: schedule` (e.g., weekly)           |
+| **`Proptest` Cases**   | `250` (default)                  | `25,000` (via env var `PROGTEST_CASES`) |
+| **`Proptest` Forking** | `false`                          | `true`                                  |
+| **Runner**             | `ubicloud-standard-2`, see below | `ubuntu-latest`                         |
+| **Job Timeout**        | `20 minutes`                     | `120 minutes`                           |
+| **Execution Scope**    | Path-filtered (selective jobs)   | Full repository test suite              |
+| **Failure Action**     | Block PR merge                   | Alert team & upload failure artefact    |
+
+A fork's pull request cannot obtain an Ubicloud runner, so the PR suite's
+runner is selected from the event rather than named outright. The failure
+without the fallback is not a slow lane but an unassignable job: it waits
+forever and the pull request never reports. Every paid lane in this repository
+carries the same fork-fallback rule, in the form the pull-request lanes use and
+shown in the blueprints below. A lane that also serves a schedule composes that
+rule with an event guard, so its expression is longer while the rule is the
+same:
+
+```yaml
+runs-on: >-
+  ${{ github.event.pull_request.head.repo.fork
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+```
+
+`docs/developers-guide.md` holds the placement rule, the composed form the
+lanes that also serve a schedule use, and the contract that pins both arms. The
+weekly suite is unaffected: it is off the developer feedback path and runs on
+GitHub-hosted runners, where a public repository's Linux minutes are free.
 
 ### 5.2. The weekly deep-coverage analysis: Exhaustive verification
 
@@ -815,7 +835,9 @@ jobs:
     if: |
       github.event.pull_request.draft == false &&
       (contains(github.event.pull_request.labels.*.name, 'run-ci'))
-    runs-on: ubicloud-standard-2
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+          && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v3
@@ -831,7 +853,9 @@ jobs:
     if: |
       github.event.pull_request.draft == false &&
       (contains(github.event.pull_request.labels.*.name, 'run-ci'))
-    runs-on: ubicloud-standard-2
+    runs-on: >-
+      ${{ github.event.pull_request.head.repo.fork
+          && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v3
