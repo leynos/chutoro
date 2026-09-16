@@ -1,6 +1,6 @@
 //! Proptest execution wrappers for HNSW property tests.
 
-use chutoro_test_support::ci::property_test_profile::PROPTEST_RNG_SEED;
+use chutoro_test_support::ci::property_test_profile::{PROPTEST_RNG_SEED, max_global_rejects_for};
 use proptest::{
     prelude::any,
     test_runner::{Config, RngSeed, TestCaseError, TestCaseResult, TestError, TestRunner},
@@ -14,26 +14,80 @@ use crate::hnsw::tests::property::{
     strategies::{hnsw_fixture_strategy, idempotency_plan_strategy, mutation_plan_strategy},
 };
 
-fn run_test_with_profile<F>(
+/// The libtest path of the `#[test]` a runner is executing.
+///
+/// proptest's fork mode re-executes this test binary and selects the case's
+/// test with `--exact`, so `Config::test_name` has to be that test's own
+/// path rather than a description of the suite. Supplying nothing aborts the
+/// run before the first case, which is what the weekly lane did for months
+/// (#260); supplying the wrong name selects no test at all, which is worse,
+/// because the child then reports nothing rather than failing loudly.
+/// The `forked_proptest!` macro derives the value from the test's own
+/// identifier so the two cannot drift apart.
+///
+/// The leading crate name is stripped by `fix_module_path` in `rusty_fork`
+/// before selection, so `module_path!()` is the right prefix to use here.
+pub(crate) type TestPath = &'static str;
+
+/// Defines a `#[test]` that drives a handbuilt proptest runner, supplying
+/// the test's own libtest path as proptest's `test_name`.
+///
+/// proptest's fork mode re-executes this binary and selects the case's test
+/// by that exact name. Deriving it from the function's own identifier is what
+/// keeps the two from drifting apart: a written string would still compile
+/// after a rename, and the weekly lane would go back to reporting nothing.
+/// The generated test binds `$path` to the derived value for the body to
+/// hand on.
+///
+/// The `#[test]` attribute is supplied here, so a use of this macro carries
+/// only the attributes that vary, such as `#[ignore]`.
+///
+/// `a_forked_run_executes_at_least_one_case` is defined with this macro, so
+/// the derivation is held up by a run that actually forks rather than by
+/// inspection.
+macro_rules! forked_proptest {
+    ($(#[$attribute:meta])* fn $name:ident($path:ident) $body:block) => {
+        $(#[$attribute])*
+        #[test]
+        fn $name() -> ::proptest::test_runner::TestCaseResult {
+            let $path: $crate::hnsw::tests::property::test_runner_support::TestPath =
+                concat!(module_path!(), "::", stringify!($name));
+            $body
+        }
+    };
+}
+
+pub(crate) use forked_proptest;
+
+/// What a caller asks for, before the run profile decides whether to fork.
+///
+/// This is `PropertyRunnerConfig` without its `fork`, which is the one field
+/// the caller does not choose.
+#[derive(Clone, Copy)]
+struct PropertyRunnerRequest {
+    test_path: TestPath,
     cases: TestCases,
     max_shrink_iters: ShrinkIterations,
     stack_size: StackSize,
-    test_runner: F,
-) -> TestCaseResult
+}
+
+fn run_test_with_profile<F>(request: PropertyRunnerRequest, test_runner: F) -> TestCaseResult
 where
     F: FnOnce(Config, usize) -> TestCaseResult,
 {
-    let profile = property_run_profile(cases.get());
+    let profile = property_run_profile(request.cases.get());
     let config = PropertyRunnerConfig {
-        cases,
+        test_path: request.test_path,
+        cases: request.cases,
         fork: profile.fork(),
-        max_shrink_iters,
-        stack_size,
+        max_shrink_iters: request.max_shrink_iters,
+        stack_size: request.stack_size,
     };
     run_test_with_config(config, test_runner)
 }
 
 fn run_test_with_profile_no_stack<F>(
+    test_path: TestPath,
     cases: TestCases,
     max_shrink_iters: ShrinkIterations,
     test_runner: F,
@@ -45,6 +99,10 @@ where
     test_runner(Config {
         cases: cases.get(),
         fork: profile.fork(),
+        test_name: Some(test_path),
+        // Rejects are a budget for the whole run, so a deep run needs one in
+        // proportion to the cases it asks for. See #260.
+        max_global_rejects: profile.max_global_rejects(),
         max_shrink_iters: max_shrink_iters.get(),
         rng_seed: RngSeed::Fixed(PROPTEST_RNG_SEED),
         ..Config::default()
@@ -52,43 +110,62 @@ where
 }
 
 /// Runs a mutation property test with custom configuration parameters.
+///
+/// `test_path` names the calling `#[test]`; see `TestPath`.
 pub(crate) fn run_mutation_test(
+    test_path: TestPath,
     cases: TestCases,
     max_shrink_iters: ShrinkIterations,
     stack_size: StackSize,
 ) -> TestCaseResult {
     run_test_with_profile(
-        cases,
-        max_shrink_iters,
-        stack_size,
+        PropertyRunnerRequest {
+            test_path,
+            cases,
+            max_shrink_iters,
+            stack_size,
+        },
         run_mutation_proptest_with_stack,
     )
 }
 
 /// Runs a search property test with custom configuration parameters.
+///
+/// `test_path` names the calling `#[test]`; see `TestPath`.
 pub(crate) fn run_search_test(
+    test_path: TestPath,
     cases: TestCases,
     max_shrink_iters: ShrinkIterations,
 ) -> TestCaseResult {
-    run_test_with_profile_no_stack(cases, max_shrink_iters, run_search_proptest)
+    run_test_with_profile_no_stack(test_path, cases, max_shrink_iters, run_search_proptest)
 }
 
 /// Runs an idempotency property test with custom configuration parameters.
+///
+/// `test_path` names the calling `#[test]`; see `TestPath`. This runner
+/// never forks, so the name only shapes failure messages here, but it is
+/// still supplied so that re-enabling `fork` cannot reintroduce #260.
 pub(crate) fn run_idempotency_test(
+    test_path: TestPath,
     cases: TestCases,
     max_shrink_iters: ShrinkIterations,
     stack_size: StackSize,
 ) -> TestCaseResult {
-    let config = idempotency_runner_config(cases, max_shrink_iters, stack_size);
+    let config = idempotency_runner_config(test_path, cases, max_shrink_iters, stack_size);
     run_test_with_config(config, run_idempotency_proptest_with_stack)
 }
 
 /// Runs a property test with the given configuration and strategy.
-fn run_proptest<S, F>(config: Config, strategy: S, test_name: &str, property: F) -> TestCaseResult
+///
+/// The failure message names the test from `config.test_name`. The fallback
+/// only shapes that message: a genuinely missing name is caught by proptest
+/// itself, which refuses to fork without one.
+fn run_proptest<S, F>(config: Config, strategy: S, property: F) -> TestCaseResult
 where
     S: proptest::strategy::Strategy,
     F: Fn(S::Value) -> TestCaseResult,
 {
+    let test_name = config.test_name.unwrap_or("unnamed hnsw proptest");
     let mut runner = TestRunner::new(config);
     runner
         .run(&strategy, property)
@@ -143,7 +220,6 @@ fn run_mutation_proptest(config: Config) -> TestCaseResult {
     run_proptest(
         config,
         (hnsw_fixture_strategy(), mutation_plan_strategy()),
-        "hnsw mutation proptest",
         |(fixture, plan)| run_mutation_property(&fixture, &plan),
     )
 }
@@ -152,7 +228,6 @@ fn run_search_proptest(config: Config) -> TestCaseResult {
     run_proptest(
         config,
         (hnsw_fixture_strategy(), any::<u16>(), any::<u16>()),
-        "hnsw search proptest",
         |(fixture, query_hint, k_hint)| {
             run_search_correctness_property(&fixture, query_hint, k_hint)
         },
@@ -165,12 +240,14 @@ fn run_search_proptest(config: Config) -> TestCaseResult {
 /// shrinking limits, and thread stack size.
 ///
 /// # Fields
+/// - `test_path`: Libtest path of the calling `#[test]`; see `TestPath`
 /// - `cases`: Number of test cases to execute in the property test run
-/// - `fork`: Whether to fork each test case into a separate process (for isolation)
+/// - `fork`: Whether to run cases in a separate process (for crash isolation)
 /// - `max_shrink_iters`: Maximum number of shrinking iterations when minimizing failures
 /// - `stack_size`: Stack size in bytes for the dedicated property test runner thread
 #[derive(Clone, Copy)]
 struct PropertyRunnerConfig {
+    test_path: TestPath,
     cases: TestCases,
     fork: bool,
     max_shrink_iters: ShrinkIterations,
@@ -193,6 +270,7 @@ struct PropertyRunnerConfig {
 ///
 /// ```rust,ignore
 /// let config = idempotency_runner_config(
+///     "hnsw::tests::property::tests::hnsw_idempotency_preserved_proptest",
 ///     TestCases::try_new(25000).expect("test cases must be > 0"),
 ///     ShrinkIterations::new(1024),
 ///     StackSize::try_new(96 * 1024 * 1024).expect("stack size must be >= minimum"),
@@ -201,11 +279,13 @@ struct PropertyRunnerConfig {
 /// assert!(!config.fork);
 /// ```
 fn idempotency_runner_config(
+    test_path: TestPath,
     cases: TestCases,
     max_shrink_iters: ShrinkIterations,
     stack_size: StackSize,
 ) -> PropertyRunnerConfig {
     PropertyRunnerConfig {
+        test_path,
         cases,
         fork: false,
         max_shrink_iters,
@@ -222,6 +302,10 @@ where
         Config {
             cases: runner_config.cases.get(),
             fork: runner_config.fork,
+            test_name: Some(runner_config.test_path),
+            // Rejects are a budget for the whole run, so a deep run needs one
+            // in proportion to the cases it asks for. See #260.
+            max_global_rejects: max_global_rejects_for(runner_config.cases.get()),
             max_shrink_iters: runner_config.max_shrink_iters.get(),
             rng_seed: RngSeed::Fixed(PROPTEST_RNG_SEED),
             ..Config::default()
@@ -241,29 +325,10 @@ fn run_idempotency_proptest(config: Config) -> TestCaseResult {
     run_proptest(
         config,
         (hnsw_fixture_strategy(), idempotency_plan_strategy()),
-        "hnsw idempotency proptest",
         |(fixture, plan)| run_idempotency_property(fixture, &plan),
     )
 }
 
 #[cfg(test)]
-mod tests {
-    //! Unit tests for proptest runner wrappers.
-
-    use super::*;
-
-    #[test]
-    fn idempotency_runner_config_disables_forking() {
-        let cases = TestCases::try_new(25000).expect("test cases must be > 0");
-        let max_shrink_iters = ShrinkIterations::new(1024);
-        let stack_size =
-            StackSize::try_new(96 * 1024 * 1024).expect("stack size must be >= minimum");
-
-        let config = idempotency_runner_config(cases, max_shrink_iters, stack_size);
-
-        assert_eq!(config.cases, cases);
-        assert!(!config.fork);
-        assert_eq!(config.max_shrink_iters, max_shrink_iters);
-        assert_eq!(config.stack_size, stack_size);
-    }
-}
+#[path = "runner_wrappers_tests.rs"]
+mod tests;

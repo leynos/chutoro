@@ -27,6 +27,53 @@ pub const CHUTORO_PBT_FORK_ENV_KEY: &str = "CHUTORO_PBT_FORK";
 /// the `proptest::test_runner::Config` used by a suite.
 pub const PROPTEST_RNG_SEED: u64 = 0x600D_5EED_C047_0207;
 
+/// Global rejects proptest allows per case asked for.
+///
+/// proptest's own defaults are 256 cases against 1024 global rejects, so four
+/// is the ratio the library itself implies. The budget is a total for the run,
+/// not a per-case allowance, which is why it has to scale with the case count.
+const GLOBAL_REJECTS_PER_CASE: u32 = 4;
+
+/// proptest's own `max_global_rejects`, used as a floor.
+///
+/// Keeping it means a run at or below proptest's default case count is
+/// unchanged, so the 250-case pull-request lane behaves exactly as before.
+///
+/// Public because a test asserting that a config derives its budget has to be
+/// able to say that its fixture is deep enough to tell the derivation from
+/// this default. At or below the floor the two agree, and such a test passes
+/// whether the wiring is there or not.
+pub const DEFAULT_MAX_GLOBAL_REJECTS: u32 = 1024;
+
+/// Global reject budget for a run of `cases` cases.
+///
+/// A suite whose strategies filter their inputs spends rejects across the
+/// whole run while proptest's budget stays flat at 1024 however many cases are
+/// asked for. At the pull-request lane's 250 cases that is never approached.
+/// At the weekly lane's 25,000 it is certain: the HNSW search and mutation
+/// suites reached 736 and 7,326 successes before aborting on it, the first
+/// time they ever ran (#260).
+///
+/// # Examples
+///
+/// ```
+/// use chutoro_test_support::ci::property_test_profile::max_global_rejects_for;
+///
+/// // At or below proptest's default case count, nothing changes.
+/// assert_eq!(max_global_rejects_for(250), 1024);
+/// // A deep run gets a budget in proportion to what it asks for.
+/// assert_eq!(max_global_rejects_for(25_000), 100_000);
+/// ```
+#[must_use]
+pub const fn max_global_rejects_for(cases: u32) -> u32 {
+    let scaled = cases.saturating_mul(GLOBAL_REJECTS_PER_CASE);
+    if scaled < DEFAULT_MAX_GLOBAL_REJECTS {
+        DEFAULT_MAX_GLOBAL_REJECTS
+    } else {
+        scaled
+    }
+}
+
 /// Runtime profile for property-test execution.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ProptestRunProfile {
@@ -72,6 +119,21 @@ impl ProptestRunProfile {
     #[must_use]
     pub const fn fork(&self) -> bool {
         self.fork
+    }
+
+    /// Global reject budget matching this profile's case count.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use chutoro_test_support::ci::property_test_profile::ProptestRunProfile;
+    ///
+    /// let profile = ProptestRunProfile::load(64, false);
+    /// assert!(profile.max_global_rejects() >= 1024);
+    /// ```
+    #[must_use]
+    pub const fn max_global_rejects(&self) -> u32 {
+        max_global_rejects_for(self.cases)
     }
 }
 

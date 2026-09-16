@@ -52,6 +52,9 @@ pub(super) fn proptest_config(default_cases: u32) -> ProptestConfig {
     ProptestConfig {
         cases: profile.cases(),
         fork: profile.fork(),
+        // Rejects are a budget for the whole run, so a deep run needs one in
+        // proportion to the cases it asks for. See #260.
+        max_global_rejects: profile.max_global_rejects(),
         rng_seed: RngSeed::Fixed(PROPTEST_RNG_SEED),
         ..ProptestConfig::default()
     }

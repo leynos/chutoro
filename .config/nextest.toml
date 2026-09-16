@@ -129,14 +129,23 @@ filter = "test(/hnsw_idempotency_preserved_proptest/)"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
-# Mutation proptest can exceed the default timeout under CI load.
+# Sized from the first runs that ever executed. Until #260 these suites drew
+# no cases at all, so the old 600s was never tested by a run that happens.
+# Measured on runs 35077288750 and 35079377163: search completed its 25,000
+# forked cases in 384s and 453s, and mutation reached a counterexample at
+# 219s. 600s would have left search at three-quarters of its allowance on a
+# hosted runner whose variance already puts the dense SIMD suite either side
+# of its own ceiling (#264). 1500s is about three times the slowest observed
+# run, and stays below the 2400s global timeout that bounds every per-test
+# allowance.
 filter = "test(/hnsw_mutations_preserve_invariants_proptest/)"
-slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
+slow-timeout = { period = "1500s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
-# Search-vs-brute-force proptest can exceed the default timeout under CI load.
+# Sized from measurement, as above: 384s and 453s for a completed 25,000-case
+# forked run on runs 35077288750 and 35079377163.
 filter = "test(/hnsw_search_matches_brute_force_proptest/)"
-slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
+slow-timeout = { period = "1500s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
 # Write-lock proptest can exceed the default timeout under CI load.

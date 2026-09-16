@@ -23,6 +23,7 @@ use super::*;
 use rstest::{fixture, rstest};
 
 mod backend_expectations;
+mod config_tests;
 mod entrypoints;
 mod parity;
 mod point_view;

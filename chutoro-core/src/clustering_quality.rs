@@ -104,7 +104,12 @@ fn adjusted_rand_index_from_contingency(
     }
 
     let expected = (sum_left_clusters * sum_right_clusters) / total;
-    let max_index = 0.5 * (sum_left_clusters + sum_right_clusters);
+    // `midpoint` rather than `0.5 * (a + b)`: both sums are sums of `comb2`
+    // over cluster sizes, so on a large contingency table their total can
+    // overflow to infinity while their midpoint is perfectly representable.
+    // Also what `clippy::manual_midpoint` asks for, which only the nightly
+    // lane runs, and which nothing saw until that lane first ran (#262).
+    let max_index = f64::midpoint(sum_left_clusters, sum_right_clusters);
     let denominator = max_index - expected;
     if denominator == 0.0 {
         1.0
