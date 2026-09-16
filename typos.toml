@@ -35,8 +35,8 @@ extend-ignore-re = [
     "&mut initialised\\b",
     "(?:::|\\.)canonicalise\\b",
     "(?s)```.*?```",
-    "Azure Architecture\\s+Center",
-    "GitHub Flavored\\s+Markdown",
+    "Azure\\s+Architecture\\s+Center\\s*\\|\\s*Microsoft\\s+Learn\\b",
+    "GitHub\\s+Flavored\\s+Markdown\\b(?:\\s\\(GFM\\))?",
     "Header-only C\\+\\+/python library for fast approximate\\s+nearest neighbors",
     "\\.finalise\\b",
     "\\[\\^canonicalise\\]",
@@ -783,6 +783,10 @@ extend-ignore-re = [
 "equalizers" = "equalizers"
 "equalizes" = "equalizes"
 "equalizing" = "equalizing"
+"exercize" = "exercise"
+"exercized" = "exercised"
+"exercizes" = "exercises"
+"exercizing" = "exercising"
 "externalisable" = "externalizable"
 "externalisably" = "externalizably"
 "externalisation" = "externalization"
@@ -1726,6 +1730,7 @@ extend-ignore-re = [
 "organizers" = "organizers"
 "organizes" = "organizes"
 "organizing" = "organizing"
+"otherwize" = "otherwise"
 "oxendict" = "oxendict"
 "oxidisable" = "oxidizable"
 "oxidisably" = "oxidizably"
@@ -1907,6 +1912,26 @@ extend-ignore-re = [
 "pluralizers" = "pluralizers"
 "pluralizes" = "pluralizes"
 "pluralizing" = "pluralizing"
+"polymerisable" = "polymerizable"
+"polymerisably" = "polymerizably"
+"polymerisation" = "polymerization"
+"polymerisations" = "polymerizations"
+"polymerise" = "polymerize"
+"polymerised" = "polymerized"
+"polymeriser" = "polymerizer"
+"polymerisers" = "polymerizers"
+"polymerises" = "polymerizes"
+"polymerising" = "polymerizing"
+"polymerizable" = "polymerizable"
+"polymerizably" = "polymerizably"
+"polymerization" = "polymerization"
+"polymerizations" = "polymerizations"
+"polymerize" = "polymerize"
+"polymerized" = "polymerized"
+"polymerizer" = "polymerizer"
+"polymerizers" = "polymerizers"
+"polymerizes" = "polymerizes"
+"polymerizing" = "polymerizing"
 "popularisable" = "popularizable"
 "popularisably" = "popularizably"
 "popularisation" = "popularization"
@@ -2027,6 +2052,10 @@ extend-ignore-re = [
 "quantizers" = "quantizers"
 "quantizes" = "quantizes"
 "quantizing" = "quantizing"
+"raize" = "raise"
+"raized" = "raised"
+"raizes" = "raises"
+"raizing" = "raising"
 "randomisable" = "randomizable"
 "randomisably" = "randomizably"
 "randomisation" = "randomization"
