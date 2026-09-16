@@ -836,18 +836,18 @@ plausible command line; it is wrong only at the point rustup parses it.
 `nightly-portable-simd` shipped that spelling for as long as it existed and
 never once ran its tests. On a day its gate decided there had been a commit to
 `main` it failed at the install step and every step after it was skipped; on
-every other day the gate skipped the work and the run reported success in
-three to eight seconds. The lane was red when it tried to work and green when
-it did nothing, which reads as flakiness rather than as a lane that has never
-run. See issue #262.
+every other day the gate skipped the work and the run reported success in three
+to eight seconds. The lane was red when it tried to work and green when it did
+nothing, which reads as flakiness rather than as a lane that has never run. See
+issue #262.
 
-`tests/workflow_contracts/toolchain_install_test.py` now reads every `rustup
-toolchain install` in every workflow and requires each `--component` flag to
-carry exactly one value. It joins line continuations first, so a command split
-across lines is one invocation rather than none, and it reads the invocation
-rather than the step's name, so deleting the fix while keeping the step fails
-it. Both correct spellings pass: a repeated flag, and one flag with a
-comma-separated list.
+`tests/workflow_contracts/toolchain_install_test.py` now reads every
+`rustup toolchain install` in every workflow and requires each `--component`
+flag to carry exactly one value. It joins line continuations first, so a
+command split across lines is one invocation rather than none, and it reads the
+invocation rather than the step's name, so deleting the fix while keeping the
+step fails it. Both correct spellings pass: a repeated flag, and one flag with
+a comma-separated list.
 
 ## Test timeouts: four tiers, outermost last
 
