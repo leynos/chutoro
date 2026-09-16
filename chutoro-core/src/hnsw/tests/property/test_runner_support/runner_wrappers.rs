@@ -1,6 +1,6 @@
 //! Proptest execution wrappers for HNSW property tests.
 
-use chutoro_test_support::ci::property_test_profile::PROPTEST_RNG_SEED;
+use chutoro_test_support::ci::property_test_profile::{PROPTEST_RNG_SEED, max_global_rejects_for};
 use proptest::{
     prelude::any,
     test_runner::{Config, RngSeed, TestCaseError, TestCaseResult, TestError, TestRunner},
@@ -100,6 +100,9 @@ where
         cases: cases.get(),
         fork: profile.fork(),
         test_name: Some(test_path),
+        // Rejects are a budget for the whole run, so a deep run needs one in
+        // proportion to the cases it asks for. See #260.
+        max_global_rejects: profile.max_global_rejects(),
         max_shrink_iters: max_shrink_iters.get(),
         rng_seed: RngSeed::Fixed(PROPTEST_RNG_SEED),
         ..Config::default()
@@ -300,6 +303,9 @@ where
             cases: runner_config.cases.get(),
             fork: runner_config.fork,
             test_name: Some(runner_config.test_path),
+            // Rejects are a budget for the whole run, so a deep run needs one
+            // in proportion to the cases it asks for. See #260.
+            max_global_rejects: max_global_rejects_for(runner_config.cases.get()),
             max_shrink_iters: runner_config.max_shrink_iters.get(),
             rng_seed: RngSeed::Fixed(PROPTEST_RNG_SEED),
             ..Config::default()

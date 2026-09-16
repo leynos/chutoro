@@ -73,6 +73,66 @@ fn the_stackless_runner_names_its_test() {
     assert_eq!(built.test_name, Some(SAMPLE_TEST_PATH));
 }
 
+/// The stacked runner sizes its reject budget from its case count.
+///
+/// proptest's default is a flat 1024 for the whole run however many cases are
+/// asked for. The HNSW mutation suite exhausted it at 7,326 successes the
+/// first time it ever drew a case, so dropping this field would leave the
+/// weekly lane aborting rather than finishing (#260).
+///
+/// The assertion is against the rule rather than a literal, so it holds
+/// whatever `PROPTEST_CASES` the surrounding run happens to set.
+#[test]
+fn the_stacked_runner_scales_its_reject_budget() {
+    let config = PropertyRunnerConfig {
+        test_path: SAMPLE_TEST_PATH,
+        cases: TestCases::try_new(25_000).expect("test cases must be > 0"),
+        fork: true,
+        max_shrink_iters: ShrinkIterations::new(8),
+        stack_size: StackSize::try_new(96 * 1024 * 1024).expect("stack size must be >= minimum"),
+    };
+
+    let mut captured = None;
+    let outcome = run_test_with_config(config, |proptest_config, _stack_size| {
+        captured = Some(proptest_config);
+        Ok(())
+    });
+
+    assert!(outcome.is_ok(), "the capturing runner cannot fail");
+    let built = captured.expect("the runner is called exactly once");
+    assert_eq!(
+        built.max_global_rejects,
+        max_global_rejects_for(built.cases),
+        "a deep run left on proptest's flat default aborts before it finishes"
+    );
+}
+
+/// The stackless runner sizes its reject budget from its case count.
+///
+/// `run_search_test` is the only user of this path, and it reached 736
+/// successes before the flat default stopped it (#260).
+#[test]
+fn the_stackless_runner_scales_its_reject_budget() {
+    let mut captured = None;
+    let outcome = run_test_with_profile_no_stack(
+        SAMPLE_TEST_PATH,
+        TestCases::try_new(25_000).expect("test cases must be > 0"),
+        ShrinkIterations::new(8),
+        |proptest_config| {
+            captured = Some(proptest_config);
+            Ok(())
+        },
+    );
+
+    assert!(outcome.is_ok(), "the capturing runner cannot fail");
+    let built = captured.expect("the runner is called exactly once");
+    assert_eq!(
+        built.max_global_rejects,
+        max_global_rejects_for(built.cases),
+        "a deep run left on proptest's flat default aborts before it finishes"
+    );
+}
+
 forked_proptest! {
     /// A forked run executes at least one case, in a child process.
     ///
