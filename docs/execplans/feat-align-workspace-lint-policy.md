@@ -6,9 +6,9 @@ without relying on an interactive session.
 
 Status: READY FOR EXTERNAL REVIEW
 
-The seven workspace-member manifests are enrolled, and the remaining
-filesystem exceptions have been narrowed and audited. The implementation is
-locally validated; external review remains pending.
+The seven workspace-member manifests are enrolled, and the remaining filesystem
+exceptions have been narrowed and audited. The implementation is locally
+validated; external review remains pending.
 
 ## Purpose / big picture
 
@@ -845,8 +845,8 @@ then advance the workspace lint gate.
 
 The workspace-lint objective is complete locally. All seven workspace-member
 manifests inherit `[workspace.lints]`, and the Whitaker filesystem exclusions
-are limited to the documented, scoped boundaries recorded in `dylint.toml`.
-The final review-fix tree passed the complete local gate set at `acf27f8`,
+are limited to the documented, scoped boundaries recorded in `dylint.toml`. The
+final review-fix tree passed the complete local gate set at `acf27f8`,
 including 1,096 passing tests and one skipped test. This confirms that the
 crate enrolment and filesystem-exemption narrowing remain visible as completed
 and audited stages rather than deferred work.

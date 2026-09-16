@@ -14,15 +14,15 @@ rather than by the suites' names.
 
 It ran on `ubicloud-standard-8` until the shape was measured. On eight cores
 the whole "Run property suite" step, compilation and 250 cases together, took
-21 to 24 seconds across the four suites (run 33852441511), inside jobs of 51
-to 57 seconds. That is roughly a fifteen-second compile, four ways in parallel,
+21 to 24 seconds across the four suites (run 33852441511), inside jobs of 51 to
+57 seconds. That is roughly a fifteen-second compile, four ways in parallel,
 far off the critical path that `build-test`'s coverage step defines. Eight
-cores bought nothing worth paying for, so the job runs on two. Wall times
-are in "Property suite runner shape" below.
+cores bought nothing worth paying for, so the job runs on two. Wall times are
+in "Property suite runner shape" below.
 `tests/workflow_contracts/runner_placement_test.py` and
-`chutoro-core/tests/nextest_config.rs` both assert the label by value,
-because a paid runner is the one setting here that costs more when somebody
-quietly reaches for a bigger one.
+`chutoro-core/tests/nextest_config.rs` both assert the label by value, because
+a paid runner is the one setting here that costs more when somebody quietly
+reaches for a bigger one.
 
 ### Property suite runner shape
 
@@ -30,23 +30,23 @@ Table: The four pull-request property suites before and after the move from
 eight cores to two, measured on run 33852441511 and on the run of the pull
 request that made the change.
 
-| Suite | Step, 8 cores | Step, 2 cores | Job, 8 cores | Job, 2 cores |
-| --- | --- | --- | --- | --- |
-| hnsw | 24 s | 53 s | 57 s | 79 s |
-| dense_simd | 23 s | 52 s | 54 s | 82 s |
-| edge_harvest | 21 s | 55 s | 53 s | 87 s |
-| mst | 21 s | 52 s | 51 s | 81 s |
+| Suite        | Step, 8 cores | Step, 2 cores | Job, 8 cores | Job, 2 cores |
+| ------------ | ------------- | ------------- | ------------ | ------------ |
+| hnsw         | 24 s          | 53 s          | 57 s         | 79 s         |
+| dense_simd   | 23 s          | 52 s          | 54 s         | 82 s         |
+| edge_harvest | 21 s          | 55 s          | 53 s         | 87 s         |
+| mst          | 21 s          | 52 s          | 51 s         | 81 s         |
 
-The step is compilation and 250 cases together, so it roughly doubles, and
-the whole job grows by about half. Nothing approaches the `timeout-minutes:
-20` budget, and the four suites still run in parallel, so the pull request
-waits about thirty seconds longer on a path already defined by `build-test`
-at over 700 seconds. Two cores at a quarter of the per-minute rate for
-around 1.55 times the minutes is roughly a 60 % saving on this job.
+The step is compilation and 250 cases together, so it roughly doubles, and the
+whole job grows by about half. Nothing approaches the `timeout-minutes: 20`
+budget, and the four suites still run in parallel, so the pull request waits
+about thirty seconds longer on a path already defined by `build-test` at over
+700 seconds. Two cores at a quarter of the per-minute rate for around 1.55
+times the minutes is roughly a 60 % saving on this job.
 
 The `ci` nextest profile still asks for four test threads, so two cores
-oversubscribe. That is the deliberate part of the trade, and the doubled
-step time above is what it costs. Raising the shape again needs a wall-time
+oversubscribe. That is the deliberate part of the trade, and the doubled step
+time above is what it costs. Raising the shape again needs a wall-time
 measurement in the pull request that raises it, not an argument from the
 suites' names.
 
@@ -57,11 +57,11 @@ that keeps it that way is deliberate rather than incidental:
 > (API) bound jobs never run on a paid runner.
 
 Those jobs are off the feedback path, so a shorter queue buys them nothing,
-while their long runtimes would dominate the bill. `property-tests-weekly`
-runs 25,000 forked cases per suite and `nightly-kani` can run for two hours;
-neither blocks a pull request. Externally owned reusable workflows
-(`mutation-testing.yml`, `dependabot-automerge.yml`) keep their callee's
-runner selection.
+while their long runtimes would dominate the bill. `property-tests-weekly` runs
+25,000 forked cases per suite and `nightly-kani` can run for two hours; neither
+blocks a pull request. Externally owned reusable workflows
+(`mutation-testing.yml`, `dependabot-automerge.yml`) keep their callee's runner
+selection.
 
 `.github/actionlint.yaml` registers every label outside GitHub's hosted pool.
 It must list exactly the labels the workflows use: an unregistered label fails
@@ -72,53 +72,54 @@ has already been retired.
 
 Table: Every workflow job, the runner it uses, and what it does.
 
-| Workflow | Job | Runner | Purpose |
-| --- | --- | --- | --- |
-| `benchmark-regressions.yml` | `benchmark-policy` | `ubuntu-latest` | Resolve the benchmark mode and matrix |
-| `benchmark-regressions.yml` | `benchmark-smoke` | `ubuntu-latest` | Criterion discovery smoke check |
-| `benchmark-regressions.yml` | `benchmark-baseline-compare` | `ubuntu-latest` | Compare against the previous commit |
-| `ci.yml` | `build-test` | `ubuntu-latest` | Format, lint, spelling, contracts, coverage |
-| `ci.yml` | `verus-proofs` | `ubuntu-latest` | Verus edge-harvest proofs |
-| `coverage-main.yml` | `coverage-upload` | `ubuntu-latest` | Upload trunk coverage and advance the ratchet |
-| `dependabot-automerge.yml` | `automerge` | callee-selected | Reusable workflow, API-bound |
-| `mutation-testing.yml` | `mutation` | callee-selected | Reusable workflow, scheduled |
-| `nightly-kani.yml` | `kani-full` | `ubuntu-latest` | Full Kani harness suite |
-| `nightly-portable-simd.yml` | `nightly-portable-simd` | `ubuntu-latest` | Nightly portable-SIMD backend |
-| `property-tests.yml` | `property-tests-pr` | `ubicloud-standard-2` | Pull-request property suites |
-| `property-tests.yml` | `property-tests-weekly` | `ubuntu-latest` | Weekly deep property suites |
+| Workflow                    | Job                          | Runner                | Purpose                                       |
+| --------------------------- | ---------------------------- | --------------------- | --------------------------------------------- |
+| `benchmark-regressions.yml` | `benchmark-policy`           | `ubuntu-latest`       | Resolve the benchmark mode and matrix         |
+| `benchmark-regressions.yml` | `benchmark-smoke`            | `ubuntu-latest`       | Criterion discovery smoke check               |
+| `benchmark-regressions.yml` | `benchmark-baseline-compare` | `ubuntu-latest`       | Compare against the previous commit           |
+| `ci.yml`                    | `build-test`                 | `ubuntu-latest`       | Format, lint, spelling, contracts, coverage   |
+| `ci.yml`                    | `verus-proofs`               | `ubuntu-latest`       | Verus edge-harvest proofs                     |
+| `coverage-main.yml`         | `coverage-upload`            | `ubuntu-latest`       | Upload trunk coverage and advance the ratchet |
+| `dependabot-automerge.yml`  | `automerge`                  | callee-selected       | Reusable workflow, API-bound                  |
+| `mutation-testing.yml`      | `mutation`                   | callee-selected       | Reusable workflow, scheduled                  |
+| `nightly-kani.yml`          | `kani-full`                  | `ubuntu-latest`       | Full Kani harness suite                       |
+| `nightly-portable-simd.yml` | `nightly-portable-simd`      | `ubuntu-latest`       | Nightly portable-SIMD backend                 |
+| `property-tests.yml`        | `property-tests-pr`          | `ubicloud-standard-2` | Pull-request property suites                  |
+| `property-tests.yml`        | `property-tests-weekly`      | `ubuntu-latest`       | Weekly deep property suites                   |
 
 ### Tool installers
 
 Continuous integration (CI) never builds a tool from source. A source build
-turns a cache miss into minutes of paid compilation, so every tool arrives as
-a pinned, checksum-verified prebuilt archive:
+turns a cache miss into minutes of paid compilation, so every tool arrives as a
+pinned, checksum-verified prebuilt archive:
 
 Table: Each tool CI installs, the installer that fetches it, and where its
 version and digest are pinned.
 
-| Tool | Installer | Pin |
-| --- | --- | --- |
-| Whitaker | `leynos/shared-actions/.github/actions/install-whitaker` | Action input, currently 0.2.7 |
-| cargo-nextest | `scripts/install-nextest.sh` | `tools/nextest/VERSION` and `SHA256SUMS` |
-| sccache | `scripts/install-sccache.sh` | `tools/sccache/VERSION` and `SHA256SUMS` |
-| Kani | `scripts/install-kani.sh` | `tools/kani/VERSION` and `SHA256SUMS` |
-| Verus | `scripts/install-verus.sh` | `tools/verus/VERSION` and `SHA256SUMS` |
+| Tool          | Installer                                                  | Pin                                      |
+| ------------- | ---------------------------------------------------------- | ---------------------------------------- |
+| Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, currently 0.2.7            |
+| mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.0            |
+| cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS` |
+| sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS` |
+| Kani          | `scripts/install-kani.sh`                                  | `tools/kani/VERSION` and `SHA256SUMS`    |
+| Verus         | `scripts/install-verus.sh`                                 | `tools/verus/VERSION` and `SHA256SUMS`   |
 
-The four repository scripts share `scripts/lib/pinned-download.sh`, which
-reads the pinned version, looks the archive's SHA-256 up in the sibling
-manifest, and fails closed when either is missing or does not match. That
-helper is for repository installer scripts only; it is not a general download
-utility and must not be sourced from application code. Each script also probes
-for its own executable first, so a warm cache repeats no download.
+The four repository scripts share `scripts/lib/pinned-download.sh`, which reads
+the pinned version, looks the archive's SHA-256 up in the sibling manifest, and
+fails closed when either is missing or does not match. That helper is for
+repository installer scripts only; it is not a general download utility and
+must not be sourced from application code. Each script also probes for its own
+executable first, so a warm cache repeats no download.
 
 Kani is a two-part tool and needs both parts pinned to the same version. The
 `cargo-kani` front-end comes from a Cargo QuickInstall binary archive and the
 CBMC-backed verifier bundle from the Kani release; extracting only the bundle
 leaves `cargo kani` unavailable, and installing only the front-end leaves the
 verifier missing. `kani setup --use-local-bundle` consumes the verified
-download instead of fetching its own, and installs its pinned nightly
-toolchain into a Kani-specific rustup home so it never shares ownership with
-the job's ordinary Cargo cache.
+download instead of fetching its own, and installs its pinned nightly toolchain
+into a Kani-specific rustup home so it never shares ownership with the job's
+ordinary Cargo cache.
 
 `nightly-kani` passes an empty `rustflags` to `setup-rust`. The default is
 `-D warnings`, and under `cfg(kani)` the proof-harness helpers in
@@ -139,13 +140,13 @@ caches that were measured and rejected outright are pinned separately, in
 Table: Each cached path, its single owner, and the input its key is derived
 from.
 
-| Path | Owner | Key input |
-| --- | --- | --- |
-| `~/.cargo/registry`, `~/.cargo/git` | `setup-rust` | Toolchain file and `Cargo.lock` |
-| `~/.cache/uv` | `setup-rust`'s `setup-uv` invocation | `pyproject.toml`, `uv.lock`, helper scripts |
-| `~/.cargo/bin/whitaker-installer`, `~/.local/share/whitaker` | `install-whitaker` | Installer version and `dylint.toml` |
-| `.verus` | `ci.yml`'s Cache Verus step | Pinned Verus version and digest |
-| `.sccache` | `coverage-main.yml`'s Save compiler cache step | Toolchain file, `Cargo.lock` and a date stamp |
+| Path                                                         | Owner                                          | Key input                                     |
+| ------------------------------------------------------------ | ---------------------------------------------- | --------------------------------------------- |
+| `~/.cargo/registry`, `~/.cargo/git`                          | `setup-rust`                                   | Toolchain file and `Cargo.lock`               |
+| `~/.cache/uv`                                                | `setup-rust`'s `setup-uv` invocation           | `pyproject.toml`, `uv.lock`, helper scripts   |
+| `~/.cargo/bin/whitaker-installer`, `~/.local/share/whitaker` | `install-whitaker`                             | Installer version and `dylint.toml`           |
+| `.verus`                                                     | `ci.yml`'s Cache Verus step                    | Pinned Verus version and digest               |
+| `.sccache`                                                   | `coverage-main.yml`'s Save compiler cache step | Toolchain file, `Cargo.lock` and a date stamp |
 
 Three consequences follow, and each is asserted by a contract test:
 
@@ -164,29 +165,28 @@ saves is easy to add and hard to notice.
 Table: What a cache would save against what it would move, for the two tools
 whose caches were measured and rejected.
 
-| Tool | Work a cache would avoid | Archive it would move |
-| --- | --- | --- |
-| cargo-nextest | An 11 MB release archive | About 11 MB |
-| Kani | A 16 s cold install, measured on run 33819842254 | About 1.8 GB |
+| Tool          | Work a cache would avoid                         | Archive it would move |
+| ------------- | ------------------------------------------------ | --------------------- |
+| cargo-nextest | An 11 MB release archive                         | About 11 MB           |
+| Kani          | A 16 s cold install, measured on run 33819842254 | About 1.8 GB          |
 
 Kani is the sharper case. It is a multi-part tool, so a cache has to cover the
 front-end, the verifier bundle under `KANI_HOME`, and the pinned nightly
-toolchain together or the toolchain symlink dangles; that is 483 MB plus
-1.3 GB. Moving 1.8 GB to save sixteen seconds fails the payoff rule outright
-and would consume most of the repository's cache quota for a nightly job that
-blocks nobody. Both tools still install from pinned, checksum-verified
-archives with executable probes; only the archive is gone.
+toolchain together or the toolchain symlink dangles; that is 483 MB plus 1.3
+GB. Moving 1.8 GB to save sixteen seconds fails the payoff rule outright and
+would consume most of the repository's cache quota for a nightly job that
+blocks nobody. Both tools still install from pinned, checksum-verified archives
+with executable probes; only the archive is gone.
 
 ### The compiler cache
 
 sccache is the sole owner of compiler output, which is why no cache step
 archives a `target` tree. Owning it is not the same as storing it, and this
-repository has now failed at that twice. Both failures reported success.
-Every part below is asserted by the contracts in
-`tests/workflow_contracts/`: `sccache_wiring_test.py` for whether the
-cache is switched on and pointed somewhere real, and
-`sccache_cache_entry_test.py` for who reads it, who writes it, and in
-what order.
+repository has now failed at that twice. Both failures reported success. Every
+part below is asserted by the contracts in `tests/workflow_contracts/`:
+`sccache_wiring_test.py` for whether the cache is switched on and pointed
+somewhere real, and `sccache_cache_entry_test.py` for who reads it, who writes
+it, and in what order.
 
 The arrangement that works has five parts:
 
@@ -200,144 +200,140 @@ The arrangement that works has five parts:
    shared action runs `mozilla-actions/sccache-action`, whose last act is to
    write `ACTIONS_CACHE_SERVICE_V2=on` and GitHub's results URL and token to
    `GITHUB_ENV`. That clobbers any earlier cache-endpoint export for every
-   later step in the job, which is how the Ubicloud lane's writes ended up
-   at GitHub rather than at the local proxy. Keeping the step out is what
-   makes the local backend's indifference to those variables count.
+   later step in the job, which is how the Ubicloud lane's writes ended up at
+   GitHub rather than at the local proxy. Keeping the step out is what makes
+   the local backend's indifference to those variables count.
 3. `SCCACHE_DIR` pointing at `.sccache` under the workspace, with
    `SCCACHE_CACHE_SIZE: 2G`. The default is `~/.cache/sccache`, outside the
    workspace, where no cache step can reach it; the bound keeps the compiler
    cache from evicting its neighbours out of the repository's 10 GB quota.
 4. An `actions/cache/restore` of that directory before the server starts.
-   Unpacking the archive underneath a running server leaves the run
-   compiling from scratch while the statistics report a full cache.
+   Unpacking the archive underneath a running server leaves the run compiling
+   from scratch while the statistics report a full cache.
 5. `sccache --zero-stats` before the build and `--show-stats` afterwards,
-   teed into both the log and the job summary, alongside the restored key.
-   Job summaries are not exposed through the REST API, so a summary-only
-   report cannot be checked by anything except a human with a browser, and a
-   restore that silently missed produces exactly the numbers a cold run
-   produces.
+   teed into both the log and the job summary, alongside the restored key. Job
+   summaries are not exposed through the REST API, so a summary-only report
+   cannot be checked by anything except a human with a browser, and a restore
+   that silently missed produces exactly the numbers a cold run produces.
 
 #### Who reads and who writes
 
-`ci.yml`'s `build-test` restores the key and never saves.
-`coverage-main.yml`'s `coverage-upload` restores it, compiles on `push` to
-`main`, and is the only job that saves. One owner means no race on merge and
-no run discarding another's work. The save is guarded on
-`github.event_name == 'push'`, so a dispatch restores and never saves and a
-manual re-upload cannot overwrite the entry a real merge produced.
+`ci.yml`'s `build-test` restores the key and never saves. `coverage-main.yml`'s
+`coverage-upload` restores it, compiles on `push` to `main`, and is the only
+job that saves. One owner means no race on merge and no run discarding
+another's work. The save is guarded on `github.event_name == 'push'`, so a
+dispatch restores and never saves and a manual re-upload cannot overwrite the
+entry a real merge produced.
 
-One owner has a consequence that is easy to miss and expensive to leave
-alone: a shape the writer never builds is a shape no pull request can ever
-hit. `build-test` compiles three of them, the dense-SIMD gate with its own
-feature set, `make lint`'s rustdoc and Clippy pass, and the instrumented
-coverage run. When `coverage-upload` built only the third, the warm hit rate
-stalled at 47.94 % with byte-identical counters across two dispatches, 1375
-hits and 1493 misses each time. Identical numbers across runs are the tell.
-A flaky cache varies; a structurally incomplete archive does not.
+One owner has a consequence that is easy to miss and expensive to leave alone:
+a shape the writer never builds is a shape no pull request can ever hit.
+`build-test` compiles three of them, the dense-SIMD gate with its own feature
+set, `make lint`'s rustdoc and Clippy pass, and the instrumented coverage run.
+When `coverage-upload` built only the third, the warm hit rate stalled at 47.94
+% with byte-identical counters across two dispatches, 1375 hits and 1493 misses
+each time. Identical numbers across runs are the tell. A flaky cache varies; a
+structurally incomplete archive does not.
 
-The fix is not a second writer, because one key may have only one owner. It
-is for that owner to build what its reader builds, so `coverage-upload` now
-runs the dense-SIMD gate and `make lint` before its coverage step, purely to
-fill the cache. The two jobs live in different files, so YAML anchors cannot
-hold them together;
-`tests/workflow_contracts/sccache_cache_entry_test.py` asserts that the
-writer's compile commands are a superset of the reader's, comparing whole
-command lines rather than subcommands. A change to the dense-SIMD feature
+The fix is not a second writer, because one key may have only one owner. It is
+for that owner to build what its reader builds, so `coverage-upload` now runs
+the dense-SIMD gate and `make lint` before its coverage step, purely to fill
+the cache. The two jobs live in different files, so YAML anchors cannot hold
+them together; `tests/workflow_contracts/sccache_cache_entry_test.py` asserts
+that the writer's compile commands are a superset of the reader's, comparing
+whole command lines rather than subcommands. A change to the dense-SIMD feature
 list in one file fails the contract until the other matches.
 
-The key carries `runner.os`, `runner.arch`, `runner.environment`, the hash
-of `rust-toolchain.toml` and `Cargo.lock`, and a UTC date stamp. The date
-stamp is not decoration: `actions/cache` refuses to overwrite an existing
-key, so without a component that moves, the entry would freeze at the first
-push that used a given lockfile and never take another day's work. Readers
-carry two `restore-keys` prefixes, one dropping the date and one dropping
-the lockfile too, so a dependency bump starts from the newest older entry
-rather than from nothing. The stamp is computed once per job, so a job
-running across midnight cannot restore under one date and save under
-another.
+The key carries `runner.os`, `runner.arch`, `runner.environment`, the hash of
+`rust-toolchain.toml` and `Cargo.lock`, and a UTC date stamp. The date stamp is
+not decoration: `actions/cache` refuses to overwrite an existing key, so
+without a component that moves, the entry would freeze at the first push that
+used a given lockfile and never take another day's work. Readers carry two
+`restore-keys` prefixes, one dropping the date and one dropping the lockfile
+too, so a dependency bump starts from the newest older entry rather than from
+nothing. The stamp is computed once per job, so a job running across midnight
+cannot restore under one date and save under another.
 
 Before the save, `coverage-upload` stops the server, deletes
 `target/llvm-cov-target`, and prints `df -h` on both sides. The scratch tree
-has no consumer after the coverage report and is the largest thing on the
-disk; deleting it is what leaves room to build the archive, and the `df -h`
-pair is how the next reader knows how much headroom the save actually had.
+has no consumer after the coverage report and is the largest thing on the disk;
+deleting it is what leaves room to build the archive, and the `df -h` pair is
+how the next reader knows how much headroom the save actually had.
 
 #### Why the GitHub Actions backend is gone
 
 sccache's `ghac` backend was tried and reverted on measurement, not taste.
 
-Table: `build-test` across four states, showing what each sccache
-configuration cost.
+Table: `build-test` across four states, showing what each sccache configuration
+cost.
 
-| Step | Before the pin bump | No wrapper | Wrapper, local disk | Wrapper plus `ghac` |
-| --- | --- | --- | --- | --- |
-| Dense stable SIMD gating | 50 s | 103 s | 104 s | 154 s |
-| Lint | 93 s | 155 s | 139 s | 279 s |
-| Test and Measure Coverage | 331 s | 444 s | 494 s | 607 s, killed |
-| Whole job | 494 s median | 749 to 814 s | 813 s | red |
+| Step                      | Before the pin bump | No wrapper   | Wrapper, local disk | Wrapper plus `ghac` |
+| ------------------------- | ------------------- | ------------ | ------------------- | ------------------- |
+| Dense stable SIMD gating  | 50 s                | 103 s        | 104 s               | 154 s               |
+| Lint                      | 93 s                | 155 s        | 139 s               | 279 s               |
+| Test and Measure Coverage | 331 s               | 444 s        | 494 s               | 607 s, killed       |
+| Whole job                 | 494 s median        | 749 to 814 s | 813 s               | red                 |
 
-With `ghac` selected the job exceeded the 600-second nextest global timeout
-and failed. The statistics say why: 273 rejected writes, and a cache read hit
+With `ghac` selected the job exceeded the 600-second nextest global timeout and
+failed. The statistics say why: 273 rejected writes, and a cache read hit
 averaging 0.280 s against 0.420 s to simply compile the unit. A backend whose
 reads cost nearly as much as compiling cannot pay even at a perfect hit rate,
-so it fails the same rule that rejected the Kani and cargo-nextest caches.
-The Ubicloud lane failed differently, with 164 rejected writes, and the
-cause is worth stating precisely because the obvious explanation is wrong.
-`run:` steps do see the credentials export. What defeats it is that
+so it fails the same rule that rejected the Kani and cargo-nextest caches. The
+Ubicloud lane failed differently, with 164 rejected writes, and the cause is
+worth stating precisely because the obvious explanation is wrong. `run:` steps
+do see the credentials export. What defeats it is that
 `mozilla-actions/sccache-action`, which `setup-rust` invokes, writes
 `ACTIONS_CACHE_SERVICE_V2=on` and GitHub's results URL and token to
-`GITHUB_ENV` as its last act, clobbering the export for every later step in
-the job. The server then wrote to GitHub rather than to the local proxy.
+`GITHUB_ENV` as its last act, clobbering the export for every later step in the
+job. The server then wrote to GitHub rather than to the local proxy.
 
-Nothing sets `SCCACHE_GHA_ENABLED` now, and a contract test sweeps every
-job, every step and every script to keep it that way. The
-`export-ubicloud-cache-credentials` shared action is gone with it: it exists
-to let a `run:`-started server reach the proxy's v1 cache service, which
-only that backend spoke. `actions/cache` is an action step, so the runner
-hands it those variables directly, and the local disk backend ignores them
-entirely.
+Nothing sets `SCCACHE_GHA_ENABLED` now, and a contract test sweeps every job,
+every step and every script to keep it that way. The
+`export-ubicloud-cache-credentials` shared action is gone with it: it exists to
+let a `run:`-started server reach the proxy's v1 cache service, which only that
+backend spoke. `actions/cache` is an action step, so the runner hands it those
+variables directly, and the local disk backend ignores them entirely.
 
-`Cache location` in the reported statistics names the backend. It must read
-the workspace `.sccache` directory. `Local disk: ~/.cache/sccache` means the
-job is compiling into a directory nothing moves, which is the failure that
-reads as success.
+`Cache location` in the reported statistics names the backend. It must read the
+workspace `.sccache` directory. `Local disk: ~/.cache/sccache` means the job is
+compiling into a directory nothing moves, which is the failure that reads as
+success.
 
 #### Which jobs carry a cache, and which do not
 
-Two jobs name the wrapper: `build-test` and `coverage-upload`, the reader
-and the writer of the one key. Every other job passes
-`use-sccache: 'false'` and carries no compiler cache at all, which is a
-deliberate choice rather than an oversight:
+Two jobs name the wrapper: `build-test` and `coverage-upload`, the reader and
+the writer of the one key. Every other job passes `use-sccache: 'false'` and
+carries no compiler cache at all, which is a deliberate choice rather than an
+oversight:
 
 - The property suites would need their own writer. Their readers sit on
   Ubicloud, so only an Ubicloud writer lands in the store they read, which
   means a paid job on every merge. The whole "Run property suite" step,
   compilation and 250 cases together, measures 21 to 24 seconds on run
-  33852441511, and the four suites run in parallel far off the critical
-  path that the 495-second coverage step defines. A writer would buy about
-  ten seconds.
+  33852441511, and the four suites run in parallel far off the critical path
+  that the 495-second coverage step defines. A writer would buy about ten
+  seconds.
 - The benchmark jobs and `nightly-kani` have no writer on `main` either.
-  `nightly-kani` additionally compiles through `kani-compiler`, which
-  sccache does not support.
+  `nightly-kani` additionally compiles through `kani-compiler`, which sccache
+  does not support.
 - `verus-proofs` and `nightly-portable-simd` do not use `setup-rust`, so
   there was never an sccache to name.
 
 Installing sccache in any of those would be worse than leaving it out: the
-server starts, the statistics look plausible, and the directory dies with
-the runner.
+server starts, the statistics look plausible, and the directory dies with the
+runner.
 
 This matters more than it looks. When `setup-rust` stopped archiving
-`target/${BUILD_PROFILE}`, correctly, the coverage gate grew from a
-494-second median to over 800 seconds, because the mechanism meant to
-replace that archive had never been switched on.
+`target/${BUILD_PROFILE}`, correctly, the coverage gate grew from a 494-second
+median to over 800 seconds, because the mechanism meant to replace that archive
+had never been switched on.
 
 Compiled-tool keys include `runner.environment` alongside `runner.os` and
 `runner.arch`. That value is `github-hosted` on GitHub's runners and
 `self-hosted` on Ubicloud, which is exactly the isolation needed to stop a
 binary built against one image being restored onto another.
 
-All cache steps use `actions/cache` (or its `restore` and `save` halves)
-pinned to v6.1.0. Ubicloud's transparent cache proxy intercepts that version's
+All cache steps use `actions/cache` (or its `restore` and `save` halves) pinned
+to v6.1.0. Ubicloud's transparent cache proxy intercepts that version's
 traffic, so the deprecated `ubicloud/cache` fork is unnecessary and would
 otherwise diverge from the GitHub-hosted lanes.
 
@@ -690,8 +686,8 @@ placement, the tool installs, the cache ownership, the CodeScene rule set and
 the timeout tiers below.
 
 The target needs `uv` on the path and nothing else installed: it obtains
-`pytest`, `PyYAML`, `pathspec` and `hypothesis` for the run through `uv run
---with`, so the versions are the target's business rather than the
+`pytest`, `PyYAML`, `pathspec` and `hypothesis` for the run through
+`uv run --with`, so the versions are the target's business rather than the
 developer's. `hypothesis` is there because the timeout derivations are driven
 as properties over generated configurations, not only against the values this
 repository happens to hold. The `build-test` job runs the same target, so a
@@ -875,16 +871,16 @@ thing: turning the text of a nextest duration into seconds exactly as
 workflow-contract helper, not a repository-wide duration parser: its only
 call-sites are `timeout_budgets.py`, which reads `.config/nextest.toml`
 budgets, and `timeout_ordering_test.py`, which drives the reading directly.
-Nothing outside `tests/workflow_contracts` may import it, and nothing inside
-it should grow a second duration reader beside it.
+Nothing outside `tests/workflow_contracts` may import it, and nothing inside it
+should grow a second duration reader beside it.
 
 It composes one way round. `nextest_durations` knows nothing of TOML, of
-workflows, or of what a budget means; callers hand it text and receive
-seconds or an error. A reading that needs more than that, such as the
-`timeout-minutes` on a job, belongs with its caller, which is why
-`_optional_seconds` and `_watchdog_seconds` live in `timeout_budgets.py` and
-`coverage_lanes.py` rather than here: they read GitHub Actions values, which
-are minutes and seconds as integers, not `humantime` text.
+workflows, or of what a budget means; callers hand it text and receive seconds
+or an error. A reading that needs more than that, such as the `timeout-minutes`
+on a job, belongs with its caller, which is why `_optional_seconds` and
+`_watchdog_seconds` live in `timeout_budgets.py` and `coverage_lanes.py` rather
+than here: they read GitHub Actions values, which are minutes and seconds as
+integers, not `humantime` text.
 
 `terminate-after` is optional, and cargo-nextest treats its absence as no
 termination: the test is reported slow, once per period, and runs on. The
@@ -916,8 +912,8 @@ section with it, and a lane appearing without an entry fails the contract too.
 ## Continuous integration
 
 `property-tests-pr` runs on `ubicloud-standard-2`, a 2-core Ubicloud runner,
-right-sized from eight cores on measured wall times.
-`property-tests-weekly` runs on GitHub-hosted `ubuntu-latest`; see
+right-sized from eight cores on measured wall times. `property-tests-weekly`
+runs on GitHub-hosted `ubuntu-latest`; see
 [GitHub Actions runner profiles](#github-actions-runner-profiles) for the
 placement rule that separates them.
 
@@ -992,12 +988,12 @@ compile-pass test before the full quality gates.
 ## CodeScene rule overrides
 
 `.codescene/code-health-rules.json` holds this repository's CodeScene code
-health overrides. It carries one rule set, which waives Primitive Obsession
-for `chutoro-providers/dense/src/simd/kernels/mod.rs`, where the kernel
-functions take `&[f32]` slice pairs and `usize` offsets because SIMD
-intrinsics need contiguous unboxed memory and raw index arithmetic. The rule
-set's `matching_content_path_doc` records that reason; write one for any rule
-set added later.
+health overrides. It carries one rule set, which waives Primitive Obsession for
+`chutoro-providers/dense/src/simd/kernels/mod.rs`, where the kernel functions
+take `&[f32]` slice pairs and `usize` offsets because SIMD intrinsics need
+contiguous unboxed memory and raw index arithmetic. The rule set's
+`matching_content_path_doc` records that reason; write one for any rule set
+added later.
 
 The failure mode this configuration has is silence. A `matching_content_path`
 that matches no file leaves the file valid JSON, leaves
@@ -1022,14 +1018,14 @@ things: the file uses the documented `rule_sets` shape with prose rule names
 and weights between 0.0 and 1.0; every rule set carries a
 `matching_content_path_doc` long enough to justify itself; and every
 `matching_content_path` matches at least one file git tracks. The last is the
-one that fails on a stale path, and the suite proves each assertion by
-feeding it the shape it exists to reject, including the exact stale path
-from [#253](https://github.com/leynos/chutoro/issues/253).
+one that fails on a stale path, and the suite proves each assertion by feeding
+it the shape it exists to reject, including the exact stale path from
+[#253](https://github.com/leynos/chutoro/issues/253).
 
-Matching is glob-based, so `kernels/*.rs` would cover the whole directory.
-Keep the path as narrow as the justification: the backend files beside
-`mod.rs` carry the same primitive signatures but were never covered by this
-waiver, and widening it is a policy decision rather than a rename.
+Matching is glob-based, so `kernels/*.rs` would cover the whole directory. Keep
+the path as narrow as the justification: the backend files beside `mod.rs`
+carry the same primitive signatures but were never covered by this waiver, and
+widening it is a policy decision rather than a rename.
 
 ## Dense SIMD parity suite
 
@@ -1097,8 +1093,8 @@ full suite only when its commit-recency gate permits it.
 
 ### Installing Kani
 
-CI and local runs use the kani-verifier release pinned in
-`tools/kani/VERSION`, which is the single source of truth for the version.
+CI and local runs use the kani-verifier release pinned in `tools/kani/VERSION`,
+which is the single source of truth for the version.
 `prover-tools kani install` reads that file by default; install it directly
 with:
 
@@ -1108,26 +1104,26 @@ cargo kani setup
 ```
 
 The Makefile derives `KANI_VERSION` from the same file, the `kani-pr.yml`
-workflow interpolates it rather than restating it, and a workflow contract
-test fails the build if a version literal reappears in the workflow.
-Bumping Kani is therefore a one-line change to `tools/kani/VERSION`.
+workflow interpolates it rather than restating it, and a workflow contract test
+fails the build if a version literal reappears in the workflow. Bumping Kani is
+therefore a one-line change to `tools/kani/VERSION`.
 
 The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
-`make kani`. The full tier remains the package-wide sweep across every
-declared harness, including the distance and HNSW invariant proofs that are
-not in the fast list.
+`make kani`. The full tier remains the package-wide sweep across every declared
+harness, including the distance and HNSW invariant proofs that are not in the
+fast list.
 
-Kani harnesses must stay within the tractable CBMC state space. For graph
-code there is a sharp combinatorial cliff between two-node and three-node
+Kani harnesses must stay within the tractable CBMC state space. For graph code
+there is a sharp combinatorial cliff between two-node and three-node
 configurations that drive the full commit machinery: three deterministic
 multi-node harnesses (three-node reconciliation, three-node commit path, and
-four-node eviction scrub) each exceeded 15 to 20 minutes without concluding
-and were retired. A deterministic harness explores a single concrete path, so
-its value over a unit test is only the absence of undefined behaviour along
-that path; each retired harness is replaced by an exact unit-test twin in
+four-node eviction scrub) each exceeded 15 to 20 minutes without concluding and
+were retired. A deterministic harness explores a single concrete path, so its
+value over a unit test is only the absence of undefined behaviour along that
+path; each retired harness is replaced by an exact unit-test twin in
 `chutoro-core/src/hnsw/insert/commit/tests/deferred_scrub.rs` and
-`.../commit/tests/mod.rs`. Reserve Kani proofs for small nondeterministic
-state spaces where exhaustive exploration adds coverage a test cannot.
+`.../commit/tests/mod.rs`. Reserve Kani proofs for small nondeterministic state
+spaces where exhaustive exploration adds coverage a test cannot.
 
 Two further tractability rules follow from the same investigation. Keep
 symbolic values out of index positions: a symbolic node id or level index
@@ -1135,9 +1131,9 @@ multiplies solver aliasing through every `node_mut` and `neighbours(level)`
 access, so fix the origin and split per-level proof entry points with a
 concrete level argument instead. Keep each proof on a narrow production
 surface: a helper that chains added-edge reconciliation, write-back,
-removed-edge reconciliation, and deferred scrubs in one formula was
-intractable even on a two-node graph, while per-call proofs of
-`ensure_reverse_edge` verify in about a minute.
+removed-edge reconciliation, and deferred scrubs in one formula was intractable
+even on a two-node graph, while per-call proofs of `ensure_reverse_edge` verify
+in about a minute.
 
 Harness construction must avoid panic-capable paths such as `.expect(...)` and
 production errors that build messages with `format!` before an invariant
@@ -1166,9 +1162,9 @@ full-tier harness, benchmark `#[kani::solver(kissat)]` or
 For screen readers: This flowchart shows that a relevant code or proof change
 enters the fast `make kani` tier for narrow bounded proofs and the sequential
 MST model, or the full `make kani-full` tier for narrow bounded proofs and
-deterministic unit-test twins. The MST model feeds exhaustive equivalence tests;
-both those tests and the unit-test twins lead to successful verification within
-the CI budget.
+deterministic unit-test twins. The MST model feeds exhaustive equivalence
+tests; both those tests and the unit-test twins lead to successful verification
+within the CI budget.
 
 ```mermaid
 flowchart TD
@@ -1390,8 +1386,8 @@ pipeline is described in
 
 ## Verus proofs
 
-Verus is used for formal verification of edge harvest primitives. Run proofs
-via `make verus`. `scripts/install-verus.sh` is idempotent: it probes for the
+Verus is used for formal verification of edge harvest primitives. Run proofs via
+`make verus`. `scripts/install-verus.sh` is idempotent: it probes for the
 installed executable first and otherwise downloads the pinned release archive
 recorded in `tools/verus/VERSION` and verifies it against
 `tools/verus/SHA256SUMS`.

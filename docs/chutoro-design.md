@@ -1266,9 +1266,9 @@ callers.
 The formal verification harnesses extend these guarantees by exercising the
 production reconciliation entry points under bounded conditions. Multi-node
 harnesses that drove the whole commit sequence (trimmed write-back, reverse
-edge reconciliation, and deferred scrubs) in one formula proved intractable
-for the Bounded Model Checker for C (CBMC) and were retired in favour of
-exact unit-test twins in `chutoro-core/src/hnsw/insert/commit/tests/`; the
+edge reconciliation, and deferred scrubs) in one formula proved intractable for
+the Bounded Model Checker for C (CBMC) and were retired in favour of exact
+unit-test twins in `chutoro-core/src/hnsw/insert/commit/tests/`; the
 investigation and the resulting tractability policy are recorded in
 [the hypothesis document](./kani-full-hnsw-hypothesis-testing.md) and the
 developers' guide "Kani CI policy" section. The remaining Kani proofs drive
@@ -1305,17 +1305,16 @@ _Figure 2: Reverse-edge Kani harness flow for the bidirectional, no-self-loop,
 and neighbour-uniqueness invariant checks, using bounded two-node scenarios
 with one concrete level per proof entry point._
 
-Minimum spanning tree (MST) proofs verify a bounded sequential model of
-the parallel Kruskal implementation, compiled only under `cfg(kani)`,
-because the Bounded Model Checker for C (CBMC) cannot absorb the Rayon
-and concurrent union-find machinery. The model is bounded at four nodes
-and six canonical edges, represents the forest as a fixed `[MstEdge; 3]`
-array in place of production's growable vector, and preserves the
-production edge ordering, deduplication, and deterministic union
-selection. Inputs outside those bounds fail with an invariant violation
-rather than silently truncating. The model's fidelity to production is
-pinned by exhaustive equivalence tests over every edge subset of one- to
-four-node complete graphs
+Minimum spanning tree (MST) proofs verify a bounded sequential model of the
+parallel Kruskal implementation, compiled only under `cfg(kani)`, because the
+Bounded Model Checker for C (CBMC) cannot absorb the Rayon and concurrent
+union-find machinery. The model is bounded at four nodes and six canonical
+edges, represents the forest as a fixed `[MstEdge; 3]` array in place of
+production's growable vector, and preserves the production edge ordering,
+deduplication, and deterministic union selection. Inputs outside those bounds
+fail with an invariant violation rather than silently truncating. The model's
+fidelity to production is pinned by exhaustive equivalence tests over every
+edge subset of one- to four-node complete graphs
 (`chutoro-core/src/mst/tests/kani_model_equivalence.rs`).
 
 _Implementation update (2026-01-17)._ A nightly slow CI job runs
@@ -1326,10 +1325,10 @@ PR CI path remains unchanged so formal verification stays opt-in for daily
 development loops. Small future timestamp skews (up to 300 seconds) are treated
 as skips rather than failures to avoid false negatives from clock drift.
 
-_Implementation update (2026-08-24)._ Formal verification is no longer
-opt-in for pull requests: the path-filtered `kani-pr.yml` workflow runs
-`make kani` whenever Kani harnesses, the modules under proof, the Makefile,
-or the Cargo manifests change. The nightly `kani-full` sweep is unchanged.
+_Implementation update (2026-08-24)._ Formal verification is no longer opt-in
+for pull requests: the path-filtered `kani-pr.yml` workflow runs `make kani`
+whenever Kani harnesses, the modules under proof, the Makefile, or the Cargo
+manifests change. The nightly `kani-full` sweep is unchanged.
 
 _Implementation update (2026-02-02)._ Verus proofs now cover the edge harvest
 primitives described in `docs/property-testing-design.md` Appendix A. The
@@ -1456,8 +1455,8 @@ with the new node to guarantee at least one reciprocal link per level.
 For screen readers: This sequence diagram shows `CommitApplicator` reconciling
 added edges, writing the origin neighbour list to `Graph`, and reconciling
 removed edges. The removed-edge reconciliation asks `ConnectivityHealer` to
-ensure base connectivity; the healer updates `Graph` against the entry node,
-and `EdgeReconciler` returns preserved bidirectional links to the applicator.
+ensure base connectivity; the healer updates `Graph` against the entry node, and
+`EdgeReconciler` returns preserved bidirectional links to the applicator.
 
 ```mermaid
 sequenceDiagram
@@ -2394,9 +2393,8 @@ rejects datasets whose estimated peak memory exceeds the configured limit. The
 guard fires before any pipeline allocation, avoiding wasted work and
 out-of-memory crashes.
 
-**Estimation formula.** The function
-`estimate_peak_bytes(n, M)` computes a conservative upper bound on the peak
-memory that the CPU pipeline will require:
+**Estimation formula.** The function `estimate_peak_bytes(n, M)` computes a
+conservative upper bound on the peak memory that the CPU pipeline will require:
 
 ```text
 hnsw_adjacency     = n × (2 × M) × 8       (level-0 neighbour IDs)

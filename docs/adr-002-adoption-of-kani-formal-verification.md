@@ -236,10 +236,10 @@ demonstrates:
   nightly post-merge.
 - MST proofs verify a bounded `cfg(kani)` sequential model of parallel
   Kruskal (at most four nodes, six canonical edges, fixed-size forest
-  representation) rather than the Rayon production path; the modelling
-  boundary is closed by exhaustive equivalence tests in
-  `chutoro-core/src/mst/tests/kani_model_equivalence.rs`, and
-  out-of-domain inputs fail loudly with invariant violations.
+  representation) rather than the Rayon production path; the modelling boundary
+  is closed by exhaustive equivalence tests in
+  `chutoro-core/src/mst/tests/kani_model_equivalence.rs`, and out-of-domain
+  inputs fail loudly with invariant violations.
 
 ### Verification Targets (Next Invariants)
 

@@ -265,14 +265,14 @@ For an end-to-end example, see the Rustdoc for
 
 ### Insertion guarantees
 
-Insertion maintains reciprocal links: every neighbour edge the index
-stores has a matching reverse edge at the same layer, and a point whose
-last base-layer neighbour is displaced by later insertions is re-linked
-through the entry point rather than left unreachable. Search therefore
-never strands an inserted point, and `search` results reflect every
-point accepted by `insert` or `insert_harvesting`. These guarantees are
-verified by bounded Kani proofs and property tests; see the
-[developers' guide](developers-guide.md) for the verification policy.
+Insertion maintains reciprocal links: every neighbour edge the index stores has
+a matching reverse edge at the same layer, and a point whose last base-layer
+neighbour is displaced by later insertions is re-linked through the entry point
+rather than left unreachable. Search therefore never strands an inserted point,
+and `search` results reflect every point accepted by `insert` or
+`insert_harvesting`. These guarantees are verified by bounded Kani proofs and
+property tests; see the [developers' guide](developers-guide.md) for the
+verification policy.
 
 ## Results and assignments
 
