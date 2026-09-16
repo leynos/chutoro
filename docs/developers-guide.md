@@ -96,13 +96,14 @@ pinned, checksum-verified prebuilt archive:
 Table: Each tool CI installs, the installer that fetches it, and where its
 version and digest are pinned.
 
-| Tool          | Installer                                                | Pin                                      |
-| ------------- | -------------------------------------------------------- | ---------------------------------------- |
-| Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker` | Action input, currently 0.2.7            |
-| cargo-nextest | `scripts/install-nextest.sh`                             | `tools/nextest/VERSION` and `SHA256SUMS` |
-| sccache       | `scripts/install-sccache.sh`                             | `tools/sccache/VERSION` and `SHA256SUMS` |
-| Kani          | `scripts/install-kani.sh`                                | `tools/kani/VERSION` and `SHA256SUMS`    |
-| Verus         | `scripts/install-verus.sh`                               | `tools/verus/VERSION` and `SHA256SUMS`   |
+| Tool          | Installer                                                  | Pin                                      |
+| ------------- | ---------------------------------------------------------- | ---------------------------------------- |
+| Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, currently 0.2.7            |
+| mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.0            |
+| cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS` |
+| sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS` |
+| Kani          | `scripts/install-kani.sh`                                  | `tools/kani/VERSION` and `SHA256SUMS`    |
+| Verus         | `scripts/install-verus.sh`                                 | `tools/verus/VERSION` and `SHA256SUMS`   |
 
 The four repository scripts share `scripts/lib/pinned-download.sh`, which reads
 the pinned version, looks the archive's SHA-256 up in the sibling manifest, and
