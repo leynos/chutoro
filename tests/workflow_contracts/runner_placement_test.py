@@ -210,6 +210,46 @@ def test_every_paid_job_bounds_its_runtime(workflow_name: str) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("job_definition", "labels", "reusable"),
+    [
+        pytest.param({"runs-on": "ubicloud-standard-2"}, ["ubicloud-standard-2"], False, id="a-scalar-label"),
+        pytest.param({"runs-on": ["self-hosted", "linux"]}, ["self-hosted", "linux"], False, id="a-label-list"),
+        pytest.param(
+            {"uses": "leynos/shared-actions/.github/workflows/w.yml@sha"},
+            [],
+            True,
+            id="a-reusable-workflow-caller",
+        ),
+        pytest.param({"runs-on": {"group": "estate"}}, [], False, id="a-runner-group"),
+        pytest.param({}, [], False, id="neither"),
+    ],
+)
+def test_a_reusable_caller_names_no_label_and_is_told_apart(
+    job_definition: dict[str, object], labels: list[str], *, reusable: bool
+) -> None:
+    """A job that delegates names no runner, and that is not a defect.
+
+    `dependabot-automerge` and `mutation-testing` both call a reusable
+    workflow, which chooses its own runner. The registry derives "in use" from
+    `runner_labels`, which answers with an empty list for any `runs-on` it
+    cannot read as labels, so a caller contributes nothing and is never
+    refused for having no label.
+
+    The two readings are kept apart all the same. `runner_labels` answers the
+    same empty list for a runner group and for a job that declares neither,
+    and only `is_reusable_call` says which of those is a delegation. A rule
+    that exempted a job for having no label would exempt the job that declares
+    nothing at all, which is the one shape GitHub rejects.
+    """
+    assert runner_labels(job_definition) == labels, (
+        f"{job_definition} must read as {labels}"
+    )
+    assert is_reusable_call(job_definition) is reusable, (
+        f"{job_definition} must read as reusable={reusable}"
+    )
+
+
 def test_actionlint_registers_exactly_the_labels_in_use() -> None:
     """Keep the lint allow-list and the workflows in step.
 
