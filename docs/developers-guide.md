@@ -908,6 +908,16 @@ asks whether the discovered set is covered is satisfied by discovering nothing,
 so a reading narrowed by accident would read as a repository with no such tests
 rather than failing.
 
+The declaration matcher accepts every shape a test may take, for the same
+reason. `async fn` is the only way a `#[tokio::test]` or `#[async_std::test]`
+test is written and both attributes are recognized, so a matcher without it
+disagreed with the attribute set it is paired with. A `fn` inside
+`mod tests { ... }` is indented, and a name may carry an uppercase character. A
+test in any of those shapes was discovered by nothing, and because the pinned
+set records only the tests the tree holds today, the missing override passed.
+Fixtures drive an indented `async fn` with an uppercase name and a declaration
+carrying every qualifier the matcher steps over.
+
 ### The cargo watchdog is the tier nobody expects
 
 The first two tiers are nextest's. The watchdog belongs to the shared

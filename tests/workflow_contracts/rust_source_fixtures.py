@@ -87,6 +87,38 @@ fn builds_the_fixture() {
 }
 """
 
+#: The three shapes a narrow declaration matcher drops: an `async fn`, which
+#: is the only way a `#[tokio::test]` test is written; a `fn` indented inside
+#: `mod tests`; and a name carrying an uppercase character. All three fail in
+#: the under-reporting direction, leaving the test bounded by nothing while a
+#: pinned set that records only today's tests goes on passing.
+NESTED_ASYNC = """
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn builds_the_fixture_crate_V2() {
+        let cases = trybuild::TestCases::new();
+        cases.pass("tests/ui/ok.rs");
+    }
+
+    #[tokio::test]
+    async fn asserts_nothing_costly() {
+        assert_eq!(1 + 1, 2);
+    }
+}
+"""
+
+#: A public, unsafe and `extern "C"` test declaration, so the qualifiers the
+#: matcher steps over are exercised rather than assumed.
+QUALIFIED = """
+#[rstest]
+pub async unsafe fn spawns_a_nested_cargo() {
+    let output = Command::new("cargo").arg("check").output();
+}
+"""
+
 SPAWNER = """
 #[test]
 fn checks_the_fixture_crate() {

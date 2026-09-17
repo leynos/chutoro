@@ -29,6 +29,8 @@ from rust_source_fixtures import (
     BRACE_IN_A_LITERAL,
     CHAR_LITERAL_BRACE,
     LIFETIME,
+    NESTED_ASYNC,
+    QUALIFIED,
     RAW_STRING_WITH_A_QUOTE,
     RETRIES_ONLY,
     RSTEST,
@@ -259,6 +261,16 @@ def test_the_discovered_set_is_the_one_this_repository_has() -> None:
             '#[test]\nfn spaced() { let c = trybuild :: TestCases :: new (); }',
             ["spaced"],
             id="generously-spaced",
+        ),
+        pytest.param(
+            NESTED_ASYNC,
+            ["builds_the_fixture_crate_V2"],
+            id="an-indented-async-test-with-an-uppercase-name",
+        ),
+        pytest.param(
+            QUALIFIED,
+            ["spawns_a_nested_cargo"],
+            id="a-declaration-behind-every-qualifier",
         ),
     ],
 )
