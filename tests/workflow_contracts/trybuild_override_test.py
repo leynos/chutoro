@@ -30,6 +30,9 @@ from rust_source_fixtures import (
     BRACE_IN_A_LITERAL,
     CHAR_LITERAL_BRACE,
     LIFETIME,
+    LIFETIME_THEN_CHAR,
+    GENERIC_SIGNATURE,
+    SPACED_ATTRIBUTE,
     NESTED_ASYNC,
     QUALIFIED,
     RAW_STRING_WITH_A_QUOTE,
@@ -279,6 +282,21 @@ def test_the_discovered_set_is_the_one_this_repository_has() -> None:
             QUALIFIED,
             ["spawns_a_nested_cargo"],
             id="a-declaration-behind-every-qualifier",
+        ),
+        pytest.param(
+            LIFETIME_THEN_CHAR,
+            ["borrows_then_builds"],
+            id="a-lifetime-and-a-later-character-literal",
+        ),
+        pytest.param(
+            SPACED_ATTRIBUTE,
+            ["builds_under_a_spaced_attribute"],
+            id="an-attribute-spaced-around-its-path-separator",
+        ),
+        pytest.param(
+            GENERIC_SIGNATURE,
+            ["builds_for_any_input"],
+            id="a-nested-generic-signature",
         ),
     ],
 )
