@@ -57,7 +57,11 @@ _FUNCTION = re.compile(
     r"(?:async[ \t]+)?"
     r"(?:unsafe[ \t]+)?"
     r"(?:extern[ \t]+\"[^\"]*\"[ \t]+)?"
-    r"fn[ \t]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(",
+    r"fn[ \t]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)"
+    # An `#[rstest]` function may be generic or carry a lifetime, and the list
+    # nests (`<T: Into<String>>`), so it is consumed up to the last `>` before
+    # the parameter list rather than by a bracket-counting pattern.
+    r"(?:\s*<[^{;]*?>)?\s*\(",
     re.MULTILINE,
 )
 
@@ -143,16 +147,30 @@ def _string_literal(text: str, index: int) -> int:
     return _quoted(text, index + offset, '"')
 
 
+#: The shape of a character literal, which is what tells one from a lifetime.
+#: Rust admits one character, a simple escape, a byte escape or a unicode
+#: escape, and nothing longer; `b'x'` is the byte form.
+#:
+#: Matched by shape rather than by "closes before the end of the line",
+#: because a signature's lifetime and a later character literal sit on one
+#: line as a matter of course. `fn f<'a>(x: &'a str) { assert_eq!(c, '}'); }`
+#: is the case: reading from `'a` to the `'}'` puts the function's opening
+#: brace inside a literal span, the body scan then skips that brace, and the
+#: costly test is discovered by nothing.
+_CHAR_LITERAL = re.compile(
+    r"b?'(?:\\(?:x[0-9A-Fa-f]{2}|u\{[0-9A-Fa-f]{1,6}\}|.)|[^\\'\n])'"
+)
+
+
 def _char_literal(text: str, index: int) -> int:
     """Return the position after a character literal, or `index` plus one.
 
-    A lone quote is Rust's lifetime marker, not a literal, so a region that
-    does not close on the same line is not one.
+    A lone quote is Rust's lifetime marker, not a literal, so anything that is
+    not shaped like a literal consumes one character and the text after it is
+    read as the code it is.
     """
-    offset = 1 if text[index] == "b" else 0
-    end = _quoted(text, index + offset, "'")
-    region = text[index:end]
-    return end if region.endswith("'") and "\n" not in region else index + 1
+    found = _CHAR_LITERAL.match(text, index)
+    return found.end() if found is not None else index + 1
 
 
 class _Region(typ.NamedTuple):
@@ -354,7 +372,10 @@ def _is_test(text: str, start: int) -> bool:
     """
     for line in reversed(text[:start].rstrip().split("\n")):
         stripped = line.strip()
-        found = _ATTRIBUTE_PATH.match(stripped)
+        # Rust permits spacing around `::`, so `#[tokio :: test]` is the same
+        # attribute as `#[tokio::test]`. Normalising first keeps the attribute
+        # set and the recognition of it from disagreeing over whitespace.
+        found = _ATTRIBUTE_PATH.match(_normalised(stripped))
         if found is not None and found["path"] in _TEST_ATTRIBUTES:
             return True
         if not stripped.startswith(("#[", "///", "//", "//!")):

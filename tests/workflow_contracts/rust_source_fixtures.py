@@ -119,6 +119,46 @@ pub async unsafe fn spawns_a_nested_cargo() {
 }
 """
 
+#: A signature lifetime and a later character literal on the same line, which
+#: is an ordinary shape and was the one that broke. Reading from `'a` to the
+#: `'}'` put the function's opening brace inside a literal span, so the body
+#: scan skipped that brace and the costly test was discovered by nothing. The
+#: cheap sibling is here so the case discriminates rather than merely counts.
+LIFETIME_THEN_CHAR = """
+#[rstest]
+fn borrows_then_builds(name: &'static str) { assert_eq!(name.ends_with('}'), false);
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/ui/ok.rs");
+}
+
+#[rstest]
+fn borrows_and_asserts_only(name: &'static str) { assert_eq!(name.ends_with('}'), false);
+}
+"""
+
+#: Rust permits spacing around `::`, so this is the same attribute as
+#: `#[tokio::test]`. The attribute set names `tokio::test`, so without
+#: normalising the attribute before matching it the two disagreed over
+#: whitespace and the test was discovered by nothing.
+SPACED_ATTRIBUTE = """
+#[tokio :: test]
+async fn builds_under_a_spaced_attribute() {
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/ui/ok.rs");
+}
+"""
+
+#: A generic signature, which `#[rstest]` admits and which the declaration
+#: matcher must step over. The list nests, so `<T: Into<String>>` is the case
+#: that a bracket-free pattern gets wrong.
+GENERIC_SIGNATURE = """
+#[rstest]
+fn builds_for_any_input<T: Into<String>>(value: T) {
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/ui/ok.rs");
+}
+"""
+
 SPAWNER = """
 #[test]
 fn checks_the_fixture_crate() {
