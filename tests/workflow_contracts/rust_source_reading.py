@@ -39,7 +39,26 @@ _SPACED_SYNTAX = re.compile(r"\s*(::)\s*|\s+(\()")
 #: A test function's declaration. `#[test]` and its cfg attributes may sit
 #: between the attribute and the signature, so the name is taken from the
 #: signature and the attribute is found by walking backwards.
-_FUNCTION = re.compile(r"^fn (?P<name>[a-z_][a-z0-9_]*)\s*\(", re.MULTILINE)
+#:
+#: Every shape a test may take, because the narrow ones fail in the
+#: under-reporting direction this module exists to close. `async fn` is the
+#: only way a `#[tokio::test]` or `#[async_std::test]` test is written, and
+#: both attributes are named below, so a matcher without `async` disagreed
+#: with the attribute set it is paired with. A `fn` inside `mod tests { ... }`
+#: is indented. A name may carry an uppercase character. A test in any of
+#: those shapes was discovered by nothing, and a pinned set records only the
+#: tests the tree holds today, so the missing override passed.
+#:
+#: The trailing `\(` stays: the body scan starts from the match's end.
+_FUNCTION = re.compile(
+    r"^[ \t]*"
+    r"(?:pub(?:\s*\([^)]*\))?[ \t]+)?"
+    r"(?:async[ \t]+)?"
+    r"(?:unsafe[ \t]+)?"
+    r"(?:extern[ \t]+\"[^\"]*\"[ \t]+)?"
+    r"fn[ \t]+(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*\(",
+    re.MULTILINE,
+)
 
 
 #: Openers for the regions a Rust source has that are not code, each with the
