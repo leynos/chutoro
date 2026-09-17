@@ -152,6 +152,13 @@ def _extending_filters(
     }
 
 
+#: An operator that removes tests from a filterset rather than adding them.
+#: `not test(/costly/)` and `all() - test(/costly/)` both name `costly` and
+#: both exclude it, so a reader that looks for the name in the text reports
+#: coverage exactly where nextest applies none.
+_EXCLUDING_OPERATOR = re.compile(r"(?:^|[^\w])(?:not\b|!|-)")
+
+
 def _names_test(filter_text: str, name: str) -> bool:
     """Return whether a filter names this test rather than one containing it.
 
@@ -160,13 +167,24 @@ def _names_test(filter_text: str, name: str) -> bool:
     report the shorter one as covered and leave it on the base allowance.
     Identifier boundaries are required on both sides.
 
+    A filter carrying an excluding operator names nothing here. Evaluating a
+    filterset is nextest's work, and a reader that guessed at set arithmetic
+    would be the same defect one layer down; failing closed costs an override
+    that must be written as a positive union, and says so.
+
     Examples
     --------
     >>> _names_test("test(/a_b_c|d_e/)", "a_b_c")
     True
     >>> _names_test("test(/a_b_c/)", "a_b")
     False
+    >>> _names_test("not test(/a_b_c/)", "a_b_c")
+    False
+    >>> _names_test("all() - test(/a_b_c/)", "a_b_c")
+    False
     """
+    if _EXCLUDING_OPERATOR.search(filter_text):
+        return False
     return re.search(rf"(?<![0-9A-Za-z_]){re.escape(name)}(?![0-9A-Za-z_])", filter_text) is not None
 
 
@@ -333,6 +351,27 @@ def test_the_discovery_reads_each_function_separately(
         pytest.param("test(/a_b_c/)", "a_b", False, id="a-prefix-of-another-name"),
         pytest.param("test(/a_b_c/)", "b_c", False, id="a-suffix-of-another-name"),
         pytest.param("test(/other/)", "a_b_c", False, id="a-different-name"),
+        # An excluding operator names the test and removes it, which a reader
+        # that searches the text reports as coverage with the sign inverted.
+        pytest.param("not test(/a_b_c/)", "a_b_c", False, id="a-negated-filter"),
+        pytest.param("!test(/a_b_c/)", "a_b_c", False, id="a-negation-in-symbols"),
+        pytest.param(
+            "all() - test(/a_b_c/)", "a_b_c", False, id="a-difference-filterset"
+        ),
+        pytest.param(
+            "test(/a_b_c/) & not test(/d_e/)",
+            "a_b_c",
+            False,
+            id="a-negation-anywhere-in-the-expression",
+        ),
+        # A hyphen inside an identifier is not an operator: `chutoro-benches`
+        # is a package name and this repository's own filters carry it.
+        pytest.param(
+            "package(chutoro-benches) & test(/a_b_c/)",
+            "a_b_c",
+            True,
+            id="a-hyphen-inside-a-package-name",
+        ),
     ],
 )
 def test_a_filter_names_a_test_only_at_identifier_boundaries(
