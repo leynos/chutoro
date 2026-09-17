@@ -968,6 +968,12 @@ set records only the tests the tree holds today, the missing override passed.
 Fixtures drive an indented `async fn` with an uppercase name and a declaration
 carrying every qualifier the matcher steps over.
 
+Periods are read by `nextest_durations`, not by a second parser. nextest reads
+them with humantime, which sums a sequence of value-and-unit pairs, so `5m`,
+`1m30s` and `2h 37min` are all valid. A seconds-only reader answered nothing
+for each, dropped the override from the extending set, and reported the tests
+it covers as uncovered on a configuration nextest accepts.
+
 ### The cargo watchdog is the tier nobody expects
 
 The first two tiers are nextest's. The watchdog belongs to the shared

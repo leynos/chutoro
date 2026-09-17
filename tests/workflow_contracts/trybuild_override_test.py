@@ -24,6 +24,7 @@ import tomllib
 import typing as typ
 
 import pytest
+from nextest_durations import NextestDurationError, _seconds
 from rust_source_fixtures import (
     EXTENDING,
     BRACE_IN_A_LITERAL,
@@ -72,10 +73,17 @@ def _period_seconds(timeout: object) -> float | None:
     """
     if not isinstance(timeout, dict) or "terminate-after" not in timeout:
         return None
-    period = str(timeout.get("period", ""))
-    if not period.endswith("s") or not period[:-1].isdigit():
+    # nextest reads periods with humantime, so `5m`, `2h 37min` and `1m30s`
+    # are all valid and a seconds-only reader answered None for each. That
+    # dropped the override from the extending set and reported the tests it
+    # covers as uncovered, on a configuration nextest accepts. One reader owns
+    # nextest durations in this repository; a second would be the same defect
+    # as the list this contract exists to replace.
+    try:
+        period = _seconds(str(timeout.get("period", "")))
+    except NextestDurationError:
         return None
-    return float(period[:-1]) * float(timeout["terminate-after"])
+    return period * float(timeout["terminate-after"])
 
 
 def _base_allowance(profile: dict[str, object], default: dict[str, object]) -> float:
@@ -338,6 +346,21 @@ def test_a_filter_names_a_test_only_at_identifier_boundaries(
         pytest.param({"period": "900s"}, None, id="nothing-terminates"),
         pytest.param(None, None, id="no-timeout-at-all"),
         pytest.param("300s", None, id="a-bare-period-string"),
+        # nextest parses periods with humantime, which reads a sequence of
+        # value-and-unit pairs and sums them. A seconds-only reader answered
+        # None for each of these, dropped the override from the extending set,
+        # and reported the tests it covers as uncovered on a configuration
+        # nextest accepts.
+        pytest.param({"period": "5m", "terminate-after": 1}, 300.0, id="minutes"),
+        pytest.param({"period": "1m30s", "terminate-after": 1}, 90.0, id="two-pairs"),
+        pytest.param(
+            {"period": "2h 37min", "terminate-after": 1}, 9420.0, id="spaced-pairs"
+        ),
+        pytest.param({"period": "300ms", "terminate-after": 1}, 0.3, id="milliseconds"),
+        # Anything humantime refuses has no allowance to compare, so it reads
+        # as absent rather than as zero.
+        pytest.param({"period": "soon", "terminate-after": 1}, None, id="not-a-period"),
+        pytest.param({"period": "", "terminate-after": 1}, None, id="an-empty-period"),
     ],
 )
 def test_an_allowance_is_a_period_that_terminates(
