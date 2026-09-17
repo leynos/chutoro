@@ -16,6 +16,7 @@ failure direction is over-reporting, which the pinned set in the policy module
 catches.
 """
 
+import collections.abc as cabc
 import re
 import typing as typ
 
@@ -177,7 +178,12 @@ class _Region(typ.NamedTuple):
 
 #: Each opener, the reader that consumes what it opens, and whether it opens a
 #: comment. Order matters: `r#"` and `b"` are tried before a bare quote.
-_OPENERS: typ.Final[tuple[tuple[str, typ.Any, bool], ...]] = (
+#: How a region reader is called: the text and the index its opener sits at,
+#: answering the index just past what it consumed. Named so the table cannot
+#: hold a reader of a different shape.
+type _RegionReader = cabc.Callable[[str, int], int]
+
+_OPENERS: typ.Final[tuple[tuple[str, _RegionReader, bool], ...]] = (
     ("/*", _block_comment, True),
     ("//", _line_comment, True),
     ('r"', _raw_string, False),
@@ -236,7 +242,7 @@ def _regions(text: str) -> list[_Region]:
     return found
 
 
-def _blank(text: str, regions: typ.Iterable[_Region]) -> str:
+def _blank(text: str, regions: cabc.Iterable[_Region]) -> str:
     """Return the text with the given regions replaced by spaces.
 
     Newlines are kept so a line comment does not swallow the line break, and
@@ -259,7 +265,7 @@ def _without_comments(text: str) -> str:
     return _blank(text, (region for region in _regions(text) if region.is_comment))
 
 
-def _literal_spans(regions: typ.Iterable[_Region]) -> list[tuple[int, int]]:
+def _literal_spans(regions: cabc.Iterable[_Region]) -> list[tuple[int, int]]:
     """Return the extents of the regions that are literals rather than comments.
 
     Brace counting skips these. A brace in a string, raw string, byte string or
