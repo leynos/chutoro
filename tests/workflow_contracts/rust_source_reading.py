@@ -17,6 +17,7 @@ catches.
 """
 
 import collections.abc as cabc
+import pathlib
 import re
 import typing as typ
 
@@ -453,17 +454,33 @@ def compile_contract_tests(text: str) -> list[str]:
     return found
 
 
-def discovered_tests() -> dict[str, str]:
+def discovered_tests(root: pathlib.Path = REPO_ROOT) -> dict[str, str]:
     """Return each compile-contract test, mapped to the file declaring it.
+
+    Parameters
+    ----------
+    root : pathlib.Path
+        The tree to read. Defaults to this repository, which is what every
+        caller here wants; it is a parameter so the sweep can be driven over a
+        tree built for the purpose. Parameterized over this repository's own
+        sources the sweep agrees with itself whatever it does, because the
+        answer it gives is the answer the assertion is written from.
 
     Returns
     -------
     dict[str, str]
-        Test name to the repository-relative path of its source file.
+        Test name to the path of its source file, relative to `root`.
+
+    Notes
+    -----
+    An unreadable or undecodable source raises rather than being skipped. A
+    sweep that swallowed the error would report a smaller set, and a smaller
+    set is exactly how a costly test goes missing from the override list
+    without anything failing. Raising names the file.
     """
     return {
-        name: path.relative_to(REPO_ROOT).as_posix()
-        for path in sorted(REPO_ROOT.rglob("tests/**/*.rs"))
+        name: path.relative_to(root).as_posix()
+        for path in sorted(root.rglob("tests/**/*.rs"))
         if "target" not in path.parts
         for name in compile_contract_tests(path.read_text(encoding="utf-8"))
     }
