@@ -158,6 +158,13 @@ jobs:
           # but fails under plain cargo test, so coverage stays on nextest.
           use-cargo-nextest: 'true'
           with-ratchet: 'true'
+          # This lane measures and compares; it does not publish. The action
+          # archives the report it generated under a step of its own, which no
+          # scanner over this file's steps can see, so declining that archive
+          # is the only way the boundary is observable here. The report stays
+          # on the runner for the ratchet; `coverage-main.yml` keeps the
+          # action's default and uploads.
+          publish-artefact: 'false'
           # Setup Rust owns ~/.cargo/registry and ~/.cargo/git for this job
           # and restores them before the first build step. Leaving this
           # action's cache enabled would archive the same paths under a
@@ -183,17 +190,6 @@ jobs:
             sccache --show-stats
             printf '```\n'
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Check coverage against CodeScene gates
-        env:
-          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-        if: env.CS_ACCESS_TOKEN != '' && github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@95e90ba9e33eaeb3c8b4bf6ed1dbe1d7184ee710
-        with:
-          format: lcov
-          mode: check
-          project-url: https://api.codescene.io/v2/projects/71838
-          access-token: ${{ env.CS_ACCESS_TOKEN }}
-          installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
 
   verus-proofs:
     # A pull request from a fork cannot obtain an Ubicloud runner, so it
