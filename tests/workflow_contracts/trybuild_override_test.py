@@ -19,6 +19,7 @@ Run via ``make test-workflow-contracts``.
 """
 
 import math
+import pathlib
 import re
 import tomllib
 import typing as typ
@@ -239,6 +240,35 @@ def test_the_discovered_set_is_the_one_this_repository_has() -> None:
         f"the discovery must find exactly {sorted(COMPILE_CONTRACT_TESTS)}; "
         f"it found {sorted(discovered_tests())}. A test that has gained or lost a "
         f"nested build belongs in this set, and so does its allowance"
+    )
+
+
+def test_the_sweep_walks_a_tree_it_is_given(tmp_path: pathlib.Path) -> None:
+    """Which files the sweep visits, driven over a tree built to separate them.
+
+    Over this repository's own sources the sweep agrees with itself whatever
+    it visits, because the set it is compared against was written from what it
+    found. This tree states the three decisions separately: a source below
+    `tests/` is read, one elsewhere in the tree is not, and one under a
+    `target` directory is not even when its path contains `tests`.
+
+    The paths are relative to the given root, not to this repository, which is
+    what makes the reported path usable by a caller sweeping anything else.
+    """
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "harness.rs").write_text(SPAWNER, encoding="utf-8")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "lib.rs").write_text(SIBLINGS, encoding="utf-8")
+    stale = tmp_path / "target" / "debug" / "tests"
+    stale.mkdir(parents=True)
+    (stale / "old.rs").write_text(SIBLINGS, encoding="utf-8")
+
+    assert discovered_tests(tmp_path) == {
+        "checks_the_fixture_crate": "tests/harness.rs"
+    }, (
+        "the sweep must read every Rust source below a `tests/` directory of "
+        "the given root, skip build output under `target`, and report each "
+        "path relative to that root"
     )
 
 
