@@ -29,9 +29,11 @@ from rust_source_fixtures import (
     EXTENDING,
     BRACE_IN_A_LITERAL,
     CHAR_LITERAL_BRACE,
+    COMMENTED_ATTRIBUTE,
     LIFETIME,
     LIFETIME_THEN_CHAR,
     GENERIC_SIGNATURE,
+    HELPER_BELOW_A_TEST,
     SPACED_ATTRIBUTE,
     NESTED_ASYNC,
     QUALIFIED,
@@ -315,6 +317,16 @@ def test_the_discovered_set_is_the_one_this_repository_has() -> None:
             GENERIC_SIGNATURE,
             ["builds_for_any_input"],
             id="a-nested-generic-signature",
+        ),
+        pytest.param(
+            COMMENTED_ATTRIBUTE,
+            ["builds_after_a_comment"],
+            id="a-comment-between-the-attribute-and-the-signature",
+        ),
+        pytest.param(
+            HELPER_BELOW_A_TEST,
+            ["checks_the_fixture"],
+            id="a-costly-helper-below-a-test",
         ),
     ],
 )
