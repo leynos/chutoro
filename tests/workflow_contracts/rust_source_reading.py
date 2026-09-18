@@ -372,13 +372,21 @@ def _is_test(text: str, start: int) -> bool:
     """
     for line in reversed(text[:start].rstrip().split("\n")):
         stripped = line.strip()
+        # The caller walks the comment-blanked source, so a comment between the
+        # attribute and the signature arrives here as a line of spaces. Nothing
+        # tests for a comment prefix, because none survives the blanking; the
+        # walk steps over the blank instead. A walk that stopped at it found no
+        # attribute at all, and the test it was reading paid a nested build's
+        # cost with nothing naming an allowance for it.
+        if not stripped:
+            continue
         # Rust permits spacing around `::`, so `#[tokio :: test]` is the same
         # attribute as `#[tokio::test]`. Normalising first keeps the attribute
         # set and the recognition of it from disagreeing over whitespace.
         found = _ATTRIBUTE_PATH.match(_normalised(stripped))
         if found is not None and found["path"] in _TEST_ATTRIBUTES:
             return True
-        if not stripped.startswith(("#[", "///", "//", "//!")):
+        if not stripped.startswith("#["):
             return False
     return False
 

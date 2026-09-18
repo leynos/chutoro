@@ -159,6 +159,53 @@ fn builds_for_any_input<T: Into<String>>(value: T) {
 }
 """
 
+#: A comment *between* two attributes, which is where a comment actually
+#: defeats the walk. The walk runs over the comment-blanked source, so the
+#: comment is a line of spaces; a walk that stops at anything it does not
+#: recognize stops there, never reaches `#[rstest]` above it, and the test
+#: that pays a nested build's cost is discovered by nothing.
+#:
+#: A comment on the line immediately before the signature does not defeat it,
+#: because the walk rstrips the text first and a whitespace-only final line
+#: goes with the strip. The comment has to sit above another attribute for the
+#: walk to reach it at all.
+#:
+#: The cheap sibling is what makes the case discriminate in both directions: a
+#: reading that gave up would report neither, and one that answered per file
+#: would report both.
+COMMENTED_ATTRIBUTE = """
+#[rstest]
+// Why this case is the expensive one.
+#[case(1)]
+fn builds_after_a_comment(#[case] value: u8) {
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/ui/ok.rs");
+}
+
+#[rstest]
+fn costs_nothing(#[case] value: u8) {
+    assert_eq!(value, value);
+}
+"""
+
+#: A costly helper declared below a test. The walk back from `build_cases`
+#: passes the test's body and reaches its `#[rstest]`, so the walk has to stop
+#: at the first line that is neither an attribute nor a blanked comment. This
+#: is the case that makes the stop load-bearing: a walk that only skipped and
+#: never stopped reports the helper as a test, and an allowance named for a
+#: helper nextest never runs is an entry nobody can justify.
+HELPER_BELOW_A_TEST = """
+#[rstest]
+fn checks_the_fixture() {
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/ui/ok.rs");
+}
+
+fn build_cases() -> trybuild::TestCases {
+    trybuild::TestCases::new()
+}
+"""
+
 SPAWNER = """
 #[test]
 fn checks_the_fixture_crate() {
