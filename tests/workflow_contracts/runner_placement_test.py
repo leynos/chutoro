@@ -210,6 +210,46 @@ def test_every_paid_job_bounds_its_runtime(workflow_name: str) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("job_definition", "labels", "reusable"),
+    [
+        pytest.param({"runs-on": "ubicloud-standard-2"}, ["ubicloud-standard-2"], False, id="a-scalar-label"),
+        pytest.param({"runs-on": ["self-hosted", "linux"]}, ["self-hosted", "linux"], False, id="a-label-list"),
+        pytest.param(
+            {"uses": "leynos/shared-actions/.github/workflows/w.yml@sha"},
+            [],
+            True,
+            id="a-reusable-workflow-caller",
+        ),
+        pytest.param({"runs-on": {"group": "estate"}}, [], False, id="a-runner-group"),
+        pytest.param({}, [], False, id="neither"),
+    ],
+)
+def test_a_reusable_caller_names_no_label_and_is_told_apart(
+    job_definition: dict[str, object], labels: list[str], *, reusable: bool
+) -> None:
+    """A job that delegates names no runner, and that is not a defect.
+
+    `dependabot-automerge` and `mutation-testing` both call a reusable
+    workflow, which chooses its own runner. The registry derives "in use" from
+    `runner_labels`, which answers with an empty list for any `runs-on` it
+    cannot read as labels, so a caller contributes nothing and is never
+    refused for having no label.
+
+    The two readings are kept apart all the same. `runner_labels` answers the
+    same empty list for a runner group and for a job that declares neither,
+    and only `is_reusable_call` says which of those is a delegation. A rule
+    that exempted a job for having no label would exempt the job that declares
+    nothing at all, which is the one shape GitHub rejects.
+    """
+    assert runner_labels(job_definition) == labels, (
+        f"{job_definition} must read as {labels}"
+    )
+    assert is_reusable_call(job_definition) is reusable, (
+        f"{job_definition} must read as reusable={reusable}"
+    )
+
+
 def test_actionlint_registers_exactly_the_labels_in_use() -> None:
     """Keep the lint allow-list and the workflows in step.
 
@@ -228,3 +268,33 @@ def test_actionlint_registers_exactly_the_labels_in_use() -> None:
         f"{ACTIONLINT_CONFIG} registers {sorted(registered)} but the "
         f"workflows use {sorted(in_use)}"
     )
+
+
+@pytest.mark.parametrize("workflow_name", workflow_names())
+def test_no_runs_on_declaration_carries_a_line_break(workflow_name: str) -> None:
+    """A folded scalar can keep its break, and GitHub evaluates it anyway.
+
+    A continuation indented deeper than its ``runs-on:`` key is a
+    more-indented line inside a folded block, so YAML keeps the newline
+    rather than folding it to a space and the expression arrives with a
+    break inside it. GitHub evaluates the value regardless, so the lane
+    runs and a green run is no evidence that the declaration is well
+    formed.
+
+    Nothing else here could report it. The conditional reader's pattern
+    separates its tokens with a whitespace class, and a newline is
+    whitespace, so before this assertion existed a broken declaration
+    parsed as a correct one: the right paid label, the right fallback and
+    the right guard, from a value nobody meant to write. Every assertion
+    in this module passed on it.
+    """
+    for job_name, definition in jobs(load_workflow(workflow_name)).items():
+        runs_on = definition.get("runs-on")
+        if not isinstance(runs_on, str):
+            continue
+        assert "\n" not in runs_on.strip(), (
+            f"{workflow_name}:{job_name} declares a runs-on carrying a line "
+            f"break: {runs_on!r}. Keep a folded scalar's continuation at the "
+            f"same indent as its first line, so the expression parses to one "
+            f"line"
+        )
