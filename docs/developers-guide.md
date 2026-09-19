@@ -1638,11 +1638,11 @@ drains the queue and enforces and validates reciprocity only for the queued
 outgoing adjacency lists. This boundary keeps the localized sweep out of
 production builds and leaves unrelated adjacency lists untouched.
 
-When changing mutation helpers, keep the queue aligned with graph state:
-record only changed lists, do not let callers add arbitrary pairs, and restore
-the queue alongside nodes and the entry point when a mutation is rolled back.
-Tests should verify that a successful healing pass drains the queue and that a
-failed mutation leaves its prior contents unchanged.
+When changing mutation helpers, keep the queue aligned with graph state: record
+only changed lists, do not let callers add arbitrary pairs, and restore the
+queue alongside nodes and the entry point when a mutation is rolled back. Tests
+should verify that a successful healing pass drains the queue and that a failed
+mutation leaves its prior contents unchanged.
 
 ## Benchmark dataset recipes
 

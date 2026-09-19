@@ -1,5 +1,6 @@
 //! Internal graph representation for the CPU HNSW implementation.
 
+use super::attachment::AttachNodeError;
 use crate::hnsw::{
     error::HnswError,
     insert::{InsertionExecutor, InsertionPlanner},
@@ -209,20 +210,6 @@ pub(crate) struct Graph {
     pub(super) entry: Option<EntryPoint>,
     #[cfg(test)]
     pub(super) touched: BTreeSet<(usize, usize)>,
-}
-
-/// Reasons a node context fails validation during attachment.
-///
-/// Shared by the production and Kani constructors so both map the same
-/// checks to their own error representations.
-#[derive(Clone, Copy, Debug)]
-pub(super) enum AttachNodeError {
-    /// The node's requested level exceeds the configured maximum.
-    LevelExceedsMax,
-    /// The node identifier lies outside the graph's preallocated slots.
-    OutsideCapacity,
-    /// The node identifier already occupies a graph slot.
-    Duplicate,
 }
 
 impl Graph {
