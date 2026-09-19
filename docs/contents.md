@@ -57,6 +57,10 @@ open each document.
   - [10-1-1 Chutoro bench datasets and dataset recipe
     trait](execplans/10-1-1-chutoro-bench-datasets-and-dataset-recipe-trait.md):
     open for the benchmark dataset lifecycle, port contracts, and test adapters.
+  - [10-1-2 Shared download
+    primitives](execplans/10-1-2-shared-download-primitives.md): draft for
+    pinned sources, checksum verification, resumable transfers, and archive
+    extraction.
   - [11-1-1 Make edge harvesting hnsw insertion path public](
     execplans/11-1-1-make-edge-harvesting-hnsw-insertion-path-public.md)
   - [11-1-2 Define session config carrying
