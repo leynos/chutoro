@@ -437,6 +437,22 @@ fn hnsw_build_diverse_sources(c: &mut Criterion) {
 mod tests {
     //! Tests for HNSW memory-profile environment configuration.
 
+    #[rstest::fixture]
+    fn env_with_memory_settings_unset() -> mockable::MockEnv {
+        let mut env = mockable::MockEnv::new();
+
+        env.expect_string().returning(|key| {
+            assert_eq!(key, "CHUTORO_BENCH_HNSW_MEMORY_PROFILE");
+            None
+        });
+        env.expect_os_string().returning(|key| {
+            assert_eq!(key, "CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH");
+            None
+        });
+
+        env
+    }
+
     #[test]
     fn memory_profile_explicitly_disabled_by_environment() {
         let mut env = mockable::MockEnv::new();
@@ -461,11 +477,7 @@ mod tests {
 
     #[test]
     fn memory_profile_uses_benchmark_mode_when_environment_is_unset() {
-        let mut env = mockable::MockEnv::new();
-        env.expect_string().returning(|key| {
-            assert_eq!(key, "CHUTORO_BENCH_HNSW_MEMORY_PROFILE");
-            None
-        });
+        let env = env_with_memory_settings_unset();
 
         assert_eq!(
             super::should_collect_memory_profile_with_env(&env),
@@ -475,11 +487,7 @@ mod tests {
 
     #[test]
     fn memory_report_path_defaults_when_environment_is_unset() {
-        let mut env = mockable::MockEnv::new();
-        env.expect_os_string().returning(|key| {
-            assert_eq!(key, "CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH");
-            None
-        });
+        let env = env_with_memory_settings_unset();
 
         assert_eq!(
             super::memory_report_path_with_env(&env),
