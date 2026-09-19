@@ -131,21 +131,21 @@ fn orchestration_propagates_scoring_errors() {
     assert!(matches!(error, BenchError::Io(_)));
 }
 
-#[test]
-fn orchestration_omits_build_profile_directory_when_disabled() {
+#[rstest::rstest]
+#[case::disabled("false", None, "disabled build-profile configuration must succeed")]
+#[case::enabled(
+    "true",
+    Some(Utf8PathBuf::from("configured-target")),
+    "enabled build-profile configuration must succeed"
+)]
+fn orchestration_sets_build_profile_directory(
+    #[case] profile_value: &'static str,
+    #[case] expected: Option<Utf8PathBuf>,
+    #[case] context: &'static str,
+) {
     assert_eq!(
-        build_profile_directory("false")
-            .expect("disabled build-profile configuration must succeed"),
-        None
-    );
-}
-
-#[test]
-fn orchestration_passes_build_profile_directory_when_enabled() {
-    let expected = Utf8PathBuf::from("configured-target");
-    assert_eq!(
-        build_profile_directory("true").expect("enabled build-profile configuration must succeed"),
-        Some(expected)
+        build_profile_directory(profile_value).expect(context),
+        expected
     );
 }
 
