@@ -154,112 +154,103 @@ fn read_optional_env(env: &dyn Env, name: &str) -> Result<Option<String>, Box<dy
 mod tests {
     //! Tests for Kani gate environment handling.
 
-    use std::{env::VarError, ffi::OsString};
+    use std::{env::VarError, error::Error, ffi::OsString};
 
-    use mockable::MockEnv;
+    use mockable::{Env, MockEnv};
+    use rstest::rstest;
 
     use super::{
         read_commit_epoch_with_env, read_force_flag_with_env, read_now_epoch_with_env,
         read_optional_env,
     };
 
-    #[test]
-    fn optional_environment_returns_present_value() {
+    /// Build a mock environment whose `raw` reader answers `key` with `result`.
+    fn raw_env(key: &'static str, result: Result<String, VarError>) -> MockEnv {
         let mut env = MockEnv::new();
-        env.expect_raw().returning(|key| {
-            assert_eq!(key, "CHUTORO_KANI_FORCE");
-            Ok("true".to_owned())
+        env.expect_raw().returning(move |requested_key| {
+            assert_eq!(requested_key, key);
+            result.clone()
         });
-
-        assert_eq!(
-            read_optional_env(&env, "CHUTORO_KANI_FORCE").expect("environment read must succeed"),
-            Some("true".to_owned())
-        );
+        env
     }
 
-    #[test]
-    fn optional_environment_maps_not_present_to_none() {
-        let mut env = MockEnv::new();
-        env.expect_raw().returning(|key| {
-            assert_eq!(key, "CHUTORO_KANI_FORCE");
-            Err(VarError::NotPresent)
-        });
-
+    #[rstest]
+    #[case(Ok("true".to_owned()), Some("true"))]
+    #[case(Err(VarError::NotPresent), None)]
+    fn optional_environment_reads_present_and_absent_values(
+        #[case] result: Result<String, VarError>,
+        #[case] expected: Option<&str>,
+    ) {
         assert_eq!(
-            read_optional_env(&env, "CHUTORO_KANI_FORCE").expect("environment read must succeed"),
-            None
+            read_optional_env(&raw_env("CHUTORO_KANI_FORCE", result), "CHUTORO_KANI_FORCE")
+                .expect("environment read must succeed")
+                .as_deref(),
+            expected
         );
     }
 
     #[test]
     fn optional_environment_returns_non_not_present_errors() {
-        let mut env = MockEnv::new();
-        env.expect_raw().returning(|key| {
-            assert_eq!(key, "CHUTORO_KANI_FORCE");
-            Err(VarError::NotUnicode(OsString::from("invalid")))
-        });
+        let env = raw_env(
+            "CHUTORO_KANI_FORCE",
+            Err(VarError::NotUnicode(OsString::from("invalid"))),
+        );
 
         assert!(read_optional_env(&env, "CHUTORO_KANI_FORCE").is_err());
     }
 
     #[test]
     fn force_flag_defaults_to_false_when_unset() {
-        let mut env = MockEnv::new();
-        env.expect_raw().returning(|key| {
-            assert_eq!(key, "CHUTORO_KANI_FORCE");
-            Err(VarError::NotPresent)
-        });
+        let env = raw_env("CHUTORO_KANI_FORCE", Err(VarError::NotPresent));
 
         assert!(!read_force_flag_with_env(&env).expect("force flag must parse"));
     }
 
     #[test]
     fn force_flag_accepts_valid_value() {
-        let mut env = MockEnv::new();
-        env.expect_raw().returning(|key| {
-            assert_eq!(key, "CHUTORO_KANI_FORCE");
-            Ok("true".to_owned())
-        });
+        let env = raw_env("CHUTORO_KANI_FORCE", Ok("true".to_owned()));
 
         assert!(read_force_flag_with_env(&env).expect("force flag must parse"));
     }
 
     #[test]
     fn force_flag_rejects_invalid_value() {
-        let mut env = MockEnv::new();
-        env.expect_raw().returning(|key| {
-            assert_eq!(key, "CHUTORO_KANI_FORCE");
-            Ok("maybe".to_owned())
-        });
+        let env = raw_env("CHUTORO_KANI_FORCE", Ok("maybe".to_owned()));
 
         assert!(read_force_flag_with_env(&env).is_err());
     }
 
-    #[test]
-    fn commit_epoch_uses_environment_override() {
-        let mut env = MockEnv::new();
-        env.expect_raw().returning(|key| {
-            assert_eq!(key, "CHUTORO_KANI_COMMIT_EPOCH");
-            Ok("1725000000".to_owned())
-        });
+    /// Signature shared by the epoch readers exercised below.
+    type EpochReader = fn(&dyn Env) -> Result<Option<u64>, Box<dyn Error>>;
+
+    /// Assert `reader` resolves the `key` override `raw_value` to `expected`.
+    fn assert_epoch_override(
+        reader: EpochReader,
+        key: &'static str,
+        raw_value: &'static str,
+        expected: u64,
+    ) {
+        let env = raw_env(key, Ok(raw_value.to_owned()));
 
         assert_eq!(
-            read_commit_epoch_with_env(&env).expect("commit epoch must parse"),
-            Some(1_725_000_000)
+            reader(&env).expect("epoch override must parse"),
+            Some(expected)
         );
     }
 
     #[test]
-    fn now_epoch_uses_environment_override() {
-        let mut env = MockEnv::new();
-        env.expect_raw().returning(|key| {
-            assert_eq!(key, "CHUTORO_KANI_NOW_EPOCH");
-            Ok("1725000001".to_owned())
-        });
-
-        assert_eq!(
-            read_now_epoch_with_env(&env).expect("current epoch must parse"),
-            Some(1_725_000_001)
+    fn epoch_overrides_use_environment_values() {
+        assert_epoch_override(
+            read_commit_epoch_with_env,
+            "CHUTORO_KANI_COMMIT_EPOCH",
+            "1725000000",
+            1_725_000_000,
+        );
+        assert_epoch_override(
+            read_now_epoch_with_env,
+            "CHUTORO_KANI_NOW_EPOCH",
+            "1725000001",
+            1_725_000_001,
         );
     }
 }
