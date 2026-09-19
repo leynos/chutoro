@@ -360,8 +360,8 @@ keeps local editor feedback aligned with commit gates.
   environment variable is absent, but a capability-scoped directory handle
   narrows filesystem authority without altering that behaviour.
 - 2026-08-24: Reuse `chutoro-test-support::process::find_test_binary` for
-  binary discovery while injecting environment access with `mockable::Env`.
-  The public boundary supplies `DefaultEnv`. Rationale: shared discovery logic
+  binary discovery while injecting environment access with `mockable::Env`. The
+  public boundary supplies `DefaultEnv`. Rationale: shared discovery logic
   remains reusable without an exception to the ban on ambient reads.
 
 ## Stage 2a: Core mechanical lint onboarding
