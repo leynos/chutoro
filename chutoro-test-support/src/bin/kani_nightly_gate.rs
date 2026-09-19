@@ -224,18 +224,23 @@ mod tests {
     type EpochReader = fn(&dyn Env) -> Result<Option<u64>, Box<dyn Error>>;
 
     /// Assert `reader` resolves the `key` override `raw_value` to `expected`.
+    ///
+    /// The helper reports its own invariant rather than panicking, so the
+    /// `Result` is unwrapped at the test boundary.
     fn assert_epoch_override(
         reader: EpochReader,
         key: &'static str,
         raw_value: &'static str,
         expected: u64,
-    ) {
+    ) -> Result<(), Box<dyn Error>> {
         let env = raw_env(key, Ok(raw_value.to_owned()));
+        let actual = reader(&env)?;
 
-        assert_eq!(
-            reader(&env).expect("epoch override must parse"),
-            Some(expected)
-        );
+        if actual != Some(expected) {
+            return Err(format!("{key}: expected {expected}, got {actual:?}").into());
+        }
+
+        Ok(())
     }
 
     #[test]
@@ -245,12 +250,14 @@ mod tests {
             "CHUTORO_KANI_COMMIT_EPOCH",
             "1725000000",
             1_725_000_000,
-        );
+        )
+        .expect("epoch override must parse");
         assert_epoch_override(
             read_now_epoch_with_env,
             "CHUTORO_KANI_NOW_EPOCH",
             "1725000001",
             1_725_000_001,
-        );
+        )
+        .expect("epoch override must parse");
     }
 }
