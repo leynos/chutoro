@@ -163,10 +163,17 @@ impl ConcurrentUnionFind {
         })
     }
 
-    #[cfg(test)]
     /// Return a node's current root for partition assertions.
+    #[cfg(test)]
     pub(super) fn root_of(&self, node: usize) -> Result<usize, MstError> {
-        self.find(node)
+        let mut current = node;
+        loop {
+            let parent = self.parent_at(current)?.load(Ordering::Acquire);
+            if parent == current {
+                return Ok(current);
+            }
+            current = parent;
+        }
     }
 }
 
@@ -202,17 +209,17 @@ mod tests {
 
     use std::sync::{Arc, Barrier};
 
-    use rand::Rng;
-    use rand::SeedableRng;
-    use rand::rngs::SmallRng;
+    use rand::{Rng, SeedableRng, rngs::SmallRng};
     use rstest::rstest;
 
     use super::super::MstError;
     use super::ConcurrentUnionFind;
 
-    const NODE_COUNT: usize = 8;
-    const EDGE_COUNT: usize = 4_096;
+    const MAX_THREAD_COUNT: usize = 8;
+    const ROUND_COUNT: usize = 4;
+    const NODE_COUNT: usize = ROUND_COUNT * (MAX_THREAD_COUNT + 1);
 
+    /// Verify concurrent unions preserve the sequential oracle's partition.
     #[rstest]
     #[case(42, 2)]
     #[case(999, 4)]
@@ -221,39 +228,41 @@ mod tests {
         #[case] seed: u64,
         #[case] thread_count: usize,
     ) {
-        // Multiple workers contend for the same small lock table, exercising
-        // striped-lock ordering, root revalidation, and retry interleavings.
-        let edges = Arc::new(random_edges(seed));
+        let rounds = Arc::new(coordinated_edges(seed, thread_count));
         let union_find = Arc::new(ConcurrentUnionFind::new(NODE_COUNT));
-        let start = Arc::new(Barrier::new(thread_count + 1));
-        let chunk_size = edges.len().div_ceil(thread_count);
+        let round_start = Arc::new(Barrier::new(thread_count));
+        let round_complete = Arc::new(Barrier::new(thread_count));
 
         let handles: Vec<_> = (0..thread_count)
             .map(|worker_index| {
-                let worker_edges = Arc::clone(&edges);
+                let worker_rounds = Arc::clone(&rounds);
                 let worker_union_find = Arc::clone(&union_find);
-                let worker_start = Arc::clone(&start);
-                let first = worker_index * chunk_size;
-                let last = (first + chunk_size).min(edges.len());
+                let worker_round_start = Arc::clone(&round_start);
+                let worker_round_complete = Arc::clone(&round_complete);
 
                 std::thread::spawn(move || -> Result<(), MstError> {
-                    worker_start.wait();
-                    let edge_slice = worker_edges.get(first..last).ok_or_else(|| {
-                        test_invariant(
-                            "worker edge range must remain within the generated stream",
-                            last,
-                            worker_edges.len(),
-                        )
-                    })?;
-                    for &(left, right) in edge_slice {
+                    for round in 0..ROUND_COUNT {
+                        // Fresh pivots retain conflicting root-lock attempts
+                        // without allowing an early worker to saturate the partition.
+                        worker_round_start.wait();
+                        let edges = worker_rounds.get(round).ok_or_else(|| {
+                            test_invariant("scheduled round must exist", round, worker_rounds.len())
+                        })?;
+                        let (left, right) = edges.get(worker_index).copied().ok_or_else(|| {
+                            test_invariant(
+                                "scheduled worker edge must exist",
+                                worker_index,
+                                edges.len(),
+                            )
+                        })?;
                         worker_union_find.try_union(left, right)?;
+                        worker_round_complete.wait();
                     }
                     Ok(())
                 })
             })
             .collect();
 
-        start.wait();
         for handle in handles {
             handle
                 .join()
@@ -263,20 +272,37 @@ mod tests {
 
         let concurrent_labels = normalised_labels(|node| union_find.root_of(node))
             .expect("concurrent union-find nodes must remain valid");
+        let oracle_edges: Vec<_> = rounds.iter().flatten().copied().collect();
         let (oracle_labels, oracle_components) =
-            sequential_oracle(&edges).expect("sequential oracle nodes must remain valid");
+            sequential_oracle(&oracle_edges).expect("sequential oracle nodes must remain valid");
 
         assert_eq!(concurrent_labels, oracle_labels);
         assert_eq!(union_find.components(), oracle_components);
     }
 
-    fn random_edges(seed: u64) -> Vec<(usize, usize)> {
+    /// Build sparse, seed-stable rounds with a shared pivot per worker group.
+    fn coordinated_edges(seed: u64, thread_count: usize) -> Vec<Vec<(usize, usize)>> {
         let mut rng = SmallRng::seed_from_u64(seed);
-        (0..EDGE_COUNT)
-            .map(|_| (rng.gen_range(0..NODE_COUNT), rng.gen_range(0..NODE_COUNT)))
+        (0..ROUND_COUNT)
+            .map(|round| round_edges(&mut rng, round, thread_count))
             .collect()
     }
-
+    /// Generate a conflicting worker edge for each thread in a schedule round.
+    fn round_edges(rng: &mut SmallRng, round: usize, thread_count: usize) -> Vec<(usize, usize)> {
+        let pivot = round * (MAX_THREAD_COUNT + 1);
+        (0..thread_count)
+            .map(|worker_index| orient_edge(rng, pivot, pivot + worker_index + 1))
+            .collect()
+    }
+    /// Randomly choose the direction of an otherwise fixed conflicting edge.
+    fn orient_edge(rng: &mut SmallRng, pivot: usize, leaf: usize) -> (usize, usize) {
+        if rng.gen_bool(0.5) {
+            (pivot, leaf)
+        } else {
+            (leaf, pivot)
+        }
+    }
+    /// Map every node to its component's smallest node identifier.
     fn normalised_labels(
         root_of: impl Fn(usize) -> Result<usize, MstError>,
     ) -> Result<Vec<usize>, MstError> {
@@ -307,7 +333,7 @@ mod tests {
             })
             .collect()
     }
-
+    /// Apply the schedule to a scalar union-find oracle.
     fn sequential_oracle(edges: &[(usize, usize)]) -> Result<(Vec<usize>, usize), MstError> {
         let mut parents: Vec<usize> = (0..NODE_COUNT).collect();
         let parent_count = parents.len();
@@ -327,7 +353,7 @@ mod tests {
             components,
         ))
     }
-
+    /// Link a scalar child root to its parent root.
     fn set_parent(
         parents: &mut [usize],
         child_root: usize,
@@ -345,6 +371,7 @@ mod tests {
         Ok(())
     }
 
+    /// Find a scalar oracle root without path compression.
     fn scalar_find(parents: &[usize], node: usize) -> Result<usize, MstError> {
         let mut current = node;
         loop {
@@ -362,6 +389,7 @@ mod tests {
         }
     }
 
+    /// Construct a descriptive invariant error for test-only checked access.
     fn test_invariant(invariant: &'static str, index: usize, lock_count: usize) -> MstError {
         MstError::InvariantViolation {
             invariant,

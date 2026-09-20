@@ -1184,6 +1184,21 @@ Use `.github/workflows/property-tests.yml` and `.config/nextest.toml` for the
 authoritative configuration, and `docs/property-testing-design.md` for the
 architectural rationale.
 
+### MST concurrency property conventions
+
+The MST concurrency suite separates repeatability, direct union-find stress,
+and thread-count determinism. Tests that exercise
+`ConcurrentUnionFind::try_union` directly use `std::thread` workers and
+coordinated conflicting unions so the striped-lock revalidation and retry paths
+overlap. The thread-count property uses explicit Rayon `ThreadPoolBuilder`
+pools, currently configured with one and eight worker threads, and compares the
+complete `MinimumSpanningForest` results.
+
+These tests must not mutate `RAYON_NUM_THREADS`. The CI pin of
+`RAYON_NUM_THREADS=1` remains for coverage-ratchet determinism; the direct
+`std::thread` stress test and explicit Rayon pools provide their concurrency
+coverage independently of that setting.
+
 ### Workflow pins and Dependabot
 
 Dependabot owns the upgrade of GitHub Actions and reusable workflows, including

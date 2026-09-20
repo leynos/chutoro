@@ -668,19 +668,25 @@ race conditions.
 - **Description:** Within a single `proptest!` execution, this property will
     run the parallel Kruskal's algorithm on the *same input graph* multiple
     times in a loop (e.g., 5-10 times). It will then assert that the total
-    weight of the resulting MST is identical in every single run.
+    weight, component count, and exact edge list of the resulting forest are
+    identical in every run.
 
-- **Justification:** If a data race or other concurrency bug exists,
-    different OS thread interleavings across the multiple runs could lead to
-    different (and likely incorrect) choices when processing edges of equal
-    weight. This would result in MSTs with different total weights, causing the
-    property to fail. This test acts as a "fuzzer for thread interleavings."
-    While it cannot prove the absence of race conditions, `proptest`'s ability
-    to generate a vast number of different input graphs dramatically increases
-    the probability of hitting a rare thread scheduling sequence that exposes a
-    race. When run under a thread sanitizer like `TSan`, this property becomes
-    an exceptionally powerful tool for detecting and diagnosing data races in
-    the underlying concurrent data structures.
+- **Justification:** This is a repeatability check at the configured worker
+    count. It complements the explicit thread-count determinism property below
+    and the direct `ConcurrentUnionFind::try_union` stress test, which exercise
+    concurrency through dedicated workers and pools.
+
+#### 4.3.4. Property 4: Thread-count determinism
+
+- **Description:** Execute parallel Kruskal on the same `EdgeHarvest` fixture
+    in dedicated Rayon thread pools configured with one and eight worker
+    threads. Compare the complete `MinimumSpanningForest` values produced by
+    both pools.
+
+- **Justification:** The property verifies that the MST result is independent
+    of the Rayon worker count. It uses explicit `ThreadPoolBuilder` pools so
+    the coverage does not depend on, or mutate, the ambient
+    `RAYON_NUM_THREADS` setting used by CI.
 
 ### Table 4.1: Summary of core properties and invariants
 
@@ -695,6 +701,7 @@ race conditions.
 | Parallel Kruskal's MST | Equivalence with Oracle   | MST Minimality (Correct Total Weight)               | Oracle (Sequential Kruskal's)             |
 | Parallel Kruskal's MST | Structural Integrity      | Acyclicity, Connectivity, Edge Count                | Direct Invariant Checks                   |
 | Parallel Kruskal's MST | Concurrency Safety        | Determinism, Freedom from Race Conditions           | Repeated Execution & Comparison           |
+| Parallel Kruskal's MST | Thread-Count Determinism  | Identical output at one and eight Rayon threads     | Explicit ThreadPoolBuilder Pools          |
 
 ## Section 5: A two-tiered CI architecture with GitHub Actions
 

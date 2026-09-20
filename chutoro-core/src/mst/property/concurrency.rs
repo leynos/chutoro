@@ -112,9 +112,9 @@ pub(super) fn run_thread_pool_determinism_property(fixture: &MstFixture) -> Test
             TestCaseError::fail(format!("failed to build eight-thread Rayon pool: {error}"))
         })?;
 
-    let single_thread_harvest = EdgeHarvest::new(fixture.edges.clone());
+    let harvest = EdgeHarvest::new(fixture.edges.clone());
     let single_thread_forest = single_thread_pool
-        .install(|| parallel_kruskal(fixture.node_count, &single_thread_harvest))
+        .install(|| parallel_kruskal(fixture.node_count, &harvest))
         .map_err(|error| {
             TestCaseError::fail(format!(
                 "one-thread parallel_kruskal failed: {error} \
@@ -125,9 +125,8 @@ pub(super) fn run_thread_pool_determinism_property(fixture: &MstFixture) -> Test
             ))
         })?;
 
-    let eight_thread_harvest = EdgeHarvest::new(fixture.edges.clone());
     let eight_thread_forest = eight_thread_pool
-        .install(|| parallel_kruskal(fixture.node_count, &eight_thread_harvest))
+        .install(|| parallel_kruskal(fixture.node_count, &harvest))
         .map_err(|error| {
             TestCaseError::fail(format!(
                 "eight-thread parallel_kruskal failed: {error} \

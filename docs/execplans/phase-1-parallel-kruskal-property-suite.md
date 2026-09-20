@@ -11,7 +11,7 @@ be kept up to date as work proceeds.
 
 Add a property-based testing suite for the parallel Kruskal Minimum Spanning
 Tree (MST) implementation, as specified in `docs/property-testing-design.md`
-Section 4. The suite verifies three properties:
+Section 4. The suite verifies four properties:
 
 1. **Equivalence with a sequential oracle** — total weight matches a trusted
    sequential Kruskal.
@@ -19,6 +19,8 @@ Section 4. The suite verifies three properties:
    count, canonical form.
 3. **Concurrency safety** — repeated runs on the same input produce identical
    total weights and edge lists.
+4. **Thread-count determinism** — explicit one- and eight-thread Rayon pools
+   produce identical `MinimumSpanningForest` output for the same input.
 
 Graph generation strategies produce pathological inputs (unique weights, many
 identical weights, sparse, dense, disconnected) to stress the parallel
@@ -49,6 +51,8 @@ Kruskal property suite") will be marked done.
 - [x] Implement Property 1: oracle equivalence in `property/equivalence.rs`.
 - [x] Implement Property 2: structural invariants in `property/structural.rs`.
 - [x] Implement Property 3: concurrency safety in `property/concurrency.rs`.
+- [x] Implement Property 4: thread-count determinism in
+  `property/concurrency.rs`.
 - [x] Implement test runners and rstest cases in `property/tests.rs`.
 - [x] Wire `property` module into `mst/mod.rs`.
 - [x] Mark roadmap entry as done.
@@ -75,11 +79,11 @@ Kruskal property suite") will be marked done.
 
 ## Outcomes & retrospective
 
-Completed all three property tests plus the sequential oracle, rstest
+Completed all four property tests plus the sequential oracle, rstest
 parameterized cases (11 per property across 5 distributions and multiple
-seeds), and 9 oracle unit tests. All 549 tests pass (including 42 new MST
-property tests). All quality gates (`make check-fmt`, `make lint`, `make test`,
-`make markdownlint`) pass. Roadmap entry marked as done.
+seeds), and 9 oracle unit tests. All quality gates (`make check-fmt`,
+`make lint`, `make test`, `make markdownlint`) pass. Roadmap entry marked as
+done.
 
 ## Context and orientation
 
@@ -134,6 +138,13 @@ Run parallel Kruskal on the same input graph multiple times (default 5). Assert
 that total weight, edge count, component count, and the exact edge list are
 identical across all runs.
 
+### 4.3.4 Property 4: thread-count determinism
+
+Run parallel Kruskal for the same fixture in explicit Rayon pools configured
+with one and eight worker threads. Assert exact equality of the resulting
+`MinimumSpanningForest` values. This provides thread-count coverage without
+mutating `RAYON_NUM_THREADS`.
+
 ## Plan of work
 
 ### Step 1: Create module structure
@@ -187,7 +198,7 @@ Create `property/concurrency.rs` with
 
 Create `property/tests.rs` with:
 
-- `proptest!` runners for all three properties.
+- `proptest!` runners for all four properties.
 - `rstest` parameterized cases covering all distributions and multiple seeds.
 - Unit tests for the sequential oracle itself.
 
@@ -209,6 +220,8 @@ set -o pipefail && make test 2>&1 | tee /tmp/test.log
   distributions.
 - [x] Property 2 (structural invariants) passes for all five distributions.
 - [x] Property 3 (concurrency safety) passes with 5 repetitions per input.
+- [x] Property 4 (thread-count determinism) passes in one- and eight-thread
+  Rayon pools.
 - [x] rstest parameterized cases cover all five distributions with multiple
   seeds.
 - [x] Sequential oracle has dedicated unit tests.
