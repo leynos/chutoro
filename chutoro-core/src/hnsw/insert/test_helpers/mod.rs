@@ -314,6 +314,7 @@ impl<'graph> TestHelpers<'graph> {
     }
 }
 
+#[cfg(test)]
 /// Describes why an edge left by [`TestHelpers::enforce_bidirectional_all`]
 /// fails the reciprocity invariant.
 #[derive(Debug, PartialEq, Eq)]
