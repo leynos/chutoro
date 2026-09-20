@@ -646,6 +646,21 @@ The latency histogram reads time through the internal `MonotonicClock` trait.
 public constructor or builder API; it exists solely to make metrics assertions
 deterministic while preserving the public session contract.
 
+## Clustering result construction
+
+`ClusteringResult::try_from_assignments` is the public construction boundary
+for assignments supplied outside the CPU pipeline. It validates that cluster
+identifiers start at zero and are contiguous, returning the typed
+`NonContiguousClusterIds` error for invalid input. Callers should propagate or
+match that error rather than rely on a panic.
+
+The CPU pipeline may use `ClusteringResult::from_assignments`, but this helper
+is `pub(crate)`, compiled only with the `cpu` feature, and reserved for labels
+that the pipeline has produced contiguously from zero. It may panic when that
+precondition fails, including when an identifier reaches or exceeds the host
+pointer-width limit. See the [design document](./chutoro-design.md) for the
+architectural rationale and boundary details.
+
 ## Workspace lint and check-cfg policy
 
 The seven workspace crates inherit the root `[workspace.lints]` policy through

@@ -63,7 +63,8 @@ impl ClusteringResult {
     ///
     /// # Panics
     ///
-    /// Panics when identifiers do not start at zero and are not contiguous.
+    /// Panics when identifiers do not start at zero, are not contiguous, or
+    /// exceed or reach the host pointer-width limit.
     /// Use [`Self::try_from_assignments`] as the public fallible constructor
     /// for untrusted input.
     #[cfg(feature = "cpu")]

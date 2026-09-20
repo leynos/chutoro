@@ -14,8 +14,9 @@ use chutoro_core::{
 };
 use common::Dummy;
 use failable_source::{FailableSource, FailureMode};
+use proptest::prelude::*;
 use rstest::{fixture, rstest};
-use std::{num::NonZeroUsize, sync::Arc};
+use std::{collections::HashSet, num::NonZeroUsize, sync::Arc};
 use tracing::Level;
 use tracing_subscriber::layer::SubscriberExt;
 
@@ -357,6 +358,82 @@ fn try_from_assignments_validates_contiguity(
 ) {
     let err = ClusteringResult::try_from_assignments(assignments).expect_err(error_message);
     assert_eq!(err, expected_error);
+}
+
+fn model_assignment_validation(
+    assignments: &[ClusterId],
+) -> Result<usize, NonContiguousClusterIds> {
+    if assignments.is_empty() {
+        return Ok(0);
+    }
+
+    let identifiers: Vec<_> = assignments
+        .iter()
+        .map(|assignment| assignment.get())
+        .collect();
+    if identifiers
+        .iter()
+        .any(|identifier| *identifier >= usize::MAX as u64)
+    {
+        return Err(NonContiguousClusterIds::Overflow);
+    }
+
+    let unique: HashSet<_> = identifiers.iter().copied().collect();
+    if !unique.contains(&0) {
+        return Err(NonContiguousClusterIds::MissingZero);
+    }
+
+    let Some(maximum) = identifiers.iter().copied().max() else {
+        return Ok(0);
+    };
+    let has_gap = (0..=maximum).any(|identifier| !unique.contains(&identifier));
+    if !has_gap {
+        return Ok(unique.len());
+    }
+
+    if unique.len() == identifiers.len() {
+        Err(NonContiguousClusterIds::Gap)
+    } else {
+        Err(NonContiguousClusterIds::Duplicate)
+    }
+}
+
+proptest! {
+    #[test]
+    fn try_from_assignments_matches_the_contiguity_model(
+        assignment_values in prop::collection::vec(
+            prop_oneof![
+                8 => 0_u64..=16,
+                1 => Just(usize::MAX as u64),
+                1 => Just(u64::MAX),
+            ],
+            0..=24,
+        ),
+    ) {
+        let assignments: Vec<_> = assignment_values
+            .iter()
+            .copied()
+            .map(ClusterId::new)
+            .collect();
+        let expected = model_assignment_validation(&assignments);
+        let actual = ClusteringResult::try_from_assignments(assignments.clone());
+
+        match (actual, expected) {
+            (Ok(result), Ok(cluster_count)) => {
+                prop_assert_eq!(result.assignments(), assignments.as_slice());
+                prop_assert_eq!(result.cluster_count(), cluster_count);
+            }
+            (Err(actual_error), Err(expected_error)) => {
+                prop_assert_eq!(actual_error, expected_error);
+            }
+            (actual_result, expected_result) => {
+                prop_assert!(
+                    false,
+                    "actual result {actual_result:?} disagrees with model {expected_result:?}"
+                );
+            }
+        }
+    }
 }
 
 #[test]
