@@ -1,19 +1,20 @@
 //! Detect whether compile-contract tests are built with nightly Rust.
 
 use std::{
-    env,
     error::Error,
     ffi::OsString,
     io::{self, Write},
     process::Command,
 };
 
+use mockable::{DefaultEnv, Env};
+
 fn main() -> Result<(), Box<dyn Error>> {
     emit_cargo_directive("cargo:rerun-if-changed=build.rs")?;
     emit_cargo_directive("cargo:rerun-if-env-changed=RUSTC")?;
     emit_cargo_directive("cargo:rustc-check-cfg=cfg(nightly)")?;
 
-    if is_nightly_compiler() {
+    if is_nightly_compiler(&DefaultEnv) {
         emit_cargo_directive("cargo:rustc-cfg=nightly")?;
     }
     Ok(())
@@ -25,8 +26,10 @@ fn emit_cargo_directive(directive: &str) -> io::Result<()> {
 }
 
 /// Reports whether the configured compiler identifies itself as nightly.
-fn is_nightly_compiler() -> bool {
-    let rustc = env::var_os("RUSTC").unwrap_or_else(|| OsString::from("rustc"));
+fn is_nightly_compiler(env: &dyn Env) -> bool {
+    let rustc = env
+        .os_string("RUSTC")
+        .unwrap_or_else(|| OsString::from("rustc"));
     Command::new(rustc)
         .arg("--version")
         .output()
