@@ -147,33 +147,12 @@ fn default_profile_covers_idempotency_rstest_case_4_timeout() {
 #[rstest]
 #[case("default")]
 #[case("ci")]
-fn nextest_profiles_keep_trybuild_timeout_guards(#[case] profile_name: &str) {
+fn nextest_profiles_keep_compile_contract_timeout_guard(#[case] profile_name: &str) {
     assert_override_present!(
         profile_name,
         [
-            "arrow_parquet_types_share_one_family",
-            "portable_simd_gating_compile_checks",
-            "session_api_compiles_when_cpu_feature_is_enabled",
-            "arrow_parquet_types_share_one_family",
+            "filter = \"package(chutoro-compile-contracts)\"",
             "threads-required = 4",
-            TRYBUILD_SLOW_TIMEOUT,
-        ]
-    );
-}
-
-#[rstest]
-#[case("default", "threads-required = 8")]
-#[case("ci", "threads-required = 4")]
-fn nextest_profiles_serialize_clustering_result_feature_boundary_checks(
-    #[case] profile_name: &str,
-    #[case] expected_threads: &str,
-) {
-    assert_override_present!(
-        profile_name,
-        [
-            "clustering_result_panicking_constructor_is_private_when_cpu_enabled",
-            "clustering_result_api_is_checked_without_cpu",
-            expected_threads,
             TRYBUILD_SLOW_TIMEOUT,
         ]
     );
