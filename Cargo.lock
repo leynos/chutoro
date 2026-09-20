@@ -406,7 +406,7 @@ dependencies = [
  "cap-std",
  "chutoro-bench-datasets",
  "chutoro-test-support",
- "mockall",
+ "mockall 0.15.0",
  "proptest",
  "rstest",
  "rstest-bdd",
@@ -430,6 +430,7 @@ dependencies = [
  "chutoro-providers-dense",
  "criterion",
  "flate2",
+ "mockable",
  "proptest",
  "rand 0.8.7",
  "rstest",
@@ -451,6 +452,7 @@ dependencies = [
  "chutoro-providers-text",
  "chutoro-test-support",
  "clap",
+ "mockable",
  "parquet",
  "rstest",
  "tempfile",
@@ -469,6 +471,7 @@ dependencies = [
  "lru",
  "metrics",
  "metrics-util",
+ "mockable",
  "num-traits",
  "proptest",
  "rand 0.8.7",
@@ -494,6 +497,7 @@ dependencies = [
  "bytes",
  "chutoro-core",
  "chutoro-test-support",
+ "mockable",
  "parquet",
  "proptest",
  "rstest",
@@ -517,6 +521,7 @@ name = "chutoro-test-support"
 version = "0.1.0"
 dependencies = [
  "cap-std",
+ "mockable",
  "rstest",
  "thiserror 2.0.20",
  "tracing",
@@ -787,6 +792,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "difflib"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6184e33543162437515c2e2b48714794e37845ec9851711914eec9d308f6ebe8"
+
+[[package]]
 name = "digest"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -882,6 +893,15 @@ dependencies = [
  "crc32fast",
  "miniz_oxide",
  "zlib-rs",
+]
+
+[[package]]
+name = "float-cmp"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "98de4bbd547a563b716d8dfa9aad1cb19bfab00f4fa09a6a4ed21dbcf44ce9c4"
+dependencies = [
+ "num-traits",
 ]
 
 [[package]]
@@ -1475,6 +1495,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "mockable"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "696033a748f67c97f2169b29b428fbab0d12317707cede1ca62fcb786e80b7fe"
+dependencies = [
+ "mockall 0.11.4",
+ "tracing",
+]
+
+[[package]]
+name = "mockall"
+version = "0.11.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c84490118f2ee2d74570d114f3d0493cbf02790df303d2707606c3e14e07c96"
+dependencies = [
+ "cfg-if",
+ "downcast",
+ "fragile",
+ "lazy_static",
+ "mockall_derive 0.11.4",
+ "predicates 2.1.5",
+ "predicates-tree",
+]
+
+[[package]]
 name = "mockall"
 version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1483,9 +1528,21 @@ dependencies = [
  "cfg-if",
  "downcast",
  "fragile",
- "mockall_derive",
- "predicates",
+ "mockall_derive 0.15.0",
+ "predicates 3.1.4",
  "predicates-tree",
+]
+
+[[package]]
+name = "mockall_derive"
+version = "0.11.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "22ce75669015c4f47b289fd4d4f56e894e4c96003ffdf3ac51313126f94c6cbb"
+dependencies = [
+ "cfg-if",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -1514,6 +1571,12 @@ checksum = "77a5d83df9f36fe23f0c3648c6bbb8b0298bb5f1939c8f2704431371f4b84d43"
 dependencies = [
  "smallvec",
 ]
+
+[[package]]
+name = "normalize-line-endings"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61807f77802ff30975e01f4f071c8ba10c022052f98b3294119f3e615d13e5be"
 
 [[package]]
 name = "nu-ansi-term"
@@ -1729,6 +1792,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
+]
+
+[[package]]
+name = "predicates"
+version = "2.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59230a63c37f3e18569bdb90e4a89cbf5bf8b06fea0b84e65ea10cc4df47addd"
+dependencies = [
+ "difflib",
+ "float-cmp",
+ "itertools",
+ "normalize-line-endings",
+ "predicates-core",
+ "regex",
 ]
 
 [[package]]
@@ -2471,6 +2548,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b64191b275b66ffe2469e8af2c1cfe3bafa67b529ead792a6d0160888b4237"
 dependencies = [
  "proc-macro2",
+ "quote",
  "unicode-ident",
 ]
 
