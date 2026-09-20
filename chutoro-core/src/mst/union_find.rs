@@ -279,7 +279,6 @@ mod tests {
         assert_eq!(concurrent_labels, oracle_labels);
         assert_eq!(union_find.components(), oracle_components);
     }
-
     /// Build sparse, seed-stable rounds with a shared pivot per worker group.
     fn coordinated_edges(seed: u64, thread_count: usize) -> Vec<Vec<(usize, usize)>> {
         let mut rng = SmallRng::seed_from_u64(seed);
@@ -289,9 +288,10 @@ mod tests {
     }
     /// Generate a conflicting worker edge for each thread in a schedule round.
     fn round_edges(rng: &mut SmallRng, round: usize, thread_count: usize) -> Vec<(usize, usize)> {
-        let pivot = round * (MAX_THREAD_COUNT + 1);
+        let group_start = round * (thread_count + 1);
+        let pivot = group_start + thread_count;
         (0..thread_count)
-            .map(|worker_index| orient_edge(rng, pivot, pivot + worker_index + 1))
+            .map(|worker_index| orient_edge(rng, pivot, group_start + worker_index))
             .collect()
     }
     /// Randomly choose the direction of an otherwise fixed conflicting edge.
