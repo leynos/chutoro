@@ -32,7 +32,7 @@ fn clustering_result_api_is_checked_without_cpu() {
         .args([
             "test",
             "-p",
-            "chutoro-core",
+            "chutoro-compile-contracts",
             "--no-default-features",
             "--test",
             "result_api_surface",

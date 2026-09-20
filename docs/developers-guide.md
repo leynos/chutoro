@@ -1180,6 +1180,11 @@ property phases do not consume the full budget. The weekly job retains a
 All test runs use the `nextest` CI profile (`--profile ci`). Benchmark targets
 require `threads-required = 8`; see `.config/nextest.toml`.
 
+Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
+package-level `nextest` override owns the nested-Cargo timeout and concurrency
+policy: four required threads and a 300-second `slow-timeout`. Other tests
+retain the 60-second default per-test `slow-timeout`.
+
 Use `.github/workflows/property-tests.yml` and `.config/nextest.toml` for the
 authoritative configuration, and `docs/property-testing-design.md` for the
 architectural rationale.

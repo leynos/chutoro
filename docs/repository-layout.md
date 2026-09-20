@@ -12,6 +12,7 @@ omits generated artefacts such as `target/`.
 ├── .config/
 ├── .github/
 ├── chutoro-benches/
+├── chutoro-compile-contracts/
 ├── chutoro-cli/
 ├── chutoro-core/
 ├── chutoro-providers/
@@ -45,13 +46,14 @@ _Table 1: Top-level file responsibilities._
 
 ## Source crates
 
-| Path                    | Responsibility                                                        |
-| ----------------------- | --------------------------------------------------------------------- |
-| `chutoro-core/`         | Core library implementation and its crate-local tests.                |
-| `chutoro-cli/`          | Command-line application crate and user-facing command orchestration. |
-| `chutoro-providers/`    | Provider implementations grouped by provider family.                  |
-| `chutoro-benches/`      | Benchmark crate, benchmark harnesses, and benchmark support code.     |
-| `chutoro-test-support/` | Shared test utilities used by workspace tests.                        |
+| Path                         | Responsibility                                                        |
+| ---------------------------- | --------------------------------------------------------------------- |
+| `chutoro-core/`              | Core library implementation and its crate-local tests.                |
+| `chutoro-compile-contracts/` | Shared compile-contract tests and their trybuild fixtures.            |
+| `chutoro-cli/`               | Command-line application crate and user-facing command orchestration. |
+| `chutoro-providers/`         | Provider implementations grouped by provider family.                  |
+| `chutoro-benches/`           | Benchmark crate, benchmark harnesses, and benchmark support code.     |
+| `chutoro-test-support/`      | Shared test utilities used by workspace tests.                        |
 
 _Table 2: Workspace crate responsibilities._
 
@@ -102,9 +104,9 @@ Generated tooling directories must not be edited by hand:
   directories, such as `chutoro-core/tests/`.
 - Feature files for BDD tests live under `tests/features/` in the crate that
   owns the behaviour.
-- Compile-surface tests use dedicated integration-test binaries with fixtures
-  under the relevant crate's `tests/trybuild/` directory, such as
-  `chutoro-core/tests/trybuild/`.
+- Compile-contract tests use dedicated integration-test binaries in
+  `chutoro-compile-contracts/`, with their trybuild fixtures under that
+  package's `tests/trybuild/` directory.
 
 ## Core session module
 

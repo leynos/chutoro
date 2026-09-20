@@ -86,9 +86,8 @@ slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 retries = 1
 
 [[profile.default.overrides]]
-# Trybuild compile checks build fixture crates in isolated target directories
-# and can exceed the generic 60s timeout on shared developer machines.
-filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled|dataset_recipe_phase_order|arrow_parquet_types_share_one_family/)"
+# Compile-contract tests build fixture crates with nested Cargo invocations.
+filter = "package(chutoro-compile-contracts)"
 threads-required = 4
 slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 
@@ -96,22 +95,6 @@ slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 # Benchmark smoke integration coverage runs nested cargo bench commands and
 # should not overlap with other expensive benchmark targets.
 filter = "test(/benchmark_binaries_cover_discovery_and_exact_smoke_paths/)"
-threads-required = 8
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
-
-
-[[profile.default.overrides]]
-# Trybuild tests compile fixture crates with a nested cargo invocation; under
-# a cold coverage target directory the dependency rebuild can exceed the
-# generic 60s timeout.
-filter = "test(/dataset_recipe_phase_order/)"
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
-
-[[profile.default.overrides]]
-# The clustering-result API checks run trybuild and a nested CPU-disabled Cargo
-# test. Serialize them so they do not contend for Cargo's package cache under
-# llvm-cov instrumentation.
-filter = "test(/clustering_result_panicking_constructor_is_private_when_cpu_enabled|clustering_result_api_is_checked_without_cpu/)"
 threads-required = 8
 slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 
@@ -169,20 +152,7 @@ slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 retries = 1
 
 [[profile.ci.overrides]]
-# Trybuild compile checks build fixture crates in isolated target directories
-# and can exceed the generic 60s timeout on shared runners.
-filter = "test(/portable_simd_gating_compile_checks|session_api_compiles_when_cpu_feature_is_enabled|dataset_recipe_phase_order|arrow_parquet_types_share_one_family/)"
-threads-required = 4
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
-
-[[profile.ci.overrides]]
-# Trybuild tests compile fixture crates with a nested cargo invocation; the
-# rebuild can exceed the generic 60s timeout on shared runners.
-filter = "test(/dataset_recipe_phase_order/)"
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
-
-[[profile.ci.overrides]]
-# Keep the feature-boundary checks serial in the reduced CI profile as well.
-filter = "test(/clustering_result_panicking_constructor_is_private_when_cpu_enabled|clustering_result_api_is_checked_without_cpu/)"
+# Compile-contract tests build fixture crates with nested Cargo invocations.
+filter = "package(chutoro-compile-contracts)"
 threads-required = 4
 slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }

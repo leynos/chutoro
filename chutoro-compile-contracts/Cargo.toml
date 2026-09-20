@@ -1,0 +1,40 @@
+[package]
+name = "chutoro-compile-contracts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = ["cpu", "simd_avx2", "simd_avx512", "simd_neon"]
+cpu = ["chutoro-core/cpu"]
+nightly_portable_simd = ["chutoro-providers-dense/nightly_portable_simd"]
+simd_avx2 = ["chutoro-providers-dense/simd_avx2"]
+simd_avx512 = ["chutoro-providers-dense/simd_avx512"]
+simd_neon = ["chutoro-providers-dense/simd_neon"]
+
+[dev-dependencies]
+arrow-array.workspace = true
+arrow-schema.workspace = true
+bytes = "1.10"
+camino = "1.1"
+parquet = { workspace = true, features = ["arrow"] }
+trybuild = "1.0.114"
+
+[dev-dependencies.chutoro-bench-datasets]
+version = "0.1.0"
+path = "../chutoro-bench-datasets"
+features = ["testing"]
+
+[dev-dependencies.chutoro-core]
+version = "0.1.0"
+path = "../chutoro-core"
+default-features = false
+
+[dev-dependencies.chutoro-providers-dense]
+version = "0.1.0"
+path = "../chutoro-providers/dense"
+
+[lints]
+workspace = true
