@@ -78,8 +78,6 @@ impl<'graph> TestHelpers<'graph> {
             };
             let mut healer = ConnectivityHealer::new(self.graph);
             if healer.link_new_node(&ctx, node_id) {
-                #[cfg(test)]
-                self.graph.record_touched_nodes([(origin, 0), (node_id, 0)]);
                 return true;
             }
         }
@@ -92,8 +90,6 @@ impl<'graph> TestHelpers<'graph> {
             };
             let mut healer = ConnectivityHealer::new(self.graph);
             if healer.link_new_node(&ctx, node_id) {
-                #[cfg(test)]
-                self.graph.record_touched_nodes([(origin, 0), (node_id, 0)]);
                 return true;
             }
         }

@@ -180,22 +180,50 @@ impl<'graph> ConnectivityHealer<'graph> {
             return None;
         }
 
+        #[cfg(test)]
+        let origin_changed;
         let candidate_node = self.graph.node_mut(ctx.origin)?;
         let origin_neighbours = candidate_node.neighbours_mut(ctx.level)?;
+        #[cfg(test)]
+        let origin_had_link = origin_neighbours.contains(&new_node);
         let evicted_node = Self::add_to_neighbour_list(origin_neighbours, new_node, limit);
-        if !origin_neighbours.contains(&new_node) {
+        let origin_linked = origin_neighbours.contains(&new_node);
+        #[cfg(test)]
+        {
+            origin_changed = !origin_had_link && origin_linked;
+        }
+        if !origin_linked {
             return None;
+        }
+
+        #[cfg(test)]
+        if origin_changed {
+            self.graph.record_touched_nodes([(ctx.origin, ctx.level)]);
         }
 
         if !self.can_link_at_level(new_node, ctx.level) {
             return None;
         }
 
+        #[cfg(test)]
+        let new_node_changed;
         let new_node_ref = self.graph.node_mut(new_node)?;
         let new_node_neighbours = new_node_ref.neighbours_mut(ctx.level)?;
+        #[cfg(test)]
+        let new_node_had_link = new_node_neighbours.contains(&ctx.origin);
         Self::add_to_neighbour_list(new_node_neighbours, ctx.origin, limit);
-        if !new_node_neighbours.contains(&ctx.origin) {
+        let new_node_linked = new_node_neighbours.contains(&ctx.origin);
+        #[cfg(test)]
+        {
+            new_node_changed = !new_node_had_link && new_node_linked;
+        }
+        if !new_node_linked {
             return None;
+        }
+
+        #[cfg(test)]
+        if new_node_changed {
+            self.graph.record_touched_nodes([(new_node, ctx.level)]);
         }
 
         // Return the evicted node that needs cleanup instead of recursing
@@ -206,6 +234,8 @@ impl<'graph> ConnectivityHealer<'graph> {
 
     /// Cleans up a forward edge and returns the node to handle iteratively.
     fn clean_up_evicted_edge_inner(&mut self, evicted: usize, ctx: &UpdateContext) -> usize {
+        #[cfg(test)]
+        let mut evicted_changed = false;
         let Some(evicted_node) = self.graph.node_mut(evicted) else {
             return ctx.origin; // Link succeeded to origin's perspective
         };
@@ -218,9 +248,20 @@ impl<'graph> ConnectivityHealer<'graph> {
         };
         if let Some(pos) = evicted_neighbours.iter().position(|&id| id == ctx.origin) {
             evicted_neighbours.remove(pos);
+            #[cfg(test)]
+            {
+                evicted_changed = true;
+            }
         }
 
-        if ctx.level == 0 && evicted_neighbours.is_empty() {
+        let is_isolated = ctx.level == 0 && evicted_neighbours.is_empty();
+
+        #[cfg(test)]
+        if evicted_changed {
+            self.graph.record_touched_nodes([(evicted, ctx.level)]);
+        }
+
+        if is_isolated {
             evicted // Return isolated node for caller to queue
         } else {
             ctx.origin // Link succeeded
@@ -293,33 +334,5 @@ impl<'graph> ConnectivityHealer<'graph> {
     }
 }
 #[cfg(test)]
-mod tests {
-    //! Equivalence coverage for the Kani visited-set substitute.
-
-    use std::collections::HashSet;
-
-    use rstest::rstest;
-
-    use super::LinearVisitedSet;
-
-    /// The linear-scan set must report insertions exactly as `HashSet` does,
-    /// because Kani builds substitute it for the production `HashSet` inside
-    /// the healing work queues.
-    #[rstest]
-    #[case::all_unique(&[1, 2, 3, 4])]
-    #[case::immediate_duplicate(&[7, 7])]
-    #[case::interleaved_duplicates(&[3, 1, 3, 2, 1, 3])]
-    #[case::single(&[0])]
-    #[case::empty(&[])]
-    fn linear_set_matches_hash_set_semantics(#[case] sequence: &[usize]) {
-        let mut linear = LinearVisitedSet::default();
-        let mut hashed = HashSet::new();
-        for &id in sequence {
-            assert_eq!(
-                linear.insert(id),
-                hashed.insert(id),
-                "insert({id}) diverged from HashSet semantics",
-            );
-        }
-    }
-}
+#[path = "connectivity/tests.rs"]
+mod tests;
