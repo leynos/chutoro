@@ -14,6 +14,9 @@ simd_avx2 = ["chutoro-providers-dense/simd_avx2"]
 simd_avx512 = ["chutoro-providers-dense/simd_avx512"]
 simd_neon = ["chutoro-providers-dense/simd_neon"]
 
+[build-dependencies]
+mockable.workspace = true
+
 [dev-dependencies]
 arrow-array.workspace = true
 arrow-schema.workspace = true
@@ -30,7 +33,6 @@ features = ["testing"]
 [dev-dependencies.chutoro-core]
 version = "0.1.0"
 path = "../chutoro-core"
-default-features = false
 
 [dev-dependencies.chutoro-providers-dense]
 version = "0.1.0"
