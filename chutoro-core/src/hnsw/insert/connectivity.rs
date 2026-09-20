@@ -64,6 +64,31 @@ pub(super) struct ConnectivityHealer<'graph> {
     pub(super) graph: &'graph mut Graph,
 }
 
+/// Result of adding one directed neighbour relationship.
+#[derive(Debug)]
+enum DirectedLinkOutcome {
+    /// The origin or level was unavailable, or the target was not retained.
+    Rejected,
+    /// The target was retained, with an optional displaced neighbour.
+    Linked {
+        /// Neighbour displaced to make room for the target, when at capacity.
+        evicted: Option<usize>,
+    },
+}
+
+/// Inputs for one directed neighbour insertion.
+#[derive(Debug)]
+struct DirectedLink {
+    /// Node whose adjacency list is updated.
+    origin: usize,
+    /// Neighbour to retain in the origin's adjacency list.
+    target: usize,
+    /// Layer whose adjacency list is updated.
+    level: usize,
+    /// Maximum permitted neighbours at `level`.
+    limit: usize,
+}
+
 impl<'graph> ConnectivityHealer<'graph> {
     /// Creates a healer over the graph.
     pub(super) const fn new(graph: &'graph mut Graph) -> Self {
@@ -176,60 +201,64 @@ impl<'graph> ConnectivityHealer<'graph> {
     /// instead of recursively handling it.
     fn link_new_node_inner(&mut self, ctx: &UpdateContext, new_node: usize) -> Option<usize> {
         let limit = compute_connection_limit(ctx.level, ctx.max_connections);
-        if !self.can_link_at_level(ctx.origin, ctx.level) {
+        let DirectedLinkOutcome::Linked {
+            evicted: evicted_node,
+        } = self.link_directed(&DirectedLink {
+            origin: ctx.origin,
+            target: new_node,
+            level: ctx.level,
+            limit,
+        })
+        else {
             return None;
-        }
-
-        #[cfg(test)]
-        let origin_changed;
-        let candidate_node = self.graph.node_mut(ctx.origin)?;
-        let origin_neighbours = candidate_node.neighbours_mut(ctx.level)?;
-        #[cfg(test)]
-        let origin_had_link = origin_neighbours.contains(&new_node);
-        let evicted_node = Self::add_to_neighbour_list(origin_neighbours, new_node, limit);
-        let origin_linked = origin_neighbours.contains(&new_node);
-        #[cfg(test)]
-        {
-            origin_changed = !origin_had_link && origin_linked;
-        }
-        if !origin_linked {
+        };
+        if matches!(
+            self.link_directed(&DirectedLink {
+                origin: new_node,
+                target: ctx.origin,
+                level: ctx.level,
+                limit,
+            }),
+            DirectedLinkOutcome::Rejected
+        ) {
             return None;
-        }
-
-        #[cfg(test)]
-        if origin_changed {
-            self.graph.record_touched_nodes([(ctx.origin, ctx.level)]);
-        }
-
-        if !self.can_link_at_level(new_node, ctx.level) {
-            return None;
-        }
-
-        #[cfg(test)]
-        let new_node_changed;
-        let new_node_ref = self.graph.node_mut(new_node)?;
-        let new_node_neighbours = new_node_ref.neighbours_mut(ctx.level)?;
-        #[cfg(test)]
-        let new_node_had_link = new_node_neighbours.contains(&ctx.origin);
-        Self::add_to_neighbour_list(new_node_neighbours, ctx.origin, limit);
-        let new_node_linked = new_node_neighbours.contains(&ctx.origin);
-        #[cfg(test)]
-        {
-            new_node_changed = !new_node_had_link && new_node_linked;
-        }
-        if !new_node_linked {
-            return None;
-        }
-
-        #[cfg(test)]
-        if new_node_changed {
-            self.graph.record_touched_nodes([(new_node, ctx.level)]);
         }
 
         // Return the evicted node that needs cleanup instead of recursing
         Some(evicted_node.map_or(new_node, |node_id| {
             self.clean_up_evicted_edge_inner(node_id, ctx)
         }))
+    }
+
+    /// Adds one directed edge and reports whether the target was retained.
+    fn link_directed(&mut self, link: &DirectedLink) -> DirectedLinkOutcome {
+        #[cfg(test)]
+        let target_was_present;
+        let (target_linked, evicted) = {
+            let Some(origin_node) = self.graph.node_mut(link.origin) else {
+                return DirectedLinkOutcome::Rejected;
+            };
+            let Some(neighbours) = origin_node.neighbours_mut(link.level) else {
+                return DirectedLinkOutcome::Rejected;
+            };
+            #[cfg(test)]
+            {
+                target_was_present = neighbours.contains(&link.target);
+            }
+            let evicted = Self::add_to_neighbour_list(neighbours, link.target, link.limit);
+            (neighbours.contains(&link.target), evicted)
+        };
+
+        if !target_linked {
+            return DirectedLinkOutcome::Rejected;
+        }
+
+        #[cfg(test)]
+        if !target_was_present {
+            self.graph.record_touched_nodes([(link.origin, link.level)]);
+        }
+
+        DirectedLinkOutcome::Linked { evicted }
     }
 
     /// Cleans up a forward edge and returns the node to handle iteratively.
@@ -304,13 +333,6 @@ impl<'graph> ConnectivityHealer<'graph> {
             });
 
         linked.or_else(|| self.attach_entry_fallback(ctx.level, ctx.max_connections, ctx.new_node))
-    }
-
-    /// Report whether a node has an initialized adjacency list for a level.
-    fn can_link_at_level(&self, node_id: usize, level: usize) -> bool {
-        self.graph
-            .node(node_id)
-            .is_some_and(|node| level < node.level_count())
     }
 
     /// Insert a neighbour and return the displaced tail when capacity is full.

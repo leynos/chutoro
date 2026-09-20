@@ -141,3 +141,49 @@ fn iterative_eviction_healing_tracks_every_mutated_owner() {
         "each iterative eviction mutation must remain visible to local healing"
     );
 }
+
+#[test]
+fn duplicate_directed_links_do_not_record_touched_nodes() {
+    let params = HnswParams::new(1, 2).expect("parameters");
+    let mut graph = Graph::with_capacity(params, 2);
+    graph
+        .insert_first(NodeContext {
+            node: 0,
+            level: 0,
+            sequence: 0,
+        })
+        .expect("insert entry");
+    graph
+        .attach_node(NodeContext {
+            node: 1,
+            level: 0,
+            sequence: 1,
+        })
+        .expect("attach neighbour");
+    graph
+        .node_mut(0)
+        .expect("entry")
+        .neighbours_mut(0)
+        .expect("entry base layer")
+        .push(1);
+    graph
+        .node_mut(1)
+        .expect("neighbour")
+        .neighbours_mut(0)
+        .expect("neighbour base layer")
+        .push(0);
+
+    let context = super::super::types::UpdateContext {
+        origin: 0,
+        level: 0,
+        max_connections: 1,
+    };
+    assert!(
+        ConnectivityHealer::new(&mut graph).link_new_node(&context, 1),
+        "existing reciprocal links should succeed"
+    );
+    assert!(
+        graph.take_touched_nodes().is_empty(),
+        "duplicate links must not create touched-node entries"
+    );
+}
