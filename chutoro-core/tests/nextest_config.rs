@@ -161,6 +161,24 @@ fn nextest_profiles_keep_trybuild_timeout_guards(#[case] profile_name: &str) {
     );
 }
 
+#[rstest]
+#[case("default", "threads-required = 8")]
+#[case("ci", "threads-required = 4")]
+fn nextest_profiles_serialize_clustering_result_feature_boundary_checks(
+    #[case] profile_name: &str,
+    #[case] expected_threads: &str,
+) {
+    assert_override_present!(
+        profile_name,
+        [
+            "clustering_result_panicking_constructor_is_private_when_cpu_enabled",
+            "clustering_result_api_is_checked_without_cpu",
+            expected_threads,
+            TRYBUILD_SLOW_TIMEOUT,
+        ]
+    );
+}
+
 #[test]
 fn default_profile_serializes_nested_benchmark_smoke_test() {
     assert_override_present!(

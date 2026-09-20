@@ -37,6 +37,8 @@ open each document.
   Rust documentation tests concise and maintainable.
 - [Rust testing with rstest fixtures](rust-testing-with-rstest-fixtures.md):
   guidance for shared test setup using `rstest`.
+- [Migration notes](migration-notes.md): compatibility changes for upcoming
+  Chutoro releases.
 
 ## Decision records
 

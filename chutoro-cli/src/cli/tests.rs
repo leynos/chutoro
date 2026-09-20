@@ -188,10 +188,11 @@ fn run_command_rejects_zero_min_cluster_size(
 fn render_summary_outputs_assignments() {
     let summary = ExecutionSummary {
         data_source: "demo".into(),
-        result: ClusteringResult::from_assignments(vec![
+        result: ClusteringResult::try_from_assignments(vec![
             chutoro_core::ClusterId::new(0),
             chutoro_core::ClusterId::new(1),
-        ]),
+        ])
+        .expect("test assignments must be contiguous"),
     };
     let mut buffer = Vec::new();
     render_summary(&summary, &mut buffer).expect("rendering must succeed");
