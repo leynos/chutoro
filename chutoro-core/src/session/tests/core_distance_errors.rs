@@ -1,14 +1,6 @@
 //! Error and invariant tests for session core-distance recomputation.
 
-use std::{
-    error::Error,
-    num::NonZeroUsize,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::Duration,
-};
+use std::{error::Error, num::NonZeroUsize, sync::Arc, time::Duration};
 
 use rstest::rstest;
 
@@ -17,6 +9,10 @@ use crate::{
     ChutoroBuilder, ChutoroError, DataSource, DataSourceError, DistanceCacheConfig, HnswParams,
     MetricDescriptor,
 };
+#[path = "../../../tests/support/failable_source.rs"]
+mod failable_source;
+
+use failable_source::{FailableSource, FailureMode};
 
 #[rstest]
 #[should_panic(expected = "assertion `left == right` failed")]
@@ -112,89 +108,4 @@ fn build_failable_session(
         .with_min_cluster_size(1)
         .with_hnsw_params(hnsw_params)
         .build_session(source)?)
-}
-
-#[derive(Debug)]
-struct FailableSource {
-    values: Vec<f32>,
-    should_fail: AtomicBool,
-    mode: FailureMode,
-}
-
-impl FailableSource {
-    fn new(mode: FailureMode) -> Self {
-        Self {
-            values: vec![0.0, 1.0, 2.0],
-            should_fail: AtomicBool::new(false),
-            mode,
-        }
-    }
-
-    fn fail(&self) {
-        self.should_fail.store(true, Ordering::SeqCst);
-    }
-
-    fn recover(&self) {
-        self.should_fail.store(false, Ordering::SeqCst);
-    }
-}
-
-impl DataSource for FailableSource {
-    fn len(&self) -> usize {
-        self.values.len()
-    }
-
-    fn name(&self) -> &'static str {
-        "failable-session-source"
-    }
-
-    fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-        if self.should_fail.load(Ordering::SeqCst) {
-            return match self.mode {
-                FailureMode::DataSource => Err(DataSourceError::OutOfBounds { index: i.max(j) }),
-                FailureMode::NonFinite => Ok(f32::NAN),
-                FailureMode::PairDataSource { left, right } if is_pair(i, j, left, right) => {
-                    Err(DataSourceError::OutOfBounds { index: i.max(j) })
-                }
-                FailureMode::PairDataSource { .. } => {
-                    let left_value = self
-                        .values
-                        .get(i)
-                        .ok_or(DataSourceError::OutOfBounds { index: i })?;
-                    let right_value = self
-                        .values
-                        .get(j)
-                        .ok_or(DataSourceError::OutOfBounds { index: j })?;
-                    Ok(left_value
-                        .mul_add(1.0, std::ops::Neg::neg(*right_value))
-                        .abs())
-                }
-            };
-        }
-
-        let left = self
-            .values
-            .get(i)
-            .ok_or(DataSourceError::OutOfBounds { index: i })?;
-        let right = self
-            .values
-            .get(j)
-            .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok(left.mul_add(1.0, std::ops::Neg::neg(*right)).abs())
-    }
-
-    fn metric_descriptor(&self) -> MetricDescriptor {
-        MetricDescriptor::new("failable-session-source:abs")
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-enum FailureMode {
-    DataSource,
-    NonFinite,
-    PairDataSource { left: usize, right: usize },
-}
-
-fn is_pair(i: usize, j: usize, left: usize, right: usize) -> bool {
-    (i == left && j == right) || (i == right && j == left)
 }

@@ -571,6 +571,20 @@ against `source.len()` before insertion so early bootstrap cases return a
 `ChutoroError::DataSource` for out-of-bounds indices even when HNSW would not
 need a distance query for the first inserted node.
 
+### HNSW error conversion boundary
+
+`chutoro-core/src/hnsw/error.rs` owns the reusable conversion from `HnswError`
+to `ChutoroError`. CPU pipeline construction and core-distance searches, plus
+session allocation, insertion, and core-distance searches, pass `Arc<str>`
+values derived from `source.name()` to `HnswError::into_chutoro_error`. Callers
+must use this helper rather than recreating the conversion or depending on
+CPU-pipeline orchestration.
+
+The mapping preserves the error boundary: `HnswError::DataSource(error)` becomes
+`ChutoroError::DataSource { data_source, error }`; every other HNSW variant
+becomes `ChutoroError::CpuHnswFailure` with the HNSW code and message. The CPU
+pipeline continues to own only its one-shot MST and hierarchy error mappings.
+
 The v1 incremental clustering surface has these limitations:
 
 - Ingestion is append-only; deletions and updates are not supported.

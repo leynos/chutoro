@@ -114,8 +114,11 @@ Session code is split by responsibility under `chutoro-core/src/session/`:
   accessors, public re-exports, and the high-level Rustdoc contract.
 - `config.rs` owns `SessionRefreshPolicy` and `SessionConfig`, the small value
   types carried by each session.
-- `session_impl.rs` owns construction, `append`, HNSW error mapping, and the
-  edge-harvesting write path.
+- `session_impl.rs` owns construction, `append`, and the edge-harvesting write
+  path. It delegates reusable HNSW-to-core error conversion to `hnsw/error.rs`.
+- `hnsw/error.rs` owns `HnswError::into_chutoro_error`, the shared adapter
+  boundary for CPU pipeline and session callers. It preserves data-source
+  errors and classifies every other HNSW error as a CPU HNSW failure.
 - `core_distance.rs` owns the pure core-distance helpers and the recompute
   workflow. The pure helpers must not depend on HNSW adapter internals beyond
   the public `Neighbour` value.

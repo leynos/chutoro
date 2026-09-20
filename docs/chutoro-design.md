@@ -2217,6 +2217,14 @@ fails. When a `CliError::Core` escapes, the wrapper logs the high level code
 alongside the inner data source code, preserving diagnostics without leaking
 implementation types across crate boundaries.
 
+The HNSW adapter owns conversion from `HnswError` to the public core error in
+`chutoro-core/src/hnsw/error.rs`. `HnswError::into_chutoro_error` is shared by
+one-shot CPU orchestration and sessions; callers supply the data-source name
+but must not reimplement the mapping. `HnswError::DataSource` remains a
+`ChutoroError::DataSource`, while all other HNSW failures become
+`ChutoroError::CpuHnswFailure` with their stable code and diagnostic message.
+This keeps HNSW-adapter semantics independent of CPU-pipeline orchestration.
+
 ### 11. Concluding Recommendations
 
 This document has laid out a comprehensive architectural blueprint for a
