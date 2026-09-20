@@ -88,7 +88,7 @@ fn build_candidates(
 /// Compares the model and production forests for one input, returning a
 /// description of the first divergence.
 fn check_equivalence(node_count: usize, candidates: &[CandidateEdge]) -> Result<(), String> {
-    let production = parallel_kruskal_from_edges(node_count, candidates.iter())
+    let production = parallel_kruskal_from_edges(node_count, candidates)
         .map_err(|error| format!("production Kruskal failed: {error}"))?;
     let model = kruskal_model(node_count, candidates.iter())
         .map_err(|error| format!("Kani model failed: {error}"))?;
@@ -163,7 +163,7 @@ fn model_matches_production_errors(
     #[case] candidates: Vec<CandidateEdge>,
     #[case] expected: MstError,
 ) {
-    let production = parallel_kruskal_from_edges(node_count, candidates.iter());
+    let production = parallel_kruskal_from_edges(node_count, &candidates);
     let model = kruskal_model(node_count, candidates.iter());
 
     assert_eq!(
@@ -264,7 +264,7 @@ fn model_rejects_inputs_outside_its_bounded_domain(
     #[case] expected_invariant: &str,
 ) {
     assert!(
-        parallel_kruskal_from_edges(node_count, candidates.iter()).is_ok(),
+        parallel_kruskal_from_edges(node_count, &candidates).is_ok(),
         "production must accept this input; only the bounded model rejects it",
     );
 
