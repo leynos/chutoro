@@ -90,6 +90,15 @@ def _rustup_invocations(workflow_name: str) -> typ.Iterator[tuple[str, str]]:
                 yield job_name, invocation
 
 
+def _run_scripts(workflow_name: str) -> typ.Iterator[tuple[str, str]]:
+    """Yield every workflow `run` script with its job name."""
+    for job_name, definition in jobs(load_workflow(workflow_name)).items():
+        for step in steps(definition):
+            script = run_script(step)
+            if script:
+                yield job_name, script
+
+
 def _component_groups_in_step(step: dict[str, typ.Any]) -> typ.Iterator[tuple[str, list[str]]]:
     """Yield each `--component` flag found in one step, with its invocation."""
     for invocation in _rustup_installs(run_script(step)):
@@ -155,6 +164,19 @@ def test_no_rustup_install_ends_on_a_dangling_backslash(workflow_name: str) -> N
             f"the shell does not read as a continuation, so everything after "
             f"it is dropped: {invocation!r}"
         )
+
+
+def test_nightly_lane_runs_portable_simd_compile_contract() -> None:
+    """Nightly must execute the feature-enabled portable-SIMD contract."""
+    commands = [
+        " ".join(CONTINUATION.sub(" ", script).split())
+        for _, script in _run_scripts("nightly-portable-simd.yml")
+        if "cargo +nightly test" in script
+    ]
+    assert (
+        "RUSTUP_TOOLCHAIN=nightly cargo +nightly test -p chutoro-compile-contracts --features "
+        "nightly_portable_simd --test portable_simd_gating" in commands
+    )
 
 
 @pytest.mark.parametrize(
