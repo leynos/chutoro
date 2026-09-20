@@ -1,16 +1,19 @@
 //! Tests for the `Chutoro` orchestration API.
 
 mod common;
+#[path = "support/failable_source.rs"]
+mod failable_source;
 
 use chutoro_core::{
     ChutoroBuilder, ChutoroError, ClusterId, ClusteringResult, DataSource, DataSourceError,
-    ExecutionStrategy, NonContiguousClusterIds,
+    ExecutionStrategy, MetricDescriptor, NonContiguousClusterIds,
 };
 #[cfg(feature = "cpu")]
 use chutoro_core::{
     DistanceCacheConfig, HnswParams, estimate_peak_bytes, estimate_peak_bytes_for_hnsw_params,
 };
 use common::Dummy;
+use failable_source::{FailableSource, FailureMode};
 use rstest::{fixture, rstest};
 use std::{num::NonZeroUsize, sync::Arc};
 use tracing::Level;
@@ -149,6 +152,42 @@ fn run_insufficient_items_errors(small_dummy: Dummy) {
             ..
         } if min_cluster_size.get() == 4
     ));
+}
+
+/// Verifies that one-shot runs preserve the public HNSW error split.
+#[cfg(feature = "cpu")]
+#[rstest]
+#[case::data_source(FailureMode::DataSource)]
+#[case::hnsw(FailureMode::NonFinite)]
+#[case::pair_data_source(FailureMode::PairDataSource { left: 0, right: 1 })]
+fn run_maps_hnsw_errors(#[case] mode: FailureMode) {
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(2)
+        .with_execution_strategy(ExecutionStrategy::CpuOnly)
+        .build()
+        .expect("configuration must be valid");
+    let source = FailableSource::new(mode);
+    source.fail();
+
+    let err = chutoro
+        .run(&source)
+        .expect_err("one-shot run must propagate the injected HNSW failure");
+    source.recover();
+    assert!(
+        source.distance(0, 1).is_ok(),
+        "recovery must restore fixture distance queries"
+    );
+
+    match mode {
+        FailureMode::DataSource | FailureMode::PairDataSource { .. } => assert!(
+            matches!(err, ChutoroError::DataSource { .. }),
+            "expected data source error, got {err:?}"
+        ),
+        FailureMode::NonFinite => assert!(
+            matches!(err, ChutoroError::CpuHnswFailure { .. }),
+            "expected HNSW error, got {err:?}"
+        ),
+    }
 }
 
 #[cfg(feature = "cpu")]
