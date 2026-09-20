@@ -496,6 +496,36 @@ Design rationale and deeper implementation notes live in
 and the completed
 [incremental core-distance ExecPlan](./execplans/11-1-4-incremental-core-distance-computation.md).
 
+## Edge harvest and the MST boundary
+
+`EdgeHarvest` owns the harvested `Vec<CandidateEdge>` and guarantees a
+deterministic ordering: `EdgeHarvest::new`, `EdgeHarvest::from_unsorted`, and
+the `From<Vec<CandidateEdge>>` conversion all sort by
+`(sequence, natural Ord)`. Keep that invariant when adding constructors.
+
+`EdgeHarvest::as_slice` returns `&[CandidateEdge]` and is the accessor to reach
+for when the consumer can work with a contiguous slice. It avoids the
+intermediate collection that `iter` forces on callers such as Rayon kernels.
+
+The two Kruskal entry points differ in what they accept:
+
+- `parallel_kruskal(node_count, &EdgeHarvest)` is the public signature and the
+  only path external callers should use. It delegates through `as_slice`.
+- `parallel_kruskal_from_edges(node_count, &[CandidateEdge])` is `pub(crate)`
+  and takes a slice. Pipeline code that has already built a
+  `Vec<CandidateEdge>` should call this directly.
+
+Prefer the slice-based path inside the crate. Wrapping edges in an
+`EdgeHarvest` merely to satisfy the public signature re-sorts by
+`(sequence, natural Ord)`, and `prepare_edge_list` then discards that ordering
+when it sorts by `(weight, source, target, sequence)` before the union-find
+scan. The `cpu_pipeline` mutual-reachability transform therefore hands its
+`Vec<CandidateEdge>` straight to `parallel_kruskal_from_edges`.
+
+`EdgeHarvest::from_parallel_inserts` carries the same discarded ordering; only
+`prepare_edge_list`'s `(weight, source, target, sequence)` order is observable
+downstream. Recovering it means changing the harvest contract.
+
 ## Session public APIs
 
 The public session surface is CPU-only. `build_session` constructs an empty
