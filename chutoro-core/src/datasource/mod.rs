@@ -52,6 +52,53 @@ impl fmt::Display for MetricDescriptor {
     }
 }
 
+/// Identifies the ordered left and right items in a distance computation.
+///
+/// # Examples
+/// ```
+/// use chutoro_core::PointPair;
+///
+/// let pair = PointPair::new(2, 5);
+/// assert_eq!(pair.left(), 2);
+/// assert_eq!(pair.right(), 5);
+///
+/// let converted = PointPair::from((3, 7));
+/// assert_eq!((converted.left(), converted.right()), (3, 7));
+/// ```
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct PointPair {
+    /// Left item index.
+    left: usize,
+    /// Right item index.
+    right: usize,
+}
+
+impl PointPair {
+    /// Creates an ordered pair of item indices.
+    #[must_use]
+    pub const fn new(left: usize, right: usize) -> Self {
+        Self { left, right }
+    }
+
+    /// Returns the left item index.
+    #[must_use]
+    pub const fn left(self) -> usize {
+        self.left
+    }
+
+    /// Returns the right item index.
+    #[must_use]
+    pub const fn right(self) -> usize {
+        self.right
+    }
+}
+
+impl From<(usize, usize)> for PointPair {
+    fn from((left, right): (usize, usize)) -> Self {
+        Self::new(left, right)
+    }
+}
+
 /// Abstraction over a collection of items that can yield pairwise distances.
 ///
 /// # Examples

@@ -30,7 +30,7 @@ pub use crate::{
         ClusteringQualityError, ClusteringQualityScore, adjusted_rand_index,
         clustering_quality_score, normalized_mutual_information,
     },
-    datasource::{DataSource, MetricDescriptor},
+    datasource::{DataSource, MetricDescriptor, PointPair},
     distance::{
         CosineNorms, Distance, DistanceError, Norm, Result as DistanceResult, VectorKind,
         cosine_distance, euclidean_distance,
