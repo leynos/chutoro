@@ -188,7 +188,6 @@ jobs:
           format: lcov
           project-url: https://api.codescene.io/v2/projects/71838
           access-token: ${{ secrets.CS_ACCESS_TOKEN }}
-          installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
       # The save has to archive a quiescent directory, so the server stops
       # first; its statistics have already been read above. The coverage
       # scratch tree has no later consumer and is the largest thing on the
