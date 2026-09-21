@@ -18,7 +18,7 @@ use rstest::fixture;
 use rstest::rstest;
 
 use crate::{
-    DataSource, DataSourceError,
+    DataSource, DataSourceError, PointPair,
     hnsw::{CpuHnsw, HnswError, HnswParams},
     test_utils::CountingSource,
 };
@@ -99,11 +99,7 @@ impl DataSource for WriteLockAssertingSource {
             .collect()
     }
 
-    fn distance_batch(
-        &self,
-        pairs: &[(usize, usize)],
-        out: &mut [f32],
-    ) -> Result<(), DataSourceError> {
+    fn distance_batch(&self, pairs: &[PointPair], out: &mut [f32]) -> Result<(), DataSourceError> {
         if pairs.len() != out.len() {
             return Err(DataSourceError::OutputLengthMismatch {
                 out: out.len(),
@@ -112,7 +108,9 @@ impl DataSource for WriteLockAssertingSource {
         }
 
         self.assert_not_writing_graph();
-        for ((left, right), slot) in pairs.iter().copied().zip(out.iter_mut()) {
+        for (pair, slot) in pairs.iter().zip(out.iter_mut()) {
+            let left = pair.left();
+            let right = pair.right();
             *slot = self.distance_value(left, right)?;
         }
         Ok(())
