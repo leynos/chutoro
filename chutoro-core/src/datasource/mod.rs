@@ -103,7 +103,7 @@ impl From<(usize, usize)> for PointPair {
 ///
 /// # Examples
 /// ```
-/// use chutoro_core::{DataSource, DataSourceError};
+/// use chutoro_core::{DataSource, DataSourceError, PointPair};
 ///
 /// struct Dummy(Vec<f32>);
 ///
@@ -122,7 +122,7 @@ impl From<(usize, usize)> for PointPair {
 /// assert_eq!(src.name(), "dummy");
 /// assert_eq!(src.distance(0, 2)?, 3.0);
 ///
-/// let pairs = vec![(0, 1), (1, 2)];
+/// let pairs = vec![PointPair::new(0, 1), PointPair::new(1, 2)];
 /// let mut out = vec![0.0; 2];
 /// src.distance_batch(&pairs, &mut out)?;
 /// assert_eq!(out, [1.0, 2.0]);
@@ -218,10 +218,10 @@ pub trait DataSource {
         if query >= self.len() {
             return Err(DataSourceError::OutOfBounds { index: query });
         }
-        let pairs: Vec<(usize, usize)> = candidates
+        let pairs: Vec<PointPair> = candidates
             .iter()
             .copied()
-            .map(|candidate| (query, candidate))
+            .map(|candidate| PointPair::new(query, candidate))
             .collect();
         let mut out = vec![0.0_f32; pairs.len()];
         self.distance_batch(&pairs, &mut out)?;
@@ -236,11 +236,7 @@ pub trait DataSource {
     /// Returns `DataSourceError::OutputLengthMismatch` if `pairs.len() != out.len()`.
     ///
     /// If any pair fails, `out` is left unmodified.
-    fn distance_batch(
-        &self,
-        pairs: &[(usize, usize)],
-        out: &mut [f32],
-    ) -> Result<(), DataSourceError> {
+    fn distance_batch(&self, pairs: &[PointPair], out: &mut [f32]) -> Result<(), DataSourceError> {
         if pairs.len() != out.len() {
             return Err(DataSourceError::OutputLengthMismatch {
                 out: out.len(),
@@ -249,8 +245,8 @@ pub trait DataSource {
         }
         // Compute into a temp buffer to keep `out` unchanged on error.
         let mut tmp = vec![0.0_f32; pairs.len()];
-        for ((left, right), distance) in pairs.iter().copied().zip(tmp.iter_mut()) {
-            *distance = self.distance(left, right)?;
+        for (pair, distance) in pairs.iter().copied().zip(tmp.iter_mut()) {
+            *distance = self.distance(pair.left(), pair.right())?;
         }
         out.copy_from_slice(&tmp);
         Ok(())
