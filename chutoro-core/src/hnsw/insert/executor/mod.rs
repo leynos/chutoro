@@ -232,6 +232,7 @@ impl<'graph> InsertionExecutor<'graph> {
         }
     }
 
+    /// Restores base-layer reachability before localized reciprocity validation.
     #[cfg_attr(
         not(debug_assertions),
         expect(dead_code, reason = "test helper unused in release builds")
@@ -241,6 +242,7 @@ impl<'graph> InsertionExecutor<'graph> {
         super::test_helpers::TestHelpers::new(self.graph).heal_reachability(max_connections);
     }
 
+    /// Heals reciprocity only for adjacency lists recorded by a test mutation.
     #[cfg(test)]
     pub(crate) fn enforce_bidirectional_for_touched(
         &mut self,

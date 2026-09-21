@@ -14,6 +14,7 @@ use crate::hnsw::{
 /// The linear-scan set must report insertions exactly as `HashSet` does,
 /// because Kani builds substitute it for the production `HashSet` inside
 /// the healing work queues.
+/// Verifies the Kani substitute retains `HashSet` insertion semantics.
 #[rstest]
 #[case::all_unique(&[1, 2, 3, 4])]
 #[case::immediate_duplicate(&[7, 7])]
@@ -32,6 +33,7 @@ fn linear_set_matches_hash_set_semantics(#[case] sequence: &[usize]) {
     }
 }
 
+/// Verifies cleanup mutations remain visible to localized reciprocity healing.
 #[test]
 fn reachability_link_tracks_cleaned_owner_for_localized_reciprocity() {
     let params = HnswParams::new(1, 4).expect("parameters");
@@ -94,6 +96,7 @@ fn reachability_link_tracks_cleaned_owner_for_localized_reciprocity() {
     );
 }
 
+/// Verifies iterative eviction records each adjacency owner it mutates.
 #[test]
 fn iterative_eviction_healing_tracks_every_mutated_owner() {
     let params = HnswParams::new(1, 4).expect("parameters");
@@ -142,6 +145,7 @@ fn iterative_eviction_healing_tracks_every_mutated_owner() {
     );
 }
 
+/// Verifies pre-existing reciprocal links do not enqueue duplicate mutations.
 #[test]
 fn duplicate_directed_links_do_not_record_touched_nodes() {
     let params = HnswParams::new(1, 2).expect("parameters");

@@ -28,6 +28,7 @@ fn restricted_params() -> HnswParams {
     }
 }
 
+/// Verifies deletion reconnects former neighbours without disconnecting the graph.
 #[rstest]
 fn delete_node_reconnects_neighbours_and_preserves_reachability(mut small_graph: Graph) {
     small_graph
@@ -74,6 +75,7 @@ fn delete_node_reconnects_neighbours_and_preserves_reachability(mut small_graph:
     );
 }
 
+/// Verifies repeated deletion of an empty slot reports no mutation.
 #[rstest]
 fn delete_node_returns_ok_false_for_missing_node(mut small_graph: Graph) {
     small_graph
@@ -103,6 +105,7 @@ fn delete_node_returns_ok_false_for_missing_node(mut small_graph: Graph) {
     );
 }
 
+/// Verifies deletion rejects node indices beyond graph capacity.
 #[rstest]
 fn delete_node_returns_invalid_parameters_for_out_of_bounds_index(mut small_graph: Graph) {
     let result = small_graph.delete_node(5);
@@ -113,6 +116,7 @@ fn delete_node_returns_invalid_parameters_for_out_of_bounds_index(mut small_grap
     }
 }
 
+/// Verifies failed deletion restores nodes, entry point, and queued mutations.
 #[rstest]
 fn delete_node_reverts_when_it_would_disconnect_graph(restricted_params: HnswParams) {
     let mut graph = Graph::with_capacity(restricted_params, 5);
