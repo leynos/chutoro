@@ -17,6 +17,7 @@ use std::{
     time::Duration,
 };
 
+/// Verifies insertion does not proceed while another thread holds the graph lock.
 #[test]
 fn insert_waits_for_mutex() {
     let params = HnswParams::new(2, 4).expect("params").with_rng_seed(31);
@@ -55,6 +56,7 @@ fn insert_waits_for_mutex() {
     assert!(finished.load(AtomicOrdering::SeqCst));
 }
 
+/// Verifies localized healing repairs inserted edges without sweeping unrelated ones.
 #[test]
 fn heal_for_test_repairs_inserted_edges_without_sweeping_unrelated_edges() {
     let params = HnswParams::new(2, 4).expect("params").with_rng_seed(41);
@@ -130,6 +132,7 @@ fn heal_for_test_repairs_inserted_edges_without_sweeping_unrelated_edges() {
     assert!(touched.is_empty(), "healing must drain the insertion queue");
 }
 
+/// Verifies deletion mutations are healed and their queue is consumed.
 #[test]
 fn heal_for_test_drains_tracking_created_by_deletion() {
     let params = HnswParams::new(2, 4).expect("params").with_rng_seed(43);
@@ -173,6 +176,7 @@ fn heal_for_test_drains_tracking_created_by_deletion() {
     );
 }
 
+/// Verifies reachability repairs enqueue and drain their affected adjacency lists.
 #[test]
 fn heal_for_test_repairs_reachability_and_drains_its_tracking() {
     let params = HnswParams::new(2, 4).expect("params").with_rng_seed(47);
@@ -230,20 +234,24 @@ struct TestSource {
 }
 
 impl TestSource {
+    /// Builds a deterministic source for index tests from the supplied scalar values.
     fn new(data: Vec<f32>) -> Self {
         Self { data }
     }
 }
 
 impl DataSource for TestSource {
+    /// Returns the number of points available to the test index.
     fn len(&self) -> usize {
         self.data.len()
     }
 
+    /// Identifies this deterministic source in diagnostics.
     fn name(&self) -> &'static str {
         "test"
     }
 
+    /// Returns the absolute scalar difference between two test points.
     fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
         let left_value = self
             .data
@@ -258,6 +266,7 @@ impl DataSource for TestSource {
             .abs())
     }
 
+    /// Reports the Euclidean metric advertised by the test source.
     fn metric_descriptor(&self) -> MetricDescriptor {
         MetricDescriptor::new("test")
     }

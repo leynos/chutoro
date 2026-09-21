@@ -2,6 +2,7 @@
 
 use crate::hnsw::graph::Graph;
 
+/// Adds an edge only when the origin exposes the level and lacks the target.
 pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usize, level: usize) {
     #[cfg(kani)]
     {
@@ -34,6 +35,7 @@ pub(crate) fn add_edge_if_missing(graph: &mut Graph, origin: usize, target: usiz
     }
 }
 
+/// Asserts the requested edge is absent when the origin exposes its level.
 #[cfg(test)]
 pub(in crate::hnsw::insert) fn assert_no_edge(
     graph: &Graph,

@@ -39,6 +39,7 @@ impl CpuHnsw {
         }
     }
 
+    /// Executes a read-only graph assertion while translating lock failures to panics.
     pub(crate) fn inspect_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> R {
         match self.read_graph(|graph| Ok(f(graph))) {
             Ok(result) => result,
@@ -46,15 +47,18 @@ impl CpuHnsw {
         }
     }
 
+    /// Reports whether this thread is currently marked as holding the graph write lock.
     pub(crate) fn current_thread_holds_write_graph_for_test() -> bool {
         internal::current_thread_holds_write_graph()
     }
 
+    /// Enables the write-lock marker until the returned guard is dropped.
     pub(crate) fn enable_write_graph_marker_for_test() -> WriteGraphMarkerGuard {
         internal::enable_write_graph_marker();
         WriteGraphMarkerGuard
     }
 
+    /// Deletes a graph node and updates the index length when deletion succeeds.
     pub(crate) fn delete_node_for_test(&mut self, node: usize) -> Result<bool, HnswError> {
         let deleted = self.write_graph(|graph| graph.delete_node(node))?;
         if deleted {
@@ -63,6 +67,7 @@ impl CpuHnsw {
         Ok(deleted)
     }
 
+    /// Replaces parameters and deterministic random state for a test scenario.
     pub(crate) fn reconfigure_for_test(&mut self, params: HnswParams) {
         let base_seed = params.rng_seed();
         self.rng = Mutex::new(SmallRng::seed_from_u64(base_seed));
@@ -82,6 +87,7 @@ impl CpuHnsw {
 pub(crate) struct WriteGraphMarkerGuard;
 
 impl Drop for WriteGraphMarkerGuard {
+    /// Clears the per-thread write-lock marker when the test guard leaves scope.
     fn drop(&mut self) {
         internal::disable_write_graph_marker();
     }

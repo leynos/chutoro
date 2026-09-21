@@ -3,6 +3,7 @@
 #[cfg(feature = "cpu")]
 use std::{path::Path, process::Command, str};
 
+/// Confirms the CPU-only panicking constructor remains outside the public API.
 #[cfg(feature = "cpu")]
 #[test]
 fn clustering_result_panicking_constructor_is_private_when_cpu_enabled() {
@@ -10,6 +11,7 @@ fn clustering_result_panicking_constructor_is_private_when_cpu_enabled() {
     cases.compile_fail("tests/trybuild/clustering_result_from_assignments_private.rs");
 }
 
+/// Confirms disabling CPU removes the CPU-only result constructor entirely.
 #[cfg(feature = "cpu")]
 #[test]
 fn clustering_result_api_is_checked_without_cpu() {

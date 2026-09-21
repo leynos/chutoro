@@ -30,6 +30,7 @@ impl<'graph> TestHelpers<'graph> {
         Self { graph }
     }
 
+    /// Reconnects unreachable nodes to the entry component until progress stops.
     #[cfg_attr(
         not(debug_assertions),
         expect(dead_code, reason = "test helper unused in release builds")
@@ -63,6 +64,7 @@ impl<'graph> TestHelpers<'graph> {
         }
     }
 
+    /// Attempts a base-layer link from a reachable node to one unreachable node.
     pub(super) fn try_connect_unreachable_node(
         &mut self,
         node_id: usize,
@@ -97,6 +99,7 @@ impl<'graph> TestHelpers<'graph> {
         false
     }
 
+    /// Returns the graph nodes reachable from `entry` through every adjacency list.
     #[cfg_attr(
         not(debug_assertions),
         expect(dead_code, reason = "test helper unused in release builds")
@@ -121,6 +124,7 @@ impl<'graph> TestHelpers<'graph> {
         visited
     }
 
+    /// Finds a reachable base-layer node with room for one more neighbour.
     #[cfg_attr(
         not(debug_assertions),
         expect(dead_code, reason = "test helper unused in release builds")
@@ -140,6 +144,7 @@ impl<'graph> TestHelpers<'graph> {
             .map(|(id, _)| id)
     }
 
+    /// Finds the first graph node marked reachable by a prior traversal.
     #[cfg_attr(
         not(debug_assertions),
         expect(dead_code, reason = "test helper unused in release builds")
@@ -151,6 +156,7 @@ impl<'graph> TestHelpers<'graph> {
             .find(|&id| visited.get(id).copied().unwrap_or(false))
     }
 
+    /// Reconciles every graph edge, regardless of which test mutation changed it.
     #[cfg_attr(
         not(debug_assertions),
         expect(dead_code, reason = "test helper unused in release builds")
@@ -166,6 +172,7 @@ impl<'graph> TestHelpers<'graph> {
         }
     }
 
+    /// Snapshots every directed edge as `(origin, level, target)` tuples.
     pub(super) fn collect_edges(&self) -> Vec<(usize, usize, usize)> {
         self.graph
             .nodes_iter()
@@ -176,6 +183,7 @@ impl<'graph> TestHelpers<'graph> {
             .collect()
     }
 
+    /// Restores an edge's reciprocal endpoint or removes its invalid forward link.
     pub(super) fn heal_or_remove_edge(&mut self, ctx: &UpdateContext, target: usize) {
         if let Some(target_node) = self.graph.node_mut(target)
             && ctx.level < target_node.level_count()
@@ -267,6 +275,7 @@ impl<'graph> TestHelpers<'graph> {
         self.validate_touched_edges_reciprocal(touched, max_connections);
     }
 
+    /// Snapshots edges owned only by the adjacency lists recorded as touched.
     fn collect_touched_edges(&self, touched: &[(usize, usize)]) -> Vec<(usize, usize, usize)> {
         let mut edges = Vec::new();
         for &(origin, level) in touched {
@@ -286,6 +295,7 @@ impl<'graph> TestHelpers<'graph> {
         edges
     }
 
+    /// Panics when localized healing leaves a tracked edge without a reciprocal.
     fn validate_touched_edges_reciprocal(
         &self,
         touched: &[(usize, usize)],

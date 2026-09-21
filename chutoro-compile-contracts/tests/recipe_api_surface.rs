@@ -1,5 +1,6 @@
 //! Compile-time contract checks for the public `DatasetRecipe` API surface.
 
+/// Verifies recipes cannot skip required lifecycle phases at compile time.
 #[test]
 fn dataset_recipe_phase_order() {
     let cases = trybuild::TestCases::new();

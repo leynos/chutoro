@@ -19,10 +19,12 @@ use crate::hnsw::{
 mod tests;
 
 impl Graph {
+    /// Replaces graph parameters for tests that need controlled connection limits.
     pub(crate) fn set_params(&mut self, params: &HnswParams) {
         self.params = params.clone();
     }
 
+    /// Deletes a node, restoring every snapshot when reachability cannot be preserved.
     pub(crate) fn delete_node(&mut self, node: usize) -> Result<bool, HnswError> {
         self.validate_delete_target(node)?;
         let Some(existing) = self.nodes.get(node).and_then(Option::as_ref) else {
@@ -58,6 +60,7 @@ impl Graph {
         Ok(true)
     }
 
+    /// Selects the highest-level remaining node as the graph entry point.
     pub(super) fn recompute_entry_point(&self) -> Option<EntryPoint> {
         self.nodes_iter()
             .max_by_key(|(id, node)| (node.level_count(), std::cmp::Reverse(*id)))
@@ -67,6 +70,7 @@ impl Graph {
             })
     }
 
+    /// Reconnects valid, distinct former neighbours consecutively at one level.
     pub(super) fn reconnect_neighbours(&mut self, level: usize, neighbours: Vec<usize>) {
         let unique = self.validate_and_dedupe_neighbours(neighbours);
 
@@ -113,6 +117,7 @@ impl Graph {
         }
     }
 
+    /// Adds a reciprocal pair, rolling back either half when the other cannot fit.
     pub(super) fn try_add_bidirectional_edge(
         &mut self,
         origin: usize,
@@ -130,6 +135,7 @@ impl Graph {
         }
     }
 
+    /// Adds an edge when its origin and level exist and the list has capacity.
     pub(super) fn try_add_edge(&mut self, origin: usize, target: usize, level: usize) -> bool {
         let limit = params::connection_limit_for_level(level, self.params.max_connections());
         let added = {
@@ -160,6 +166,7 @@ impl Graph {
         added
     }
 
+    /// Removes an existing edge and records its owner for localized healing.
     pub(super) fn remove_edge(&mut self, origin: usize, target: usize, level: usize) {
         let removed = {
             let Some(node) = self.nodes.get_mut(origin).and_then(Option::as_mut) else {
@@ -183,6 +190,7 @@ impl Graph {
         }
     }
 
+    /// Rejects deletion requests outside the graph's fixed node capacity.
     fn validate_delete_target(&self, node: usize) -> Result<(), HnswError> {
         if node >= self.nodes.len() {
             return Err(HnswError::InvalidParameters {
@@ -192,6 +200,7 @@ impl Graph {
         Ok(())
     }
 
+    /// Removes all references to a deleted node and returns changed owners.
     fn strip_references_to(&mut self, node: usize) -> Vec<(usize, usize)> {
         let mut touched = Vec::new();
         for (id, maybe_node) in self.nodes.iter_mut().enumerate() {
@@ -203,12 +212,14 @@ impl Graph {
         touched
     }
 
+    /// Rebuilds each affected level after a node's adjacency lists were removed.
     fn reconnect_layers(&mut self, removed_neighbours: Vec<Vec<usize>>) {
         for (level, neighbours) in removed_neighbours.into_iter().enumerate() {
             self.reconnect_neighbours(level, neighbours);
         }
     }
 
+    /// Verifies every retained node remains reachable from the current entry point.
     fn ensure_reachability(&self) -> Result<(), HnswError> {
         if self.nodes_iter().next().is_none() {
             return Ok(());
@@ -252,6 +263,7 @@ impl Graph {
         Ok(())
     }
 
+    /// Queues an unvisited neighbour while rejecting malformed graph references.
     fn enqueue_neighbour(
         &self,
         origin: usize,
@@ -277,6 +289,7 @@ impl Graph {
     }
 
     /// Records test-only mutation pairs for the next localized healing pass.
+    /// Records adjacency owners whose reciprocal edges may need test-only healing.
     pub(crate) fn record_touched_nodes<I>(&mut self, touched: I)
     where
         I: IntoIterator<Item = (usize, usize)>,
@@ -285,10 +298,12 @@ impl Graph {
     }
 
     /// Returns and clears the mutation pairs accumulated since the last pass.
+    /// Drains adjacency owners recorded for the next localized healing pass.
     pub(crate) fn take_touched_nodes(&mut self) -> Vec<(usize, usize)> {
         std::mem::take(&mut self.touched).into_iter().collect()
     }
 
+    /// Removes a target from one node and returns the changed adjacency owner.
     fn strip_node_references(
         id: usize,
         existing: &mut crate::hnsw::node::Node,
@@ -311,6 +326,7 @@ struct ReachabilityState {
 }
 
 impl ReachabilityState {
+    /// Initializes traversal state with the entry node scheduled for visitation.
     fn new(capacity: usize, entry: usize) -> Self {
         let mut visited = vec![false; capacity];
         let mut queue = VecDeque::new();
@@ -321,6 +337,7 @@ impl ReachabilityState {
         Self { visited, queue }
     }
 
+    /// Marks a node visited after it has been dequeued by the traversal.
     fn visit(&mut self, node: usize) {
         if self.is_visited(node) {
             return;
@@ -331,11 +348,13 @@ impl ReachabilityState {
         }
     }
 
+    /// Reports whether a node has already been visited by the reachability walk.
     fn is_visited(&self, node: usize) -> bool {
         self.visited.get(node).copied().unwrap_or(false)
     }
 }
 
+/// Clones each adjacency list from a node before its deletion mutates the graph.
 fn collect_neighbour_layers(removed: &Node) -> Vec<Vec<usize>> {
     (0..removed.level_count())
         .map(|level| removed.neighbours(level).to_vec())
