@@ -360,6 +360,41 @@ _TEST_ATTRIBUTES: typ.Final[frozenset[str]] = frozenset({
 _ATTRIBUTE_PATH = re.compile(r"^#\[\s*(?P<path>[A-Za-z_][A-Za-z0-9_:]*)")
 
 
+def _attributes_before(text: str) -> list[str]:
+    """Return the lines before a signature, innermost first, attributes joined.
+
+    An attribute may span lines. `#[tokio::test(\n    flavor = "multi_thread"\n)]`
+    and an `#[case(...)]` with a long value are both ordinary Rust, and a
+    line-wise walk meets `)]` first: it is not an attribute opening, so the walk
+    stopped there and the test above it was never found. That under-reports,
+    which is the direction nothing else catches, because the test simply drops
+    out of discovery rather than failing anything.
+
+    A continuation is joined to the `#[` that opened it. The join is driven by
+    that opening rather than by counting brackets, because the caller keeps
+    string literals intact and a bracket inside one would throw a count off.
+    """
+    joined: list[str] = []
+    pending: list[str] = []
+    for line in reversed(text.rstrip().split("\n")):
+        stripped = line.strip()
+        if pending:
+            pending.insert(0, stripped)
+            if stripped.startswith("#["):
+                joined.append(" ".join(pending))
+                pending = []
+            continue
+        if stripped.endswith("]") and not stripped.startswith("#["):
+            pending = [stripped]
+            continue
+        joined.append(stripped)
+    # An unterminated run is not an attribute; its lines are returned as they
+    # were so the walk sees code and stops, rather than silently swallowing
+    # everything above the signature.
+    joined.extend(pending)
+    return joined
+
+
 def _is_test(text: str, start: int) -> bool:
     """Return whether the declaration at `start` is attributed as a test.
 
@@ -371,8 +406,8 @@ def _is_test(text: str, start: int) -> bool:
     bool
         True when one of the preceding attributes names a test attribute.
     """
-    for line in reversed(text[:start].rstrip().split("\n")):
-        stripped = line.strip()
+    for line in _attributes_before(text[:start]):
+        stripped = line
         # The caller walks the comment-blanked source, so a comment between the
         # attribute and the signature arrives here as a line of spaces. Nothing
         # tests for a comment prefix, because none survives the blanking; the

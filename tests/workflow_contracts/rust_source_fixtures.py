@@ -206,6 +206,40 @@ fn build_cases() -> trybuild::TestCases {
 }
 """
 
+#: An attribute spanning lines, which is ordinary Rust and which a line-wise
+#: walk meets from the wrong end: `)]` is not an attribute opening, so the walk
+#: stopped there and never reached `#[tokio::test(`. The sibling below pays no
+#: cost, so the case discriminates in both directions.
+SPLIT_ATTRIBUTE = """
+#[tokio::test(
+    flavor = "multi_thread"
+)]
+async fn builds_under_a_split_attribute() {
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/ui/ok.rs");
+}
+
+#[tokio::test]
+async fn costs_nothing_here() {
+    assert!(true);
+}
+"""
+
+#: The same hazard one attribute up: `#[rstest]` sits above a `#[case(...)]`
+#: whose value is on its own line, which is how this repository writes a long
+#: case. The walk has to join the case before it can reach the attribute that
+#: makes this a test.
+SPLIT_CASE_ATTRIBUTE = """
+#[rstest]
+#[case(
+    "a long value that wants its own line"
+)]
+fn builds_for_a_split_case(#[case] value: &str) {
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/ui/ok.rs");
+}
+"""
+
 SPAWNER = """
 #[test]
 fn checks_the_fixture_crate() {

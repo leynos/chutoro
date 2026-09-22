@@ -35,6 +35,8 @@ from rust_source_fixtures import (
     LIFETIME_THEN_CHAR,
     GENERIC_SIGNATURE,
     HELPER_BELOW_A_TEST,
+    SPLIT_ATTRIBUTE,
+    SPLIT_CASE_ATTRIBUTE,
     SPACED_ATTRIBUTE,
     NESTED_ASYNC,
     QUALIFIED,
@@ -357,6 +359,16 @@ def test_the_sweep_walks_a_tree_it_is_given(tmp_path: pathlib.Path) -> None:
             HELPER_BELOW_A_TEST,
             ["checks_the_fixture"],
             id="a-costly-helper-below-a-test",
+        ),
+        pytest.param(
+            SPLIT_ATTRIBUTE,
+            ["builds_under_a_split_attribute"],
+            id="an-attribute-spanning-lines",
+        ),
+        pytest.param(
+            SPLIT_CASE_ATTRIBUTE,
+            ["builds_for_a_split_case"],
+            id="a-case-attribute-spanning-lines",
         ),
     ],
 )
