@@ -2,9 +2,11 @@
 
 Pull-request CI generates `lcov.info` and compares it with the ratcheted
 baseline derived from `main`. It does not publish that report as an artefact,
-invoke the CodeScene coverage action, run a `cs-coverage` command, or carry the
-credential either of those needs. Those belong to `coverage-main.yml`, which is
-the only writer of persistent coverage state.
+invoke the CodeScene coverage action, run a `cs-coverage` command, name the
+CodeScene host, forward every secret with `secrets: inherit`, or carry the
+credential any of those needs. Those belong to `coverage-main.yml`, which is
+the only writer of persistent coverage state. The rules run over every local
+workflow a pull-request lane calls, not over the lane alone.
 
 The coverage action archives the report it generated under a step of its own,
 so declining that archive is part of the same boundary: a caller that reaches
@@ -26,6 +28,7 @@ import typing as typ
 
 import pathspec
 
+from workflow_reach import reachable_workflows
 from workflow_support import jobs, run_script, steps, uses_reference
 
 #: The action that generates coverage. A pull request calls it in ratchet mode
@@ -60,21 +63,14 @@ COVERAGE_COMMAND: typ.Final[str] = "cs-coverage"
 #: The report the coverage action writes, and the one CodeScene is sent.
 COVERAGE_REPORT_PATH: typ.Final[str] = "lcov.info"
 
-PULL_REQUEST_TRIGGER: typ.Final[str] = "pull_request"
+#: The service itself. A pull-request lane that names its host is talking to
+#: it by some route other than the action, which is the same dependency the
+#: boundary exists to remove, spelt as a `curl`.
+CODESCENE_HOST: typ.Final[str] = "codescene.io"
 
-#: The variant that runs in the base repository's context and therefore *can*
-#: read its secrets, unlike `pull_request`. A coverage step here would be worse
-#: than one in an ordinary pull-request job, not equivalent to it.
-PULL_REQUEST_TARGET_TRIGGER: typ.Final[str] = "pull_request_target"
-
-#: The trigger that resumes a run with the base repository's privileges.
-SUBMISSION_TRIGGER: typ.Final[str] = "workflow_run"
-
-REACHABLE_TRIGGERS: typ.Final[tuple[str, ...]] = (
-    PULL_REQUEST_TRIGGER,
-    PULL_REQUEST_TARGET_TRIGGER,
-    SUBMISSION_TRIGGER,
-)
+#: The `secrets:` value that forwards every secret the caller holds, the
+#: credential included, without naming any of them.
+INHERITED_SECRETS: typ.Final[str] = "inherit"
 
 
 def action_of(step: dict[str, typ.Any]) -> str:
@@ -94,58 +90,6 @@ def action_of(step: dict[str, typ.Any]) -> str:
     # Splitting on the version separator rather than matching a prefix keeps
     # `upload-codescene-coverage-legacy` from reading as the real action.
     return uses_reference(step).split("@", 1)[0]
-
-
-def declares_trigger(document: dict[str, typ.Any], trigger: str) -> bool:
-    """Return whether a parsed workflow declares the given trigger.
-
-    Parameters
-    ----------
-    document : dict[str, typ.Any]
-        One parsed workflow document.
-    trigger : str
-        The trigger name, such as `pull_request`.
-
-    Returns
-    -------
-    bool
-        True when the workflow declares it in any of the scalar, sequence or
-        mapping forms `on:` accepts.
-    """
-    # PyYAML reads a bare `on:` key as the boolean True, and `on:` accepts a
-    # scalar, a sequence or a mapping. All four shapes answer the same
-    # question, and a reader that knew only the mapping would call a
-    # `on: pull_request` workflow unreachable.
-    declared = document.get("on", document.get(True))
-    match declared:
-        case str():
-            return declared == trigger
-        case list():
-            return trigger in declared
-        case dict():
-            return trigger in declared
-        case _:
-            return False
-
-
-def is_reachable_by_a_pull_request(document: dict[str, typ.Any]) -> bool:
-    """Return whether a pull request can cause this workflow to run.
-
-    Parameters
-    ----------
-    document : dict[str, typ.Any]
-        One parsed workflow document.
-
-    Returns
-    -------
-    bool
-        True when the workflow declares `pull_request`, `pull_request_target`
-        or `workflow_run`.
-    """
-    # All three count. `pull_request_target` and `workflow_run` resume in the
-    # base repository's context, so a coverage step under either reads a
-    # credential in a run a pull request's contents influenced.
-    return any(declares_trigger(document, name) for name in REACHABLE_TRIGGERS)
 
 
 #: The opening of a GitHub Actions expression. Its value is decided at run
@@ -306,56 +250,91 @@ def _step_offences(where: str, step: dict[str, typ.Any]) -> list[str]:
     return offences
 
 
-#: How a job names a local reusable workflow it calls. GitHub accepts two
-#: spellings for a workflow in the same repository, and the second is the
-#: documented recommendation, so a traversal that reads only `./` silently
-#: drops every caller written the other way.
-_LOCAL_CALL_PREFIXES: typ.Final[tuple[str, ...]] = ("./", "$/")
-
-
-def local_workflows_called_by(document: dict[str, typ.Any]) -> list[str]:
-    """Return the local reusable workflows one document calls, by file name.
-
-    Parameters
-    ----------
-    document : dict[str, typ.Any]
-        One parsed workflow document.
-
-    Returns
-    -------
-    list[str]
-        The file name of each local `jobs.<id>.uses` target, in declaration
-        order, under either spelling GitHub accepts. A call into another
-        repository is not returned: the boundary is about what this
-        repository's pull-request lanes do, and a foreign workflow is not ours
-        to read.
-    """
-    called: list[str] = []
-    declared = document.get("jobs")
-    for definition in (declared if isinstance(declared, dict) else {}).values():
-        if not isinstance(definition, dict):
-            continue
-        uses = definition.get("uses")
-        if isinstance(uses, str) and uses.startswith(_LOCAL_CALL_PREFIXES):
-            called.append(uses.split("@", 1)[0].rsplit("/", 1)[-1])
-    return called
+def _mentions(
+    name: str, document: dict[str, typ.Any], raw_text: str, needle: str
+) -> list[str]:
+    """Return one offence per place a workflow names the given text."""
+    # The raw text is read as well as the parsed values, so a reference inside
+    # a comment, or in a shape the parser flattened away, is still reported.
+    # The parsed reading is what answers for a document built in a test, which
+    # has no raw text to read. Both ignore case: GitHub resolves
+    # `secrets.cs_access_token` to the same secret, and a host name is
+    # case-insensitive.
+    folded = needle.lower()
+    found = [f"{name}: raw text references {needle}"] if folded in raw_text.lower() else []
+    found.extend(
+        f"{name}: parsed value references {needle}"
+        for value in _iter_strings(document)
+        if folded in value.lower()
+    )
+    return found
 
 
 def coverage_surface_offenders(
     name: str, document: dict[str, typ.Any], raw_text: str
 ) -> list[str]:
-    """Return every prohibited coverage-surface reference in one workflow."""
+    """Return every prohibited coverage-surface reference in one workflow.
+
+    Examples
+    --------
+    >>> coverage_surface_offenders(
+    ...     "x.yml", {"jobs": {"a": {"uses": "o/r/.github/workflows/w.yml@v1",
+    ...     "secrets": "inherit"}}}, ""
+    ... )
+    ['x.yml:a forwards every secret (secrets: inherit), the credential included']
+    """
     offenders: list[str] = []
     for job_name, definition in jobs(document).items():
+        # `secrets: inherit` hands the credential to the callee without the
+        # caller's text ever naming it, so neither the raw nor the parsed
+        # sweep below can see it. A named forwarding is seen by both.
+        if isinstance(definition, dict) and definition.get("secrets") == INHERITED_SECRETS:
+            offenders.append(
+                f"{name}:{job_name} forwards every secret "
+                f"(secrets: {INHERITED_SECRETS}), the credential included"
+            )
         for index, step in enumerate(steps(definition)):
             offenders.extend(_step_offences(f"{name}:{job_name}: step {index}", step))
-    # The raw text is read as well as the parsed values, so a reference inside
-    # a comment, or in a shape the parser flattened away, is still reported.
-    if CREDENTIAL_ENVIRONMENT_KEY in raw_text:
-        offenders.append(f"{name}: raw text references {CREDENTIAL_ENVIRONMENT_KEY}")
+    offenders.extend(_mentions(name, document, raw_text, CREDENTIAL_ENVIRONMENT_KEY))
+    offenders.extend(_mentions(name, document, raw_text, CODESCENE_HOST))
+    return offenders
+
+
+def pull_request_offenders(
+    entry: str,
+    documents: cabc.Mapping[str, dict[str, typ.Any]],
+    raw_texts: cabc.Mapping[str, str],
+) -> list[str]:
+    """Return every offence in a workflow and in each local workflow it reaches.
+
+    Parameters
+    ----------
+    entry : str
+        The file name of a workflow a pull request can start.
+    documents : collections.abc.Mapping[str, dict[str, typing.Any]]
+        Every parsed workflow in the repository, by file name.
+    raw_texts : collections.abc.Mapping[str, str]
+        The raw text of the same workflows, by file name.
+
+    Returns
+    -------
+    list[str]
+        The offences of every workflow in the entry's closure, and one for
+        each local call naming a workflow that is not there to read.
+    """
+    # Every pull-request clause runs over the closure rather than the entry,
+    # because a reusable child declares `workflow_call` alone and so reads as
+    # unreachable while the pull request runs it with the caller's secrets.
+    reach = reachable_workflows(entry, documents)
+    offenders = [
+        offence
+        for reached in reach.reached
+        for offence in coverage_surface_offenders(
+            reached, documents[reached], raw_texts.get(reached, "")
+        )
+    ]
     offenders.extend(
-        f"{name}: parsed value references {CREDENTIAL_ENVIRONMENT_KEY}"
-        for value in _iter_strings(document)
-        if CREDENTIAL_ENVIRONMENT_KEY in value
+        f"{entry} reaches a local workflow {missing} that no rule could read"
+        for missing in reach.missing
     )
     return offenders

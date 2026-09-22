@@ -1374,22 +1374,49 @@ report under a step inside itself, which no scan of this file's steps can see,
 so a caller that reaches the action without the opt-out has published the
 report whether or not the workflow declares an artefact step.
 
-Three things the contract in `tests/workflow_contracts/coverage_boundary.py`
-does that are worth knowing before editing a workflow.
+What the contracts in `tests/workflow_contracts/coverage_boundary.py` and
+`tests/workflow_contracts/coverage_publisher.py` do that is worth knowing
+before editing a workflow:
 
-It reads the raw text as well as the parsed document, so the credential's name
-must not appear in a pull-request workflow even in a comment. A workflow that
-names it is a workflow somebody is about to wire it into.
+- They read the raw text as well as the parsed document, ignoring case, so
+  neither the credential's name nor the `codescene.io` host may appear in a
+  pull-request workflow, even in a comment. A workflow that names either is a
+  workflow somebody is about to wire it into.
+- They follow local `jobs.<id>.uses` calls, and every pull-request rule runs
+  over the whole closure. A reusable child declares `workflow_call`, not
+  `pull_request`, so a reading that trusted triggers alone would stop at the
+  parent and never ask about the child. A call is local by its shape: with one
+  leading `./` removed, the path lies under `.github/workflows/`. A local call
+  naming a file that is not there is reported, not skipped.
+- `secrets: inherit` on a pull-request job is refused. It forwards the
+  credential without the caller's text ever naming it.
+- They judge an artefact path by what it can carry rather than by how it is
+  spelt. A path of `.`, one reaching upward through `..`, an unresolved
+  expression, or a pattern that matches `lcov.info` all publish the report. An
+  absolute path elsewhere, a named directory, and a pattern that cannot match
+  the report do not, which is why the benchmark and property-test log uploads
+  are untouched.
+- `publish-artefact` must be the quoted string `'false'`. An unquoted boolean
+  or an expression that evaluates false is refused, because its meaning depends
+  on which reader coerces it.
+- They read `on:` in its scalar, sequence and mapping forms, under both the
+  quoted `'on'` key and the bare one PyYAML reads as the boolean `True`, and
+  they load every workflow through a loader that refuses a mapping declaring
+  one key twice, since PyYAML would otherwise keep the second silently.
 
-It follows local `jobs.<id>.uses` calls. A reusable child declares
-`workflow_call`, not `pull_request`, so a reading that trusted triggers alone
-would stop at the parent and never ask about the child.
+The publisher has rules of its own. Its upload step's condition must carry
+`github.ref == 'refs/heads/main'` as a conjunct, split on `&&`, with any
+unquoted `||` refused: the dispatch trigger can be started from any branch, and
+`... && github.ref == 'refs/heads/main' || ...` makes the guard optional while
+containing its text. Its push filter must name `main` alone. And its runs queue
+rather than cancel: a cancelled publisher abandons both the upload and the
+ratchet baseline the next pull request reads, so no concurrency setting on it
+may carry `cancel-in-progress` other than `false`.
 
-It judges an artefact path by what it can carry rather than by how it is spelt.
-A path of `.`, one reaching upward through `..`, an unresolved expression, or a
-pattern that matches `lcov.info` all publish the report. An absolute path
-elsewhere, a named directory, and a pattern that cannot match the report do
-not, which is why the benchmark and property-test log uploads are untouched.
+The pull-request lane also checks out shallow. Full history was fetched for
+`cs-coverage check`, which diffed against the merge base; the ratchet reads no
+history, and a contract refuses a deeper `fetch-depth` on `build-test` until a
+step that uses the merge base argues for it.
 
 ## Kani CI policy
 
