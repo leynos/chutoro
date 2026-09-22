@@ -56,14 +56,19 @@ NEXTEST_CONFIG = REPO_ROOT / ".config" / "nextest.toml"
 #: well as discovered: the rule below is satisfied by a discovery that finds
 #: nothing, so without this a reading narrowed by accident would read as a
 #: repository with no such tests. Two of these construct a trybuild harness in
-#: one file, one spawns `cargo check` against a fixture manifest, and the last
-#: two are single-test files.
+#: one file, one spawns `cargo check` against a fixture manifest, and the next
+#: two are single-test files. The last three are the clustering-result API
+#: checks: two trybuild harnesses gated on either side of the `cpu` feature,
+#: and the one that runs the CPU-disabled side through a nested `cargo test`.
 COMPILE_CONTRACT_TESTS: typ.Final[frozenset[str]] = frozenset({
     "session_api_compiles_when_cpu_feature_is_enabled",
     "session_api_is_unavailable_without_cpu_feature",
     "dataset_recipe_phase_order",
     "arrow_parquet_types_share_one_family",
     "portable_simd_gating_compile_checks",
+    "clustering_result_panicking_constructor_is_private_when_cpu_enabled",
+    "clustering_result_panicking_constructor_is_unavailable_without_cpu",
+    "clustering_result_api_is_checked_without_cpu",
 })
 
 def _period_seconds(timeout: object) -> float | None:

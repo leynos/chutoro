@@ -117,8 +117,9 @@ slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 [[profile.default.overrides]]
 # The clustering-result API checks run trybuild and a nested CPU-disabled Cargo
 # test. Serialize them so they do not contend for Cargo's package cache under
-# llvm-cov instrumentation.
-filter = "test(/clustering_result_panicking_constructor_is_private_when_cpu_enabled|clustering_result_api_is_checked_without_cpu/)"
+# llvm-cov instrumentation. The CPU-disabled harness is named too: it exists
+# only in a build without `cpu`, and there it pays the same trybuild cost.
+filter = "test(/clustering_result_panicking_constructor_is_private_when_cpu_enabled|clustering_result_panicking_constructor_is_unavailable_without_cpu|clustering_result_api_is_checked_without_cpu/)"
 threads-required = 8
 slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 
@@ -197,6 +198,6 @@ slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
 # Keep the feature-boundary checks serial in the reduced CI profile as well.
-filter = "test(/clustering_result_panicking_constructor_is_private_when_cpu_enabled|clustering_result_api_is_checked_without_cpu/)"
+filter = "test(/clustering_result_panicking_constructor_is_private_when_cpu_enabled|clustering_result_panicking_constructor_is_unavailable_without_cpu|clustering_result_api_is_checked_without_cpu/)"
 threads-required = 4
 slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
