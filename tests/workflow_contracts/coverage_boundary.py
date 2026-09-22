@@ -306,8 +306,11 @@ def _step_offences(where: str, step: dict[str, typ.Any]) -> list[str]:
     return offences
 
 
-#: How a job names a local reusable workflow it calls.
-_LOCAL_CALL_PREFIX: typ.Final[str] = "./"
+#: How a job names a local reusable workflow it calls. GitHub accepts two
+#: spellings for a workflow in the same repository, and the second is the
+#: documented recommendation, so a traversal that reads only `./` silently
+#: drops every caller written the other way.
+_LOCAL_CALL_PREFIXES: typ.Final[tuple[str, ...]] = ("./", "$/")
 
 
 def local_workflows_called_by(document: dict[str, typ.Any]) -> list[str]:
@@ -322,9 +325,10 @@ def local_workflows_called_by(document: dict[str, typ.Any]) -> list[str]:
     -------
     list[str]
         The file name of each local `jobs.<id>.uses` target, in declaration
-        order. A call into another repository is not returned: the boundary is
-        about what this repository's pull-request lanes do, and a foreign
-        workflow is not ours to read.
+        order, under either spelling GitHub accepts. A call into another
+        repository is not returned: the boundary is about what this
+        repository's pull-request lanes do, and a foreign workflow is not ours
+        to read.
     """
     called: list[str] = []
     declared = document.get("jobs")
@@ -332,7 +336,7 @@ def local_workflows_called_by(document: dict[str, typ.Any]) -> list[str]:
         if not isinstance(definition, dict):
             continue
         uses = definition.get("uses")
-        if isinstance(uses, str) and uses.startswith(_LOCAL_CALL_PREFIX):
+        if isinstance(uses, str) and uses.startswith(_LOCAL_CALL_PREFIXES):
             called.append(uses.split("@", 1)[0].rsplit("/", 1)[-1])
     return called
 

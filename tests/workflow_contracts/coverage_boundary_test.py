@@ -341,12 +341,16 @@ def test_a_local_reusable_workflow_is_reached_through_its_caller(
     walk that recursed on it would hang the suite rather than fail it.
     """
     monkeypatch.setattr("coverage_boundary_test.WORKFLOW_DIR", tmp_path)
+    # The two callers are spelt differently on purpose. GitHub accepts both
+    # for a workflow in the same repository and documents the second, so a
+    # traversal that read only `./` would drop `child.yml` here while a pull
+    # request still ran it.
     (tmp_path / "parent.yml").write_text(
         "on:\n  pull_request:\njobs:\n  call:\n    uses: ./.github/workflows/child.yml\n",
         encoding="utf-8",
     )
     (tmp_path / "child.yml").write_text(
-        "on:\n  workflow_call:\njobs:\n  call:\n    uses: ./.github/workflows/parent.yml\n",
+        "on:\n  workflow_call:\njobs:\n  call:\n    uses: $/.github/workflows/parent.yml\n",
         encoding="utf-8",
     )
     assert _reachable_from("parent.yml") == ["parent.yml", "child.yml"], (
