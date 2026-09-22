@@ -54,13 +54,14 @@ jobs:
       # cache would evict its own neighbours.
       SCCACHE_CACHE_SIZE: 2G
     steps:
+      # A shallow checkout, the action's default, because nothing in this job
+      # reads history any more. The `cs-coverage check` step that needed the
+      # pull request's merge base is gone, and the ratchet compares a
+      # percentage against a cached baseline rather than a diff. Restoring
+      # `fetch-depth: 0` needs a step that actually consumes the merge base;
+      # it cannot be the CodeScene check, which now belongs to a push-only
+      # workflow that has no pull request to find a merge base for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          # Full history so the deferred cs-coverage check can reach the
-          # pull request's merge base once the gate is wired in. The check
-          # itself belongs to `coverage-main.yml`, which is the only lane
-          # that may hold the CodeScene credential.
-          fetch-depth: 0
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@82feb2b7aac45b7efff40c9c4bb632551b14521c
         with:

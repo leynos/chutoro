@@ -21,7 +21,10 @@ Run via ``make test-workflow-contracts``.
 """
 
 import collections.abc as cabc
+import re
 import typing as typ
+
+import pathspec
 
 from workflow_support import jobs, run_script, steps, uses_reference
 
@@ -75,14 +78,40 @@ REACHABLE_TRIGGERS: typ.Final[tuple[str, ...]] = (
 
 
 def action_of(step: dict[str, typ.Any]) -> str:
-    """Return a step's action reference without its version."""
+    """Return a step's action reference without its version.
+
+    Parameters
+    ----------
+    step : dict[str, typ.Any]
+        One parsed workflow step.
+
+    Returns
+    -------
+    str
+        The reference with its `@version` removed, or the empty string when the
+        step runs a command rather than an action.
+    """
     # Splitting on the version separator rather than matching a prefix keeps
     # `upload-codescene-coverage-legacy` from reading as the real action.
     return uses_reference(step).split("@", 1)[0]
 
 
 def declares_trigger(document: dict[str, typ.Any], trigger: str) -> bool:
-    """Return whether a parsed workflow declares the given trigger."""
+    """Return whether a parsed workflow declares the given trigger.
+
+    Parameters
+    ----------
+    document : dict[str, typ.Any]
+        One parsed workflow document.
+    trigger : str
+        The trigger name, such as `pull_request`.
+
+    Returns
+    -------
+    bool
+        True when the workflow declares it in any of the scalar, sequence or
+        mapping forms `on:` accepts.
+    """
     # PyYAML reads a bare `on:` key as the boolean True, and `on:` accepts a
     # scalar, a sequence or a mapping. All four shapes answer the same
     # question, and a reader that knew only the mapping would call a
@@ -100,28 +129,138 @@ def declares_trigger(document: dict[str, typ.Any], trigger: str) -> bool:
 
 
 def is_reachable_by_a_pull_request(document: dict[str, typ.Any]) -> bool:
-    """Return whether a pull request can cause this workflow to run."""
+    """Return whether a pull request can cause this workflow to run.
+
+    Parameters
+    ----------
+    document : dict[str, typ.Any]
+        One parsed workflow document.
+
+    Returns
+    -------
+    bool
+        True when the workflow declares `pull_request`, `pull_request_target`
+        or `workflow_run`.
+    """
     # All three count. `pull_request_target` and `workflow_run` resume in the
     # base repository's context, so a coverage step under either reads a
     # credential in a run a pull request's contents influenced.
     return any(declares_trigger(document, name) for name in REACHABLE_TRIGGERS)
 
 
+#: The opening of a GitHub Actions expression. Its value is decided at run
+#: time, so a path containing one says nothing here about what it will name.
+_EXPRESSION_OPENING: typ.Final[str] = "${{"
+
+#: Characters that make a path a pattern rather than a name.
+_GLOB_CHARACTERS: typ.Final[frozenset[str]] = frozenset("*?[]!")
+
+#: Where the report could sit, for testing a pattern against. The action writes
+#: it at the workspace root, and a nested crate could write its own, so a
+#: pattern is refused when it would match any of these rather than only the
+#: first.
+_REPORT_CANDIDATES: typ.Final[tuple[str, ...]] = (
+    COVERAGE_REPORT_PATH,
+    f"crate/{COVERAGE_REPORT_PATH}",
+    f"a/b/{COVERAGE_REPORT_PATH}",
+)
+
+
+def _pattern_could_match_the_report(entry: str) -> bool:
+    """Return whether a glob entry could match the report wherever it sits."""
+    # The pattern is tested against candidate locations rather than reasoned
+    # about. `**/proptest-regressions/**` cannot match a report at the root and
+    # is not an offence; `**/*.info` can and is. Refusing every glob was the
+    # first draft and it condemned four honest log uploads in this repository.
+    spec = pathspec.PathSpec.from_lines("gitignore", [entry])
+    return any(spec.match_file(candidate) for candidate in _REPORT_CANDIDATES)
+
+
+#: A single-quoted literal inside a GitHub Actions expression.
+_EXPRESSION_LITERAL: typ.Final[re.Pattern[str]] = re.compile(r"'([^']*)'")
+
+
+def _expression_names_somewhere_absolute(entry: str) -> bool:
+    """Return whether an expression can only produce a path outside the tree."""
+    # An entry whose value is decided at run time could be the workspace, and
+    # the workspace holds the report. The exception is an expression that
+    # chooses between absolute paths: `${{ x == 'y' && '/tmp/a.log' || '' }}`
+    # cannot be the workspace whichever arm wins. A literal counts as a path
+    # only when it looks like one; `'y'` above is a comparison operand.
+    literals = _EXPRESSION_LITERAL.findall(entry)
+    paths = [value for value in literals if "/" in value or "." in value]
+    return bool(paths) and all(value.startswith("/") for value in paths)
+
+
+def _could_hold_the_report(entry: str) -> bool:
+    """Return whether one `path` entry could carry the coverage report."""
+    # Fails closed, because the question is whether the report *can* leave the
+    # runner, not whether the entry is spelt like it. A substring test for
+    # `lcov.info` clears `.`, `./`, `..` and `${{ github.workspace }}`, each of
+    # which uploads the workspace the report sits in.
+    cleaned = entry.strip()
+    if not cleaned or COVERAGE_REPORT_PATH in cleaned:
+        return True
+    # An absolute path is somewhere other than the workspace unless it names
+    # the report, which the line above has already ruled out. The estate writes
+    # the report into the workspace and refers to it relatively everywhere, so
+    # `/tmp/bench.log` is not this rule's business.
+    if cleaned.startswith("/"):
+        return False
+    if _EXPRESSION_OPENING in cleaned:
+        return not _expression_names_somewhere_absolute(cleaned)
+    if _GLOB_CHARACTERS & set(cleaned):
+        return _pattern_could_match_the_report(cleaned)
+    parts = [part for part in cleaned.split("/") if part not in ("", ".")]
+    return not parts or ".." in parts
+
+
 def publishes_the_coverage_report(step: dict[str, typ.Any]) -> bool:
-    """Return whether a step publishes the coverage report as an artefact."""
+    """Return whether a step publishes the coverage report as an artefact.
+
+    Parameters
+    ----------
+    step : dict[str, typ.Any]
+        One parsed workflow step.
+
+    Returns
+    -------
+    bool
+        True when the step uploads, or could upload, the report. A step of the
+        artefact action that names no path uploads the workspace, which holds
+        the generated report; so does a path of `.`, one reaching upward
+        through `..`, an unresolved relative expression, or a pattern that
+        matches the report.
+    """
     if action_of(step) != PUBLISH_ARTEFACT_ACTION:
         return False
-    # A step of the artefact action that names no path uploads the workspace,
-    # which holds the generated report, so it fails closed rather than reading
-    # as an exemption.
     with_ = step.get("with")
     if not isinstance(with_, dict) or "path" not in with_:
         return True
-    return COVERAGE_REPORT_PATH in str(with_["path"])
+    declared = str(with_["path"])
+    # `path` is newline-separated, and one unsafe entry publishes the report
+    # whatever the others name. An empty value is the workspace.
+    return not declared.strip() or any(
+        _could_hold_the_report(entry) for entry in declared.splitlines()
+    )
 
 
 def declines_the_generated_report_archive(step: dict[str, typ.Any]) -> bool:
-    """Return whether a step tells the coverage action not to archive."""
+    """Return whether a step tells the coverage action not to archive.
+
+    Parameters
+    ----------
+    step : dict[str, typ.Any]
+        One parsed workflow step.
+
+    Returns
+    -------
+    bool
+        True when the step invokes the coverage action and passes the
+        publication opt-out. The value is compared as the string the action
+        itself compares against, so `false`, not a falsy stand-in, suppresses
+        the upload.
+    """
     if action_of(step) != GENERATE_COVERAGE_ACTION:
         return False
     with_ = step.get("with")
@@ -165,6 +304,37 @@ def _step_offences(where: str, step: dict[str, typ.Any]) -> list[str]:
     if COVERAGE_COMMAND in run_script(step):
         offences.append(f"{where} runs a {COVERAGE_COMMAND} command")
     return offences
+
+
+#: How a job names a local reusable workflow it calls.
+_LOCAL_CALL_PREFIX: typ.Final[str] = "./"
+
+
+def local_workflows_called_by(document: dict[str, typ.Any]) -> list[str]:
+    """Return the local reusable workflows one document calls, by file name.
+
+    Parameters
+    ----------
+    document : dict[str, typ.Any]
+        One parsed workflow document.
+
+    Returns
+    -------
+    list[str]
+        The file name of each local `jobs.<id>.uses` target, in declaration
+        order. A call into another repository is not returned: the boundary is
+        about what this repository's pull-request lanes do, and a foreign
+        workflow is not ours to read.
+    """
+    called: list[str] = []
+    declared = document.get("jobs")
+    for definition in (declared if isinstance(declared, dict) else {}).values():
+        if not isinstance(definition, dict):
+            continue
+        uses = definition.get("uses")
+        if isinstance(uses, str) and uses.startswith(_LOCAL_CALL_PREFIX):
+            called.append(uses.split("@", 1)[0].rsplit("/", 1)[-1])
+    return called
 
 
 def coverage_surface_offenders(

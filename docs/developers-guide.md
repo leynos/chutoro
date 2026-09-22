@@ -1351,6 +1351,46 @@ selection:
 `chutoro-providers-dense`. Keep new dense harnesses small enough for
 `make kani` unless they are intentionally slow-lane proofs.
 
+## Who may publish coverage
+
+`coverage-main.yml` owns the CodeScene surface. It runs on a push to the trunk,
+it uploads the report, and it is the only workflow here that may hold the
+CodeScene credential. No workflow a pull request can reach may invoke the
+CodeScene action, run a `cs-coverage` command, or carry that credential.
+
+The rule is CV-005 and the reason is availability. A step that needs an
+external service and a secret turns a pull request red when the service is
+unavailable or the token has rotated, whatever the pull request changed. That
+is not hypothetical: thirteen projects across the estate stopped returning a
+gates configuration, and every pull-request lane that ran `cs-coverage check`
+failed with `received project-config isn't valid` until the check was removed.
+
+What a pull request keeps is the measurement. `build-test` calls
+`generate-coverage` with `with-ratchet: true`, comparing against the baseline
+`coverage-main.yml` wrote, so an author still learns whether changed lines are
+covered. It also passes `publish-artefact: 'false'`. That input is the only
+part of the boundary visible in the workflow file: the action archives the
+report under a step inside itself, which no scan of this file's steps can see,
+so a caller that reaches the action without the opt-out has published the
+report whether or not the workflow declares an artefact step.
+
+Three things the contract in `tests/workflow_contracts/coverage_boundary.py`
+does that are worth knowing before editing a workflow.
+
+It reads the raw text as well as the parsed document, so the credential's name
+must not appear in a pull-request workflow even in a comment. A workflow that
+names it is a workflow somebody is about to wire it into.
+
+It follows local `jobs.<id>.uses` calls. A reusable child declares
+`workflow_call`, not `pull_request`, so a reading that trusted triggers alone
+would stop at the parent and never ask about the child.
+
+It judges an artefact path by what it can carry rather than by how it is spelt.
+A path of `.`, one reaching upward through `..`, an unresolved expression, or a
+pattern that matches `lcov.info` all publish the report. An absolute path
+elsewhere, a named directory, and a pattern that cannot match the report do
+not, which is why the benchmark and property-test log uploads are untouched.
+
 ## Kani CI policy
 
 `make kani` is the pull-request gate. The path-filtered
