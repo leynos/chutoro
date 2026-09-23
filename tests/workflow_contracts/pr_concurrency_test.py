@@ -15,7 +15,10 @@ therefore part of the contract, and
 
 The group also has to distinguish one pull request from another. A group
 derived from ``github.run_id`` is unique per run and so cancels nothing, while
-a constant group would let one branch cancel another's gates.
+a constant group would let one branch cancel another's gates, and so would one
+keyed on ``github.head_ref``, which two forks' `patch-1` branches share. Rather
+than search the group's text for a name, the contract renders it against a
+small set of run contexts and compares the results.
 
 Only `pull_request` is in scope. A `pull_request_target` workflow runs against
 the base repository to carry a token, and the one here merges Dependabot pull
@@ -34,6 +37,15 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pr_concurrency_groups import (
+    FIRST_PUSH,
+    MAIN_PUSH,
+    OTHER_FORK,
+    SECOND_PUSH,
+    UnmodelledGroupError,
+    keeps_runs_together_and_apart,
+    render_group,
+)
 
 #: The repository's workflow directory. The module sits two levels below the
 #: repository root, in `tests/workflow_contracts/`.
@@ -53,24 +65,11 @@ CANCEL_EXPRESSION = "${{ github.event_name == 'pull_request' }}"
 #: deliberately absent; see the module docstring.
 PULL_REQUEST = "pull_request"
 
-#: Expressions that are unique to a single run. A group built from one of these
-#: can never match another run, so it cancels nothing while looking exactly
-#: like a concurrency control.
-RUN_UNIQUE_EXPRESSIONS: tuple[str, ...] = (
-    "github.run_id",
-    "github.run_number",
-    "github.run_attempt",
-    "github.sha",
+#: The group every workflow here uses unless it already had its own.
+ESTATE_GROUP = (
+    "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
 )
 
-#: Expressions that differ between two pull requests. A group naming none of
-#: them is shared by every branch, so one pull request's push would cancel
-#: another's gates.
-PER_PULL_REQUEST_EXPRESSIONS: tuple[str, ...] = (
-    "github.event.pull_request.number",
-    "github.head_ref",
-    "github.ref",
-)
 
 #: Workflows known to start on `pull_request`. Discovery below is dynamic so a
 #: new workflow is covered the day it lands, but a dynamic list that silently
@@ -161,11 +160,13 @@ def _event_names(declared: object) -> frozenset[str] | None:
     Iterating a mapping yields its keys and a list its items, so both shapes
     share one reading; a bare string names a single event.
     """
-    if isinstance(declared, str):
-        return frozenset({declared})
-    if isinstance(declared, (dict, list)):
-        return frozenset(name for name in declared if isinstance(name, str))
-    return None
+    match declared:
+        case str():
+            return frozenset({declared})
+        case dict() | list():
+            return frozenset(name for name in declared if isinstance(name, str))
+        case _:
+            return None
 
 
 def _pull_request_workflows() -> list[Path]:
@@ -279,36 +280,67 @@ def test_every_pull_request_workflow_declares_a_concurrency_group(
 
 
 @pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
-def test_the_group_is_not_unique_to_one_run(workflow: Path) -> None:
-    """The group is shared by successive runs of the same pull request.
+def test_successive_pushes_to_one_pull_request_share_a_group(workflow: Path) -> None:
+    """A newer push lands in its predecessor's group, so it can cancel it.
 
-    A group built from the run identifier or the commit SHA matches no other
-    run, so it cancels nothing while reading as a concurrency control.
+    A group built from the run identifier or the commit SHA renders
+    differently for each push, so it cancels nothing while reading as a
+    concurrency control.
     """
     group = str(_concurrency(workflow).get("group", ""))
-    offenders = [name for name in RUN_UNIQUE_EXPRESSIONS if name in group]
-    assert not offenders, (
-        f"{workflow.name} builds its concurrency group from "
-        f"{', '.join(offenders)}, which is unique to one run; the group would "
-        "never match a superseded run and would cancel nothing"
+    first = render_group(group, FIRST_PUSH)
+    second = render_group(group, SECOND_PUSH)
+    assert first == second, (
+        f"{workflow.name}'s group renders {first!r} and then {second!r} for two "
+        "pushes to one pull request; the newer run would never cancel the older"
     )
 
 
 @pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
-def test_the_group_distinguishes_one_pull_request_from_another(
-    workflow: Path,
-) -> None:
-    """The group varies with the pull request, so branches do not cancel each other.
+def test_no_two_pull_requests_or_main_share_a_group(workflow: Path) -> None:
+    """A push to one pull request never cancels another's run, or `main`'s.
 
-    A constant group would put every open pull request in one queue, and the
-    first push anywhere would cancel the gates running everywhere else.
+    The second pull request comes from a fork whose branch has the same name,
+    so a group keyed on ``github.head_ref`` fails here as a constant one does.
     """
     group = str(_concurrency(workflow).get("group", ""))
-    assert any(name in group for name in PER_PULL_REQUEST_EXPRESSIONS), (
-        f"{workflow.name} must key its concurrency group on the pull request, "
-        f"by naming one of {', '.join(PER_PULL_REQUEST_EXPRESSIONS)}; a group "
-        "shared by every branch would cancel unrelated pull requests"
+    rendered = {
+        "pull request 7": render_group(group, FIRST_PUSH),
+        "pull request 8 (a fork's patch-1)": render_group(group, OTHER_FORK),
+        "a push to main": render_group(group, MAIN_PUSH),
+    }
+    assert len(set(rendered.values())) == len(rendered), (
+        f"{workflow.name}'s group collides across runs that must stay apart: {rendered}"
     )
+
+
+@pytest.mark.parametrize(
+    ("template", "verdict"),
+    [
+        (ESTATE_GROUP, "accept"),
+        ("kani-pr-${{ github.ref }}", "accept"),
+        ("${{ github.workflow }}-${{ github.run_id }}", "refuse"),
+        ("${{ github.workflow }}-${{ github.sha }}", "refuse"),
+        ("${{ github.workflow }}-${{ github.head_ref }}", "refuse"),
+        ("one-group-for-everything", "refuse"),
+    ],
+    ids=["estate", "ref-keyed", "run-id", "sha", "head-ref", "constant"],
+)
+def test_the_group_rules_accept_and_refuse_the_known_shapes(
+    template: str, verdict: str
+) -> None:
+    """Drive both group rules directly, so neither passes for want of a case.
+
+    The repository's own groups are all acceptable, so they alone cannot show
+    that the rules refuse anything.
+    """
+    assert keeps_runs_together_and_apart(template) is (verdict == "accept")
+
+
+def test_an_unmodelled_group_expression_is_refused() -> None:
+    """A function call or comparison fails loudly instead of rendering wrongly."""
+    with pytest.raises(UnmodelledGroupError, match="unmodelled expression"):
+        render_group("${{ format('{0}', github.ref) }}", FIRST_PUSH)
 
 
 @pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
