@@ -280,6 +280,35 @@ def test_the_sweep_walks_a_tree_it_is_given(tmp_path: pathlib.Path) -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("make_unreadable", "error"),
+    [
+        pytest.param(
+            lambda path: path.write_bytes(b"fn \xff() {}\n"),
+            UnicodeDecodeError,
+            id="invalid-utf-8",
+        ),
+        pytest.param(lambda path: path.mkdir(), IsADirectoryError, id="a-source-read-failure"),
+    ],
+)
+def test_an_unreadable_source_fails_the_sweep_rather_than_shrinking_it(
+    tmp_path: pathlib.Path,
+    make_unreadable: typ.Callable[[pathlib.Path], object],
+    error: type[Exception],
+) -> None:
+    """The documented promise: raise, never return a smaller set.
+
+    A readable costly test sits beside the bad file, so a sweep that skipped
+    the failure would return it alone, which is exactly the partial answer
+    that lets a test lose its override without anything failing.
+    """
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "harness.rs").write_text(SPAWNER, encoding="utf-8")
+    make_unreadable(tmp_path / "tests" / "broken.rs")
+    with pytest.raises(error):
+        discovered_tests(tmp_path)
+
+
 def test_a_root_below_a_target_directory_is_still_swept(tmp_path: pathlib.Path) -> None:
     """Build output is excluded below the root, not anywhere in its path.
 
