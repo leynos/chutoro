@@ -152,14 +152,19 @@ def _trigger_names(document: dict[object, object]) -> frozenset[str] | None:
     if "on" in document and True in document:
         return None
     declared = document.get("on", document.get(True))
-    if declared is None:
-        return frozenset()
-    if isinstance(declared, dict):
-        return frozenset(key for key in declared if isinstance(key, str))
-    if isinstance(declared, list):
-        return frozenset(event for event in declared if isinstance(event, str))
+    return frozenset() if declared is None else _event_names(declared)
+
+
+def _event_names(declared: object) -> frozenset[str] | None:
+    """Return the event names in one `on:` value, or ``None`` for another shape.
+
+    Iterating a mapping yields its keys and a list its items, so both shapes
+    share one reading; a bare string names a single event.
+    """
     if isinstance(declared, str):
         return frozenset({declared})
+    if isinstance(declared, (dict, list)):
+        return frozenset(name for name in declared if isinstance(name, str))
     return None
 
 
@@ -214,6 +219,31 @@ def test_every_workflow_declares_a_trigger_set_this_reader_models() -> None:
         f"{', '.join(unreadable)}; each is dropped from discovery, so every "
         "contract below would pass without asserting anything about it"
     )
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("on: pull_request\n", frozenset({"pull_request"})),
+        ("on: [push, pull_request]\n", frozenset({"push", "pull_request"})),
+        ("on:\n  push:\n  pull_request:\n", frozenset({"push", "pull_request"})),
+        ("'on': pull_request\n", frozenset({"pull_request"})),
+        ("'on': push\non: pull_request\n", None),
+        ("on: 3\n", None),
+        ("name: no trigger\n", frozenset()),
+    ],
+    ids=["bare", "list", "mapping", "quoted", "both-keys", "number", "absent"],
+)
+def test_the_trigger_reader_models_every_shape_github_accepts(
+    text: str, expected: frozenset[str] | None
+) -> None:
+    """The reader drives discovery, so each `on:` shape is read, or refused.
+
+    The repository's own workflows use the mapping form only, so a list or
+    bare-name reading that broke would leave every file-driven contract green.
+    This drives the reader directly with each shape.
+    """
+    assert _trigger_names(_parse(text, "shape.yml")) == expected
 
 
 def test_a_duplicated_key_is_refused_rather_than_resolved() -> None:
