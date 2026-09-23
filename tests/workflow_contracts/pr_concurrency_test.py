@@ -13,12 +13,13 @@ warm cache on `main` would be killed by the next merge. The condition is
 therefore part of the contract, and
 `test_cancellation_is_conditioned_on_the_event` fails on the literal.
 
-The group also has to distinguish one pull request from another. A group
-derived from ``github.run_id`` is unique per run and so cancels nothing, while
-a constant group would let one branch cancel another's gates, and so would one
-keyed on ``github.head_ref``, which two forks' `patch-1` branches share. Rather
-than search the group's text for a name, the contract renders it against a
-small set of run contexts and compares the results.
+The group keeps two pushes to one pull request together and every other run
+apart. When there is no pull request its fallback is ``github.run_id``, so two
+pushes to `main` or two dispatches never share a group: a shared ref group
+lets a third run replace a still-pending second one, and that commit never
+gets CI (estate rule "PR-lane concurrency fallback"). The run identifier is
+allowed only in that fallback position. Rather than search the group's text,
+the contract renders it for a set of run contexts and compares the results.
 
 Only `pull_request` is in scope. A `pull_request_target` workflow runs against
 the base repository to carry a token, and the one here merges Dependabot pull
@@ -38,11 +39,11 @@ from pathlib import Path
 import pytest
 import yaml
 from pr_concurrency_groups import (
+    ESTATE_FALLBACK,
     FIRST_PUSH,
     MUST_PART,
     MUST_SHARE,
-    UnmodelledGroupError,
-    keeps_runs_together_and_apart,
+    expressions,
     render_group,
 )
 from pr_concurrency_triggers import trigger_names
@@ -66,9 +67,10 @@ CANCEL_EXPRESSION = "${{ github.event_name == 'pull_request' }}"
 #: deliberately absent; see the module docstring.
 PULL_REQUEST = "pull_request"
 
-#: The group every workflow here uses unless it already had its own.
-ESTATE_GROUP = (
-    "${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}"
+#: Context values unique to one run. The estate rule allows one only as the
+#: fallback behind the pull-request number.
+RUN_UNIQUE: frozenset[str] = frozenset(
+    {"github.run_id", "github.run_number", "github.run_attempt", "github.sha"}
 )
 
 
@@ -232,13 +234,12 @@ def test_every_pull_request_workflow_declares_a_concurrency_group(
 
 
 @pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
-def test_runs_that_must_queue_together_share_a_group(workflow: Path) -> None:
-    """Runs that must cancel or queue behind one another render one group.
+def test_two_pushes_to_one_pull_request_share_a_group(workflow: Path) -> None:
+    """The newer push lands in its predecessor's group, so it can cancel it.
 
-    Two pushes to one pull request, a re-run of the first, and two pushes to
-    `main` each form a pair. A group built from the run identifier, the SHA
-    or the run attempt renders differently within a pair, so it cancels
-    nothing, and on `main` it would let two cache writers race.
+    A group built from the run identifier alone, the SHA, or the run
+    identifier ahead of the pull-request number renders differently for each
+    push and cancels nothing.
     """
     group = str(_concurrency(workflow).get("group", ""))
     split = [
@@ -247,17 +248,20 @@ def test_runs_that_must_queue_together_share_a_group(workflow: Path) -> None:
         if render_group(group, first) != render_group(group, second)
     ]
     assert not split, (
-        f"{workflow.name}'s group renders differently for runs that must share "
-        f"one: {split}"
+        f"{workflow.name}'s group renders differently for two pushes to one "
+        f"pull request: {split}"
     )
 
 
 @pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
-def test_no_two_pull_requests_or_main_share_a_group(workflow: Path) -> None:
-    """A push to one pull request never cancels another's run, or `main`'s.
+def test_no_other_two_runs_share_a_group(workflow: Path) -> None:
+    """No run cancels another pull request's, and none replaces a pending run.
 
-    The second pull request comes from a fork whose branch has the same name,
-    so a group keyed on ``github.head_ref`` fails here as a constant one does.
+    The runs are a pull request, a fork's pull request from a branch of the
+    same name, two pushes to `main`, and two dispatches of another branch. A
+    ``github.head_ref`` group collides on the forks; a ``github.ref`` or
+    ``github.base_ref`` fallback collides on the trunk pushes, where a third
+    push would replace the pending second.
     """
     group = str(_concurrency(workflow).get("group", ""))
     rendered = [render_group(group, run) for run in MUST_PART]
@@ -266,55 +270,28 @@ def test_no_two_pull_requests_or_main_share_a_group(workflow: Path) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("template", "verdict"),
-    [
-        (ESTATE_GROUP, "accept"),
-        ("kani-pr-${{ github.ref }}", "accept"),
-        ("${{ github.workflow }}-${{ github.run_id }}", "refuse"),
-        ("${{ github.workflow }}-${{ github.sha }}", "refuse"),
-        ("${{ github.workflow }}-${{ github.head_ref }}", "refuse"),
-        ("pr-${{ github.event.pull_request.number || github.run_id }}", "refuse"),
-        ("pr-${{ github.event.pull_request.number || github.base_ref }}", "refuse"),
-        ("${{ github.ref }}-${{ github.run_attempt }}", "refuse"),
-        ("one-group-for-everything", "refuse"),
-    ],
-    ids=[
-        "estate",
-        "ref-keyed",
-        "run-id",
-        "sha",
-        "head-ref",
-        "run-id-on-main",
-        "base-ref-on-main",
-        "run-attempt",
-        "constant",
-    ],
-)
-def test_the_group_rules_accept_and_refuse_the_known_shapes(
-    template: str, verdict: str
-) -> None:
-    """Drive both group rules directly, so neither passes for want of a case.
+@pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
+def test_the_run_identifier_is_only_the_fallback(workflow: Path) -> None:
+    """``github.run_id`` appears once, behind the pull-request number.
 
-    The repository's own groups are all acceptable, so they alone cannot show
-    that the rules refuse anything.
+    The estate rule allows a run-unique value only there. Anywhere else it
+    either splits one pull request's pushes or hides a ref-keyed fallback.
     """
-    assert keeps_runs_together_and_apart(template) is (verdict == "accept")
-
-
-@pytest.mark.parametrize(
-    "template",
-    [
-        "${{ format('{0}', github.ref) }}",
-        "${{ github.ref || format('{0}', github.sha) }}",
-        "pr-${{ github.ref",
-    ],
-    ids=["function", "unmodelled-right-operand", "unclosed"],
-)
-def test_an_unmodelled_group_expression_is_refused(template: str) -> None:
-    """A function call, a comparison or an unclosed opener fails loudly."""
-    with pytest.raises(UnmodelledGroupError):
-        render_group(template, FIRST_PUSH)
+    group = str(_concurrency(workflow).get("group", ""))
+    found = expressions(group)
+    misplaced = [
+        operands
+        for operands in found
+        if operands != ESTATE_FALLBACK and any(name in RUN_UNIQUE for name in operands)
+    ]
+    assert found.count(ESTATE_FALLBACK) == 1, (
+        f"{workflow.name}'s group must contain exactly one "
+        f"`${{{{ {' || '.join(ESTATE_FALLBACK)} }}}}`, found {found}"
+    )
+    assert not misplaced, (
+        f"{workflow.name}'s group uses a run-unique value outside the fallback: "
+        f"{misplaced}"
+    )
 
 
 def _workflow_name(workflow: Path) -> str:

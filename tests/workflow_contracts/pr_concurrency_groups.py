@@ -7,11 +7,15 @@ names the pull request's branch and still collides across forks, and a group
 can name the pull-request number and then discard it. So the contract renders
 each group against the run contexts below and compares the strings.
 
-Runs that must share a group: two pushes to one pull request, a re-run of the
-first push, and two pushes to `main`, which must queue rather than race as
-cache writers. Runs that must not: that pull request, another pull request
-from a fork whose branch has the same name, a push to `main`, and a dispatch
-on another branch.
+Runs that must share a group: two pushes to one pull request, so the newer
+cancels the older. Runs that must not: that pull request, another pull request
+from a fork whose branch has the same name, two pushes to `main`, and two
+dispatches of one other branch. A ref-keyed fallback would put the trunk
+pushes in one group, where a third push replaces a still-pending second one
+and that commit never gets CI; overlapping trunk runs are the cheaper risk,
+because compiler-cache writes are content-addressed and a cache save of an
+existing key is refused harmlessly. So the fallback is ``github.run_id``
+(estate rule "PR-lane concurrency fallback").
 
 Only context paths joined by ``||`` are modelled, which is every form the
 estate's groups use. Anything else is refused rather than guessed at.
@@ -101,7 +105,6 @@ def main_push(run_id: str) -> dict[str, str]:
 
 FIRST_PUSH = pull_request_run("7", "patch-1", "101")
 SECOND_PUSH = pull_request_run("7", "patch-1", "102")
-FIRST_PUSH_RERUN = {**FIRST_PUSH, "github.run_attempt": "2"}
 OTHER_FORK = pull_request_run("8", "patch-1", "103")
 MAIN_PUSH = main_push("104")
 NEXT_MAIN_PUSH = main_push("105")
@@ -110,21 +113,50 @@ BRANCH_DISPATCH = {
     "github.event_name": "workflow_dispatch",
     "github.ref": "refs/heads/feature",
 }
+NEXT_BRANCH_DISPATCH = {**BRANCH_DISPATCH, "github.run_id": "107"}
 
-#: Runs that must render one group: each pair queues or cancels together.
+#: Runs that must render one group: the newer cancels the older.
 MUST_SHARE: tuple[tuple[dict[str, str], dict[str, str]], ...] = (
     (FIRST_PUSH, SECOND_PUSH),
-    (FIRST_PUSH, FIRST_PUSH_RERUN),
-    (MAIN_PUSH, NEXT_MAIN_PUSH),
 )
 
-#: Runs that must render distinct groups: none may cancel another.
+#: Runs that must render distinct groups: none may cancel or replace another.
 MUST_PART: tuple[dict[str, str], ...] = (
     FIRST_PUSH,
     OTHER_FORK,
     MAIN_PUSH,
+    NEXT_MAIN_PUSH,
     BRANCH_DISPATCH,
+    NEXT_BRANCH_DISPATCH,
 )
+
+#: The one expression the estate rule allows a run-unique value in: the
+#: pull-request number first, the run identifier as its fallback.
+ESTATE_FALLBACK: tuple[str, ...] = ("github.event.pull_request.number", "github.run_id")
+
+
+def expressions(template: str) -> list[tuple[str, ...]]:
+    """Return the ``||`` operands of each `${{ ... }}` expression in a group.
+
+    Parameters
+    ----------
+    template
+        The group as written in the workflow.
+
+    Returns
+    -------
+    list of tuple of str
+        One tuple of stripped operands per expression, in order.
+
+    Examples
+    --------
+    >>> expressions("${{ github.workflow }}-${{ a || b }}")
+    [('github.workflow',), ('a', 'b')]
+    """
+    return [
+        tuple(operand.strip() for operand in match.group(1).split("||"))
+        for match in _EXPRESSION.finditer(template)
+    ]
 
 
 def render_group(template: str, context: dict[str, str]) -> str:
@@ -197,8 +229,11 @@ def keeps_runs_together_and_apart(template: str) -> bool:
 
     Examples
     --------
-    >>> keeps_runs_together_and_apart("kani-pr-${{ github.ref }}")
+    >>> group = "${{ github.event.pull_request.number || github.run_id }}"
+    >>> keeps_runs_together_and_apart(group)
     True
+    >>> keeps_runs_together_and_apart("kani-pr-${{ github.ref }}")
+    False
     >>> keeps_runs_together_and_apart("${{ github.workflow }}-${{ github.head_ref }}")
     False
     """
