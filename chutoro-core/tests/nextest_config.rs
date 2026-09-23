@@ -16,6 +16,7 @@ const TRYBUILD_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"300s\", terminate-after = 1, grace-period = \"5s\" }";
 const NESTED_BENCH_SMOKE_TIMEOUT: &str = TRYBUILD_SLOW_TIMEOUT;
 
+/// Returns the raw override blocks declared for one Nextest profile.
 fn override_blocks(profile_name: &str) -> Vec<&'static str> {
     NEXTEST_CONFIG
         .split(&format!("[[profile.{profile_name}.overrides]]"))
@@ -47,6 +48,7 @@ macro_rules! assert_override_present {
     };
 }
 
+/// Extracts a named configuration block through its next peer or terminator.
 fn extract_block(
     haystack: &'static str,
     header: &str,
@@ -64,6 +66,7 @@ fn extract_block(
     Ok(block)
 }
 
+/// Extracts one property-test workflow job for contract assertions.
 fn workflow_job_block(job: &str) -> Result<&'static str, String> {
     extract_block(
         PROPERTY_TESTS_WORKFLOW,
@@ -73,6 +76,7 @@ fn workflow_job_block(job: &str) -> Result<&'static str, String> {
     )
 }
 
+/// Extracts one benchmark-regression workflow job for contract assertions.
 fn benchmark_workflow_job_block(job: &str) -> Result<&'static str, String> {
     extract_block(
         BENCHMARK_REGRESSIONS_WORKFLOW,
@@ -82,6 +86,7 @@ fn benchmark_workflow_job_block(job: &str) -> Result<&'static str, String> {
     )
 }
 
+/// Extracts one Makefile target definition for contract assertions.
 fn make_target_block(target: &str) -> Result<&'static str, String> {
     extract_block(
         MAKEFILE,
@@ -92,6 +97,7 @@ fn make_target_block(target: &str) -> Result<&'static str, String> {
 }
 
 #[test]
+/// Verifies the default profile keeps the repository-wide timeout ceiling.
 fn nextest_default_profile_keeps_global_timeout_guard() {
     assert!(NEXTEST_CONFIG.contains("global-timeout = \"40m\""));
 }
@@ -109,6 +115,7 @@ fn nextest_default_profile_keeps_global_timeout_guard() {
     "filter = \"package(chutoro-benches) & test(/edge_harvest_construction\\\\//)\"",
     BENCH_SLOW_TIMEOUT
 )]
+/// Verifies benchmark profiles retain their dedicated long-running allowances.
 fn nextest_default_profile_keeps_benchmark_timeout_guards(
     #[case] filter_value: &str,
     #[case] expected_timeout: &str,
@@ -120,6 +127,7 @@ fn nextest_default_profile_keeps_benchmark_timeout_guards(
 }
 
 #[test]
+/// Verifies the property-test workflow grants the idempotency case its budget.
 fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
     assert_override_present!(
         "ci",
@@ -134,6 +142,7 @@ fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
 }
 
 #[test]
+/// Verifies the default profile covers the fourth idempotency rstest case.
 fn default_profile_covers_idempotency_rstest_case_4_timeout() {
     assert_override_present!(
         "default",
@@ -147,39 +156,20 @@ fn default_profile_covers_idempotency_rstest_case_4_timeout() {
 #[rstest]
 #[case("default")]
 #[case("ci")]
-fn nextest_profiles_keep_trybuild_timeout_guards(#[case] profile_name: &str) {
+/// Verifies both Nextest profiles reserve capacity and time for compile contracts.
+fn nextest_profiles_keep_compile_contract_timeout_guard(#[case] profile_name: &str) {
     assert_override_present!(
         profile_name,
         [
-            "arrow_parquet_types_share_one_family",
-            "portable_simd_gating_compile_checks",
-            "session_api_compiles_when_cpu_feature_is_enabled",
-            "arrow_parquet_types_share_one_family",
+            "filter = \"package(chutoro-compile-contracts)\"",
             "threads-required = 4",
             TRYBUILD_SLOW_TIMEOUT,
         ]
     );
 }
 
-#[rstest]
-#[case("default", "threads-required = 8")]
-#[case("ci", "threads-required = 4")]
-fn nextest_profiles_serialize_clustering_result_feature_boundary_checks(
-    #[case] profile_name: &str,
-    #[case] expected_threads: &str,
-) {
-    assert_override_present!(
-        profile_name,
-        [
-            "clustering_result_panicking_constructor_is_private_when_cpu_enabled",
-            "clustering_result_api_is_checked_without_cpu",
-            expected_threads,
-            TRYBUILD_SLOW_TIMEOUT,
-        ]
-    );
-}
-
 #[test]
+/// Verifies nested benchmark smoke tests remain serialized under Nextest.
 fn default_profile_serializes_nested_benchmark_smoke_test() {
     assert_override_present!(
         "default",
@@ -194,6 +184,7 @@ fn default_profile_serializes_nested_benchmark_smoke_test() {
 #[rstest]
 #[case("default")]
 #[case("ci")]
+/// Verifies both profiles preserve the write-lock property-test timeout.
 fn profiles_preserve_write_lock_proptest_timeout(#[case] profile_name: &str) {
     assert_override_present!(
         profile_name,
@@ -205,6 +196,7 @@ fn profiles_preserve_write_lock_proptest_timeout(#[case] profile_name: &str) {
 }
 
 #[test]
+/// Verifies the Makefile exposes the dedicated type-checking gate.
 fn makefile_exposes_typecheck_gate() {
     let typecheck_block = make_target_block("typecheck").expect("typecheck target must exist");
     assert!(MAKEFILE.contains(" typecheck "));
@@ -214,6 +206,7 @@ fn makefile_exposes_typecheck_gate() {
 }
 
 #[test]
+/// Verifies benchmark smoke CI executes the exact HNSW probe.
 fn benchmark_smoke_job_covers_hnsw_exact_probe() {
     let smoke_job =
         benchmark_workflow_job_block("benchmark-smoke").expect("benchmark-smoke job must exist");
@@ -261,6 +254,7 @@ fn benchmark_smoke_job_covers_hnsw_exact_probe() {
 #[rstest]
 #[case("property-tests-pr", "'ubicloud-standard-2'")]
 #[case("property-tests-weekly", "runs-on: ubuntu-latest")]
+/// Verifies property-test jobs use runners with the configured thread capacity.
 fn property_tests_runners_satisfy_the_ci_thread_count(
     #[case] job: &str,
     #[case] expected_runner: &str,

@@ -1,5 +1,6 @@
 //! Internal graph representation for the CPU HNSW implementation.
 
+mod attachment;
 mod core;
 #[cfg(kani)]
 mod kani;

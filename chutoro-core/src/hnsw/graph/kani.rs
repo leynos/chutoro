@@ -4,8 +4,7 @@
 //! which would otherwise inflate CBMC's symbolic formula before an invariant is
 //! evaluated.
 
-use super::NodeContext;
-use super::core::{AttachNodeError, Graph};
+use super::{NodeContext, attachment::AttachNodeError, core::Graph};
 use crate::hnsw::types::EntryPoint;
 
 impl AttachNodeError {

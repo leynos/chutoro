@@ -23,6 +23,7 @@ use trimming_fixtures::{
     setup_reciprocal_edges_with_reserve, verify_post_trim_reciprocity,
 };
 
+/// Builds a graph with test-controlled capacity and neighbour limits.
 fn setup_basic_graph(
     max_connections: usize,
     ef_construction: usize,
@@ -32,6 +33,7 @@ fn setup_basic_graph(
     Ok(Graph::with_capacity(params, capacity))
 }
 
+/// Inserts the deterministic node-zero entry used by executor scenarios.
 fn insert_entry_node(graph: &mut Graph, level: usize) -> Result<(), HnswError> {
     graph.insert_first(NodeContext {
         node: 0,
@@ -40,6 +42,7 @@ fn insert_entry_node(graph: &mut Graph, level: usize) -> Result<(), HnswError> {
     })
 }
 
+/// Attaches one deterministic non-entry node for an executor scenario.
 fn attach_test_node(
     graph: &mut Graph,
     node: usize,
@@ -53,6 +56,7 @@ fn attach_test_node(
     })
 }
 
+/// Runs the full test-only sweep and asserts that it leaves no one-way edge.
 fn enforce_and_assert_bidirectional(graph: &mut Graph) {
     let mut helpers = TestHelpers::new(graph);
     helpers.enforce_bidirectional_all(2);
@@ -61,6 +65,7 @@ fn enforce_and_assert_bidirectional(graph: &mut Graph) {
     assert_eq!(violation, None, "healing must leave every edge reciprocal");
 }
 
+/// Builds a saturated target whose reciprocal insertion must evict an old edge.
 fn reverse_edge_eviction_fixture() -> Graph {
     let Ok(mut graph) = setup_basic_graph(1, 4, 3) else {
         panic!("params must be valid");
@@ -85,6 +90,7 @@ fn reverse_edge_eviction_fixture() -> Graph {
 }
 
 #[test]
+/// Verifies reverse-edge eviction removes the stale forward edge after scrubbing.
 fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
     let mut graph = reverse_edge_eviction_fixture();
 
@@ -125,6 +131,7 @@ fn ensure_reverse_edge_evicts_and_scrubs_forward_link() {
     assert!(origin.neighbours(1).contains(&1));
 }
 
+/// Verifies commit-time reconciliation preserves reciprocity across trim cases.
 #[rstest]
 #[case::repairs_base_layer_one_way_edge(2, 0, None, 0)]
 #[case::removes_invalid_upper_layer_edge(1, 1, Some(vec![1]), 1)]
@@ -199,6 +206,7 @@ fn commit_inlines_reciprocity(
 }
 
 #[test]
+/// Verifies full healing adds a reciprocal edge at an existing upper layer.
 fn enforce_bidirectional_all_adds_upper_layer_backlink() {
     let mut graph = setup_basic_graph(2, 4, 2).expect("params should be valid in tests");
     insert_entry_node(&mut graph, 1).expect("insert entry");
@@ -211,6 +219,7 @@ fn enforce_bidirectional_all_adds_upper_layer_backlink() {
 }
 
 #[test]
+/// Verifies full healing removes an edge whose target lacks the referenced layer.
 fn enforce_bidirectional_all_removes_invalid_upper_edge() {
     let mut graph = setup_basic_graph(2, 4, 2).expect("params should be valid in tests");
     insert_entry_node(&mut graph, 1).expect("insert entry");
@@ -224,6 +233,31 @@ fn enforce_bidirectional_all_removes_invalid_upper_edge() {
     assert_no_edge(&graph, 1, 0, 1);
 }
 
+#[test]
+/// Confirms localized healing leaves asymmetric edges outside its queue untouched.
+fn enforce_bidirectional_for_touched_leaves_unrelated_edges_unchanged() {
+    let mut graph = setup_basic_graph(2, 4, 3).expect("params should be valid in tests");
+    insert_entry_node(&mut graph, 0).expect("insert entry");
+    attach_test_node(&mut graph, 1, 0, 1).expect("attach first node");
+    attach_test_node(&mut graph, 2, 0, 2).expect("attach second node");
+
+    add_edge_if_missing(&mut graph, 0, 1, 0);
+    add_edge_if_missing(&mut graph, 2, 0, 0);
+
+    TestHelpers::new(&mut graph).enforce_bidirectional_for_touched(&[(0, 0)], 2);
+
+    assert_bidirectional_edge!(&graph, 0, 1, 0);
+    assert_no_edge(&graph, 0, 2, 0);
+    assert!(
+        graph
+            .node(2)
+            .expect("untracked node must remain")
+            .neighbours(0)
+            .contains(&0),
+        "untracked edge must not be processed",
+    );
+}
+/// Verifies trim results restore reciprocal links across each supplied neighbour set.
 #[rstest]
 #[case::evicts_tail(vec![1, 3], 1)]
 #[case::evicts_tail_wider(vec![1, 3, 4, 5], 2)]

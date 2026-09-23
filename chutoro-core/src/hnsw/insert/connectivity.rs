@@ -64,6 +64,31 @@ pub(super) struct ConnectivityHealer<'graph> {
     pub(super) graph: &'graph mut Graph,
 }
 
+/// Result of adding one directed neighbour relationship.
+#[derive(Debug)]
+enum DirectedLinkOutcome {
+    /// The origin or level was unavailable, or the target was not retained.
+    Rejected,
+    /// The target was retained, with an optional displaced neighbour.
+    Linked {
+        /// Neighbour displaced to make room for the target, when at capacity.
+        evicted: Option<usize>,
+    },
+}
+
+/// Inputs for one directed neighbour insertion.
+#[derive(Debug)]
+struct DirectedLink {
+    /// Node whose adjacency list is updated.
+    origin: usize,
+    /// Neighbour to retain in the origin's adjacency list.
+    target: usize,
+    /// Layer whose adjacency list is updated.
+    level: usize,
+    /// Maximum permitted neighbours at `level`.
+    limit: usize,
+}
+
 impl<'graph> ConnectivityHealer<'graph> {
     /// Creates a healer over the graph.
     pub(super) const fn new(graph: &'graph mut Graph) -> Self {
@@ -176,25 +201,26 @@ impl<'graph> ConnectivityHealer<'graph> {
     /// instead of recursively handling it.
     fn link_new_node_inner(&mut self, ctx: &UpdateContext, new_node: usize) -> Option<usize> {
         let limit = compute_connection_limit(ctx.level, ctx.max_connections);
-        if !self.can_link_at_level(ctx.origin, ctx.level) {
+        let DirectedLinkOutcome::Linked {
+            evicted: evicted_node,
+        } = self.link_directed(&DirectedLink {
+            origin: ctx.origin,
+            target: new_node,
+            level: ctx.level,
+            limit,
+        })
+        else {
             return None;
-        }
-
-        let candidate_node = self.graph.node_mut(ctx.origin)?;
-        let origin_neighbours = candidate_node.neighbours_mut(ctx.level)?;
-        let evicted_node = Self::add_to_neighbour_list(origin_neighbours, new_node, limit);
-        if !origin_neighbours.contains(&new_node) {
-            return None;
-        }
-
-        if !self.can_link_at_level(new_node, ctx.level) {
-            return None;
-        }
-
-        let new_node_ref = self.graph.node_mut(new_node)?;
-        let new_node_neighbours = new_node_ref.neighbours_mut(ctx.level)?;
-        Self::add_to_neighbour_list(new_node_neighbours, ctx.origin, limit);
-        if !new_node_neighbours.contains(&ctx.origin) {
+        };
+        if matches!(
+            self.link_directed(&DirectedLink {
+                origin: new_node,
+                target: ctx.origin,
+                level: ctx.level,
+                limit,
+            }),
+            DirectedLinkOutcome::Rejected
+        ) {
             return None;
         }
 
@@ -204,8 +230,41 @@ impl<'graph> ConnectivityHealer<'graph> {
         }))
     }
 
+    /// Adds one directed edge and reports whether the target was retained.
+    fn link_directed(&mut self, link: &DirectedLink) -> DirectedLinkOutcome {
+        #[cfg(test)]
+        let target_was_present;
+        let (target_linked, evicted) = {
+            let Some(origin_node) = self.graph.node_mut(link.origin) else {
+                return DirectedLinkOutcome::Rejected;
+            };
+            let Some(neighbours) = origin_node.neighbours_mut(link.level) else {
+                return DirectedLinkOutcome::Rejected;
+            };
+            #[cfg(test)]
+            {
+                target_was_present = neighbours.contains(&link.target);
+            }
+            let evicted = Self::add_to_neighbour_list(neighbours, link.target, link.limit);
+            (neighbours.contains(&link.target), evicted)
+        };
+
+        if !target_linked {
+            return DirectedLinkOutcome::Rejected;
+        }
+
+        #[cfg(test)]
+        if !target_was_present {
+            self.graph.record_touched_nodes([(link.origin, link.level)]);
+        }
+
+        DirectedLinkOutcome::Linked { evicted }
+    }
+
     /// Cleans up a forward edge and returns the node to handle iteratively.
     fn clean_up_evicted_edge_inner(&mut self, evicted: usize, ctx: &UpdateContext) -> usize {
+        #[cfg(test)]
+        let mut evicted_changed = false;
         let Some(evicted_node) = self.graph.node_mut(evicted) else {
             return ctx.origin; // Link succeeded to origin's perspective
         };
@@ -218,9 +277,20 @@ impl<'graph> ConnectivityHealer<'graph> {
         };
         if let Some(pos) = evicted_neighbours.iter().position(|&id| id == ctx.origin) {
             evicted_neighbours.remove(pos);
+            #[cfg(test)]
+            {
+                evicted_changed = true;
+            }
         }
 
-        if ctx.level == 0 && evicted_neighbours.is_empty() {
+        let is_isolated = ctx.level == 0 && evicted_neighbours.is_empty();
+
+        #[cfg(test)]
+        if evicted_changed {
+            self.graph.record_touched_nodes([(evicted, ctx.level)]);
+        }
+
+        if is_isolated {
             evicted // Return isolated node for caller to queue
         } else {
             ctx.origin // Link succeeded
@@ -265,13 +335,6 @@ impl<'graph> ConnectivityHealer<'graph> {
         linked.or_else(|| self.attach_entry_fallback(ctx.level, ctx.max_connections, ctx.new_node))
     }
 
-    /// Report whether a node has an initialized adjacency list for a level.
-    fn can_link_at_level(&self, node_id: usize, level: usize) -> bool {
-        self.graph
-            .node(node_id)
-            .is_some_and(|node| level < node.level_count())
-    }
-
     /// Insert a neighbour and return the displaced tail when capacity is full.
     fn add_to_neighbour_list(
         neighbours: &mut Vec<usize>,
@@ -293,33 +356,5 @@ impl<'graph> ConnectivityHealer<'graph> {
     }
 }
 #[cfg(test)]
-mod tests {
-    //! Equivalence coverage for the Kani visited-set substitute.
-
-    use std::collections::HashSet;
-
-    use rstest::rstest;
-
-    use super::LinearVisitedSet;
-
-    /// The linear-scan set must report insertions exactly as `HashSet` does,
-    /// because Kani builds substitute it for the production `HashSet` inside
-    /// the healing work queues.
-    #[rstest]
-    #[case::all_unique(&[1, 2, 3, 4])]
-    #[case::immediate_duplicate(&[7, 7])]
-    #[case::interleaved_duplicates(&[3, 1, 3, 2, 1, 3])]
-    #[case::single(&[0])]
-    #[case::empty(&[])]
-    fn linear_set_matches_hash_set_semantics(#[case] sequence: &[usize]) {
-        let mut linear = LinearVisitedSet::default();
-        let mut hashed = HashSet::new();
-        for &id in sequence {
-            assert_eq!(
-                linear.insert(id),
-                hashed.insert(id),
-                "insert({id}) diverged from HashSet semantics",
-            );
-        }
-    }
-}
+#[path = "connectivity/tests.rs"]
+mod tests;

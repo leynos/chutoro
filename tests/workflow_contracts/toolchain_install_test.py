@@ -90,6 +90,15 @@ def _rustup_invocations(workflow_name: str) -> typ.Iterator[tuple[str, str]]:
                 yield job_name, invocation
 
 
+def _run_scripts(workflow_name: str) -> typ.Iterator[tuple[str, str]]:
+    """Yield every workflow `run` script with its job name."""
+    for job_name, definition in jobs(load_workflow(workflow_name)).items():
+        for step in steps(definition):
+            script = run_script(step)
+            if script:
+                yield job_name, script
+
+
 def _component_groups_in_step(step: dict[str, typ.Any]) -> typ.Iterator[tuple[str, list[str]]]:
     """Yield each `--component` flag found in one step, with its invocation."""
     for invocation in _rustup_installs(run_script(step)):
@@ -157,6 +166,19 @@ def test_no_rustup_install_ends_on_a_dangling_backslash(workflow_name: str) -> N
         )
 
 
+def test_nightly_lane_runs_portable_simd_compile_contract() -> None:
+    """Nightly must execute the feature-enabled portable-SIMD contract."""
+    commands = [
+        " ".join(CONTINUATION.sub(" ", script).split())
+        for _, script in _run_scripts("nightly-portable-simd.yml")
+        if "cargo +nightly test" in script
+    ]
+    assert (
+        "RUSTUP_TOOLCHAIN=nightly cargo +nightly test -p chutoro-compile-contracts --features "
+        "nightly_portable_simd --test portable_simd_gating" in commands
+    )
+
+
 @pytest.mark.parametrize(
     ("script", "expected"),
     [
@@ -186,74 +208,3 @@ def test_the_reading_joins_only_what_the_shell_joins(
     which is the defect this module exists to catch rather than to hide.
     """
     assert _rustup_installs(script) == expected
-
-
-#: The trybuild test whose expected output is toolchain-specific.
-#:
-#: Its fixture pins stable's refusal to compile `std::simd` without the
-#: feature. On nightly, rustc adds `help: add #![feature(portable_simd)]` to
-#: each of those errors because there it can be enabled, so the fixture
-#: mismatches for a reason about the toolchain rather than about the gating.
-TOOLCHAIN_SPECIFIC_TRYBUILD_TEST = "portable_simd_gating_compile_checks"
-
-#: The lane that runs the dense provider's tests on nightly.
-NIGHTLY_SIMD_WORKFLOW = "nightly-portable-simd.yml"
-
-
-def _nightly_cargo_tests() -> list[str]:
-    """Return each `cargo +nightly test` command in the nightly SIMD lane."""
-    return [
-        " ".join(invocation.split())
-        for _, invocation in _run_scripts(NIGHTLY_SIMD_WORKFLOW)
-        for invocation in CONTINUATION.sub(" ", invocation).split("\n")
-        if "cargo +nightly test" in invocation
-    ]
-
-
-def _run_scripts(workflow_name: str) -> typ.Iterator[tuple[str, str]]:
-    """Yield every step's `run` script in a workflow, with its job name."""
-    for job_name, definition in jobs(load_workflow(workflow_name)).items():
-        for step in steps(definition):
-            script = run_script(step)
-            if script:
-                yield job_name, script
-
-
-def test_the_nightly_lane_skips_the_toolchain_specific_trybuild_test() -> None:
-    """The nightly SIMD lane excludes the trybuild test by name.
-
-    Without the exclusion the lane fails on a fixture mismatch rather than on
-    anything it exists to check, which is how it spent its whole existence
-    reporting nothing useful (#262). The assertion is on the command's own
-    `--skip` argument, so deleting the exclusion while leaving the step in
-    place fails here.
-    """
-    commands = _nightly_cargo_tests()
-    assert commands, (
-        f"{NIGHTLY_SIMD_WORKFLOW} must run the dense provider's tests on "
-        "nightly; no `cargo +nightly test` command was found"
-    )
-    for command in commands:
-        assert f"--skip {TOOLCHAIN_SPECIFIC_TRYBUILD_TEST}" in command, (
-            f"{NIGHTLY_SIMD_WORKFLOW} must skip "
-            f"{TOOLCHAIN_SPECIFIC_TRYBUILD_TEST} on nightly, because its "
-            f"expected output pins stable's diagnostics; got {command!r}"
-        )
-
-
-def test_only_the_nightly_lane_skips_that_trybuild_test() -> None:
-    """No other workflow skips it, so stable keeps running it.
-
-    The exclusion is narrow on purpose: the check earns its place on stable,
-    where the refusal it asserts is the real behaviour. A second lane adopting
-    the same `--skip` would quietly drop that coverage everywhere.
-    """
-    for workflow_name in workflow_names():
-        if workflow_name == NIGHTLY_SIMD_WORKFLOW:
-            continue
-        for job_name, script in _run_scripts(workflow_name):
-            assert TOOLCHAIN_SPECIFIC_TRYBUILD_TEST not in script, (
-                f"{workflow_name}:{job_name} excludes "
-                f"{TOOLCHAIN_SPECIFIC_TRYBUILD_TEST}; only the nightly lane "
-                "has a toolchain reason to, and stable must keep running it"
-            )

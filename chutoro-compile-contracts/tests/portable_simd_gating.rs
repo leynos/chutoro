@@ -3,13 +3,18 @@
 //! These trybuild tests verify that the stable/nightly feature matrix is enforced
 //! at compile time for the portable-SIMD backend.
 
+/// Confirms stable builds reject portable SIMD without its opt-in feature.
 #[test]
-fn portable_simd_gating_compile_checks() {
+#[cfg(not(nightly))]
+fn portable_simd_is_rejected_without_feature() {
     let t = trybuild::TestCases::new();
-
-    // When nightly_portable_simd feature is absent, portable-SIMD API should fail to compile
     t.compile_fail("tests/trybuild/portable_simd_without_feature.rs");
+}
 
-    // When nightly_portable_simd feature is present, portable-SIMD API should compile
+/// Confirms nightly builds accept portable SIMD when its feature is enabled.
+#[test]
+#[cfg(all(nightly, feature = "nightly_portable_simd"))]
+fn portable_simd_compiles_with_feature() {
+    let t = trybuild::TestCases::new();
     t.pass("tests/trybuild/portable_simd_with_feature.rs");
 }

@@ -1,0 +1,10 @@
+[package]
+name = "clustering-result-without-cpu"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+chutoro-core = { path = "../../../../chutoro-core", default-features = false }
+
+[workspace]

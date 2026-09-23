@@ -7,7 +7,7 @@ error[E0308]: mismatched types
    |                            arguments to this method are incorrect
    |
 note: method defined here
-  --> src/recipe.rs
+  --> $WORKSPACE/chutoro-bench-datasets/src/recipe.rs
    |
    |     fn prepare(
    |        ^^^^^^^

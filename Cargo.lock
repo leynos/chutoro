@@ -415,7 +415,6 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "tracing-test",
- "trybuild",
 ]
 
 [[package]]
@@ -463,6 +462,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "chutoro-compile-contracts"
+version = "0.1.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "bytes",
+ "camino",
+ "chutoro-bench-datasets",
+ "chutoro-core",
+ "chutoro-providers-dense",
+ "mockable",
+ "parquet",
+ "trybuild",
+]
+
+[[package]]
 name = "chutoro-core"
 version = "0.1.0"
 dependencies = [
@@ -485,7 +500,6 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "tracing-subscriber",
- "trybuild",
 ]
 
 [[package]]
@@ -503,7 +517,6 @@ dependencies = [
  "rstest",
  "test-strategy",
  "thiserror 2.0.20",
- "trybuild",
 ]
 
 [[package]]

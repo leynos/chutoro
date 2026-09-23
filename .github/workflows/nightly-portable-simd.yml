@@ -59,21 +59,16 @@ jobs:
         run: |
           rustup toolchain install nightly --profile minimal \
             --component clippy --component rustfmt
-      # The trybuild gating test is excluded here, and only here. Its
-      # expected output pins stable's refusal to compile `std::simd` without
-      # the feature; on nightly rustc adds one line to each of those errors,
-      # `help: add #![feature(portable_simd)] to the crate attributes to
-      # enable`, because on nightly it can be. The fixture then mismatches on
-      # four errors for a reason that is about the toolchain rather than about
-      # the gating it asserts. Carrying a second fixture, or normalising the
-      # help line away, would buy maintenance for no coverage: the check
-      # exists to prove the stable refusal, which CI already runs. See #262.
       - name: Test dense portable SIMD backend
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: |
           cargo +nightly test -p chutoro-providers-dense \
-            --features nightly_portable_simd \
-            -- --skip portable_simd_gating_compile_checks
+            --features nightly_portable_simd
+      - name: Test portable SIMD compile contract
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        run: |
+          RUSTUP_TOOLCHAIN=nightly cargo +nightly test -p chutoro-compile-contracts \
+            --features nightly_portable_simd --test portable_simd_gating
       - name: Lint dense portable SIMD backend
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: cargo +nightly clippy -p chutoro-providers-dense --all-targets --features nightly_portable_simd -- -D warnings

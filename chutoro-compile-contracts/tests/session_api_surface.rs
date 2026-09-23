@@ -17,6 +17,7 @@ fn workspace_root() -> PathBuf {
         )
 }
 
+/// Verifies CPU-enabled builds expose only the intended session API contracts.
 #[test]
 #[cfg(feature = "cpu")]
 fn session_api_compiles_when_cpu_feature_is_enabled() {
@@ -27,6 +28,7 @@ fn session_api_compiles_when_cpu_feature_is_enabled() {
     cases.compile_fail("tests/trybuild/run_cpu_pipeline_is_private.rs");
 }
 
+/// Verifies CPU-disabled builds reject every CPU-gated session type and method.
 #[test]
 fn session_api_is_unavailable_without_cpu_feature() {
     let fixture_dir = Path::new(env!("CARGO_MANIFEST_DIR"))

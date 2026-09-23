@@ -1180,6 +1180,11 @@ property phases do not consume the full budget. The weekly job retains a
 All test runs use the `nextest` CI profile (`--profile ci`). Benchmark targets
 require `threads-required = 8`; see `.config/nextest.toml`.
 
+Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
+package-level `nextest` override owns the nested-Cargo timeout and concurrency
+policy: four required threads and a 300-second `slow-timeout`. Other tests
+retain the 60-second default per-test `slow-timeout`.
+
 Use `.github/workflows/property-tests.yml` and `.config/nextest.toml` for the
 authoritative configuration, and `docs/property-testing-design.md` for the
 architectural rationale.
@@ -1729,6 +1734,22 @@ contracts:
 
 These contracts let `hnsw/validate.rs` and `hnsw/helpers.rs` merge cache hits
 and misses without corrupting caller buffers after a provider error.
+
+## Test-only HNSW mutation healing
+
+The mutation property harness is the only consumer of the graph-owned,
+test-only touched-node queue. Mutation helpers record a `(node, level)` pair
+when they change that adjacency list during commit, deletion, reconnection, or
+reachability repair. `CpuHnsw::heal_for_test` repairs reachability first, then
+drains the queue and enforces and validates reciprocity only for the queued
+outgoing adjacency lists. This boundary keeps the localized sweep out of
+production builds and leaves unrelated adjacency lists untouched.
+
+When changing mutation helpers, keep the queue aligned with graph state: record
+only changed lists, do not let callers add arbitrary pairs, and restore the
+queue alongside nodes and the entry point when a mutation is rolled back. Tests
+should verify that a successful healing pass drains the queue and that a failed
+mutation leaves its prior contents unchanged.
 
 ## Benchmark dataset recipes
 
