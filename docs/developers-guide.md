@@ -1434,10 +1434,13 @@ deleted passes and the upload then skips on every run without failing.
 
 Its concurrency is exactly `group: coverage-main-${{ github.ref }}` with
 `cancel-in-progress: false`. Runs never overlap, and GitHub replaces a pending
-run with the newest trigger, so uploads land in commit order; a group keyed on
-the event as well would let an earlier dispatch finish after a newer push and
-upload older coverage last. A cancelled publisher would abandon both the upload
-and the ratchet baseline the next pull request reads.
+run with the newest trigger, so triggered runs (push and dispatch) upload in
+commit order; a group keyed on the event as well would let an earlier dispatch
+finish after a newer push and upload older coverage last. A manual "Re-run
+jobs" on an older run keeps that run's commit: it is an operator action that
+republishes that commit's coverage and baseline until the next push supersedes
+it. A cancelled publisher would abandon both the upload and the ratchet
+baseline the next pull request reads.
 
 Two gaps are known and accepted. A Dependabot automerge made with
 `GITHUB_TOKEN` fires no push, so that merge publishes nothing until the next

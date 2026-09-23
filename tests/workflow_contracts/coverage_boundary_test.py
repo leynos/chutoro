@@ -260,7 +260,9 @@ def test_the_publisher_never_cancels_and_is_keyed_on_the_ref() -> None:
 
     It abandons the upload and the ratchet write together, and nothing reports
     it. One group keyed on the ref means runs never overlap, and the newest
-    trigger replaces a pending one, so uploads land in commit order.
+    trigger replaces a pending one, so triggered runs upload in commit order.
+    A manual re-run of an older run republishes that commit until the next
+    push supersedes it, which is an operator's choice, not a race.
     """
     document = _publisher()
     scopes = cancelling_scopes(document)
