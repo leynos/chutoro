@@ -54,6 +54,10 @@ jobs:
           # the rest of the job. Keeping the step out avoids that. See
           # ci.yml.
           use-sccache: 'false'
+      # Keep the lint build shape identical to ci.yml's cache reader. Coverage
+      # itself invokes Cargo directly and remains on the repository toolchain.
+      - name: Install development build prerequisites
+        run: make install-dev-fast
       # Pinned, checksum-verified release archive; nothing is built from
       # source in CI.
       - name: Install sccache

@@ -27,7 +27,8 @@ fn clustering_result_api_is_checked_without_cpu() {
         .join("target")
         .join("result-api-surface-no-cpu");
 
-    let output = Command::new(env!("CARGO"))
+    // Keep the nested trybuild check on the repository-pinned stable toolchain.
+    let output = Command::new("cargo")
         .current_dir(workspace_root)
         .args([
             "test",
@@ -41,6 +42,7 @@ fn clustering_result_api_is_checked_without_cpu() {
             "clustering_result_panicking_constructor_is_unavailable_without_cpu",
         ])
         .env("CARGO_TARGET_DIR", target_dir)
+        .env_remove("RUSTUP_TOOLCHAIN")
         .env("RUSTFLAGS", "-D warnings")
         .output()
         .expect("cpu-disabled result API check should run");

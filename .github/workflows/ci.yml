@@ -70,6 +70,11 @@ jobs:
           # out is what makes the local backend's indifference to those
           # variables count.
           use-sccache: 'false'
+      # `make lint` selects the dated Cranelift maintenance toolchain and
+      # checksum-verified mold binary. The direct stable SIMD and coverage
+      # commands below continue to use the repository toolchain.
+      - name: Install development build prerequisites
+        run: make install-dev-fast
       # Pinned, checksum-verified release archive; nothing is built from
       # source in CI.
       - name: Install sccache

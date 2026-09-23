@@ -78,7 +78,9 @@ _Table 3: Documentation and planning responsibilities._
 | `.github/`             | GitHub workflows, Dependabot configuration, and repository automation. |
 | `.codescene/`          | CodeScene code health rule configuration.                              |
 | `scripts/`             | Maintainer scripts for proof tooling and operational support.          |
-| `tools/`               | Tool-specific support files that do not belong to a Rust crate.        |
+| `tools/dev-fast/`      | Pinned nightly and explicit Cargo fragment for debug Make targets.     |
+| `tools/mold/`          | Linux `mold` version and checksum pins for the installer.              |
+| `tools/`               | Other tool-specific support files that do not belong to a Rust crate.  |
 | `verus/`               | Verus proof sources for formally verified properties.                  |
 
 _Table 4: Tooling and verification path responsibilities._
