@@ -1386,8 +1386,11 @@ before editing a workflow:
   over the whole closure. A reusable child declares `workflow_call`, not
   `pull_request`, so a reading that trusted triggers alone would stop at the
   parent and never ask about the child. A call is local by its shape: with one
-  leading `./` removed, the path lies under `.github/workflows/`. A local call
-  naming a file that is not there is reported, not skipped.
+  leading `./` or `$/` removed, the path lies under `.github/workflows/`. A
+  local call naming a file that is not there is reported, not skipped.
+- A workflow counts as reachable by a pull request when it declares
+  `pull_request`, `pull_request_target`, `workflow_run`, `pull_request_review`,
+  `pull_request_review_comment` or `merge_group`.
 - `secrets: inherit` on a pull-request job is refused. It forwards the
   credential without the caller's text ever naming it.
 - They judge an artefact path by what it can carry rather than by how it is
@@ -1395,7 +1398,9 @@ before editing a workflow:
   expression, or a pattern that matches `lcov.info` all publish the report. An
   absolute path elsewhere, a named directory, and a pattern that cannot match
   the report do not, which is why the benchmark and property-test log uploads
-  are untouched.
+  are untouched. An expression is cleared only when every `||` alternative ends
+  in a quoted literal that is absolute or empty, so `... || github.workspace`
+  still publishes.
 - `publish-artefact` must be the quoted string `'false'`. An unquoted boolean
   or an expression that evaluates false is refused, because its meaning depends
   on which reader coerces it.

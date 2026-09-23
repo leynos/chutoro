@@ -15,7 +15,12 @@ from coverage_boundary import publishes_the_coverage_report
 from coverage_publisher import TRUNK_REF_GUARD, upload_condition_offences
 from hypothesis import given
 from hypothesis import strategies as st
-from workflow_reach import declared_triggers, local_workflows_called_by, reachable_workflows
+from workflow_reach import (
+    Reach,
+    declared_triggers,
+    local_workflows_called_by,
+    reachable_workflows,
+)
 from workflow_support import parse_workflow_text
 
 #: Names that cannot collide with anything the report could sit under. The
@@ -70,23 +75,26 @@ def test_one_report_carrying_entry_condemns_the_whole_path(
     assert publishes is (unsafe is not None), entries
 
 
-@given(
-    condition=_NAMES,
-    first=_ABSOLUTE,
-    second=st.one_of(_ABSOLUTE, st.just("")),
-    relative=st.one_of(st.none(), _RELATIVE),
-    swap_first=st.booleans(),
-)
+def _arms_with_one_relative(draw: st.DrawFn) -> tuple[list[str], bool]:
+    """Draw two arms, at least one absolute, and maybe a relative replacement."""
+    arms = [draw(_ABSOLUTE), draw(st.one_of(_ABSOLUTE, st.just("")))]
+    relative = draw(st.one_of(st.none(), _RELATIVE))
+    if relative is not None:
+        arms[draw(st.integers(min_value=0, max_value=1))] = relative
+    return arms, relative is not None
+
+
+_ARMS = st.composite(_arms_with_one_relative)()
+
+
+@given(condition=_NAMES, drawn=_ARMS)
 def test_an_expression_is_cleared_only_when_every_arm_is_absolute(
-    condition: str, first: str, second: str, relative: str | None, *, swap_first: bool
+    condition: str, drawn: tuple[list[str], bool]
 ) -> None:
     """Replacing either arm with a relative path turns a safe choice unsafe."""
-    arms = [first, second]
-    if relative is not None:
-        arms[0 if swap_first else 1] = relative
+    arms, has_relative = drawn
     path = f"${{{{ matrix.{condition} == 'y' && '{arms[0]}' || '{arms[1]}' }}}}"
-    publishes = publishes_the_coverage_report(_artefact_step(path))
-    assert publishes is (relative is not None), path
+    assert publishes_the_coverage_report(_artefact_step(path)) is has_relative, path
 
 
 @given(
@@ -150,6 +158,27 @@ _GRAPHS = st.integers(min_value=1, max_value=6).flatmap(
 )
 
 
+def _assert_closed_under_calls(reach: Reach, documents: dict[str, dict[str, typ.Any]]) -> None:
+    """Every call from a reached workflow lands in the reached or missing list."""
+    for name in reach.reached:
+        for called in local_workflows_called_by(documents[name]):
+            assert called in reach.reached or called in reach.missing, (name, called)
+
+
+def _called_by_an_earlier(name: str, earlier: list[str], documents: dict[str, typ.Any]) -> bool:
+    """Return whether a workflow earlier in the walk calls this one."""
+    return any(name in local_workflows_called_by(documents[caller]) for caller in earlier)
+
+
+def _assert_nothing_uncalled(reach: Reach, documents: dict[str, dict[str, typ.Any]]) -> None:
+    """Every reached workflow but the entry, and every missing one, was called."""
+    for later, name in enumerate(reach.reached[1:], start=1):
+        assert _called_by_an_earlier(name, reach.reached[:later], documents), name
+    for name in reach.missing:
+        assert name not in documents, name
+        assert _called_by_an_earlier(name, reach.reached, documents), name
+
+
 @given(edges=_GRAPHS)
 def test_the_walk_reaches_exactly_what_is_called_and_reads_it_once(
     edges: list[list[int]],
@@ -172,12 +201,5 @@ def test_the_walk_reaches_exactly_what_is_called_and_reads_it_once(
     reach = reachable_workflows(names[0], documents)
     assert reach.reached[0] == names[0]
     assert len(reach.reached) == len(set(reach.reached))
-    for name in reach.reached:
-        for called in local_workflows_called_by(documents[name]):
-            assert called in reach.reached or called in reach.missing
-    for later, name in enumerate(reach.reached[1:], start=1):
-        callers = reach.reached[:later]
-        assert any(name in local_workflows_called_by(documents[c]) for c in callers)
-    for name in reach.missing:
-        assert name not in documents
-        assert any(name in local_workflows_called_by(documents[c]) for c in reach.reached)
+    _assert_closed_under_calls(reach, documents)
+    _assert_nothing_uncalled(reach, documents)

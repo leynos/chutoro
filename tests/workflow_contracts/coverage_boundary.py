@@ -23,11 +23,9 @@ Run via ``make test-workflow-contracts``.
 """
 
 import collections.abc as cabc
-import re
 import typing as typ
 
-import pathspec
-
+from report_paths import COVERAGE_REPORT_PATH, could_hold_the_report
 from workflow_reach import reachable_workflows
 from workflow_support import jobs, run_script, steps, uses_reference
 
@@ -60,9 +58,6 @@ CREDENTIAL_ENVIRONMENT_KEY: typ.Final[str] = "CS_ACCESS_TOKEN"
 #: The command form of the same upload, which needs no action reference.
 COVERAGE_COMMAND: typ.Final[str] = "cs-coverage"
 
-#: The report the coverage action writes, and the one CodeScene is sent.
-COVERAGE_REPORT_PATH: typ.Final[str] = "lcov.info"
-
 #: The service itself. A pull-request lane that names its host is talking to
 #: it by some route other than the action, which is the same dependency the
 #: boundary exists to remove, spelt as a `curl`.
@@ -92,73 +87,6 @@ def action_of(step: dict[str, typ.Any]) -> str:
     return uses_reference(step).split("@", 1)[0]
 
 
-#: The opening of a GitHub Actions expression. Its value is decided at run
-#: time, so a path containing one says nothing here about what it will name.
-_EXPRESSION_OPENING: typ.Final[str] = "${{"
-
-#: Characters that make a path a pattern rather than a name.
-_GLOB_CHARACTERS: typ.Final[frozenset[str]] = frozenset("*?[]!")
-
-#: Where the report could sit, for testing a pattern against. The action writes
-#: it at the workspace root, and a nested crate could write its own, so a
-#: pattern is refused when it would match any of these rather than only the
-#: first.
-_REPORT_CANDIDATES: typ.Final[tuple[str, ...]] = (
-    COVERAGE_REPORT_PATH,
-    f"crate/{COVERAGE_REPORT_PATH}",
-    f"a/b/{COVERAGE_REPORT_PATH}",
-)
-
-
-def _pattern_could_match_the_report(entry: str) -> bool:
-    """Return whether a glob entry could match the report wherever it sits."""
-    # The pattern is tested against candidate locations rather than reasoned
-    # about. `**/proptest-regressions/**` cannot match a report at the root and
-    # is not an offence; `**/*.info` can and is. Refusing every glob was the
-    # first draft and it condemned four honest log uploads in this repository.
-    spec = pathspec.PathSpec.from_lines("gitignore", [entry])
-    return any(spec.match_file(candidate) for candidate in _REPORT_CANDIDATES)
-
-
-#: A single-quoted literal inside a GitHub Actions expression.
-_EXPRESSION_LITERAL: typ.Final[re.Pattern[str]] = re.compile(r"'([^']*)'")
-
-
-def _expression_names_somewhere_absolute(entry: str) -> bool:
-    """Return whether an expression can only produce a path outside the tree."""
-    # An entry whose value is decided at run time could be the workspace, and
-    # the workspace holds the report. The exception is an expression that
-    # chooses between absolute paths: `${{ x == 'y' && '/tmp/a.log' || '' }}`
-    # cannot be the workspace whichever arm wins. A literal counts as a path
-    # only when it looks like one; `'y'` above is a comparison operand.
-    literals = _EXPRESSION_LITERAL.findall(entry)
-    paths = [value for value in literals if "/" in value or "." in value]
-    return bool(paths) and all(value.startswith("/") for value in paths)
-
-
-def _could_hold_the_report(entry: str) -> bool:
-    """Return whether one `path` entry could carry the coverage report."""
-    # Fails closed, because the question is whether the report *can* leave the
-    # runner, not whether the entry is spelt like it. A substring test for
-    # `lcov.info` clears `.`, `./`, `..` and `${{ github.workspace }}`, each of
-    # which uploads the workspace the report sits in.
-    cleaned = entry.strip()
-    if not cleaned or COVERAGE_REPORT_PATH in cleaned:
-        return True
-    # An absolute path is somewhere other than the workspace unless it names
-    # the report, which the line above has already ruled out. The estate writes
-    # the report into the workspace and refers to it relatively everywhere, so
-    # `/tmp/bench.log` is not this rule's business.
-    if cleaned.startswith("/"):
-        return False
-    if _EXPRESSION_OPENING in cleaned:
-        return not _expression_names_somewhere_absolute(cleaned)
-    if _GLOB_CHARACTERS & set(cleaned):
-        return _pattern_could_match_the_report(cleaned)
-    parts = [part for part in cleaned.split("/") if part not in ("", ".")]
-    return not parts or ".." in parts
-
-
 def publishes_the_coverage_report(step: dict[str, typ.Any]) -> bool:
     """Return whether a step publishes the coverage report as an artefact.
 
@@ -185,7 +113,7 @@ def publishes_the_coverage_report(step: dict[str, typ.Any]) -> bool:
     # `path` is newline-separated, and one unsafe entry publishes the report
     # whatever the others name. An empty value is the workspace.
     return not declared.strip() or any(
-        _could_hold_the_report(entry) for entry in declared.splitlines()
+        could_hold_the_report(entry) for entry in declared.splitlines()
     )
 
 
@@ -231,23 +159,40 @@ def _iter_strings(value: object) -> cabc.Iterator[str]:
             return
 
 
+def _keeps_its_archive(step: dict[str, typ.Any]) -> bool:
+    """Return whether a step calls the coverage action without the opt-out."""
+    return action_of(step) == GENERATE_COVERAGE_ACTION and not (
+        declines_the_generated_report_archive(step)
+    )
+
+
+def _uploads_to_codescene(step: dict[str, typ.Any]) -> bool:
+    """Return whether a step calls the CodeScene coverage action."""
+    return action_of(step) == UPLOAD_COVERAGE_ACTION
+
+
+def _runs_the_coverage_command(step: dict[str, typ.Any]) -> bool:
+    """Return whether a step's script runs the CodeScene command."""
+    return COVERAGE_COMMAND in run_script(step)
+
+
+#: Each rule one step is held to, and what an offence against it is called.
+#: A table rather than a chain of conditions, so a new rule is one line here.
+_STEP_RULES: typ.Final[tuple[tuple[cabc.Callable[[dict[str, typ.Any]], bool], str], ...]] = (
+    (publishes_the_coverage_report, "publishes the coverage report as an artefact"),
+    (
+        _keeps_its_archive,
+        "invokes the coverage action without declining its own archive "
+        f"({PUBLICATION_OPT_OUT_INPUT}: {PUBLICATION_OPT_OUT_VALUE})",
+    ),
+    (_uploads_to_codescene, "invokes the CodeScene coverage action"),
+    (_runs_the_coverage_command, f"runs a {COVERAGE_COMMAND} command"),
+)
+
+
 def _step_offences(where: str, step: dict[str, typ.Any]) -> list[str]:
     """Return every prohibited reference one step makes."""
-    offences: list[str] = []
-    if publishes_the_coverage_report(step):
-        offences.append(f"{where} publishes the coverage report as an artefact")
-    if action_of(step) == GENERATE_COVERAGE_ACTION and not (
-        declines_the_generated_report_archive(step)
-    ):
-        offences.append(
-            f"{where} invokes the coverage action without declining its own "
-            f"archive ({PUBLICATION_OPT_OUT_INPUT}: {PUBLICATION_OPT_OUT_VALUE})"
-        )
-    if action_of(step) == UPLOAD_COVERAGE_ACTION:
-        offences.append(f"{where} invokes the CodeScene coverage action")
-    if COVERAGE_COMMAND in run_script(step):
-        offences.append(f"{where} runs a {COVERAGE_COMMAND} command")
-    return offences
+    return [f"{where} {offence}" for rule, offence in _STEP_RULES if rule(step)]
 
 
 def _mentions(

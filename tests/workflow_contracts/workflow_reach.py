@@ -26,11 +26,25 @@ PULL_REQUEST_TARGET_TRIGGER: typ.Final[str] = "pull_request_target"
 #: The trigger that resumes a run with the base repository's privileges.
 SUBMISSION_TRIGGER: typ.Final[str] = "workflow_run"
 
+#: The triggers a pull request's review activity or its merge fires. Each runs
+#: on the pull request's behalf and can report a check on it, so a workflow
+#: declaring one alone is as reachable as one declaring `pull_request`.
+REVIEW_AND_MERGE_TRIGGERS: typ.Final[tuple[str, ...]] = (
+    "pull_request_review",
+    "pull_request_review_comment",
+    "merge_group",
+)
+
 REACHABLE_TRIGGERS: typ.Final[tuple[str, ...]] = (
     PULL_REQUEST_TRIGGER,
     PULL_REQUEST_TARGET_TRIGGER,
     SUBMISSION_TRIGGER,
+    *REVIEW_AND_MERGE_TRIGGERS,
 )
+
+#: The spellings GitHub accepts for a call into this repository: `./` and the
+#: `$/` self-repository form, which resolves at the running commit.
+_LOCAL_CALL_PREFIXES: typ.Final[tuple[str, ...]] = ("./", "$/")
 
 #: The keys `on:` can arrive under. A resolving loader reads a bare `on` as
 #: the boolean True; a quoted `'on'` stays a string. Both are read, because a
@@ -93,9 +107,10 @@ def declares_trigger(document: dict[typ.Any, typ.Any], trigger: str) -> bool:
 def is_reachable_by_a_pull_request(document: dict[typ.Any, typ.Any]) -> bool:
     """Return whether a pull request can cause this workflow to run directly.
 
-    All three reachable triggers count. `pull_request_target` and
-    `workflow_run` resume in the base repository's context, so a step under
-    either reads a credential in a run a pull request's contents influenced.
+    Every reachable trigger counts. `pull_request_target` and `workflow_run`
+    resume in the base repository's context, so a step under either reads a
+    credential in a run a pull request's contents influenced; the review and
+    merge-queue triggers run on the pull request's behalf.
 
     Examples
     --------
@@ -110,19 +125,22 @@ def is_reachable_by_a_pull_request(document: dict[typ.Any, typ.Any]) -> bool:
 def local_workflow_target(uses: str) -> str | None:
     """Return the workflow file a job-level `uses` names in this repository.
 
-    A call is local by its shape, not by an enumerated list of prefixes: with
-    one leading `./` removed, the remainder is a path under the workflow
-    directory. Anything else is a call into another repository and is not
-    followed, since a foreign workflow is not ours to read.
+    A call is local by its shape: with one leading `./` or `$/` removed, the
+    remainder is a path under the workflow directory. Anything else is a call
+    into another repository and is not followed, since a foreign workflow is
+    not ours to read.
 
     Examples
     --------
     >>> local_workflow_target("./.github/workflows/child.yml")
     'child.yml'
+    >>> local_workflow_target("$/.github/workflows/child.yml")
+    'child.yml'
     >>> local_workflow_target("leynos/shared-actions/.github/workflows/x.yml@v1") is None
     True
     """
-    path = uses.removeprefix("./")
+    prefix = next((p for p in _LOCAL_CALL_PREFIXES if uses.startswith(p)), "")
+    path = uses.removeprefix(prefix)
     if not path.startswith(WORKFLOW_DIRECTORY):
         return None
     return path.removeprefix(WORKFLOW_DIRECTORY)
