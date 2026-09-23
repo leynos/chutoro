@@ -70,12 +70,31 @@ def _string_values(value: Any) -> Iterator[str]:
     """Yield workflow scalar strings recursively for focused config checks."""
     if isinstance(value, str):
         yield value
-    elif isinstance(value, dict):
-        for nested in value.values():
-            yield from _string_values(nested)
+        return
+
+    if isinstance(value, dict):
+        nested_values = value.values()
     elif isinstance(value, list):
-        for nested in value:
-            yield from _string_values(nested)
+        nested_values = value
+    else:
+        return
+
+    for nested in nested_values:
+        yield from _string_values(nested)
+
+
+def test_string_values_preserves_container_order_and_omits_non_strings() -> None:
+    workflow_value = {
+        "first": "one",
+        "nested": [
+            "two",
+            {"third": "three", "ignored": 7, "fourth": ["four", None]},
+            False,
+        ],
+        "also_ignored": None,
+    }
+
+    assert list(_string_values(workflow_value)) == ["one", "two", "three", "four"]
 
 
 def _dense_simd_commands(step: dict[str, Any]) -> list[str]:
