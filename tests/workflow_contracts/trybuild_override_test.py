@@ -221,10 +221,11 @@ def test_every_compile_contract_test_is_named_in_an_override() -> None:
     is the moment its allowance has to be decided.
     """
     by_profile = _extending_filters()
+    discovered = discovered_tests()
     uncovered = {
         f"{profile}:{name}": path
         for profile, filters in by_profile.items()
-        for name, path in discovered_tests().items()
+        for name, path in discovered.items()
         if not any(_names_test(filter_text, name) for filter_text in filters)
     }
     assert not uncovered, (
@@ -277,6 +278,20 @@ def test_the_sweep_walks_a_tree_it_is_given(tmp_path: pathlib.Path) -> None:
         "the given root, skip build output under `target`, and report each "
         "path relative to that root"
     )
+
+
+def test_a_root_below_a_target_directory_is_still_swept(tmp_path: pathlib.Path) -> None:
+    """Build output is excluded below the root, not anywhere in its path.
+
+    A `cargo package` verification tree sits under `target/package/`, and a
+    filter over the absolute path would drop every file there, so discovery
+    would return nothing and the coverage rule would pass with nothing to
+    check.
+    """
+    root = tmp_path / "target" / "package" / "crate"
+    (root / "tests").mkdir(parents=True)
+    (root / "tests" / "harness.rs").write_text(SPAWNER, encoding="utf-8")
+    assert discovered_tests(root) == {"checks_the_fixture_crate": "tests/harness.rs"}
 
 
 @pytest.mark.parametrize(
@@ -358,7 +373,7 @@ def test_the_sweep_walks_a_tree_it_is_given(tmp_path: pathlib.Path) -> None:
         pytest.param(
             COMMENTED_ATTRIBUTE,
             ["builds_after_a_comment"],
-            id="a-comment-between-the-attribute-and-the-signature",
+            id="a-comment-between-two-attributes",
         ),
         pytest.param(
             HELPER_BELOW_A_TEST,

@@ -67,9 +67,6 @@ _FUNCTION = re.compile(
 )
 
 
-#: Openers for the regions a Rust source has that are not code, each with the
-#: reader that consumes one. Raw strings come before ordinary ones so `r#"` is
-#: not read as an identifier followed by a string.
 def _normalised(text: str) -> str:
     """Return the text with spacing around `::` and `(` removed.
 
@@ -195,13 +192,15 @@ class _Region(typ.NamedTuple):
     is_comment: bool
 
 
-#: Each opener, the reader that consumes what it opens, and whether it opens a
-#: comment. Order matters: `r#"` and `b"` are tried before a bare quote.
 #: How a region reader is called: the text and the index its opener sits at,
 #: answering the index just past what it consumed. Named so the table cannot
 #: hold a reader of a different shape.
 type _RegionReader = cabc.Callable[[str, int], int]
 
+#: Openers for the regions a Rust source has that are not code, each with the
+#: reader that consumes what it opens and whether it opens a comment. Order
+#: matters: `r#"` and `b"` are tried before a bare quote, so `r#"` is not read
+#: as an identifier followed by a string.
 _OPENERS: typ.Final[tuple[tuple[str, _RegionReader, bool], ...]] = (
     ("/*", _block_comment, True),
     ("//", _line_comment, True),
@@ -516,6 +515,8 @@ def discovered_tests(root: pathlib.Path = REPO_ROOT) -> dict[str, str]:
     return {
         name: path.relative_to(root).as_posix()
         for path in sorted(root.rglob("tests/**/*.rs"))
-        if "target" not in path.parts
+        # Relative to `root`, because a checkout that itself sits under a
+        # directory named `target` would otherwise lose every file.
+        if "target" not in path.relative_to(root).parts
         for name in compile_contract_tests(path.read_text(encoding="utf-8"))
     }
