@@ -958,19 +958,23 @@ a list or a bare name under both the quoted key and PyYAML's boolean `True`,
 and refuses a workflow declaring both, since GitHub would read one trigger set
 and the contract another. A floor of the four workflows above keeps discovery
 from emptying into a vacuous pass. For each workflow it then requires a group
-that, rendered by `pr_concurrency_groups.py` for two pushes to one pull
-request, comes out the same, and for that pull request, a fork's pull request
-from a branch of the same name, and a push to `main`, comes out different; a
-group keyed on `github.run_id`, `github.sha` or `github.head_ref`, or a
+that, rendered by `pr_concurrency_groups.py`, keeps together the runs that must
+queue or cancel one another (two pushes to one pull request, a re-run of the
+first, and two pushes to `main`) and keeps apart the runs that must not (that
+pull request, a fork's pull request from a branch of the same name, a push to
+`main`, and a dispatch on another branch); a group keyed on `github.run_id`,
+`github.sha`, `github.run_attempt` or `github.head_ref`, one falling back to
+the run identifier or `github.base_ref` when there is no pull request, or a
 constant one, fails, and an expression the renderer does not model is refused
 rather than guessed at. It also requires exactly the event-conditioned
 `cancel-in-progress` expression, so the literal `true` fails. The files are
 read through a loader that refuses a duplicated mapping key, because PyYAML
 keeps the last of two `concurrency:` blocks and says nothing. Each clause was
 proved by mutation: the cancel line removed, a literal `true`, a `run_id`
-group, a constant group, a `head_ref` group, a `format()` group, the block
-removed, the trigger renamed to `pull_request_target`, a duplicated block, and
-an unquoted `on:` beside the quoted one each fail it.
+group, a constant group, a `head_ref` group, a `format()` group, a `run_id`
+fallback, a `run_attempt` group, the block removed, the trigger renamed to
+`pull_request_target`, a duplicated block, and an unquoted `on:` beside the
+quoted one each fail it.
 
 ## Test timeouts: four tiers, outermost last
 

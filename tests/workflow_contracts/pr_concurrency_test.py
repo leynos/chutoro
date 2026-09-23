@@ -39,9 +39,8 @@ import pytest
 import yaml
 from pr_concurrency_groups import (
     FIRST_PUSH,
-    MAIN_PUSH,
-    OTHER_FORK,
-    SECOND_PUSH,
+    MUST_PART,
+    MUST_SHARE,
     UnmodelledGroupError,
     keeps_runs_together_and_apart,
     render_group,
@@ -256,19 +255,23 @@ def test_every_pull_request_workflow_declares_a_concurrency_group(
 
 
 @pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
-def test_successive_pushes_to_one_pull_request_share_a_group(workflow: Path) -> None:
-    """A newer push lands in its predecessor's group, so it can cancel it.
+def test_runs_that_must_queue_together_share_a_group(workflow: Path) -> None:
+    """Runs that must cancel or queue behind one another render one group.
 
-    A group built from the run identifier or the commit SHA renders
-    differently for each push, so it cancels nothing while reading as a
-    concurrency control.
+    Two pushes to one pull request, a re-run of the first, and two pushes to
+    `main` each form a pair. A group built from the run identifier, the SHA
+    or the run attempt renders differently within a pair, so it cancels
+    nothing, and on `main` it would let two cache writers race.
     """
     group = str(_concurrency(workflow).get("group", ""))
-    first = render_group(group, FIRST_PUSH)
-    second = render_group(group, SECOND_PUSH)
-    assert first == second, (
-        f"{workflow.name}'s group renders {first!r} and then {second!r} for two "
-        "pushes to one pull request; the newer run would never cancel the older"
+    split = [
+        (render_group(group, first), render_group(group, second))
+        for first, second in MUST_SHARE
+        if render_group(group, first) != render_group(group, second)
+    ]
+    assert not split, (
+        f"{workflow.name}'s group renders differently for runs that must share "
+        f"one: {split}"
     )
 
 
@@ -280,12 +283,8 @@ def test_no_two_pull_requests_or_main_share_a_group(workflow: Path) -> None:
     so a group keyed on ``github.head_ref`` fails here as a constant one does.
     """
     group = str(_concurrency(workflow).get("group", ""))
-    rendered = {
-        "pull request 7": render_group(group, FIRST_PUSH),
-        "pull request 8 (a fork's patch-1)": render_group(group, OTHER_FORK),
-        "a push to main": render_group(group, MAIN_PUSH),
-    }
-    assert len(set(rendered.values())) == len(rendered), (
+    rendered = [render_group(group, run) for run in MUST_PART]
+    assert len(set(rendered)) == len(MUST_PART), (
         f"{workflow.name}'s group collides across runs that must stay apart: {rendered}"
     )
 
@@ -298,9 +297,22 @@ def test_no_two_pull_requests_or_main_share_a_group(workflow: Path) -> None:
         ("${{ github.workflow }}-${{ github.run_id }}", "refuse"),
         ("${{ github.workflow }}-${{ github.sha }}", "refuse"),
         ("${{ github.workflow }}-${{ github.head_ref }}", "refuse"),
+        ("pr-${{ github.event.pull_request.number || github.run_id }}", "refuse"),
+        ("pr-${{ github.event.pull_request.number || github.base_ref }}", "refuse"),
+        ("${{ github.ref }}-${{ github.run_attempt }}", "refuse"),
         ("one-group-for-everything", "refuse"),
     ],
-    ids=["estate", "ref-keyed", "run-id", "sha", "head-ref", "constant"],
+    ids=[
+        "estate",
+        "ref-keyed",
+        "run-id",
+        "sha",
+        "head-ref",
+        "run-id-on-main",
+        "base-ref-on-main",
+        "run-attempt",
+        "constant",
+    ],
 )
 def test_the_group_rules_accept_and_refuse_the_known_shapes(
     template: str, verdict: str
@@ -313,10 +325,19 @@ def test_the_group_rules_accept_and_refuse_the_known_shapes(
     assert keeps_runs_together_and_apart(template) is (verdict == "accept")
 
 
-def test_an_unmodelled_group_expression_is_refused() -> None:
-    """A function call or comparison fails loudly instead of rendering wrongly."""
-    with pytest.raises(UnmodelledGroupError, match="unmodelled expression"):
-        render_group("${{ format('{0}', github.ref) }}", FIRST_PUSH)
+@pytest.mark.parametrize(
+    "template",
+    [
+        "${{ format('{0}', github.ref) }}",
+        "${{ github.ref || format('{0}', github.sha) }}",
+        "pr-${{ github.ref",
+    ],
+    ids=["function", "unmodelled-right-operand", "unclosed"],
+)
+def test_an_unmodelled_group_expression_is_refused(template: str) -> None:
+    """A function call, a comparison or an unclosed opener fails loudly."""
+    with pytest.raises(UnmodelledGroupError):
+        render_group(template, FIRST_PUSH)
 
 
 @pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
