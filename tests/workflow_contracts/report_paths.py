@@ -34,6 +34,12 @@ _REPORT_CANDIDATES: typ.Final[tuple[str, ...]] = (
     f"a/b/{COVERAGE_REPORT_PATH}",
 )
 
+#: The roots an absolute path may sit under and still be cleared. Scratch space
+#: outside the workspace, allowed by name: an absolute path in general can be
+#: `/`, `/home/runner/work` or a glob over `/home`, each of which holds the
+#: workspace and the report in it.
+_SCRATCH_ROOTS: typ.Final[tuple[str, ...]] = ("/tmp/",)
+
 #: One token of an expression body: a quoted literal, an operator, or a run of
 #: anything else. Literals come first so an operator inside one is not split.
 _TOKEN: typ.Final[re.Pattern[str]] = re.compile(r"'(?:[^']|'')*'|\|\||&&|[^'|&]+|[|&]")
@@ -79,7 +85,7 @@ def _expression_stays_outside(entry: str) -> bool:
     """Return whether every result an expression can yield is outside the tree.
 
     An expression is cleared only when every alternative ends in a quoted
-    literal that is absolute or empty, and at least one is absolute. `${{ x ==
+    literal that is a scratch path or empty, and at least one is a path. `${{ x ==
     'y' && '/tmp/a.log' || '' }}` is cleared; `... || github.workspace` is not,
     because that alternative yields the workspace the report sits in.
     """
@@ -90,9 +96,14 @@ def _expression_stays_outside(entry: str) -> bool:
     return None not in results and _all_outside(typ.cast("list[str]", results))
 
 
+def _in_scratch(entry: str) -> bool:
+    """Return whether a path sits under a scratch root and never climbs out."""
+    return entry.startswith(_SCRATCH_ROOTS) and ".." not in entry.split("/")
+
+
 def _all_outside(values: list[str]) -> bool:
-    """Return whether literal results are all absolute or empty, one absolute."""
-    return any(values) and all(not value or value.startswith("/") for value in values)
+    """Return whether literal results are all scratch paths or empty, one a path."""
+    return any(values) and all(not value or _in_scratch(value) for value in values)
 
 
 def _names_the_workspace(entry: str) -> bool:
@@ -116,10 +127,11 @@ def could_hold_the_report(entry: str) -> bool:
     cleaned = entry.strip()
     if not cleaned or COVERAGE_REPORT_PATH in cleaned:
         return True
-    # An absolute path is somewhere other than the workspace unless it names
-    # the report, which the line above has already ruled out.
-    if cleaned.startswith("/"):
-        return False
+    # An absolute path is cleared only under a scratch root; anywhere else it
+    # may be, or contain, the workspace. `~` expands under `$HOME`, which
+    # holds the workspace on a hosted runner, so it is refused too.
+    if cleaned.startswith(("/", "~")):
+        return not _in_scratch(cleaned)
     if "${{" in cleaned:
         # A relative path with an expression inside it names something the
         # expression decides, and could be the workspace; so does a whole

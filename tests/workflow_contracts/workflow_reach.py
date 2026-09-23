@@ -91,6 +91,23 @@ def declared_triggers(document: dict[typ.Any, typ.Any]) -> list[str]:
     return names
 
 
+def declares_both_trigger_keys(document: dict[typ.Any, typ.Any]) -> bool:
+    """Return whether a workflow declares `on` under both of its keys.
+
+    GitHub merges the two, so a reader that picks either is blind to the
+    other's triggers. Refused outright rather than merged here, because a
+    document that spells its triggers twice has one spelling nobody meant.
+
+    Examples
+    --------
+    >>> declares_both_trigger_keys({"on": "push", True: "pull_request"})
+    True
+    >>> declares_both_trigger_keys({True: "push"})
+    False
+    """
+    return all(key in document for key in _TRIGGER_KEYS)
+
+
 def declares_trigger(document: dict[typ.Any, typ.Any], trigger: str) -> bool:
     """Return whether a parsed workflow declares the given trigger.
 

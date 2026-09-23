@@ -11,12 +11,13 @@ import typing as typ
 
 import pytest
 from workflow_reach import (
+    declares_both_trigger_keys,
     declares_trigger,
     is_reachable_by_a_pull_request,
     local_workflow_target,
     reachable_workflows,
 )
-from workflow_support import parse_workflow_text
+from workflow_support import parse_workflow_text, workflow_paths
 
 
 def _documents(texts: dict[str, str]) -> dict[str, dict[str, typ.Any]]:
@@ -91,3 +92,46 @@ def test_the_trigger_reading_accepts_every_shape_on_takes(
     assert declares_trigger(parsed, "pull_request") is (
         "pull_request" in declaration.replace("pull_request_", "")
     )
+
+
+@pytest.mark.parametrize("path", workflow_paths(), ids=lambda path: path.name)
+def test_no_workflow_declares_its_triggers_under_both_keys(path: typ.Any) -> None:
+    """One spelling of `on` per workflow, so no reader can see only half."""
+    document = parse_workflow_text(path.read_text(encoding="utf-8"))
+    assert not (isinstance(document, dict) and declares_both_trigger_keys(document)), (
+        f"{path.name} declares `on` under both the quoted and the bare key"
+    )
+
+
+@pytest.mark.parametrize(
+    ("declaration", "both"),
+    [
+        pytest.param("'on': push\non: pull_request\n", True, id="both-keys"),
+        pytest.param("on: pull_request\n", False, id="the-bare-key"),
+        pytest.param("'on': pull_request\n", False, id="the-quoted-key"),
+    ],
+)
+def test_a_doubled_trigger_key_is_recognised(declaration: str, *, both: bool) -> None:
+    """The rule above is driven over documents that have the shape it refuses."""
+    parsed = parse_workflow_text(f"{declaration}jobs: {{}}\n")
+    assert isinstance(parsed, dict)
+    assert declares_both_trigger_keys(parsed) is both
+
+
+def test_a_self_repository_call_with_a_ref_is_reported() -> None:
+    """`$/` resolves at the running commit, so `$/...@ref` names nothing.
+
+    The target reads as `child.yml@main`, which no workflow is called, so the
+    walk reports it as missing rather than following or skipping it.
+    """
+    reach = reachable_workflows(
+        "parent.yml",
+        _documents(
+            {
+                "parent.yml": "on: pull_request\njobs:\n  a:\n"
+                "    uses: $/.github/workflows/child.yml@main\n",
+                "child.yml": "on: workflow_call\njobs: {}\n",
+            }
+        ),
+    )
+    assert reach.missing == ["child.yml@main"], reach

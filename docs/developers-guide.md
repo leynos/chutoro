@@ -1390,24 +1390,29 @@ before editing a workflow:
   local call naming a file that is not there is reported, not skipped.
 - A workflow counts as reachable by a pull request when it declares
   `pull_request`, `pull_request_target`, `workflow_run`, `pull_request_review`,
-  `pull_request_review_comment` or `merge_group`.
+  `pull_request_review_comment`, or `merge_group`.
 - `secrets: inherit` on a pull-request job is refused. It forwards the
   credential without the caller's text ever naming it.
 - They judge an artefact path by what it can carry rather than by how it is
   spelt. A path of `.`, one reaching upward through `..`, an unresolved
-  expression, or a pattern that matches `lcov.info` all publish the report. An
-  absolute path elsewhere, a named directory, and a pattern that cannot match
-  the report do not, which is why the benchmark and property-test log uploads
-  are untouched. An expression is cleared only when every `||` alternative ends
-  in a quoted literal that is absolute or empty, so `... || github.workspace`
-  still publishes.
+  expression, or a pattern that matches `lcov.info` all publish the report. So
+  does an absolute path outside the scratch root `/tmp/`, such as `/`,
+  `/home/runner/work` or a glob over `/home`, and any path under `~`, because
+  each can hold the workspace. A path under `/tmp/` that never climbs out, a
+  named directory, and a pattern that cannot match the report do not, which is
+  why the benchmark and property-test log uploads are untouched. An expression
+  is cleared only when every `||` alternative ends in a quoted literal that is
+  a scratch path or empty, and at least one is a path, so
+  `… || github.workspace` and `c && '' || ''` still publish.
 - `publish-artefact` must be the quoted string `'false'`. An unquoted boolean
   or an expression that evaluates false is refused, because its meaning depends
   on which reader coerces it.
 - They read `on:` in its scalar, sequence and mapping forms, under both the
   quoted `'on'` key and the bare one PyYAML reads as the boolean `True`, and
   they load every workflow through a loader that refuses a mapping declaring
-  one key twice, since PyYAML would otherwise keep the second silently.
+  one key twice, since PyYAML would otherwise keep the second silently. A
+  workflow that declares `on` under both keys is refused, because GitHub merges
+  the two and a reader that picks one is blind to the other.
 
 The publisher has rules of its own. Its upload step's condition must carry
 `github.ref == 'refs/heads/main'` as a conjunct, split on `&&`, with any
@@ -1416,7 +1421,11 @@ unquoted `||` refused: the dispatch trigger can be started from any branch, and
 containing its text. Its push filter must name `main` alone. And its runs queue
 rather than cancel: a cancelled publisher abandons both the upload and the
 ratchet baseline the next pull request reads, so no concurrency setting on it
-may carry `cancel-in-progress` other than `false`.
+may carry `cancel-in-progress` other than `false`. The upload step must bind
+`CS_ACCESS_TOKEN` to `${{ secrets.CS_ACCESS_TOKEN }}` and pass
+`${{ env.CS_ACCESS_TOKEN }}` as `access-token`. That is asserted positively,
+because the step's non-empty guard passes with the binding deleted, and the
+upload would then skip on every run without failing.
 
 The pull-request lane also checks out shallow. Full history was fetched for
 `cs-coverage check`, which diffed against the merge base; the ratchet reads no

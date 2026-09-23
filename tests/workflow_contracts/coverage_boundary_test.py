@@ -78,6 +78,27 @@ def _publisher_uploads(document: dict[str, typ.Any]) -> list[dict[str, typ.Any]]
     ]
 
 
+#: The binding the upload step must carry, and the input that must read it.
+#: Asserted positively: a guard on `env.CS_ACCESS_TOKEN != ''` passes with the
+#: binding deleted, and the upload then skips on every run without failing.
+TOKEN_BINDING: typ.Final[str] = "${{ secrets.CS_ACCESS_TOKEN }}"
+TOKEN_INPUT: typ.Final[str] = "${{ env.CS_ACCESS_TOKEN }}"
+
+
+def _assert_the_token_is_bound(step: dict[str, typ.Any]) -> None:
+    """Require the upload step to bind the credential and pass it on."""
+    env = step.get("env") if isinstance(step.get("env"), dict) else {}
+    with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
+    assert env.get("CS_ACCESS_TOKEN") == TOKEN_BINDING, (
+        f"the upload step must bind CS_ACCESS_TOKEN to {TOKEN_BINDING}; it "
+        f"binds {env.get('CS_ACCESS_TOKEN')!r}, so its guard would skip it"
+    )
+    assert with_.get("access-token") == TOKEN_INPUT, (
+        f"the upload must pass {TOKEN_INPUT} as access-token; it passes "
+        f"{with_.get('access-token')!r}"
+    )
+
+
 @pytest.mark.parametrize("name", [path.name for path in workflow_paths()])
 def test_no_pull_request_workflow_touches_the_publication_surface(name: str) -> None:
     """The boundary, over every workflow a pull request can reach.
@@ -190,6 +211,8 @@ def test_the_publisher_keeps_the_upload_this_boundary_moved_to_it() -> None:
         else UPLOAD_MODE
         for step in calls
     ]
+    for step in calls:
+        _assert_the_token_is_bound(step)
     assert UPLOAD_MODE in modes, (
         f"{PUBLISHER_WORKFLOW} must call the action in `{UPLOAD_MODE}` mode, "
         f"which is also its default when `mode` is absent; the calls pass "

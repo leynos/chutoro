@@ -186,6 +186,18 @@ def test_only_the_literal_opt_out_declines_the_archive(
             id="an-expression-with-a-non-literal-alternative",
         ),
         pytest.param("dist/${{ matrix.x }}", True, id="a-relative-path-an-expression-decides"),
+        pytest.param("/", True, id="the-root"),
+        pytest.param("/home/runner/work", True, id="the-directory-above-the-workspace"),
+        pytest.param("/home/**/*.info", True, id="an-absolute-glob-over-home"),
+        pytest.param("~", True, id="the-home-directory"),
+        pytest.param("~/work/lcov", True, id="a-path-under-home"),
+        pytest.param("/tmp/../home/runner", True, id="a-scratch-path-that-climbs-out"),
+        pytest.param(
+            "${{ x && '/tmp/a.log' || '/home/runner/work' }}",
+            True,
+            id="an-expression-with-a-non-scratch-absolute-arm",
+        ),
+        pytest.param("${{ c && '' || '' }}", True, id="an-expression-yielding-only-empty"),
     ],
 )
 def test_an_artefact_path_is_judged_by_what_it_can_carry(
