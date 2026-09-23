@@ -45,6 +45,14 @@ def test_a_condition_requiring_the_trunk_is_accepted(condition: str) -> None:
             f"{_TOKEN_GUARD} && {TRUNK_REF_GUARD} || github.event_name == 'workflow_dispatch'",
             id="the-guard-made-optional-by-an-or",
         ),
+        # The case that proves the `||` refusal. Every required conjunct stays
+        # whole, and the `||` hides inside an extra, narrowing one, so the
+        # `&&` split alone accepts it while a dispatch uploads from any branch.
+        pytest.param(
+            f"{_TOKEN_GUARD} && {TRUNK_REF_GUARD} && github.actor != 'x' "
+            "|| github.event_name == 'workflow_dispatch'",
+            id="an-or-hidden-in-an-extra-conjunct",
+        ),
         pytest.param(_TOKEN_GUARD, id="no-guard-at-all"),
         pytest.param(f"{_TOKEN_GUARD} && github.ref != 'refs/heads/main'", id="the-negation"),
         pytest.param(
