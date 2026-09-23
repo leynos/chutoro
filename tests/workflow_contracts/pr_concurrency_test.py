@@ -24,7 +24,7 @@ Only `pull_request` is in scope. A `pull_request_target` workflow runs against
 the base repository to carry a token, and the one here merges Dependabot pull
 requests; cancelling a merge mid-flight is a hazard with no minutes to win.
 
-Workflows are read through a loader that refuses duplicate mapping keys.
+Workflows are read through `strict_yaml`, which refuses duplicate mapping keys.
 PyYAML otherwise keeps the last of two `concurrency:` blocks and says nothing,
 so a correct block could sit above a wrong one and pass.
 
@@ -46,6 +46,7 @@ from pr_concurrency_groups import (
     keeps_runs_together_and_apart,
     render_group,
 )
+from strict_yaml import parse_workflow_text
 
 #: The repository's workflow directory. The module sits two levels below the
 #: repository root, in `tests/workflow_contracts/`.
@@ -85,36 +86,9 @@ KNOWN_PULL_REQUEST_WORKFLOWS: frozenset[str] = frozenset(
 )
 
 
-class DuplicateKeyError(yaml.constructor.ConstructorError):
-    """Raised when a workflow mapping declares the same key twice."""
-
-
-class _StrictLoader(yaml.SafeLoader):
-    """Safe loader that refuses a mapping declaring one key twice."""
-
-    def construct_mapping(
-        self,
-        node: yaml.MappingNode,
-        deep: bool = False,  # noqa: FBT001, FBT002 - PyYAML's own signature
-    ) -> dict[object, object]:
-        """Build a mapping, refusing the second occurrence of any key."""
-        seen: set[object] = set()
-        for key_node, _ in node.value:
-            key = self.construct_object(key_node, deep=deep)
-            if key in seen:
-                raise DuplicateKeyError(
-                    None,
-                    None,
-                    f"duplicate key {key!r}",
-                    key_node.start_mark,
-                )
-            seen.add(key)
-        return super().construct_mapping(node, deep=deep)
-
-
 def _parse(text: str, name: str) -> dict[object, object]:
     """Parse workflow text strictly, refusing anything but a mapping."""
-    document = yaml.load(text, Loader=_StrictLoader)  # noqa: S506 - SafeLoader subclass
+    document = parse_workflow_text(text)
     if not isinstance(document, dict):
         message = f"{name} must parse as a mapping"
         raise AssertionError(message)
@@ -256,7 +230,9 @@ def test_a_duplicated_key_is_refused_rather_than_resolved() -> None:
     the contracts use, not the files it guards.
     """
     text = "on:\n  pull_request:\nconcurrency:\n  group: a\nconcurrency:\n  group: b\n"
-    with pytest.raises(DuplicateKeyError, match="duplicate key 'concurrency'"):
+    with pytest.raises(
+        yaml.constructor.ConstructorError, match="found duplicate key 'concurrency'"
+    ):
         _parse(text, "duplicated.yml")
 
 
