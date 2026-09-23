@@ -1,9 +1,23 @@
-.PHONY: help all clean test build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling kani kani-full verus bench test-workflow-contracts
+.PHONY: help all clean test build release dev-build dev-test install-dev-fast typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling kani kani-full verus bench test-workflow-contracts
+.NOTPARALLEL: lint
 
-export PATH := $(HOME)/.cargo/bin:$(HOME)/.bun/bin:$(PATH)
+export PATH := $(HOME)/.cargo/bin:$(HOME)/.local/bin:$(HOME)/.bun/bin:$(PATH)
 
 APP ?= chutoro-cli
 CARGO ?= cargo
+DEV_FAST_TOOLCHAIN := $(strip $(file <tools/dev-fast/TOOLCHAIN))
+DEV_FAST_CONFIG := tools/dev-fast/config.toml
+DEV_CARGO = $(CARGO) +$(DEV_FAST_TOOLCHAIN) --config $(DEV_FAST_CONFIG)
+# RUSTFLAGS overrides Cargo configuration rather than extending it. Preserve
+# the Linux linker selection when the test gate adds its warning policy.
+DEV_FAST_HOST_OS ?= $(shell uname -s)
+DEV_TEST_RUSTFLAGS = $(strip -D warnings -Dmissing_docs \
+	-Dmissing_crate_level_docs \
+	$(if $(filter Linux,$(DEV_FAST_HOST_OS)),-Clink-arg=-fuse-ld=mold))
+# Exact compiler diagnostics belong to the repository's stable toolchain.
+STABLE_VERIFY_RUSTFLAGS = -D warnings -Dmissing_docs -Dmissing_crate_level_docs
+NEXTEST_ARGS ?=
+NEXTEST_FILTER = not kind(bench) & not (package(chutoro-core) & binary(result_api_surface)) & not (package(chutoro-core) & binary(session_api_surface)) & not (package(chutoro-providers-dense) & test(portable_simd_without_feature_is_rejected))
 WHITAKER ?= whitaker
 BUILD_JOBS ?=
 CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
@@ -47,15 +61,16 @@ KANI_VERSION_REMAINDER := $(subst 8,,$(KANI_VERSION_REMAINDER))
 KANI_VERSION_REMAINDER := $(subst 9,,$(KANI_VERSION_REMAINDER))
 KANI_VERSION_REMAINDER := $(subst .,,$(KANI_VERSION_REMAINDER))
 ifneq ($(words $(KANI_VERSION_PARTS)),3)
-$(error KANI_VERSION must be MAJOR.MINOR.PATCH)
+_KANI_VERSION_CHECK := $(error KANI_VERSION must be MAJOR.MINOR.PATCH)
 endif
 ifneq ($(strip $(KANI_VERSION_REMAINDER)),)
-$(error KANI_VERSION must be MAJOR.MINOR.PATCH)
+_KANI_VERSION_CHECK := $(error KANI_VERSION must be MAJOR.MINOR.PATCH)
 endif
 KANI_LIB_PATH ?= $(KANI_HOME)/kani-$(KANI_VERSION)/toolchain/lib
 KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
 
-build: target/debug/$(APP) ## Build debug binary
+build: ## Build debug binary
+	$(DEV_CARGO) build $(BUILD_JOBS) --bin $(APP)
 release: target/release/$(APP) ## Build release binary
 
 all: release spelling ## Default target builds release binary and checks spelling
@@ -64,22 +79,37 @@ clean: ## Remove build artefacts
 	$(CARGO) clean
 
 test: ## Run tests with warnings treated as errors
-	RUSTFLAGS="-D warnings" $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E 'not kind(bench)'
+	RUSTFLAGS="$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(NEXTEST_ARGS) $(BUILD_JOBS) -E '$(NEXTEST_FILTER)'
+	RUSTFLAGS="$(STABLE_VERIFY_RUSTFLAGS)" env -u RUSTUP_TOOLCHAIN $(CARGO) test -p chutoro-core --all-features --test result_api_surface --test session_api_surface $(BUILD_JOBS)
+	RUSTFLAGS="$(STABLE_VERIFY_RUSTFLAGS)" env -u RUSTUP_TOOLCHAIN $(CARGO) test -p chutoro-providers-dense --all-features --test portable_simd_gating $(BUILD_JOBS) -- --exact portable_simd_without_feature_is_rejected
 
 target/%/$(APP): ## Build binary in debug or release mode
-	$(CARGO) build $(BUILD_JOBS) $(if $(findstring release,$(@)),--release) --bin $(APP)
+	$(if $(findstring release,$(@)),$(CARGO),$(DEV_CARGO)) build $(BUILD_JOBS) $(if $(findstring release,$(@)),--release) --bin $(APP)
+
+# The explicit names use the same selected route as the standard debug gates.
+dev-build: build ## Build the debug binary with the selected development backend
+
+dev-test: test ## Run the tests with the selected development backend
+
+install-dev-fast: ## Install pinned nightly components and the verified mold binary
+	rustup toolchain install $(DEV_FAST_TOOLCHAIN) --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rustc-codegen-cranelift-preview
+ifeq ($(DEV_FAST_HOST_OS),Linux)
+	scripts/install-mold.sh
+else
+	@echo 'mold is Linux-only; the platform linker remains selected'
+endif
 
 lint: lint-clippy lint-whitaker ## Run Clippy and the Whitaker Dylint suite with warnings denied
 
 lint-clippy: ## Run rustdoc and Clippy with warnings denied
-	RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) doc --workspace --no-deps
-	$(CARGO) clippy $(CLIPPY_FLAGS)
+	RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(DEV_CARGO) doc --workspace --no-deps
+	$(DEV_CARGO) clippy $(CLIPPY_FLAGS)
 
 lint-whitaker: ## Run the Whitaker Dylint suite with warnings denied
 	RUSTFLAGS="-D warnings" $(WHITAKER) --all -- --all-targets --all-features
 
 typecheck: ## Type-check all workspace targets and features
-	$(CARGO) check --workspace --all-targets --all-features $(BUILD_JOBS)
+	$(DEV_CARGO) check --workspace --all-targets --all-features $(BUILD_JOBS)
 
 fmt: ## Format Rust and Markdown sources
 	$(CARGO) fmt --all

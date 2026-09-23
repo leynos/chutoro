@@ -1,12 +1,14 @@
 //! Regression checks for the repository's nextest profile configuration.
 
+use std::path::Path;
+use std::process::Command;
+
 use rstest::rstest;
 
 const NEXTEST_CONFIG: &str = include_str!("../../.config/nextest.toml");
 const PROPERTY_TESTS_WORKFLOW: &str = include_str!("../../.github/workflows/property-tests.yml");
 const BENCHMARK_REGRESSIONS_WORKFLOW: &str =
     include_str!("../../.github/workflows/benchmark-regressions.yml");
-const MAKEFILE: &str = include_str!("../../Makefile");
 const BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }";
 
@@ -79,15 +81,6 @@ fn benchmark_workflow_job_block(job: &str) -> Result<&'static str, String> {
         &format!("  {job}:"),
         "\n\n  ",
         &format!("benchmark workflow job '{job}'"),
-    )
-}
-
-fn make_target_block(target: &str) -> Result<&'static str, String> {
-    extract_block(
-        MAKEFILE,
-        &format!("\n{target}:"),
-        "\n\n",
-        &format!("Makefile target '{target}'"),
     )
 }
 
@@ -206,11 +199,45 @@ fn profiles_preserve_write_lock_proptest_timeout(#[case] profile_name: &str) {
 
 #[test]
 fn makefile_exposes_typecheck_gate() {
-    let typecheck_block = make_target_block("typecheck").expect("typecheck target must exist");
-    assert!(MAKEFILE.contains(" typecheck "));
-    assert!(typecheck_block.contains("cargo") || typecheck_block.contains("$(CARGO)"));
-    assert!(typecheck_block.contains("check --workspace --all-targets --all-features"));
-    assert!(typecheck_block.contains("$(BUILD_JOBS)"));
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("chutoro-core must be a workspace member");
+    let make_output = Command::new("make")
+        .args([
+            "--dry-run",
+            "typecheck",
+            "CARGO=probe-cargo",
+            "BUILD_JOBS=--jobs=3",
+        ])
+        .current_dir(workspace_root)
+        .output()
+        .expect("Make dry-run must start");
+
+    assert!(
+        make_output.status.success(),
+        "Make dry-run should succeed: {}",
+        String::from_utf8_lossy(&make_output.stderr)
+    );
+    let stdout = String::from_utf8(make_output.stdout).expect("Make output must be UTF-8");
+    let cargo_commands = stdout
+        .lines()
+        .filter(|line| line.trim_start().starts_with("probe-cargo "))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        cargo_commands.len(),
+        1,
+        "typecheck must evaluate to exactly one injected Cargo command: {stdout}"
+    );
+    let typecheck_command = cargo_commands
+        .first()
+        .expect("exactly one Cargo command must be present");
+    let pinned_toolchain = include_str!("../../tools/dev-fast/TOOLCHAIN").trim();
+
+    assert!(typecheck_command.contains(&format!("+{pinned_toolchain}")));
+    assert!(typecheck_command.contains("--config tools/dev-fast/config.toml"));
+    assert!(typecheck_command.contains(" check --workspace --all-targets --all-features "));
+    assert!(typecheck_command.ends_with("--jobs=3"));
 }
 
 #[test]
