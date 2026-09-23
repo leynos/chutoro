@@ -17,7 +17,8 @@ DEV_TEST_RUSTFLAGS = $(strip -D warnings -Dmissing_docs \
 # Exact compiler diagnostics belong to the repository's stable toolchain.
 STABLE_VERIFY_RUSTFLAGS = -D warnings -Dmissing_docs -Dmissing_crate_level_docs
 NEXTEST_ARGS ?=
-NEXTEST_FILTER = not kind(bench) & not (package(chutoro-core) & binary(result_api_surface)) & not (package(chutoro-core) & binary(session_api_surface)) & not (package(chutoro-providers-dense) & test(portable_simd_without_feature_is_rejected))
+STABLE_POISONED_LOCK_TEST = hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring
+NEXTEST_FILTER = not kind(bench) & not (package(chutoro-core) & binary(result_api_surface)) & not (package(chutoro-core) & binary(session_api_surface)) & not (package(chutoro-providers-dense) & test(portable_simd_without_feature_is_rejected)) & not (package(chutoro-core) & test(=$(STABLE_POISONED_LOCK_TEST)))
 WHITAKER ?= whitaker
 BUILD_JOBS ?=
 CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
@@ -82,6 +83,8 @@ test: ## Run tests with warnings treated as errors
 	RUSTFLAGS="$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(NEXTEST_ARGS) $(BUILD_JOBS) -E '$(NEXTEST_FILTER)'
 	RUSTFLAGS="$(STABLE_VERIFY_RUSTFLAGS)" env -u RUSTUP_TOOLCHAIN $(CARGO) test -p chutoro-core --all-features --test result_api_surface --test session_api_surface $(BUILD_JOBS)
 	RUSTFLAGS="$(STABLE_VERIFY_RUSTFLAGS)" env -u RUSTUP_TOOLCHAIN $(CARGO) test -p chutoro-providers-dense --all-features --test portable_simd_gating $(BUILD_JOBS) -- --exact portable_simd_without_feature_is_rejected
+	# Cranelift aborts on this lock-poison panic; verify under pinned stable LLVM.
+	RUSTFLAGS="$(STABLE_VERIFY_RUSTFLAGS)" env -u RUSTUP_TOOLCHAIN $(CARGO) test -p chutoro-core --all-features --lib $(BUILD_JOBS) -- --exact $(STABLE_POISONED_LOCK_TEST)
 
 target/%/$(APP): ## Build binary in debug or release mode
 	$(if $(findstring release,$(@)),$(CARGO),$(DEV_CARGO)) build $(BUILD_JOBS) $(if $(findstring release,$(@)),--release) --bin $(APP)

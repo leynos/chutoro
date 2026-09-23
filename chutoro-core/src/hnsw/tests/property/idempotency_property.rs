@@ -50,7 +50,8 @@ pub(super) fn run_idempotency_property(
         .map_err(|err| TestCaseError::fail(format!("index build failed: {err}")))?;
 
     // Snapshot the graph state before duplicate attempts
-    let snapshot = snapshot_graph(&index);
+    let snapshot = snapshot_graph(&index)
+        .map_err(|err| TestCaseError::fail(format!("initial graph snapshot failed: {err}")))?;
 
     // Attempt duplicate insertions
     let duplicate_indices = duplicate_indices_for_job(plan, len, is_coverage_job);
@@ -79,7 +80,9 @@ pub(super) fn run_idempotency_property(
     }
 
     // Verify graph state is unchanged
-    if !graph_matches_snapshot(&index, &snapshot) {
+    if !graph_matches_snapshot(&index, &snapshot)
+        .map_err(|err| TestCaseError::fail(format!("final graph snapshot failed: {err}")))?
+    {
         return Err(TestCaseError::fail(
             "graph state changed after duplicate insertion attempts",
         ));
@@ -150,7 +153,7 @@ struct GraphSnapshot {
 }
 
 /// Captures a snapshot of the graph's structural state.
-fn snapshot_graph(index: &CpuHnsw) -> GraphSnapshot {
+fn snapshot_graph(index: &CpuHnsw) -> Result<GraphSnapshot, HnswError> {
     index.inspect_graph(|graph| {
         let entry = graph.entry();
         let nodes = (0..graph.capacity())
@@ -173,9 +176,9 @@ fn snapshot_node(node: &crate::hnsw::node::Node) -> NodeSnapshot {
 }
 
 /// Checks whether the current graph state matches a snapshot.
-fn graph_matches_snapshot(index: &CpuHnsw, snapshot: &GraphSnapshot) -> bool {
-    let current = snapshot_graph(index);
-    current == *snapshot
+fn graph_matches_snapshot(index: &CpuHnsw, snapshot: &GraphSnapshot) -> Result<bool, HnswError> {
+    let current = snapshot_graph(index)?;
+    Ok(current == *snapshot)
 }
 
 #[cfg(test)]
@@ -302,7 +305,7 @@ mod tests {
         let source = fixture.into_source().expect("source");
 
         let index = CpuHnsw::build(&source, params).expect("index");
-        let snapshot = snapshot_graph(&index);
+        let snapshot = snapshot_graph(&index).expect("graph snapshot must succeed");
 
         // Verify snapshot captures entry point
         assert!(
@@ -316,7 +319,7 @@ mod tests {
 
         // Verify snapshot matches itself
         assert!(
-            graph_matches_snapshot(&index, &snapshot),
+            graph_matches_snapshot(&index, &snapshot).expect("graph comparison must succeed"),
             "graph must match its own snapshot"
         );
     }

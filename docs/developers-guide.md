@@ -42,6 +42,14 @@ nextest and runs them with separate stable Cargo commands that retain warning
 and documentation denials. The positive dense portable-SIMD coverage remains in
 the accelerated nextest run.
 
+`make test` also excludes the HNSW unit test
+`graph_helpers_report_poisoning_without_reconfiguring` from nextest and runs
+that exact case as a fourth binding test leaf under pinned stable LLVM, with
+warning and documentation denials. The test deliberately panics while holding
+the graph's `RwLock` so it can verify poisoned-lock handling. The selected
+nightly Cranelift backend aborts on this path instead of unwinding; this
+exception is limited to that regression test.
+
 Release builds, formatting, coverage, Kani, Verus, benchmarks, and Whitaker do
 not select the development fragment. Whitaker uses its own pinned toolchain. The
 `build-test` and `coverage-upload` CI jobs provision the development
