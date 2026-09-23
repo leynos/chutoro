@@ -54,11 +54,14 @@ jobs:
       # cache would evict its own neighbours.
       SCCACHE_CACHE_SIZE: 2G
     steps:
+      # A shallow checkout, the action's default, because nothing in this job
+      # reads history any more. The `cs-coverage check` step that needed the
+      # pull request's merge base is gone, and the ratchet compares a
+      # percentage against a cached baseline rather than a diff. Restoring
+      # `fetch-depth: 0` needs a step that actually consumes the merge base;
+      # it cannot be the CodeScene check, which now belongs to a push-only
+      # workflow that has no pull request to find a merge base for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          # cs-coverage check diffs the PR against its merge base, so the
-          # full history must be fetched for the merge base to be reachable.
-          fetch-depth: 0
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@82feb2b7aac45b7efff40c9c4bb632551b14521c
         with:
@@ -162,6 +165,13 @@ jobs:
           # but fails under plain cargo test, so coverage stays on nextest.
           use-cargo-nextest: 'true'
           with-ratchet: 'true'
+          # This lane measures and compares; it does not publish. The action
+          # archives the report it generated under a step of its own, which no
+          # scanner over this file's steps can see, so declining that archive
+          # is the only way the boundary is observable here. The report stays
+          # on the runner for the ratchet; `coverage-main.yml` keeps the
+          # action's default and uploads.
+          publish-artefact: 'false'
           # Setup Rust owns ~/.cargo/registry and ~/.cargo/git for this job
           # and restores them before the first build step. Leaving this
           # action's cache enabled would archive the same paths under a
@@ -187,17 +197,6 @@ jobs:
             sccache --show-stats
             printf '```\n'
           } | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Check coverage against CodeScene gates
-        env:
-          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-        if: env.CS_ACCESS_TOKEN != '' && github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@82feb2b7aac45b7efff40c9c4bb632551b14521c
-        with:
-          format: lcov
-          mode: check
-          project-url: https://api.codescene.io/v2/projects/71838
-          access-token: ${{ env.CS_ACCESS_TOKEN }}
-          installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
 
   verus-proofs:
     # A pull request from a fork cannot obtain an Ubicloud runner, so it

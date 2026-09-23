@@ -1351,6 +1351,108 @@ selection:
 `chutoro-providers-dense`. Keep new dense harnesses small enough for
 `make kani` unless they are intentionally slow-lane proofs.
 
+## Who may publish coverage
+
+`coverage-main.yml` owns the CodeScene surface. It runs on a push to the trunk,
+it uploads the report, and it is the only workflow here that may hold the
+CodeScene credential. No workflow a pull request can reach may invoke the
+CodeScene action, run a `cs-coverage` command, or carry that credential.
+
+The rule is CV-005 and the reason is availability. A step that needs an
+external service and a secret turns a pull request red when the service is
+unavailable or the token has rotated, whatever the pull request changed. That
+is not hypothetical: thirteen projects across the estate stopped returning a
+gates configuration, and every pull-request lane that ran `cs-coverage check`
+failed with `received project-config isn't valid` until the check was removed.
+
+What a pull request keeps is the measurement. `build-test` calls
+`generate-coverage` with `with-ratchet: true`, comparing against the baseline
+`coverage-main.yml` wrote, so an author still learns whether changed lines are
+covered. It also passes `publish-artefact: 'false'`. That input is the only
+part of the boundary visible in the workflow file: the action archives the
+report under a step inside itself, which no scan of this file's steps can see,
+so a caller that reaches the action without the opt-out has published the
+report whether or not the workflow declares an artefact step.
+
+What the contracts in `tests/workflow_contracts/coverage_boundary.py` and
+`tests/workflow_contracts/coverage_publisher.py` do that is worth knowing
+before editing a workflow:
+
+- They read the raw text as well as the parsed document, ignoring case, so
+  neither the credential's name nor the `codescene.io` host may appear in a
+  pull-request workflow, even in a comment. A workflow that names either is a
+  workflow somebody is about to wire it into.
+- They follow local `jobs.<id>.uses` calls, and every pull-request rule runs
+  over the whole closure. A reusable child declares `workflow_call`, not
+  `pull_request`, so a reading that trusted triggers alone would stop at the
+  parent and never ask about the child. A call is local by its shape: with one
+  leading `./` or `$/` removed, the path lies under `.github/workflows/`. A
+  local call naming a file that is not there is reported, not skipped.
+- A workflow counts as reachable by a pull request when it declares
+  `pull_request`, `pull_request_target`, `workflow_run`, `pull_request_review`,
+  `pull_request_review_comment`, or `merge_group`.
+- `secrets: inherit` on a pull-request job is refused. It forwards the
+  credential without the caller's text ever naming it.
+- They judge an artefact path by what it can carry rather than by how it is
+  spelt. A path of `.`, one reaching upward through `..`, an unresolved
+  expression, or a pattern that matches `lcov.info` all publish the report. So
+  does an absolute path outside the scratch root `/tmp/`, such as `/`,
+  `/home/runner/work` or a glob over `/home`, and any path under `~`, because
+  each can hold the workspace. A path under `/tmp/` that never climbs out, a
+  named directory, and a pattern that cannot match the report do not, which is
+  why the benchmark and property-test log uploads are untouched. An expression
+  is cleared only when every `||` alternative ends in a quoted literal that is
+  a scratch path or empty, and at least one is a path, so
+  `… || github.workspace` and `c && '' || ''` still publish.
+- `publish-artefact` must be the quoted string `'false'`. An unquoted boolean
+  or an expression that evaluates false is refused, because its meaning depends
+  on which reader coerces it.
+- They read `on:` in its scalar, sequence and mapping forms, under both the
+  quoted `'on'` key and the bare one PyYAML reads as the boolean `True`, and
+  they load every workflow through a loader that refuses a mapping declaring
+  one key twice, since PyYAML would otherwise keep the second silently. A
+  workflow that declares `on` under both keys is refused, because GitHub merges
+  the two and a reader that picks one is blind to the other.
+
+The publisher has rules of its own. Its upload step's condition must carry
+`github.ref == 'refs/heads/main'` as a conjunct, split on `&&`, with any
+unquoted `||` refused: the dispatch trigger can be started from any branch, and
+`... && github.ref == 'refs/heads/main' && github.actor != 'x' || ...` keeps
+every required conjunct whole while making the guard optional. Its push filter
+must name `main` alone.
+
+The credential is bound in no `env` on the publisher. The upload action is
+composite and hands its step's `env` to the `upload-artifact` and cache steps
+nested inside it, so `access-token` is passed straight from
+`${{ secrets.CS_ACCESS_TOKEN }}`. Whether the credential exists is answered by
+a step whose sole command, with no `if:` and no `env`, is
+`echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"`,
+and the upload's condition requires `steps.<id>.outputs.available == 'true'`.
+The expression is evaluated before the shell runs, so the command holds no
+conditional. Each part is asserted, because a guard on a binding that has been
+deleted passes and the upload then skips on every run without failing.
+
+Its concurrency is exactly `group: coverage-main-${{ github.ref }}` with
+`cancel-in-progress: false`. Runs never overlap, and GitHub replaces a pending
+run with the newest trigger, so triggered runs (push and dispatch) upload in
+commit order; a group keyed on the event as well would let an earlier dispatch
+finish after a newer push and upload older coverage last. A manual "Re-run
+jobs" on an older run keeps that run's commit: it is an operator action that
+republishes that commit's coverage and baseline until the next push supersedes
+it. A cancelled publisher would abandon both the upload and the ratchet
+baseline the next pull request reads.
+
+Two gaps are known and accepted. A Dependabot automerge made with
+`GITHUB_TOKEN` fires no push, so that merge publishes nothing until the next
+push to `main`. And a dispatch that replaces a pending push uploads the same or
+a newer commit, but the ratchet baseline is saved only on a push, so it stays
+one commit behind until the next one.
+
+The pull-request lane also checks out shallow. Full history was fetched for
+`cs-coverage check`, which diffed against the merge base; the ratchet reads no
+history, and a contract refuses a deeper `fetch-depth` on `build-test` until a
+step that uses the merge base argues for it.
+
 ## Kani CI policy
 
 `make kani` is the pull-request gate. The path-filtered

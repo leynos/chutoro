@@ -1,11 +1,13 @@
 name: Coverage (main)
 
 # CodeScene accepts `cs-coverage upload` only for analysed branches, so
-# main-branch coverage is uploaded here on push; pull requests run the
-# changed-line gate (`cs-coverage check`) in ci.yml instead. This
-# workflow also advances the coverage ratchet baseline: caches saved on
-# main are readable by every pull-request run, so the baseline written
-# here is the one PR ratchet checks compare against.
+# main-branch coverage is uploaded here on push, and this is the only
+# workflow that may talk to CodeScene or hold its credential. Pull
+# requests measure coverage against the ratchet in ci.yml and publish
+# nothing; see "Who may publish coverage" in docs/developers-guide.md.
+# This workflow also advances the coverage ratchet baseline: caches
+# saved on main are readable by every pull-request run, so the baseline
+# written here is the one PR ratchet checks compare against.
 
 'on':
   push:
@@ -13,6 +15,16 @@ name: Coverage (main)
   # Manual dispatch allows re-running the upload (and re-seeding the
   # ratchet baseline) without waiting for the next push to main.
   workflow_dispatch:
+
+# Runs never cancel and never overlap. A cancelled publisher abandons its
+# upload and the baseline write the next pull request reads. GitHub keeps
+# one pending run per group, and the newest trigger replaces it, so a burst
+# of pushes collapses to the newest. The group is keyed on the ref alone:
+# keyed on the event too, an earlier dispatch could finish after a newer
+# push and upload older coverage last.
+concurrency:
+  group: coverage-main-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   coverage-upload:
@@ -157,15 +169,25 @@ jobs:
             sccache --show-stats
             printf '```\n'
           } | tee -a "$GITHUB_STEP_SUMMARY"
+      # Whether the credential exists, without putting it in any step's
+      # `env`. The expression is evaluated before the shell runs, so the
+      # command writes a literal `true` or `false` and holds no conditional.
+      # The upload action is composite and hands its step's `env` to the
+      # upload-artifact and cache steps nested inside it, so the token is
+      # passed to it as an input and bound nowhere else.
+      - name: Check the CodeScene credential is available
+        id: codescene-credential
+        run: echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"
       - name: Upload coverage data to CodeScene
-        env:
-          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-        if: env.CS_ACCESS_TOKEN != ''
+        # The trunk guard is a conjunct of its own because the dispatch
+        # trigger above can be started from any branch, and CodeScene would
+        # take that branch's report as the project's.
+        if: steps.codescene-credential.outputs.available == 'true' && github.ref == 'refs/heads/main'
         uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@82feb2b7aac45b7efff40c9c4bb632551b14521c
         with:
           format: lcov
           project-url: https://api.codescene.io/v2/projects/71838
-          access-token: ${{ env.CS_ACCESS_TOKEN }}
+          access-token: ${{ secrets.CS_ACCESS_TOKEN }}
           installer-checksum: ${{ vars.CODESCENE_CLI_SHA256 }}
       # The save has to archive a quiescent directory, so the server stops
       # first; its statistics have already been read above. The coverage

@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from strict_yaml import parse_workflow_text
+
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
 ACTIONLINT_CONFIG = ROOT / ".github" / "actionlint.yaml"
@@ -97,7 +99,7 @@ def read_workflow_document(path: Path) -> object:
         message = f"{path} is not UTF-8 text: {error}"
         raise WorkflowReadError(message) from error
     try:
-        return yaml.safe_load(text)
+        return parse_workflow_text(text)
     except yaml.YAMLError as error:
         message = f"{path} is not YAML: {error}"
         raise WorkflowReadError(message) from error
@@ -132,7 +134,7 @@ def workflow_names() -> list[str]:
 
 def load_workflow(name: str) -> dict[str, typ.Any]:
     """Parse one workflow file into a mapping."""
-    workflow = yaml.safe_load((WORKFLOW_DIR / name).read_text(encoding="utf-8"))
+    workflow = parse_workflow_text((WORKFLOW_DIR / name).read_text(encoding="utf-8"))
     if not isinstance(workflow, dict):
         msg = f"{name} must parse to a mapping"
         raise AssertionError(msg)
