@@ -1417,15 +1417,33 @@ before editing a workflow:
 The publisher has rules of its own. Its upload step's condition must carry
 `github.ref == 'refs/heads/main'` as a conjunct, split on `&&`, with any
 unquoted `||` refused: the dispatch trigger can be started from any branch, and
-`... && github.ref == 'refs/heads/main' || ...` makes the guard optional while
-containing its text. Its push filter must name `main` alone. And its runs queue
-rather than cancel: a cancelled publisher abandons both the upload and the
-ratchet baseline the next pull request reads, so no concurrency setting on it
-may carry `cancel-in-progress` other than `false`. The upload step must bind
-`CS_ACCESS_TOKEN` to `${{ secrets.CS_ACCESS_TOKEN }}` and pass
-`${{ env.CS_ACCESS_TOKEN }}` as `access-token`. That is asserted positively,
-because the step's non-empty guard passes with the binding deleted, and the
-upload would then skip on every run without failing.
+`... && github.ref == 'refs/heads/main' && github.actor != 'x' || ...` keeps
+every required conjunct whole while making the guard optional. Its push filter
+must name `main` alone.
+
+The credential is bound in no `env` on the publisher. The upload action is
+composite and hands its step's `env` to the `upload-artifact` and cache steps
+nested inside it, so `access-token` is passed straight from
+`${{ secrets.CS_ACCESS_TOKEN }}`. Whether the credential exists is answered by
+a step whose sole command, with no `if:` and no `env`, is
+`echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"`,
+and the upload's condition requires `steps.<id>.outputs.available == 'true'`.
+The expression is evaluated before the shell runs, so the command holds no
+conditional. Each part is asserted, because a guard on a binding that has been
+deleted passes and the upload then skips on every run without failing.
+
+Its concurrency is exactly `group: coverage-main-${{ github.ref }}` with
+`cancel-in-progress: false`. Runs never overlap, and GitHub replaces a pending
+run with the newest trigger, so uploads land in commit order; a group keyed on
+the event as well would let an earlier dispatch finish after a newer push and
+upload older coverage last. A cancelled publisher would abandon both the upload
+and the ratchet baseline the next pull request reads.
+
+Two gaps are known and accepted. A Dependabot automerge made with
+`GITHUB_TOKEN` fires no push, so that merge publishes nothing until the next
+push to `main`. And a dispatch that replaces a pending push uploads the same or
+a newer commit, but the ratchet baseline is saved only on a push, so it stays
+one commit behind until the next one.
 
 The pull-request lane also checks out shallow. Full history was fetched for
 `cs-coverage check`, which diffed against the merge base; the ratchet reads no

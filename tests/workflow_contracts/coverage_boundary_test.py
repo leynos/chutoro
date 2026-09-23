@@ -30,6 +30,8 @@ from coverage_boundary import (
 from coverage_publisher import (
     TRUNK_BRANCH,
     cancelling_scopes,
+    credential_bindings,
+    credential_check_offences,
     push_branches,
     upload_condition_offences,
 )
@@ -78,24 +80,38 @@ def _publisher_uploads(document: dict[str, typ.Any]) -> list[dict[str, typ.Any]]
     ]
 
 
-#: The binding the upload step must carry, and the input that must read it.
-#: Asserted positively: a guard on `env.CS_ACCESS_TOKEN != ''` passes with the
-#: binding deleted, and the upload then skips on every run without failing.
-TOKEN_BINDING: typ.Final[str] = "${{ secrets.CS_ACCESS_TOKEN }}"
-TOKEN_INPUT: typ.Final[str] = "${{ env.CS_ACCESS_TOKEN }}"
+#: The input the upload must pass, read from the secret directly. The upload
+#: action is composite and hands its step's `env` to the upload-artifact and
+#: cache steps nested inside it, so the token is bound in no `env` at all.
+TOKEN_INPUT: typ.Final[str] = "${{ secrets.CS_ACCESS_TOKEN }}"
+
+#: The publisher's concurrency, exactly. Keyed on the ref alone: keyed on the
+#: event as well, an earlier dispatch could finish after a newer push and
+#: upload older coverage last.
+PUBLISHER_CONCURRENCY: typ.Final[dict[str, object]] = {
+    "group": "coverage-main-${{ github.ref }}",
+    "cancel-in-progress": False,
+}
 
 
-def _assert_the_token_is_bound(step: dict[str, typ.Any]) -> None:
-    """Require the upload step to bind the credential and pass it on."""
-    env = step.get("env") if isinstance(step.get("env"), dict) else {}
-    with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
-    assert env.get("CS_ACCESS_TOKEN") == TOKEN_BINDING, (
-        f"the upload step must bind CS_ACCESS_TOKEN to {TOKEN_BINDING}; it "
-        f"binds {env.get('CS_ACCESS_TOKEN')!r}, so its guard would skip it"
-    )
-    assert with_.get("access-token") == TOKEN_INPUT, (
-        f"the upload must pass {TOKEN_INPUT} as access-token; it passes "
-        f"{with_.get('access-token')!r}"
+def _assert_the_token_is_passed_and_checked(document: dict[str, typ.Any]) -> None:
+    """Require the credential check, the direct input, and no `env` binding."""
+    for definition in (document.get("jobs") or {}).values():
+        job_steps = steps(definition if isinstance(definition, dict) else {})
+        for index, step in enumerate(job_steps):
+            if action_of(step) != UPLOAD_COVERAGE_ACTION:
+                continue
+            offences = credential_check_offences(job_steps, index)
+            assert not offences, f"{PUBLISHER_WORKFLOW}'s upload: {offences}"
+            with_ = step.get("with") if isinstance(step.get("with"), dict) else {}
+            assert with_.get("access-token") == TOKEN_INPUT, (
+                f"the upload must pass {TOKEN_INPUT} as access-token; it passes "
+                f"{with_.get('access-token')!r}"
+            )
+    bound = credential_bindings(document)
+    assert not bound, (
+        f"{PUBLISHER_WORKFLOW} must bind CS_ACCESS_TOKEN in no env, since the "
+        f"composite upload leaks its step env to nested steps: {bound}"
     )
 
 
@@ -211,8 +227,7 @@ def test_the_publisher_keeps_the_upload_this_boundary_moved_to_it() -> None:
         else UPLOAD_MODE
         for step in calls
     ]
-    for step in calls:
-        _assert_the_token_is_bound(step)
+    _assert_the_token_is_passed_and_checked(document)
     assert UPLOAD_MODE in modes, (
         f"{PUBLISHER_WORKFLOW} must call the action in `{UPLOAD_MODE}` mode, "
         f"which is also its default when `mode` is absent; the calls pass "
@@ -240,14 +255,20 @@ def test_the_publisher_uploads_from_the_trunk_alone() -> None:
     assert not offences, f"{PUBLISHER_WORKFLOW} can upload off the trunk: {offences}"
 
 
-def test_the_publisher_queues_rather_than_cancels() -> None:
+def test_the_publisher_never_cancels_and_is_keyed_on_the_ref() -> None:
     """A cancelled publisher leaves the next pull request a stale baseline.
 
     It abandons the upload and the ratchet write together, and nothing reports
-    it. The pull-request lanes may cancel superseded runs; this one may not.
+    it. One group keyed on the ref means runs never overlap, and the newest
+    trigger replaces a pending one, so uploads land in commit order.
     """
-    scopes = cancelling_scopes(_publisher())
+    document = _publisher()
+    scopes = cancelling_scopes(document)
     assert not scopes, (
-        f"{PUBLISHER_WORKFLOW} must queue its runs; cancel-in-progress is set "
-        f"on {scopes}"
+        f"{PUBLISHER_WORKFLOW} must never cancel a run; cancel-in-progress is "
+        f"set on {scopes}"
+    )
+    assert document.get("concurrency") == PUBLISHER_CONCURRENCY, (
+        f"{PUBLISHER_WORKFLOW} must declare exactly {PUBLISHER_CONCURRENCY}, a "
+        f"group keyed on the ref alone; it declares {document.get('concurrency')}"
     )

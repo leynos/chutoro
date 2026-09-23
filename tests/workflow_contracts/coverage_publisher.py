@@ -138,3 +138,110 @@ def cancelling_scopes(document: dict[typ.Any, typ.Any]) -> list[str]:
         if isinstance(definition, dict) and _cancels(definition.get("concurrency")):
             scopes.append(f"job {name}")
     return scopes
+
+
+#: The one command the credential check may run. The expression is evaluated
+#: before the shell starts, so the step writes a literal `true` or `false`,
+#: holds no shell conditional, and puts the token in no step's `env`.
+CREDENTIAL_CHECK_COMMAND: typ.Final[str] = (
+    "echo \"available=${{ secrets.CS_ACCESS_TOKEN != '' }}\" >> \"$GITHUB_OUTPUT\""
+)
+
+#: The conjunct naming the check step's output, with the step id captured.
+_AVAILABLE_CONJUNCT: typ.Final[re.Pattern[str]] = re.compile(
+    r"^steps\.(?P<id>[A-Za-z0-9_-]+)\.outputs\.available == 'true'$"
+)
+
+#: The credential's name, which no `env` on the publisher may bind.
+CREDENTIAL_NAME: typ.Final[str] = "CS_ACCESS_TOKEN"
+
+
+def _conjuncts(condition: object) -> list[str]:
+    """Return a condition's `&&` conjuncts, whitespace normalised."""
+    if not isinstance(condition, str):
+        return []
+    wrapped = _EXPRESSION_WRAPPER.match(condition.strip())
+    body = wrapped.group("body") if wrapped else condition.strip()
+    return [_normalised(part) for part in body.split("&&")]
+
+
+def _check_step_id(condition: object) -> str | None:
+    """Return the step id whose `available` output the condition requires."""
+    matches = (_AVAILABLE_CONJUNCT.match(part) for part in _conjuncts(condition))
+    return next((match["id"] for match in matches if match), None)
+
+
+def _check_step_offences(check: dict[str, typ.Any]) -> list[str]:
+    """Return why a credential check step is not the prescribed one."""
+    offences = []
+    if str(check.get("run", "")).strip() != CREDENTIAL_CHECK_COMMAND:
+        offences.append(f"the check must run exactly {CREDENTIAL_CHECK_COMMAND!r}")
+    offences.extend(
+        f"the check must not declare `{key}`"
+        for key in ("if", "env", "uses")
+        if key in check
+    )
+    return offences
+
+
+def credential_check_offences(
+    steps: list[dict[str, typ.Any]], upload_index: int
+) -> list[str]:
+    """Return why an upload step's credential check is missing or wrong.
+
+    The upload's condition must require `steps.<id>.outputs.available ==
+    'true'`, and the step with that id must come before the upload and run
+    `CREDENTIAL_CHECK_COMMAND` as its sole command, with no `if`, `env` or
+    `uses`.
+
+    Examples
+    --------
+    >>> credential_check_offences(
+    ...     [{"id": "c", "run": CREDENTIAL_CHECK_COMMAND},
+    ...      {"if": "steps.c.outputs.available == 'true'"}],
+    ...     1,
+    ... )
+    []
+    """
+    step_id = _check_step_id(steps[upload_index].get("if"))
+    if step_id is None:
+        return ["the upload's condition does not require a credential check output"]
+    earlier = [step for step in steps[:upload_index] if step.get("id") == step_id]
+    if not earlier:
+        return [f"no step before the upload has the id {step_id!r}"]
+    return _check_step_offences(earlier[-1])
+
+
+def credential_bindings(document: dict[typ.Any, typ.Any]) -> list[str]:
+    """Return every `env` scope in a workflow that binds the credential.
+
+    Examples
+    --------
+    >>> credential_bindings(
+    ...     {"jobs": {"a": {"steps": [{"env": {"CS_ACCESS_TOKEN": "x"}}]}}}
+    ... )
+    ['job a step 0']
+    """
+    scopes = []
+    if _binds(document.get("env")):
+        scopes.append("the workflow")
+    jobs = document.get("jobs")
+    for name, job in (jobs if isinstance(jobs, dict) else {}).items():
+        if not isinstance(job, dict):
+            continue
+        if _binds(job.get("env")):
+            scopes.append(f"job {name}")
+        steps = job.get("steps") if isinstance(job.get("steps"), list) else []
+        scopes.extend(
+            f"job {name} step {index}"
+            for index, step in enumerate(steps)
+            if isinstance(step, dict) and _binds(step.get("env"))
+        )
+    return scopes
+
+
+def _binds(env: object) -> bool:
+    """Return whether one `env` mapping names the credential, in any case."""
+    return isinstance(env, dict) and any(
+        str(key).upper() == CREDENTIAL_NAME for key in env
+    )
