@@ -163,7 +163,7 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
         });
     }
 
-    for ((index, miss), distance) in miss_meta.into_iter().zip(miss_distances.into_iter()) {
+    for ((index, miss), distance) in miss_meta.into_iter().zip(miss_distances) {
         cache.complete_miss(miss, distance)?;
         *distances
             .get_mut(index)
