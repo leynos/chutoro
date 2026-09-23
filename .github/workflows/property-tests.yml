@@ -16,6 +16,10 @@ name: Property Tests
     - cron: "0 2 * * 0"
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   property-tests-pr:
     if: ${{ github.event_name == 'pull_request' }}
