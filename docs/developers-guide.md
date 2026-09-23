@@ -967,14 +967,16 @@ pull request, a fork's pull request from a branch of the same name, a push to
 the run identifier or `github.base_ref` when there is no pull request, or a
 constant one, fails, and an expression the renderer does not model is refused
 rather than guessed at. It also requires exactly the event-conditioned
-`cancel-in-progress` expression, so the literal `true` fails. The files are
-read through a loader that refuses a duplicated mapping key, because PyYAML
-keeps the last of two `concurrency:` blocks and says nothing. Each clause was
-proved by mutation: the cancel line removed, a literal `true`, a `run_id`
-group, a constant group, a `head_ref` group, a `format()` group, a `run_id`
-fallback, a `run_attempt` group, the block removed, the trigger renamed to
-`pull_request_target`, a duplicated block, and an unquoted `on:` beside the
-quoted one each fail it.
+`cancel-in-progress` expression, so the literal `true` fails. No two
+pull-request workflows may render the same group for one pull request, since
+whichever started last would cancel the others; each is rendered under its own
+name. The files are read through a loader that refuses a duplicated mapping
+key, because PyYAML keeps the last of two `concurrency:` blocks and says
+nothing. Each clause was proved by mutation: the cancel line removed, a literal
+`true`, a `run_id` group, a constant group, a `head_ref` group, a `format()`
+group, a `run_id` fallback, a `run_attempt` group, the block removed, the
+trigger renamed to `pull_request_target`, a duplicated block, and an unquoted
+`on:` beside the quoted one each fail it.
 
 ## Test timeouts: four tiers, outermost last
 

@@ -45,6 +45,7 @@ from pr_concurrency_groups import (
     keeps_runs_together_and_apart,
     render_group,
 )
+from pr_concurrency_triggers import trigger_names
 from strict_yaml import parse_workflow_text
 
 #: The repository's workflow directory. The module sits two levels below the
@@ -108,46 +109,12 @@ def _workflow_paths() -> list[Path]:
     )
 
 
-def _trigger_names(document: dict[object, object]) -> frozenset[str] | None:
-    """Return the event names a workflow declares under `on:`.
-
-    GitHub accepts a mapping of event to configuration, a list of event
-    names, and a bare event name; all three are read. PyYAML resolves an
-    unquoted `on:` key to the boolean ``True``, so both spellings of the key
-    are read, and a document carrying both is refused because GitHub would
-    see one trigger set and this reader another.
-
-    Returns ``None`` for a shape this reader does not model, so that
-    `test_every_workflow_declares_a_trigger_set_this_reader_models` can name
-    the workflow rather than let discovery drop it in silence.
-    """
-    if "on" in document and True in document:
-        return None
-    declared = document.get("on", document.get(True))
-    return frozenset() if declared is None else _event_names(declared)
-
-
-def _event_names(declared: object) -> frozenset[str] | None:
-    """Return the event names in one `on:` value, or ``None`` for another shape.
-
-    Iterating a mapping yields its keys and a list its items, so both shapes
-    share one reading; a bare string names a single event.
-    """
-    match declared:
-        case str():
-            return frozenset({declared})
-        case dict() | list():
-            return frozenset(name for name in declared if isinstance(name, str))
-        case _:
-            return None
-
-
 def _pull_request_workflows() -> list[Path]:
     """Return every workflow a pull request can start, in name order."""
     return [
         path
         for path in _workflow_paths()
-        if PULL_REQUEST in (_trigger_names(_load(path)) or frozenset())
+        if PULL_REQUEST in (trigger_names(_load(path)) or frozenset())
     ]
 
 
@@ -186,7 +153,7 @@ def test_every_workflow_declares_a_trigger_set_this_reader_models() -> None:
     contract below would pass while saying nothing about it.
     """
     unreadable = sorted(
-        path.name for path in _workflow_paths() if _trigger_names(_load(path)) is None
+        path.name for path in _workflow_paths() if trigger_names(_load(path)) is None
     )
     assert not unreadable, (
         f"these workflows declare an `on:` this reader does not model: "
@@ -204,9 +171,19 @@ def test_every_workflow_declares_a_trigger_set_this_reader_models() -> None:
         ("'on': pull_request\n", frozenset({"pull_request"})),
         ("'on': push\non: pull_request\n", None),
         ("on: 3\n", None),
+        ("on: [push, 3]\n", None),
         ("name: no trigger\n", frozenset()),
     ],
-    ids=["bare", "list", "mapping", "quoted", "both-keys", "number", "absent"],
+    ids=[
+        "bare",
+        "list",
+        "mapping",
+        "quoted",
+        "both-keys",
+        "number",
+        "mixed-list",
+        "absent",
+    ],
 )
 def test_the_trigger_reader_models_every_shape_github_accepts(
     text: str, expected: frozenset[str] | None
@@ -217,7 +194,7 @@ def test_the_trigger_reader_models_every_shape_github_accepts(
     bare-name reading that broke would leave every file-driven contract green.
     This drives the reader directly with each shape.
     """
-    assert _trigger_names(_parse(text, "shape.yml")) == expected
+    assert trigger_names(_parse(text, "shape.yml")) == expected
 
 
 def test_a_duplicated_key_is_refused_rather_than_resolved() -> None:
@@ -338,6 +315,34 @@ def test_an_unmodelled_group_expression_is_refused(template: str) -> None:
     """A function call, a comparison or an unclosed opener fails loudly."""
     with pytest.raises(UnmodelledGroupError):
         render_group(template, FIRST_PUSH)
+
+
+def _workflow_name(workflow: Path) -> str:
+    """Return the name Actions gives a workflow: its `name:`, else its path."""
+    declared = _load(workflow).get("name")
+    return (
+        declared if isinstance(declared, str) else f".github/workflows/{workflow.name}"
+    )
+
+
+def test_no_two_workflows_share_a_group_for_one_pull_request() -> None:
+    """Two workflows on one pull request never cancel each other.
+
+    Each workflow is rendered under its own name. A group that leaves the
+    workflow out, such as ``pr-${{ github.event.pull_request.number }}``,
+    would put the CI run and every other pull-request workflow in one group,
+    and whichever started last would cancel the rest.
+    """
+    rendered = {
+        workflow.name: render_group(
+            str(_concurrency(workflow).get("group", "")),
+            {**FIRST_PUSH, "github.workflow": _workflow_name(workflow)},
+        )
+        for workflow in PULL_REQUEST_WORKFLOWS
+    }
+    assert len(set(rendered.values())) == len(rendered), (
+        f"these workflows share a concurrency group for one pull request: {rendered}"
+    )
 
 
 @pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
