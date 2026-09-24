@@ -13,7 +13,7 @@ use crate::CandidateEdge;
 use super::MinimumSpanningForest;
 use super::{MstEdge, MstError, validate_and_canonicalize_edge};
 
-/// Placeholder edge used to initialise the bounded forest buffer.
+/// Placeholder edge used to initialize the bounded forest buffer.
 const EMPTY_MST_EDGE: MstEdge = MstEdge {
     source: 0,
     target: 0,

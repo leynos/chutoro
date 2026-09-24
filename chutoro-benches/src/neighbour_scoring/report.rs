@@ -6,11 +6,11 @@ use std::{
     time::Duration,
 };
 
-use super::{duration_basis_points, lane_utilisation_basis_points, padded_lane_count};
+use super::{duration_basis_points, lane_utilization_basis_points, padded_lane_count};
 
-/// One row in the lane-utilisation diagnostic CSV report.
+/// One row in the lane-utilization diagnostic CSV report.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LaneUtilisationReportRow<'a> {
+pub struct LaneUtilizationReportRow<'a> {
     /// Bucket label, for example `realistic` or `diagnostic`.
     pub bucket_kind: &'a str,
     /// Number of active candidates scored in the bucket.
@@ -59,19 +59,19 @@ fn csv_escape(field: &str) -> Cow<'_, str> {
     }
 }
 
-/// Write the lane-utilisation report schema and rows.
+/// Write the lane-utilization report schema and rows.
 ///
 /// # Examples
 ///
 /// ```
 /// use chutoro_benches::neighbour_scoring::{
-///     LaneUtilisationReportRow, write_lane_utilisation_report_csv,
+///     LaneUtilizationReportRow, write_lane_utilization_report_csv,
 /// };
 ///
 /// let mut output = Vec::new();
-/// let result = write_lane_utilisation_report_csv(
+/// let result = write_lane_utilization_report_csv(
 ///     &mut output,
-///     [LaneUtilisationReportRow {
+///     [LaneUtilizationReportRow {
 ///         bucket_kind: "realistic",
 ///         candidate_count: 8,
 ///     }],
@@ -91,10 +91,10 @@ fn csv_escape(field: &str) -> Cow<'_, str> {
 /// # Errors
 ///
 /// Returns any error reported by the supplied writer.
-pub fn write_lane_utilisation_report_csv<'a, W, I>(mut writer: W, rows: I) -> io::Result<()>
+pub fn write_lane_utilization_report_csv<'a, W, I>(mut writer: W, rows: I) -> io::Result<()>
 where
     W: Write,
-    I: IntoIterator<Item = LaneUtilisationReportRow<'a>>,
+    I: IntoIterator<Item = LaneUtilizationReportRow<'a>>,
 {
     writeln!(
         writer,
@@ -103,11 +103,11 @@ where
     for row in rows {
         let padded = padded_lane_count(row.candidate_count);
         let wasted = padded.saturating_sub(row.candidate_count as u128);
-        let utilisation = lane_utilisation_basis_points(row.candidate_count);
+        let utilization = lane_utilization_basis_points(row.candidate_count);
         let bucket_kind = csv_escape(row.bucket_kind);
         writeln!(
             writer,
-            "{bucket_kind},{},{padded},{wasted},{utilisation}",
+            "{bucket_kind},{},{padded},{wasted},{utilization}",
             row.candidate_count
         )?;
     }

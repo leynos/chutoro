@@ -3,10 +3,10 @@
 use camino::Utf8Path;
 use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_benches::neighbour_scoring::{
-    BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilisationReportRow, REPORT_DIR_NAME,
+    BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilizationReportRow, REPORT_DIR_NAME,
     ReportTarget, build_profile_report_target_value, report_parent_dir_value,
     should_collect_build_profile_value, truthy_env_value, write_build_profile_report_csv,
-    write_lane_utilisation_report_csv,
+    write_lane_utilization_report_csv,
 };
 use rstest::{fixture, rstest};
 use std::{io::Write, process::Command, time::Duration};
@@ -100,7 +100,7 @@ fn neighbour_scoring_script_wires_expected_benchmark_binary() {
 }
 
 #[rstest]
-fn lane_utilisation_report_file_generation_writes_schema_and_rows(
+fn lane_utilization_report_file_generation_writes_schema_and_rows(
     #[from(report_directory)] report_directory_result: Result<ReportDirectory, ReportFixtureError>,
 ) {
     let report_directory = report_directory_result.expect("report directory must be created");
@@ -110,14 +110,14 @@ fn lane_utilisation_report_file_generation_writes_schema_and_rows(
         .and_then(|dir| dir.create("lane.csv"))
         .expect("report file must be created");
 
-    write_lane_utilisation_report_csv(
+    write_lane_utilization_report_csv(
         &mut file,
-        [LaneUtilisationReportRow {
+        [LaneUtilizationReportRow {
             bucket_kind: "realistic",
             candidate_count: 8,
         }],
     )
-    .expect("lane utilisation report must be written");
+    .expect("lane utilization report must be written");
 
     let contents = report_directory
         .root

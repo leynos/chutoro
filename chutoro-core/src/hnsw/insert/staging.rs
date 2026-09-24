@@ -55,7 +55,7 @@ impl<'graph> InsertionStager<'graph> {
     ) -> Result<LayerProcessingOutcome, HnswError> {
         let mut new_node_neighbours = vec![Vec::new(); ctx.level + 1];
         let mut staged: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
-        let mut initialised = HashSet::new();
+        let mut initialized = HashSet::new();
         let mut needs_trim = HashSet::new();
 
         for layer in plan
@@ -74,7 +74,7 @@ impl<'graph> InsertionStager<'graph> {
                     level_capacity,
                     &mut new_node_neighbours,
                     &mut staged,
-                    &mut initialised,
+                    &mut initialized,
                     &mut needs_trim,
                 )?;
             }
@@ -83,7 +83,7 @@ impl<'graph> InsertionStager<'graph> {
         Ok(LayerProcessingOutcome {
             new_node_neighbours,
             staged,
-            initialised,
+            initialized,
             needs_trim,
         })
     }
@@ -113,7 +113,7 @@ impl<'graph> InsertionStager<'graph> {
                 level: lvl,
                 max_connections,
             };
-            prioritise_new_node(new_node.node, &mut candidates);
+            prioritize_new_node(new_node.node, &mut candidates);
             if needs_trim.contains(&(other, lvl)) {
                 let mut sequences = Vec::with_capacity(candidates.len());
                 for &candidate in &candidates {
@@ -188,7 +188,7 @@ impl<'graph> InsertionStager<'graph> {
         connection_limit: usize,
         new_node_neighbours: &mut [Vec<usize>],
         staged: &mut HashMap<(usize, usize), Vec<usize>>,
-        initialised: &mut HashSet<(usize, usize)>,
+        initialized: &mut HashSet<(usize, usize)>,
         needs_trim: &mut HashSet<(usize, usize)>,
     ) -> Result<(), HnswError> {
         let new_node_level = new_node_neighbours.get_mut(level_index).ok_or_else(|| {
@@ -201,7 +201,7 @@ impl<'graph> InsertionStager<'graph> {
         new_node_level.push(neighbour);
 
         let key = (neighbour, level_index);
-        if initialised.insert(key) {
+        if initialized.insert(key) {
             let graph_node =
                 self.graph
                     .node(neighbour)
@@ -238,7 +238,7 @@ impl<'graph> InsertionStager<'graph> {
 
 /// Move the newly inserted node to the front of candidate order.
 #[inline]
-pub(super) fn prioritise_new_node(new_node: usize, candidates: &mut [usize]) {
+pub(super) fn prioritize_new_node(new_node: usize, candidates: &mut [usize]) {
     if let Some(pos) = candidates
         .iter()
         .position(|&candidate| candidate == new_node)

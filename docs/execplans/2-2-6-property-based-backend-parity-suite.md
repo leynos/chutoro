@@ -540,7 +540,7 @@ tests-only scope; no source changes have been made yet.
      `tie_breaking: TieBreakingPolicy`.
    - Provide `DistanceSemantics::default_euclidean()` that returns the
      contract values used by the existing kernels (epsilon TBD by the
-     audit in stage C; non-finite policy `CanonicaliseToNan`;
+     audit in stage C; non-finite policy `CanonicalizeToNan`;
      zero-vector policy `ReturnZero`; tie-breaking `LowestRowIndexFirst`,
      even though Euclidean per-pair scoring does not currently break ties
      by index, the contract documents the choice for parity with future
@@ -881,7 +881,7 @@ pub(crate) struct DistanceSemantics {
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum NonFinitePolicy {
-    CanonicaliseToNan,
+    CanonicalizeToNan,
 }
 
 #[derive(Clone, Copy, Debug)]

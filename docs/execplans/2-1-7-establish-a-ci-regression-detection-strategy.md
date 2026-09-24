@@ -202,7 +202,7 @@ Create `.github/workflows/benchmark-regressions.yml` with:
 - full scheduled job that runs baseline save + compare for benchmark suites.
 
 Use deterministic environment configuration (`CARGO_TERM_COLOR`, fixed seeds,
-and existing benchmark env controls) and upload benchmark artifacts/logs.
+and existing benchmark env controls) and upload benchmark artefacts/logs.
 
 Prefer commands that are already known to work in this repository's bench
 harness invocation path.
@@ -300,7 +300,7 @@ Quality method:
 
 - Local gate commands listed in "Concrete steps".
 - CI workflow YAML validation through GitHub Actions execution.
-- Bench logs/artifacts retained for scheduled runs.
+- Bench logs/artefacts retained for scheduled runs.
 
 ## Idempotence and recovery
 
