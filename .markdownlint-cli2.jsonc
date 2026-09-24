@@ -12,6 +12,7 @@
   },
   "ignores": [
     "**/.venv/**",
+    "**/.verus/**",
     ".node_modules/**",
     "**/node_modules/**",
     "**/target/**",
