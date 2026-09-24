@@ -196,7 +196,10 @@ def test_the_trigger_reader_models_every_shape_github_accepts(
     bare-name reading that broke would leave every file-driven contract green.
     This drives the reader directly with each shape.
     """
-    assert trigger_names(_parse(text, "shape.yml")) == expected
+    actual = trigger_names(_parse(text, "shape.yml"))
+    assert actual == expected, (
+        f"the trigger reader read {text!r} as {actual!r}, expected {expected!r}"
+    )
 
 
 def test_a_duplicated_key_is_refused_rather_than_resolved() -> None:

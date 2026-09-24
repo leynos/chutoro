@@ -52,7 +52,11 @@ def test_the_group_rules_accept_and_refuse_the_known_shapes(
     template: str, verdict: str
 ) -> None:
     """Only the estate group keeps one pull request together and the rest apart."""
-    assert keeps_runs_together_and_apart(template) is (verdict == "accept")
+    accepted = keeps_runs_together_and_apart(template)
+    assert accepted is (verdict == "accept"), (
+        f"the group rules {'accepted' if accepted else 'refused'} {template!r}, "
+        f"expected {verdict}"
+    )
 
 
 @pytest.mark.parametrize(
