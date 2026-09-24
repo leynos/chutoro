@@ -1506,6 +1506,16 @@ push to `main`. And a dispatch that replaces a pending push uploads the same or
 a newer commit, but the ratchet baseline is saved only on a push, so it stays
 one commit behind until the next one.
 
+The uploader verifies the CodeScene CLI archive against the `cli-manifest.json`
+committed beside the action, and it rejects a non-empty `installer-checksum`
+outright. `tests/workflow_contracts/codescene_uploader_test.py` therefore
+refuses that input and the `CODESCENE_CLI_SHA256` variable that fed it in any
+workflow, even in a comment, and requires the `get-codescene-sha.yml` dispatch
+that refreshed the variable to stay deleted. It asserts no pin value:
+Dependabot owns the uploader's SHA, and `action_pins_test.py` already requires
+a full commit SHA, identical in every workflow, as the section on workflow pins
+and Dependabot above prescribes.
+
 The pull-request lane also checks out shallow. Full history was fetched for
 `cs-coverage check`, which diffed against the merge base; the ratchet reads no
 history, and a contract refuses a deeper `fetch-depth` on `build-test` until a

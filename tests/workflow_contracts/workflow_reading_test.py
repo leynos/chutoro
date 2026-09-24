@@ -21,6 +21,7 @@ from workflow_support import (
     WorkflowReadError,
     all_workflow_documents,
     read_workflow_document,
+    read_workflow_text,
 )
 
 if typ.TYPE_CHECKING:
@@ -60,6 +61,24 @@ def test_a_missing_workflow_file_is_refused(tmp_path: Path) -> None:
     """A path that is not there names itself rather than raising OSError."""
     with pytest.raises(WorkflowReadError, match=r"could not be read"):
         read_workflow_document(tmp_path / "ci.yml")
+
+
+def test_an_unreadable_workflow_text_names_its_file(tmp_path: Path) -> None:
+    """The raw-text reading converts both failures a file read can raise.
+
+    A directory where a file should be fails the read, and bytes that are
+    not UTF-8 fail the decode; each must arrive as the boundary's own error
+    naming the path, not as the exception the failure happened to produce.
+    """
+    not_a_file = tmp_path / "ci.yml"
+    not_a_file.mkdir()
+    with pytest.raises(WorkflowReadError, match=r"could not be read"):
+        read_workflow_text(not_a_file)
+
+    not_text = tmp_path / "bad.yml"
+    not_text.write_bytes(b"on: push\n\xff\n")
+    with pytest.raises(WorkflowReadError, match=r"is not UTF-8 text"):
+        read_workflow_text(not_text)
 
 
 def test_a_workflow_that_is_not_yaml_is_refused(tmp_path: Path) -> None:
