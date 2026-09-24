@@ -18,7 +18,7 @@ use chutoro_core::{
     extract_labels_from_mst, parallel_kruskal,
 };
 
-use crate::{
+use super::{
     CLUSTERING_QUALITY_CLUSTER_COUNT, CLUSTERING_QUALITY_MIN_CLUSTER_SIZE,
     CLUSTERING_QUALITY_POINT_COUNT, cluster_quality_report_path,
     should_collect_cluster_quality_report,
