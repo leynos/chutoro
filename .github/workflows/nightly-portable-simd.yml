@@ -18,9 +18,7 @@ concurrency:
 jobs:
   nightly-portable-simd:
     # Nightly work stays GitHub-hosted. It is off the developer feedback
-    # path, so it gains nothing from a shorter paid queue, and
-    # namespace-profile-default's 4 vCPU/16 GB shape exceeds the estate's
-    # 4 vCPU/8 GB ceiling.
+    # path, so it gains nothing from a shorter paid queue.
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

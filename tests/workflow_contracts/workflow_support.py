@@ -85,19 +85,28 @@ def workflow_paths() -> list[Path]:
     )
 
 
-def read_workflow_document(path: Path) -> object:
-    """Return one workflow file's parsed document, or raise."""
-    # The three failures are converted here rather than left to the
-    # caller: a query that reads the filesystem is where the contract
-    # loses the ability to name the file at fault.
+def read_workflow_text(path: Path) -> str:
+    """Return one workflow file's raw text, or raise `WorkflowReadError`.
+
+    For contracts that must see what the parser drops, such as a reference
+    inside a comment, and that still need an unreadable file to name itself.
+    """
+    # The failures are converted here rather than left to the caller: a
+    # query that reads the filesystem is where the contract loses the
+    # ability to name the file at fault.
     try:
-        text = path.read_text(encoding="utf-8")
+        return path.read_text(encoding="utf-8")
     except OSError as error:
         message = f"{path} could not be read: {error}"
         raise WorkflowReadError(message) from error
     except UnicodeDecodeError as error:
         message = f"{path} is not UTF-8 text: {error}"
         raise WorkflowReadError(message) from error
+
+
+def read_workflow_document(path: Path) -> object:
+    """Return one workflow file's parsed document, or raise."""
+    text = read_workflow_text(path)
     try:
         return parse_workflow_text(text)
     except yaml.YAMLError as error:
