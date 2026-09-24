@@ -180,15 +180,22 @@ def test_workflow_permissions_are_read_only(workflow: dict[str, object]) -> None
 
 
 def test_concurrency_cancels_superseded_runs(workflow: dict[str, object]) -> None:
-    """A newer push cancels the previous run for the same ref."""
+    """A newer pull-request push cancels the previous run for the same pull request.
+
+    The group is the estate's, keyed on the pull-request number with the run
+    identifier as its fallback, so each dispatch gets its own group and is
+    never replaced while pending. Cancellation is conditioned on the event, as
+    `pr_concurrency_test.py` requires of every pull-request workflow.
+    """
     concurrency = workflow.get("concurrency")
     assert isinstance(concurrency, dict), "the workflow must declare concurrency"
-    assert concurrency.get("group") == "kani-pr-${{ github.ref }}", (
-        f"concurrency.group must key on the triggering ref, got "
-        f"{concurrency.get('group')!r}"
+    group = "${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}"
+    assert concurrency.get("group") == group, (
+        f"concurrency.group must be {group!r}, got {concurrency.get('group')!r}"
     )
-    assert concurrency.get("cancel-in-progress") is True, (
-        f"concurrency.cancel-in-progress must be true, got "
+    expected = "${{ github.event_name == 'pull_request' }}"
+    assert concurrency.get("cancel-in-progress") == expected, (
+        f"concurrency.cancel-in-progress must be {expected!r}, got "
         f"{concurrency.get('cancel-in-progress')!r}"
     )
 
