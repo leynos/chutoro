@@ -273,7 +273,7 @@ ______________________________________________________________________
 - [x] 1.6.4. Add Verus proofs for edge harvest primitives:
   - `extract_candidate_edges` invariants
     (source/target/sequence/count).
-  - `CandidateEdge::canonicalise` preserves order and fields.
+  - `CandidateEdge::canonicalize` preserves order and fields.
   - `EdgeHarvest::from_unsorted` permutation + ordering guarantees.
   - (See property-testing-design Appendix A)
   - Prerequisites:

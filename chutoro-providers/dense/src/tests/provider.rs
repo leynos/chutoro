@@ -57,17 +57,17 @@ fn matrix_provider_distance_batch() {
     0,
     1,
 )]
-#[case::non_finite_canonicalises_to_nan(
+#[case::non_finite_canonicalizes_to_nan(
     vec![vec![1.0, f32::NAN, 3.0], vec![1.0, 2.0, 3.0]],
     0,
     1,
 )]
-#[case::positive_infinity_canonicalises_to_nan(
+#[case::positive_infinity_canonicalizes_to_nan(
     vec![vec![1.0, f32::INFINITY, 3.0], vec![1.0, 2.0, 3.0]],
     0,
     1,
 )]
-#[case::negative_infinity_canonicalises_to_nan(
+#[case::negative_infinity_canonicalizes_to_nan(
     vec![vec![1.0, f32::NEG_INFINITY, 3.0], vec![1.0, 2.0, 3.0]],
     0,
     1,

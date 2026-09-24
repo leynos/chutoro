@@ -1,9 +1,9 @@
 //! Tests for neighbour-scoring CSV report rendering.
 
 use super::{
-    BuildProfileReportRow, LaneUtilisationReportRow, duration_basis_points,
-    lane_utilisation_basis_points, padded_lane_count, write_build_profile_report_csv,
-    write_lane_utilisation_report_csv,
+    BuildProfileReportRow, LaneUtilizationReportRow, duration_basis_points,
+    lane_utilization_basis_points, padded_lane_count, write_build_profile_report_csv,
+    write_lane_utilization_report_csv,
 };
 use proptest::prelude::*;
 use rstest::rstest;
@@ -12,11 +12,11 @@ use std::time::Duration;
 #[rstest]
 #[case::multiple_rows(
     vec![
-        LaneUtilisationReportRow {
+        LaneUtilizationReportRow {
             bucket_kind: "realistic",
             candidate_count: 8,
         },
-        LaneUtilisationReportRow {
+        LaneUtilizationReportRow {
             bucket_kind: "diagnostic",
             candidate_count: 24,
         },
@@ -29,7 +29,7 @@ use std::time::Duration;
     )
 )]
 #[case::escaped_bucket_kind(
-    vec![LaneUtilisationReportRow {
+    vec![LaneUtilizationReportRow {
         bucket_kind: "diagnostic,\n\"quoted\"\r",
         candidate_count: 16,
     }],
@@ -39,14 +39,14 @@ use std::time::Duration;
         "\"diagnostic,\n\"\"quoted\"\"\r\",16,16,0,10000\n",
     )
 )]
-fn write_lane_utilisation_report_csv_renders_schema_and_rows(
-    #[case] rows: Vec<LaneUtilisationReportRow<'static>>,
+fn write_lane_utilization_report_csv_renders_schema_and_rows(
+    #[case] rows: Vec<LaneUtilizationReportRow<'static>>,
     #[case] expected: &str,
 ) {
     let mut csv_buffer = Vec::new();
-    let result = write_lane_utilisation_report_csv(&mut csv_buffer, rows);
+    let result = write_lane_utilization_report_csv(&mut csv_buffer, rows);
 
-    result.expect("render lane-utilisation CSV report");
+    result.expect("render lane-utilization CSV report");
     assert_eq!(String::from_utf8_lossy(&csv_buffer), expected);
 }
 
@@ -138,15 +138,15 @@ fn parse_csv_records(csv: &str) -> Vec<Vec<String>> {
 
 proptest! {
     #[test]
-    fn lane_utilisation_report_round_trips_generated_rows(
+    fn lane_utilization_report_round_trips_generated_rows(
         bucket_kind in csv_label(),
         candidate_count in any::<usize>(),
     ) {
-        let row = LaneUtilisationReportRow { bucket_kind: &bucket_kind, candidate_count };
+        let row = LaneUtilizationReportRow { bucket_kind: &bucket_kind, candidate_count };
         let mut csv_buffer = Vec::new();
-        write_lane_utilisation_report_csv(&mut csv_buffer, [row])
-            .expect("render generated lane-utilisation CSV row");
-        let csv = String::from_utf8(csv_buffer).expect("lane-utilisation CSV is UTF-8");
+        write_lane_utilization_report_csv(&mut csv_buffer, [row])
+            .expect("render generated lane-utilization CSV row");
+        let csv = String::from_utf8(csv_buffer).expect("lane-utilization CSV is UTF-8");
         let records = parse_csv_records(&csv);
         prop_assert_eq!(records.len(), 2);
         let data_record = records.get(1).expect("CSV data row exists");
@@ -163,14 +163,14 @@ proptest! {
             .parse().expect("parse padded lane count");
         let wasted_lanes: u128 = data_record.get(3).expect("CSV wasted-lanes field exists")
             .parse().expect("parse wasted lane count");
-        let utilisation: usize = data_record.get(4).expect("CSV lane-utilisation field exists")
-            .parse().expect("parse lane-utilisation basis points");
+        let utilization: usize = data_record.get(4).expect("CSV lane-utilization field exists")
+            .parse().expect("parse lane-utilization basis points");
         let expected_padded = padded_lane_count(candidate_count);
         prop_assert!(padded_lanes >= candidate_count as u128);
         prop_assert_eq!(padded_lanes, expected_padded);
         prop_assert_eq!(wasted_lanes, padded_lanes - candidate_count as u128);
-        prop_assert_eq!(utilisation, lane_utilisation_basis_points(candidate_count));
-        prop_assert!(utilisation <= 10_000);
+        prop_assert_eq!(utilization, lane_utilization_basis_points(candidate_count));
+        prop_assert!(utilization <= 10_000);
     }
 
     #[test]

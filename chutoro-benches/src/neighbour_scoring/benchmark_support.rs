@@ -6,9 +6,9 @@
 use std::{io, num::TryFromIntError, sync::Arc, time::Instant};
 
 use super::{
-    BUILD_PROFILE_REPORT, BuildProfileReportRow, LANE_REPORT, LaneUtilisationReportRow,
+    BUILD_PROFILE_REPORT, BuildProfileReportRow, LANE_REPORT, LaneUtilizationReportRow,
     REPORT_DIR_NAME, ReportTarget, report_path_value, sorted_median,
-    write_build_profile_report_csv, write_lane_utilisation_report_csv,
+    write_build_profile_report_csv, write_lane_utilization_report_csv,
 };
 use crate::source::{SyntheticConfig, SyntheticError, SyntheticSource};
 use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array};
@@ -155,16 +155,16 @@ pub(super) fn make_fixture(
     })
 }
 
-/// Write the lane-utilisation report for all candidate buckets.
-pub(super) fn write_lane_utilisation_report(
+/// Write the lane-utilization report for all candidate buckets.
+pub(super) fn write_lane_utilization_report(
     report_parent_dir: &Utf8Path,
 ) -> BenchResult<Utf8PathBuf> {
     let report_dir = open_report_dir(report_parent_dir)?;
     let target = report_path_value(report_parent_dir, LANE_REPORT);
     let mut file = report_dir.create(LANE_REPORT)?;
-    write_lane_utilisation_report_csv(
+    write_lane_utilization_report_csv(
         &mut file,
-        all_buckets().map(|bucket| LaneUtilisationReportRow {
+        all_buckets().map(|bucket| LaneUtilizationReportRow {
             bucket_kind: bucket.kind_name(),
             candidate_count: bucket.size(),
         }),

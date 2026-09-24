@@ -33,7 +33,7 @@ fn canonical_pair(left: usize, right: usize) -> (usize, usize) {
 fn build_edge_lookup(edges: &[CandidateEdge]) -> BTreeMap<(usize, usize), CandidateEdge> {
     let mut lookup = BTreeMap::new();
     for edge in edges {
-        let canonical = edge.canonicalise();
+        let canonical = edge.canonicalize();
         lookup
             .entry((canonical.source(), canonical.target()))
             .or_insert(canonical);

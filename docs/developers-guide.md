@@ -1796,9 +1796,11 @@ By default, the reports are written to
 `target/benchmarks/neighbour_scoring_build_profile.csv` and
 `target/benchmarks/neighbour_scoring_lane_utilisation.csv`. When
 `CARGO_TARGET_DIR` is set, the same filenames are written below its
-`benchmarks/` directory. Treat `hyperfine` as corroboration; cycle-count and
-Criterion evidence remain the primary signal for keeping a structural
-optimization.
+`benchmarks/` directory. The lane report keeps its filename and the
+`lane_utilisation_basis_points` CSV column for existing report consumers; Rust
+identifiers and ordinary prose use Oxford `utilization` spelling. Treat
+`hyperfine` as corroboration; cycle-count and Criterion evidence remain the
+primary signal for keeping a structural optimization.
 
 ### Benchmark architecture
 

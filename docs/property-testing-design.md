@@ -591,7 +591,7 @@ Prove that for any `InsertionPlan`:
 This helper is pure, deterministic, and bounded by the plan input, making it a
 strong Verus target.
 
-### A2: `CandidateEdge::canonicalise` properties[^canonicalise]
+### A2: `CandidateEdge::canonicalize` properties[^1]
 
 Location: `chutoro-core/src/hnsw/types.rs`
 
@@ -612,8 +612,8 @@ Prove that:
 This is feasible if a trusted `sort_unstable_by` specification is accepted or
 the sort is replaced with a verified routine.
 
-[^canonicalise]: The implementation uses "canonicalise" for API compatibility
-even though Oxford spelling prefers the "-ize" suffix for Greek-origin words.
+[^1]: The preferred method uses Oxford spelling. The legacy
+    `CandidateEdge::canonicalise` alias remains available for API compatibility.
 
 #### 4.3.1. Property 1: Equivalence with a sequential oracle
 
@@ -976,7 +976,7 @@ jobs:
         if: failure()
         run: |
           # Add notification script here (e.g., curl to Slack webhook)
-          echo "Weekly deep test failed. See artifacts for failure seed."
+          echo "Weekly deep test failed. See artefacts for failure seed."
 
 ```
 

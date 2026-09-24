@@ -84,7 +84,7 @@ fn build_with_edges_edges_sorted_by_sequence() {
 }
 
 #[rstest]
-#[case::already_canonical(CanonicaliseCase {
+#[case::already_canonical(CanonicalizeCase {
     source: 1,
     target: 3,
     distance: 0.3,
@@ -92,7 +92,7 @@ fn build_with_edges_edges_sorted_by_sequence() {
     expected_source: 1,
     expected_target: 3,
 })]
-#[case::reversed(CanonicaliseCase {
+#[case::reversed(CanonicalizeCase {
     source: 5,
     target: 2,
     distance: 0.5,
@@ -100,7 +100,7 @@ fn build_with_edges_edges_sorted_by_sequence() {
     expected_source: 2,
     expected_target: 5,
 })]
-#[case::self_edge(CanonicaliseCase {
+#[case::self_edge(CanonicalizeCase {
     source: 4,
     target: 4,
     distance: 0.7,
@@ -108,14 +108,21 @@ fn build_with_edges_edges_sorted_by_sequence() {
     expected_source: 4,
     expected_target: 4,
 })]
-fn canonicalise_preserves_fields(#[case] case: CanonicaliseCase) {
+fn canonicalize_preserves_fields(#[case] case: CanonicalizeCase) {
     let edge = CandidateEdge::new(case.source, case.target, case.distance, case.sequence);
-    let canonical = edge.canonicalise();
+    let canonical = edge.canonicalize();
 
     assert_eq!(canonical.source(), case.expected_source);
     assert_eq!(canonical.target(), case.expected_target);
     assert!(canonical.distance().total_cmp(&case.distance).is_eq());
     assert_eq!(canonical.sequence(), case.sequence);
+}
+
+#[rstest]
+fn legacy_alias_matches_preferred_method() {
+    let edge = CandidateEdge::new(5, 2, 0.5, 10);
+
+    assert_eq!(edge.canonicalise(), edge.canonicalize());
 }
 
 #[rstest]

@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Initialise non-failing stderr tracing for the gate process.
+/// Initialize non-failing stderr tracing for the gate process.
 fn init_tracing() {
     let _subscriber_init_result = tracing_subscriber::fmt()
         .with_target(false)
