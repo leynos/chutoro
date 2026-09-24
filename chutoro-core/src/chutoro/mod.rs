@@ -358,9 +358,9 @@ impl Chutoro {
 }
 
 #[cfg(test)]
-#[path = "chutoro_tests.rs"]
+#[path = "../chutoro_tests.rs"]
 mod tests;
 
 #[cfg(all(test, feature = "cpu"))]
-#[path = "chutoro/properties.rs"]
+#[path = "properties.rs"]
 mod properties;
