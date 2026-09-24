@@ -16,7 +16,7 @@ use super::reciprocity::ReciprocityAuditor;
 use super::reciprocity::ReciprocityWorkspace;
 use super::staging::InsertionStager;
 use super::types::{
-    FinalisedUpdate, HealingContext, LayerProcessingOutcome, LinkContext, NewNodeContext,
+    FinalizedUpdate, HealingContext, LayerProcessingOutcome, LinkContext, NewNodeContext,
     PreparedInsertion, StagedUpdate, TrimWork,
 };
 
@@ -62,7 +62,7 @@ impl<'graph> InsertionExecutor<'graph> {
         let LayerProcessingOutcome {
             mut new_node_neighbours,
             staged,
-            initialised: _initialised,
+            initialized: _initialized,
             needs_trim,
         } = stager.process_insertion_layers(
             NodeContext {
@@ -176,13 +176,13 @@ impl<'graph> InsertionExecutor<'graph> {
     fn prepare_final_updates(
         updates: Vec<StagedUpdate>,
         trims: Vec<TrimResult>,
-    ) -> Vec<FinalisedUpdate> {
+    ) -> Vec<FinalizedUpdate> {
         let mut trim_lookup: HashMap<(usize, usize), Vec<usize>> = trims
             .into_iter()
             .map(|result| ((result.node, result.ctx.level), result.neighbours))
             .collect();
 
-        let mut final_updates: Vec<FinalisedUpdate> = Vec::with_capacity(updates.len());
+        let mut final_updates: Vec<FinalizedUpdate> = Vec::with_capacity(updates.len());
         for update in updates {
             let neighbours = trim_lookup
                 .remove(&(update.node, update.ctx.level))

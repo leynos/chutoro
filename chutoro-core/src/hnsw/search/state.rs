@@ -21,13 +21,13 @@ pub(super) struct SearchState {
 }
 
 impl SearchState {
-    /// Initialise queues using the compatibility fallback capacity.
+    /// Initialize queues using the compatibility fallback capacity.
     pub(super) fn new(entry: SearchNeighbour) -> Self {
         // Fallback when `ef` is not available at the call-site.
         Self::with_capacity(entry, 64)
     }
 
-    /// Initialise queues sized for the requested search width.
+    /// Initialize queues sized for the requested search width.
     pub(super) fn with_capacity(entry: SearchNeighbour, ef: usize) -> Self {
         let queue_capacity = ef.max(1);
         let set_capacity = queue_capacity.saturating_mul(4);
@@ -100,7 +100,7 @@ impl SearchState {
     }
 
     /// Convert retained queue entries into ascending public neighbours.
-    pub(super) fn finalise(self) -> Vec<Neighbour> {
+    pub(super) fn finalize(self) -> Vec<Neighbour> {
         let mut neighbours: Vec<_> = self.best.into_vec();
         neighbours.sort_unstable();
         neighbours
