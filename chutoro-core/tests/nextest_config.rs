@@ -145,9 +145,9 @@ fn nextest_profiles_keep_trybuild_timeout_guards(#[case] profile_name: &str) {
         profile_name,
         [
             "arrow_parquet_types_share_one_family",
-            "portable_simd_gating_compile_checks",
+            "portable_simd_without_feature_is_rejected",
+            "portable_simd_with_feature_compiles",
             "session_api_compiles_when_cpu_feature_is_enabled",
-            "arrow_parquet_types_share_one_family",
             "threads-required = 4",
             TRYBUILD_SLOW_TIMEOUT,
         ]

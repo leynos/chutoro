@@ -73,7 +73,7 @@ jobs:
         run: |
           cargo +nightly test -p chutoro-providers-dense \
             --features nightly_portable_simd \
-            -- --skip portable_simd_gating_compile_checks
+            -- --skip portable_simd_without_feature_is_rejected
       - name: Lint dense portable SIMD backend
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: cargo +nightly clippy -p chutoro-providers-dense --all-targets --features nightly_portable_simd -- -D warnings
