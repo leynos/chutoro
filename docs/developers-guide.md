@@ -48,7 +48,9 @@ that exact case as a fourth binding test leaf under pinned stable LLVM, with
 warning and documentation denials. The test deliberately panics while holding
 the graph's `RwLock` so it can verify poisoned-lock handling. The selected
 nightly Cranelift backend aborts on this path instead of unwinding; this
-exception is limited to that regression test.
+exception is limited to that regression test. The Make-route assertions belong
+to `dev_fast_routing_test.py`; keep their helpers private to that contract and
+do not reuse them in unrelated workflow contracts.
 
 Release builds, formatting, coverage, Kani, Verus, benchmarks, and Whitaker do
 not select the development fragment. Whitaker uses its own pinned toolchain. The
