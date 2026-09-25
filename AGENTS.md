@@ -133,9 +133,8 @@ This repository is written in Rust and uses Cargo for building and dependency
 management. Contributors should follow these best practices when working on the
 project:
 
-- Run `make check-fmt`, `make lint`, and `make test` before committing. These
-  targets wrap the following commands, so contributors understand the exact
-  behaviour and policy enforced:
+- Run `make check-fmt`, `make lint`, and `make test` before committing. Their
+  routing is part of the repository build policy:
   - `make check-fmt` executes:
 
     ```sh
@@ -143,16 +142,20 @@ project:
     ```
 
     validating formatting across the entire workspace without modifying files.
-  - `make lint` executes rustdoc and Clippy followed by the Whitaker Dylint
-    suite:
+  - `make lint` runs `lint-clippy` and then `lint-whitaker`. The first target
+    runs rustdoc with `RUSTDOCFLAGS="--cfg docsrs -D warnings"` and Clippy
+    with all targets and features plus `-D warnings`, using the toolchain and
+    fragment recorded by `tools/dev-fast/TOOLCHAIN` and
+    `tools/dev-fast/config.toml`. That fragment selects Cranelift and uses GCC
+    with `mold` on Linux. Install its toolchain components and `mold` with
+    `make install-dev-fast`; provide GCC on Linux. The installer verifies the
+    pinned `mold` archive. See the [toolchain and build routing
+    guide](docs/developers-guide.md#rust-toolchain-and-build-routing). Linux CI
+    provisions the prerequisites and runs `lint-clippy` through the fragment;
+    `lint-whitaker` invokes the wrapper
+    with `RUSTFLAGS="-D warnings"` and uses its own pinned toolchain without
+    the development fragment.
 
-    ```sh
-    cargo doc --workspace --no-deps
-    cargo clippy --all-targets --all-features -- -D warnings
-    RUSTFLAGS="-D warnings" whitaker --all -- --all-targets --all-features
-    ```
-
-    linting every target with all features enabled and denying all warnings.
     The `whitaker` wrapper must already be on `PATH`; never install,
     upgrade, or downgrade it from this repository — repository tooling and
     agents must not modify the user's Whitaker installation. If the wrapper
@@ -160,15 +163,29 @@ project:
     `no_std_fs_operations` exclusions, each with a rationale comment) lives
     in the root `dylint.toml`. Use `make lint-clippy` for a Clippy-only pass
     where Whitaker is unavailable.
-  - `make test` executes:
-
-    ```sh
-    cargo test --workspace
-    ```
-
-    running the full workspace test suite. Use `make fmt`
-    (`cargo fmt --workspace`) to apply formatting fixes reported by the
-    formatter check.
+  - `make test` runs `cargo-nextest` with the selected development toolchain
+    and configuration for ordinary tests. Nextest starts a separate Cargo
+    invocation to compile tests and does not inherit the outer Cargo
+    configuration, so the Makefile passes the fragment before `nextest` and
+    again with `nextest run` for that inner invocation. On Linux, ordinary
+    tests use nightly Cranelift with GCC and `mold`. The Makefile sets
+    `RUSTFLAGS` explicitly because environment `RUSTFLAGS` replaces configured
+    target rustflags; it repeats the documentation-denial flags and, on Linux,
+    the `mold` linker flag.
+    The byte-exact core diagnostic suites (`result_api_surface` and
+    `session_api_surface`) and the dense negative `portable_simd` check are
+    excluded from nextest and run in separate Cargo commands under the
+    repository-pinned stable toolchain. Those commands retain warning and
+    documentation denials. The positive dense portable-SIMD coverage remains
+    on the accelerated nextest path.
+    `make build`, `make typecheck`, and the explicit `make dev-build` and
+    `make dev-test` targets also select this configuration. `make release`,
+    formatting, coverage, Kani, Verus, benchmarks, and Whitaker do not. Direct
+    Cargo invocations use stable Rust 1.93.1 and `.cargo/config.toml`, above the
+    workspace MSRV of 1.89. Non-Linux Make backend support is not established by
+    CI; the direct stable Cargo path remains available there. Use `make fmt`
+    (`cargo fmt --all` plus Markdown formatting) to apply formatting fixes
+    reported by the formatter checks.
 - Clippy warnings MUST be disallowed.
 - Fix any warnings emitted during tests in the code itself rather than
   silencing them.
