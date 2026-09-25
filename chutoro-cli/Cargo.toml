@@ -29,7 +29,7 @@ arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
 mockable = { workspace = true, features = ["mock"] }
 parquet = { workspace = true, features = ["arrow"] }
-rstest = "0.26"
+rstest = "0.27"
 tempfile = "3.10"
 
 [dev-dependencies.chutoro-test-support]
