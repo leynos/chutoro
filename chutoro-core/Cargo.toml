@@ -28,7 +28,7 @@ tracing = { version = "0.1.41", features = ["attributes"] }
 [dev-dependencies]
 mockable = { workspace = true, features = ["mock"] }
 proptest = "1.8.0"
-rstest = "0.26"
+rstest = "0.27"
 test-strategy = "0.4.3"
 tracing-subscriber = { version = "0.3.20", features = ["fmt"] }
 metrics-util = { version = "0.20", features = ["debugging"], optional = false }
