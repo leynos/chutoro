@@ -29,6 +29,10 @@ concurrency:
 jobs:
   coverage-upload:
     runs-on: ubicloud-standard-2
+    # The CodeScene token lives in this environment, whose deployment policy
+    # admits `main` alone; the codescene environment contract holds it to
+    # this job.
+    environment: codescene
     # Above the 4,200 s cargo watchdog on the coverage step plus the 900 s
     # of work either side of it, and fifteen minutes above that sum rather
     # than equal to it. A ceiling sitting on its requirement cancels the
