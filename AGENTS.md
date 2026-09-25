@@ -178,6 +178,13 @@ project:
     repository-pinned stable toolchain. Those commands retain warning and
     documentation denials. The positive dense portable-SIMD coverage remains
     on the accelerated nextest path.
+    The HNSW regression test
+    `graph_helpers_report_poisoning_without_reconfiguring` is a fourth binding
+    stable test leaf: it deliberately panics while holding the graph's
+    `RwLock` to verify poisoned-lock handling, and the selected nightly
+    Cranelift backend aborts on that path instead of unwinding. Make excludes
+    only this exact case from nextest and runs it separately with stable LLVM
+    and the warning and documentation denials.
     `make build`, `make typecheck`, and the explicit `make dev-build` and
     `make dev-test` targets also select this configuration. `make release`,
     formatting, coverage, Kani, Verus, benchmarks, and Whitaker do not. Direct
