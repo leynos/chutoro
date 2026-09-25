@@ -278,7 +278,7 @@ impl Graph {
         Ok(())
     }
 
-    /// Initialise an unoccupied graph slot with its node context.
+    /// Initialize an unoccupied graph slot with its node context.
     pub(crate) fn attach_node(&mut self, ctx: NodeContext) -> Result<(), HnswError> {
         self.attach_node_inner(ctx).map_err(|reason| match reason {
             AttachNodeError::LevelExceedsMax => HnswError::InvalidParameters {
@@ -296,7 +296,7 @@ impl Graph {
         })
     }
 
-    /// Validates the context and initialises the node slot.
+    /// Validates the context and initializes the node slot.
     ///
     /// Shared by the production and Kani constructors; returns a static
     /// reason so the Kani path never constructs formatted errors.

@@ -70,7 +70,7 @@ completion, the relevant roadmap entry in `docs/roadmap.md` is marked as done.
 | `chutoro-core/src/hnsw/insert/commit.rs`         | `CommitApplicator::apply_neighbour_updates`                             |
 | `chutoro-core/src/hnsw/insert/mod.rs`            | Kani-only helpers (`apply_commit_updates_for_kani`, etc.)               |
 | `chutoro-core/src/hnsw/insert/commit/tests.rs`   | Existing commit-path unit tests                                         |
-| `chutoro-core/src/hnsw/insert/types.rs`          | `DeferredScrub`, `UpdateContext`, `FinalisedUpdate` types               |
+| `chutoro-core/src/hnsw/insert/types.rs`          | `DeferredScrub`, `UpdateContext`, `FinalizedUpdate` types               |
 | `chutoro-core/src/hnsw/invariants/mod.rs`        | `is_bidirectional` invariant checker                                    |
 
 ### Existing Harnesses
@@ -230,7 +230,7 @@ make markdownlint 2>&1 | tee /tmp/make-markdownlint.log
            ctx: update_ctx,
            candidates: vec![1],
        };
-       let updates: Vec<FinalisedUpdate> = vec![(staged, vec![1])];
+       let updates: Vec<FinalizedUpdate> = vec![(staged, vec![1])];
        let new_node = NewNodeContext { id: 3, level: 1 };
 
        apply_commit_updates_for_kani(&mut graph, max_connections, new_node, updates)

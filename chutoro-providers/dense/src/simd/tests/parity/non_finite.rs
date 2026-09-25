@@ -22,7 +22,7 @@ proptest! {
     #![proptest_config(super::proptest_config(64))]
 
     #[test]
-    fn pairwise_backends_canonicalise_non_finite_to_nan(
+    fn pairwise_backends_canonicalize_non_finite_to_nan(
         (left, right) in strategies::non_finite_vector_pair(),
     ) {
         let semantics = DistanceSemantics::default_euclidean();
@@ -42,7 +42,7 @@ proptest! {
     }
 
     #[test]
-    fn query_point_backends_canonicalise_non_finite_to_nan(
+    fn query_point_backends_canonicalize_non_finite_to_nan(
         fixture in strategies::non_finite_query_points_fixture(),
     ) {
         let semantics = DistanceSemantics::default_euclidean();

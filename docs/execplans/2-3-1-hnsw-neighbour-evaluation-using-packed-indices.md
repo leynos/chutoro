@@ -575,7 +575,7 @@ Stop and escalate (do not work around) when:
     on disk; `chutoro-benches/src/lib.rs` resolves `pub mod neighbour_scoring`
     to `chutoro-benches/src/neighbour_scoring/mod.rs`, and
     `median_matches_sorted_middle_values` already lives beside `median`,
-    `lane_utilisation_basis_points`, and `duration_basis_points` there.
+    `lane_utilization_basis_points`, and `duration_basis_points` there.
   - [x] (2026-06-25) Captured full Criterion baseline, optional HNSW build
     profile CSV, Hyperfine corroboration, and `perf stat` counters. Criterion
     baseline `before` was saved for all 21 cases; the lane-utilization report
@@ -768,7 +768,7 @@ Stop and escalate (do not work around) when:
   model, not repeat a narrower `usize` calculation. Evidence: the eleventh
   CodeRabbit review identified the only remaining `next_multiple_of` use in the
   report row writer. Impact: padded and wasted lane columns render from the
-  same checked/u128 basis used by `lane_utilisation_basis_points`.
+  same checked/u128 basis used by `lane_utilization_basis_points`.
 - Observation: report helpers should avoid avoidable work on the common path.
   Evidence: the twelfth CodeRabbit review noted that most benchmark bucket
   labels need no CSV escaping, but the previous helper still allocated a new
@@ -783,7 +783,7 @@ Stop and escalate (do not work around) when:
 - Observation: CSV report invariants are compact enough to property-test
   directly. Evidence: the thirteenth CodeRabbit review asked for generated
   coverage over bucket labels and candidate counts, and the resulting
-  `lane_utilisation_report_round_trips_generated_rows` case checks CSV parsing,
+  `lane_utilization_report_round_trips_generated_rows` case checks CSV parsing,
   padding, wasted lanes, and utilization bounds without exceeding the
   repository's file-size limit. Impact: the report schema now has example and
   generated coverage.
@@ -1331,7 +1331,7 @@ requiring re-benchmarking per target, and record the exact CPU model and
 1. Re-run `neighbour_scoring` + `critcmp before after` + cycle counts +
    `hyperfine`; append a results table (or a null-result statement) to §6.3 and
    `Outcomes`.
-2. Finalise ADR-003 and `developers-guide`; confirm `users-guide.md` needs
+2. Finalize ADR-003 and `developers-guide`; confirm `users-guide.md` needs
    changes only if a user-visible feature flag was kept.
 3. Confirm roadmap 2.3.1 marked done; ensure any deferred work is filed as a new
    item.

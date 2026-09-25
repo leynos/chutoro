@@ -1333,7 +1333,7 @@ manifests change. The nightly `kani-full` sweep is unchanged.
 _Implementation update (2026-02-02)._ Verus proofs now cover the edge harvest
 primitives described in `docs/property-testing-design.md` Appendix A. The
 proofs live in `verus/edge_harvest_proofs.rs` and model
-`extract_candidate_edges`, `CandidateEdge::canonicalise`, and
+`extract_candidate_edges`, `CandidateEdge::canonicalize`, and
 `EdgeHarvest::from_unsorted` with spec-only data types mirroring the helper
 signatures. Distances are represented as integers because the proofs only
 depend on equality and ordering, not floating-point semantics. Sorting uses
