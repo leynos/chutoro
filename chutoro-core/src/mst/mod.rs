@@ -273,21 +273,21 @@ const fn validate_and_canonicalize_edge(
 }
 
 #[cfg(not(kani))]
-/// Accept non-cycling edges from one equal-weight group deterministically.
-fn process_weight_group(
+/// Append non-cycling edges from one equal-weight group deterministically.
+fn extend_with_accepted_edges(
     group: &[MstEdge],
     union_find: &ConcurrentUnionFind,
-) -> Result<Vec<MstEdge>, MstError> {
+    forest_edges: &mut Vec<MstEdge>,
+) -> Result<(), MstError> {
     // Process edges sequentially to ensure deterministic MST selection.
     // Since edges are already sorted by (weight, source, target, sequence),
-    // sequential iteration produces reproducible results.
-    let mut accepted = Vec::new();
+    // sequential iteration appends reproducible results directly to the forest.
     for edge in group {
         if union_find.try_union(edge.source, edge.target)? {
-            accepted.push(*edge);
+            forest_edges.push(*edge);
         }
     }
-    Ok(accepted)
+    Ok(())
 }
 
 #[cfg(not(kani))]
@@ -365,9 +365,7 @@ pub(crate) fn parallel_kruskal_from_edges<'a>(
                 Some(Ordering::Equal)
             )
         }) {
-            let accepted = process_weight_group(group, &union_find)?;
-
-            forest_edges.extend(accepted);
+            extend_with_accepted_edges(group, &union_find, &mut forest_edges)?;
 
             if is_mst_complete(node_count, &union_find, &forest_edges) {
                 break;
