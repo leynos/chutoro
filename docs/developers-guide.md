@@ -980,13 +980,20 @@ the renderer does not model is refused rather than guessed at. It also requires
 exactly the event-conditioned `cancel-in-progress` expression, so the literal
 `true` fails. No two pull-request workflows may render the same group for one
 pull request, since whichever started last would cancel the others; each is
-rendered under its own name. The files are read through a loader that refuses a
-duplicated mapping key, because PyYAML keeps the last of two `concurrency:`
-blocks and says nothing. Each clause was proved by mutation: the cancel line
+rendered under its own name, and the groups are compared casefolded because
+GitHub treats group names case-insensitively. The files are read at test setup,
+not at import, through `workflow_support.all_workflow_documents`, whose parser
+refuses a duplicated mapping key because PyYAML keeps the last of two
+`concurrency:` blocks and says nothing; a file that cannot be read fails the
+tests that need it, with the reason, and a test drives the scope decision over
+a constructed directory. Each clause was proved by mutation: the cancel line
 removed, a literal `true`, a `ref` fallback, the run identifier ahead of the
 number, a constant group, a `head_ref` group, a `format()` group, the block
 removed, the trigger renamed to `pull_request_target`, a duplicated block, and
-an unquoted `on:` beside the quoted one each fail it.
+an unquoted `on:` beside the quoted one each fail it. So do a renderer that
+lets a comparison through, a workflow renamed to a case-only variant of
+another, and a reader that stops reading `.yaml` files, all three of which the
+first version of the contract passed.
 
 ## Test timeouts: four tiers, outermost last
 
