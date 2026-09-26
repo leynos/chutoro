@@ -67,7 +67,7 @@ jobs:
       # workflow that has no pull request to find a merge base for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@82feb2b7aac45b7efff40c9c4bb632551b14521c
+        uses: leynos/shared-actions/.github/actions/setup-rust@0be482c01ce57c1f9213744aa2def02183bef290
         with:
           # The action installs sccache through mozilla-actions/sccache-action,
           # whose last act is to write ACTIONS_CACHE_SERVICE_V2=on and
@@ -123,7 +123,7 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@82feb2b7aac45b7efff40c9c4bb632551b14521c
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@0be482c01ce57c1f9213744aa2def02183bef290
         with:
           version: "0.6.0"
 
@@ -138,7 +138,7 @@ jobs:
       # crates.io source-build fallback. It owns the installer binary and
       # the ~/.local/share/whitaker suite cache.
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@82feb2b7aac45b7efff40c9c4bb632551b14521c
+        uses: leynos/shared-actions/.github/actions/install-whitaker@0be482c01ce57c1f9213744aa2def02183bef290
       - name: Lint
         run: make lint
       - name: Setup uv
@@ -154,7 +154,7 @@ jobs:
       - name: Workflow contract tests
         run: make test-workflow-contracts
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@82feb2b7aac45b7efff40c9c4bb632551b14521c
+        uses: leynos/shared-actions/.github/actions/generate-coverage@0be482c01ce57c1f9213744aa2def02183bef290
         env:
           # The cargo watchdog, one of four tiers that can end a run. It must
           # stay above the 40 m nextest global-timeout in .config/nextest.toml
