@@ -1,6 +1,6 @@
 //! Batch-first datasource test fixtures and regression tests.
 
-use super::super::{DataSource, DataSourceError};
+use super::super::{DataSource, DataSourceError, PointPair};
 use rstest::{fixture, rstest};
 use std::sync::{
     Arc,
@@ -51,11 +51,7 @@ impl DataSource for BatchFirstSource {
         Ok(l.mul_add(1.0, std::ops::Neg::neg(*r)).abs())
     }
 
-    fn distance_batch(
-        &self,
-        pairs: &[(usize, usize)],
-        out: &mut [f32],
-    ) -> Result<(), DataSourceError> {
+    fn distance_batch(&self, pairs: &[PointPair], out: &mut [f32]) -> Result<(), DataSourceError> {
         self.batch_calls.fetch_add(1, Ordering::Relaxed);
         if pairs.len() != out.len() {
             return Err(DataSourceError::OutputLengthMismatch {
@@ -65,7 +61,9 @@ impl DataSource for BatchFirstSource {
         }
 
         let mut results = Vec::with_capacity(pairs.len());
-        for (left, right) in pairs.iter().copied() {
+        for pair in pairs {
+            let left = pair.left();
+            let right = pair.right();
             let l = self
                 .data
                 .get(left)
@@ -172,7 +170,7 @@ fn distance_batch_leaves_output_unmodified_on_error() {
         make_batch_first(vec![0.0, 1.0]).expect("fixture setup should succeed");
     let mut out = vec![10.0_f32, 20.0_f32];
     let err = source
-        .distance_batch(&[(0, 1), (0, 9)], &mut out)
+        .distance_batch(&[PointPair::new(0, 1), PointPair::new(0, 9)], &mut out)
         .expect_err("out-of-bounds pair must fail");
 
     assert!(matches!(err, DataSourceError::OutOfBounds { index: 9 }));
