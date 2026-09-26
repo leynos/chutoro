@@ -66,7 +66,7 @@ jobs:
       # leaving a server writing to a local directory nothing ever moves.
       - &setup_rust_step
         name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@82feb2b7aac45b7efff40c9c4bb632551b14521c
+        uses: leynos/shared-actions/.github/actions/setup-rust@0be482c01ce57c1f9213744aa2def02183bef290
         with:
           use-sccache: 'false'
       # Downloads the pinned nextest release archive and verifies the
