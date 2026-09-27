@@ -12,6 +12,8 @@
   },
   "ignores": [
     "**/.venv/**",
+    // Generated third-party Verus installation Markdown is outside repository ownership and must not be formatted or linted.
+    "**/.verus/**",
     ".node_modules/**",
     "**/node_modules/**",
     "**/target/**",
