@@ -194,7 +194,7 @@ def test_the_reading_joins_only_what_the_shell_joins(
 #: feature. On nightly, rustc adds `help: add #![feature(portable_simd)]` to
 #: each of those errors because there it can be enabled, so the fixture
 #: mismatches for a reason about the toolchain rather than about the gating.
-TOOLCHAIN_SPECIFIC_TRYBUILD_TEST = "portable_simd_gating_compile_checks"
+TOOLCHAIN_SPECIFIC_TRYBUILD_TEST = "portable_simd_without_feature_is_rejected"
 
 #: The lane that runs the dense provider's tests on nightly.
 NIGHTLY_SIMD_WORKFLOW = "nightly-portable-simd.yml"
