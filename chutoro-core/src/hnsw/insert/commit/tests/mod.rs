@@ -317,7 +317,7 @@ mod metrics;
 fn isolation_replacement_keeps_bidirectionality(
     #[from(params_two_connections)] params_res: Result<HnswParams, HnswError>,
 ) -> Result<(), HnswError> {
-    let params = params_res.expect("params should be valid for tests");
+    let params = params_res?;
     let max_connections = params.max_connections();
     let mut graph = Graph::with_capacity(params, 3);
 
