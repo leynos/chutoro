@@ -186,7 +186,7 @@ impl<'graph> LayerSearcher<'graph> {
             }
 
             let distances = inputs.validate_batch(ctx.query(), &fresh)?;
-            for (neighbour_id, distance) in fresh.into_iter().zip(distances.into_iter()) {
+            for (neighbour_id, distance) in fresh.into_iter().zip(distances) {
                 let sequence = self.sequence_for_node(neighbour_id, "layer expansion")?;
                 state.try_enqueue(
                     SearchNeighbour::new(neighbour_id, distance, sequence),
