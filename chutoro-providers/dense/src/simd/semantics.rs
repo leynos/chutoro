@@ -2,7 +2,7 @@
 //!
 //! The semantics contract is a small value object that records the tolerance
 //! and policy choices every backend must follow: `1.0e-5` epsilon,
-//! `CanonicaliseToNan` for non-finite distances, `ReturnZero` for identical
+//! `CanonicalizeToNan` for non-finite distances, `ReturnZero` for identical
 //! zero vectors, and `LowestRowIndexFirst` for future equal-distance ordering.
 //! Keeping those decisions in one object makes the parity assertions describe
 //! behaviour rather than re-encoding scattered constants in each property.
@@ -37,7 +37,7 @@ use super::{DensePointView, kernels};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum NonFinitePolicy {
     /// Convert every non-finite final distance to `f32::NAN`.
-    CanonicaliseToNan,
+    CanonicalizeToNan,
 }
 
 /// Policy for vectors whose Euclidean norm difference is zero.
@@ -73,7 +73,7 @@ impl DistanceSemantics {
     pub(crate) const fn default_euclidean() -> Self {
         Self {
             epsilon: 1.0e-5_f32,
-            non_finite_policy: NonFinitePolicy::CanonicaliseToNan,
+            non_finite_policy: NonFinitePolicy::CanonicalizeToNan,
             zero_vector_policy: ZeroVectorPolicy::ReturnZero,
             tie_breaking: TieBreakingPolicy::LowestRowIndexFirst,
         }
@@ -166,10 +166,10 @@ impl DistanceSemantics {
 
     /// Returns whether a non-finite result satisfies the configured policy.
     ///
-    /// When the policy is `CanonicaliseToNan`, matching `NaN` values are
+    /// When the policy is `CanonicalizeToNan`, matching `NaN` values are
     /// accepted directly so callers can skip the finite-distance epsilon check.
     fn should_accept_non_finite(self, actual: f32, expected: f32) -> bool {
-        matches!(self.non_finite_policy, NonFinitePolicy::CanonicaliseToNan)
+        matches!(self.non_finite_policy, NonFinitePolicy::CanonicalizeToNan)
             && actual.is_nan()
             && expected.is_nan()
     }

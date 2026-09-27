@@ -30,33 +30,17 @@ extend-exclude = [
 [default]
 locale = "en-gb"
 extend-ignore-re = [
-    "\"canonicalise\" for API compatibility",
-    "\"ises\"",
-    "&mut initialised\\b",
-    "(?:::|\\.)canonicalise\\b",
     "(?s)```.*?```",
     "Azure\\s+Architecture\\s+Center\\s*\\|\\s*Microsoft\\s+Learn\\b",
     "GitHub\\s+Flavored\\s+Markdown\\b(?:\\s\\(GFM\\))?",
     "Header-only C\\+\\+/python library for fast approximate\\s+nearest neighbors",
-    "\\.finalise\\b",
-    "\\[\\^canonicalise\\]",
-    "\\b(?:[A-Za-z0-9]+(?:Canonicalis\\w*|Finalis\\w*|Initialis\\w*|Parameteris\\w*|Prioritis\\w*|Unrecognis\\w*)[A-Za-z0-9]*|(?:Canonicalis\\w*|Finalis\\w*|Initialis\\w*|Parameteris\\w*|Prioritis\\w*|Unrecognis\\w*)[A-Za-z0-9]+)\\b",
-    "\\b(?:canonicalis|finalis|initialis|parameteris|prioritis|unrecognis)\\w*_[A-Za-z0-9_]+\\b",
     "\\bCARGO_TERM_COLOR\\b",
-    "\\b[A-Za-z0-9][A-Za-z0-9_]*_(?:canonicalis|finalis|initialis|parameteris|prioritis|unrecognis)\\w*\\b",
-    "\\b_initialised\\b",
-    "\\bba\\.value\\(\\)",
-    "\\bfn canonicalise\\b",
-    "\\bfn finalise\\b",
-    "\\binitialised\\.insert\\b",
-    "\\binitialised\\s*:\\s*(?:_|&mut|HashSet)",
-    "\\bis_symmetric_result\\(ab, ba\\)",
-    "\\blet ba =",
-    "\\blet mut initialised\\b",
+    "\\bedge\\.canonicalise\\b",
+    "\\blane_utilisation_basis_points\\b",
+    "\\bneighbour_scoring_lane_utilisation\\.csv\\b",
+    "\\bpub const fn canonicalise\\b",
     "\\brust-analyzer\\b",
-    "\\n\\s*initialised,\\n",
     "`[^`\\n]+`",
-    "types: \\[[^]]*\\blabeled\\b",
 ]
 
 [default.extend-words]

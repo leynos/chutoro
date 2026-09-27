@@ -11,13 +11,13 @@ mod report;
 
 use benchmark_plan::{CandidateBucket, all_buckets, scoring_plan};
 use benchmark_support::{
-    ScoringFixture, make_fixture, write_build_profile_report, write_lane_utilisation_report,
+    ScoringFixture, make_fixture, write_build_profile_report, write_lane_utilization_report,
 };
 use profiling::{ProfilingError, ProfilingSource};
 
 /// Register the neighbour-scoring Criterion group and its diagnostic reports.
 ///
-/// Call this from a Criterion benchmark entrypoint. It writes lane-utilisation
+/// Call this from a Criterion benchmark entrypoint. It writes lane-utilization
 /// and optional build-profile CSV reports before registering the benchmark
 /// cases.
 ///
@@ -43,17 +43,17 @@ pub use build_profile::{
 #[doc(hidden)]
 pub use profiling::{duration_nanos, saturating_add_u64, saturating_add_usize};
 pub use report::{
-    BuildProfileReportRow, LaneUtilisationReportRow, write_build_profile_report_csv,
-    write_lane_utilisation_report_csv,
+    BuildProfileReportRow, LaneUtilizationReportRow, write_build_profile_report_csv,
+    write_lane_utilization_report_csv,
 };
 
-/// Lane-utilisation report filename.
+/// Lane-utilization report filename.
 pub const LANE_REPORT: &str = "neighbour_scoring_lane_utilisation.csv";
 
 /// Number of candidate lanes represented by one dense-provider `SoA` block.
 const SIMD_LANES: usize = 16;
 
-/// Calculate active-lane utilisation in basis points for one candidate bucket.
+/// Calculate active-lane utilization in basis points for one candidate bucket.
 ///
 /// Returns `0` for an empty bucket. Non-empty buckets are rounded down to the
 /// integer basis-point value implied by padding the bucket to a full
@@ -62,21 +62,21 @@ const SIMD_LANES: usize = 16;
 /// # Examples
 ///
 /// ```
-/// use chutoro_benches::neighbour_scoring::lane_utilisation_basis_points;
+/// use chutoro_benches::neighbour_scoring::lane_utilization_basis_points;
 ///
-/// assert_eq!(lane_utilisation_basis_points(8), 5_000);
-/// assert_eq!(lane_utilisation_basis_points(16), 10_000);
+/// assert_eq!(lane_utilization_basis_points(8), 5_000);
+/// assert_eq!(lane_utilization_basis_points(16), 10_000);
 /// ```
 #[expect(
     clippy::integer_division,
-    reason = "basis-point utilisation is an integer diagnostic report"
+    reason = "basis-point utilization is an integer diagnostic report"
 )]
 #[expect(
     clippy::integer_division_remainder_used,
-    reason = "basis-point utilisation is an integer diagnostic report"
+    reason = "basis-point utilization is an integer diagnostic report"
 )]
 #[must_use]
-pub fn lane_utilisation_basis_points(candidate_count: usize) -> usize {
+pub fn lane_utilization_basis_points(candidate_count: usize) -> usize {
     if candidate_count == 0 {
         return 0;
     }
@@ -184,7 +184,7 @@ mod tests {
     use proptest::prelude::*;
     use rstest::rstest;
 
-    use super::{SIMD_LANES, duration_basis_points, lane_utilisation_basis_points, sorted_median};
+    use super::{SIMD_LANES, duration_basis_points, lane_utilization_basis_points, sorted_median};
 
     #[rstest]
     #[case(0, 0)]
@@ -192,11 +192,11 @@ mod tests {
     #[case(16, 10_000)]
     #[case(24, 7_500)]
     #[case(usize::MAX, 9_999)]
-    fn lane_utilisation_handles_candidate_counts(
+    fn lane_utilization_handles_candidate_counts(
         #[case] candidate_count: usize,
         #[case] expected: usize,
     ) {
-        assert_eq!(lane_utilisation_basis_points(candidate_count), expected);
+        assert_eq!(lane_utilization_basis_points(candidate_count), expected);
     }
 
     #[rstest]
@@ -253,17 +253,17 @@ mod tests {
 
     proptest! {
         #[test]
-        fn lane_utilisation_is_bounded(candidate_count in 1_usize..=1_000_000) {
-            let utilisation = lane_utilisation_basis_points(candidate_count);
+        fn lane_utilization_is_bounded(candidate_count in 1_usize..=1_000_000) {
+            let utilization = lane_utilization_basis_points(candidate_count);
 
-            prop_assert!((1..=10_000).contains(&utilisation));
+            prop_assert!((1..=10_000).contains(&utilization));
             if candidate_count.next_multiple_of(SIMD_LANES) == candidate_count {
-                prop_assert_eq!(utilisation, 10_000);
+                prop_assert_eq!(utilization, 10_000);
             }
         }
 
         #[test]
-        fn lane_utilisation_increases_within_one_padding_block(
+        fn lane_utilization_increases_within_one_padding_block(
             bucket in 0_usize..=1_024,
             lower_offset in 1_usize..=SIMD_LANES,
             offset_delta in 0_usize..SIMD_LANES,
@@ -274,8 +274,8 @@ mod tests {
             let upper_candidate_count = block_start.saturating_add(upper_offset);
 
             prop_assert!(
-                lane_utilisation_basis_points(lower_candidate_count)
-                    <= lane_utilisation_basis_points(upper_candidate_count)
+                lane_utilization_basis_points(lower_candidate_count)
+                    <= lane_utilization_basis_points(upper_candidate_count)
             );
         }
 

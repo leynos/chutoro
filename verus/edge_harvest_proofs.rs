@@ -49,7 +49,7 @@ impl CandidateEdgeSpec {
     /// ```text
     /// (source=3, target=1) yields (source=1, target=3).
     /// ```
-    pub open spec fn canonicalise(self) -> Self {
+    pub open spec fn canonicalize(self) -> Self {
         if self.source <= self.target {
             self
         } else {

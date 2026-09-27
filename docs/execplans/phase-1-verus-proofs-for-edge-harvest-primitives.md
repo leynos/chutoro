@@ -72,7 +72,7 @@ Use the `rstest` patterns described in
    - `target != source_node` (no self edges).
    - `sequence == source_sequence` for all edges.
    - Edge count equals total neighbours across layers minus self neighbours.
-2. `CandidateEdge::canonicalise`:
+2. `CandidateEdge::canonicalize`:
    - `source <= target` in the result.
    - `distance` and `sequence` preserved.
 3. `EdgeHarvest::from_unsorted`:
@@ -83,7 +83,7 @@ Use the `rstest` patterns described in
 
 ### Step 1: Confirm helper stability and constraints
 
-- Review `extract_candidate_edges`, `CandidateEdge::canonicalise`, and
+- Review `extract_candidate_edges`, `CandidateEdge::canonicalize`, and
   `EdgeHarvest::from_unsorted` signatures to confirm they are stable.
 - Capture any implicit preconditions needed by proofs (for example, sorting
   comparator totality) and record them in the design document.
@@ -108,7 +108,7 @@ Use the `rstest` patterns described in
 - Prove source, target, and sequence fields are preserved for each edge.
 - Prove the count formula for total neighbours minus self neighbours.
 
-### Step 5: Prove `CandidateEdge::canonicalise` properties
+### Step 5: Prove `CandidateEdge::canonicalize` properties
 
 - Prove the canonicalized edge preserves `distance` and `sequence`.
 - Prove `source <= target` and field swapping is the only change.
@@ -130,7 +130,7 @@ Add or extend tests in `chutoro-core/src/hnsw/tests/edge_harvest.rs`:
   - Happy paths for multiple layers and neighbours.
   - Unhappy paths for self neighbours and empty layers.
   - Edge count assertions for mixed layers.
-- `CandidateEdge::canonicalise`:
+- `CandidateEdge::canonicalize`:
   - Already canonical edges and reversed edges.
   - Self edge behaviour.
 - `EdgeHarvest::from_unsorted`:

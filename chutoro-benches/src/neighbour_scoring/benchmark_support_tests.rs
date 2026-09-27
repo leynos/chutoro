@@ -57,18 +57,20 @@ fn fixture_contains_provider_rows_and_one_based_candidates() {
 }
 
 #[rstest]
-fn lane_utilisation_report_writes_expected_file(
+fn lane_utilization_report_writes_expected_file(
     #[from(utf8_temp_dir)] temp_dir_result: Result<Utf8TempDir, Utf8TempDirError>,
 ) {
     use crate::neighbour_scoring::REPORT_DIR_NAME;
 
-    use super::{LANE_REPORT, write_lane_utilisation_report};
+    use super::{LANE_REPORT, write_lane_utilization_report};
+
+    assert_eq!(LANE_REPORT, "neighbour_scoring_lane_utilisation.csv");
 
     let temp_dir = temp_dir_result.expect("temp dir must be created");
     let report_parent_dir = temp_dir.path();
 
-    let report_path = write_lane_utilisation_report(report_parent_dir)
-        .expect("lane utilisation report must be written");
+    let report_path = write_lane_utilization_report(report_parent_dir)
+        .expect("lane utilization report must be written");
 
     assert_eq!(
         report_path,

@@ -168,7 +168,7 @@ fn comparison_cpu_hnsw(
 }
 
 #[derive(Debug)]
-struct CanonicaliseCase {
+struct CanonicalizeCase {
     source: usize,
     target: usize,
     distance: f32,

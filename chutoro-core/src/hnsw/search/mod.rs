@@ -194,6 +194,6 @@ impl<'graph> LayerSearcher<'graph> {
                 );
             }
         }
-        Ok(state.finalise())
+        Ok(state.finalize())
     }
 }

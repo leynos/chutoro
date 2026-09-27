@@ -46,7 +46,7 @@ const TEST_CASES: &[(WeightDistribution, u64, &str)] = &[
 /// - `$runner` — property runner function with signature
 ///   `fn(&MstFixture) -> TestCaseResult`.
 /// - `$expectation` — panic message passed to `.expect()`.
-macro_rules! parameterised_property_test {
+macro_rules! parameterized_property_test {
     ($test_name:ident, $runner:path, $expectation:expr) => {
         #[rstest::rstest]
         #[case::unique_42(WeightDistribution::Unique, 42)]
@@ -97,28 +97,28 @@ proptest! {
 }
 
 // ========================================================================
-// rstest Parameterised Cases
+// rstest Parameterized Cases
 // ========================================================================
 
-parameterised_property_test!(
+parameterized_property_test!(
     oracle_equivalence_rstest,
     run_oracle_equivalence_property,
     "oracle equivalence must hold"
 );
 
-parameterised_property_test!(
+parameterized_property_test!(
     structural_invariants_rstest,
     run_structural_invariants_property,
     "structural invariants must hold"
 );
 
-parameterised_property_test!(
+parameterized_property_test!(
     concurrency_safety_rstest,
     run_concurrency_safety_property,
     "concurrency safety must hold"
 );
 
-parameterised_property_test!(
+parameterized_property_test!(
     thread_pool_determinism_rstest,
     run_thread_pool_determinism_property,
     "thread-pool determinism must hold"
@@ -138,7 +138,7 @@ fn test_cases_count_matches_macro_expectations() {
     assert_eq!(
         TEST_CASES.len(),
         11,
-        "TEST_CASES length changed — update parameterised_property_test! macro"
+        "TEST_CASES length changed — update parameterized_property_test! macro"
     );
 }
 

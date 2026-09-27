@@ -90,7 +90,7 @@ Start by designing a Kani-only helper in `chutoro-core/src/hnsw/insert/mod.rs`
 that wraps `CommitApplicator::apply_neighbour_updates`. This helper should take
 simple, public inputs (for example, a list of update specs that name the node,
 level, and neighbour list) and internally build the `StagedUpdate` and
-`FinalisedUpdate` values required by the commit path. Add `kani::assume` guards
+`FinalizedUpdate` values required by the commit path. Add `kani::assume` guards
 for preconditions (nodes exist, levels are valid, neighbour lists are
 deduplicated) to keep the state space bounded and consistent with production
 assumptions.

@@ -80,7 +80,7 @@ pub(crate) struct TrimResult {
 }
 
 /// A staged update paired with its final trimmed neighbours.
-pub(crate) type FinalisedUpdate = (StagedUpdate, Vec<usize>);
+pub(crate) type FinalizedUpdate = (StagedUpdate, Vec<usize>);
 
 /// Outcome of staging the insertion layers prior to trimming.
 pub(super) struct LayerProcessingOutcome {
@@ -88,8 +88,8 @@ pub(super) struct LayerProcessingOutcome {
     pub(super) new_node_neighbours: Vec<Vec<usize>>,
     /// Staged neighbour lists keyed by origin and layer.
     pub(super) staged: HashMap<(usize, usize), Vec<usize>>,
-    /// Node-layer pairs initialised during staging.
-    pub(super) initialised: HashSet<(usize, usize)>,
+    /// Node-layer pairs initialized during staging.
+    pub(super) initialized: HashSet<(usize, usize)>,
     /// Node-layer pairs that exceed their degree limit.
     pub(super) needs_trim: HashSet<(usize, usize)>,
 }

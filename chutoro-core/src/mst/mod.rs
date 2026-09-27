@@ -301,7 +301,7 @@ fn is_mst_complete(
 }
 
 #[cfg(not(kani))]
-/// Validate, canonicalise, sort, and deduplicate candidate edges.
+/// Validate, canonicalize, sort, and deduplicate candidate edges.
 fn prepare_edge_list<'a>(
     edges: impl IntoIterator<Item = &'a CandidateEdge>,
     node_count: usize,

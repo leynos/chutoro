@@ -277,11 +277,11 @@ fn duplicate_insert_is_rejected() {
 }
 
 #[rstest]
-fn cpu_hnsw_initialises_graph_with_params() {
+fn cpu_hnsw_initializes_graph_with_params() {
     let params = HnswParams::new(2, 4)
         .expect("parameters must be valid")
         .with_rng_seed(7);
-    let index = CpuHnsw::with_capacity(params.clone(), 8).expect("index must initialise");
+    let index = CpuHnsw::with_capacity(params.clone(), 8).expect("index must initialize");
     index
         .inspect_graph(|graph| {
             let graph_params = graph.params();
@@ -295,7 +295,7 @@ fn cpu_hnsw_initialises_graph_with_params() {
 #[rstest]
 fn trimming_prefers_lower_id_on_distance_ties() {
     let params = HnswParams::new(1, 4).expect("parameters must be valid");
-    let index = CpuHnsw::with_capacity(params.clone(), 3).expect("index must initialise");
+    let index = CpuHnsw::with_capacity(params.clone(), 3).expect("index must initialize");
     let ctx = EdgeContext {
         level: 0,
         max_connections: params.max_connections(),
@@ -329,7 +329,7 @@ fn trimming_prefers_lower_id_on_distance_ties() {
 #[rstest]
 fn score_trim_jobs_limits_results_to_max_connections() {
     let params = HnswParams::new(1, 4).expect("parameters must be valid");
-    let index = CpuHnsw::with_capacity(params.clone(), 6).expect("index must initialise");
+    let index = CpuHnsw::with_capacity(params.clone(), 6).expect("index must initialize");
     let ctx = EdgeContext {
         level: 0,
         max_connections: 2,

@@ -248,7 +248,10 @@ Use `insert(node, source)` when only graph mutation is required. Use
 candidate edges considered during planning. The first insertion into an empty
 index returns an empty `Vec<CandidateEdge>` because there are no prior nodes to
 connect to. Subsequent insertions return candidate edges that can be consumed
-by incremental minimum spanning tree (MST) or auditing workflows.
+by incremental minimum spanning tree (MST) or auditing workflows. Call
+`CandidateEdge::canonicalize()` to order an undirected edge's endpoints; the
+legacy `CandidateEdge::canonicalise()` name remains available for existing
+callers.
 
 `insert_harvesting` follows the same insertion rules as `insert` and returns
 `Result<Vec<CandidateEdge>, HnswError>`. `HnswError::DuplicateNode` is returned

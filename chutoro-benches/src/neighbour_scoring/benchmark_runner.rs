@@ -20,7 +20,7 @@ use mockable::{DefaultEnv, Env};
 use super::{
     CandidateBucket, ScoringFixture, benchmark_support::BenchError, benchmark_support::BenchResult,
     build_profile::report_parent_dir_with_env, make_fixture, scoring_plan,
-    write_build_profile_report, write_lane_utilisation_report,
+    write_build_profile_report, write_lane_utilization_report,
 };
 
 /// Query row used for every neighbour-scoring benchmark iteration.
@@ -109,7 +109,7 @@ fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
         c,
         &DefaultEnv,
         (
-            |report_parent_dir| write_lane_utilisation_report(report_parent_dir).map(drop),
+            |report_parent_dir| write_lane_utilization_report(report_parent_dir).map(drop),
             |report_parent_dir| write_build_profile_report(report_parent_dir).map(drop),
         ),
         bench_case,
@@ -153,7 +153,7 @@ fn neighbour_scoring_impl_with(
 /// Registers the neighbour-scoring benchmark group and its diagnostic reports.
 ///
 /// This creates the `neighbour_scoring` Criterion group and writes its
-/// lane-utilisation and optional build-profile CSV diagnostics before
+/// lane-utilization and optional build-profile CSV diagnostics before
 /// registering benchmark cases.
 ///
 /// # Examples

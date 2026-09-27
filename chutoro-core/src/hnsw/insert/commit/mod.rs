@@ -9,13 +9,13 @@ use crate::hnsw::{error::HnswError, graph::Graph};
 
 use super::{
     reconciliation::EdgeReconciler,
-    types::{FinalisedUpdate, NewNodeContext, UpdateContext},
+    types::{FinalizedUpdate, NewNodeContext, UpdateContext},
 };
 
 /// Final new-node neighbours and existing node-level lists touched by commit.
 pub(super) type ApplyUpdatesOutcome = (Vec<Vec<usize>>, Vec<(usize, usize)>);
 
-/// Applies finalised insertion updates to a mutable graph.
+/// Applies finalized insertion updates to a mutable graph.
 #[derive(Debug)]
 pub(super) struct CommitApplicator<'graph> {
     /// Graph that receives the committed adjacency-list changes.
@@ -67,7 +67,7 @@ impl<'graph> CommitApplicator<'graph> {
     /// nodes now that their adjacency lists have been trimmed.
     pub(super) fn apply_neighbour_updates(
         &mut self,
-        final_updates: Vec<FinalisedUpdate>,
+        final_updates: Vec<FinalizedUpdate>,
         max_connections: usize,
         new_node: NewNodeContext,
     ) -> Result<ApplyUpdatesOutcome, HnswError> {

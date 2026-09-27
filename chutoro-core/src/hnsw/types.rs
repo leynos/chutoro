@@ -149,9 +149,9 @@ impl PartialOrd for RankedNeighbour {
 /// assert_eq!(edge.target(), 1);
 /// assert!((edge.distance() - 0.5).abs() < f32::EPSILON);
 ///
-/// // Canonicalise ensures source <= target for undirected graphs.
+/// // Canonicalize ensures source <= target for undirected graphs.
 /// let reversed = CandidateEdge::new(5, 2, 0.3, 10);
-/// let canonical = reversed.canonicalise();
+/// let canonical = reversed.canonicalize();
 /// assert_eq!(canonical.source(), 2);
 /// assert_eq!(canonical.target(), 5);
 /// ```
@@ -204,7 +204,7 @@ impl CandidateEdge {
     /// Useful for undirected MST construction where edge direction is
     /// irrelevant.
     #[must_use]
-    pub const fn canonicalise(self) -> Self {
+    pub const fn canonicalize(self) -> Self {
         if self.source <= self.target {
             self
         } else {
@@ -214,6 +214,23 @@ impl CandidateEdge {
                 ..self
             }
         }
+    }
+
+    /// Returns the edge with ordered endpoints under the legacy API name.
+    ///
+    /// The name is retained for callers that used `canonicalise` before the
+    /// preferred [`Self::canonicalize`] method was added.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_core::CandidateEdge;
+    ///
+    /// let edge = CandidateEdge::new(5, 2, 0.3, 10);
+    /// assert_eq!(edge.canonicalise(), edge.canonicalize());
+    /// ```
+    #[must_use]
+    pub const fn canonicalise(self) -> Self {
+        self.canonicalize()
     }
 }
 
