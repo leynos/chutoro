@@ -38,3 +38,13 @@ updates:
     cooldown:
       default-days: 7
       semver-major-days: 14
+
+  # Keep the pinned Rust toolchain current alongside Cargo dependencies.
+  - package-ecosystem: "rust-toolchain"
+    directory: "/"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "rust-toolchain"
+    schedule:
+      interval: "weekly"
