@@ -40,23 +40,12 @@ jobs:
       # `ThreadPoolBuilder` 1-versus-8-thread determinism test, both of which use
       # real concurrency regardless of this pin.
       RAYON_NUM_THREADS: '1'
-      # Name the wrapper at job level so every compiling step routes through
-      # the cache, including the ones inside shared actions. Installing
-      # sccache is not enough on its own; nothing else names it.
-      RUSTC_WRAPPER: sccache
-      # The local-disk arm. sccache's GitHub Actions backend was measured to
-      # be a net loss for Rust here: a hit cost 0.28 s against 0.42 s to
-      # compile, and GitHub rejected 273 of this job's writes, which pushed
-      # the coverage step into the 600 s nextest timeout. A plain directory
-      # under the workspace, moved by actions/cache, has no such per-object
-      # round trip. The directory must sit inside the workspace so the cache
-      # action's relative path resolves and .gitignore keeps it out of the
-      # tree that coverage and CodeScene read.
-      SCCACHE_DIR: ${{ github.workspace }}/.sccache
-      # Bound the archive. The GitHub cache allows 10 GB per repository and
-      # the Verus cache already owns part of that, so an unbounded compiler
-      # cache would evict its own neighbours.
-      SCCACHE_CACHE_SIZE: 2G
+      # sccache is setup-rust's: it names the wrapper, starts and zeroes the
+      # server, and picks the backend from the runner. On Ubicloud that is
+      # the cache proxy, which a pull request reads from `main`'s scope and
+      # its own; on the fork fallback's hosted runner it is a local
+      # directory that setup-rust restores from `main` and never saves from a
+      # pull request. See "The compiler cache" in docs/developers-guide.md.
     steps:
       # A shallow checkout, the action's default, because nothing in this job
       # reads history any more. The `cs-coverage check` step that needed the
@@ -67,49 +56,12 @@ jobs:
       # workflow that has no pull request to find a merge base for.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@0be482c01ce57c1f9213744aa2def02183bef290
+        id: setup-rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@4fb8eb7ad52454678a0662865d81d3cd17aa6e0e
         with:
-          # The action installs sccache through mozilla-actions/sccache-action,
-          # whose last act is to write ACTIONS_CACHE_SERVICE_V2=on and
-          # GitHub's results URL and token to GITHUB_ENV. That clobbers any
-          # earlier cache-endpoint export for every later step, which is how
-          # the Ubicloud lane's writes ended up at GitHub. Keeping the step
-          # out is what makes the local backend's indifference to those
-          # variables count.
-          use-sccache: 'false'
-      # Pinned, checksum-verified release archive; nothing is built from
-      # source in CI.
-      - name: Install sccache
-        run: scripts/install-sccache.sh
-      # A cache key that never varies can be written once and never again:
-      # actions/cache refuses to overwrite an existing key, so the entry
-      # would freeze at the first push that used a given lockfile. The date
-      # stamp gives the writer a fresh key each day while the restore-keys
-      # prefix keeps readers on the newest entry. Computed once per job so
-      # the restore and the save below cannot straddle midnight.
-      - name: Stamp the compiler-cache key
-        id: sccache-key
-        run: echo "date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
-      # Reader only. coverage-main.yml is the sole writer of this key: it
-      # compiles the same workspace under the same instrumentation on push
-      # to main. A second writer here would race it on every merge and the
-      # loser's work would be discarded. The restore-keys prefix lets a run
-      # whose lockfile has moved start from the newest older entry instead
-      # of from nothing.
-      - name: Restore compiler cache
-        id: sccache-restore
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
-        with:
-          path: ${{ github.workspace }}/.sccache
-          key: >-
-            sccache-build-test-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-${{ steps.sccache-key.outputs.date }}
-          restore-keys: |
-            sccache-build-test-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ hashFiles('rust-toolchain.toml', 'Cargo.lock') }}-
-            sccache-build-test-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-
-      # Starts the server against SCCACHE_DIR and resets the counters, so
-      # the statistics below describe this run alone.
-      - name: Reset compiler-cache counters
-        run: sccache --zero-stats
+          # `any`, because a fork's pull request falls back to a hosted runner,
+          # where setup-rust selects local disk rather than failing the check.
+          expect-cache: any
       - name: Dense stable SIMD gating
         run: |
           cargo clippy -p chutoro-providers-dense \
@@ -123,7 +75,7 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@0be482c01ce57c1f9213744aa2def02183bef290
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@4fb8eb7ad52454678a0662865d81d3cd17aa6e0e
         with:
           version: "0.6.0"
 
@@ -138,7 +90,7 @@ jobs:
       # crates.io source-build fallback. It owns the installer binary and
       # the ~/.local/share/whitaker suite cache.
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@0be482c01ce57c1f9213744aa2def02183bef290
+        uses: leynos/shared-actions/.github/actions/install-whitaker@4fb8eb7ad52454678a0662865d81d3cd17aa6e0e
       - name: Lint
         run: make lint
       - name: Setup uv
@@ -154,7 +106,7 @@ jobs:
       - name: Workflow contract tests
         run: make test-workflow-contracts
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@0be482c01ce57c1f9213744aa2def02183bef290
+        uses: leynos/shared-actions/.github/actions/generate-coverage@4fb8eb7ad52454678a0662865d81d3cd17aa6e0e
         env:
           # The cargo watchdog, one of four tiers that can end a run. It must
           # stay above the 40 m nextest global-timeout in .config/nextest.toml
@@ -184,21 +136,13 @@ jobs:
       - name: Record compiler-cache statistics
         if: ${{ always() }}
         env:
-          SCCACHE_RESTORE_HIT: ${{ steps.sccache-restore.outputs.cache-hit }}
-          SCCACHE_RESTORE_KEY: ${{ steps.sccache-restore.outputs.cache-matched-key }}
+          SCCACHE_BACKEND: ${{ steps.setup-rust.outputs.cache-backend }}
         run: |
           {
             printf '### sccache (build-test)\n\n'
-            printf -- '- cache service v2 selected: %s\n' \
-              "${ACTIONS_CACHE_SERVICE_V2:-unset}"
-            printf -- '- restore exact hit: %s\n' \
-              "${SCCACHE_RESTORE_HIT:-false}"
-            printf -- '- restored key: %s\n' \
-              "${SCCACHE_RESTORE_KEY:-none}"
-            printf -- '- cache size on disk: %s\n\n' \
-              "$(du -sh "${SCCACHE_DIR}" 2>/dev/null | cut -f1)"
+            printf -- '- backend: %s\n\n' "${SCCACHE_BACKEND:-none}"
             printf '```\n'
-            sccache --show-stats
+            "${SCCACHE_PATH:-sccache}" --show-stats
             printf '```\n'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 

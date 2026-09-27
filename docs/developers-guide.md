@@ -222,16 +222,15 @@ version and digest are pinned.
 | Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, currently 0.2.7            |
 | mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.0            |
 | cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS` |
-| sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS` |
 | Kani          | `scripts/install-kani.sh`                                  | `tools/kani/VERSION` and `SHA256SUMS`    |
 | Verus         | `scripts/install-verus.sh`                                 | `tools/verus/VERSION` and `SHA256SUMS`   |
 
-The four repository scripts share `scripts/lib/pinned-download.sh`, which reads
-the pinned version, looks the archive's SHA-256 up in the sibling manifest, and
-fails closed when either is missing or does not match. That helper is for
-repository installer scripts only; it is not a general download utility and
-must not be sourced from application code. Each script also probes for its own
-executable first, so a warm cache repeats no download.
+The three repository scripts share `scripts/lib/pinned-download.sh`, which
+reads the pinned version, looks the archive's SHA-256 up in the sibling
+manifest, and fails closed when either is missing or does not match. That
+helper is for repository installer scripts only; it is not a general download
+utility and must not be sourced from application code. Each script also probes
+for its own executable first, so a warm cache repeats no download.
 
 Kani is a two-part tool and needs both parts pinned to the same version. The
 `cargo-kani` front-end comes from a Cargo QuickInstall binary archive and the
@@ -261,13 +260,13 @@ caches that were measured and rejected outright are pinned separately, in
 Table: Each cached path, its single owner, and the input its key is derived
 from.
 
-| Path                                                         | Owner                                          | Key input                                     |
-| ------------------------------------------------------------ | ---------------------------------------------- | --------------------------------------------- |
-| `~/.cargo/registry`, `~/.cargo/git`                          | `setup-rust`                                   | Toolchain file and `Cargo.lock`               |
-| `~/.cache/uv`                                                | `setup-rust`'s `setup-uv` invocation           | `pyproject.toml`, `uv.lock`, helper scripts   |
-| `~/.cargo/bin/whitaker-installer`, `~/.local/share/whitaker` | `install-whitaker`                             | Installer version and `dylint.toml`           |
-| `.verus`                                                     | `ci.yml`'s Cache Verus step                    | Pinned Verus version and digest               |
-| `.sccache`                                                   | `coverage-main.yml`'s Save compiler cache step | Toolchain file, `Cargo.lock` and a date stamp |
+| Path                                                         | Owner                                | Key input                                             |
+| ------------------------------------------------------------ | ------------------------------------ | ----------------------------------------------------- |
+| `~/.cargo/registry`, `~/.cargo/git`                          | `setup-rust`                         | Toolchain file and `Cargo.lock`                       |
+| `~/.cache/uv`                                                | `setup-rust`'s `setup-uv` invocation | `pyproject.toml`, `uv.lock`, helper scripts           |
+| `~/.cargo/bin/whitaker-installer`, `~/.local/share/whitaker` | `install-whitaker`                   | Installer version and `dylint.toml`                   |
+| `.verus`                                                     | `ci.yml`'s Cache Verus step          | Pinned Verus version and digest                       |
+| `${{ runner.temp }}/sccache`, GitHub-hosted runners only     | `setup-rust`                         | OS, architecture, compiler, job, `Cargo.lock` and run |
 
 Three consequences follow, and each is asserted by a contract test:
 
@@ -302,146 +301,110 @@ with executable probes; only the archive is gone.
 ### The compiler cache
 
 sccache is the sole owner of compiler output, which is why no cache step
-archives a `target` tree. Owning it is not the same as storing it, and this
-repository has now failed at that twice. Both failures reported success. Every
-part below is asserted by the contracts in `tests/workflow_contracts/`:
-`sccache_wiring_test.py` for whether the cache is switched on and pointed
-somewhere real, and `sccache_cache_entry_test.py` for who reads it, who writes
-it, and in what order.
+archives a `target` tree. The shared `setup-rust` action owns sccache itself,
+as [ADR 0005 in `leynos/shared-actions`][sa-adr-0005] decides: it names the
+wrapper, starts and zeroes the server, and selects the backend from the runner
+the job landed on.
 
-The arrangement that works has five parts:
+- On Ubicloud, `setup-rust` exports the runner's cache-proxy credentials,
+  clears `ACTIONS_CACHE_SERVICE_V2` (the proxy serves the v1 protocol), and
+  points sccache at the proxy. Every compilation is read from and written to
+  the proxy directly; there is no archive to restore or save.
+- On a GitHub-hosted runner, which is where a fork's pull request falls back
+  to, it uses a local directory under `runner.temp`, restored from `main` and
+  saved only by a push to `main`.
+- Its `cache-backend` output names the choice, as `ubicloud`, `github` or
+  `local`, and each cache job's statistics report prints it next to
+  `sccache --show-stats`. The report's `Cache location` line reads `ghac` for
+  the proxy and GitHub's own service alike, so it cannot tell them apart.
 
-1. `RUSTC_WRAPPER: sccache` at job level, so every compiling step routes
-   through the cache, including the ones inside shared actions. `setup-rust`
-   never names the wrapper itself, so before this every compilation bypassed
-   the cache while the logs reported a healthy server with zero compile
-   requests.
-2. `use-sccache: 'false'` on every `setup-rust` step, and the binary
-   installed by `scripts/install-sccache.sh` from a `run:` step instead. The
-   shared action runs `mozilla-actions/sccache-action`, whose last act is to
-   write `ACTIONS_CACHE_SERVICE_V2=on` and GitHub's results URL and token to
-   `GITHUB_ENV`. That clobbers any earlier cache-endpoint export for every
-   later step in the job, which is how the Ubicloud lane's writes ended up at
-   GitHub rather than at the local proxy. Keeping the step out is what makes
-   the local backend's indifference to those variables count.
-3. `SCCACHE_DIR` pointing at `.sccache` under the workspace, with
-   `SCCACHE_CACHE_SIZE: 2G`. The default is `~/.cache/sccache`, outside the
-   workspace, where no cache step can reach it; the bound keeps the compiler
-   cache from evicting its neighbours out of the repository's 10 GB quota.
-4. An `actions/cache/restore` of that directory before the server starts.
-   Unpacking the archive underneath a running server leaves the run compiling
-   from scratch while the statistics report a full cache.
-5. `sccache --zero-stats` before the build and `--show-stats` afterwards,
-   teed into both the log and the job summary, alongside the restored key. Job
-   summaries are not exposed through the REST API, so a summary-only report
-   cannot be checked by anything except a human with a browser, and a restore
-   that silently missed produces exactly the numbers a cold run produces.
+Two jobs use the cache, and each passes the `expect-cache` value its placement
+calls for. `ci.yml`'s `build-test` can land on a GitHub-hosted runner through
+the fork fallback, so it passes `any`, and a fork's pull request compiles
+against local disk rather than failing. `coverage-main.yml`'s `coverage-upload`
+runs only on Ubicloud, so it passes `ubicloud`, and a missing proxy fails the
+job loudly rather than letting it compile unnoticed against local disk.
 
-#### Who reads and who writes
+Every piece of the arrangement this replaced is retired, and a caller that kept
+one would override `setup-rust`'s choice without a word: a job's
+`RUSTC_WRAPPER` or `SCCACHE_DIR` wins over the action's, a script that starts
+the server binds whatever its own environment names, and an archived compiler
+cache directory would be a second owner beside the proxy.
+`tests/workflow_contracts/sccache_wiring_test.py` asserts, for every job in
+every workflow, that no `RUSTC_WRAPPER`, `SCCACHE_DIR`, `SCCACHE_CACHE_SIZE` or
+`SCCACHE_GHA_ENABLED` is set at any scope, that no step runs the retired
+`scripts/install-sccache.sh`, starts or zeroes the server, exports the Ubicloud
+credentials or archives a compiler-cache directory, and that both cache jobs
+call `setup-rust` once, pinned to a commit, with sccache on and the reviewed
+`expect-cache`.
 
-`ci.yml`'s `build-test` restores the key and never saves. `coverage-main.yml`'s
-`coverage-upload` restores it, compiles on `push` to `main`, and is the only
-job that saves. One owner means no race on merge and no run discarding
-another's work. The save is guarded on `github.event_name == 'push'`, so a
-dispatch restores and never saves and a manual re-upload cannot overwrite the
-entry a real merge produced.
+#### Who writes what a pull request reads
 
-One owner has a consequence that is easy to miss and expensive to leave alone:
-a shape the writer never builds is a shape no pull request can ever hit.
-`build-test` compiles three of them, the dense-SIMD gate with its own feature
+The proxy is ref-scoped: a pull request reads `main`'s scope and its own, and
+nothing else. `build-test` runs only on pull requests, so the only writes a
+pull request's first push can hit are those a push to `main` made, and
+`coverage-upload` is the job that compiles on every such push. A shape it never
+builds is a shape no first push can ever hit.
+
+`build-test` compiles three shapes: the dense-SIMD gate with its own feature
 set, `make lint`'s rustdoc and Clippy pass, and the instrumented coverage run.
-When `coverage-upload` built only the third, the warm hit rate stalled at 47.94
-% with byte-identical counters across two dispatches, 1375 hits and 1493 misses
-each time. Identical numbers across runs are the tell. A flaky cache varies; a
-structurally incomplete archive does not.
+When the trunk writer built only the third, under the retired archive, the warm
+hit rate stalled at 47.94 % with byte-identical counters across two dispatches,
+1375 hits and 1493 misses each time. Identical numbers across runs are the
+tell. A flaky cache varies; a structurally incomplete one does not. So
+`coverage-upload` runs the dense-SIMD gate and `make lint` before its coverage
+step, purely to fill `main`'s scope. The two jobs live in different files, so
+YAML anchors cannot hold them together;
+`tests/workflow_contracts/sccache_cache_entry_test.py` asserts that the
+writer's compile commands are a superset of the reader's, comparing whole
+command lines rather than subcommands.
 
-The fix is not a second writer, because one key may have only one owner. It is
-for that owner to build what its reader builds, so `coverage-upload` now runs
-the dense-SIMD gate and `make lint` before its coverage step, purely to fill
-the cache. The two jobs live in different files, so YAML anchors cannot hold
-them together; `tests/workflow_contracts/sccache_cache_entry_test.py` asserts
-that the writer's compile commands are a superset of the reader's, comparing
-whole command lines rather than subcommands. A change to the dense-SIMD feature
-list in one file fails the contract until the other matches.
+#### What came before, and why it went
 
-The key carries `runner.os`, `runner.arch`, `runner.environment`, the hash of
-`rust-toolchain.toml` and `Cargo.lock`, and a UTC date stamp. The date stamp is
-not decoration: `actions/cache` refuses to overwrite an existing key, so
-without a component that moves, the entry would freeze at the first push that
-used a given lockfile and never take another day's work. Readers carry two
-`restore-keys` prefixes, one dropping the date and one dropping the lockfile
-too, so a dependency bump starts from the newest older entry rather than from
-nothing. The stamp is computed once per job, so a job running across midnight
-cannot restore under one date and save under another.
+Two earlier arrangements are worth keeping on record, because both reported
+success while failing.
 
-Before the save, `coverage-upload` stops the server, deletes
-`target/llvm-cov-target`, and prints `df -h` on both sides. The scratch tree
-has no consumer after the coverage report and is the largest thing on the disk;
-deleting it is what leaves room to build the archive, and the `df -h` pair is
-how the next reader knows how much headroom the save actually had.
+Table: `build-test` across the states before the runner-aware backend.
 
-#### Why the GitHub Actions backend is gone
+| Step                      | Before the pin bump | No wrapper   | Wrapper, local disk | Wrapper plus `ghac` past the proxy |
+| ------------------------- | ------------------- | ------------ | ------------------- | ---------------------------------- |
+| Dense stable SIMD gating  | 50 s                | 103 s        | 104 s               | 154 s                              |
+| Lint                      | 93 s                | 155 s        | 139 s               | 279 s                              |
+| Test and Measure Coverage | 331 s               | 444 s        | 494 s               | 607 s, killed                      |
+| Whole job                 | 494 s median        | 749 to 814 s | 813 s               | red                                |
 
-sccache's `ghac` backend was tried and reverted on measurement, not taste.
-
-Table: `build-test` across four states, showing what each sccache configuration
-cost.
-
-| Step                      | Before the pin bump | No wrapper   | Wrapper, local disk | Wrapper plus `ghac` |
-| ------------------------- | ------------------- | ------------ | ------------------- | ------------------- |
-| Dense stable SIMD gating  | 50 s                | 103 s        | 104 s               | 154 s               |
-| Lint                      | 93 s                | 155 s        | 139 s               | 279 s               |
-| Test and Measure Coverage | 331 s               | 444 s        | 494 s               | 607 s, killed       |
-| Whole job                 | 494 s median        | 749 to 814 s | 813 s               | red                 |
-
-With `ghac` selected the job exceeded the 600-second nextest global timeout and
-failed. The statistics say why: 273 rejected writes, and a cache read hit
-averaging 0.280 s against 0.420 s to simply compile the unit. A backend whose
-reads cost nearly as much as compiling cannot pay even at a perfect hit rate,
-so it fails the same rule that rejected the Kani and cargo-nextest caches. The
-Ubicloud lane failed differently, with 164 rejected writes, and the cause is
-worth stating precisely because the obvious explanation is wrong. `run:` steps
-do see the credentials export. What defeats it is that
-`mozilla-actions/sccache-action`, which `setup-rust` invokes, writes
+First nothing named the wrapper, so every compilation bypassed a healthy server
+that reported zero compile requests. Then sccache's `ghac` backend was switched
+on, but `mozilla-actions/sccache-action`, which `setup-rust` invokes, wrote
 `ACTIONS_CACHE_SERVICE_V2=on` and GitHub's results URL and token to
-`GITHUB_ENV` as its last act, clobbering the export for every later step in the
-job. The server then wrote to GitHub rather than to the local proxy.
+`GITHUB_ENV` as its last act. The server therefore wrote to GitHub's cache
+service rather than to Ubicloud's proxy: 273 rejected writes, and a read hit
+averaging 0.280 s against 0.420 s to compile the unit. That backend was
+measured and rejected, and the repository moved to a pinned sccache binary, a
+`.sccache` directory in the workspace and an `actions/cache` archive written
+only by `coverage-upload`.
 
-Nothing sets `SCCACHE_GHA_ENABLED` now, and a contract test sweeps every job,
-every step and every script to keep it that way. The
-`export-ubicloud-cache-credentials` shared action is gone with it: it exists to
-let a `run:`-started server reach the proxy's v1 cache service, which only that
-backend spoke. `actions/cache` is an action step, so the runner hands it those
-variables directly, and the local disk backend ignores them entirely.
-
-`Cache location` in the reported statistics names the backend. It must read the
-workspace `.sccache` directory. `Local disk: ~/.cache/sccache` means the job is
-compiling into a directory nothing moves, which is the failure that reads as
-success.
+That archive worked, at 92 to 94 % hits, but every job carried it by hand, and
+the fork fallback needed the same logic again. `setup-rust` now clears the v2
+flag itself on Ubicloud and restores it after `sccache-action` runs, which
+removes the fault that condemned `ghac`, so the proxy is the backend again and
+the hand-rolled archive is gone.
 
 #### Which jobs carry a cache, and which do not
 
-Two jobs name the wrapper: `build-test` and `coverage-upload`, the reader and
-the writer of the one key. Every other job passes `use-sccache: 'false'` and
-carries no compiler cache at all, which is a deliberate choice rather than an
-oversight:
+Two jobs use the compiler cache: `build-test` and `coverage-upload`. Every
+other job that calls `setup-rust` passes `use-sccache: 'false'` and carries no
+compiler cache at all, which is a deliberate choice rather than an oversight:
 
-- The property suites would need their own writer. Their readers sit on
-  Ubicloud, so only an Ubicloud writer lands in the store they read, which
-  means a paid job on every merge. The whole "Run property suite" step,
-  compilation and 250 cases together, measures 21 to 24 seconds on run
-  33852441511, and the four suites run in parallel far off the critical path
-  that the 495-second coverage step defines. A writer would buy about ten
-  seconds.
-- The benchmark jobs and `nightly-kani` have no writer on `main` either.
+- The property suites would need `main` to compile their shapes. The whole
+  "Run property suite" step, compilation and 250 cases together, measures 21 to
+  24 seconds on run 33852441511, and the four suites run in parallel far off
+  the critical path that the coverage step defines.
+- The benchmark jobs and `nightly-kani` have no trunk writer either.
   `nightly-kani` additionally compiles through `kani-compiler`, which sccache
   does not support.
-- `verus-proofs` and `nightly-portable-simd` do not use `setup-rust`, so
-  there was never an sccache to name.
-
-Installing sccache in any of those would be worse than leaving it out: the
-server starts, the statistics look plausible, and the directory dies with the
-runner.
+- `verus-proofs` and `nightly-portable-simd` do not use `setup-rust`, so there
+  was never an sccache to name.
 
 This matters more than it looks. When `setup-rust` stopped archiving
 `target/${BUILD_PROFILE}`, correctly, the coverage gate grew from a 494-second
@@ -457,6 +420,9 @@ All cache steps use `actions/cache` (or its `restore` and `save` halves) pinned
 to v6.1.0. Ubicloud's transparent cache proxy intercepts that version's
 traffic, so the deprecated `ubicloud/cache` fork is unnecessary and would
 otherwise diverge from the GitHub-hosted lanes.
+
+[sa-adr-0005]:
+https://github.com/leynos/shared-actions/blob/main/docs/adr/0005-runner-aware-sccache-backend.md
 
 ## CPU HNSW public APIs
 

@@ -1,13 +1,17 @@
 """Shared vocabulary for the compiler-cache contracts.
 
 The wiring contracts and the cache-entry contracts ask different questions
-of the same workflows, and both need the same handful of names: which
-wrapper, which directory, which installer, which job may write. Restating
-them in each module is how two contracts come to disagree about what the
-arrangement is.
+of the same workflows, and both need the same handful of names: which jobs
+use the compiler cache, which backend each must demand, which forms of
+hand-rolled wiring are retired. Restating them in each module is how two
+contracts come to disagree about what the arrangement is.
 
-The measurements behind those choices are in the developers guide, under
-"The compiler cache".
+The shared `setup-rust` action owns sccache here, as ADR 0005 in
+`leynos/shared-actions` has it: it names the wrapper, starts and zeroes the
+server, and selects the backend from the runner, Ubicloud's cache proxy on an
+Ubicloud runner and a local directory it caches itself on a GitHub-hosted
+one. The measurements behind the arrangement are in the developers guide,
+under "The compiler cache".
 """
 
 from __future__ import annotations
@@ -17,66 +21,71 @@ import re
 import typing as typ
 
 from workflow_support import (
+    GITHUB_HOSTED_LABELS,
+    conditional_runner,
     declared_cache_paths,
     jobs,
     load_workflow,
     run_script,
+    runner_labels,
     steps,
     uses_reference,
     workflow_names,
 )
 
-#: The wrapper every instrumented job must name. The installer puts the
-#: binary in ~/.cargo/bin, which is on PATH, so the bare name resolves.
-EXPECTED_WRAPPER = "sccache"
+#: The shared action that owns sccache, without its revision.
+SETUP_RUST_PATH = "leynos/shared-actions/.github/actions/setup-rust"
 
-#: The directory holding the cache. It sits inside the workspace so
-#: `actions/cache`'s relative path resolves and .gitignore keeps it out of
-#: the tree coverage and CodeScene read.
-EXPECTED_CACHE_DIR = "${{ github.workspace }}/.sccache"
+#: The step id each cache job gives `setup-rust`, so its report can read the
+#: selected backend from `steps.setup-rust.outputs.cache-backend`.
+SETUP_RUST_ID = "setup-rust"
 
-#: The installer that resolves the pinned, checksum-verified archive.
-INSTALLER = "scripts/install-sccache.sh"
+#: The jobs that use the compiler cache, mapped to the `expect-cache` value
+#: each must pass. A list rather than a sweep, because a sweep over "jobs
+#: that call setup-rust with sccache on" quietly shrinks to nothing when the
+#: cache is switched off, which is the regression worth catching. The value
+#: follows the placement: a job that can land on a GitHub-hosted runner, such
+#: as a fork's pull request, must accept any backend, and a job that runs
+#: only on Ubicloud demands the proxy so that its absence fails loudly.
+CACHE_JOBS: dict[tuple[str, str], str] = {
+    ("ci.yml", "build-test"): "any",
+    ("coverage-main.yml", "coverage-upload"): "ubicloud",
+}
 
-#: The jobs that must name the wrapper. This is a list rather than a sweep
-#: because a sweep over "jobs that set RUSTC_WRAPPER" quietly shrinks to
-#: nothing when someone removes the variable, which is the exact regression
-#: worth catching. Only the two jobs sharing the build-test key are here:
-#: they are the pair with a reader and a writer. The property suites,
-#: benchmark jobs and nightly jobs deliberately carry no compiler cache,
-#: which the coverage of `test_no_job_installs_a_cache_it_cannot_store`
-#: keeps honest.
-WRAPPER_REQUIRED = (
-    ("ci.yml", "build-test"),
-    ("coverage-main.yml", "coverage-upload"),
+#: The pull-request job whose compile shapes the trunk writer must cover,
+#: and the push-to-main job that writes them into `main`'s cache scope.
+EXPECTED_READER: tuple[str, str] = ("ci.yml", "build-test")
+EXPECTED_WRITER: tuple[str, str] = ("coverage-main.yml", "coverage-upload")
+
+#: Variables that configured the retired hand-rolled cache. `setup-rust`
+#: sets or selects each of them, and a caller's value wins over its choice,
+#: so any of these left in a workflow silently overrides the runner-aware
+#: backend.
+HAND_ROLLED_VARIABLES = (
+    "RUSTC_WRAPPER",
+    "SCCACHE_DIR",
+    "SCCACHE_CACHE_SIZE",
+    "SCCACHE_GHA_ENABLED",
 )
 
-#: The one job allowed to write the compiler-cache key, and the event that
-#: may trigger the write. A dispatch restores and never saves, so a manual
-#: re-run cannot overwrite the entry a real merge produced.
-EXPECTED_WRITER = ("coverage-main.yml", "coverage-upload")
-EXPECTED_WRITE_EVENT = "github.event_name == 'push'"
+#: The retired pinned-binary installer.
+RETIRED_INSTALLER = "scripts/install-sccache.sh"
 
-#: A step that actually compiles something. The statistics are meaningless
-#: unless one of these runs between the reset and the report. Compilation
-#: also happens inside shared actions, so those count as build steps too.
-BUILD_COMMAND = re.compile(r"\bcargo\s+(nextest|test|build|clippy|llvm-cov)\b")
-BUILD_ACTIONS = ("/actions/generate-coverage@", "/actions/rust-build-release@")
-
-#: The shared action that republishes Ubicloud's cache-proxy credentials.
-#: It exists to let a `run:`-started sccache server reach the proxy's v1
-#: cache service, which only the abandoned GitHub Actions backend needed.
-#: `actions/cache` reaches the proxy natively from an action step, so no
-#: job here should be exporting anything.
+#: The shared action that republished Ubicloud's cache-proxy credentials.
+#: `setup-rust` now exports them itself on an Ubicloud runner.
 EXPORT_ACTION = (
     "leynos/shared-actions/.github/actions/export-ubicloud-cache-credentials@"
 )
 
-#: The shared action whose sccache install must stay switched off. It runs
-#: mozilla-actions/sccache-action, whose last act is to write
-#: ACTIONS_CACHE_SERVICE_V2 and GitHub's results URL and token to GITHUB_ENV,
-#: clobbering any earlier cache-endpoint export for the rest of the job.
-SETUP_RUST = "/actions/setup-rust@"
+#: A `run:` command that starts or resets the server, which is `setup-rust`'s
+#: job now. A second start from a script would bind whatever backend the
+#: script's environment named.
+SERVER_COMMAND = re.compile(r"\bsccache\s+--(?:zero-stats|start-server)\b")
+
+#: A step that actually compiles something. Compilation also happens inside
+#: shared actions, so those count as build steps too.
+BUILD_COMMAND = re.compile(r"\bcargo\s+(nextest|test|build|clippy|llvm-cov)\b")
+BUILD_ACTIONS = ("/actions/generate-coverage@", "/actions/rust-build-release@")
 
 
 def is_build_step(step: dict[str, typ.Any]) -> bool:
@@ -87,11 +96,111 @@ def is_build_step(step: dict[str, typ.Any]) -> bool:
     return any(action in reference for action in BUILD_ACTIONS)
 
 
-def is_sccache_cache_step(step: dict[str, typ.Any]) -> bool:
-    """Report whether a step restores or saves the compiler-cache directory."""
-    if not uses_reference(step).startswith("actions/cache"):
-        return False
-    return EXPECTED_CACHE_DIR in declared_cache_paths(step)
+def expected_expect_cache(labels: typ.Iterable[str]) -> str:
+    """Return the `expect-cache` value a job's placement calls for.
+
+    Parameters
+    ----------
+    labels : Iterable[str]
+        Every runner label the job can resolve to.
+
+    Returns
+    -------
+    str
+        ``"any"`` when a GitHub-hosted label is among them, else
+        ``"ubicloud"``.
+
+    >>> expected_expect_cache(["ubuntu-latest", "ubicloud-standard-2"])
+    'any'
+    >>> expected_expect_cache(["ubicloud-standard-2"])
+    'ubicloud'
+    """
+    return "any" if set(labels) & GITHUB_HOSTED_LABELS else "ubicloud"
+
+
+def _env_findings(scope: str, env: object) -> list[str]:
+    """Return the hand-rolled variables one `env` mapping sets."""
+    if not isinstance(env, dict):
+        return []
+    return [
+        f"{scope} sets {name}" for name in HAND_ROLLED_VARIABLES if name in env
+    ]
+
+
+def _step_findings(index: int, step: dict[str, typ.Any]) -> list[str]:
+    """Return the hand-rolled wiring one step carries."""
+    findings = _env_findings(f"step {index}", step.get("env"))
+    script = run_script(step)
+    reference = uses_reference(step)
+    if RETIRED_INSTALLER in script:
+        findings.append(f"step {index} runs {RETIRED_INSTALLER}")
+    if SERVER_COMMAND.search(script):
+        findings.append(f"step {index} starts or zeroes the sccache server")
+    if EXPORT_ACTION in reference:
+        findings.append(f"step {index} exports the Ubicloud cache credentials")
+    if reference.startswith("actions/cache") and any(
+        "sccache" in path for path in declared_cache_paths(step)
+    ):
+        findings.append(f"step {index} archives a compiler-cache directory")
+    return findings
+
+
+def hand_rolled_findings(
+    workflow_env: object, definition: dict[str, typ.Any]
+) -> list[str]:
+    """Return every piece of hand-rolled compiler-cache wiring in a job.
+
+    Pure over the parsed data, so the rule can be exercised on fixtures as
+    well as on the checked-in workflows.
+
+    Parameters
+    ----------
+    workflow_env : object
+        The workflow's top-level `env` mapping, or anything else when it
+        declares none.
+    definition : dict[str, Any]
+        One parsed job.
+
+    Returns
+    -------
+    list[str]
+        One description per finding, empty for a job that leaves sccache to
+        `setup-rust`.
+
+    >>> hand_rolled_findings({}, {"steps": [{"uses": "actions/checkout@x"}]})
+    []
+    >>> hand_rolled_findings(
+    ...     {"RUSTC_WRAPPER": "sccache"},
+    ...     {"steps": [{"run": "sccache --zero-stats"}]},
+    ... )
+    ['workflow sets RUSTC_WRAPPER', 'step 0 starts or zeroes the sccache server']
+    """
+    findings = _env_findings("workflow", workflow_env)
+    findings += _env_findings("job", definition.get("env"))
+    for index, step in enumerate(steps(definition)):
+        findings += _step_findings(index, step)
+    return findings
+
+
+def setup_rust_steps(definition: dict[str, typ.Any]) -> list[dict[str, typ.Any]]:
+    """Return a job's `setup-rust` steps in declaration order."""
+    return [
+        step
+        for step in steps(definition)
+        if uses_reference(step).split("@", 1)[0] == SETUP_RUST_PATH
+    ]
+
+
+def job_labels(definition: dict[str, typ.Any]) -> list[str]:
+    """Return every runner label a job can resolve to.
+
+    A conditional `runs-on` contributes both arms, because which one a run
+    lands on depends on the event that started it.
+    """
+    conditional = conditional_runner(definition)
+    if conditional is not None:
+        return [conditional.paid, conditional.otherwise]
+    return runner_labels(definition)
 
 
 #: One job, as (workflow file name, job name, job definition).
@@ -100,17 +209,7 @@ JobEntry = tuple[str, str, dict[str, typ.Any]]
 
 @functools.cache
 def all_jobs() -> tuple[JobEntry, ...]:
-    """Return every job in every workflow.
-
-    Cached, and a tuple rather than a list, because the parametrization
-    decorators in both contract modules call this at collection time and
-    `all_job_ids`, `wrapper_jobs` and `wrapper_job_ids` each call it again.
-    Without the cache the workflow directory is parsed about a dozen times
-    per run. The tuple is what makes the cache safe to share: a caller
-    cannot append to it and change what the next caller sees. The job
-    definitions inside are still the parsed mappings, and no contract
-    mutates them.
-    """
+    """Return every job in every workflow, parsed once per session."""
     return tuple(
         (workflow_name, job_name, definition)
         for workflow_name in workflow_names()
@@ -121,22 +220,6 @@ def all_jobs() -> tuple[JobEntry, ...]:
 def all_job_ids() -> list[str]:
     """Return stable identifiers for the whole-estate parametrization."""
     return [f"{workflow}:{name}" for workflow, name, _ in all_jobs()]
-
-
-@functools.cache
-def wrapper_jobs() -> tuple[JobEntry, ...]:
-    """Return every job that names a compiler wrapper."""
-    return tuple(
-        (workflow_name, job_name, definition)
-        for workflow_name, job_name, definition in all_jobs()
-        if isinstance(definition.get("env"), dict)
-        and "RUSTC_WRAPPER" in definition["env"]
-    )
-
-
-def wrapper_job_ids() -> list[str]:
-    """Return stable identifiers for the wrapper-job parametrization."""
-    return [f"{workflow}:{name}" for workflow, name, _ in wrapper_jobs()]
 
 
 def step_index(
