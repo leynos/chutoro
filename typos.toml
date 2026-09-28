@@ -63,12 +63,12 @@ extend-ignore-re = [
     "\\blet ba =",
     "\\blet mut initialised\\b",
     "\\brust-analyzer\\b",
-    "\\bvar\\.iamge_id\\b",
     "\\n\\s*initialised,\\n",
     "\\{COLOR\\}",
     "\\{color\\}",
     "`[^`\\n]+`",
     "`color`",
+    "`var\\.iamge_id` instead of `var\\.image_id`",
     "currentColor",
     "types: \\[[^]]*\\blabeled\\b",
 ]
