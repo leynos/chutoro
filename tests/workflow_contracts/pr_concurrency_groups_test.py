@@ -15,6 +15,7 @@ from pr_concurrency_groups import (
     UnmodelledGroupError,
     keeps_runs_together_and_apart,
     render_group,
+    shared_groups,
 )
 
 #: The group every workflow here uses.
@@ -64,11 +65,35 @@ def test_the_group_rules_accept_and_refuse_the_known_shapes(
     [
         "${{ format('{0}', github.ref) }}",
         "${{ github.ref || format('{0}', github.sha) }}",
+        "${{ github.event_name == 'pull_request' }}",
         "pr-${{ github.ref",
     ],
-    ids=["function", "unmodelled-right-operand", "unclosed"],
+    ids=["function", "unmodelled-right-operand", "comparison", "unclosed"],
 )
 def test_an_unmodelled_group_expression_is_refused(template: str) -> None:
     """A function call, a comparison or an unclosed opener fails loudly."""
     with pytest.raises(UnmodelledGroupError):
         render_group(template, FIRST_PUSH)
+
+
+@pytest.mark.parametrize(
+    ("rendered", "expected"),
+    [
+        ({"ci.yml": "CI-7", "lint.yml": "ci-7"}, {"ci-7": ["ci.yml", "lint.yml"]}),
+        ({"ci.yml": "CI-7", "lint.yml": "Lint-7"}, {}),
+    ],
+    ids=["case-only", "distinct"],
+)
+def test_workflow_groups_are_compared_without_case(
+    rendered: dict[str, str], expected: dict[str, list[str]]
+) -> None:
+    """Two workflows whose groups differ only in case share one group.
+
+    GitHub treats group names case-insensitively, so a comparison of the raw
+    strings would pass ``name: CI`` beside ``name: ci`` while one cancels
+    the other.
+    """
+    assert shared_groups(rendered) == expected, (
+        f"shared_groups({rendered!r}) returned {shared_groups(rendered)!r}, "
+        f"expected {expected!r}"
+    )

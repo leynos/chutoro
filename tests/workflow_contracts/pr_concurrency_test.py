@@ -25,7 +25,8 @@ Only `pull_request` is in scope. A `pull_request_target` workflow runs against
 the base repository to carry a token, and the one here merges Dependabot pull
 requests; cancelling a merge mid-flight is a hazard with no minutes to win.
 
-Workflows are read through `strict_yaml`, which refuses duplicate mapping keys.
+Workflows are read at test setup through `workflow_support`, whose parser
+refuses duplicate mapping keys.
 PyYAML otherwise keeps the last of two `concurrency:` blocks and says nothing,
 so a correct block could sit above a wrong one and pass.
 
@@ -39,23 +40,21 @@ from pathlib import Path
 import pytest
 import yaml
 from pr_concurrency_groups import (
-    ESTATE_FALLBACK,
     FIRST_PUSH,
     MUST_PART,
     MUST_SHARE,
-    expressions,
+    fallback_problems,
     render_group,
+    shared_groups,
 )
-from pr_concurrency_triggers import trigger_names
+from pr_concurrency_triggers import pull_request_workflows, trigger_names
 from strict_yaml import parse_workflow_text
+from workflow_support import WorkflowReadError, all_workflow_documents
 
-#: The repository's workflow directory. The module sits two levels below the
-#: repository root, in `tests/workflow_contracts/`.
-WORKFLOW_DIR = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+Document = dict[object, object]
 
-#: Extensions GitHub accepts for a workflow file. Scanning only `.yml` would
-#: silently exempt a `.yaml` workflow from every contract here.
-WORKFLOW_SUFFIXES: tuple[str, ...] = (".yml", ".yaml")
+#: Parsed workflows keyed by file name, as `all_workflow_documents` returns them.
+Workflows = dict[str, Document]
 
 #: The exact `cancel-in-progress` expression every pull-request workflow
 #: carries. Comparing against one string rather than searching for a substring
@@ -63,21 +62,11 @@ WORKFLOW_SUFFIXES: tuple[str, ...] = (".yml", ".yaml")
 #: never equals this.
 CANCEL_EXPRESSION = "${{ github.event_name == 'pull_request' }}"
 
-#: The trigger that puts a workflow in scope. `pull_request_target` is
-#: deliberately absent; see the module docstring.
-PULL_REQUEST = "pull_request"
-
-#: Context values unique to one run. The estate rule allows one only as the
-#: fallback behind the pull-request number.
-RUN_UNIQUE: frozenset[str] = frozenset(
-    {"github.run_id", "github.run_number", "github.run_attempt", "github.sha"}
-)
-
 
 #: Workflows known to start on `pull_request`. Discovery below is dynamic so a
 #: new workflow is covered the day it lands, but a dynamic list that silently
-#: empties turns every parametrized test into a vacuous pass. This names the
-#: floor discovery must still reach.
+#: empties turns every contract into a vacuous pass. This names the floor
+#: discovery must still reach.
 KNOWN_PULL_REQUEST_WORKFLOWS: frozenset[str] = frozenset(
     {
         "benchmark-regressions.yml",
@@ -88,7 +77,7 @@ KNOWN_PULL_REQUEST_WORKFLOWS: frozenset[str] = frozenset(
 )
 
 
-def _parse(text: str, name: str) -> dict[object, object]:
+def _parse(text: str, name: str) -> Document:
     """Parse workflow text strictly, refusing anything but a mapping."""
     document = parse_workflow_text(text)
     if not isinstance(document, dict):
@@ -97,50 +86,56 @@ def _parse(text: str, name: str) -> dict[object, object]:
     return document
 
 
-def _load(path: Path) -> dict[object, object]:
-    """Read and strictly parse one workflow file."""
-    return _parse(path.read_text(encoding="utf-8"), path.name)
-
-
-def _workflow_paths() -> list[Path]:
-    """Return every workflow file, sorted for stable test identifiers."""
-    return sorted(
-        path
-        for path in WORKFLOW_DIR.iterdir()
-        if path.is_file() and path.suffix in WORKFLOW_SUFFIXES
-    )
-
-
-def _pull_request_workflows() -> list[Path]:
-    """Return every workflow a pull request can start, in name order."""
-    return [
-        path
-        for path in _workflow_paths()
-        if PULL_REQUEST in (trigger_names(_load(path)) or frozenset())
-    ]
-
-
-def _concurrency(path: Path) -> dict[object, object]:
+def _concurrency(document: Document) -> Document:
     """Return a workflow's top-level concurrency mapping.
 
     The shorthand string form cannot carry `cancel-in-progress` at all, so it
     reads as empty here, as does a workflow declaring no concurrency.
     """
-    declared = _load(path).get("concurrency")
+    declared = document.get("concurrency")
     return declared if isinstance(declared, dict) else {}
 
 
-PULL_REQUEST_WORKFLOWS = _pull_request_workflows()
-WORKFLOW_IDS = [path.name for path in PULL_REQUEST_WORKFLOWS]
+def _group(document: Document) -> str:
+    """Return a workflow's concurrency group as written, or an empty string."""
+    return str(_concurrency(document).get("group", ""))
 
 
-def test_discovery_still_finds_the_known_pull_request_workflows() -> None:
-    """Discovery reaches its floor, so the parametrized contracts are not empty.
+def _workflow_name(name: str, document: Document) -> str:
+    """Return the name Actions gives a workflow: its `name:`, else its path."""
+    declared = document.get("name")
+    return declared if isinstance(declared, str) else f".github/workflows/{name}"
 
-    If the read broke, or the `on:` key changed shape, the list would empty
+
+@pytest.fixture
+def workflows() -> Workflows:
+    """Read this repository's workflows at setup rather than at import.
+
+    A file that cannot be read or parsed, including one declaring a mapping
+    key twice, fails the test that asked for it with the reason, instead of
+    breaking collection of the whole module.
+    """
+    try:
+        return all_workflow_documents()
+    except (WorkflowReadError, yaml.YAMLError) as error:
+        pytest.fail(f"cannot read the workflows under .github/workflows: {error}")
+
+
+@pytest.fixture
+def pr_workflows(workflows: Workflows) -> Workflows:
+    """Return the repository's workflows a pull request can start."""
+    return pull_request_workflows(workflows)
+
+
+def test_discovery_still_finds_the_known_pull_request_workflows(
+    pr_workflows: Workflows,
+) -> None:
+    """Discovery reaches its floor, so the contracts below are not empty.
+
+    If the read broke, or the `on:` key changed shape, the set would empty
     and each contract below would pass having asserted nothing.
     """
-    missing = sorted(KNOWN_PULL_REQUEST_WORKFLOWS - set(WORKFLOW_IDS))
+    missing = sorted(KNOWN_PULL_REQUEST_WORKFLOWS - set(pr_workflows))
     assert not missing, (
         f"these workflows start on pull_request but discovery missed them: "
         f"{', '.join(missing)}; the contracts below would pass without "
@@ -148,14 +143,16 @@ def test_discovery_still_finds_the_known_pull_request_workflows() -> None:
     )
 
 
-def test_every_workflow_declares_a_trigger_set_this_reader_models() -> None:
+def test_every_workflow_declares_a_trigger_set_this_reader_models(
+    workflows: Workflows,
+) -> None:
     """No workflow's `on:` defeats the reader that decides what is in scope.
 
     A workflow the reader cannot model is dropped from discovery, and every
     contract below would pass while saying nothing about it.
     """
     unreadable = sorted(
-        path.name for path in _workflow_paths() if trigger_names(_load(path)) is None
+        name for name, document in workflows.items() if trigger_names(document) is None
     )
     assert not unreadable, (
         f"these workflows declare an `on:` this reader does not model: "
@@ -217,47 +214,78 @@ def test_a_duplicated_key_is_refused_rather_than_resolved() -> None:
         _parse(text, "duplicated.yml")
 
 
-@pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
+def test_a_workflow_directory_is_read_through_the_shared_loader(
+    tmp_path: Path,
+) -> None:
+    """Discovery reads any directory it is given, not only this repository's.
+
+    The contracts below take their workflows from `all_workflow_documents`, so the
+    scope decision is a pure function of the documents. This drives it over a
+    directory holding one pull-request workflow, one push workflow and one
+    `.yaml` file, and checks that only the two pull-request ones are in scope.
+    """
+    (tmp_path / "ci.yml").write_text("on: pull_request\n", encoding="utf-8")
+    (tmp_path / "main.yml").write_text("on: push\n", encoding="utf-8")
+    (tmp_path / "other.yaml").write_text("on: [pull_request]\n", encoding="utf-8")
+    in_scope = sorted(pull_request_workflows(all_workflow_documents(tmp_path)))
+    assert in_scope == ["ci.yml", "other.yaml"], (
+        f"discovery over {tmp_path} found {in_scope}"
+    )
+
+
 def test_every_pull_request_workflow_declares_a_concurrency_group(
-    workflow: Path,
+    pr_workflows: Workflows,
 ) -> None:
     """A workflow a pull request starts declares a concurrency group.
 
     Without one, every push to the branch leaves its predecessor running to
     completion on a paid runner.
     """
-    group = _concurrency(workflow).get("group")
-    message = (
-        f"{workflow.name} starts on pull_request and must declare "
+    missing = sorted(
+        name
+        for name, document in pr_workflows.items()
+        if not _group(document).strip()
+    )
+    assert not missing, (
+        f"{', '.join(missing)} start on pull_request and must declare "
         "concurrency.group; without it a superseded run holds a runner until "
         "it finishes"
     )
-    assert isinstance(group, str), message
-    assert group.strip(), message
 
 
-@pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
-def test_two_pushes_to_one_pull_request_share_a_group(workflow: Path) -> None:
+def _split_pairs(group: str) -> list[tuple[str, str]]:
+    """Return the `MUST_SHARE` pairs a group renders differently."""
+    return [
+        (render_group(group, first), render_group(group, second))
+        for first, second in MUST_SHARE
+        if render_group(group, first) != render_group(group, second)
+    ]
+
+
+def test_two_pushes_to_one_pull_request_share_a_group(
+    pr_workflows: Workflows,
+) -> None:
     """The newer push lands in its predecessor's group, so it can cancel it.
 
     A group built from the run identifier alone, the SHA, or the run
     identifier ahead of the pull-request number renders differently for each
     push and cancels nothing.
     """
-    group = str(_concurrency(workflow).get("group", ""))
-    split = [
-        (render_group(group, first), render_group(group, second))
-        for first, second in MUST_SHARE
-        if render_group(group, first) != render_group(group, second)
-    ]
+    split = {
+        name: pairs
+        for name, pairs in (
+            (name, _split_pairs(_group(document)))
+            for name, document in pr_workflows.items()
+        )
+        if pairs
+    }
     assert not split, (
-        f"{workflow.name}'s group renders differently for two pushes to one "
-        f"pull request: {split}"
+        f"these groups render differently for two pushes to one pull request: "
+        f"{split}"
     )
 
 
-@pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
-def test_no_other_two_runs_share_a_group(workflow: Path) -> None:
+def test_no_other_two_runs_share_a_group(pr_workflows: Workflows) -> None:
     """No run cancels another pull request's, and none replaces a pending run.
 
     The runs are a pull request, a fork's pull request from a branch of the
@@ -266,46 +294,40 @@ def test_no_other_two_runs_share_a_group(workflow: Path) -> None:
     ``github.base_ref`` fallback collides on the trunk pushes, where a third
     push would replace the pending second.
     """
-    group = str(_concurrency(workflow).get("group", ""))
-    rendered = [render_group(group, run) for run in MUST_PART]
-    assert len(set(rendered)) == len(MUST_PART), (
-        f"{workflow.name}'s group collides across runs that must stay apart: {rendered}"
+    rendered = {
+        name: [render_group(_group(document), run) for run in MUST_PART]
+        for name, document in pr_workflows.items()
+    }
+    colliding = {
+        name: groups
+        for name, groups in rendered.items()
+        if len(set(groups)) != len(MUST_PART)
+    }
+    assert not colliding, (
+        f"these groups collide across runs that must stay apart: {colliding}"
     )
 
 
-@pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
-def test_the_run_identifier_is_only_the_fallback(workflow: Path) -> None:
+def test_the_run_identifier_is_only_the_fallback(pr_workflows: Workflows) -> None:
     """``github.run_id`` appears once, behind the pull-request number.
 
     The estate rule allows a run-unique value only there. Anywhere else it
     either splits one pull request's pushes or hides a ref-keyed fallback.
     """
-    group = str(_concurrency(workflow).get("group", ""))
-    found = expressions(group)
-    misplaced = [
-        operands
-        for operands in found
-        if operands != ESTATE_FALLBACK and any(name in RUN_UNIQUE for name in operands)
-    ]
-    assert found.count(ESTATE_FALLBACK) == 1, (
-        f"{workflow.name}'s group must contain exactly one "
-        f"`${{{{ {' || '.join(ESTATE_FALLBACK)} }}}}`, found {found}"
-    )
-    assert not misplaced, (
-        f"{workflow.name}'s group uses a run-unique value outside the fallback: "
-        f"{misplaced}"
-    )
+    problems = {
+        name: found
+        for name, found in (
+            (name, fallback_problems(_group(document)))
+            for name, document in pr_workflows.items()
+        )
+        if found
+    }
+    assert not problems, f"these groups break the fallback rule: {problems}"
 
 
-def _workflow_name(workflow: Path) -> str:
-    """Return the name Actions gives a workflow: its `name:`, else its path."""
-    declared = _load(workflow).get("name")
-    return (
-        declared if isinstance(declared, str) else f".github/workflows/{workflow.name}"
-    )
-
-
-def test_no_two_workflows_share_a_group_for_one_pull_request() -> None:
+def test_no_two_workflows_share_a_group_for_one_pull_request(
+    pr_workflows: Workflows,
+) -> None:
     """Two workflows on one pull request never cancel each other.
 
     Each workflow is rendered under its own name. A group that leaves the
@@ -314,29 +336,36 @@ def test_no_two_workflows_share_a_group_for_one_pull_request() -> None:
     and whichever started last would cancel the rest.
     """
     rendered = {
-        workflow.name: render_group(
-            str(_concurrency(workflow).get("group", "")),
-            {**FIRST_PUSH, "github.workflow": _workflow_name(workflow)},
+        name: render_group(
+            _group(document),
+            {**FIRST_PUSH, "github.workflow": _workflow_name(name, document)},
         )
-        for workflow in PULL_REQUEST_WORKFLOWS
+        for name, document in pr_workflows.items()
     }
-    assert len(set(rendered.values())) == len(rendered), (
-        f"these workflows share a concurrency group for one pull request: {rendered}"
+    shared = shared_groups(rendered)
+    assert not shared, (
+        f"these workflows share a concurrency group for one pull request, "
+        f"compared without case as GitHub does: {shared}"
     )
 
 
-@pytest.mark.parametrize("workflow", PULL_REQUEST_WORKFLOWS, ids=WORKFLOW_IDS)
-def test_cancellation_is_conditioned_on_the_event(workflow: Path) -> None:
+def test_cancellation_is_conditioned_on_the_event(pr_workflows: Workflows) -> None:
     """Cancellation applies to pull requests only, not to pushes or schedules.
 
     A literal `true` reads as a stricter setting and is a regression: it would
     cancel a run on `main`, a schedule, or a dispatch, none of which has a
     successor that repeats its work.
     """
-    declared = _concurrency(workflow).get("cancel-in-progress")
-    assert declared == CANCEL_EXPRESSION, (
-        f"{workflow.name} must set cancel-in-progress to "
-        f"{CANCEL_EXPRESSION!r}, not {declared!r}; a missing value leaves "
-        "superseded runs in flight and a literal true also cancels pushes to "
-        "main, schedules, and dispatches"
+    wrong = {
+        name: declared
+        for name, declared in (
+            (name, _concurrency(document).get("cancel-in-progress"))
+            for name, document in pr_workflows.items()
+        )
+        if declared != CANCEL_EXPRESSION
+    }
+    assert not wrong, (
+        f"these workflows must set cancel-in-progress to {CANCEL_EXPRESSION!r}: "
+        f"{wrong}; a missing value leaves superseded runs in flight and a "
+        "literal true also cancels pushes to main, schedules, and dispatches"
     )

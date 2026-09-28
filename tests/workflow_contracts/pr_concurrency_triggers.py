@@ -11,6 +11,11 @@ because GitHub would see one trigger set and this reader another.
 
 from __future__ import annotations
 
+#: The trigger that puts a workflow in scope. `pull_request_target` is
+#: deliberately absent: it runs against the base repository to carry a token,
+#: and cancelling one mid-flight is a hazard with no minutes to win.
+PULL_REQUEST = "pull_request"
+
 
 def trigger_names(document: dict[object, object]) -> frozenset[str] | None:
     """Return the event names a workflow declares under `on:`.
@@ -70,3 +75,30 @@ def event_names(declared: object) -> frozenset[str] | None:
             return frozenset(declared)
         case _:
             return None
+
+
+def pull_request_workflows(
+    workflows: dict[str, dict[object, object]],
+) -> dict[str, dict[object, object]]:
+    """Return the workflows a pull request can start, keyed by file name.
+
+    Parameters
+    ----------
+    workflows
+        Parsed workflows keyed by file name, as ``all_workflow_documents`` returns.
+
+    Returns
+    -------
+    dict of str to dict
+        The workflows whose `on:` names `pull_request`, in the same order.
+
+    Examples
+    --------
+    >>> pull_request_workflows({"a.yml": {True: "push"}, "b.yml": {True: "pull_request"}})
+    {'b.yml': {True: 'pull_request'}}
+    """
+    return {
+        name: document
+        for name, document in workflows.items()
+        if PULL_REQUEST in (trigger_names(document) or frozenset())
+    }
