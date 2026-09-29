@@ -60,19 +60,16 @@ NEXTEST_CONFIG = REPO_ROOT / ".config" / "nextest.toml"
 #: two are single-test files. The last three are the clustering-result API
 #: checks: two trybuild harnesses gated on either side of the `cpu` feature,
 #: and the one that runs the CPU-disabled side through a nested `cargo test`.
-COMPILE_CONTRACT_TESTS: typ.Final[frozenset[str]] = frozenset(
-    {
-        "session_api_compiles_when_cpu_feature_is_enabled",
-        "session_api_is_unavailable_without_cpu_feature",
-        "dataset_recipe_phase_order",
-        "arrow_parquet_types_share_one_family",
-        "portable_simd_gating_compile_checks",
-        "clustering_result_panicking_constructor_is_private_when_cpu_enabled",
-        "clustering_result_panicking_constructor_is_unavailable_without_cpu",
-        "clustering_result_api_is_checked_without_cpu",
-    }
-)
-
+COMPILE_CONTRACT_TESTS: typ.Final[frozenset[str]] = frozenset({
+    "session_api_compiles_when_cpu_feature_is_enabled",
+    "session_api_is_unavailable_without_cpu_feature",
+    "dataset_recipe_phase_order",
+    "arrow_parquet_types_share_one_family",
+    "portable_simd_gating_compile_checks",
+    "clustering_result_panicking_constructor_is_private_when_cpu_enabled",
+    "clustering_result_panicking_constructor_is_unavailable_without_cpu",
+    "clustering_result_api_is_checked_without_cpu",
+})
 
 def _period_seconds(timeout: object) -> float | None:
     """Return a `slow-timeout`'s terminating allowance in seconds, or None.
@@ -198,10 +195,7 @@ def _names_test(filter_text: str, name: str) -> bool:
     """
     if _EXCLUDING_OPERATOR.search(filter_text):
         return False
-    return (
-        re.search(rf"(?<![0-9A-Za-z_]){re.escape(name)}(?![0-9A-Za-z_])", filter_text)
-        is not None
-    )
+    return re.search(rf"(?<![0-9A-Za-z_]){re.escape(name)}(?![0-9A-Za-z_])", filter_text) is not None
 
 
 def test_the_base_allowance_terminates() -> None:
@@ -285,20 +279,18 @@ def test_the_sweep_walks_a_tree_it_is_given(tmp_path: pathlib.Path) -> None:
             tmp_path / directory / "git-v0" / "checkouts" / "abc" / "toy" / "tests"
         )
         foreign.mkdir(parents=True)
+        name = "a_foreign_build_in_" + directory.lstrip(".").replace("-", "_")
         (foreign / "spawner.rs").write_text(
-            SPAWNER.replace(
-                "checks_the_fixture_crate",
-                f"a_foreign_build_in_{directory[1:].replace('-', '_')}",
-            ),
-            encoding="utf-8",
+            SPAWNER.replace("checks_the_fixture_crate", name), encoding="utf-8"
         )
 
     assert discovered_tests(tmp_path) == {
         "checks_the_fixture_crate": "tests/harness.rs"
     }, (
         "the sweep must read every Rust source below a `tests/` directory of "
-        "the given root, skip build output under `target` and the uv directories, and "
-        "report each path relative to that root"
+        "the given root, skip build output under `target` and the uv directories, "
+        "and report each "
+        "path relative to that root"
     )
 
 
@@ -310,9 +302,7 @@ def test_the_sweep_walks_a_tree_it_is_given(tmp_path: pathlib.Path) -> None:
             UnicodeDecodeError,
             id="invalid-utf-8",
         ),
-        pytest.param(
-            lambda path: path.mkdir(), IsADirectoryError, id="a-source-read-failure"
-        ),
+        pytest.param(lambda path: path.mkdir(), IsADirectoryError, id="a-source-read-failure"),
     ],
 )
 def test_an_unreadable_source_fails_the_sweep_rather_than_shrinking_it(
@@ -379,12 +369,12 @@ def test_a_root_below_a_target_directory_is_still_swept(tmp_path: pathlib.Path) 
             LIFETIME, ["builds_the_fixture"], id="a-lifetime-is-not-a-literal"
         ),
         pytest.param(
-            "#[test]\nfn mentions_it() { /* trybuild::TestCases::new() */ }",
+            '#[test]\nfn mentions_it() { /* trybuild::TestCases::new() */ }',
             [],
             id="named-in-a-comment",
         ),
         pytest.param(
-            "fn helper() { let c = trybuild::TestCases::new(); }",
+            'fn helper() { let c = trybuild::TestCases::new(); }',
             [],
             id="a-helper-that-is-not-a-test",
         ),
@@ -394,7 +384,7 @@ def test_a_root_below_a_target_directory_is_still_swept(tmp_path: pathlib.Path) 
             id="a-test-behind-a-cfg-attribute",
         ),
         pytest.param(
-            "#[test]\nfn spaced() { let c = trybuild :: TestCases :: new (); }",
+            '#[test]\nfn spaced() { let c = trybuild :: TestCases :: new (); }',
             ["spaced"],
             id="generously-spaced",
         ),
@@ -518,8 +508,12 @@ def test_a_filter_names_a_test_only_at_identifier_boundaries(
 @pytest.mark.parametrize(
     ("timeout", "seconds"),
     [
-        pytest.param({"period": "300s", "terminate-after": 1}, 300.0, id="one-period"),
-        pytest.param({"period": "60s", "terminate-after": 5}, 300.0, id="five-periods"),
+        pytest.param(
+            {"period": "300s", "terminate-after": 1}, 300.0, id="one-period"
+        ),
+        pytest.param(
+            {"period": "60s", "terminate-after": 5}, 300.0, id="five-periods"
+        ),
         # A timeout without `terminate-after` kills nothing: it marks a test
         # slow and lets it run for ever. It is not an allowance, and an
         # override carrying one grants no more time than the base.
