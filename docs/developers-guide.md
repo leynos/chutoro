@@ -1944,6 +1944,10 @@ prose:
 make spelling
 ```
 
+`TYPOS_CONFIG_BUILDER_VERSION` in the `Makefile` pins the
+`typos-config-builder` release the gate runs (currently `v0.1.3`). Raise it
+together with the regenerated `typos.toml`, never on its own.
+
 The gate regenerates `typos.toml` on every run from the live shared dictionary
 and the repository-specific `typos.local.toml` overlay, then checks the tracked
 Markdown. `make markdownlint` depends on the gate, and `make all` runs it with
