@@ -2005,7 +2005,7 @@ Typos cannot match as whole phrases.
 
 ## The build standard
 
-Development, test, lint and typecheck builds use the `mold` linker on Linux;
+Development, test, lint, and typecheck builds use the `mold` linker on Linux;
 the parallel frontend flag is nightly-only, and the pinned `1.93.1` is stable,
 so it is not used. These are defaults in `.cargo/config.toml`, which Cargo
 discovers on its own, so a bare `cargo build` gets them. `mold` ships for Linux
@@ -2017,7 +2017,19 @@ An assigned `RUSTFLAGS` replaces the configuration's flags, so the Makefile
 recipes that set it compose the standard's flags onto any inherited value (CI's
 `setup-rust` exports one). Two builds are deliberately excluded: coverage
 assigns `RUSTFLAGS` without the fast flags, because a measurement should not
-depend on them, and release builds keep the platform linker.
+depend on them, and the release recipe and workflow keep the platform linker,
+because they assign `RUSTFLAGS` (even an empty value displaces the
+configuration). Cargo has no per-profile `rustflags`, so a direct
+`cargo build --release` takes the configuration's flags unless `RUSTFLAGS` is
+assigned too.
+
+On Linux, install `mold` before building: the configuration names it, so a
+build without it fails at link time. CI installs it through `setup-rust`'s
+`install-mold` input. `chutoro-test-support/tests/build_standard_contract.rs`
+holds the standard. It reads the configuration sources, and the commands
+`make -n` prints for each development target on a Linux host and a macOS host,
+and for each coverage and release target on a Linux host, so a flag lost
+through a recipe edit fails there.
 
 ### Cranelift
 
