@@ -32,6 +32,7 @@ jobs:
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@7d751eded578e48dacf43ab173d5820e6437c474
         with:
+          install-mold: 'true'
           # Kani compiles through `kani-compiler`, which sccache does not
           # support, so the binary would be installed and never named.
           use-sccache: 'false'

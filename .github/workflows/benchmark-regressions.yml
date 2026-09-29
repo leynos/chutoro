@@ -52,6 +52,7 @@ jobs:
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@7d751eded578e48dacf43ab173d5820e6437c474
         with:
+          install-mold: 'true'
           use-sccache: 'false'
       - name: Resolve benchmark CI mode
         id: gate
@@ -93,6 +94,7 @@ jobs:
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@7d751eded578e48dacf43ab173d5820e6437c474
         with:
+          install-mold: 'true'
           use-sccache: 'false'
       - name: Run benchmark discovery smoke check
         run: |
@@ -141,6 +143,7 @@ jobs:
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@7d751eded578e48dacf43ab173d5820e6437c474
         with:
+          install-mold: 'true'
           use-sccache: 'false'
       - name: Resolve benchmark reference commit
         id: reference

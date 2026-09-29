@@ -68,6 +68,7 @@ jobs:
         name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@7d751eded578e48dacf43ab173d5820e6437c474
         with:
+          install-mold: 'true'
           use-sccache: 'false'
       # Downloads the pinned nextest release archive and verifies the
       # SHA-256 recorded in tools/nextest/SHA256SUMS, replacing the former
@@ -79,6 +80,10 @@ jobs:
         run: scripts/install-nextest.sh
       - &run_property_suite_step
         name: Run property suite
+        # An assigned RUSTFLAGS replaces .cargo/config.toml's rustflags, so
+        # the step restates the build standard's linker flag beside the deny.
+        env:
+          RUSTFLAGS: -D warnings -Clink-arg=-fuse-ld=mold
         run: |
           set -o pipefail
           case "${{ matrix.suite }}" in
