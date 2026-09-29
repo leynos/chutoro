@@ -1,15 +1,16 @@
-//! Reader for the CI half of the build standard: every workflow that builds
-//! under the standard installs mold through `setup-rust`'s `install-mold`
-//! input, so the Linux jobs have the linker the configuration names.
+//! Reader for the CI half of the build standard: every workflow that builds under
+//! the standard installs mold through `setup-rust`'s `install-mold` input, so the
+//! Linux jobs have the linker the configuration names, and every coverage step
+//! assigns `RUSTFLAGS` itself, without a standard flag.
 //!
-//! The workflows are read as text, one step at a time. Release workflows are
-//! not listed: a release stays on the platform linker and never uses mold.
+//! The workflows are read as text, one step at a time. Release workflows are not
+//! listed: a release stays on the platform linker and never uses mold.
 
-use super::config::Problems;
+use super::config::{Problems, THREADS_FLAG};
 
-/// The workflows that set up Rust and build under the standard, as name and
-/// text. The list is this repository's own, so a workflow that stops setting up
-/// Rust fails the contract rather than dropping out of it.
+/// The workflows that set up Rust and build under the standard, as name and text.
+/// The list is this repository's own, so a workflow that stops setting up Rust
+/// fails the contract rather than dropping out of it.
 pub const WORKFLOWS: &[(&str, &str)] = &[
     (
         "benchmark-regressions.yml",
@@ -55,6 +56,70 @@ pub const WORKFLOWS: &[(&str, &str)] = &[
     ),
 ];
 
+/// A step of a workflow file, found by the action it uses.
+struct Step<'a> {
+    file: &'a str,
+    line: usize,
+    lines: Vec<&'a str>,
+}
+
+impl Step<'_> {
+    /// Returns where the step is, for a complaint.
+    fn location(&self) -> String {
+        format!("{}:{}", self.file, self.line)
+    }
+
+    /// Returns whether the step passes `install-mold: 'true'` (quoted or bare).
+    fn passes_the_install_input(&self) -> bool {
+        self.lines
+            .iter()
+            .any(|line| squeezed(line) == "install-mold:true")
+    }
+
+    /// Returns the value of the step's own `RUSTFLAGS:` line, if it has one.
+    fn rustflags(&self) -> Option<&str> {
+        self.lines
+            .iter()
+            .find_map(|line| line.trim().strip_prefix("RUSTFLAGS:"))
+            .map(str::trim)
+    }
+
+    /// Returns the complaint about a `setup-rust` step that installs no linker.
+    fn install_problem(&self) -> Option<String> {
+        (!self.passes_the_install_input()).then(|| {
+            format!(
+                "{}: a setup-rust step does not pass `install-mold: 'true'`",
+                self.location()
+            )
+        })
+    }
+
+    /// Returns the complaint about a coverage step that leaves `RUSTFLAGS` to
+    /// the setup action, or assigns one that names a standard flag.
+    fn coverage_problem(&self) -> Option<String> {
+        let Some(value) = self.rustflags() else {
+            return Some(format!(
+                "{}: a coverage step does not assign RUSTFLAGS",
+                self.location()
+            ));
+        };
+        let names_a_standard_flag = value.contains(THREADS_FLAG) || value.contains("mold");
+        names_a_standard_flag.then(|| {
+            format!(
+                "{}: a coverage step assigns a standard flag: {value}",
+                self.location()
+            )
+        })
+    }
+}
+
+/// Returns a line without spaces and quote marks.
+fn squeezed(line: &str) -> String {
+    line.chars()
+        .filter(|c| !matches!(c, ' ' | '\'' | '"'))
+        .collect()
+}
+
 /// Returns the number of leading spaces on a line.
 fn indent(line: &str) -> usize {
     line.len() - line.trim_start().len()
@@ -72,36 +137,43 @@ fn opens_step(line: &str) -> bool {
 /// holds for a value folded onto the line after `uses: >-`.
 fn step_lines<'a>(lines: &[&'a str], at: usize) -> Vec<&'a str> {
     let here = lines.get(at).copied().unwrap_or_default();
-    let start = (0..=at)
-        .rev()
-        .find(|&index| {
-            lines.get(index).is_some_and(|line| {
-                opens_step(line) && (index == at || indent(line) < indent(here))
-            })
-        })
-        .unwrap_or(at);
+    let starts_the_step = |index: &usize| {
+        lines
+            .get(*index)
+            .is_some_and(|line| opens_step(line) && (*index == at || indent(line) < indent(here)))
+    };
+    let start = (0..=at).rev().find(starts_the_step).unwrap_or(at);
     let step_indent = lines.get(start).map_or(0, |line| indent(line));
-    let end = (at + 1..lines.len())
-        .find(|&index| {
-            lines.get(index).is_some_and(|line| {
-                !line.trim().is_empty()
-                    && (indent(line) < step_indent
-                        || (opens_step(line) && indent(line) <= step_indent))
-            })
+    let ends_the_step = |index: &usize| {
+        lines.get(*index).is_some_and(|line| {
+            !line.trim().is_empty()
+                && (indent(line) < step_indent || (opens_step(line) && indent(line) <= step_indent))
         })
+    };
+    let end = (at + 1..lines.len())
+        .find(ends_the_step)
         .unwrap_or(lines.len());
     lines.get(start..end).unwrap_or_default().to_vec()
 }
 
-/// Returns whether a step passes `install-mold: 'true'` (quoted or bare).
-fn installs_linker(step: &[&str]) -> bool {
-    step.iter().any(|line| {
-        let squeezed: String = line
-            .chars()
-            .filter(|c| !matches!(c, ' ' | '\'' | '"'))
-            .collect();
-        squeezed == "install-mold:true"
-    })
+/// Returns every step of a workflow that uses an action, skipping comments.
+fn steps_using<'a>(file: &'a str, workflow: &'a str, action: &str) -> Vec<Step<'a>> {
+    let lines: Vec<&str> = workflow.lines().collect();
+    let uses = |line: &&str| line.contains(action) && !line.trim_start().starts_with('#');
+    let found: Vec<usize> = lines
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| uses(line))
+        .map(|(at, _)| at)
+        .collect();
+    found
+        .into_iter()
+        .map(|at| Step {
+            file,
+            line: at + 1,
+            lines: step_lines(&lines, at),
+        })
+        .collect()
 }
 
 /// Returns the complaint about each `setup-rust` step in one workflow that does
@@ -112,29 +184,11 @@ fn installs_linker(step: &[&str]) -> bool {
 ///   with:
 ///     install-mold: 'true'      -> no complaint
 /// ```
-pub fn linker_install_problems(name: &str, workflow: &str) -> Problems {
-    let lines: Vec<&str> = workflow.lines().collect();
-    lines
+pub fn linker_install_problems(file: &str, workflow: &str) -> Problems {
+    steps_using(file, workflow, "setup-rust@")
         .iter()
-        .enumerate()
-        .filter(|(_, line)| line.contains("setup-rust@") && !line.trim_start().starts_with('#'))
-        .filter(|(at, _)| !installs_linker(&step_lines(&lines, *at)))
-        .map(|(at, _)| {
-            format!(
-                "{name}:{}: a setup-rust step does not pass `install-mold: 'true'`",
-                at + 1
-            )
-        })
+        .filter_map(Step::install_problem)
         .collect()
-}
-
-/// Returns the `RUSTFLAGS` value a step assigns, if it has an `RUSTFLAGS:`
-/// line.
-fn step_rustflags(step: &[&str]) -> Option<String> {
-    step.iter()
-        .map(|line| line.trim())
-        .find_map(|line| line.strip_prefix("RUSTFLAGS:"))
-        .map(|value| value.trim().to_owned())
 }
 
 /// Returns the complaint about each coverage step in one workflow that does not
@@ -149,39 +203,21 @@ fn step_rustflags(step: &[&str]) -> Option<String> {
 ///   env:
 ///     RUSTFLAGS: -D warnings      -> no complaint
 /// ```
-pub fn coverage_problems(name: &str, workflow: &str) -> Problems {
-    let lines: Vec<&str> = workflow.lines().collect();
-    let mut problems = Vec::new();
-    for (at, line) in lines.iter().enumerate() {
-        if !line.contains("generate-coverage@") || line.trim_start().starts_with('#') {
-            continue;
-        }
-        let step = step_lines(&lines, at);
-        match step_rustflags(&step) {
-            None => problems.push(format!(
-                "{name}:{}: a coverage step does not assign RUSTFLAGS",
-                at + 1
-            )),
-            Some(value) if value.contains("-Zthreads") || value.contains("mold") => {
-                problems.push(format!(
-                    "{name}:{}: a coverage step assigns a standard flag: {value}",
-                    at + 1
-                ));
-            }
-            Some(_) => {}
-        }
-    }
-    problems
+pub fn coverage_problems(file: &str, workflow: &str) -> Problems {
+    steps_using(file, workflow, "generate-coverage@")
+        .iter()
+        .filter_map(Step::coverage_problem)
+        .collect()
 }
 
-/// Returns the complaints about one listed workflow: a step without the input,
-/// or no `setup-rust` step at all, which would leave the check reading nothing.
-fn listed_problems(name: &str, workflow: &str) -> Problems {
-    let mut problems = linker_install_problems(name, workflow);
-    problems.extend(coverage_problems(name, workflow));
-    if !workflow.contains("setup-rust@") {
+/// Returns the complaints about one listed workflow: its steps, or no
+/// `setup-rust` step at all, which would leave the check reading nothing.
+fn listed_problems(file: &str, workflow: &str) -> Problems {
+    let mut problems = linker_install_problems(file, workflow);
+    problems.extend(coverage_problems(file, workflow));
+    if steps_using(file, workflow, "setup-rust@").is_empty() {
         problems.push(format!(
-            "{name}: the listed workflow has no setup-rust step, so the check proves nothing"
+            "{file}: the listed workflow has no setup-rust step, so the check proves nothing"
         ));
     }
     problems
@@ -191,6 +227,6 @@ fn listed_problems(name: &str, workflow: &str) -> Problems {
 pub fn workflow_problems() -> Problems {
     WORKFLOWS
         .iter()
-        .flat_map(|(name, text)| listed_problems(name, text))
+        .flat_map(|(file, workflow)| listed_problems(file, workflow))
         .collect()
 }
