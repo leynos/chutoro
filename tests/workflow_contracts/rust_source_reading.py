@@ -488,6 +488,11 @@ def compile_contract_tests(text: str) -> list[str]:
     return found
 
 
+#: Directories the sweep never enters: build output and the repository-local uv
+#: cache and tool directories, which hold other repositories' checkouts.
+IGNORED_DIRECTORIES = frozenset({"target", ".uv-cache", ".uv-tools"})
+
+
 def discovered_tests(root: pathlib.Path = REPO_ROOT) -> dict[str, str]:
     """Return each compile-contract test, mapped to the file declaring it.
 
@@ -516,7 +521,9 @@ def discovered_tests(root: pathlib.Path = REPO_ROOT) -> dict[str, str]:
         name: path.relative_to(root).as_posix()
         for path in sorted(root.rglob("tests/**/*.rs"))
         # Relative to `root`, because a checkout that itself sits under a
-        # directory named `target` would otherwise lose every file.
-        if "target" not in path.relative_to(root).parts
+        # directory named `target` would otherwise lose every file. The uv
+        # directories hold checkouts of other repositories (the CV-005
+        # contracts run from one), whose tests are not this workspace's.
+        if not IGNORED_DIRECTORIES.intersection(path.relative_to(root).parts)
         for name in compile_contract_tests(path.read_text(encoding="utf-8"))
     }

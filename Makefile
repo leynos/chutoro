@@ -21,6 +21,15 @@ NEXTEST_PROFILE ?= $(if $(CI),ci,default)
 NIXIE ?= nixie
 UV ?= uv
 UV_ENV = UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools
+
+# The CV-005 CodeScene contracts live in shared-actions and run from a full
+# commit, so a fix is a pin bump. `.github/cv005.toml` holds this repository's
+# only parameters.
+CV005_CONTRACTS_REF ?= a38feb9be25755c30eca5bda96bd3786a5b89c6b
+CV005_CONTRACTS = $(UV_ENV) $(UV) tool run --python 3.13 \
+	--from 'git+https://github.com/leynos/shared-actions@$(CV005_CONTRACTS_REF)\#subdirectory=packages/cv005-contracts' \
+	cv005-contracts
+
 TYPOS_CONFIG_BUILDER_VERSION ?= v0.1.3
 TYPOS_CONFIG_BUILDER = $(UV_ENV) $(UV) tool run --python 3.14 --from \
 	"git+https://github.com/leynos/typos-config-builder.git@$(TYPOS_CONFIG_BUILDER_VERSION)" \
@@ -58,7 +67,7 @@ KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
 build: target/debug/$(APP) ## Build debug binary
 release: target/release/$(APP) ## Build release binary
 
-all: release spelling ## Default target builds release binary and checks spelling
+all: release spelling test-workflow-contracts ## Default target builds release binary and checks spelling
 
 clean: ## Remove build artefacts
 	$(CARGO) clean
@@ -127,6 +136,7 @@ bench: ## Run Criterion benchmarks
 # produce what it claims. An example nobody executes is a comment that
 # looks like evidence.
 test-workflow-contracts: ## Validate the CI workflow contracts
+	$(CV005_CONTRACTS) check --repository .
 	uv run --with 'pytest>=8' --with 'pyyaml>=6' --with 'pathspec>=0.12' \
 		--with 'hypothesis>=6' pytest tests/workflow_contracts \
 		--doctest-modules -q

@@ -258,7 +258,9 @@ def test_the_sweep_walks_a_tree_it_is_given(tmp_path: pathlib.Path) -> None:
     it visits, because the set it is compared against was written from what it
     found. This tree states the three decisions separately: a source below
     `tests/` is read, one elsewhere in the tree is not, and one under a
-    `target` directory is not even when its path contains `tests`.
+    `target` directory is not even when its path contains `tests`, nor is one
+    under the repository-local uv cache, which holds other repositories'
+    checkouts.
 
     The paths are relative to the given root, not to this repository, which is
     what makes the reported path usable by a caller sweeping anything else.
@@ -270,13 +272,21 @@ def test_the_sweep_walks_a_tree_it_is_given(tmp_path: pathlib.Path) -> None:
     stale = tmp_path / "target" / "debug" / "tests"
     stale.mkdir(parents=True)
     (stale / "old.rs").write_text(SIBLINGS, encoding="utf-8")
+    foreign = tmp_path / ".uv-cache" / "git-v0" / "checkouts" / "abc" / "toy" / "tests"
+    foreign.mkdir(parents=True)
+    # A differently named spawner, so a sweep that read it would add a key
+    # rather than overwrite the one the assertion expects.
+    (foreign / "spawner.rs").write_text(
+        SPAWNER.replace("checks_the_fixture_crate", "a_foreign_nested_build"),
+        encoding="utf-8",
+    )
 
     assert discovered_tests(tmp_path) == {
         "checks_the_fixture_crate": "tests/harness.rs"
     }, (
         "the sweep must read every Rust source below a `tests/` directory of "
-        "the given root, skip build output under `target`, and report each "
-        "path relative to that root"
+        "the given root, skip build output under `target` and the uv cache, and "
+        "report each path relative to that root"
     )
 
 
