@@ -14,18 +14,22 @@
 //! rather than the Makefile's text, so a flag lost through a variable or a
 //! recipe edit fails here. They run once as a Linux host and once as a macOS
 //! host through `BUILD_HOST_OS`, because mold is added on Linux alone. The
-//! listed targets are this repository's own: one that stops being defined fails
-//! the contract, so the check cannot quietly stop covering it. The readers are
+//! listed targets and workflows are this repository's own: one that stops being defined
+//! fails the contract, so the check cannot quietly stop covering it. Each CI workflow that
+//! sets up Rust passes `install-mold: 'true'`, so the Linux jobs have the linker. The readers are
 //! driven against fixtures first, because a rule exercised only over this
 //! repository's own compliant files would pass whether or not it detects
 //! anything.
 
+#[path = "build_standard_support/ci_steps.rs"]
+mod ci_steps;
 #[path = "build_standard_support/config.rs"]
 mod config;
 #[path = "build_standard_support/make.rs"]
 mod make;
 use rstest::rstest;
 
+use ci_steps::{install_mold_problems, workflow_problems};
 use config::{CONFIG, Flags, Pin, Problems, THREADS_FLAG, TOOLCHAIN, config_problems};
 use make::{
     Assignment, Host, assigned_rustflags, commands_from, development_problems, held_out_problems,
@@ -153,8 +157,8 @@ fn the_pin_reader_tells_the_channels_apart(#[case] toolchain: &str, #[case] expe
 }
 
 /// Builds the assignment a fixture line is expected to read as.
-fn flags(words: &[&str]) -> Assignment {
-    Assignment::Flags(Flags::from_words(words.iter().copied()))
+fn flags(words: &[&str], inherits: bool) -> Assignment {
+    Assignment::Flags(Flags::from_words(words.iter().copied()), inherits)
 }
 
 /// Scenario: `make -n` output lines in each spelling of an assignment.
@@ -162,12 +166,12 @@ fn flags(words: &[&str]) -> Assignment {
 /// Invariant: a quoted assignment is read, with the caller's inherited flags set
 /// aside, and a line assigning none reads as unassigned.
 #[rstest]
-#[case::plain("RUSTFLAGS=\"-D warnings -Zthreads=8\" cargo test", flags(&["-D", "warnings", THREADS_FLAG]))]
+#[case::plain("RUSTFLAGS=\"-D warnings -Zthreads=8\" cargo test", flags(&["-D", "warnings", THREADS_FLAG], false))]
 #[case::inherited_flags_glued_on(
     "RUSTFLAGS=\"${RUSTFLAGS:+$RUSTFLAGS }-Zthreads=8\" cargo check",
-    flags(&[THREADS_FLAG])
+    flags(&[THREADS_FLAG], true)
 )]
-#[case::inherited_flags_only("RUSTFLAGS=\"${RUSTFLAGS-}\" cargo build --release", flags(&[]))]
+#[case::inherited_flags_only("RUSTFLAGS=\"${RUSTFLAGS-}\" cargo build --release", flags(&[], true))]
 #[case::no_assignment("cargo clippy --all-targets", Assignment::Unassigned)]
 fn the_command_reader_reads_each_assignment(
     #[case] line: &str,
@@ -194,6 +198,69 @@ fn the_command_reader_refuses_what_it_cannot_parse(#[case] line: &str) -> Result
     }
 }
 
+/// A workflow step that passes the input, quoted.
+const STEP_INSTALLS: &str = concat!(
+    "    steps:\n      - name: Setup Rust\n",
+    "        uses: org/shared-actions/.github/actions/setup-rust@0123456789abcdef0123456789abcdef01234567\n",
+    "        with:\n          install-mold: 'true'\n"
+);
+/// The same, with the bare value.
+const STEP_INSTALLS_BARE: &str = concat!(
+    "    steps:\n      - uses: org/shared-actions/.github/actions/setup-rust@0123456789abcdef0123456789abcdef01234567\n",
+    "        with:\n          install-mold: true\n"
+);
+/// A step with no input at all.
+const STEP_MISSING_INPUT: &str = concat!(
+    "    steps:\n      - name: Setup Rust\n",
+    "        uses: org/shared-actions/.github/actions/setup-rust@0123456789abcdef0123456789abcdef01234567\n"
+);
+/// A step that turns the input off.
+const STEP_INPUT_OFF: &str = concat!(
+    "    steps:\n      - name: Setup Rust\n",
+    "        uses: org/shared-actions/.github/actions/setup-rust@0123456789abcdef0123456789abcdef01234567\n",
+    "        with:\n          install-mold: 'false'\n"
+);
+/// A step without the input, followed by a step that has one for another action.
+const STEP_BEFORE_A_SIBLING_THAT_INSTALLS: &str = concat!(
+    "    steps:\n      - name: Setup Rust\n",
+    "        uses: org/shared-actions/.github/actions/setup-rust@0123456789abcdef0123456789abcdef01234567\n",
+    "      - name: Other\n        uses: org/other@abc\n        with:\n          install-mold: 'true'\n"
+);
+/// A comment that names the action, and no step.
+const COMMENT_NAMING_THE_ACTION: &str =
+    "    steps:\n      # setup-rust@abc installs it\n      - run: make\n";
+
+/// Scenario: workflow steps that set up Rust with and without the input.
+///
+/// Invariant: a step must pass `install-mold: 'true'` itself; another step's
+/// input does not count, and a comment naming the action is not a step.
+#[rstest]
+#[case::quoted_true(STEP_INSTALLS, 0)]
+#[case::bare_true(STEP_INSTALLS_BARE, 0)]
+#[case::missing_input(STEP_MISSING_INPUT, 1)]
+#[case::input_off(STEP_INPUT_OFF, 1)]
+#[case::input_on_a_sibling_step(STEP_BEFORE_A_SIBLING_THAT_INSTALLS, 1)]
+#[case::comment_only(COMMENT_NAMING_THE_ACTION, 0)]
+fn the_workflow_reader_wants_the_input_on_each_step(
+    #[case] workflow: &str,
+    #[case] expected: usize,
+) -> Result<(), String> {
+    let found = install_mold_problems("fixture.yml", workflow).len();
+    if found == expected {
+        Ok(())
+    } else {
+        Err(format!("{workflow:?}: {found} problems, not {expected}"))
+    }
+}
+
+/// Every workflow that builds under the standard installs mold. A repository
+/// whose workflows do not set up Rust through `setup-rust` lists none, and the
+/// check then reads nothing; a listed workflow must have a step to read.
+#[test]
+fn every_setup_rust_step_installs_mold() -> Result<(), String> {
+    none_of(&workflow_problems())
+}
+
 /// Scenario: a recipe continued over lines, beside an `echo` and another command.
 ///
 /// Invariant: the continued command is one command, and lines that are not a
@@ -204,7 +271,7 @@ fn a_continued_command_is_one_command() -> Result<(), String> {
         "RUSTFLAGS=\"-A\" \\\n",
         "cargo test\necho cargo test\nmake other\n"
     ))?;
-    if joined == vec![flags(&["-A"])] {
+    if joined == vec![flags(&["-A"], false)] {
         Ok(())
     } else {
         Err(format!("read wrongly: {joined:?}"))
