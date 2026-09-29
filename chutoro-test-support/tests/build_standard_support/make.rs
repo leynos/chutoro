@@ -1,6 +1,6 @@
-//! Readers for the Makefile half of the build standard: the commands
-//! `make -n` prints for each development, coverage and release target, judged
-//! against a toolchain pin and a host.
+//! Readers for the Makefile half of the build standard: the commands `make -n`
+//! prints for each development, coverage and release target, judged against a
+//! toolchain pin and a host.
 
 use std::process::Command;
 
@@ -165,8 +165,8 @@ pub fn development_problems(host: Host, pin: Pin) -> Result<(Problems, usize), S
     Ok((problems, read))
 }
 
-/// Returns every complaint about one held-out command: it assigns nothing, so it
-/// takes the configuration's flags, or the assignment names a standard flag.
+/// Returns every complaint about one held-out command: it assigns nothing, so
+/// it takes the configuration's flags, or the assignment names a standard flag.
 fn held_out_command_problems(target: &str, assignment: &Assignment) -> Problems {
     let Assignment::Flags(flags, _) = assignment else {
         return vec![format!(

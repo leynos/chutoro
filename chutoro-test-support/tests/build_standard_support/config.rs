@@ -12,7 +12,8 @@ pub const TOOLCHAIN: &str = include_str!(concat!(
     "/../rust-toolchain.toml"
 ));
 
-/// The parallel-frontend flag every `rustflags` source carries on a nightly pin.
+/// The parallel-frontend flag every `rustflags` source carries on a nightly
+/// pin.
 pub const THREADS_FLAG: &str = "-Zthreads=8";
 /// The linker flag the Linux source adds, normalized to one token.
 pub const LINKER_FLAG: &str = "-Clink-arg=-fuse-ld=mold";
@@ -30,20 +31,51 @@ pub enum Pin {
 impl Pin {
     /// Reads the pin from a `rust-toolchain.toml`.
     ///
+    /// The channel must be named exactly once and be one the standard knows: a
+    /// `nightly` (dated or not), `stable`, `beta`, or a numbered release.
+    /// Anything else, and a missing or repeated `channel`, is an error rather
+    /// than a guess that lets a malformed file pass as stable.
+    ///
     /// ```text
-    /// Pin::read("channel = \"nightly-2026-05-28\"") == Pin::Nightly
-    /// Pin::read("channel = \"1.94.0\"") == Pin::Stable
+    /// Pin::read("channel = \"nightly-2026-05-28\"") == Ok(Pin::Nightly)
+    /// Pin::read("channel = \"1.94.0\"")             == Ok(Pin::Stable)
+    /// Pin::read("[toolchain]")                       == Err(..)
     /// ```
-    pub fn read(toolchain: &str) -> Self {
-        let is_nightly = toolchain
+    ///
+    /// # Errors
+    ///
+    /// Returns the reason when the channel is missing, repeated or unsupported.
+    pub fn read(toolchain: &str) -> Result<Self, String> {
+        let channels: Vec<&str> = toolchain
             .lines()
             .map(str::trim)
             .filter(|line| line.starts_with("channel"))
-            .any(|line| line.contains("\"nightly"));
+            .filter_map(|line| line.split('"').nth(1))
+            .collect();
+        match channels.as_slice() {
+            [] => Err("rust-toolchain.toml names no channel".to_owned()),
+            [channel] => Self::classify(channel),
+            _ => Err(format!(
+                "rust-toolchain.toml names more than one channel: {channels:?}"
+            )),
+        }
+    }
+
+    /// Classifies one channel name.
+    fn classify(channel: &str) -> Result<Self, String> {
+        let is_nightly = channel == "nightly" || channel.starts_with("nightly-");
+        let is_release = channel.split('.').count() >= 2
+            && channel
+                .split('.')
+                .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()));
         if is_nightly {
-            Self::Nightly
+            Ok(Self::Nightly)
+        } else if is_release || matches!(channel, "stable" | "beta") {
+            Ok(Self::Stable)
         } else {
-            Self::Stable
+            Err(format!(
+                "the channel `{channel}` is not one the standard knows"
+            ))
         }
     }
 
@@ -90,7 +122,8 @@ impl Flags {
         self.names(LINKER_FLAG)
     }
 
-    /// Returns the list without the linker flag, which is the one that may differ.
+    /// Returns the list without the linker flag, which is the one that may
+    /// differ.
     fn without_linker_flag(&self) -> Vec<&String> {
         self.0.iter().filter(|flag| *flag != LINKER_FLAG).collect()
     }
@@ -128,8 +161,8 @@ impl Source {
         self.table.starts_with("target.") && self.table.contains("linux")
     }
 
-    /// Returns what is wrong with the source's flags for a pin: the frontend flag
-    /// on a nightly pin only, and mold in a Linux table only.
+    /// Returns what is wrong with the source's flags for a pin: the frontend
+    /// flag on a nightly pin only, and mold in a Linux table only.
     fn problem(&self, pin: Pin) -> Option<String> {
         let reason = self.flags.meets(pin, self.is_linux()).err()?;
         Some(format!("[{}] {reason}", self.table))
@@ -213,8 +246,8 @@ fn shape_problems(found: &[Source], pin: Pin) -> Problems {
         .collect()
 }
 
-/// Returns a complaint when the sources differ in anything but the linker, since
-/// Cargo applies one source rather than merging them.
+/// Returns a complaint when the sources differ in anything but the linker,
+/// since Cargo applies one source rather than merging them.
 fn drift_problem(found: &[Source]) -> Option<String> {
     let mut stripped: Vec<Vec<&String>> = found
         .iter()
