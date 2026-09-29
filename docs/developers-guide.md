@@ -1517,9 +1517,17 @@ report under a step inside itself, which no scan of this file's steps can see,
 so a caller that reaches the action without the opt-out has published the
 report whether or not the workflow declares an artefact step.
 
-What the contracts in `tests/workflow_contracts/coverage_boundary.py` and
-`tests/workflow_contracts/coverage_publisher.py` do that is worth knowing
-before editing a workflow:
+`make test-workflow-contracts` holds all of this by running
+`cv005-contracts check`, the shared contract library in `leynos/shared-actions`
+(`packages/cv005-contracts`), from a full commit named by `CV005_CONTRACTS_REF`
+in the Makefile, before the pytest contracts in `tests/workflow_contracts/`. A
+fix to the rules is therefore a pin bump. The target needs `uv`, which fetches
+the Python 3.13 the library runs under. The repository's only parameter is
+`repository` in `.github/cv005.toml`. The library's own suite proves each rule
+refuses the shape it exists to refuse, so this repository keeps no copy of the
+readers or the refusal cases.
+
+What the library's contracts do that is worth knowing before editing a workflow:
 
 - They read the raw text as well as the parsed document, ignoring case, so
   neither the credential's name nor the `codescene.io` host may appear in a
