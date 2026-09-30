@@ -74,7 +74,11 @@ pub fn assigned_rustflags(line: &str) -> Result<Assignment, String> {
     // The recipes prepend the caller's own flags with these expansions; they are
     // not standard flags. `${RUSTFLAGS-}` adds no separator, so glued to the next
     // word it makes one token with it (`-Dwarnings-Zthreads=8`) and hides the flag.
-    if glues_the_next_word(assigned) {
+    let glued = assigned
+        .split("${RUSTFLAGS-}")
+        .skip(1)
+        .any(|after| !after.is_empty() && !after.starts_with(' '));
+    if glued {
         return Err(format!(
             "inherited RUSTFLAGS glued to the next flag in `{line}`"
         ));
@@ -88,15 +92,6 @@ pub fn assigned_rustflags(line: &str) -> Result<Assignment, String> {
         Flags::from_words(own.split_whitespace()),
         inherits,
     ))
-}
-
-/// Returns whether a `${RUSTFLAGS-}` expansion is followed directly by another
-/// word, with no space between them.
-fn glues_the_next_word(assigned: &str) -> bool {
-    assigned
-        .split("${RUSTFLAGS-}")
-        .skip(1)
-        .any(|after| !after.is_empty() && !after.starts_with(' '))
 }
 
 /// Reads the assignment of each cargo or whitaker command `make -n` printed.
