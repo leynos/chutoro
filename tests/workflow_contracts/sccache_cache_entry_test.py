@@ -266,15 +266,17 @@ def test_the_writer_compiles_every_shape_the_reader_reads() -> None:
 def test_the_writer_reclaims_disk_before_saving() -> None:
     """The archive is built on the same disk the coverage tree fills.
 
-    `ubicloud-standard-2` starts with about 31 GB free and the coverage
-    scratch tree is the largest thing on it, with no consumer after the
-    report. Deleting it before the save is what leaves room to build the
-    archive; `df -h` on both sides is how the next reader knows it did.
+    `ubicloud-standard-2` has a 72 GB disk and the lint, SIMD and coverage
+    builds all fill `target`, which has no consumer after the report. Deleting
+    the whole tree before the save is what leaves room to build the archive
+    (deleting only the coverage scratch directory freed 1.2 GB and a later run
+    still ran out); `df -h` on both sides, written to the job summary, is how
+    the next reader knows it did.
     """
     definition = job(*EXPECTED_WRITER)
     reclaim_at = step_index(
         definition,
-        lambda s: "df -h" in run_script(s) and "rm -rf target/" in run_script(s),
+        lambda s: "df -h" in run_script(s) and "rm -rf target" in run_script(s),
     )
     save_at = step_index(
         definition, lambda s: uses_reference(s).startswith("actions/cache/save")
@@ -291,6 +293,16 @@ def test_the_writer_reclaims_disk_before_saving() -> None:
     assert build_at is not None, (
         f"{EXPECTED_WRITER[0]}:{EXPECTED_WRITER[1]} saves a compiler cache "
         "without compiling anything, so the archive would hold nothing new"
+    )
+    reclaim = run_script(definition["steps"][reclaim_at])
+    assert "rm -rf target\n" in reclaim, (
+        "the reclaim must delete the whole target tree, not one directory in "
+        "it: the lint, SIMD and coverage builds all fill it, and the first "
+        "narrower deletion freed 1.2 GB on a 72 GB disk that then ran out"
+    )
+    assert "GITHUB_STEP_SUMMARY" in reclaim, (
+        "the disk figures must reach the job summary, which survives a run "
+        "that dies of a full disk when its log does not"
     )
     assert build_at < reclaim_at < save_at, (
         "the reclaim must sit between the build and the save; found "

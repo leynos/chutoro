@@ -374,11 +374,16 @@ too, so a dependency bump starts from the newest older entry rather than from
 nothing. The stamp is computed once per job, so a job running across midnight
 cannot restore under one date and save under another.
 
-Before the save, `coverage-upload` stops the server, deletes
-`target/llvm-cov-target`, and prints `df -h` on both sides. The scratch tree
-has no consumer after the coverage report and is the largest thing on the disk;
-deleting it is what leaves room to build the archive, and the `df -h` pair is
-how the next reader knows how much headroom the save actually had.
+Before the save, `coverage-upload` stops the server, deletes the whole `target`
+tree, and writes `df -h` on both sides to the log and the job summary. Nothing
+after the coverage report reads `target`, and the archive holds `.sccache`
+alone. The lint, dense-SIMD and instrumented builds all fill it, and
+`ubicloud-standard-2` has a 72 GB disk: deleting only `target/llvm-cov-target`
+freed 1.2 GB (71 GB used with 674 MB free, then 70 GB used with 1.9 GB free, run
+36556821647) and a later push run ran out of space building the archive (run
+36647822422, whose log was lost with the runner). The summary is what survives
+a run that dies of a full disk, and the `df -h` pair is how the next reader
+knows how much headroom the save actually had.
 
 #### Why the GitHub Actions backend is gone
 
