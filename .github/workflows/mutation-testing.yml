@@ -28,6 +28,8 @@ jobs:
       id-token: write # OIDC workflow-source resolution
     uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@b9a3bff63b1e19b3a48d433668184e24e1abd3ba
     with:
+      # .cargo/config.toml links with mold on Linux; the reusable workflow installs it.
+      install-mold: 'true'
       # Workspace crates live in top-level directories, not a root
       # src/. chutoro-test-support (test scaffolding) and the root
       # verus/ proof files are deliberately left outside: their
@@ -42,9 +44,3 @@ jobs:
       # with --all-features) so feature-gated tests run against mutants
       # and dependent crates' tests catch cross-crate survivors.
       extra-args: "--all-features --test-workspace=true"
-      # .cargo/config.toml links with mold on Linux, and the reusable workflow has
-      # no `install-mold` input, so the mutants job installs it here.
-      setup-commands: |
-        export DEBIAN_FRONTEND=noninteractive
-        sudo apt-get update
-        sudo apt-get install --yes --no-install-recommends mold
