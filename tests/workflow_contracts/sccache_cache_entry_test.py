@@ -295,7 +295,7 @@ def test_the_writer_reclaims_disk_before_saving() -> None:
         "without compiling anything, so the archive would hold nothing new"
     )
     reclaim = run_script(definition["steps"][reclaim_at])
-    assert "rm -rf target\n" in reclaim, (
+    assert re.search(r"^\s*rm -rf target\s*$", reclaim, re.MULTILINE), (
         "the reclaim must delete the whole target tree, not one directory in "
         "it: the lint, SIMD and coverage builds all fill it, and the first "
         "narrower deletion freed 1.2 GB on a 72 GB disk that then ran out"
