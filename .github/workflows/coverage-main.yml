@@ -195,19 +195,34 @@ jobs:
           project-url: https://api.codescene.io/v2/projects/71838
           access-token: ${{ secrets.CS_ACCESS_TOKEN }}
       # The save has to archive a quiescent directory, so the server stops
-      # first; its statistics have already been read above. The coverage
-      # scratch tree has no later consumer and is the largest thing on the
-      # disk, so it goes before the archive is built. `df -h` on both sides
-      # records the headroom the save actually had.
+      # first; its statistics have already been read above. Nothing after this
+      # point reads `target`: the coverage report and the upload are done, and
+      # the archive holds `.sccache` alone. The whole tree goes, not only the
+      # coverage scratch directory, because `make lint`, the dense-SIMD gate and
+      # the instrumented run each build into it and `ubicloud-standard-2` has a
+      # 72 GB disk. Deleting only `target/llvm-cov-target` freed 1.2 GB and left
+      # 1.9 GB (run 36556821647); a later run on the same runner class ran out
+      # of space while building the archive (run 36647822422). `df -h` on both
+      # sides goes to the job summary as well as the log, because a run that
+      # dies of a full disk loses its log and the summary is what survives.
       - name: Reclaim disk before the cache save
         if: ${{ github.event_name == 'push' }}
         run: |
           set -euo pipefail
-          df -h .
+          {
+            printf '### Disk before the cache save\n\n```\n'
+            df -h .
+            du -sh target 2>/dev/null || true
+            printf '```\n'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
           sccache --stop-server >/dev/null 2>&1 || true
-          rm -rf target/llvm-cov-target
-          du -sh "${SCCACHE_DIR}" || true
-          df -h .
+          rm -rf target
+          {
+            printf '### Disk after reclaiming target\n\n```\n'
+            du -sh "${SCCACHE_DIR}" || true
+            df -h .
+            printf '```\n'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
       # Sole writer of this key. ci.yml's build-test reads it on every pull
       # request and never writes, so there is exactly one owner and no race
       # on merge. Dispatches restore but never save, which keeps a manual
