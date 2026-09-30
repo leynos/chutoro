@@ -181,21 +181,44 @@ fn quoted(line: &str) -> Vec<&str> {
     line.split('"').skip(1).step_by(2).collect()
 }
 
+/// Returns a line up to a `#` that starts a comment, ignoring a `#` inside a
+/// quoted string, and without trailing space.
+fn without_comment(line: &str) -> &str {
+    let mut quote: Option<char> = None;
+    for (index, c) in line.char_indices() {
+        match (quote, c) {
+            (None, '"' | '\'') => quote = Some(c),
+            (Some(open), _) if c == open => quote = None,
+            (None, '#') => return line.get(..index).unwrap_or(line).trim_end(),
+            _ => {}
+        }
+    }
+    line
+}
+
 /// Reads one configuration line. A `rustflags` entry is a one-line array of
 /// strings, which is the shape the standard prescribes; an entry spread over
 /// several lines is refused rather than half read.
 ///
 /// ```text
 /// read_line("[build]")                     -> Line::Table("build")
+/// read_line("[build] # hosts")             -> Line::Table("build")
+/// read_line("rustflags-extra = [\"x\"]")   -> Line::Other
 /// read_line("rustflags = [\"-Zthreads=8\"]") -> Line::Rustflags(..)
 /// ```
-fn read_line(line: &str) -> Result<Line, String> {
+fn read_line(raw: &str) -> Result<Line, String> {
+    let line = without_comment(raw);
     if line.starts_with('[') {
         return Ok(Line::Table(
-            line.trim_matches(|c| c == '[' || c == ']').to_owned(),
+            line.trim_matches(|c| c == '[' || c == ']')
+                .trim()
+                .to_owned(),
         ));
     }
-    let Some(value) = line.strip_prefix("rustflags") else {
+    let Some(value) = line
+        .strip_prefix("rustflags")
+        .filter(|value| value.trim_start().starts_with('='))
+    else {
         return Ok(Line::Other);
     };
     if !value.contains(']') {

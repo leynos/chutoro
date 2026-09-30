@@ -97,6 +97,20 @@ const STABLE_WITH_THREADS: &str = concat!(
     "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n",
     "rustflags = [\"-Zthreads=8\", \"-Clink-arg=-fuse-ld=mold\"]\n"
 );
+/// A compliant configuration whose table headers and entries carry comments,
+/// with a hash inside a quoted value.
+const COMMENTED_OK: &str = concat!(
+    "[build] # every host\nrustflags = [\"-Zthreads=8\"] # the frontend\n",
+    "[target.x86_64-unknown-linux-gnu] # Linux\nlinker = \"clang\"\n",
+    "rustflags = [\"-Zthreads=8\", \"-Clink-arg=-fuse-ld=mold\"]\n",
+    "note = \"a # inside a string\"\n"
+);
+/// A compliant configuration with a sibling key that only starts like `rustflags`.
+const SIBLING_KEY_OK: &str = concat!(
+    "[build]\nrustflags = [\"-Zthreads=8\"]\nrustflags-extra = [\"-Dwarnings\"]\n",
+    "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n",
+    "rustflags = [\"-Zthreads=8\", \"-Clink-arg=-fuse-ld=mold\"]\n"
+);
 /// A `rustflags` array spread over several lines, which the reader refuses.
 const SPREAD_ARRAY: &str = "[build]\nrustflags = [\n  \"-Zthreads=8\",\n]\n";
 
@@ -125,6 +139,8 @@ fn draws(config: &str, pin: Pin, expected: usize) -> Result<(), String> {
 #[case::no_build_source(NO_BUILD_SOURCE, Pin::Nightly, 1)]
 #[case::stable_names_the_frontend(STABLE_WITH_THREADS, Pin::Stable, 1)]
 #[case::empty_configuration("", Pin::Nightly, 3)]
+#[case::comments_after_headers_and_entries(COMMENTED_OK, Pin::Nightly, 0)]
+#[case::a_key_that_only_starts_like_rustflags(SIBLING_KEY_OK, Pin::Nightly, 0)]
 fn the_configuration_reader_reports_each_defect(
     #[case] config: &str,
     #[case] pin: Pin,
@@ -184,6 +200,10 @@ fn flags(words: &[&str], inherits: bool) -> Assignment {
     flags(&[THREADS_FLAG], true)
 )]
 #[case::inherited_flags_only("RUSTFLAGS=\"${RUSTFLAGS-}\" cargo build --release", flags(&[], true))]
+#[case::inherited_flags_then_a_space(
+    "RUSTFLAGS=\"${RUSTFLAGS-} -Zthreads=8\" cargo check",
+    flags(&[THREADS_FLAG], true)
+)]
 #[case::no_assignment("cargo clippy --all-targets", Assignment::Unassigned)]
 fn the_command_reader_reads_each_assignment(
     #[case] line: &str,
@@ -203,6 +223,7 @@ fn the_command_reader_reads_each_assignment(
 #[rstest]
 #[case::unquoted("RUSTFLAGS=-Zthreads=8 cargo test")]
 #[case::unterminated("RUSTFLAGS=\"-Zthreads=8 cargo test")]
+#[case::inherited_flags_glued_to_a_flag("RUSTFLAGS=\"${RUSTFLAGS-}-Zthreads=8\" cargo test")]
 fn the_command_reader_refuses_what_it_cannot_parse(#[case] line: &str) -> Result<(), String> {
     match assigned_rustflags(line) {
         Ok(_) => Err(format!("`{line}` was read, not refused")),

@@ -54,11 +54,13 @@ pub enum Assignment {
 /// assigned_rustflags("RUSTFLAGS=\"${RUSTFLAGS:+$RUSTFLAGS }-Zthreads=8\" cargo test") -> inherits: true
 /// assigned_rustflags("cargo test")                           -> Unassigned
 /// assigned_rustflags("RUSTFLAGS=-Zthreads=8 cargo test")     -> Err
+/// assigned_rustflags("RUSTFLAGS=\"${RUSTFLAGS-}-Zthreads=8\" cargo test") -> Err (glued)
 /// ```
 ///
 /// # Errors
 ///
-/// Returns the reason when an assignment is unquoted or unterminated.
+/// Returns the reason when an assignment is unquoted, unterminated, or glues the
+/// caller's flags to the next one.
 pub fn assigned_rustflags(line: &str) -> Result<Assignment, String> {
     let Some((_, rest)) = line.split_once("RUSTFLAGS=\"") else {
         if line.contains("RUSTFLAGS=") {
@@ -70,16 +72,31 @@ pub fn assigned_rustflags(line: &str) -> Result<Assignment, String> {
         .split_once('"')
         .ok_or_else(|| format!("unterminated RUSTFLAGS in `{line}`"))?;
     // The recipes prepend the caller's own flags with these expansions; they are
-    // not standard flags, and glued to the next word they would hide it.
+    // not standard flags. `${RUSTFLAGS-}` adds no separator, so glued to the next
+    // word it makes one token with it (`-Dwarnings-Zthreads=8`) and hides the flag.
+    if glues_the_next_word(assigned) {
+        return Err(format!(
+            "inherited RUSTFLAGS glued to the next flag in `{line}`"
+        ));
+    }
     let inherits =
         assigned.contains("${RUSTFLAGS:+$RUSTFLAGS }") || assigned.contains("${RUSTFLAGS-}");
     let own = assigned
         .replace("${RUSTFLAGS:+$RUSTFLAGS }", " ")
-        .replace("${RUSTFLAGS-}", "");
+        .replace("${RUSTFLAGS-}", " ");
     Ok(Assignment::Flags(
         Flags::from_words(own.split_whitespace()),
         inherits,
     ))
+}
+
+/// Returns whether a `${RUSTFLAGS-}` expansion is followed directly by another
+/// word, with no space between them.
+fn glues_the_next_word(assigned: &str) -> bool {
+    assigned
+        .split("${RUSTFLAGS-}")
+        .skip(1)
+        .any(|after| !after.is_empty() && !after.starts_with(' '))
 }
 
 /// Reads the assignment of each cargo or whitaker command `make -n` printed.
