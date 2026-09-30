@@ -56,6 +56,30 @@ pub const WORKFLOWS: &[(&str, &str)] = &[
     ),
 ];
 
+/// A workflow file: its name for complaints, and its text.
+#[derive(Clone, Copy)]
+pub struct Workflow<'a> {
+    pub file: &'a str,
+    pub text: &'a str,
+}
+
+/// The actions whose steps the standard constrains.
+#[derive(Clone, Copy)]
+enum Action {
+    SetupRust,
+    GenerateCoverage,
+}
+
+impl Action {
+    /// Returns the text that marks a `uses:` line as this action.
+    const fn marker(self) -> &'static str {
+        match self {
+            Self::SetupRust => "setup-rust@",
+            Self::GenerateCoverage => "generate-coverage@",
+        }
+    }
+}
+
 /// A step of a workflow file, found by the action it uses.
 struct Step<'a> {
     file: &'a str,
@@ -157,9 +181,9 @@ fn step_lines<'a>(lines: &[&'a str], at: usize) -> Vec<&'a str> {
 }
 
 /// Returns every step of a workflow that uses an action, skipping comments.
-fn steps_using<'a>(file: &'a str, workflow: &'a str, action: &str) -> Vec<Step<'a>> {
-    let lines: Vec<&str> = workflow.lines().collect();
-    let uses = |line: &&str| line.contains(action) && !line.trim_start().starts_with('#');
+fn steps_using<'a>(workflow: &Workflow<'a>, action: Action) -> Vec<Step<'a>> {
+    let lines: Vec<&str> = workflow.text.lines().collect();
+    let uses = |line: &&str| line.contains(action.marker()) && !line.trim_start().starts_with('#');
     let found: Vec<usize> = lines
         .iter()
         .enumerate()
@@ -169,7 +193,7 @@ fn steps_using<'a>(file: &'a str, workflow: &'a str, action: &str) -> Vec<Step<'
     found
         .into_iter()
         .map(|at| Step {
-            file,
+            file: workflow.file,
             line: at + 1,
             lines: step_lines(&lines, at),
         })
@@ -184,8 +208,8 @@ fn steps_using<'a>(file: &'a str, workflow: &'a str, action: &str) -> Vec<Step<'
 ///   with:
 ///     install-mold: 'true'      -> no complaint
 /// ```
-pub fn linker_install_problems(file: &str, workflow: &str) -> Problems {
-    steps_using(file, workflow, "setup-rust@")
+pub fn linker_install_problems(workflow: &Workflow) -> Problems {
+    steps_using(workflow, Action::SetupRust)
         .iter()
         .filter_map(Step::install_problem)
         .collect()
@@ -203,8 +227,8 @@ pub fn linker_install_problems(file: &str, workflow: &str) -> Problems {
 ///   env:
 ///     RUSTFLAGS: -D warnings      -> no complaint
 /// ```
-pub fn coverage_problems(file: &str, workflow: &str) -> Problems {
-    steps_using(file, workflow, "generate-coverage@")
+pub fn coverage_problems(workflow: &Workflow) -> Problems {
+    steps_using(workflow, Action::GenerateCoverage)
         .iter()
         .filter_map(Step::coverage_problem)
         .collect()
@@ -212,21 +236,25 @@ pub fn coverage_problems(file: &str, workflow: &str) -> Problems {
 
 /// Returns the complaints about one listed workflow: its steps, or no
 /// `setup-rust` step at all, which would leave the check reading nothing.
-fn listed_problems(file: &str, workflow: &str) -> Problems {
-    let mut problems = linker_install_problems(file, workflow);
-    problems.extend(coverage_problems(file, workflow));
-    if steps_using(file, workflow, "setup-rust@").is_empty() {
-        problems.push(format!(
-            "{file}: the listed workflow has no setup-rust step, so the check proves nothing"
-        ));
+fn listed_problems(workflow: &Workflow) -> Problems {
+    let mut problems = linker_install_problems(workflow);
+    problems.extend(coverage_problems(workflow));
+    if steps_using(workflow, Action::SetupRust).is_empty() {
+        let message = format!(
+            "{}: the listed workflow has no setup-rust step, so the check proves nothing",
+            workflow.file
+        );
+        problems.push(message);
     }
     problems
 }
 
 /// Returns every complaint about the listed workflows.
 pub fn workflow_problems() -> Problems {
-    WORKFLOWS
+    let listed = WORKFLOWS
         .iter()
-        .flat_map(|(file, workflow)| listed_problems(file, workflow))
+        .map(|&(file, text)| Workflow { file, text });
+    listed
+        .flat_map(|workflow| listed_problems(&workflow))
         .collect()
 }
