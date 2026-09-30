@@ -1,25 +1,13 @@
 //! Contract tests for the Rust build standard.
 //!
-//! The standard makes the parallel `rustc` frontend the default for every
-//! development build on a nightly pin, and mold the default linker on Linux.
-//! Cargo reads both from `.cargo/config.toml`, but it applies a single
-//! `rustflags` source rather than merging them, and an assigned `RUSTFLAGS`
-//! replaces every source. So the flags must be repeated in each configuration
-//! source, restated wherever the Makefile assigns `RUSTFLAGS` for a development
-//! target, and kept out of the coverage and release recipes, which measure or
-//! ship and so stay on the default flags. A stable pin takes mold alone,
-//! because `-Zthreads` is a nightly flag.
-//!
-//! The Makefile clauses run `make -n` and read the commands it would run,
-//! rather than the Makefile's text, so a flag lost through a variable or a
-//! recipe edit fails here. They run once as a Linux host and once as a macOS
-//! host through `BUILD_HOST_OS`, because mold is added on Linux alone. The
-//! listed targets and workflows are this repository's own: one that stops being
-//! defined fails the contract, so the check cannot quietly stop covering it.
-//! Each CI workflow that sets up Rust passes `install-mold: 'true'`, so the
-//! Linux jobs have the linker. The readers are driven against fixtures first,
-//! because a rule exercised only over this repository's own compliant files
-//! would pass whether or not it detects anything.
+//! The standard makes the parallel `rustc` frontend and, on Linux, mold the
+//! default for every development build. Cargo applies one `rustflags` source
+//! rather than merging them, and an assigned `RUSTFLAGS` replaces every source,
+//! so the flags are repeated in each configuration source, restated by each
+//! development recipe, and kept out of the coverage and release recipes. The
+//! Makefile clauses read what `make -n` prints on a Linux and a macOS host; each
+//! listed `setup-rust` step passes `install-mold`. Fixtures come first, so no
+//! rule passes by detecting nothing.
 
 #[path = "build_standard_support/ci_steps.rs"]
 mod ci_steps;
