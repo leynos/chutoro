@@ -29,7 +29,7 @@ mod config;
 mod make;
 use rstest::rstest;
 
-use ci_steps::{coverage_problems, linker_install_problems, workflow_problems};
+use ci_steps::{Workflow, coverage_problems, linker_install_problems, workflow_problems};
 use config::{CONFIG, Flags, Pin, Problems, THREADS_FLAG, TOOLCHAIN, config_problems};
 use make::{
     Assignment, Host, assigned_rustflags, commands_from, development_problems, held_out_problems,
@@ -258,7 +258,11 @@ fn the_workflow_reader_wants_the_input_on_each_step(
     #[case] workflow: &str,
     #[case] expected: usize,
 ) -> Result<(), String> {
-    let found = linker_install_problems("fixture.yml", workflow).len();
+    let found = linker_install_problems(&Workflow {
+        file: "fixture.yml",
+        text: workflow,
+    })
+    .len();
     if found == expected {
         Ok(())
     } else {
@@ -310,7 +314,11 @@ fn the_coverage_reader_wants_an_explicit_assignment(
     #[case] workflow: &str,
     #[case] expected: usize,
 ) -> Result<(), String> {
-    let found = coverage_problems("fixture.yml", workflow).len();
+    let found = coverage_problems(&Workflow {
+        file: "fixture.yml",
+        text: workflow,
+    })
+    .len();
     if found == expected {
         Ok(())
     } else {
