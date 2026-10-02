@@ -163,10 +163,13 @@ project:
   - `make test` executes:
 
     ```sh
-    cargo test --workspace
+    RUSTFLAGS="-D warnings" cargo nextest run --profile <default|ci> \
+      --all-targets --all-features -E 'not kind(bench)'
     ```
 
-    running the full workspace test suite. Use `make fmt`
+    running the full workspace suite under `cargo nextest` with warnings
+    denied and benchmark targets excluded. The profile defaults to `default`
+    locally and `ci` under CI (`NEXTEST_PROFILE`). Use `make fmt`
     (`cargo fmt --workspace`) to apply formatting fixes reported by the
     formatter check.
 - Clippy warnings MUST be disallowed.
