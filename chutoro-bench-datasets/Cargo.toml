@@ -13,7 +13,7 @@ testing = ["dep:cap-std"]
 [dependencies]
 bytes = "1.7"
 camino = "1.1"
-cap-std = { version = "3.4.5", optional = true, features = ["fs_utf8"] }
+cap-std = { version = "4.0.3", optional = true, features = ["fs_utf8"] }
 thiserror = "2.0"
 tracing = "0.1"
 

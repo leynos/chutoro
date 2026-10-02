@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-cap-std = "3.4.5"
+cap-std = "4.0.3"
 mockable = { workspace = true }
 thiserror = "2.0.17"
 tracing = { version = "0.1.41", features = ["attributes"] }
