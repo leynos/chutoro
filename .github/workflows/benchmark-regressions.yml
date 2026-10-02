@@ -50,7 +50,7 @@ jobs:
       # nothing ever moves, which reports a healthy cache that stores
       # nothing. Skipping the install also saves the download.
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@0be482c01ce57c1f9213744aa2def02183bef290
+        uses: leynos/shared-actions/.github/actions/setup-rust@ff1dd759dfffc0db3459e30e833f52437ee62b57
         with:
           use-sccache: 'false'
       - name: Resolve benchmark CI mode
@@ -91,7 +91,7 @@ jobs:
       # nothing ever moves, which reports a healthy cache that stores
       # nothing. Skipping the install also saves the download.
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@0be482c01ce57c1f9213744aa2def02183bef290
+        uses: leynos/shared-actions/.github/actions/setup-rust@ff1dd759dfffc0db3459e30e833f52437ee62b57
         with:
           use-sccache: 'false'
       - name: Run benchmark discovery smoke check
@@ -139,7 +139,7 @@ jobs:
       # nothing ever moves, which reports a healthy cache that stores
       # nothing. Skipping the install also saves the download.
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@0be482c01ce57c1f9213744aa2def02183bef290
+        uses: leynos/shared-actions/.github/actions/setup-rust@ff1dd759dfffc0db3459e30e833f52437ee62b57
         with:
           use-sccache: 'false'
       - name: Resolve benchmark reference commit
