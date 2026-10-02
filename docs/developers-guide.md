@@ -205,7 +205,7 @@ The shape table above measured both sizes: 72 GB of disk on
 `ubicloud-standard-2` against 145 GB on `ubicloud-standard-4` (82 GB free after
 the Kani install). Disk, not cores, is the reason for the move, so the other
 lanes stay at two cores; the larger shape is also faster on a build that
-parallelises, which this one does. Both jobs write `df -h` to the job summary
+parallelizes, which this one does. Both jobs write `df -h` to the job summary
 so the next reader sees the headroom.
 
 ### Job inventory
