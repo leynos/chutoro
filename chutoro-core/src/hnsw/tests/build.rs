@@ -11,7 +11,7 @@ use std::{
 use rstest::rstest;
 
 use crate::{
-    DataSource, DataSourceError,
+    DataSource, DataSourceError, PointPair,
     hnsw::{CpuHnsw, HnswError, HnswParams, graph::EdgeContext, insert::TrimJob},
     test_utils::CountingSource,
 };
@@ -48,11 +48,7 @@ impl DataSource for DistanceBatchInstrumentedSource {
         self.base.distance(left, right)
     }
 
-    fn distance_batch(
-        &self,
-        pairs: &[(usize, usize)],
-        out: &mut [f32],
-    ) -> Result<(), DataSourceError> {
+    fn distance_batch(&self, pairs: &[PointPair], out: &mut [f32]) -> Result<(), DataSourceError> {
         self.batch_calls.fetch_add(1, Ordering::Relaxed);
         if pairs.len() != out.len() {
             return Err(DataSourceError::OutputLengthMismatch {
@@ -61,7 +57,9 @@ impl DataSource for DistanceBatchInstrumentedSource {
             });
         }
 
-        for ((left, right), slot) in pairs.iter().copied().zip(out.iter_mut()) {
+        for (pair, slot) in pairs.iter().zip(out.iter_mut()) {
+            let left = pair.left();
+            let right = pair.right();
             let a = self
                 .base
                 .data()
