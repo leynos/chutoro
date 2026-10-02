@@ -205,8 +205,11 @@ The shape table above measured both sizes: 72 GB of disk on
 `ubicloud-standard-2` against 145 GB on `ubicloud-standard-4` (82 GB free after
 the Kani install). Disk, not cores, is the reason for the move, so the other
 lanes stay at two cores; the larger shape is also faster on a build that
-parallelizes, which this one does. Both jobs write `df -h` to the job summary
-so the next reader sees the headroom.
+parallelizes, which this one does. `build-test` writes `df -h` and the size of
+`target` to its job summary from a step that runs after a failed build too, and
+a contract holds that; `coverage-upload` writes the same figures on either side
+of the success-gated reclaim before its cache save, so a run that fails earlier
+shows no figure there.
 
 ### Job inventory
 
