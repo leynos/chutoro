@@ -28,7 +28,7 @@ concurrency:
 
 jobs:
   coverage-upload:
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-4
     # The CodeScene token lives in this environment, whose deployment policy
     # admits `main` alone; the codescene environment contract holds it to
     # this job.
