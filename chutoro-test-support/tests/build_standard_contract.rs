@@ -13,15 +13,31 @@
 mod ci_steps;
 #[path = "build_standard_support/config.rs"]
 mod config;
+#[path = "build_standard_support/exhaustive.rs"]
+mod exhaustive;
+#[path = "build_standard_support/fixtures.rs"]
+mod fixtures;
 #[path = "build_standard_support/make.rs"]
 mod make;
+use std::fmt::Write as _;
+
 use rstest::rstest;
+
+use fixtures::{
+    BUILD_LOSES_THREADS, COMMENT_NAMING_THE_ACTION, COMMENTED_OK, COVERAGE_BORROWING_A_SIBLING,
+    COVERAGE_EMPTY_POLICY, COVERAGE_OK, COVERAGE_OTHER_POLICY, COVERAGE_UNASSIGNED,
+    COVERAGE_WITH_LINKER, COVERAGE_WITH_THREADS, LINKER_IN_BUILD, LINUX_LOSES_LINKER, NIGHTLY,
+    NIGHTLY_OK, NIGHTLY_SPELLED_APART, NO_BUILD_SOURCE, NO_CHANNEL, SIBLING_KEY_OK, SPREAD_ARRAY,
+    STABLE, STABLE_OK, STABLE_WITH_THREADS, STEP_BEFORE_A_SIBLING_THAT_INSTALLS, STEP_INPUT_OFF,
+    STEP_INSTALLS, STEP_INSTALLS_BARE, STEP_MISSING_INPUT, TRIPLE_ONLY, TWO_CHANNELS,
+    UNKNOWN_CHANNEL,
+};
 
 use ci_steps::{Workflow, coverage_problems, linker_install_problems, workflow_problems};
 use config::{CONFIG, Flags, Pin, Problems, THREADS_FLAG, TOOLCHAIN, config_problems};
 use make::{
-    Assignment, Host, assigned_rustflags, commands_from, development_problems, held_out_problems,
-    held_out_target_count,
+    Assignment, Host, assigned_rustflags, commands_from, development_problem, development_problems,
+    held_out_problems, held_out_target_count, real_make,
 };
 
 /// Turns a list of complaints into a test result.
@@ -32,75 +48,6 @@ fn none_of(problems: &Problems) -> Result<(), String> {
         Err(format!("{problems:#?}"))
     }
 }
-
-/// A toolchain file pinning a nightly channel.
-const NIGHTLY: &str = "[toolchain]\nchannel = \"nightly-2026-05-28\"\n";
-/// A toolchain file pinning a stable channel.
-const STABLE: &str = "[toolchain]\nchannel = \"1.94.0\"\n";
-
-/// A compliant nightly configuration: the frontend flag in every source and
-/// mold in the Linux table alone.
-const NIGHTLY_OK: &str = concat!(
-    "[build]\nrustflags = [\"-Zthreads=8\"]\n",
-    "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n",
-    "rustflags = [\"-Zthreads=8\", \"-Clink-arg=-fuse-ld=mold\"]\n"
-);
-/// The same, with the linker flag spelled as the `-C` pair Cargo also accepts.
-const NIGHTLY_SPELLED_APART: &str = concat!(
-    "[build]\nrustflags = [\"-Zthreads=8\"]\n",
-    "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n",
-    "rustflags = [\"-Zthreads=8\", \"-C\", \"link-arg=-fuse-ld=mold\"]\n"
-);
-/// A compliant stable configuration: mold alone, in the Linux table.
-const STABLE_OK: &str = concat!(
-    "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n",
-    "rustflags = [\"-Clink-arg=-fuse-ld=mold\"]\n"
-);
-/// A nightly configuration whose `[build]` source lost the frontend flag, so it
-/// is missing it and also differs from the Linux source.
-const BUILD_LOSES_THREADS: &str = concat!(
-    "[build]\nrustflags = [\"-Dwarnings\"]\n",
-    "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n",
-    "rustflags = [\"-Zthreads=8\", \"-Clink-arg=-fuse-ld=mold\"]\n"
-);
-/// A nightly configuration whose Linux table lost mold.
-const LINUX_LOSES_LINKER: &str = concat!(
-    "[build]\nrustflags = [\"-Zthreads=8\"]\n",
-    "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n",
-    "rustflags = [\"-Zthreads=8\"]\n"
-);
-/// A nightly configuration that names mold in `[build]`, beyond Linux.
-const LINKER_IN_BUILD: &str = concat!(
-    "[build]\nrustflags = [\"-Zthreads=8\", \"-Clink-arg=-fuse-ld=mold\"]\n",
-    "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n",
-    "rustflags = [\"-Zthreads=8\", \"-Clink-arg=-fuse-ld=mold\"]\n"
-);
-/// A nightly configuration with no `[build]` source for the other hosts.
-const NO_BUILD_SOURCE: &str = concat!(
-    "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n",
-    "rustflags = [\"-Zthreads=8\", \"-Clink-arg=-fuse-ld=mold\"]\n"
-);
-/// A stable configuration that names the nightly-only frontend flag.
-const STABLE_WITH_THREADS: &str = concat!(
-    "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n",
-    "rustflags = [\"-Zthreads=8\", \"-Clink-arg=-fuse-ld=mold\"]\n"
-);
-/// A compliant configuration whose table headers and entries carry comments,
-/// with a hash inside a quoted value.
-const COMMENTED_OK: &str = concat!(
-    "[build] # every host\nrustflags = [\"-Zthreads=8\"] # the frontend\n",
-    "[target.x86_64-unknown-linux-gnu] # Linux\nlinker = \"clang\"\n",
-    "rustflags = [\"-Zthreads=8\", \"-Clink-arg=-fuse-ld=mold\"]\n",
-    "note = \"a # inside a string\"\n"
-);
-/// A compliant configuration with a sibling key that only starts like `rustflags`.
-const SIBLING_KEY_OK: &str = concat!(
-    "[build]\nrustflags = [\"-Zthreads=8\"]\nrustflags-extra = [\"-Dwarnings\"]\n",
-    "[target.x86_64-unknown-linux-gnu]\nlinker = \"clang\"\n",
-    "rustflags = [\"-Zthreads=8\", \"-Clink-arg=-fuse-ld=mold\"]\n"
-);
-/// A `rustflags` array spread over several lines, which the reader refuses.
-const SPREAD_ARRAY: &str = "[build]\nrustflags = [\n  \"-Zthreads=8\",\n]\n";
 
 /// Checks that a fixture configuration draws the expected number of complaints.
 fn draws(config: &str, pin: Pin, expected: usize) -> Result<(), String> {
@@ -127,6 +74,7 @@ fn draws(config: &str, pin: Pin, expected: usize) -> Result<(), String> {
 #[case::no_build_source(NO_BUILD_SOURCE, Pin::Nightly, 1)]
 #[case::stable_names_the_frontend(STABLE_WITH_THREADS, Pin::Stable, 1)]
 #[case::empty_configuration("", Pin::Nightly, 3)]
+#[case::linux_selector_covers_one_architecture(TRIPLE_ONLY, Pin::Nightly, 1)]
 #[case::comments_after_headers_and_entries(COMMENTED_OK, Pin::Nightly, 0)]
 #[case::a_key_that_only_starts_like_rustflags(SIBLING_KEY_OK, Pin::Nightly, 0)]
 fn the_configuration_reader_reports_each_defect(
@@ -148,13 +96,6 @@ fn a_rustflags_array_spread_over_lines_is_refused() -> Result<(), String> {
         Err(_) => Ok(()),
     }
 }
-
-/// A toolchain file that names no channel.
-const NO_CHANNEL: &str = "[toolchain]\ncomponents = [\"clippy\"]\n";
-/// A toolchain file that names two channels.
-const TWO_CHANNELS: &str = "[toolchain]\nchannel = \"stable\"\nchannel = \"nightly\"\n";
-/// A toolchain file naming a channel the standard does not know.
-const UNKNOWN_CHANNEL: &str = "[toolchain]\nchannel = \"weekly\"\n";
 
 /// Scenario: toolchain files pinning each kind of channel, and files that do
 /// not.
@@ -219,39 +160,6 @@ fn the_command_reader_refuses_what_it_cannot_parse(#[case] line: &str) -> Result
     }
 }
 
-/// A workflow step that passes the input, quoted.
-const STEP_INSTALLS: &str = concat!(
-    "    steps:\n      - name: Setup Rust\n",
-    "        uses: org/shared-actions/.github/actions/setup-rust@0123456789abcdef0123456789abcdef01234567\n",
-    "        with:\n          install-mold: 'true'\n"
-);
-/// The same, with the bare value.
-const STEP_INSTALLS_BARE: &str = concat!(
-    "    steps:\n      - uses: org/shared-actions/.github/actions/setup-rust@0123456789abcdef0123456789abcdef01234567\n",
-    "        with:\n          install-mold: true\n"
-);
-/// A step with no input at all.
-const STEP_MISSING_INPUT: &str = concat!(
-    "    steps:\n      - name: Setup Rust\n",
-    "        uses: org/shared-actions/.github/actions/setup-rust@0123456789abcdef0123456789abcdef01234567\n"
-);
-/// A step that turns the input off.
-const STEP_INPUT_OFF: &str = concat!(
-    "    steps:\n      - name: Setup Rust\n",
-    "        uses: org/shared-actions/.github/actions/setup-rust@0123456789abcdef0123456789abcdef01234567\n",
-    "        with:\n          install-mold: 'false'\n"
-);
-/// A step without the input, followed by a step that has one for another
-/// action.
-const STEP_BEFORE_A_SIBLING_THAT_INSTALLS: &str = concat!(
-    "    steps:\n      - name: Setup Rust\n",
-    "        uses: org/shared-actions/.github/actions/setup-rust@0123456789abcdef0123456789abcdef01234567\n",
-    "      - name: Other\n        uses: org/other@abc\n        with:\n          install-mold: 'true'\n"
-);
-/// A comment that names the action, and no step.
-const COMMENT_NAMING_THE_ACTION: &str =
-    "    steps:\n      # setup-rust@abc installs it\n      - run: make\n";
-
 /// Scenario: workflow steps that set up Rust with and without the input.
 ///
 /// Invariant: a step must pass `install-mold: 'true'` itself; another step's
@@ -279,42 +187,14 @@ fn the_workflow_reader_wants_the_input_on_each_step(
     }
 }
 
-/// A coverage step that assigns `RUSTFLAGS` without a standard flag.
-const COVERAGE_OK: &str = concat!(
-    "    steps:\n      - name: Cover\n",
-    "        uses: org/shared-actions/.github/actions/generate-coverage@0123456789abcdef0123456789abcdef01234567\n",
-    "        env:\n          RUSTFLAGS: -D warnings\n"
-);
-/// A coverage step with no assignment.
-const COVERAGE_UNASSIGNED: &str = concat!(
-    "    steps:\n      - name: Cover\n",
-    "        uses: org/shared-actions/.github/actions/generate-coverage@0123456789abcdef0123456789abcdef01234567\n"
-);
-/// A coverage step that takes the frontend flag.
-const COVERAGE_WITH_THREADS: &str = concat!(
-    "    steps:\n      - name: Cover\n",
-    "        uses: org/shared-actions/.github/actions/generate-coverage@0123456789abcdef0123456789abcdef01234567\n",
-    "        env:\n          RUSTFLAGS: -D warnings -Zthreads=8\n"
-);
-/// A coverage step that takes mold.
-const COVERAGE_WITH_LINKER: &str = concat!(
-    "    steps:\n      - name: Cover\n",
-    "        uses: org/shared-actions/.github/actions/generate-coverage@0123456789abcdef0123456789abcdef01234567\n",
-    "        env:\n          RUSTFLAGS: -Clink-arg=-fuse-ld=mold\n"
-);
-/// A coverage step whose assignment belongs to the next step.
-const COVERAGE_BORROWING_A_SIBLING: &str = concat!(
-    "    steps:\n      - name: Cover\n",
-    "        uses: org/shared-actions/.github/actions/generate-coverage@0123456789abcdef0123456789abcdef01234567\n",
-    "      - name: Other\n        env:\n          RUSTFLAGS: -D warnings\n"
-);
-
 /// Scenario: coverage steps with and without an explicit assignment.
 ///
 /// Invariant: the step assigns `RUSTFLAGS` itself and names neither standard
 /// flag; a sibling step's assignment does not count.
 #[rstest]
 #[case::assigned(COVERAGE_OK, 0)]
+#[case::an_empty_warning_policy(COVERAGE_EMPTY_POLICY, 1)]
+#[case::a_different_warning_policy(COVERAGE_OTHER_POLICY, 1)]
 #[case::unassigned(COVERAGE_UNASSIGNED, 1)]
 #[case::with_the_frontend_flag(COVERAGE_WITH_THREADS, 1)]
 #[case::with_the_linker(COVERAGE_WITH_LINKER, 1)]
@@ -368,7 +248,7 @@ fn every_rustflags_source_is_consistent_with_the_pin() -> Result<(), String> {
 
 #[test]
 fn development_targets_restate_the_flags_on_linux() -> Result<(), String> {
-    let (problems, read) = development_problems(Host::Linux, Pin::read(TOOLCHAIN)?)?;
+    let (problems, read) = development_problems(real_make, Host::Linux, Pin::read(TOOLCHAIN)?)?;
     none_of(&problems)?;
     if read == 0 {
         return Err(
@@ -380,7 +260,7 @@ fn development_targets_restate_the_flags_on_linux() -> Result<(), String> {
 
 #[test]
 fn development_targets_keep_the_frontend_but_not_the_linker_elsewhere() -> Result<(), String> {
-    none_of(&development_problems(Host::Darwin, Pin::read(TOOLCHAIN)?)?.0)
+    none_of(&development_problems(real_make, Host::Darwin, Pin::read(TOOLCHAIN)?)?.0)
 }
 
 /// Coverage measures and release ships, so both stay on the default flags. A
@@ -388,7 +268,7 @@ fn development_targets_keep_the_frontend_but_not_the_linker_elsewhere() -> Resul
 /// check then reads no commands; otherwise it must read at least one.
 #[test]
 fn coverage_and_release_take_neither_flag() -> Result<(), String> {
-    let (problems, read) = held_out_problems()?;
+    let (problems, read) = held_out_problems(real_make)?;
     none_of(&problems)?;
     if held_out_target_count() > 0 && read == 0 {
         return Err(
@@ -396,4 +276,89 @@ fn coverage_and_release_take_neither_flag() -> Result<(), String> {
         );
     }
     Ok(())
+}
+
+/// Scenario: a development command that assigns the standard flags, with and
+/// without the warning policy, for the `test` target and another target.
+///
+/// Invariant: the `test` target must keep `-D warnings` beside the standard flags
+/// (dropping `$(RUST_FLAGS)` would silently stop denying warnings), while a target
+/// that never carried the policy is not held to it.
+#[rstest]
+#[case::test_keeps_the_policy("test", &["-D", "warnings", THREADS_FLAG], 0)]
+#[case::test_spelled_joined("test", &["-Dwarnings", THREADS_FLAG], 0)]
+#[case::test_drops_the_policy("test", &[THREADS_FLAG], 1)]
+#[case::test_denies_nothing_useful("test", &["-A", "warnings", THREADS_FLAG], 1)]
+#[case::build_may_omit_the_policy("build", &[THREADS_FLAG], 0)]
+fn the_test_target_keeps_the_warning_policy(
+    #[case] target: &str,
+    #[case] words: &[&str],
+    #[case] expected: usize,
+) {
+    let assignment = Assignment::Flags(Flags::from_words(words.iter().copied()), true);
+    let found = development_problem(target, Host::Darwin, Pin::Nightly, &assignment)
+        .into_iter()
+        .count();
+    assert_eq!(found, expected, "target {target}: {words:?}");
+}
+
+/// Renders canned `make -n` text for a fake runner through a fallible writer, so
+/// the fakes keep the runner's `Result` shape honestly.
+fn canned(text: std::fmt::Arguments) -> Result<String, String> {
+    let mut out = String::new();
+    out.write_fmt(text).map_err(|error| error.to_string())?;
+    Ok(out)
+}
+
+/// A fake runner: a compliant `make -n` for any target, with no process behind it.
+fn compliant_make(_target: &str, host: Host) -> Result<String, String> {
+    let linker = if host.takes_linker_flag() {
+        " -Clink-arg=-fuse-ld=mold"
+    } else {
+        ""
+    };
+    canned(format_args!(
+        "RUSTFLAGS=\"${{RUSTFLAGS:+$RUSTFLAGS }}-D warnings {THREADS_FLAG}{linker}\" cargo test\n"
+    ))
+}
+
+/// A fake runner whose command loses the caller's `RUSTFLAGS`.
+fn dropping_make(_target: &str, _host: Host) -> Result<String, String> {
+    canned(format_args!("RUSTFLAGS=\"-D warnings\" cargo test\n"))
+}
+
+/// A fake runner for a target that is not defined.
+fn undefined_make(target: &str, _host: Host) -> Result<String, String> {
+    Err(format!("`make -n {target}` failed, so it is not defined"))
+}
+
+/// Scenario: the policy checks fed canned `make -n` text through the injected
+/// runner, so no process runs.
+///
+/// Invariant: a compliant command raises no complaint on either host, a command
+/// that drops the caller's flags raises one per target, and a runner error
+/// reaches the caller instead of being read as an empty output.
+#[test]
+fn the_policy_checks_run_against_an_injected_runner() {
+    let pin = Pin::Nightly;
+    for host in [Host::Linux, Host::Darwin] {
+        let (problems, read) =
+            development_problems(compliant_make, host, pin).expect("a compliant fake reads");
+        assert!(problems.is_empty(), "a compliant fake raised {problems:?}");
+        assert!(read > 0, "the fake's commands were not read");
+    }
+    let (dropped, _) =
+        development_problems(dropping_make, Host::Linux, pin).expect("the dropping fake reads");
+    assert!(
+        !dropped.is_empty(),
+        "a command that drops the caller's flags passed"
+    );
+    assert!(
+        development_problems(undefined_make, Host::Linux, pin).is_err(),
+        "a runner error was swallowed"
+    );
+    assert!(
+        held_out_problems(undefined_make).is_err(),
+        "a held-out runner error was swallowed"
+    );
 }

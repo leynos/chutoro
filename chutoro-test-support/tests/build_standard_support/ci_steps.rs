@@ -128,12 +128,18 @@ impl Step<'_> {
             ));
         };
         let names_a_standard_flag = value.contains(THREADS_FLAG) || value.contains("mold");
-        names_a_standard_flag.then(|| {
-            format!(
-                "{}: a coverage step assigns a standard flag: {value}",
-                self.location()
-            )
-        })
+        let denies_warnings = value.contains("-D warnings") || value.contains("-Dwarnings");
+        let reason = if names_a_standard_flag {
+            "assigns a standard flag"
+        } else if !denies_warnings {
+            "assigns a RUSTFLAGS that does not deny warnings"
+        } else {
+            return None;
+        };
+        Some(format!(
+            "{}: a coverage step {reason}: {value}",
+            self.location()
+        ))
     }
 }
 
