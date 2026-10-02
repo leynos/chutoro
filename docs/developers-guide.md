@@ -7,10 +7,12 @@ keeps operational guidance in one place.
 ## GitHub Actions runner profiles
 
 Every job on the developer feedback path runs on a paid Ubicloud runner, at
-`ubicloud-standard-2`: `build-test` and `verus-proofs` in `ci.yml`, `kani` in
-`kani-pr.yml`, `coverage-upload` in `coverage-main.yml`, `property-tests-pr`,
-and the two pull-request benchmark lanes. What the paid queue buys is
-admission: GitHub's own queue can stretch to hours during busy periods, and
+`ubicloud-standard-2` except the two that build the whole workspace, which run
+at `ubicloud-standard-4` (see "Disk on the build lanes" below): `verus-proofs`
+in `ci.yml`, `kani` in `kani-pr.yml`, `property-tests-pr`, and the two
+pull-request benchmark lanes are at two cores, and `build-test` in `ci.yml` and
+`coverage-upload` in `coverage-main.yml` are at four. What the paid queue buys
+is admission: GitHub's own queue can stretch to hours during busy periods, and
 every one of these jobs stands between a contributor and a merge. The core
 count is a separate question, and was answered by measurement rather than by
 the jobs' names.
@@ -188,6 +190,27 @@ Every job above was admitted within 22 to 76 seconds of the run being created;
 `kani` alone had waited 47 seconds on GitHub's queue on a quiet day, and that
 queue reaches hours when the account is busy.
 
+### Disk on the build lanes
+
+`build-test` and `coverage-upload` build the lint tree, the dense-SIMD gate,
+the instrumented coverage tree and the trybuild graph into one `target`, and
+that outgrew the 72 GB disk of `ubicloud-standard-2`. Pull request #307 (run
+36956577474, 2026-10-02) died with `No space left on device` writing
+`libregex_automata.rlib` in the trybuild graph, at test 1030 of 1272, on a cold
+compiler cache; the trunk coverage job had already run out once while building
+its cache archive (run 36647822422). Deleting the tree before the save, which
+`coverage-main.yml` does, helps the writer but not a cold pull-request build.
+
+The shape table above measured both sizes: 72 GB of disk on
+`ubicloud-standard-2` against 145 GB on `ubicloud-standard-4` (82 GB free after
+the Kani install). Disk, not cores, is the reason for the move, so the other
+lanes stay at two cores; the larger shape is also faster on a build that
+parallelizes, which this one does. `build-test` writes `df -h` and the size of
+`target` to its job summary from a step that runs after a failed build too, and
+a contract holds that; `coverage-upload` writes the same figures on either side
+of the success-gated reclaim before its cache save, so a run that fails earlier
+shows no figure there.
+
 ### Job inventory
 
 Table: Every workflow job, the runner it uses, and what it does.
@@ -197,9 +220,9 @@ Table: Every workflow job, the runner it uses, and what it does.
 | `benchmark-regressions.yml` | `benchmark-policy`           | `ubicloud-standard-2` on a non-fork pull request, `ubuntu-latest` otherwise | Resolve the benchmark mode and matrix         |
 | `benchmark-regressions.yml` | `benchmark-smoke`            | `ubicloud-standard-2` on a non-fork pull request, `ubuntu-latest` otherwise | Criterion discovery smoke check               |
 | `benchmark-regressions.yml` | `benchmark-baseline-compare` | `ubuntu-latest`                                                             | Compare against the previous commit           |
-| `ci.yml`                    | `build-test`                 | `ubicloud-standard-2`, `ubuntu-latest` for a fork                           | Format, lint, spelling, contracts, coverage   |
+| `ci.yml`                    | `build-test`                 | `ubicloud-standard-4`, `ubuntu-latest` for a fork                           | Format, lint, spelling, contracts, coverage   |
 | `ci.yml`                    | `verus-proofs`               | `ubicloud-standard-2`, `ubuntu-latest` for a fork                           | Verus edge-harvest proofs                     |
-| `coverage-main.yml`         | `coverage-upload`            | `ubicloud-standard-2`                                                       | Upload trunk coverage and advance the ratchet |
+| `coverage-main.yml`         | `coverage-upload`            | `ubicloud-standard-4`                                                       | Upload trunk coverage and advance the ratchet |
 | `dependabot-automerge.yml`  | `automerge`                  | callee-selected                                                             | Reusable workflow, API-bound                  |
 | `kani-pr.yml`               | `kani`                       | `ubicloud-standard-2`, `ubuntu-latest` for a fork                           | Kani practical harnesses                      |
 | `mutation-testing.yml`      | `mutation`                   | callee-selected                                                             | Reusable workflow, scheduled                  |

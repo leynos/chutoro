@@ -14,7 +14,7 @@ jobs:
     # A pull request from a fork cannot obtain an Ubicloud runner, so it
     # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
     runs-on: >-
-      ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-4' }}
     # Above the 4,200 s cargo watchdog on the coverage step plus the 900 s
     # of work either side of it, and fifteen minutes above that sum rather
     # than equal to it. A ceiling sitting on its requirement cancels the
@@ -199,6 +199,12 @@ jobs:
               "$(du -sh "${SCCACHE_DIR}" 2>/dev/null | cut -f1)"
             printf '```\n'
             sccache --show-stats
+            printf '```\n'
+            # The runner shape is chosen for its disk, so the headroom left
+            # after the build is recorded where a full-disk run cannot lose it.
+            printf '\n### Disk (build-test)\n\n```\n'
+            df -h .
+            du -sh target 2>/dev/null || true
             printf '```\n'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 

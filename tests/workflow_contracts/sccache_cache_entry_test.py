@@ -310,6 +310,39 @@ def test_the_writer_reclaims_disk_before_saving() -> None:
     )
 
 
+def test_the_reader_reports_its_disk_headroom_after_a_failure() -> None:
+    """`build-test` runs on a shape chosen for its disk, so it must show it.
+
+    A run that dies of a full disk loses its log, and the job summary is what
+    survives. The report therefore sits after the build in a step that runs
+    whatever the build did, and prints `df -h` and the size of `target` into
+    the summary.
+    """
+    definition = job(*EXPECTED_READER)
+    build_at = step_index(definition, is_build_step)
+    report_at = step_index(
+        definition,
+        lambda s: "df -h" in run_script(s) and "du -sh target" in run_script(s),
+    )
+    assert report_at is not None, (
+        f"{EXPECTED_READER[0]}:{EXPECTED_READER[1]} must print df -h and the "
+        "size of target, so the runner's disk headroom is recorded"
+    )
+    assert build_at is not None and build_at < report_at, (
+        "the disk report must follow the build it measures; found "
+        f"build={build_at}, report={report_at}"
+    )
+    step = definition["steps"][report_at]
+    assert "always()" in str(step.get("if", "")), (
+        "the disk report must run after a failed build, which is the run that "
+        "needs it"
+    )
+    assert "GITHUB_STEP_SUMMARY" in run_script(step), (
+        "the disk figures must reach the job summary, which survives a run "
+        "that dies of a full disk when its log does not"
+    )
+
+
 @pytest.mark.parametrize(
     ("workflow_name", "job_name", "definition"),
     wrapper_jobs(),

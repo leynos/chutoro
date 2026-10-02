@@ -44,15 +44,18 @@ from workflow_support import (
 #: The shape is asserted by value rather than left free, because a paid
 #: runner is the one thing here that silently costs more when someone
 #: reaches for a bigger one. Two cores is the estate default and the
-#: measurement supports it on each lane; the before-and-after wall times per
-#: lane are in "Runner shapes" in docs/developers-guide.md. Raising a shape
+#: measurement supports it on each lane except the two that build the
+#: workspace and the trybuild graph, which need the disk of four cores
+#: (see "Disk on the build lanes" in docs/developers-guide.md). The
+#: before-and-after wall times per lane are in "Lane wall times before and
+#: after the move" in the same guide. Raising a shape
 #: needs a wall-time or disk measurement in the pull request that raises it.
 PAID_JOBS = {
     ("benchmark-regressions.yml", "benchmark-policy"): "ubicloud-standard-2",
     ("benchmark-regressions.yml", "benchmark-smoke"): "ubicloud-standard-2",
-    ("ci.yml", "build-test"): "ubicloud-standard-2",
+    ("ci.yml", "build-test"): "ubicloud-standard-4",
     ("ci.yml", "verus-proofs"): "ubicloud-standard-2",
-    ("coverage-main.yml", "coverage-upload"): "ubicloud-standard-2",
+    ("coverage-main.yml", "coverage-upload"): "ubicloud-standard-4",
     ("kani-pr.yml", "kani"): "ubicloud-standard-2",
     ("property-tests.yml", "property-tests-pr"): "ubicloud-standard-2",
 }
