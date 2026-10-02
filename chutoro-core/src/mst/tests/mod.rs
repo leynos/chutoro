@@ -143,6 +143,24 @@ fn returns_empty_forest_when_no_edges_are_usable() {
 }
 
 #[test]
+fn empty_edges_with_populated_graph_yield_a_singleton_forest() {
+    let node_count = 3;
+    let edges = harvest(&[]);
+    let result = parallel_kruskal(node_count, &edges).expect("graph must be accepted");
+
+    assert_eq!(
+        result.component_count(),
+        node_count,
+        "every node is its own component when no edges are supplied"
+    );
+    assert!(
+        !result.is_tree(),
+        "a forest of isolated nodes is not a spanning tree"
+    );
+    assert!(result.edges().is_empty());
+}
+
+#[test]
 fn undirected_edges_are_canonicalized_and_deduplicated() {
     // Two nodes (0 and 1) with two parallel undirected edges between them:
     // (0, 1, w, s1) and (1, 0, w, s2). These should canonicalize to the same
