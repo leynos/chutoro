@@ -282,12 +282,14 @@ fn cpu_hnsw_initialises_graph_with_params() {
         .expect("parameters must be valid")
         .with_rng_seed(7);
     let index = CpuHnsw::with_capacity(params.clone(), 8).expect("index must initialise");
-    index.inspect_graph(|graph| {
-        let graph_params = graph.params();
-        assert_eq!(graph_params.max_connections(), params.max_connections());
-        assert_eq!(graph_params.ef_construction(), params.ef_construction());
-        assert_eq!(graph_params.rng_seed(), params.rng_seed());
-    });
+    index
+        .inspect_graph(|graph| {
+            let graph_params = graph.params();
+            assert_eq!(graph_params.max_connections(), params.max_connections());
+            assert_eq!(graph_params.ef_construction(), params.ef_construction());
+            assert_eq!(graph_params.rng_seed(), params.rng_seed());
+        })
+        .expect("graph inspection must succeed");
 }
 
 #[rstest]
