@@ -26,8 +26,10 @@ jobs:
     permissions:
       contents: read
       id-token: write # OIDC workflow-source resolution
-    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@0be482c01ce57c1f9213744aa2def02183bef290
+    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@9a27950942334d69ff79005b3a8db23bf151f43f
     with:
+      # .cargo/config.toml links with mold on Linux; the reusable workflow installs it.
+      install-mold: 'true'
       # Workspace crates live in top-level directories, not a root
       # src/. chutoro-test-support (test scaffolding) and the root
       # verus/ proof files are deliberately left outside: their

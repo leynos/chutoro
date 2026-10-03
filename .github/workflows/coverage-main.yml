@@ -65,8 +65,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@ff1dd759dfffc0db3459e30e833f52437ee62b57
+        uses: leynos/shared-actions/.github/actions/setup-rust@8a83824b29dfe8f861714b544dc85fb925ed010c
         with:
+          install-mold: 'true'
           # mozilla-actions/sccache-action writes GitHub's cache endpoint
           # to GITHUB_ENV on its way out, clobbering any earlier export for
           # the rest of the job. Keeping the step out avoids that. See
@@ -119,6 +120,10 @@ jobs:
       # YAML anchors do not cross files. The contract is what keeps them
       # equal.
       - name: Dense stable SIMD gating
+        # An assigned RUSTFLAGS replaces .cargo/config.toml's rustflags, so
+        # the step restates the build standard's linker flag beside the deny.
+        env:
+          RUSTFLAGS: -D warnings -Clink-arg=-fuse-ld=mold
         run: |
           cargo clippy -p chutoro-providers-dense \
             --all-targets \
@@ -144,6 +149,11 @@ jobs:
           # cold run is killed before nextest can use its budget. See "Test
           # timeouts: four tiers, outermost last" in docs/developers-guide.md.
           RUN_RUST_CARGO_WAIT_TIMEOUT: '4200'
+          # One of the two exclusions from the build standard: a coverage build is
+          # a measurement, so it takes neither the parallel frontend nor the mold
+          # linker. Assigning RUSTFLAGS displaces every `rustflags` table in
+          # .cargo/config.toml.
+          RUSTFLAGS: -D warnings
         with:
           output-path: lcov.info
           format: lcov

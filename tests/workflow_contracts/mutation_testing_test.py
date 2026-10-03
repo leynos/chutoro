@@ -36,6 +36,8 @@ USES_RE = re.compile(
 #: --test-workspace=true baseline: `make test` runs the whole workspace,
 #: so dependent crates' tests must also run against each mutant.
 EXPECTED_WITH = {
+    # .cargo/config.toml links with mold on Linux; the reusable workflow installs it.
+    "install-mold": "true",
     "paths": "chutoro-core/,chutoro-cli/,chutoro-providers/,chutoro-benches/",
     "exclude-globs": (
         "chutoro-core/src/hnsw/kani_proofs/**,"
