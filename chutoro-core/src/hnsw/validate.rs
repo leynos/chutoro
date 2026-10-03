@@ -168,7 +168,7 @@ impl<'a, D: DataSource + Sync> CacheBatch<'a, D> {
             });
         }
 
-        for ((index, miss), computed_value) in pending.into_iter().zip(computed.into_iter()) {
+        for ((index, miss), computed_value) in pending.into_iter().zip(computed) {
             let cached_value = self.cache.complete_miss(miss, computed_value)?;
             let result =
                 results
@@ -202,7 +202,7 @@ fn ensure_all_resolved(
     }
 
     let mut resolved = Vec::with_capacity(results.len());
-    for (candidate, result_slot) in candidates.iter().zip(results.into_iter()) {
+    for (candidate, result_slot) in candidates.iter().zip(results) {
         match result_slot {
             Some(distance) => resolved.push(distance),
             None => {
