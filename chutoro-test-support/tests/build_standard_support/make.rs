@@ -150,7 +150,7 @@ fn make_commands(runner: MakeRunner, target: &str, host: Host) -> Result<Vec<Ass
 
 /// Returns the complaint about one development command, if any: an assigned
 /// `RUSTFLAGS` keeps the caller's own flags and restates the frontend flag on a
-/// nightly pin, and mold on Linux; the `test` target also keeps `-D warnings`.
+/// nightly pin, and mold on Linux.
 pub fn development_problem(
     target: &str,
     host: Host,
@@ -166,13 +166,26 @@ pub fn development_problem(
             host.make_value()
         ));
     }
-    let drops_the_policy =
-        (target == "test" && !flags.denies_warnings()).then(|| "drops -D warnings".to_owned());
-    let reason = flags
-        .meets(pin, host.takes_linker_flag())
-        .err()
-        .or(drops_the_policy)?;
+    let reason = flags.meets(pin, host.takes_linker_flag()).err()?;
     Some(format!("`make {target}` on {} {reason}", host.make_value()))
+}
+
+/// Returns the complaint when the `test` target keeps `-D warnings` in none of its
+/// assigned commands: a recipe may run other commands (a version probe, a
+/// prerequisite build) that never carried the policy, but dropping `$(RUST_FLAGS)`
+/// from the command that runs the tests drops it from all of them.
+pub fn test_policy_problem(target: &str, host: Host, commands: &[Assignment]) -> Option<String> {
+    let assigned = commands.iter().filter_map(|command| match command {
+        Assignment::Flags(flags, _) => Some(flags),
+        Assignment::Unassigned => None,
+    });
+    let keeps_the_policy = assigned.clone().any(Flags::denies_warnings);
+    (target == "test" && assigned.count() > 0 && !keeps_the_policy).then(|| {
+        format!(
+            "`make {target}` on {} keeps -D warnings in none of its commands",
+            host.make_value()
+        )
+    })
 }
 
 /// Returns every complaint about the development targets on one host, and how
@@ -199,6 +212,7 @@ pub fn development_problems(
                 .iter()
                 .filter_map(|command| development_problem(target, host, pin, command)),
         );
+        problems.extend(test_policy_problem(target, host, &commands));
     }
     Ok((problems, read))
 }
@@ -230,9 +244,22 @@ fn held_out_command_problems(target: &str, assignment: &Assignment) -> Problems 
 ///
 /// Returns the reason when a listed target is not defined or unreadable.
 pub fn held_out_problems(runner: MakeRunner) -> Result<(Problems, usize), String> {
+    held_out_problems_for(runner, HELD_OUT_TARGETS)
+}
+
+/// Returns the complaints about a given list of held-out targets, so a test can name a
+/// synthetic target and exercise the check in a repository that defines none.
+///
+/// # Errors
+///
+/// Returns the reason when a named target is not defined or unreadable.
+pub fn held_out_problems_for(
+    runner: MakeRunner,
+    targets: &[&str],
+) -> Result<(Problems, usize), String> {
     let mut problems = Vec::new();
     let mut read = 0;
-    for target in HELD_OUT_TARGETS {
+    for target in targets {
         let commands = make_commands(runner, target, Host::Linux)?;
         read += commands.len();
         problems.extend(
