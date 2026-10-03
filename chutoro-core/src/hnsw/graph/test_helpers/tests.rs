@@ -103,7 +103,7 @@ fn delete_node_returns_invalid_parameters_for_out_of_bounds_index(mut small_grap
 
     match result {
         Err(HnswError::InvalidParameters { .. }) => {}
-        other => panic!("expected Err(HnswError::InvalidParameters {{ .. }}), got {other:?}",),
+        other => panic!("expected Err(HnswError::InvalidParameters {{ .. }}), got {other:?}"),
     }
 }
 
