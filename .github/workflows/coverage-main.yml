@@ -136,7 +136,7 @@ jobs:
       - name: Lint
         run: make lint
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@0be482c01ce57c1f9213744aa2def02183bef290
+        uses: leynos/shared-actions/.github/actions/generate-coverage@7d751eded578e48dacf43ab173d5820e6437c474
         env:
           # The cargo watchdog, one of four tiers that can end a run. It must
           # stay above the 40 m nextest global-timeout in .config/nextest.toml
