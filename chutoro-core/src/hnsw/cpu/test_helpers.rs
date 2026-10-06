@@ -37,11 +37,8 @@ impl CpuHnsw {
         }
     }
 
-    pub(crate) fn inspect_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> R {
-        match self.read_graph(|graph| Ok(f(graph))) {
-            Ok(result) => result,
-            Err(err) => panic!("graph lock during inspect_graph: {err}"),
-        }
+    pub(crate) fn inspect_graph<R>(&self, f: impl FnOnce(&Graph) -> R) -> Result<R, HnswError> {
+        self.read_graph(|graph| Ok(f(graph)))
     }
 
     pub(crate) fn current_thread_holds_write_graph_for_test() -> bool {
@@ -61,19 +58,17 @@ impl CpuHnsw {
         Ok(deleted)
     }
 
-    pub(crate) fn reconfigure_for_test(&mut self, params: HnswParams) {
+    pub(crate) fn reconfigure_for_test(&mut self, params: HnswParams) -> Result<(), HnswError> {
+        self.write_graph(|graph| {
+            graph.set_params(&params);
+            Ok(())
+        })?;
         let base_seed = params.rng_seed();
         self.rng = Mutex::new(SmallRng::seed_from_u64(base_seed));
         self.worker_rngs = build_worker_rngs(base_seed);
         self.distance_cache = DistanceCache::new(*params.distance_cache_config());
         self.params = params;
-        let reconfigured = self.write_graph(|graph| {
-            graph.set_params(&self.params);
-            Ok(())
-        });
-        if let Err(err) = reconfigured {
-            panic!("graph lock during reconfigure_for_test: {err}");
-        }
+        Ok(())
     }
 }
 
@@ -82,5 +77,51 @@ pub(crate) struct WriteGraphMarkerGuard;
 impl Drop for WriteGraphMarkerGuard {
     fn drop(&mut self) {
         internal::disable_write_graph_marker();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Regression coverage for fallible graph inspection and reconfiguration helpers.
+
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    use super::*;
+
+    #[test]
+    fn graph_helpers_report_poisoning_without_reconfiguring() {
+        let params = HnswParams::new(2, 4).expect("initial parameters must be valid");
+        let mut index = CpuHnsw::with_capacity(params, 3).expect("index must initialize");
+
+        let poison_result = catch_unwind(AssertUnwindSafe(|| {
+            let _guard = index
+                .graph
+                .write()
+                .expect("fresh graph lock must be available");
+            panic!("poison the graph lock for this test");
+        }));
+        assert!(poison_result.is_err(), "graph lock must be poisoned");
+
+        assert!(
+            matches!(
+                index.inspect_graph(|_| ()),
+                Err(HnswError::LockPoisoned { resource: "graph" })
+            ),
+            "inspection must report the poisoned graph lock",
+        );
+
+        let replacement = HnswParams::new(3, 6).expect("replacement parameters must be valid");
+        assert!(
+            matches!(
+                index.reconfigure_for_test(replacement),
+                Err(HnswError::LockPoisoned { resource: "graph" })
+            ),
+            "reconfiguration must report the poisoned graph lock",
+        );
+        assert_eq!(
+            index.params.max_connections(),
+            2,
+            "failed reconfiguration must retain the active parameters",
+        );
     }
 }

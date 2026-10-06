@@ -13,11 +13,16 @@ MAKEFILE_PATH = REPO_ROOT / "Makefile"
 DEV_FAST_TOOLCHAIN_PATH = REPO_ROOT / "tools" / "dev-fast" / "TOOLCHAIN"
 DEV_FAST_CONFIG = "tools/dev-fast/config.toml"
 STABLE_VERIFY_FLAGS = "-D warnings -Dmissing_docs -Dmissing_crate_level_docs"
+STABLE_POISONED_LOCK_TEST = (
+    "hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring"
+)
 EXPECTED_NEXTTEST_FILTER = (
     "not kind(bench) & not (package(chutoro-core) & binary(result_api_surface)) & "
     "not (package(chutoro-core) & binary(session_api_surface)) & "
     "not (package(chutoro-providers-dense) & "
-    "test(portable_simd_without_feature_is_rejected))"
+    "test(portable_simd_without_feature_is_rejected)) & "
+    "not (package(chutoro-core) & "
+    f"test(={STABLE_POISONED_LOCK_TEST}))"
 )
 
 
@@ -137,32 +142,10 @@ def _assert_test_rustflags(output: str, host_os: str) -> None:
     )
 
 
-def _assert_test_boundary(output: str, host_os: str) -> None:
-    """Check accelerated nextest and the stable byte-exact verification runs."""
-    invocations = _cargo_invocations(output)
-    assert len(invocations) == 3, (
-        f"expected three test Cargo invocations in order, got {invocations!r}"
-    )
-    assert all(tokens[0] == "probe-cargo" for _, tokens in invocations), (
-        f"CARGO=probe-cargo must reach every test command: {invocations!r}"
-    )
-
-    nextest_line, nextest_tokens = invocations[0]
-    toolchain = DEV_FAST_TOOLCHAIN_PATH.read_text(encoding="utf-8").strip()
-    assert nextest_tokens[1:5] == [
-        f"+{toolchain}",
-        "--config",
-        DEV_FAST_CONFIG,
-        "nextest",
-    ], f"first test command must be accelerated nextest: {nextest_line!r}"
-    assert "-E" in nextest_tokens, f"nextest must receive its test filter: {nextest_line!r}"
-    filter_index = nextest_tokens.index("-E")
-    assert nextest_tokens[filter_index + 1] == EXPECTED_NEXTTEST_FILTER, (
-        "nextest must exclude exactly the stable API and SIMD diagnostic tests "
-        f"while retaining the remaining suite: {nextest_line!r}"
-    )
-
-    stable_commands = invocations[1:]
+def _assert_stable_test_commands(
+    stable_commands: list[tuple[str, list[str]]], toolchain: str
+) -> None:
+    """Check the three stable test leaves; called only by `_assert_test_boundary`."""
     expected_stable = (
         (
             "test",
@@ -185,6 +168,16 @@ def _assert_test_boundary(output: str, host_os: str) -> None:
             "--exact",
             "portable_simd_without_feature_is_rejected",
         ),
+        (
+            "test",
+            "-p",
+            "chutoro-core",
+            "--all-features",
+            "--lib",
+            "--",
+            "--exact",
+            STABLE_POISONED_LOCK_TEST,
+        ),
     )
     for (line, tokens), expected in zip(stable_commands, expected_stable, strict=True):
         assert "env -u RUSTUP_TOOLCHAIN" in line, (
@@ -203,10 +196,37 @@ def _assert_test_boundary(output: str, host_os: str) -> None:
         assert assignments[0] == f"RUSTFLAGS={STABLE_VERIFY_FLAGS}", (
             f"stable verification must keep its exact warning flags: {line!r}"
         )
-        assert "mold" not in assignments[0], (
-            f"stable verification must not inherit dev-fast linker flags: {line!r}"
+        assert "mold" not in line, (
+            f"stable verification must not inherit the dev-fast linker: {line!r}"
         )
 
+
+def _assert_test_boundary(output: str, host_os: str) -> None:
+    """Check nextest and the stable verification runs in their required order."""
+    invocations = _cargo_invocations(output)
+    assert len(invocations) == 4, (
+        f"expected four test Cargo invocations in order, got {invocations!r}"
+    )
+    assert all(tokens[0] == "probe-cargo" for _, tokens in invocations), (
+        f"CARGO=probe-cargo must reach every test command: {invocations!r}"
+    )
+
+    nextest_line, nextest_tokens = invocations[0]
+    toolchain = DEV_FAST_TOOLCHAIN_PATH.read_text(encoding="utf-8").strip()
+    assert nextest_tokens[1:5] == [
+        f"+{toolchain}",
+        "--config",
+        DEV_FAST_CONFIG,
+        "nextest",
+    ], f"first test command must be accelerated nextest: {nextest_line!r}"
+    assert "-E" in nextest_tokens, f"nextest must receive its test filter: {nextest_line!r}"
+    filter_index = nextest_tokens.index("-E")
+    assert nextest_tokens[filter_index + 1] == EXPECTED_NEXTTEST_FILTER, (
+        "nextest must exclude exactly the stable API, SIMD, and poisoned-lock tests "
+        f"while retaining the remaining suite: {nextest_line!r}"
+    )
+
+    _assert_stable_test_commands(invocations[1:], toolchain)
     _assert_test_rustflags(output, host_os)
 
 
