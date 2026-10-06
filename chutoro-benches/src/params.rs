@@ -50,7 +50,7 @@ pub struct ExtractionBenchParams {
 
 impl fmt::Display for ExtractionBenchParams {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "n={},min={}", self.point_count, self.min_cluster_size,)
+        write!(f, "n={},min={}", self.point_count, self.min_cluster_size)
     }
 }
 
