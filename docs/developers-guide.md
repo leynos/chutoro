@@ -4,6 +4,55 @@ This guide collects day-to-day practices for contributors working on the
 Chutoro codebase. It complements the more specialized documents in `docs/` and
 keeps operational guidance in one place.
 
+## Rust toolchain and build routing
+
+The workspace pins stable Rust 1.93.1 in `rust-toolchain.toml` and declares
+Rust 1.89 as its minimum supported Rust version (MSRV). Direct `cargo` commands
+use that stable toolchain and `.cargo/config.toml`, which supplies the
+documentation-warning flags; stable Rust uses LLVM for code generation. Cargo
+selects the fragment's target rustflags in place of the root settings, so the
+fragment repeats both documentation-denial flags.
+
+The standard debug Make targets explicitly select the fragment in
+`tools/dev-fast/config.toml`, pinned to the dated nightly in
+`tools/dev-fast/TOOLCHAIN`. It enables Cranelift for development builds. On
+Linux it selects GCC as the linker driver and `mold` 2.41.0 as the linker. The
+fragment is outside Cargo's automatic configuration paths, so installing the
+nightly components alone does not activate it. Run `make install-dev-fast` to
+install `rustfmt`, Clippy, `rust-analyzer`, and the Cranelift backend
+component; provide GCC on Linux. The target installs the checksum-verified
+`mold` 2.41.0 archive on Linux x86_64 and aarch64 hosts.
+
+The Makefile routes `build`, `test`, and `typecheck` through the fragment,
+along with the explicit `dev-build` and `dev-test` targets. `lint-clippy` uses
+it for rustdoc and Clippy. `test` uses `cargo-nextest`, which starts a separate
+Cargo invocation to compile tests and does not inherit the outer Cargo
+configuration. The Makefile passes the fragment before `nextest` and again to
+`nextest run` so the inner Cargo invocation uses Cranelift and the selected
+Linux linker. `test` also sets `RUSTFLAGS` for warning denial; because
+environment `RUSTFLAGS` replaces configured target rustflags, it repeats the
+fragment's documentation flags and Linux linker flag. The `CARGO` Make variable
+remains injectable for these commands.
+
+Three byte-exact checks stay on the repository-pinned stable toolchain because
+their expected compiler diagnostics depend on stable wording: the core
+`result_api_surface` and `session_api_surface` integration suites, and the
+dense provider's negative portable-SIMD check. `make test` excludes them from
+nextest and runs them with separate stable Cargo commands that retain warning
+and documentation denials. The positive dense portable-SIMD coverage remains in
+the accelerated nextest run.
+
+Release builds, formatting, coverage, Kani, Verus, benchmarks, and Whitaker do
+not select the development fragment. Whitaker uses its own pinned toolchain. The
+`build-test` and `coverage-upload` CI jobs provision the development
+prerequisites because both run `make lint`; their direct dense-SIMD and
+coverage Cargo commands continue to use the repository's stable toolchain.
+Linux CI provisions the selected toolchain and `mold`, then runs `lint-clippy`
+through the fragment as part of `make lint`. It does not independently verify
+which linker the compiled artefacts use; that evidence is currently local. The
+fragment leaves the platform linker selected outside Linux, while direct stable
+Cargo remains the documented route when the accelerated build is unavailable.
+
 ## GitHub Actions runner profiles
 
 Every job on the developer feedback path runs on a paid Ubicloud runner, at
