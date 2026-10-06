@@ -310,8 +310,10 @@ project:
 - Use `anyhow`/`eyre` with `.context(...)` to **preserve backtraces** and
   provide clear, typed failure paths.
 - Update helpers (e.g., `set_dir`) to **return errors** rather than panicking.
-- Consume fallible fixtures in `rstest` by **making the test return `Result`**
-  and applying `?` to the fixture.
+- Consume fallible fixtures with a reasoned `.expect(...)` in recognized
+  `#[test]` and `#[rstest]` bodies when `Result` would only carry setup errors
+  or make assertions trip `panic_in_result_fn`. Tests with genuinely fallible
+  work may return `Result` and use `?` when the lint permits it.
 
 ### Observability
 
