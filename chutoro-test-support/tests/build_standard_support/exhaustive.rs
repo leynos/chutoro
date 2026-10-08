@@ -13,7 +13,7 @@ use super::{
 };
 
 /// Returns every sequence of up to `max_len` items drawn from `alphabet`.
-fn sequences<T: Clone>(alphabet: &[T], max_len: usize) -> Vec<Vec<T>> {
+pub fn sequences<T: Clone>(alphabet: &[T], max_len: usize) -> Vec<Vec<T>> {
     let mut all: Vec<Vec<T>> = vec![Vec::new()];
     let mut frontier: Vec<Vec<T>> = vec![Vec::new()];
     for _ in 0..max_len {

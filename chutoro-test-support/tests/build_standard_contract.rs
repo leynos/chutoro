@@ -9,8 +9,12 @@
 //! listed `setup-rust` step passes `install-mold`. Fixtures come first, so no
 //! rule passes by detecting nothing.
 
+#[path = "build_standard_support/chain_exhaustive.rs"]
+mod chain_exhaustive;
 #[path = "build_standard_support/ci_steps.rs"]
 mod ci_steps;
+#[path = "build_standard_support/command_reader.rs"]
+mod command_reader;
 #[path = "build_standard_support/config.rs"]
 mod config;
 #[path = "build_standard_support/exhaustive.rs"]
@@ -21,11 +25,16 @@ mod fixtures;
 mod injected;
 #[path = "build_standard_support/make.rs"]
 mod make;
+#[path = "build_standard_support/shell.rs"]
+mod shell;
+#[path = "build_standard_support/workflow_exhaustive.rs"]
+mod workflow_exhaustive;
 use rstest::rstest;
 
 use fixtures::{
     BUILD_LOSES_THREADS, COMMENT_NAMING_THE_ACTION, COMMENTED_OK, COVERAGE_BORROWING_A_SIBLING,
-    COVERAGE_EMPTY_POLICY, COVERAGE_OK, COVERAGE_OTHER_POLICY, COVERAGE_UNASSIGNED,
+    COVERAGE_COMMENTED_POLICY, COVERAGE_DENYING_WITH_COMMENT, COVERAGE_EMPTY_POLICY,
+    COVERAGE_LOOKALIKE_POLICY, COVERAGE_OK, COVERAGE_OTHER_POLICY, COVERAGE_UNASSIGNED,
     COVERAGE_WITH_LINKER, COVERAGE_WITH_THREADS, LINKER_IN_BUILD, LINUX_LOSES_LINKER, NIGHTLY,
     NIGHTLY_OK, NIGHTLY_SPELLED_APART, NO_BUILD_SOURCE, NO_CHANNEL, SIBLING_KEY_OK, SPREAD_ARRAY,
     STABLE, STABLE_OK, STABLE_WITH_THREADS, STEP_BEFORE_A_SIBLING_THAT_INSTALLS, STEP_INPUT_OFF,
@@ -292,6 +301,7 @@ fn coverage_and_release_take_neither_flag() -> Result<(), String> {
 #[case::test_denies_nothing_useful("test", &[&["-A", "warnings", THREADS_FLAG][..]], 1)]
 #[case::a_probe_may_omit_it_beside_the_run("test", &[&[THREADS_FLAG][..], &["-D", "warnings", THREADS_FLAG][..]], 0)]
 #[case::build_may_omit_the_policy("build", &[&[THREADS_FLAG][..]], 0)]
+#[case::test_assigns_no_command("test", &[], 1)]
 fn the_test_target_keeps_the_warning_policy(
     #[case] target: &str,
     #[case] commands: &[&[&str]],
@@ -318,6 +328,9 @@ fn the_test_target_keeps_the_warning_policy(
 #[case::denying_warnings(COVERAGE_OK, true)]
 #[case::an_empty_warning_policy(COVERAGE_EMPTY_POLICY, false)]
 #[case::a_different_warning_policy(COVERAGE_OTHER_POLICY, false)]
+#[case::a_lookalike_flag(COVERAGE_LOOKALIKE_POLICY, false)]
+#[case::a_policy_only_in_a_comment(COVERAGE_COMMENTED_POLICY, false)]
+#[case::a_comment_after_the_policy(COVERAGE_DENYING_WITH_COMMENT, true)]
 fn a_coverage_step_keeps_the_repository_warning_policy(
     #[case] workflow: &str,
     #[case] denies: bool,

@@ -153,3 +153,19 @@ pub const COVERAGE_OTHER_POLICY: &str = concat!(
     "steps:\n  - name: coverage\n    uses: org/generate-coverage@abc\n",
     "    env:\n      RUSTFLAGS: -W unused\n"
 );
+
+/// A coverage step whose policy only starts like `-D warnings`.
+pub const COVERAGE_LOOKALIKE_POLICY: &str = concat!(
+    "steps:\n  - name: coverage\n    uses: org/generate-coverage@abc\n",
+    "    env:\n      RUSTFLAGS: -D warnings-extra\n"
+);
+/// A coverage step whose only mention of `-D warnings` is an inline comment.
+pub const COVERAGE_COMMENTED_POLICY: &str = concat!(
+    "steps:\n  - name: coverage\n    uses: org/generate-coverage@abc\n",
+    "    env:\n      RUSTFLAGS: # -D warnings\n"
+);
+/// A coverage step that denies warnings and carries an inline comment about the standard flags.
+pub const COVERAGE_DENYING_WITH_COMMENT: &str = concat!(
+    "steps:\n  - name: coverage\n    uses: org/generate-coverage@abc\n",
+    "    env:\n      RUSTFLAGS: -D warnings # not -Zthreads=8, not mold\n"
+);
