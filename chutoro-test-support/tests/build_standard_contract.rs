@@ -52,6 +52,30 @@ use make::{
     held_out_target_count, real_make, test_policy_problem,
 };
 
+/// Text handed to a case, wrapped so that a case reads as data and the test
+/// signatures name what they take rather than passing bare strings around.
+#[derive(Clone, Copy)]
+struct Fixture(&'static str);
+
+/// The workflow reader a case runs.
+#[derive(Clone, Copy)]
+enum Reader {
+    /// Each `setup-rust` step must pass `install-mold: 'true'` itself.
+    InstallInput,
+    /// Each coverage step must assign its own `RUSTFLAGS`.
+    CoverageAssignment,
+}
+
+impl Reader {
+    /// Returns the complaints this reader raises about a workflow.
+    fn problems(self, workflow: &Workflow) -> Problems {
+        match self {
+            Self::InstallInput => linker_install_problems(workflow),
+            Self::CoverageAssignment => coverage_problems(workflow),
+        }
+    }
+}
+
 /// Turns a list of complaints into a test result.
 fn none_of(problems: &Problems) -> Result<(), String> {
     if problems.is_empty() {
@@ -62,12 +86,12 @@ fn none_of(problems: &Problems) -> Result<(), String> {
 }
 
 /// Checks that a fixture configuration draws the expected number of complaints.
-fn draws(config: &str, pin: Pin, expected: usize) -> Result<(), String> {
-    let found = config_problems(config, pin)?.len();
+fn draws(config: Fixture, pin: Pin, expected: usize) -> Result<(), String> {
+    let found = config_problems(config.0, pin)?.len();
     if found == expected {
         Ok(())
     } else {
-        Err(format!("{config:?}: {found} problems, not {expected}"))
+        Err(format!("{:?}: {found} problems, not {expected}", config.0))
     }
 }
 
@@ -77,20 +101,20 @@ fn draws(config: &str, pin: Pin, expected: usize) -> Result<(), String> {
 /// frontend flag, losing mold, naming mold beyond Linux, or letting a source
 /// drift is reported; a stable pin refuses the frontend flag it cannot take.
 #[rstest]
-#[case::compliant_nightly(NIGHTLY_OK, Pin::Nightly, 0)]
-#[case::linker_spelled_as_a_pair(NIGHTLY_SPELLED_APART, Pin::Nightly, 0)]
-#[case::compliant_stable(STABLE_OK, Pin::Stable, 0)]
-#[case::build_loses_the_frontend(BUILD_LOSES_THREADS, Pin::Nightly, 2)]
-#[case::linux_loses_the_linker(LINUX_LOSES_LINKER, Pin::Nightly, 1)]
-#[case::linker_named_in_build(LINKER_IN_BUILD, Pin::Nightly, 1)]
-#[case::no_build_source(NO_BUILD_SOURCE, Pin::Nightly, 1)]
-#[case::stable_names_the_frontend(STABLE_WITH_THREADS, Pin::Stable, 1)]
-#[case::empty_configuration("", Pin::Nightly, 3)]
-#[case::linux_selector_covers_one_architecture(TRIPLE_ONLY, Pin::Nightly, 1)]
-#[case::comments_after_headers_and_entries(COMMENTED_OK, Pin::Nightly, 0)]
-#[case::a_key_that_only_starts_like_rustflags(SIBLING_KEY_OK, Pin::Nightly, 0)]
+#[case::compliant_nightly(Fixture(NIGHTLY_OK), Pin::Nightly, 0)]
+#[case::linker_spelled_as_a_pair(Fixture(NIGHTLY_SPELLED_APART), Pin::Nightly, 0)]
+#[case::compliant_stable(Fixture(STABLE_OK), Pin::Stable, 0)]
+#[case::build_loses_the_frontend(Fixture(BUILD_LOSES_THREADS), Pin::Nightly, 2)]
+#[case::linux_loses_the_linker(Fixture(LINUX_LOSES_LINKER), Pin::Nightly, 1)]
+#[case::linker_named_in_build(Fixture(LINKER_IN_BUILD), Pin::Nightly, 1)]
+#[case::no_build_source(Fixture(NO_BUILD_SOURCE), Pin::Nightly, 1)]
+#[case::stable_names_the_frontend(Fixture(STABLE_WITH_THREADS), Pin::Stable, 1)]
+#[case::empty_configuration(Fixture(""), Pin::Nightly, 3)]
+#[case::linux_selector_covers_one_architecture(Fixture(TRIPLE_ONLY), Pin::Nightly, 1)]
+#[case::comments_after_headers_and_entries(Fixture(COMMENTED_OK), Pin::Nightly, 0)]
+#[case::a_key_that_only_starts_like_rustflags(Fixture(SIBLING_KEY_OK), Pin::Nightly, 0)]
 fn the_configuration_reader_reports_each_defect(
-    #[case] config: &str,
+    #[case] config: Fixture,
     #[case] pin: Pin,
     #[case] expected: usize,
 ) -> Result<(), String> {
@@ -116,13 +140,16 @@ fn a_rustflags_array_spread_over_lines_is_refused() -> Result<(), String> {
 /// carry `-Zthreads`; a missing, repeated or unknown channel is an error, not a
 /// stable pin by default.
 #[rstest]
-#[case::nightly(NIGHTLY, Some(Pin::Nightly))]
-#[case::stable(STABLE, Some(Pin::Stable))]
-#[case::missing(NO_CHANNEL, None)]
-#[case::repeated(TWO_CHANNELS, None)]
-#[case::unknown(UNKNOWN_CHANNEL, None)]
-fn the_pin_reader_tells_the_channels_apart(#[case] toolchain: &str, #[case] expected: Option<Pin>) {
-    assert_eq!(Pin::read(toolchain).ok(), expected);
+#[case::nightly(Fixture(NIGHTLY), Some(Pin::Nightly))]
+#[case::stable(Fixture(STABLE), Some(Pin::Stable))]
+#[case::missing(Fixture(NO_CHANNEL), None)]
+#[case::repeated(Fixture(TWO_CHANNELS), None)]
+#[case::unknown(Fixture(UNKNOWN_CHANNEL), None)]
+fn the_pin_reader_tells_the_channels_apart(
+    #[case] toolchain: Fixture,
+    #[case] expected: Option<Pin>,
+) {
+    assert_eq!(Pin::read(toolchain.0).ok(), expected);
 }
 
 /// Builds the assignment a fixture line is expected to read as.
@@ -135,25 +162,25 @@ fn flags(words: &[&str], inherits: bool) -> Assignment {
 /// Invariant: a quoted assignment is read, with the caller's inherited flags
 /// set aside, and a line assigning none reads as unassigned.
 #[rstest]
-#[case::plain("RUSTFLAGS=\"-D warnings -Zthreads=8\" cargo test", flags(&["-D", "warnings", THREADS_FLAG], false))]
+#[case::plain(Fixture("RUSTFLAGS=\"-D warnings -Zthreads=8\" cargo test"), flags(&["-D", "warnings", THREADS_FLAG], false))]
 #[case::inherited_flags_glued_on(
-    "RUSTFLAGS=\"${RUSTFLAGS:+$RUSTFLAGS }-Zthreads=8\" cargo check",
+    Fixture("RUSTFLAGS=\"${RUSTFLAGS:+$RUSTFLAGS }-Zthreads=8\" cargo check"),
     flags(&[THREADS_FLAG], true)
 )]
-#[case::inherited_flags_only("RUSTFLAGS=\"${RUSTFLAGS-}\" cargo build --release", flags(&[], true))]
+#[case::inherited_flags_only(Fixture("RUSTFLAGS=\"${RUSTFLAGS-}\" cargo build --release"), flags(&[], true))]
 #[case::inherited_flags_then_a_space(
-    "RUSTFLAGS=\"${RUSTFLAGS-} -Zthreads=8\" cargo check",
+    Fixture("RUSTFLAGS=\"${RUSTFLAGS-} -Zthreads=8\" cargo check"),
     flags(&[THREADS_FLAG], true)
 )]
-#[case::no_assignment("cargo clippy --all-targets", Assignment::Unassigned)]
+#[case::no_assignment(Fixture("cargo clippy --all-targets"), Assignment::Unassigned)]
 fn the_command_reader_reads_each_assignment(
-    #[case] line: &str,
+    #[case] line: Fixture,
     #[case] expected: Assignment,
 ) -> Result<(), String> {
-    if assigned_rustflags(line)? == expected {
+    if assigned_rustflags(line.0)? == expected {
         Ok(())
     } else {
-        Err(format!("`{line}` was read wrongly"))
+        Err(format!("`{}` was read wrongly", line.0))
     }
 }
 
@@ -162,65 +189,61 @@ fn the_command_reader_reads_each_assignment(
 /// Invariant: each is refused rather than passed, because an assignment in a
 /// form the reader does not understand still replaces the configuration.
 #[rstest]
-#[case::unquoted("RUSTFLAGS=-Zthreads=8 cargo test")]
-#[case::unterminated("RUSTFLAGS=\"-Zthreads=8 cargo test")]
-#[case::inherited_flags_glued_to_a_flag("RUSTFLAGS=\"${RUSTFLAGS-}-Zthreads=8\" cargo test")]
-fn the_command_reader_refuses_what_it_cannot_parse(#[case] line: &str) -> Result<(), String> {
-    match assigned_rustflags(line) {
-        Ok(_) => Err(format!("`{line}` was read, not refused")),
+#[case::unquoted(Fixture("RUSTFLAGS=-Zthreads=8 cargo test"))]
+#[case::unterminated(Fixture("RUSTFLAGS=\"-Zthreads=8 cargo test"))]
+#[case::inherited_flags_glued_to_a_flag(Fixture(
+    "RUSTFLAGS=\"${RUSTFLAGS-}-Zthreads=8\" cargo test"
+))]
+fn the_command_reader_refuses_what_it_cannot_parse(#[case] line: Fixture) -> Result<(), String> {
+    match assigned_rustflags(line.0) {
+        Ok(_) => Err(format!("`{}` was read, not refused", line.0)),
         Err(_) => Ok(()),
     }
 }
 
-/// Scenario: workflow steps that set up Rust with and without the input.
+/// Scenario: workflow steps read by each workflow reader.
 ///
-/// Invariant: a step must pass `install-mold: 'true'` itself; another step's
-/// input does not count, and a comment naming the action is not a step.
+/// Invariant: a `setup-rust` step must pass `install-mold: 'true'` itself, and a
+/// coverage step must assign `RUSTFLAGS` itself and name neither standard flag.
+/// Another step's input or assignment does not count, and a comment naming the
+/// action is not a step.
 #[rstest]
-#[case::quoted_true(STEP_INSTALLS, 0)]
-#[case::bare_true(STEP_INSTALLS_BARE, 0)]
-#[case::missing_input(STEP_MISSING_INPUT, 1)]
-#[case::input_off(STEP_INPUT_OFF, 1)]
-#[case::input_on_a_sibling_step(STEP_BEFORE_A_SIBLING_THAT_INSTALLS, 1)]
-#[case::comment_only(COMMENT_NAMING_THE_ACTION, 0)]
-fn the_workflow_reader_wants_the_input_on_each_step(
-    #[case] workflow: &str,
+#[case::quoted_true(Reader::InstallInput, Fixture(STEP_INSTALLS), 0)]
+#[case::bare_true(Reader::InstallInput, Fixture(STEP_INSTALLS_BARE), 0)]
+#[case::missing_input(Reader::InstallInput, Fixture(STEP_MISSING_INPUT), 1)]
+#[case::input_off(Reader::InstallInput, Fixture(STEP_INPUT_OFF), 1)]
+#[case::input_on_a_sibling_step(
+    Reader::InstallInput,
+    Fixture(STEP_BEFORE_A_SIBLING_THAT_INSTALLS),
+    1
+)]
+#[case::comment_only(Reader::InstallInput, Fixture(COMMENT_NAMING_THE_ACTION), 0)]
+#[case::unassigned(Reader::CoverageAssignment, Fixture(COVERAGE_UNASSIGNED), 1)]
+#[case::with_the_frontend_flag(Reader::CoverageAssignment, Fixture(COVERAGE_WITH_THREADS), 1)]
+#[case::with_the_linker(Reader::CoverageAssignment, Fixture(COVERAGE_WITH_LINKER), 1)]
+#[case::assignment_on_a_sibling_step(
+    Reader::CoverageAssignment,
+    Fixture(COVERAGE_BORROWING_A_SIBLING),
+    1
+)]
+fn the_workflow_readers_judge_each_step(
+    #[case] reader: Reader,
+    #[case] workflow: Fixture,
     #[case] expected: usize,
 ) -> Result<(), String> {
-    let found = linker_install_problems(&Workflow {
-        file: "fixture.yml",
-        text: workflow,
-    })
-    .len();
+    let found = reader
+        .problems(&Workflow {
+            file: "fixture.yml",
+            text: workflow.0,
+        })
+        .len();
     if found == expected {
         Ok(())
     } else {
-        Err(format!("{workflow:?}: {found} problems, not {expected}"))
-    }
-}
-
-/// Scenario: coverage steps with and without an explicit assignment.
-///
-/// Invariant: the step assigns `RUSTFLAGS` itself and names neither standard
-/// flag; a sibling step's assignment does not count.
-#[rstest]
-#[case::unassigned(COVERAGE_UNASSIGNED, 1)]
-#[case::with_the_frontend_flag(COVERAGE_WITH_THREADS, 1)]
-#[case::with_the_linker(COVERAGE_WITH_LINKER, 1)]
-#[case::assignment_on_a_sibling_step(COVERAGE_BORROWING_A_SIBLING, 1)]
-fn the_coverage_reader_wants_an_explicit_assignment(
-    #[case] workflow: &str,
-    #[case] expected: usize,
-) -> Result<(), String> {
-    let found = coverage_problems(&Workflow {
-        file: "fixture.yml",
-        text: workflow,
-    })
-    .len();
-    if found == expected {
-        Ok(())
-    } else {
-        Err(format!("{workflow:?}: {found} problems, not {expected}"))
+        Err(format!(
+            "{:?}: {found} problems, not {expected}",
+            workflow.0
+        ))
     }
 }
 
@@ -295,15 +318,15 @@ fn coverage_and_release_take_neither_flag() -> Result<(), String> {
 /// lose it everywhere), while a version probe or prerequisite build that never
 /// carried the policy is not held to it, and another target is not held to it.
 #[rstest]
-#[case::test_keeps_the_policy("test", &[&["-D", "warnings", THREADS_FLAG][..]], 0)]
-#[case::test_spelled_joined("test", &[&["-Dwarnings", THREADS_FLAG][..]], 0)]
-#[case::test_drops_the_policy("test", &[&[THREADS_FLAG][..]], 1)]
-#[case::test_denies_nothing_useful("test", &[&["-A", "warnings", THREADS_FLAG][..]], 1)]
-#[case::a_probe_may_omit_it_beside_the_run("test", &[&[THREADS_FLAG][..], &["-D", "warnings", THREADS_FLAG][..]], 0)]
-#[case::build_may_omit_the_policy("build", &[&[THREADS_FLAG][..]], 0)]
-#[case::test_assigns_no_command("test", &[], 1)]
+#[case::test_keeps_the_policy(Fixture("test"), &[&["-D", "warnings", THREADS_FLAG][..]], 0)]
+#[case::test_spelled_joined(Fixture("test"), &[&["-Dwarnings", THREADS_FLAG][..]], 0)]
+#[case::test_drops_the_policy(Fixture("test"), &[&[THREADS_FLAG][..]], 1)]
+#[case::test_denies_nothing_useful(Fixture("test"), &[&["-A", "warnings", THREADS_FLAG][..]], 1)]
+#[case::a_probe_may_omit_it_beside_the_run(Fixture("test"), &[&[THREADS_FLAG][..], &["-D", "warnings", THREADS_FLAG][..]], 0)]
+#[case::build_may_omit_the_policy(Fixture("build"), &[&[THREADS_FLAG][..]], 0)]
+#[case::test_assigns_no_command(Fixture("test"), &[], 1)]
 fn the_test_target_keeps_the_warning_policy(
-    #[case] target: &str,
+    #[case] target: Fixture,
     #[case] commands: &[&[&str]],
     #[case] expected: usize,
 ) {
@@ -311,10 +334,10 @@ fn the_test_target_keeps_the_warning_policy(
         .iter()
         .map(|words| Assignment::Flags(Flags::from_words(words.iter().copied()), true))
         .collect();
-    let found = test_policy_problem(target, Host::Darwin, &assigned)
+    let found = test_policy_problem(target.0, Host::Darwin, &assigned)
         .into_iter()
         .count();
-    assert_eq!(found, expected, "target {target}: {commands:?}");
+    assert_eq!(found, expected, "target {}: {commands:?}", target.0);
 }
 
 /// Scenario: coverage steps that deny warnings, assign an empty policy, or assign a
@@ -325,24 +348,25 @@ fn the_test_target_keeps_the_warning_policy(
 /// and an empty or different policy is refused; where it deliberately does not, a step
 /// that starts denying warnings is the drift and is refused, while the others are accepted.
 #[rstest]
-#[case::denying_warnings(COVERAGE_OK, true)]
-#[case::an_empty_warning_policy(COVERAGE_EMPTY_POLICY, false)]
-#[case::a_different_warning_policy(COVERAGE_OTHER_POLICY, false)]
-#[case::a_lookalike_flag(COVERAGE_LOOKALIKE_POLICY, false)]
-#[case::a_policy_only_in_a_comment(COVERAGE_COMMENTED_POLICY, false)]
-#[case::a_comment_after_the_policy(COVERAGE_DENYING_WITH_COMMENT, true)]
+#[case::denying_warnings(Fixture(COVERAGE_OK), true)]
+#[case::an_empty_warning_policy(Fixture(COVERAGE_EMPTY_POLICY), false)]
+#[case::a_different_warning_policy(Fixture(COVERAGE_OTHER_POLICY), false)]
+#[case::a_lookalike_flag(Fixture(COVERAGE_LOOKALIKE_POLICY), false)]
+#[case::a_policy_only_in_a_comment(Fixture(COVERAGE_COMMENTED_POLICY), false)]
+#[case::a_comment_after_the_policy(Fixture(COVERAGE_DENYING_WITH_COMMENT), true)]
 fn a_coverage_step_keeps_the_repository_warning_policy(
-    #[case] workflow: &str,
+    #[case] workflow: Fixture,
     #[case] denies: bool,
 ) {
     let found = coverage_problems(&Workflow {
         file: "fixture.yml",
-        text: workflow,
+        text: workflow.0,
     })
     .len();
     assert_eq!(
         found,
         usize::from(denies != COVERAGE_DENIES_WARNINGS),
-        "workflow:\n{workflow}"
+        "workflow:\n{}",
+        workflow.0
     );
 }
