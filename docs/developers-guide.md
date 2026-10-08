@@ -2036,6 +2036,12 @@ that call `cargo` themselves, the nightly portable SIMD lane's test and lint
 steps and the property suite: each must assign its own `RUSTFLAGS` with the
 warning deny and the linker flag, judged one step at a time, and the number of
 such steps is pinned so a renamed step cannot leave the check reading nothing.
+`chutoro-test-support/tests/documentation_flags_contract.rs` holds the
+documentation-denial flags, `-Dmissing_docs` and `-Dmissing_crate_level_docs`:
+each `rustflags` source in `.cargo/config.toml`, and each `RUSTFLAGS` assignment
+`make -n` prints for the development targets and `release`, must list both.
+The Whitaker lint run is the one exempt command, and the exemption is pinned so
+it cannot outlive that command.
 
 ### Cranelift
 
