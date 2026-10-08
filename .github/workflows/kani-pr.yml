@@ -54,6 +54,7 @@ jobs:
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@7d751eded578e48dacf43ab173d5820e6437c474
         with:
+          install-mold: 'true'
           use-sccache: 'false'
       - name: Install Kani
         run: scripts/install-kani.sh

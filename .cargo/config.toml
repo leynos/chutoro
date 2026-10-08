@@ -1,2 +1,22 @@
+# The development build standard (concordat rule `rust-build-defaults`): on
+# Linux, the `mold` linker is the default for every development, test, lint
+# and typecheck build. Cargo auto-discovers this file, so a bare `cargo build`
+# gets it too. The pin is the stable `1.93.1`, so the nightly-only parallel
+# frontend flag and the Cranelift backend are not used (see "The build
+# standard" in docs/developers-guide.md).
+#
+# Cargo selects a single `rustflags` source rather than merging them: a
+# matching `[target.*]` table replaces `[build] rustflags` outright, and an
+# assigned `RUSTFLAGS` replaces both. The Linux table therefore repeats every
+# `[build]` flag, and the Makefile composes the linker flag into the
+# `RUSTFLAGS` its recipes set. Coverage and release builds assign `RUSTFLAGS`
+# without it on purpose.
+
 [build]
 rustflags = ["-Dmissing_docs", "-Dmissing_crate_level_docs"]
+
+# mold ships for Linux only, so the linker flag lives in a Linux-only table.
+# Other targets, macOS and Windows included, keep their
+# platform linker.
+[target.'cfg(target_os = "linux")']
+rustflags = ["-Dmissing_docs", "-Dmissing_crate_level_docs", "-Clink-arg=-fuse-ld=mold"]

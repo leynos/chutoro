@@ -68,10 +68,18 @@ jobs:
       # exists to prove the stable refusal, which CI already runs. See #262.
       - name: Test dense portable SIMD backend
         if: ${{ steps.gate.outputs.should_run == 'true' }}
+        # An assigned RUSTFLAGS replaces .cargo/config.toml's rustflags, so
+        # the step restates the build standard's linker flag beside the deny.
+        env:
+          RUSTFLAGS: -D warnings -Clink-arg=-fuse-ld=mold
         run: |
           cargo +nightly test -p chutoro-providers-dense \
             --features nightly_portable_simd \
             -- --skip portable_simd_gating_compile_checks
       - name: Lint dense portable SIMD backend
         if: ${{ steps.gate.outputs.should_run == 'true' }}
+        # An assigned RUSTFLAGS replaces .cargo/config.toml's rustflags, so
+        # the step restates the build standard's linker flag beside the deny.
+        env:
+          RUSTFLAGS: -D warnings -Clink-arg=-fuse-ld=mold
         run: cargo +nightly clippy -p chutoro-providers-dense --all-targets --features nightly_portable_simd -- -D warnings

@@ -69,6 +69,7 @@ jobs:
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@7d751eded578e48dacf43ab173d5820e6437c474
         with:
+          install-mold: 'true'
           # The action installs sccache through mozilla-actions/sccache-action,
           # whose last act is to write ACTIONS_CACHE_SERVICE_V2=on and
           # GitHub's results URL and token to GITHUB_ENV. That clobbers any
@@ -111,6 +112,12 @@ jobs:
       - name: Reset compiler-cache counters
         run: sccache --zero-stats
       - name: Dense stable SIMD gating
+        # An assigned RUSTFLAGS replaces .cargo/config.toml's rustflags, so
+        # the step restates the build standard's linker flag beside the deny.
+        # coverage-main.yml warms the same commands under the same value, so
+        # the compiler cache entry they share matches.
+        env:
+          RUSTFLAGS: -D warnings -Clink-arg=-fuse-ld=mold
         run: |
           cargo clippy -p chutoro-providers-dense \
             --all-targets \
@@ -162,6 +169,11 @@ jobs:
           # cold run is killed before nextest can use its budget. See "Test
           # timeouts: four tiers, outermost last" in docs/developers-guide.md.
           RUN_RUST_CARGO_WAIT_TIMEOUT: '4200'
+          # One of the two exclusions from the build standard: a coverage build is
+          # a measurement, so it takes neither the parallel frontend nor the mold
+          # linker. Assigning RUSTFLAGS displaces every `rustflags` table in
+          # .cargo/config.toml.
+          RUSTFLAGS: -D warnings
         with:
           output-path: lcov.info
           format: lcov

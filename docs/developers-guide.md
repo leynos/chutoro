@@ -2002,3 +2002,52 @@ remains usable when the network is unavailable.
 Typos splits hyphenated phrases into separate words, so the gate also applies
 the shared phrase corrections, such as `hand-written` to `handwritten`, that
 Typos cannot match as whole phrases.
+
+## The build standard
+
+Development, test, lint, and typecheck builds use the `mold` linker on Linux;
+the parallel frontend flag is nightly-only, and the pinned `1.93.1` is stable,
+so it is not used. These are defaults in `.cargo/config.toml`, which Cargo
+discovers on its own, so a bare `cargo build` gets them. `mold` ships for Linux
+only, so the linker flag lives in a Linux-only table and macOS and Windows keep
+their platform linker. Cargo selects one `rustflags` source rather than merging
+them, so every source repeats the same flags apart from the linker.
+
+An assigned `RUSTFLAGS` replaces the configuration's flags, so the Makefile
+recipes that set it compose the standard's flags onto any inherited value (CI's
+`setup-rust` exports one). Two builds are deliberately excluded: coverage
+assigns `RUSTFLAGS` without the fast flags, because a measurement should not
+depend on them, and the release recipe and workflow keep the platform linker,
+because they assign `RUSTFLAGS` (even an empty value displaces the
+configuration). Cargo has no per-profile `rustflags`, so a direct
+`cargo build --release` takes the configuration's flags unless `RUSTFLAGS` is
+assigned too.
+
+On Linux, install `mold` before building: the configuration names it, so a
+build without it fails at link time. CI installs it through `setup-rust`'s
+`install-mold` input. `chutoro-test-support/tests/build_standard_contract.rs`
+holds the standard. It reads the configuration sources, the commands `make -n`
+prints for each development target on a Linux host and a macOS host (each
+keeping the caller's own `RUSTFLAGS`) and for each coverage and release target
+on a Linux host, and the `setup-rust` steps of the CI workflows (each must pass
+`install-mold`), so a flag lost through a recipe or workflow edit fails there.
+`chutoro-test-support/tests/direct_cargo_steps_contract.rs` holds the steps
+that call `cargo` themselves, the nightly portable SIMD lane's test and lint
+steps, the property suite and the `Dense stable SIMD gating` step in `ci.yml`
+and `coverage-main.yml`: each must assign its own `RUSTFLAGS` with the warning
+deny and the linker flag, judged one step at a time, and the number of such
+steps is pinned so a renamed step cannot leave the check reading nothing. The
+gating step must assign the same value in both workflows, because the compiler
+cache entry that `coverage-main.yml` warms is keyed on it.
+`chutoro-test-support/tests/documentation_flags_contract.rs` holds the
+documentation-denial flags, `-Dmissing_docs` and `-Dmissing_crate_level_docs`:
+each `rustflags` source in `.cargo/config.toml`, and each `RUSTFLAGS` assignment
+`make -n` prints for the development targets and `release`, must list both.
+The Whitaker lint run is the one exempt command, and the exemption is pinned so
+it cannot outlive that command.
+
+### Cranelift
+
+Exception: Cranelift is not the development-profile backend, because Cranelift
+requires a nightly toolchain and this repository pins the stable `1.93.1`
+(recorded 2026-09-29). Revisit if the repository moves to a nightly pin.
