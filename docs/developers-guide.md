@@ -2033,9 +2033,12 @@ on a Linux host, and the `setup-rust` steps of the CI workflows (each must pass
 `install-mold`), so a flag lost through a recipe or workflow edit fails there.
 `chutoro-test-support/tests/direct_cargo_steps_contract.rs` holds the steps
 that call `cargo` themselves, the nightly portable SIMD lane's test and lint
-steps and the property suite: each must assign its own `RUSTFLAGS` with the
-warning deny and the linker flag, judged one step at a time, and the number of
-such steps is pinned so a renamed step cannot leave the check reading nothing.
+steps, the property suite and the `Dense stable SIMD gating` step in `ci.yml`
+and `coverage-main.yml`: each must assign its own `RUSTFLAGS` with the warning
+deny and the linker flag, judged one step at a time, and the number of such
+steps is pinned so a renamed step cannot leave the check reading nothing. The
+gating step must assign the same value in both workflows, because the compiler
+cache entry that `coverage-main.yml` warms is keyed on it.
 `chutoro-test-support/tests/documentation_flags_contract.rs` holds the
 documentation-denial flags, `-Dmissing_docs` and `-Dmissing_crate_level_docs`:
 each `rustflags` source in `.cargo/config.toml`, and each `RUSTFLAGS` assignment

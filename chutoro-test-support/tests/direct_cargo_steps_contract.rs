@@ -25,6 +25,24 @@ struct Listed {
     cargo_steps: usize,
 }
 
+const CI: Listed = Listed {
+    file: "ci.yml",
+    text: include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../.github/workflows/ci.yml"
+    )),
+    cargo_steps: 1,
+};
+
+const COVERAGE_MAIN: Listed = Listed {
+    file: "coverage-main.yml",
+    text: include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../.github/workflows/coverage-main.yml"
+    )),
+    cargo_steps: 1,
+};
+
 const LISTED: &[Listed] = &[
     Listed {
         file: "nightly-portable-simd.yml",
@@ -42,6 +60,8 @@ const LISTED: &[Listed] = &[
         )),
         cargo_steps: 1,
     },
+    CI,
+    COVERAGE_MAIN,
 ];
 
 /// A step of a workflow: where it starts, and its lines.
@@ -114,7 +134,7 @@ fn invokes_cargo(line: &str) -> bool {
         && trimmed.split_whitespace().any(|word| word == "cargo")
 }
 
-impl Step<'_> {
+impl<'a> Step<'a> {
     /// Returns whether the step runs `cargo` itself.
     fn runs_cargo(&self) -> bool {
         self.lines.iter().any(|line| invokes_cargo(line))
@@ -122,7 +142,7 @@ impl Step<'_> {
 
     /// Returns the value of the step's own `RUSTFLAGS:` line, without any
     /// inline YAML comment.
-    fn rustflags(&self) -> Option<&str> {
+    fn rustflags(&self) -> Option<&'a str> {
         self.lines
             .iter()
             .find_map(|line| line.trim().strip_prefix("RUSTFLAGS:"))
@@ -152,6 +172,25 @@ impl Step<'_> {
             )
         })
     }
+}
+
+/// The step that `ci.yml` runs and `coverage-main.yml` warms the compiler cache for.
+const WARMED_STEP: &str = "Dense stable SIMD gating";
+
+/// Returns the `RUSTFLAGS` a workflow's step of the given name assigns, if the
+/// step exists and assigns one.
+fn rustflags_of_step<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+    steps_of(text)
+        .into_iter()
+        .find(|step| {
+            step.lines.iter().any(|line| {
+                line.trim_start()
+                    .trim_start_matches("- ")
+                    .strip_prefix("name:")
+                    .is_some_and(|value| value.trim() == name)
+            })
+        })
+        .and_then(|step| step.rustflags())
 }
 
 /// Returns the number of steps in a workflow that run `cargo` directly.
@@ -432,4 +471,28 @@ fn every_arrangement_of_up_to_three_steps_is_judged_one_step_at_a_time() -> Resu
         }
     }
     Ok(())
+}
+
+#[test]
+fn the_step_the_cache_publisher_warms_assigns_the_flags_the_reader_does() -> Result<(), String> {
+    let reader = rustflags_of_step(CI.text, WARMED_STEP);
+    let writer = rustflags_of_step(COVERAGE_MAIN.text, WARMED_STEP);
+    match (reader, writer) {
+        (Some(read), Some(written)) if read == written => Ok(()),
+        other => Err(format!(
+            "`{WARMED_STEP}` must assign the same RUSTFLAGS in ci.yml and coverage-main.yml, \
+             because the compiler cache entry is keyed on it; found {other:?}"
+        )),
+    }
+}
+
+#[test]
+fn a_step_that_differs_from_its_cache_publisher_is_refused() {
+    let reader = COMPLIANT.replace("Test", WARMED_STEP);
+    let writer = reader.replace("-Clink-arg=-fuse-ld=mold", "-Clink-arg=-fuse-ld=lld");
+    assert_ne!(
+        rustflags_of_step(&reader, WARMED_STEP),
+        rustflags_of_step(&writer, WARMED_STEP)
+    );
+    assert_eq!(rustflags_of_step(&reader, "Another step"), None);
 }

@@ -112,6 +112,12 @@ jobs:
       - name: Reset compiler-cache counters
         run: sccache --zero-stats
       - name: Dense stable SIMD gating
+        # An assigned RUSTFLAGS replaces .cargo/config.toml's rustflags, so
+        # the step restates the build standard's linker flag beside the deny.
+        # coverage-main.yml warms the same commands under the same value, so
+        # the compiler cache entry they share matches.
+        env:
+          RUSTFLAGS: -D warnings -Clink-arg=-fuse-ld=mold
         run: |
           cargo clippy -p chutoro-providers-dense \
             --all-targets \
