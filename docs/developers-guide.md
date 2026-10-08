@@ -2031,6 +2031,11 @@ prints for each development target on a Linux host and a macOS host (each
 keeping the caller's own `RUSTFLAGS`) and for each coverage and release target
 on a Linux host, and the `setup-rust` steps of the CI workflows (each must pass
 `install-mold`), so a flag lost through a recipe or workflow edit fails there.
+`chutoro-test-support/tests/direct_cargo_steps_contract.rs` holds the steps
+that call `cargo` themselves, the nightly portable SIMD lane's test and lint
+steps and the property suite: each must assign its own `RUSTFLAGS` with the
+warning deny and the linker flag, judged one step at a time, and the number of
+such steps is pinned so a renamed step cannot leave the check reading nothing.
 
 ### Cranelift
 
