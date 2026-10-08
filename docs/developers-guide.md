@@ -243,7 +243,7 @@ version and digest are pinned.
 | Tool          | Installer                                                  | Pin                                      |
 | ------------- | ---------------------------------------------------------- | ---------------------------------------- |
 | Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, currently 0.2.7            |
-| mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.0            |
+| mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.1            |
 | cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS` |
 | sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS` |
 | Kani          | `scripts/install-kani.sh`                                  | `tools/kani/VERSION` and `SHA256SUMS`    |
