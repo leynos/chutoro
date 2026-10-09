@@ -222,7 +222,7 @@ pub fn parallel_kruskal(
     node_count: usize,
     edges: &EdgeHarvest,
 ) -> Result<MinimumSpanningForest, MstError> {
-    parallel_kruskal_from_edges(node_count, edges.iter())
+    parallel_kruskal_from_edges(node_count, edges.as_slice())
 }
 
 /// Validate a candidate edge and convert it to canonical MST form.
@@ -302,12 +302,8 @@ fn is_mst_complete(
 
 #[cfg(not(kani))]
 /// Validate, canonicalise, sort, and deduplicate candidate edges.
-fn prepare_edge_list<'a>(
-    edges: impl IntoIterator<Item = &'a CandidateEdge>,
-    node_count: usize,
-) -> Result<Vec<MstEdge>, MstError> {
-    let candidate_edges: Vec<&CandidateEdge> = edges.into_iter().collect();
-    let mut edge_list = candidate_edges
+fn prepare_edge_list(edges: &[CandidateEdge], node_count: usize) -> Result<Vec<MstEdge>, MstError> {
+    let mut edge_list = edges
         .par_iter()
         .try_fold(Vec::new, |mut acc, edge| {
             if let Some(mst_edge) = validate_and_canonicalize_edge(edge, node_count)? {
@@ -331,10 +327,10 @@ fn prepare_edge_list<'a>(
     Ok(edge_list)
 }
 
-/// Run parallel Kruskal directly over an iterator of candidate edges.
-pub(crate) fn parallel_kruskal_from_edges<'a>(
+/// Run parallel Kruskal directly over a slice of candidate edges.
+pub(crate) fn parallel_kruskal_from_edges(
     node_count: usize,
-    edges: impl IntoIterator<Item = &'a CandidateEdge>,
+    edges: &[CandidateEdge],
 ) -> Result<MinimumSpanningForest, MstError> {
     #[cfg(kani)]
     {

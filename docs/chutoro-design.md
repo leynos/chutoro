@@ -1205,6 +1205,44 @@ roadmap items. If a later item fails its benchmark threshold, record the null
 result beside that item rather than widening the core `DataSource` trait or
 HNSW graph policy speculatively.
 
+_Implementation update (2026-09-20)._ The parallel Kruskal phase no longer
+performs a redundant pre-Kruskal sort. The pipeline previously transformed the
+harvested edges into mutual-reachability weights and wrapped the result in
+`EdgeHarvest::new`, whose constructor sorts by `(sequence, natural Ord)`.
+`parallel_kruskal` then re-sorted the whole list by
+`(weight, source, target, sequence)` and never observed the first ordering, so
+the constructor sort was discarded work proportional to the full edge list on
+every clustering run.
+
+Expose the harvest as a slice and route the internal path through it:
+
+- `EdgeHarvest::as_slice` is an additive accessor alongside `iter` and
+  `windows`.
+- The `pub(crate)` `parallel_kruskal_from_edges` and the private
+  `prepare_edge_list` now take `&[CandidateEdge]`. That also removes the
+  `Vec<&CandidateEdge>` intermediate that `prepare_edge_list` previously
+  collected ahead of its Rayon fold.
+- The public `parallel_kruskal(node_count, &EdgeHarvest)` signature is
+  unchanged; it delegates through `as_slice`.
+
+The mutual-reachability transform now runs on a Rayon `par_iter`, matching the
+parallelism of the surrounding HNSW build, and feeds its `Vec<CandidateEdge>`
+directly to `parallel_kruskal_from_edges`. The Bounded Kani model
+(`kani_model::parallel_kruskal_from_edges_for_kani`) and the MST harnesses
+follow the same slice-based signature.
+
+The `EdgeHarvest` sorting contract itself is unchanged: `EdgeHarvest::new`,
+`from_unsorted`, and the `From<Vec<CandidateEdge>>` conversion still enforce the
+`(sequence, natural Ord)` ordering for callers that rely on it, including
+`from_parallel_inserts`. Its ordering is discarded by `prepare_edge_list` in
+the same way, but recovering it means changing the harvest contract and is left
+as future work.
+
+Scale caveat: `parallel_kruskal` measured 1.88 ms against an 853 ms
+`CpuHnsw::build_with_edges` at `n = 1000`, roughly 0.22% of the build, a share
+that falls as `n` grows. The waste removed here is real but bounded; this is a
+cheap correction, not a large end-to-end win.
+
 #### 6.4. Property-based input generation for CPU HNSW tests
 
 The CPU module now ships with dedicated property-based generators that exercise
