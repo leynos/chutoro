@@ -201,6 +201,8 @@ pub(super) fn euclidean_distance_neon_entry(left: &[f32], right: &[f32]) -> f32 
     unsafe { neon_simd::euclidean_distance_neon(left, right) }
 }
 
+/// Invoke the nightly portable-SIMD pairwise kernel when compiled in.
+/// Identical rows, for example, return a zero distance.
 #[cfg(all(feature = "nightly_portable_simd", nightly))]
 pub(super) fn euclidean_distance_portable_simd_entry(left: &[f32], right: &[f32]) -> f32 {
     portable_simd::euclidean_distance_portable_simd_entry(left, right)
@@ -253,6 +255,8 @@ pub(super) fn euclidean_distance_query_points_scalar(
     }
 }
 
+/// Invoke the nightly portable-SIMD packed query kernel when compiled in.
+/// A query matching one packed point, for example, writes zero for that point.
 #[cfg(all(feature = "nightly_portable_simd", nightly))]
 pub(super) fn euclidean_distance_query_points_portable_simd_entry(
     query: &[f32],
