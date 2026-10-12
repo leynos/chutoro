@@ -55,19 +55,17 @@ NEXTEST_CONFIG = REPO_ROOT / ".config" / "nextest.toml"
 #: Every test in this repository that pays a nested build's cost. Pinned as
 #: well as discovered: the rule below is satisfied by a discovery that finds
 #: nothing, so without this a reading narrowed by accident would read as a
-#: repository with no such tests. Two of these construct a trybuild harness in
-#: one file, one spawns `cargo check` against a fixture manifest, and the next
-#: two are single-test files. The last three are the clustering-result API
-#: checks: two trybuild harnesses gated on either side of the `cpu` feature,
-#: and the one that runs the CPU-disabled side through a nested `cargo test`.
+#: repository with no such tests. All harnesses live in the compile-contract
+#: package, including the CPU-disabled checks that spawn nested Cargo builds.
 COMPILE_CONTRACT_TESTS: typ.Final[frozenset[str]] = frozenset({
     "session_api_compiles_when_cpu_feature_is_enabled",
     "session_api_is_unavailable_without_cpu_feature",
     "dataset_recipe_phase_order",
     "arrow_parquet_types_share_one_family",
-    "portable_simd_gating_compile_checks",
+    "portable_simd_is_rejected_without_feature",
+    "portable_simd_is_rejected_on_nightly_without_feature",
+    "portable_simd_compiles_with_feature",
     "clustering_result_panicking_constructor_is_private_when_cpu_enabled",
-    "clustering_result_panicking_constructor_is_unavailable_without_cpu",
     "clustering_result_api_is_checked_without_cpu",
 })
 
@@ -213,27 +211,27 @@ def test_the_base_allowance_terminates() -> None:
     )
 
 
-def test_every_compile_contract_test_is_named_in_an_override() -> None:
-    """The set is discovered from the tree, not listed here.
+def test_every_compile_contract_test_inherits_the_package_override() -> None:
+    """Every discovered nested build belongs to the package-wide allowance.
 
-    Listing it would be the same defect one level up: a list written once
-    against the names of the day. Discovery fails when a test is added, which
-    is the moment its allowance has to be decided.
+    Discovering across the tree catches a new harness added to another crate;
+    checking the package rule catches a regression to a test-name list.
     """
     by_profile = _extending_filters()
     discovered = discovered_tests()
-    uncovered = {
-        f"{profile}:{name}": path
-        for profile, filters in by_profile.items()
+    misplaced = {
+        name: path
         for name, path in discovered.items()
-        if not any(_names_test(filter_text, name) for filter_text in filters)
+        if not path.startswith("chutoro-compile-contracts/tests/")
     }
-    assert not uncovered, (
-        f"these tests spawn a build and inherit the base allowance: "
-        f"{uncovered}. Each compiles against this workspace's dependency "
-        f"graph and will be terminated on a cold run. Name each in the "
-        f"trybuild override of every profile"
+    assert not misplaced, (
+        f"these tests spawn a build outside chutoro-compile-contracts: {misplaced}. "
+        "Move them into that package to inherit its nested-Cargo policy"
     )
+    for profile in ("default", "ci"):
+        assert "package(chutoro-compile-contracts)" in by_profile[profile], (
+            f"{profile} must extend the allowance for the compile-contract package"
+        )
 
 
 def test_the_discovered_set_is_the_one_this_repository_has() -> None:

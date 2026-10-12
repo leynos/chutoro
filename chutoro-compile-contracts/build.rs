@@ -154,6 +154,7 @@ mod tests {
     //! Unit tests for the compiler-channel probe's success and failure boundary.
 
     use super::*;
+    use rstest::rstest;
 
     /// Supplies a deterministic compiler outcome without launching a process.
     #[derive(Debug)]
@@ -190,31 +191,21 @@ mod tests {
         }
     }
 
-    /// Detects nightly output without invoking the configured compiler.
-    #[test]
-    fn nightly_output_selects_nightly_channel() {
+    /// Selects nightly or other channels from successful injected version output.
+    #[rstest]
+    #[case::nightly("rustc 1.92.0-nightly (abc 2026-09-20)", &CompilerChannel::Nightly)]
+    #[case::stable("rustc 1.91.0", &CompilerChannel::Other)]
+    fn successful_output_selects_compiler_channel(
+        #[case] version: &str,
+        #[case] expected: &CompilerChannel,
+    ) {
         let probe = StubCompilerVersionProbe {
-            result: StubProbeResult::Output(successful_output(
-                b"rustc 1.92.0-nightly (abc 2026-09-20)".to_vec(),
-            )),
+            result: StubProbeResult::Output(successful_output(version.as_bytes().to_vec())),
         };
 
         assert_eq!(
-            detect_compiler_channel(&DefaultEnv, &probe).expect("nightly output must decode"),
-            CompilerChannel::Nightly
-        );
-    }
-
-    /// Detects stable output without invoking the configured compiler.
-    #[test]
-    fn stable_output_selects_other_channel() {
-        let probe = StubCompilerVersionProbe {
-            result: StubProbeResult::Output(successful_output(b"rustc 1.91.0".to_vec())),
-        };
-
-        assert_eq!(
-            detect_compiler_channel(&DefaultEnv, &probe).expect("stable output must decode"),
-            CompilerChannel::Other
+            &detect_compiler_channel(&DefaultEnv, &probe).expect("version output must decode"),
+            expected
         );
     }
 

@@ -50,7 +50,8 @@ const LISTED: &[Listed] = &[
             env!("CARGO_MANIFEST_DIR"),
             "/../.github/workflows/nightly-portable-simd.yml"
         )),
-        cargo_steps: 2,
+        // Dense test/lint and both compile-contract feature configurations.
+        cargo_steps: 4,
     },
     Listed {
         file: "property-tests.yml",

@@ -1356,6 +1356,14 @@ package-level `nextest` override owns the nested-Cargo timeout and concurrency
 policy: four required threads and a 300-second `slow-timeout`. Other tests
 retain the 60-second default per-test `slow-timeout`.
 
+The package build script uses a private `CompilerVersionProbe` port so its
+compiler-channel decision can be tested without launching a process. Keep that
+port local to the build script and its unit tests; it is not a general
+subprocess abstraction. The build script resolves `RUSTC`, falls back to
+`rustc`, and passes that command to the production adapter for `--version`. A
+launch failure, unsuccessful exit, or invalid UTF-8 output must fail the build
+rather than select the stable configuration.
+
 Use `.github/workflows/property-tests.yml` and `.config/nextest.toml` for the
 authoritative configuration, and `docs/property-testing-design.md` for the
 architectural rationale.
@@ -1939,6 +1947,15 @@ only changed lists, do not let callers add arbitrary pairs, and restore the
 queue alongside nodes and the entry point when a mutation is rolled back. Tests
 should verify that a successful healing pass drains the queue and that a failed
 mutation leaves its prior contents unchanged.
+
+The production `ConnectivityHealer` callsites use reciprocal linking to fill an
+empty layer on the newly inserted node or to reconnect an isolated base-layer
+node. The destination list is empty at those callsites, so its reciprocal
+insertion cannot evict an existing neighbour; the algorithm therefore cleans
+only an eviction from the origin-side insertion. The helper itself does not
+enforce this precondition. A direct helper invocation with a full destination
+list can evict on the reciprocal insertion, whose eviction is intentionally
+ignored, so do not generalize the production precondition to arbitrary calls.
 
 ## Benchmark dataset recipes
 

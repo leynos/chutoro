@@ -66,8 +66,17 @@ jobs:
         run: |
           cargo +nightly test -p chutoro-providers-dense \
             --features nightly_portable_simd
+      - name: Test portable SIMD compile contract without feature
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        env:
+          RUSTFLAGS: -D warnings -Clink-arg=-fuse-ld=mold
+        run: |
+          RUSTUP_TOOLCHAIN=nightly cargo +nightly test -p chutoro-compile-contracts \
+            --test portable_simd_gating
       - name: Test portable SIMD compile contract
         if: ${{ steps.gate.outputs.should_run == 'true' }}
+        env:
+          RUSTFLAGS: -D warnings -Clink-arg=-fuse-ld=mold
         run: |
           RUSTUP_TOOLCHAIN=nightly cargo +nightly test -p chutoro-compile-contracts \
             --features nightly_portable_simd --test portable_simd_gating

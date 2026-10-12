@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import itertools as it
 import re
+import tomllib
 import typing as typ
 
 import pytest
 from workflow_support import (
+    ROOT,
     jobs,
     load_workflow,
     run_script,
@@ -176,6 +178,43 @@ def test_nightly_lane_runs_portable_simd_compile_contract() -> None:
     assert (
         "RUSTUP_TOOLCHAIN=nightly cargo +nightly test -p chutoro-compile-contracts --features "
         "nightly_portable_simd --test portable_simd_gating" in commands
+    ), (
+        "nightly lane must run RUSTUP_TOOLCHAIN=nightly cargo +nightly test "
+        "-p chutoro-compile-contracts --features nightly_portable_simd "
+        "--test portable_simd_gating"
+    )
+
+
+def test_nightly_lane_runs_portable_simd_contract_without_feature() -> None:
+    """Nightly also checks the compile refusal before enabling the feature."""
+    commands = [
+        " ".join(CONTINUATION.sub(" ", script).split())
+        for _, script in _run_scripts("nightly-portable-simd.yml")
+        if "cargo +nightly test" in script
+    ]
+    assert (
+        "RUSTUP_TOOLCHAIN=nightly cargo +nightly test -p chutoro-compile-contracts "
+        "--test portable_simd_gating" in commands
+    ), "nightly lane must run the portable SIMD compile contract without its feature"
+
+
+def test_portable_simd_feature_forwards_to_the_dense_provider() -> None:
+    """The compile-contract feature resolves the provider's public feature edge."""
+    contracts = tomllib.loads(
+        (ROOT / "chutoro-compile-contracts/Cargo.toml").read_text(encoding="utf-8")
+    )
+    provider = tomllib.loads(
+        (ROOT / "chutoro-providers/dense/Cargo.toml").read_text(encoding="utf-8")
+    )
+    assert contracts["features"]["nightly_portable_simd"] == [
+        "chutoro-providers-dense/nightly_portable_simd"
+    ], "compile-contract opt-in must forward the dense provider feature"
+    assert (
+        contracts["dev-dependencies"]["chutoro-providers-dense"]["path"]
+        == "../chutoro-providers/dense"
+    ), "the feature edge must resolve the workspace dense provider dependency"
+    assert "nightly_portable_simd" in provider["features"], (
+        "the forwarded feature must exist in the dense provider manifest"
     )
 
 
