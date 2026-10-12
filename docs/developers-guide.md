@@ -1364,7 +1364,7 @@ require `threads-required = 8`; see `.config/nextest.toml`.
 
 Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
 package-level `nextest` override owns the nested-Cargo timeout and concurrency
-policy: four required threads and a 300-second `slow-timeout`. Other tests
+policy: four required threads and a 900-second `slow-timeout`. Other tests
 retain the 60-second default per-test `slow-timeout`.
 
 The package build script uses a private `CompilerVersionProbe` port so its
