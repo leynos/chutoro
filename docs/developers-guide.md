@@ -1437,9 +1437,18 @@ Cargo and GitHub Actions update groups intact. The contract reader accepts a
 `Path` and reports missing, unreadable, undecodable and malformed inputs with
 `RepositoryConfigReadError`. It validates the root manifest's TOML and requires
 the channel to be an exact `X.Y.Z` version or a dated nightly or beta release.
-Keep this reader's helpers within `dependabot_config_test.py` and use them only
-for the Dependabot YAML and root Rust toolchain manifest. Workflow parsing
-remains owned by `tests/workflow_contracts/workflow_support.py`.
+The finite examples name important channel boundaries; Hypothesis properties
+also exercise generated versions, dated releases and malformed channel forms.
+
+Keep the path-aware readers and channel validation within
+`dependabot_config_test.py`. Its contract tests and
+`dependabot_channel_properties_test.py` are the only callers. Dependabot YAML
+and workflow contract readers share duplicate-key rejection through
+`StrictYamlLoader` in `tests/workflow_contracts/strict_yaml.py`; the permitted
+call sites are `dependabot_config_test.py` and
+`tests/workflow_contracts/workflow_support.py`. Keep workflow document reads
+behind `workflow_support.py`, and do not use this loader as an application YAML
+API.
 
 ### Arrow and Parquet family updates
 

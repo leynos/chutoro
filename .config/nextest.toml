@@ -73,6 +73,13 @@ filter = "test(/hnsw_search_matches_brute_force_proptest/)"
 slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
+# This property builds HNSW indexes through both shared execution paths.
+# Reserve half the test slots and allow for CPU contention on busy shared hosts.
+filter = "test(/shared_execution_config_reaches_batch_and_session_paths/)"
+threads-required = 4
+slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
+
+[[profile.default.overrides]]
 # Write-lock proptest can exceed the default timeout under parallel load.
 filter = "test(/generated_hnsw_scoring_does_not_run_inside_write_graph_scope/)"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }

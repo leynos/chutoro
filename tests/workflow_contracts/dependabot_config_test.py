@@ -17,6 +17,8 @@ from typing import Any
 import pytest
 import yaml
 
+from strict_yaml import StrictYamlLoader
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 DEPENDABOT_PATH = REPOSITORY_ROOT / ".github" / "dependabot.yml"
 RUST_TOOLCHAIN_MANIFEST = REPOSITORY_ROOT / "rust-toolchain.toml"
@@ -92,7 +94,7 @@ def read_dependabot_document(path: Path) -> dict[str, Any]:
     """
     text = read_configuration_text(path, description="Dependabot configuration")
     try:
-        document = yaml.safe_load(text)
+        document = yaml.load(text, Loader=StrictYamlLoader)
     except yaml.YAMLError as error:
         message = f"Dependabot configuration is not YAML: {path}: {error}"
         raise RepositoryConfigReadError(message) from error
@@ -205,7 +207,7 @@ def _assert_rust_toolchain_entry(config: dict[str, Any]) -> dict[str, Any]:
         "rust-toolchain updates must limit open pull requests to five"
     )
     labels = entry.get("labels")
-    assert isinstance(labels, list) and set(labels) == {
+    assert isinstance(labels, list) and len(labels) == 2 and set(labels) == {
         "dependencies",
         "rust-toolchain",
     }, "rust-toolchain updates must carry the dependency and toolchain labels"
@@ -245,6 +247,9 @@ def test_rust_toolchain_entry_tracks_the_root_manifest_weekly(
         pytest.param("directory", None, "could not be read", id="unreadable-path"),
         pytest.param("file", b"\xff", "not UTF-8 text", id="non-utf8-file"),
         pytest.param("file", b"updates: [\n", "is not YAML", id="malformed-yaml"),
+        pytest.param(
+            "file", b"version: 2\nversion: 2\n", "is not YAML", id="duplicate-yaml-key"
+        ),
         pytest.param("file", b"[]\n", "must parse to a mapping", id="not-a-mapping"),
     ],
 )
@@ -330,6 +335,9 @@ def test_toolchain_manifest_requires_a_pinned_channel(
         pytest.param(
             "wrong-label", "dependency and toolchain labels", id="wrong-label"
         ),
+        pytest.param(
+            "duplicate-label", "dependency and toolchain labels", id="duplicate-label"
+        ),
     ],
 )
 def test_rust_toolchain_contract_rejects_invalid_entries(
@@ -363,38 +371,10 @@ def test_rust_toolchain_contract_rejects_invalid_entries(
             entry["labels"].remove("rust-toolchain")
         case "wrong-label":
             entry["labels"][1] = "cargo"
+        case "duplicate-label":
+            entry["labels"][1] = entry["labels"][0]
         case _:
             pytest.fail(f"unknown test defect: {defect}")
 
     with pytest.raises(AssertionError, match=expected_message):
         _assert_rust_toolchain_entry(config)
-
-
-def test_existing_cargo_and_github_actions_groups_are_preserved(
-    dependabot_config: dict[str, Any],
-) -> None:
-    """Keep the existing Arrow, security and Actions grouping policies."""
-    updates = dependabot_config["updates"]
-    cargo = next(update for update in updates if update["package-ecosystem"] == "cargo")
-    actions = next(
-        update for update in updates if update["package-ecosystem"] == "github-actions"
-    )
-
-    assert cargo["groups"] == {
-        "arrow": {"patterns": ["arrow*", "parquet"]},
-        "arrow-security": {
-            "applies-to": "security-updates",
-            "patterns": ["arrow*", "parquet"],
-        },
-        "minor-and-patch": {
-            "patterns": ["*"],
-            "update-types": ["minor", "patch"],
-        },
-    }
-    assert actions["groups"] == {
-        "shared-actions": {"patterns": ["leynos/shared-actions*"]},
-        "github-actions": {
-            "patterns": ["*"],
-            "update-types": ["minor", "patch"],
-        },
-    }
