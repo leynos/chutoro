@@ -1433,7 +1433,12 @@ file weekly. It opens at most five pull requests at a time and applies the
 toolchain changes: inspect the proposed pin and run `make check-fmt`,
 `make lint`, `make typecheck` and `make test` before merging.
 `make test-workflow-contracts` checks the Dependabot declaration and keeps the
-Cargo and GitHub Actions update groups intact.
+Cargo and GitHub Actions update groups intact. The contract reader accepts a
+`Path` and reports missing, unreadable, undecodable and malformed inputs with
+`RepositoryConfigReadError`. It validates the root manifest's TOML and channel
+as well as the Dependabot YAML. Keep this reader's helpers within
+`dependabot_config_test.py` and use them only for these two files. Workflow
+parsing remains owned by `tests/workflow_contracts/workflow_support.py`.
 
 ### Arrow and Parquet family updates
 

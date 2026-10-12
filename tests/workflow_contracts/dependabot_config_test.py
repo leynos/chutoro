@@ -6,6 +6,7 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import copy
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -17,12 +18,80 @@ DEPENDABOT_PATH = REPOSITORY_ROOT / ".github" / "dependabot.yml"
 RUST_TOOLCHAIN_MANIFEST = REPOSITORY_ROOT / "rust-toolchain.toml"
 
 
+class RepositoryConfigReadError(OSError):
+    """Report a missing, unreadable, undecodable or invalid config file."""
+
+
+def read_configuration_text(path: Path, *, description: str) -> str:
+    """Read one UTF-8 repository config file with path-specific errors.
+
+    Examples
+    --------
+    >>> read_configuration_text(
+    ...     Path(".github/dependabot.yml"), description="Dependabot configuration"
+    ... ).startswith("version:")
+    True
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError as error:
+        message = f"{description} is missing: {path}"
+        raise RepositoryConfigReadError(message) from error
+    except OSError as error:
+        message = f"{description} could not be read: {path}: {error}"
+        raise RepositoryConfigReadError(message) from error
+    except UnicodeDecodeError as error:
+        message = f"{description} is not UTF-8 text: {path}: {error}"
+        raise RepositoryConfigReadError(message) from error
+
+
+def read_dependabot_document(path: Path) -> dict[str, Any]:
+    """Read and parse one Dependabot YAML mapping.
+
+    Examples
+    --------
+    >>> read_dependabot_document(Path(".github/dependabot.yml"))["version"]
+    2
+    """
+    text = read_configuration_text(path, description="Dependabot configuration")
+    try:
+        document = yaml.safe_load(text)
+    except yaml.YAMLError as error:
+        message = f"Dependabot configuration is not YAML: {path}: {error}"
+        raise RepositoryConfigReadError(message) from error
+    if not isinstance(document, dict):
+        message = f"Dependabot configuration must parse to a mapping: {path}"
+        raise RepositoryConfigReadError(message)
+    return document
+
+
+def read_rust_toolchain_manifest(path: Path) -> dict[str, Any]:
+    """Read a valid Rust toolchain TOML document with a pinned channel.
+
+    Examples
+    --------
+    >>> bool(read_rust_toolchain_manifest(Path("rust-toolchain.toml"))["toolchain"])
+    True
+    """
+    text = read_configuration_text(path, description="Rust toolchain manifest")
+    try:
+        document = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        message = f"Rust toolchain manifest is not TOML: {path}: {error}"
+        raise RepositoryConfigReadError(message) from error
+
+    toolchain = document.get("toolchain")
+    channel = toolchain.get("channel") if isinstance(toolchain, dict) else None
+    if not isinstance(channel, str) or not channel.strip():
+        message = f"Rust toolchain manifest must declare toolchain.channel: {path}"
+        raise RepositoryConfigReadError(message)
+    return document
+
+
 @pytest.fixture(scope="module")
 def dependabot_config() -> dict[str, Any]:
     """Parse the repository's Dependabot configuration once per module."""
-    document = yaml.safe_load(DEPENDABOT_PATH.read_text(encoding="utf-8"))
-    assert isinstance(document, dict), "Dependabot configuration must be a mapping"
-    return document
+    return read_dependabot_document(DEPENDABOT_PATH)
 
 
 def _assert_rust_toolchain_entry(config: dict[str, Any]) -> dict[str, Any]:
@@ -90,9 +159,58 @@ def test_rust_toolchain_entry_tracks_the_root_manifest_weekly(
     """Keep the pinned root toolchain manifest under weekly Dependabot updates."""
     _assert_rust_toolchain_entry(dependabot_config)
 
-    assert RUST_TOOLCHAIN_MANIFEST.is_file(), (
-        f"Dependabot's root toolchain manifest is missing: {RUST_TOOLCHAIN_MANIFEST}"
-    )
+    read_rust_toolchain_manifest(RUST_TOOLCHAIN_MANIFEST)
+
+
+@pytest.mark.parametrize(
+    ("file_kind", "contents", "expected_message"),
+    [
+        pytest.param("missing", None, "is missing", id="missing-file"),
+        pytest.param("directory", None, "could not be read", id="unreadable-path"),
+        pytest.param("file", b"\xff", "not UTF-8 text", id="non-utf8-file"),
+        pytest.param("file", b"updates: [\n", "is not YAML", id="malformed-yaml"),
+        pytest.param("file", b"[]\n", "must parse to a mapping", id="not-a-mapping"),
+    ],
+)
+def test_dependabot_reader_reports_input_failures(
+    tmp_path: Path,
+    file_kind: str,
+    contents: bytes | None,
+    expected_message: str,
+) -> None:
+    """Name missing, unreadable, undecodable and invalid YAML inputs."""
+    path = tmp_path / "dependabot.yml"
+    if file_kind == "directory":
+        path.mkdir()
+    elif file_kind == "file":
+        path.write_bytes(contents or b"")
+
+    with pytest.raises(RepositoryConfigReadError, match=expected_message):
+        read_dependabot_document(path)
+
+
+@pytest.mark.parametrize(
+    ("contents", "expected_message"),
+    [
+        pytest.param(None, "is missing", id="missing-manifest"),
+        pytest.param(b"toolchain = [\n", "is not TOML", id="malformed-toml"),
+        pytest.param(
+            b"[toolchain]\ncomponents = []\n",
+            "must declare toolchain.channel",
+            id="missing-channel",
+        ),
+    ],
+)
+def test_toolchain_manifest_reader_reports_input_failures(
+    tmp_path: Path, contents: bytes | None, expected_message: str
+) -> None:
+    """Distinguish missing and invalid root manifest inputs."""
+    path = tmp_path / "rust-toolchain.toml"
+    if contents is not None:
+        path.write_bytes(contents)
+
+    with pytest.raises(RepositoryConfigReadError, match=expected_message):
+        read_rust_toolchain_manifest(path)
 
 
 @pytest.mark.parametrize(
