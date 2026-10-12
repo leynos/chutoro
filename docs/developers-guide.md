@@ -1087,6 +1087,17 @@ them with humantime, which sums a sequence of value-and-unit pairs, so `5m`,
 for each, dropped the override from the extending set, and reported the tests
 it covers as uncovered on a configuration nextest accepts.
 
+The timeouts also record the work each test performs. The shared-execution
+property builds HNSW indexes through the batch and session paths, so it
+reserves four test slots and 180 seconds. The clustering-result
+feature-boundary tests now run in `chutoro-compile-contracts`. Its package
+override reserves four test slots and 900 seconds in both `default` and `ci`,
+giving cold nested builds room to pass through shared compiler queues. The
+benchmark smoke test runs nested release-mode `cargo bench` commands, so it
+also reserves eight slots and 900 seconds. Tests in
+`chutoro-core/tests/nextest_config.rs` pin the compile-contract and benchmark
+smoke allowances to the authoritative overrides in `.config/nextest.toml`.
+
 ### The cargo watchdog is the tier nobody expects
 
 The first two tiers are nextest's. The watchdog belongs to the shared

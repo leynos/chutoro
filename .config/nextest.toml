@@ -94,16 +94,17 @@ retries = 1
 
 [[profile.default.overrides]]
 # Compile-contract tests build fixture crates with nested Cargo invocations.
+# Cold nested builds can wait behind the shared compiler queue.
 filter = "package(chutoro-compile-contracts)"
 threads-required = 4
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+slow-timeout = { period = "900s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
-# Benchmark smoke integration coverage runs nested cargo bench commands and
-# should not overlap with other expensive benchmark targets.
+# Benchmark smoke integration coverage runs nested cargo bench commands. Allow
+# enough time for a cold release build to pass through shared compiler queues.
 filter = "test(/benchmark_binaries_cover_discovery_and_exact_smoke_paths/)"
 threads-required = 8
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+slow-timeout = { period = "900s", terminate-after = 1, grace-period = "5s" }
 
 [profile.ci]
 inherits = "default"
@@ -160,6 +161,7 @@ retries = 1
 
 [[profile.ci.overrides]]
 # Compile-contract tests build fixture crates with nested Cargo invocations.
+# Cold nested builds can wait behind the shared compiler queue.
 filter = "package(chutoro-compile-contracts)"
 threads-required = 4
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+slow-timeout = { period = "900s", terminate-after = 1, grace-period = "5s" }

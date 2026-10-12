@@ -43,24 +43,34 @@ def test_generated_pinned_channels_are_accepted(channel: str) -> None:
         assert read_rust_toolchain_manifest(path)["toolchain"]["channel"] == channel
 
 
-@st.composite
-def _invalid_channels(draw: st.DrawFn) -> str:
-    """Generate floating, malformed, near-prefix and impossible-date channels."""
-    kind = draw(st.sampled_from(("floating", "components", "date", "near-miss")))
-    if kind == "floating":
-        return draw(st.sampled_from(("stable", "beta", "nightly")))
-    if kind == "components":
-        components = draw(
-            st.one_of(
-                st.lists(_VERSION_COMPONENT, min_size=1, max_size=2),
-                st.lists(_VERSION_COMPONENT, min_size=4, max_size=4),
-            )
-        )
-        return ".".join(map(str, components))
+def _floating_channels() -> st.SearchStrategy[str]:
+    """Generate the three unpinned toolchain channels."""
+    return st.sampled_from(("stable", "beta", "nightly"))
 
+
+@st.composite
+def _wrong_component_count_channels(draw: st.DrawFn) -> str:
+    """Generate versions with too few or too many components."""
+    components = draw(
+        st.one_of(
+            st.lists(_VERSION_COMPONENT, min_size=1, max_size=2),
+            st.lists(_VERSION_COMPONENT, min_size=4, max_size=4),
+        )
+    )
+    return ".".join(map(str, components))
+
+
+@st.composite
+def _impossible_date_channels(draw: st.DrawFn) -> str:
+    """Generate nightly channels with an impossible day of month."""
     release_date = draw(_DATE)
-    if kind == "date":
-        return f"nightly-{release_date.year:04d}-{release_date.month:02d}-32"
+    return f"nightly-{release_date.year:04d}-{release_date.month:02d}-32"
+
+
+@st.composite
+def _near_miss_channels(draw: st.DrawFn) -> str:
+    """Generate dated channels with a near-miss prefix or separator."""
+    release_date = draw(_DATE)
     prefix, separator = draw(
         st.sampled_from(
             (
@@ -75,6 +85,16 @@ def _invalid_channels(draw: st.DrawFn) -> str:
         )
     )
     return f"{prefix}{separator}{release_date.isoformat()}"
+
+
+def _invalid_channels() -> st.SearchStrategy[str]:
+    """Generate floating, malformed, near-prefix and impossible-date channels."""
+    return st.one_of(
+        _floating_channels(),
+        _wrong_component_count_channels(),
+        _impossible_date_channels(),
+        _near_miss_channels(),
+    )
 
 
 @given(channel=_invalid_channels())
