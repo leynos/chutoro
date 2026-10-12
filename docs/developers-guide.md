@@ -1425,6 +1425,16 @@ compatibility fact about a release rather than a floating preference, so a
 Dependabot bump must be revalidated against the proxy and the constant updated
 deliberately in the same pull request. No other pin is asserted by value.
 
+#### Rust toolchain updates
+
+The `rust-toolchain` Dependabot entry watches the root `rust-toolchain.toml`
+file weekly. It opens at most five pull requests at a time and applies the
+`dependencies` and `rust-toolchain` labels. Review these pull requests as
+toolchain changes: inspect the proposed pin and run `make check-fmt`,
+`make lint`, `make typecheck` and `make test` before merging.
+`make test-workflow-contracts` checks the Dependabot declaration and keeps the
+Cargo and GitHub Actions update groups intact.
+
 ### Arrow and Parquet family updates
 
 Keep the root workspace's `arrow-array`, `arrow-schema`, and `parquet`
