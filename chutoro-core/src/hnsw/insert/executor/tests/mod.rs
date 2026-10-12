@@ -3,6 +3,7 @@
 //! healing. Scenarios build tiny graphs manually with deterministic sequences
 //! to validate post-commit graph state and degree limits without concurrency.
 
+mod fallback_retention;
 mod trimming_fixtures;
 
 use super::*;

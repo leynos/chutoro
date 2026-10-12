@@ -1948,14 +1948,25 @@ queue alongside nodes and the entry point when a mutation is rolled back. Tests
 should verify that a successful healing pass drains the queue and that a failed
 mutation leaves its prior contents unchanged.
 
-The production `ConnectivityHealer` callsites use reciprocal linking to fill an
-empty layer on the newly inserted node or to reconnect an isolated base-layer
-node. The destination list is empty at those callsites, so its reciprocal
-insertion cannot evict an existing neighbour; the algorithm therefore cleans
-only an eviction from the origin-side insertion. The helper itself does not
-enforce this precondition. A direct helper invocation with a full destination
-list can evict on the reciprocal insertion, whose eviction is intentionally
-ignored, so do not generalize the production precondition to arbitrary calls.
+For an empty insertion layer, `ReciprocityWorkspace` chooses fallback candidate
+A from the original list and puts the new node at the tail of A's final list
+before commit. The plan stages at most L existing update owners at that level,
+where L is the connection limit. With A as one owner, at most L - 1 other
+updates can add distinct reverse links to A. Commit appends each reverse link
+and removes the furthest (front) entry when full, so evicting the new node from
+the tail would need L insertions. Commit ordering therefore keeps A
+reciprocated, and `heal_connectivity_gaps` skips its candidate fallback. If the
+original candidate slice is empty, that helper falls back to the entry node
+instead. The new node's layer is empty on that first link. A non-isolated
+cleanup may queue the entry as a sentinel; the entry-node check skips it. If
+the base-layer queue retries the target, both directed edges are already
+present, so the duplicate insertions do not evict neighbours.
+
+`ConnectivityHealer` intentionally cleans only an origin-side eviction and
+ignores an eviction from the reciprocal insertion. This relies on the planner's
+owner limit, update multiplicity, and commit ordering; revisit it if any of
+those change. A direct helper call with a full destination list is outside this
+precondition and can evict on the reciprocal insertion.
 
 ## Benchmark dataset recipes
 
