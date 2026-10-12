@@ -1,12 +1,16 @@
-"""Contract tests for Dependabot's repository update sources.
+"""Validate Dependabot sources and root Rust toolchain manifest contracts.
 
-Run via ``make test-workflow-contracts``.
+Path-aware YAML/TOML readers protect Cargo, GitHub Actions and toolchain
+updates. Run with ``make test-workflow-contracts``; workflow parsing stays in
+``workflow_support.py``.
 """
 
 from __future__ import annotations
 
 import copy
+import re
 import tomllib
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +27,24 @@ class RepositoryConfigReadError(OSError):
 
 
 def read_configuration_text(path: Path, *, description: str) -> str:
-    """Read one UTF-8 repository config file with path-specific errors.
+    """Read a UTF-8 repository config file and contextualize input failures.
+
+    Parameters
+    ----------
+    path : Path
+        Filesystem path to the configuration file.
+    description : str
+        Human-readable name included in any read error.
+
+    Returns
+    -------
+    str
+        The file's UTF-8 decoded contents.
+
+    Raises
+    ------
+    RepositoryConfigReadError
+        If the file is missing, unreadable or not valid UTF-8.
 
     Examples
     --------
@@ -46,7 +67,23 @@ def read_configuration_text(path: Path, *, description: str) -> str:
 
 
 def read_dependabot_document(path: Path) -> dict[str, Any]:
-    """Read and parse one Dependabot YAML mapping.
+    """Read a Dependabot YAML file and require a top-level mapping.
+
+    Parameters
+    ----------
+    path : Path
+        Filesystem path to the Dependabot YAML file.
+
+    Returns
+    -------
+    dict[str, Any]
+        The parsed top-level YAML mapping.
+
+    Raises
+    ------
+    RepositoryConfigReadError
+        If the file cannot be read, contains invalid YAML or parses to a
+        non-mapping value.
 
     Examples
     --------
@@ -59,19 +96,38 @@ def read_dependabot_document(path: Path) -> dict[str, Any]:
     except yaml.YAMLError as error:
         message = f"Dependabot configuration is not YAML: {path}: {error}"
         raise RepositoryConfigReadError(message) from error
-    if not isinstance(document, dict):
-        message = f"Dependabot configuration must parse to a mapping: {path}"
-        raise RepositoryConfigReadError(message)
-    return document
+    match document:
+        case {**mapping}:
+            return mapping
+        case _:
+            message = f"Dependabot configuration must parse to a mapping: {path}"
+            raise RepositoryConfigReadError(message)
 
 
 def read_rust_toolchain_manifest(path: Path) -> dict[str, Any]:
-    """Read a valid Rust toolchain TOML document with a pinned channel.
+    """Read TOML and require a versioned or date-pinned channel.
+
+    Parameters
+    ----------
+    path : Path
+        Filesystem path to the Rust toolchain TOML file.
+
+    Returns
+    -------
+    dict[str, Any]
+        The parsed TOML document, with an exact versioned or dated channel.
+
+    Raises
+    ------
+    RepositoryConfigReadError
+        If the file cannot be read, contains invalid TOML or lacks a pinned
+        channel. Accepted channels are exact ``X.Y.Z`` versions or dated
+        nightly and beta releases.
 
     Examples
     --------
-    >>> bool(read_rust_toolchain_manifest(Path("rust-toolchain.toml"))["toolchain"])
-    True
+    >>> read_rust_toolchain_manifest(Path("rust-toolchain.toml"))["toolchain"]["channel"]
+    '1.93.1'
     """
     text = read_configuration_text(path, description="Rust toolchain manifest")
     try:
@@ -80,12 +136,32 @@ def read_rust_toolchain_manifest(path: Path) -> dict[str, Any]:
         message = f"Rust toolchain manifest is not TOML: {path}: {error}"
         raise RepositoryConfigReadError(message) from error
 
-    toolchain = document.get("toolchain")
-    channel = toolchain.get("channel") if isinstance(toolchain, dict) else None
-    if not isinstance(channel, str) or not channel.strip():
-        message = f"Rust toolchain manifest must declare toolchain.channel: {path}"
-        raise RepositoryConfigReadError(message)
-    return document
+    match document:
+        case {"toolchain": {"channel": str() as channel}}:
+            if re.fullmatch(
+                r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
+                channel,
+            ):
+                return document
+            dated_channel = re.fullmatch(
+                r"(?:nightly|beta)-(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})",
+                channel,
+            )
+            if dated_channel is not None:
+                try:
+                    date.fromisoformat(dated_channel.group("date"))
+                except ValueError:
+                    pass
+                else:
+                    return document
+
+            message = (
+                "Rust toolchain manifest toolchain.channel must use a pinned "
+                f"version or date: {path}"
+            )
+        case _:
+            message = f"Rust toolchain manifest must declare toolchain.channel: {path}"
+    raise RepositoryConfigReadError(message)
 
 
 @pytest.fixture(scope="module")
@@ -211,6 +287,33 @@ def test_toolchain_manifest_reader_reports_input_failures(
 
     with pytest.raises(RepositoryConfigReadError, match=expected_message):
         read_rust_toolchain_manifest(path)
+
+
+@pytest.mark.parametrize(
+    ("channel", "is_pinned"),
+    [
+        pytest.param("1.2.3", True, id="versioned-release"),
+        pytest.param("nightly-2024-01-02", True, id="dated-nightly"),
+        pytest.param("beta-2024-01-02", True, id="dated-beta"),
+        pytest.param("stable", False, id="floating-stable"),
+        pytest.param("beta", False, id="floating-beta"),
+        pytest.param("nightly", False, id="floating-nightly"),
+        pytest.param("1.2", False, id="floating-patch-version"),
+        pytest.param("nightly-2024-02-30", False, id="invalid-date"),
+    ],
+)
+def test_toolchain_manifest_requires_a_pinned_channel(
+    tmp_path: Path, channel: str, is_pinned: bool
+) -> None:
+    """Accept versioned or dated channels and reject floating channels."""
+    path = tmp_path / "rust-toolchain.toml"
+    path.write_text(f'[toolchain]\nchannel = "{channel}"\n', encoding="utf-8")
+
+    if is_pinned:
+        assert read_rust_toolchain_manifest(path)["toolchain"]["channel"] == channel
+    else:
+        with pytest.raises(RepositoryConfigReadError, match="pinned version or date"):
+            read_rust_toolchain_manifest(path)
 
 
 @pytest.mark.parametrize(

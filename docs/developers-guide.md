@@ -1435,10 +1435,11 @@ toolchain changes: inspect the proposed pin and run `make check-fmt`,
 `make test-workflow-contracts` checks the Dependabot declaration and keeps the
 Cargo and GitHub Actions update groups intact. The contract reader accepts a
 `Path` and reports missing, unreadable, undecodable and malformed inputs with
-`RepositoryConfigReadError`. It validates the root manifest's TOML and channel
-as well as the Dependabot YAML. Keep this reader's helpers within
-`dependabot_config_test.py` and use them only for these two files. Workflow
-parsing remains owned by `tests/workflow_contracts/workflow_support.py`.
+`RepositoryConfigReadError`. It validates the root manifest's TOML and requires
+the channel to be an exact `X.Y.Z` version or a dated nightly or beta release.
+Keep this reader's helpers within `dependabot_config_test.py` and use them only
+for the Dependabot YAML and root Rust toolchain manifest. Workflow parsing
+remains owned by `tests/workflow_contracts/workflow_support.py`.
 
 ### Arrow and Parquet family updates
 
