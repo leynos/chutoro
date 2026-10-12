@@ -20,26 +20,27 @@ def _write_channel(path: Path, channel: str) -> None:
     path.write_text(f'[toolchain]\nchannel = "{channel}"\n', encoding="utf-8")
 
 
-@given(
-    major=_VERSION_COMPONENT,
-    minor=_VERSION_COMPONENT,
-    patch=_VERSION_COMPONENT,
-    release_date=_DATE,
-    prefix=st.sampled_from(("nightly", "beta")),
-)
-def test_generated_exact_versions_and_dated_releases_are_accepted(
-    major: int, minor: int, patch: int, release_date: date, prefix: str
-) -> None:
+@st.composite
+def _pinned_channels(draw: st.DrawFn) -> str:
+    """Generate exact versions and dated nightly or beta channels."""
+    kind = draw(st.sampled_from(("version", "nightly", "beta")))
+    if kind == "version":
+        components = draw(
+            st.lists(_VERSION_COMPONENT, min_size=3, max_size=3)
+        )
+        return ".".join(map(str, components))
+
+    release_date = draw(_DATE)
+    return f"{kind}-{release_date.isoformat()}"
+
+
+@given(channel=_pinned_channels())
+def test_generated_pinned_channels_are_accepted(channel: str) -> None:
     """Accept exact versions and every valid generated nightly or beta date."""
-    channels = (
-        f"{major}.{minor}.{patch}",
-        f"{prefix}-{release_date.isoformat()}",
-    )
     with TemporaryDirectory() as directory:
         path = Path(directory) / "rust-toolchain.toml"
-        for channel in channels:
-            _write_channel(path, channel)
-            assert read_rust_toolchain_manifest(path)["toolchain"]["channel"] == channel
+        _write_channel(path, channel)
+        assert read_rust_toolchain_manifest(path)["toolchain"]["channel"] == channel
 
 
 @st.composite
