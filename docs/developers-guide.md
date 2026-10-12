@@ -1367,6 +1367,14 @@ package-level `nextest` override owns the nested-Cargo timeout and concurrency
 policy: four required threads and a 900-second `slow-timeout`. Other tests
 retain the 60-second default per-test `slow-timeout`.
 
+The `shared_execution_config_reaches_batch_and_session_paths` property has a
+Nextest override inherited by the CI profile: `threads-required = 4` and a
+180-second `slow-timeout`. It builds a populated HNSW index through the batch
+`run` path, allocates an empty session index through `build_session`, and
+checks that both paths receive the configured settings. Reserving four Nextest
+slots limits competition from parallel tests; the timeout allows for CPU
+contention on busy shared hosts.
+
 The package build script uses a private `CompilerVersionProbe` port so its
 compiler-channel decision can be tested without launching a process. Keep that
 port local to the build script and its unit tests; it is not a general
