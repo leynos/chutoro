@@ -8,7 +8,8 @@
 //! The [`entrypoints`] submodule checks the ordinary Euclidean entry points and
 //! backend selection paths used by production code. The [`support_masks`]
 //! submodule verifies the compile-time and runtime support masks, complementing
-//! the trybuild tests that enforce nightly portable-SIMD feature gating. The
+//! the `chutoro-compile-contracts` trybuild tests that enforce nightly
+//! portable-SIMD feature gating. The
 //! [`parity`] submodule is the property-based backend parity suite: it
 //! enumerates backends through [`dispatch::enabled_backends`], resolves concrete
 //! kernels through `kernels`, and compares every enabled backend with the

@@ -1351,6 +1351,19 @@ property phases do not consume the full budget. The weekly job retains a
 All test runs use the `nextest` CI profile (`--profile ci`). Benchmark targets
 require `threads-required = 8`; see `.config/nextest.toml`.
 
+Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
+package-level `nextest` override owns the nested-Cargo timeout and concurrency
+policy: four required threads and a 300-second `slow-timeout`. Other tests
+retain the 60-second default per-test `slow-timeout`.
+
+The package build script uses a private `CompilerVersionProbe` port so its
+compiler-channel decision can be tested without launching a process. Keep that
+port local to the build script and its unit tests; it is not a general
+subprocess abstraction. The build script resolves `RUSTC`, falls back to
+`rustc`, and passes that command to the production adapter for `--version`. A
+launch failure, unsuccessful exit, or invalid UTF-8 output must fail the build
+rather than select the stable configuration.
+
 Use `.github/workflows/property-tests.yml` and `.config/nextest.toml` for the
 authoritative configuration, and `docs/property-testing-design.md` for the
 architectural rationale.
@@ -1918,6 +1931,42 @@ contracts:
 
 These contracts let `hnsw/validate.rs` and `hnsw/helpers.rs` merge cache hits
 and misses without corrupting caller buffers after a provider error.
+
+## Test-only HNSW mutation healing
+
+The mutation property harness is the only consumer of the graph-owned,
+test-only touched-node queue. Mutation helpers record a `(node, level)` pair
+when they change that adjacency list during commit, deletion, reconnection, or
+reachability repair. `CpuHnsw::heal_for_test` repairs reachability first, then
+drains the queue and enforces and validates reciprocity only for the queued
+outgoing adjacency lists. This boundary keeps the localized sweep out of
+production builds and leaves unrelated adjacency lists untouched.
+
+When changing mutation helpers, keep the queue aligned with graph state: record
+only changed lists, do not let callers add arbitrary pairs, and restore the
+queue alongside nodes and the entry point when a mutation is rolled back. Tests
+should verify that a successful healing pass drains the queue and that a failed
+mutation leaves its prior contents unchanged.
+
+For an empty insertion layer, `ReciprocityWorkspace` chooses fallback candidate
+A from the original list and puts the new node at the tail of A's final list
+before commit. The plan stages at most L existing update owners at that level,
+where L is the connection limit. With A as one owner, at most L - 1 other
+updates can add distinct reverse links to A. Commit appends each reverse link
+and removes the furthest (front) entry when full, so evicting the new node from
+the tail would need L insertions. Commit ordering therefore keeps A
+reciprocated, and `heal_connectivity_gaps` skips its candidate fallback. If the
+original candidate slice is empty, that helper falls back to the entry node
+instead. The new node's layer is empty on that first link. A non-isolated
+cleanup may queue the entry as a sentinel; the entry-node check skips it. If
+the base-layer queue retries the target, both directed edges are already
+present, so the duplicate insertions do not evict neighbours.
+
+`ConnectivityHealer` intentionally cleans only an origin-side eviction and
+ignores an eviction from the reciprocal insertion. This relies on the planner's
+owner limit, update multiplicity, and commit ordering; revisit it if any of
+those change. A direct helper call with a full destination list is outside this
+precondition and can evict on the reciprocal insertion.
 
 ## Benchmark dataset recipes
 

@@ -157,6 +157,9 @@ impl<'graph> InsertionExecutor<'graph> {
 
         touched.extend((0..=new_node.level).map(|level| (new_node.id, level)));
 
+        #[cfg(test)]
+        self.graph.record_touched_nodes(touched.iter().copied());
+
         #[cfg(any(test, debug_assertions))]
         {
             let auditor = ReciprocityAuditor::new(self.graph);
@@ -229,6 +232,7 @@ impl<'graph> InsertionExecutor<'graph> {
         }
     }
 
+    /// Restores base-layer reachability before localized reciprocity validation.
     #[cfg_attr(
         not(debug_assertions),
         expect(dead_code, reason = "test helper unused in release builds")
@@ -238,20 +242,15 @@ impl<'graph> InsertionExecutor<'graph> {
         super::test_helpers::TestHelpers::new(self.graph).heal_reachability(max_connections);
     }
 
+    /// Heals reciprocity only for adjacency lists recorded by a test mutation.
     #[cfg(test)]
-    pub(crate) fn enforce_bidirectional_all(&mut self, max_connections: usize) {
-        super::test_helpers::TestHelpers::new(self.graph)
-            .enforce_bidirectional_all(max_connections);
-    }
-
-    /// Reports the first reciprocity violation left in the graph, if any.
-    #[cfg(test)]
-    pub(crate) fn find_reciprocity_violation(
+    pub(crate) fn enforce_bidirectional_for_touched(
         &mut self,
+        touched: &[(usize, usize)],
         max_connections: usize,
-    ) -> Option<super::test_helpers::ReciprocityViolation> {
+    ) {
         super::test_helpers::TestHelpers::new(self.graph)
-            .find_reciprocity_violation(max_connections)
+            .enforce_bidirectional_for_touched(touched, max_connections);
     }
 }
 

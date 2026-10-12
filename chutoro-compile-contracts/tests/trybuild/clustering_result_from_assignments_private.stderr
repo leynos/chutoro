@@ -4,7 +4,7 @@ error[E0624]: associated function `from_assignments` is private
 6 |     let _ = ClusteringResult::from_assignments(vec![ClusterId::new(0)]);
   |                               ^^^^^^^^^^^^^^^^ private associated function
   |
- ::: src/result.rs
+ ::: $WORKSPACE/chutoro-core/src/result.rs
   |
   |     pub(crate) fn from_assignments(assignments: Vec<ClusterId>) -> Self {
   |     ------------------------------------------------------------------- private associated function defined here

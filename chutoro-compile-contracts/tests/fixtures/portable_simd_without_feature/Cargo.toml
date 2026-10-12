@@ -1,0 +1,11 @@
+[package]
+name = "portable-simd-without-feature"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "portable-simd-without-feature"
+path = "../../trybuild/portable_simd_without_feature.rs"
+
+[workspace]

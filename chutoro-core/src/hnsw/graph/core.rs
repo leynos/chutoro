@@ -1,5 +1,6 @@
 //! Internal graph representation for the CPU HNSW implementation.
 
+use super::attachment::AttachNodeError;
 use crate::hnsw::{
     error::HnswError,
     insert::{InsertionExecutor, InsertionPlanner},
@@ -8,6 +9,9 @@ use crate::hnsw::{
     search::LayerSearcher,
     types::{EntryPoint, InsertionPlan},
 };
+
+#[cfg(test)]
+use std::collections::BTreeSet;
 
 /// Context for attaching or inserting a node into the HNSW graph.
 ///
@@ -204,20 +208,8 @@ pub(crate) struct Graph {
     pub(super) nodes: Vec<Option<Node>>,
     /// Highest-level node used to enter the graph, when populated.
     pub(super) entry: Option<EntryPoint>,
-}
-
-/// Reasons a node context fails validation during attachment.
-///
-/// Shared by the production and Kani constructors so both map the same
-/// checks to their own error representations.
-#[derive(Clone, Copy, Debug)]
-pub(super) enum AttachNodeError {
-    /// The node's requested level exceeds the configured maximum.
-    LevelExceedsMax,
-    /// The node identifier lies outside the graph's preallocated slots.
-    OutsideCapacity,
-    /// The node identifier already occupies a graph slot.
-    Duplicate,
+    #[cfg(test)]
+    pub(super) touched: BTreeSet<(usize, usize)>,
 }
 
 impl Graph {
@@ -230,6 +222,8 @@ impl Graph {
             params,
             nodes: vec![None; capacity],
             entry: None,
+            #[cfg(test)]
+            touched: BTreeSet::new(),
         }
     }
 

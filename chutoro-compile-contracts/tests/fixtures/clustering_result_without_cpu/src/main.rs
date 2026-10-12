@@ -1,4 +1,4 @@
-//! Compile-fail fixture proving the CPU-only constructor is absent without CPU.
+//! Compile-fail fixture proving the CPU-only constructor is unavailable.
 
 use chutoro_core::{ClusterId, ClusteringResult};
 
