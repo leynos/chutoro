@@ -100,7 +100,7 @@ mod kani_proofs {
         ];
 
         // With valid finite weights, parallel_kruskal_from_edges should not fail
-        let Ok(forest) = parallel_kruskal_from_edges(node_count, edges.iter()) else {
+        let Ok(forest) = parallel_kruskal_from_edges(node_count, &edges) else {
             kani::assert(false, "MST computation should succeed for valid inputs");
             return;
         };
@@ -149,7 +149,7 @@ mod kani_proofs {
             candidate_or_self_loop(0, 2, 2, 2, select_02),
         ];
 
-        let Ok(forest) = parallel_kruskal_from_edges(node_count, edges.iter()) else {
+        let Ok(forest) = parallel_kruskal_from_edges(node_count, &edges) else {
             kani::assert(false, "MST computation should succeed for valid inputs");
             return;
         };
