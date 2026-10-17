@@ -19,10 +19,7 @@ fn harvest(edges: &[(usize, usize, f32, u64)]) -> EdgeHarvest {
 
 fn union_find_root(parent: &mut [usize], node: usize) -> usize {
     let mut current = node;
-    loop {
-        let Some(&current_parent) = parent.get(current) else {
-            break;
-        };
+    while let Some(&current_parent) = parent.get(current) {
         if current_parent == current {
             break;
         }
