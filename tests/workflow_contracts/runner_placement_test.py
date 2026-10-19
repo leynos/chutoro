@@ -27,6 +27,7 @@ import yaml
 from workflow_support import (
     ACTIONLINT_CONFIG,
     GITHUB_HOSTED_LABELS,
+    NON_DEPENDABOT_GUARD,
     NON_FORK_GUARD,
     PULL_REQUEST_EVENT_GUARD,
     conditional_runner,
@@ -90,7 +91,8 @@ def _paid_labels(job_definition: dict[str, typ.Any]) -> list[str]:
     []
     >>> _paid_labels(
     ...     {
-    ...         "runs-on": "${{ github.event.pull_request.head.repo.fork"
+    ...         "runs-on": "${{ (github.event.pull_request.head.repo.fork"
+    ...         " || github.event.pull_request.user.login == 'dependabot[bot]')"
     ...         " && 'ubuntu-latest' || 'ubicloud-standard-2' }}"
     ...     }
     ... )
@@ -176,7 +178,7 @@ def test_paid_pull_request_lanes_fall_back_for_forks(workflow_name: str) -> None
     Without the fallback the lane does not run slowly, it does not run: the
     job sits unassignable and the pull request never reports. So every paid
     lane reachable from a ``pull_request`` event has to name the fork test
-    and fall back to GitHub's pool, and the fallback label is checked too,
+    and the Dependabot author test, and fall back to GitHub's pool, and the fallback label is checked too,
     because falling back to another paid label would fix nothing.
     """
     workflow = load_workflow(workflow_name)
@@ -194,6 +196,10 @@ def test_paid_pull_request_lanes_fall_back_for_forks(workflow_name: str) -> None
         assert NON_FORK_GUARD in selected.guards, (
             f"{workflow_name}:{job_name} chooses a runner without the "
             f"{NON_FORK_GUARD} guard; found {sorted(selected.guards)}"
+        )
+        assert NON_DEPENDABOT_GUARD in selected.guards, (
+            f"{workflow_name}:{job_name} chooses a runner without the "
+            f"{NON_DEPENDABOT_GUARD} guard; found {sorted(selected.guards)}"
         )
         assert selected.otherwise in GITHUB_HOSTED_LABELS, (
             f"{workflow_name}:{job_name} falls back to {selected.otherwise}, "

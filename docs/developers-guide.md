@@ -27,22 +27,29 @@ No paid lane names its label outright, because a pull request from a fork
 cannot obtain an Ubicloud runner at all. Without a fallback such a job is not
 slow, it is unassignable: it sits forever and the pull request never reports.
 So every paid lane tests for the fork and falls back to GitHub's pool for that
-case alone:
+case. It falls back for a pull request Dependabot opened too: hosted minutes
+cost nothing on a public repository, and Dependabot opens many pull requests,
+which therefore build cold on the hosted pool. The test reads the pull
+request's author, not `github.actor`, because the actor is whoever triggered
+the run, so a person pushing to a Dependabot branch would flip the runner:
 
 ```yaml
 runs-on: >-
-  ${{ github.event.pull_request.head.repo.fork
+  ${{ (github.event.pull_request.head.repo.fork
+  || github.event.pull_request.user.login == 'dependabot[bot]')
   && 'ubuntu-latest' || 'ubicloud-standard-2' }}
 ```
 
 Two of the paid jobs also serve a weekly cron, and neither pays for it, so they
 carry both conditions at once. Written positively, the paid label is the one
-taken when the lane is a pull request and its head is not a fork:
+taken when the lane is a pull request, its head is not a fork and its author is
+not Dependabot:
 
 ```yaml
 runs-on: >-
   ${{ github.event_name == 'pull_request'
   && !github.event.pull_request.head.repo.fork
+  && github.event.pull_request.user.login != 'dependabot[bot]'
   && 'ubicloud-standard-2' || 'ubuntu-latest' }}
 ```
 
@@ -77,9 +84,10 @@ test on a sibling field and report it as the guard it is not.
 
 That narrowness is contracted rather than asserted. The mutations run against
 it swap `head.repo.fork` for `head.repo.private` in an otherwise identical
-expression, and drop the fork guard from a lane that keeps the event guard.
-Both are rejected. A future selector on some other condition gets its own entry
-in the guard table rather than a looser pattern here.
+expression, drop the fork guard from a lane that keeps the event guard, and
+drop the Dependabot author test or swap it for `github.actor`. Both are
+rejected. A future selector on some other condition gets its own entry in the
+guard table rather than a looser pattern here.
 
 It ran on `ubicloud-standard-8` until the shape was measured. On eight cores
 the whole "Run property suite" step, compilation and 250 cases together, took
@@ -215,21 +223,21 @@ shows no figure there.
 
 Table: Every workflow job, the runner it uses, and what it does.
 
-| Workflow                    | Job                          | Runner                                                                      | Purpose                                       |
-| --------------------------- | ---------------------------- | --------------------------------------------------------------------------- | --------------------------------------------- |
-| `benchmark-regressions.yml` | `benchmark-policy`           | `ubicloud-standard-2` on a non-fork pull request, `ubuntu-latest` otherwise | Resolve the benchmark mode and matrix         |
-| `benchmark-regressions.yml` | `benchmark-smoke`            | `ubicloud-standard-2` on a non-fork pull request, `ubuntu-latest` otherwise | Criterion discovery smoke check               |
-| `benchmark-regressions.yml` | `benchmark-baseline-compare` | `ubuntu-latest`                                                             | Compare against the previous commit           |
-| `ci.yml`                    | `build-test`                 | `ubicloud-standard-4`, `ubuntu-latest` for a fork                           | Format, lint, spelling, contracts, coverage   |
-| `ci.yml`                    | `verus-proofs`               | `ubicloud-standard-2`, `ubuntu-latest` for a fork                           | Verus edge-harvest proofs                     |
-| `coverage-main.yml`         | `coverage-upload`            | `ubicloud-standard-4`                                                       | Upload trunk coverage and advance the ratchet |
-| `dependabot-automerge.yml`  | `automerge`                  | callee-selected                                                             | Reusable workflow, API-bound                  |
-| `kani-pr.yml`               | `kani`                       | `ubicloud-standard-2`, `ubuntu-latest` for a fork                           | Kani practical harnesses                      |
-| `mutation-testing.yml`      | `mutation`                   | callee-selected                                                             | Reusable workflow, scheduled                  |
-| `nightly-kani.yml`          | `kani-full`                  | `ubuntu-latest`                                                             | Full Kani harness suite                       |
-| `nightly-portable-simd.yml` | `nightly-portable-simd`      | `ubuntu-latest`                                                             | Nightly portable-SIMD backend                 |
-| `property-tests.yml`        | `property-tests-pr`          | `ubicloud-standard-2`, `ubuntu-latest` for a fork                           | Pull-request property suites                  |
-| `property-tests.yml`        | `property-tests-weekly`      | `ubuntu-latest`                                                             | Weekly deep property suites                   |
+| Workflow                    | Job                          | Runner                                                                                      | Purpose                                       |
+| --------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| `benchmark-regressions.yml` | `benchmark-policy`           | `ubicloud-standard-2` on a non-fork, non-Dependabot pull request, `ubuntu-latest` otherwise | Resolve the benchmark mode and matrix         |
+| `benchmark-regressions.yml` | `benchmark-smoke`            | `ubicloud-standard-2` on a non-fork, non-Dependabot pull request, `ubuntu-latest` otherwise | Criterion discovery smoke check               |
+| `benchmark-regressions.yml` | `benchmark-baseline-compare` | `ubuntu-latest`                                                                             | Compare against the previous commit           |
+| `ci.yml`                    | `build-test`                 | `ubicloud-standard-4`, `ubuntu-latest` for a fork                                           | Format, lint, spelling, contracts, coverage   |
+| `ci.yml`                    | `verus-proofs`               | `ubicloud-standard-2`, `ubuntu-latest` for a fork                                           | Verus edge-harvest proofs                     |
+| `coverage-main.yml`         | `coverage-upload`            | `ubicloud-standard-4`                                                                       | Upload trunk coverage and advance the ratchet |
+| `dependabot-automerge.yml`  | `automerge`                  | callee-selected                                                                             | Reusable workflow, API-bound                  |
+| `kani-pr.yml`               | `kani`                       | `ubicloud-standard-2`, `ubuntu-latest` for a fork                                           | Kani practical harnesses                      |
+| `mutation-testing.yml`      | `mutation`                   | callee-selected                                                                             | Reusable workflow, scheduled                  |
+| `nightly-kani.yml`          | `kani-full`                  | `ubuntu-latest`                                                                             | Full Kani harness suite                       |
+| `nightly-portable-simd.yml` | `nightly-portable-simd`      | `ubuntu-latest`                                                                             | Nightly portable-SIMD backend                 |
+| `property-tests.yml`        | `property-tests-pr`          | `ubicloud-standard-2`, `ubuntu-latest` for a fork                                           | Pull-request property suites                  |
+| `property-tests.yml`        | `property-tests-weekly`      | `ubuntu-latest`                                                                             | Weekly deep property suites                   |
 
 ### Tool installers
 
