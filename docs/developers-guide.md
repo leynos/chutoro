@@ -1094,7 +1094,7 @@ feature-boundary tests now run in `chutoro-compile-contracts`. Its package
 override reserves four test slots and 900 seconds in both `default` and `ci`,
 giving cold nested builds room to pass through shared compiler queues. The
 benchmark smoke test runs nested release-mode `cargo bench` commands, so it
-also reserves eight slots and 900 seconds. Tests in
+also reserves eight slots and 1,800 seconds. Tests in
 `chutoro-core/tests/nextest_config.rs` pin the compile-contract and benchmark
 smoke allowances to the authoritative overrides in `.config/nextest.toml`.
 
