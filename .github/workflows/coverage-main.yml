@@ -65,7 +65,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@e693d81d176d2305e2b736a0be0f9038085dec7f
+        uses: leynos/shared-actions/.github/actions/setup-rust@81374b6f183e59f0570ad36217ded90d3240fda6
         with:
           install-mold: 'true'
           # mozilla-actions/sccache-action writes GitHub's cache endpoint
@@ -137,11 +137,11 @@ jobs:
       # installed. The shared action owns the installer binary and the
       # ~/.local/share/whitaker cache for this job.
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@e693d81d176d2305e2b736a0be0f9038085dec7f
+        uses: leynos/shared-actions/.github/actions/install-whitaker@81374b6f183e59f0570ad36217ded90d3240fda6
       - name: Lint
         run: make lint
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@e693d81d176d2305e2b736a0be0f9038085dec7f
+        uses: leynos/shared-actions/.github/actions/generate-coverage@81374b6f183e59f0570ad36217ded90d3240fda6
         env:
           # The cargo watchdog, one of four tiers that can end a run. It must
           # stay above the 40 m nextest global-timeout in .config/nextest.toml
@@ -199,7 +199,7 @@ jobs:
         # trigger above can be started from any branch, and CodeScene would
         # take that branch's report as the project's.
         if: steps.codescene-credential.outputs.available == 'true' && github.ref == 'refs/heads/main'
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@e693d81d176d2305e2b736a0be0f9038085dec7f
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@81374b6f183e59f0570ad36217ded90d3240fda6
         with:
           format: lcov
           project-url: https://api.codescene.io/v2/projects/71838
