@@ -12,9 +12,10 @@ const BENCH_SLOW_TIMEOUT: &str =
 
 const LONG_BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"900s\", terminate-after = 1, grace-period = \"5s\" }";
-const TRYBUILD_SLOW_TIMEOUT: &str =
-    "slow-timeout = { period = \"300s\", terminate-after = 1, grace-period = \"5s\" }";
-const NESTED_BENCH_SMOKE_TIMEOUT: &str = TRYBUILD_SLOW_TIMEOUT;
+const NESTED_CARGO_SLOW_TIMEOUT: &str =
+    "slow-timeout = { period = \"900s\", terminate-after = 1, grace-period = \"5s\" }";
+const NESTED_BENCH_SMOKE_TIMEOUT: &str =
+    "slow-timeout = { period = \"1800s\", terminate-after = 1, grace-period = \"5s\" }";
 
 /// Returns the raw override blocks declared for one Nextest profile.
 fn override_blocks(profile_name: &str) -> Vec<&'static str> {
@@ -163,7 +164,7 @@ fn nextest_profiles_keep_compile_contract_timeout_guard(#[case] profile_name: &s
         [
             "filter = \"package(chutoro-compile-contracts)\"",
             "threads-required = 4",
-            TRYBUILD_SLOW_TIMEOUT,
+            NESTED_CARGO_SLOW_TIMEOUT,
         ]
     );
 }
@@ -177,6 +178,20 @@ fn default_profile_serializes_nested_benchmark_smoke_test() {
             "benchmark_binaries_cover_discovery_and_exact_smoke_paths",
             "threads-required = 8",
             NESTED_BENCH_SMOKE_TIMEOUT,
+        ]
+    );
+}
+
+/// Verifies the default profile reserves threads and time for the shared
+/// execution property test.
+#[test]
+fn default_profile_reserves_threads_for_shared_execution_property() {
+    assert_override_present!(
+        "default",
+        [
+            "filter = \"test(/shared_execution_config_reaches_batch_and_session_paths/)\"",
+            "threads-required = 4",
+            "slow-timeout = { period = \"180s\", terminate-after = 1, grace-period = \"5s\" }",
         ]
     );
 }

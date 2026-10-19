@@ -1,8 +1,9 @@
-"""A YAML loader for workflows that refuses what PyYAML would resolve silently.
+"""A safe YAML loader for contract documents that rejects duplicate keys.
 
 PyYAML keeps the last of two equal mapping keys and reports nothing. Every
-workflow contract reads its documents through this loader instead, so a
-duplicate is a failure the contract names rather than a value it never saw.
+workflow and repository-configuration contract reads its document through
+this loader instead, so a duplicate is a failure the contract names rather
+than a value it never saw.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -12,7 +13,7 @@ import typing as typ
 import yaml
 
 
-class StrictWorkflowLoader(yaml.SafeLoader):
+class StrictYamlLoader(yaml.SafeLoader):
     """A safe loader that refuses a mapping declaring one key twice.
 
     PyYAML keeps the last of two equal keys and says nothing, so a job
@@ -31,7 +32,7 @@ class StrictWorkflowLoader(yaml.SafeLoader):
 
 
 def _construct_unique_mapping(
-    loader: StrictWorkflowLoader, node: yaml.MappingNode, *, deep: bool = False
+    loader: StrictYamlLoader, node: yaml.MappingNode, *, deep: bool = False
 ) -> dict[typ.Any, typ.Any]:
     """Construct one mapping, refusing a key it has already declared."""
     loader.flatten_mapping(node)
@@ -49,7 +50,7 @@ def _construct_unique_mapping(
     return loader.construct_mapping(node, deep=deep)
 
 
-StrictWorkflowLoader.add_constructor(
+StrictYamlLoader.add_constructor(
     yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping
 )
 
@@ -62,4 +63,4 @@ def parse_workflow_text(text: str) -> object:
     >>> parse_workflow_text("on: push\\n")
     {True: 'push'}
     """
-    return yaml.load(text, Loader=StrictWorkflowLoader)
+    return yaml.load(text, Loader=StrictYamlLoader)

@@ -1087,6 +1087,17 @@ them with humantime, which sums a sequence of value-and-unit pairs, so `5m`,
 for each, dropped the override from the extending set, and reported the tests
 it covers as uncovered on a configuration nextest accepts.
 
+The timeouts also record the work each test performs. The shared-execution
+property builds HNSW indexes through the batch and session paths, so it
+reserves four test slots and 180 seconds. The clustering-result
+feature-boundary tests now run in `chutoro-compile-contracts`. Its package
+override reserves four test slots and 900 seconds in both `default` and `ci`,
+giving cold nested builds room to pass through shared compiler queues. The
+benchmark smoke test runs nested release-mode `cargo bench` commands, so it
+also reserves eight slots and 1,800 seconds. Tests in
+`chutoro-core/tests/nextest_config.rs` pin the compile-contract and benchmark
+smoke allowances to the authoritative overrides in `.config/nextest.toml`.
+
 ### The cargo watchdog is the tier nobody expects
 
 The first two tiers are nextest's. The watchdog belongs to the shared
@@ -1353,8 +1364,16 @@ require `threads-required = 8`; see `.config/nextest.toml`.
 
 Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
 package-level `nextest` override owns the nested-Cargo timeout and concurrency
-policy: four required threads and a 300-second `slow-timeout`. Other tests
+policy: four required threads and a 900-second `slow-timeout`. Other tests
 retain the 60-second default per-test `slow-timeout`.
+
+The `shared_execution_config_reaches_batch_and_session_paths` property has a
+Nextest override inherited by the CI profile: `threads-required = 4` and a
+180-second `slow-timeout`. It builds a populated HNSW index through the batch
+`run` path, allocates an empty session index through `build_session`, and
+checks that both paths receive the configured settings. Reserving four Nextest
+slots limits competition from parallel tests; the timeout allows for CPU
+contention on busy shared hosts.
 
 The package build script uses a private `CompilerVersionProbe` port so its
 compiler-channel decision can be tested without launching a process. Keep that
@@ -1424,6 +1443,32 @@ proxy is confirmed to intercept v6.1.0's traffic specifically. That is a
 compatibility fact about a release rather than a floating preference, so a
 Dependabot bump must be revalidated against the proxy and the constant updated
 deliberately in the same pull request. No other pin is asserted by value.
+
+#### Rust toolchain updates
+
+The `rust-toolchain` Dependabot entry watches the root `rust-toolchain.toml`
+file weekly. It opens at most five pull requests at a time and applies the
+`dependencies` and `rust-toolchain` labels. Review these pull requests as
+toolchain changes: inspect the proposed pin and run `make check-fmt`,
+`make lint`, `make typecheck` and `make test` before merging.
+`make test-workflow-contracts` checks the Dependabot declaration and keeps the
+Cargo and GitHub Actions update groups intact. The contract reader accepts a
+`Path` and reports missing, unreadable, undecodable and malformed inputs with
+`RepositoryConfigReadError`. It validates the root manifest's TOML and requires
+the channel to be an exact `X.Y.Z` version or a dated nightly or beta release.
+The finite examples name important channel boundaries; Hypothesis properties
+also exercise generated versions, dated releases and malformed channel forms.
+
+Keep the path-aware readers and channel validation within
+`dependabot_config_test.py`. Its contract tests and
+`dependabot_channel_properties_test.py` are the only callers. Dependabot YAML
+and workflow contract readers share duplicate-key rejection through
+`StrictYamlLoader` in `tests/workflow_contracts/strict_yaml.py`. The Dependabot
+contract uses that loader directly in `dependabot_config_test.py`. Workflow
+text is parsed by `parse_workflow_text`: `workflow_support.py` uses it when
+reading workflow documents, and `pr_concurrency_test.py` uses it for its own
+workflow input. Keep shared workflow document reads behind
+`workflow_support.py`, and do not use this loader as an application YAML API.
 
 ### Arrow and Parquet family updates
 
