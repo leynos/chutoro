@@ -94,6 +94,8 @@ def read_dependabot_document(path: Path) -> dict[str, Any]:
     """
     text = read_configuration_text(path, description="Dependabot configuration")
     try:
+        # This SafeLoader subclass retains PyYAML protections and rejects duplicate
+        # mapping keys.
         document = yaml.load(text, Loader=StrictYamlLoader)
     except yaml.YAMLError as error:
         message = f"Dependabot configuration is not YAML: {path}: {error}"
@@ -104,6 +106,38 @@ def read_dependabot_document(path: Path) -> dict[str, Any]:
         case _:
             message = f"Dependabot configuration must parse to a mapping: {path}"
             raise RepositoryConfigReadError(message)
+
+
+def _is_pinned_channel(channel: str) -> bool:
+    """Return whether a Rust channel is an exact version or dated release.
+
+    Examples
+    --------
+    >>> _is_pinned_channel("1.93.1")
+    True
+    >>> _is_pinned_channel("nightly-2026-10-13")
+    True
+    >>> _is_pinned_channel("stable")
+    False
+    """
+    if re.fullmatch(
+        r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
+        channel,
+    ):
+        return True
+
+    dated_channel = re.fullmatch(
+        r"(?:nightly|beta)-(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})",
+        channel,
+    )
+    if dated_channel is None:
+        return False
+
+    try:
+        date.fromisoformat(dated_channel.group("date"))
+    except ValueError:
+        return False
+    return True
 
 
 def read_rust_toolchain_manifest(path: Path) -> dict[str, Any]:
@@ -140,23 +174,8 @@ def read_rust_toolchain_manifest(path: Path) -> dict[str, Any]:
 
     match document:
         case {"toolchain": {"channel": str() as channel}}:
-            if re.fullmatch(
-                r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
-                channel,
-            ):
+            if _is_pinned_channel(channel):
                 return document
-            dated_channel = re.fullmatch(
-                r"(?:nightly|beta)-(?P<date>[0-9]{4}-[0-9]{2}-[0-9]{2})",
-                channel,
-            )
-            if dated_channel is not None:
-                try:
-                    date.fromisoformat(dated_channel.group("date"))
-                except ValueError:
-                    pass
-                else:
-                    return document
-
             message = (
                 "Rust toolchain manifest toolchain.channel must use a pinned "
                 f"version or date: {path}"

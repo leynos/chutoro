@@ -1463,11 +1463,12 @@ Keep the path-aware readers and channel validation within
 `dependabot_config_test.py`. Its contract tests and
 `dependabot_channel_properties_test.py` are the only callers. Dependabot YAML
 and workflow contract readers share duplicate-key rejection through
-`StrictYamlLoader` in `tests/workflow_contracts/strict_yaml.py`; the permitted
-call sites are `dependabot_config_test.py` and
-`tests/workflow_contracts/workflow_support.py`. Keep workflow document reads
-behind `workflow_support.py`, and do not use this loader as an application YAML
-API.
+`StrictYamlLoader` in `tests/workflow_contracts/strict_yaml.py`. The Dependabot
+contract uses that loader directly in `dependabot_config_test.py`. Workflow
+text is parsed by `parse_workflow_text`: `workflow_support.py` uses it when
+reading workflow documents, and `pr_concurrency_test.py` uses it for its own
+workflow input. Keep shared workflow document reads behind
+`workflow_support.py`, and do not use this loader as an application YAML API.
 
 ### Arrow and Parquet family updates
 
