@@ -4,7 +4,7 @@
 //! (`compiled_simd_support`, `runtime_simd_support`) behave correctly given
 //! the active feature gates and target architecture. Complementary compile-time
 //! tests enforce the stable/nightly portable-SIMD gating contract at build time
-//! via trybuild in `chutoro-compile-contracts/tests/portable_simd_gating.rs`.
+//! through the fixtures in `chutoro-compile-contracts/tests/`.
 
 use super::super::dispatch::{
     self, CompiledSimdSupport, CpuSimdSupport, RuntimeSimdSupport, compiled_simd_support,
@@ -15,10 +15,11 @@ use super::super::dispatch::{
 /// feature gates and target architecture.
 ///
 /// Complementary compile-time checks for the nightly portable-SIMD matrix are
-/// provided by the trybuild fixtures in
-/// `chutoro-compile-contracts/tests/trybuild/`:
-/// - `portable_simd_without_feature.rs` (compile-fail when feature absent)
-/// - `portable_simd_with_feature.rs` (compile-pass when feature present)
+/// provided by the compile-contract fixtures:
+/// - the isolated Cargo fixture for `portable_simd_without_feature.rs`
+///   (compile-fail when the feature is absent)
+/// - the trybuild fixture for `portable_simd_with_feature.rs`
+///   (compile-pass when the feature is present)
 #[test]
 fn compiled_support_matches_active_target_and_feature_gates() {
     let expected = CompiledSimdSupport::new(

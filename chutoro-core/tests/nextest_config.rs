@@ -13,7 +13,7 @@ const BENCH_SLOW_TIMEOUT: &str =
 const LONG_BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"900s\", terminate-after = 1, grace-period = \"5s\" }";
 const NESTED_CARGO_SLOW_TIMEOUT: &str =
-    "slow-timeout = { period = \"900s\", terminate-after = 1, grace-period = \"5s\" }";
+    "slow-timeout = { period = \"1800s\", terminate-after = 1, grace-period = \"5s\" }";
 const NESTED_BENCH_SMOKE_TIMEOUT: &str =
     "slow-timeout = { period = \"1800s\", terminate-after = 1, grace-period = \"5s\" }";
 
@@ -155,15 +155,18 @@ fn default_profile_covers_idempotency_rstest_case_4_timeout() {
 }
 
 #[rstest]
-#[case("default")]
-#[case("ci")]
+#[case("default", "threads-required = 8")]
+#[case("ci", "threads-required = 4")]
 /// Verifies both Nextest profiles reserve capacity and time for compile contracts.
-fn nextest_profiles_keep_compile_contract_timeout_guard(#[case] profile_name: &str) {
+fn nextest_profiles_keep_compile_contract_timeout_guard(
+    #[case] profile_name: &str,
+    #[case] threads_required: &str,
+) {
     assert_override_present!(
         profile_name,
         [
             "filter = \"package(chutoro-compile-contracts)\"",
-            "threads-required = 4",
+            threads_required,
             NESTED_CARGO_SLOW_TIMEOUT,
         ]
     );
