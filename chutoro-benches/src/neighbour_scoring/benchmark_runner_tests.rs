@@ -3,7 +3,7 @@
 use std::{cell::RefCell, io, rc::Rc};
 
 use camino::Utf8PathBuf;
-use criterion::{BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Throughput};
 use mockable::MockEnv;
 
 use super::{
@@ -79,11 +79,9 @@ fn orchestration_writes_reports_before_all_scoring_cases() {
     let lane_events = Rc::clone(&events);
     let build_events = Rc::clone(&events);
     let scoring_events = Rc::clone(&events);
-    let mut criterion = Criterion::default();
     let env = configured_profile_env("false");
 
     neighbour_scoring_impl_with(
-        &mut criterion,
         &env,
         (
             move |_| {
@@ -95,14 +93,16 @@ fn orchestration_writes_reports_before_all_scoring_cases() {
                 Ok(())
             },
         ),
-        move |_, dimension, bucket| {
-            scoring_events.borrow_mut().push((
-                "score",
-                dimension,
-                bucket.kind_name(),
-                bucket.size(),
-            ));
-            Ok(())
+        move || {
+            super::register_scoring_plan(|dimension, bucket| {
+                scoring_events.borrow_mut().push((
+                    "score",
+                    dimension,
+                    bucket.kind_name(),
+                    bucket.size(),
+                ));
+                Ok(())
+            })
         },
     )
     .expect("orchestration must succeed");
@@ -119,14 +119,12 @@ fn orchestration_writes_reports_before_all_scoring_cases() {
 
 #[test]
 fn orchestration_propagates_scoring_errors() {
-    let mut criterion = Criterion::default();
     let env = configured_profile_env("false");
 
-    let error =
-        neighbour_scoring_impl_with(&mut criterion, &env, (|_| Ok(()), |_| Ok(())), |_, _, _| {
-            Err(BenchError::Io(io::Error::other("scoring failed")))
-        })
-        .expect_err("scoring failure must propagate");
+    let error = neighbour_scoring_impl_with(&env, (|_| Ok(()), |_| Ok(())), || {
+        super::register_scoring_plan(|_, _| Err(BenchError::Io(io::Error::other("scoring failed"))))
+    })
+    .expect_err("scoring failure must propagate");
 
     assert!(matches!(error, BenchError::Io(_)));
 }
@@ -163,10 +161,8 @@ fn build_profile_directory(profile_value: &'static str) -> super::BenchResult<Op
     let env = configured_profile_env(profile_value);
     let build_profile_directory = Rc::new(RefCell::new(None));
     let captured_directory = Rc::clone(&build_profile_directory);
-    let mut criterion = Criterion::default();
 
     neighbour_scoring_impl_with(
-        &mut criterion,
         &env,
         (
             |_| Ok(()),
@@ -175,7 +171,7 @@ fn build_profile_directory(profile_value: &'static str) -> super::BenchResult<Op
                 Ok(())
             },
         ),
-        |_, _, _| Ok(()),
+        || super::register_scoring_plan(|_, _| Ok(())),
     )?;
 
     Ok(build_profile_directory.borrow().clone())
