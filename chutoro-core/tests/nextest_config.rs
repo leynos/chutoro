@@ -154,10 +154,10 @@ fn default_profile_covers_idempotency_rstest_case_4_timeout() {
     );
 }
 
+/// Verifies both Nextest profiles reserve capacity and time for compile contracts.
 #[rstest]
 #[case("default", "threads-required = 8")]
 #[case("ci", "threads-required = 4")]
-/// Verifies both Nextest profiles reserve capacity and time for compile contracts.
 fn nextest_profiles_keep_compile_contract_timeout_guard(
     #[case] profile_name: &str,
     #[case] threads_required: &str,
