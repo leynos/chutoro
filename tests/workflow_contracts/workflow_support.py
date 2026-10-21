@@ -254,6 +254,26 @@ def _parse_guards(condition: str) -> frozenset[str] | None:
     return frozenset(typ.cast("set[str]", guards))
 
 
+def _runner_from_arms(
+    condition: str, when_true: str, when_false: str
+) -> ConditionalRunner | None:
+    """Return the runner a recognized condition and its two arms describe.
+
+    The fork-or-Dependabot condition puts the hosted label first, so the paid
+    label is the falsy arm; the positive event conditions put it first.
+    """
+    if condition == _HOSTED_TEST:
+        return ConditionalRunner(
+            when_false,
+            when_true,
+            frozenset({NON_FORK_GUARD, NON_DEPENDABOT_GUARD}),
+        )
+    guards = _parse_guards(condition)
+    if guards is None:
+        return None
+    return ConditionalRunner(when_true, when_false, guards)
+
+
 def conditional_runner(
     job_definition: dict[str, typ.Any],
 ) -> ConditionalRunner | None:
@@ -344,19 +364,9 @@ def conditional_runner(
     match = CONDITIONAL_RUNS_ON.match(runs_on.strip())
     if match is None:
         return None
-    condition = match.group("condition")
-    when_true = match.group("when_true")
-    when_false = match.group("when_false")
-    if condition == _HOSTED_TEST:
-        return ConditionalRunner(
-            when_false,
-            when_true,
-            frozenset({NON_FORK_GUARD, NON_DEPENDABOT_GUARD}),
-        )
-    guards = _parse_guards(condition)
-    if guards is None:
-        return None
-    return ConditionalRunner(when_true, when_false, guards)
+    return _runner_from_arms(
+        match.group("condition"), match.group("when_true"), match.group("when_false")
+    )
 
 
 def is_reusable_call(job_definition: dict[str, typ.Any]) -> bool:
