@@ -41,7 +41,7 @@ fn clustering_result_api_is_checked_without_cpu() {
 
     let stderr = str::from_utf8(&output.stderr).expect("cargo stderr must be utf-8");
     assert!(
-        stderr.contains("no function or associated item named `from_assignments`"),
+        stderr.contains("no associated function or constant named `from_assignments`"),
         "cpu-disabled result API fixture did not reject `from_assignments`:\n{}",
         String::from_utf8_lossy(&output.stderr),
     );
