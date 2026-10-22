@@ -2109,7 +2109,7 @@ Typos cannot match as whole phrases.
 ## The build standard
 
 Development, test, lint, and typecheck builds use the `mold` linker on Linux;
-the parallel frontend flag is nightly-only, and the pinned `1.93.1` is stable,
+the parallel frontend flag is nightly-only, and the pinned `1.99.1` is stable,
 so it is not used. These are defaults in `.cargo/config.toml`, which Cargo
 discovers on its own, so a bare `cargo build` gets them. `mold` ships for Linux
 only, so the linker flag lives in a Linux-only table and macOS and Windows keep
@@ -2152,5 +2152,5 @@ it cannot outlive that command.
 ### Cranelift
 
 Exception: Cranelift is not the development-profile backend, because Cranelift
-requires a nightly toolchain and this repository pins the stable `1.93.1`
+requires a nightly toolchain and this repository pins the stable `1.99.1`
 (recorded 2026-09-29). Revisit if the repository moves to a nightly pin.
