@@ -254,7 +254,7 @@ fn matrix_provider_distance_batch_empty() {
     provider
         .distance_batch(&pairs, &mut out)
         .expect("empty batch must succeed");
-    assert!(out.is_empty());
+    assert_eq!(out, [] as [f32; 0]);
 }
 
 /// Scalar Euclidean oracle for the matrix-provider tests.

@@ -163,7 +163,7 @@ def read_rust_toolchain_manifest(path: Path) -> dict[str, Any]:
     Examples
     --------
     >>> read_rust_toolchain_manifest(Path("rust-toolchain.toml"))["toolchain"]["channel"]
-    '1.93.1'
+    '1.99.1'
     """
     text = read_configuration_text(path, description="Rust toolchain manifest")
     try:

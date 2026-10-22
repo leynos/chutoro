@@ -100,6 +100,6 @@ mod tests {
         let mut node = Node::new(0, 0);
 
         assert!(node.neighbours_mut(1).is_none());
-        assert!(node.neighbours(1).is_empty());
+        assert_eq!(node.neighbours(1), [] as [usize; 0]);
     }
 }

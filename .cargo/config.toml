@@ -1,7 +1,7 @@
 # The development build standard (concordat rule `rust-build-defaults`): on
 # Linux, the `mold` linker is the default for every development, test, lint
 # and typecheck build. Cargo auto-discovers this file, so a bare `cargo build`
-# gets it too. The pin is the stable `1.93.1`, so the nightly-only parallel
+# gets it too. The pin is the stable `1.99.1`, so the nightly-only parallel
 # frontend flag and the Cranelift backend are not used (see "The build
 # standard" in docs/developers-guide.md).
 #

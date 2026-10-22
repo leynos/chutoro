@@ -67,7 +67,7 @@ fn lattice_graph_has_valid_structure(#[case] seed: u64) {
     assert_all_edges_valid(&graph);
 
     // Lattice should always produce edges.
-    assert!(!graph.edges.is_empty());
+    assert_ne!(graph.edges, [] as [crate::hnsw::types::CandidateEdge; 0]);
 }
 
 #[rstest]
