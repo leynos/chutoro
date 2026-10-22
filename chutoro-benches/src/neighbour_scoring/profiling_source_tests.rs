@@ -66,7 +66,7 @@ fn profiling_source_initializes_counters_to_zero() {
     assert_eq!(stats.scalar_calls, 0);
     assert_eq!(stats.total_batch_candidates, 0);
     assert!(stats.batch_scoring_time.is_zero());
-    assert!(stats.batch_sizes.is_empty());
+    assert_eq!(stats.batch_sizes, [] as [usize; 0]);
 }
 
 #[test]
@@ -102,5 +102,5 @@ fn profiling_source_records_batches_and_resets_snapshots() {
     assert_eq!(reset.scalar_calls, 0);
     assert_eq!(reset.total_batch_candidates, 0);
     assert!(reset.batch_scoring_time.is_zero());
-    assert!(reset.batch_sizes.is_empty());
+    assert_eq!(reset.batch_sizes, [] as [usize; 0]);
 }

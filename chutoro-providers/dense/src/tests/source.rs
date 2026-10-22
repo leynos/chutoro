@@ -62,13 +62,13 @@ fn distance_batch_empty_pairs() {
     let mut out = Vec::new();
     ds.distance_batch(&pairs, &mut out)
         .expect("empty batches must be allowed");
-    assert!(out.is_empty());
+    assert_eq!(out, [] as [f32; 0]);
 
     let mut prefilled = vec![42.0, 99.0];
     prefilled.clear();
     ds.distance_batch(&pairs, &mut prefilled)
         .expect("empty batches must leave cleared buffers untouched");
-    assert!(prefilled.is_empty());
+    assert_eq!(prefilled, [] as [f32; 0]);
 }
 
 #[rstest]

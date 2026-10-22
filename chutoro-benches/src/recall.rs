@@ -289,7 +289,7 @@ mod tests {
             distances: vec![vec![0.0, 0.5], vec![0.5, 0.0]],
         };
         let result = brute_force_top_k(&source, 0, 0).expect("k=0 must succeed");
-        assert!(result.is_empty());
+        assert_eq!(result, [] as [chutoro_core::Neighbour; 0]);
     }
 
     #[rstest]
