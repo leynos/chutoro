@@ -297,13 +297,13 @@ mod tests {
         let mut reconciler = EdgeReconciler::new(&mut graph);
 
         assert!(reconciler.remove_reverse_edge(&update_context(0), 1));
-        assert!(
+        assert_eq!(
             reconciler
                 .graph
                 .node(1)
                 .expect("target node must be present")
-                .neighbours(0)
-                .is_empty()
+                .neighbours(0),
+            [] as [usize; 0]
         );
     }
 
@@ -320,13 +320,13 @@ mod tests {
         let mut reconciler = EdgeReconciler::new(&mut graph);
 
         assert!(!reconciler.remove_reverse_edge(&update_context(1), 1));
-        assert!(
+        assert_eq!(
             reconciler
                 .graph
                 .node(1)
                 .expect("target node must be present")
-                .neighbours(1)
-                .is_empty()
+                .neighbours(1),
+            [] as [usize; 0]
         );
     }
 

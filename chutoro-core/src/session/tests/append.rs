@@ -20,7 +20,7 @@ fn append_empty_slice_is_noop(session_builder: ChutoroBuilder) {
 
     assert_eq!(session.point_count(), 0);
     assert_eq!(session.snapshot_version(), 0);
-    assert!(session.pending_edges.is_empty());
+    assert_eq!(session.pending_edges, [] as [crate::hnsw::CandidateEdge; 0]);
 }
 
 #[rstest]
@@ -31,7 +31,7 @@ fn append_single_index_increases_point_count(session_builder: ChutoroBuilder) {
 
     assert_eq!(session.point_count(), 1);
     assert_eq!(session.snapshot_version(), 0);
-    assert!(session.pending_edges.is_empty());
+    assert_eq!(session.pending_edges, [] as [crate::hnsw::CandidateEdge; 0]);
 }
 
 #[rstest]

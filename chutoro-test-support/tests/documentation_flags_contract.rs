@@ -240,7 +240,10 @@ fn a_configuration_with_no_source_proves_nothing() {
 
 #[test]
 fn a_rustflags_array_spread_over_lines_is_refused() {
-    assert_ne!(config_problems(SPREAD_ARRAY), [] as [std::string::String; 0]);
+    assert_ne!(
+        config_problems(SPREAD_ARRAY),
+        [] as [std::string::String; 0]
+    );
 }
 
 #[test]
@@ -264,10 +267,16 @@ fn an_assignment_that_loses_a_flag_is_refused_unless_it_is_the_exempt_command() 
     let lacking = assignments_in("RUSTFLAGS=\"-Dmissing_docs\" cargo clippy\n");
     assert_eq!(assignment_problems("lint", &lacking).len(), 1);
     let whitaker = assignments_in("RUSTFLAGS=\"-D warnings\" whitaker --all\n");
-    assert_eq!(assignment_problems("lint", &whitaker), [] as [std::string::String; 0]);
+    assert_eq!(
+        assignment_problems("lint", &whitaker),
+        [] as [std::string::String; 0]
+    );
     let complete =
         assignments_in("RUSTFLAGS=\"-Dmissing_docs -Dmissing_crate_level_docs\" cargo clippy\n");
-    assert_eq!(assignment_problems("lint", &complete), [] as [std::string::String; 0]);
+    assert_eq!(
+        assignment_problems("lint", &complete),
+        [] as [std::string::String; 0]
+    );
 }
 
 #[test]

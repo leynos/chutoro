@@ -309,7 +309,7 @@ impl DataSource for MatrixSource {
 fn brute_force_top_k_returns_empty_when_k_is_zero() {
     let source = MatrixSource::new(vec![vec![0.0, 0.5], vec![0.5, 0.0]]);
     let neighbours = brute_force_top_k(&source, 0, 0).expect("k=0 should succeed");
-    assert!(neighbours.is_empty());
+    assert_eq!(neighbours, [] as [crate::hnsw::types::Neighbour; 0]);
 }
 
 #[cfg(test)]
@@ -329,7 +329,7 @@ fn brute_force_top_k_returns_all_when_k_exceeds_len() {
 fn brute_force_top_k_handles_empty_source() {
     let source = MatrixSource::new(Vec::new());
     let neighbours = brute_force_top_k(&source, 0, 1).expect("empty source should be ok");
-    assert!(neighbours.is_empty());
+    assert_eq!(neighbours, [] as [crate::hnsw::types::Neighbour; 0]);
 }
 
 #[cfg(test)]

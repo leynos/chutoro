@@ -19,10 +19,7 @@ fn harvest(edges: &[(usize, usize, f32, u64)]) -> EdgeHarvest {
 
 fn union_find_root(parent: &mut [usize], node: usize) -> usize {
     let mut current = node;
-    loop {
-        let Some(&current_parent) = parent.get(current) else {
-            break;
-        };
+    while let Some(&current_parent) = parent.get(current) {
         if current_parent == current {
             break;
         }
@@ -139,7 +136,7 @@ fn returns_empty_forest_when_no_edges_are_usable() {
     let result = parallel_kruskal(node_count, &edges).expect("graph must be accepted");
     assert_eq!(result.component_count(), node_count);
     assert!(!result.is_tree());
-    assert!(result.edges().is_empty());
+    assert_eq!(result.edges(), []);
 }
 
 #[test]
