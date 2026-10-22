@@ -106,29 +106,31 @@ fn bench_case(
 /// Run the neighbour-scoring benchmark with production report writers.
 fn neighbour_scoring_impl(c: &mut Criterion) -> BenchResult<()> {
     neighbour_scoring_impl_with(
-        c,
         &DefaultEnv,
         (
             |report_parent_dir| write_lane_utilisation_report(report_parent_dir).map(drop),
             |report_parent_dir| write_build_profile_report(report_parent_dir).map(drop),
         ),
-        bench_case,
+        || {
+            let mut group = c.benchmark_group("neighbour_scoring");
+            configure_group(&mut group);
+            let result = register_scoring_plan(|dimension, bucket| {
+                bench_case(&mut group, dimension, bucket)
+            });
+            group.finish();
+            result
+        },
     )
 }
 
-/// Run the benchmark with injected report writers and case registration.
+/// Run the benchmark setup with injected report writers and case registration.
 fn neighbour_scoring_impl_with(
-    c: &mut Criterion,
     env: &dyn Env,
     report_writers: (
         impl FnOnce(&Utf8Path) -> BenchResult<()>,
         impl FnOnce(Option<&Utf8Path>) -> BenchResult<()>,
     ),
-    mut scoring_case: impl FnMut(
-        &mut BenchmarkGroup<'_, WallTime>,
-        usize,
-        CandidateBucket,
-    ) -> BenchResult<()>,
+    register_cases: impl FnOnce() -> BenchResult<()>,
 ) -> BenchResult<()> {
     let report_parent_dir = report_parent_dir_with_env(env);
     let build_profile_target = build_profile_report_target_value(
@@ -141,12 +143,16 @@ fn neighbour_scoring_impl_with(
     let (lane_report_writer, build_profile_writer) = report_writers;
     lane_report_writer(&report_parent_dir)?;
     build_profile_writer(build_profile_report_dir)?;
-    let mut group = c.benchmark_group("neighbour_scoring");
-    configure_group(&mut group);
+    register_cases()
+}
+
+/// Apply one registration callback to every neighbour-scoring case.
+fn register_scoring_plan(
+    mut register_case: impl FnMut(usize, CandidateBucket) -> BenchResult<()>,
+) -> BenchResult<()> {
     for (dimension, bucket) in scoring_plan() {
-        scoring_case(&mut group, dimension, bucket)?;
+        register_case(dimension, bucket)?;
     }
-    group.finish();
     Ok(())
 }
 

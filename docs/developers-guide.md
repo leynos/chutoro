@@ -1091,10 +1091,11 @@ The timeouts also record the work each test performs. The shared-execution
 property builds HNSW indexes through the batch and session paths, so it
 reserves four test slots and 180 seconds. The clustering-result
 feature-boundary tests now run in `chutoro-compile-contracts`. Its package
-override reserves four test slots and 900 seconds in both `default` and `ci`,
-giving cold nested builds room to pass through shared compiler queues. The
-benchmark smoke test runs nested release-mode `cargo bench` commands, so it
-also reserves eight slots and 1,800 seconds. Tests in
+override reserves eight test slots and 1,800 seconds in `default`; the `ci`
+profile reserves four slots and the same timeout. This serializes nested Cargo
+builds while giving cold fixture builds room to pass through shared compiler
+queues. The benchmark smoke test runs nested release-mode `cargo bench`
+commands, so it also reserves eight slots and 1,800 seconds. Tests in
 `chutoro-core/tests/nextest_config.rs` pin the compile-contract and benchmark
 smoke allowances to the authoritative overrides in `.config/nextest.toml`.
 
@@ -1364,8 +1365,13 @@ require `threads-required = 8`; see `.config/nextest.toml`.
 
 Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
 package-level `nextest` override owns the nested-Cargo timeout and concurrency
-policy: four required threads and a 900-second `slow-timeout`. Other tests
-retain the 60-second default per-test `slow-timeout`.
+policy: eight required threads and a 1,800-second `slow-timeout` in `default`,
+and four required threads with the same timeout in `ci`. Other tests retain the
+60-second default per-test `slow-timeout`.
+
+The stable portable-SIMD no-feature check invokes its isolated Cargo fixture
+manifest directly, clears `RUSTC_BOOTSTRAP`, and asserts the `E0658`
+diagnostic. This avoids trybuild's inherited feature set for that contract.
 
 The `shared_execution_config_reaches_batch_and_session_paths` property has a
 Nextest override inherited by the CI profile: `threads-required = 4` and a
@@ -1888,7 +1894,10 @@ but production crates must not depend on it. Prefer pure helpers without
 Criterion types for reusable selection and planning rules. Where a complete
 runner must cross the separate-crate boundary between a benchmark target and
 the support library, expose only a `#[doc(hidden)]` entrypoint; keep its
-constituent helpers private to the support crate and compose them there.
+constituent helpers private to the support crate and compose them there. The
+neighbour-scoring registration loop stays private to its runner and applies
+that benchmark's plan to its Criterion group. Its callback is a local test
+seam; other benchmarks should keep their own group and case registration.
 
 Run the benchmark directly when comparing code changes:
 

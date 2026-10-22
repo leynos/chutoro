@@ -49,7 +49,7 @@ _Table 1: Top-level file responsibilities._
 | Path                         | Responsibility                                                        |
 | ---------------------------- | --------------------------------------------------------------------- |
 | `chutoro-core/`              | Core library implementation and its crate-local tests.                |
-| `chutoro-compile-contracts/` | Shared compile-contract tests and their trybuild fixtures.            |
+| `chutoro-compile-contracts/` | Compile-contract tests and trybuild/Cargo fixtures.                   |
 | `chutoro-cli/`               | Command-line application crate and user-facing command orchestration. |
 | `chutoro-providers/`         | Provider implementations grouped by provider family.                  |
 | `chutoro-benches/`           | Benchmark crate, benchmark harnesses, and benchmark support code.     |
@@ -105,8 +105,9 @@ Generated tooling directories must not be edited by hand:
 - Feature files for BDD tests live under `tests/features/` in the crate that
   owns the behaviour.
 - Compile-contract tests use dedicated integration-test binaries in
-  `chutoro-compile-contracts/`, with their trybuild fixtures under that
-  package's `tests/trybuild/` directory.
+  `chutoro-compile-contracts/`. Trybuild fixtures live under `tests/trybuild/`,
+  and isolated Cargo fixture manifests live under `tests/fixtures/` within that
+  package.
 
 ## Core session module
 
