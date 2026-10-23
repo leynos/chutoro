@@ -66,7 +66,7 @@ jobs:
       # leaving a server writing to a local directory nothing ever moves.
       - &setup_rust_step
         name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@2aed718022775671809f8c85a2c10547dfb1ae13
+        uses: leynos/shared-actions/.github/actions/setup-rust@48fb12fc10bd4e821adab564db95dce51e16f58a
         with:
           install-mold: 'true'
           use-sccache: 'false'
