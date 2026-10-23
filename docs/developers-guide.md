@@ -228,15 +228,15 @@ Table: Every workflow job, the runner it uses, and what it does.
 | `benchmark-regressions.yml` | `benchmark-policy`           | `ubicloud-standard-2` on a non-fork, non-Dependabot pull request, `ubuntu-latest` otherwise | Resolve the benchmark mode and matrix         |
 | `benchmark-regressions.yml` | `benchmark-smoke`            | `ubicloud-standard-2` on a non-fork, non-Dependabot pull request, `ubuntu-latest` otherwise | Criterion discovery smoke check               |
 | `benchmark-regressions.yml` | `benchmark-baseline-compare` | `ubuntu-latest`                                                                             | Compare against the previous commit           |
-| `ci.yml`                    | `build-test`                 | `ubicloud-standard-4`, `ubuntu-latest` for a fork                                           | Format, lint, spelling, contracts, coverage   |
-| `ci.yml`                    | `verus-proofs`               | `ubicloud-standard-2`, `ubuntu-latest` for a fork                                           | Verus edge-harvest proofs                     |
+| `ci.yml`                    | `build-test`                 | `ubicloud-standard-4`, `ubuntu-latest` for a fork or Dependabot                             | Format, lint, spelling, contracts, coverage   |
+| `ci.yml`                    | `verus-proofs`               | `ubicloud-standard-2`, `ubuntu-latest` for a fork or Dependabot                             | Verus edge-harvest proofs                     |
 | `coverage-main.yml`         | `coverage-upload`            | `ubicloud-standard-4`                                                                       | Upload trunk coverage and advance the ratchet |
 | `dependabot-automerge.yml`  | `automerge`                  | callee-selected                                                                             | Reusable workflow, API-bound                  |
-| `kani-pr.yml`               | `kani`                       | `ubicloud-standard-2`, `ubuntu-latest` for a fork                                           | Kani practical harnesses                      |
+| `kani-pr.yml`               | `kani`                       | `ubicloud-standard-2`, `ubuntu-latest` for a fork or Dependabot                             | Kani practical harnesses                      |
 | `mutation-testing.yml`      | `mutation`                   | callee-selected                                                                             | Reusable workflow, scheduled                  |
 | `nightly-kani.yml`          | `kani-full`                  | `ubuntu-latest`                                                                             | Full Kani harness suite                       |
 | `nightly-portable-simd.yml` | `nightly-portable-simd`      | `ubuntu-latest`                                                                             | Nightly portable-SIMD backend                 |
-| `property-tests.yml`        | `property-tests-pr`          | `ubicloud-standard-2`, `ubuntu-latest` for a fork                                           | Pull-request property suites                  |
+| `property-tests.yml`        | `property-tests-pr`          | `ubicloud-standard-2`, `ubuntu-latest` for a fork or Dependabot                             | Pull-request property suites                  |
 | `property-tests.yml`        | `property-tests-weekly`      | `ubuntu-latest`                                                                             | Weekly deep property suites                   |
 
 ### Tool installers
