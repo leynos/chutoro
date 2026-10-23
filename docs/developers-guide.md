@@ -2116,6 +2116,17 @@ only, so the linker flag lives in a Linux-only table and macOS and Windows keep
 their platform linker. Cargo selects one `rustflags` source rather than merging
 them, so every source repeats the same flags apart from the linker.
 
+The default development profile in `Cargo.toml` sets `incremental = false` and
+`debug = 0`, per the Concordat `rust-dev-build-footprint` rule. Development
+builds therefore keep no incremental compilation state and no debug
+information, which cuts the intermediate artefacts a build writes to disk. The
+cost is that a debugger sees no symbols or line tables in a default development
+build, and every rebuild recompiles whole crates. To debug, build with a
+profile that sets `debug` explicitly, or override on the command line, for
+example `CARGO_PROFILE_DEV_DEBUG=true cargo build`; set `CARGO_INCREMENTAL=1`
+to re-enable incremental rebuilds locally. The pinned `1.99.1` is stable, so
+the rule's unstable metadata key does not apply.
+
 An assigned `RUSTFLAGS` replaces the configuration's flags, so the Makefile
 recipes that set it compose the standard's flags onto any inherited value (CI's
 `setup-rust` exports one). Two builds are deliberately excluded: coverage
