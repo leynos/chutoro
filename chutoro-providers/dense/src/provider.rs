@@ -3,7 +3,7 @@ use std::path::Path;
 
 use arrow_array::{Array, FixedSizeListArray, RecordBatchReader};
 
-use chutoro_core::{DataSource, DataSourceError};
+use chutoro_core::{DataSource, DataSourceError, PointPair};
 use parquet::arrow::{ProjectionMask, arrow_reader::ParquetRecordBatchReaderBuilder};
 use parquet::file::reader::ChunkReader;
 
@@ -162,23 +162,23 @@ impl DataSource for DenseMatrixProvider {
         Ok(simd::euclidean_distance(simd::RowSlice::new(a), simd::RowSlice::new(b)).get())
     }
 
-    fn distance_batch(
-        &self,
-        pairs: &[(usize, usize)],
-        out: &mut [f32],
-    ) -> Result<(), DataSourceError> {
+    fn distance_batch(&self, pairs: &[PointPair], out: &mut [f32]) -> Result<(), DataSourceError> {
         if pairs.len() != out.len() {
             return Err(DataSourceError::OutputLengthMismatch {
                 out: out.len(),
                 expected: pairs.len(),
             });
         }
+        let raw_pairs: Vec<(usize, usize)> = pairs
+            .iter()
+            .map(|pair| (pair.left(), pair.right()))
+            .collect();
         let matrix = simd::RowMajorMatrix::new(
             simd::MatrixValues::new(&self.values),
             simd::RowCount::new(self.rows),
             simd::Dimension::new(self.dimension),
         );
         let mut out_buffer = simd::DistanceBuffer::new(out);
-        simd::euclidean_distance_batch_raw_pairs(matrix, pairs, &mut out_buffer)
+        simd::euclidean_distance_batch_raw_pairs(matrix, &raw_pairs, &mut out_buffer)
     }
 }
