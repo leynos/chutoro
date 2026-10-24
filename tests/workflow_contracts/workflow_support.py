@@ -200,6 +200,11 @@ PULL_REQUEST_EVENT_GUARD = "pull-request event"
 #: cannot obtain one at all, so the lane would not start without it.
 NON_FORK_GUARD = "non-fork head"
 
+#: The guard that keeps a Dependabot pull request off a paid runner. Hosted
+#: minutes cost nothing on a public repository, and Dependabot opens many
+#: pull requests.
+NON_DEPENDABOT_GUARD = "non-Dependabot author"
+
 #: The whole of a conditional ``runs-on``: one condition, then the label
 #: taken when it holds and the label taken when it does not. Parsing the
 #: outer shape and the condition separately is what lets the contracts ask
@@ -213,12 +218,22 @@ CONDITIONAL_RUNS_ON = re.compile(
 #: The fork test, written the one way the estate writes it.
 _FORK_TEST = "github.event.pull_request.head.repo.fork"
 
+#: The Dependabot test: the pull request's author, not ``github.actor``. The
+#: actor is whoever triggered the run, so a person pushing to a Dependabot
+#: branch would flip the runner.
+_DEPENDABOT_TEST = "github.event.pull_request.user.login == 'dependabot[bot]'"
+_NOT_DEPENDABOT_TEST = "github.event.pull_request.user.login != 'dependabot[bot]'"
+
+#: The condition a lane that only ever runs on pull requests carries.
+_HOSTED_TEST = f"({_FORK_TEST} || {_DEPENDABOT_TEST})"
+
 #: Each condition atom the contracts recognize, and the guard it supplies.
 #: Exact strings, not patterns: a looser match would accept a condition
 #: that tests a sibling field and report it as the guard it is not.
 _GUARD_ATOMS: typ.Final[dict[str, str]] = {
     "github.event_name == 'pull_request'": PULL_REQUEST_EVENT_GUARD,
     f"!{_FORK_TEST}": NON_FORK_GUARD,
+    _NOT_DEPENDABOT_TEST: NON_DEPENDABOT_GUARD,
 }
 
 
@@ -239,14 +254,34 @@ def _parse_guards(condition: str) -> frozenset[str] | None:
     return frozenset(typ.cast("set[str]", guards))
 
 
+def _runner_from_arms(
+    condition: str, when_true: str, when_false: str
+) -> ConditionalRunner | None:
+    """Return the runner a recognized condition and its two arms describe.
+
+    The fork-or-Dependabot condition puts the hosted label first, so the paid
+    label is the falsy arm; the positive event conditions put it first.
+    """
+    if condition == _HOSTED_TEST:
+        return ConditionalRunner(
+            when_false,
+            when_true,
+            frozenset({NON_FORK_GUARD, NON_DEPENDABOT_GUARD}),
+        )
+    guards = _parse_guards(condition)
+    if guards is None:
+        return None
+    return ConditionalRunner(when_true, when_false, guards)
+
+
 def conditional_runner(
     job_definition: dict[str, typ.Any],
 ) -> ConditionalRunner | None:
     """Return the labels and guards of a conditional ``runs-on``.
 
     Two shapes are recognized, and only two. A lane that runs only on pull
-    requests names the fork test first, because the fork is the case that
-    must fall back; a lane that also serves a schedule names the positive
+    requests names the fork and Dependabot tests first, because those are the
+    cases that must fall back; a lane that also serves a schedule names the positive
     conditions first and joins them with ``&&``. Both are normalized here
     to the label a non-fork pull request takes, the label everything else
     takes, and the guards the condition actually supplies, so a contract
@@ -271,28 +306,32 @@ def conditional_runner(
 
     Examples
     --------
-    A lane that only ever runs on a pull request guards the fork alone:
+    A lane that only ever runs on a pull request guards the fork and the
+    Dependabot author:
 
-    >>> conditional_runner(
+    >>> both = conditional_runner(
     ...     {
-    ...         "runs-on": "${{ github.event.pull_request.head.repo.fork"
+    ...         "runs-on": "${{ (github.event.pull_request.head.repo.fork"
+    ...         " || github.event.pull_request.user.login == 'dependabot[bot]')"
     ...         " && 'ubuntu-latest' || 'ubicloud-standard-2' }}"
     ...     }
     ... )
-    ConditionalRunner(paid='ubicloud-standard-2', otherwise='ubuntu-latest', guards=frozenset({'non-fork head'}))
+    >>> both.paid, sorted(both.guards)
+    ('ubicloud-standard-2', ['non-Dependabot author', 'non-fork head'])
 
     A lane that also serves a cron guards both, and the guards are what a
     contract reads:
 
-    >>> both = conditional_runner(
+    >>> cron = conditional_runner(
     ...     {
     ...         "runs-on": "${{ github.event_name == 'pull_request'"
     ...         " && !github.event.pull_request.head.repo.fork"
+    ...         " && github.event.pull_request.user.login != 'dependabot[bot]'"
     ...         " && 'ubicloud-standard-2' || 'ubuntu-latest' }}"
     ...     }
     ... )
-    >>> both.paid, sorted(both.guards)
-    ('ubicloud-standard-2', ['non-fork head', 'pull-request event'])
+    >>> cron.paid, sorted(cron.guards)
+    ('ubicloud-standard-2', ['non-Dependabot author', 'non-fork head', 'pull-request event'])
 
     A plain label, or a condition on some other field, is not one of these:
 
@@ -305,9 +344,10 @@ def conditional_runner(
     because a docstring holding the escape would end this example's line:
 
     >>> broken = (
-    ...     "${{ github.event.pull_request.head.repo.fork"
+    ...     "${{ (github.event.pull_request.head.repo.fork"
     ...     + chr(10)
-    ...     + "&& 'ubuntu-latest' || 'ubicloud-standard-2' }}"
+    ...     + "|| github.event.pull_request.user.login == 'dependabot[bot]')"
+    ...     + " && 'ubuntu-latest' || 'ubicloud-standard-2' }}"
     ... )
     >>> conditional_runner({"runs-on": broken}) is None
     True
@@ -324,15 +364,9 @@ def conditional_runner(
     match = CONDITIONAL_RUNS_ON.match(runs_on.strip())
     if match is None:
         return None
-    condition = match.group("condition")
-    when_true = match.group("when_true")
-    when_false = match.group("when_false")
-    if condition == _FORK_TEST:
-        return ConditionalRunner(when_false, when_true, frozenset({NON_FORK_GUARD}))
-    guards = _parse_guards(condition)
-    if guards is None:
-        return None
-    return ConditionalRunner(when_true, when_false, guards)
+    return _runner_from_arms(
+        match.group("condition"), match.group("when_true"), match.group("when_false")
+    )
 
 
 def is_reusable_call(job_definition: dict[str, typ.Any]) -> bool:

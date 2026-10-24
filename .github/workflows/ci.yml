@@ -13,8 +13,13 @@ jobs:
   build-test:
     # A pull request from a fork cannot obtain an Ubicloud runner, so it
     # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
+    # Dependabot pull requests run on the hosted pool too (free on a public
+    # repository). The author is tested, not the actor, which changes when
+    # someone else pushes to the branch.
     runs-on: >-
-      ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-4' }}
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-4' }}
     # Above the 4,200 s cargo watchdog on the coverage step plus the 900 s
     # of work either side of it, and fifteen minutes above that sum rather
     # than equal to it. A ceiling sitting on its requirement cancels the
@@ -224,7 +229,9 @@ jobs:
     # A pull request from a fork cannot obtain an Ubicloud runner, so it
     # falls back to GitHub's hosted pool. Estate rule, 2026-09-15.
     runs-on: >-
-      ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'ubicloud-standard-2' }}
+      ${{ (github.event.pull_request.head.repo.fork
+      || github.event.pull_request.user.login == 'dependabot[bot]')
+      && 'ubuntu-latest' || 'ubicloud-standard-2' }}
     timeout-minutes: 30
     permissions:
       contents: read
