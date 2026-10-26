@@ -26,7 +26,7 @@ mockable = { workspace = true }
 [dev-dependencies]
 bytes = "1.10"
 proptest = "1.8.0"
-rstest = "0.27"
+rstest = "0.28"
 test-strategy = "0.4.3"
 
 [dev-dependencies.chutoro-test-support]
