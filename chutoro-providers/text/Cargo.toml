@@ -15,7 +15,7 @@ default-features = false
 features = ["skeleton"]
 
 [dev-dependencies]
-rstest = "0.27"
+rstest = "0.28"
 
 [lints]
 workspace = true
