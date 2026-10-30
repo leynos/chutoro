@@ -26,7 +26,7 @@ jobs:
     permissions:
       contents: read
       id-token: write # OIDC workflow-source resolution
-    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@8e6a325765ba382691d1b1c65fcccf1fc1d1b00c
+    uses: leynos/shared-actions/.github/workflows/mutation-cargo.yml@872f59f53717b5bebe8e24b2f4a7496b089a939a
     with:
       # .cargo/config.toml links with mold on Linux; the reusable workflow installs it.
       install-mold: 'true'
