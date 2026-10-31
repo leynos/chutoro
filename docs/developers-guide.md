@@ -759,8 +759,12 @@ state. Subprocess tests may configure a child explicitly with `Command::env` or
 Whitaker is a Dylint lint suite that runs as a commit gate alongside Clippy.
 `make lint` runs `lint-clippy` (rustdoc plus Clippy) followed by
 `lint-whitaker`, which invokes the `whitaker` wrapper with
-`RUSTFLAGS="-D warnings"` over `--all-targets --all-features`. Individual lints
-are referenced elsewhere in this guide where they apply: the
+`RUSTFLAGS="-D warnings"` over `--all-targets --all-features`. That literal
+`RUSTFLAGS` is the isolation boundary: Whitaker runs under the toolchain its
+installer manages, so it takes none of the development standard (no `mold`
+linker flag and no inherited `RUSTFLAGS`), and
+`tests/workflow_contracts/whitaker_isolation_test.py` holds the boundary.
+Individual lints are referenced elsewhere in this guide where they apply: the
 [fallible fixture policy](#fallible-fixture-policy) covers
 `no_expect_outside_tests`, and the
 [support-module boundaries](#support-module-boundaries) section covers the
