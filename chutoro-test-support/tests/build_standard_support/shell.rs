@@ -5,8 +5,8 @@
 /// one needs no `RUSTFLAGS`. Every other Cargo subcommand, and Whitaker, compiles or runs
 /// code, and a development or held-out recipe must assign the flags it takes there.
 const INSPECTION_SUBCOMMANDS: &[&str] = &[
-    "fmt", "metadata", "fetch", "doc", "install", "binstall", "audit", "deny", "machete", "version",
-    "help",
+    "fmt", "metadata", "fetch", "doc", "install", "binstall", "audit", "deny", "machete",
+    "version", "help",
 ];
 
 /// Returns whether a command runs a tool that compiles or runs code: Whitaker, or Cargo with a
