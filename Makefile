@@ -69,7 +69,8 @@ KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
 # frontend flag is not used. An assigned RUSTFLAGS replaces every
 # `rustflags` table in .cargo/config.toml, so each recipe that sets it
 # composes this onto any inherited value (CI's setup-rust exports one),
-# except coverage, which stays on the platform linker.
+# except coverage, which stays on the platform linker, and Whitaker, which runs
+# under the toolchain its installer manages and takes none of the standard.
 BUILD_HOST_OS := $(shell uname -s)
 STANDARD_LINKER_FLAGS := $(if $(filter Linux,$(BUILD_HOST_OS)),-Clink-arg=-fuse-ld=mold)
 STANDARD_RUSTFLAGS := -Dmissing_docs -Dmissing_crate_level_docs $(STANDARD_LINKER_FLAGS)
