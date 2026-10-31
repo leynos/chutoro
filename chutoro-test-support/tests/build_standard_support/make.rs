@@ -121,9 +121,21 @@ pub fn commands_from(stdout: &str) -> Result<Vec<Assignment>, String> {
         .filter(|command| command.contains("cargo") || command.contains("whitaker"))
         .map(|command| match assigned_rustflags(&command)? {
             Assignment::Unassigned if compiles(&command) => Ok(Assignment::Bare(command)),
+            // Whitaker runs under the toolchain its installer manages, so it takes none of the
+            // development standard. Its literal `RUSTFLAGS="-D warnings"` is the isolation
+            // boundary the build-defaults rule (BD-008) asks for, not a missing assignment.
+            Assignment::Flags(..) if is_isolated_whitaker(&command) => Ok(Assignment::Unassigned),
             other => Ok(other),
         })
         .collect()
+}
+
+/// Returns whether a command is Whitaker under the literal warning-only `RUSTFLAGS` boundary.
+fn is_isolated_whitaker(command: &str) -> bool {
+    command
+        .strip_prefix("RUSTFLAGS=\"-D warnings\" ")
+        .and_then(|rest| rest.split_whitespace().next())
+        .is_some_and(|binary| binary.rsplit('/').next() == Some("whitaker"))
 }
 
 /// A Makefile target name, typed so a runner takes a target and not just any text.
