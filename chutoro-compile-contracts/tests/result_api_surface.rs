@@ -29,6 +29,8 @@ fn clustering_result_api_is_checked_without_cpu() {
         .arg("check")
         .arg("--manifest-path")
         .arg(fixture_dir.join("Cargo.toml"))
+        .arg("--offline")
+        .arg("--locked")
         .arg("--quiet")
         .env("CARGO_TARGET_DIR", target_dir)
         .output()
