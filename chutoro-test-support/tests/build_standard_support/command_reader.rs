@@ -8,8 +8,9 @@ use super::make::{Assignment, commands_from};
 /// Scenario: `make -n` output for commands that assign no `RUSTFLAGS`.
 ///
 /// Invariant: a build, test or lint command that assigns nothing is read as bare, which a
-/// development recipe must not leave; a formatter, a metadata probe and a documentation
-/// build stay unassigned, because they run no compiled code under test.
+/// development recipe must not leave; a formatter, a metadata probe, a documentation
+/// build and Whitaker under its literal warning-only boundary stay unassigned, because they run
+/// no compiled code under test or, for Whitaker, run under the installer's own toolchain.
 #[rstest]
 #[case::cargo_test("cargo test\n", Assignment::Bare("cargo test".to_owned()))]
 #[case::cargo_by_path("/home/user/.cargo/bin/cargo test --workspace\n", Assignment::Bare("/home/user/.cargo/bin/cargo test --workspace".to_owned()))]
@@ -17,6 +18,7 @@ use super::make::{Assignment, commands_from};
 #[case::clippy("cargo clippy --all-targets\n", Assignment::Bare("cargo clippy --all-targets".to_owned()))]
 #[case::typecheck("cargo check --workspace\n", Assignment::Bare("cargo check --workspace".to_owned()))]
 #[case::whitaker("whitaker --all\n", Assignment::Bare("whitaker --all".to_owned()))]
+#[case::isolated_whitaker("RUSTFLAGS=\"-D warnings\" whitaker --all\n", Assignment::Unassigned)]
 #[case::llvm_cov("cargo llvm-cov nextest\n", Assignment::Bare("cargo llvm-cov nextest".to_owned()))]
 #[case::version_probe("cargo nextest --version\n", Assignment::Unassigned)]
 #[case::formatter("cargo fmt --all --check\n", Assignment::Unassigned)]

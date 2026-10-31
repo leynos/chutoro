@@ -759,8 +759,12 @@ state. Subprocess tests may configure a child explicitly with `Command::env` or
 Whitaker is a Dylint lint suite that runs as a commit gate alongside Clippy.
 `make lint` runs `lint-clippy` (rustdoc plus Clippy) followed by
 `lint-whitaker`, which invokes the `whitaker` wrapper with
-`RUSTFLAGS="-D warnings"` over `--all-targets --all-features`. Individual lints
-are referenced elsewhere in this guide where they apply: the
+`RUSTFLAGS="-D warnings"` over `--all-targets --all-features`. That literal
+`RUSTFLAGS` is the isolation boundary: Whitaker runs under the toolchain its
+installer manages, so it takes none of the development standard (no `mold`
+linker flag and no inherited `RUSTFLAGS`), and
+`tests/workflow_contracts/whitaker_isolation_test.py` holds the boundary.
+Individual lints are referenced elsewhere in this guide where they apply: the
 [fallible fixture policy](#fallible-fixture-policy) covers
 `no_expect_outside_tests`, and the
 [support-module boundaries](#support-module-boundaries) section covers the
@@ -2137,13 +2141,15 @@ the rule's unstable metadata key does not apply.
 
 An assigned `RUSTFLAGS` replaces the configuration's flags, so the Makefile
 recipes that set it compose the standard's flags onto any inherited value (CI's
-`setup-rust` exports one). Two builds are deliberately excluded: coverage
+`setup-rust` exports one). Three builds are deliberately excluded: coverage
 assigns `RUSTFLAGS` without the fast flags, because a measurement should not
-depend on them, and the release recipe and workflow keep the platform linker,
+depend on them, the release recipe and workflow keep the platform linker,
 because they assign `RUSTFLAGS` (even an empty value displaces the
-configuration). Cargo has no per-profile `rustflags`, so a direct
-`cargo build --release` takes the configuration's flags unless `RUSTFLAGS` is
-assigned too.
+configuration), and the `lint-whitaker` recipe assigns the literal
+`RUSTFLAGS="-D warnings"`, because Whitaker runs under the toolchain its
+installer manages (see "Whitaker lint suite"). Cargo has no per-profile
+`rustflags`, so a direct `cargo build --release` takes the configuration's
+flags unless `RUSTFLAGS` is assigned too.
 
 On Linux, install `mold` before building: the configuration names it, so a
 build without it fails at link time. CI installs it through `setup-rust`'s
