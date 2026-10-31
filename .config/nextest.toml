@@ -2,6 +2,19 @@
 # The tests that start a compiler (the compile contracts and the benchmark smoke
 # test) share one serial group, so their nested builds do not compete for cores or
 # the package-cache lock (the Concordat `nested-cargo-nextest` rule).
+# Fetch the locked dependencies before any test starts, so a nested Cargo build in a
+# test does not resolve them while holding the shared package-cache lock (NC-008).
+[scripts.setup.fetch-locked]
+command = "cargo fetch --locked"
+
+[[profile.default.scripts]]
+filter = "all()"
+setup = "fetch-locked"
+
+[[profile.ci.scripts]]
+filter = "all()"
+setup = "fetch-locked"
+
 [test-groups]
 nested-cargo = { max-threads = 1 }
 

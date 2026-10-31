@@ -119,6 +119,11 @@ jobs:
       # The commands are duplicated from ci.yml rather than shared, because
       # YAML anchors do not cross files. The contract is what keeps them
       # equal.
+      - name: Fetch locked dependencies
+        # Before any step that runs tests, so a nested Cargo build in a test does
+        # not resolve them while holding the shared package-cache lock (the
+        # Concordat nested-cargo-offline-tests rule, NC-008).
+        run: cargo fetch --locked
       - name: Dense stable SIMD gating
         # An assigned RUSTFLAGS replaces .cargo/config.toml's rustflags, so
         # the step restates the build standard's linker flag beside the deny.

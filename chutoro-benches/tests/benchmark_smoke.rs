@@ -12,7 +12,16 @@ type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 
 fn cargo_bench_output(bench: &str, criterion_args: &[&str]) -> TestResult<String> {
     let mut command = Command::new(env!("CARGO"));
-    command.args(["bench", "-p", "chutoro-benches", "--bench", bench, "--"]);
+    command.args([
+        "bench",
+        "--offline",
+        "--locked",
+        "-p",
+        "chutoro-benches",
+        "--bench",
+        bench,
+        "--",
+    ]);
     command.args(criterion_args);
     command.env("CHUTORO_BENCH_HNSW_MEMORY_PROFILE", "0");
     command.env("CHUTORO_BENCH_HNSW_RECALL_REPORT", "0");
