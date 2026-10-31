@@ -31,7 +31,8 @@ const CI: Listed = Listed {
         env!("CARGO_MANIFEST_DIR"),
         "/../.github/workflows/ci.yml"
     )),
-    cargo_steps: 1,
+    // The locked-dependency fetch and the dense SIMD gating.
+    cargo_steps: 2,
 };
 
 const COVERAGE_MAIN: Listed = Listed {
@@ -40,7 +41,8 @@ const COVERAGE_MAIN: Listed = Listed {
         env!("CARGO_MANIFEST_DIR"),
         "/../.github/workflows/coverage-main.yml"
     )),
-    cargo_steps: 1,
+    // The locked-dependency fetch and the dense SIMD gating.
+    cargo_steps: 2,
 };
 
 const LISTED: &[Listed] = &[
