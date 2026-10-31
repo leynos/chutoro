@@ -42,6 +42,8 @@ fn session_api_is_unavailable_without_cpu_feature() {
         .arg("--manifest-path")
         .arg(fixture_dir.join("Cargo.toml"))
         .arg("--no-default-features")
+        .arg("--offline")
+        .arg("--locked")
         .arg("--quiet")
         .env("CARGO_TARGET_DIR", &target_dir)
         .output()

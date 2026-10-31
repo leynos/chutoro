@@ -176,10 +176,12 @@ def test_nightly_lane_runs_portable_simd_compile_contract() -> None:
         if "cargo +nightly test" in script
     ]
     assert (
-        "RUSTUP_TOOLCHAIN=nightly cargo +nightly test -p chutoro-compile-contracts --features "
-        "nightly_portable_simd --test portable_simd_gating" in commands
+        "cargo fetch --locked && RUSTUP_TOOLCHAIN=nightly cargo +nightly test "
+        "-p chutoro-compile-contracts --features nightly_portable_simd "
+        "--test portable_simd_gating" in commands
     ), (
-        "nightly lane must run RUSTUP_TOOLCHAIN=nightly cargo +nightly test "
+        "nightly lane must fetch the locked dependencies, then run "
+        "RUSTUP_TOOLCHAIN=nightly cargo +nightly test "
         "-p chutoro-compile-contracts --features nightly_portable_simd "
         "--test portable_simd_gating"
     )
@@ -193,8 +195,8 @@ def test_nightly_lane_runs_portable_simd_contract_without_feature() -> None:
         if "cargo +nightly test" in script
     ]
     assert (
-        "RUSTUP_TOOLCHAIN=nightly cargo +nightly test -p chutoro-compile-contracts "
-        "--test portable_simd_gating" in commands
+        "cargo fetch --locked && RUSTUP_TOOLCHAIN=nightly cargo +nightly test "
+        "-p chutoro-compile-contracts --test portable_simd_gating" in commands
     ), "nightly lane must run the portable SIMD compile contract without its feature"
 
 
