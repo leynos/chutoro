@@ -21,10 +21,12 @@ from workflow_support import ROOT
 #: Records one invocation per line, arguments separated by tabs, then exits
 #: with the status the test asks for.
 RECORDER = r"""#!/bin/sh
-for arg in "$@"; do
-  printf '%s\t' "$arg"
-done
-printf '\n'
+{
+  for arg in "$@"; do
+    printf '%s\t' "$arg"
+  done
+  printf '\n'
+} >> "$FAKE_PROVER_LOG"
 exit "${FAKE_PROVER_STATUS:-0}"
 """
 
