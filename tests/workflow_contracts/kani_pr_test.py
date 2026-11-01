@@ -41,6 +41,8 @@ CHECKOUT_RE = re.compile(r"^actions/checkout@[0-9a-f]{40}$")
 SETUP_RUST_RE = re.compile(
     r"^leynos/shared-actions/\.github/actions/setup-rust@[0-9a-f]{40}$"
 )
+#: The uv action, which puts `uv tool run` on PATH for the prover target.
+SETUP_UV_RE = re.compile(r"^astral-sh/setup-uv@[0-9a-f]{40}$")
 
 #: Non-source inputs that change what the gate runs, so a change to any of
 #: them must trigger it. Everything else is derived from the tree below.
@@ -257,16 +259,51 @@ def test_setup_rust_is_pinned_to_a_commit_sha(workflow: dict[str, object]) -> No
     )
 
 
-def test_kani_install_uses_the_pinned_installer(workflow: dict[str, object]) -> None:
-    """The verifier installs through the checksum-verified repository script."""
+def test_kani_install_delegates_to_the_pinned_prover_tool(
+    workflow: dict[str, object],
+) -> None:
+    """The verifier installs through the shared, commit-pinned prover tool.
+
+    The download, checksum, and extraction mechanics belong to
+    ``rust-prover-tools``; the repository keeps only the target. Asserting the
+    command rather than the step's name leaves renaming free while deleting the
+    delegation fails.
+    """
+    commands = _run_commands(workflow)
+    assert commands.count("make install-kani") == 1, (
+        f"expected exactly one 'make install-kani' step, found {commands!r}"
+    )
+
+
+def test_prover_tool_setup_precedes_the_install(workflow: dict[str, object]) -> None:
+    """`uv` must be on PATH before the target that shells out to it runs."""
     steps = _steps(workflow)
-    install_runs = [
-        step.get("run")
-        for step in steps
-        if step.get("run") == "scripts/install-kani.sh"
-    ]
-    assert len(install_runs) == 1, (
-        f"expected exactly one Kani install step, found {len(install_runs)}"
+    setup_at = next(
+        (
+            index
+            for index, step in enumerate(steps)
+            if SETUP_UV_RE.match(str(step.get("uses") or ""))
+        ),
+        None,
+    )
+    assert setup_at is not None, (
+        "a step must install uv pinned to a 40-hex commit, got "
+        f"{[step.get('uses') for step in steps]!r}"
+    )
+    install_at = next(
+        (
+            index
+            for index, step in enumerate(steps)
+            if str(step.get("run") or "").strip() == "make install-kani"
+        ),
+        None,
+    )
+    assert install_at is not None, (
+        f"no step runs 'make install-kani', got {_run_commands(workflow)!r}"
+    )
+    assert setup_at < install_at, (
+        f"uv setup at step {setup_at} must precede the prover install at "
+        f"step {install_at}, or `uv tool run` is not on PATH when it starts"
     )
 
 
@@ -334,7 +371,7 @@ def test_disk_headroom_is_read_around_the_suite(workflow: dict[str, object]) -> 
         f"one after the suite, found {len(readings)} in {commands!r}"
     )
 
-    install = _index_of(commands, "scripts/install-kani.sh")
+    install = _index_of(commands, "make install-kani")
     suite = _index_of(commands, "make kani")
     after_install, after_suite = readings
 

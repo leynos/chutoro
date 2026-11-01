@@ -53,11 +53,21 @@ jobs:
       # cold install of all three takes 16 s on a GitHub runner (run
       # 33819842254), so the archive would cost more to move than the work it
       # avoids and would consume most of the repository's cache quota.
-      # scripts/install-kani.sh verifies both archives against
-      # tools/kani/SHA256SUMS and probes for each executable regardless.
+      # `make install-kani` delegates to the pinned rust-prover-tools release,
+      # which verifies both archives against its own SHA-256 pins and repeats
+      # the download only when an executable is missing.
+      - name: Setup uv for the prover tooling
+        if: ${{ steps.gate.outputs.should_run == 'true' }}
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          python-version: '3.14'
+          # Setup Rust already invoked setup-uv with caching enabled, so it
+          # owns ~/.cache/uv. Enabling the cache again here would give that
+          # path a second owner with a competing key.
+          enable-cache: false
       - name: Install Kani
         if: ${{ steps.gate.outputs.should_run == 'true' }}
-        run: scripts/install-kani.sh
+        run: make install-kani
       - name: Run Kani full suite
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: make kani-full

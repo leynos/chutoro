@@ -1,4 +1,4 @@
-.PHONY: help all clean test build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling kani kani-full verus bench test-workflow-contracts
+.PHONY: help all clean test build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling install-kani install-verus kani kani-check kani-full verus bench test-workflow-contracts
 
 export PATH := $(HOME)/.cargo/bin:$(HOME)/.bun/bin:$(PATH)
 
@@ -34,9 +34,32 @@ TYPOS_CONFIG_BUILDER_VERSION ?= v0.1.3
 TYPOS_CONFIG_BUILDER = $(UV_ENV) $(UV) tool run --python 3.14 --from \
 	"git+https://github.com/leynos/typos-config-builder.git@$(TYPOS_CONFIG_BUILDER_VERSION)" \
 	typos-config-builder
-VERUS_BIN ?= verus
-# Mirrors scripts/install-kani.sh, which unpacks the verifier bundle under
-# KANI_HOME and links the pinned nightly toolchain into it.
+
+# Prover acquisition and execution belong to the shared rust-prover-tools
+# package, pinned to a reviewed commit. It owns the bounded HTTPS downloader,
+# the archive digests, extraction, and the install layout, so this repository
+# keeps only the pins under `tools/`, the workflow wiring, and the runner
+# parameters. `uv tool run` keeps a Rust contributor from needing a project
+# virtual environment, and `UV_ENV` keeps uv's state beside the other helper
+# tooling.
+PROVER_TOOLS_SOURCE ?= git+https://github.com/leynos/rust-prover-tools@592558f7183b554fc749696246984c5d7300d029
+PROVER_TOOLS_PYTHON ?= 3.14
+PROVER_TOOLS ?= $(UV_ENV) $(UV) tool run --python $(PROVER_TOOLS_PYTHON) \
+	--from $(PROVER_TOOLS_SOURCE) prover-tools
+
+KANI_INSTALL_FLAGS ?=
+VERUS_INSTALL_FLAGS ?=
+# The legacy single-file override still names one proof; otherwise both edge
+# harvest proofs run, in this order. Verus accepts one input filename per
+# invocation, so the package verifies them one at a time and stops at the
+# first failure.
+VERUS_PROOF_FILES ?= $(if $(VERUS_PROOF_FILE),$(VERUS_PROOF_FILE),\
+	verus/edge_harvest_proofs.rs verus/session_core_distance.rs)
+VERUS_PROOF_ARGS = $(foreach proof,$(VERUS_PROOF_FILES),--proof-file "$(proof)")
+
+# `prover-tools kani install` runs `cargo kani setup`, which unpacks the
+# verified bundle and its pinned nightly toolchain under KANI_HOME at
+# `kani-<version>/toolchain`.
 KANI_HOME ?= $(HOME)/.kani
 KANI_VERSION_FILE ?= tools/kani/VERSION
 override KANI_VERSION := $(strip $(file <$(KANI_VERSION_FILE)))
@@ -129,6 +152,18 @@ nixie: ## Validate Mermaid diagrams
 		-not -path './.uv-cache/*' -not -path './.uv-tools/*' -print0 | \
 		xargs -0 $(NIXIE) --no-sandbox
 
+install-kani: ## Install the pinned Kani verifier
+	@$(PROVER_TOOLS) kani install $(KANI_INSTALL_FLAGS) || \
+		{ status=$$?; printf 'install-kani failed (exit %s)\n' "$$status" >&2; exit "$$status"; }
+
+install-verus: ## Install the pinned Verus verifier
+	@$(PROVER_TOOLS) verus install $(VERUS_INSTALL_FLAGS) || \
+		{ status=$$?; printf 'install-verus failed (exit %s)\n' "$$status" >&2; exit "$$status"; }
+
+kani-check: ## Check the installed Kani verifier against its pin
+	@$(PROVER_TOOLS) kani check-version --kani-command "$(CARGO) kani" || \
+		{ status=$$?; printf 'kani-check failed (exit %s)\n' "$$status" >&2; exit "$$status"; }
+
 kani: ## Run Kani practical harnesses
 	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_smoke_2_nodes_1_layer
 	$(KANI_ENV) $(CARGO) kani -p chutoro-core --default-unwind 4 --harness verify_bidirectional_links_reconciliation_2_nodes_1_layer
@@ -142,7 +177,8 @@ kani-full: ## Run all Kani formal verification harnesses
 	$(KANI_ENV) $(CARGO) kani -p chutoro-providers-dense --default-unwind 18
 
 verus: ## Run Verus proofs for edge harvest primitives
-	VERUS_BIN="$(VERUS_BIN)" scripts/run-verus.sh
+	@$(PROVER_TOOLS) verus run $(VERUS_PROOF_ARGS) || \
+		{ status=$$?; printf 'verus proofs failed (exit %s)\n' "$$status" >&2; exit "$$status"; }
 
 bench: ## Run Criterion benchmarks
 	$(CARGO) bench -p chutoro-benches

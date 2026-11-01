@@ -261,12 +261,18 @@ jobs:
           path: ${{ github.workspace }}/.verus
           key: >-
             verus-v1-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ hashFiles('tools/verus/VERSION', 'tools/verus/SHA256SUMS') }}
+      # Setup Rust already invoked setup-uv with caching enabled, so it owns
+      # ~/.cache/uv; enabling the cache again here would give that path a
+      # second owner with a competing key.
+      - name: Setup uv for the prover tooling
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          python-version: '3.14'
+          enable-cache: false
       - name: Install Verus
-        run: scripts/install-verus.sh
+        run: make install-verus
       - name: Run Verus proofs
         run: make verus
-        env:
-          VERUS_BIN: ${{ github.workspace }}/.verus/verus/verus
       - name: Record Verus cache state
         if: ${{ always() }}
         env:

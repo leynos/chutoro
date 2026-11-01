@@ -254,24 +254,47 @@ version and digest are pinned.
 | mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.1            |
 | cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS` |
 | sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS` |
-| Kani          | `scripts/install-kani.sh`                                  | `tools/kani/VERSION` and `SHA256SUMS`    |
-| Verus         | `scripts/install-verus.sh`                                 | `tools/verus/VERSION` and `SHA256SUMS`   |
+| Kani          | `make install-kani`                                        | `tools/kani/VERSION`                     |
+| Verus         | `make install-verus`                                       | `tools/verus/VERSION` and `SHA256SUMS`   |
 
-The four repository scripts share `scripts/lib/pinned-download.sh`, which reads
-the pinned version, looks the archive's SHA-256 up in the sibling manifest, and
-fails closed when either is missing or does not match. That helper is for
-repository installer scripts only; it is not a general download utility and
-must not be sourced from application code. Each script also probes for its own
-executable first, so a warm cache repeats no download.
+The two remaining repository scripts share `scripts/lib/pinned-download.sh`,
+which reads the pinned version, looks the archive's SHA-256 up in the sibling
+manifest, and fails closed when either is missing or does not match. That
+helper is for repository installer scripts only; it is not a general download
+utility and must not be sourced from application code. Each script also probes
+for its own executable first, so a warm cache repeats no download.
 
-Kani is a two-part tool and needs both parts pinned to the same version. The
-`cargo-kani` front-end comes from a Cargo QuickInstall binary archive and the
-CBMC-backed verifier bundle from the Kani release; extracting only the bundle
-leaves `cargo kani` unavailable, and installing only the front-end leaves the
-verifier missing. `kani setup --use-local-bundle` consumes the verified
-download instead of fetching its own, and installs its pinned nightly toolchain
-into a Kani-specific rustup home so it never shares ownership with the job's
-ordinary Cargo cache.
+### The shared prover tool
+
+Kani and Verus are installed and run by
+[`rust-prover-tools`](https://github.com/leynos/rust-prover-tools), not by
+repository shell scripts. `Makefile` defines `PROVER_TOOLS_SOURCE` as
+`git+https://…@<commit>` and `PROVER_TOOLS` as
+`uv tool run --from $(PROVER_TOOLS_SOURCE) prover-tools`, so every prover
+command resolves through one reviewed commit and no project virtual environment
+is needed. `make install-kani`, `make install-verus`, `make kani-check`, and
+`make verus` are thin delegations;
+`tests/workflow_contracts/tool_install_test.py` holds each one to its single
+`prover-tools` subcommand and to the commit pin, and fails if a bespoke
+downloader reappears under `scripts/`.
+
+The package owns the download policy: it accepts only `https`, follows a capped
+number of re-validated redirects, rejects an oversized `Content-Length` before
+reading, counts streamed bytes against a per-asset ceiling, and applies one
+monotonic deadline. It connects directly and does not read proxy environment
+variables such as `HTTPS_PROXY`, which differs from the `curl` the removed
+scripts used. Archives land under `.cache/kani` (or `--cache-dir`) and reach
+their final path only after the pinned digest matches.
+
+Kani is a two-part tool. The `cargo-kani` front-end comes from a Cargo
+QuickInstall binary archive and the CBMC-backed verifier bundle from the Kani
+release; extracting only the bundle leaves `cargo kani` unavailable, and
+installing only the front-end leaves the verifier missing. Both digests live in
+the package's `binary_assets` module rather than in `tools/kani/SHA256SUMS`, so
+bumping Kani means moving the `rust-prover-tools` pin as well as
+`tools/kani/VERSION`; the prebuilt route refuses a version it has no pinned
+manifest for and points at `--compile`. `kani setup --use-local-bundle`
+consumes the verified download instead of fetching its own.
 
 `nightly-kani` passes an empty `rustflags` to `setup-rust`. The default is
 `-D warnings`, and under `cfg(kani)` the proof-harness helpers in
@@ -1731,19 +1754,25 @@ full suite only when its commit-recency gate permits it.
 ### Installing Kani
 
 CI and local runs use the kani-verifier release pinned in `tools/kani/VERSION`,
-which is the single source of truth for the version.
-`prover-tools kani install` reads that file by default; install it directly
-with:
+which is the single source of truth for the version. Install it with:
 
 ```sh
-cargo install --locked kani-verifier --version "$(cat tools/kani/VERSION)"
-cargo kani setup
+make install-kani
 ```
+
+That target delegates to `prover-tools kani install`, which reads the pin file,
+downloads the pinned prebuilt front-end and verifier bundle, verifies both
+digests, and runs `cargo kani setup --use-local-bundle`. `make kani-check` then
+compares the installed verifier against the pin. Neither target compiles Kani
+from source; `--compile` on the underlying command is the opt-in escape hatch
+when a prebuilt release is unsuitable.
 
 The Makefile derives `KANI_VERSION` from the same file, the `kani-pr.yml`
 workflow interpolates it rather than restating it, and a workflow contract test
 fails the build if a version literal reappears in the workflow. Bumping Kani is
-therefore a one-line change to `tools/kani/VERSION`.
+therefore a change to `tools/kani/VERSION` plus, because the prebuilt route
+only covers the version its own manifest pins, a matching `PROVER_TOOLS_SOURCE`
+bump.
 
 The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
 `make kani`. The full tier remains the package-wide sweep across every declared
@@ -2063,10 +2092,13 @@ pipeline is described in
 ## Verus proofs
 
 Verus is used for formal verification of edge harvest primitives. Run proofs via
-`make verus`. `scripts/install-verus.sh` is idempotent: it probes for the
-installed executable first and otherwise downloads the pinned release archive
-recorded in `tools/verus/VERSION` and verifies it against
-`tools/verus/SHA256SUMS`.
+`make verus`, which delegates to the pinned `rust-prover-tools` package.
+Installation is idempotent: it probes for the installed executable first and
+otherwise downloads the pinned release archive recorded in
+`tools/verus/VERSION` and verifies it against `tools/verus/SHA256SUMS`. Verus
+accepts one input filename per invocation, so the target passes each proof file
+in turn, in order, stopping at the first failure. Add a proof by naming it in
+`VERUS_PROOF_FILES` or by extending the default list in the `verus` target.
 
 ### Quantifier trigger annotations
 
