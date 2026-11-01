@@ -667,7 +667,7 @@ Add the Verus proof at `verus/session_core_distance.rs` with these obligations:
 
 Use the `vstd::seq` primitives and follow the project layout in the `verus`
 skill. Register the proof file with `make verus` by adding it to
-`scripts/run-verus.sh` (or the existing proof manifest).
+`VERUS_PROOF_FILES` (or the default proof list in the `verus` Make target).
 
 ### Stage C: engine and public methods
 

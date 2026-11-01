@@ -3,9 +3,11 @@
 CI must never compile a tool from source: a source build turns a cache miss
 into minutes of paid compilation and defeats any attempt to reason about
 runner cost. Every tool therefore arrives as a pinned, checksum-verified
-prebuilt archive, or through a shared action pinned to one reviewed commit.
-These tests also pin the ordering that makes those installs meaningful,
-because a tool installed after its first use is a tool the job never had.
+prebuilt archive, through a shared action pinned to one reviewed commit, or
+through the shared ``rust-prover-tools`` package, which owns its own bounded
+downloader and digest pins. These tests also pin the ordering that makes those
+installs meaningful, because a tool installed after its first use is a tool the
+job never had.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -46,33 +48,57 @@ FORBIDDEN_INSTALL_PATTERNS = (
 #: Every third-party install action must name a 40-hex commit, never a tag.
 UNPINNED_USES_RE = re.compile(r"^[^@]+@(?!\b[0-9a-f]{40}\b)")
 
-#: How a step provides a tool: by running a repository installer script, or
-#: by using a shared installer action.
+#: How a step provides a tool: by running a repository installer script, by
+#: using a shared installer action, or by invoking a Make target that delegates
+#: to the shared prover tool.
 SCRIPT = "script"
 ACTION = "action"
+TARGET = "target"
 
 #: Each installer and the first command that needs the tool it provides.
+#:
+#: Kani and Verus are targets rather than scripts because the download,
+#: checksum, and extraction mechanics live in ``rust-prover-tools``; the
+#: repository owns only the pins under ``tools/`` and the delegation.
 INSTALLER_ORDER = (
     (SCRIPT, "scripts/install-nextest.sh", re.compile(r"cargo\s+nextest\b")),
     (SCRIPT, "scripts/install-sccache.sh", re.compile(r"\bsccache\s+--")),
-    (SCRIPT, "scripts/install-kani.sh", re.compile(r"\bmake\s+kani(-full)?\b")),
-    (SCRIPT, "scripts/install-verus.sh", re.compile(r"\bmake\s+verus\b")),
+    (TARGET, "install-kani", re.compile(r"\bmake\s+kani(-full)?\b")),
+    (TARGET, "install-verus", re.compile(r"\bmake\s+verus\b")),
     (ACTION, "install-whitaker", re.compile(r"\bmake\s+lint\b")),
 )
 
-#: Tool pins that must exist as a version file and a digest manifest.
-PINNED_TOOLS = ("kani", "nextest", "sccache", "verus")
+#: Tool pins that must exist as a version file and a digest manifest. Kani is
+#: not among them: its two archive digests live in the pinned
+#: ``rust-prover-tools`` release, and a local copy would be a second pin that
+#: nothing reads and nothing keeps in step.
+PINNED_TOOLS = ("nextest", "sccache", "verus")
 
 #: Installer scripts a workflow invokes directly, so the committed file mode
 #: is part of the contract: a non-executable script fails the job with
 #: "Permission denied" rather than anything diagnosable.
 INSTALLER_SCRIPTS = tuple(name for kind, name, _ in INSTALLER_ORDER if kind == SCRIPT)
 
+#: Tools whose acquisition moved into ``rust-prover-tools``. A repository
+#: script with one of these names would be a second downloader, which is the
+#: duplicate the shared package exists to remove.
+DELEGATED_TOOLS = ("install-kani.sh", "install-verus.sh", "run-verus.sh")
+
+ROOT_MAKEFILE = ROOT / "Makefile"
+
+#: `git+https://host/owner/repo@<40-hex commit>`. A branch or tag can move.
+PROVER_TOOLS_SOURCE_RE = re.compile(
+    r"^PROVER_TOOLS_SOURCE\s*\?=\s*git\+https://\S+@(?P<ref>[0-9a-f]{40})$",
+    re.MULTILINE,
+)
+
 
 def _provides_tool(step: dict[str, typ.Any], kind: str, name: str) -> bool:
     """Report whether a step installs the named tool."""
     if kind == SCRIPT:
         return name in run_script(step)
+    if kind == TARGET:
+        return re.search(rf"\bmake\s+{re.escape(name)}\b", run_script(step)) is not None
     return f"/{name}@" in uses_reference(step)
 
 
@@ -84,6 +110,34 @@ def _first_step(
     return next(
         (index for index, step in enumerate(job_steps) if predicate(step)), None
     )
+
+
+def _target_recipe(target: str) -> str:
+    """Return one Makefile target's recipe body, without its prerequisite line.
+
+    The recipe is read from the `target:` line to the next line that starts in
+    column zero, so a target's body cannot silently absorb the next target's
+    commands.
+    """
+    text = ROOT_MAKEFILE.read_text(encoding="utf-8").splitlines()
+    starts = [
+        index
+        for index, line in enumerate(text)
+        if re.match(rf"^{re.escape(target)}:", line)
+    ]
+    assert len(starts) == 1, (
+        f"the Makefile must define exactly one {target}: target, "
+        f"found {len(starts)}"
+    )
+    start = starts[0]
+    body = [text[start]]
+    for line in text[start + 1 :]:
+        # An indented line is recipe or continuation; a line at column zero is
+        # the next target, which ends this body.
+        if line and not line[0].isspace():
+            break
+        body.append(line)
+    return "\n".join(body)
 
 
 @pytest.mark.parametrize("workflow_path", workflow_paths(), ids=workflow_names())
@@ -118,27 +172,23 @@ def test_every_pinned_tool_has_a_version_and_a_digest(tool: str) -> None:
         )
 
 
-def test_kani_pins_its_front_end_and_its_verifier_bundle() -> None:
-    """Kani is a multi-part tool and both parts must be pinned together.
+def test_kani_keeps_one_digest_owner() -> None:
+    """Kani's two archives are pinned once, by the shared prover tool.
 
-    Extracting only the verifier bundle leaves ``cargo kani`` unavailable;
-    installing only the front-end leaves the verifier missing. The
-    front-end derives the bundle's name from its own version, so a single
-    version governs both archives.
+    Kani is a multi-part tool: extracting only the verifier bundle leaves
+    ``cargo kani`` unavailable, and installing only the front-end leaves the
+    verifier missing, so both archives are pinned together. ``rust-prover-tools``
+    now holds both digests beside the version it supports and refuses a version
+    it has no manifest for. A local ``tools/kani/SHA256SUMS`` would be a second
+    pin that no command reads, so a Kani bump could update one and silently
+    leave the other disagreeing.
     """
-    version = (ROOT / "tools" / "kani" / "VERSION").read_text(encoding="utf-8").strip()
-    archives = {
-        line.split()[1]
-        for line in (ROOT / "tools" / "kani" / "SHA256SUMS")
-        .read_text(encoding="utf-8")
-        .splitlines()
-        if line.strip()
-    }
-    assert f"kani-verifier-{version}-x86_64-unknown-linux-gnu.tar.gz" in archives, (
-        "the cargo-kani front-end archive must be pinned"
-    )
-    assert f"kani-{version}-x86_64-unknown-linux-gnu.tar.gz" in archives, (
-        "the Kani verifier bundle must be pinned"
+    version_file = ROOT / "tools" / "kani" / "VERSION"
+    assert version_file.is_file(), f"{version_file} must pin the Kani version"
+    stray = ROOT / "tools" / "kani" / "SHA256SUMS"
+    assert not stray.exists(), (
+        f"{stray} must not exist; the Kani archive digests are owned by the "
+        "pinned rust-prover-tools release, and this repository reads neither"
     )
 
 
@@ -190,6 +240,59 @@ def test_installer_scripts_are_executable(installer: str) -> None:
     assert path.is_file(), f"{installer} must exist"
     assert path.stat().st_mode & 0o111, (
         f"{installer} is invoked directly by a workflow and must be executable"
+    )
+
+
+@pytest.mark.parametrize("script", DELEGATED_TOOLS)
+def test_the_shared_prover_tool_replaced_the_bespoke_script(script: str) -> None:
+    """Prover acquisition has one owner, so the local downloader must be gone.
+
+    A retained script would be a second downloader beside
+    ``rust-prover-tools``: a second place to update a pin, a second set of
+    transfer limits, and a second answer to what a verified archive is.
+    """
+    assert not (ROOT / "scripts" / script).exists(), (
+        f"scripts/{script} must be deleted; prover installation and execution "
+        "delegate to rust-prover-tools"
+    )
+
+
+def test_the_prover_tool_pin_is_an_immutable_commit() -> None:
+    """A branch or tag can be repointed; the installer's commit cannot."""
+    match = PROVER_TOOLS_SOURCE_RE.search(
+        ROOT_MAKEFILE.read_text(encoding="utf-8"),
+    )
+    assert match is not None, (
+        "the Makefile must define PROVER_TOOLS_SOURCE as "
+        "git+https://…@<40-character commit SHA>"
+    )
+
+
+@pytest.mark.parametrize(
+    ("target", "command"),
+    [
+        ("install-kani", "kani install"),
+        ("install-verus", "verus install"),
+        ("verus", "verus run"),
+        ("kani-check", "kani check-version"),
+    ],
+)
+def test_prover_targets_delegate_to_the_shared_tool(
+    target: str, command: str
+) -> None:
+    """Each prover target runs one `prover-tools` subcommand and nothing else.
+
+    The Makefile is an infrastructure adapter. Asserting the subcommand keeps
+    the mechanical work in the shared package while leaving the runner
+    parameters, such as the proof list, free to change here.
+    """
+    recipe = _target_recipe(target)
+    assert f"$(PROVER_TOOLS) {command}" in recipe, (
+        f"the Makefile's {target} target must run `$(PROVER_TOOLS) {command}`, "
+        f"got {recipe!r}"
+    )
+    assert "cargo install" not in recipe, (
+        f"the Makefile's {target} target must not compile a tool from source"
     )
 
 

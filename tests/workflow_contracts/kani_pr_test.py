@@ -41,7 +41,6 @@ CHECKOUT_RE = re.compile(r"^actions/checkout@[0-9a-f]{40}$")
 SETUP_RUST_RE = re.compile(
     r"^leynos/shared-actions/\.github/actions/setup-rust@[0-9a-f]{40}$"
 )
-
 #: Non-source inputs that change what the gate runs, so a change to any of
 #: them must trigger it. Everything else is derived from the tree below.
 GATE_INPUTS = (
@@ -257,19 +256,6 @@ def test_setup_rust_is_pinned_to_a_commit_sha(workflow: dict[str, object]) -> No
     )
 
 
-def test_kani_install_uses_the_pinned_installer(workflow: dict[str, object]) -> None:
-    """The verifier installs through the checksum-verified repository script."""
-    steps = _steps(workflow)
-    install_runs = [
-        step.get("run")
-        for step in steps
-        if step.get("run") == "scripts/install-kani.sh"
-    ]
-    assert len(install_runs) == 1, (
-        f"expected exactly one Kani install step, found {len(install_runs)}"
-    )
-
-
 def test_pinned_kani_version_file_is_a_bare_semver() -> None:
     """The pin file holds one machine-readable version and nothing else."""
     assert KANI_VERSION_PATH.is_file(), (
@@ -334,7 +320,7 @@ def test_disk_headroom_is_read_around_the_suite(workflow: dict[str, object]) -> 
         f"one after the suite, found {len(readings)} in {commands!r}"
     )
 
-    install = _index_of(commands, "scripts/install-kani.sh")
+    install = _index_of(commands, "make install-kani")
     suite = _index_of(commands, "make kani")
     after_install, after_suite = readings
 

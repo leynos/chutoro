@@ -242,10 +242,10 @@ def test_every_cache_step_declares_an_explainable_key(workflow_name: str) -> Non
             )
 
 
-#: Each installer script and the cache-step path that must restore its work
+#: Each installer command and the cache-step path that must restore its work
 #: first. Pairing them by tool keeps the ordering check meaningful once a job
 #: installs more than one tool.
-INSTALLER_CACHE_PAIRS = (("scripts/install-verus.sh", ".verus"),)
+INSTALLER_CACHE_PAIRS = (("make install-verus", ".verus"),)
 
 
 def _first_index(items: list[str], predicate: cabc.Callable[[str], bool]) -> int | None:
