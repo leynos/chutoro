@@ -11,9 +11,12 @@
 
 use std::{num::NonZeroUsize, sync::Arc};
 
+use rayon::prelude::*;
+
 use crate::{
-    CandidateEdge, ClusterId, CpuHnsw, DataSource, EdgeHarvest, HierarchyConfig, HnswError,
-    HnswParams, MstError, Result, error::ChutoroError, parallel_kruskal, result::ClusteringResult,
+    CandidateEdge, ClusterId, CpuHnsw, DataSource, HierarchyConfig, HnswError, HnswParams,
+    MstError, Result, error::ChutoroError, mst::parallel_kruskal_from_edges,
+    result::ClusteringResult,
 };
 use tracing::debug;
 
@@ -45,7 +48,8 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
     let core_distance_inputs = CoreDistanceInputs::new(items, min_cluster_size, ef);
     let core_distances = compute_core_distances(source, &index, &core_distance_inputs)?;
     let mutual_edges: Vec<CandidateEdge> = harvested
-        .iter()
+        .as_slice()
+        .par_iter()
         .map(|edge| {
             let left = edge.source();
             let right = edge.target();
@@ -66,10 +70,9 @@ pub(crate) fn run_cpu_pipeline_with_len<D: DataSource + Sync>(
             Ok(CandidateEdge::new(left, right, weight, edge.sequence()))
         })
         .collect::<Result<_>>()?;
-    let mutual_harvest = EdgeHarvest::new(mutual_edges);
 
-    let forest =
-        parallel_kruskal(items, &mutual_harvest).map_err(|error| map_cpu_mst_error(&error))?;
+    let forest = parallel_kruskal_from_edges(items, &mutual_edges)
+        .map_err(|error| map_cpu_mst_error(&error))?;
     let labels = crate::extract_labels_from_mst(
         items,
         forest.edges(),

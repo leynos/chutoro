@@ -301,6 +301,27 @@ impl EdgeHarvest {
     #[rustfmt::skip]
     pub fn iter(&self) -> impl Iterator<Item = &CandidateEdge> { self.0.iter() }
 
+    /// Returns the harvested edges as a slice.
+    ///
+    /// Callers that can consume a contiguous slice should prefer this over
+    /// [`EdgeHarvest::iter`]: it avoids materialising an intermediate
+    /// collection and lets Rayon split the edge list directly.
+    ///
+    /// # Examples
+    /// ```
+    /// use chutoro_core::{CandidateEdge, EdgeHarvest};
+    ///
+    /// let harvest = EdgeHarvest::new(vec![
+    ///     CandidateEdge::new(0, 1, 0.5, 1),
+    ///     CandidateEdge::new(1, 2, 0.3, 2),
+    /// ]);
+    /// assert_eq!(harvest.as_slice().len(), 2);
+    /// assert_eq!(harvest.as_slice().first().map(CandidateEdge::source), Some(0));
+    /// ```
+    #[must_use]
+    #[rustfmt::skip]
+    pub fn as_slice(&self) -> &[CandidateEdge] { &self.0 }
+
     /// Consumes the harvest and returns the underlying edges.
     #[must_use]
     #[rustfmt::skip]
