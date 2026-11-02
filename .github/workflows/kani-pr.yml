@@ -61,8 +61,20 @@ jobs:
         with:
           install-mold: 'true'
           use-sccache: 'false'
+      # rust-prover-tools owns the bounded HTTPS downloader, the pinned archive
+      # digests, and the install layout. It runs through `uv tool run` so the
+      # repository needs no Python project environment, pinned to a full commit
+      # rather than a moving branch.
+      - name: Setup uv for the prover tooling
+        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        with:
+          python-version: '3.14'
+          # Setup Rust already invoked setup-uv with caching enabled, so it
+          # owns ~/.cache/uv. Enabling the cache again here would give that
+          # path a second owner with a competing key.
+          enable-cache: false
       - name: Install Kani
-        run: scripts/install-kani.sh
+        run: make install-kani
       # Kani installs a verifier bundle and its own pinned nightly
       # toolchain, which is the largest thing this job puts on the disk and
       # the one input a smaller shape could run out of room for. The

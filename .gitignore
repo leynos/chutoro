@@ -7,6 +7,10 @@ coverage.xml
 .memdb/
 .verus/
 .sccache/
+# Verified prover archives. `prover-tools kani install` and `z3 install` land
+# them under the repository root before extracting; `make clean` does not own
+# this tree, so it must stay out of version control rather than be tidied.
+.cache/
 *.swp
 __pycache__/
 
