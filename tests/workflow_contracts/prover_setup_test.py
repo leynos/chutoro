@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import collections.abc as cabc
 import re
+from pathlib import Path
 
 import pytest
 from workflow_support import job, run_script, steps, uses_reference
@@ -36,7 +37,13 @@ PROVER_JOBS = (
     ("nightly-kani.yml", "kani-full", "make install-kani", "make kani-full"),
 )
 
-JOB_IDS = tuple(f"{name[1]}-{job_name}" for name, job_name, _, _ in PROVER_JOBS)
+#: The gate the nightly job puts on every step that uses the prover tool.
+NIGHTLY_GATE = "${{ steps.gate.outputs.should_run == 'true' }}"
+
+JOB_IDS = tuple(
+    f"{Path(workflow_name).stem}-{job_name}"
+    for workflow_name, job_name, _, _ in PROVER_JOBS
+)
 
 
 def _step_index(
@@ -62,7 +69,7 @@ def _uv_setup_index(job_steps: list[dict[str, object]]) -> int:
 
 
 def _condition(step: dict[str, object]) -> str | None:
-    """Return a step's `if` condition, normalised for whitespace."""
+    """Return a step's `if` condition, normalized for whitespace."""
     condition = step.get("if")
     return condition.strip() if isinstance(condition, str) else None
 
@@ -149,3 +156,10 @@ def test_setup_install_and_run_share_one_condition(
         f"{workflow_name}:{job_name} must guard both sides of the prover "
         f"install with one condition, got {conditions!r}"
     )
+    # A job with no gate at all also trivially agrees with itself, so the
+    # nightly steps are pinned to the gate their own earlier step produces.
+    if workflow_name == "nightly-kani.yml":
+        assert set(conditions.values()) == {NIGHTLY_GATE}, (
+            f"{workflow_name}:{job_name} must guard the prover steps with "
+            f"{NIGHTLY_GATE!r}, got {conditions!r}"
+        )

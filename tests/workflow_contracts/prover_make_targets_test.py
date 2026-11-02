@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import os
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from workflow_support import ROOT
 
 #: Records one invocation per line, arguments separated by tabs, then exits
@@ -192,6 +195,35 @@ def test_verus_honours_the_proof_overrides(
     )
 
 
+#: A proof path the recipes accept: no whitespace, so the list splits cleanly.
+PROOF_PATH = st.from_regex(r"verus/[a-z][a-z0-9_]{0,20}\.rs", fullmatch=True)
+
+
+@given(proofs=st.lists(PROOF_PATH, min_size=1, max_size=6, unique=True))
+@settings(max_examples=8, deadline=None)
+def test_verus_forwards_one_ordered_pair_per_listed_proof(proofs: list[str]) -> None:
+    """Every listed proof reaches the tool once, in list order.
+
+    `VERUS_PROOF_FILES` is variable-length, so a mapping that dropped,
+    duplicated or reordered an item could still pass one fixed list. The
+    generator varies the list contents and length; each example gets its own
+    recorder directory so one example's log cannot satisfy the next.
+    `deadline=None` is set because each example runs a real `make` subprocess.
+    """
+    with tempfile.TemporaryDirectory() as directory:
+        recorder = Recorder.create(Path(directory))
+        completed = recorder.run("verus", f"VERUS_PROOF_FILES={' '.join(proofs)}")
+        invocations = recorder.invocations()
+
+    assert completed.returncode == 0, completed.stderr
+    (argv,) = invocations
+    expected = [item for proof in proofs for item in ("--proof-file", proof)]
+    assert argv == ["verus", "run", *expected], (
+        f"make verus must forward {proofs!r} as one ordered --proof-file "
+        f"pair each, recorded {argv!r}"
+    )
+
+
 @pytest.mark.parametrize(
     ("target", "message"),
     [
@@ -206,7 +238,7 @@ def test_targets_propagate_a_failing_tool(
 ) -> None:
     """A verifier failure must fail the build and name the status it saw.
 
-    GNU make normalises a failed recipe to exit status 2, so what a caller can
+    GNU make normalizes a failed recipe to exit status 2, so what a caller can
     observe is that the build failed. What the contributor reading the job log
     needs is the status the tool itself chose: collapsing every failure to one
     fixed message would hide which phase failed, and would make a missing pin
