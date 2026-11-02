@@ -58,7 +58,7 @@ jobs:
       # the download only when an executable is missing.
       - name: Setup uv for the prover tooling
         if: ${{ steps.gate.outputs.should_run == 'true' }}
-        uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e
         with:
           python-version: '3.14'
           # Setup Rust already invoked setup-uv with caching enabled, so it
