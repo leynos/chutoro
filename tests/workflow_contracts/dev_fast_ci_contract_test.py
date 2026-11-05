@@ -6,17 +6,21 @@ import os
 import re
 import subprocess
 import textwrap
+import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+from hypothesis import given
+from hypothesis import strategies as st
 
 from workflow_support import ROOT
 
 MAKEFILE_PATH = ROOT / "Makefile"
 DEV_FAST_CONFIG = "tools/dev-fast/config.toml"
+DEV_FAST_CONFIG_PATH = ROOT / DEV_FAST_CONFIG
 WORKFLOW_PATHS = {
     "ci.yml": ROOT / ".github" / "workflows" / "ci.yml",
     "coverage-main.yml": ROOT / ".github" / "workflows" / "coverage-main.yml",
@@ -71,6 +75,72 @@ def test_ci_never_provisions_the_development_fragment(
     )
 
 
+def _dev_fast_config() -> dict[str, Any]:
+    """Parse the pinned development fragment as Cargo itself will read it."""
+    return tomllib.loads(DEV_FAST_CONFIG_PATH.read_text(encoding="utf-8"))
+
+
+def test_development_fragment_enables_cranelift_for_the_dev_profile() -> None:
+    """The fragment only shortens builds if Cargo is allowed to use Cranelift.
+
+    `[unstable] codegen-backend` is the gate: without it Cargo parses the
+    profile setting and silently compiles with LLVM instead, so the opt-in
+    target would build slowly while looking correct.
+    """
+    config = _dev_fast_config()
+    unstable = config.get("unstable")
+    assert isinstance(unstable, dict), "the fragment must declare [unstable]"
+    assert unstable.get("codegen-backend") is True, (
+        "the fragment must enable Cargo's unstable codegen-backend support"
+    )
+    profile_dev = config.get("profile", {}).get("dev")
+    assert isinstance(profile_dev, dict), "the fragment must declare [profile.dev]"
+    assert profile_dev.get("codegen-backend") == "cranelift", (
+        f"the development profile must select Cranelift: {profile_dev!r}"
+    )
+
+
+def test_development_fragment_keeps_the_linux_linker_policy() -> None:
+    """The fragment must restate the standard flags, not silently drop them.
+
+    Cargo selects a single `rustflags` source rather than merging them, so a
+    Linux `[target.*]` table replaces `.cargo/config.toml`'s flags outright.
+    A fragment that named the linker without repeating the documentation
+    denials would make development builds compile that production builds
+    reject.
+    """
+    linux = _dev_fast_config().get("target", {}).get('cfg(target_os = "linux")')
+    assert isinstance(linux, dict), (
+        "the fragment must declare a Linux target table for the mold linker"
+    )
+    assert linux.get("linker") == "gcc", (
+        f"the fragment must select GCC so it finds ld.mold on PATH: {linux!r}"
+    )
+    rustflags = linux.get("rustflags")
+    assert isinstance(rustflags, list), "the Linux table must set a rustflags list"
+    for required in ("-Dmissing_docs", "-Dmissing_crate_level_docs"):
+        assert required in rustflags, (
+            f"the fragment's Linux rustflags lost {required!r}: {rustflags!r}"
+        )
+    assert "-Clink-arg=-fuse-ld=mold" in rustflags, (
+        f"the fragment's Linux rustflags must select mold: {rustflags!r}"
+    )
+
+
+def test_development_toolchain_pin_names_a_nightly_release() -> None:
+    """Cranelift needs nightly, and the pin must name one exact release.
+
+    A floating `nightly` or `stable` pin would silently change compiler
+    behaviour between runs; the fragment is only meaningful against a
+    reproducible toolchain.
+    """
+    toolchain = (ROOT / "tools" / "dev-fast" / "TOOLCHAIN").read_text(encoding="utf-8")
+    pin = toolchain.strip()
+    assert re.fullmatch(r"nightly-\d{4}-\d{2}-\d{2}", pin), (
+        f"the development toolchain pin must be one dated nightly: {pin!r}"
+    )
+
+
 def _string_values(value: Any) -> Iterator[str]:
     """Yield workflow scalar strings recursively for focused config checks.
 
@@ -106,6 +176,59 @@ def test_string_values_preserves_container_order_and_omits_non_strings() -> None
 
     assert list(_string_values(workflow_value)) == ["one", "two", "three", "four"], (
         "workflow value traversal must keep container order and drop non-strings"
+    )
+
+
+#: YAML-like scalars that are not strings. The traversal must ignore every one
+#: of them, including the ones Python would happily print.
+_NON_STRING_SCALARS = st.one_of(
+    st.none(), st.booleans(), st.integers(), st.floats(allow_nan=False)
+)
+
+
+@st.composite
+def _yaml_like_values(draw: st.DrawFn) -> Any:
+    """Build one arbitrary YAML-shaped value for the traversal property.
+
+    YAML mappings and sequences nest inside each other, which is exactly the
+    recursion `_string_values` implements, so the generator descends instead of
+    emitting a fixed depth.
+    """
+    return draw(
+        st.recursive(
+            st.text() | _NON_STRING_SCALARS,
+            lambda children: st.lists(children) | st.dictionaries(st.text(), children),
+            max_leaves=12,
+        )
+    )
+
+
+@given(value=_yaml_like_values())
+def test_string_values_emits_exactly_the_nested_strings_in_depth_first_order(
+    value: Any,
+) -> None:
+    """The traversal is an order-preserving, non-string-dropping projection.
+
+    CodeRabbit asked for this as a property rather than more examples: the
+    helper recurses over arbitrary YAML, so the invariant has to hold for
+    nesting shapes nobody wrote a case for. Depth-first order is what makes
+    the resulting scan readable as the workflow source.
+    """
+    expected: list[str] = []
+
+    def collect(node: Any) -> None:
+        if isinstance(node, str):
+            expected.append(node)
+        elif isinstance(node, dict):
+            for nested in node.values():
+                collect(nested)
+        elif isinstance(node, list):
+            for nested in node:
+                collect(nested)
+
+    collect(value)
+    assert list(_string_values(value)) == expected, (
+        f"traversal of {value!r} must match an independent depth-first walk"
     )
 
 
