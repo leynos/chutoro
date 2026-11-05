@@ -202,6 +202,36 @@ def test_standard_targets_do_not_select_the_fragment(
         )
 
 
+def test_development_targets_declare_phony_beside_their_recipes() -> None:
+    """Keep the opt-in declarations out of the file-wide `.PHONY` line.
+
+    The file-wide list is one long line that concurrent work also edits. When
+    this feature appended to it, a branch that added the development targets
+    conflicted with an unrelated branch that added the prover targets to the
+    same line. GitHub builds a stacked pull request's merge ref from the
+    accumulated trunk, so that conflict stopped the merge ref being created and
+    no pull-request workflow ran at all. Declaring the three targets beside
+    their recipes keeps this feature and its declarations in one hunk.
+    """
+    makefile_lines = MAKEFILE_PATH.read_text(encoding="utf-8").splitlines()
+    phony_lines = [line for line in makefile_lines if line.startswith(".PHONY:")]
+
+    development_targets = {"dev-build", "dev-test", "install-dev-fast"}
+    declared: list[str] = []
+    for line in phony_lines:
+        declared.extend(token for token in line[len(".PHONY:") :].split())
+
+    assert development_targets <= set(declared), (
+        f"development targets must be phony: {sorted(development_targets - set(declared))}"
+    )
+    file_wide = phony_lines[0]
+    leaked = development_targets & set(file_wide[len(".PHONY:") :].split())
+    assert not leaked, (
+        "development targets must declare themselves beside their recipes, "
+        f"not in the file-wide line: {sorted(leaked)}"
+    )
+
+
 def _mutated_makefile(tmp_path: Path, old: str, new: str) -> Path:
     """Write a private Makefile copy after one asserted text mutation."""
     source = MAKEFILE_PATH.read_text(encoding="utf-8")

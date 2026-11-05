@@ -1,4 +1,4 @@
-.PHONY: help all clean test build release dev-build dev-test install-dev-fast typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling install-kani install-verus kani kani-check kani-full verus bench test-workflow-contracts interrogate
+.PHONY: help all clean test build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling install-kani install-verus kani kani-check kani-full verus bench test-workflow-contracts interrogate
 
 # `lint-clippy` and `lint-whitaker` share Cargo's package cache and the
 # compiler-admission pool. Running them under `make -j` makes two builds
@@ -157,7 +157,11 @@ interrogate: ## Enforce complete Python docstring coverage
 
 # The explicit development-speed names carry their own recipes rather than
 # depending on `build` and `test`: those standard targets deliberately stay on
-# the stable pin, so an alias would never select the fragment.
+# the stable pin, so an alias would never select the fragment. They declare
+# themselves phony here rather than in the file-wide list, so this opt-in
+# feature owns its own declarations.
+.PHONY: dev-build dev-test install-dev-fast
+
 dev-build: ## Build the debug binary with the selected development backend
 	$(DEV_CARGO) build $(BUILD_JOBS) --bin $(APP)
 
