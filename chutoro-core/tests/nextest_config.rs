@@ -212,7 +212,12 @@ fn profiles_preserve_write_lock_proptest_timeout(#[case] profile_name: &str) {
 }
 
 #[test]
-/// Verifies the Makefile exposes the dedicated type-checking gate.
+/// Verifies the Makefile exposes a type-checking gate that stays on the
+/// repository's stable build standard.
+///
+/// Cranelift is an opt-in development route reached only through `dev-build`
+/// and `dev-test`; a merge gate that silently selected the nightly fragment
+/// would make the stable pin a fiction.
 fn makefile_exposes_typecheck_gate() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -220,6 +225,7 @@ fn makefile_exposes_typecheck_gate() {
     let make_output = Command::new("make")
         .args([
             "--dry-run",
+            "--always-make",
             "typecheck",
             "CARGO=probe-cargo",
             "BUILD_JOBS=--jobs=3",
@@ -234,9 +240,11 @@ fn makefile_exposes_typecheck_gate() {
         String::from_utf8_lossy(&make_output.stderr)
     );
     let stdout = String::from_utf8(make_output.stdout).expect("Make output must be UTF-8");
+    // The recipe sets RUSTFLAGS before the command, so the Cargo invocation is
+    // found anywhere on the line rather than only at its start.
     let cargo_commands = stdout
         .lines()
-        .filter(|line| line.trim_start().starts_with("probe-cargo "))
+        .filter(|line| line.contains("probe-cargo "))
         .collect::<Vec<_>>();
 
     assert_eq!(
@@ -247,12 +255,23 @@ fn makefile_exposes_typecheck_gate() {
     let typecheck_command = cargo_commands
         .first()
         .expect("exactly one Cargo command must be present");
-    let pinned_toolchain = include_str!("../../tools/dev-fast/TOOLCHAIN").trim();
 
-    assert!(typecheck_command.contains(&format!("+{pinned_toolchain}")));
-    assert!(typecheck_command.contains("--config tools/dev-fast/config.toml"));
-    assert!(typecheck_command.contains(" check --workspace --all-targets --all-features "));
-    assert!(typecheck_command.ends_with("--jobs=3"));
+    assert!(
+        !typecheck_command.contains("tools/dev-fast/config.toml"),
+        "typecheck must not select the development fragment: {typecheck_command}"
+    );
+    assert!(
+        !typecheck_command.contains("+nightly"),
+        "typecheck must stay on the repository toolchain: {typecheck_command}"
+    );
+    assert!(
+        typecheck_command.contains(" check --workspace --all-targets --all-features "),
+        "typecheck must check the whole workspace: {typecheck_command}"
+    );
+    assert!(
+        typecheck_command.ends_with("--jobs=3"),
+        "typecheck must forward BUILD_JOBS: {typecheck_command}"
+    );
 }
 
 #[test]
@@ -318,4 +337,3 @@ fn property_tests_runners_satisfy_the_ci_thread_count(
         "{job} should declare '{expected_runner}'",
     );
 }
-// weave: run 'weave explain chutoro-core/tests/nextest_config.rs' for per-hunk detail, 'weave check' to verify your resolution
