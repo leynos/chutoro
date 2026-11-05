@@ -1,5 +1,10 @@
 .PHONY: help all clean test build release dev-build dev-test install-dev-fast typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling kani kani-full verus bench test-workflow-contracts
 
+# `lint-clippy` and `lint-whitaker` share Cargo's package cache and the
+# compiler-admission pool. Running them under `make -j` makes two builds
+# compete for the same slots, so this gate stays sequential.
+.NOTPARALLEL: lint
+
 export PATH := $(HOME)/.cargo/bin:$(HOME)/.local/bin:$(HOME)/.bun/bin:$(PATH)
 
 APP ?= chutoro-cli

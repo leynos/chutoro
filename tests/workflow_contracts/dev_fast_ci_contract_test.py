@@ -51,36 +51,46 @@ def _step_named(job: dict[str, Any], name: str) -> tuple[int, dict[str, Any]]:
         pytest.param("coverage-main.yml", "coverage-upload", id="main-coverage"),
     ),
 )
-def test_ci_installs_development_prerequisites_before_lint(
+def test_ci_never_provisions_the_development_fragment(
     workflow_name: str, job_name: str
 ) -> None:
+    """The Cranelift route is opt-in, so CI must not install or select it."""
     job = _workflow_job(workflow_name, job_name)
-    install_index, install_step = _step_named(
-        job, "Install development build prerequisites"
+    _, lint_step = _step_named(job, "Lint")
+    assert lint_step.get("run", "").strip() == "make lint", (
+        f"{workflow_name} must run the standard lint gate, not a development one"
     )
-    lint_index, lint_step = _step_named(job, "Lint")
-    assert install_index < lint_index, (
-        f"{workflow_name} must install the development toolchain before lint"
+    steps = job.get("steps")
+    assert isinstance(steps, list), f"{workflow_name} job must define a step list"
+    provisioned = [
+        step.get("run", "") for step in steps if "install-dev-fast" in step.get("run", "")
+    ]
+    assert not provisioned, (
+        f"{workflow_name} must not provision the opt-in development fragment: "
+        f"{provisioned!r}"
     )
-    assert install_step.get("run", "").strip() == "make install-dev-fast"
-    assert lint_step.get("run", "").strip() == "make lint"
 
 
 def _string_values(value: Any) -> Iterator[str]:
-    """Yield workflow scalar strings recursively for focused config checks."""
-    if isinstance(value, str):
-        yield value
-        return
+    """Yield workflow scalar strings recursively for focused config checks.
 
-    if isinstance(value, dict):
-        nested_values = value.values()
-    elif isinstance(value, list):
-        nested_values = value
-    else:
-        return
+    Containers are visited in their natural order and non-string scalars are
+    skipped, so a reading of one step cannot silently reorder or invent values.
 
-    for nested in nested_values:
-        yield from _string_values(nested)
+    >>> list(_string_values({"a": ["b", 1], "c": None}))
+    ['b']
+    >>> list(_string_values([1, ["x", {"y": "z"}]]))
+    ['x', 'z']
+    """
+    match value:
+        case str():
+            yield value
+        case dict():
+            for nested in value.values():
+                yield from _string_values(nested)
+        case list():
+            for nested in value:
+                yield from _string_values(nested)
 
 
 def test_string_values_preserves_container_order_and_omits_non_strings() -> None:
@@ -94,7 +104,9 @@ def test_string_values_preserves_container_order_and_omits_non_strings() -> None
         "also_ignored": None,
     }
 
-    assert list(_string_values(workflow_value)) == ["one", "two", "three", "four"]
+    assert list(_string_values(workflow_value)) == ["one", "two", "three", "four"], (
+        "workflow value traversal must keep container order and drop non-strings"
+    )
 
 
 def _dense_simd_commands(step: dict[str, Any]) -> list[str]:
