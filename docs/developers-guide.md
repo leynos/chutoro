@@ -7,51 +7,38 @@ keeps operational guidance in one place.
 ## Rust toolchain and build routing
 
 The workspace pins stable Rust 1.93.1 in `rust-toolchain.toml` and declares
-Rust 1.89 as its minimum supported Rust version (MSRV). Direct `cargo` commands
-use that stable toolchain and `.cargo/config.toml`, which supplies the
-documentation-warning flags; stable Rust uses LLVM for code generation. Cargo
-selects the fragment's target rustflags in place of the root settings, so the
-fragment repeats both documentation-denial flags.
+Rust 1.89 as its minimum supported Rust version (MSRV). Every standard gate
+runs on that stable pin and reads `.cargo/config.toml`, which supplies the
+documentation-warning flags and, on Linux, the `mold` linker. [The build
+standard](#the-build-standard) describes those recipes and the contract tests
+that hold them.
 
-The standard debug Make targets explicitly select the fragment in
-`tools/dev-fast/config.toml`, pinned to the dated nightly in
-`tools/dev-fast/TOOLCHAIN`. It enables Cranelift for development builds. On
-Linux it selects GCC as the linker driver and `mold` 2.41.0 as the linker. The
-fragment is outside Cargo's automatic configuration paths, so installing the
-nightly components alone does not activate it. Run `make install-dev-fast` to
-install `rustfmt`, Clippy, `rust-analyzer`, and the Cranelift backend
-component; provide GCC on Linux. The target installs the checksum-verified
-`mold` 2.41.0 archive on Linux x86_64 and aarch64 hosts.
+Cranelift is an opt-in development-speed route, not the default build. It
+requires a nightly toolchain, so it stays behind the explicit `dev-build` and
+`dev-test` targets and never reaches a merge gate. The route selects the
+fragment in `tools/dev-fast/config.toml`, pinned to the dated nightly in
+`tools/dev-fast/TOOLCHAIN`. On Linux the fragment selects GCC as the linker
+driver and `mold` 2.41.0 as the linker. It lives outside Cargo's automatic
+configuration paths and is reachable only through the `--config` argument in
+the Makefile's `DEV_CARGO`, so installing the nightly components alone does not
+activate it.
 
-The Makefile routes `build`, `test`, and `typecheck` through the fragment,
-along with the explicit `dev-build` and `dev-test` targets. `lint-clippy` uses
-it for rustdoc and Clippy. `test` uses `cargo-nextest`, which starts a separate
-Cargo invocation to compile tests and does not inherit the outer Cargo
-configuration. The Makefile passes the fragment before `nextest` and again to
-`nextest run` so the inner Cargo invocation uses Cranelift and the selected
-Linux linker. `test` also sets `RUSTFLAGS` for warning denial; because
-environment `RUSTFLAGS` replaces configured target rustflags, it repeats the
-fragment's documentation flags and Linux linker flag. The `CARGO` Make variable
-remains injectable for these commands.
+Run `make install-dev-fast` to install `rustfmt`, Clippy, `rust-analyzer`, and
+the Cranelift backend component, then the checksum-verified `mold` 2.41.0
+archive on Linux x86_64 and aarch64 hosts. Provide GCC 12.1 or later on Linux,
+because earlier releases reject `-fuse-ld=mold`.
 
-Three byte-exact checks stay on the repository-pinned stable toolchain because
-their expected compiler diagnostics depend on stable wording: the core
-`result_api_surface` and `session_api_surface` integration suites, and the
-dense provider's negative portable-SIMD check. `make test` excludes them from
-nextest and runs them with separate stable Cargo commands that retain warning
-and documentation denials. The positive dense portable-SIMD coverage remains in
-the accelerated nextest run.
-
-Release builds, formatting, coverage, Kani, Verus, benchmarks, and Whitaker do
-not select the development fragment. Whitaker uses its own pinned toolchain. The
-`build-test` and `coverage-upload` CI jobs provision the development
-prerequisites because both run `make lint`; their direct dense-SIMD and
-coverage Cargo commands continue to use the repository's stable toolchain.
-Linux CI provisions the selected toolchain and `mold`, then runs `lint-clippy`
-through the fragment as part of `make lint`. It does not independently verify
-which linker the compiled artefacts use; that evidence is currently local. The
-fragment leaves the platform linker selected outside Linux, while direct stable
-Cargo remains the documented route when the accelerated build is unavailable.
+`dev-build` compiles the binary and `dev-test` runs `cargo-nextest`, both
+through `DEV_CARGO`. Nextest starts a separate Cargo invocation to compile
+tests and does not inherit the outer Cargo configuration, so `dev-test` passes
+the fragment before `nextest` and again to `nextest run`. It also sets
+`RUSTFLAGS` for warning denial; because an assigned `RUSTFLAGS` replaces
+configured target rustflags, it repeats the documentation denials and the Linux
+linker flag. The other standard Make targets—`build`, `test`, `typecheck`,
+`lint-clippy`, `release`, formatting, coverage, Kani, Verus, benchmarks, and
+Whitaker—do not select the fragment and need none of its prerequisites, so CI
+provisions nothing extra for them. Outside Linux the fragment leaves the
+platform linker selected.
 
 ## GitHub Actions runner profiles
 
@@ -2354,3 +2341,8 @@ it cannot outlive that command.
 Exception: Cranelift is not the development-profile backend, because Cranelift
 requires a nightly toolchain and this repository pins the stable `1.99.1`
 (recorded 2026-09-29). Revisit if the repository moves to a nightly pin.
+
+The opt-in `dev-build` and `dev-test` targets are the one place the backend is
+reachable. They are outside the build standard: they are not development
+targets in `build_standard_contract.rs`, and no merge gate runs them. See
+[Rust toolchain and build routing](#rust-toolchain-and-build-routing).
