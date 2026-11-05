@@ -53,13 +53,21 @@ def _make_output(
 
 
 def _cargo_invocations(output: str) -> list[tuple[str, list[str]]]:
-    """Return each evaluated probe-cargo recipe with its shell tokens."""
+    """Return each evaluated probe-cargo recipe with its shell tokens.
+
+    A recipe may chain several Cargo commands on one line - `make test` runs
+    `$(CARGO) fetch --locked && ... $(CARGO) nextest run ...` - so every
+    occurrence starts a new invocation and ends where the next one begins.
+    Reading the line as a single command would report `fetch` as the verb and
+    hide the nextest run behind it.
+    """
     invocations: list[tuple[str, list[str]]] = []
     for line in output.splitlines():
         tokens = shlex.split(line)
-        if "probe-cargo" in tokens:
-            cargo_index = tokens.index("probe-cargo")
-            invocations.append((line, tokens[cargo_index:]))
+        starts = [index for index, token in enumerate(tokens) if token == "probe-cargo"]
+        for position, start in enumerate(starts):
+            end = starts[position + 1] if position + 1 < len(starts) else len(tokens)
+            invocations.append((line, tokens[start:end]))
     return invocations
 
 
@@ -181,25 +189,31 @@ def test_development_test_route_preserves_warning_and_platform_flags(
         pytest.param("bench", "probe-cargo", id="bench"),
         pytest.param("kani", "probe-cargo", id="kani"),
         pytest.param("kani-full", "probe-cargo", id="full-kani"),
-        pytest.param("verus", "scripts/run-verus.sh", id="verus"),
-        pytest.param("lint-whitaker", "whitaker", id="whitaker"),
+        # The verifier and Dylint recipes delegate to trunk-owned tooling. What
+        # this contract owns is that they never select the development
+        # fragment, so it asserts the recipe emitted a command without pinning
+        # a helper whose path and arguments change under the stack.
+        pytest.param("verus", None, id="verus"),
+        pytest.param("lint-whitaker", None, id="whitaker"),
     ),
 )
 def test_standard_targets_do_not_select_the_fragment(
-    target: str, expected_command: str
+    target: str, expected_command: str | None
 ) -> None:
     """Every merge gate must stay on the repository's stable build standard."""
     output = _make_output(target, overrides=("WHITAKER=whitaker-probe",))
     _assert_unfragmented(output, target)
+    assert output.strip(), f"{target} must emit a command: {output!r}"
+    if expected_command is None:
+        return
     assert expected_command in output, (
         f"{target} did not emit its expected command {expected_command!r}: {output!r}"
     )
-    if expected_command == "probe-cargo":
-        invocations = _cargo_invocations(output)
-        assert invocations, f"{target} must use injected CARGO=probe-cargo"
-        assert all(tokens[0] == "probe-cargo" for _, tokens in invocations), (
-            f"{target} must keep CARGO injectable: {invocations!r}"
-        )
+    invocations = _cargo_invocations(output)
+    assert invocations, f"{target} must use injected CARGO=probe-cargo"
+    assert all(tokens[0] == "probe-cargo" for _, tokens in invocations), (
+        f"{target} must keep CARGO injectable: {invocations!r}"
+    )
 
 
 def test_development_targets_declare_phony_beside_their_recipes() -> None:
