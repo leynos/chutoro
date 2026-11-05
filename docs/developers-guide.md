@@ -40,6 +40,13 @@ Whitaker—do not select the fragment and need none of its prerequisites, so CI
 provisions nothing extra for them. Outside Linux the fragment leaves the
 platform linker selected.
 
+Those three development targets declare themselves `.PHONY` beside their
+recipes rather than in the file-wide list at the top of the `Makefile`. The
+file-wide list is a single long line that other work also edits, so appending
+to it invites a merge conflict with any concurrent change to the same targets.
+Keeping the opt-in feature's declarations next to its recipes means this
+feature and its declarations move together.
+
 ## GitHub Actions runner profiles
 
 Every job on the developer feedback path runs on a paid Ubicloud runner, at
