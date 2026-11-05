@@ -9,9 +9,9 @@ keeps operational guidance in one place.
 The workspace pins stable Rust 1.93.1 in `rust-toolchain.toml` and declares
 Rust 1.89 as its minimum supported Rust version (MSRV). Every standard gate
 runs on that stable pin and reads `.cargo/config.toml`, which supplies the
-documentation-warning flags and, on Linux, the `mold` linker. [The build
-standard](#the-build-standard) describes those recipes and the contract tests
-that hold them.
+documentation-warning flags and, on Linux, the `mold` linker.
+[The build standard](#the-build-standard) describes those recipes and the
+contract tests that hold them.
 
 Cranelift is an opt-in development-speed route, not the default build. It
 requires a nightly toolchain, so it stays behind the explicit `dev-build` and
