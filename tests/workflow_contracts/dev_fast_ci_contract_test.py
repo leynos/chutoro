@@ -203,6 +203,27 @@ def _yaml_like_values(draw: st.DrawFn) -> Any:
     )
 
 
+def _collect_strings(value: Any) -> list[str]:
+    """Collect the strings of a YAML-shaped value in depth-first order.
+
+    Deliberately a second, differently shaped implementation. A property test
+    that walked its input with the helper under test would agree with it by
+    construction and prove nothing; this one states the order the contract
+    promises in its own terms.
+
+    >>> _collect_strings({"a": ["b", 1], "c": None})
+    ['b']
+    >>> _collect_strings([1, ["x", {"y": "z"}]])
+    ['x', 'z']
+    """
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (dict, list)):
+        children = list(value.values()) if isinstance(value, dict) else list(value)
+        return [text for child in children for text in _collect_strings(child)]
+    return []
+
+
 @given(value=_yaml_like_values())
 def test_string_values_emits_exactly_the_nested_strings_in_depth_first_order(
     value: Any,
@@ -214,20 +235,7 @@ def test_string_values_emits_exactly_the_nested_strings_in_depth_first_order(
     nesting shapes nobody wrote a case for. Depth-first order is what makes
     the resulting scan readable as the workflow source.
     """
-    expected: list[str] = []
-
-    def collect(node: Any) -> None:
-        if isinstance(node, str):
-            expected.append(node)
-        elif isinstance(node, dict):
-            for nested in node.values():
-                collect(nested)
-        elif isinstance(node, list):
-            for nested in node:
-                collect(nested)
-
-    collect(value)
-    assert list(_string_values(value)) == expected, (
+    assert list(_string_values(value)) == _collect_strings(value), (
         f"traversal of {value!r} must match an independent depth-first walk"
     )
 

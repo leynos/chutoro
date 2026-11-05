@@ -39,6 +39,14 @@ MAKE_INPUTS = ("Makefile", "tools/dev-fast/TOOLCHAIN")
 
 
 @dataclass(frozen=True)
+class Platform:
+    """One host's ``uname`` answers, which is all the installer branches on."""
+
+    system: str
+    machine: str
+
+
+@dataclass(frozen=True)
 class InstallerRun:
     """A private installer, its prefix, and the record of what it downloaded."""
 
@@ -166,8 +174,7 @@ def _private_repository(tmp_path: Path, archive_sha: str) -> Path:
 def _prepare(
     tmp_path: Path,
     *,
-    system: str = "Linux",
-    machine: str = SUPPORTED_MACHINE,
+    platform: Platform = Platform("Linux", SUPPORTED_MACHINE),
     pin: str | None = None,
     through_make: bool = False,
 ) -> InstallerRun:
@@ -190,7 +197,7 @@ def _prepare(
     download_log = tmp_path / "downloads"
     rustup_log = tmp_path / "rustup-calls"
     _recording_curl(bin_dir, archive, download_log)
-    _recording_uname(bin_dir, system=system, machine=machine)
+    _recording_uname(bin_dir, system=platform.system, machine=platform.machine)
     _recording_rustup(home, rustup_log)
 
     prefix = tmp_path / "prefix"
@@ -302,17 +309,25 @@ def test_checksum_mismatch_fails_without_installing(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("system", "machine", "expected"),
+    ("platform", "expected"),
     (
-        pytest.param("Darwin", "arm64", "Unsupported mold operating system", id="mac"),
-        pytest.param("Linux", "riscv64", "Unsupported Linux architecture", id="arch"),
+        pytest.param(
+            Platform("Darwin", "arm64"),
+            "Unsupported mold operating system",
+            id="mac",
+        ),
+        pytest.param(
+            Platform("Linux", "riscv64"),
+            "Unsupported Linux architecture",
+            id="arch",
+        ),
     ),
 )
 def test_unsupported_platform_is_a_hard_error(
-    tmp_path: Path, system: str, machine: str, expected: str
+    tmp_path: Path, platform: Platform, expected: str
 ) -> None:
     """Every unsupported platform must stop rather than install something wrong."""
-    installer = _prepare(tmp_path, system=system, machine=machine)
+    installer = _prepare(tmp_path, platform=platform)
 
     completed = installer.install()
 
@@ -362,7 +377,9 @@ def test_make_install_dev_fast_leaves_mold_alone_off_linux(tmp_path: Path) -> No
     The recipe branches on the host OS, so an unguarded hand-off would fail on
     every macOS or Windows contributor in a way the Rust gates never would.
     """
-    installer = _prepare(tmp_path, system="Darwin", machine="arm64", through_make=True)
+    installer = _prepare(
+        tmp_path, platform=Platform("Darwin", "arm64"), through_make=True
+    )
 
     completed = installer.install()
 
