@@ -1,0 +1,121 @@
+# Architecture Decision Record (ADR) 005: Cranelift as an opt-in development route
+
+## Status
+
+Accepted - 2026-11-06: Cranelift stays outside the build standard, reachable
+only through the explicit `dev-build` and `dev-test` targets.
+
+## Date
+
+2026-11-06
+
+## Context and problem statement
+
+Debug builds dominate the edit-compile-test loop, and the Cranelift codegen
+backend compiles unoptimized Rust substantially faster than LLVM. The
+repository's build standard, adopted in `d167c04` ("Adopt the Rust build
+standard (#307)"), pins stable Rust 1.93.1 and routes every gate through
+`.cargo/config.toml`. Cranelift requires a nightly toolchain.
+
+A proposal to make Cranelift the development-profile backend would have routed
+the standard `build`, `test`, `typecheck`, and `lint` targets through a nightly
+pin. That contradicts the build standard the repository had already adopted, and
+`docs/developers-guide.md` records the standard's position that Cranelift is
+not the development-profile backend.
+
+The question this decision answers is how to keep the compile-speed benefit
+available without letting a nightly toolchain reach a merge gate.
+
+## Decision drivers
+
+- A Cargo merge gate must never execute on a toolchain other than the pinned
+  stable release, so a gate result stays reproducible and matches what
+  consumers run. The verifier gates keep their own pinned toolchains, which is
+  a property of those verifiers rather than a route this decision opens.
+- Cargo selects one `rustflags` source rather than merging them, so any route
+  that assigns `RUSTFLAGS` silently replaces the documentation denials and the
+  Linux linker flag configured in `.cargo/config.toml`.
+- A developer-speed route must be discoverable and one command away, or it goes
+  unused.
+- Adding a nightly toolchain must not add provisioning to CI, because no gate
+  needs it.
+
+## Options considered
+
+- **Cranelift as the development-profile backend.** Rejected. It requires a
+  nightly pin, so the standard targets would stop matching the build standard
+  and every gate would run on a toolchain the project does not pin.
+- **Cranelift reachable only through Cargo's automatic configuration paths.**
+  Rejected. A fragment placed where Cargo finds it automatically activates for
+  every invocation in the directory, including gates.
+- **Cranelift behind explicit, named Make targets.** Accepted. Activation
+  depends on an argument a caller passes, so nothing selects it by accident.
+- **No accelerated route at all.** Rejected. It discards a real productivity
+  gain for a hazard that a named boundary removes.
+
+## Decision outcome
+
+The project keeps Cranelift as an opt-in development route reached only through
+`make dev-build` and `make dev-test`. Every standard Cargo gate — `build`,
+`test`, `typecheck`, `lint-clippy`, `release`, formatting, coverage,
+benchmarks, and Whitaker — stays on the pinned stable 1.93.1 and reads
+`.cargo/config.toml`.
+
+Kani and Verus are the exception, and they are not Cargo gates in this sense.
+Each runs on the toolchain its own verifier release requires: the Kani PR
+workflow installs Kani's pinned nightly bundle before `make kani`, and
+`make verus` delegates to `scripts/run-verus.sh` with its own `VERUS_BIN`. What
+the decision protects is unchanged — neither verifier is reached through the
+development fragment, and neither can select Cranelift.
+
+The fragment lives in `tools/dev-fast/config.toml`, outside Cargo's automatic
+configuration paths, and is pinned to one dated nightly in
+`tools/dev-fast/TOOLCHAIN`. The Makefile's `DEV_CARGO` is the only thing that
+names it, through an explicit `--config` argument, so installing the nightly
+components alone does not activate it.
+
+`make install-dev-fast` provisions the toolchain components and, on Linux, the
+checksum-verified `mold` 2.41.0 archive for x86_64 and aarch64 hosts. CI
+provisions nothing for the fragment.
+
+Because nextest starts a separate Cargo invocation that does not inherit the
+outer configuration, `dev-test` passes the fragment before `nextest` and again
+to `nextest run`. It also assigns `RUSTFLAGS` for warning denial, so it repeats
+the documentation denials and the Linux linker flag that the assignment would
+otherwise replace. The host probe is evaluated once at parse time and fails the
+target when it cannot report an operating system, rather than silently
+selecting the non-Linux branch.
+
+## Architectural rationale
+
+The decision turns a toolchain choice into an explicit boundary rather than an
+implicit default. A named target states its dependency on a nightly toolchain
+in its own name, so a reader of a CI workflow or a gate cannot reach it without
+noticing. The contract tests in `tests/workflow_contracts/dev_fast_*` pin both
+halves: the development targets select the fragment, and every standard target
+stays off it.
+
+This follows the project's hexagonal instinct that infrastructure choices
+belong behind an explicit port rather than leaking into the domain. Here the
+"domain" is the set of gates that decide mergeability, and the "adapter" is the
+optional backend.
+
+## Known risks and limitations
+
+- The development route can drift from the standard route, because it compiles
+  with a different backend. `dev-test` is a convenience, not evidence of what a
+  merge gate will observe.
+- The nightly pin is a moving target in the sense that nightly releases are
+  replaced; the pin is what makes it reproducible, and it needs periodic
+  refresh.
+- The Linux developer route additionally depends on GCC 12.1 or later, because
+  earlier releases reject `-fuse-ld=mold`.
+- `dev-build` and `dev-test` are outside `build_standard_contract.rs`; a change
+  to the build standard does not automatically reach them.
+
+## Consequences
+
+- Enabling the speed-up is one explicit command, and it cannot affect a gate.
+- A gate result is always attributable to the pinned stable toolchain.
+- The fragment duplicates the documentation denials and the linker flag, and a
+  contract test fails if that duplication is dropped.

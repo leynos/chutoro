@@ -1,9 +1,35 @@
 .PHONY: help all clean test build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling install-kani install-verus kani kani-check kani-full verus bench test-workflow-contracts
 
-export PATH := $(HOME)/.cargo/bin:$(HOME)/.bun/bin:$(PATH)
+# `lint-clippy` and `lint-whitaker` share Cargo's package cache and the
+# compiler-admission pool. Running them under `make -j` makes two builds
+# compete for the same slots, so this gate stays sequential.
+.NOTPARALLEL: lint
+
+export PATH := $(HOME)/.cargo/bin:$(HOME)/.local/bin:$(HOME)/.bun/bin:$(PATH)
 
 APP ?= chutoro-cli
 CARGO ?= cargo
+# Optional development-speed route. The standard `build`, `test`, `typecheck`
+# and `lint` recipes keep the repository's stable pin and the build standard;
+# `dev-build` and `dev-test` select the pinned nightly Cranelift fragment
+# instead. Cargo must see that fragment only through the explicit `--config`
+# argument in `DEV_CARGO`, so nothing activates it by accident.
+DEV_FAST_TOOLCHAIN := $(strip $(file <tools/dev-fast/TOOLCHAIN))
+DEV_FAST_CONFIG := tools/dev-fast/config.toml
+DEV_CARGO = $(CARGO) +$(DEV_FAST_TOOLCHAIN) --config $(DEV_FAST_CONFIG)
+# An assigned RUSTFLAGS replaces every `rustflags` table, including the
+# fragment's, so the development test route restates the documentation denials
+# and the Linux linker selection instead of inheriting them.
+DEV_FAST_HOST_OS ?= $(shell uname -s)
+# A failed probe yields an empty string, and an empty string is not Linux, so
+# every `$(if $(filter Linux,...))` below would quietly select the non-Linux
+# branch. The check lives in the development recipes rather than in a
+# file-wide `$(error)`, because parse-time validation would also fail the
+# standard gates, which do not use this route at all.
+DEV_FAST_HOST_CHECK = $(if $(strip $(DEV_FAST_HOST_OS)),,$(error Cannot determine the development host OS: `uname -s` returned nothing. Set DEV_FAST_HOST_OS explicitly))
+DEV_TEST_RUSTFLAGS = $(strip -D warnings -Dmissing_docs \
+	-Dmissing_crate_level_docs \
+	$(if $(filter Linux,$(DEV_FAST_HOST_OS)),-Clink-arg=-fuse-ld=mold))
 WHITAKER ?= whitaker
 BUILD_JOBS ?=
 CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
@@ -79,10 +105,10 @@ KANI_VERSION_REMAINDER := $(subst 8,,$(KANI_VERSION_REMAINDER))
 KANI_VERSION_REMAINDER := $(subst 9,,$(KANI_VERSION_REMAINDER))
 KANI_VERSION_REMAINDER := $(subst .,,$(KANI_VERSION_REMAINDER))
 ifneq ($(words $(KANI_VERSION_PARTS)),3)
-$(error KANI_VERSION must be MAJOR.MINOR.PATCH)
+_KANI_VERSION_CHECK := $(error KANI_VERSION must be MAJOR.MINOR.PATCH)
 endif
 ifneq ($(strip $(KANI_VERSION_REMAINDER)),)
-$(error KANI_VERSION must be MAJOR.MINOR.PATCH)
+_KANI_VERSION_CHECK := $(error KANI_VERSION must be MAJOR.MINOR.PATCH)
 endif
 KANI_LIB_PATH ?= $(KANI_HOME)/kani-$(KANI_VERSION)/toolchain/lib
 KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
@@ -111,6 +137,27 @@ test: ## Run tests with warnings treated as errors
 
 target/%/$(APP): ## Build binary in debug or release mode
 	$(if $(findstring release,$(@)),RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }-Dmissing_docs -Dmissing_crate_level_docs",RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }$(STANDARD_RUSTFLAGS)") $(CARGO) build $(BUILD_JOBS) $(if $(findstring release,$(@)),--release) --bin $(APP)
+
+# The explicit development-speed names carry their own recipes rather than
+# depending on `build` and `test`: those standard targets deliberately stay on
+# the stable pin, so an alias would never select the fragment. They declare
+# themselves phony here rather than in the file-wide list, so this opt-in
+# feature owns its own declarations.
+.PHONY: dev-build dev-test install-dev-fast
+
+dev-build: ## Build the debug binary with the selected development backend
+	$(DEV_FAST_HOST_CHECK)$(DEV_CARGO) build $(BUILD_JOBS) --bin $(APP)
+
+dev-test: ## Run the tests with the selected development backend
+	$(DEV_FAST_HOST_CHECK)RUSTFLAGS="$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E 'not kind(bench)'
+
+install-dev-fast: ## Install pinned nightly components and the verified mold binary
+	$(DEV_FAST_HOST_CHECK)rustup toolchain install $(DEV_FAST_TOOLCHAIN) --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rustc-codegen-cranelift
+ifeq ($(DEV_FAST_HOST_OS),Linux)
+	scripts/install-mold.sh
+else
+	@echo 'mold is Linux-only; the platform linker remains selected'
+endif
 
 lint: lint-clippy lint-whitaker ## Run Clippy and the Whitaker Dylint suite with warnings denied
 

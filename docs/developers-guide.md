@@ -4,6 +4,72 @@ This guide collects day-to-day practices for contributors working on the
 Chutoro codebase. It complements the more specialized documents in `docs/` and
 keeps operational guidance in one place.
 
+## Rust toolchain and build routing
+
+The workspace pins stable Rust 1.93.1 in `rust-toolchain.toml` and declares
+Rust 1.89 as its minimum supported Rust version (MSRV). Every standard Cargo
+gate runs on that stable pin and reads `.cargo/config.toml`, which supplies the
+documentation-warning flags and, on Linux, the `mold` linker.
+[The build standard](#the-build-standard) describes those recipes and the
+contract tests that hold them.
+
+Kani and Verus sit outside that statement: each verifier runs on the toolchain
+its own release requires. The Kani PR workflow installs Kani's pinned nightly
+bundle before `make kani`, and `make verus` runs `scripts/run-verus.sh` with
+its own `VERUS_BIN`. Neither is selected through the development fragment, so
+this does not weaken the Cranelift boundary below.
+
+Cranelift is an opt-in development-speed route, not the default build. It
+requires a nightly toolchain, so it stays behind the explicit `dev-build` and
+`dev-test` targets and never reaches a merge gate. The route selects the
+fragment in `tools/dev-fast/config.toml`, pinned to the dated nightly in
+`tools/dev-fast/TOOLCHAIN`. On Linux the fragment selects GCC as the linker
+driver and `mold` 2.41.0 as the linker. It lives outside Cargo's automatic
+configuration paths and is reachable only through the `--config` argument in
+the Makefile's `DEV_CARGO`, so installing the nightly components alone does not
+activate it.
+
+Run `make install-dev-fast` to install `rustfmt`, Clippy, `rust-analyzer`, and
+the Cranelift backend component, then the checksum-verified `mold` 2.41.0
+archive on Linux x86_64 and aarch64 hosts. Provide GCC 12.1 or later on Linux,
+because earlier releases reject `-fuse-ld=mold`.
+
+A matching digest proves only that the download is the file the pin names, not
+that the file is fit to install. `scripts/install-mold.sh` therefore checks
+every member the linker route needs, and probes both binaries' reported
+version, in its staging directory before copying into the prefix. Validating
+after the copy would leave a truncated or stale tree installed, and the next
+run would reuse it because the warm-install check probes the same paths. The
+script shares `scripts/lib/pinned-download.sh` with the CI installers, so its
+version and digest are read through the same fail-closed helper rather than by
+a private copy of that logic.
+
+[ADR-005](adr-005-cranelift-opt-in-development-route.md) records why the route
+is opt-in rather than the development-profile default, and what keeps it out of
+every merge gate. Each development target validates the host probe before using
+it. An empty `DEV_FAST_HOST_OS` reads as "not Linux" everywhere it is tested,
+so a failed probe would silently drop the linker selection instead of reporting
+the failure; the recipes refuse to run in that case.
+
+`dev-build` compiles the binary and `dev-test` runs `cargo-nextest`, both
+through `DEV_CARGO`. Nextest starts a separate Cargo invocation to compile
+tests and does not inherit the outer Cargo configuration, so `dev-test` passes
+the fragment before `nextest` and again to `nextest run`. It also sets
+`RUSTFLAGS` for warning denial; because an assigned `RUSTFLAGS` replaces
+configured target rustflags, it repeats the documentation denials and the Linux
+linker flag. The other standard Make targets—`build`, `test`, `typecheck`,
+`lint-clippy`, `release`, formatting, coverage, Kani, Verus, benchmarks, and
+Whitaker—do not select the fragment and need none of its prerequisites, so CI
+provisions nothing extra for them. Outside Linux the fragment leaves the
+platform linker selected.
+
+Those three development targets declare themselves `.PHONY` beside their
+recipes rather than in the file-wide list at the top of the `Makefile`. The
+file-wide list is a single long line that other work also edits, so appending
+to it invites a merge conflict with any concurrent change to the same targets.
+Keeping the opt-in feature's declarations next to its recipes means this
+feature and its declarations move together.
+
 ## GitHub Actions runner profiles
 
 Every job on the developer feedback path runs on a paid Ubicloud runner, at
@@ -251,6 +317,7 @@ version and digest are pinned.
 | Tool          | Installer                                                  | Pin                                      |
 | ------------- | ---------------------------------------------------------- | ---------------------------------------- |
 | Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, currently 0.2.7            |
+| `mold`        | `leynos/shared-actions/.github/actions/setup-rust`         | Action input, currently 2.41.0           |
 | mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.1            |
 | cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS` |
 | sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS` |
@@ -2260,3 +2327,8 @@ it cannot outlive that command.
 Exception: Cranelift is not the development-profile backend, because Cranelift
 requires a nightly toolchain and this repository pins the stable `1.99.1`
 (recorded 2026-09-29). Revisit if the repository moves to a nightly pin.
+
+The opt-in `dev-build` and `dev-test` targets are the one place the backend is
+reachable. They are outside the build standard: they are not development
+targets in `build_standard_contract.rs`, and no merge gate runs them. See
+[Rust toolchain and build routing](#rust-toolchain-and-build-routing).

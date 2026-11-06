@@ -133,9 +133,8 @@ This repository is written in Rust and uses Cargo for building and dependency
 management. Contributors should follow these best practices when working on the
 project:
 
-- Run `make check-fmt`, `make lint`, and `make test` before committing. These
-  targets wrap the following commands, so contributors understand the exact
-  behaviour and policy enforced:
+- Run `make check-fmt`, `make lint`, and `make test` before committing. Their
+  routing is part of the repository build policy:
   - `make check-fmt` executes:
 
     ```sh
@@ -143,16 +142,13 @@ project:
     ```
 
     validating formatting across the entire workspace without modifying files.
-  - `make lint` executes rustdoc and Clippy followed by the Whitaker Dylint
-    suite:
+  - `make lint` runs `lint-clippy` and then `lint-whitaker`. The first target
+    runs rustdoc with `RUSTDOCFLAGS="--cfg docsrs -D warnings"` and Clippy
+    with all targets and features plus `-D warnings` on the repository's
+    stable pin, using `.cargo/config.toml` and, on Linux, `mold`. The second
+    invokes the wrapper with `RUSTFLAGS="-D warnings"` and the linker flag
+    alone, because Whitaker builds its driver under the flags it is given.
 
-    ```sh
-    cargo doc --workspace --no-deps
-    cargo clippy --all-targets --all-features -- -D warnings
-    RUSTFLAGS="-D warnings" whitaker --all -- --all-targets --all-features
-    ```
-
-    linting every target with all features enabled and denying all warnings.
     The `whitaker` wrapper must already be on `PATH`; never install,
     upgrade, or downgrade it from this repository — repository tooling and
     agents must not modify the user's Whitaker installation. If the wrapper
@@ -163,12 +159,19 @@ project:
   - `make test` executes:
 
     ```sh
-    cargo test --workspace
+    cargo nextest run --all-targets --all-features -E 'not kind(bench)'
     ```
 
-    running the full workspace test suite. Use `make fmt`
-    (`cargo fmt --workspace`) to apply formatting fixes reported by the
-    formatter check.
+    running the full workspace test suite on the stable pin, with `RUSTFLAGS`
+    carrying `-D warnings` and the build standard's flags. Use `make fmt`
+    (`cargo fmt --all` plus Markdown formatting) to apply formatting fixes
+    reported by the formatter checks.
+- Cranelift is opt-in for development speed only. `make dev-build` and
+  `make dev-test` select the nightly fragment in `tools/dev-fast/`;
+  `make install-dev-fast` installs its components and the `mold` archive. They
+  are never a merge gate, and direct Cargo uses stable Rust 1.93.1 and
+  `.cargo/config.toml`, above the workspace MSRV of 1.89. See the
+  [toolchain and build routing guide](docs/developers-guide.md#rust-toolchain-and-build-routing).
 - Clippy warnings MUST be disallowed.
 - Fix any warnings emitted during tests in the code itself rather than
   silencing them.
