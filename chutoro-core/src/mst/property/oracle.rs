@@ -34,10 +34,12 @@ pub(super) fn sequential_kruskal(
     edges: &[CandidateEdge],
 ) -> SequentialMstResult {
     let accepted = sequential_kruskal_edges(node_count, edges);
-    let total_weight = accepted
-        .iter()
-        .map(|(_, _, weight, _)| f64::from(*weight))
-        .sum();
+    // `Iterator::sum` starts from `-0.0`, the additive identity for floats.
+    // Folding from positive zero keeps an empty forest's total at `0.0`, which
+    // is the value the oracle has always reported and `total_cmp` distinguishes.
+    let total_weight = accepted.iter().fold(0.0_f64, |total, (_, _, weight, _)| {
+        std::ops::Add::add(total, f64::from(*weight))
+    });
     let edge_count = accepted.len();
 
     SequentialMstResult {
