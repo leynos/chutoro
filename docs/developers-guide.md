@@ -33,7 +33,10 @@ that the file is fit to install. `scripts/install-mold.sh` therefore checks
 every member the linker route needs, and probes both binaries' reported
 version, in its staging directory before copying into the prefix. Validating
 after the copy would leave a truncated or stale tree installed, and the next
-run would reuse it because the warm-install check probes the same paths.
+run would reuse it because the warm-install check probes the same paths. The
+script shares `scripts/lib/pinned-download.sh` with the CI installers, so its
+version and digest are read through the same fail-closed helper rather than by
+a private copy of that logic.
 
 [ADR-005](adr-005-cranelift-opt-in-development-route.md) records why the route
 is opt-in rather than the development-profile default, and what keeps it out of
@@ -300,6 +303,7 @@ version and digest are pinned.
 | Tool          | Installer                                                  | Pin                                      |
 | ------------- | ---------------------------------------------------------- | ---------------------------------------- |
 | Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, currently 0.2.7            |
+| `mold`        | `leynos/shared-actions/.github/actions/setup-rust`         | Action input, currently 2.41.0           |
 | mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.1            |
 | cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS` |
 | sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS` |
