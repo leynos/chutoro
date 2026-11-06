@@ -111,25 +111,27 @@ fn heal_for_test_repairs_inserted_edges_without_sweeping_unrelated_edges() {
 
     index.heal_for_test();
 
-    index.inspect_graph(|graph| {
-        let node0 = graph.node(0).expect("entry must remain");
-        let node1 = graph.node(1).expect("inserted node must remain");
-        let node2 = graph.node(2).expect("unrelated node must remain");
-        let node3 = graph.node(3).expect("unrelated target must remain");
-        assert!(
-            node0.neighbours(0).contains(&1),
-            "healing must restore the reciprocal edge for the touched insertion"
-        );
-        assert!(node1.neighbours(0).contains(&0));
-        assert!(
-            node2.neighbours(0).contains(&3),
-            "the unrelated asymmetric edge is preserved for the locality check"
-        );
-        assert!(
-            !node3.neighbours(0).contains(&2),
-            "healing must not sweep an untouched asymmetric edge"
-        );
-    });
+    index
+        .inspect_graph(|graph| {
+            let node0 = graph.node(0).expect("entry must remain");
+            let node1 = graph.node(1).expect("inserted node must remain");
+            let node2 = graph.node(2).expect("unrelated node must remain");
+            let node3 = graph.node(3).expect("unrelated target must remain");
+            assert!(
+                node0.neighbours(0).contains(&1),
+                "healing must restore the reciprocal edge for the touched insertion"
+            );
+            assert!(node1.neighbours(0).contains(&0));
+            assert!(
+                node2.neighbours(0).contains(&3),
+                "the unrelated asymmetric edge is preserved for the locality check"
+            );
+            assert!(
+                !node3.neighbours(0).contains(&2),
+                "healing must not sweep an untouched asymmetric edge"
+            );
+        })
+        .expect("graph inspection must succeed");
     let touched = index
         .write_graph(|graph| Ok(graph.take_touched_nodes()))
         .expect("read healing queue");
@@ -170,7 +172,11 @@ fn heal_for_test_drains_tracking_created_by_deletion() {
 
     index.heal_for_test();
 
-    assert!(index.inspect_graph(|graph| graph.node(1).is_none()));
+    assert!(
+        index
+            .inspect_graph(|graph| graph.node(1).is_none())
+            .expect("graph inspection must succeed")
+    );
     let healed_touched = index
         .write_graph(|graph| Ok(graph.take_touched_nodes()))
         .expect("read healing queue");
@@ -212,18 +218,20 @@ fn heal_for_test_repairs_reachability_and_drains_its_tracking() {
 
     index.heal_for_test();
 
-    index.inspect_graph(|graph| {
-        let entry = graph.node(0).expect("entry must remain");
-        let repaired = graph.node(2).expect("isolated node must remain");
-        assert!(
-            entry.neighbours(0).contains(&2),
-            "reachability repair must link the isolated node from the entry"
-        );
-        assert!(
-            repaired.neighbours(0).contains(&0),
-            "reachability repair must create a reciprocal link"
-        );
-    });
+    index
+        .inspect_graph(|graph| {
+            let entry = graph.node(0).expect("entry must remain");
+            let repaired = graph.node(2).expect("isolated node must remain");
+            assert!(
+                entry.neighbours(0).contains(&2),
+                "reachability repair must link the isolated node from the entry"
+            );
+            assert!(
+                repaired.neighbours(0).contains(&0),
+                "reachability repair must create a reciprocal link"
+            );
+        })
+        .expect("graph inspection must succeed");
     let touched = index
         .write_graph(|graph| Ok(graph.take_touched_nodes()))
         .expect("read healing queue");
