@@ -51,6 +51,10 @@ open each document.
   optimization levers.
 - [ADR 004: benchmark dataset recipe trait](adr-004-bench-dataset-recipe-trait.md):
   accepted guidance for typed benchmark dataset preparation and publication.
+- [ADR 005: Cranelift as an opt-in development
+  route](adr-005-cranelift-opt-in-development-route.md): accepted guidance for
+  keeping the accelerated backend outside the build standard and every merge
+  gate.
 
 ## Execution plans
 

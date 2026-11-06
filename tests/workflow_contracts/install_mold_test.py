@@ -46,6 +46,25 @@ class Platform:
     machine: str
 
 
+#: The members every real release archive carries. An ``Archive`` may omit one
+#: to model a truncated download that still matched its checksum.
+REQUIRED_MEMBERS: tuple[str, ...] = ARCHIVE_MEMBERS
+
+
+@dataclass(frozen=True)
+class Archive:
+    """What a release-shaped tarball contains and what its binaries report.
+
+    ``members`` and ``reported_version`` are the two ways a well-checksummed
+    archive can still be unfit: a truncated one is missing a file the linker
+    route needs, and a stale one reports the wrong version. Both must be
+    rejected rather than installed and then reused on the next run.
+    """
+
+    members: tuple[str, ...] = REQUIRED_MEMBERS
+    reported_version: str = MOLD_VERSION
+
+
 @dataclass(frozen=True)
 class InstallerRun:
     """A private installer, its prefix, and the record of what it downloaded."""
@@ -119,22 +138,32 @@ printf '%s\\n' "$*" >> {str(log)!r}
     )
 
 
-def _mold_archive(path: Path) -> None:
+def _mold_archive(
+    path: Path,
+    archive_arch: str = SUPPORTED_MACHINE,
+    *,
+    shape: Archive = Archive(),
+) -> None:
     """Build a release-shaped archive whose binaries report the pin.
 
     The installer re-runs both binaries after copying them, so the members are
-    scripts that answer ``--version`` the way the real release does.
+    scripts that answer ``--version`` the way the real release does. The
+    archive's own name carries ``archive_arch`` because the pin is looked up by
+    that name: this is how a release for another architecture is modelled.
     """
+    script = (
+        f"#!/usr/bin/env bash\nprintf 'mold {shape.reported_version}\\n'\n"
+    ).encode()
     contents = {
-        "bin/mold": b"#!/usr/bin/env bash\nprintf 'mold 2.41.0\\n'\n",
-        "bin/ld.mold": b"#!/usr/bin/env bash\nprintf 'mold 2.41.0\\n'\n",
+        "bin/mold": script,
+        "bin/ld.mold": script,
         "lib/mold/mold-wrapper.so": b"wrapper",
         "libexec/mold/ld": b"#!/usr/bin/env bash\nexit 0\n",
     }
-    prefix = f"mold-{MOLD_VERSION}-{SUPPORTED_MACHINE}-linux"
+    prefix = f"mold-{MOLD_VERSION}-{archive_arch}-linux"
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as archive:
-        for relative in ARCHIVE_MEMBERS:
+        for relative in shape.members:
             payload = contents[relative]
             info = tarfile.TarInfo(f"{prefix}/{relative}")
             info.size = len(payload)
@@ -152,11 +181,13 @@ def _copy_inputs(root: Path, relatives: tuple[str, ...]) -> None:
         destination.write_bytes((REPO_ROOT / relative).read_bytes())
 
 
-def _private_repository(tmp_path: Path, archive_sha: str) -> Path:
+def _private_repository(tmp_path: Path, archive_sha: str, archive_name: str) -> Path:
     """Copy the installer and its pins into a repository-shaped directory.
 
     The installer resolves its root from its own location, so a private copy is
     what makes the pin, the prefix, and the downloaded archive all test-owned.
+    ``archive_name`` is the name the pin manifest must carry, because that is
+    the name the installer derives from the host it is told about.
     """
     root = tmp_path / "repo"
     _copy_inputs(root, INSTALLER_FILES)
@@ -166,7 +197,7 @@ def _private_repository(tmp_path: Path, archive_sha: str) -> Path:
         f"{MOLD_VERSION}\n", encoding="utf-8"
     )
     (root / "tools" / "mold" / "SHA256SUMS").write_text(
-        f"{archive_sha}  {ARCHIVE_NAME}\n", encoding="utf-8"
+        f"{archive_sha}  {archive_name}\n", encoding="utf-8"
     )
     return root
 
@@ -176,20 +207,24 @@ def _prepare(
     *,
     platform: Platform = Platform("Linux", SUPPORTED_MACHINE),
     pin: str | None = None,
+    shape: Archive = Archive(),
     through_make: bool = False,
 ) -> InstallerRun:
     """Build a private installer pinned to a locally built archive.
 
     ``pin`` overrides the recorded digest; passing a wrong one models an
-    attacker substituting the archive at the pinned URL. ``through_make``
+    attacker substituting the archive at the pinned URL. ``shape`` alters what
+    the archive contains while the checksum still matches, which is the only
+    way to reach the installer's post-download validation. ``through_make``
     drives the ``install-dev-fast`` recipe instead of the script alone.
     """
     home = tmp_path / "home"
     home.mkdir()
-    archive = tmp_path / ARCHIVE_NAME
-    _mold_archive(archive)
+    archive_name = f"mold-{MOLD_VERSION}-{platform.machine}-linux.tar.gz"
+    archive = tmp_path / archive_name
+    _mold_archive(archive, platform.machine, shape=shape)
     digest = pin or hashlib.sha256(archive.read_bytes()).hexdigest()
-    root = _private_repository(tmp_path, digest)
+    root = _private_repository(tmp_path, digest, archive_name)
     if through_make:
         _copy_inputs(root, MAKE_INPUTS)
 
@@ -255,6 +290,30 @@ def test_installer_unpacks_the_verified_archive_into_the_prefix(
         )
 
 
+def test_aarch64_host_selects_the_aarch64_archive(tmp_path: Path) -> None:
+    """The architecture branch must reach the matching pinned release.
+
+    The pin manifest is looked up by the archive name the installer derives
+    from ``uname -m``. A host reporting ``aarch64`` that requested the x86_64
+    name would find no pin and stop, and one that requested it and found a pin
+    would install the wrong binary; the recorded download proves which name
+    was actually fetched.
+    """
+    installer = _prepare(tmp_path, platform=Platform("Linux", "aarch64"))
+
+    completed = installer.install()
+
+    assert completed.returncode == 0, completed.stderr
+    requested = installer.download_log.read_text(encoding="utf-8")
+    assert "mold-2.41.0-aarch64-linux.tar.gz" in requested, (
+        f"an aarch64 host must request the aarch64 archive: {requested!r}"
+    )
+    assert "x86_64" not in requested, (
+        f"an aarch64 host must not fetch the x86_64 archive: {requested!r}"
+    )
+    assert (installer.prefix / "bin" / "mold").exists()
+
+
 def test_complete_installation_is_reused_without_downloading(tmp_path: Path) -> None:
     """A warm image must not pay for the download again."""
     installer = _prepare(tmp_path)
@@ -306,6 +365,57 @@ def test_checksum_mismatch_fails_without_installing(tmp_path: Path) -> None:
     assert completed.returncode != 0
     assert "SHA-256 mismatch" in completed.stderr
     assert not (installer.prefix / "bin").exists()
+
+
+@pytest.mark.parametrize(
+    ("shape", "expected"),
+    (
+        pytest.param(
+            Archive(members=tuple(m for m in REQUIRED_MEMBERS if m != "bin/ld.mold")),
+            "does not contain an executable bin/ld.mold",
+            id="missing-ld-mold",
+        ),
+        pytest.param(
+            Archive(members=("bin/mold", "bin/ld.mold", "libexec/mold/ld")),
+            "missing lib/mold/mold-wrapper.so",
+            id="missing-wrapper",
+        ),
+        pytest.param(
+            Archive(members=("bin/mold", "bin/ld.mold", "lib/mold/mold-wrapper.so")),
+            "missing libexec/mold/ld",
+            id="missing-libexec",
+        ),
+        pytest.param(
+            Archive(reported_version="2.40.0"),
+            "Staged mold does not report 2.41.0",
+            id="wrong-version",
+        ),
+    ),
+)
+def test_unfit_archive_with_a_matching_checksum_is_rejected(
+    tmp_path: Path, shape: Archive, expected: str
+) -> None:
+    """A correct digest does not make an archive installable.
+
+    A truncated or stale archive can still match the pin, so the checksum
+    cannot be the only gate. Each case must fail with its own diagnostic and
+    leave no installed tree, because a partial prefix that looked installed
+    would be reused by the next run and fail later at link time.
+    """
+    installer = _prepare(tmp_path, shape=shape)
+
+    completed = installer.install()
+
+    assert completed.returncode != 0, (
+        "an unfit archive must not be installed: "
+        f"{completed.stdout}\n{completed.stderr}"
+    )
+    assert expected in completed.stderr, (
+        f"expected {expected!r}, got: {completed.stderr!r}"
+    )
+    assert not (installer.prefix / "bin").exists(), (
+        "a rejected archive must not leave an installed binary behind"
+    )
 
 
 @pytest.mark.parametrize(
