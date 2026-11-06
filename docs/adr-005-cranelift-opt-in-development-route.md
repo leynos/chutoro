@@ -63,9 +63,9 @@ benchmarks, and Whitaker — stays on the pinned stable 1.93.1 and reads
 
 Kani and Verus are the exception, and they are not Cargo gates in this sense.
 Each runs on the toolchain its own verifier release requires: the Kani PR
-workflow installs Kani's pinned nightly bundle before `make kani`, and `make
-verus` delegates to `scripts/run-verus.sh` with its own `VERUS_BIN`. What the
-decision protects is unchanged — neither verifier is reached through the
+workflow installs Kani's pinned nightly bundle before `make kani`, and
+`make verus` delegates to `scripts/run-verus.sh` with its own `VERUS_BIN`. What
+the decision protects is unchanged — neither verifier is reached through the
 development fragment, and neither can select Cranelift.
 
 The fragment lives in `tools/dev-fast/config.toml`, outside Cargo's automatic
