@@ -272,16 +272,24 @@ const fn validate_and_canonicalize_edge(
     }))
 }
 
-#[cfg(not(kani))]
 /// Append non-cycling edges from one equal-weight group deterministically.
+///
+/// `group` arrives sorted by `(weight, source, target, sequence)`. Scanning it
+/// sequentially and appending accepted edges straight to `forest_edges` keeps
+/// that order deterministic and allocates nothing per weight group.
+///
+/// # Examples
+///
+/// ```ignore
+/// extend_with_accepted_edges(&group, &union_find, &mut forest_edges)?;
+/// assert!(forest_edges.len() <= group.len());
+/// ```
+#[cfg(not(kani))]
 fn extend_with_accepted_edges(
     group: &[MstEdge],
     union_find: &ConcurrentUnionFind,
     forest_edges: &mut Vec<MstEdge>,
 ) -> Result<(), MstError> {
-    // Process edges sequentially to ensure deterministic MST selection.
-    // Since edges are already sorted by (weight, source, target, sequence),
-    // sequential iteration appends reproducible results directly to the forest.
     for edge in group {
         if union_find.try_union(edge.source, edge.target)? {
             forest_edges.push(*edge);
