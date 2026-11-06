@@ -53,8 +53,8 @@ VERUS_INSTALL_FLAGS ?=
 # harvest proofs run, in this order. Verus accepts one input filename per
 # invocation, so the package verifies them one at a time and stops at the
 # first failure.
-VERUS_PROOF_FILES ?= $(if $(VERUS_PROOF_FILE),$(VERUS_PROOF_FILE),\
-	verus/edge_harvest_proofs.rs verus/session_core_distance.rs)
+VERUS_DEFAULT_PROOF_FILES = verus/edge_harvest_proofs.rs verus/session_core_distance.rs
+VERUS_PROOF_FILES ?= $(if $(VERUS_PROOF_FILE),$(VERUS_PROOF_FILE),$(VERUS_DEFAULT_PROOF_FILES))
 VERUS_PROOF_ARGS = $(foreach proof,$(VERUS_PROOF_FILES),--proof-file "$(proof)")
 
 # `prover-tools kani install` runs `cargo kani setup`, which unpacks the
@@ -78,12 +78,7 @@ KANI_VERSION_REMAINDER := $(subst 7,,$(KANI_VERSION_REMAINDER))
 KANI_VERSION_REMAINDER := $(subst 8,,$(KANI_VERSION_REMAINDER))
 KANI_VERSION_REMAINDER := $(subst 9,,$(KANI_VERSION_REMAINDER))
 KANI_VERSION_REMAINDER := $(subst .,,$(KANI_VERSION_REMAINDER))
-ifneq ($(words $(KANI_VERSION_PARTS)),3)
-$(error KANI_VERSION must be MAJOR.MINOR.PATCH)
-endif
-ifneq ($(strip $(KANI_VERSION_REMAINDER)),)
-$(error KANI_VERSION must be MAJOR.MINOR.PATCH)
-endif
+KANI_VERSION_CHECKED := $(if $(and $(filter 3,$(words $(KANI_VERSION_PARTS))),$(if $(strip $(KANI_VERSION_REMAINDER)),,ok)),ok,$(error KANI_VERSION must be MAJOR.MINOR.PATCH))
 KANI_LIB_PATH ?= $(KANI_HOME)/kani-$(KANI_VERSION)/toolchain/lib
 KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
 
