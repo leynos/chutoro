@@ -1020,6 +1020,42 @@ below derive their `Error` implementation with `thiserror`:
   `RowLength`, `Dimension`, `Arrow`, and `Parquet` failure modes of the Arrow
   and Parquet builders.
 
+### Graph-lock test helpers
+
+`chutoro-core/src/hnsw/cpu/test_helpers.rs` carries two fixtures that reach
+into a `CpuHnsw`'s shared graph: `inspect_graph` runs a closure under the graph
+read lock, and `reconfigure_for_test` swaps the parameters and the structures
+derived from them. Both return `Result<_, HnswError>` rather than panicking, in
+line with the [fallible fixture policy](#fallible-fixture-policy). A `#[test]`
+caller adds `.expect("...")` at its own boundary, and the poisoned-lock
+regression reads the error value instead.
+
+`inspect_graph` returns `HnswError::LockPoisoned { resource: "graph" }` when
+the read lock is already poisoned. `reconfigure_for_test` acquires the graph
+write lock **before** it touches anything else, so that same error leaves the
+index exactly as it was: the parameters, random generators, and distance cache
+are replaced only once the graph has accepted the new parameters. Reconfiguring
+first and locking second would leave a half-applied configuration behind on the
+one path where the caller can still observe it.
+
+```rust
+let params = HnswParams::new(2, 4).expect("valid parameters");
+let mut index = CpuHnsw::with_capacity(params.clone(), 3).expect("index");
+
+// A poisoned graph lock is reported, not panicked, and nothing is replaced.
+assert!(matches!(
+    index.reconfigure_for_test(HnswParams::new(3, 6).expect("valid")),
+    Err(HnswError::LockPoisoned { resource: "graph" })
+));
+assert_eq!(index.params, params);
+```
+
+The regression that proves this,
+`hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring`,
+poisons the lock by panicking while a write guard is alive, then inspects the
+poison through `catch_unwind`. That is the one case
+[the development route](#rust-toolchain-and-build-routing) cannot run.
+
 ### Test-only budget types
 
 `chutoro-core/src/hnsw/tests/property/test_runner_support/budget_types.rs`
