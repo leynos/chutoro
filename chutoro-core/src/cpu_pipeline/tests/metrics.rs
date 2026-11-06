@@ -1,6 +1,6 @@
 //! Metrics tests for the CPU pipeline stage timings.
 
-use metrics_util::debugging::DebuggingRecorder;
+use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 
 use crate::HnswParams;
 
@@ -22,25 +22,32 @@ fn every_stage_records_a_latency_sample() {
             .expect("production pipeline must succeed");
     });
 
-    let mut stages: Vec<String> = snapshotter
+    let mut stages: Vec<(String, usize)> = snapshotter
         .snapshot()
         .into_hashmap()
         .into_iter()
         .filter(|(key, _)| key.key().name() == STAGE_SECONDS)
-        .map(|(key, _)| {
+        .map(|(key, (_, _, value))| {
             let labels: Vec<String> = key
                 .key()
                 .labels()
                 .map(|label| label.value().to_owned())
                 .collect();
-            labels.join(",")
+            let count = match value {
+                DebugValue::Histogram(samples) => samples.len(),
+                other => panic!("stage metric must be a histogram, got {other:?}"),
+            };
+            (labels.join(","), count)
         })
         .collect();
     stages.sort();
 
     assert_eq!(
         stages,
-        ["kruskal", "mutual_reachability"],
-        "each pipeline stage must record one bounded latency histogram sample"
+        [
+            ("kruskal".to_owned(), 1),
+            ("mutual_reachability".to_owned(), 1)
+        ],
+        "each pipeline stage must record exactly one bounded latency histogram sample"
     );
 }

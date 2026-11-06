@@ -10,6 +10,7 @@ use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
 use rayon::ThreadPoolBuilder;
 
+use crate::mst::{parallel_kruskal, parallel_kruskal_from_edges};
 use crate::test_utils::suite_proptest_config;
 use crate::{CandidateEdge, EdgeHarvest};
 
@@ -48,6 +49,63 @@ proptest! {
                     ))
                 })?;
             prop_assert_eq!(&actual, &expected, "thread count {}", threads);
+        }
+    }
+
+    /// Compare a whole forest built through the direct slice path with one
+    /// built through the sequential transform and `EdgeHarvest::new`.
+    ///
+    /// The transform-only property above pins the edge weights; this one
+    /// pins the downstream forest, so a difference that only appears after
+    /// canonicalisation, sorting, or deduplication cannot slip through.
+    #[test]
+    fn direct_slice_forest_matches_the_harvest_path(
+        (edges, core_distances) in fixture_strategy(),
+    ) {
+        let node_count = core_distances.len();
+        let harvest = EdgeHarvest::new(edges);
+        let sequential = sequential_mutual_edges(&harvest, &core_distances).ok_or_else(|| {
+            TestCaseError::fail("every generated endpoint must have a core distance")
+        })?;
+        let harvest_path = EdgeHarvest::new(sequential);
+
+        for threads in THREAD_COUNTS {
+            let pool = ThreadPoolBuilder::new()
+                .num_threads(threads)
+                .build()
+                .map_err(|error| {
+                    TestCaseError::fail(format!(
+                        "failed to build a {threads}-thread Rayon pool: {error}"
+                    ))
+                })?;
+            let (direct, via_harvest) = pool
+                .install(|| -> core::result::Result<_, String> {
+                    let weighted = mutual_reachability_edges("fixture", &harvest, &core_distances)
+                        .map_err(|error| error.to_string())?;
+                    let direct = parallel_kruskal_from_edges(node_count, &weighted)
+                        .map_err(|error| error.to_string())?;
+                    let via_harvest = parallel_kruskal(node_count, &harvest_path)
+                        .map_err(|error| error.to_string())?;
+                    Ok((direct, via_harvest))
+                })
+                .map_err(|error| {
+                    TestCaseError::fail(format!(
+                        "forest construction failed with {threads} threads: {error}"
+                    ))
+                })?;
+
+            prop_assert_eq!(
+                direct.edges(),
+                via_harvest.edges(),
+                "forest edges must match with {} threads",
+                threads
+            );
+            prop_assert_eq!(
+                direct.component_count(),
+                via_harvest.component_count(),
+                "component counts must match with {} threads",
+                threads
+            );
         }
     }
 }
