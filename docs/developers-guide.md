@@ -828,6 +828,14 @@ state. Subprocess tests may configure a child explicitly with `Command::env` or
 
 ## Whitaker lint suite
 
+`make lint` first runs `make interrogate`, which requires a docstring on every
+module, class and function in the Python files under `scripts` and `tests`. It
+runs interrogate 1.7.0 through `uv tool run` with `-vv --fail-under 100`, so it
+needs `uv` on the path, and it also fails on any `MISSED` row because the
+rounded percentage can hide a single gap. Add a new Python directory to
+`INTERROGATE_TARGETS` in the Makefile.
+`tests/workflow_contracts/interrogate_gate_test.py` holds the wiring.
+
 Whitaker is a Dylint lint suite that runs as a commit gate alongside Clippy.
 `make lint` runs `lint-clippy` (rustdoc plus Clippy) followed by
 `lint-whitaker`, which invokes the `whitaker` wrapper with

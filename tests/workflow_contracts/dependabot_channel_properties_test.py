@@ -17,6 +17,7 @@ _DATE = st.dates(min_value=date(2000, 1, 1), max_value=date(2099, 12, 31))
 
 
 def _write_channel(path: Path, channel: str) -> None:
+    """Write a rust-toolchain file holding the supplied channel, valid or not."""
     path.write_text(f'[toolchain]\nchannel = "{channel}"\n', encoding="utf-8")
 
 
