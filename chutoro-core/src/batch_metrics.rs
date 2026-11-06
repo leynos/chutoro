@@ -6,6 +6,9 @@
 
 use crate::Result;
 
+#[cfg(feature = "cpu")]
+use std::time::Duration;
+
 /// Counter name for final one-shot batch outcomes.
 const RUNS_TOTAL: &str = "chutoro.batch.runs_total";
 #[cfg(feature = "cpu")]
@@ -81,6 +84,26 @@ pub(crate) fn record_cpu_resources(
         metrics::histogram!(MEMORY_LIMIT_BYTES, "backend" => "cpu")
             .record(bounded_bytes_as_f64(limit));
     }
+}
+
+/// Histogram name for CPU pipeline stage wall-clock time.
+#[cfg(feature = "cpu")]
+const PIPELINE_STAGE_SECONDS: &str = "chutoro.cpu_pipeline.stage_seconds";
+
+/// Records the wall-clock duration of one CPU pipeline stage.
+///
+/// The `stage` label is supplied by the pipeline's own stage vocabulary, whose
+/// variants are the complete label set. Passing the label rather than text
+/// derived from runtime data keeps the histogram's cardinality bounded.
+#[cfg(feature = "cpu")]
+pub(crate) fn record_pipeline_stage(stage: &'static str, elapsed: Duration) {
+    metrics::describe_histogram!(
+        PIPELINE_STAGE_SECONDS,
+        metrics::Unit::Seconds,
+        "Wall-clock seconds spent in each CPU pipeline stage, by bounded stage name."
+    );
+    metrics::histogram!(PIPELINE_STAGE_SECONDS, "stage" => stage)
+        .record(elapsed.as_secs_f64());
 }
 
 /// Converts a count to the exact range representable by the metrics recorder.
