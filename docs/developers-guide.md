@@ -28,6 +28,13 @@ the Cranelift backend component, then the checksum-verified `mold` 2.41.0
 archive on Linux x86_64 and aarch64 hosts. Provide GCC 12.1 or later on Linux,
 because earlier releases reject `-fuse-ld=mold`.
 
+A matching digest proves only that the download is the file the pin names, not
+that the file is fit to install. `scripts/install-mold.sh` therefore checks
+every member the linker route needs, and probes both binaries' reported
+version, in its staging directory before copying into the prefix. Validating
+after the copy would leave a truncated or stale tree installed, and the next
+run would reuse it because the warm-install check probes the same paths.
+
 [ADR-005](adr-005-cranelift-opt-in-development-route.md) records why the route
 is opt-in rather than the development-profile default, and what keeps it out of
 every merge gate. Each development target validates the host probe before using
@@ -313,13 +320,6 @@ manifest, and fails closed when either is missing or does not match. That
 helper is for repository installer scripts only; it is not a general download
 utility and must not be sourced from application code. Each script also probes
 for its own executable first, so a warm cache repeats no download.
-
-A matching digest proves only that the download is the file the pin names, not
-that the file is fit to install. `scripts/install-mold.sh` therefore validates
-every member the linker route needs, and probes both binaries' reported
-version, in its staging directory before copying into the prefix. Validating
-after the copy would leave a truncated or stale tree installed, and the next
-run would reuse it because the warm-install check probes the same paths.
 
 ### The shared prover tool
 
