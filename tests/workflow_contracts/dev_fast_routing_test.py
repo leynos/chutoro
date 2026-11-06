@@ -246,6 +246,76 @@ def test_development_targets_declare_phony_beside_their_recipes() -> None:
     )
 
 
+@pytest.mark.parametrize("target", ("dev-build", "dev-test", "install-dev-fast"))
+def test_development_targets_refuse_an_empty_host_probe(target: str) -> None:
+    """An unanswerable host probe must stop the target, not pick a branch.
+
+    ``DEV_FAST_HOST_OS`` is a ``?=`` default over ``$(shell uname -s)``, and
+    every use is a ``$(filter Linux,...)``, so an empty result reads as "not
+    Linux". That would silently select the platform linker and skip the mold
+    install on a Linux host whose probe failed. The check is per recipe
+    because a file-wide ``$(error)`` would also fail the standard gates.
+    """
+    completed = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "--dry-run",
+            "--always-make",
+            "--file",
+            str(MAKEFILE_PATH),
+            "DEV_FAST_HOST_OS=",
+            target,
+            "CARGO=probe-cargo",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0, (
+        f"{target} must fail when the host probe reports nothing: "
+        f"{completed.stdout!r}"
+    )
+    assert "Cannot determine the development host OS" in completed.stderr, (
+        f"{target} must report the failed probe: {completed.stderr!r}"
+    )
+
+
+def test_standard_targets_ignore_an_empty_host_probe() -> None:
+    """The development route's precondition must not reach a merge gate.
+
+    A parse-time check would fail every target in the file, including the
+    gates that never use the fragment, so an unrelated probe failure could
+    block a release. Standard targets evaluate the fragment's variables but
+    must never validate them.
+    """
+    completed = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "--dry-run",
+            "--always-make",
+            "--file",
+            str(MAKEFILE_PATH),
+            "DEV_FAST_HOST_OS=",
+            "build",
+            "CARGO=probe-cargo",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, (
+        "a standard target must not fail on the development host probe: "
+        f"{completed.stderr}"
+    )
+    _assert_unfragmented(completed.stdout, "build")
+
+
 def _mutated_makefile(tmp_path: Path, old: str, new: str) -> Path:
     """Write a private Makefile copy after one asserted text mutation."""
     source = MAKEFILE_PATH.read_text(encoding="utf-8")
