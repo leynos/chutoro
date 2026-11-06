@@ -86,30 +86,105 @@ def test_complete_installation_is_reused_without_downloading(tmp_path: Path) -> 
     assert (installer.prefix / "bin" / "ld.mold").exists()
 
 
-def test_incomplete_installation_is_replaced(tmp_path: Path) -> None:
+WARM_REUSE_SUPPORT_FILES = (
+    "lib/mold/mold-wrapper.so",
+    "libexec/mold/ld",
+)
+
+
+def _write_warm_binary(path: Path, version: str) -> None:
+    """Place an executable that reports ``version`` at ``path``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"#!/usr/bin/env bash\nprintf 'mold {version}\\n'\n", encoding="utf-8"
+    )
+    path.chmod(0o755)
+
+
+def _seed_warm_installation(
+    prefix: Path, *, mold_version: str, ld_mold_version: str
+) -> None:
+    """Seed a complete-looking prefix whose two binaries report what is asked.
+
+    Both support files are present, so each case isolates one binary's version
+    probe rather than overlapping with the missing-member cases.
+    """
+    _write_warm_binary(prefix / "bin" / "mold", mold_version)
+    _write_warm_binary(prefix / "bin" / "ld.mold", ld_mold_version)
+    for relative in WARM_REUSE_SUPPORT_FILES:
+        support = prefix / relative
+        support.parent.mkdir(parents=True, exist_ok=True)
+        support.write_text("stale\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("mold_version", "ld_mold_version", "repaired"),
+    (
+        pytest.param(MOLD_VERSION, MOLD_VERSION, False, id="both-current"),
+        pytest.param("2.40.0", MOLD_VERSION, True, id="stale-mold"),
+        pytest.param(MOLD_VERSION, "2.40.0", True, id="stale-ld-mold"),
+        pytest.param("2.40.0", "2.40.0", True, id="stale-both"),
+    ),
+)
+def test_warm_installation_is_reused_only_when_both_binaries_are_current(
+    tmp_path: Path, mold_version: str, ld_mold_version: str, repaired: bool
+) -> None:
+    """Each warm-reuse probe must be load-bearing on its own.
+
+    The linker route runs ``ld.mold`` as well as ``mold``, so a prefix can hold
+    one current binary beside one stale one. Testing only the stale-both case
+    would pass with either probe deleted, so each binary is staled alone.
+    """
+    installer = prepare(tmp_path)
+    _seed_warm_installation(
+        installer.prefix,
+        mold_version=mold_version,
+        ld_mold_version=ld_mold_version,
+    )
+
+    completed = installer.install()
+
+    assert completed.returncode == 0, completed.stderr
+    if repaired:
+        assert installer.download_log.exists(), (
+            f"a prefix reporting mold={mold_version!r} and "
+            f"ld.mold={ld_mold_version!r} must be replaced"
+        )
+    else:
+        assert not installer.download_log.exists(), (
+            "a complete installation must not download again"
+        )
+        assert "already installed" in completed.stdout
+
+
+@pytest.mark.parametrize("missing", ARCHIVE_MEMBERS)
+def test_incomplete_installation_is_replaced(
+    tmp_path: Path, missing: str
+) -> None:
     """A half-populated prefix must fall through and be repaired.
 
     An image that restored only part of the prefix used to look installed; the
     reuse check exists so that case reinstalls instead of failing later at link
-    time.
+    time. Each member is omitted alone so every part of the reuse check is
+    exercised, not just the first one that fails.
     """
     installer = prepare(tmp_path)
     (installer.prefix / "bin").mkdir(parents=True)
-    for relative in ("bin/mold", "bin/ld.mold"):
-        stub = installer.prefix / relative
-        stub.write_text(
-            "#!/usr/bin/env bash\nprintf 'mold 2.41.0\\n'\n", encoding="utf-8"
-        )
-        stub.chmod(0o755)
+    for relative in ARCHIVE_MEMBERS:
+        if relative == missing:
+            continue
+        _write_warm_binary(installer.prefix / relative, MOLD_VERSION)
 
     completed = installer.install()
 
     assert completed.returncode == 0, completed.stderr
     assert installer.download_log.exists(), (
-        "an incomplete installation must be replaced"
+        f"a prefix missing {missing} must be replaced"
     )
-    assert (installer.prefix / "lib" / "mold" / "mold-wrapper.so").exists()
-    assert (installer.prefix / "libexec" / "mold" / "ld").exists()
+    for relative in ARCHIVE_MEMBERS:
+        assert (installer.prefix / relative).exists(), (
+            f"the repair did not restore {relative}"
+        )
 
 
 def test_checksum_mismatch_fails_without_installing(tmp_path: Path) -> None:
@@ -120,7 +195,17 @@ def test_checksum_mismatch_fails_without_installing(tmp_path: Path) -> None:
 
     assert completed.returncode != 0
     assert "SHA-256 mismatch" in completed.stderr
-    assert not (installer.prefix / "bin").exists()
+    assert not installer.prefix.exists(), (
+        "a rejected archive must not create the install prefix"
+    )
+
+
+def _assert_nothing_installed(prefix: Path) -> None:
+    """Require a rejected archive to leave the prefix absent or empty."""
+    if prefix.exists():
+        assert not any(prefix.iterdir()), (
+            f"a rejected archive left an installed tree: {sorted(prefix.rglob('*'))}"
+        )
 
 
 @pytest.mark.parametrize(
@@ -141,10 +226,17 @@ def test_checksum_mismatch_fails_without_installing(tmp_path: Path) -> None:
             "missing libexec/mold/ld",
             id="missing-libexec",
         ),
+        # One binary at a time: the installer probes both, and a case that
+        # staled both together would still pass with either probe removed.
         pytest.param(
-            Archive(reported_version="2.40.0"),
+            Archive(mold_version="2.40.0"),
             "Staged mold does not report 2.41.0",
-            id="wrong-version",
+            id="wrong-mold-version",
+        ),
+        pytest.param(
+            Archive(ld_mold_version="2.40.0"),
+            "Staged ld.mold does not report 2.41.0",
+            id="wrong-ld-mold-version",
         ),
     ),
 )
@@ -169,9 +261,7 @@ def test_unfit_archive_with_a_matching_checksum_is_rejected(
     assert expected in completed.stderr, (
         f"expected {expected!r}, got: {completed.stderr!r}"
     )
-    assert not (installer.prefix / "bin").exists(), (
-        "a rejected archive must not leave an installed binary behind"
-    )
+    _assert_nothing_installed(installer.prefix)
 
 
 @pytest.mark.parametrize(

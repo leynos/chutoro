@@ -56,14 +56,20 @@ REQUIRED_MEMBERS: tuple[str, ...] = ARCHIVE_MEMBERS
 class Archive:
     """What a release-shaped tarball contains and what its binaries report.
 
-    ``members`` and ``reported_version`` are the two ways a well-checksummed
+    ``members`` and the two reported versions are the ways a well-checksummed
     archive can still be unfit: a truncated one is missing a file the linker
     route needs, and a stale one reports the wrong version. Both must be
     rejected rather than installed and then reused on the next run.
+
+    The versions are separate fields because the installer probes ``mold`` and
+    ``ld.mold`` independently. A single shared version could not show that
+    removing either probe leaves the other one as the only gate, so a case
+    that staled both binaries at once would pass even with one probe deleted.
     """
 
     members: tuple[str, ...] = REQUIRED_MEMBERS
-    reported_version: str = MOLD_VERSION
+    mold_version: str = MOLD_VERSION
+    ld_mold_version: str = MOLD_VERSION
 
 
 @dataclass(frozen=True)
@@ -166,12 +172,12 @@ def _mold_archive(
     archive's own name carries ``archive_arch`` because the pin is looked up by
     that name: this is how a release for another architecture is modelled.
     """
-    script = (
-        f"#!/usr/bin/env bash\nprintf 'mold {shape.reported_version}\\n'\n"
-    ).encode()
+    def reporting(version: str) -> bytes:
+        return f"#!/usr/bin/env bash\nprintf 'mold {version}\\n'\n".encode()
+
     contents = {
-        "bin/mold": script,
-        "bin/ld.mold": script,
+        "bin/mold": reporting(shape.mold_version),
+        "bin/ld.mold": reporting(shape.ld_mold_version),
         "lib/mold/mold-wrapper.so": b"wrapper",
         "libexec/mold/ld": b"#!/usr/bin/env bash\nexit 0\n",
     }

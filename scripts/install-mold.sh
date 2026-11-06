@@ -35,11 +35,21 @@ BINARY="${INSTALL_PREFIX}/bin/mold"
 ARCHIVE="mold-${MOLD_VERSION}-${MOLD_ARCHIVE_ARCH}-linux.tar.gz"
 URL="https://github.com/rui314/mold/releases/download/v${MOLD_VERSION}/${ARCHIVE}"
 
+# Both binaries are probed, here and again in staging. The linker route runs
+# `ld.mold` as well as `mold`, so a prefix restored from a partial backup could
+# hold one current binary and one stale one; checking the second only for
+# existence would reuse that pair and fail later at link time.
+reports_pinned_version() {
+  "$1" --version 2>/dev/null |
+    grep -qE "^mold ${MOLD_VERSION//./\\.}([[:space:]]|$)"
+}
+
 # A warm image can reuse a complete install. An incomplete or wrong-version
 # install falls through and is replaced from the verified release archive.
 if [[ -x "${BINARY}" ]] &&
-  "${BINARY}" --version 2>/dev/null | grep -qE "^mold ${MOLD_VERSION//./\\.}([[:space:]]|$)" &&
+  reports_pinned_version "${BINARY}" &&
   [[ -x "${INSTALL_PREFIX}/bin/ld.mold" ]] &&
+  reports_pinned_version "${INSTALL_PREFIX}/bin/ld.mold" &&
   [[ -f "${INSTALL_PREFIX}/lib/mold/mold-wrapper.so" ]] &&
   [[ -e "${INSTALL_PREFIX}/libexec/mold/ld" ]]; then
   echo "mold ${MOLD_VERSION} already installed at ${BINARY}"
@@ -77,11 +87,9 @@ tar -xzf "${TMP_DIR}/${ARCHIVE}" -C "${STAGE_DIR}" --strip-components=1
 # the copy would leave a wrong-version tree installed, and the next run would
 # then reuse it; failing here keeps a rejected archive out of the prefix
 # entirely.
-"${STAGE_DIR}/bin/mold" --version |
-  grep -qE "^mold ${MOLD_VERSION//./\\.}([[:space:]]|$)" ||
+reports_pinned_version "${STAGE_DIR}/bin/mold" ||
   pinned_die "Staged mold does not report ${MOLD_VERSION}"
-"${STAGE_DIR}/bin/ld.mold" --version |
-  grep -qE "^mold ${MOLD_VERSION//./\\.}([[:space:]]|$)" ||
+reports_pinned_version "${STAGE_DIR}/bin/ld.mold" ||
   pinned_die "Staged ld.mold does not report ${MOLD_VERSION}"
 
 mkdir -p "${INSTALL_PREFIX}"
