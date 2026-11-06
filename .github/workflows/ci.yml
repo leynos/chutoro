@@ -172,6 +172,23 @@ jobs:
           enable-cache: false
       - name: Spelling
         run: make spelling
+      - name: Install makeutil
+        id: makeutil
+        # A digest-verified prebuilt release rather than a from-source build:
+        # the action's pinned table and the release's own sidecar must agree.
+        uses: leynos/shared-actions/.github/actions/install-makeutil@ebe2f3105334283441f4c915eb979a0f4b9f2c04
+      - name: Verify makeutil
+        # Prove the installed binary runs, matches the release the action
+        # reports, and reads this repository's Makefile completely, so a
+        # construct the parser cannot read fails here.
+        shell: bash
+        env:
+          INSTALLED_VERSION: ${{ steps.makeutil.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(makeutil --version)" = "makeutil ${INSTALLED_VERSION}"
+          makeutil parse Makefile | python3 -c \
+            'import json, sys; assert json.load(sys.stdin)["parse"]["status"] == "complete"'
       - name: Workflow contract tests
         run: make test-workflow-contracts
       - name: Test and Measure Coverage
