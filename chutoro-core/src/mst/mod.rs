@@ -382,7 +382,7 @@ pub(crate) fn parallel_kruskal_from_edges(
 mod kani_harness;
 
 #[cfg(test)]
-mod property;
+pub(crate) mod property;
 
 #[cfg(test)]
 mod tests;

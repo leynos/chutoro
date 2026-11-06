@@ -33,12 +33,32 @@ pub(super) fn sequential_kruskal(
     node_count: usize,
     edges: &[CandidateEdge],
 ) -> SequentialMstResult {
+    let accepted = sequential_kruskal_edges(node_count, edges);
+    let total_weight = accepted
+        .iter()
+        .map(|(_, _, weight, _)| f64::from(*weight))
+        .sum();
+    let edge_count = accepted.len();
+
+    SequentialMstResult {
+        total_weight,
+        edge_count,
+        component_count: node_count.saturating_sub(edge_count),
+    }
+}
+
+/// Computes a minimum spanning forest and returns the accepted edges.
+///
+/// Each entry is `(source, target, weight, sequence)` in canonical undirected
+/// form, ordered exactly as the oracle accepts it. Callers outside this module
+/// use the list to compare a production forest with the reference without
+/// needing to construct [`crate::MstEdge`] values.
+pub(crate) fn sequential_kruskal_edges(
+    node_count: usize,
+    edges: &[CandidateEdge],
+) -> Vec<(usize, usize, f32, u64)> {
     if node_count == 0 || edges.is_empty() {
-        return SequentialMstResult {
-            total_weight: 0.0,
-            edge_count: 0,
-            component_count: node_count,
-        };
+        return Vec::new();
     }
 
     let mut canon = canonicalize_and_filter(edges, node_count);
@@ -47,26 +67,18 @@ pub(super) fn sequential_kruskal(
 
     let mut parent: Vec<usize> = (0..node_count).collect();
     let mut rank: Vec<usize> = vec![0; node_count];
-    let mut components = node_count;
-    let mut total_weight: f64 = 0.0;
-    let mut edge_count: usize = 0;
+    let mut accepted = Vec::new();
 
     for edge in &canon {
         let ra = find_root(&mut parent, edge.source);
         let rb = find_root(&mut parent, edge.target);
         if ra != rb {
             union_by_rank(&mut parent, &mut rank, ra, rb);
-            total_weight = std::ops::Add::add(total_weight, f64::from(edge.weight));
-            edge_count += 1;
-            components -= 1;
+            accepted.push((edge.source, edge.target, edge.weight, edge.sequence));
         }
     }
 
-    SequentialMstResult {
-        total_weight,
-        edge_count,
-        component_count: components,
-    }
+    accepted
 }
 
 // ── Internal types ──────────────────────────────────────────────────────
