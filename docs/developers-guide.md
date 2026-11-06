@@ -7,11 +7,17 @@ keeps operational guidance in one place.
 ## Rust toolchain and build routing
 
 The workspace pins stable Rust 1.93.1 in `rust-toolchain.toml` and declares
-Rust 1.89 as its minimum supported Rust version (MSRV). Every standard gate
-runs on that stable pin and reads `.cargo/config.toml`, which supplies the
+Rust 1.89 as its minimum supported Rust version (MSRV). Every standard Cargo
+gate runs on that stable pin and reads `.cargo/config.toml`, which supplies the
 documentation-warning flags and, on Linux, the `mold` linker.
 [The build standard](#the-build-standard) describes those recipes and the
 contract tests that hold them.
+
+Kani and Verus sit outside that statement: each verifier runs on the toolchain
+its own release requires. The Kani PR workflow installs Kani's pinned nightly
+bundle before `make kani`, and `make verus` runs `scripts/run-verus.sh` with its
+own `VERUS_BIN`. Neither is selected through the development fragment, so this
+does not weaken the Cranelift boundary below.
 
 Cranelift is an opt-in development-speed route, not the default build. It
 requires a nightly toolchain, so it stays behind the explicit `dev-build` and
