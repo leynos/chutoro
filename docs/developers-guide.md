@@ -566,6 +566,36 @@ Design rationale and deeper implementation notes live in
 and the completed
 [incremental core-distance ExecPlan](./execplans/11-1-4-incremental-core-distance-computation.md).
 
+## Edge harvest and the MST boundary
+
+`EdgeHarvest` owns the harvested `Vec<CandidateEdge>` and guarantees a
+deterministic ordering: `EdgeHarvest::new`, `EdgeHarvest::from_unsorted`, and
+the `From<Vec<CandidateEdge>>` conversion all sort by
+`(sequence, natural Ord)`. Keep that invariant when adding constructors.
+
+`EdgeHarvest::as_slice` returns `&[CandidateEdge]` and is the accessor to reach
+for when the consumer can work with a contiguous slice. It avoids the
+intermediate collection that `iter` forces on callers such as Rayon kernels.
+
+The two Kruskal entry points differ in what they accept:
+
+- `parallel_kruskal(node_count, &EdgeHarvest)` is the public signature and the
+  only path external callers should use. It delegates through `as_slice`.
+- `parallel_kruskal_from_edges(node_count, &[CandidateEdge])` is `pub(crate)`
+  and takes a slice. Pipeline code that has already built a
+  `Vec<CandidateEdge>` should call this directly.
+
+Prefer the slice-based path inside the crate. Wrapping edges in an
+`EdgeHarvest` merely to satisfy the public signature re-sorts by
+`(sequence, natural Ord)`, and `prepare_edge_list` then discards that ordering
+when it sorts by `(weight, source, target, sequence)` before the union-find
+scan. The `cpu_pipeline` mutual-reachability transform therefore hands its
+`Vec<CandidateEdge>` straight to `parallel_kruskal_from_edges`.
+
+`EdgeHarvest::from_parallel_inserts` carries the same discarded ordering; only
+`prepare_edge_list`'s `(weight, source, target, sequence)` order is observable
+downstream. Recovering it means changing the harvest contract.
+
 ## Session public APIs
 
 The public session surface is CPU-only. `build_session` constructs an empty
@@ -715,6 +745,25 @@ The latency histogram reads time through the internal `MonotonicClock` trait.
 `#[cfg(all(feature = "metrics", test))]`. Do not expose this seam through the
 public constructor or builder API; it exists solely to make metrics assertions
 deterministic while preserving the public session contract.
+
+The one-shot CPU pipeline records its two expensive stages separately:
+
+- `chutoro.cpu_pipeline.stage_seconds`, a histogram labelled by the bounded
+  `stage` names `mutual_reachability` and `kruskal`.
+
+The label values come from the private `PipelineStage` enum in `cpu_pipeline`,
+so the cardinality is fixed at compile time. Adding a stage means adding an
+enum variant and its `as_label` arm; never pass a formatted string or other
+runtime value as the label. Call sites go through `record_stage`, which is a
+no-op when the `metrics` feature is disabled, so the pipeline code carries no
+conditional compilation of its own.
+
+The pipeline is split into `build_index_and_core_distances` and
+`build_mutual_reachability_forest` so the mutual-reachability transform and the
+Kruskal call can be exercised independently of the HNSW build. Keep new stages
+as separate `pub(crate)` helpers with the same shape rather than growing
+`run_cpu_pipeline_with_len`; the tests under `cpu_pipeline/tests` depend on
+those seams.
 
 ## Clustering result construction
 

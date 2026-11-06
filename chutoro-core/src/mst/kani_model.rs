@@ -54,9 +54,9 @@ impl ModelForest {
 
 /// Computes the Kani-only sequential model of parallel Kruskal.
 #[cfg(kani)]
-pub(super) fn parallel_kruskal_from_edges_for_kani<'a>(
+pub(super) fn parallel_kruskal_from_edges_for_kani(
     node_count: usize,
-    edges: impl IntoIterator<Item = &'a CandidateEdge>,
+    edges: &[CandidateEdge],
 ) -> Result<MinimumSpanningForest, MstError> {
     let forest = kruskal_model(node_count, edges)?;
     Ok(MinimumSpanningForest {

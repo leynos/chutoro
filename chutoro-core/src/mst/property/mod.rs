@@ -10,7 +10,7 @@
 mod concurrency;
 mod equivalence;
 mod helpers;
-mod oracle;
+pub(crate) mod oracle;
 mod strategies;
 mod structural;
 #[cfg(test)]
