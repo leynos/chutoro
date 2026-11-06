@@ -154,7 +154,7 @@ fn empty_edges_with_populated_graph_yield_a_singleton_forest() {
         !result.is_tree(),
         "a forest of isolated nodes is not a spanning tree"
     );
-    assert!(result.edges().is_empty());
+    assert_eq!(result.edges(), []);
 }
 
 #[test]
