@@ -72,6 +72,7 @@ def _cargo_invocations(output: str) -> list[tuple[str, list[str]]]:
 
 
 def _pinned_toolchain() -> str:
+    """Return the toolchain channel pinned for the development route."""
     toolchain = DEV_FAST_TOOLCHAIN_PATH.read_text(encoding="utf-8").strip()
     assert toolchain, f"{DEV_FAST_TOOLCHAIN_PATH} must contain a toolchain pin"
     return toolchain
@@ -187,6 +188,11 @@ def _assert_test_rustflags(output: str, host_os: str) -> None:
 def test_development_targets_select_the_pinned_fragment(
     target: str, verbs: tuple[str, ...]
 ) -> None:
+    """Each development target must reach Cargo through the pinned fragment.
+
+    The fragment is the only thing that makes these targets a speed route, so
+    the routed invocation has to carry both the toolchain pin and the config.
+    """
     output = _make_output(target, overrides=("DEV_FAST_HOST_OS=Linux",))
     _assert_routed_cargo(output, verbs)
     if target == "dev-test":
@@ -197,6 +203,11 @@ def test_development_targets_select_the_pinned_fragment(
 def test_development_test_route_preserves_warning_and_platform_flags(
     host_os: str,
 ) -> None:
+    """`dev-test` must restate the denials, and the Linux linker, itself.
+
+    An assigned `RUSTFLAGS` replaces the fragment's `rustflags` table, so the
+    route would silently lose both if it did not repeat them.
+    """
     output = _make_output("dev-test", overrides=(f"DEV_FAST_HOST_OS={host_os}",))
     _assert_test_rustflags(output, host_os)
 
