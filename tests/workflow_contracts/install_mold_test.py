@@ -66,6 +66,20 @@ class Archive:
 
 
 @dataclass(frozen=True)
+class Request:
+    """One way to ask for an install: the host, and the archive it is served.
+
+    These travel together because they describe a single scenario. Grouping
+    them keeps the fixture's signature small and, more usefully, stops a case
+    from varying the archive without also stating which host would fetch it.
+    """
+
+    platform: Platform = Platform("Linux", SUPPORTED_MACHINE)
+    shape: Archive = Archive()
+    pin: str | None = None
+
+
+@dataclass(frozen=True)
 class InstallerRun:
     """A private installer, its prefix, and the record of what it downloaded."""
 
@@ -205,25 +219,25 @@ def _private_repository(tmp_path: Path, archive_sha: str, archive_name: str) -> 
 def _prepare(
     tmp_path: Path,
     *,
-    platform: Platform = Platform("Linux", SUPPORTED_MACHINE),
-    pin: str | None = None,
-    shape: Archive = Archive(),
+    request: Request = Request(),
     through_make: bool = False,
 ) -> InstallerRun:
     """Build a private installer pinned to a locally built archive.
 
-    ``pin`` overrides the recorded digest; passing a wrong one models an
-    attacker substituting the archive at the pinned URL. ``shape`` alters what
-    the archive contains while the checksum still matches, which is the only
-    way to reach the installer's post-download validation. ``through_make``
-    drives the ``install-dev-fast`` recipe instead of the script alone.
+    ``request.pin`` overrides the recorded digest; passing a wrong one models
+    an attacker substituting the archive at the pinned URL. ``request.shape``
+    alters what the archive contains while the checksum still matches, which
+    is the only way to reach the installer's post-download validation.
+    ``through_make`` drives the ``install-dev-fast`` recipe instead of the
+    script alone.
     """
     home = tmp_path / "home"
     home.mkdir()
+    platform = request.platform
     archive_name = f"mold-{MOLD_VERSION}-{platform.machine}-linux.tar.gz"
     archive = tmp_path / archive_name
-    _mold_archive(archive, platform.machine, shape=shape)
-    digest = pin or hashlib.sha256(archive.read_bytes()).hexdigest()
+    _mold_archive(archive, platform.machine, shape=request.shape)
+    digest = request.pin or hashlib.sha256(archive.read_bytes()).hexdigest()
     root = _private_repository(tmp_path, digest, archive_name)
     if through_make:
         _copy_inputs(root, MAKE_INPUTS)
@@ -299,7 +313,9 @@ def test_aarch64_host_selects_the_aarch64_archive(tmp_path: Path) -> None:
     would install the wrong binary; the recorded download proves which name
     was actually fetched.
     """
-    installer = _prepare(tmp_path, platform=Platform("Linux", "aarch64"))
+    installer = _prepare(
+        tmp_path, request=Request(platform=Platform("Linux", "aarch64"))
+    )
 
     completed = installer.install()
 
@@ -358,7 +374,7 @@ def test_incomplete_installation_is_replaced(tmp_path: Path) -> None:
 
 def test_checksum_mismatch_fails_without_installing(tmp_path: Path) -> None:
     """The pin is load-bearing: a substituted archive must not be unpacked."""
-    installer = _prepare(tmp_path, pin="0" * 64)
+    installer = _prepare(tmp_path, request=Request(pin="0" * 64))
 
     completed = installer.install()
 
@@ -402,7 +418,7 @@ def test_unfit_archive_with_a_matching_checksum_is_rejected(
     leave no installed tree, because a partial prefix that looked installed
     would be reused by the next run and fail later at link time.
     """
-    installer = _prepare(tmp_path, shape=shape)
+    installer = _prepare(tmp_path, request=Request(shape=shape))
 
     completed = installer.install()
 
@@ -437,7 +453,7 @@ def test_unsupported_platform_is_a_hard_error(
     tmp_path: Path, platform: Platform, expected: str
 ) -> None:
     """Every unsupported platform must stop rather than install something wrong."""
-    installer = _prepare(tmp_path, platform=platform)
+    installer = _prepare(tmp_path, request=Request(platform=platform))
 
     completed = installer.install()
 
@@ -488,7 +504,9 @@ def test_make_install_dev_fast_leaves_mold_alone_off_linux(tmp_path: Path) -> No
     every macOS or Windows contributor in a way the Rust gates never would.
     """
     installer = _prepare(
-        tmp_path, platform=Platform("Darwin", "arm64"), through_make=True
+        tmp_path,
+        request=Request(platform=Platform("Darwin", "arm64")),
+        through_make=True,
     )
 
     completed = installer.install()
