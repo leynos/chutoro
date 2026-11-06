@@ -214,7 +214,9 @@ impl MutationRunner<'_> {
         params: &HnswParamsSeed,
     ) -> Result<OperationOutcome, TestCaseError> {
         let next = next_reconfigure_params(self.active_params, params)?;
-        self.index.reconfigure_for_test(next.clone());
+        self.index
+            .reconfigure_for_test(next.clone())
+            .map_err(|err| TestCaseError::fail(format!("reconfigure failed: {err}")))?;
         let summary = format!(
             "reconfigure -> M={} ef={}",
             next.max_connections(),

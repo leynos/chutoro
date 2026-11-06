@@ -178,6 +178,57 @@ def _assert_test_rustflags(output: str, host_os: str) -> None:
     )
 
 
+POISONED_LOCK_TEST = (
+    "hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring"
+)
+
+
+def _nextest_filter_expression(output: str) -> str:
+    """Return the filter expression of the single development nextest run."""
+    invocations = [
+        (line, tokens)
+        for line, tokens in _cargo_invocations(output)
+        if "nextest" in tokens
+    ]
+    assert len(invocations) == 1, (
+        f"expected one development nextest invocation, found {invocations!r}"
+    )
+    _, tokens = invocations[0]
+    filter_index = tokens.index("-E")
+    return tokens[filter_index + 1]
+
+
+def test_development_test_excludes_only_the_poisoned_lock_regression() -> None:
+    """The Cranelift route gives up the one case its backend cannot run.
+
+    Cranelift aborts on a panic it cannot unwind
+    (`fatal runtime error: failed to initiate panic, error 5`), and the
+    regression in `hnsw::cpu::test_helpers::tests` poisons a lock by panicking
+    under `catch_unwind`. Excluding it keeps `dev-test` usable. The exclusion
+    is written once, through `POISONED_LOCK_TEST`, so a renamed test is a
+    one-line Makefile edit and the stable gate can keep running it.
+    """
+    output = _make_output("dev-test", overrides=("DEV_FAST_HOST_OS=Linux",))
+    expression = _nextest_filter_expression(output)
+    assert f"test(={POISONED_LOCK_TEST})" in expression, (
+        f"dev-test must exclude the poisoned-lock regression: {expression!r}"
+    )
+    assert expression.startswith("not kind(bench) & not ("), (
+        f"dev-test must filter benchmarks and then one named case: {expression!r}"
+    )
+
+
+def _assert_poisoned_lock_case_is_named_once() -> None:
+    """Require the exclusion to be declared in the Makefile, not duplicated."""
+    makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
+    assert makefile.count(POISONED_LOCK_TEST) == 1, (
+        "the poisoned-lock case must be named once, through POISONED_LOCK_TEST"
+    )
+    assert makefile.count("POISONED_LOCK_TEST") >= 2, (
+        "the poisoned-lock case must be referenced by the filter definition"
+    )
+
+
 @pytest.mark.parametrize(
     ("target", "verbs"),
     (
@@ -303,6 +354,30 @@ def test_route_assertion_rejects_a_development_command_without_the_fragment(
     output = _make_output("dev-build", makefile=makefile)
     with pytest.raises(AssertionError, match="must begin with"):
         _assert_routed_cargo(output, ("build",))
+
+
+def test_poisoned_lock_exclusion_is_declared_once() -> None:
+    """A duplicated test path drifts; the Makefile names the case once."""
+    _assert_poisoned_lock_case_is_named_once()
+
+
+def test_test_flag_assertion_rejects_a_missing_development_exclusion(
+    tmp_path: Path,
+) -> None:
+    """Dropping the exclusion reintroduces the Cranelift abort onto dev-test."""
+    makefile = _mutated_makefile(
+        tmp_path,
+        "DEV_TEST_FILTER = not kind(bench) & not "
+        "(package(chutoro-core) & test(=$(POISONED_LOCK_TEST))",
+        "DEV_TEST_FILTER = not kind(bench)",
+    )
+    output = _make_output(
+        "dev-test", makefile=makefile, overrides=("DEV_FAST_HOST_OS=Linux",)
+    )
+    expression = _nextest_filter_expression(output)
+    assert POISONED_LOCK_TEST not in expression, (
+        "the mutation must actually drop the exclusion, or the test proves nothing"
+    )
 
 
 def test_standard_route_assertion_rejects_a_contaminated_bench_command(
