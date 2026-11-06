@@ -1,5 +1,7 @@
 //! Deterministic source shared by the CPU pipeline stage tests.
 
+use std::num::NonZeroUsize;
+
 use crate::{DataSource, DataSourceError, MetricDescriptor};
 
 /// Item count of the clustered fixture.
@@ -7,6 +9,12 @@ pub(super) const ITEM_COUNT: usize = 12;
 
 /// Cluster count the fixture must produce.
 pub(super) const EXPECTED_CLUSTERS: usize = 3;
+
+/// Minimum cluster size that keeps every group of four points intact.
+pub(super) const MIN_CLUSTER_SIZE: NonZeroUsize = match NonZeroUsize::new(2) {
+    Some(size) => size,
+    None => panic!("literal 2 is non-zero"),
+};
 
 /// Three well-separated groups of four points.
 ///

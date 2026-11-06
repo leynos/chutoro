@@ -8,29 +8,27 @@
 use crate::{CandidateEdge, EdgeHarvest};
 
 /// Applies mutual-reachability weighting to every harvested edge in order.
+///
+/// Returns `None` when an endpoint has no core distance, which the fixtures
+/// rule out; callers report that as a fixture failure rather than trusting a
+/// silently wrong weight.
 pub(super) fn sequential_mutual_edges(
     harvest: &EdgeHarvest,
     core_distances: &[f32],
-) -> Vec<CandidateEdge> {
+) -> Option<Vec<CandidateEdge>> {
     harvest
         .iter()
         .map(|edge| {
             let left = edge.source();
             let right = edge.target();
-            let left_core_distance = core_distances
-                .get(left)
-                .copied()
-                .expect("every fixture endpoint has a core distance");
-            let right_core_distance = core_distances
-                .get(right)
-                .copied()
-                .expect("every fixture endpoint has a core distance");
+            let left_core_distance = core_distances.get(left).copied()?;
+            let right_core_distance = core_distances.get(right).copied()?;
             let weight = edge
                 .distance()
                 .max(left_core_distance)
                 .max(right_core_distance);
 
-            CandidateEdge::new(left, right, weight, edge.sequence())
+            Some(CandidateEdge::new(left, right, weight, edge.sequence()))
         })
         .collect()
 }

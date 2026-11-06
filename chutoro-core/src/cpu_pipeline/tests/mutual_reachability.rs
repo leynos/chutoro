@@ -13,8 +13,8 @@ use rayon::ThreadPoolBuilder;
 use crate::test_utils::suite_proptest_config;
 use crate::{CandidateEdge, EdgeHarvest};
 
-use super::reference::sequential_mutual_edges;
 use super::super::mutual_reachability_edges;
+use super::reference::sequential_mutual_edges;
 
 /// Rayon thread counts the transform must agree on.
 const THREAD_COUNTS: [usize; 2] = [1, 8];
@@ -27,7 +27,9 @@ proptest! {
         (edges, core_distances) in fixture_strategy(),
     ) {
         let harvest = EdgeHarvest::new(edges);
-        let expected = sequential_mutual_edges(&harvest, &core_distances);
+        let expected = sequential_mutual_edges(&harvest, &core_distances).ok_or_else(|| {
+            TestCaseError::fail("every generated endpoint must have a core distance")
+        })?;
 
         for threads in THREAD_COUNTS {
             let pool = ThreadPoolBuilder::new()

@@ -102,8 +102,7 @@ pub(crate) fn record_pipeline_stage(stage: &'static str, elapsed: Duration) {
         metrics::Unit::Seconds,
         "Wall-clock seconds spent in each CPU pipeline stage, by bounded stage name."
     );
-    metrics::histogram!(PIPELINE_STAGE_SECONDS, "stage" => stage)
-        .record(elapsed.as_secs_f64());
+    metrics::histogram!(PIPELINE_STAGE_SECONDS, "stage" => stage).record(elapsed.as_secs_f64());
 }
 
 /// Converts a count to the exact range representable by the metrics recorder.
