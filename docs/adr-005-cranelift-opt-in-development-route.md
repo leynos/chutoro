@@ -28,8 +28,10 @@ available without letting a nightly toolchain reach a merge gate.
 
 ## Decision drivers
 
-- A merge gate must never execute on a toolchain other than the pinned stable
-  release, so a gate result stays reproducible and matches what consumers run.
+- A Cargo merge gate must never execute on a toolchain other than the pinned
+  stable release, so a gate result stays reproducible and matches what
+  consumers run. The verifier gates keep their own pinned toolchains, which is
+  a property of those verifiers rather than a route this decision opens.
 - Cargo selects one `rustflags` source rather than merging them, so any route
   that assigns `RUSTFLAGS` silently replaces the documentation denials and the
   Linux linker flag configured in `.cargo/config.toml`.
@@ -54,10 +56,17 @@ available without letting a nightly toolchain reach a merge gate.
 ## Decision outcome
 
 The project keeps Cranelift as an opt-in development route reached only through
-`make dev-build` and `make dev-test`. Every standard gate - `build`, `test`,
-`typecheck`, `lint-clippy`, `release`, formatting, coverage, Kani, Verus,
-benchmarks, and Whitaker - stays on the pinned stable 1.93.1 and reads
+`make dev-build` and `make dev-test`. Every standard Cargo gate — `build`,
+`test`, `typecheck`, `lint-clippy`, `release`, formatting, coverage,
+benchmarks, and Whitaker — stays on the pinned stable 1.93.1 and reads
 `.cargo/config.toml`.
+
+Kani and Verus are the exception, and they are not Cargo gates in this sense.
+Each runs on the toolchain its own verifier release requires: the Kani PR
+workflow installs Kani's pinned nightly bundle before `make kani`, and `make
+verus` delegates to `scripts/run-verus.sh` with its own `VERUS_BIN`. What the
+decision protects is unchanged — neither verifier is reached through the
+development fragment, and neither can select Cranelift.
 
 The fragment lives in `tools/dev-fast/config.toml`, outside Cargo's automatic
 configuration paths, and is pinned to one dated nightly in
