@@ -63,17 +63,28 @@ mkdir -p "${STAGE_DIR}"
 tar -xzf "${TMP_DIR}/${ARCHIVE}" -C "${STAGE_DIR}" --strip-components=1
 [[ -x "${STAGE_DIR}/bin/mold" ]] ||
   pinned_die "Mold archive does not contain an executable bin/mold"
+# Checked before the copy as well as after it: without this, a truncated
+# archive that still matched its checksum would populate the prefix and only
+# then fail on the version probe, leaving a half-installed tree behind.
+[[ -x "${STAGE_DIR}/bin/ld.mold" ]] ||
+  pinned_die "Mold archive does not contain an executable bin/ld.mold"
 [[ -f "${STAGE_DIR}/lib/mold/mold-wrapper.so" ]] ||
   pinned_die "Mold archive is missing lib/mold/mold-wrapper.so"
 [[ -e "${STAGE_DIR}/libexec/mold/ld" ]] ||
   pinned_die "Mold archive is missing libexec/mold/ld"
 
+# Probe the staged binaries before touching the prefix. Checking only after
+# the copy would leave a wrong-version tree installed, and the next run would
+# then reuse it; failing here keeps a rejected archive out of the prefix
+# entirely.
+"${STAGE_DIR}/bin/mold" --version |
+  grep -qE "^mold ${MOLD_VERSION//./\\.}([[:space:]]|$)" ||
+  pinned_die "Staged mold does not report ${MOLD_VERSION}"
+"${STAGE_DIR}/bin/ld.mold" --version |
+  grep -qE "^mold ${MOLD_VERSION//./\\.}([[:space:]]|$)" ||
+  pinned_die "Staged ld.mold does not report ${MOLD_VERSION}"
+
 mkdir -p "${INSTALL_PREFIX}"
 cp -a "${STAGE_DIR}/." "${INSTALL_PREFIX}/"
 
-"${BINARY}" --version | grep -qE "^mold ${MOLD_VERSION//./\\.}([[:space:]]|$)" ||
-  pinned_die "Installed mold does not report ${MOLD_VERSION}"
-"${INSTALL_PREFIX}/bin/ld.mold" --version |
-  grep -qE "^mold ${MOLD_VERSION//./\\.}([[:space:]]|$)" ||
-  pinned_die "Installed ld.mold does not report ${MOLD_VERSION}"
 echo "Installed mold ${MOLD_VERSION} at ${BINARY}"

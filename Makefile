@@ -21,6 +21,12 @@ DEV_CARGO = $(CARGO) +$(DEV_FAST_TOOLCHAIN) --config $(DEV_FAST_CONFIG)
 # fragment's, so the development test route restates the documentation denials
 # and the Linux linker selection instead of inheriting them.
 DEV_FAST_HOST_OS ?= $(shell uname -s)
+# A failed probe yields an empty string, and an empty string is not Linux, so
+# every `$(if $(filter Linux,...))` below would quietly select the non-Linux
+# branch. The check lives in the development recipes rather than in a
+# file-wide `$(error)`, because parse-time validation would also fail the
+# standard gates, which do not use this route at all.
+DEV_FAST_HOST_CHECK = $(if $(strip $(DEV_FAST_HOST_OS)),,$(error Cannot determine the development host OS: `uname -s` returned nothing. Set DEV_FAST_HOST_OS explicitly))
 DEV_TEST_RUSTFLAGS = $(strip -D warnings -Dmissing_docs \
 	-Dmissing_crate_level_docs \
 	$(if $(filter Linux,$(DEV_FAST_HOST_OS)),-Clink-arg=-fuse-ld=mold))
@@ -118,13 +124,13 @@ target/%/$(APP): ## Build binary in debug or release mode
 .PHONY: dev-build dev-test install-dev-fast
 
 dev-build: ## Build the debug binary with the selected development backend
-	$(DEV_CARGO) build $(BUILD_JOBS) --bin $(APP)
+	$(DEV_FAST_HOST_CHECK)$(DEV_CARGO) build $(BUILD_JOBS) --bin $(APP)
 
 dev-test: ## Run the tests with the selected development backend
-	RUSTFLAGS="$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E 'not kind(bench)'
+	$(DEV_FAST_HOST_CHECK)RUSTFLAGS="$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E 'not kind(bench)'
 
 install-dev-fast: ## Install pinned nightly components and the verified mold binary
-	rustup toolchain install $(DEV_FAST_TOOLCHAIN) --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rustc-codegen-cranelift
+	$(DEV_FAST_HOST_CHECK)rustup toolchain install $(DEV_FAST_TOOLCHAIN) --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rustc-codegen-cranelift
 ifeq ($(DEV_FAST_HOST_OS),Linux)
 	scripts/install-mold.sh
 else
