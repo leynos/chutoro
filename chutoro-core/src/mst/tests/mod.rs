@@ -17,6 +17,9 @@ fn harvest(edges: &[(usize, usize, f32, u64)]) -> EdgeHarvest {
     )
 }
 
+/// Finds a union-find root while compressing parent links.
+///
+/// For example, node `2` in `[0, 0, 1]` resolves to root `0`.
 fn union_find_root(parent: &mut [usize], node: usize) -> usize {
     let mut current = node;
     while let Some(&current_parent) = parent.get(current) {
