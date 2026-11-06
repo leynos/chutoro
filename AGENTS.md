@@ -146,13 +146,15 @@ project:
     Python definition under `scripts` and `tests` without a docstring (and on
     any `MISSED` row, since interrogate rounds its percentage to one decimal;
     `tests/workflow_contracts/interrogate_gate_test.py` asserts the wiring). It
-    then runs `lint-clippy` and `lint-whitaker`. The first target runs rustdoc
-    with `RUSTDOCFLAGS="--cfg docsrs -D warnings"` and Clippy with all targets
-    and features plus `-D warnings` on the repository's stable pin, using
-    `.cargo/config.toml` and, on Linux, `mold`. The second invokes the wrapper
-    with `RUSTFLAGS="-D warnings"` and the linker flag alone, because Whitaker
-    builds its driver under the flags it is given.
+    then executes rustdoc and Clippy followed by the Whitaker Dylint suite:
 
+    ```sh
+    cargo doc --workspace --no-deps
+    cargo clippy --all-targets --all-features -- -D warnings
+    RUSTFLAGS="-D warnings" whitaker --all -- --all-targets --all-features
+    ```
+
+    linting every target with all features enabled and denying all warnings.
     The `whitaker` wrapper must already be on `PATH`; never install,
     upgrade, or downgrade it from this repository — repository tooling and
     agents must not modify the user's Whitaker installation. If the wrapper
