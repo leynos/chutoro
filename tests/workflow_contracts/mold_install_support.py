@@ -173,6 +173,7 @@ def _mold_archive(
     that name: this is how a release for another architecture is modelled.
     """
     def reporting(version: str) -> bytes:
+        """Build a stand-in binary that reports `version` from `--version`."""
         return f"#!/usr/bin/env bash\nprintf 'mold {version}\\n'\n".encode()
 
     contents = {
@@ -283,6 +284,7 @@ def prepare(
     )
 
     def run() -> subprocess.CompletedProcess[str]:
+        """Run the installer once, capturing everything it writes."""
         return subprocess.run(
             argv,
             cwd=root,

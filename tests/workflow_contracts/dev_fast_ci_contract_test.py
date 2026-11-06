@@ -28,6 +28,7 @@ WORKFLOW_PATHS = {
 
 
 def _workflow_job(workflow_name: str, job_name: str) -> dict[str, Any]:
+    """Return the named job mapping from a workflow this contract owns."""
     workflow = yaml.safe_load(WORKFLOW_PATHS[workflow_name].read_text(encoding="utf-8"))
     jobs = workflow.get("jobs")
     assert isinstance(jobs, dict), f"{workflow_name} must define jobs"
@@ -37,6 +38,11 @@ def _workflow_job(workflow_name: str, job_name: str) -> dict[str, Any]:
 
 
 def _step_named(job: dict[str, Any], name: str) -> tuple[int, dict[str, Any]]:
+    """Return a job step by name, requiring the name to be unambiguous.
+
+    The index comes back with the step so a caller can assert on ordering as
+    well as content.
+    """
     steps = job.get("steps")
     assert isinstance(steps, list), "workflow job must define a step list"
     matches = [
@@ -164,6 +170,11 @@ def _string_values(value: Any) -> Iterator[str]:
 
 
 def test_string_values_preserves_container_order_and_omits_non_strings() -> None:
+    """The workflow scanner must flatten order-preservingly, skipping non-strings.
+
+    The scanner decides which Cargo commands the fragment rules inspect, so it
+    has to reach every string while reporting the ones it does not traverse.
+    """
     workflow_value = {
         "first": "one",
         "nested": [
@@ -241,6 +252,11 @@ def test_string_values_emits_exactly_the_nested_strings_in_depth_first_order(
 
 
 def _dense_simd_commands(step: dict[str, Any]) -> list[str]:
+    """Return the Cargo commands a step script runs, with continuations joined.
+
+    Line continuations are folded first so a command split across source lines
+    is compared whole rather than as fragments.
+    """
     script = step.get("run")
     assert isinstance(script, str), "Dense stable SIMD gating must use a run script"
     joined = re.sub(r"\\\n[ \t]*", " ", script)
@@ -261,6 +277,11 @@ def _dense_simd_commands(step: dict[str, Any]) -> list[str]:
 def test_ci_direct_simd_and_coverage_routes_stay_unfragmented(
     workflow_name: str, job_name: str
 ) -> None:
+    """The direct SIMD and coverage routes must never select the fragment.
+
+    Both jobs stay on the repository's stable pin, so a `--config` argument
+    reaching either command would put a merge gate on the development route.
+    """
     job = _workflow_job(workflow_name, job_name)
     _, dense_step = _step_named(job, "Dense stable SIMD gating")
     commands = _dense_simd_commands(dense_step)
@@ -326,6 +347,11 @@ def _make_probe(path: Path, role: str) -> None:
 
 
 def test_parallel_lint_serializes_clippy_and_whitaker(tmp_path: Path) -> None:
+    """`make -j lint` must still run Clippy and Whitaker one after the other.
+
+    Both halves share the package cache and the compiler-admission pool, so
+    overlap is what `.NOTPARALLEL: lint` exists to prevent.
+    """
     cargo = tmp_path / "probe-cargo"
     whitaker = tmp_path / "probe-whitaker"
     state = tmp_path / "state"
