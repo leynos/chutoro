@@ -317,6 +317,7 @@ def _make_probe(path: Path, role: str) -> None:
 
         acquire_lock()
         (state / f"{{role}}.running").unlink()
+        (state / f"{{role}}.ran").write_text("ran\\n")
         lock.rmdir()
         """
     )
@@ -354,6 +355,15 @@ def test_parallel_lint_serializes_clippy_and_whitaker(tmp_path: Path) -> None:
     assert completed.returncode == 0, (
         f"controlled lint probe failed: {completed.stdout}\n{completed.stderr}"
     )
+    # The absence of an overlap marker only means something if both probes
+    # actually ran. A recipe that skipped `lint-clippy` or `lint-whitaker`
+    # would trivially never overlap, so record each role's completion and
+    # require both.
+    for role in ("cargo", "whitaker"):
+        assert (state / f"{role}.ran").exists(), (
+            f"lint did not run the {role} probe under make -j2: "
+            f"{sorted(path.name for path in state.iterdir())}"
+        )
     assert not (state / "overlap").exists(), (
         "lint-clippy and lint-whitaker ran concurrently under make -j2"
     )

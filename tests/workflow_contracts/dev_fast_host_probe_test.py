@@ -1,0 +1,227 @@
+"""Contract tests for the development route's host probe.
+
+The development targets branch on the host operating system: on Linux they
+select the fragment's mold linker and install mold. A probe that answers
+nothing, or that answers and still reports failure, must stop the target rather
+than let an empty or untrusted answer select the non-Linux branch. The standard
+gates must stay unaffected by the probe, because they never use this route.
+
+Run via ``make test-workflow-contracts``.
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+
+import pytest
+
+from dev_fast_routing_test import MAKEFILE_PATH, REPO_ROOT, _assert_unfragmented
+
+DEVELOPMENT_TARGETS = ("dev-build", "dev-test", "install-dev-fast")
+
+
+@pytest.mark.parametrize("target", DEVELOPMENT_TARGETS)
+def test_development_targets_refuse_an_empty_host_probe(target: str) -> None:
+    """An unanswerable host probe must stop the target, not pick a branch.
+
+    ``DEV_FAST_HOST_OS`` is a ``?=`` default over the captured probe, and every
+    use is a ``$(filter Linux,...)``, so an empty result reads as "not Linux".
+    That would silently select the platform linker and skip the mold install on
+    a Linux host whose probe failed. The check is per recipe because a
+    file-wide ``$(error)`` would also fail the standard gates.
+    """
+    completed = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "--dry-run",
+            "--always-make",
+            "--file",
+            str(MAKEFILE_PATH),
+            "DEV_FAST_HOST_OS=",
+            target,
+            "CARGO=probe-cargo",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0, (
+        f"{target} must fail when the host probe reports nothing: "
+        f"{completed.stdout!r}"
+    )
+    assert "Cannot determine the development host OS" in completed.stderr, (
+        f"{target} must report the failed probe: {completed.stderr!r}"
+    )
+
+
+#: A probe that answers ``uname -s`` but also reports failure. Its answer is
+#: indistinguishable from a healthy Linux host once the exit status is dropped,
+#: so a target that only checks for empty output would run the Linux branch
+#: while the command that produced the answer had failed.
+FAILING_PROBE = """#!/usr/bin/env bash
+case "${1:-}" in
+  -s) printf 'Linux\\n'; exit 1 ;;
+  *) printf 'Linux\\n' ;;
+esac
+"""
+
+
+def _run_with_probe(
+    target: str, probe: Path, *, overrides: tuple[str, ...] = ()
+) -> subprocess.CompletedProcess[str]:
+    """Dry-run one target with a controlled ``uname`` first on ``PATH``."""
+    environment = os.environ.copy()
+    environment["PATH"] = f"{probe.parent}{os.pathsep}{environment['PATH']}"
+    return subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "--dry-run",
+            "--always-make",
+            "--file",
+            str(MAKEFILE_PATH),
+            *overrides,
+            target,
+            "CARGO=probe-cargo",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+
+def _failing_uname(tmp_path: Path) -> Path:
+    """Write the probe above and return its directory's ``uname``."""
+    probe_dir = tmp_path / "bin"
+    probe_dir.mkdir()
+    probe = probe_dir / "uname"
+    probe.write_text(FAILING_PROBE, encoding="utf-8")
+    probe.chmod(0o755)
+    return probe
+
+
+@pytest.mark.parametrize("target", DEVELOPMENT_TARGETS)
+def test_development_targets_refuse_a_probe_that_exits_non_zero(
+    tmp_path: Path, target: str
+) -> None:
+    """A probe that prints a value and still fails must stop the target.
+
+    ``uname -s`` reporting failure while also emitting ``Linux`` is the
+    inconsistent case: the text looks healthy, so only the recorded exit status
+    reveals the problem. Dropping that status let ``dev-test`` select the Linux
+    branch and its mold flag from a command that had failed.
+    """
+    completed = _run_with_probe(target, _failing_uname(tmp_path))
+
+    assert completed.returncode != 0, (
+        f"{target} must fail when the host probe exits non-zero: "
+        f"{completed.stdout!r}"
+    )
+    assert "Cannot determine the development host OS" in completed.stderr, (
+        f"{target} must report the failed probe: {completed.stderr!r}"
+    )
+    assert "exited" in completed.stderr, (
+        f"{target} must name the exit status, not just emptiness: {completed.stderr!r}"
+    )
+    assert "probe-cargo" not in completed.stdout, (
+        f"{target} must not run a command after a failed probe: {completed.stdout!r}"
+    )
+
+
+def _counting_uname(directory: Path, count_file: Path) -> Path:
+    """Write a ``uname`` that records one line per invocation."""
+    probe_dir = directory / "bin"
+    probe_dir.mkdir(parents=True)
+    probe = probe_dir / "uname"
+    probe.write_text(
+        f"""#!/usr/bin/env bash
+printf 'x\\n' >> {str(count_file)!r}
+printf 'Linux\\n'
+""",
+        encoding="utf-8",
+    )
+    probe.chmod(0o755)
+    return probe
+
+
+def _probe_invocations(target: str, probe: Path, count_file: Path) -> int:
+    """Run one target and report how many times the probe was invoked."""
+    if count_file.exists():
+        count_file.unlink()
+    completed = _run_with_probe(target, probe)
+    assert completed.returncode == 0, (
+        f"{target} failed with a working probe: {completed.stderr!r}"
+    )
+    return len(count_file.read_text(encoding="utf-8").splitlines())
+
+
+@pytest.mark.parametrize("target", DEVELOPMENT_TARGETS)
+def test_development_targets_add_no_probe_of_their_own(
+    tmp_path: Path, target: str
+) -> None:
+    """Every reference in a recipe must read one captured answer.
+
+    ``DEV_FAST_HOST_OS`` was a ``?=`` default over ``$(shell uname -s)``, which
+    is recursively expanded, so each reference re-ran the command. That let one
+    recipe check one answer and select its flags from another.
+
+    The file-wide parse-time captures are shared by every target, so the
+    baseline is a standard target's count rather than zero. What this pins is
+    that evaluating a development recipe adds no further probe: both the check
+    and the flag selection read the same captured value.
+    """
+    baseline_file = tmp_path / "baseline-calls"
+    baseline = _probe_invocations(
+        "build", _counting_uname(tmp_path / "baseline", baseline_file), baseline_file
+    )
+
+    count_file = tmp_path / "calls"
+    count = _probe_invocations(
+        target, _counting_uname(tmp_path / "target", count_file), count_file
+    )
+
+    assert count == baseline, (
+        f"{target} invoked `uname` {count} times against a standard target's "
+        f"{baseline}; a recipe reference re-ran the probe instead of reading "
+        "the captured answer"
+    )
+
+
+def test_standard_targets_ignore_an_empty_host_probe() -> None:
+    """The development route's precondition must not reach a merge gate.
+
+    A parse-time check would fail every target in the file, including the
+    gates that never use the fragment, so an unrelated probe failure could
+    block a release. Standard targets evaluate the fragment's variables but
+    must never validate them.
+    """
+    completed = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "--dry-run",
+            "--always-make",
+            "--file",
+            str(MAKEFILE_PATH),
+            "DEV_FAST_HOST_OS=",
+            "build",
+            "CARGO=probe-cargo",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, (
+        "a standard target must not fail on the development host probe: "
+        f"{completed.stderr}"
+    )
+    _assert_unfragmented(completed.stdout, "build")
