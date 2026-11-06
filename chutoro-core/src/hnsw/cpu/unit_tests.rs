@@ -79,32 +79,7 @@ fn heal_for_test_repairs_inserted_edges_without_sweeping_unrelated_edges() {
                 "insertion must record the new node for localized healing"
             );
             graph.record_touched_nodes(touched);
-
-            graph
-                .attach_node(NodeContext {
-                    node: 2,
-                    level: 0,
-                    sequence: 2,
-                })
-                .expect("attach unrelated node");
-            graph
-                .attach_node(NodeContext {
-                    node: 3,
-                    level: 0,
-                    sequence: 3,
-                })
-                .expect("attach unrelated target");
-            graph
-                .node_mut(0)
-                .expect("entry must exist")
-                .neighbours_mut(0)
-                .expect("entry must expose the base layer")
-                .retain(|neighbour| *neighbour != 1);
-            add_edge_if_missing(graph, 0, 2, 0);
-            add_edge_if_missing(graph, 2, 0, 0);
-            add_edge_if_missing(graph, 0, 3, 0);
-            add_edge_if_missing(graph, 3, 0, 0);
-            add_edge_if_missing(graph, 2, 3, 0);
+            prepare_asymmetric_edges(graph);
             Ok(())
         })
         .expect("prepare asymmetric edges");
@@ -112,30 +87,72 @@ fn heal_for_test_repairs_inserted_edges_without_sweeping_unrelated_edges() {
     index.heal_for_test();
 
     index
-        .inspect_graph(|graph| {
-            let node0 = graph.node(0).expect("entry must remain");
-            let node1 = graph.node(1).expect("inserted node must remain");
-            let node2 = graph.node(2).expect("unrelated node must remain");
-            let node3 = graph.node(3).expect("unrelated target must remain");
-            assert!(
-                node0.neighbours(0).contains(&1),
-                "healing must restore the reciprocal edge for the touched insertion"
-            );
-            assert!(node1.neighbours(0).contains(&0));
-            assert!(
-                node2.neighbours(0).contains(&3),
-                "the unrelated asymmetric edge is preserved for the locality check"
-            );
-            assert!(
-                !node3.neighbours(0).contains(&2),
-                "healing must not sweep an untouched asymmetric edge"
-            );
-        })
+        .inspect_graph(assert_locality_preserved)
         .expect("graph inspection must succeed");
     let touched = index
         .write_graph(|graph| Ok(graph.take_touched_nodes()))
         .expect("read healing queue");
     assert!(touched.is_empty(), "healing must drain the insertion queue");
+}
+
+/// Attaches two unrelated nodes and gives node 0 an asymmetric neighbourhood.
+///
+/// Node 0 keeps a one-way edge to each new node, and node 3 is left without the
+/// reciprocal edge to node 2. Healing must repair the touched insertion while
+/// leaving both of these alone, which is what the caller then asserts.
+fn prepare_asymmetric_edges(graph: &mut Graph) {
+    attach_unrelated_nodes(graph);
+    graph
+        .node_mut(0)
+        .expect("entry must exist")
+        .neighbours_mut(0)
+        .expect("entry must expose the base layer")
+        .retain(|neighbour| *neighbour != 1);
+    add_edge_if_missing(graph, 0, 2, 0);
+    add_edge_if_missing(graph, 2, 0, 0);
+    add_edge_if_missing(graph, 0, 3, 0);
+    add_edge_if_missing(graph, 3, 0, 0);
+    add_edge_if_missing(graph, 2, 3, 0);
+}
+
+/// Adds nodes 2 and 3 as level-0 nodes with no edges of their own yet.
+fn attach_unrelated_nodes(graph: &mut Graph) {
+    graph
+        .attach_node(NodeContext {
+            node: 2,
+            level: 0,
+            sequence: 2,
+        })
+        .expect("attach unrelated node");
+    graph
+        .attach_node(NodeContext {
+            node: 3,
+            level: 0,
+            sequence: 3,
+        })
+        .expect("attach unrelated target");
+}
+
+/// Asserts the healed graph repaired the insertion and left both unrelated
+/// asymmetric edges exactly as they were.
+fn assert_locality_preserved(graph: &Graph) {
+    let node0 = graph.node(0).expect("entry must remain");
+    let node1 = graph.node(1).expect("inserted node must remain");
+    let node2 = graph.node(2).expect("unrelated node must remain");
+    let node3 = graph.node(3).expect("unrelated target must remain");
+    assert!(
+        node0.neighbours(0).contains(&1),
+        "healing must restore the reciprocal edge for the touched insertion"
+    );
+    assert!(node1.neighbours(0).contains(&0));
+    assert!(
+        node2.neighbours(0).contains(&3),
+        "the unrelated asymmetric edge is preserved for the locality check"
+    );
+    assert!(
+        !node3.neighbours(0).contains(&2),
+        "healing must not sweep an untouched asymmetric edge"
+    );
 }
 
 /// Verifies deletion mutations are healed and their queue is consumed.
