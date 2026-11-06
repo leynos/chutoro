@@ -63,6 +63,16 @@ Whitaker—do not select the fragment and need none of its prerequisites, so CI
 provisions nothing extra for them. Outside Linux the fragment leaves the
 platform linker selected.
 
+The backend cannot unwind a panic. A test that wants to observe lock poisoning
+must panic while a write guard is alive and catch the unwind, and under
+Cranelift that attempt aborts the process with
+`fatal runtime error: failed to initiate panic, error 5` instead of unwinding.
+`dev-test` therefore excludes exactly one case, the poisoned-lock regression in
+`hnsw::cpu::test_helpers::tests`, through `DEV_TEST_FILTER`. The standard
+`test` gate is on the stable pin and keeps no such exclusion, so the regression
+runs at the merge gate; the development route only gives up its own accelerated
+copy.
+
 Those three development targets declare themselves `.PHONY` beside their
 recipes rather than in the file-wide list at the top of the `Makefile`. The
 file-wide list is a single long line that other work also edits, so appending

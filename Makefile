@@ -30,6 +30,14 @@ DEV_FAST_HOST_CHECK = $(if $(strip $(DEV_FAST_HOST_OS)),,$(error Cannot determin
 DEV_TEST_RUSTFLAGS = $(strip -D warnings -Dmissing_docs \
 	-Dmissing_crate_level_docs \
 	$(if $(filter Linux,$(DEV_FAST_HOST_OS)),-Clink-arg=-fuse-ld=mold))
+# The poisoned-lock regression panics while a graph write guard is alive, then
+# inspects the poison through `catch_unwind`. That needs a backend that can
+# unwind a panic; the opt-in Cranelift route aborts the process instead
+# ("failed to initiate panic, error 5"). `dev-test` therefore excludes exactly
+# this case, and the standard `test` gate - which stays on the stable pin -
+# deliberately does not, so the regression still runs at the merge gate.
+POISONED_LOCK_TEST = hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring
+DEV_TEST_FILTER = not kind(bench) & not (package(chutoro-core) & test(=$(POISONED_LOCK_TEST))
 WHITAKER ?= whitaker
 BUILD_JOBS ?=
 CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
@@ -149,7 +157,7 @@ dev-build: ## Build the debug binary with the selected development backend
 	$(DEV_FAST_HOST_CHECK)$(DEV_CARGO) build $(BUILD_JOBS) --bin $(APP)
 
 dev-test: ## Run the tests with the selected development backend
-	$(DEV_FAST_HOST_CHECK)RUSTFLAGS="$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E 'not kind(bench)'
+	$(DEV_FAST_HOST_CHECK)RUSTFLAGS="$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E '$(DEV_TEST_FILTER)'
 
 install-dev-fast: ## Install pinned nightly components and the verified mold binary
 	$(DEV_FAST_HOST_CHECK)rustup toolchain install $(DEV_FAST_TOOLCHAIN) --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rustc-codegen-cranelift
