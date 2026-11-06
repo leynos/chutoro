@@ -47,9 +47,13 @@ a private copy of that logic.
 [ADR-005](adr-005-cranelift-opt-in-development-route.md) records why the route
 is opt-in rather than the development-profile default, and what keeps it out of
 every merge gate. Each development target validates the host probe before using
-it. An empty `DEV_FAST_HOST_OS` reads as "not Linux" everywhere it is tested,
-so a failed probe would silently drop the linker selection instead of reporting
-the failure; the recipes refuse to run in that case.
+it. The probe is captured once with its exit status, because a `?=` default over
+`$(shell uname -s)` is recursively expanded and would re-run the command on
+every reference; a recipe could then pass one answer to its check and select
+its flags from another. An empty value reads as "not Linux" everywhere it is
+tested, and a probe that answers but exits non-zero is refused too, so neither
+case can silently drop the linker selection. `DEV_FAST_HOST_OS` remains
+overridable for a host whose `uname` cannot run.
 
 `dev-build` compiles the binary and `dev-test` runs `cargo-nextest`, both
 through `DEV_CARGO`. Nextest starts a separate Cargo invocation to compile

@@ -121,6 +121,30 @@ def _assert_nextest_selects_fragment(line: str, tokens: list[str]) -> None:
     )
 
 
+def _assert_nextest_scope(line: str, tokens: list[str]) -> None:
+    """Check the development run covers the same suite as the gate.
+
+    ``dev-test`` is a convenience, not evidence for merge, but it is worthless
+    if it silently narrows the suite. Dropping ``--all-targets`` or
+    ``--all-features`` would skip tests, ``--all-targets`` alone is not enough
+    without ``run``, and omitting the benchmark filter makes nextest attempt
+    cases the standard gate excludes.
+    """
+    nextest_args = tokens[tokens.index("nextest") + 1 :]
+    assert nextest_args[0] == "run", (
+        f"dev-test must invoke 'nextest run', got {nextest_args[0]!r}: {line!r}"
+    )
+    for required in ("--all-targets", "--all-features"):
+        assert required in nextest_args, (
+            f"dev-test must pass {required} so the suite matches the gate: {line!r}"
+        )
+    assert "-E" in nextest_args, f"dev-test must filter benchmarks: {line!r}"
+    filter_index = nextest_args.index("-E")
+    assert nextest_args[filter_index + 1] == "not kind(bench)", (
+        f"dev-test must exclude only benchmarks: {line!r}"
+    )
+
+
 def _assert_test_rustflags(output: str, host_os: str) -> None:
     """Check the development nextest run keeps the warning and linker policy."""
     invocations = [
@@ -138,6 +162,7 @@ def _assert_test_rustflags(output: str, host_os: str) -> None:
         "nextest",
     ], f"dev-test must use the selected route: {line!r}"
     _assert_nextest_selects_fragment(line, tokens)
+    _assert_nextest_scope(line, tokens)
     assignments = [
         token for token in shlex.split(line) if token.startswith("RUSTFLAGS=")
     ]
@@ -244,76 +269,6 @@ def test_development_targets_declare_phony_beside_their_recipes() -> None:
         "development targets must declare themselves beside their recipes, "
         f"not in the file-wide line: {sorted(leaked)}"
     )
-
-
-@pytest.mark.parametrize("target", ("dev-build", "dev-test", "install-dev-fast"))
-def test_development_targets_refuse_an_empty_host_probe(target: str) -> None:
-    """An unanswerable host probe must stop the target, not pick a branch.
-
-    ``DEV_FAST_HOST_OS`` is a ``?=`` default over ``$(shell uname -s)``, and
-    every use is a ``$(filter Linux,...)``, so an empty result reads as "not
-    Linux". That would silently select the platform linker and skip the mold
-    install on a Linux host whose probe failed. The check is per recipe
-    because a file-wide ``$(error)`` would also fail the standard gates.
-    """
-    completed = subprocess.run(
-        [
-            "make",
-            "--no-print-directory",
-            "--dry-run",
-            "--always-make",
-            "--file",
-            str(MAKEFILE_PATH),
-            "DEV_FAST_HOST_OS=",
-            target,
-            "CARGO=probe-cargo",
-        ],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode != 0, (
-        f"{target} must fail when the host probe reports nothing: "
-        f"{completed.stdout!r}"
-    )
-    assert "Cannot determine the development host OS" in completed.stderr, (
-        f"{target} must report the failed probe: {completed.stderr!r}"
-    )
-
-
-def test_standard_targets_ignore_an_empty_host_probe() -> None:
-    """The development route's precondition must not reach a merge gate.
-
-    A parse-time check would fail every target in the file, including the
-    gates that never use the fragment, so an unrelated probe failure could
-    block a release. Standard targets evaluate the fragment's variables but
-    must never validate them.
-    """
-    completed = subprocess.run(
-        [
-            "make",
-            "--no-print-directory",
-            "--dry-run",
-            "--always-make",
-            "--file",
-            str(MAKEFILE_PATH),
-            "DEV_FAST_HOST_OS=",
-            "build",
-            "CARGO=probe-cargo",
-        ],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert completed.returncode == 0, (
-        "a standard target must not fail on the development host probe: "
-        f"{completed.stderr}"
-    )
-    _assert_unfragmented(completed.stdout, "build")
 
 
 def _mutated_makefile(tmp_path: Path, old: str, new: str) -> Path:

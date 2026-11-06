@@ -20,13 +20,33 @@ DEV_CARGO = $(CARGO) +$(DEV_FAST_TOOLCHAIN) --config $(DEV_FAST_CONFIG)
 # An assigned RUSTFLAGS replaces every `rustflags` table, including the
 # fragment's, so the development test route restates the documentation denials
 # and the Linux linker selection instead of inheriting them.
-DEV_FAST_HOST_OS ?= $(shell uname -s)
+#
+# The host probe is evaluated once, with its exit status. Defaulting the pair
+# to `$(shell uname -s)` under `?=` re-ran the probe on every reference, so one
+# recipe could pass the emptiness check and then select its flags from a second
+# expansion that failed, dropping the linker flag while the target reported
+# success. `:=` captures one answer for the whole run.
+DEV_FAST_HOST_PROBE := $(shell uname -s)
+# `.SHELLSTATUS` records the status of the `$(shell)` above. GNU Make 4.2 added
+# it; where the status is unavailable the checks fall back to requiring only
+# non-empty output, so an older make keeps the route usable.
+DEV_FAST_HOST_PROBE_STATUS := $(.SHELLSTATUS)
+DEV_FAST_HOST_OS ?= $(DEV_FAST_HOST_PROBE)
+# A caller-supplied value is checked for emptiness but not against the probe,
+# so `DEV_FAST_HOST_OS=Linux` still works on a host where `uname` cannot run.
+DEV_FAST_HOST_OS_IS_PROBED := $(filter file,$(origin DEV_FAST_HOST_OS))
+DEV_FAST_HOST_STATUS_IS_KNOWN := $(if $(DEV_FAST_HOST_OS_IS_PROBED),$(if $(DEV_FAST_HOST_PROBE_STATUS),1),)
+DEV_FAST_HOST_STATUS_IS_OK := $(filter 0,$(DEV_FAST_HOST_PROBE_STATUS))
 # A failed probe yields an empty string, and an empty string is not Linux, so
 # every `$(if $(filter Linux,...))` below would quietly select the non-Linux
-# branch. The check lives in the development recipes rather than in a
-# file-wide `$(error)`, because parse-time validation would also fail the
-# standard gates, which do not use this route at all.
-DEV_FAST_HOST_CHECK = $(if $(strip $(DEV_FAST_HOST_OS)),,$(error Cannot determine the development host OS: `uname -s` returned nothing. Set DEV_FAST_HOST_OS explicitly))
+# branch. A probe that prints a value and still exits non-zero is just as
+# misleading: its answer would select the Linux branch while the command that
+# produced it reported failure. The checks live in the development recipes
+# rather than in a file-wide `$(error)`, because parse-time validation would
+# also fail the standard gates, which do not use this route at all.
+DEV_FAST_HOST_EMPTY_CHECK = $(if $(strip $(DEV_FAST_HOST_OS)),,$(error Cannot determine the development host OS: `uname -s` returned nothing. Set DEV_FAST_HOST_OS explicitly))
+DEV_FAST_HOST_STATUS_CHECK = $(if $(DEV_FAST_HOST_STATUS_IS_KNOWN),$(if $(DEV_FAST_HOST_STATUS_IS_OK),,$(error Cannot determine the development host OS: `uname -s` exited $(DEV_FAST_HOST_PROBE_STATUS). Set DEV_FAST_HOST_OS explicitly)),)
+DEV_FAST_HOST_CHECK = $(DEV_FAST_HOST_EMPTY_CHECK)$(DEV_FAST_HOST_STATUS_CHECK)
 DEV_TEST_RUSTFLAGS = $(strip -D warnings -Dmissing_docs \
 	-Dmissing_crate_level_docs \
 	$(if $(filter Linux,$(DEV_FAST_HOST_OS)),-Clink-arg=-fuse-ld=mold))
