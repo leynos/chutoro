@@ -79,8 +79,14 @@ def _uncovered(paths: list[str], patterns: list[str]) -> list[str]:
 
 
 @pytest.mark.parametrize("version", ("1.2", "1.2.3.4", "1..2", "1.2.x"))
-def test_makefile_rejects_invalid_kani_versions(tmp_path: Path, version: str) -> None:
-    """The Makefile must reject malformed pins before constructing Kani paths."""
+@pytest.mark.parametrize("override", ((), ("KANI_VERSION_CHECKED=ok",)))
+def test_makefile_rejects_invalid_kani_versions(
+    tmp_path: Path, version: str, override: tuple[str, ...]
+) -> None:
+    """The Makefile must reject malformed pins before constructing Kani paths.
+
+    A command-line value for the check's own variable must not skip it.
+    """
     version_file = tmp_path / "VERSION"
     version_file.write_text(f"{version}\n", encoding="utf-8")
 
@@ -90,6 +96,7 @@ def test_makefile_rejects_invalid_kani_versions(tmp_path: Path, version: str) ->
             "--no-print-directory",
             f"KANI_VERSION_FILE={version_file}",
             "KANI_VERSION=99.99.99",
+            *override,
             "help",
         ],
         cwd=REPO_ROOT,
