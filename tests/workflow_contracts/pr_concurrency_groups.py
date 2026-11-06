@@ -201,6 +201,7 @@ def render_group(template: str, context: dict[str, str]) -> str:
     """
 
     def evaluate(match: re.Match[str]) -> str:
+        """Return the first non-empty modelled value, or an empty string."""
         paths = [operand.strip() for operand in match.group(1).split("||")]
         unmodelled = [
             path
