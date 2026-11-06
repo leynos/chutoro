@@ -22,3 +22,11 @@ Callers must propagate or match `NonContiguousClusterIds` errors. The variants
 identify missing zero, gaps, duplicates, and identifiers that exceed or reach
 the host pointer-width limit. The former panicking helper remains an internal
 CPU-pipeline convenience only.
+
+### Additive API: `EdgeHarvest::as_slice`
+
+`EdgeHarvest::as_slice` returns the harvested candidate edges as a
+`&[CandidateEdge]`. The method is additive: existing callers of `iter`,
+`into_iter`, and `into_inner` are unaffected and need no migration. Consumers
+that fan work out with Rayon should prefer `as_slice`, because it borrows the
+edge list directly instead of collecting an intermediate vector of references.

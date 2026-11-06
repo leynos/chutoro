@@ -243,6 +243,14 @@ discovered during insertion. `CpuHnsw::with_capacity(params, capacity)` creates
 an empty index that can be populated manually with `insert` or
 `insert_harvesting`.
 
+An `EdgeHarvest` exposes its edges through `as_slice`, `iter`, `into_iter`, and
+`into_inner`. Use `as_slice` when a consumer can work from a contiguous
+`&[CandidateEdge]`: it borrows the harvested edges directly, so a parallel
+transform can split the list across threads without first collecting an
+intermediate vector. Use `iter` for straightforward single-threaded traversal
+and `into_inner` when the harvest itself is no longer needed and ownership of
+the edges should transfer.
+
 Use `insert(node, source)` when only graph mutation is required. Use
 `insert_harvesting(node, source)` when the insertion must also return the
 candidate edges considered during planning. The first insertion into an empty

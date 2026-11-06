@@ -723,6 +723,25 @@ The latency histogram reads time through the internal `MonotonicClock` trait.
 public constructor or builder API; it exists solely to make metrics assertions
 deterministic while preserving the public session contract.
 
+The one-shot CPU pipeline records its two expensive stages separately:
+
+- `chutoro.cpu_pipeline.stage_seconds`, a histogram labelled by the bounded
+  `stage` names `mutual_reachability` and `kruskal`.
+
+The label values come from the private `PipelineStage` enum in `cpu_pipeline`,
+so the cardinality is fixed at compile time. Adding a stage means adding an
+enum variant and its `as_label` arm; never pass a formatted string or other
+runtime value as the label. Call sites go through `record_stage`, which is a
+no-op when the `metrics` feature is disabled, so the pipeline code carries no
+conditional compilation of its own.
+
+The pipeline is split into `build_index_and_core_distances` and
+`build_mutual_reachability_forest` so the mutual-reachability transform and the
+Kruskal call can be exercised independently of the HNSW build. Keep new stages
+as separate `pub(crate)` helpers with the same shape rather than growing
+`run_cpu_pipeline_with_len`; the tests under `cpu_pipeline/tests` depend on
+those seams.
+
 ## Clustering result construction
 
 `ClusteringResult::try_from_assignments` is the public construction boundary
