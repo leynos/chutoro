@@ -180,3 +180,20 @@ fn delete_node_reverts_when_it_would_disconnect_graph(
         "failed deletion must restore the pre-mutation healing queue",
     );
 }
+
+/// Verifies the graph fixture returns the parameter error it was handed.
+///
+/// The fixtures are shared setup, so a failure has to arrive at the test as a
+/// typed error. Returning it unchanged is what lets a caller decide whether to
+/// propagate or report the failure.
+#[rstest]
+fn small_graph_returns_the_parameter_error_it_was_given() {
+    let expected = HnswError::EmptyBuild;
+    let result = small_graph(Err(expected.clone()));
+
+    assert_eq!(
+        result.expect_err("the fixture must return the parameter error"),
+        expected,
+        "the fixture must not replace the error it was given",
+    );
+}
