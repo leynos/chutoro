@@ -70,6 +70,16 @@ case "${1:-}" in
 esac
 """
 
+#: A probe that prints nothing at all. The exit status is the axis under test,
+#: so the caller supplies it: a silent success and a silent failure take
+#: different paths through the recipe's empty and status checks.
+SILENT_PROBE = """#!/usr/bin/env bash
+case "${1:-}" in
+  -s) exit __EXIT_STATUS__ ;;
+  *) exit __EXIT_STATUS__ ;;
+esac
+"""
+
 
 def _run_with_probe(
     target: str, probe: Path, *, overrides: tuple[str, ...] = ()
@@ -132,6 +142,46 @@ def test_development_targets_refuse_a_probe_that_exits_non_zero(
     )
     assert "probe-cargo" not in completed.stdout, (
         f"{target} must not run a command after a failed probe: {completed.stdout!r}"
+    )
+
+
+def _silent_uname(tmp_path: Path, exit_status: int) -> Path:
+    """Write a ``uname`` that prints nothing and exits with ``exit_status``."""
+    probe_dir = tmp_path / "bin"
+    probe_dir.mkdir()
+    probe = probe_dir / "uname"
+    probe.write_text(
+        SILENT_PROBE.replace("__EXIT_STATUS__", str(exit_status)), encoding="utf-8"
+    )
+    probe.chmod(0o755)
+    return probe
+
+
+@pytest.mark.parametrize("target", DEVELOPMENT_TARGETS)
+@pytest.mark.parametrize("exit_status", (0, 1), ids=("silent-success", "silent-failure"))
+def test_development_targets_refuse_a_silent_host_probe(
+    tmp_path: Path, target: str, exit_status: int
+) -> None:
+    """A probe that prints nothing must stop the target at either exit status.
+
+    ``DEV_FAST_HOST_OS`` is derived from this probe, so an empty answer reads as
+    "not Linux" and silently selects the platform linker. The override tests
+    above force that value directly and so never exercise this data flow; these
+    cases let the probe produce it. A silent success and a silent failure are
+    both covered, because the recipe checks emptiness and the recorded exit
+    status separately and one check must not be able to mask the other.
+    """
+    completed = _run_with_probe(target, _silent_uname(tmp_path, exit_status))
+
+    assert completed.returncode != 0, (
+        f"{target} must fail when the host probe prints nothing "
+        f"(exit {exit_status}): {completed.stdout!r}"
+    )
+    assert "Cannot determine the development host OS" in completed.stderr, (
+        f"{target} must report the empty probe: {completed.stderr!r}"
+    )
+    assert "probe-cargo" not in completed.stdout, (
+        f"{target} must not run a command after an empty probe: {completed.stdout!r}"
     )
 
 

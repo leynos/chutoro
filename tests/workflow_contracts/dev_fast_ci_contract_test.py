@@ -1,21 +1,19 @@
-"""Contract tests for dev-fast CI workflow provisioning and lint sequencing."""
+"""Contract tests for dev-fast CI workflow provisioning.
+
+The Cranelift route exists for local edit-compile-test loops, so these
+contracts pin that no merge gate selects or provisions it. The lint gate's
+Clippy and Whitaker sequencing lives in `dev_fast_lint_serialization_test`."""
 
 from __future__ import annotations
 
-import os
 import re
-import subprocess
-import textwrap
 import tomllib
-from collections.abc import Iterator
-from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
-from hypothesis import given
-from hypothesis import strategies as st
 
+from dev_fast_workflow_scan_test import string_values
 from workflow_support import ROOT
 
 MAKEFILE_PATH = ROOT / "Makefile"
@@ -54,6 +52,41 @@ def _step_named(job: dict[str, Any], name: str) -> tuple[int, dict[str, Any]]:
     return index, step
 
 
+#: Every way a workflow step can reach the development route. `dev-fast`
+#: covers both the Makefile target prefix and the `tools/dev-fast` fragment
+#: path, so a `--config` call cannot slip past a target-name-only check.
+DEVELOPMENT_ROUTE_TOKENS = ("dev-build", "dev-test", "install-dev-fast", "dev-fast")
+
+
+def _development_route_mentions(script: str) -> tuple[str, ...]:
+    """Return the development-route tokens a step script contains.
+
+    >>> _development_route_mentions("make dev-test")
+    ('dev-test',)
+    >>> _development_route_mentions("cargo --config tools/dev-fast/config.toml")
+    ('dev-fast',)
+    >>> _development_route_mentions("make lint")
+    ()
+    """
+    return tuple(token for token in DEVELOPMENT_ROUTE_TOKENS if token in script)
+
+
+def test_development_route_mentions_reports_every_matching_token() -> None:
+    """A script that names a target and a path must report both.
+
+    The scan drives the CI contract's provisioned-step check, so a token that
+    went unreported would let that step through.
+    """
+    assert _development_route_mentions("cargo --config tools/dev-fast/config.toml") == (
+        "dev-fast",
+    )
+    assert _development_route_mentions("make install-dev-fast && make dev-build") == (
+        "dev-build",
+        "install-dev-fast",
+        "dev-fast",
+    )
+
+
 @pytest.mark.parametrize(
     ("workflow_name", "job_name"),
     (
@@ -61,10 +94,16 @@ def _step_named(job: dict[str, Any], name: str) -> tuple[int, dict[str, Any]]:
         pytest.param("coverage-main.yml", "coverage-upload", id="main-coverage"),
     ),
 )
-def test_ci_never_provisions_the_development_fragment(
+def test_ci_never_runs_or_provisions_the_development_route(
     workflow_name: str, job_name: str
 ) -> None:
-    """The Cranelift route is opt-in, so CI must not install or select it."""
+    """The Cranelift route is opt-in, so CI must never invoke it.
+
+    The earlier rule inspected only the four-character-long target name
+    `install-dev-fast`, which a step could satisfy while running
+    `make dev-test`, or while selecting the fragment through a `--config` call.
+    Every `run` script is scanned for all route tokens instead.
+    """
     job = _workflow_job(workflow_name, job_name)
     _, lint_step = _step_named(job, "Lint")
     assert lint_step.get("run", "").strip() == "make lint", (
@@ -73,10 +112,13 @@ def test_ci_never_provisions_the_development_fragment(
     steps = job.get("steps")
     assert isinstance(steps, list), f"{workflow_name} job must define a step list"
     provisioned = [
-        step.get("run", "") for step in steps if "install-dev-fast" in step.get("run", "")
+        (step.get("name"), _development_route_mentions(script))
+        for step in steps
+        if isinstance(script := step.get("run"), str)
+        if _development_route_mentions(script)
     ]
     assert not provisioned, (
-        f"{workflow_name} must not provision the opt-in development fragment: "
+        f"{workflow_name} must not provision the opt-in development route: "
         f"{provisioned!r}"
     )
 
@@ -147,110 +189,6 @@ def test_development_toolchain_pin_names_a_nightly_release() -> None:
     )
 
 
-def _string_values(value: Any) -> Iterator[str]:
-    """Yield workflow scalar strings recursively for focused config checks.
-
-    Containers are visited in their natural order and non-string scalars are
-    skipped, so a reading of one step cannot silently reorder or invent values.
-
-    >>> list(_string_values({"a": ["b", 1], "c": None}))
-    ['b']
-    >>> list(_string_values([1, ["x", {"y": "z"}]]))
-    ['x', 'z']
-    """
-    match value:
-        case str():
-            yield value
-        case dict():
-            for nested in value.values():
-                yield from _string_values(nested)
-        case list():
-            for nested in value:
-                yield from _string_values(nested)
-
-
-def test_string_values_preserves_container_order_and_omits_non_strings() -> None:
-    """The workflow scanner must flatten order-preservingly, skipping non-strings.
-
-    The scanner decides which Cargo commands the fragment rules inspect, so it
-    has to reach every string while reporting the ones it does not traverse.
-    """
-    workflow_value = {
-        "first": "one",
-        "nested": [
-            "two",
-            {"third": "three", "ignored": 7, "fourth": ["four", None]},
-            False,
-        ],
-        "also_ignored": None,
-    }
-
-    assert list(_string_values(workflow_value)) == ["one", "two", "three", "four"], (
-        "workflow value traversal must keep container order and drop non-strings"
-    )
-
-
-#: YAML-like scalars that are not strings. The traversal must ignore every one
-#: of them, including the ones Python would happily print.
-_NON_STRING_SCALARS = st.one_of(
-    st.none(), st.booleans(), st.integers(), st.floats(allow_nan=False)
-)
-
-
-@st.composite
-def _yaml_like_values(draw: st.DrawFn) -> Any:
-    """Build one arbitrary YAML-shaped value for the traversal property.
-
-    YAML mappings and sequences nest inside each other, which is exactly the
-    recursion `_string_values` implements, so the generator descends instead of
-    emitting a fixed depth.
-    """
-    return draw(
-        st.recursive(
-            st.text() | _NON_STRING_SCALARS,
-            lambda children: st.lists(children) | st.dictionaries(st.text(), children),
-            max_leaves=12,
-        )
-    )
-
-
-def _collect_strings(value: Any) -> list[str]:
-    """Collect the strings of a YAML-shaped value in depth-first order.
-
-    Deliberately a second, differently shaped implementation. A property test
-    that walked its input with the helper under test would agree with it by
-    construction and prove nothing; this one states the order the contract
-    promises in its own terms.
-
-    >>> _collect_strings({"a": ["b", 1], "c": None})
-    ['b']
-    >>> _collect_strings([1, ["x", {"y": "z"}]])
-    ['x', 'z']
-    """
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, (dict, list)):
-        children = list(value.values()) if isinstance(value, dict) else list(value)
-        return [text for child in children for text in _collect_strings(child)]
-    return []
-
-
-@given(value=_yaml_like_values())
-def test_string_values_emits_exactly_the_nested_strings_in_depth_first_order(
-    value: Any,
-) -> None:
-    """The traversal is an order-preserving, non-string-dropping projection.
-
-    CodeRabbit asked for this as a property rather than more examples: the
-    helper recurses over arbitrary YAML, so the invariant has to hold for
-    nesting shapes nobody wrote a case for. Depth-first order is what makes
-    the resulting scan readable as the workflow source.
-    """
-    assert list(_string_values(value)) == _collect_strings(value), (
-        f"traversal of {value!r} must match an independent depth-first walk"
-    )
-
-
 def _dense_simd_commands(step: dict[str, Any]) -> list[str]:
     """Return the Cargo commands a step script runs, with continuations joined.
 
@@ -294,102 +232,75 @@ def test_ci_direct_simd_and_coverage_routes_stay_unfragmented(
         )
 
     _, coverage_step = _step_named(job, "Test and Measure Coverage")
-    coverage_values = "\n".join(_string_values(coverage_step))
-    assert (
-        DEV_FAST_CONFIG not in coverage_values and "--config" not in coverage_values
-    ), (
+    coverage_values = "\n".join(string_values(coverage_step))
+    assert DEV_FAST_CONFIG not in coverage_values, (
         f"coverage action inputs must not select the dev-fast fragment: "
+        f"{coverage_values!r}"
+    )
+    assert "--config" not in coverage_values, (
+        f"coverage action inputs must not pass a Cargo config override: "
         f"{coverage_values!r}"
     )
 
 
-def _make_probe(path: Path, role: str) -> None:
-    """Write a controlled fake gate that records overlap with its peer."""
-    source = textwrap.dedent(
-        f"""\
-        #!/usr/bin/env python3
-        import os
-        from pathlib import Path
-        import time
+def _cargo_home_selections(step: dict[str, Any]) -> tuple[str, ...]:
+    """Return the values a step assigns to `CARGO_HOME`.
 
-        state = Path(os.environ["DEV_FAST_PROBE_STATE"])
-        role = {role!r}
-        peer = "whitaker" if role == "cargo" else "cargo"
-        lock = state / "lock"
+    A `--config` scan alone cannot see this route: Cargo reads
+    `$CARGO_HOME/config.toml` before it parses a command line, so a step that
+    points the home at a directory holding the fragment selects it with no
+    `--config` argument anywhere. Both the `env:` mapping and a `NAME=value`
+    prefix inside `run` are covered, because both reach Cargo the same way.
 
-        def acquire_lock():
-            deadline = time.monotonic() + 5
-            while True:
-                try:
-                    lock.mkdir()
-                    return
-                except FileExistsError:
-                    if time.monotonic() >= deadline:
-                        raise SystemExit("timed out acquiring probe lock")
-                    time.sleep(0.005)
-
-        acquire_lock()
-        if (state / f"{{peer}}.running").exists():
-            (state / "overlap").write_text(f"{{role}} overlapped {{peer}}\\n")
-        (state / f"{{role}}.running").write_text("running\\n")
-        lock.rmdir()
-
-        time.sleep(0.15)
-
-        acquire_lock()
-        (state / f"{{role}}.running").unlink()
-        (state / f"{{role}}.ran").write_text("ran\\n")
-        lock.rmdir()
-        """
-    )
-    path.write_text(source, encoding="utf-8")
-    path.chmod(0o755)
-
-
-def test_parallel_lint_serializes_clippy_and_whitaker(tmp_path: Path) -> None:
-    """`make -j lint` must still run Clippy and Whitaker one after the other.
-
-    Both halves share the package cache and the compiler-admission pool, so
-    overlap is what `.NOTPARALLEL: lint` exists to prevent.
+    >>> _cargo_home_selections({"env": {"CARGO_HOME": "/srv/cargo"}})
+    ('/srv/cargo',)
+    >>> _cargo_home_selections({"run": "CARGO_HOME=tools/dev-fast make test"})
+    ('tools/dev-fast',)
+    >>> _cargo_home_selections({"run": "make test"})
+    ()
     """
-    cargo = tmp_path / "probe-cargo"
-    whitaker = tmp_path / "probe-whitaker"
-    state = tmp_path / "state"
-    state.mkdir()
-    _make_probe(cargo, "cargo")
-    _make_probe(whitaker, "whitaker")
-
-    environment = os.environ.copy()
-    environment["DEV_FAST_PROBE_STATE"] = str(state)
-    completed = subprocess.run(
-        [
-            "make",
-            "--no-print-directory",
-            "-j2",
-            "--file",
-            str(MAKEFILE_PATH),
-            "lint",
-            f"CARGO={cargo}",
-            f"WHITAKER={whitaker}",
-        ],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        env=environment,
-    )
-    assert completed.returncode == 0, (
-        f"controlled lint probe failed: {completed.stdout}\n{completed.stderr}"
-    )
-    # The absence of an overlap marker only means something if both probes
-    # actually ran. A recipe that skipped `lint-clippy` or `lint-whitaker`
-    # would trivially never overlap, so record each role's completion and
-    # require both.
-    for role in ("cargo", "whitaker"):
-        assert (state / f"{role}.ran").exists(), (
-            f"lint did not run the {role} probe under make -j2: "
-            f"{sorted(path.name for path in state.iterdir())}"
+    selections: list[str] = []
+    environment = step.get("env")
+    if isinstance(environment, dict):
+        home = environment.get("CARGO_HOME")
+        if isinstance(home, str):
+            selections.append(home)
+    run = step.get("run")
+    if isinstance(run, str):
+        selections.extend(
+            value.strip("\"'") for value in re.findall(r"\bCARGO_HOME=(\S+)", run)
         )
-    assert not (state / "overlap").exists(), (
-        "lint-clippy and lint-whitaker ran concurrently under make -j2"
+    return tuple(selections)
+
+
+@pytest.mark.parametrize(
+    ("workflow_name", "job_name"),
+    (
+        pytest.param("ci.yml", "build-test", id="pull-request-ci"),
+        pytest.param("coverage-main.yml", "coverage-upload", id="main-coverage"),
+    ),
+)
+def test_ci_does_not_point_cargo_home_at_the_development_fragment(
+    workflow_name: str, job_name: str
+) -> None:
+    """No job step may select the fragment through Cargo's own home lookup.
+
+    A `--config` assertion says nothing about `CARGO_HOME`, which Cargo reads
+    for `config.toml` before it ever parses a command line. Pointing the home
+    at the fragment's directory would therefore enable Cranelift in a merge
+    gate while every existing assertion still passed.
+    """
+    job = _workflow_job(workflow_name, job_name)
+    steps = job.get("steps")
+    assert isinstance(steps, list), f"{workflow_name} job must define a step list"
+    selected = [
+        (step.get("name"), selections)
+        for step in steps
+        if isinstance(step, dict)
+        if (selections := _cargo_home_selections(step))
+    ]
+
+    assert not selected, (
+        f"{workflow_name} must not set CARGO_HOME on a job step, because Cargo "
+        f"would read a config.toml from it: {selected!r}"
     )
