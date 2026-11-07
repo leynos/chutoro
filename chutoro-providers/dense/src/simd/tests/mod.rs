@@ -266,34 +266,34 @@ fn query_points_kernel_canonicalizes_non_finite_results_to_nan(
     assert!(actual.first().is_some_and(|value| value.is_nan()));
 }
 
+/// A failing pair reports the first bad endpoint and leaves `out` untouched.
+///
+/// The second case places the bad pair first inside a shared-query batch, so
+/// it also pins validation order: packing candidates must not reorder the
+/// report.
 #[rstest]
+#[case(
+    vec![PointPair::new(0, 1), PointPair::new(0, 9)],
+    DataSourceError::OutOfBounds { index: 9 },
+)]
+#[case(
+    vec![PointPair::new(99, 1), PointPair::new(0, 1)],
+    DataSourceError::OutOfBounds { index: 99 },
+)]
 fn batch_pairs_leave_output_unmodified_on_error(
     #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
+    #[case] pairs: Vec<PointPair>,
+    #[case] expected: DataSourceError,
 ) {
-    let pairs = vec![PointPair::new(0, 1), PointPair::new(0, 9)];
-    let mut out = vec![10.0_f32, 20.0_f32];
-    let mut out_buffer = DistanceBuffer::new(&mut out);
-
-    let err = euclidean_distance_batch_pairs(matrix_3x2, &pairs, &mut out_buffer)
-        .expect_err("out-of-bounds pair must fail");
-
-    assert!(matches!(err, DataSourceError::OutOfBounds { index: 9 }));
-    assert_eq!(out, vec![10.0_f32, 20.0_f32]);
-}
-
-#[rstest]
-fn point_pairs_preserve_original_validation_order_for_shared_query_batches(
-    #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
-) {
-    let pairs = vec![PointPair::new(99, 1), PointPair::new(0, 1)];
     let mut out = vec![10.0_f32; pairs.len()];
+    let original = out.clone();
     let mut out_buffer = DistanceBuffer::new(&mut out);
 
     let err = euclidean_distance_batch_pairs(matrix_3x2, &pairs, &mut out_buffer)
         .expect_err("out-of-bounds pair must fail");
 
-    assert_eq!(err, DataSourceError::OutOfBounds { index: 99 });
-    assert_eq!(out, vec![10.0_f32; pairs.len()]);
+    assert_eq!(err, expected);
+    assert_eq!(out, original);
 }
 
 #[expect(
