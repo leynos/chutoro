@@ -57,16 +57,17 @@ available without letting a nightly toolchain reach a merge gate.
 
 The project keeps Cranelift as an opt-in development route reached only through
 `make dev-build` and `make dev-test`. Every standard Cargo gate — `build`,
-`test`, `typecheck`, `lint-clippy`, `release`, formatting, coverage,
-benchmarks, and Whitaker — stays on the pinned stable 1.99.1 and reads
-`.cargo/config.toml`.
+`test`, `typecheck`, `lint-clippy`, `release`, formatting, coverage, and
+benchmarks — stays on the pinned stable 1.99.1 and reads `.cargo/config.toml`.
 
-Kani and Verus are the exception, and they are not Cargo gates in this sense.
-Each runs on the toolchain its own verifier release requires: the Kani PR
-workflow installs Kani's pinned nightly bundle before `make kani`, and
-`make verus` delegates to `scripts/run-verus.sh` with its own `VERUS_BIN`. What
-the decision protects is unchanged — neither verifier is reached through the
-development fragment, and neither can select Cranelift.
+Kani, Verus, and Whitaker are the exceptions. Kani and Verus are not Cargo
+gates in this sense, and each runs on the toolchain its own verifier release
+requires: both are driven through the pinned `rust-prover-tools` package, so
+`make install-kani` and `make install-verus` provision from it and `make kani`
+and `make verus` invoke it. Whitaker runs under the toolchain its own installer
+manages rather than the repository pin. What the decision protects is unchanged
+— none of the three is reached through the development fragment, and none can
+select Cranelift.
 
 The fragment lives in `tools/dev-fast/config.toml`, outside Cargo's automatic
 configuration paths, and is pinned to one dated nightly in
