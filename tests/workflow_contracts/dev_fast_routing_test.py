@@ -29,6 +29,8 @@ from dev_fast_make_support import (
 from dev_fast_rustflags_support import _assert_test_rustflags
 
 
+TEST_HELPERS_PATH = REPO_ROOT / "chutoro-core" / "src" / "hnsw" / "cpu" / "test_helpers.rs"
+
 POISONED_LOCK_TEST = (
     "hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring"
 )
@@ -60,7 +62,29 @@ def test_development_test_excludes_only_the_poisoned_lock_regression() -> None:
     one-line Makefile edit and the stable gate can keep running it.
     """
     output = _make_output("dev-test", overrides=("DEV_FAST_HOST_OS=Linux",))
-    expression = _nextest_filter_expression(output)
+    _assert_development_exclusion(_nextest_filter_expression(output))
+
+
+def _assert_development_exclusion(expression: str) -> None:
+    """Require the development filter to exclude exactly the poisoned-lock case.
+
+    A missing close parenthesis is the failure mode this guards against: the
+    expression still *reads* correctly, but nextest rejects it outright with
+    `error: expected close parenthesis`, so `make dev-test` runs nothing at
+    all. Balance is therefore checked before the textual assertions, which
+    would otherwise pass against an unparseable expression.
+    """
+    depth = 0
+    for character in expression:
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            assert depth >= 0, f"dev-test filter closes an unopened group: {expression!r}"
+    assert depth == 0, (
+        f"dev-test filter leaves {depth} unclosed group(s), which nextest "
+        f"rejects: {expression!r}"
+    )
     assert f"test(={POISONED_LOCK_TEST})" in expression, (
         f"dev-test must exclude the poisoned-lock regression: {expression!r}"
     )
@@ -77,6 +101,22 @@ def _assert_poisoned_lock_case_is_named_once() -> None:
     )
     assert makefile.count("POISONED_LOCK_TEST") >= 2, (
         "the poisoned-lock case must be referenced by the filter definition"
+    )
+
+
+def test_poisoned_lock_exclusion_names_a_rust_test_that_exists() -> None:
+    """The Makefile path must resolve to a real test, not a stale rename.
+
+    `POISONED_LOCK_TEST` is written as a module path with no Rust compiler in
+    the loop, so a rename in `test_helpers.rs` would leave the exclusion
+    pointing at nothing. nextest treats an unmatched `test(=...)` clause as an
+    empty match rather than an error, so `dev-test` would silently keep running
+    the regression under Cranelift and abort.
+    """
+    case = POISONED_LOCK_TEST.rsplit("::", 1)[-1]
+    assert f"fn {case}(" in TEST_HELPERS_PATH.read_text(encoding="utf-8"), (
+        f"POISONED_LOCK_TEST names {case!r}, but no such test exists in "
+        f"{TEST_HELPERS_PATH.name}; update the Makefile exclusion with the rename"
     )
 
 
@@ -195,7 +235,7 @@ def test_test_flag_assertion_rejects_a_missing_development_exclusion(
     makefile = _mutated_makefile(
         tmp_path,
         "DEV_TEST_FILTER = not kind(bench) & not "
-        "(package(chutoro-core) & test(=$(POISONED_LOCK_TEST))",
+        "(package(chutoro-core) & test(=$(POISONED_LOCK_TEST)))",
         "DEV_TEST_FILTER = not kind(bench)",
     )
     output = _make_output(
@@ -205,6 +245,31 @@ def test_test_flag_assertion_rejects_a_missing_development_exclusion(
     assert POISONED_LOCK_TEST not in expression, (
         "the mutation must actually drop the exclusion, or the test proves nothing"
     )
+    with pytest.raises(AssertionError, match="must exclude the poisoned-lock"):
+        _assert_development_exclusion(expression)
+
+
+def test_exclusion_assertion_rejects_an_unclosed_filter_group(
+    tmp_path: Path,
+) -> None:
+    """An unbalanced filter is reported, not passed over as a textual match.
+
+    Regression: the development filter previously omitted its final close
+    parenthesis. The textual assertions still matched, so the contract suite
+    stayed green while every `make dev-test` invocation failed to parse.
+    """
+    makefile = _mutated_makefile(
+        tmp_path,
+        "DEV_TEST_FILTER = not kind(bench) & not "
+        "(package(chutoro-core) & test(=$(POISONED_LOCK_TEST)))",
+        "DEV_TEST_FILTER = not kind(bench) & not "
+        "(package(chutoro-core) & test(=$(POISONED_LOCK_TEST))",
+    )
+    output = _make_output(
+        "dev-test", makefile=makefile, overrides=("DEV_FAST_HOST_OS=Linux",)
+    )
+    with pytest.raises(AssertionError, match="unclosed group"):
+        _assert_development_exclusion(_nextest_filter_expression(output))
 
 
 def test_standard_route_assertion_rejects_a_contaminated_bench_command(

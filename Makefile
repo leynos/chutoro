@@ -76,7 +76,7 @@ DEV_TEST_RUSTFLAGS = $(strip -D warnings $(DEV_FRAGMENT_RUSTFLAGS))
 # this case, and the standard `test` gate - which stays on the stable pin -
 # deliberately does not, so the regression still runs at the merge gate.
 POISONED_LOCK_TEST = hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring
-DEV_TEST_FILTER = not kind(bench) & not (package(chutoro-core) & test(=$(POISONED_LOCK_TEST))
+DEV_TEST_FILTER = not kind(bench) & not (package(chutoro-core) & test(=$(POISONED_LOCK_TEST)))
 WHITAKER ?= whitaker
 BUILD_JOBS ?=
 CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
