@@ -2,12 +2,38 @@
 
 use super::*;
 use crate::test_utils::CountingSource;
+use rstest::rstest;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 
 mod batch_first_source;
+
+#[rstest]
+#[case(2, 5)]
+#[case(usize::MAX, 0)]
+fn point_pair_new_preserves_left_and_right(#[case] left: usize, #[case] right: usize) {
+    let pair = PointPair::new(left, right);
+
+    assert_eq!(pair.left(), left);
+    assert_eq!(pair.right(), right);
+}
+
+#[rstest]
+#[case(3, 7)]
+#[case(0, usize::MAX)]
+fn point_pair_from_tuple_preserves_left_and_right(#[case] left: usize, #[case] right: usize) {
+    let pair = PointPair::from((left, right));
+
+    assert_eq!(pair.left(), left);
+    assert_eq!(pair.right(), right);
+}
+
+#[rstest]
+fn point_pair_identity_is_order_sensitive() {
+    assert_ne!(PointPair::new(2, 5), PointPair::new(5, 2));
+}
 
 #[test]
 fn batch_distances_invokes_scalar_distance() {

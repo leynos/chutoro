@@ -2,7 +2,7 @@
 
 mod common;
 
-use chutoro_core::{DataSource, DataSourceError};
+use chutoro_core::{DataSource, DataSourceError, PointPair};
 use common::Dummy;
 use rstest::{fixture, rstest};
 use std::sync::{
@@ -17,7 +17,7 @@ fn dummy(#[default(vec![1.0, 2.0])] data: Vec<f32>) -> Dummy {
 
 #[rstest(dummy(vec![1.0, 3.0, 6.0]))]
 fn distance_batch_returns_distances(dummy: Dummy) {
-    let pairs = [(0, 1), (1, 2)];
+    let pairs = [PointPair::new(0, 1), PointPair::new(1, 2)];
     let mut out = [0.0; 2];
     dummy
         .distance_batch(&pairs, &mut out)
@@ -36,8 +36,9 @@ fn distance_batch_length_mismatch(
     #[case] pairs: Vec<(usize, usize)>,
     #[case] mut out: Vec<f32>,
 ) {
+    let point_pairs: Vec<PointPair> = pairs.into_iter().map(PointPair::from).collect();
     let err = dummy
-        .distance_batch(&pairs, &mut out)
+        .distance_batch(&point_pairs, &mut out)
         .expect_err("distance_batch must report length mismatch");
     assert!(matches!(err, DataSourceError::OutputLengthMismatch { .. }));
 }
@@ -52,7 +53,7 @@ fn distance_out_of_bounds(dummy: Dummy) {
 
 #[rstest]
 fn distance_batch_preserves_out_on_error(dummy: Dummy) {
-    let pairs = [(0, 1), (0, 99)];
+    let pairs = [PointPair::new(0, 1), PointPair::new(0, 99)];
     let mut out = [1.0_f32, 1.0];
     let err = dummy
         .distance_batch(&pairs, &mut out)
@@ -66,14 +67,14 @@ fn distance_batch_preserves_out_on_error(dummy: Dummy) {
 
 #[rstest(dummy(vec![]))]
 fn distance_batch_empty_ok(dummy: Dummy) {
-    let pairs: [(usize, usize); 0] = [];
+    let pairs: [PointPair; 0] = [];
     let mut out: [f32; 0] = [];
     assert!(dummy.distance_batch(&pairs, &mut out).is_ok());
 }
 
 #[rstest(dummy(vec![1.0]))]
 fn distance_batch_empty_pairs_error(dummy: Dummy) {
-    let pairs: [(usize, usize); 0] = [];
+    let pairs: [PointPair; 0] = [];
     let mut out = [0.0];
     let err = dummy
         .distance_batch(&pairs, &mut out)
@@ -83,7 +84,7 @@ fn distance_batch_empty_pairs_error(dummy: Dummy) {
 
 #[rstest]
 fn distance_batch_empty_output_error(dummy: Dummy) {
-    let pairs = [(0, 1)];
+    let pairs = [PointPair::new(0, 1)];
     let mut out: [f32; 0] = [];
     let err = dummy
         .distance_batch(&pairs, &mut out)
@@ -134,11 +135,7 @@ impl DataSource for BatchFirstDummy {
         Ok(a.mul_add(1.0, std::ops::Neg::neg(*b)).abs())
     }
 
-    fn distance_batch(
-        &self,
-        pairs: &[(usize, usize)],
-        out: &mut [f32],
-    ) -> Result<(), DataSourceError> {
+    fn distance_batch(&self, pairs: &[PointPair], out: &mut [f32]) -> Result<(), DataSourceError> {
         self.batch_calls.fetch_add(1, Ordering::Relaxed);
         if pairs.len() != out.len() {
             return Err(DataSourceError::OutputLengthMismatch {
@@ -147,7 +144,9 @@ impl DataSource for BatchFirstDummy {
             });
         }
 
-        for ((left, right), slot) in pairs.iter().copied().zip(out.iter_mut()) {
+        for (pair, slot) in pairs.iter().zip(out.iter_mut()) {
+            let left = pair.left();
+            let right = pair.right();
             let a = self
                 .data
                 .get(left)
