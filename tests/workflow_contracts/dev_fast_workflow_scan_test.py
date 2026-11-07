@@ -25,6 +25,18 @@ def string_values(value: Any) -> Iterator[str]:
     Containers are visited in their natural order and non-string scalars are
     skipped, so a reading of one step cannot silently reorder or invent values.
 
+    Parameters
+    ----------
+    value : Any
+        A YAML-shaped value: a string, a mapping, a list, or any other scalar.
+
+    Yields
+    ------
+    str
+        Each string found, in depth-first order.
+
+    Examples
+    --------
     >>> list(string_values({"a": ["b", 1], "c": None}))
     ['b']
     >>> list(string_values([1, ["x", {"y": "z"}]]))
@@ -94,19 +106,26 @@ def _collect_strings(value: Any) -> list[str]:
     Deliberately a second, differently shaped implementation. A property test
     that walked its input with the helper under test would agree with it by
     construction and prove nothing; this one states the order the contract
-    promises in its own terms.
+    promises in its own terms. The worklist keeps that independence while
+    still reading the shape structurally, so the two implementations differ
+    in traversal as well as in recursion.
 
     >>> _collect_strings({"a": ["b", 1], "c": None})
     ['b']
     >>> _collect_strings([1, ["x", {"y": "z"}]])
     ['x', 'z']
     """
-    if isinstance(value, str):
-        return [value]
-    if isinstance(value, (dict, list)):
-        children = list(value.values()) if isinstance(value, dict) else list(value)
-        return [text for child in children for text in _collect_strings(child)]
-    return []
+    found: list[str] = []
+    pending = [value]
+    while pending:
+        match pending.pop():
+            case str() as text:
+                found.append(text)
+            case dict() as mapping:
+                pending.extend(reversed(list(mapping.values())))
+            case list() as items:
+                pending.extend(reversed(items))
+    return found
 
 
 @given(value=_yaml_like_values())
