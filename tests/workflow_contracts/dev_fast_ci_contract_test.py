@@ -25,10 +25,21 @@ WORKFLOW_PATHS = {
 }
 
 
+def _workflow(workflow_name: str) -> dict[str, Any]:
+    """Return the loaded document for a workflow this contract owns.
+
+    The whole document is returned, not only its jobs, because a workflow-level
+    `env` mapping is merged into every step's environment just as a step-level
+    one is.
+    """
+    workflow = yaml.safe_load(WORKFLOW_PATHS[workflow_name].read_text(encoding="utf-8"))
+    assert isinstance(workflow, dict), f"{workflow_name} must be a mapping"
+    return workflow
+
+
 def _workflow_job(workflow_name: str, job_name: str) -> dict[str, Any]:
     """Return the named job mapping from a workflow this contract owns."""
-    workflow = yaml.safe_load(WORKFLOW_PATHS[workflow_name].read_text(encoding="utf-8"))
-    jobs = workflow.get("jobs")
+    jobs = _workflow(workflow_name).get("jobs")
     assert isinstance(jobs, dict), f"{workflow_name} must define jobs"
     job = jobs.get(job_name)
     assert isinstance(job, dict), f"{workflow_name} must define job {job_name!r}"
@@ -283,17 +294,34 @@ def _cargo_home_selections(step: dict[str, Any]) -> tuple[str, ...]:
 def test_ci_does_not_point_cargo_home_at_the_development_fragment(
     workflow_name: str, job_name: str
 ) -> None:
-    """No job step may select the fragment through Cargo's own home lookup.
+    """Nothing in the workflow may select the fragment through Cargo's home.
 
     A `--config` assertion says nothing about `CARGO_HOME`, which Cargo reads
     for `config.toml` before it ever parses a command line. Pointing the home
     at the fragment's directory would therefore enable Cranelift in a merge
     gate while every existing assertion still passed.
+
+    All three scopes are read, because the environment a step sees is the
+    merge of the workflow, the job, and the step. A scan of the step alone
+    would pass while a job-level or workflow-level mapping selected the
+    fragment, which is also the more usual place to put a shared variable.
     """
+    workflow = _workflow(workflow_name)
     job = _workflow_job(workflow_name, job_name)
     steps = job.get("steps")
     assert isinstance(steps, list), f"{workflow_name} job must define a step list"
+
     selected = [
+        (f"{workflow_name} env", selections)
+        for selections in (_cargo_home_selections(workflow),)
+        if selections
+    ]
+    selected += [
+        (f"{workflow_name}/{job_name} env", selections)
+        for selections in (_cargo_home_selections(job),)
+        if selections
+    ]
+    selected += [
         (step.get("name"), selections)
         for step in steps
         if isinstance(step, dict)
@@ -301,6 +329,6 @@ def test_ci_does_not_point_cargo_home_at_the_development_fragment(
     ]
 
     assert not selected, (
-        f"{workflow_name} must not set CARGO_HOME on a job step, because Cargo "
+        f"{workflow_name} must not set CARGO_HOME at any scope, because Cargo "
         f"would read a config.toml from it: {selected!r}"
     )

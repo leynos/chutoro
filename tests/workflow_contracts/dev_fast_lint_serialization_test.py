@@ -103,8 +103,7 @@ def _run_lint(
     _make_probe(whitaker, "whitaker")
     _make_interrogate_probe(interrogate, state, exit_status=interrogate_exit)
 
-    environment = os.environ.copy()
-    environment["DEV_FAST_PROBE_STATE"] = str(state)
+    environment = _isolated_make_environment(state)
     completed = subprocess.run(
         [
             "make",
@@ -124,6 +123,30 @@ def _run_lint(
         env=environment,
     )
     return completed, state
+
+
+#: Make exports these into every recipe, so the child `make` the lint contracts
+#: start inherits them. The documented entry point is
+#: `make test-workflow-contracts`, so pytest already runs inside a recipe.
+_MAKE_STATE_VARIABLES = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES")
+
+
+def _isolated_make_environment(state: Path) -> dict[str, str]:
+    """Return an environment with inherited Make state removed.
+
+    Inheritance would let the outer run decide the inner run's behaviour. The
+    sharpest case is `-k`: `lint-clippy` and `lint-whitaker` do not depend on
+    `interrogate`, so a keep-going parent makes the child run both probes even
+    after interrogate fails, and the contract that a failing interrogate stops
+    the run fails against a correct Makefile. `-j` travels as
+    `--jobserver-auth` in `MAKEFLAGS` and would likewise undo the point of a
+    serialisation test.
+    """
+    environment = os.environ.copy()
+    for variable in _MAKE_STATE_VARIABLES:
+        environment.pop(variable, None)
+    environment["DEV_FAST_PROBE_STATE"] = str(state)
+    return environment
 
 
 def test_parallel_lint_serializes_clippy_and_whitaker(tmp_path: Path) -> None:
