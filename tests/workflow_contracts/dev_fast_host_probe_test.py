@@ -275,3 +275,57 @@ def test_standard_targets_ignore_an_empty_host_probe() -> None:
         f"{completed.stderr}"
     )
     _assert_unfragmented(completed.stdout, "build")
+
+
+def test_the_probe_records_its_own_exit_status() -> None:
+    """The status must come from the shell, not from ``.SHELLSTATUS``.
+
+    ``.SHELLSTATUS`` only appeared in GNU Make 4.4. The earlier fallback
+    treated "status unavailable" as "status acceptable", which made this exact
+    case unsound on every older make: ``uname -s`` printing ``Linux`` and
+    exiting non-zero selected the Linux branch from a command that had failed.
+    Encoding the status in the probe's output has no version floor, so this
+    pins the mechanism rather than a make-version-dependent behaviour that
+    cannot be exercised on a modern test host.
+    """
+    source = MAKEFILE_PATH.read_text(encoding="utf-8")
+
+    assert "DEV_FAST_PROBE_STATUS=$$?" in source, (
+        "the probe must append its own exit status to its output"
+    )
+    # A reintroduced `.SHELLSTATUS` read would restore the silent fallback on
+    # any make older than 4.4, which is precisely the defect being guarded.
+    assignments = [
+        line
+        for line in source.splitlines()
+        if line.startswith("DEV_FAST_HOST_PROBE_STATUS") and "$(.SHELLSTATUS)" in line
+    ]
+    assert not assignments, (
+        f"the probe status must not be read from .SHELLSTATUS: {assignments!r}"
+    )
+
+
+@pytest.mark.parametrize("target", DEVELOPMENT_TARGETS)
+def test_development_targets_reject_a_failed_probe_without_shellstatus(
+    tmp_path: Path, target: str
+) -> None:
+    """The status check must not depend on which make version is installed.
+
+    ``SHELLSTATUS`` is a Make-internal variable, so it cannot be shadowed to
+    reproduce an older make from here. What can be asserted is the contract
+    that made the old path unsound: a probe that answers and fails is refused
+    on this make, and the mechanism it relies on is one every make version
+    supports.
+    """
+    completed = _run_with_probe(target, _failing_uname(tmp_path))
+    source = MAKEFILE_PATH.read_text(encoding="utf-8")
+
+    assert completed.returncode != 0, (
+        f"{target} must refuse a probe that answers and fails: {completed.stdout!r}"
+    )
+    assert "exited 1" in completed.stderr, (
+        f"{target} must name the exit status: {completed.stderr!r}"
+    )
+    assert "DEV_FAST_HOST_STATUS_IS_KNOWN" not in source, (
+        "the 'status unknown therefore acceptable' branch must not return"
+    )

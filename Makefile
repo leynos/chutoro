@@ -26,17 +26,20 @@ DEV_CARGO = $(CARGO) +$(DEV_FAST_TOOLCHAIN) --config $(DEV_FAST_CONFIG)
 # recipe could pass the emptiness check and then select its flags from a second
 # expansion that failed, dropping the linker flag while the target reported
 # success. `:=` captures one answer for the whole run.
-DEV_FAST_HOST_PROBE := $(shell uname -s)
-# `.SHELLSTATUS` records the status of the `$(shell)` above. GNU Make 4.2 added
-# it; where the status is unavailable the checks fall back to requiring only
-# non-empty output, so an older make keeps the route usable.
-DEV_FAST_HOST_PROBE_STATUS := $(.SHELLSTATUS)
-DEV_FAST_HOST_OS ?= $(DEV_FAST_HOST_PROBE)
+# The exit status is appended by the shell itself rather than read back from
+# `.SHELLSTATUS`. `.SHELLSTATUS` only exists in GNU Make 4.4 and later, and a
+# fallback that treated "status unavailable" as acceptable made the status
+# check unsound on every older make: a probe that printed `Linux` and exited
+# non-zero would select the Linux branch from a command that had failed.
+# Encoding the status in the probe's own output has no such version floor, so
+# the check below is load-bearing wherever this file runs.
+DEV_FAST_HOST_PROBE := $(shell { uname -s; echo "DEV_FAST_PROBE_STATUS=$$?"; })
+DEV_FAST_HOST_PROBE_OS := $(filter-out DEV_FAST_PROBE_STATUS=%,$(DEV_FAST_HOST_PROBE))
+DEV_FAST_HOST_PROBE_STATUS := $(patsubst DEV_FAST_PROBE_STATUS=%,%,$(filter DEV_FAST_PROBE_STATUS=%,$(DEV_FAST_HOST_PROBE)))
+DEV_FAST_HOST_OS ?= $(DEV_FAST_HOST_PROBE_OS)
 # A caller-supplied value is checked for emptiness but not against the probe,
 # so `DEV_FAST_HOST_OS=Linux` still works on a host where `uname` cannot run.
 DEV_FAST_HOST_OS_IS_PROBED := $(filter file,$(origin DEV_FAST_HOST_OS))
-DEV_FAST_HOST_STATUS_IS_KNOWN := $(if $(DEV_FAST_HOST_OS_IS_PROBED),$(if $(DEV_FAST_HOST_PROBE_STATUS),1),)
-DEV_FAST_HOST_STATUS_IS_OK := $(filter 0,$(DEV_FAST_HOST_PROBE_STATUS))
 # A failed probe yields an empty string, and an empty string is not Linux, so
 # every `$(if $(filter Linux,...))` below would quietly select the non-Linux
 # branch. A probe that prints a value and still exits non-zero is just as
@@ -45,7 +48,7 @@ DEV_FAST_HOST_STATUS_IS_OK := $(filter 0,$(DEV_FAST_HOST_PROBE_STATUS))
 # rather than in a file-wide `$(error)`, because parse-time validation would
 # also fail the standard gates, which do not use this route at all.
 DEV_FAST_HOST_EMPTY_CHECK = $(if $(strip $(DEV_FAST_HOST_OS)),,$(error Cannot determine the development host OS: `uname -s` returned nothing. Set DEV_FAST_HOST_OS explicitly))
-DEV_FAST_HOST_STATUS_CHECK = $(if $(DEV_FAST_HOST_STATUS_IS_KNOWN),$(if $(DEV_FAST_HOST_STATUS_IS_OK),,$(error Cannot determine the development host OS: `uname -s` exited $(DEV_FAST_HOST_PROBE_STATUS). Set DEV_FAST_HOST_OS explicitly)),)
+DEV_FAST_HOST_STATUS_CHECK = $(if $(DEV_FAST_HOST_OS_IS_PROBED),$(if $(filter 0,$(DEV_FAST_HOST_PROBE_STATUS)),,$(error Cannot determine the development host OS: `uname -s` exited $(DEV_FAST_HOST_PROBE_STATUS). Set DEV_FAST_HOST_OS explicitly)),)
 DEV_FAST_HOST_CHECK = $(DEV_FAST_HOST_EMPTY_CHECK)$(DEV_FAST_HOST_STATUS_CHECK)
 DEV_TEST_RUSTFLAGS = $(strip -D warnings -Dmissing_docs \
 	-Dmissing_crate_level_docs \

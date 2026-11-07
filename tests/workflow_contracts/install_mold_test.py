@@ -14,6 +14,7 @@ Run via ``make test-workflow-contracts``.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -150,6 +151,29 @@ def test_warm_installation_is_reused_only_when_both_binaries_are_current(
             f"a prefix reporting mold={mold_version!r} and "
             f"ld.mold={ld_mold_version!r} must be replaced"
         )
+        # A download alone does not prove the repair succeeded. The reuse check
+        # exists to keep a stale pair out of the linker route, so the contract
+        # that a stale prefix is repaired must also assert the *result*: both
+        # binaries report the pinned version afterwards. Without this, deleting
+        # the post-copy probe would still satisfy every assertion above.
+        for binary in ("mold", "ld.mold"):
+            installed = installer.prefix / "bin" / binary
+            assert installed.is_file(), (
+                f"{binary} is missing after repairing the stale prefix"
+            )
+            reported = subprocess.run(
+                [str(installed), "--version"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            assert reported.returncode == 0, (
+                f"{binary} --version failed after the repair: {reported.stderr!r}"
+            )
+            assert reported.stdout.startswith(f"mold {MOLD_VERSION}"), (
+                f"{binary} reports {reported.stdout.strip()!r} after the repair, "
+                f"not the pinned mold {MOLD_VERSION}"
+            )
     else:
         assert not installer.download_log.exists(), (
             "a complete installation must not download again"
