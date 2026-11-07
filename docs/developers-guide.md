@@ -1039,8 +1039,16 @@ first and locking second would leave a half-applied configuration behind on the
 one path where the caller can still observe it.
 
 ```rust
+// Inside `hnsw::cpu::test_helpers::tests`, where the private graph field is
+// reachable. A fresh index has a healthy lock, so the poison is induced first:
+// panicking while a graph write guard is alive marks the lock poisoned.
 let params = HnswParams::new(2, 4).expect("valid parameters");
 let mut index = CpuHnsw::with_capacity(params.clone(), 3).expect("index");
+let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let _guard = index.graph.write().expect("graph write lock");
+    panic!("poison the graph lock");
+}));
+assert!(poisoned.is_err(), "the induced panic must mark the lock poisoned");
 
 // A poisoned graph lock is reported, not panicked, and nothing is replaced.
 assert!(matches!(
@@ -1050,10 +1058,19 @@ assert!(matches!(
 assert_eq!(index.params, params);
 ```
 
+The `#[cfg(test)]`-gated helper module is what makes `index.graph` reachable
+here; outside it the field is private, so the example is not a pattern for
+production callers.
+
 The regression that proves this,
 `hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring`,
 poisons the lock by panicking while a write guard is alive, then inspects the
-poison through `catch_unwind`. That is the one case
+poison through `catch_unwind`. Before poisoning, it advances both random
+generators and caches one distance, so the state a failed reconfiguration is
+meant to leave alone already exists: the test asserts the parameters, the
+cached distance, and the generators' next draws afterwards. The replacement
+parameters differ from the active ones in every field, which keeps that
+comparison from passing vacuously. This is the one case
 [the development route](#rust-toolchain-and-build-routing) cannot run.
 
 ### Test-only budget types
