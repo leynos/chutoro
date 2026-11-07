@@ -152,28 +152,34 @@ def _strip_comments(source: str) -> str:
     )
 
 
-def _module_body_span(source: str, name: str) -> tuple[int, int] | None:
-    """Return the ``(open, close)`` offsets of ``mod name``'s braces, or None.
+BRACE_DELTA = {"{": 1, "}": -1}
 
-    Brace counting is depth-based from the module's opening brace, so a nested
-    block, an `impl`, or a nested module inside `mod tests` cannot end the
-    span early. A `}` in a string literal would break this, which is why the
-    source is comment-stripped first; the file has no such literal today.
+
+def _matching_brace(source: str, open_offset: int) -> int | None:
+    """Return the offset of the ``}`` closing the ``{`` at ``open_offset``.
+
+    Depth counting is what stops a nested block, an `impl`, or a nested module
+    inside `mod tests` from ending the span early. A `}` inside a string
+    literal would break it, which is why the source is comment-stripped first;
+    the file has no such literal today. An unbalanced source returns None,
+    which the callers treat as "not declared here" rather than guessing.
     """
+    depth = 0
+    for offset in range(open_offset, len(source)):
+        depth += BRACE_DELTA.get(source[offset], 0)
+        if depth == 0:
+            return offset
+    return None
+
+
+def _module_body_span(source: str, name: str) -> tuple[int, int] | None:
+    """Return the ``(open, close)`` offsets of ``mod name``'s braces, or None."""
     header = re.search(rf"^mod\s+{re.escape(name)}\s*\{{", source, flags=re.MULTILINE)
     if not header:
         return None
     body_start = header.end() - 1
-    depth = 0
-    for offset in range(body_start, len(source)):
-        character = source[offset]
-        if character == "{":
-            depth += 1
-        elif character == "}":
-            depth -= 1
-            if depth == 0:
-                return body_start, offset
-    return None
+    body_close = _matching_brace(source, body_start)
+    return None if body_close is None else (body_start, body_close)
 
 
 def _declared_in_test_module(source: str, case: str) -> bool:
