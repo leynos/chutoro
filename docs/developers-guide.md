@@ -55,6 +55,13 @@ tested, and a probe that answers but exits non-zero is refused too, so neither
 case can silently drop the linker selection. `DEV_FAST_HOST_OS` remains
 overridable for a host whose `uname` cannot run.
 
+The exit status is appended by the probe's own shell rather than read back from
+`.SHELLSTATUS`. That variable first appeared in GNU Make 4.4, and a fallback
+keyed on its absence has to treat "status unknown" as acceptable, which
+reinstates exactly the failure the check exists to catch on every older make.
+Recording the status in the probe's output has no version floor, so the check
+is load-bearing wherever the Makefile runs.
+
 `dev-build` compiles the binary and `dev-test` runs `cargo-nextest`, both
 through `DEV_CARGO`. Nextest starts a separate Cargo invocation to compile
 tests and does not inherit the outer Cargo configuration, so `dev-test` passes
