@@ -130,6 +130,14 @@ duplicate the dry-run reading. The lexer itself stays in `rust_source_reading`:
 a second Rust scanner here would eventually disagree with the first about where
 a raw string or a nested block comment ends.
 
+`tests/workflow_contracts/dev_test_filter_selection_test.py` executes Nextest's
+own filter evaluation over the workspace and compares it with an unfiltered
+baseline. A filtered listing reports every case with a `filter-match` status,
+so the contract checks that the poisoned-lock case is rejected, that no
+benchmark case is selected, and that every other runnable case still is.
+Listing runs no test, and the filter is evaluated over the compiled names on
+the stable pin, so the Cranelift route stays out of the merge gate.
+
 Those three development targets declare themselves `.PHONY` beside their
 recipes rather than in the file-wide list at the top of the `Makefile`. The
 file-wide list is a single long line that other work also edits, so appending
