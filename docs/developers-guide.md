@@ -14,10 +14,13 @@ documentation-warning flags and, on Linux, the `mold` linker.
 contract tests that hold them.
 
 Kani and Verus sit outside that statement: each verifier runs on the toolchain
-its own release requires. The Kani PR workflow installs Kani's pinned nightly
-bundle before `make kani`, and `make verus` runs `scripts/run-verus.sh` with
-its own `VERUS_BIN`. Neither is selected through the development fragment, so
-this does not weaken the Cranelift boundary below.
+its own release requires. Both are driven through the pinned
+`rust-prover-tools` package rather than a repository script, so
+`make install-kani` and `make install-verus` provision from it and `make kani`
+and `make verus` invoke it. Whitaker is the third such exception: it runs under
+the toolchain its own installer manages, not the repository pin. None of the
+three is selected through the development fragment, so this does not weaken the
+Cranelift boundary below.
 
 Cranelift is an opt-in development-speed route, not the default build. It
 requires a nightly toolchain, so it stays behind the explicit `dev-build` and
