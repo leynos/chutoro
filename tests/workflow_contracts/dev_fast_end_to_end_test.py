@@ -330,3 +330,4 @@ def test_development_selection_is_the_standard_selection_minus_one_case(
         f"regression; unexpected difference: "
         f"{dev_selection ^ standard_selection}"
     )
+

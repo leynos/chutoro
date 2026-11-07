@@ -13,6 +13,7 @@ Run via ``make test-workflow-contracts``.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -29,7 +30,12 @@ from dev_fast_make_support import (
 from dev_fast_rustflags_support import _assert_test_rustflags
 
 
-TEST_HELPERS_PATH = REPO_ROOT / "chutoro-core" / "src" / "hnsw" / "cpu" / "test_helpers.rs"
+#: The Rust module the Makefile exclusion names. Derived from the imported
+#: `MAKEFILE_PATH` rather than recomputing the repository root, so this module
+#: keeps a single definition of where the checkout is.
+TEST_HELPERS_PATH = (
+    MAKEFILE_PATH.parent / "chutoro-core" / "src" / "hnsw" / "cpu" / "test_helpers.rs"
+)
 
 POISONED_LOCK_TEST = (
     "hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring"
@@ -114,9 +120,82 @@ def test_poisoned_lock_exclusion_names_a_rust_test_that_exists() -> None:
     the regression under Cranelift and abort.
     """
     case = POISONED_LOCK_TEST.rsplit("::", 1)[-1]
-    assert f"fn {case}(" in TEST_HELPERS_PATH.read_text(encoding="utf-8"), (
-        f"POISONED_LOCK_TEST names {case!r}, but no such test exists in "
-        f"{TEST_HELPERS_PATH.name}; update the Makefile exclusion with the rename"
+    source = TEST_HELPERS_PATH.read_text(encoding="utf-8")
+    assert _declared_in_test_module(source, case), (
+        f"POISONED_LOCK_TEST names {case!r}, but {TEST_HELPERS_PATH.name} does "
+        f"not declare it inside `mod tests`; update the Makefile exclusion "
+        f"with the rename"
+    )
+
+
+def _strip_comments(source: str) -> str:
+    """Blank out Rust comments while preserving character offsets.
+
+    Offsets have to survive because the caller compares positions in this text
+    against positions it found in the original. Each comment character becomes
+    a space, and newlines are kept so line anchors still behave.
+
+    Block comments are handled before line comments so a `//` inside `/* */`
+    is not mistaken for a line comment, and `//` before `/*` so a block
+    delimiter inside a line comment is not treated as a block.
+    """
+    without_blocks = re.sub(
+        r"/\*.*?\*/",
+        lambda match: re.sub(r"[^\n]", " ", match.group(0)),
+        source,
+        flags=re.DOTALL,
+    )
+    return re.sub(
+        r"//[^\n]*",
+        lambda match: " " * len(match.group(0)),
+        without_blocks,
+    )
+
+
+def _module_body_span(source: str, name: str) -> tuple[int, int] | None:
+    """Return the ``(open, close)`` offsets of ``mod name``'s braces, or None.
+
+    Brace counting is depth-based from the module's opening brace, so a nested
+    block, an `impl`, or a nested module inside `mod tests` cannot end the
+    span early. A `}` in a string literal would break this, which is why the
+    source is comment-stripped first; the file has no such literal today.
+    """
+    header = re.search(rf"^mod\s+{re.escape(name)}\s*\{{", source, flags=re.MULTILINE)
+    if not header:
+        return None
+    body_start = header.end() - 1
+    depth = 0
+    for offset in range(body_start, len(source)):
+        character = source[offset]
+        if character == "{":
+            depth += 1
+        elif character == "}":
+            depth -= 1
+            if depth == 0:
+                return body_start, offset
+    return None
+
+
+def _declared_in_test_module(source: str, case: str) -> bool:
+    """Is ``case`` declared as a function inside ``mod tests``?
+
+    The contract this backs is narrow: nextest selects the path
+    ``...::tests::<case>``, so the function must exist in that module. A plain
+    substring probe accepts far too much — a commented-out declaration, a
+    longer name that merely ends in the case, a same-named helper beside the
+    code, or a declaration after `mod tests` has closed. Each leaves the
+    Makefile exclusion naming nothing, so `dev-test` keeps running the case
+    that aborts the Cranelift process.
+    """
+    stripped = _strip_comments(source)
+    span = _module_body_span(stripped, "tests")
+    if span is None:
+        return False
+    body_start, body_close = span
+    pattern = rf"^\s*(?:pub\s+)?(?:async\s+)?fn\s+{re.escape(case)}\s*\("
+    return any(
+        body_start < match.start() < body_close
+        for match in re.finditer(pattern, stripped, flags=re.MULTILINE)
     )
 
 
@@ -305,4 +384,71 @@ def test_nextest_assertion_rejects_a_missing_inner_fragment(tmp_path: Path) -> N
         match=r"exactly one tools/dev-fast/config\.toml selection",
     ):
         _assert_test_rustflags(output, "Linux")
-# weave: run 'weave explain tests/workflow_contracts/dev_fast_routing_test.py' for per-hunk detail, 'weave check' to verify your resolution
+
+
+_POISONED_CASE = POISONED_LOCK_TEST.rsplit("::", 1)[-1]
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        pytest.param(
+            f"#[cfg(test)]\nmod tests {{\n    fn {_POISONED_CASE}() {{}}\n}}\n",
+            True,
+            id="declared-inside-mod-tests",
+        ),
+        pytest.param(
+            f"mod tests {{\n    fn other() {{}}\n}}\n\nfn {_POISONED_CASE}() {{}}\n",
+            False,
+            id="declared-after-mod-tests-closes",
+        ),
+        pytest.param(
+            f"mod tests {{\n    /*\n    fn {_POISONED_CASE}() {{}}\n    */\n}}\n",
+            False,
+            id="inside-block-comment",
+        ),
+        pytest.param(
+            f"mod tests {{\n    // fn {_POISONED_CASE}() {{}}\n}}\n",
+            False,
+            id="inside-line-comment",
+        ),
+        pytest.param(
+            f"mod tests {{\n    fn not_{_POISONED_CASE}() {{}}\n}}\n",
+            False,
+            id="longer-name-suffix",
+        ),
+        pytest.param(
+            f"fn {_POISONED_CASE}() {{}}\nmod tests {{\n    fn other() {{}}\n}}\n",
+            False,
+            id="declared-before-mod-tests",
+        ),
+        pytest.param(
+            f"mod tests {{\n    mod nested {{\n        fn helper() {{}}\n    }}\n"
+            f"    fn {_POISONED_CASE}() {{}}\n}}\n",
+            True,
+            id="still-inside-after-nested-block",
+        ),
+        pytest.param(
+            f"mod other {{\n    fn {_POISONED_CASE}() {{}}\n}}\n",
+            False,
+            id="different-module",
+        ),
+    ),
+)
+def test_poisoned_lock_declaration_must_be_inside_mod_tests(
+    source: str, expected: bool
+) -> None:
+    """The module check must reject every layout that is not a real test.
+
+    The false rows are the point. Each one is a source the previous `fn
+    {case}(` substring probe accepted, and each leaves the Makefile exclusion
+    naming nothing while `dev-test` keeps running the Cranelift-aborting case.
+
+    The `still-inside-after-nested-block` row is a control: a nested block must
+    not end the module span, so a declaration after it is still inside
+    `mod tests` and the probe must keep accepting real code.
+    """
+    actual = _declared_in_test_module(source, _POISONED_CASE)
+    assert actual is expected, (
+        f"expected {expected} for this layout, got {actual}:\n{source}"
+    )
