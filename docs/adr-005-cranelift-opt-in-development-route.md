@@ -14,7 +14,7 @@ only through the explicit `dev-build` and `dev-test` targets.
 Debug builds dominate the edit-compile-test loop, and the Cranelift codegen
 backend compiles unoptimized Rust substantially faster than LLVM. The
 repository's build standard, adopted in `d167c04` ("Adopt the Rust build
-standard (#307)"), pins stable Rust 1.93.1 and routes every gate through
+standard (#307)"), pins stable Rust 1.99.1 and routes every gate through
 `.cargo/config.toml`. Cranelift requires a nightly toolchain.
 
 A proposal to make Cranelift the development-profile backend would have routed
@@ -58,7 +58,7 @@ available without letting a nightly toolchain reach a merge gate.
 The project keeps Cranelift as an opt-in development route reached only through
 `make dev-build` and `make dev-test`. Every standard Cargo gate — `build`,
 `test`, `typecheck`, `lint-clippy`, `release`, formatting, coverage,
-benchmarks, and Whitaker — stays on the pinned stable 1.93.1 and reads
+benchmarks, and Whitaker — stays on the pinned stable 1.99.1 and reads
 `.cargo/config.toml`.
 
 Kani and Verus are the exception, and they are not Cargo gates in this sense.

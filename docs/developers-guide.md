@@ -6,7 +6,7 @@ keeps operational guidance in one place.
 
 ## Rust toolchain and build routing
 
-The workspace pins stable Rust 1.93.1 in `rust-toolchain.toml` and declares
+The workspace pins stable Rust 1.99.1 in `rust-toolchain.toml` and declares
 Rust 1.89 as its minimum supported Rust version (MSRV). Every standard Cargo
 gate runs on that stable pin and reads `.cargo/config.toml`, which supplies the
 documentation-warning flags and, on Linux, the `mold` linker.

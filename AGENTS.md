@@ -175,7 +175,7 @@ project:
 - Cranelift is opt-in for development speed only. `make dev-build` and
   `make dev-test` select the nightly fragment in `tools/dev-fast/`;
   `make install-dev-fast` installs its components and the `mold` archive. They
-  are never a merge gate, and direct Cargo uses stable Rust 1.93.1 and
+  are never a merge gate, and direct Cargo uses stable Rust 1.99.1 and
   `.cargo/config.toml`, above the workspace MSRV of 1.89. See the
   [toolchain and build routing guide](docs/developers-guide.md#rust-toolchain-and-build-routing).
 - Clippy warnings MUST be disallowed.
