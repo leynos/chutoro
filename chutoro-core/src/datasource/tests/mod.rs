@@ -9,6 +9,7 @@ use std::sync::{
 };
 
 mod batch_first_source;
+mod ordered_source;
 
 #[rstest]
 #[case(2, 5)]

@@ -189,15 +189,15 @@ fn euclidean_distance_canonicalizes_non_finite_inputs_to_nan(
 
 #[rstest]
 #[case(
-    vec![DistancePair::new(RowIndex::new(0), RowIndex::new(1))],
+    vec![PointPair::new(0, 1)],
     vec![]
 )]
 #[case(
-    vec![DistancePair::new(RowIndex::new(0), RowIndex::new(1))],
+    vec![PointPair::new(0, 1)],
     vec![0.0, 1.0]
 )]
 fn batch_pairs_reject_mismatched_output_lengths(
-    #[case] pairs: Vec<DistancePair>,
+    #[case] pairs: Vec<PointPair>,
     #[case] mut out: Vec<f32>,
 ) {
     let matrix = RowMajorMatrix::new(
@@ -218,9 +218,9 @@ fn batch_pairs_reject_mismatched_output_lengths(
 #[rstest]
 fn batch_pairs_compute_distances(#[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>) {
     let pairs = vec![
-        DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
-        DistancePair::new(RowIndex::new(0), RowIndex::new(2)),
-        DistancePair::new(RowIndex::new(2), RowIndex::new(1)),
+        PointPair::new(0, 1),
+        PointPair::new(0, 2),
+        PointPair::new(2, 1),
     ];
     let mut out = vec![0.0_f32; pairs.len()];
     let mut out_buffer = DistanceBuffer::new(&mut out);
@@ -270,10 +270,7 @@ fn query_points_kernel_canonicalizes_non_finite_results_to_nan(
 fn batch_pairs_leave_output_unmodified_on_error(
     #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
 ) {
-    let pairs = vec![
-        DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
-        DistancePair::new(RowIndex::new(0), RowIndex::new(9)),
-    ];
+    let pairs = vec![PointPair::new(0, 1), PointPair::new(0, 9)];
     let mut out = vec![10.0_f32, 20.0_f32];
     let mut out_buffer = DistanceBuffer::new(&mut out);
 
@@ -285,14 +282,14 @@ fn batch_pairs_leave_output_unmodified_on_error(
 }
 
 #[rstest]
-fn raw_pairs_preserve_original_validation_order_for_shared_query_batches(
+fn point_pairs_preserve_original_validation_order_for_shared_query_batches(
     #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
 ) {
-    let pairs = vec![(99, 1), (0, 1)];
+    let pairs = vec![PointPair::new(99, 1), PointPair::new(0, 1)];
     let mut out = vec![10.0_f32; pairs.len()];
     let mut out_buffer = DistanceBuffer::new(&mut out);
 
-    let err = euclidean_distance_batch_raw_pairs(matrix_3x2, &pairs, &mut out_buffer)
+    let err = euclidean_distance_batch_pairs(matrix_3x2, &pairs, &mut out_buffer)
         .expect_err("out-of-bounds pair must fail");
 
     assert_eq!(err, DataSourceError::OutOfBounds { index: 99 });

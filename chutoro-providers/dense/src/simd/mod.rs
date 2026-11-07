@@ -4,7 +4,7 @@
 //! dispatch to select the best available SIMD backend and falls back to a
 //! scalar kernel otherwise.
 
-use chutoro_core::DataSourceError;
+use chutoro_core::{DataSourceError, PointPair};
 
 mod dispatch;
 #[cfg(kani)]
@@ -20,9 +20,6 @@ pub(crate) use point_view::DensePointView;
 pub(crate) use types::{
     Dimension, Distance, DistanceBuffer, MatrixValues, RowCount, RowIndex, RowMajorMatrix, RowSlice,
 };
-
-#[cfg(test)]
-pub(crate) use types::DistancePair;
 
 /// Maximum scalar lanes handled by the supported SIMD backends.
 pub(crate) const MAX_SIMD_LANES: usize = 16;
@@ -47,14 +44,14 @@ pub(crate) fn euclidean_distance(left: RowSlice<'_>, right: RowSlice<'_>) -> Dis
     Distance::new(kernel(left.as_slice(), right.as_slice()))
 }
 
-/// Computes Euclidean distances for `(left, right)` row pairs.
+/// Computes Euclidean distances for the ordered `PointPair`s in `pairs`.
 ///
 /// The `values` slice must encode `rows * dimension` `f32` values in row-major
-/// order.
-#[cfg(test)]
+/// order. Results keep the order of `pairs`, and each pair is read as
+/// `left`-to-`right`, so reversing a pair selects the mirrored rows.
 pub(crate) fn euclidean_distance_batch_pairs(
     matrix: RowMajorMatrix<'_>,
-    pairs: &[DistancePair],
+    pairs: &[PointPair],
     out: &mut DistanceBuffer<'_>,
 ) -> Result<(), DataSourceError> {
     if pairs.len() != out.len() {
@@ -64,13 +61,7 @@ pub(crate) fn euclidean_distance_batch_pairs(
         });
     }
 
-    let results = collect_euclidean_distance_batch(
-        matrix,
-        pairs
-            .iter()
-            .copied()
-            .map(|pair| (pair.left(), pair.right())),
-    )?;
+    let results = collect_pair_results(matrix, pairs)?;
 
     for (value, slot) in results.into_iter().zip(out.slots_mut()) {
         *slot = value;
@@ -79,57 +70,41 @@ pub(crate) fn euclidean_distance_batch_pairs(
     Ok(())
 }
 
-/// Computes Euclidean distances for raw `(left, right)` row index pairs.
-///
-/// The `values` slice must encode `rows * dimension` `f32` values in row-major
-/// order.
-pub(crate) fn euclidean_distance_batch_raw_pairs(
+/// Compute every pair, packing a shared query when the backend benefits.
+fn collect_pair_results(
     matrix: RowMajorMatrix<'_>,
-    pairs: &[(usize, usize)],
-    out: &mut DistanceBuffer<'_>,
-) -> Result<(), DataSourceError> {
-    if pairs.len() != out.len() {
-        return Err(DataSourceError::OutputLengthMismatch {
-            out: out.capacity(),
-            expected: pairs.len(),
-        });
-    }
-
-    let results = match shared_query_candidates(pairs).filter(|(_, candidates)| {
-        should_pack_query_points(matrix.dimension().get(), candidates.len())
-    }) {
-        Some((query, candidates)) => {
-            validate_raw_pairs_in_order(matrix, pairs)?;
-            let query_row = matrix.row(query)?;
-            let point_view = DensePointView::from_row_indices(matrix, &candidates)?;
-            debug_assert!(!point_view.prefers_scalar_fallback());
-            debug_assert!(point_view.is_aligned_to(SIMD_ALIGNMENT_BYTES));
-            let mut results = vec![0.0_f32; candidates.len()];
-            euclidean_distance_query_points(query_row, &point_view, &mut results)?;
-            results
-        }
-        None => collect_euclidean_distance_batch_from_raw_pairs(matrix, pairs)?,
-    };
-
-    for (value, slot) in results.into_iter().zip(out.slots_mut()) {
-        *slot = value;
-    }
-
-    Ok(())
-}
-
-/// Collect scalar distances after converting raw indices to typed pairs.
-fn collect_euclidean_distance_batch_from_raw_pairs(
-    matrix: RowMajorMatrix<'_>,
-    pairs: &[(usize, usize)],
+    pairs: &[PointPair],
 ) -> Result<Vec<f32>, DataSourceError> {
-    collect_euclidean_distance_batch(
-        matrix,
-        pairs
-            .iter()
-            .copied()
-            .map(|(left, right)| (RowIndex::new(left), RowIndex::new(right))),
-    )
+    match shared_query_candidates(pairs) {
+        Some((query, candidates))
+            if should_pack_query_points(matrix.dimension().get(), candidates.len()) =>
+        {
+            collect_packed_query_distances(matrix, pairs, query, &candidates)
+        }
+        _ => collect_euclidean_distance_batch(
+            matrix,
+            pairs
+                .iter()
+                .map(|pair| (RowIndex::new(pair.left()), RowIndex::new(pair.right()))),
+        ),
+    }
+}
+
+/// Validate the pairs, then compute one query row against packed candidates.
+fn collect_packed_query_distances(
+    matrix: RowMajorMatrix<'_>,
+    pairs: &[PointPair],
+    query: RowIndex,
+    candidates: &[RowIndex],
+) -> Result<Vec<f32>, DataSourceError> {
+    validate_pairs_in_order(matrix, pairs)?;
+    let query_row = matrix.row(query)?;
+    let point_view = DensePointView::from_row_indices(matrix, candidates)?;
+    debug_assert!(!point_view.prefers_scalar_fallback());
+    debug_assert!(point_view.is_aligned_to(SIMD_ALIGNMENT_BYTES));
+    let mut results = vec![0.0_f32; candidates.len()];
+    euclidean_distance_query_points(query_row, &point_view, &mut results)?;
+    Ok(results)
 }
 
 /// Collect pairwise distances while preserving input pair order.
@@ -178,15 +153,15 @@ const fn should_pack_query_points_for_backend(
     dimension > 0 && candidate_count > 1 && !matches!(backend, EuclideanBackend::Scalar)
 }
 
-/// Validate raw row pairs without changing their supplied order.
-fn validate_raw_pairs_in_order(
+/// Validate pair endpoints without changing their supplied order.
+fn validate_pairs_in_order(
     matrix: RowMajorMatrix<'_>,
-    pairs: &[(usize, usize)],
+    pairs: &[PointPair],
 ) -> Result<(), DataSourceError> {
     let rows = matrix.rows().get();
-    for (left, right) in pairs.iter().copied() {
-        validate_raw_row_index(left, rows)?;
-        validate_raw_row_index(right, rows)?;
+    for pair in pairs {
+        validate_raw_row_index(pair.left(), rows)?;
+        validate_raw_row_index(pair.right(), rows)?;
     }
     Ok(())
 }
@@ -201,21 +176,24 @@ const fn validate_raw_row_index(index: usize, rows: usize) -> Result<(), DataSou
 }
 
 /// Extract a common query and its candidate rows from homogeneous pairs.
-fn shared_query_candidates(pairs: &[(usize, usize)]) -> Option<(RowIndex, Vec<RowIndex>)> {
-    let (first_left, first_right) = pairs.first().copied()?;
-    if pairs.iter().all(|(left, _)| *left == first_left) {
+fn shared_query_candidates(pairs: &[PointPair]) -> Option<(RowIndex, Vec<RowIndex>)> {
+    let first = pairs.first().copied()?;
+    if pairs.iter().all(|pair| pair.left() == first.left()) {
         return Some((
-            RowIndex::new(first_left),
+            RowIndex::new(first.left()),
             pairs
                 .iter()
-                .map(|(_, right)| RowIndex::new(*right))
+                .map(|pair| RowIndex::new(pair.right()))
                 .collect(),
         ));
     }
-    if pairs.iter().all(|(_, right)| *right == first_right) {
+    if pairs.iter().all(|pair| pair.right() == first.right()) {
         return Some((
-            RowIndex::new(first_right),
-            pairs.iter().map(|(left, _)| RowIndex::new(*left)).collect(),
+            RowIndex::new(first.right()),
+            pairs
+                .iter()
+                .map(|pair| RowIndex::new(pair.left()))
+                .collect(),
         ));
     }
     None
