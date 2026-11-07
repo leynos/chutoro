@@ -121,3 +121,27 @@ optional backend.
 - A gate result is always attributable to the pinned stable toolchain.
 - The fragment duplicates the documentation denials and the linker flag, and a
   contract test fails if that duplication is dropped.
+
+## Addendum — 2026-11-07
+
+Two statements in the original decision text did not match the repository, and
+the pre-merge review of PR #289 caught both.
+
+The first named `scripts/run-verus.sh` and its `VERUS_BIN` as the route
+`make verus` took. No such script exists. Prover acquisition and execution
+moved into the pinned `rust-prover-tools` package, so `make install-kani`,
+`make install-verus`, and `make verus` all invoke `prover-tools`, and
+`tests/workflow_contracts/tool_install_test.py` lists the three former scripts
+among the tools whose acquisition that package absorbed. The `Decision outcome`
+text above now names the package.
+
+The second counted Whitaker among the gates on the pinned stable 1.99.1.
+`make lint-whitaker` assigns `RUSTFLAGS` and runs the `whitaker` wrapper under
+the toolchain its own installer manages, exactly so the driver build is not
+subject to the repository pin or the development standard. It is a verifier
+exception beside Kani and Verus, not a Cargo gate, and the decision outcome now
+says so.
+
+Neither correction changes the decision. The boundary this record protects is
+that no gate selects Cranelift, and none of the three exceptions is reachable
+through the development fragment.
