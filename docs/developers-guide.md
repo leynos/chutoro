@@ -84,6 +84,35 @@ to it invites a merge conflict with any concurrent change to the same targets.
 Keeping the opt-in feature's declarations next to its recipes means this
 feature and its declarations move together.
 
+### End-to-end contracts for the development route
+
+The contracts in `tests/workflow_contracts/dev_fast_*_test.py` read a
+`make --dry-run` transcript. That pins what the Makefile *says* and cannot
+distinguish a case that is excluded from one whose exclusion string misspells
+the test name: both leave the case unrun, and only the second one reintroduces
+the Cranelift abort. `dev_fast_end_to_end_test.py` closes that gap by comparing
+live nextest selections and by running the real recipes.
+
+It is opt-in, because a cold Cranelift build costs far more than a contract
+suite should spend by default:
+
+```sh
+CHUTORO_DEV_FAST_E2E=1 make test-workflow-contracts
+```
+
+Two contracts run under that switch. The first compares the development
+selection with the standard one and requires an exact difference of the
+poisoned-lock regression; a typo, a rename, or a dropped clause fails it. The
+second runs `make dev-test` for real with the production filter as its base
+plus one restriction, so the route builds, nextest accepts the expression, and
+one selected case reaches green.
+
+Requiring the production filter as the base is deliberate. A separate
+handwritten expression would pass whether or not the shipped one still worked,
+which is the failure the contract exists to catch. The smoke run is not a
+substitute for a full `dev-test`; it proves the route executes, and the full
+run stays a development convenience rather than a merge gate.
+
 ## GitHub Actions runner profiles
 
 Every job on the developer feedback path runs on a paid Ubicloud runner, at
