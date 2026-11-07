@@ -65,6 +65,7 @@ macro_rules! assert_close {
 
 pub(crate) use assert_close;
 
+/// Three two-dimensional rows used by the batch tests.
 #[fixture]
 fn matrix_3x2() -> RowMajorMatrix<'static> {
     const VALUES: [f32; 6] = [1.0, 2.0, 4.0, 6.0, 2.0, 1.0];
@@ -231,6 +232,38 @@ fn batch_pairs_compute_distances(#[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<
     assert_close!(Distance::new(out[0]), Distance::new(5.0_f32));
     assert_close!(Distance::new(out[1]), Distance::new((2.0_f32).sqrt()));
     assert_close!(Distance::new(out[2]), Distance::new((29.0_f32).sqrt()));
+}
+
+/// A shared-right batch computes each left candidate against the common right.
+///
+/// These pairs share their right endpoint, which is the second shape
+/// `shared_query_candidates` recognises. On a non-scalar backend the batch
+/// takes the packed query path, so the test also asserts that the packed path
+/// is selected whenever one is available.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the test directly asserts the two fixed outputs of its two-pair fixture"
+)]
+#[rstest]
+fn batch_pairs_compute_shared_right_distances(
+    #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
+) {
+    let pairs = vec![PointPair::new(0, 2), PointPair::new(1, 2)];
+    let mut out = vec![0.0_f32; pairs.len()];
+    let mut out_buffer = DistanceBuffer::new(&mut out);
+
+    euclidean_distance_batch_pairs(matrix_3x2, &pairs, &mut out_buffer)
+        .expect("shared-right batch must succeed");
+
+    assert_close!(Distance::new(out[0]), Distance::new((2.0_f32).sqrt()));
+    assert_close!(Distance::new(out[1]), Distance::new((29.0_f32).sqrt()));
+
+    if dispatch::euclidean_backend() != dispatch::EuclideanBackend::Scalar {
+        assert!(
+            should_pack_query_points(matrix_3x2.dimension().get(), pairs.len()),
+            "a non-scalar backend must pack a shared-right batch",
+        );
+    }
 }
 
 #[rstest]

@@ -94,6 +94,7 @@ impl PointPair {
 }
 
 impl From<(usize, usize)> for PointPair {
+    /// Converts a raw `(left, right)` tuple without changing its order.
     fn from((left, right): (usize, usize)) -> Self {
         Self::new(left, right)
     }

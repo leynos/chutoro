@@ -2,6 +2,11 @@
 
 use chutoro_core::{DataSource, DataSourceError, PointPair};
 
+/// Constant construction proves `new`, `left`, and `right` are `const fn`.
+const PAIR: PointPair = PointPair::new(3, 4);
+const LEFT: usize = PAIR.left();
+const RIGHT: usize = PAIR.right();
+
 struct Dummy;
 
 impl DataSource for Dummy {
@@ -21,6 +26,8 @@ impl DataSource for Dummy {
 }
 
 fn main() {
+    assert_eq!((LEFT, RIGHT), (3, 4));
+
     let pair = PointPair::new(0, 1);
     assert_eq!(pair.left(), 0);
     assert_eq!(pair.right(), 1);

@@ -11,6 +11,7 @@ use std::sync::{
 mod batch_first_source;
 mod ordered_source;
 
+/// `PointPair::new` stores the endpoints in the order supplied.
 #[rstest]
 #[case(2, 5)]
 #[case(usize::MAX, 0)]
@@ -21,6 +22,8 @@ fn point_pair_new_preserves_left_and_right(#[case] left: usize, #[case] right: u
     assert_eq!(pair.right(), right);
 }
 
+/// Tuple conversion keeps the first element as `left` and the second as
+/// `right`.
 #[rstest]
 #[case(3, 7)]
 #[case(0, usize::MAX)]
@@ -31,6 +34,7 @@ fn point_pair_from_tuple_preserves_left_and_right(#[case] left: usize, #[case] r
     assert_eq!(pair.right(), right);
 }
 
+/// Reversing a pair produces a different value, so equality is order-sensitive.
 #[rstest]
 fn point_pair_identity_is_order_sensitive() {
     assert_ne!(PointPair::new(2, 5), PointPair::new(5, 2));
