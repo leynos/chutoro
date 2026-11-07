@@ -32,6 +32,12 @@ POISONED_LOCK_TEST = (
 )
 SMOKE_TEST = "hnsw::graph::test_helpers::tests::delete_node_returns_ok_false_for_missing_node"
 E2E_ENABLE_ENV = "CHUTORO_DEV_FAST_E2E"
+APP_BINARY = REPO_ROOT / "target" / "debug" / "chutoro-cli"
+# The compiler records its own identity in the linked binary's ``.comment``
+# section. Asserting it is what separates "the recipe ran" from "the recipe ran
+# on the pinned Cranelift nightly": a build that silently fell back to stable
+# would still produce a binary, and still exit zero.
+CRANELIFT_BACKEND_MARKER = "with cranelift"
 
 requires_dev_fast_e2e = pytest.mark.skipif(
     not os.environ.get(E2E_ENABLE_ENV),
@@ -210,4 +216,63 @@ def test_development_test_route_builds_and_runs_under_the_pinned_backend(
     )
     assert "1 passed" in output or "PASS" in output, (
         f"the smoke run did not pass:\n{output[-4000:]}"
+    )
+
+
+def _compiler_comment(binary: Path) -> str:
+    """Return the ``.comment`` section of ``binary``, or empty when unreadable.
+
+    ``readelf`` is part of binutils and is not guaranteed on every host, so the
+    caller treats an unreadable section as a skip rather than a failure. The
+    section is where the compiler leaves its version string, which is the only
+    durable proof of which backend produced the binary.
+    """
+    completed = subprocess.run(
+        ["readelf", "-p", ".comment", str(binary)],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout
+
+
+@requires_dev_fast_e2e
+def test_development_build_produces_a_binary_from_the_pinned_backend() -> None:
+    """``make dev-build`` really compiles the binary with Cranelift.
+
+    This is the half of the requested end-to-end coverage that the dry-run
+    contracts cannot supply. They prove the recipe passes ``--config
+    tools/dev-fast/config.toml``; they cannot prove Cargo honoured it, and a
+    fragment that silently stopped selecting the backend would leave every
+    text-level assertion passing while the build reverted to stable Rust.
+
+    The binary is removed first so the compiler identity in its ``.comment``
+    section is evidence about *this* invocation, not a leftover from an earlier
+    one.
+    """
+    APP_BINARY.unlink(missing_ok=True)
+
+    completed = _run_make(
+        "dev-build",
+        overrides=("DEV_FAST_HOST_OS=Linux",),
+        timeout=3600,
+    )
+    assert completed.returncode == 0, (
+        f"dev-build failed with {completed.returncode}:\n"
+        f"{completed.stdout[-4000:]}\n{completed.stderr[-4000:]}"
+    )
+    assert APP_BINARY.is_file(), (
+        f"dev-build must produce {APP_BINARY.relative_to(REPO_ROOT)}"
+    )
+
+    comment = _compiler_comment(APP_BINARY)
+    if not comment:
+        pytest.skip("readelf is unavailable, so the backend identity is unreadable")
+    assert CRANELIFT_BACKEND_MARKER in comment, (
+        "dev-build must compile with the Cranelift backend; the binary reports "
+        f"these compilers instead:\n{comment}"
     )

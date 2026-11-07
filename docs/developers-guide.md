@@ -100,12 +100,16 @@ suite should spend by default:
 CHUTORO_DEV_FAST_E2E=1 make test-workflow-contracts
 ```
 
-Two contracts run under that switch. The first compares the development
+Three contracts run under that switch. The first compares the development
 selection with the standard one and requires an exact difference of the
 poisoned-lock regression; a typo, a rename, or a dropped clause fails it. The
 second runs `make dev-test` for real with the production filter as its base
 plus one restriction, so the route builds, nextest accepts the expression, and
-one selected case reaches green.
+one selected case reaches green. The third runs `make dev-build` and reads the
+compiler identity out of the linked binary's `.comment` section, because the
+dry-run contracts prove only that the recipe passes `--config` — not that Cargo
+honoured it. A fragment that stopped selecting the backend would leave every
+text-level assertion passing while the build quietly reverted to stable Rust.
 
 Requiring the production filter as the base is deliberate. A separate
 handwritten expression would pass whether or not the shipped one still worked,
