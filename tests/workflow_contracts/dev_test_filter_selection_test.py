@@ -55,7 +55,8 @@ def _nextest_listing(filter_expression: str | None) -> dict[str, Any]:
         text=True,
     )
     assert completed.returncode == 0, (
-        f"cargo nextest list failed with {completed.returncode}: "
+        f"cargo nextest list failed with {completed.returncode} "
+        "(cargo-nextest must be installed to run this contract): "
         f"{completed.stderr[-2000:]}"
     )
     return json.loads(completed.stdout)

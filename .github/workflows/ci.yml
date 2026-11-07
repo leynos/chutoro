@@ -183,6 +183,13 @@ jobs:
           enable-cache: false
       - name: Spelling
         run: make spelling
+      - name: Install cargo-nextest for the filter contract
+        # `dev_test_filter_selection_test` runs `cargo nextest list` inside the
+        # contract step below, so nextest has to exist before that step runs.
+        # The pinned installer supplies the checksum-verified archive named in
+        # tools/nextest/VERSION; the listing it then performs compiles the test
+        # binaries, which makes this the job's first build.
+        run: scripts/install-nextest.sh
       - name: Workflow contract tests
         run: make test-workflow-contracts
       - name: Test and Measure Coverage
