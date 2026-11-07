@@ -2046,6 +2046,42 @@ This is the public trait that all data provider plugins must implement. It is
 designed to be forward-compatible to support high-throughput GPU operations.
 
 ```rust
+/// An ordered pair of item indices used by `DataSource::distance_batch`.
+///
+/// Naming the two sides keeps the direction of a distance computation visible
+/// at the call site, where a bare `(usize, usize)` tuple leaves it ambiguous.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct PointPair {
+    left: usize,
+    right: usize,
+}
+
+impl PointPair {
+    /// Creates an ordered pair of item indices.
+    #[must_use]
+    pub const fn new(left: usize, right: usize) -> Self {
+        Self { left, right }
+    }
+
+    /// Returns the left item index.
+    #[must_use]
+    pub const fn left(self) -> usize {
+        self.left
+    }
+
+    /// Returns the right item index.
+    #[must_use]
+    pub const fn right(self) -> usize {
+        self.right
+    }
+}
+
+impl From<(usize, usize)> for PointPair {
+    fn from((left, right): (usize, usize)) -> Self {
+        Self::new(left, right)
+    }
+}
+
 /// A trait for providing data to the clustering algorithm.
 pub trait DataSource {
     /// Returns the total number of items in the data source.
@@ -2071,7 +2107,7 @@ pub trait DataSource {
     /// indices and treatment of NaNs for non-metric inputs.
     fn distance_batch(
         &self,
-        pairs: &[(usize, usize)],
+        pairs: &[PointPair],
         out: &mut [f32],
     ) -> Result<(), DataSourceError> {
         if pairs.len() != out.len() {
@@ -2080,16 +2116,19 @@ pub trait DataSource {
                 expected: pairs.len(),
             });
         }
-        for (k, &(i, j)) in pairs.iter().enumerate() {
-            out[k] = self.distance(i, j)?;
+        for (k, pair) in pairs.iter().enumerate() {
+            out[k] = self.distance(pair.left(), pair.right())?;
         }
         Ok(())
     }
 }
 ```
 
-The default `distance_batch` iterates over each pair and validates the output
-buffer length, returning `DataSourceError::OutputLengthMismatch` on mismatch.
+Pairs are expressed as `PointPair`, whose ordered `left` and `right` accessors
+name the direction of each computation; providers that call into raw
+tuple-oriented kernels convert at their own boundary. The default
+`distance_batch` iterates over each pair and validates the output buffer
+length, returning `DataSourceError::OutputLengthMismatch` on mismatch.
 Distances return `Result` to surface invalid indices without panicking. An
 additional `DimensionMismatch` variant reports attempts to compare vectors of
 differing lengths; providers like `DenseSource::try_new` validate row
