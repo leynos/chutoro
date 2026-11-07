@@ -21,6 +21,7 @@ import pytest
 from mold_install_support import (
     ARCHIVE_MEMBERS,
     MOLD_VERSION,
+    REPO_ROOT,
     REQUIRED_MEMBERS,
     Archive,
     Platform,
@@ -336,8 +337,16 @@ def test_make_install_dev_fast_installs_the_toolchain_and_mold(
     )
     rustup_calls = installer.rustup_log.read_text(encoding="utf-8").splitlines()
     assert len(rustup_calls) == 1, f"expected one rustup call: {rustup_calls!r}"
-    assert rustup_calls[0].startswith("toolchain install nightly-"), (
-        f"the target must install the pinned development toolchain: {rustup_calls!r}"
+    # The exact pin, not merely a nightly: the development targets pass whatever
+    # `tools/dev-fast/TOOLCHAIN` names to `--config`, so an installer left on a
+    # different nightly would provision components nothing then uses, and the
+    # first `dev-build` would stop to fetch them.
+    pinned = (REPO_ROOT / "tools" / "dev-fast" / "TOOLCHAIN").read_text(
+        encoding="utf-8"
+    ).strip()
+    assert rustup_calls[0].startswith(f"toolchain install {pinned} "), (
+        f"the target must install {pinned!r}, the pin the development "
+        f"targets select: {rustup_calls!r}"
     )
     for component in (
         "rustfmt",

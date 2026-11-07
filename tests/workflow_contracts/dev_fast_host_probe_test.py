@@ -244,31 +244,34 @@ def test_development_targets_add_no_probe_of_their_own(
     )
 
 
-def test_standard_targets_ignore_an_empty_host_probe() -> None:
+@pytest.mark.parametrize(
+    "probe_source",
+    (FAILING_PROBE, SILENT_PROBE.replace("__EXIT_STATUS__", "1")),
+    ids=("failing", "silent"),
+)
+def test_standard_targets_ignore_a_failed_host_probe(
+    tmp_path: Path, probe_source: str
+) -> None:
     """The development route's precondition must not reach a merge gate.
 
     A parse-time check would fail every target in the file, including the
     gates that never use the fragment, so an unrelated probe failure could
     block a release. Standard targets evaluate the fragment's variables but
     must never validate them.
+
+    An explicit ``DEV_FAST_HOST_OS=`` does not exercise that: it removes the
+    probe's answer from the equation, so a parse-time check would find nothing
+    to object to. Both cases here fail the probe for real and let the recipe
+    run, which is the only way to show the check is reachable from the
+    development recipes alone.
     """
-    completed = subprocess.run(
-        [
-            "make",
-            "--no-print-directory",
-            "--dry-run",
-            "--always-make",
-            "--file",
-            str(MAKEFILE_PATH),
-            "DEV_FAST_HOST_OS=",
-            "build",
-            "CARGO=probe-cargo",
-        ],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    probe_dir = tmp_path / "bin"
+    probe_dir.mkdir()
+    probe = probe_dir / "uname"
+    probe.write_text(probe_source, encoding="utf-8")
+    probe.chmod(0o755)
+
+    completed = _run_with_probe("build", probe)
 
     assert completed.returncode == 0, (
         "a standard target must not fail on the development host probe: "
