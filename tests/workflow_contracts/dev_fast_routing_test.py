@@ -141,8 +141,11 @@ def _assert_nextest_scope(line: str, tokens: list[str]) -> None:
         )
     assert "-E" in nextest_args, f"dev-test must filter benchmarks: {line!r}"
     filter_index = nextest_args.index("-E")
-    assert nextest_args[filter_index + 1] == "not kind(bench)", (
-        f"dev-test must exclude only benchmarks: {line!r}"
+    expected_filter = (
+        f"not kind(bench) & not (package(chutoro-core) & test(={POISONED_LOCK_TEST}))"
+    )
+    assert nextest_args[filter_index + 1] == expected_filter, (
+        f"dev-test must exclude only benchmarks and the poisoned-lock case: {line!r}"
     )
 
 
@@ -368,7 +371,7 @@ def test_test_flag_assertion_rejects_a_missing_development_exclusion(
     makefile = _mutated_makefile(
         tmp_path,
         "DEV_TEST_FILTER = not kind(bench) & not "
-        "(package(chutoro-core) & test(=$(POISONED_LOCK_TEST))",
+        "(package(chutoro-core) & test(=$(POISONED_LOCK_TEST)))",
         "DEV_TEST_FILTER = not kind(bench)",
     )
     output = _make_output(
