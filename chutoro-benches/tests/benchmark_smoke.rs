@@ -11,27 +11,29 @@ const SMOKE_RAYON_THREADS: &str = "2";
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 
 fn cargo_bench_output(bench: &str, criterion_args: &[&str]) -> TestResult<String> {
-    let mut command = Command::new(env!("CARGO"));
-    command.args([
-        "bench",
-        "--offline",
-        "--locked",
-        "-p",
-        "chutoro-benches",
-        "--bench",
-        bench,
-        "--",
-    ]);
-    command.args(criterion_args);
-    command.env("CHUTORO_BENCH_HNSW_MEMORY_PROFILE", "0");
-    command.env("CHUTORO_BENCH_HNSW_RECALL_REPORT", "0");
-    command.env("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT", "0");
-    command.env("CHUTORO_BENCH_NEIGHBOUR_PROFILE", "0");
-    // The two-worker pool completes the bounded HNSW probe without turning
-    // this discovery test into a contention benchmark on larger hosts.
-    command.env("RAYON_NUM_THREADS", SMOKE_RAYON_THREADS);
-
-    let output = command.output()?;
+    // One chain, offline, so the estate's nested-cargo rule can see that the
+    // call stays off the network.
+    let output = Command::new(env!("CARGO"))
+        .args([
+            "bench",
+            "--offline",
+            "--locked",
+            "-p",
+            "chutoro-benches",
+            "--bench",
+            bench,
+            "--",
+        ])
+        .args(criterion_args)
+        .env("CARGO_NET_OFFLINE", "true")
+        .env("CHUTORO_BENCH_HNSW_MEMORY_PROFILE", "0")
+        .env("CHUTORO_BENCH_HNSW_RECALL_REPORT", "0")
+        .env("CHUTORO_BENCH_HNSW_CLUSTER_QUALITY_REPORT", "0")
+        .env("CHUTORO_BENCH_NEIGHBOUR_PROFILE", "0")
+        // The two-worker pool completes the bounded HNSW probe without turning
+        // this discovery test into a contention benchmark on larger hosts.
+        .env("RAYON_NUM_THREADS", SMOKE_RAYON_THREADS)
+        .output()?;
     let stdout = str::from_utf8(&output.stdout)?;
     let stderr = str::from_utf8(&output.stderr)?;
     let combined_output = format!("{stdout}{stderr}");

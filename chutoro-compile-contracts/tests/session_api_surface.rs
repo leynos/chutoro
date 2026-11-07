@@ -46,6 +46,7 @@ fn session_api_is_unavailable_without_cpu_feature() {
         .arg("--locked")
         .arg("--quiet")
         .env("CARGO_TARGET_DIR", &target_dir)
+        .env("CARGO_NET_OFFLINE", "true")
         .output()
         .expect("cargo check should run");
 
