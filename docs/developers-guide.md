@@ -133,18 +133,24 @@ suite should spend by default:
 CHUTORO_DEV_FAST_E2E=1 make test-workflow-contracts
 ```
 
-Two contracts run under that switch. The first compares the development
+The selection comparison is the one opt-in check. It compares the development
 selection with the standard one and requires an exact difference of the
-poisoned-lock regression; a typo, a rename, or a dropped clause fails it. The
-second runs `make dev-test` for real with the production filter as its base
-plus one restriction, so the route builds, nextest accepts the expression, and
-one selected case reaches green.
+poisoned-lock regression; a typo, a rename, or a dropped clause fails it.
 
-Requiring the production filter as the base is deliberate. A separate
-handwritten expression would pass whether or not the shipped one still worked,
-which is the failure the contract exists to catch. The smoke run is not a
-substitute for a full `dev-test`; it proves the route executes, and the full
-run stays a development convenience rather than a merge gate.
+The two probe contracts that run the real recipes are *not* behind the switch.
+They build a synthetic crate rather than this workspace, so they cost seconds
+rather than the cold Cranelift build the switch exists to avoid. `dev-build`
+reads the compiler line Cargo printed for the probe's own `rustc` invocation,
+and `dev-test` reads it for the probe's *test harness*, selected by Cargo's
+`--test` marker; both require `codegen-backend=cranelift` on every matching
+line. The dry-run contracts prove only that the recipe passes `--config` — not
+that Cargo honoured it, and only a verbose build prints the arguments at all. A
+fragment that stopped selecting the backend would leave every text-level
+assertion passing while the build quietly reverted to stable Rust.
+
+`dev-test` runs against a probe-shaped filter, not the production one: the
+production expression scopes its exclusion with `package(chutoro-core)`, and
+nextest rejects a `package(...)` that names nothing in the tree.
 
 ## GitHub Actions runner profiles
 

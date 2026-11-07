@@ -194,6 +194,7 @@ def test_the_probe_inputs_match_the_files_the_recipes_read() -> None:
     assert_probe_inputs_are_real()
 
 
+
 # --- Selection of the repository's own suite -------------------------------
 
 REPO_ROOT = MAKEFILE_PATH.parent
