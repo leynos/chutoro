@@ -33,6 +33,7 @@ fn clustering_result_api_is_checked_without_cpu() {
         .arg("--locked")
         .arg("--quiet")
         .env("CARGO_TARGET_DIR", target_dir)
+        .env("CARGO_NET_OFFLINE", "true")
         .output()
         .expect("cpu-disabled result API check should run");
 
