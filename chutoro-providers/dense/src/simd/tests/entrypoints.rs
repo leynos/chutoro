@@ -128,25 +128,25 @@ fn portable_simd_pairwise_matches_scalar(#[case] len: u32) {
 }
 
 #[cfg(all(feature = "nightly_portable_simd", nightly))]
-#[test]
-fn portable_simd_query_points_matches_scalar() {
-    let values = [
-        0.0_f32, 1.0_f32, 2.0_f32, 3.0_f32, 4.0_f32, 5.0_f32, 6.0_f32, 7.0_f32, 1.0_f32, 2.0_f32,
-        3.0_f32, 4.0_f32, 5.0_f32, 6.0_f32, 7.0_f32, 8.0_f32,
-    ];
+#[rstest]
+#[case(3_usize)]
+#[case(16_usize)]
+#[case(17_usize)]
+#[case(33_usize)]
+fn portable_simd_query_points_matches_scalar(#[case] point_count: usize) {
+    /// Width chosen so every point row contributes more than one lane.
+    const DIMENSION: usize = 4;
+
+    let (values, point_indices) = distinct_query_points_fixture(point_count, DIMENSION);
     let matrix = RowMajorMatrix::new(
         MatrixValues::new(&values),
-        RowCount::new(4),
-        Dimension::new(4),
+        RowCount::new(point_count + 1),
+        Dimension::new(DIMENSION),
     );
     let query = matrix.row(RowIndex::new(0)).expect("query row");
-    let points = DensePointView::from_row_indices(
-        matrix,
-        &[RowIndex::new(1), RowIndex::new(2), RowIndex::new(3)],
-    )
-    .expect("point view");
-    let mut expected = vec![0.0_f32; 3];
-    let mut actual = vec![0.0_f32; 3];
+    let points = DensePointView::from_row_indices(matrix, &point_indices).expect("point view");
+    let mut expected = vec![0.0_f32; point_count];
+    let mut actual = vec![0.0_f32; point_count];
 
     kernels::euclidean_distance_query_points_scalar(query.as_slice(), &points, &mut expected);
     kernels::euclidean_distance_query_points_portable_simd_entry(
@@ -155,10 +155,57 @@ fn portable_simd_query_points_matches_scalar() {
         &mut actual,
     );
 
-    for (actual_distance, expected_distance) in actual.into_iter().zip(expected) {
-        assert_close!(
-            Distance::new(actual_distance),
-            Distance::new(expected_distance),
+    assert_query_outputs_match(&actual, &expected);
+}
+
+/// Builds a query-to-points fixture whose rows are pairwise distinct.
+///
+/// Row `0` holds the query and rows `1..=point_count` hold the packed points.
+/// Consecutive point rows differ by half a unit in every column, so an
+/// incorrect chunk offset, a skipped later block, or a lost scalar tail changes
+/// at least one output distance. The chosen values are exactly representable in
+/// `f32`, keeping the scalar comparison exact.
+#[cfg(all(feature = "nightly_portable_simd", nightly))]
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the bounded fixture row and column indices fit exactly in f32"
+)]
+#[expect(
+    clippy::float_arithmetic,
+    reason = "the fixture deliberately generates scaled floating-point values"
+)]
+fn distinct_query_points_fixture(
+    point_count: usize,
+    dimension: usize,
+) -> (Vec<f32>, Vec<RowIndex>) {
+    let row_count = point_count + 1;
+    let values = (0..row_count)
+        .flat_map(|row| {
+            (0..dimension).map(move |column| row as f32 * 0.5 + column as f32 * 0.25 + 1.0)
+        })
+        .collect();
+    let point_indices = (1..=point_count).map(RowIndex::new).collect();
+    (values, point_indices)
+}
+
+/// Asserts every packed-query output matches its scalar reference.
+///
+/// Reports the failing output index so a wrong block offset or a missing
+/// trailing block is easy to locate.
+#[cfg(all(feature = "nightly_portable_simd", nightly))]
+fn assert_query_outputs_match(actual: &[f32], expected: &[f32]) {
+    assert_eq!(
+        actual.len(),
+        expected.len(),
+        "query output count must match",
+    );
+    for (index, (&actual_value, &expected_value)) in actual.iter().zip(expected).enumerate() {
+        let actual_distance = Distance::new(actual_value);
+        let expected_distance = Distance::new(expected_value);
+        let delta = super::distance_delta(actual_distance, expected_distance);
+        assert!(
+            delta <= super::CLOSE_TOLERANCE,
+            "output {index}: expected {expected_value}, got {actual_value}, delta {delta}",
         );
     }
 }
