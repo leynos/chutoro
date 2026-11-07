@@ -178,10 +178,11 @@ def run_development_target(
     target: str,
     *,
     build_jobs: str = "--verbose",
+    filter_expression: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run one development recipe against the probe crate in ``directory``.
 
-    ``APP=devprobe`` points the recipe at the probe's binary and
+    ``APP`` points the recipe at the probe's binary and
     ``BUILD_JOBS`` reaches the Cargo invocation with the compiler arguments
     the backend assertion reads. ``CI`` is cleared so the nextest profile is
     the developer's default rather than the gate's.
@@ -191,12 +192,25 @@ def run_development_target(
     latter flag makes that inner build print the line the assertion reads.
     The default suits the direct Cargo route; a nextest caller passes its own.
 
+    ``filter_expression`` replaces ``DEV_TEST_FILTER`` for the run. The
+    production filter is written against this repository's own sources: it
+    scopes the poisoned-lock exclusion with ``package(chutoro-core)``, and
+    nextest rejects a ``package(...)`` naming a package the tree does not
+    contain (``error: operator didn't match any packages``). The probe crate is
+    a single synthetic package, so a caller exercising the recipe's own
+    plumbing passes an expression built the same way but without that scope.
+    Leaving the default alone is deliberate: changing the production filter to
+    suit a fixture would trade a real guarantee for a synthetic one.
+
     Cargo writes its progress and nextest its run report to standard error,
     leaving standard output for make's echo of the recipe, so callers read the
     stream each assertion belongs to.
     """
     environment = dict(environment)
     environment.pop("CI", None)
+    overrides = [f"APP={PROBE_CRATE}", f"BUILD_JOBS={build_jobs}"]
+    if filter_expression is not None:
+        overrides.append(f"DEV_TEST_FILTER={filter_expression}")
     return subprocess.run(
         [
             "make",
@@ -204,8 +218,7 @@ def run_development_target(
             "--file",
             str(directory / "Makefile"),
             target,
-            f"APP={PROBE_CRATE}",
-            f"BUILD_JOBS={build_jobs}",
+            *overrides,
         ],
         cwd=directory,
         check=False,

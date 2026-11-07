@@ -14,16 +14,26 @@ pinned nightly, its Cranelift component and the mold linker, so a host missing
 any of them must not reach the network from a test. CI is such a host - it
 installs the same nightly pin for Whitaker, without the Cranelift component.
 
+The probe crate proves a recipe executes. It cannot prove what the production
+``DEV_TEST_FILTER`` selects, because the filter names a case in this
+repository's own source and the probe carries none of it. That is the one gap
+the selection contract below closes, and it is the gap that matters most: a
+``test(=...)`` clause that misspells the poisoned-lock regression still
+balances, still reads as an exclusion, and excludes nothing, so ``make
+dev-test`` then reaches the case that aborts the process.
+
 Run via ``make test-workflow-contracts``.
 """
 
 from __future__ import annotations
 
+import os
+import re
 import subprocess
 from pathlib import Path
 
 import pytest
-from dev_fast_make_support import _skip_unless_pin_installed
+from dev_fast_make_support import MAKEFILE_PATH, _skip_unless_pin_installed
 from dev_fast_probe_support import (
     CRANELIFT_ARGUMENT,
     PROBE_CRATE,
@@ -37,6 +47,13 @@ from dev_fast_probe_support import (
     run_development_target,
     write_probe_repository,
 )
+
+#: The development filter, shaped like the production one but without the
+#: ``package(chutoro-core)`` scope. The probe crate is one synthetic package,
+#: and nextest rejects a ``package(...)`` that names nothing in the tree, so the
+#: production filter cannot be used there. The shape is what the recipe's own
+#: plumbing needs: a benchmark clause and one exclusion group.
+PROBE_FILTER = "not kind(bench) & not (test(=the_route_runs_tests))"
 
 
 def _skip_unless_dev_test_can_run() -> None:
@@ -107,6 +124,11 @@ def test_dev_test_runs_the_suite_through_the_pinned_toolchain(
     nextest's own defaults selected, which is the defect this asserts against.
     The compiler arguments are checked too, because nextest reporting a pass
     says nothing about which backend compiled the test.
+
+    ``filter_expression`` supplies the probe-shaped filter: the production one
+    scopes its exclusion with ``package(chutoro-core)``, and nextest rejects a
+    ``package(...)`` naming nothing in the tree, so ``dev-test`` would fail
+    before the recipe's own plumbing was exercised.
     """
     _skip_unless_dev_test_can_run()
     directory = write_probe_repository(tmp_path / "probe")
@@ -116,6 +138,7 @@ def test_dev_test_runs_the_suite_through_the_pinned_toolchain(
         probe_environment(directory, tmp_path / "home"),
         "dev-test",
         build_jobs="--cargo-verbose",
+        filter_expression=PROBE_FILTER,
     )
 
     assert completed.returncode == 0, (
@@ -169,3 +192,140 @@ def test_a_missing_backend_argument_is_detectable_in_the_probe_output(
 def test_the_probe_inputs_match_the_files_the_recipes_read() -> None:
     """The probe must copy inputs the repository actually ships and reads."""
     assert_probe_inputs_are_real()
+
+
+# --- Selection of the repository's own suite -------------------------------
+
+REPO_ROOT = MAKEFILE_PATH.parent
+#: The filter the standard gate runs, and therefore the baseline the
+#: development route is measured against.
+STANDARD_FILTER = "not kind(bench)"
+#: The case ``DEV_TEST_FILTER`` must drop, written out here rather than read
+#: from the Makefile: a contract that imported the thing it checks could not
+#: notice a rename on either side.
+POISONED_LOCK_TEST = (
+    "hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring"
+)
+#: Colour must be disabled for the parse. An escape code splits the package
+#: prefix from the test path, and an exact suffix match would then fail
+#: silently - the parse would return fewer names and the comparison would pass
+#: for the wrong reason.
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+#: Enumerating a listing does not compile, so these bounds are generous rather
+#: than load-bearing.
+LIST_TIMEOUT_SECONDS = 900
+
+requires_repository_selection = pytest.mark.skipif(
+    not os.environ.get("CHUTORO_DEV_FAST_E2E"),
+    reason="opt-in: set CHUTORO_DEV_FAST_E2E=1 to enumerate the real suite",
+)
+
+
+def _nextest_selection(*, filter_expression: str) -> set[str]:
+    """Return the fully qualified test names nextest selects, verbatim.
+
+    ``cargo nextest list`` prints the same selection ``nextest run`` executes,
+    including the binary prefix, so membership in this set is direct evidence
+    rather than an inference from counts. Counts move whenever an unrelated
+    test is added, so they cannot show which case a filter dropped.
+    """
+    completed = subprocess.run(
+        [
+            "cargo",
+            "nextest",
+            "list",
+            "--all-targets",
+            "--all-features",
+            "--color",
+            "never",
+            "-E",
+            filter_expression,
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=LIST_TIMEOUT_SECONDS,
+    )
+    assert completed.returncode == 0, (
+        f"nextest list rejected {filter_expression!r}: {completed.stderr}"
+    )
+    return {
+        stripped
+        for line in completed.stdout.splitlines()
+        if "::" in (stripped := ANSI_ESCAPE.sub("", line))
+    }
+
+
+def _selected(selection: set[str], test_name: str) -> set[str]:
+    """Return the selection entries naming ``test_name``."""
+    return {entry for entry in selection if entry.endswith(test_name)}
+
+
+@pytest.fixture(scope="module")
+def dev_test_filter() -> str:
+    """Return the filter expression ``make dev-test`` really passes to nextest.
+
+    This is a dry run, so it is cheap enough to keep outside the opt-in gate.
+    The expression it reads is the same one the real recipe builds.
+    """
+    completed = subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "--file",
+            "Makefile",
+            "--dry-run",
+            "--always-make",
+            "DEV_FAST_HOST_OS=Linux",
+            "dev-test",
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert completed.returncode == 0, completed.stderr
+    marker = "-E '"
+    start = completed.stdout.find(marker)
+    assert start != -1, f"dev-test must pass -E: {completed.stdout}"
+    start += len(marker)
+    end = completed.stdout.find("'", start)
+    assert end != -1, f"dev-test filter is unterminated: {completed.stdout}"
+    return completed.stdout[start:end]
+
+
+@requires_repository_selection
+def test_development_selection_is_the_standard_selection_minus_one_case(
+    dev_test_filter: str,
+) -> None:
+    """The development route drops exactly the poisoned-lock regression.
+
+    This is the assertion the filter text cannot make. A rename that orphans
+    the exclusion leaves the expression balanced, still excluding *nothing*
+    that exists, and ``make dev-test`` then runs the case that aborts the
+    Cranelift process. Comparing live selections to live names catches it.
+
+    Both selections are computed on the stable pin, which is deliberate: test
+    names come from the source, so they do not depend on the codegen backend,
+    and enumerating under the pinned nightly would pay a Cranelift build for
+    evidence the probe contracts above already buy. What this covers is the
+    filter's membership; what they cover is the route executing.
+    """
+    dev_selection = _nextest_selection(filter_expression=dev_test_filter)
+    standard_selection = _nextest_selection(filter_expression=STANDARD_FILTER)
+
+    assert _selected(dev_selection, POISONED_LOCK_TEST) == set(), (
+        "dev-test must not select the poisoned-lock regression"
+    )
+    assert len(_selected(standard_selection, POISONED_LOCK_TEST)) == 1, (
+        "the standard gate must select the poisoned-lock regression"
+    )
+    assert dev_selection == standard_selection - _selected(
+        standard_selection, POISONED_LOCK_TEST
+    ), (
+        "dev-test must select every standard case except the poisoned-lock "
+        f"regression; unexpected difference: "
+        f"{dev_selection ^ standard_selection}"
+    )
