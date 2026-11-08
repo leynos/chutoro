@@ -13,7 +13,6 @@ Run via ``make test-workflow-contracts``.
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -28,6 +27,7 @@ from dev_fast_make_support import (
     _mutated_makefile,
 )
 from dev_fast_rustflags_support import _assert_test_rustflags
+from rust_declaration_reading import declared_in_module
 
 
 #: The Rust module the Makefile exclusion names. Derived from the imported
@@ -118,92 +118,18 @@ def test_poisoned_lock_exclusion_names_a_rust_test_that_exists() -> None:
     pointing at nothing. nextest treats an unmatched `test(=...)` clause as an
     empty match rather than an error, so `dev-test` would silently keep running
     the regression under Cranelift and abort.
+
+    The reading asks for the declaration at the module's own level, not merely
+    somewhere inside it. A case moved into a nested module has a longer path
+    than the one the filter names, and nextest selects by the full trailing
+    segment, so that move is a missing exclusion too.
     """
     case = POISONED_LOCK_TEST.rsplit("::", 1)[-1]
     source = TEST_HELPERS_PATH.read_text(encoding="utf-8")
-    assert _declared_in_test_module(source, case), (
+    assert declared_in_module(source, "tests", case), (
         f"POISONED_LOCK_TEST names {case!r}, but {TEST_HELPERS_PATH.name} does "
-        f"not declare it inside `mod tests`; update the Makefile exclusion "
-        f"with the rename"
-    )
-
-
-# One alternation, so the leftmost delimiter decides. Stripping blocks first
-# and line comments second is the obvious shape and it is wrong: a `//` holding
-# a `/*`, as in `// glob tests/*.rs`, would open a false block that runs to the
-# next real `*/` and blank the code between them.
-COMMENT_PATTERN = re.compile(r"//[^\n]*|/\*.*?\*/", flags=re.DOTALL)
-
-
-def _strip_comments(source: str) -> str:
-    """Blank out Rust comments while preserving character offsets.
-
-    Offsets have to survive because the caller compares positions in this text
-    against positions it found in the original. Each comment character becomes
-    a space, and newlines are kept so line anchors still behave.
-
-    Rust's block comments nest and this does not follow them: `/* a /* b */`
-    ends at the first `*/`. That is a known limit, and the source this reads
-    has no nested block comment. Treating one as flat could end a block early
-    and expose text the parser thinks is commented out, so revisit this if the
-    file ever grows one.
-    """
-    return COMMENT_PATTERN.sub(
-        lambda match: re.sub(r"[^\n]", " ", match.group(0)),
-        source,
-    )
-
-
-BRACE_DELTA = {"{": 1, "}": -1}
-
-
-def _matching_brace(source: str, open_offset: int) -> int | None:
-    """Return the offset of the ``}`` closing the ``{`` at ``open_offset``.
-
-    Depth counting is what stops a nested block, an `impl`, or a nested module
-    inside `mod tests` from ending the span early. A `}` inside a string
-    literal would break it, which is why the source is comment-stripped first;
-    the file has no such literal today. An unbalanced source returns None,
-    which the callers treat as "not declared here" rather than guessing.
-    """
-    depth = 0
-    for offset in range(open_offset, len(source)):
-        depth += BRACE_DELTA.get(source[offset], 0)
-        if depth == 0:
-            return offset
-    return None
-
-
-def _module_body_span(source: str, name: str) -> tuple[int, int] | None:
-    """Return the ``(open, close)`` offsets of ``mod name``'s braces, or None."""
-    header = re.search(rf"^mod\s+{re.escape(name)}\s*\{{", source, flags=re.MULTILINE)
-    if not header:
-        return None
-    body_start = header.end() - 1
-    body_close = _matching_brace(source, body_start)
-    return None if body_close is None else (body_start, body_close)
-
-
-def _declared_in_test_module(source: str, case: str) -> bool:
-    """Is ``case`` declared as a function inside ``mod tests``?
-
-    The contract this backs is narrow: nextest selects the path
-    ``...::tests::<case>``, so the function must exist in that module. A plain
-    substring probe accepts far too much — a commented-out declaration, a
-    longer name that merely ends in the case, a same-named helper beside the
-    code, or a declaration after `mod tests` has closed. Each leaves the
-    Makefile exclusion naming nothing, so `dev-test` keeps running the case
-    that aborts the Cranelift process.
-    """
-    stripped = _strip_comments(source)
-    span = _module_body_span(stripped, "tests")
-    if span is None:
-        return False
-    body_start, body_close = span
-    pattern = rf"^\s*(?:pub\s+)?(?:async\s+)?fn\s+{re.escape(case)}\s*\("
-    return any(
-        body_start < match.start() < body_close
-        for match in re.finditer(pattern, stripped, flags=re.MULTILINE)
+        f"not declare it directly inside `mod tests`; update the Makefile "
+        f"exclusion with the rename"
     )
 
 
@@ -392,86 +318,3 @@ def test_nextest_assertion_rejects_a_missing_inner_fragment(tmp_path: Path) -> N
         match=r"exactly one tools/dev-fast/config\.toml selection",
     ):
         _assert_test_rustflags(output, "Linux")
-
-
-_POISONED_CASE = POISONED_LOCK_TEST.rsplit("::", 1)[-1]
-
-
-@pytest.mark.parametrize(
-    ("source", "expected"),
-    (
-        pytest.param(
-            f"#[cfg(test)]\nmod tests {{\n    fn {_POISONED_CASE}() {{}}\n}}\n",
-            True,
-            id="declared-inside-mod-tests",
-        ),
-        pytest.param(
-            f"mod tests {{\n    fn other() {{}}\n}}\n\nfn {_POISONED_CASE}() {{}}\n",
-            False,
-            id="declared-after-mod-tests-closes",
-        ),
-        pytest.param(
-            f"mod tests {{\n    /*\n    fn {_POISONED_CASE}() {{}}\n    */\n}}\n",
-            False,
-            id="inside-block-comment",
-        ),
-        pytest.param(
-            f"mod tests {{\n    // fn {_POISONED_CASE}() {{}}\n}}\n",
-            False,
-            id="inside-line-comment",
-        ),
-        pytest.param(
-            f"mod tests {{\n    fn not_{_POISONED_CASE}() {{}}\n}}\n",
-            False,
-            id="longer-name-suffix",
-        ),
-        pytest.param(
-            f"fn {_POISONED_CASE}() {{}}\nmod tests {{\n    fn other() {{}}\n}}\n",
-            False,
-            id="declared-before-mod-tests",
-        ),
-        pytest.param(
-            f"mod tests {{\n    mod nested {{\n        fn helper() {{}}\n    }}\n"
-            f"    fn {_POISONED_CASE}() {{}}\n}}\n",
-            True,
-            id="still-inside-after-nested-block",
-        ),
-        pytest.param(
-            f"mod other {{\n    fn {_POISONED_CASE}() {{}}\n}}\n",
-            False,
-            id="different-module",
-        ),
-        # The trailing block comment is load-bearing. Without a later `*/` the
-        # false block opened by the `/*` inside the line comment has nothing to
-        # run to, and the row passes even with the wrong stripping order.
-        pytest.param(
-            f"mod tests {{\n    // glob tests/*.rs\n"
-            f"    fn {_POISONED_CASE}() {{}}\n}}\n/* trailing */\n",
-            True,
-            id="block-opener-inside-line-comment",
-        ),
-        pytest.param(
-            f"mod tests {{\n    /* see // below\n"
-            f"    fn {_POISONED_CASE}() {{}}\n    */\n}}\n",
-            False,
-            id="line-comment-inside-block-comment",
-        ),
-    ),
-)
-def test_poisoned_lock_declaration_must_be_inside_mod_tests(
-    source: str, expected: bool
-) -> None:
-    """The module check must reject every layout that is not a real test.
-
-    The false rows are the point. Each one is a source the previous `fn
-    {case}(` substring probe accepted, and each leaves the Makefile exclusion
-    naming nothing while `dev-test` keeps running the Cranelift-aborting case.
-
-    The `still-inside-after-nested-block` row is a control: a nested block must
-    not end the module span, so a declaration after it is still inside
-    `mod tests` and the probe must keep accepting real code.
-    """
-    actual = _declared_in_test_module(source, _POISONED_CASE)
-    assert actual is expected, (
-        f"expected {expected} for this layout, got {actual}:\n{source}"
-    )
