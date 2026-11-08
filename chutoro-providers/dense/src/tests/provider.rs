@@ -9,7 +9,7 @@
 use super::{DenseMatrixProvider, DenseMatrixProviderError, support::*};
 use arrow_array::{ArrayRef, FixedSizeListArray};
 use arrow_schema::{DataType, Field};
-use chutoro_core::DataSource;
+use chutoro_core::{DataSource, PointPair};
 use rstest::rstest;
 use std::sync::Arc;
 
@@ -38,7 +38,7 @@ fn matrix_provider_distance_batch() {
     let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).expect("fixture array must build");
     let provider =
         DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
-    let pairs = vec![(0, 1), (1, 0)];
+    let pairs = vec![PointPair::new(0, 1), PointPair::new(1, 0)];
     let mut out = vec![0.0; pairs.len()];
     provider
         .distance_batch(&pairs, &mut out)
@@ -162,9 +162,10 @@ fn matrix_provider_distance_batch_matches_scalar_reference(
         .expect("rows must include at least one vector");
     let flat_values: Vec<f32> = rows.iter().flat_map(|row| row.iter().copied()).collect();
     let provider = DenseMatrixProvider::from_parts("simd-demo", rows.len(), dimension, flat_values);
-    let mut out = vec![0.0_f32; pairs.len()];
+    let point_pairs: Vec<PointPair> = pairs.iter().copied().map(PointPair::from).collect();
+    let mut out = vec![0.0_f32; point_pairs.len()];
     provider
-        .distance_batch(&pairs, &mut out)
+        .distance_batch(&point_pairs, &mut out)
         .expect("batch distances should succeed");
 
     let expected: Vec<f32> = pairs
@@ -197,7 +198,7 @@ fn matrix_provider_distance_batch_matches_scalar_reference(
 fn matrix_provider_distance_batch_preserves_output_on_error() {
     let provider =
         DenseMatrixProvider::from_parts("simd-demo", 2, 3, vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
-    let pairs = vec![(0, 1), (0, 99)];
+    let pairs = vec![PointPair::new(0, 1), PointPair::new(0, 99)];
     let mut out = vec![10.0_f32, 20.0_f32];
 
     let err = provider
@@ -230,7 +231,7 @@ fn matrix_provider_distance_batch_length_mismatch() {
     let array = build_array(&[[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]).expect("fixture array must build");
     let provider =
         DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
-    let pairs = vec![(0, 1)];
+    let pairs = vec![PointPair::new(0, 1)];
     let mut out = vec![0.0; 2];
     let err = provider
         .distance_batch(&pairs, &mut out)
@@ -249,7 +250,7 @@ fn matrix_provider_distance_batch_empty() {
     let array = build_array(&[[1.0, 2.0, 3.0]]).expect("fixture array must build");
     let provider =
         DenseMatrixProvider::try_from_fixed_size_list("demo", &array).expect("valid matrix");
-    let pairs: Vec<(usize, usize)> = Vec::new();
+    let pairs: Vec<PointPair> = Vec::new();
     let mut out = Vec::new();
     provider
         .distance_batch(&pairs, &mut out)

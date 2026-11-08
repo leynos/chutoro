@@ -216,9 +216,32 @@ must provide three methods:
 - `distance` computes a pairwise distance, returning `DataSourceError` on
   failure.
 
+A pair of items is expressed as `PointPair`, which carries an ordered `left` and
+`right` index. `distance_batch` receives `&[PointPair]` and fills a
+same-length output buffer with the distance from each pair's `left` item to its
+`right` item:
+
+```rust
+use chutoro_core::{DataSource, DataSourceError, PointPair};
+
+fn batch(source: &impl DataSource) -> Result<Vec<f32>, DataSourceError> {
+    let pairs = [PointPair::new(0, 1), PointPair::new(2, 0)];
+    let mut out = vec![0.0_f32; pairs.len()];
+    source.distance_batch(&pairs, &mut out)?;
+    Ok(out)
+}
+```
+
+`batch_distances(query, candidates)` is a query-centric convenience over the
+same contract: it builds one `PointPair` per candidate with the query as the
+`left` endpoint, so the distance from the query to each candidate is returned
+in candidate order.
+
 The default `distance_batch` helper uses `distance` to fill an output buffer
 and keeps it unchanged if any pair fails. Override when the backend can compute
-batches more efficiently.
+batches more efficiently. An override must not reorder the endpoints of a pair:
+implementations that call a kernel which expects a bare `(left, right)` tuple
+convert each `PointPair` at that boundary.
 
 The CPU backend performs parallel HNSW insertion, so `Chutoro::run` requires a
 `DataSource + Sync`.

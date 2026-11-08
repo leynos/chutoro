@@ -1,6 +1,6 @@
 //! Tests for `DenseSource` construction and distance operations, covering mismatched dimensions, empty inputs, and batch validation.
 use super::DenseSource;
-use chutoro_core::{DataSource, DataSourceError};
+use chutoro_core::{DataSource, DataSourceError, PointPair};
 use rstest::rstest;
 
 #[rstest]
@@ -57,7 +57,7 @@ fn distance_ok() {
 #[rstest]
 fn distance_batch_empty_pairs() {
     let ds = DenseSource::try_new("d", vec![vec![0.0, 0.0]]).expect("single row should be valid");
-    let pairs: Vec<(usize, usize)> = Vec::new();
+    let pairs: Vec<PointPair> = Vec::new();
 
     let mut out = Vec::new();
     ds.distance_batch(&pairs, &mut out)
@@ -79,7 +79,7 @@ fn distance_batch_empty_pairs() {
 fn distance_batch_ok() {
     let ds = DenseSource::try_new("d", vec![vec![0.0, 0.0], vec![3.0, 4.0]])
         .expect("valid uniform rows");
-    let pairs = vec![(0, 1), (1, 0)];
+    let pairs = vec![PointPair::new(0, 1), PointPair::new(1, 0)];
     let mut out = vec![42.0, 99.0];
     ds.distance_batch(&pairs, &mut out)
         .expect("batch must succeed");
@@ -93,7 +93,7 @@ fn distance_batch_ok() {
 fn distance_batch_output_length_mismatch() {
     let ds = DenseSource::try_new("d", vec![vec![0.0, 0.0], vec![1.0, 1.0]])
         .expect("valid uniform rows");
-    let pairs = vec![(0, 1)];
+    let pairs = vec![PointPair::new(0, 1)];
     let mut out = vec![0.0, 0.0];
     let err = ds
         .distance_batch(&pairs, &mut out)

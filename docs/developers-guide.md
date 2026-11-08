@@ -2084,6 +2084,30 @@ contracts:
 These contracts let `hnsw/validate.rs` and `hnsw/helpers.rs` merge cache hits
 and misses without corrupting caller buffers after a provider error.
 
+### `PointPair` and the batch-distance boundary
+
+`DataSource::distance_batch` accepts `&[PointPair]`. `PointPair` is the
+domain-level pair: `left` and `right` are ordered, so `PointPair::new(a, b)` and
+`PointPair::new(b, a)` are distinct values and request opposite directions of
+the same computation. `PointPair::new`, `left`, and `right` are `const`; the
+type also implements `From<(usize, usize)>` so callers holding raw tuples can
+convert without a helper.
+
+The default implementations keep the boundary semantic. `distance_batch`
+computes each pair with `distance(pair.left(), pair.right())`, and
+`batch_distances(query, candidates)` builds `PointPair::new(query, candidate)`
+for every candidate. An override must not reorder endpoints: the dense provider
+passes the `PointPair` slice straight into its SIMD kernel, which reads the
+endpoints itself. Kernels that need a bare `(left, right)` tuple convert at the
+call site inside the provider, as `chutoro-providers/dense/src/simd` does, so
+raw tuple layout never crosses the `DataSource` port.
+
+Tests that assert endpoint ordering need a `DataSource` whose distance depends
+on direction. `Dummy` and `CountingSource` compute an absolute difference and
+therefore return the same value for a reversed pair; use the order-sensitive
+`OrderedDummy` in `tests/datasource.rs` or the
+`datasource::tests::ordered_source` fixture instead.
+
 ## Test-only HNSW mutation healing
 
 The mutation property harness is the only consumer of the graph-owned,

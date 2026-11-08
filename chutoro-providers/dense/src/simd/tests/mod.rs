@@ -65,6 +65,7 @@ macro_rules! assert_close {
 
 pub(crate) use assert_close;
 
+/// Three two-dimensional rows used by the batch tests.
 #[fixture]
 fn matrix_3x2() -> RowMajorMatrix<'static> {
     const VALUES: [f32; 6] = [1.0, 2.0, 4.0, 6.0, 2.0, 1.0];
@@ -189,15 +190,15 @@ fn euclidean_distance_canonicalizes_non_finite_inputs_to_nan(
 
 #[rstest]
 #[case(
-    vec![DistancePair::new(RowIndex::new(0), RowIndex::new(1))],
+    vec![PointPair::new(0, 1)],
     vec![]
 )]
 #[case(
-    vec![DistancePair::new(RowIndex::new(0), RowIndex::new(1))],
+    vec![PointPair::new(0, 1)],
     vec![0.0, 1.0]
 )]
 fn batch_pairs_reject_mismatched_output_lengths(
-    #[case] pairs: Vec<DistancePair>,
+    #[case] pairs: Vec<PointPair>,
     #[case] mut out: Vec<f32>,
 ) {
     let matrix = RowMajorMatrix::new(
@@ -218,9 +219,9 @@ fn batch_pairs_reject_mismatched_output_lengths(
 #[rstest]
 fn batch_pairs_compute_distances(#[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>) {
     let pairs = vec![
-        DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
-        DistancePair::new(RowIndex::new(0), RowIndex::new(2)),
-        DistancePair::new(RowIndex::new(2), RowIndex::new(1)),
+        PointPair::new(0, 1),
+        PointPair::new(0, 2),
+        PointPair::new(2, 1),
     ];
     let mut out = vec![0.0_f32; pairs.len()];
     let mut out_buffer = DistanceBuffer::new(&mut out);
@@ -231,6 +232,38 @@ fn batch_pairs_compute_distances(#[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<
     assert_close!(Distance::new(out[0]), Distance::new(5.0_f32));
     assert_close!(Distance::new(out[1]), Distance::new((2.0_f32).sqrt()));
     assert_close!(Distance::new(out[2]), Distance::new((29.0_f32).sqrt()));
+}
+
+/// A shared-right batch computes each left candidate against the common right.
+///
+/// These pairs share their right endpoint, which is the second shape
+/// `shared_query_candidates` recognises. On a non-scalar backend the batch
+/// takes the packed query path, so the test also asserts that the packed path
+/// is selected whenever one is available.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "the test directly asserts the two fixed outputs of its two-pair fixture"
+)]
+#[rstest]
+fn batch_pairs_compute_shared_right_distances(
+    #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
+) {
+    let pairs = vec![PointPair::new(0, 2), PointPair::new(1, 2)];
+    let mut out = vec![0.0_f32; pairs.len()];
+    let mut out_buffer = DistanceBuffer::new(&mut out);
+
+    euclidean_distance_batch_pairs(matrix_3x2, &pairs, &mut out_buffer)
+        .expect("shared-right batch must succeed");
+
+    assert_close!(Distance::new(out[0]), Distance::new((2.0_f32).sqrt()));
+    assert_close!(Distance::new(out[1]), Distance::new((29.0_f32).sqrt()));
+
+    if dispatch::euclidean_backend() != dispatch::EuclideanBackend::Scalar {
+        assert!(
+            should_pack_query_points(matrix_3x2.dimension().get(), pairs.len()),
+            "a non-scalar backend must pack a shared-right batch",
+        );
+    }
 }
 
 #[rstest]
@@ -266,37 +299,34 @@ fn query_points_kernel_canonicalizes_non_finite_results_to_nan(
     assert!(actual.first().is_some_and(|value| value.is_nan()));
 }
 
+/// A failing pair reports the first bad endpoint and leaves `out` untouched.
+///
+/// The second case places the bad pair first inside a shared-query batch, so
+/// it also pins validation order: packing candidates must not reorder the
+/// report.
 #[rstest]
+#[case(
+    vec![PointPair::new(0, 1), PointPair::new(0, 9)],
+    DataSourceError::OutOfBounds { index: 9 },
+)]
+#[case(
+    vec![PointPair::new(99, 1), PointPair::new(0, 1)],
+    DataSourceError::OutOfBounds { index: 99 },
+)]
 fn batch_pairs_leave_output_unmodified_on_error(
     #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
+    #[case] pairs: Vec<PointPair>,
+    #[case] expected: DataSourceError,
 ) {
-    let pairs = vec![
-        DistancePair::new(RowIndex::new(0), RowIndex::new(1)),
-        DistancePair::new(RowIndex::new(0), RowIndex::new(9)),
-    ];
-    let mut out = vec![10.0_f32, 20.0_f32];
+    let mut out = vec![10.0_f32; pairs.len()];
+    let original = out.clone();
     let mut out_buffer = DistanceBuffer::new(&mut out);
 
     let err = euclidean_distance_batch_pairs(matrix_3x2, &pairs, &mut out_buffer)
         .expect_err("out-of-bounds pair must fail");
 
-    assert!(matches!(err, DataSourceError::OutOfBounds { index: 9 }));
-    assert_eq!(out, vec![10.0_f32, 20.0_f32]);
-}
-
-#[rstest]
-fn raw_pairs_preserve_original_validation_order_for_shared_query_batches(
-    #[from(matrix_3x2)] matrix_3x2: RowMajorMatrix<'static>,
-) {
-    let pairs = vec![(99, 1), (0, 1)];
-    let mut out = vec![10.0_f32; pairs.len()];
-    let mut out_buffer = DistanceBuffer::new(&mut out);
-
-    let err = euclidean_distance_batch_raw_pairs(matrix_3x2, &pairs, &mut out_buffer)
-        .expect_err("out-of-bounds pair must fail");
-
-    assert_eq!(err, DataSourceError::OutOfBounds { index: 99 });
-    assert_eq!(out, vec![10.0_f32; pairs.len()]);
+    assert_eq!(err, expected);
+    assert_eq!(out, original);
 }
 
 #[expect(

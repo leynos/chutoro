@@ -20,35 +20,6 @@ impl RowIndex {
     }
 }
 
-/// Pair of row indices used for batch distance computation.
-#[cfg(test)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct DistancePair {
-    left: RowIndex,
-    right: RowIndex,
-}
-
-#[cfg(test)]
-impl DistancePair {
-    /// Builds a distance pair from typed row indices.
-    #[must_use]
-    pub(crate) fn new(left: RowIndex, right: RowIndex) -> Self {
-        Self { left, right }
-    }
-
-    /// Returns the left row index.
-    #[must_use]
-    pub(crate) fn left(self) -> RowIndex {
-        self.left
-    }
-
-    /// Returns the right row index.
-    #[must_use]
-    pub(crate) fn right(self) -> RowIndex {
-        self.right
-    }
-}
-
 /// Scalar distance value wrapper for domain-level intent.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Distance(f32);
