@@ -1229,13 +1229,17 @@ facts in three places, and nothing but a contract notices when they drift.
 placement, the tool installs, the cache ownership, the CodeScene rule set and
 the timeout tiers below.
 
-The target needs `uv` on the path and nothing else installed: it obtains
-`pytest`, `PyYAML`, `pathspec` and `hypothesis` for the run through
-`uv run --with`, so the versions are the target's business rather than the
-developer's. `hypothesis` is there because the timeout derivations are driven
-as properties over generated configurations, not only against the values this
-repository happens to hold. The `build-test` job runs the same target, so a
-contract that passes here passes there.
+The target needs `uv` on the path for its Python harness: it obtains `pytest`,
+`PyYAML`, `pathspec` and `hypothesis` for the run through `uv run --with`, so
+the versions are the target's business rather than the developer's.
+`hypothesis` is there because the timeout derivations are driven as properties
+over generated configurations, not only against the values this repository
+happens to hold. One contract also needs a Rust toolchain and `cargo nextest`
+on the path: `dev_test_filter_selection_test.py` runs `cargo nextest list` over
+the workspace, which compiles the test binaries without running them. CI
+installs the pinned Nextest from `scripts/install-nextest.sh` before the
+contract step. The `build-test` job runs the same target, so a contract that
+passes here passes there.
 
 The target runs pytest with `--doctest-modules`, so every example in a
 docstring under `tests/workflow_contracts/` is executed as a test. That is not
