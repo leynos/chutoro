@@ -128,6 +128,13 @@ def test_poisoned_lock_exclusion_names_a_rust_test_that_exists() -> None:
     )
 
 
+# One alternation, so the leftmost delimiter decides. Stripping blocks first
+# and line comments second is the obvious shape and it is wrong: a `//` holding
+# a `/*`, as in `// glob tests/*.rs`, would open a false block that runs to the
+# next real `*/` and blank the code between them.
+COMMENT_PATTERN = re.compile(r"//[^\n]*|/\*.*?\*/", flags=re.DOTALL)
+
+
 def _strip_comments(source: str) -> str:
     """Blank out Rust comments while preserving character offsets.
 
@@ -135,20 +142,15 @@ def _strip_comments(source: str) -> str:
     against positions it found in the original. Each comment character becomes
     a space, and newlines are kept so line anchors still behave.
 
-    Block comments are handled before line comments so a `//` inside `/* */`
-    is not mistaken for a line comment, and `//` before `/*` so a block
-    delimiter inside a line comment is not treated as a block.
+    Rust's block comments nest and this does not follow them: `/* a /* b */`
+    ends at the first `*/`. That is a known limit, and the source this reads
+    has no nested block comment. Treating one as flat could end a block early
+    and expose text the parser thinks is commented out, so revisit this if the
+    file ever grows one.
     """
-    without_blocks = re.sub(
-        r"/\*.*?\*/",
+    return COMMENT_PATTERN.sub(
         lambda match: re.sub(r"[^\n]", " ", match.group(0)),
         source,
-        flags=re.DOTALL,
-    )
-    return re.sub(
-        r"//[^\n]*",
-        lambda match: " " * len(match.group(0)),
-        without_blocks,
     )
 
 
@@ -438,6 +440,21 @@ _POISONED_CASE = POISONED_LOCK_TEST.rsplit("::", 1)[-1]
             f"mod other {{\n    fn {_POISONED_CASE}() {{}}\n}}\n",
             False,
             id="different-module",
+        ),
+        # The trailing block comment is load-bearing. Without a later `*/` the
+        # false block opened by the `/*` inside the line comment has nothing to
+        # run to, and the row passes even with the wrong stripping order.
+        pytest.param(
+            f"mod tests {{\n    // glob tests/*.rs\n"
+            f"    fn {_POISONED_CASE}() {{}}\n}}\n/* trailing */\n",
+            True,
+            id="block-opener-inside-line-comment",
+        ),
+        pytest.param(
+            f"mod tests {{\n    /* see // below\n"
+            f"    fn {_POISONED_CASE}() {{}}\n    */\n}}\n",
+            False,
+            id="line-comment-inside-block-comment",
         ),
     ),
 )
