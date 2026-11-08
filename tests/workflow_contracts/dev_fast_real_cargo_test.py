@@ -32,6 +32,47 @@ def _run_cargo(*arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _installed_toolchains() -> set[str] | None:
+    """Return the toolchain names rustup reports, or ``None`` if it failed.
+
+    ``rustup toolchain list`` prints one name per line, usually with a host
+    triple appended and optionally a ``(default)`` or ``(active)`` marker.
+    Splitting each line on whitespace keeps the name and drops the marker, so
+    callers can compare names rather than substrings.
+    """
+    listed = subprocess.run(
+        ["rustup", "toolchain", "list"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if listed.returncode != 0:
+        return None
+    return {
+        fields[0] for fields in map(str.split, listed.stdout.splitlines()) if fields
+    }
+
+
+def _is_toolchain_installed(toolchain: str, installed: set[str]) -> bool:
+    """Report whether a pin is installed as itself or with a host triple.
+
+    A substring test would also match a longer name that merely contains the
+    pin, so a host holding only ``nightly-2026-05-28-something`` would skip
+    the real Cargo check while reporting the pin as present. Accepting the
+    bare name and the name plus a ``-``-separated suffix covers rustup's
+    actual output without accepting unrelated releases.
+
+    >>> _is_toolchain_installed("nightly-1", {"nightly-1-x86_64-host"})
+    True
+    >>> _is_toolchain_installed("nightly-1", {"nightly-10-x86_64-host"})
+    False
+    """
+    return any(
+        name == toolchain or name.startswith(f"{toolchain}-") for name in installed
+    )
+
+
 def test_the_pinned_toolchain_resolves_the_fragment_in_real_cargo() -> None:
     """The fragment must select Cranelift for real Cargo, not only in make.
 
@@ -42,14 +83,8 @@ def test_the_pinned_toolchain_resolves_the_fragment_in_real_cargo() -> None:
     cheapest execution that can tell the difference.
     """
     toolchain = _pinned_toolchain()
-    installed = subprocess.run(
-        ["rustup", "toolchain", "list"],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if installed.returncode != 0 or toolchain not in installed.stdout:
+    installed = _installed_toolchains()
+    if installed is None or not _is_toolchain_installed(toolchain, installed):
         pytest.skip(f"the pinned development toolchain {toolchain} is not installed")
 
     completed = _run_cargo(

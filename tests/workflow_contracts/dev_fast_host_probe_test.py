@@ -246,7 +246,7 @@ def test_development_targets_add_no_probe_of_their_own(
 
 @pytest.mark.parametrize(
     "probe_source",
-    (FAILING_PROBE, SILENT_PROBE.replace("__EXIT_STATUS__", "1")),
+    [FAILING_PROBE, SILENT_PROBE.replace("__EXIT_STATUS__", "1")],
     ids=("failing", "silent"),
 )
 def test_standard_targets_ignore_a_failed_host_probe(
@@ -281,54 +281,52 @@ def test_standard_targets_ignore_a_failed_host_probe(
 
 
 def test_the_probe_records_its_own_exit_status() -> None:
-    """The status must come from the shell, not from ``.SHELLSTATUS``.
+    """The probe must append its status to the answer it came from.
 
-    ``.SHELLSTATUS`` only appeared in GNU Make 4.4. The earlier fallback
-    treated "status unavailable" as "status acceptable", which made this exact
-    case unsound on every older make: ``uname -s`` printing ``Linux`` and
-    exiting non-zero selected the Linux branch from a command that had failed.
-    Encoding the status in the probe's output has no version floor, so this
-    pins the mechanism rather than a make-version-dependent behaviour that
-    cannot be exercised on a modern test host.
+    Reading status back from ``.SHELLSTATUS`` after the probe would be correct
+    only while no other ``$(shell)`` call intervenes, because that variable
+    always describes the most recent call. Nothing in a recipe expresses that
+    ordering constraint, so the binding is made inside the probe instead.
+
+    This is a source-level assertion on purpose. A reintroduced ``.SHELLSTATUS``
+    read that still happened to follow the probe would behave identically, so
+    no behavioural test could distinguish it from the correct form; only the
+    mechanism itself can be pinned.
     """
     source = MAKEFILE_PATH.read_text(encoding="utf-8")
 
     assert "DEV_FAST_PROBE_STATUS=$$?" in source, (
         "the probe must append its own exit status to its output"
     )
-    # A reintroduced `.SHELLSTATUS` read would restore the silent fallback on
-    # any make older than 4.4, which is precisely the defect being guarded.
-    assignments = [
+    # Any read of `.SHELLSTATUS` reintroduces the ordering coupling, whatever
+    # the assignment is called, so the guard is on the variable and not on a
+    # particular name.
+    shellstatus_reads = [
         line
         for line in source.splitlines()
-        if line.startswith("DEV_FAST_HOST_PROBE_STATUS") and "$(.SHELLSTATUS)" in line
+        if "$(.SHELLSTATUS)" in line and not line.lstrip().startswith("#")
     ]
-    assert not assignments, (
-        f"the probe status must not be read from .SHELLSTATUS: {assignments!r}"
+    assert not shellstatus_reads, (
+        "the probe status must not be read back from .SHELLSTATUS: "
+        f"{shellstatus_reads!r}"
     )
 
 
 @pytest.mark.parametrize("target", DEVELOPMENT_TARGETS)
-def test_development_targets_reject_a_failed_probe_without_shellstatus(
+def test_development_targets_reject_a_failed_probe_naming_the_status(
     tmp_path: Path, target: str
 ) -> None:
-    """The status check must not depend on which make version is installed.
+    """A probe that answers and fails must be refused, naming the status.
 
-    ``SHELLSTATUS`` is a Make-internal variable, so it cannot be shadowed to
-    reproduce an older make from here. What can be asserted is the contract
-    that made the old path unsound: a probe that answers and fails is refused
-    on this make, and the mechanism it relies on is one every make version
-    supports.
+    Behavioural companion to the mechanism check above: it pins that the
+    refusal is real on the installed make and that the recorded status reaches
+    the operator, which is what the ordering coupling would have destroyed.
     """
     completed = _run_with_probe(target, _failing_uname(tmp_path))
-    source = MAKEFILE_PATH.read_text(encoding="utf-8")
 
     assert completed.returncode != 0, (
         f"{target} must refuse a probe that answers and fails: {completed.stdout!r}"
     )
     assert "exited 1" in completed.stderr, (
         f"{target} must name the exit status: {completed.stderr!r}"
-    )
-    assert "DEV_FAST_HOST_STATUS_IS_KNOWN" not in source, (
-        "the 'status unknown therefore acceptable' branch must not return"
     )

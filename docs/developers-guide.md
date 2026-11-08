@@ -14,13 +14,15 @@ documentation-warning flags and, on Linux, the `mold` linker.
 contract tests that hold them.
 
 Kani and Verus sit outside that statement: each verifier runs on the toolchain
-its own release requires. Both are driven through the pinned
+its own release requires. Provisioning is delegated to the pinned
 `rust-prover-tools` package rather than a repository script, so
-`make install-kani` and `make install-verus` provision from it and `make kani`
-and `make verus` invoke it. Whitaker is the third such exception: it runs under
-the toolchain its own installer manages, not the repository pin. None of the
-three is selected through the development fragment, so this does not weaken the
-Cranelift boundary below.
+`make install-kani` and `make install-verus` provision from it,
+`make kani-check` reads the installed version through it, and `make verus` runs
+the proofs through it. `make kani` does not delegate: it invokes
+`$(CARGO) kani` directly, since `cargo-kani` is the verifier's own front-end.
+Whitaker is the third exception to the pinned stable toolchain: it runs under
+the toolchain its own installer manages. None of the three is selected through
+the development fragment, so this does not weaken the Cranelift boundary below.
 
 Cranelift is an opt-in development-speed route, not the default build. It
 requires a nightly toolchain, so it stays behind the explicit `dev-build` and
@@ -59,11 +61,12 @@ case can silently drop the linker selection. `DEV_FAST_HOST_OS` remains
 overridable for a host whose `uname` cannot run.
 
 The exit status is appended by the probe's own shell rather than read back from
-`.SHELLSTATUS`. That variable first appeared in GNU Make 4.4, and a fallback
-keyed on its absence has to treat "status unknown" as acceptable, which
-reinstates exactly the failure the check exists to catch on every older make.
-Recording the status in the probe's output has no version floor, so the check
-is load-bearing wherever the Makefile runs.
+`.SHELLSTATUS`. That variable reports whichever `$(shell)` call ran last, so a
+read back is correct only while no other call intervenes between the probe and
+the read — an ordering this file satisfies today only because `BUILD_HOST_OS`'s
+call comes further down. Appending the status inside the probe binds it to its
+own answer, so adding a shell call above or below cannot silently retarget the
+check.
 
 `dev-build` compiles the binary and `dev-test` runs `cargo-nextest`, both
 through `DEV_CARGO`. Nextest starts a separate Cargo invocation to compile

@@ -62,9 +62,12 @@ benchmarks — stays on the pinned stable 1.99.1 and reads `.cargo/config.toml`.
 
 Kani, Verus, and Whitaker are the exceptions. Kani and Verus are not Cargo
 gates in this sense, and each runs on the toolchain its own verifier release
-requires: both are driven through the pinned `rust-prover-tools` package, so
-`make install-kani` and `make install-verus` provision from it and `make kani`
-and `make verus` invoke it. Whitaker runs under the toolchain its own installer
+requires: `make install-kani` and `make install-verus` provision from the pinned
+`rust-prover-tools` package, `make kani-check` reads the installed verifier's
+version through it, and `make verus` runs the proofs through it. `make kani` is
+the one exception to that delegation: it invokes `$(CARGO) kani` directly,
+because `cargo-kani` is the verifier's own front-end rather than something the
+shared package wraps. Whitaker runs under the toolchain its own installer
 manages rather than the repository pin. What the decision protects is unchanged
 — none of the three is reached through the development fragment, and none can
 select Cranelift.
@@ -128,12 +131,11 @@ Two statements in the original decision text did not match the repository, and
 the pre-merge review of PR #289 caught both.
 
 The first named `scripts/run-verus.sh` and its `VERUS_BIN` as the route
-`make verus` took. No such script exists. Prover acquisition and execution
-moved into the pinned `rust-prover-tools` package, so `make install-kani`,
-`make install-verus`, and `make verus` all invoke `prover-tools`, and
+`make verus` took. No such script exists. Prover acquisition moved into the
+pinned `rust-prover-tools` package, so `make install-kani`,
+`make install-verus`, and `make verus` invoke `prover-tools`, and
 `tests/workflow_contracts/tool_install_test.py` lists the three former scripts
-among the tools whose acquisition that package absorbed. The `Decision outcome`
-text above now names the package.
+among the tools whose acquisition that package absorbed.
 
 The second counted Whitaker among the gates on the pinned stable 1.99.1.
 `make lint-whitaker` assigns `RUSTFLAGS` and runs the `whitaker` wrapper under
@@ -142,6 +144,14 @@ subject to the repository pin or the development standard. It is a verifier
 exception beside Kani and Verus, not a Cargo gate, and the decision outcome now
 says so.
 
-Neither correction changes the decision. The boundary this record protects is
-that no gate selects Cranelift, and none of the three exceptions is reachable
-through the development fragment.
+A third over-statement reached the `Decision outcome` paragraph while the first
+two were being fixed: it said both `make kani` and `make verus` invoke the
+shared package. Only `make verus` does. `make kani` runs `$(CARGO) kani` for
+each harness directly, because `cargo-kani` is the verifier's own front-end,
+and the delegation table in `tool_install_test.py` lists exactly four targets:
+`install-kani`, `install-verus`, `verus`, and `kani-check`. The paragraph above
+now separates them.
+
+None of the corrections changes the decision. The boundary this record protects
+is that no gate selects Cranelift, and none of the three exceptions is
+reachable through the development fragment.

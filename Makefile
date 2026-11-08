@@ -27,12 +27,12 @@ DEV_CARGO = $(CARGO) +$(DEV_FAST_TOOLCHAIN) --config $(DEV_FAST_CONFIG)
 # expansion that failed, dropping the linker flag while the target reported
 # success. `:=` captures one answer for the whole run.
 # The exit status is appended by the shell itself rather than read back from
-# `.SHELLSTATUS`. `.SHELLSTATUS` only exists in GNU Make 4.4 and later, and a
-# fallback that treated "status unavailable" as acceptable made the status
-# check unsound on every older make: a probe that printed `Linux` and exited
-# non-zero would select the Linux branch from a command that had failed.
-# Encoding the status in the probe's own output has no such version floor, so
-# the check below is load-bearing wherever this file runs.
+# `.SHELLSTATUS`. That variable reports whichever `$(shell)` call ran last, so
+# a read back is correct only while no other call intervenes between the probe
+# and the read — an ordering this file satisfies today only because
+# `BUILD_HOST_OS`'s call comes further down. Appending the status inside the
+# probe binds it to its own answer, so the check cannot be broken by adding a
+# shell call above or below.
 DEV_FAST_HOST_PROBE := $(shell { uname -s; echo "DEV_FAST_PROBE_STATUS=$$?"; })
 DEV_FAST_HOST_PROBE_OS := $(filter-out DEV_FAST_PROBE_STATUS=%,$(DEV_FAST_HOST_PROBE))
 DEV_FAST_HOST_PROBE_STATUS := $(patsubst DEV_FAST_PROBE_STATUS=%,%,$(filter DEV_FAST_PROBE_STATUS=%,$(DEV_FAST_HOST_PROBE)))
