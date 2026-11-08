@@ -181,15 +181,45 @@ def test_declaration_must_sit_at_the_named_modules_own_level(
 #: How deep the noise generator may nest modules inside modules.
 _MAX_NESTING = 2
 
+#: Filler comments. These are noise rather than a probe: a line comment's text
+#: never follows the start of a line, and an inline block comment's does not
+#: either, so the shared matcher reads no declaration out of them even when the
+#: blanking is skipped. They still exercise the lexer on a source the reader
+#: must handle.
+_COMMENTS = (
+    "    // a line comment\n",
+    f"    // fn {_CASE}() {{}}\n",
+    f"    /* fn {_CASE}() {{}} */\n",
+)
+
+#: Block comments whose *body line* is a complete declaration of the case.
+#: That line starts at column zero, and `_FUNCTION` is anchored to the start of
+#: a line, so it is the one shape the matcher reads out of a comment when the
+#: blanking is skipped — which is what makes the property fail if `_blank` is
+#: removed. Two body shapes are offered so the probe does not rest on one exact
+#: spelling. Each keeps its braces balanced, so the balance guard stays
+#: meaningful.
+_COMMENTED_DECLARATIONS = (
+    f"/*\nfn {_CASE}() {{}}\n*/\n",
+    f"/*\nfn {_CASE}() {{\n}}\n*/\n",
+)
+
 
 def _noise_item(remaining: int, indent: int) -> st.SearchStrategy[str]:
     """Generate filler that cannot change the expected verdict.
 
-    Filler declares only names other than `_CASE`, and its modules are never
-    called `tests`. Both limits are what keep the expectation derivable from
-    the one deliberate placement: filler that could open a second top-level
-    `tests`, or declare the case itself, would make the expected verdict
-    depend on which of two readings the source happened to reach first.
+    Filler declares only names other than `_CASE`, its modules are never called
+    `tests`, and it emits comments. All three limits keep the expectation
+    derivable from the one deliberate placement: a second top-level `tests`, or
+    a second declaration of the case, would make the verdict depend on which
+    reading the source happened to reach first.
+
+    Filler comments here are noise, not a blanking probe. None of them can be
+    read as a declaration: `_FUNCTION` is anchored to the start of a line, so a
+    comment whose text opens the line — `// fn case()`, `/* fn case() */` — is
+    invisible to it even without the blanking. The probe for that lives in
+    `_COMMENTED_DECLARATIONS`, which puts the declaration on its own line
+    inside a block comment.
     """
     declaration = st.builds(
         _declaration,
@@ -198,9 +228,10 @@ def _noise_item(remaining: int, indent: int) -> st.SearchStrategy[str]:
         name=st.sampled_from(tuple(name for name in _NAMES if name != _CASE)),
     )
     if remaining == 0:
-        return declaration
+        return st.one_of(declaration, st.sampled_from(_COMMENTS))
     return st.one_of(
         declaration,
+        st.sampled_from(_COMMENTS),
         st.builds(
             _module,
             st.lists(_noise_item(remaining - 1, indent + 4), max_size=2).map("".join),
@@ -220,7 +251,21 @@ _PLACEMENTS = (
     "at-the-modules-own-level",
     "deeper-in-the-module",
     "inside-another-module",
+    "in-a-sibling-module",
 )
+
+
+def _block(header: str, body: str, indent: int = 0) -> str:
+    """Return any braced block — a module, an `impl`, or a plain `if`.
+
+    Generated sources are assembled from this and `_module` rather than from
+    literal fragments. A literal `"mod other {{"` in a non-f-string emits a
+    doubled brace, and the resulting source is not Rust: the property then
+    passes because the reader cannot read it at all, which proves nothing about
+    declaration depth. Building through one pair of braces keeps every
+    generated source well formed.
+    """
+    return f"{' ' * indent}{header} {{\n{body}{' ' * indent}}}\n"
 
 
 @st.composite
@@ -239,6 +284,12 @@ def _layouts(draw: st.DrawFn) -> tuple[str, bool]:
     file root from one that only requires the declaration at *some* module's own
     level. Without it, a mutant that ignores the module's depth passes every
     generated example.
+
+    The fourth separates the two conditions in the reader from each other. A
+    declaration in a *sibling* top-level module sits at exactly the depth one
+    inside `mod tests` does, so it is accepted by the depth test alone; only the
+    span refuses it. Without this placement, deleting the span condition leaves
+    every generated example passing.
     """
     placement = draw(st.sampled_from(_PLACEMENTS))
     declaration = _declaration(4, draw(st.sampled_from(_QUALIFIERS)))
@@ -247,15 +298,27 @@ def _layouts(draw: st.DrawFn) -> tuple[str, bool]:
     # carry other names, so the verdict cannot depend on which of two same-named
     # modules the reader reached first.
     if placement == "at-the-modules-own-level":
-        return f"{draw(_noise(0))}mod tests {{\n{noise}{declaration}}}\n", True
+        return draw(_noise(0)) + _module(f"{noise}{declaration}"), True
     if placement == "deeper-in-the-module":
-        opened = draw(
-            st.sampled_from(("mod other {{\n", "impl Holder {{\n", "if true {{\n"))
-        )
-        body = f"{noise}    {opened}{draw(_noise(8))}    {declaration}    }}\n"
-        return f"mod tests {{\n{body}}}\n", False
-    body = f"{noise}    mod tests {{\n{draw(_noise(8))}    {declaration}    }}\n"
-    return f"mod outer {{\n{body}}}\n", False
+        # Any nested block works: a module, an `impl`, or a plain `if`. The
+        # declaration is at depth 2 whatever opened it, which is the whole point.
+        opened = draw(st.sampled_from(("mod other", "impl Holder", "if true")))
+        nested = _block(opened, f"{draw(_noise(8))}    {declaration}", indent=4)
+        # A commented declaration at the module's *own* level is what makes the
+        # property catch a reader that stopped blanking comments. On its own,
+        # comment filler proves nothing: a commented declaration nested beside
+        # the real one is rejected by depth either way. At depth 1 it is
+        # decisive — an unblanked reader finds it, answers True, and fails this
+        # False expectation.
+        commented = draw(st.sampled_from(_COMMENTED_DECLARATIONS))
+        return _module(f"{noise}{commented}{nested}"), False
+    if placement == "in-a-sibling-module":
+        tests = _module(f"{noise}    fn other() {{}}\n")
+        sibling = _module(f"{noise}{declaration}", name="other")
+        before, after = draw(st.sampled_from(((tests, sibling), (sibling, tests))))
+        return before + after, False
+    inner = _module(f"{draw(_noise(8))}    {declaration}", indent=4)
+    return _block("mod outer", f"{noise}{inner}"), False
 
 
 @given(layout=_layouts())
@@ -266,10 +329,20 @@ def test_generated_layouts_agree_with_where_the_declaration_was_placed(
 
     The table names the layouts a reader must distinguish; this states the
     relation behind them over sources composed from the same pieces in
-    combinations no row spells out — several modules, repeated names, and
-    declarations qualified several ways.
+    combinations no row spells out — several modules, repeated names,
+    declarations qualified several ways, and comment filler.
+
+    The balance guard comes first deliberately. A generator bug that emits a
+    stray brace makes every source unreadable, and an unreadable source is
+    refused — so the property would pass without ever testing the relation it
+    claims to. That happened once here, with doubled braces from a literal
+    fragment; the guard turns that class of bug into a failure instead of a
+    green run.
     """
     source, expected = layout
+    assert source.count("{") == source.count("}"), (
+        f"generated source is not balanced Rust:\n{source}"
+    )
     actual = declared_in_module(source, "tests", _CASE)
     assert actual is expected, (
         f"expected {expected} for this layout, got {actual}:\n{source}"
