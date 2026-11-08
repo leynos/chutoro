@@ -110,6 +110,25 @@ Cranelift that attempt aborts the process with
 runs at the merge gate; the development route only gives up its own accelerated
 copy.
 
+nextest treats an exclusion that matches nothing as an empty match rather than
+an error, so the filter string must name a case that really exists at that path.
+`rust_declaration_reading.declared_in_module` reads
+`chutoro-core/src/hnsw/cpu/test_helpers.rs` to check that it does, and it
+accepts only a declaration *directly* inside a top-level `mod tests`. A case
+moved into a nested module has a longer path than the filter names, so that
+move is a missing exclusion too. The reading blanks comments and literals
+through `rust_source_reading`, this suite's single Rust lexer, before counting
+braces; a brace inside a string or character literal would otherwise end the
+module span early and hide the declaration.
+
+`rust_declaration_reading` owns one question — is this name declared at this
+module's own level — and no other. Its only call-site is
+`dev_fast_routing_test.py`, and nothing outside `tests/workflow_contracts` may
+import it. It reads source text rather than the Makefile, so it does not
+duplicate the dry-run reading. The lexer itself stays in `rust_source_reading`:
+a second Rust scanner here would eventually disagree with the first about where
+a raw string or a nested block comment ends.
+
 Those three development targets declare themselves `.PHONY` beside their
 recipes rather than in the file-wide list at the top of the `Makefile`. The
 file-wide list is a single long line that other work also edits, so appending
