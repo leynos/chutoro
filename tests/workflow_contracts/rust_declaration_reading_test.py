@@ -161,6 +161,29 @@ def _module(body: str, *, name: str = "tests", indent: int = 0) -> str:
             False,
             id="line-comment-inside-a-block-comment",
         ),
+        # A reader that ended a block comment at the first `*/` would read the
+        # tail as code. The declaration after the inner `*/` is then a real one
+        # at the module's own level, so the row flips to True. The property
+        # covers this too, but through a generated layout; this row states the
+        # same fact in one shape nothing has to sample.
+        pytest.param(
+            _module(f"    /* outer /* inner */ fn {_CASE}() {{}} */\n"),
+            False,
+            id="declaration-in-a-nested-comment",
+        ),
+        # The brace pair straddles the inner boundary. Without nesting the tail
+        # is code, which both shifts the depth of the declaration below and
+        # leaves the source unbalanced.
+        pytest.param(
+            _module(f"    /* a /* b {{ */ }} */\n{_declaration(4)}"),
+            True,
+            id="braces-across-a-nested-comment-boundary",
+        ),
+        pytest.param(
+            _module(f"    /* a /* b }} */ {{ */\n{_declaration(4)}"),
+            True,
+            id="reverse-braces-across-a-nested-comment-boundary",
+        ),
     ),
 )
 def test_declaration_must_sit_at_the_named_modules_own_level(
@@ -190,6 +213,24 @@ _COMMENTS = (
     "    // a line comment\n",
     f"    // fn {_CASE}() {{}}\n",
     f"    /* fn {_CASE}() {{}} */\n",
+)
+
+#: Block comments with enough nesting that a reader stopping at the first `*/`
+#: reads the tail as code. Every entry is brace-balanced at source level, so the
+#: balance guard does not reject it, and each was checked to flip a verdict when
+#: the nesting is ignored:
+#:
+#: - a brace in the inner comment, with its partner in the outer tail, shifts
+#:   every later depth when the tail is miscounted as code;
+#: - a declaration after the inner `*/` is read as a real one by a reader that
+#:   stopped there, and the deeper placement requires the opposite verdict.
+#:
+#: These are the property's probe for nesting. Nothing else in the generator
+#: can distinguish a nesting block reader from a first-`*/` one.
+_NESTED_COMMENTS = (
+    f"    /* outer /* inner */ fn {_CASE}() {{}} */\n",
+    "    /* a /* b { */ } */\n",
+    "    /* a /* b } */ { */\n",
 )
 
 #: Block comments whose *body line* is a complete declaration of the case.
@@ -300,9 +341,11 @@ def _layouts(draw: st.DrawFn) -> tuple[str, bool]:
     if placement == "at-the-modules-own-level":
         return draw(_noise(0)) + _module(f"{noise}{declaration}"), True
     if placement == "deeper-in-the-module":
-        # Any nested block works: a module, an `impl`, or a plain `if`. The
-        # declaration is at depth 2 whatever opened it, which is the whole point.
-        opened = draw(st.sampled_from(("mod other", "impl Holder", "if true")))
+        # Both openers are items, so a module may legally contain either. `if`
+        # is a statement and cannot sit at module level: generating one there
+        # would make the source invalid Rust, and an invalid source is refused
+        # for the wrong reason.
+        opened = draw(st.sampled_from(("mod other", "impl Holder")))
         nested = _block(opened, f"{draw(_noise(8))}    {declaration}", indent=4)
         # A commented declaration at the module's *own* level is what makes the
         # property catch a reader that stopped blanking comments. On its own,
@@ -310,7 +353,23 @@ def _layouts(draw: st.DrawFn) -> tuple[str, bool]:
         # the real one is rejected by depth either way. At depth 1 it is
         # decisive — an unblanked reader finds it, answers True, and fails this
         # False expectation.
-        commented = draw(st.sampled_from(_COMMENTED_DECLARATIONS))
+        #
+        # The nested forms go here for the same reason: a reader that ends a
+        # block comment at the first `*/` reads the outer tail as code, and in
+        # this placement that tail makes it answer True. Only comment layouts
+        # whose evidence is a *refused* verdict belong here, because this is the
+        # one placement that expects False.
+        #
+        # One nested form is emitted unconditionally rather than drawn. Drawn,
+        # it lands in the one-in-three deeper placement and then one-in-five
+        # within it, so a seed could explore a hundred examples without ever
+        # reaching it — measured at five seeds in eight against a reader that
+        # stopped at the first `*/`. Emitting it always makes the property's
+        # nesting evidence independent of the seed. The rest are drawn, so the
+        # generator still varies their neighbours.
+        always, *sometimes = _NESTED_COMMENTS
+        drawn = st.sampled_from(_COMMENTED_DECLARATIONS + tuple(sometimes))
+        commented = always + draw(drawn)
         return _module(f"{noise}{commented}{nested}"), False
     if placement == "in-a-sibling-module":
         tests = _module(f"{noise}    fn other() {{}}\n")
