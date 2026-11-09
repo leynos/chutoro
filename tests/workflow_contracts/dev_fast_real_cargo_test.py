@@ -18,7 +18,7 @@ import subprocess
 
 import pytest
 
-from dev_fast_routing_test import DEV_FAST_CONFIG, REPO_ROOT, _pinned_toolchain
+from dev_fast_make_support import DEV_FAST_CONFIG, REPO_ROOT, _pinned_toolchain
 
 
 def _run_cargo(*arguments: str) -> subprocess.CompletedProcess[str]:

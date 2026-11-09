@@ -84,12 +84,14 @@ provisions nothing for the fragment.
 
 Because nextest starts a separate Cargo invocation that does not inherit the
 outer configuration, `dev-test` passes the fragment before `nextest` and again
-to `nextest run`. It also assigns `RUSTFLAGS` for warning denial, so it repeats
-the documentation denials and the Linux linker flag that the assignment would
-otherwise replace. The host probe is evaluated once at parse time, together
-with its exit status, and every later reference reads that captured answer. The
-target fails when the probe reports no operating system or exits non-zero,
-rather than silently selecting the non-Linux branch.
+to `nextest run`. Both development routes assign `RUSTFLAGS`, appending to any
+inherited value rather than replacing it, and therefore repeat the
+documentation denials and the Linux linker flag that the assignment would
+otherwise replace; `dev-test` also denies warnings. The host probe is evaluated
+once at parse time, together with its exit status, and every later reference
+reads that captured answer. The target fails when the probe reports no
+operating system or exits non-zero, rather than silently selecting the
+non-Linux branch.
 
 ## Architectural rationale
 

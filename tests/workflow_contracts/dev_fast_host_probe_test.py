@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from dev_fast_routing_test import MAKEFILE_PATH, REPO_ROOT, _assert_unfragmented
+from dev_fast_make_support import MAKEFILE_PATH, REPO_ROOT, _assert_unfragmented
 
 DEVELOPMENT_TARGETS = ("dev-build", "dev-test", "install-dev-fast")
 

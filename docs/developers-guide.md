@@ -71,14 +71,17 @@ check.
 `dev-build` compiles the binary and `dev-test` runs `cargo-nextest`, both
 through `DEV_CARGO`. Nextest starts a separate Cargo invocation to compile
 tests and does not inherit the outer Cargo configuration, so `dev-test` passes
-the fragment before `nextest` and again to `nextest run`. It also sets
-`RUSTFLAGS` for warning denial; because an assigned `RUSTFLAGS` replaces
-configured target rustflags, it repeats the documentation denials and the Linux
-linker flag. The other standard Make targets—`build`, `test`, `typecheck`,
-`lint-clippy`, `release`, formatting, coverage, Kani, Verus, benchmarks, and
-Whitaker—do not select the fragment and need none of its prerequisites, so CI
-provisions nothing extra for them. Outside Linux the fragment leaves the
-platform linker selected.
+the fragment before `nextest` and again to `nextest run`. Both routes assign
+`RUSTFLAGS`, appending their flags to any inherited value with
+`$${RUSTFLAGS:+$$RUSTFLAGS }` rather than replacing it. The assignment is what
+makes them repeat the fragment's own rustflags: assigning `RUSTFLAGS` makes
+Cargo ignore every `rustflags` table, including the fragment's, so the
+documentation denials and the Linux linker flag are restated on the route;
+`dev-test` adds `-D warnings` for its test run. The other standard Make
+targets—`build`, `test`, `typecheck`, `lint-clippy`, `release`, formatting,
+coverage, Kani, Verus, benchmarks, and Whitaker—do not select the fragment and
+need none of its prerequisites, so CI provisions nothing extra for them.
+Outside Linux the fragment leaves the platform linker selected.
 
 Those three development targets declare themselves `.PHONY` beside their
 recipes rather than in the file-wide list at the top of the `Makefile`. The

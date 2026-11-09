@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from dev_fast_routing_test import MAKEFILE_PATH, _cargo_invocations, _make_output
+from dev_fast_make_support import MAKEFILE_PATH, _cargo_invocations, _make_output
 
 
 REQUIRED_DENIALS = ("-D warnings", "-Dmissing_docs", "-Dmissing_crate_level_docs")

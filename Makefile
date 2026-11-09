@@ -18,8 +18,13 @@ DEV_FAST_TOOLCHAIN := $(strip $(file <tools/dev-fast/TOOLCHAIN))
 DEV_FAST_CONFIG := tools/dev-fast/config.toml
 DEV_CARGO = $(CARGO) +$(DEV_FAST_TOOLCHAIN) --config $(DEV_FAST_CONFIG)
 # An assigned RUSTFLAGS replaces every `rustflags` table, including the
-# fragment's, so the development test route restates the documentation denials
-# and the Linux linker selection instead of inheriting them.
+# fragment's, so both development routes compose the fragment's flags into an
+# inherited value rather than replacing it. Passing RUSTFLAGS to `dev-build`
+# at all is what turns the substitution on: with it unset Cargo reads the
+# fragment's own table, but with it set - even to an empty string - Cargo uses
+# the assignment and silently drops the mold flag and both documentation
+# denials. `$${RUSTFLAGS:+$$RUSTFLAGS }` therefore restates the fragment's
+# flags exactly as `$(STANDARD_RUSTFLAGS)` restates `.cargo/config.toml`'s.
 #
 # The host probe is evaluated once, with its exit status. Defaulting the pair
 # to `$(shell uname -s)` under `?=` re-ran the probe on every reference, so one
@@ -50,9 +55,10 @@ DEV_FAST_HOST_OS_IS_PROBED := $(filter file,$(origin DEV_FAST_HOST_OS))
 DEV_FAST_HOST_EMPTY_CHECK = $(if $(strip $(DEV_FAST_HOST_OS)),,$(error Cannot determine the development host OS: `uname -s` returned nothing. Set DEV_FAST_HOST_OS explicitly))
 DEV_FAST_HOST_STATUS_CHECK = $(if $(DEV_FAST_HOST_OS_IS_PROBED),$(if $(filter 0,$(DEV_FAST_HOST_PROBE_STATUS)),,$(error Cannot determine the development host OS: `uname -s` exited $(DEV_FAST_HOST_PROBE_STATUS). Set DEV_FAST_HOST_OS explicitly)),)
 DEV_FAST_HOST_CHECK = $(DEV_FAST_HOST_EMPTY_CHECK)$(DEV_FAST_HOST_STATUS_CHECK)
-DEV_TEST_RUSTFLAGS = $(strip -D warnings -Dmissing_docs \
+DEV_FRAGMENT_RUSTFLAGS = $(strip -Dmissing_docs \
 	-Dmissing_crate_level_docs \
 	$(if $(filter Linux,$(DEV_FAST_HOST_OS)),-Clink-arg=-fuse-ld=mold))
+DEV_TEST_RUSTFLAGS = $(strip -D warnings $(DEV_FRAGMENT_RUSTFLAGS))
 WHITAKER ?= whitaker
 BUILD_JOBS ?=
 CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
@@ -193,10 +199,10 @@ interrogate: ## Enforce complete Python docstring coverage
 .PHONY: dev-build dev-test install-dev-fast
 
 dev-build: ## Build the debug binary with the selected development backend
-	$(DEV_FAST_HOST_CHECK)$(DEV_CARGO) build $(BUILD_JOBS) --bin $(APP)
+	$(DEV_FAST_HOST_CHECK)RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }$(DEV_FRAGMENT_RUSTFLAGS)" $(DEV_CARGO) build $(BUILD_JOBS) --bin $(APP)
 
 dev-test: ## Run the tests with the selected development backend
-	$(DEV_FAST_HOST_CHECK)RUSTFLAGS="$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E 'not kind(bench)'
+	$(DEV_FAST_HOST_CHECK)RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E 'not kind(bench)'
 
 install-dev-fast: ## Install pinned nightly components and the verified mold binary
 	$(DEV_FAST_HOST_CHECK)rustup toolchain install $(DEV_FAST_TOOLCHAIN) --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rustc-codegen-cranelift
