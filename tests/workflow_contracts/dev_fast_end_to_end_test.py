@@ -224,13 +224,39 @@ requires_repository_selection = pytest.mark.skipif(
 )
 
 
-def _nextest_selection(*, filter_expression: str) -> set[str]:
-    """Return the fully qualified test names nextest selects, verbatim.
+def _parse_nextest_listing(listing: str) -> set[str]:
+    """Return the test names a ``cargo nextest list`` transcript names.
 
-    ``cargo nextest list`` prints the same selection ``nextest run`` executes,
-    including the binary prefix, so membership in this set is direct evidence
-    rather than an inference from counts. Counts move whenever an unrelated
-    test is added, so they cannot show which case a filter dropped.
+    Pure: it reads text and decides nothing about where that text came from,
+    which is what lets the cases below check the parse without compiling the
+    workspace. ``nextest list`` writes one test per line, prefixed with the
+    binary it belongs to, and only a test line carries a ``::`` separator, so
+    a line without one names no test. The escape strip is defensive: colour is
+    disabled for the call, but a coloured line would leave the reset sequence
+    attached to the name and the caller's exact suffix match would then fail
+    silently and read as a case the filter dropped.
+    """
+    return {
+        stripped
+        for line in listing.splitlines()
+        if "::" in (stripped := ANSI_ESCAPE.sub("", line))
+    }
+
+
+def _build_and_list_nextest_selection(*, filter_expression: str) -> set[str]:
+    """Compile the workspace, then return the tests nextest selects for it.
+
+    The compilation is the point, not a hidden cost. ``cargo nextest list``
+    documents that it builds every test binary before it can query it for its
+    contents, and it has no listing-without-building mode, so a contract that
+    compares two selections pays for a build twice over one workspace. The
+    name says so: the side effect happens here, and ``_parse_nextest_listing``
+    stays a read.
+
+    The returned set is the selection ``nextest run`` would execute, including
+    the binary prefix, which is what makes membership direct evidence rather
+    than an inference from counts. Counts move whenever an unrelated test is
+    added, so they cannot show which case a filter dropped.
     """
     completed = subprocess.run(
         [
@@ -253,16 +279,70 @@ def _nextest_selection(*, filter_expression: str) -> set[str]:
     assert completed.returncode == 0, (
         f"nextest list rejected {filter_expression!r}: {completed.stderr}"
     )
-    return {
-        stripped
-        for line in completed.stdout.splitlines()
-        if "::" in (stripped := ANSI_ESCAPE.sub("", line))
-    }
+    return _parse_nextest_listing(completed.stdout)
 
 
 def _selected(selection: set[str], test_name: str) -> set[str]:
     """Return the selection entries naming ``test_name``."""
     return {entry for entry in selection if entry.endswith(test_name)}
+
+
+#: The full ``chutoro-core`` name of the poisoned-lock regression, as a real
+#: ``cargo nextest list`` writes it: the binary prefix, then the test path.
+_POISONED_LOCK_LISTING = f"chutoro-core {POISONED_LOCK_TEST}"
+#: The same line as nextest writes it under ``--color always``. The reset
+#: sequence follows the test name, so an unstripped parse yields a name no
+#: suffix match can find, and the exclusion would read as applied when the
+#: filter had dropped nothing.
+_COLOURED_POISONED_LOCK_LISTING = (
+    "\x1b[35;1mchutoro-core\x1b[0m "
+    "\x1b[36mhnsw::cpu::test_helpers::tests\x1b[0m\x1b[36m::\x1b[0m"
+    "\x1b[34;1mgraph_helpers_report_poisoning_without_reconfiguring\x1b[0m"
+)
+
+
+@pytest.mark.parametrize(
+    ("listing", "expected"),
+    (
+        pytest.param(
+            _POISONED_LOCK_LISTING + "\n",
+            {_POISONED_LOCK_LISTING},
+            id="plain-line-keeps-the-binary-prefix",
+        ),
+        pytest.param(
+            _COLOURED_POISONED_LOCK_LISTING + "\n",
+            {_POISONED_LOCK_LISTING},
+            id="coloured-line-strips-escapes",
+        ),
+        pytest.param(
+            "chutoro-core a::b\nchutoro-core c::d\n",
+            {"chutoro-core a::b", "chutoro-core c::d"},
+            id="several-lines-keep-every-name",
+        ),
+        pytest.param(
+            "chutoro-core a::b\nchutoro-core a::b\n",
+            {"chutoro-core a::b"},
+            id="repeated-name-collapses",
+        ),
+        # The parse sees only text, so it cannot know a line is a test except
+        # by its shape. A line naming no test must not enter the set: counting
+        # one would make the comparison differ for a reason the filter did not
+        # cause, and the failure would point at the exclusion rather than at
+        # the parse.
+        pytest.param("chutoro-core\n", set(), id="line-without-a-test-names-none"),
+        pytest.param("\n\n", set(), id="blank-lines-name-no-test"),
+        pytest.param("", set(), id="empty-transcript-names-no-test"),
+    ),
+)
+def test_listing_parse_reports_test_names(listing: str, expected: set[str]) -> None:
+    """The parse must report names, not lines, and must survive colour.
+
+    Each row is one shape the transcript can take. The assertion reads the
+    parsed set directly, which is what the selection comparison consumes, so a
+    parser that stopped at the first line or kept the escape codes fails here
+    rather than in an opt-in end-to-end run.
+    """
+    assert _parse_nextest_listing(listing) == expected
 
 
 @pytest.fixture(scope="module")
@@ -316,8 +396,12 @@ def test_development_selection_is_the_standard_selection_minus_one_case(
     evidence the probe contracts above already buy. What this covers is the
     filter's membership; what they cover is the route executing.
     """
-    dev_selection = _nextest_selection(filter_expression=dev_test_filter)
-    standard_selection = _nextest_selection(filter_expression=STANDARD_FILTER)
+    dev_selection = _build_and_list_nextest_selection(
+        filter_expression=dev_test_filter
+    )
+    standard_selection = _build_and_list_nextest_selection(
+        filter_expression=STANDARD_FILTER
+    )
 
     assert _selected(dev_selection, POISONED_LOCK_TEST) == set(), (
         "dev-test must not select the poisoned-lock regression"
