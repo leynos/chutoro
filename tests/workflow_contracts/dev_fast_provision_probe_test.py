@@ -7,8 +7,11 @@ never claimed to be provisioned. CI showed the second failure: it installs the
 same nightly pin for the Whitaker suite, so a toolchain-only probe passes, and
 the build then dies on the missing Cranelift codegen component.
 
-These contracts drive the probes against a stand-in ``rustup`` so both sides
-of the boundary are stated without needing a real toolchain.
+These contracts drive the probes against a stand-in ``rustup`` so every
+provisioning state is stated without needing a real toolchain, and without
+asking the host's own rustup anything. The stand-in reports what the scenario
+describes, including failure, so a probe that cannot distinguish an absent
+component from an unreadable listing is visible here.
 """
 
 from __future__ import annotations
@@ -19,11 +22,17 @@ from pathlib import Path
 
 import pytest
 
-from dev_fast_make_support import REPO_ROOT, _has_cranelift_backend, _pinned_toolchain
+from dev_fast_make_support import (
+    REPO_ROOT,
+    ComponentProbeError,
+    _has_cranelift_backend,
+    _pinned_toolchain,
+)
 
 #: A ``rustup`` that answers ``toolchain list`` and ``component list`` from a
-#: scenario described by two environment variables, so one script covers every
-#: provisioning state without a real toolchain.
+#: scenario described by environment variables, so one script covers every
+#: provisioning state. ``STUB_COMPONENT_STATUS`` lets a scenario fail the
+#: component listing while the toolchain itself still looks installed.
 RUSTUP_STAND_IN = """#!/usr/bin/env bash
 case "${1:-}" in
   toolchain)
@@ -31,6 +40,7 @@ case "${1:-}" in
     ;;
   component)
     printf '%b\\n' "${STUB_COMPONENTS:-}"
+    exit "${STUB_COMPONENT_STATUS:-0}"
     ;;
   *)
     exit 2
@@ -44,11 +54,22 @@ PROVISIONED_COMPONENTS = "rustc-codegen-cranelift-x86_64-unknown-linux-gnu"
 
 #: What CI reports: the same pin, installed for Whitaker with stable
 #: components only.
-UNPROVISIONED_COMPONENTS = "rustfmt-x86_64-unknown-linux-gnu\\nclippy-x86_64-unknown-linux-gnu"
+UNPROVISIONED_COMPONENTS = (
+    "rustfmt-x86_64-unknown-linux-gnu\\nclippy-x86_64-unknown-linux-gnu"
+)
+
+#: The source the child interpreter runs, so the probe is exercised in a real
+#: subprocess with the stand-in first on its ``PATH`` rather than by editing
+#: the parent's environment.
+PROBE_CALL = (
+    "from dev_fast_make_support import _has_cranelift_backend; "
+    "from dev_fast_make_support import _pinned_toolchain; "
+    "print(_has_cranelift_backend(_pinned_toolchain()))"
+)
 
 
 def _with_stand_in_rustup(
-    tmp_path: Path, *, components: str
+    tmp_path: Path, *, components: str, component_status: int = 0
 ) -> subprocess.CompletedProcess[str]:
     """Run the Cranelift probe against a stand-in whose toolchain is present."""
     binary_directory = tmp_path / "bin"
@@ -64,6 +85,7 @@ def _with_stand_in_rustup(
         "PYTHONPATH": str(Path(__file__).resolve().parent),
         "STUB_TOOLCHAINS": f"{toolchain}-x86_64-unknown-linux-gnu (default)",
         "STUB_COMPONENTS": components,
+        "STUB_COMPONENT_STATUS": str(component_status),
     }
     return subprocess.run(
         [
@@ -73,9 +95,7 @@ def _with_stand_in_rustup(
             # which has no site-packages of its own.
             sys.executable,
             "-c",
-            "from dev_fast_make_support import _has_cranelift_backend; "
-            "from dev_fast_make_support import _pinned_toolchain; "
-            "print(_has_cranelift_backend(_pinned_toolchain()))",
+            PROBE_CALL,
         ],
         cwd=REPO_ROOT,
         env=environment,
@@ -140,23 +160,54 @@ def test_the_cranelift_probe_is_not_fooled_by_a_longer_component_name(
     )
 
 
-def test_the_component_probe_fails_closed_when_rustup_cannot_list() -> None:
-    """An unreadable component listing must not claim the backend exists.
+def test_a_failed_component_listing_raises_rather_than_reporting_absence(
+    tmp_path: Path,
+) -> None:
+    """An unreadable listing must be distinguishable from an absent component.
 
-    Reporting a missing toolchain as provisioned turns a skip into a build
-    failure on exactly the hosts the guard exists to protect.
+    A host can claim the toolchain is installed while rustup cannot answer for
+    its components, and the two facts call for different responses: absence
+    means the developer has not provisioned the route, while a failed listing
+    means the probe or rustup is broken and the caller must say so.
     """
-    assert not _has_cranelift_backend("a-toolchain-that-is-not-installed"), (
-        "an unknown toolchain must not be reported as carrying the backend"
+    completed = _with_stand_in_rustup(
+        tmp_path, components=UNPROVISIONED_COMPONENTS, component_status=1
+    )
+
+    assert completed.returncode != 0, (
+        "a failed listing must not answer for the component; got "
+        f"{completed.stdout!r}"
+    )
+    assert "ComponentProbeError" in completed.stderr, (
+        "the failure must name the probe error at the test boundary; got "
+        f"{completed.stderr!r}"
     )
 
 
-def test_an_unknown_toolchain_is_not_reported_as_installed() -> None:
-    """The probe must not invent a component for a channel rustup rejects."""
-    with pytest.raises(subprocess.CalledProcessError):
-        subprocess.run(
-            ["rustup", "component", "list", "--installed", "--toolchain", "nope"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+def test_an_unreadable_listing_is_reported_as_a_probe_error(tmp_path: Path) -> None:
+    """The raised type must carry the toolchain and the reason it could not read."""
+    completed = _with_stand_in_rustup(
+        tmp_path, components=UNPROVISIONED_COMPONENTS, component_status=1
+    )
+
+    assert completed.returncode != 0, completed.stdout
+    assert _pinned_toolchain() in completed.stderr, (
+        "the error must name the toolchain whose components could not be read; "
+        f"got {completed.stderr!r}"
+    )
+
+
+def test_a_caller_handling_skips_does_not_swallow_the_probe_error() -> None:
+    """Handling a skip must not also handle an unreadable probe.
+
+    Callers of the guard catch pytest's skip signal to decide the case cannot
+    run. If the probe error shared that type, a broken listing would be
+    silently reported as an unprovisioned host and the defect would ship.
+    """
+    try:
+        raise ComponentProbeError("rustup could not list components")
+    except pytest.skip.Exception:  # pragma: no cover - the assert must not run
+        raise AssertionError("a probe error must not be caught as a skip") from None
+    except ComponentProbeError:
+        handled = "probe error"
+    assert handled == "probe error"

@@ -10,8 +10,9 @@ reached the pinned toolchain, would satisfy both.
 The contracts here run the real recipes against a tiny probe crate, which
 ``dev_fast_probe_support`` builds. They are the slowest in the suite and skip
 rather than provision: ``make install-dev-fast`` is the route that installs the
-pinned nightly, so a host without it - including CI, which provisions nothing
-for the fragment - must not reach the network from a test.
+pinned nightly, its Cranelift component and the mold linker, so a host missing
+any of them must not reach the network from a test. CI is such a host - it
+installs the same nightly pin for Whitaker, without the Cranelift component.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -26,6 +27,7 @@ from dev_fast_make_support import _skip_unless_pin_installed
 from dev_fast_probe_support import (
     CRANELIFT_ARGUMENT,
     assert_probe_inputs_are_real,
+    linker_missing_reason,
     nextest_missing_reason,
     probe_environment,
     run_development_target,
@@ -38,9 +40,17 @@ def _skip_unless_dev_test_can_run() -> None:
     reason = nextest_missing_reason()
     if reason is not None:
         pytest.skip(reason)
+    _skip_unless_linker_available("dev-test links with the pinned nightly")
     _skip_unless_pin_installed(
         "dev-test runs the suite on the pinned nightly", needs_cranelift=True
     )
+
+
+def _skip_unless_linker_available(reason: str) -> None:
+    """Skip the calling case when this host has no linker to build with."""
+    missing = linker_missing_reason()
+    if missing is not None:
+        pytest.skip(f"{missing}; {reason}")
 
 
 def test_dev_build_compiles_and_links_the_probe_with_cranelift(tmp_path: Path) -> None:
@@ -51,6 +61,7 @@ def test_dev_build_compiles_and_links_the_probe_with_cranelift(tmp_path: Path) -
     binary that runs separate the two. Both are asserted, so a route that
     reached Cranelift but failed to link - mold's failure mode - cannot pass.
     """
+    _skip_unless_linker_available("dev-build links with the pinned nightly")
     _skip_unless_pin_installed(
         "dev-build compiles with the pinned nightly", needs_cranelift=True
     )
@@ -85,16 +96,25 @@ def test_dev_test_runs_the_suite_through_the_pinned_toolchain(
     does not inherit the outer configuration. A recipe that dropped the inner
     ``--config`` would still build with the outer one and then test whatever
     nextest's own defaults selected, which is the defect this asserts against.
+    The compiler arguments are checked too, because nextest reporting a pass
+    says nothing about which backend compiled the test.
     """
     _skip_unless_dev_test_can_run()
     directory = write_probe_repository(tmp_path / "probe")
 
     completed = run_development_target(
-        directory, probe_environment(directory, tmp_path / "home"), "dev-test"
+        directory,
+        probe_environment(directory, tmp_path / "home"),
+        "dev-test",
+        build_jobs="--cargo-verbose",
     )
 
     assert completed.returncode == 0, (
         f"dev-test failed on a minimal crate:\n{completed.stdout}\n{completed.stderr}"
+    )
+    assert CRANELIFT_ARGUMENT in completed.stderr, (
+        "dev-test must compile the probe's test with the fragment's Cranelift "
+        f"backend, not only run it; got:\n{completed.stderr}"
     )
     assert "the_route_runs_tests" in completed.stderr, (
         f"dev-test must report the probe's test by name; got:\n{completed.stderr}"

@@ -88,14 +88,22 @@ def _installed_toolchains() -> set[str] | None:
     triple appended and optionally a ``(default)`` or ``(active)`` marker.
     Splitting each line on whitespace keeps the name and drops the marker, so
     callers can compare names rather than substrings.
+
+    A host without rustup at all has no installed toolchains, which is the
+    same answer as a rustup that ran and failed. Both must report ``None``
+    rather than raise, or the skip guard would turn an absent toolchain into
+    an error.
     """
-    listed = subprocess.run(
-        ["rustup", "toolchain", "list"],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        listed = subprocess.run(
+            ["rustup", "toolchain", "list"],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return None
     if listed.returncode != 0:
         return None
     return {
@@ -122,6 +130,38 @@ def _is_toolchain_installed(toolchain: str, installed: set[str]) -> bool:
     )
 
 
+class ComponentProbeError(RuntimeError):
+    """The component listing could not be read, so its answer is unknown."""
+
+
+def _installed_components(toolchain: str) -> tuple[str, ...]:
+    """Return the components rustup reports for a toolchain.
+
+    A listing that cannot be read raises :class:`ComponentProbeError` rather
+    than returning an empty tuple, because "rustup is broken or absent" and
+    "the component is not installed" are different facts: the first is a
+    defect in the probe's host, the second is a host that has simply not run
+    ``make install-dev-fast``.
+    """
+    try:
+        listed = subprocess.run(
+            ["rustup", "component", "list", "--installed", "--toolchain", toolchain],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as error:
+        raise ComponentProbeError(
+            f"rustup is not installed, so {toolchain}'s components cannot be read"
+        ) from error
+    if listed.returncode != 0:
+        raise ComponentProbeError(
+            f"rustup could not list {toolchain}'s components: {listed.stderr.strip()}"
+        )
+    return tuple(map(str.strip, listed.stdout.splitlines()))
+
+
 def _has_cranelift_backend(toolchain: str) -> bool:
     """Report whether a toolchain carries the Cranelift codegen component.
 
@@ -134,20 +174,15 @@ def _has_cranelift_backend(toolchain: str) -> bool:
     triple appended, so the bare name is matched as a prefix. Output is
     matched per line rather than by substring, so ``rustc-codegen-cranelift``
     cannot be confused with a longer component name.
+
+    An unreadable listing raises :class:`ComponentProbeError`; only a reading
+    that succeeded can say the component is absent.
     """
-    listed = subprocess.run(
-        ["rustup", "component", "list", "--installed", "--toolchain", toolchain],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if listed.returncode != 0:
-        return False
+    components = _installed_components(toolchain)
     return any(
         name == "rustc-codegen-cranelift"
         or name.startswith("rustc-codegen-cranelift-")
-        for name in map(str.strip, listed.stdout.splitlines())
+        for name in components
     )
 
 
@@ -164,6 +199,11 @@ def _skip_unless_pin_installed(reason: str, *, needs_cranelift: bool = False) ->
     nightly pin for the Whitaker suite without the Cranelift component, so a
     toolchain-only guard would run the build and then fail on the missing
     backend. Callers that only read configuration leave it ``False``.
+
+    A listing that cannot be read is not a skip: the host claims the toolchain
+    is installed, so an unreadable component list is a defect in the probe or
+    in rustup, and :class:`ComponentProbeError` reaches the test boundary with
+    that fact rather than being reported as an unprovisioned host.
     """
     toolchain = _pinned_toolchain()
     installed = _installed_toolchains()

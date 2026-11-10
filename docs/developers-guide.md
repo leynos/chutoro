@@ -1098,6 +1098,18 @@ to 346 with the flag, and a new example is a new test the moment it is written,
 which is also why an example that cannot be made to pass belongs in prose
 rather than in a docstring.
 
+Reading the workflow files happens at one boundary,
+`workflow_support.all_workflow_documents`, and the derivations above it take
+their documents as a parameter. That is what lets a case this repository does
+not have be described at all: a job running the coverage action twice, a
+workflow directory that is absent, a file that is not YAML. It also gives the
+failures one type. A missing directory, a file that cannot be read, bytes that
+do not decode and text that is not YAML all arrive as `WorkflowReadError`,
+naming the path, because a contract cannot say anything about a workflow it
+never saw, and `Path.glob` yields nothing for a missing directory rather than
+complaining about it: without the guard, every assertion passed having read no
+workflow at all.
+
 ### The development route's own contracts
 
 The `dev_fast_*` suites hold the Cranelift route at three depths. Most read
@@ -1131,17 +1143,17 @@ CI and fail on the missing backend, which is a broken contract rather than an
 unprovisioned host. Provisioning the component is what lets those cases run,
 and a host that has done so is where they are meant to hold.
 
-Reading the workflow files happens at one boundary,
-`workflow_support.all_workflow_documents`, and the derivations above it take
-their documents as a parameter. That is what lets a case this repository does
-not have be described at all: a job running the coverage action twice, a
-workflow directory that is absent, a file that is not YAML. It also gives the
-failures one type. A missing directory, a file that cannot be read, bytes that
-do not decode and text that is not YAML all arrive as `WorkflowReadError`,
-naming the path, because a contract cannot say anything about a workflow it
-never saw, and `Path.glob` yields nothing for a missing directory rather than
-complaining about it: without the guard, every assertion passed having read no
-workflow at all.
+Linux hosts need one more thing, because both development recipes pass
+`-Clink-arg=-fuse-ld=mold`: without `ld.mold` on the `PATH` the build fails in
+the linker rather than skipping, so those cases check for it too. Testing with
+`shutil.which` rather than a fixed path keeps a developer who installed the
+linker elsewhere in the route.
+
+The probes distinguish an absent component from an unreadable component list.
+Only a listing that succeeded can say the backend is missing; a rustup that
+cannot answer raises `ComponentProbeError` at the test boundary, because a
+broken listing is a defect in the probe or the host rather than a developer who
+has not provisioned the route.
 
 ### Installer flags are only wrong where the tool parses them
 

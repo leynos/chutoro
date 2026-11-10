@@ -19,6 +19,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -117,27 +118,44 @@ def probe_environment(
 
 
 def _rustup_home() -> Path | None:
-    """Return the shared toolchain root, or ``None`` when rustup cannot say."""
-    reported = subprocess.run(
-        ["rustup", "show", "home"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    """Return the shared toolchain root, or ``None`` when rustup cannot say.
+
+    A host without rustup cannot say either, so a missing executable takes the
+    same ``None`` path as a failed command. The probe environment then carries
+    no ``RUSTUP_HOME``, which is the correct state for such a host.
+    """
+    try:
+        reported = subprocess.run(
+            ["rustup", "show", "home"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return None
     if reported.returncode != 0 or not reported.stdout.strip():
         return None
     return Path(reported.stdout.strip())
 
 
 def run_development_target(
-    directory: Path, environment: dict[str, str], target: str
+    directory: Path,
+    environment: dict[str, str],
+    target: str,
+    *,
+    build_jobs: str = "--verbose",
 ) -> subprocess.CompletedProcess[str]:
     """Run one development recipe against the probe crate in ``directory``.
 
     ``APP=devprobe`` points the recipe at the probe's binary and
-    ``BUILD_JOBS=--verbose`` asks Cargo to print the compiler arguments the
-    backend assertion reads. ``CI`` is cleared so the nextest profile is the
-    developer's default rather than the gate's.
+    ``BUILD_JOBS`` reaches the Cargo invocation with the compiler arguments
+    the backend assertion reads. ``CI`` is cleared so the nextest profile is
+    the developer's default rather than the gate's.
+
+    ``dev-build`` needs ``--verbose``, but ``dev-test`` needs
+    ``--cargo-verbose`` instead: nextest starts its own Cargo, and only the
+    latter flag makes that inner build print the line the assertion reads.
+    The default suits the direct Cargo route; a nextest caller passes its own.
 
     Cargo writes its progress and nextest its run report to standard error,
     leaving standard output for make's echo of the recipe, so callers read the
@@ -153,7 +171,7 @@ def run_development_target(
             str(directory / "Makefile"),
             target,
             "APP=devprobe",
-            "BUILD_JOBS=--verbose",
+            f"BUILD_JOBS={build_jobs}",
         ],
         cwd=directory,
         check=False,
@@ -180,4 +198,27 @@ def nextest_missing_reason() -> str | None:
     """Return why ``dev-test`` cannot run here, or ``None`` when it can."""
     if shutil.which("cargo-nextest") is None:
         return "dev-test needs cargo-nextest, which scripts/install-nextest.sh installs"
+    return None
+
+
+def linker_missing_reason() -> str | None:
+    """Return why a development target cannot link here, or ``None`` when it can.
+
+    On Linux both development recipes add ``-Clink-arg=-fuse-ld=mold``, so a
+    host without ``ld.mold`` fails in the linker rather than skipping. The
+    recipes reach it through ``$(HOME)/.local/bin``, and that directory is
+    what ``make install-dev-fast`` populates.
+
+    ``shutil.which`` is the right test rather than a path join, because the
+    recipe resolves the linker through ``PATH``: a developer who keeps it
+    somewhere else is provisioned too, and the contract should run. Other
+    hosts add no such flag and need nothing.
+    """
+    if sys.platform != "linux":
+        return None
+    if shutil.which("ld.mold") is None:
+        return (
+            "the development route links with ld.mold, which "
+            "make install-dev-fast installs"
+        )
     return None
