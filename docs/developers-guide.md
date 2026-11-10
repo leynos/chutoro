@@ -1116,7 +1116,7 @@ other installer contract sets `MOLD_INSTALL_PREFIX`, so none of them exercises
 the `~/.local` default or the `PATH` export that makes it reachable. One
 contract installs with the default prefix and links the probe with a failing
 `ld.mold` shim ahead of the host's own, so a host that already had a working
-mold cannot make it pass; its control removes the `PATH` export and requires
+`mold` cannot make it pass; its control removes the `PATH` export and requires
 the shim to stop the build. Together they show the export is load-bearing
 rather than decorative.
 
