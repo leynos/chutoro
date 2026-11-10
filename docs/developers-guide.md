@@ -1475,8 +1475,10 @@ unit test in the owning module instead, as the `score_trim_jobs` unit test does.
 the target loses a flag, if `make test` stops running it, if CI drops the step,
 or if an ignored doctest reappears under the CPU HNSW sources. It also runs the
 real target against a scratch workspace holding a passing and a failing
-example, so an advisory target that skipped or tolerated a broken example would
-fail the contract rather than pass it.
+example, through the standalone target, through `make test`, and through the
+command the CI `Doctests` step declares. A gate that skipped or tolerated a
+broken example would therefore fail the contract rather than pass it; the
+hosted runner itself is not simulated.
 
 The stable portable-SIMD no-feature check invokes its isolated Cargo fixture
 manifest directly, clears `RUSTC_BOOTSTRAP`, and asserts the `E0658`

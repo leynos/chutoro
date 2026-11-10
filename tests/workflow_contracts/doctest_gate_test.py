@@ -5,8 +5,12 @@ compiles the examples in a crate's documentation. The Makefile therefore has to
 expose a `test-doc` target that runs `cargo test --doc` over the workspace with
 all features and warnings denied, `make test` has to run the same check after
 nextest, and the CI build-test job has to invoke it before the nextest-based
-coverage step. The final test pins the CPU HNSW sources directly: an ignored
-doctest is not compiled at all, which is the gap this gate exists to close.
+coverage step. Textual checks pin that wiring, and end-to-end cases run the
+real targets against a scratch workspace with a passing and a failing example,
+including through `make test` and the command the CI step declares, so an
+advisory gate cannot pass this contract. The final test pins the CPU HNSW
+sources directly: an ignored doctest is not compiled at all, which is the gap
+this gate exists to close.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -257,6 +261,10 @@ def _cargo_wrapper(root: Path, manifest: Path) -> Path:
     `--manifest-path` belongs to the subcommand, so it cannot be appended to
     the `CARGO` value the recipe expands before `test`. The shim inserts it
     after the subcommand instead.
+
+    `fetch` and `nextest` are stubbed out rather than delegated: the fixture
+    workspace has no dependencies to fetch and no nextest suite, and the
+    question here is only whether a failing doctest reaches the caller.
     """
     cargo = shutil.which("cargo")
     assert cargo, "the doctest gate test needs cargo"
@@ -267,6 +275,9 @@ def _cargo_wrapper(root: Path, manifest: Path) -> Path:
         "shift\n"
         'command=$1\n'
         "shift\n"
+        "case \"$command\" in\n"
+        "  fetch|nextest) exit 0 ;;\n"
+        "esac\n"
         f'exec {shlex.quote(cargo)} "$command" --manifest-path "$manifest" "$@"\n',
         encoding="utf-8",
     )
@@ -274,8 +285,8 @@ def _cargo_wrapper(root: Path, manifest: Path) -> Path:
     return wrapper
 
 
-def _run_test_doc(manifest: Path) -> subprocess.CompletedProcess[str]:
-    """Run the `test-doc` target against the fixture workspace."""
+def _run_make(target: str, manifest: Path) -> subprocess.CompletedProcess[str]:
+    """Run *target* against the fixture workspace."""
     make = shutil.which("make")
     assert make, "the doctest gate test needs make"
     wrapper = _cargo_wrapper(manifest.parent, manifest)
@@ -284,7 +295,7 @@ def _run_test_doc(manifest: Path) -> subprocess.CompletedProcess[str]:
             make,
             "-C",
             str(ROOT),
-            "test-doc",
+            target,
             f"CARGO={shlex.quote(str(wrapper))} {shlex.quote(str(manifest))}",
         ],
         capture_output=True,
@@ -295,13 +306,53 @@ def _run_test_doc(manifest: Path) -> subprocess.CompletedProcess[str]:
 
 def test_the_target_runs_a_passing_doctest(tmp_path: Path) -> None:
     """A compiling example must be executed, not skipped."""
-    result = _run_test_doc(_write_doctest_fixture(tmp_path, _fixture_source(42)))
+    result = _run_make("test-doc", _write_doctest_fixture(tmp_path, _fixture_source(42)))
     assert result.returncode == 0, result.stdout + result.stderr
     assert "test result: ok" in result.stdout
 
 
 def test_the_target_fails_a_failing_doctest(tmp_path: Path) -> None:
     """A failing example must fail the target, or the gate is advisory."""
-    result = _run_test_doc(_write_doctest_fixture(tmp_path, _fixture_source(41)))
+    result = _run_make("test-doc", _write_doctest_fixture(tmp_path, _fixture_source(41)))
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "test result: FAILED" in result.stdout
+
+
+def test_make_test_passes_when_the_doctest_passes(tmp_path: Path) -> None:
+    """The local entry point must succeed when the example does."""
+    result = _run_make("test", _write_doctest_fixture(tmp_path, _fixture_source(42)))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "test result: ok" in result.stdout
+
+
+def test_make_test_fails_when_the_doctest_fails(tmp_path: Path) -> None:
+    """A broken example must fail `make test`, not only the bare target."""
+    result = _run_make("test", _write_doctest_fixture(tmp_path, _fixture_source(41)))
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "test result: FAILED" in result.stdout
+
+
+def _ci_doctest_command() -> list[str]:
+    """Return the argv CI's doctest step runs, as the workflow declares it."""
+    workflow = yaml.safe_load(CI.read_text(encoding="utf-8"))
+    for step in workflow["jobs"]["build-test"]["steps"]:
+        if str(step.get("run", "")).strip() == "make test-doc":
+            return shlex.split(str(step["run"]))
+    message = "CI must declare the doctest step this test exercises"
+    raise AssertionError(message)
+
+
+def test_the_ci_doctest_entry_point_fails_on_a_failing_doctest(
+    tmp_path: Path,
+) -> None:
+    """The exact command CI runs must fail on a broken example.
+
+    The hosted runner itself is not simulated; this executes the command the
+    workflow step declares, against the fixture workspace, so a step that
+    could not fail would be caught here rather than in the hosted job.
+    """
+    argv = _ci_doctest_command()
+    assert argv[:1] == ["make"], f"unsupported CI invocation: {argv}"
+    result = _run_make(argv[1], _write_doctest_fixture(tmp_path, _fixture_source(41)))
     assert result.returncode != 0, result.stdout + result.stderr
     assert "test result: FAILED" in result.stdout
