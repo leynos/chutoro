@@ -970,9 +970,9 @@ with its `TempDir` and path convention, but must not rebuild the Arrow schema
 or record batch. Keep `RunCommand` builders in CLI test helpers because their
 types and defaults belong to the CLI boundary.
 
-Test modules split remaining local fixtures into dedicated support modules
-when the test file approaches Whitaker's 400-line `module_max_lines` cap,
-keeping the test file focused on the behaviour under test. Current examples:
+Test modules split remaining local fixtures into dedicated support modules when
+the test file approaches Whitaker's 400-line `module_max_lines` cap, keeping
+the test file focused on the behaviour under test. Current examples:
 
 - `chutoro-core/src/session/tests/common.rs` — session builder setup and
   batch-oracle helpers, composed with `NumericTestSource` from `test_utils.rs`.
@@ -1148,12 +1148,12 @@ so it is worth knowing which is which and in what order they can fire.
 
 Table: the four timers, innermost first, with where each is set.
 
-| Tier                     | What it bounds                     | Where it is set                                     | Current value                                |
-| ------------------------ | ---------------------------------- | --------------------------------------------------- | -------------------------------------------- |
+| Tier                     | What it bounds                     | Where it is set                                     | Current value                                  |
+| ------------------------ | ---------------------------------- | --------------------------------------------------- | ---------------------------------------------- |
 | Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default, 1,800 s for the slowest override |
-| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 80 m                                         |
-| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 6,000 s (100 m)                              |
-| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 130 m                                        |
+| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 80 m                                           |
+| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 6,000 s (100 m)                                |
+| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 130 m                                          |
 
 Each tier must sit above the one before it.
 
@@ -1212,10 +1212,10 @@ override assigns them to a Nextest test group with `max-threads = 1`, so
 trybuild cannot contend for its shared artefact directory. It reserves four
 test slots and allows 1,800 seconds in both `default` and `ci`. The previous
 cold run reached the final Arrow and Parquet check at 1,500 seconds but timed
-out before trybuild returned. See the [Nextest test-group
-documentation](https://nexte.st/docs/configuration/test-groups/). The benchmark
-smoke test runs nested release-mode `cargo bench` commands, so it also reserves
-eight slots and 1,800 seconds. Tests in
+out before trybuild returned. See the
+[Nextest test-group documentation](https://nexte.st/docs/configuration/test-groups/).
+The benchmark smoke test runs nested release-mode `cargo bench` commands, so
+it also reserves eight slots and 1,800 seconds. Tests in
 `chutoro-core/tests/nextest_config.rs` pin the compile-contract and benchmark
 smoke allowances to the authoritative overrides in `.config/nextest.toml`.
 
