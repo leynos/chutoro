@@ -9,10 +9,12 @@ nightly_portable_simd = []
 simd_avx2 = []
 simd_avx512 = []
 simd_neon = []
+testing = ["dep:bytes"]
 
 [dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
+bytes = { version = "1.10", optional = true }
 parquet = { workspace = true, features = ["arrow"] }
 thiserror = "2.0.17"
 [dependencies.chutoro-core]
@@ -25,8 +27,10 @@ features = ["skeleton"]
 mockable = { workspace = true }
 [dev-dependencies]
 bytes = "1.10"
+cap-std = "4.0.3"
 proptest = "1.8.0"
 rstest = "0.28"
+tempfile = "3.10"
 test-strategy = "0.4.3"
 
 [dev-dependencies.chutoro-test-support]

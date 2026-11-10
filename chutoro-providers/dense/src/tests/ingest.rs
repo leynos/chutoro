@@ -2,8 +2,13 @@
 //! multi-batch loading, error handling for missing columns, incorrect types, inconsistent
 //! dimensions, nullable schemas, and null row/value rejection during copy operations.
 
-use super::{DenseMatrixProvider, DenseMatrixProviderError, support::*};
+use super::{DenseMatrixProvider, DenseMatrixProviderError, support::try_from_record_batches};
 use crate::ingest::{copy_list_values, validate_fixed_size_list_field};
+use crate::testing::{
+    build_array, build_list_array, build_list_array_with_row_nulls,
+    build_list_array_with_value_nulls, feature_field, write_parquet, write_parquet_two_batches,
+    write_parquet_with_field,
+};
 use arrow_array::RecordBatch;
 use arrow_schema::{DataType, Field, Schema};
 use bytes::Bytes;
