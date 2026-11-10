@@ -140,10 +140,13 @@ feature and its declarations move together.
 
 The contracts in `tests/workflow_contracts/dev_fast_*_test.py` read a
 `make --dry-run` transcript. That pins what the Makefile *says* and cannot
-distinguish a case that is excluded from one whose exclusion string misspells
-the test name: both leave the case unrun, and only the second one reintroduces
-the Cranelift abort. `dev_fast_end_to_end_test.py` closes that gap by comparing
-live nextest selections and by running the real recipes.
+distinguish a correct exclusion from one whose string misspells the test name.
+The two are not equivalent. nextest treats a `test(=...)` clause that matches
+no registered test as an empty match, so the misspelt form excludes nothing,
+still selects the poisoned-lock regression, and aborts under Cranelift; only
+the correctly named exclusion leaves that case unrun.
+`dev_fast_end_to_end_test.py` closes the gap by comparing live nextest
+selections and by running the real recipes.
 
 It is opt-in, because a cold Cranelift build costs far more than a contract
 suite should spend by default:
