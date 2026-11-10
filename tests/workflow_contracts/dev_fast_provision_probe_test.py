@@ -14,6 +14,7 @@ of the boundary are stated without needing a real toolchain.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -66,7 +67,11 @@ def _with_stand_in_rustup(
     }
     return subprocess.run(
         [
-            "python3",
+            # The probe's module imports pytest at import time, so the child
+            # must run on the interpreter that is already running these
+            # tests. A bare "python3" finds the system interpreter instead,
+            # which has no site-packages of its own.
+            sys.executable,
             "-c",
             "from dev_fast_make_support import _has_cranelift_backend; "
             "from dev_fast_make_support import _pinned_toolchain; "
