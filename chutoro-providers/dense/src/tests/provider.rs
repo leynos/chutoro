@@ -6,7 +6,10 @@
 //! within `1.0e-5_f32`, and cover the error paths for out-of-bounds indices,
 //! mismatched output lengths, and rejected input data.
 
-use super::{DenseMatrixProvider, DenseMatrixProviderError, support::*};
+use super::{DenseMatrixProvider, DenseMatrixProviderError};
+use crate::testing::{
+    build_array, build_list_array_with_row_nulls, build_list_array_with_value_nulls,
+};
 use arrow_array::{ArrayRef, FixedSizeListArray};
 use arrow_schema::{DataType, Field};
 use chutoro_core::{DataSource, PointPair};
