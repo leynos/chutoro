@@ -180,24 +180,28 @@ RESOLVE_RECIPE = """probe:
 \t@command -v ld.mold || echo MISSING
 """
 
-#: The tools the resolve probe needs from the clean ``PATH``. Everything else —
+#: The program the probe runs from the clean ``PATH``. Everything else —
 #: including any mold the developer's own path carries — stays out of it.
-PROBE_TOOLS = ("make", "bash", "sh", "command", "env", "printf")
+#: ``make`` is the one tool that has to be a real executable, because the test
+#: invokes it by name. ``command``, ``echo`` and ``printf`` are shell builtins
+#: that ``sh`` resolves itself, so requiring them as binaries would fail on a
+#: host that has no such files, which is what a CI runner turned out to be.
+PROBE_TOOL = "make"
 
 
 def _clean_binary_directory(directory: Path) -> Path:
-    """Return a ``PATH`` entry holding the probe's tools and no linker.
+    """Return a ``PATH`` entry holding the probe's tool and no linker.
 
     An inherited ``PATH`` is what makes a first attempt at this contract prove
     nothing: this host ships ``/usr/bin/ld.mold``, so both halves resolved a
     linker and the export looked decorative. The entry therefore carries only
-    the commands the recipe itself needs, symlinked by absolute path.
+    ``make``, symlinked by absolute path; the recipe it runs needs nothing
+    else that is not a shell builtin.
     """
     directory.mkdir(parents=True, exist_ok=True)
-    for name in PROBE_TOOLS:
-        found = shutil.which(name)
-        assert found is not None, f"the probe needs {name} on this host"
-        (directory / name).symlink_to(found)
+    found = shutil.which(PROBE_TOOL)
+    assert found is not None, f"the probe needs {PROBE_TOOL} on this host"
+    (directory / PROBE_TOOL).symlink_to(found)
     return directory
 
 
