@@ -285,6 +285,12 @@ def _assert_nextest_scope(line: str, tokens: list[str]) -> None:
     ``--all-features`` would skip tests, ``--all-targets`` alone is not enough
     without ``run``, and omitting the benchmark filter makes nextest attempt
     cases the standard gate excludes.
+
+    The filter is not pinned to a literal here: the development route also
+    excludes the Cranelift-incompatible poisoned-lock regression, so the
+    precise expression is owned by `_assert_development_exclusion` in the
+    routing suite. This check only requires the benchmark exclusion to be
+    present.
     """
     nextest_args = tokens[tokens.index("nextest") + 1 :]
     assert nextest_args[0] == "run", (
@@ -296,8 +302,8 @@ def _assert_nextest_scope(line: str, tokens: list[str]) -> None:
         )
     assert "-E" in nextest_args, f"dev-test must filter benchmarks: {line!r}"
     filter_index = nextest_args.index("-E")
-    assert nextest_args[filter_index + 1] == "not kind(bench)", (
-        f"dev-test must exclude only benchmarks: {line!r}"
+    assert nextest_args[filter_index + 1].startswith("not kind(bench)"), (
+        f"dev-test must exclude benchmarks: {line!r}"
     )
 
 
