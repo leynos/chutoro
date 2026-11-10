@@ -10,7 +10,9 @@ use clap::Parser;
 use rstest::rstest;
 use tempfile::TempDir;
 
-use super::test_helpers::{create_text_file, expect_err, temp_dir, text_run_command};
+use super::test_helpers::{
+    create_text_file, expect_err, temp_dir, text_run_command_with_max_bytes,
+};
 
 // -- parse_byte_size: happy paths -------------------------------------------
 
@@ -72,7 +74,7 @@ fn run_command_rejects_when_max_bytes_exceeded(
 
     // A limit of 100 bytes is far too small for any real pipeline run.
     let err = expect_err!(
-        run_command(text_run_command(path, 1, Some(100))),
+        run_command(text_run_command_with_max_bytes(path, 1, Some(100))),
         "100-byte limit must be exceeded"
     );
     assert!(
@@ -93,8 +95,12 @@ fn run_command_succeeds_when_max_bytes_sufficient(
         .expect("text fixture must be written");
 
     // 1 GiB should be more than enough for 3 items.
-    let summary = run_command(text_run_command(path, 1, Some(1_073_741_824)))
-        .expect("generous limit must permit the run");
+    let summary = run_command(text_run_command_with_max_bytes(
+        path,
+        1,
+        Some(1_073_741_824),
+    ))
+    .expect("generous limit must permit the run");
     assert_eq!(summary.result.assignments().len(), 3);
 }
 
@@ -106,7 +112,7 @@ fn run_command_zero_max_bytes_rejects_any_dataset(
     let path =
         create_text_file(&dir, "lines.txt", "alpha\nbeta\n").expect("text fixture must be written");
     let err = expect_err!(
-        run_command(text_run_command(path, 1, Some(0))),
+        run_command(text_run_command_with_max_bytes(path, 1, Some(0))),
         "zero max_bytes must reject any dataset"
     );
     assert!(matches!(

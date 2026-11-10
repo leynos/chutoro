@@ -935,7 +935,7 @@ below derive their `Error` implementation with `thiserror`:
   `HnswError` transparently via `#[from]`, and adds `MissingTrimJob`,
   `ExcessTrimJobs`, `UnexpectedTrimTarget`, `MissingNode`, and
   `ReciprocityViolated` variants for the fixture's own expectations.
-- `FixtureError` in `chutoro-providers/dense/src/testing.rs` names the
+- `FixtureError` in `chutoro-providers/dense/src/testing/mod.rs` names the
   `RowLength`, `Dimension`, `Arrow`, and `Parquet` failure modes of the Arrow
   and Parquet builders.
 
@@ -980,7 +980,7 @@ keeping the test file focused on the behaviour under test. Current examples:
   helpers for core-distance tests.
 - `chutoro-core/src/hnsw/tests/property/test_runner_support/` — proptest
   runner configuration.
-- `chutoro-providers/dense/src/testing.rs` — shared feature-gated Arrow and
+- `chutoro-providers/dense/src/testing/mod.rs` — shared feature-gated Arrow and
   Parquet fixture builders for dense and dev-dependent tests.
 - `chutoro-providers/dense/src/tests/support.rs` — provider-specific helpers
   for converting record batches into providers.

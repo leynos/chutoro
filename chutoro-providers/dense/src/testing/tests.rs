@@ -7,6 +7,7 @@ use arrow_schema::{DataType, Field};
 use bytes::Bytes;
 use cap_std::fs::Dir;
 use parquet::{arrow::arrow_reader::ParquetRecordBatchReaderBuilder, file::reader::ChunkReader};
+use rstest::rstest;
 use tempfile::tempdir;
 
 use super::*;
@@ -91,6 +92,18 @@ fn feature_field_keeps_item_and_list_nullability_independent() {
     assert_eq!(*dimension, 4);
     assert!(item.is_nullable());
     assert!(!field.is_nullable());
+}
+
+#[rstest]
+fn feature_field_reports_dimensions_larger_than_arrow_width() {
+    let too_large = usize::try_from(i32::MAX)
+        .expect("i32::MAX must fit the platform's usize")
+        .saturating_add(1);
+
+    assert!(matches!(
+        feature_field(too_large, false, false),
+        Err(FixtureError::Dimension(_))
+    ));
 }
 
 #[test]

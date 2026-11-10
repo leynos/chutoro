@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use rstest::fixture;
 use tempfile::TempDir;
 
-use super::super::{Cli, Command, RunCommand, RunSource, TextArgs, TextMetric};
+use super::super::{Cli, Command, ParquetArgs, RunCommand, RunSource, TextArgs, TextMetric};
 
 /// Provides a scratch directory for tests that write input files.
 ///
@@ -36,7 +36,12 @@ pub(super) fn create_text_file(dir: &TempDir, name: &str, contents: &str) -> io:
 ///
 /// Every text CLI test shares the same Levenshtein metric and derived data
 /// source name, so only the tuning knobs vary between call sites.
-pub(super) fn text_run_command(
+pub(super) fn text_run_command(path: PathBuf, min_cluster_size: usize) -> RunCommand {
+    text_run_command_with_max_bytes(path, min_cluster_size, None)
+}
+
+/// Builds a text command with an explicit memory budget for guard tests.
+pub(super) fn text_run_command_with_max_bytes(
     path: PathBuf,
     min_cluster_size: usize,
     max_bytes: Option<u64>,
@@ -52,10 +57,24 @@ pub(super) fn text_run_command(
     }
 }
 
+/// Builds a Parquet-source `run` command with the common memory-limit default.
+pub(super) fn parquet_run_command(
+    path: PathBuf,
+    column: String,
+    min_cluster_size: usize,
+    name: Option<String>,
+) -> RunCommand {
+    RunCommand {
+        min_cluster_size,
+        max_bytes: None,
+        source: RunSource::Parquet(ParquetArgs { path, column, name }),
+    }
+}
+
 /// Wraps [`text_run_command`] in a parsed [`Cli`] invocation.
-pub(super) fn text_cli(path: PathBuf, min_cluster_size: usize, max_bytes: Option<u64>) -> Cli {
+pub(super) fn text_cli(path: PathBuf, min_cluster_size: usize) -> Cli {
     Cli {
-        command: Command::Run(text_run_command(path, min_cluster_size, max_bytes)),
+        command: Command::Run(text_run_command(path, min_cluster_size)),
     }
 }
 
