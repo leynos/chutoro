@@ -123,12 +123,17 @@ def test_poisoned_lock_exclusion_names_a_rust_test_that_exists() -> None:
     somewhere inside it. A case moved into a nested module has a longer path
     than the one the filter names, and nextest selects by the full trailing
     segment, so that move is a missing exclusion too.
+
+    Both the module and the case come from the path itself. Hard-coding
+    `"tests"` here would keep passing against the old module name after a
+    rename, so the contract would go on vouching for a path the Makefile no
+    longer names.
     """
-    case = POISONED_LOCK_TEST.rsplit("::", 1)[-1]
+    *_, module, case = POISONED_LOCK_TEST.split("::")
     source = TEST_HELPERS_PATH.read_text(encoding="utf-8")
-    assert declared_in_module(source, "tests", case), (
+    assert declared_in_module(source, module, case), (
         f"POISONED_LOCK_TEST names {case!r}, but {TEST_HELPERS_PATH.name} does "
-        f"not declare it directly inside `mod tests`; update the Makefile "
+        f"not declare it directly inside `mod {module}`; update the Makefile "
         f"exclusion with the rename"
     )
 

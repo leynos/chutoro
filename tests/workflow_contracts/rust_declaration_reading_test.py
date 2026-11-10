@@ -282,9 +282,16 @@ def _noise_item(remaining: int, indent: int) -> st.SearchStrategy[str]:
     )
 
 
-def _noise(indent: int = 4) -> st.SearchStrategy[str]:
-    """Generate a run of filler items at the given indentation."""
-    return st.lists(_noise_item(_MAX_NESTING, indent), max_size=3).map("".join)
+def _noise(indent: int = 4, nesting: int = _MAX_NESTING) -> st.SearchStrategy[str]:
+    """Generate a run of filler items at the given indentation.
+
+    ``nesting`` bounds how deeply filler may nest modules inside modules. It is
+    a parameter rather than the module constant because one caller places the
+    filler inside an `impl`, where a nested `mod` is not valid Rust: `impl`
+    bodies accept associated items, and a module is not one. That caller passes
+    0 so the filler still varies without ever opening a module.
+    """
+    return st.lists(_noise_item(nesting, indent), max_size=3).map("".join)
 
 
 #: How a generated source places `mod tests` relative to the declaration.
@@ -345,8 +352,16 @@ def _layouts(draw: st.DrawFn) -> tuple[str, bool]:
         # is a statement and cannot sit at module level: generating one there
         # would make the source invalid Rust, and an invalid source is refused
         # for the wrong reason.
+        #
+        # The filler's nesting limit follows the opener for the same reason. A
+        # module accepts a nested module; an `impl` accepts only associated
+        # items, so a `mod` inside `impl Holder` is not Rust either. Filler
+        # that ignores this reintroduces exactly the invalid-source class the
+        # choice of openers exists to exclude.
         opened = draw(st.sampled_from(("mod other", "impl Holder")))
-        nested = _block(opened, f"{draw(_noise(8))}    {declaration}", indent=4)
+        filler_nesting = 0 if opened == "impl Holder" else _MAX_NESTING
+        body = f"{draw(_noise(8, filler_nesting))}    {declaration}"
+        nested = _block(opened, body, indent=4)
         # A commented declaration at the module's *own* level is what makes the
         # property catch a reader that stopped blanking comments. On its own,
         # comment filler proves nothing: a commented declaration nested beside
