@@ -46,6 +46,7 @@ fn non_finite_distance_is_reported() {
     }
 }
 
+/// Reports an invariant error when a search edge has no insertion sequence.
 #[rstest]
 fn reports_invariant_violation_when_search_node_missing() {
     let source = NumericTestSource::new("dummy", vec![0.0, 1.0, 2.0]);

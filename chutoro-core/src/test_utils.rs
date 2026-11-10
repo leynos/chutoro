@@ -77,13 +77,12 @@ impl NumericTestSource {
     /// assert_eq!(source.data(), &[0.0, 1.0, 2.0]);
     /// ```
     #[must_use]
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "f32 fixtures preserve Rust's integer-to-float rounding for large indices"
+    )]
     pub(crate) fn with_len(name: &'static str, len: usize) -> Self {
-        Self::new(
-            name,
-            (0..len)
-                .map(|value| value.to_string().parse::<f32>().unwrap_or(f32::INFINITY))
-                .collect(),
-        )
+        Self::new(name, (0..len).map(|value| value as f32).collect())
     }
 
     /// Creates a source with an explicit metric descriptor.

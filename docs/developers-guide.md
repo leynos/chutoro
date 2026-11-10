@@ -961,14 +961,16 @@ needs to inspect distance-call counts. Session tests use
 and must not migrate into the dependency-free `chutoro-test-support` leaf.
 
 The dense provider owns reusable Arrow and Parquet fixtures in its public,
-non-default `testing` feature. Keep dimension, schema nullability, and null
-patterns in these builders; route both in-memory `Bytes` and on-disk `File`
-outputs through the same record-batch serializer. The feature is intended for
-dev-dependants such as the CLI, while provider-specific record-batch ingestion
-helpers remain local to dense tests. The CLI may wrap the shared file writer
-with its `TempDir` and path convention, but must not rebuild the Arrow schema
-or record batch. Keep `RunCommand` builders in CLI test helpers because their
-types and defaults belong to the CLI boundary.
+non-default `testing` feature. A dependent crate enables it only in
+`[dev-dependencies]` with `features = ["testing"]`, then imports builders from
+`chutoro_providers_dense::testing`. Keep dimension, schema nullability, and
+null patterns in these builders; route both in-memory `Bytes` and on-disk
+`File` outputs through the same record-batch serializer. The feature is
+intended for dependent crates such as the CLI, while provider-specific
+record-batch ingestion helpers remain local to dense tests. The CLI may wrap
+the shared file writer with its `TempDir` and path convention, but must not
+rebuild the Arrow schema or record batch. Keep `RunCommand` builders in CLI
+test helpers because their types and defaults belong to the CLI boundary.
 
 Test modules split remaining local fixtures into dedicated support modules when
 the test file approaches Whitaker's 400-line `module_max_lines` cap, keeping
@@ -1208,16 +1210,16 @@ The timeouts also record the work each test performs. The shared-execution
 property builds HNSW indexes through the batch and session paths, so it
 reserves four test slots and 180 seconds. The clustering-result
 feature-boundary tests now run in `chutoro-compile-contracts`. Its package
-override assigns them to a Nextest test group with `max-threads = 1`, so
-trybuild cannot contend for its shared artefact directory. It reserves four
-test slots and allows 1,800 seconds in both `default` and `ci`. The previous
-cold run reached the final Arrow and Parquet check at 1,500 seconds but timed
-out before trybuild returned. See the
-[Nextest test-group documentation](https://nexte.st/docs/configuration/test-groups/).
-The benchmark smoke test runs nested release-mode `cargo bench` commands, so
-it also reserves eight slots and 1,800 seconds. Tests in
-`chutoro-core/tests/nextest_config.rs` pin the compile-contract and benchmark
-smoke allowances to the authoritative overrides in `.config/nextest.toml`.
+override assigns them to the shared `nested-cargo` Nextest group with
+`max-threads = 1`, so trybuild and other compiler-starting tests cannot compete
+for their shared artefact directories. It reserves four test slots and allows
+1,800 seconds in both `default` and `ci`. The previous cold run reached the
+final Arrow and Parquet check at 1,500 seconds but timed out before trybuild
+returned. See the Nextest test-group documentation[^1]. The benchmark smoke
+test runs nested release-mode `cargo bench` commands, so it also reserves eight
+slots and 1,800 seconds. Tests in `chutoro-core/tests/nextest_config.rs` pin
+the compile-contract and benchmark smoke allowances to the authoritative
+overrides in `.config/nextest.toml`.
 
 ### The cargo watchdog is the tier nobody expects
 
@@ -1298,8 +1300,8 @@ moment the watchdog would have reported the overrun, and the report is the only
 thing that makes an overrun actionable. Equality buys nothing: it converts a
 legible failure into a cancellation with no log.
 
-This section first set the ceiling to 100, exactly the requirement, on a lane
-that is always the cold writer, which is where that trade is least affordable.
+This section first set the ceiling equal to its requirement, on a lane that is
+always the cold writer, which is where that trade is least affordable.
 
 ### What the current values are sized against
 
@@ -1484,8 +1486,8 @@ All test runs use the `nextest` CI profile (`--profile ci`). Benchmark targets
 require `threads-required = 8`; see `.config/nextest.toml`.
 
 Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
-package-level `nextest` override owns the nested-Cargo timeout and concurrency
-policy: a serial `compile-contract` test group, four required threads and a
+package-level `nextest` override shares the `nested-cargo` serial group with
+other tests that start compilers, reserves four required threads, and sets a
 1,800-second `slow-timeout` in both profiles. Other tests retain the 60-second
 default per-test `slow-timeout`.
 
@@ -2333,3 +2335,6 @@ it cannot outlive that command.
 Exception: Cranelift is not the development-profile backend, because Cranelift
 requires a nightly toolchain and this repository pins the stable `1.99.1`
 (recorded 2026-09-29). Revisit if the repository moves to a nightly pin.
+
+[^1]: Nextest test-group documentation:
+    <https://nexte.st/docs/configuration/test-groups/>

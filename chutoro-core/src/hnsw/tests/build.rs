@@ -76,6 +76,7 @@ impl DataSource for DistanceBatchInstrumentedSource {
     }
 }
 
+/// Builds and searches seeded indexes with both supported parameter pairs.
 #[rstest]
 #[case(2, 8)]
 #[case(4, 16)]

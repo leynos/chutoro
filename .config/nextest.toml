@@ -19,9 +19,8 @@ filter = "all()"
 setup = "fetch-locked"
 
 [test-groups]
+# Every test that starts Cargo or rustc shares one serial slot.
 nested-cargo = { max-threads = 1 }
-# The compile-contract tests invoke trybuild against one shared target directory.
-compile-contract = { max-threads = 1 }
 
 [profile.default]
 # Limit how many test binaries Nextest runs concurrently. When individual tests
@@ -118,9 +117,9 @@ retries = 1
 
 [[profile.default.overrides]]
 # Compile-contract tests build fixture crates with nested Cargo invocations.
-# Serialize trybuild access to its shared target and allow cold builds to finish.
+# Share the nested-Cargo slot with other compiler-starting tests.
 filter = "package(chutoro-compile-contracts)"
-test-group = "compile-contract"
+test-group = "nested-cargo"
 threads-required = 4
 slow-timeout = { period = "1800s", terminate-after = 1, grace-period = "5s" }
 
@@ -187,9 +186,9 @@ retries = 1
 
 [[profile.ci.overrides]]
 # Compile-contract tests build fixture crates with nested Cargo invocations.
-# Serialize trybuild access to its shared target and allow cold builds to finish.
+# Share the nested-Cargo slot with other compiler-starting tests.
 filter = "package(chutoro-compile-contracts)"
-test-group = "compile-contract"
+test-group = "nested-cargo"
 threads-required = 4
 slow-timeout = { period = "1800s", terminate-after = 1, grace-period = "5s" }
 

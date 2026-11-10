@@ -154,25 +154,25 @@ fn default_profile_covers_idempotency_rstest_case_4_timeout() {
     );
 }
 
+/// Verifies both Nextest profiles reserve capacity and time for compile contracts.
 #[rstest]
 #[case("default")]
 #[case("ci")]
-/// Verifies both Nextest profiles reserve capacity and time for compile contracts.
 fn nextest_profiles_keep_compile_contract_timeout_guard(#[case] profile_name: &str) {
     assert_override_present!(
         profile_name,
         [
             "filter = \"package(chutoro-compile-contracts)\"",
-            "test-group = \"compile-contract\"",
+            "test-group = \"nested-cargo\"",
             "threads-required = 4",
             NESTED_CARGO_SLOW_TIMEOUT,
         ]
     );
 }
 
-/// Verifies trybuild cases sharing an artifact directory run serially.
+/// Verifies compile contracts share the serial group used by other nested builds.
 #[test]
-fn compile_contract_test_group_serializes_nested_builds() {
+fn compiler_starting_tests_share_the_nested_cargo_group() {
     let groups = extract_block(
         NEXTEST_CONFIG,
         "[test-groups]",
@@ -181,7 +181,16 @@ fn compile_contract_test_group_serializes_nested_builds() {
     )
     .expect("nextest test groups must be declared before the default profile");
 
-    assert!(groups.contains("compile-contract = { max-threads = 1 }"));
+    assert!(groups.contains("nested-cargo = { max-threads = 1 }"));
+    assert!(NEXTEST_CONFIG.contains(concat!(
+        "filter = \"package(chutoro-compile-contracts)\"\n",
+        "test-group = \"nested-cargo\""
+    )));
+    assert!(NEXTEST_CONFIG.contains(concat!(
+        "filter = \"binary(portable_simd_gating) | binary(result_api_surface) | ",
+        "binary(session_api_surface) | binary(benchmark_smoke)\"\n",
+        "test-group = \"nested-cargo\""
+    )));
 }
 
 #[test]

@@ -175,6 +175,7 @@ struct CanonicaliseCase {
     expected_target: usize,
 }
 
+/// Checks harvested edges keep valid endpoints and finite distances.
 #[rstest]
 #[case(3, 2, 4, 42)]
 #[case(5, 2, 8, 123)]
