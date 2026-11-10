@@ -79,7 +79,9 @@ def test_the_installer_places_a_default_prefix_tree_the_linker_loads(
     """
     if not _mold_installable():
         pytest.skip("the linker route needs gcc, which this host does not provide")
-    _skip_unless_pin_installed("the linker route links with the pinned nightly")
+    _skip_unless_pin_installed(
+        "the linker route links with the pinned nightly", needs_cranelift=True
+    )
     installer = prepare(tmp_path, default_prefix=True, request=_linux_request())
 
     installed = installer.install()
@@ -126,7 +128,9 @@ def test_removing_the_path_export_stops_the_installed_linker_being_found(
     """
     if not _mold_installable():
         pytest.skip("the linker route needs gcc, which this host does not provide")
-    _skip_unless_pin_installed("the linker route links with the pinned nightly")
+    _skip_unless_pin_installed(
+        "the linker route links with the pinned nightly", needs_cranelift=True
+    )
     installer = prepare(tmp_path, default_prefix=True, request=_linux_request())
     installed = installer.install()
     assert installed.returncode == 0, installed.stderr

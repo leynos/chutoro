@@ -122,20 +122,59 @@ def _is_toolchain_installed(toolchain: str, installed: set[str]) -> bool:
     )
 
 
-def _skip_unless_pin_installed(reason: str) -> None:
+def _has_cranelift_backend(toolchain: str) -> bool:
+    """Report whether a toolchain carries the Cranelift codegen component.
+
+    The component is a separate rustup install, so a channel that is present
+    can still refuse ``-Z codegen-backend=cranelift`` with "failed to find a
+    ``codegen-backends`` folder". CI hits exactly that: it installs the same
+    nightly pin for the Whitaker suite, but only the stable components.
+
+    ``rustup component list --installed`` names each component with a host
+    triple appended, so the bare name is matched as a prefix. Output is
+    matched per line rather than by substring, so ``rustc-codegen-cranelift``
+    cannot be confused with a longer component name.
+    """
+    listed = subprocess.run(
+        ["rustup", "component", "list", "--installed", "--toolchain", toolchain],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if listed.returncode != 0:
+        return False
+    return any(
+        name == "rustc-codegen-cranelift"
+        or name.startswith("rustc-codegen-cranelift-")
+        for name in map(str.strip, listed.stdout.splitlines())
+    )
+
+
+def _skip_unless_pin_installed(reason: str, *, needs_cranelift: bool = False) -> None:
     """Skip the calling test when the pinned nightly is not provisioned.
 
     Provisioning it is ``make install-dev-fast``'s job, so a host that has not
-    done so - including CI, which provisions nothing for the fragment - must
-    skip rather than reach the network. ``reason`` names what else the caller
-    needs, so a skip says what is missing rather than implying the route is
-    broken.
+    done so must skip rather than reach the network. ``reason`` names what
+    else the caller needs, so a skip says what is missing rather than
+    implying the route is broken.
+
+    ``needs_cranelift`` narrows the check to callers that actually compile.
+    Presence of the channel alone is not enough for them: CI installs the same
+    nightly pin for the Whitaker suite without the Cranelift component, so a
+    toolchain-only guard would run the build and then fail on the missing
+    backend. Callers that only read configuration leave it ``False``.
     """
     toolchain = _pinned_toolchain()
     installed = _installed_toolchains()
     if installed is None or not _is_toolchain_installed(toolchain, installed):
         pytest.skip(
             f"the pinned development toolchain {toolchain} is not installed; "
+            f"{reason}"
+        )
+    if needs_cranelift and not _has_cranelift_backend(toolchain):
+        pytest.skip(
+            f"the pinned toolchain {toolchain} lacks rustc-codegen-cranelift; "
             f"{reason}"
         )
 

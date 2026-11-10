@@ -1120,11 +1120,16 @@ contract installs with the default prefix and links the probe with a failing
 the shim to stop the build. Together they show the export is load-bearing
 rather than decorative.
 
-The contracts that need the pinned nightly skip when `rustup toolchain list`
-does not report it, because `make install-dev-fast` is the route that installs
-it and a test must not provision or reach the network. CI provisions nothing
-for the fragment, so CI records those cases as skipped. A host with the pin
-installed runs them, which is where they are meant to hold.
+The contracts that need the pinned nightly skip when it is not provisioned,
+because `make install-dev-fast` is the route that installs it and a test must
+not provision or reach the network. The contracts that compile or link check
+one step further, for the `rustc-codegen-cranelift` component, since a channel
+without it refuses `-Z codegen-backend=cranelift`. That second check matters
+because CI does install this same pin: the Whitaker suite uses it, with the
+stable components only. A toolchain-only guard would therefore run the build on
+CI and fail on the missing backend, which is a broken contract rather than an
+unprovisioned host. Provisioning the component is what lets those cases run,
+and a host that has done so is where they are meant to hold.
 
 Reading the workflow files happens at one boundary,
 `workflow_support.all_workflow_documents`, and the derivations above it take

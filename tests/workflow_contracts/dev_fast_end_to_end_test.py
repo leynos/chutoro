@@ -38,7 +38,9 @@ def _skip_unless_dev_test_can_run() -> None:
     reason = nextest_missing_reason()
     if reason is not None:
         pytest.skip(reason)
-    _skip_unless_pin_installed("dev-test runs the suite on the pinned nightly")
+    _skip_unless_pin_installed(
+        "dev-test runs the suite on the pinned nightly", needs_cranelift=True
+    )
 
 
 def test_dev_build_compiles_and_links_the_probe_with_cranelift(tmp_path: Path) -> None:
@@ -49,7 +51,9 @@ def test_dev_build_compiles_and_links_the_probe_with_cranelift(tmp_path: Path) -
     binary that runs separate the two. Both are asserted, so a route that
     reached Cranelift but failed to link - mold's failure mode - cannot pass.
     """
-    _skip_unless_pin_installed("dev-build compiles with the pinned nightly")
+    _skip_unless_pin_installed(
+        "dev-build compiles with the pinned nightly", needs_cranelift=True
+    )
     directory = write_probe_repository(tmp_path / "probe")
 
     completed = run_development_target(
