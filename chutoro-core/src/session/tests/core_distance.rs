@@ -9,7 +9,7 @@ use std::{collections::BTreeSet, sync::Arc};
 use proptest::prelude::*;
 use rstest::rstest;
 
-use super::common::{SessionTestSource, make_session, session_builder};
+use super::common::{make_session, session_builder, session_test_source_with_len};
 use super::core_distance_support::{
     assert_core_distances_eq, expected_batch_cores, monotonic_append_order, observed_cores,
     unique_sorted,
@@ -236,7 +236,7 @@ proptest! {
             .prop_map(unique_sorted)
     ) {
         let inserted = monotonic_append_order(min_cluster_size, tail);
-        let source = Arc::new(SessionTestSource::with_len(24));
+        let source = Arc::new(session_test_source_with_len(24));
         let mut session = ChutoroBuilder::new()
             .with_min_cluster_size(min_cluster_size)
             .build_session(Arc::clone(&source))
@@ -278,7 +278,7 @@ proptest! {
         len in 4usize..=12,
         min_cluster_size in 1usize..=3,
     ) {
-        let source = Arc::new(SessionTestSource::with_len(len));
+        let source = Arc::new(session_test_source_with_len(len));
         let mut session = ChutoroBuilder::new()
             .with_min_cluster_size(min_cluster_size)
             .build_session(Arc::clone(&source))
@@ -303,7 +303,7 @@ proptest! {
         len in 1usize..=12,
         min_cluster_size in 1usize..=4,
     ) {
-        let source = Arc::new(SessionTestSource::with_len(len));
+        let source = Arc::new(session_test_source_with_len(len));
         let mut session = ChutoroBuilder::new()
             .with_min_cluster_size(min_cluster_size)
             .build_session(Arc::clone(&source))

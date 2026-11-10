@@ -10,7 +10,7 @@ use std::{num::NonZeroUsize, sync::Arc};
 
 use rstest::rstest;
 
-use super::common::{SessionTestSource, session_builder};
+use super::common::{session_builder, session_test_source_with_len};
 use crate::execution_config::ExecutionConfig;
 use crate::{
     ChutoroBuilder, ChutoroError, ClusteringSession, ExecutionStrategy, HnswParams, SessionConfig,
@@ -54,7 +54,7 @@ fn build_session_derives_config_from_builder(
     #[case] hnsw_params: HnswParams,
     #[case] refresh_policy: SessionRefreshPolicy,
 ) {
-    let source = Arc::new(SessionTestSource::with_len(4));
+    let source = Arc::new(session_test_source_with_len(4));
     let session = session_builder
         .with_min_cluster_size(9)
         .with_hnsw_params(hnsw_params.clone())
@@ -75,7 +75,7 @@ fn build_session_does_not_validate_current_source_len(
     session_builder: ChutoroBuilder,
     #[case] len: usize,
 ) {
-    let source = Arc::new(SessionTestSource::with_len(len));
+    let source = Arc::new(session_test_source_with_len(len));
     let session = session_builder
         .with_min_cluster_size(5)
         .build_session(source)
@@ -87,7 +87,7 @@ fn build_session_does_not_validate_current_source_len(
 
 #[rstest]
 fn build_session_rejects_zero_min_cluster_size(session_builder: ChutoroBuilder) {
-    let source = Arc::new(SessionTestSource::with_len(0));
+    let source = Arc::new(session_test_source_with_len(0));
     let err = session_builder
         .with_min_cluster_size(0)
         .build_session(source)
@@ -98,7 +98,7 @@ fn build_session_rejects_zero_min_cluster_size(session_builder: ChutoroBuilder) 
 
 #[rstest]
 fn build_session_rejects_gpu_preferred_execution_strategy(session_builder: ChutoroBuilder) {
-    let source = Arc::new(SessionTestSource::with_len(2));
+    let source = Arc::new(session_test_source_with_len(2));
     let err = session_builder
         .with_execution_strategy(ExecutionStrategy::GpuPreferred)
         .build_session(source)
@@ -114,7 +114,7 @@ fn build_session_rejects_gpu_preferred_execution_strategy(session_builder: Chuto
 
 #[test]
 fn build_session_maps_hnsw_construction_failure_to_cpu_hnsw_failure() {
-    let source = Arc::new(SessionTestSource::with_len(0));
+    let source = Arc::new(session_test_source_with_len(0));
     let config = SessionConfig::new(
         ExecutionConfig::new(
             NonZeroUsize::new(5).expect("minimum cluster size must be non-zero"),
