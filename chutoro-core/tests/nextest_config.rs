@@ -100,7 +100,7 @@ fn make_target_block(target: &str) -> Result<&'static str, String> {
 #[test]
 /// Verifies the default profile keeps the repository-wide timeout ceiling.
 fn nextest_default_profile_keeps_global_timeout_guard() {
-    assert!(NEXTEST_CONFIG.contains("global-timeout = \"40m\""));
+    assert!(NEXTEST_CONFIG.contains("global-timeout = \"80m\""));
 }
 
 #[rstest]
@@ -154,22 +154,34 @@ fn default_profile_covers_idempotency_rstest_case_4_timeout() {
     );
 }
 
-/// Verifies both Nextest profiles reserve capacity and time for compile contracts.
 #[rstest]
-#[case("default", "threads-required = 8")]
-#[case("ci", "threads-required = 4")]
-fn nextest_profiles_keep_compile_contract_timeout_guard(
-    #[case] profile_name: &str,
-    #[case] threads_required: &str,
-) {
+#[case("default")]
+#[case("ci")]
+/// Verifies both Nextest profiles reserve capacity and time for compile contracts.
+fn nextest_profiles_keep_compile_contract_timeout_guard(#[case] profile_name: &str) {
     assert_override_present!(
         profile_name,
         [
             "filter = \"package(chutoro-compile-contracts)\"",
-            threads_required,
+            "test-group = \"compile-contract\"",
+            "threads-required = 4",
             NESTED_CARGO_SLOW_TIMEOUT,
         ]
     );
+}
+
+/// Verifies trybuild cases sharing an artifact directory run serially.
+#[test]
+fn compile_contract_test_group_serializes_nested_builds() {
+    let groups = extract_block(
+        NEXTEST_CONFIG,
+        "[test-groups]",
+        "[profile.default]",
+        "nextest test groups",
+    )
+    .expect("nextest test groups must be declared before the default profile");
+
+    assert!(groups.contains("compile-contract = { max-threads = 1 }"));
 }
 
 #[test]

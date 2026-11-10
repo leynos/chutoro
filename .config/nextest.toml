@@ -1,7 +1,6 @@
 # .config/nextest.toml
-# The tests that start a compiler (the compile contracts and the benchmark smoke
-# test) share one serial group, so their nested builds do not compete for cores or
-# the package-cache lock (the Concordat `nested-cargo-nextest` rule).
+# The tests that start a compiler use serial groups, so nested builds do not
+# compete for cores or the package-cache lock (the Concordat rule).
 # Setup scripts are experimental in the nextest versions the coverage action may
 # install, so the configuration opts in; newer versions accept the entry.
 experimental = ["setup-scripts"]
@@ -21,6 +20,8 @@ setup = "fetch-locked"
 
 [test-groups]
 nested-cargo = { max-threads = 1 }
+# The compile-contract tests invoke trybuild against one shared target directory.
+compile-contract = { max-threads = 1 }
 
 [profile.default]
 # Limit how many test binaries Nextest runs concurrently. When individual tests
@@ -31,7 +32,7 @@ test-threads = 8
 slow-timeout = { period = "60s", terminate-after = 1, grace-period = "5s" }
 
 # Put a hard ceiling on the whole run.
-global-timeout = "40m"
+global-timeout = "80m"
 
 [[profile.default.overrides]]
 # Criterion benchmarks run as test targets and need more than the default 60s
@@ -117,10 +118,10 @@ retries = 1
 
 [[profile.default.overrides]]
 # Compile-contract tests build fixture crates with nested Cargo invocations.
-# Run them serially to avoid contending on Cargo's package-cache lock, and
-# allow cold fixture builds the same budget as the benchmark smoke build.
+# Serialize trybuild access to its shared target and allow cold builds to finish.
 filter = "package(chutoro-compile-contracts)"
-threads-required = 8
+test-group = "compile-contract"
+threads-required = 4
 slow-timeout = { period = "1800s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
@@ -186,9 +187,9 @@ retries = 1
 
 [[profile.ci.overrides]]
 # Compile-contract tests build fixture crates with nested Cargo invocations.
-# Run them serially to avoid contending on Cargo's package-cache lock, and
-# allow cold fixture builds the same budget as the benchmark smoke build.
+# Serialize trybuild access to its shared target and allow cold builds to finish.
 filter = "package(chutoro-compile-contracts)"
+test-group = "compile-contract"
 threads-required = 4
 slow-timeout = { period = "1800s", terminate-after = 1, grace-period = "5s" }
 

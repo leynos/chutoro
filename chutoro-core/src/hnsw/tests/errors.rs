@@ -12,7 +12,7 @@ use crate::{
     },
 };
 
-use super::fixtures::DummySource;
+use crate::test_utils::NumericTestSource;
 
 #[fixture]
 fn default_cache() -> DistanceCache {
@@ -48,7 +48,7 @@ fn non_finite_distance_is_reported() {
 
 #[rstest]
 fn reports_invariant_violation_when_search_node_missing() {
-    let source = DummySource::new(vec![0.0, 1.0, 2.0]);
+    let source = NumericTestSource::new("dummy", vec![0.0, 1.0, 2.0]);
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let mut graph = Graph::with_capacity(params, source.len());
     graph

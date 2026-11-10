@@ -1,7 +1,7 @@
 //! Edge-harvest coverage and ordering tests.
 
 use super::*;
-use crate::hnsw::tests::support::is_coverage_job;
+use crate::{hnsw::tests::support::is_coverage_job, test_utils::NumericTestSource};
 
 /// Produces scalar test data for the small, bounded HNSW fixtures below.
 fn scalar_data(count: u16) -> Vec<f32> {
@@ -12,7 +12,7 @@ fn scalar_data(count: u16) -> Vec<f32> {
 fn build_with_edges_covers_inserted_nodes() {
     let num_nodes = 10;
     let data = scalar_data(10);
-    let source = DummySource::new(data);
+    let source = NumericTestSource::new("dummy", data);
     let params = HnswParams::new(4, 16).expect("params").with_rng_seed(42);
 
     let (_, edges) = CpuHnsw::build_with_edges(&source, params).expect("build");
@@ -31,7 +31,7 @@ fn build_with_edges_covers_inserted_nodes() {
 
 #[rstest]
 fn build_with_edges_single_node_returns_empty_edges() {
-    let source = DummySource::new(vec![0.0]);
+    let source = NumericTestSource::new("dummy", vec![0.0]);
     let params = HnswParams::new(2, 4).expect("params").with_rng_seed(42);
 
     let (index, edges) = CpuHnsw::build_with_edges(&source, params).expect("build");
@@ -45,7 +45,7 @@ fn build_with_edges_single_node_returns_empty_edges() {
 
 #[rstest]
 fn build_with_edges_two_nodes_produces_edges() {
-    let source = DummySource::new(vec![0.0, 1.0]);
+    let source = NumericTestSource::new("dummy", vec![0.0, 1.0]);
     let params = HnswParams::new(2, 4).expect("params").with_rng_seed(42);
 
     let (index, edges) = CpuHnsw::build_with_edges(&source, params).expect("build");
@@ -69,7 +69,7 @@ fn build_with_edges_edges_sorted_by_sequence() {
     // use a smaller graph to stay well within the nextest timeout.
     let num_nodes = if is_coverage_job() { 8 } else { 20 };
     let data = scalar_data(num_nodes);
-    let source = DummySource::new(data);
+    let source = NumericTestSource::new("dummy", data);
     let params = HnswParams::new(4, 16).expect("params").with_rng_seed(42);
 
     let (_, edges) = CpuHnsw::build_with_edges(&source, params).expect("build");
@@ -193,7 +193,7 @@ fn edge_harvest_from_unsorted_sorts_and_preserves_edges(#[case] edges: Vec<Candi
 #[rstest]
 fn build_produces_same_index_as_build_with_edges() {
     let data = scalar_data(10);
-    let source = DummySource::new(data);
+    let source = NumericTestSource::new("dummy", data);
     let params = HnswParams::new(4, 16).expect("params").with_rng_seed(42);
 
     let index1 = CpuHnsw::build(&source, params.clone()).expect("build");
@@ -227,7 +227,7 @@ fn build_produces_same_index_as_build_with_edges() {
 })]
 fn insert_harvesting_initial_insert_returns_empty_edges(
     #[case] case: InitialInsertCase,
-    #[with(case.fixture.clone())] dummy_source: DummySource,
+    #[with(case.fixture.clone())] dummy_source: NumericTestSource,
     #[with(case.fixture.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
 ) {
     let index = cpu_hnsw.expect("fixture must build CPU HNSW");
@@ -252,7 +252,7 @@ fn insert_harvesting_initial_insert_returns_empty_edges(
 })]
 fn insert_harvesting_returns_valid_edges(
     #[case] case: HarvestFixtureCase,
-    #[with(case.clone())] dummy_source: DummySource,
+    #[with(case.clone())] dummy_source: NumericTestSource,
     #[with(case.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
 ) {
     let index = cpu_hnsw.expect("fixture must build CPU HNSW");
@@ -304,7 +304,7 @@ fn insert_harvesting_returns_valid_edges(
 })]
 fn insert_harvesting_duplicate_insert_is_rejected(
     #[case] case: DuplicateInsertCase,
-    #[with(case.fixture.clone())] dummy_source: DummySource,
+    #[with(case.fixture.clone())] dummy_source: NumericTestSource,
     #[with(case.fixture.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
 ) {
     let index = cpu_hnsw.expect("fixture must build CPU HNSW");
@@ -327,7 +327,7 @@ fn insert_harvesting_duplicate_insert_is_rejected(
 })]
 fn insert_harvesting_matches_insert_graph_state(
     #[case] case: HarvestFixtureCase,
-    #[with(case.clone())] dummy_source: DummySource,
+    #[with(case.clone())] dummy_source: NumericTestSource,
     #[with(case.clone())] cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
     #[with(case.clone())] comparison_cpu_hnsw: Result<CpuHnsw, Box<dyn Error>>,
 ) {

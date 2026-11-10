@@ -8,12 +8,10 @@ use std::{
 
 use rstest::{fixture, rstest};
 
-use crate::DataSource;
 use crate::hnsw::insert::extract_candidate_edges;
 use crate::hnsw::types::{InsertionPlan, LayerPlan};
 use crate::hnsw::{CandidateEdge, CpuHnsw, EdgeHarvest, HnswError, HnswParams, Neighbour};
-
-use super::fixtures::DummySource;
+use crate::{DataSource, test_utils::NumericTestSource};
 
 fn build_insertion_plan(layers: Vec<Vec<(usize, f32)>>) -> InsertionPlan {
     InsertionPlan {
@@ -116,8 +114,8 @@ fn dummy_source(
         seed: Some(42),
     })]
     fixture: HarvestFixtureCase,
-) -> DummySource {
-    DummySource::new(fixture.data)
+) -> NumericTestSource {
+    NumericTestSource::new("dummy", fixture.data)
 }
 
 #[fixture]
@@ -189,7 +187,7 @@ fn build_with_edges_returns_valid_edges(
     #[case] seed: u64,
 ) {
     let data = scalar_data(num_nodes);
-    let source = DummySource::new(data);
+    let source = NumericTestSource::new("dummy", data);
     let params = HnswParams::new(max_connections, ef_construction)
         .expect("params must be valid")
         .with_rng_seed(seed);
@@ -240,7 +238,7 @@ fn build_with_edges_single_threaded(
     ef_construction: usize,
     seed: u64,
 ) -> Result<(CpuHnsw, EdgeHarvest), Box<dyn Error>> {
-    let source = DummySource::new(data);
+    let source = NumericTestSource::new("dummy", data);
     let params = HnswParams::new(max_connections, ef_construction)?.with_rng_seed(seed);
     let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build()?;
     Ok(pool.install(|| CpuHnsw::build_with_edges(&source, params))?)

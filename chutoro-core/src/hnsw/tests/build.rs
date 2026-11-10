@@ -13,10 +13,10 @@ use rstest::rstest;
 use crate::{
     DataSource, DataSourceError, PointPair,
     hnsw::{CpuHnsw, HnswError, HnswParams, graph::EdgeContext, insert::TrimJob},
-    test_utils::CountingSource,
+    test_utils::{CountingSource, NumericTestSource},
 };
 
-use super::fixtures::{DummySource, assert_sorted_by_distance};
+use super::fixtures::assert_sorted_by_distance;
 
 #[derive(Clone)]
 struct DistanceBatchInstrumentedSource {
@@ -80,7 +80,7 @@ impl DataSource for DistanceBatchInstrumentedSource {
 #[case(2, 8)]
 #[case(4, 16)]
 fn builds_and_searches(#[case] m: usize, #[case] ef: usize) {
-    let source = DummySource::new(vec![0.0, 1.0, 2.0, 5.0]);
+    let source = NumericTestSource::new("dummy", vec![0.0, 1.0, 2.0, 5.0]);
     let params = HnswParams::new(m, ef)
         .expect("params must be valid")
         .with_rng_seed(42);
@@ -262,7 +262,7 @@ fn uses_distance_batch_via_default_batch_distances_during_scoring() {
 
 #[rstest]
 fn duplicate_insert_is_rejected() {
-    let source = DummySource::new(vec![0.0, 1.0, 2.0]);
+    let source = NumericTestSource::new("dummy", vec![0.0, 1.0, 2.0]);
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let index =
         CpuHnsw::with_capacity(params.clone(), source.len()).expect("index should allocate");
@@ -309,7 +309,10 @@ fn trimming_prefers_lower_id_on_distance_ties() {
     );
 
     let result = index
-        .score_trim_jobs(vec![job], &DummySource::new(vec![0.0, 1.0, 1.0]))
+        .score_trim_jobs(
+            vec![job],
+            &NumericTestSource::new("dummy", vec![0.0, 1.0, 1.0]),
+        )
         .expect("trim scoring must succeed")
         .into_iter()
         .next()
@@ -339,7 +342,7 @@ fn score_trim_jobs_limits_results_to_max_connections() {
     let result = index
         .score_trim_jobs(
             vec![job],
-            &DummySource::new(vec![0.0, 0.05, 0.1, 0.2, 0.4, 0.8]),
+            &NumericTestSource::new("dummy", vec![0.0, 0.05, 0.1, 0.2, 0.4, 0.8]),
         )
         .expect("trim scoring must succeed")
         .into_iter()
@@ -364,7 +367,10 @@ fn score_trim_jobs_rejects_length_mismatch() {
         sequences: vec![1],
     };
     let err = index
-        .score_trim_jobs(vec![job], &DummySource::new(vec![0.0, 0.5, 1.0]))
+        .score_trim_jobs(
+            vec![job],
+            &NumericTestSource::new("dummy", vec![0.0, 0.5, 1.0]),
+        )
         .expect_err("mismatched candidate/sequence lengths must error");
     assert!(matches!(err, HnswError::InvalidParameters { .. }));
 }
