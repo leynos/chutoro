@@ -935,7 +935,7 @@ below derive their `Error` implementation with `thiserror`:
   `HnswError` transparently via `#[from]`, and adds `MissingTrimJob`,
   `ExcessTrimJobs`, `UnexpectedTrimTarget`, `MissingNode`, and
   `ReciprocityViolated` variants for the fixture's own expectations.
-- `FixtureError` in `chutoro-providers/dense/src/tests/support.rs` names the
+- `FixtureError` in `chutoro-providers/dense/src/testing.rs` names the
   `RowLength`, `Dimension`, `Arrow`, and `Parquet` failure modes of the Arrow
   and Parquet builders.
 
@@ -960,6 +960,16 @@ needs to inspect distance-call counts. Session tests use
 `session-test:abs` metric descriptor. These fixtures are not public crate APIs
 and must not migrate into the dependency-free `chutoro-test-support` leaf.
 
+The dense provider owns reusable Arrow and Parquet fixtures in its public,
+non-default `testing` feature. Keep dimension, schema nullability, and null
+patterns in these builders; route both in-memory `Bytes` and on-disk `File`
+outputs through the same record-batch serializer. The feature is intended for
+dev-dependants such as the CLI, while provider-specific record-batch ingestion
+helpers remain local to dense tests. The CLI may wrap the shared file writer
+with its `TempDir` and path convention, but must not rebuild the Arrow schema
+or record batch. Keep `RunCommand` builders in CLI test helpers because their
+types and defaults belong to the CLI boundary.
+
 Test modules split remaining local fixtures into dedicated support modules
 when the test file approaches Whitaker's 400-line `module_max_lines` cap,
 keeping the test file focused on the behaviour under test. Current examples:
@@ -970,8 +980,14 @@ keeping the test file focused on the behaviour under test. Current examples:
   helpers for core-distance tests.
 - `chutoro-core/src/hnsw/tests/property/test_runner_support/` — proptest
   runner configuration.
-- `chutoro-providers/dense/src/tests/support.rs` — Arrow and Parquet fixture
-  builders.
+- `chutoro-providers/dense/src/testing.rs` — shared feature-gated Arrow and
+  Parquet fixture builders for dense and dev-dependent tests.
+- `chutoro-providers/dense/src/tests/support.rs` — provider-specific helpers
+  for converting record batches into providers.
+- `chutoro-cli/src/cli/test_fixtures.rs` — CLI path and temporary-directory
+  wrapper over the shared Parquet writer.
+- `chutoro-cli/src/cli/test_helpers.rs` — builders for common CLI test
+  commands.
 
 Support modules carry `//!` module docs and `///` item docs, with `# Errors`
 sections on fallible helpers.
