@@ -17,6 +17,14 @@ CARGO ?= cargo
 DEV_FAST_TOOLCHAIN := $(strip $(file <tools/dev-fast/TOOLCHAIN))
 DEV_FAST_CONFIG := tools/dev-fast/config.toml
 DEV_CARGO = $(CARGO) +$(DEV_FAST_TOOLCHAIN) --config $(DEV_FAST_CONFIG)
+# `$(file <…)` yields nothing for a missing file and strips to nothing for an
+# empty one, and `cargo +` with nothing after it falls back to the default
+# toolchain. The route would then compile with a toolchain the pin never
+# names and report success, which is the one outcome the pin exists to
+# prevent. The check lives here rather than in a file-wide `$(error)` for the
+# same reason the host checks do: the standard gates read this variable too,
+# and a broken development pin must not fail them.
+DEV_FAST_TOOLCHAIN_CHECK = $(if $(DEV_FAST_TOOLCHAIN),,$(error tools/dev-fast/TOOLCHAIN is missing or empty, so the development route cannot pin a toolchain; restore the pinned nightly before running dev-build, dev-test, or install-dev-fast))
 # An assigned RUSTFLAGS replaces every `rustflags` table, including the
 # fragment's, so both development routes compose the fragment's flags into an
 # inherited value rather than replacing it. Passing RUSTFLAGS to `dev-build`
@@ -55,6 +63,8 @@ DEV_FAST_HOST_OS_IS_PROBED := $(filter file,$(origin DEV_FAST_HOST_OS))
 DEV_FAST_HOST_EMPTY_CHECK = $(if $(strip $(DEV_FAST_HOST_OS)),,$(error Cannot determine the development host OS: `uname -s` returned nothing. Set DEV_FAST_HOST_OS explicitly))
 DEV_FAST_HOST_STATUS_CHECK = $(if $(DEV_FAST_HOST_OS_IS_PROBED),$(if $(filter 0,$(DEV_FAST_HOST_PROBE_STATUS)),,$(error Cannot determine the development host OS: `uname -s` exited $(DEV_FAST_HOST_PROBE_STATUS). Set DEV_FAST_HOST_OS explicitly)),)
 DEV_FAST_HOST_CHECK = $(DEV_FAST_HOST_EMPTY_CHECK)$(DEV_FAST_HOST_STATUS_CHECK)
+# Every development recipe needs both answers, so one name carries the pair.
+DEV_FAST_CHECK = $(DEV_FAST_TOOLCHAIN_CHECK)$(DEV_FAST_HOST_CHECK)
 DEV_FRAGMENT_RUSTFLAGS = $(strip -Dmissing_docs \
 	-Dmissing_crate_level_docs \
 	$(if $(filter Linux,$(DEV_FAST_HOST_OS)),-Clink-arg=-fuse-ld=mold))
@@ -199,13 +209,13 @@ interrogate: ## Enforce complete Python docstring coverage
 .PHONY: dev-build dev-test install-dev-fast
 
 dev-build: ## Build the debug binary with the selected development backend
-	$(DEV_FAST_HOST_CHECK)RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }$(DEV_FRAGMENT_RUSTFLAGS)" $(DEV_CARGO) build $(BUILD_JOBS) --bin $(APP)
+	$(DEV_FAST_CHECK)RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }$(DEV_FRAGMENT_RUSTFLAGS)" $(DEV_CARGO) build $(BUILD_JOBS) --bin $(APP)
 
 dev-test: ## Run the tests with the selected development backend
-	$(DEV_FAST_HOST_CHECK)RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E 'not kind(bench)'
+	$(DEV_FAST_CHECK)RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E 'not kind(bench)'
 
 install-dev-fast: ## Install pinned nightly components and the verified mold binary
-	$(DEV_FAST_HOST_CHECK)rustup toolchain install $(DEV_FAST_TOOLCHAIN) --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rustc-codegen-cranelift
+	$(DEV_FAST_CHECK)rustup toolchain install $(DEV_FAST_TOOLCHAIN) --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rustc-codegen-cranelift
 ifeq ($(DEV_FAST_HOST_OS),Linux)
 	scripts/install-mold.sh
 else

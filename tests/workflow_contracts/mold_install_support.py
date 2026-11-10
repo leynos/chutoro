@@ -94,10 +94,29 @@ class InstallerRun:
     download_log: Path
     rustup_log: Path
     run: Callable[[], subprocess.CompletedProcess[str]]
+    #: The environment the installer runs in. Exposed so a contract can reuse
+    #: it for a follow-on command, rather than rebuilding the same HOME, PATH
+    #: and stand-ins and risking a fixture that differs from the install.
+    environment: Environment
 
     def install(self) -> subprocess.CompletedProcess[str]:
         """Run the private installer exactly as the Make target would."""
         return self.run()
+
+
+@dataclass(frozen=True)
+class Environment:
+    """A private home directory and the environment that points at it."""
+
+    #: The directory ``HOME`` names. ``DEFAULT_PREFIX`` is relative to it.
+    home: Path
+    #: The process environment the installer runs in.
+    values: dict[str, str]
+
+    @property
+    def default_prefix(self) -> Path:
+        """Return the prefix the installer uses when nothing overrides it."""
+        return self.home / ".local"
 
 
 def _fake_tool(directory: Path, name: str, body: str) -> Path:
@@ -229,6 +248,7 @@ def prepare(
     *,
     request: Request = Request(),
     through_make: bool = False,
+    default_prefix: bool = False,
 ) -> InstallerRun:
     """Build a private installer pinned to a locally built archive.
 
@@ -238,6 +258,11 @@ def prepare(
     is the only way to reach the installer's post-download validation.
     ``through_make`` drives the ``install-dev-fast`` recipe instead of the
     script alone.
+
+    ``default_prefix`` leaves ``MOLD_INSTALL_PREFIX`` unset, so the installer
+    resolves its prefix from ``${HOME}/.local`` exactly as it does on a
+    developer's machine. Every other contract overrides the prefix, which is
+    what makes this the only mode that exercises the default.
     """
     home = tmp_path / "home"
     home.mkdir()
@@ -257,15 +282,17 @@ def prepare(
     _recording_uname(bin_dir, system=platform.system, machine=platform.machine)
     _recording_rustup(home, rustup_log)
 
-    prefix = tmp_path / "prefix"
-    environment = os.environ.copy()
-    environment.update(
+    prefix = home / ".local" if default_prefix else tmp_path / "prefix"
+    values = os.environ.copy()
+    values.update(
         {
-            "PATH": f"{bin_dir}{os.pathsep}{environment['PATH']}",
+            "PATH": f"{bin_dir}{os.pathsep}{values['PATH']}",
             "HOME": str(home),
-            "MOLD_INSTALL_PREFIX": str(prefix),
         }
     )
+    if not default_prefix:
+        values["MOLD_INSTALL_PREFIX"] = str(prefix)
+    environment = Environment(home=home, values=values)
 
     # The private tree holds only the inputs this route reads. Every other
     # parse-time file the Makefile validates is pointed back at the checkout,
@@ -291,7 +318,7 @@ def prepare(
             check=False,
             capture_output=True,
             text=True,
-            env=environment,
+            env=environment.values,
         )
 
-    return InstallerRun(prefix, download_log, rustup_log, run)
+    return InstallerRun(prefix, download_log, rustup_log, run, environment)

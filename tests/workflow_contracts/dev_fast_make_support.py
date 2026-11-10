@@ -81,6 +81,65 @@ def _pinned_toolchain() -> str:
     return toolchain
 
 
+def _installed_toolchains() -> set[str] | None:
+    """Return the toolchain names rustup reports, or ``None`` if it failed.
+
+    ``rustup toolchain list`` prints one name per line, usually with a host
+    triple appended and optionally a ``(default)`` or ``(active)`` marker.
+    Splitting each line on whitespace keeps the name and drops the marker, so
+    callers can compare names rather than substrings.
+    """
+    listed = subprocess.run(
+        ["rustup", "toolchain", "list"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if listed.returncode != 0:
+        return None
+    return {
+        fields[0] for fields in map(str.split, listed.stdout.splitlines()) if fields
+    }
+
+
+def _is_toolchain_installed(toolchain: str, installed: set[str]) -> bool:
+    """Report whether a pin is installed as itself or with a host triple.
+
+    A substring test would also match a longer name that merely contains the
+    pin, so a host holding only ``nightly-2026-05-28-something`` would skip
+    a real Cargo check while reporting the pin as present. Accepting the
+    bare name and the name plus a ``-``-separated suffix covers rustup's
+    actual output without accepting unrelated releases.
+
+    >>> _is_toolchain_installed("nightly-1", {"nightly-1-x86_64-host"})
+    True
+    >>> _is_toolchain_installed("nightly-1", {"nightly-10-x86_64-host"})
+    False
+    """
+    return any(
+        name == toolchain or name.startswith(f"{toolchain}-") for name in installed
+    )
+
+
+def _skip_unless_pin_installed(reason: str) -> None:
+    """Skip the calling test when the pinned nightly is not provisioned.
+
+    Provisioning it is ``make install-dev-fast``'s job, so a host that has not
+    done so - including CI, which provisions nothing for the fragment - must
+    skip rather than reach the network. ``reason`` names what else the caller
+    needs, so a skip says what is missing rather than implying the route is
+    broken.
+    """
+    toolchain = _pinned_toolchain()
+    installed = _installed_toolchains()
+    if installed is None or not _is_toolchain_installed(toolchain, installed):
+        pytest.skip(
+            f"the pinned development toolchain {toolchain} is not installed; "
+            f"{reason}"
+        )
+
+
 def _assert_routed_cargo(output: str, expected_verbs: tuple[str, ...]) -> None:
     """Require every emitted Cargo command to select the pinned fragment."""
     toolchain = _pinned_toolchain()

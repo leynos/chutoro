@@ -71,6 +71,16 @@ call comes further down. Appending the status inside the probe binds it to its
 own answer, so adding a shell call above or below cannot silently retarget the
 check.
 
+Reading the pin is fallible in the same silent way. `$(file <…)` yields nothing
+for a missing file and strips to nothing for an empty one, and `cargo +` with
+nothing after it falls back to the default toolchain;
+`rustup toolchain install` with an empty name does the same. Each development
+recipe therefore starts with `$(DEV_FAST_CHECK)`, which refuses an empty read
+through `$(error …)` before any command runs. The check is per recipe rather
+than a file-wide `$(error)` for the same reason the host probe's is: the
+standard gates parse `DEV_FAST_TOOLCHAIN` too, and a broken development pin
+must not fail them.
+
 `dev-build` compiles the binary and `dev-test` runs `cargo-nextest`, both
 through `DEV_CARGO`. Nextest starts a separate Cargo invocation to compile
 tests and does not inherit the outer Cargo configuration, so `dev-test` passes
@@ -1087,6 +1097,34 @@ executes is a comment that looks like evidence. Collection goes from 332 tests
 to 346 with the flag, and a new example is a new test the moment it is written,
 which is also why an example that cannot be made to pass belongs in prose
 rather than in a docstring.
+
+### The development route's own contracts
+
+The `dev_fast_*` suites hold the Cranelift route at three depths. Most read
+`make --dry-run` output, through the helpers in `dev_fast_make_support.py` and
+`dev_fast_rustflags_support.py`; those prove what the recipe would run, not
+that the tool accepts it. `dev_fast_real_cargo_test.py` then asks a real Cargo
+to resolve the fragment, which catches a fragment that kept its `--config`
+argument but lost `codegen-backend`. `dev_fast_end_to_end_test.py` goes further
+and runs both targets against a small probe crate built by
+`dev_fast_probe_support.py`, asserting that `dev-build` produces a binary rustc
+compiled with Cranelift and that `dev-test` runs and passes the probe's suite
+through nextest.
+
+`dev_fast_linker_prefix_test.py` covers the other half of the install. Every
+other installer contract sets `MOLD_INSTALL_PREFIX`, so none of them exercises
+the `~/.local` default or the `PATH` export that makes it reachable. One
+contract installs with the default prefix and links the probe with a failing
+`ld.mold` shim ahead of the host's own, so a host that already had a working
+mold cannot make it pass; its control removes the `PATH` export and requires
+the shim to stop the build. Together they show the export is load-bearing
+rather than decorative.
+
+The contracts that need the pinned nightly skip when `rustup toolchain list`
+does not report it, because `make install-dev-fast` is the route that installs
+it and a test must not provision or reach the network. CI provisions nothing
+for the fragment, so CI records those cases as skipped. A host with the pin
+installed runs them, which is where they are meant to hold.
 
 Reading the workflow files happens at one boundary,
 `workflow_support.all_workflow_documents`, and the derivations above it take

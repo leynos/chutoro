@@ -14,7 +14,7 @@ only through the explicit `dev-build` and `dev-test` targets.
 Debug builds dominate the edit-compile-test loop, and the Cranelift codegen
 backend compiles unoptimized Rust substantially faster than LLVM. The
 repository's build standard, adopted in `d167c04` ("Adopt the Rust build
-standard (#307)"), pins stable Rust 1.99.1 and routes every gate through
+standard (#307)"), pins stable Rust 1.99.1 and routes every Cargo gate through
 `.cargo/config.toml`. Cranelift requires a nightly toolchain.
 
 A proposal to make Cranelift the development-profile backend would have routed
@@ -126,7 +126,9 @@ optional backend.
 ## Consequences
 
 - Enabling the speed-up is one explicit command, and it cannot affect a gate.
-- A gate result is always attributable to the pinned stable toolchain.
+- A result from a Cargo gate is always attributable to the pinned stable
+  toolchain. The verifier gates are the standing exceptions, and this decision
+  neither creates nor removes them.
 - The fragment duplicates the documentation denials and the linker flag, and a
   contract test fails if that duplication is dropped.
 
@@ -160,3 +162,47 @@ now separates them.
 None of the corrections changes the decision. The boundary this record protects
 is that no gate selects Cranelift, and none of the three exceptions is
 reachable through the development fragment.
+
+## Addendum — 2026-11-10
+
+Two sentences in the original text were still wider than the repository, and
+the pre-merge review of #289 caught both on the third pass.
+
+The context paragraph said the build standard "routes every gate through
+`.cargo/config.toml`". Kani and Verus are not Cargo gates in that sense —
+`make kani` invokes `$(CARGO) kani` and `make verus` invokes the pinned
+`rust-prover-tools` package, each on the toolchain its own verifier release
+requires — and Whitaker runs under its installer-managed toolchain. The
+paragraph now says "every Cargo gate", matching the decision outcome that
+already enumerated the exceptions.
+
+The first consequence claimed "a gate result is always attributable to the
+pinned stable toolchain". That is true of the Cargo gates and false of the
+three verifiers, which is why the decision outcome lists them. It now says "a
+result from a Cargo gate", and the exceptions are named as standing rather than
+as something this decision introduces.
+
+Neither correction changes the decision. What the record protects is still that
+no gate selects Cranelift, and that none of the three exceptions is reachable
+through the development fragment.
+
+The same review found a gap in the decision's own machinery rather than in its
+prose. The pin was read with `$(file <tools/dev-fast/TOOLCHAIN)`, which yields
+nothing for a missing file and strips to nothing for an empty one, and every
+recipe then used it as `cargo +$(DEV_FAST_TOOLCHAIN)` or
+`rustup toolchain install $(DEV_FAST_TOOLCHAIN)`. An empty read therefore did
+not fail: it fell back to the default toolchain, which is exactly the outcome
+the pin exists to prevent, and the route would have reported success on a
+toolchain it never selected.
+
+Each development recipe now begins with `$(DEV_FAST_CHECK)`, which refuses an
+empty read through `$(error …)` before any command runs. The check is
+per-recipe rather than a file-wide `$(error)`, for the reason the host probe's
+is: the standard gates parse `DEV_FAST_TOOLCHAIN` as well, and a broken
+development pin must not take them down with it.
+`tests/workflow_contracts/dev_fast_pin_guard_test.py` holds both halves, and
+removes the guard in a private copy to show the defect returning without it.
+
+Neither change alters the decision. What changes is that the pin can no longer
+be silently skipped, and that both development targets are now exercised end to
+end rather than only through dry runs.
