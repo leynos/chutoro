@@ -80,7 +80,10 @@ components alone does not activate it.
 
 `make install-dev-fast` provisions the toolchain components and, on Linux, the
 checksum-verified `mold` 2.41.0 archive for x86_64 and aarch64 hosts. CI
-provisions nothing for the fragment.
+provisions nothing for the fragment. `mold` itself is shared rather than
+development-only: `.cargo/config.toml` selects it in the Linux `rustflags`
+table, so the standard Linux `build`, `test`, `typecheck`, and `lint-clippy`
+routes need it too, and CI installs it for those routes.
 
 Because nextest starts a separate Cargo invocation that does not inherit the
 outer configuration, `dev-test` passes the fragment before `nextest` and again

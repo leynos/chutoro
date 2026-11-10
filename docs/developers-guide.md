@@ -34,10 +34,13 @@ configuration paths and is reachable only through the `--config` argument in
 the Makefile's `DEV_CARGO`, so installing the nightly components alone does not
 activate it.
 
-Run `make install-dev-fast` to install `rustfmt`, Clippy, `rust-analyzer`, and
-the Cranelift backend component, then the checksum-verified `mold` 2.41.0
-archive on Linux x86_64 and aarch64 hosts. Provide GCC 12.1 or later on Linux,
-because earlier releases reject `-fuse-ld=mold`.
+`make install-dev-fast` installs `rustfmt`, Clippy, `rust-analyzer`, and the
+Cranelift backend component, then the checksum-verified `mold` 2.41.0 archive
+on Linux x86_64 and aarch64 hosts. Provide GCC 12.1 or later on Linux, because
+earlier releases reject `-fuse-ld=mold`. It does not install `cargo-nextest`,
+which `dev-test` and `test` both need: run `scripts/install-nextest.sh`, the
+checksum-verified installer listed under [tool installers](#tool-installers),
+before either route.
 
 A matching digest proves only that the download is the file the pin names, not
 that the file is fit to install. `scripts/install-mold.sh` therefore checks
@@ -80,8 +83,12 @@ documentation denials and the Linux linker flag are restated on the route;
 `dev-test` adds `-D warnings` for its test run. The other standard Make
 targets—`build`, `test`, `typecheck`, `lint-clippy`, `release`, formatting,
 coverage, Kani, Verus, benchmarks, and Whitaker—do not select the fragment and
-need none of its prerequisites, so CI provisions nothing extra for them.
-Outside Linux the fragment leaves the platform linker selected.
+need neither the nightly toolchain nor Cranelift, so CI provisions nothing
+extra for them. `mold` is not one of those development-only prerequisites: the
+Linux `rustflags` table in `.cargo/config.toml` links with it, and the standard
+`build`, `test`, `typecheck`, and `lint-clippy` recipes restate that flag in
+`STANDARD_LINKER_FLAGS`, so a Linux host needs `mold` for the standard targets
+as well. Outside Linux the fragment leaves the platform linker selected.
 
 Those three development targets declare themselves `.PHONY` beside their
 recipes rather than in the file-wide list at the top of the `Makefile`. The
