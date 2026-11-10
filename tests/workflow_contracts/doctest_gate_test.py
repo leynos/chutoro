@@ -139,6 +139,24 @@ def test_ci_runs_the_doctest_gate_before_coverage() -> None:
 _FENCE_OPENER = re.compile(r"^(?:`{3,}|~{3,})(?P<info>.*)$")
 
 
+def _strip_doc_marker(line: str) -> str:
+    """Return *line* without its leading `///` or `//!` marker."""
+    stripped = line.strip()
+    for marker in ("///", "//!"):
+        if stripped.startswith(marker):
+            return stripped[len(marker) :].strip()
+    return stripped
+
+
+def _has_ignore_attribute(info: str) -> bool:
+    """Return whether a fence info string carries an `ignore` attribute."""
+    attributes = (part.strip() for part in info.split(","))
+    return any(
+        attribute == "ignore" or attribute.startswith("ignore-")
+        for attribute in attributes
+    )
+
+
 def _ignored_fences(source: str) -> list[int]:
     """Return the line numbers of doc fences that skip compilation.
 
@@ -150,19 +168,8 @@ def _ignored_fences(source: str) -> list[int]:
     """
     ignored: list[int] = []
     for number, line in enumerate(source.splitlines(), start=1):
-        stripped = line.strip()
-        for marker in ("///", "//!"):
-            if stripped.startswith(marker):
-                stripped = stripped[len(marker) :].strip()
-                break
-        match = _FENCE_OPENER.match(stripped)
-        if not match:
-            continue
-        attributes = [part.strip() for part in match.group("info").split(",")]
-        if any(
-            attribute == "ignore" or attribute.startswith("ignore-")
-            for attribute in attributes
-        ):
+        match = _FENCE_OPENER.match(_strip_doc_marker(line))
+        if match and _has_ignore_attribute(match.group("info")):
             ignored.append(number)
     return ignored
 
