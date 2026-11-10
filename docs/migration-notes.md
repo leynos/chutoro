@@ -45,6 +45,15 @@ spends holding its mutex while scoring. Neither instrument carries labels, so
 their cardinality is fixed, and both are additive: builds without the feature
 are unchanged.
 
+### Additive API: dense-provider test fixtures
+
+The dense provider exposes reusable Arrow and Parquet fixture builders through
+its opt-in `testing` feature. Crates that use them in their own tests should
+enable the feature only in `[dev-dependencies]`. This does not change runtime
+defaults or require a migration for existing consumers. The
+[user's guide](users-guide.md#reusing-dense-fixtures-in-dependent-tests) shows
+how to enable the feature.
+
 ## 0.1.0
 
 The public `ClusteringResult::from_assignments` constructor is no longer

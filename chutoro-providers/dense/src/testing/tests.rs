@@ -3,7 +3,7 @@
 use std::{io::Read, sync::Arc};
 
 use arrow_array::{Array, FixedSizeListArray, Float32Array, RecordBatch};
-use arrow_schema::{DataType, Field};
+use arrow_schema::{DataType, Field, Schema};
 use bytes::Bytes;
 use cap_std::fs::Dir;
 use parquet::{arrow::arrow_reader::ParquetRecordBatchReaderBuilder, file::reader::ChunkReader};
@@ -39,6 +39,7 @@ fn row_null_builder_marks_only_the_requested_rows() {
     assert_list_shape(&array, 3, 2, 1);
     assert_null_pattern(&array, &[false, true, false]);
     assert_list_type(&array, 2, false);
+    assert_dense_child_values(&array, &[1.0, 2.0, 0.0, 0.0, 3.0, 4.0]);
 }
 
 #[test]
@@ -48,6 +49,7 @@ fn value_null_builder_marks_only_the_requested_values() {
     assert_list_shape(&array, 2, 2, 0);
     assert_null_pattern(child_values(&array), &[false, true, false, false]);
     assert_list_type(&array, 2, true);
+    assert_child_values_with_nulls(&array, &[Some(1.0), None, Some(3.0), Some(4.0)]);
 }
 
 #[test]
@@ -123,7 +125,30 @@ fn bytes_and_file_writers_preserve_equivalent_record_batches() {
     let file_batch = file_batches
         .first()
         .expect("file fixture must contain a record batch");
+    assert_value_null_batch_matches_expected(bytes_batch);
     assert_record_batches_equal(bytes_batch, file_batch);
+}
+
+/// Checks a decoded value-null fixture against an independent expected schema.
+fn assert_value_null_batch_matches_expected(batch: &RecordBatch) {
+    let expected_field = Field::new(
+        "features",
+        DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, true)), 2),
+        false,
+    );
+    let expected_schema = Arc::new(Schema::new(vec![expected_field]));
+    assert_eq!(batch.schema(), expected_schema);
+    assert_eq!(batch.num_rows(), 2);
+
+    let list = batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<FixedSizeListArray>()
+        .expect("decoded feature column must be a fixed-size list");
+    assert_list_shape(list, 2, 2, 0);
+    assert_list_type(list, 2, true);
+    assert_null_pattern(child_values(list), &[false, true, false, false]);
+    assert_child_values_with_nulls(list, &[Some(1.0), None, Some(3.0), Some(4.0)]);
 }
 
 fn read_record_batches<R: ChunkReader + 'static>(
@@ -133,6 +158,7 @@ fn read_record_batches<R: ChunkReader + 'static>(
     Ok(reader.collect::<Result<Vec<_>, _>>()?)
 }
 
+/// Asserts decoded batches match in schema, validity, row count, and float bits.
 fn assert_record_batches_equal(expected: &RecordBatch, actual: &RecordBatch) {
     assert_eq!(expected.schema(), actual.schema());
     assert_eq!(expected.num_rows(), actual.num_rows());
@@ -215,6 +241,21 @@ fn assert_dense_child_values(array: &FixedSizeListArray, expected: &[f32]) {
         .map(|value| value.to_bits())
         .collect::<Vec<_>>();
     assert_eq!(actual_bits, expected_bits);
+}
+
+/// Checks child validity and values against the expected nullable scalar rows.
+fn assert_child_values_with_nulls(array: &FixedSizeListArray, expected: &[Option<f32>]) {
+    let values = child_values(array);
+    assert_eq!(values.len(), expected.len());
+    for (index, expected_value) in expected.iter().enumerate() {
+        match expected_value {
+            Some(value) => {
+                assert!(!values.is_null(index));
+                assert_eq!(values.value(index).to_bits(), value.to_bits());
+            }
+            None => assert!(values.is_null(index)),
+        }
+    }
 }
 
 fn child_values(array: &FixedSizeListArray) -> &Float32Array {

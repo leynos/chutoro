@@ -8,6 +8,7 @@ fn scalar_data(count: u16) -> Vec<f32> {
     (0..count).map(f32::from).collect()
 }
 
+/// Checks that every inserted non-entry node appears in the harvested edges.
 #[rstest]
 fn build_with_edges_covers_inserted_nodes() {
     let num_nodes = 10;
@@ -63,6 +64,7 @@ fn build_with_edges_two_nodes_produces_edges() {
     );
 }
 
+/// Checks harvested edges sort by insertion sequence with deterministic ties.
 #[rstest]
 fn build_with_edges_edges_sorted_by_sequence() {
     // Coverage instrumentation inflates the cost of parallel HNSW builds;
@@ -84,7 +86,6 @@ fn build_with_edges_edges_sorted_by_sequence() {
 }
 
 #[rstest]
-// refused_by: merge_ladder_exhausted · collision: none (both sides edited, nowhere the same lines)
 #[case::already_canonical(CanonicalizeCase {
     source: 1,
     target: 3,
@@ -112,6 +113,35 @@ fn build_with_edges_edges_sorted_by_sequence() {
 fn canonicalize_preserves_fields(#[case] case: CanonicalizeCase) {
     let edge = CandidateEdge::new(case.source, case.target, case.distance, case.sequence);
     let canonical = edge.canonicalize();
+
+#[rstest]
+#[case::already_canonical(CanonicaliseCase {
+    source: 1,
+    target: 3,
+    distance: 0.3,
+    sequence: 20,
+    expected_source: 1,
+    expected_target: 3,
+})]
+#[case::reversed(CanonicaliseCase {
+    source: 5,
+    target: 2,
+    distance: 0.5,
+    sequence: 10,
+    expected_source: 2,
+    expected_target: 5,
+})]
+#[case::self_edge(CanonicaliseCase {
+    source: 4,
+    target: 4,
+    distance: 0.7,
+    sequence: 30,
+    expected_source: 4,
+    expected_target: 4,
+})]
+fn canonicalise_preserves_fields(#[case] case: CanonicaliseCase) {
+    let edge = CandidateEdge::new(case.source, case.target, case.distance, case.sequence);
+    let canonical = edge.canonicalise();
 
     assert_eq!(canonical.source(), case.expected_source);
     assert_eq!(canonical.target(), case.expected_target);
@@ -245,6 +275,7 @@ fn insert_harvesting_initial_insert_returns_empty_edges(
     assert!(edges.is_empty(), "initial insert should return empty edges");
 }
 
+/// Checks incremental harvesting returns valid outgoing edges for each node.
 #[rstest]
 #[case(HarvestFixtureCase {
     data: vec![0.0, 1.0, 2.0, 3.0, 4.0],
@@ -326,6 +357,7 @@ fn insert_harvesting_duplicate_insert_is_rejected(
     assert!(matches!(err, HnswError::DuplicateNode { node: duplicate } if duplicate == case.node));
 }
 
+/// Checks harvesting insertion matches the graph produced by ordinary inserts.
 #[rstest]
 #[case(HarvestFixtureCase {
     data: vec![0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0],
@@ -373,4 +405,5 @@ fn insert_harvesting_matches_insert_graph_state(
         );
     }
 }
+// weave: run 'weave explain chutoro-core/src/hnsw/tests/edge_harvest/coverage.rs' for per-hunk detail, 'weave check' to verify your resolution
 // weave: run 'weave explain chutoro-core/src/hnsw/tests/edge_harvest/coverage.rs' for per-hunk detail, 'weave check' to verify your resolution

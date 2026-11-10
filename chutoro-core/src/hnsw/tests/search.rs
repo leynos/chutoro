@@ -153,6 +153,7 @@ fn layer_search_halts_on_equal_distance_candidates() {
     );
 }
 
+/// Keeps equal-distance neighbours in deterministic node-id order.
 #[rstest]
 fn layer_search_orders_equal_distance_deterministically() {
     let source = NumericTestSource::new("dummy", vec![0.0, 1.0, 1.0, 1.0]);

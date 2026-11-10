@@ -24,6 +24,21 @@ chutoro-core = "0.1.0"
 The crate exports all public entry points from the root module, so required
 types can be imported directly from `chutoro_core`.
 
+## Reusing dense fixtures in dependent tests
+
+Crate tests that need shared Arrow and Parquet inputs can enable the dense
+provider's opt-in `testing` feature from a development dependency:
+
+```toml
+[dev-dependencies]
+chutoro-providers-dense = { version = "0.1.0", features = ["testing"] }
+```
+
+The feature exposes builders for fixed-size list arrays, feature fields, and
+in-memory or file-backed Parquet data. It is disabled in ordinary builds. For
+the fixture ownership boundary and the complete builder surface, see the
+[developer's guide](developers-guide.md#support-module-boundaries).
+
 ## Running the clustering pipeline
 
 A `Chutoro` instance is constructed with `ChutoroBuilder`, followed by
