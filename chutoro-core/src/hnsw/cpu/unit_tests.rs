@@ -245,7 +245,9 @@ fn score_trim_jobs_keeps_the_nearest_candidates() {
             level: 0,
             max_connections: 1,
         },
-        candidates: vec![1, 2, 3],
+        // Supplied in reverse distance order: node 3 is 7 away and node 2 is
+        // 3 away, so preserving the input order would return `[3, 2]`.
+        candidates: vec![3, 2, 1],
         sequences: vec![1, 2, 3],
     }];
 
@@ -258,7 +260,9 @@ fn score_trim_jobs_keeps_the_nearest_candidates() {
 
     assert_eq!(result.node, 0);
     // The base-layer limit is twice `max_connections`, so the two nearest
-    // candidates survive and are emitted in distance order.
+    // candidates survive. They were supplied in reverse distance order, so
+    // this also proves the scoring sorts by distance instead of preserving the
+    // caller's order.
     assert_eq!(result.neighbours, vec![2, 3]);
 }
 

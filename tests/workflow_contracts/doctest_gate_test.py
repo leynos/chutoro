@@ -14,6 +14,9 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import re
+import shlex
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -206,3 +209,99 @@ def test_the_cpu_hnsw_sources_hold_no_ignored_doctests() -> None:
         for number in _ignored_fences(path.read_text(encoding="utf-8"))
     ]
     assert not offenders, f"ignored doctests bypass compilation: {offenders}"
+
+
+#: A one-member workspace the target can compile without touching the repository.
+_FIXTURE_MANIFEST = """\
+[workspace]
+members = ["fixture"]
+resolver = "2"
+"""
+
+_FIXTURE_PACKAGE = """\
+[package]
+name = "doctest_fixture"
+version = "0.1.0"
+edition = "2021"
+"""
+
+
+def _fixture_source(expected: int) -> str:
+    """Return a fixture crate whose doctest expects *expected*."""
+    return f"""\
+//! Fixture crate for the doctest gate.
+//!
+//! ```
+//! assert_eq!(doctest_fixture::answer(), {expected});
+//! ```
+
+/// Return the fixture answer.
+pub const fn answer() -> u32 {{
+    42
+}}
+"""
+
+
+def _write_doctest_fixture(root: Path, lib_source: str) -> Path:
+    """Write a Cargo workspace holding *lib_source* and return its manifest."""
+    (root / "fixture" / "src").mkdir(parents=True)
+    (root / "Cargo.toml").write_text(_FIXTURE_MANIFEST, encoding="utf-8")
+    (root / "fixture" / "Cargo.toml").write_text(_FIXTURE_PACKAGE, encoding="utf-8")
+    (root / "fixture" / "src" / "lib.rs").write_text(lib_source, encoding="utf-8")
+    return root / "Cargo.toml"
+
+
+def _cargo_wrapper(root: Path, manifest: Path) -> Path:
+    """Write a `cargo` shim that runs the subcommand in *manifest*'s workspace.
+
+    `--manifest-path` belongs to the subcommand, so it cannot be appended to
+    the `CARGO` value the recipe expands before `test`. The shim inserts it
+    after the subcommand instead.
+    """
+    cargo = shutil.which("cargo")
+    assert cargo, "the doctest gate test needs cargo"
+    wrapper = root / "cargo-fixture.sh"
+    wrapper.write_text(
+        "#!/bin/sh\n"
+        'manifest=$1\n'
+        "shift\n"
+        'command=$1\n'
+        "shift\n"
+        f'exec {shlex.quote(cargo)} "$command" --manifest-path "$manifest" "$@"\n',
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o755)
+    return wrapper
+
+
+def _run_test_doc(manifest: Path) -> subprocess.CompletedProcess[str]:
+    """Run the `test-doc` target against the fixture workspace."""
+    make = shutil.which("make")
+    assert make, "the doctest gate test needs make"
+    wrapper = _cargo_wrapper(manifest.parent, manifest)
+    return subprocess.run(  # noqa: S603 - fixed argv, no shell
+        [
+            make,
+            "-C",
+            str(ROOT),
+            "test-doc",
+            f"CARGO={shlex.quote(str(wrapper))} {shlex.quote(str(manifest))}",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_the_target_runs_a_passing_doctest(tmp_path: Path) -> None:
+    """A compiling example must be executed, not skipped."""
+    result = _run_test_doc(_write_doctest_fixture(tmp_path, _fixture_source(42)))
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "test result: ok" in result.stdout
+
+
+def test_the_target_fails_a_failing_doctest(tmp_path: Path) -> None:
+    """A failing example must fail the target, or the gate is advisory."""
+    result = _run_test_doc(_write_doctest_fixture(tmp_path, _fixture_source(41)))
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "test result: FAILED" in result.stdout
