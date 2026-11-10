@@ -17,22 +17,9 @@ fn plain_builder_preserves_dimension_rows_and_child_nullability() {
     let rows = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
     let array = build_list_array(&rows, 2, true).expect("fixture array must build");
 
-    assert_eq!(array.len(), 2);
-    assert_eq!(array.value_length(), 2);
-    assert_eq!(array.null_count(), 0);
-    assert_eq!(
-        array.data_type(),
-        &DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, true)), 2)
-    );
-    let values = array
-        .values()
-        .as_any()
-        .downcast_ref::<Float32Array>()
-        .expect("child values must be Float32");
-    assert_eq!(values.value(0).to_bits(), 1.0_f32.to_bits());
-    assert_eq!(values.value(1).to_bits(), 2.0_f32.to_bits());
-    assert_eq!(values.value(2).to_bits(), 3.0_f32.to_bits());
-    assert_eq!(values.value(3).to_bits(), 4.0_f32.to_bits());
+    assert_list_shape(&array, 2, 2, 0);
+    assert_list_type(&array, 2, true);
+    assert_dense_child_values(&array, &[1.0, 2.0, 3.0, 4.0]);
 }
 
 #[test]
@@ -49,37 +36,18 @@ fn row_null_builder_marks_only_the_requested_rows() {
     let rows = vec![Some(vec![1.0, 2.0]), None, Some(vec![3.0, 4.0])];
     let array = build_list_array_with_row_nulls(&rows, 2).expect("fixture array must build");
 
-    assert_eq!(array.len(), 3);
-    assert_eq!(array.value_length(), 2);
-    assert_eq!(array.null_count(), 1);
-    assert!(!array.is_null(0));
-    assert!(array.is_null(1));
-    assert!(!array.is_null(2));
-    assert_eq!(
-        array.data_type(),
-        &DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, false)), 2)
-    );
+    assert_list_shape(&array, 3, 2, 1);
+    assert_null_pattern(&array, &[false, true, false]);
+    assert_list_type(&array, 2, false);
 }
 
 #[test]
 fn value_null_builder_marks_only_the_requested_values() {
     let rows = vec![vec![Some(1.0), None], vec![Some(3.0), Some(4.0)]];
     let array = build_list_array_with_value_nulls(&rows, 2).expect("fixture array must build");
-    let values = array
-        .values()
-        .as_any()
-        .downcast_ref::<Float32Array>()
-        .expect("child values must be Float32");
-
-    assert_eq!(array.len(), 2);
-    assert_eq!(array.value_length(), 2);
-    assert_eq!(array.null_count(), 0);
-    assert_eq!(values.null_count(), 1);
-    assert!(values.is_null(1));
-    assert_eq!(
-        array.data_type(),
-        &DataType::FixedSizeList(Arc::new(Field::new("item", DataType::Float32, true)), 2)
-    );
+    assert_list_shape(&array, 2, 2, 0);
+    assert_null_pattern(child_values(&array), &[false, true, false, false]);
+    assert_list_type(&array, 2, true);
 }
 
 #[test]
@@ -203,4 +171,56 @@ fn assert_record_batches_equal(expected: &RecordBatch, actual: &RecordBatch) {
             );
         }
     }
+}
+
+fn assert_list_shape(
+    array: &FixedSizeListArray,
+    expected_rows: usize,
+    expected_dimension: i32,
+    expected_null_rows: usize,
+) {
+    assert_eq!(array.len(), expected_rows);
+    assert_eq!(array.value_length(), expected_dimension);
+    assert_eq!(array.null_count(), expected_null_rows);
+}
+
+fn assert_list_type(array: &FixedSizeListArray, dimension: i32, child_nullable: bool) {
+    assert_eq!(
+        array.data_type(),
+        &DataType::FixedSizeList(
+            Arc::new(Field::new("item", DataType::Float32, child_nullable)),
+            dimension,
+        )
+    );
+}
+
+fn assert_null_pattern(array: &dyn Array, expected: &[bool]) {
+    let actual = (0..array.len())
+        .map(|index| array.is_null(index))
+        .collect::<Vec<_>>();
+    assert_eq!(actual, expected);
+}
+
+fn assert_dense_child_values(array: &FixedSizeListArray, expected: &[f32]) {
+    let values = child_values(array);
+    assert_eq!(values.null_count(), 0);
+
+    let expected_bits = expected
+        .iter()
+        .map(|value| value.to_bits())
+        .collect::<Vec<_>>();
+    let actual_bits = values
+        .values()
+        .iter()
+        .map(|value| value.to_bits())
+        .collect::<Vec<_>>();
+    assert_eq!(actual_bits, expected_bits);
+}
+
+fn child_values(array: &FixedSizeListArray) -> &Float32Array {
+    array
+        .values()
+        .as_any()
+        .downcast_ref::<Float32Array>()
+        .expect("child values must be Float32")
 }
