@@ -109,6 +109,15 @@ def test_ci_runs_the_doctest_gate_before_coverage() -> None:
     assert "make test-doc" in commands, "CI must run `make test-doc`"
     doctests_at = commands.index("make test-doc")
 
+    # A guarded or non-blocking step still appears in the command list, but the
+    # build never fails on it, so the gate would be advisory rather than
+    # required.
+    doctest_step = steps[doctests_at]
+    assert "if" not in doctest_step, "a guarded doctest step does not gate CI"
+    assert "continue-on-error" not in doctest_step, (
+        "a non-blocking doctest step does not gate CI"
+    )
+
     setup_rust = next(
         (
             i
