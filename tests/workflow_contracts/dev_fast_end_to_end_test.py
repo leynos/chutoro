@@ -212,8 +212,10 @@ POISONED_LOCK_TEST = (
 #: silently - the parse would return fewer names and the comparison would pass
 #: for the wrong reason.
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
-#: Enumerating a listing does not compile, so these bounds are generous rather
-#: than load-bearing.
+#: ``cargo nextest list`` builds every test binary before it can ask them what
+#: they contain, so this is a compile budget rather than a parsing one. It is
+#: generous because the two selections run back to back on one workspace and
+#: the second reuses the first's artefacts; a cold cache pays it twice.
 LIST_TIMEOUT_SECONDS = 900
 
 requires_repository_selection = pytest.mark.skipif(
