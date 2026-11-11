@@ -18,6 +18,16 @@ from dev_fast_make_support import MAKEFILE_PATH, _cargo_invocations, _make_outpu
 
 REQUIRED_DENIALS = ("-D warnings", "-Dmissing_docs", "-Dmissing_crate_level_docs")
 
+#: The text the mutation removes to model a gate that dropped the build
+#: standard. It reaches into the nextest recipe rather than stopping at the
+#: flags, because the same flag string legitimately appears on other recipes:
+#: `test-doc` repeats it, and a mutation anchored on the flags alone stopped
+#: finding exactly one occurrence once trunk gained that target. Naming the
+#: command keeps the anchor unique without weakening what the mutation proves.
+STANDARD_RUSTFLAGS_ANCHOR = (
+    '-D warnings $(STANDARD_RUSTFLAGS)" $(CARGO) nextest run'
+)
+
 
 def _assert_stable_test(output: str) -> None:
     """Require the test gate to be one stable nextest run under the standard.
@@ -80,8 +90,8 @@ def test_standard_test_is_a_single_stable_nextest_run() -> None:
             id="test-gains-dev-fast-fragment",
         ),
         pytest.param(
-            "-D warnings $(STANDARD_RUSTFLAGS)",
-            "-D warnings",
+            STANDARD_RUSTFLAGS_ANCHOR,
+            '-D warnings" $(CARGO) nextest run',
             "lost",
             id="test-loses-documentation-denials",
         ),
