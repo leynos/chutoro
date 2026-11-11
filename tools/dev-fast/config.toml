@@ -1,0 +1,24 @@
+# Selected debug Cargo fragment, derived from leynos/netsuke at
+# 924cb215d3841048dbf6649767a510d2a5dfb1b7 (Concordat issue #157).
+# Cargo must see this only through an explicit --config argument. Direct Cargo,
+# release, coverage, verification, and Whitaker retain their own build policy.
+
+[unstable]
+codegen-backend = true
+
+# Cranelift shortens development builds at the expense of runtime speed.
+[profile.dev]
+codegen-backend = "cranelift"
+
+# The Linux linker is selected only for this development fragment. Cargo
+# chooses target rustflags over [build].rustflags rather than merging them,
+# so repeat Chutoro's two documentation-denial flags from .cargo/config.toml.
+# GCC resolves `ld.mold` from PATH; Clang can instead select a system copy
+# ahead of the version installed under ~/.local/bin.
+[target.'cfg(target_os = "linux")']
+linker = "gcc"
+rustflags = [
+    "-Dmissing_docs",
+    "-Dmissing_crate_level_docs",
+    "-Clink-arg=-fuse-ld=mold",
+]

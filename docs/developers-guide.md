@@ -4,6 +4,109 @@ This guide collects day-to-day practices for contributors working on the
 Chutoro codebase. It complements the more specialized documents in `docs/` and
 keeps operational guidance in one place.
 
+## Rust toolchain and build routing
+
+The workspace pins stable Rust 1.99.1 in `rust-toolchain.toml` and declares
+Rust 1.89 as its minimum supported Rust version (MSRV). Every standard Cargo
+gate runs on that stable pin and reads `.cargo/config.toml`, which supplies the
+documentation-warning flags and, on Linux, the `mold` linker.
+[The build standard](#the-build-standard) describes those recipes and the
+contract tests that hold them.
+
+Kani and Verus sit outside that statement: each verifier runs on the toolchain
+its own release requires. Provisioning is delegated to the pinned
+`rust-prover-tools` package rather than a repository script, so
+`make install-kani` and `make install-verus` provision from it,
+`make kani-check` reads the installed version through it, and `make verus` runs
+the proofs through it. `make kani` does not delegate: it invokes
+`$(CARGO) kani` directly, since `cargo-kani` is the verifier's own front-end.
+Whitaker is the third exception to the pinned stable toolchain: it runs under
+the toolchain its own installer manages. None of the three is selected through
+the development fragment, so this does not weaken the Cranelift boundary below.
+
+Cranelift is an opt-in development-speed route, not the default build. It
+requires a nightly toolchain, so it stays behind the explicit `dev-build` and
+`dev-test` targets and never reaches a merge gate. The route selects the
+fragment in `tools/dev-fast/config.toml`, pinned to the dated nightly in
+`tools/dev-fast/TOOLCHAIN`. On Linux the fragment selects GCC as the linker
+driver and `mold` 2.41.0 as the linker. It lives outside Cargo's automatic
+configuration paths and is reachable only through the `--config` argument in
+the Makefile's `DEV_CARGO`, so installing the nightly components alone does not
+activate it.
+
+`make install-dev-fast` installs `rustfmt`, Clippy, `rust-analyzer`, and the
+Cranelift backend component, then the checksum-verified `mold` 2.41.0 archive
+on Linux x86_64 and aarch64 hosts. Provide GCC 12.1 or later on Linux, because
+earlier releases reject `-fuse-ld=mold`. It does not install `cargo-nextest`,
+which `dev-test` and `test` both need: run `scripts/install-nextest.sh`, the
+checksum-verified installer listed under [tool installers](#tool-installers),
+before either route.
+
+A matching digest proves only that the download is the file the pin names, not
+that the file is fit to install. `scripts/install-mold.sh` therefore checks
+every member the linker route needs, and probes both binaries' reported
+version, in its staging directory before copying into the prefix. Validating
+after the copy would leave a truncated or stale tree installed, and the next
+run would reuse it because the warm-install check probes the same paths. The
+script shares `scripts/lib/pinned-download.sh` with the CI installers, so its
+version and digest are read through the same fail-closed helper rather than by
+a private copy of that logic.
+
+[ADR-005](adr-005-cranelift-opt-in-development-route.md) records why the route
+is opt-in rather than the development-profile default, and what keeps it out of
+every merge gate. Each development target validates the host probe before using
+it. The probe is captured once with its exit status, because a `?=` default over
+`$(shell uname -s)` is recursively expanded and would re-run the command on
+every reference; a recipe could then pass one answer to its check and select
+its flags from another. An empty value reads as "not Linux" everywhere it is
+tested, and a probe that answers but exits non-zero is refused too, so neither
+case can silently drop the linker selection. `DEV_FAST_HOST_OS` remains
+overridable for a host whose `uname` cannot run.
+
+The exit status is appended by the probe's own shell rather than read back from
+`.SHELLSTATUS`. That variable reports whichever `$(shell)` call ran last, so a
+read back is correct only while no other call intervenes between the probe and
+the read — an ordering this file satisfies today only because `BUILD_HOST_OS`'s
+call comes further down. Appending the status inside the probe binds it to its
+own answer, so adding a shell call above or below cannot silently retarget the
+check.
+
+Reading the pin is fallible in the same silent way. `$(file <…)` yields nothing
+for a missing file and strips to nothing for an empty one, and `cargo +` with
+nothing after it falls back to the default toolchain;
+`rustup toolchain install` with an empty name does the same. Each development
+recipe therefore starts with `$(DEV_FAST_CHECK)`, which refuses an empty read
+through `$(error …)` before any command runs. The check is per recipe rather
+than a file-wide `$(error)` for the same reason the host probe's is: the
+standard gates parse `DEV_FAST_TOOLCHAIN` too, and a broken development pin
+must not fail them.
+
+`dev-build` compiles the binary and `dev-test` runs `cargo-nextest`, both
+through `DEV_CARGO`. Nextest starts a separate Cargo invocation to compile
+tests and does not inherit the outer Cargo configuration, so `dev-test` passes
+the fragment before `nextest` and again to `nextest run`. Both routes assign
+`RUSTFLAGS`, appending their flags to any inherited value with
+`$${RUSTFLAGS:+$$RUSTFLAGS }` rather than replacing it. The assignment is what
+makes them repeat the fragment's own rustflags: assigning `RUSTFLAGS` makes
+Cargo ignore every `rustflags` table, including the fragment's, so the
+documentation denials and the Linux linker flag are restated on the route;
+`dev-test` adds `-D warnings` for its test run. The other standard Make
+targets—`build`, `test`, `typecheck`, `lint-clippy`, `release`, formatting,
+coverage, Kani, Verus, benchmarks, and Whitaker—do not select the fragment and
+need neither the nightly toolchain nor Cranelift, so CI provisions nothing
+extra for them. `mold` is not one of those development-only prerequisites: the
+Linux `rustflags` table in `.cargo/config.toml` links with it, and the standard
+`build`, `test`, `typecheck`, and `lint-clippy` recipes restate that flag in
+`STANDARD_LINKER_FLAGS`, so a Linux host needs `mold` for the standard targets
+as well. Outside Linux the fragment leaves the platform linker selected.
+
+Those three development targets declare themselves `.PHONY` beside their
+recipes rather than in the file-wide list at the top of the `Makefile`. The
+file-wide list is a single long line that other work also edits, so appending
+to it invites a merge conflict with any concurrent change to the same targets.
+Keeping the opt-in feature's declarations next to its recipes means this
+feature and its declarations move together.
+
 ## GitHub Actions runner profiles
 
 Every job on the developer feedback path runs on a paid Ubicloud runner, at
@@ -251,6 +354,7 @@ version and digest are pinned.
 | Tool          | Installer                                                  | Pin                                      |
 | ------------- | ---------------------------------------------------------- | ---------------------------------------- |
 | Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, currently 0.2.7            |
+| `mold`        | `leynos/shared-actions/.github/actions/setup-rust`         | Action input, currently 2.41.0           |
 | mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.1            |
 | cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS` |
 | sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS` |
@@ -1005,6 +1109,115 @@ naming the path, because a contract cannot say anything about a workflow it
 never saw, and `Path.glob` yields nothing for a missing directory rather than
 complaining about it: without the guard, every assertion passed having read no
 workflow at all.
+
+### The development route's own contracts
+
+The `dev_fast_*` suites hold the Cranelift route at three depths. Most read
+`make --dry-run` output, through the helpers in `dev_fast_make_support.py` and
+`dev_fast_rustflags_support.py`; those prove what the recipe would run, not
+that the tool accepts it. `dev_fast_real_cargo_test.py` then asks a real Cargo
+to resolve the fragment, which catches a fragment that kept its `--config`
+argument but lost `codegen-backend`. `dev_fast_end_to_end_test.py` goes further
+and runs both targets against a small probe crate built by
+`dev_fast_probe_support.py`, asserting that `dev-build` produces a binary rustc
+compiled with Cranelift and that `dev-test` runs and passes the probe's suite
+through nextest.
+
+`dev_fast_linker_prefix_test.py` covers the other half of the install. Every
+other installer contract sets `MOLD_INSTALL_PREFIX`, so none of them exercises
+the `~/.local` default or the `PATH` export that makes it reachable. One
+contract installs with the default prefix and links the probe with a failing
+`ld.mold` shim ahead of the host's own, so a host that already had a working
+`mold` cannot make it pass; its control removes the `PATH` export and requires
+the shim to stop the build. Together they show the export is load-bearing
+rather than decorative.
+
+A successful build alone would not show which linker produced it, and the
+fixture's archive carries a version-reporting stand-in that links nothing. The
+first contract therefore replaces that stand-in after the install with a proxy
+that records the path it was invoked through and then delegates to the host's
+real `ld.mold`. The record is what lets the contract assert that every link
+resolved the installed tree, and the delegation is what lets it run the binary
+that came out. Writing the proxy after the install keeps the installer's own
+prefix and pin verification under test, rather than bypassing them with a
+hand-made prefix.
+
+Both of those need the pinned nightly and the Cranelift component, so on a host
+without them they skip and the export goes unchecked there. A third contract
+asks the resolver question on any host: it runs the repository's own
+`dev-build` recipe with `CARGO` overridden to a script that records what `PATH`
+resolves as `ld.mold`. The recipe under test is therefore the shipped one, and
+the export being exercised is the line developers get, but nothing compiles.
+The same run against a copy of the Makefile with the export removed must find
+no linker, which is what shows the first answer came from the export rather
+than from the host.
+
+That contract asks for no compiler, and the installer unpacks a prebuilt
+archive, so nothing in it needs `gcc`. Gating it on one would restore exactly
+the skip it exists to remove. Three different `PATH`s are in play, and it is
+worth keeping them apart:
+
+- The contract's own clean `PATH` carries `make` and no linker, and
+  `_clean_binary_directory` asserts that much. The recipe reaches `cargo`
+  through its `CARGO` override, so no Cargo install is needed either.
+- The installer runs under the inherited `PATH` and needs the ordinary Linux
+  userland its script names: `bash`, `curl`, `tar`, `sha256sum`, `grep`,
+  `mktemp`, `cp`, `mkdir`, `rm` and `uname`.
+- The test runner needs the Python environment `make test-workflow-contracts`
+  provides.
+
+Nothing in that route requires a compiler. Only the first of the three `PATH`s
+is free of one, though: the installer and the test runner inherit the
+developer's environment, which may well carry `gcc`. What the contract
+establishes is that no compiler is needed, and that was checked by running it
+with `gcc` hidden from the pytest process: `shutil.which("gcc")` reported
+`None` there, and the contract passed rather than skipping. That is a condition
+of the verification run, not a claim that every run is compiler-free.
+
+The end-to-end contracts select their compiler evidence the same way they
+select the fragment: by name. Matching the whole of nextest's stderr for
+`codegen-backend=cranelift` would also accept the flag on an unrelated crate or
+in nextest's own prose. `crate_compilations` selects the `rustc` lines Cargo
+printed for the probe crate, and `harness_compilations` narrows that to the one
+carrying Cargo's `--test` marker, so `dev-test` asserts on the invocation that
+compiled the test harness rather than on the build that happened to share its
+crate name.
+
+The contracts that need the pinned nightly skip when it is not provisioned,
+because `make install-dev-fast` is the route that installs it and a test must
+not provision or reach the network. The contracts that compile or link check
+one step further, for the `rustc-codegen-cranelift` component, since a channel
+without it refuses `-Z codegen-backend=cranelift`. That second check matters
+because CI does install this same pin: the Whitaker suite uses it, with the
+stable components only. A toolchain-only guard would therefore run the build on
+CI and fail on the missing backend, which is a broken contract rather than an
+unprovisioned host. Provisioning the component is what lets those cases run,
+and a host that has done so is where they are meant to hold.
+
+Linux hosts need one more thing, because both development recipes pass
+`-Clink-arg=-fuse-ld=mold`: without `ld.mold` on the `PATH` the build fails in
+the linker rather than skipping, so those cases check for it too. Testing with
+`shutil.which` rather than a fixed path keeps a developer who installed the
+linker elsewhere in the route.
+
+The probes distinguish an absent listing from one that could not be read, and
+the rule is the same for both. No rustup at all means the host never claimed
+the route, so its cases skip. A rustup that is present and answers with a
+failure is a broken probe, because the guard can no longer tell "not
+provisioned" from "probe broken": skipping there would let a provisioned host
+pass the whole suite without exercising the development route. The toolchain
+and component listings therefore answer `None` only for absent rustup, and raise
+`ToolchainProbeError` or `ComponentProbeError` at the test boundary for a
+failed one. Only a listing that succeeded can say a toolchain or component is
+missing.
+
+`dev_fast_provision_probe_test.py` pins that at the boundary the suites
+actually cross. Reading the helpers underneath cannot show which way
+`_skip_unless_pin_installed` decides, because a guard that skips and a guard
+that runs both look the same from outside; the guard itself therefore runs
+against the stand-in `rustup`, and its two outcomes are asked for separately. A
+failed toolchain listing must reach the test boundary as `ToolchainProbeError`,
+and a listing that succeeded without the pin must skip.
 
 ### Installer flags are only wrong where the tool parses them
 
@@ -2326,3 +2539,8 @@ it cannot outlive that command.
 Exception: Cranelift is not the development-profile backend, because Cranelift
 requires a nightly toolchain and this repository pins the stable `1.99.1`
 (recorded 2026-09-29). Revisit if the repository moves to a nightly pin.
+
+The opt-in `dev-build` and `dev-test` targets are the one place the backend is
+reachable. They are outside the build standard: they are not development
+targets in `build_standard_contract.rs`, and no merge gate runs them. See
+[Rust toolchain and build routing](#rust-toolchain-and-build-routing).

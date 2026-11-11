@@ -1,19 +1,26 @@
 //! Regression checks for the repository's nextest profile configuration.
 
+use std::path::Path;
+use std::process::Command;
+
 use rstest::rstest;
 
 const NEXTEST_CONFIG: &str = include_str!("../../.config/nextest.toml");
+
 const PROPERTY_TESTS_WORKFLOW: &str = include_str!("../../.github/workflows/property-tests.yml");
+
 const BENCHMARK_REGRESSIONS_WORKFLOW: &str =
     include_str!("../../.github/workflows/benchmark-regressions.yml");
-const MAKEFILE: &str = include_str!("../../Makefile");
+
 const BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }";
 
 const LONG_BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"900s\", terminate-after = 1, grace-period = \"5s\" }";
+
 const NESTED_CARGO_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"1800s\", terminate-after = 1, grace-period = \"5s\" }";
+
 const NESTED_BENCH_SMOKE_TIMEOUT: &str =
     "slow-timeout = { period = \"1800s\", terminate-after = 1, grace-period = \"5s\" }";
 
@@ -87,17 +94,8 @@ fn benchmark_workflow_job_block(job: &str) -> Result<&'static str, String> {
     )
 }
 
-/// Extracts one Makefile target definition for contract assertions.
-fn make_target_block(target: &str) -> Result<&'static str, String> {
-    extract_block(
-        MAKEFILE,
-        &format!("\n{target}:"),
-        "\n\n",
-        &format!("Makefile target '{target}'"),
-    )
-}
-
 #[test]
+
 /// Verifies the default profile keeps the repository-wide timeout ceiling.
 fn nextest_default_profile_keeps_global_timeout_guard() {
     assert!(NEXTEST_CONFIG.contains("global-timeout = \"40m\""));
@@ -214,13 +212,66 @@ fn profiles_preserve_write_lock_proptest_timeout(#[case] profile_name: &str) {
 }
 
 #[test]
-/// Verifies the Makefile exposes the dedicated type-checking gate.
+/// Verifies the Makefile exposes a type-checking gate that stays on the
+/// repository's stable build standard.
+///
+/// Cranelift is an opt-in development route reached only through `dev-build`
+/// and `dev-test`; a merge gate that silently selected the nightly fragment
+/// would make the stable pin a fiction.
 fn makefile_exposes_typecheck_gate() {
-    let typecheck_block = make_target_block("typecheck").expect("typecheck target must exist");
-    assert!(MAKEFILE.contains(" typecheck "));
-    assert!(typecheck_block.contains("cargo") || typecheck_block.contains("$(CARGO)"));
-    assert!(typecheck_block.contains("check --workspace --all-targets --all-features"));
-    assert!(typecheck_block.contains("$(BUILD_JOBS)"));
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("chutoro-core must be a workspace member");
+    let make_output = Command::new("make")
+        .args([
+            "--dry-run",
+            "--always-make",
+            "typecheck",
+            "CARGO=probe-cargo",
+            "BUILD_JOBS=--jobs=3",
+        ])
+        .current_dir(workspace_root)
+        .output()
+        .expect("Make dry-run must start");
+
+    assert!(
+        make_output.status.success(),
+        "Make dry-run should succeed: {}",
+        String::from_utf8_lossy(&make_output.stderr)
+    );
+    let stdout = String::from_utf8(make_output.stdout).expect("Make output must be UTF-8");
+    // The recipe sets RUSTFLAGS before the command, so the Cargo invocation is
+    // found anywhere on the line rather than only at its start.
+    let cargo_commands = stdout
+        .lines()
+        .filter(|line| line.contains("probe-cargo "))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        cargo_commands.len(),
+        1,
+        "typecheck must evaluate to exactly one injected Cargo command: {stdout}"
+    );
+    let typecheck_command = cargo_commands
+        .first()
+        .expect("exactly one Cargo command must be present");
+
+    assert!(
+        !typecheck_command.contains("tools/dev-fast/config.toml"),
+        "typecheck must not select the development fragment: {typecheck_command}"
+    );
+    assert!(
+        !typecheck_command.contains("+nightly"),
+        "typecheck must stay on the repository toolchain: {typecheck_command}"
+    );
+    assert!(
+        typecheck_command.contains(" check --workspace --all-targets --all-features "),
+        "typecheck must check the whole workspace: {typecheck_command}"
+    );
+    assert!(
+        typecheck_command.ends_with("--jobs=3"),
+        "typecheck must forward BUILD_JOBS: {typecheck_command}"
+    );
 }
 
 #[test]

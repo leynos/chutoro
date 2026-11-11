@@ -1,9 +1,74 @@
 .PHONY: help all clean test test-doc build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling install-kani install-verus kani kani-check kani-full verus bench test-workflow-contracts interrogate
 
-export PATH := $(HOME)/.cargo/bin:$(HOME)/.bun/bin:$(PATH)
+# `lint-clippy` and `lint-whitaker` share Cargo's package cache and the
+# compiler-admission pool. Running them under `make -j` makes two builds
+# compete for the same slots, so this gate stays sequential.
+.NOTPARALLEL: lint
+
+export PATH := $(HOME)/.cargo/bin:$(HOME)/.local/bin:$(HOME)/.bun/bin:$(PATH)
 
 APP ?= chutoro-cli
 CARGO ?= cargo
+# Optional development-speed route. The standard `build`, `test`, `typecheck`
+# and `lint` recipes keep the repository's stable pin and the build standard;
+# `dev-build` and `dev-test` select the pinned nightly Cranelift fragment
+# instead. Cargo must see that fragment only through the explicit `--config`
+# argument in `DEV_CARGO`, so nothing activates it by accident.
+DEV_FAST_TOOLCHAIN := $(strip $(file <tools/dev-fast/TOOLCHAIN))
+DEV_FAST_CONFIG := tools/dev-fast/config.toml
+DEV_CARGO = $(CARGO) +$(DEV_FAST_TOOLCHAIN) --config $(DEV_FAST_CONFIG)
+# `$(file <…)` yields nothing for a missing file and strips to nothing for an
+# empty one, and `cargo +` with nothing after it falls back to the default
+# toolchain. The route would then compile with a toolchain the pin never
+# names and report success, which is the one outcome the pin exists to
+# prevent. The check lives here rather than in a file-wide `$(error)` for the
+# same reason the host checks do: the standard gates read this variable too,
+# and a broken development pin must not fail them.
+DEV_FAST_TOOLCHAIN_CHECK = $(if $(DEV_FAST_TOOLCHAIN),,$(error tools/dev-fast/TOOLCHAIN is missing or empty, so the development route cannot pin a toolchain; restore the pinned nightly before running dev-build, dev-test, or install-dev-fast))
+# An assigned RUSTFLAGS replaces every `rustflags` table, including the
+# fragment's, so both development routes compose the fragment's flags into an
+# inherited value rather than replacing it. Passing RUSTFLAGS to `dev-build`
+# at all is what turns the substitution on: with it unset Cargo reads the
+# fragment's own table, but with it set - even to an empty string - Cargo uses
+# the assignment and silently drops the mold flag and both documentation
+# denials. `$${RUSTFLAGS:+$$RUSTFLAGS }` therefore restates the fragment's
+# flags exactly as `$(STANDARD_RUSTFLAGS)` restates `.cargo/config.toml`'s.
+#
+# The host probe is evaluated once, with its exit status. Defaulting the pair
+# to `$(shell uname -s)` under `?=` re-ran the probe on every reference, so one
+# recipe could pass the emptiness check and then select its flags from a second
+# expansion that failed, dropping the linker flag while the target reported
+# success. `:=` captures one answer for the whole run.
+# The exit status is appended by the shell itself rather than read back from
+# `.SHELLSTATUS`. That variable reports whichever `$(shell)` call ran last, so
+# a read back is correct only while no other call intervenes between the probe
+# and the read — an ordering this file satisfies today only because
+# `BUILD_HOST_OS`'s call comes further down. Appending the status inside the
+# probe binds it to its own answer, so the check cannot be broken by adding a
+# shell call above or below.
+DEV_FAST_HOST_PROBE := $(shell { uname -s; echo "DEV_FAST_PROBE_STATUS=$$?"; })
+DEV_FAST_HOST_PROBE_OS := $(filter-out DEV_FAST_PROBE_STATUS=%,$(DEV_FAST_HOST_PROBE))
+DEV_FAST_HOST_PROBE_STATUS := $(patsubst DEV_FAST_PROBE_STATUS=%,%,$(filter DEV_FAST_PROBE_STATUS=%,$(DEV_FAST_HOST_PROBE)))
+DEV_FAST_HOST_OS ?= $(DEV_FAST_HOST_PROBE_OS)
+# A caller-supplied value is checked for emptiness but not against the probe,
+# so `DEV_FAST_HOST_OS=Linux` still works on a host where `uname` cannot run.
+DEV_FAST_HOST_OS_IS_PROBED := $(filter file,$(origin DEV_FAST_HOST_OS))
+# A failed probe yields an empty string, and an empty string is not Linux, so
+# every `$(if $(filter Linux,...))` below would quietly select the non-Linux
+# branch. A probe that prints a value and still exits non-zero is just as
+# misleading: its answer would select the Linux branch while the command that
+# produced it reported failure. The checks live in the development recipes
+# rather than in a file-wide `$(error)`, because parse-time validation would
+# also fail the standard gates, which do not use this route at all.
+DEV_FAST_HOST_EMPTY_CHECK = $(if $(strip $(DEV_FAST_HOST_OS)),,$(error Cannot determine the development host OS: `uname -s` returned nothing. Set DEV_FAST_HOST_OS explicitly))
+DEV_FAST_HOST_STATUS_CHECK = $(if $(DEV_FAST_HOST_OS_IS_PROBED),$(if $(filter 0,$(DEV_FAST_HOST_PROBE_STATUS)),,$(error Cannot determine the development host OS: `uname -s` exited $(DEV_FAST_HOST_PROBE_STATUS). Set DEV_FAST_HOST_OS explicitly)),)
+DEV_FAST_HOST_CHECK = $(DEV_FAST_HOST_EMPTY_CHECK)$(DEV_FAST_HOST_STATUS_CHECK)
+# Every development recipe needs both answers, so one name carries the pair.
+DEV_FAST_CHECK = $(DEV_FAST_TOOLCHAIN_CHECK)$(DEV_FAST_HOST_CHECK)
+DEV_FRAGMENT_RUSTFLAGS = $(strip -Dmissing_docs \
+	-Dmissing_crate_level_docs \
+	$(if $(filter Linux,$(DEV_FAST_HOST_OS)),-Clink-arg=-fuse-ld=mold))
+DEV_TEST_RUSTFLAGS = $(strip -D warnings $(DEV_FRAGMENT_RUSTFLAGS))
 WHITAKER ?= whitaker
 BUILD_JOBS ?=
 CLIPPY_FLAGS ?= --all-targets --all-features -- -D warnings
@@ -79,10 +144,10 @@ KANI_VERSION_REMAINDER := $(subst 8,,$(KANI_VERSION_REMAINDER))
 KANI_VERSION_REMAINDER := $(subst 9,,$(KANI_VERSION_REMAINDER))
 KANI_VERSION_REMAINDER := $(subst .,,$(KANI_VERSION_REMAINDER))
 ifneq ($(words $(KANI_VERSION_PARTS)),3)
-$(error KANI_VERSION must be MAJOR.MINOR.PATCH)
+_KANI_VERSION_CHECK := $(error KANI_VERSION must be MAJOR.MINOR.PATCH)
 endif
 ifneq ($(strip $(KANI_VERSION_REMAINDER)),)
-$(error KANI_VERSION must be MAJOR.MINOR.PATCH)
+_KANI_VERSION_CHECK := $(error KANI_VERSION must be MAJOR.MINOR.PATCH)
 endif
 KANI_LIB_PATH ?= $(KANI_HOME)/kani-$(KANI_VERSION)/toolchain/lib
 KANI_ENV ?= LD_LIBRARY_PATH="$(KANI_LIB_PATH):$(LD_LIBRARY_PATH)"
@@ -142,6 +207,27 @@ interrogate: ## Enforce complete Python docstring coverage
 	    printf '%s\n' 'interrogate: undocumented definitions remain; see the MISSED rows above' >&2; \
 	    exit 1; \
 	  fi
+
+# The explicit development-speed names carry their own recipes rather than
+# depending on `build` and `test`: those standard targets deliberately stay on
+# the stable pin, so an alias would never select the fragment. They declare
+# themselves phony here rather than in the file-wide list, so this opt-in
+# feature owns its own declarations.
+.PHONY: dev-build dev-test install-dev-fast
+
+dev-build: ## Build the debug binary with the selected development backend
+	$(DEV_FAST_CHECK)RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }$(DEV_FRAGMENT_RUSTFLAGS)" $(DEV_CARGO) build $(BUILD_JOBS) --bin $(APP)
+
+dev-test: ## Run the tests with the selected development backend
+	$(DEV_FAST_CHECK)RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }$(DEV_TEST_RUSTFLAGS)" $(DEV_CARGO) nextest run --config $(DEV_FAST_CONFIG) --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E 'not kind(bench)'
+
+install-dev-fast: ## Install pinned nightly components and the verified mold binary
+	$(DEV_FAST_CHECK)rustup toolchain install $(DEV_FAST_TOOLCHAIN) --profile minimal --component rustfmt --component clippy --component rust-analyzer --component rustc-codegen-cranelift
+ifeq ($(DEV_FAST_HOST_OS),Linux)
+	scripts/install-mold.sh
+else
+	@echo 'mold is Linux-only; the platform linker remains selected'
+endif
 
 lint: interrogate lint-clippy lint-whitaker ## Run Clippy and the Whitaker Dylint suite with warnings denied
 

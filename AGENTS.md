@@ -133,9 +133,8 @@ This repository is written in Rust and uses Cargo for building and dependency
 management. Contributors should follow these best practices when working on the
 project:
 
-- Run `make check-fmt`, `make lint`, and `make test` before committing. These
-  targets wrap the following commands, so contributors understand the exact
-  behaviour and policy enforced:
+- Run `make check-fmt`, `make lint`, and `make test` before committing. Their
+  routing is part of the repository build policy:
   - `make check-fmt` executes:
 
     ```sh
@@ -166,12 +165,19 @@ project:
   - `make test` executes:
 
     ```sh
-    cargo test --workspace
+    cargo nextest run --all-targets --all-features -E 'not kind(bench)'
     ```
 
-    running the full workspace test suite. Use `make fmt`
-    (`cargo fmt --workspace`) to apply formatting fixes reported by the
-    formatter check.
+    running the full workspace test suite on the stable pin, with `RUSTFLAGS`
+    carrying `-D warnings` and the build standard's flags. Use `make fmt`
+    (`cargo fmt --all` plus Markdown formatting) to apply formatting fixes
+    reported by the formatter checks.
+- Cranelift is opt-in for development speed only. `make dev-build` and
+  `make dev-test` select the nightly fragment in `tools/dev-fast/`;
+  `make install-dev-fast` installs its components and the `mold` archive. They
+  are never a merge gate, and direct Cargo uses stable Rust 1.99.1 and
+  `.cargo/config.toml`, above the workspace MSRV of 1.89. See the
+  [toolchain and build routing guide](docs/developers-guide.md#rust-toolchain-and-build-routing).
 - Clippy warnings MUST be disallowed.
 - Fix any warnings emitted during tests in the code itself rather than
   silencing them.
