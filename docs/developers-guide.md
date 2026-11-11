@@ -2478,9 +2478,9 @@ cover: `chutoro-core/src/hnsw/tests/edge_harvest/coverage.rs` and
 `chutoro-core/src/session/tests/core_distance.rs` exercise the shipped
 functions, but they are evidence about tested cases, not a proof of equivalence.
 
-`#[cfg(kani)]` models carry the same hazard. The
-[Kani CI policy](#kani-ci-policy) requires exhaustive finite-state equivalence
-tests for every such model, and
+`#[cfg(kani)]` models carry the same hazard. Where a model stands in for
+concurrent production code, the [Kani CI policy](#kani-ci-policy) requires
+exhaustive finite-state equivalence tests, and
 `chutoro-core/src/mst/tests/kani_model_equivalence.rs` is the worked example:
 it enumerates every edge subset of the complete graph on one to four nodes
 under several weight assignments and both subset encodings. That is bounded
@@ -2490,8 +2490,8 @@ evidence over enumerated cases, not a general equivalence proof.
 
 - Use Kani for bounded state spaces and for arithmetic or overflow checks on
   executable Rust. Prefer a harness over production code; when a `#[cfg(kani)]`
-  model is unavoidable, require the equivalence tests the
-  [Kani CI policy](#kani-ci-policy) mandates.
+  model is unavoidable, back models of concurrent production code with the
+  equivalence tests the [Kani CI policy](#kani-ci-policy) mandates.
 - Use Verus for stable unbounded or nonlinear properties that will not drift,
   and weigh the per-pull-request cost of each new selected root before adding
   one.
