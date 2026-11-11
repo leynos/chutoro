@@ -12,6 +12,9 @@ use tempfile::tempdir;
 
 use super::*;
 
+#[path = "tests/generated.rs"]
+mod generated;
+
 #[test]
 fn plain_builder_preserves_dimension_rows_and_child_nullability() {
     let rows = vec![vec![1.0, 2.0], vec![3.0, 4.0]];
@@ -29,6 +32,16 @@ fn const_generic_builder_uses_the_rows_dimension() {
     assert_eq!(array.len(), 2);
     assert_eq!(array.value_length(), 3);
     assert_eq!(array.null_count(), 0);
+}
+
+#[test]
+fn list_builder_preserves_non_three_width_and_ordered_values() {
+    let rows = [[9.0, 1.0, 5.0, 2.0], [-3.0, 7.0, 4.0, 8.0]];
+    let array = build_array(&rows).expect("four-wide fixture must build");
+
+    assert_list_shape(&array, 2, 4, 0);
+    assert_list_type(&array, 4, false);
+    assert_dense_child_values(&array, &[9.0, 1.0, 5.0, 2.0, -3.0, 7.0, 4.0, 8.0]);
 }
 
 #[test]
@@ -176,25 +189,37 @@ fn assert_record_batches_equal(expected: &RecordBatch, actual: &RecordBatch) {
         .expect("feature column must be FixedSizeList");
     assert_eq!(expected_list.data_type(), actual_list.data_type());
     assert_eq!(expected_list.null_count(), actual_list.null_count());
+    for index in 0..expected_list.len() {
+        assert_eq!(expected_list.is_null(index), actual_list.is_null(index));
+    }
 
-    let expected_values = expected_list
-        .values()
-        .as_any()
-        .downcast_ref::<Float32Array>()
-        .expect("expected child values must be Float32");
-    let actual_values = actual_list
-        .values()
-        .as_any()
-        .downcast_ref::<Float32Array>()
-        .expect("actual child values must be Float32");
-    assert_eq!(expected_values.null_count(), actual_values.null_count());
-    for index in 0..expected_values.len() {
-        assert_eq!(expected_values.is_null(index), actual_values.is_null(index));
-        if !expected_values.is_null(index) {
+    for row_index in 0..expected_list.len() {
+        if expected_list.is_null(row_index) {
+            continue;
+        }
+
+        let expected_row = expected_list.value(row_index);
+        let actual_row = actual_list.value(row_index);
+        let expected_values = expected_row
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .expect("expected child values must be Float32");
+        let actual_values = actual_row
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .expect("actual child values must be Float32");
+        assert_eq!(expected_values.len(), actual_values.len());
+        for value_index in 0..expected_values.len() {
             assert_eq!(
-                expected_values.value(index).to_bits(),
-                actual_values.value(index).to_bits()
+                expected_values.is_null(value_index),
+                actual_values.is_null(value_index)
             );
+            if !expected_values.is_null(value_index) {
+                assert_eq!(
+                    expected_values.value(value_index).to_bits(),
+                    actual_values.value(value_index).to_bits()
+                );
+            }
         }
     }
 }

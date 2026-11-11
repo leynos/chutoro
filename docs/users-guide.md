@@ -35,9 +35,12 @@ chutoro-providers-dense = { version = "0.1.0", features = ["testing"] }
 ```
 
 The feature exposes builders for fixed-size list arrays, feature fields, and
-in-memory or file-backed Parquet data. It is disabled in ordinary builds. For
-the fixture ownership boundary and the complete builder surface, see the
-[developer's guide](developers-guide.md#support-module-boundaries).
+in-memory or file-backed Parquet data. It is disabled by default; keeping this
+feature isolated from normal dependencies requires Cargo resolver 2 or later.
+See the [testing module API](../chutoro-providers/dense/src/testing/mod.rs) for
+the builder surface and the
+[developer's guide](developers-guide.md#support-module-boundaries) for its
+ownership boundary.
 
 ## Running the clustering pipeline
 
