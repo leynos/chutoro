@@ -1228,8 +1228,8 @@ The first two tiers are nextest's. The watchdog belongs to the shared
 after a wall-clock budget. It defaults to 1,800 s, and until this was written
 no workflow here set it, so the coverage lanes ran under a budget this
 repository had not chosen and did not mention. Underneath an 80 m nextest
-budget, that default would have killed a cold run before nextest had spent
-three quarters of what it was given.
+budget, that default would have killed a cold run after just three eighths of
+the available time.
 
 When the watchdog fires the step prints:
 
