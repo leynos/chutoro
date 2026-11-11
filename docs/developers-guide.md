@@ -1154,8 +1154,22 @@ than from the host.
 
 That contract asks for no compiler, and the installer unpacks a prebuilt
 archive, so nothing in it needs `gcc`. Gating it on one would restore exactly
-the skip it exists to remove; the only tool it requires is `make`, and the clean
-`PATH` it runs under asserts that much.
+the skip it exists to remove. Three different `PATH`s are in play, and it is
+worth keeping them apart:
+
+- The contract's own clean `PATH` carries `make` and no linker, and
+  `_clean_binary_directory` asserts that much. The recipe reaches `cargo`
+  through its `CARGO` override, so no Cargo install is needed either.
+- The installer runs under the inherited `PATH` and needs the ordinary Linux
+  userland its script names: `bash`, `curl`, `tar`, `sha256sum`, `grep`,
+  `mktemp`, `cp`, `mkdir`, `rm` and `uname`.
+- The test runner needs the Python environment `make test-workflow-contracts`
+  provides.
+
+The compiler is absent from all three. Hiding `gcc` alone is enough to show
+that, which is how the contract was verified: with a `PATH` holding those tools
+and no `gcc`, `shutil.which("gcc")` reports `None` and the contract passes
+rather than skipping.
 
 The end-to-end contracts select their compiler evidence the same way they
 select the fragment: by name. Matching the whole of nextest's stderr for

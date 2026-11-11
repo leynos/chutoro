@@ -49,6 +49,10 @@ case "${1:-}" in
     printf '%b\\n' "${STUB_COMPONENTS:-}"
     exit "${STUB_COMPONENT_STATUS:-0}"
     ;;
+  show)
+    printf '%b\\n' "${STUB_RUSTUP_HOME:-}"
+    exit "${STUB_HOME_STATUS:-0}"
+    ;;
   *)
     exit 2
     ;;
@@ -95,6 +99,15 @@ except pytest.skip.Exception as skipped:
     print('skipped:', skipped)
 else:
     print('ran')
+"""
+
+#: The probe environment's own question: where the shared toolchain root is.
+#: It is separate from the provision guard because it serves a different
+#: caller - it makes a private ``HOME`` usable during a real build - and a
+#: failure there surfaces as a missing toolchain rather than as a skip.
+RUSTUP_HOME_CALL = """\
+from dev_fast_probe_support import _rustup_home
+print(_rustup_home())
 """
 
 
@@ -393,3 +406,115 @@ def test_a_caller_handling_skips_does_not_swallow_the_probe_error() -> None:
     except ComponentProbeError:
         handled = "probe error"
     assert handled == "probe error"
+
+
+def _run_rustup_home_probe(
+    tmp_path: Path, *, home: str, status: int = 0
+) -> subprocess.CompletedProcess[str]:
+    """Ask ``_rustup_home`` what a stand-in ``rustup`` reports for its root.
+
+    ``home`` is the ``rustup show home`` listing and ``status`` its exit
+    status, so one helper covers a root, an empty listing and a failed probe.
+    The caller that needs no rustup at all builds an empty ``PATH`` instead,
+    because that is a different state rather than a different listing.
+    """
+    binary_directory = tmp_path / "bin"
+    binary_directory.mkdir(parents=True, exist_ok=True)
+    rustup = binary_directory / "rustup"
+    rustup.write_text(RUSTUP_STAND_IN, encoding="utf-8")
+    rustup.chmod(0o755)
+    return subprocess.run(
+        [sys.executable, "-c", RUSTUP_HOME_CALL],
+        cwd=REPO_ROOT,
+        env={
+            "PATH": f"{binary_directory}:/usr/bin:/bin",
+            "PYTHONPATH": str(Path(__file__).resolve().parent),
+            "STUB_RUSTUP_HOME": home,
+            "STUB_HOME_STATUS": str(status),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_the_probe_reports_the_toolchain_root_rustup_names(tmp_path: Path) -> None:
+    """A root that rustup reported must reach the probe's environment.
+
+    The probe redirects ``HOME``, so dropping this answer would leave the
+    build looking for a toolchain under a private directory that never had
+    one, and the resulting error would name the toolchain rather than the
+    probe that lost it.
+    """
+    completed = _run_rustup_home_probe(tmp_path, home="/opt/rustup")
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "/opt/rustup", (
+        "the reported root must be carried through verbatim; got "
+        f"{completed.stdout!r}"
+    )
+
+
+def test_an_absent_rustup_leaves_the_probe_without_a_root(tmp_path: Path) -> None:
+    """A host with no rustup must answer ``None`` rather than raise.
+
+    This is the state a host that never provisioned the route is in. It is
+    not a broken probe, so the caller leaves ``RUSTUP_HOME`` unset and the
+    recipe decides for itself, which is what the contract reports as a skip.
+    """
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    completed = subprocess.run(
+        [sys.executable, "-c", RUSTUP_HOME_CALL],
+        cwd=REPO_ROOT,
+        env={
+            "PATH": str(empty),
+            "PYTHONPATH": str(Path(__file__).resolve().parent),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "None", (
+        f"an absent rustup must answer None; got {completed.stdout!r}"
+    )
+
+
+def test_a_failed_home_listing_reports_its_cause(tmp_path: Path) -> None:
+    """A probe that ran and failed must not be read as an absent rustup.
+
+    An absent rustup and a rustup that cannot answer call for different
+    responses, and only the second is a defect. Reporting it as ``None`` would
+    let the build fail later on a toolchain the host actually has.
+    """
+    completed = _run_rustup_home_probe(tmp_path, home="/opt/rustup", status=1)
+
+    assert completed.returncode != 0, (
+        "a failed home listing must not answer as an absent rustup; got "
+        f"{completed.stdout!r}"
+    )
+    assert "RustupHomeProbeError" in completed.stderr, (
+        "the failure must name the home probe error at the test boundary; got "
+        f"{completed.stderr!r}"
+    )
+
+
+def test_an_empty_home_listing_reports_its_cause(tmp_path: Path) -> None:
+    """A zero exit with no output is still a probe that could not answer.
+
+    ``Path("")`` resolves to the current directory, so returning it would
+    point ``RUSTUP_HOME`` at the checkout and make the real toolchain
+    unreachable for a reason nothing in the output explains.
+    """
+    completed = _run_rustup_home_probe(tmp_path, home="")
+
+    assert completed.returncode != 0, (
+        "an empty home listing must not answer as a root; got "
+        f"{completed.stdout!r}"
+    )
+    assert "RustupHomeProbeError" in completed.stderr, (
+        "the empty listing must name the home probe error; got "
+        f"{completed.stderr!r}"
+    )

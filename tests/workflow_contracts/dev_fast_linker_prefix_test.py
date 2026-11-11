@@ -321,8 +321,11 @@ def test_the_real_dev_build_recipe_resolves_the_installed_linker(
 
     Nothing here compiles, and the installer unpacks a prebuilt archive, so
     this contract asks for no compiler either: gating it on ``gcc`` would
-    reintroduce the skip it exists to remove. Only ``make`` has to be present,
-    and ``_clean_binary_directory`` asserts that much.
+    reintroduce the skip it exists to remove. ``make`` is the only program the
+    clean ``PATH`` carries, and ``_clean_binary_directory`` asserts that; the
+    installer runs under the inherited ``PATH`` and needs the usual Linux
+    userland tools (``bash``, ``curl``, ``tar``, ``sha256sum`` and friends),
+    and the test runner supplies its own Python environment.
     """
     installer = prepare(tmp_path, default_prefix=True, request=_linux_request())
     installed = installer.install()

@@ -133,12 +133,25 @@ def probe_environment(
     return environment
 
 
-def _rustup_home() -> Path | None:
-    """Return the shared toolchain root, or ``None`` when rustup cannot say.
+class RustupHomeProbeError(RuntimeError):
+    """``rustup show home`` ran but could not report a usable root."""
 
-    A host without rustup cannot say either, so a missing executable takes the
-    same ``None`` path as a failed command. The probe environment then carries
-    no ``RUSTUP_HOME``, which is the correct state for such a host.
+
+def _rustup_home() -> Path | None:
+    """Return the shared toolchain root, or ``None`` when rustup is absent.
+
+    The probe redirects ``HOME`` to a private directory, so it also has to
+    carry the real toolchain root across: without ``RUSTUP_HOME`` the recipe
+    would look for an installation under the private home, find none, and
+    fail with an error that points at the toolchain rather than at the probe
+    that lost it.
+
+    An absent ``rustup`` is a host that has not provisioned the route, so it
+    answers ``None`` and the variable is simply left unset. That is different
+    from a ``rustup`` that ran and could not answer: an empty listing or a
+    non-zero exit is a broken probe on a host that has the tool, and swallowing
+    it would surface later as a misleading missing-toolchain failure. Those
+    cases raise :class:`RustupHomeProbeError` naming what went wrong.
     """
     try:
         reported = subprocess.run(
@@ -149,8 +162,13 @@ def _rustup_home() -> Path | None:
         )
     except FileNotFoundError:
         return None
-    if reported.returncode != 0 or not reported.stdout.strip():
-        return None
+    if reported.returncode != 0:
+        raise RustupHomeProbeError(
+            "rustup could not report its home: "
+            f"exit {reported.returncode}: {reported.stderr.strip()}"
+        )
+    if not reported.stdout.strip():
+        raise RustupHomeProbeError("rustup show home printed an empty listing")
     return Path(reported.stdout.strip())
 
 
