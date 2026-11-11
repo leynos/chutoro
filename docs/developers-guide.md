@@ -2515,9 +2515,10 @@ Roadmap item 10.1.2 (PR #199) applied this rule to three candidate proofs:
 
 The heuristic selects a tool; it does not relax the obligations in
 [Rust-specific guidance](../AGENTS.md#rust-specific-guidance). Every new
-invariant still requires a `proptest` or Kani check, and every new lemma or
-contractual business rule still requires a substantive Verus proof. One tool
-does not substitute for another. See
+invariant over a range of inputs, states, orderings or transitions still
+requires a `proptest` or Kani check, with the level of rigour chosen by
+judgement, and every new lemma or contractual business rule still requires a
+substantive Verus proof. One tool does not substitute for another. See
 [ADR 002 § Complementary Testing Strategy](adr-002-adoption-of-kani-formal-verification.md#complementary-testing-strategy)
 for the rationale behind the division of labour.
 
