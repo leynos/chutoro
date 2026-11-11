@@ -271,6 +271,12 @@ def test_test_flag_assertion_rejects_a_missing_development_exclusion(
         pytest.param("-Eall()", id="short-form-attached"),
         pytest.param("--filterset 'all()'", id="long-form-separated"),
         pytest.param("--filterset=all()", id="long-form-attached"),
+        # The pinned 0.9.143 declares `--filter-expr` as a clap alias of
+        # `--filterset`, so it appends to the same list rather than being a
+        # separate feature. Nextest's own help text omits the alias, which is
+        # exactly why a reader built from `--help` output would miss it.
+        pytest.param("--filter-expr 'all()'", id="alias-separated"),
+        pytest.param("--filter-expr=all()", id="alias-attached"),
     ),
 )
 def test_additional_nextest_filter_is_rejected(tmp_path: Path, extra: str) -> None:
@@ -281,6 +287,9 @@ def test_additional_nextest_filter_is_rejected(tmp_path: Path, extra: str) -> No
     the development filter excludes, including the poisoned-lock regression
     that aborts under Cranelift. A parser reading only the first `-E` would
     keep reporting the intended exclusion while the real run reselected it.
+
+    Every accepted spelling is a row: the four textual forms of the documented
+    option and the two of its undocumented alias.
     """
     makefile = _mutated_makefile(
         tmp_path,

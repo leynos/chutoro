@@ -77,23 +77,33 @@ def _cargo_invocations(output: str) -> list[tuple[str, list[str]]]:
 #: Nextest's filter-expression option in every spelling the pinned command
 #: accepts. The short form also attaches its value directly, as in `-Eall()`,
 #: which a search for the bare `-E` token misses.
-_FILTER_OPTIONS = ("-E", "--filterset")
+#:
+#: ``--filter-expr`` is not a second feature: the pinned 0.9.143 declares it as
+#: a clap ``alias`` of ``--filterset``, so it appends to the same argument list.
+#: A parser that knew only the two names above would let
+#: ``--filter-expr 'all()'`` widen the development run past the one-filter
+#: check. Nextest does not document the alias in its help text, so it is pinned
+#: here by its source: ``cargo-nextest/src/dispatch/core/filter.rs`` at
+#: ``cargo-nextest-0.9.143``, ``alias = "filter-expr"`` on ``filterset``.
+_FILTER_OPTIONS = ("-E", "--filterset", "--filter-expr")
 
 
 def _filter_expressions(tokens: list[str]) -> list[str]:
     """Return every nextest filter expression named by ``tokens``.
 
     A repeated filter is not an override. The pinned nextest unions repeated
-    ``-E``/``--filterset`` arguments, so `-E 'all()'` after the development
-    filter reselects the poisoned-lock regression while a parser that read only
-    the first expression would still report the intended selection. Extraction
-    therefore reports every expression it finds, and its callers require
-    exactly one rather than leaving a second one unmeasured.
+    filter arguments, so `-E 'all()'` after the development filter reselects
+    the poisoned-lock regression while a parser that read only the first
+    expression would still report the intended selection. Extraction therefore
+    reports every expression it finds, and its callers require exactly one
+    rather than leaving a second one unmeasured.
 
     >>> _filter_expressions(["nextest", "run", "-E", "all()"])
     ['all()']
     >>> _filter_expressions(["nextest", "-Eall()", "--filterset=none()"])
     ['all()', 'none()']
+    >>> _filter_expressions(["nextest", "--filter-expr", "all()"])
+    ['all()']
     """
     expressions: list[str] = []
     for position, token in enumerate(tokens):
@@ -102,8 +112,8 @@ def _filter_expressions(tokens: list[str]) -> list[str]:
                 f"{token} must name a filter expression: {tokens!r}"
             )
             expressions.append(tokens[position + 1])
-        elif token.startswith("--filterset="):
-            expressions.append(token[len("--filterset=") :])
+        elif token.startswith(("--filterset=", "--filter-expr=")):
+            expressions.append(token.partition("=")[2])
         elif token.startswith("-E") and len(token) > 2:
             expressions.append(token[2:].removeprefix("="))
     return expressions

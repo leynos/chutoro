@@ -184,10 +184,8 @@ mod tests {
     /// comparing two never-drawn generators would also pass if the failed
     /// reconfiguration had rebuilt them from the seed. The returned copies are
     /// the expected continuation, so the check after the failure is a real
-    /// state comparison rather than a second independent draw.
-    ///
-    /// Every worker generator is advanced and returned, not just the first, so
-    /// the checks that follow cover each of them.
+    /// state comparison rather than a second independent draw. Every worker is
+    /// advanced and returned, not just the first.
     fn advance_generators_and_cache(index: &mut CpuHnsw) -> (SmallRng, Vec<SmallRng>) {
         index
             .rng
@@ -289,6 +287,13 @@ mod tests {
                 expected_fallback.next_u64(),
                 "failed reconfiguration must not rebuild the fallback generator",
             );
+            // `zip` stops at the shorter side, so count first: a swap that
+            // dropped a worker would otherwise pass on the survivors.
+            assert_eq!(
+                index.worker_rngs.len(),
+                expected_workers.len(),
+                "failed reconfiguration must keep the worker count",
+            );
             for (worker, expected) in index.worker_rngs.iter().zip(&mut expected_workers) {
                 assert_eq!(
                     worker.lock().expect("worker generator lock").next_u64(),
@@ -354,8 +359,13 @@ mod tests {
             );
 
             // Every worker is checked against the seed derived for its own
-            // index. A rebuild that replaced only worker zero would otherwise
-            // read as a full replacement.
+            // index; replacing only worker zero would otherwise read as a
+            // full replacement. Counts first: `zip` stops at the shorter side.
+            assert_eq!(
+                index.worker_rngs.len(),
+                expected_workers.len(),
+                "reconfiguration must keep every worker generator",
+            );
             for (worker_index, (worker, expected)) in index
                 .worker_rngs
                 .iter()
