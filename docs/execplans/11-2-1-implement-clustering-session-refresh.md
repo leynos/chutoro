@@ -1,9 +1,9 @@
 # Implement `ClusteringSession::refresh`
 
-This ExecPlan (execution plan) is a living document. The sections
-`Constraints`, `Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`,
-`Decision Log`, `Outcomes & Retrospective`, `Conformance Basis`, and
-`Verification Plan` must be kept up to date as work proceeds.
+This ExecPlan (execution plan) is a living document. The sections `Constraints`,
+`Tolerances`, `Risks`, `Progress`, `Surprises & Discoveries`, `Decision Log`,
+`Outcomes & Retrospective`, `Conformance Basis`, and `Verification Plan` must
+be kept up to date as work proceeds.
 
 Status: DRAFT
 
@@ -63,15 +63,15 @@ This plan authorizes:
 - Reusing the batch pipeline's existing mutual-reachability helpers rather
   than adding a parallel one: `mutual_reachability_edges` is generalized from
   `&EdgeHarvest` to `&[CandidateEdge]` and promoted to `pub(crate)`, and the
-  scalar formula inside `mutual_reachability_edge` is factored out as a
-  private `mutual_reachability_weight`. All three stay in
-  `cpu_pipeline/mod.rs`; the session calls *down* into them.
+  scalar formula inside `mutual_reachability_edge` is factored out as a private
+  `mutual_reachability_weight`. All three stay in `cpu_pipeline/mod.rs`; the
+  session calls *down* into them.
 - **Raw-distance retention of the MST backbone.** The session retains the MST
   edges it selected as *raw* `CandidateEdge` values (not weighted `MstEdge`),
   so every refresh reweights from raw distances and current core distances.
   This is a small, correctness-critical refinement of design Figure 3 (see
-  Decision Log and ADR-006); without it, reweighting a previously weighted
-  edge ratchets weights upward across refreshes.
+  Decision Log and ADR-006); without it, reweighting a previously weighted edge
+  ratchets weights upward across refreshes.
 - Promoting `map_cpu_mst_error(&MstError)` and
   `map_cpu_hierarchy_error(&HierarchyError)` from private to `pub(crate)`,
   signatures unchanged, so `refresh` can reuse them.
@@ -101,9 +101,9 @@ Hard invariants. Violation requires escalation, not a workaround.
   machinery (via `crate::mst::parallel_kruskal_from_edges`, which the public
   `parallel_kruskal` delegates to), `crate::extract_labels_from_mst`,
   `crate::HierarchyConfig`, `crate::MstEdge`, and `crate::CandidateEdge`. The
-  incremental mutual-reachability weighting must be the batch path's own
-  helper in `chutoro-core/src/cpu_pipeline/mod.rs`, not a copy, and must always
-  be computed from **raw** distances so it does not depend on refresh history.
+  incremental mutual-reachability weighting must be the batch path's own helper
+  in `chutoro-core/src/cpu_pipeline/mod.rs`, not a copy, and must always be
+  computed from **raw** distances so it does not depend on refresh history.
 - Keep the shared weighting helpers in the lower layer
   (`cpu_pipeline/mod.rs`, `pub(crate)`); the session calls *down* to them. Do
   not have the batch pipeline import from the session module. HNSW errors
@@ -120,12 +120,11 @@ Hard invariants. Violation requires escalation, not a workaround.
 - Keep the session CPU-only behind the existing `cpu` feature gate. Add no GPU
   path.
 - Add no new production dependency and no **new public** `ChutoroError`
-  variant. Degenerate and invalid-input paths reuse the existing
-  `EmptySource`, `InsufficientItems`, and `CpuHnswFailure` variants (see
-  Decision Log). The approved assertion crates `googletest`,
-  `pretty_assertions`, and `insta` enter the workspace as **dev-dependencies
-  only** (see Decision Log); they must not appear in any `[dependencies]`
-  table.
+  variant. Degenerate and invalid-input paths reuse the existing `EmptySource`,
+  `InsufficientItems`, and `CpuHnswFailure` variants (see Decision Log). The
+  approved assertion crates `googletest`, `pretty_assertions`, and `insta`
+  enter the workspace as **dev-dependencies only** (see Decision Log); they
+  must not appear in any `[dependencies]` table.
 - `refresh` is all-or-nothing at the snapshot level: no observable session
   state (`labels`, `snapshot_version`, `pending_edges`, `mst_backbone`) is
   mutated unless the whole refresh succeeds.
@@ -137,8 +136,8 @@ Hard invariants. Violation requires escalation, not a workaround.
   and label-extraction orchestration, raw-backbone recovery) must be a **pure
   function** with no HNSW, input/output, or clock dependency, so it is unit-,
   property-, and proof-testable in isolation. The impure adapter step
-  (core-distance recompute via HNSW search) stays in the session methods.
-  This is the hexagonal boundary this plan protects.
+  (core-distance recompute via HNSW search) stays in the session methods. This
+  is the hexagonal boundary this plan protects.
 
 ## Tolerances (exception triggers)
 
@@ -149,8 +148,8 @@ Hard invariants. Violation requires escalation, not a workaround.
   stop and escalate. Changing the internal `mst_edges` field type from
   `Vec<MstEdge>` to `Vec<CandidateEdge>` is authorized by this plan. Promoting
   `map_cpu_mst_error`/`map_cpu_hierarchy_error` and the existing
-  `mutual_reachability_edges` to `pub(crate)` is authorized.
-  Adding any **new public** `ChutoroError` variant is not — stop and escalate.
+  `mutual_reachability_edges` to `pub(crate)` is authorized. Adding any **new
+  public** `ChutoroError` variant is not — stop and escalate.
 - Dependencies: if any new external dependency is required beyond the three
   authorized dev-dependencies (`googletest`, `pretty_assertions`, `insta`),
   stop and escalate.
@@ -160,75 +159,70 @@ Hard invariants. Violation requires escalation, not a workaround.
   shortcut after 3 attempts, stop and record the blocker; do not ship an
   `assume`-weakened proof.
 - Ambiguity: if the contiguous-point-id assumption (below) proves false for a
-  required caller, stop and escalate rather than silently mislabelling
-  output.
+  required caller, stop and escalate rather than silently mislabelling output.
 
 ## Risks
 
 - Risk: **Point-id contiguity.** HNSW node ids equal the source indices passed
   to `append` (`CpuHnsw::insert_with_edges(node, source)` uses `node`
-  verbatim), and `core_distances`/`extract_labels_from_mst` are indexed by
-  that id. `refresh` passes `node_count = point_count()`. A non-contiguous
-  append (for example `&[0, 1, 5]`) makes `point_count()` 3, while
-  `core_distances` grows to length 6 with `INFINITY` padding at ids 3 and 4,
-  and an edge endpoint reaches id 5, which Kruskal would reject as an invalid
-  node id.
+  verbatim), and `core_distances`/`extract_labels_from_mst` are indexed by that
+  id. `refresh` passes `node_count = point_count()`. A non-contiguous append
+  (for example `&[0, 1, 5]`) makes `point_count()` 3, while `core_distances`
+  grows to length 6 with `INFINITY` padding at ids 3 and 4, and an edge
+  endpoint reaches id 5, which Kruskal would reject as an invalid node id.
   Severity: high. Likelihood: low (all shipped paths append contiguous
-  prefixes; the batch pipeline has the same assumption).
-  Mitigation: the pure rebuild first checks the O(1) precondition
+  prefixes; the batch pipeline has the same assumption). Mitigation: the pure
+  rebuild first checks the O(1) precondition
   `core_distances.len() == node_count`. `mark_core_distance_dirty` grows
-  `core_distances` to the highest appended index plus one, and the HNSW
-  rejects duplicate inserts, so the two lengths agree exactly when the
-  appended indices form the prefix `[0, point_count)`. A mismatch returns
+  `core_distances` to the highest appended index plus one, and the HNSW rejects
+  duplicate inserts, so the two lengths agree exactly when the appended indices
+  form the prefix `[0, point_count)`. A mismatch returns
   `HnswError::GraphInvariantViolation` mapped through
   `HnswError::into_chutoro_error` to `ChutoroError::CpuHnswFailure`
-  (`GRAPH_INVARIANT_VIOLATION`), the variant the batch path already uses for
-  an edge endpoint with no core distance. No panic. Because the check runs
-  before Kruskal, the reported error is deterministic, unlike Kruskal's own
-  selection among several invalid edges (issue #206). Document the
-  contiguity requirement on `append` and `refresh` and in ADR-006.
+  (`GRAPH_INVARIANT_VIOLATION`), the variant the batch path already uses for an
+  edge endpoint with no core distance. No panic. Because the check runs before
+  Kruskal, the reported error is deterministic, unlike Kruskal's own selection
+  among several invalid edges (issue #206). Document the contiguity requirement
+  on `append` and `refresh` and in ADR-006.
 
 - Risk: **Cross-refresh weight drift (mitigated by raw retention).** If the
   MST backbone were retained as weighted `MstEdge` and reweighted again, the
   mutual-reachability `max` would ratchet weights upward whenever a core
-  distance later fell (core distances are monotonically non-increasing after
-  a point saturates its neighbourhood). This plan retains the backbone as
-  **raw** `CandidateEdge`, so every refresh recomputes
-  `max(raw, core_u, core_v)` from scratch and the result is independent of
-  refresh count.
-  Severity: was high; reduced to low by raw retention.
-  Likelihood: low. Mitigation: raw-backbone retention plus a multi-refresh
-  differential property test (append, refresh, append, refresh) asserting the
-  incremental partition still matches batch within ARI ≥ 0.95.
+  distance later fell (core distances are monotonically non-increasing after a
+  point saturates its neighbourhood). This plan retains the backbone as **raw**
+  `CandidateEdge`, so every refresh recomputes `max(raw, core_u, core_v)` from
+  scratch and the result is independent of refresh count. Severity: was high;
+  reduced to low by raw retention. Likelihood: low. Mitigation: raw-backbone
+  retention plus a multi-refresh differential property test (append, refresh,
+  append, refresh) asserting the incremental partition still matches batch
+  within ARI ≥ 0.95.
 
 - Risk: **Approximate-MST candidate coverage.** Even with raw retention, the
-  merged candidate set (`mst_backbone` + `historical_edges` +
-  `pending_edges`) is a subset of all pairwise mutual-reachability edges.
-  With `historical_edges` empty until `11.2.5`, a non-MST old-old edge that a
-  core-distance shift would promote is not yet retained.
-  Severity: medium. Likelihood: low for the single- and few-refresh tests
-  here. Mitigation: retained-non-MST coverage is the explicit job of
-  `11.2.5`; the full-refresh reset is `11.2.4`; the large differential
-  harness is `11.4`. Record the boundary; do not claim exactness beyond what
-  is tested.
+  merged candidate set (`mst_backbone` + `historical_edges` + `pending_edges`)
+  is a subset of all pairwise mutual-reachability edges. With
+  `historical_edges` empty until `11.2.5`, a non-MST old-old edge that a
+  core-distance shift would promote is not yet retained. Severity: medium.
+  Likelihood: low for the single- and few-refresh tests here. Mitigation:
+  retained-non-MST coverage is the explicit job of `11.2.5`; the full-refresh
+  reset is `11.2.4`; the large differential harness is `11.4`. Record the
+  boundary; do not claim exactness beyond what is tested.
 
 - Risk: **Degenerate small sessions.** `extract_labels_from_mst` returns
   `HierarchyError::MinClusterSizeTooLarge` when
   `min_cluster_size > node_count`, and the Kruskal machinery errors on
-  `node_count == 0`.
-  Severity: medium. Likelihood: high (tests and warm-up sessions hit it).
-  Mitigation: `refresh` short-circuits before those calls — an empty session
-  publishes an empty snapshot, and a session with
+  `node_count == 0`. Severity: medium. Likelihood: high (tests and warm-up
+  sessions hit it). Mitigation: `refresh` short-circuits before those calls —
+  an empty session publishes an empty snapshot, and a session with
   `0 < point_count < min_cluster_size` publishes an all-noise snapshot
   (`vec![0; point_count]`). Both advance `snapshot_version`. This diverges
   intentionally from batch `run` (which errors with `InsufficientItems`)
-  because a streaming session must make progress during warm-up; see
-  Decision Log.
+  because a streaming session must make progress during warm-up; see Decision
+  Log.
 
 - Risk: **Label-length contract.** Verified: `extract_flat_labels` returns
   `vec![_; node_count]` (`chutoro-core/src/hierarchy/single_linkage/mod.rs`);
-  noise adds a label *value*, not an entry. Severity: low. Mitigation: a
-  direct `labels().len()` assertion (obligation OBL-3).
+  noise adds a label *value*, not an entry. Severity: low. Mitigation: a direct
+  `labels().len()` assertion (obligation OBL-3).
 
 ## Progress
 
@@ -249,71 +243,65 @@ Hard invariants. Violation requires escalation, not a workaround.
 ## Surprises & discoveries
 
 - Observation: the `MstEdge -> CandidateEdge` round-trip is field-lossless but
-  **semantically lossy**.
-  Evidence: `MstEdge.weight()` is a mutual-reachability weight;
-  `CandidateEdge::new(.., distance, ..)` expects a raw distance
-  (`chutoro-core/src/mst/mod.rs`, `cpu_pipeline/mod.rs`).
-  Impact: retaining the backbone as weighted `MstEdge` and reweighting again
-  ratchets weights upward across refreshes. This plan retains the backbone as
-  raw `CandidateEdge` instead. The `mst_edges` field therefore becomes
+  **semantically lossy**. Evidence: `MstEdge.weight()` is a mutual-reachability
+  weight; `CandidateEdge::new(.., distance, ..)` expects a raw distance
+  (`chutoro-core/src/mst/mod.rs`, `cpu_pipeline/mod.rs`). Impact: retaining the
+  backbone as weighted `MstEdge` and reweighting again ratchets weights upward
+  across refreshes. This plan retains the backbone as raw `CandidateEdge`
+  instead. The `mst_edges` field therefore becomes
   `mst_backbone: Vec<CandidateEdge>`.
 
 - Observation: after the 2026-11-11 rebase, main already has named
   mutual-reachability helpers, and the pipeline module has moved. (The first
-  draft saw an inline `.map()` closure in `cpu_pipeline.rs`.)
-  Evidence: `chutoro-core/src/cpu_pipeline/mod.rs` (formerly
-  `cpu_pipeline.rs`) defines private
-  `mutual_reachability_edges(source_name, &EdgeHarvest, &[f32])`, a
-  `par_iter` over `mutual_reachability_edge`, which reports an endpoint with
-  no core distance as `CpuHnswFailure` via `missing_core_distance`.
-  `map_cpu_mst_error(&MstError)` and
-  `map_cpu_hierarchy_error(&HierarchyError)` are still private and now take
-  references. `map_cpu_hnsw_error` no longer exists: #224 moved HNSW error
-  mapping to `HnswError::into_chutoro_error`.
+  draft saw an inline `.map()` closure in `cpu_pipeline.rs`.) Evidence:
+  `chutoro-core/src/cpu_pipeline/mod.rs` (formerly `cpu_pipeline.rs`) defines
+  private `mutual_reachability_edges(source_name, &EdgeHarvest, &[f32])`, a
+  `par_iter` over `mutual_reachability_edge`, which reports an endpoint with no
+  core distance as `CpuHnswFailure` via `missing_core_distance`.
+  `map_cpu_mst_error(&MstError)` and `map_cpu_hierarchy_error(&HierarchyError)`
+  are still private and now take references. `map_cpu_hnsw_error` no longer
+  exists: #224 moved HNSW error mapping to `HnswError::into_chutoro_error`.
   Impact: promote and reuse the existing helpers instead of adding a parallel
   one, and promote the two mappers with their current signatures.
 
 - Observation: the default `min_cluster_size` is 5.
   Evidence: `chutoro-core/src/builder.rs`; `session_builder()` is a bare
-  `ChutoroBuilder::new()`.
-  Impact: tests and examples must set `with_min_cluster_size` explicitly (or
-  rely on the degenerate all-noise path) so a 4-point session does not error.
+  `ChutoroBuilder::new()`. Impact: tests and examples must set
+  `with_min_cluster_size` explicitly (or rely on the degenerate all-noise path)
+  so a 4-point session does not error.
 
 ## Decision log
 
 - Decision: Retain the MST backbone as raw `CandidateEdge` (change `mst_edges`
   to `mst_backbone: Vec<CandidateEdge>`), reweighting from raw distances every
-  refresh.
-  Rationale: reweighting an already-weighted edge ratchets weights upward when
-  core distances fall, drifting the partition across refreshes and
+  refresh. Rationale: reweighting an already-weighted edge ratchets weights
+  upward when core distances fall, drifting the partition across refreshes and
   contradicting the cited FISHDBC approach (which refeeds raw triples). Raw
   retention makes the reweight refresh-count-independent and numerically
   identical to batch. The cost is one extra recovery pass matching Kruskal
   output back to raw inputs by `(source, target, sequence)`. Refines design
   Figure 3 (see Conformance Basis: DES-FIG3 deviation, accepted by the plan
-  approver at approval time).
-  Date/Author: 2026-07-22, planning (post expert review).
+  approver at approval time). Date/Author: 2026-07-22, planning (post expert
+  review).
 
 - Decision: Graceful degenerate handling instead of mirroring batch `run`.
   Rationale: `run` errors on `items == 0` (`EmptySource`) and
   `items < min_cluster_size` (`InsufficientItems`). A streaming session must
   make progress during warm-up and the `11.2.1` acceptance criterion requires
-  `labels().len() == point_count` for any size. So `refresh` publishes an
-  empty snapshot when `point_count == 0` and an all-noise snapshot when
+  `labels().len() == point_count` for any size. So `refresh` publishes an empty
+  snapshot when `point_count == 0` and an all-noise snapshot when
   `0 < point_count < min_cluster_size`, both advancing the version. This also
-  makes the 4-point flagship example pass under the default
-  `min_cluster_size`.
+  makes the 4-point flagship example pass under the default `min_cluster_size`.
   Date/Author: 2026-07-22, planning (post expert review).
 
 - Decision: `refresh` auto-recomputes core distances (calls
-  `recompute_core_distances()`); it does not refuse while dirty.
-  Rationale: design §12.3 phase 3 says refresh "recompute[s] core distances
-  for new points". The predecessor plan `11-1-4` speculated `refresh` would
-  "refuse while any dirty bit is set"; that assumption is overridden here in
-  favour of the friendlier, design-aligned auto-recompute. §12.4 is updated
-  to match. The core-distance step is best-effort-then-abort: on failure it
-  returns before any snapshot mutation, and a retry re-processes the
-  remaining dirty set.
+  `recompute_core_distances()`); it does not refuse while dirty. Rationale:
+  design §12.3 phase 3 says refresh "recompute[s] core distances for new
+  points". The predecessor plan `11-1-4` speculated `refresh` would "refuse
+  while any dirty bit is set"; that assumption is overridden here in favour of
+  the friendlier, design-aligned auto-recompute. §12.4 is updated to match. The
+  core-distance step is best-effort-then-abort: on failure it returns before
+  any snapshot mutation, and a retry re-processes the remaining dirty set.
   Date/Author: 2026-07-22, planning (post expert review).
 
 - Decision: Reuse existing `ChutoroError` variants; add none.
@@ -321,116 +309,109 @@ Hard invariants. Violation requires escalation, not a workaround.
   future decision reverts to erroring), and `CpuHnswFailure`
   (`GRAPH_INVARIANT_VIOLATION`) covers a contiguity violation, matching the
   batch path's missing-core-distance error (see the 2026-11-12 entry below).
-  This keeps the interface tolerance intact.
-  Date/Author: 2026-07-22, planning (post expert review).
+  This keeps the interface tolerance intact. Date/Author: 2026-07-22, planning
+  (post expert review).
 
 - Decision: Expose a minimal `ClusteringSession::labels` accessor (returning
-  `Arc<Vec<usize>>`) in this plan, ahead of roadmap `11.2.2`.
-  Rationale: the `11.2.1` acceptance criterion is phrased in terms of
-  `session.labels()`. A `&self` accessor returning `Arc::clone(&self.labels)`
-  is inherently non-blocking; the `self.labels = Arc::new(...)` publish is
-  the atomic `Arc` swap design §12.6 already promises for a single writer.
-  Roadmap `11.2.2` formalizes the multi-reader guarantees without changing
-  this signature.
+  `Arc<Vec<usize>>`) in this plan, ahead of roadmap `11.2.2`. Rationale: the
+  `11.2.1` acceptance criterion is phrased in terms of `session.labels()`. A
+  `&self` accessor returning `Arc::clone(&self.labels)` is inherently
+  non-blocking; the `self.labels = Arc::new(...)` publish is the atomic `Arc`
+  swap design §12.6 already promises for a single writer. Roadmap `11.2.2`
+  formalizes the multi-reader guarantees without changing this signature.
   Date/Author: 2026-07-22, planning.
 
 - Decision: `refresh` computes `node_count = self.point_count()` and requires
-  appended indices to form a contiguous prefix `[0, point_count)`.
-  Rationale: HNSW node id equals the source index, and both `core_distances`
-  and `extract_labels_from_mst` are indexed by that id; this matches the
-  batch pipeline's assumption. The pure rebuild guards it and returns
-  `CpuHnswFailure` rather than panicking (see Risks).
-  Date/Author: 2026-07-22, planning.
+  appended indices to form a contiguous prefix `[0, point_count)`. Rationale:
+  HNSW node id equals the source index, and both `core_distances` and
+  `extract_labels_from_mst` are indexed by that id; this matches the batch
+  pipeline's assumption. The pure rebuild guards it and returns
+  `CpuHnswFailure` rather than panicking (see Risks). Date/Author: 2026-07-22,
+  planning.
 
 - Decision: `historical_edges` is read into the merge but not populated here.
-  Rationale: population, the `2×` cap, and heaviest-first eviction are
-  roadmap `11.2.5` (`requires 11.2.1`). Reading the (empty) buffer now keeps
-  the merge signature stable.
-  Date/Author: 2026-07-22, planning.
+  Rationale: population, the `2×` cap, and heaviest-first eviction are roadmap
+  `11.2.5` (`requires 11.2.1`). Reading the (empty) buffer now keeps the merge
+  signature stable. Date/Author: 2026-07-22, planning.
 
 - Decision: `snapshot_version` is a per-refresh-call counter.
   Rationale: it advances once per `refresh` call, including empty and no-op
   refreshes. This is a call counter, not a content-change token; `11.2.2`
   formalizes the reader contract. Stated so consumers do not treat every
-  increment as a content change.
-  Date/Author: 2026-07-22, planning (post expert review).
+  increment as a content change. Date/Author: 2026-07-22, planning (post expert
+  review).
 
 - Decision: Call `parallel_kruskal_from_edges` directly instead of the
-  roadmap's "construct a fresh `EdgeHarvest`" wording.
-  Rationale: this is what the batch pipeline itself now does. Since #276
-  (main `0e43b9e`), `build_mutual_reachability_forest` calls the `pub(crate)`
-  entry point `parallel_kruskal_from_edges(node_count, &[CandidateEdge])` in
-  `chutoro-core/src/mst/mod.rs` directly, because `EdgeHarvest`'s ordering
-  sort is redundant: `prepare_edge_list` re-sorts by weight regardless. The
-  public `parallel_kruskal` delegates to the same entry point, so the
-  observable result is identical (same validation, canonicalization, sort,
-  dedup, and union-find), and the session matches the batch path rather than
-  departing from it. The roadmap's stated intent — "run
-  `parallel_kruskal` over the combined set" — is met via its own internal
-  entry point; recorded here because it deviates from the item's literal
-  wording (see Conformance Basis).
-  Date/Author: 2026-08-16, planning (gap review); rationale updated
-  2026-11-12 after #276 landed.
+  roadmap's "construct a fresh `EdgeHarvest`" wording. Rationale: this is what
+  the batch pipeline itself now does. Since #276 (main `0e43b9e`),
+  `build_mutual_reachability_forest` calls the `pub(crate)` entry point
+  `parallel_kruskal_from_edges(node_count, &[CandidateEdge])` in
+  `chutoro-core/src/mst/mod.rs` directly, because `EdgeHarvest`'s ordering sort
+  is redundant: `prepare_edge_list` re-sorts by weight regardless. The public
+  `parallel_kruskal` delegates to the same entry point, so the observable
+  result is identical (same validation, canonicalization, sort, dedup, and
+  union-find), and the session matches the batch path rather than departing
+  from it. The roadmap's stated intent — "run `parallel_kruskal` over the
+  combined set" — is met via its own internal entry point; recorded here
+  because it deviates from the item's literal wording (see Conformance Basis).
+  Date/Author: 2026-08-16, planning (gap review); rationale updated 2026-11-12
+  after #276 landed.
 
 - Decision: Reuse the batch pipeline's mutual-reachability helpers and
-  error path for the refresh reweight and contiguity guard.
-  Rationale: main now has named, private `mutual_reachability_edges` and
-  `mutual_reachability_edge` helpers. Promoting and reusing them guarantees
-  numerical identity with batch by construction, inherits the per-endpoint
-  missing-core-distance check, and avoids a second copy of the formula. Only
-  the scalar `distance.max(core_source).max(core_target)` is factored out as
-  a private `mutual_reachability_weight`, so OBL-1 and the OBL-6 mutation
-  check have a small, named target. The contiguity guard follows the same
-  error path (`CpuHnswFailure`, `GRAPH_INVARIANT_VIOLATION`) instead of the
-  earlier `CpuMstFailure`, so a non-contiguous session fails the same way in
-  both pipelines and is detected deterministically before Kruskal. The
-  rebuild takes a `source_name: &str` because the helpers need it for the
-  error; it stays pure.
-  Date/Author: 2026-11-12, planning (post-rebase drift review).
+  error path for the refresh reweight and contiguity guard. Rationale: main now
+  has named, private `mutual_reachability_edges` and `mutual_reachability_edge`
+  helpers. Promoting and reusing them guarantees numerical identity with batch
+  by construction, inherits the per-endpoint missing-core-distance check, and
+  avoids a second copy of the formula. Only the scalar
+  `distance.max(core_source).max(core_target)` is factored out as a private
+  `mutual_reachability_weight`, so OBL-1 and the OBL-6 mutation check have a
+  small, named target. The contiguity guard follows the same error path
+  (`CpuHnswFailure`, `GRAPH_INVARIANT_VIOLATION`) instead of the earlier
+  `CpuMstFailure`, so a non-contiguous session fails the same way in both
+  pipelines and is detected deterministically before Kruskal. The rebuild takes
+  a `source_name: &str` because the helpers need it for the error; it stays
+  pure. Date/Author: 2026-11-12, planning (post-rebase drift review).
 
 - Decision: Dedup of the merged candidate set relies on
-  `mst::prepare_edge_list`, not on any pre-merge filtering.
-  Rationale: the three merged buffers (`mst_backbone`, `historical_edges`,
-  `pending_edges`) can legitimately overlap — an edge selected into the MST
-  may also be re-harvested by a later insertion. `prepare_edge_list` dedups
-  identical `(weight, source, target)` triples after canonicalization, and
-  duplicates of the same raw edge reweight identically under the same core
-  distances, so overlap collapses inside Kruskal at no correctness cost.
-  `EdgeHarvest` never dedups, so nothing is lost by bypassing it. Obligation
-  OBL-7 asserts this.
+  `mst::prepare_edge_list`, not on any pre-merge filtering. Rationale: the
+  three merged buffers (`mst_backbone`, `historical_edges`, `pending_edges`)
+  can legitimately overlap — an edge selected into the MST may also be
+  re-harvested by a later insertion. `prepare_edge_list` dedups identical
+  `(weight, source, target)` triples after canonicalization, and duplicates of
+  the same raw edge reweight identically under the same core distances, so
+  overlap collapses inside Kruskal at no correctness cost. `EdgeHarvest` never
+  dedups, so nothing is lost by bypassing it. Obligation OBL-7 asserts this.
   Date/Author: 2026-08-16, planning (gap review).
 
 - Decision: Adopt `googletest`, `pretty_assertions`, and `insta` as
-  dev-dependencies in this milestone.
-  Rationale: the `rust-unit-testing` brief names them as the approved rich
-  assertion stack, yet none is used anywhere in the workspace; deferring
-  adoption "until they are used" is circular. This is the first new test
-  suite since their approval, so it starts the practice: readable diffs for
-  vector equality, matcher-based structural claims, and one snapshot for the
-  deterministic fixture. Dev-dependencies only; the
-  no-new-production-dependency constraint is unchanged.
-  Date/Author: 2026-08-16, planning (gap review).
+  dev-dependencies in this milestone. Rationale: the `rust-unit-testing` brief
+  names them as the approved rich assertion stack, yet none is used anywhere in
+  the workspace; deferring adoption "until they are used" is circular. This is
+  the first new test suite since their approval, so it starts the practice:
+  readable diffs for vector equality, matcher-based structural claims, and one
+  snapshot for the deterministic fixture. Dev-dependencies only; the
+  no-new-production-dependency constraint is unchanged. Date/Author:
+  2026-08-16, planning (gap review).
 
 - Decision: Prior-art alignment with FISHDBC (Dell'Amico, 2019,
-  arXiv:1910.07283).
-  Rationale: FISHDBC maintains an *approximate* MST updated incrementally by
-  feeding batches of raw candidate triples back through Kruskal, updating
-  mutual-reachability distances as the `max` of endpoint core distances and
-  the raw distance. This plan mirrors that exactly (merge raw candidates →
-  reweight by `max` → Kruskal), confirming the design's §12.5 strategy.
-  Date/Author: 2026-07-22, planning.
+  arXiv:1910.07283). Rationale: FISHDBC maintains an *approximate* MST updated
+  incrementally by feeding batches of raw candidate triples back through
+  Kruskal, updating mutual-reachability distances as the `max` of endpoint core
+  distances and the raw distance. This plan mirrors that exactly (merge raw
+  candidates → reweight by `max` → Kruskal), confirming the design's §12.5
+  strategy. Date/Author: 2026-07-22, planning.
 
 ## Outcomes & retrospective
 
-To be completed at delivery. Note: each refresh rebuilds and re-sorts the
-whole combined candidate set (O(E log E)) even for a no-op refresh; the
-cut-based incremental update sketched in design §12.5 is the future
-optimization target (out of scope here). Compare the shipped `refresh` against
-the three observable success criteria in Purpose. Before marking this plan
-`COMPLETE`, reconcile every discovery with the Conformance Basis artefacts:
-the DES-FIG3 raw-backbone refinement and the §12.4 auto-recompute wording
-must have landed in `docs/chutoro-design.md`, and ADR-006 must exist and be
-referenced from the design document.
+To be completed at delivery. Note: each refresh rebuilds and re-sorts the whole
+combined candidate set (O(E log E)) even for a no-op refresh; the cut-based
+incremental update sketched in design §12.5 is the future optimization target
+(out of scope here). Compare the shipped `refresh` against the three observable
+success criteria in Purpose. Before marking this plan `COMPLETE`, reconcile
+every discovery with the Conformance Basis artefacts: the DES-FIG3 raw-backbone
+refinement and the §12.4 auto-recompute wording must have landed in
+`docs/chutoro-design.md`, and ADR-006 must exist and be referenced from the
+design document.
 
 ## Context and orientation
 
@@ -455,15 +436,14 @@ The reader needs no prior plans. Relevant facts, with full paths:
     `harvest_expected_edges`; siblings `append.rs`, `core_distance.rs`,
     `core_distance_errors.rs`, `properties.rs`, `concurrency.rs`.
 - The batch pipeline `chutoro-core/src/cpu_pipeline/mod.rs` shows the target
-  sequence: build+harvest, per-point core distance,
-  `mutual_reachability_edges` (a `par_iter` over `mutual_reachability_edge`),
+  sequence: build+harvest, per-point core distance, `mutual_reachability_edges`
+  (a `par_iter` over `mutual_reachability_edge`),
   `parallel_kruskal_from_edges(items, &mutual_edges)`, then
-  `extract_labels_from_mst(items, forest.edges(),
-  HierarchyConfig::new(mcs))`. Its error mappers
-  `map_cpu_mst_error(&MstError)` and
-  `map_cpu_hierarchy_error(&HierarchyError)` are currently **private** and
-  must be promoted to `pub(crate)` for `refresh` to reuse them. HNSW errors
-  map through `HnswError::into_chutoro_error`.
+  `extract_labels_from_mst(items, forest.edges(), HierarchyConfig::new(mcs))`.
+  Its error mappers `map_cpu_mst_error(&MstError)` and
+  `map_cpu_hierarchy_error(&HierarchyError)` are currently **private** and must
+  be promoted to `pub(crate)` for `refresh` to reuse them. HNSW errors map
+  through `HnswError::into_chutoro_error`.
 - Primitive signatures (verified), each defined in the noted module:
 
   ```text
@@ -511,15 +491,14 @@ The reader needs no prior plans. Relevant facts, with full paths:
 ### Documentation and skills to consult
 
 - Design: `docs/chutoro-design.md` §12.3 (session architecture), §12.4 (edge
-  harvesting and core distances), §12.5 (incremental MST refresh strategy —
-  the primary spec), §12.6 (concurrency model), §12.7 (differential testing).
+  harvesting and core distances), §12.5 (incremental MST refresh strategy — the
+  primary spec), §12.6 (concurrency model), §12.7 (differential testing).
 - Roadmap: `docs/roadmap.md` §11.2 (this item and siblings
   `11.2.2`–`11.2.6`, and `11.4`).
 - Predecessor execplans: `docs/execplans/11-1-3-clustering-session-append.md`
   and `docs/execplans/11-1-4-incremental-core-distance-computation.md`.
 - Testing docs: `docs/property-testing-design.md`,
-  `docs/rust-testing-with-rstest-fixtures.md`,
-  `docs/rust-doctest-dry-guide.md`,
+  `docs/rust-testing-with-rstest-fixtures.md`, `docs/rust-doctest-dry-guide.md`,
   `docs/complexity-antipatterns-and-refactoring-strategies.md`.
 - Verification: `docs/verus-toolchain.md`,
   `docs/adr-002-adoption-of-kani-formal-verification.md`.
@@ -536,16 +515,16 @@ artefacts are the roadmap and the technical design document. Traced items use
 these identifiers:
 
 - **RM-11.2.1** — roadmap item 11.2.1 in `docs/roadmap.md` (revision at
-  branch point: commit `2aafc3e`): implement `ClusteringSession::refresh`
-  with the stated acceptance criteria (label length equals total points;
+  branch point: commit `2aafc3e`): implement `ClusteringSession::refresh` with
+  the stated acceptance criteria (label length equals total points;
   `snapshot_version` increments by exactly one per refresh).
 - **DES-12.5** — `docs/chutoro-design.md` §12.5 (same revision): the
   nine-step incremental MST refresh strategy (merge, reweight, Kruskal,
   extract, publish).
 - **DES-12.3 / DES-12.4 / DES-12.6 / DES-12.7** — design §12.3 (session
-  architecture and lifecycle), §12.4 (core distances and
-  mutual-reachability), §12.6 (single-writer/multi-reader model), §12.7
-  (differential testing thresholds).
+  architecture and lifecycle), §12.4 (core distances and mutual-reachability),
+  §12.6 (single-writer/multi-reader model), §12.7 (differential testing
+  thresholds).
 - **DES-FIG3** — design Figure 3, the `ClusteringSession` state sketch
   (`mst_edges: Vec<MstEdge>`).
 - ADRs: ADR-002 (Kani adoption) and ADR-003 (adapter boundaries) govern
@@ -571,22 +550,22 @@ Known deviations carried by this plan (each recorded in the Decision Log and
 requiring the plan approver's acceptance at the approval gate):
 
 - **DES-FIG3 deviation**: `mst_edges: Vec<MstEdge>` becomes
-  `mst_backbone: Vec<CandidateEdge>` (raw retention). Upstream impact:
-  Figure 3 and §12.5 step 8 wording must be updated in EP-M5; ADR-006 records
-  the rationale. Downstream impact: roadmap `11.2.5` retains raw non-MST
-  edges against the same representation.
+  `mst_backbone: Vec<CandidateEdge>` (raw retention). Upstream impact: Figure 3
+  and §12.5 step 8 wording must be updated in EP-M5; ADR-006 records the
+  rationale. Downstream impact: roadmap `11.2.5` retains raw non-MST edges
+  against the same representation.
 - **RM-11.2.1 literal-wording deviation**: "construct a fresh `EdgeHarvest`"
   is realized via `parallel_kruskal_from_edges`, which the public wrapper
-  delegates to and which the batch pipeline has called directly since #276.
-  No behavioural difference; roadmap text is satisfied in intent. No upstream
-  edit required.
+  delegates to and which the batch pipeline has called directly since #276. No
+  behavioural difference; roadmap text is satisfied in intent. No upstream edit
+  required.
 - **Degenerate-size behaviour**: batch `run` errors below
   `min_cluster_size`; `refresh` publishes an all-noise snapshot instead.
   Upstream impact: §12.5 gains a sentence in EP-M5 documenting warm-up
   behaviour.
 
-When any traced item changes during implementation, update this section and
-the affected links before continuing.
+When any traced item changes during implementation, update this section and the
+affected links before continuing.
 
 ## Verification plan
 
@@ -622,160 +601,142 @@ non-vacuity argument recorded beside it.
   three arguments; it is commutative in `cs`/`ct`, `>=` each argument, and —
   the substantive part — depends only on the raw distance and the two current
   core distances, never on any previously stored weight. Hence two sessions
-  reaching the same `(raw edge set, core distances)` produce identical
-  weighted edges regardless of refresh history.
-  Method: formal proof (Verus), per the `rust-verification` selection rules —
-  the guarantee must hold for all admissible inputs, not a sampled range.
-  Domain: all finite `f32` triples (modelled as reals in spec; finiteness is
-  AXM-3's precondition, mirrored as a `requires` clause).
-  Artefact: `verus/session_refresh.rs`, run by `make verus`.
-  Evidence: `prover-tools verus run --proof-file verus/session_refresh.rs`
-  exits 0 with no `assume`; before implementation the proof file's lemma is
-  stated with an open body and fails, which is the red state.
-  Non-vacuity: the `requires` clause (finiteness) is inhabited — witness
-  `(1.0, 2.0, 0.5)` is asserted concretely in the proof body; the
-  history-independence claim is exactly the property the double-weighting
-  bug violated, so a variant lemma modelling the buggy fold
-  (`max(prev_weight, cs, ct)` with `prev_weight > max(d, cs, ct)`) is shown
-  to yield a different result via a concrete counterexample assertion,
+  reaching the same `(raw edge set, core distances)` produce identical weighted
+  edges regardless of refresh history. Method: formal proof (Verus), per the
+  `rust-verification` selection rules — the guarantee must hold for all
+  admissible inputs, not a sampled range. Domain: all finite `f32` triples
+  (modelled as reals in spec; finiteness is AXM-3's precondition, mirrored as a
+  `requires` clause). Artefact: `verus/session_refresh.rs`, run by
+  `make verus`. Evidence:
+  `prover-tools verus run --proof-file verus/session_refresh.rs` exits 0 with no
+  `assume`; before implementation the proof file's lemma is stated with an
+  open body and fails, which is the red state. Non-vacuity: the `requires`
+  clause (finiteness) is inhabited — witness `(1.0, 2.0, 0.5)` is asserted
+  concretely in the proof body; the history-independence claim is exactly the
+  property the double-weighting bug violated, so a variant lemma modelling the
+  buggy fold (`max(prev_weight, cs, ct)` with `prev_weight > max(d, cs, ct)`)
+  is shown to yield a different result via a concrete counterexample assertion,
   proving the lemma distinguishes correct from buggy semantics.
 
 - Obligation: **OBL-2 merge multiset preservation (lemma).** The combined
   candidate sequence has length
   `mst_backbone.len() + historical_edges.len() + pending_edges.len()`, and
   reweighting is index-preserving: element `i` of the output has the same
-  `source`, `target`, and `sequence` as element `i` of the concatenated
-  input, differing only in weight.
-  Method: formal proof (Verus) over unbounded sequences (`Seq<EdgeSpec>`),
-  by induction; a bounded check would not cover all lengths.
-  Domain: all sequences of spec edges.
-  Artefact: `verus/session_refresh.rs` (same proof file, separate lemmas).
-  Evidence: as OBL-1; discharge condition is a clean `make verus` run with
-  no `assume`.
-  Non-vacuity: the inductive step is exercised by non-empty witnesses
-  (concrete 2-element and 3-buffer instantiations asserted in the proof);
-  the length equality fails on any implementation that filters or dedups
-  during merge, which is a real candidate mistake (dedup belongs to
-  `prepare_edge_list`, not the merge — see Decision Log).
+  `source`, `target`, and `sequence` as element `i` of the concatenated input,
+  differing only in weight. Method: formal proof (Verus) over unbounded
+  sequences (`Seq<EdgeSpec>`), by induction; a bounded check would not cover
+  all lengths. Domain: all sequences of spec edges. Artefact:
+  `verus/session_refresh.rs` (same proof file, separate lemmas). Evidence: as
+  OBL-1; discharge condition is a clean `make verus` run with no `assume`.
+  Non-vacuity: the inductive step is exercised by non-empty witnesses (concrete
+  2-element and 3-buffer instantiations asserted in the proof); the length
+  equality fails on any implementation that filters or dedups during merge,
+  which is a real candidate mistake (dedup belongs to `prepare_edge_list`, not
+  the merge — see Decision Log).
 
 - Obligation: **OBL-3 label-length invariant.** After every successful
-  `refresh`, `session.labels().len() == session.point_count()`.
-  Method: property test (generated append/refresh interleavings) plus a
-  parameterized unit test for the explicit partitions (empty session,
-  below-`min_cluster_size` session, exactly-`min_cluster_size` session,
-  larger session).
-  Rationale: the domain is a range of operation sequences, not a finite
-  enumeration, so examples alone are insufficient; a proof is
+  `refresh`, `session.labels().len() == session.point_count()`. Method:
+  property test (generated append/refresh interleavings) plus a parameterized
+  unit test for the explicit partitions (empty session,
+  below-`min_cluster_size` session, exactly-`min_cluster_size` session, larger
+  session). Rationale: the domain is a range of operation sequences, not a
+  finite enumeration, so examples alone are insufficient; a proof is
   disproportionate because the invariant composes AXM-1/AXM-2 with
-  short-circuit branches that the property test exercises directly.
-  Domain: append batches of 0–32 indices over sources of 1–64 points,
-  1–4 refreshes, `min_cluster_size` in 1–6.
-  Artefact: `chutoro-core/src/session/tests/refresh_properties.rs`
-  (proptest, `suite_proptest_config`) and
-  `chutoro-core/src/session/tests/refresh.rs` (rstest `#[case]`s).
-  Evidence: red — tests fail to compile before `refresh`/`labels` exist;
-  green — `cargo nextest run -p chutoro-core -E 'test(refresh)'` passes.
-  Non-vacuity: the generator's acceptance is total (no `prop_filter`), and
-  the four explicit partitions each have a named `#[case]` witness; a seeded
-  fault (temporarily truncating the label vector by one in
-  `rebuild_mst_labels`) must fail both the property and the unit case — this
-  mutation check is performed once during EP-M3 and recorded in Artefacts.
+  short-circuit branches that the property test exercises directly. Domain:
+  append batches of 0–32 indices over sources of 1–64 points, 1–4 refreshes,
+  `min_cluster_size` in 1–6. Artefact:
+  `chutoro-core/src/session/tests/refresh_properties.rs` (proptest,
+  `suite_proptest_config`) and `chutoro-core/src/session/tests/refresh.rs`
+  (rstest `#[case]`s). Evidence: red — tests fail to compile before
+  `refresh`/`labels` exist; green —
+  `cargo nextest run -p chutoro-core -E 'test(refresh)'` passes. Non-vacuity:
+  the generator's acceptance is total (no `prop_filter`), and the four explicit
+  partitions each have a named `#[case]` witness; a seeded fault (temporarily
+  truncating the label vector by one in `rebuild_mst_labels`) must fail both
+  the property and the unit case — this mutation check is performed once during
+  EP-M3 and recorded in Artefacts.
 
 - Obligation: **OBL-4 snapshot-version discipline.** `snapshot_version`
   increases by exactly one per successful `refresh` call and is otherwise
-  unchanged.
-  Method: property test over interleavings (shares the OBL-3 harness) plus a
-  unit test asserting the delta across two consecutive refreshes.
-  Domain: as OBL-3.
-  Artefact: `refresh_properties.rs`; `refresh.rs`
-  (`refresh_advances_snapshot_version_by_one`).
-  Evidence: as OBL-3.
+  unchanged. Method: property test over interleavings (shares the OBL-3
+  harness) plus a unit test asserting the delta across two consecutive
+  refreshes. Domain: as OBL-3. Artefact: `refresh_properties.rs`; `refresh.rs`
+  (`refresh_advances_snapshot_version_by_one`). Evidence: as OBL-3.
   Non-vacuity: sequences with ≥ 2 refreshes are generated (the refresh count
   strategy starts at 1 and the unit test pins the 2-refresh case), so the
   "exactly one" claim is distinguished from "at least one"; a seeded
   double-increment fault must fail the unit case.
 
 - Obligation: **OBL-5 all-or-nothing publish.** A failed `refresh` leaves
-  `labels`, `snapshot_version`, `pending_edges`, and `mst_backbone`
-  unchanged; a retry after the failure cause is removed succeeds.
-  Method: parameterized error-path tests (the failure modes form a finite
-  partition: contiguity violation; injected `DataSource` failure during
-  core-distance recompute).
-  Rationale: each failure mode is an explicit branch; exhaustive enumeration
-  is practical, so parameterized tests are proportionate.
-  Domain: the two named failure modes, each with a state-snapshot
-  before/after comparison.
-  Artefact: `chutoro-core/src/session/tests/refresh_errors.rs`, using the
-  existing `FailableSource` pattern from `core_distance_errors.rs`.
-  Evidence: red — tests fail while `refresh` mutates state before its
-  fallible calls (or does not exist); green — pass once the commit block is
-  ordered after all fallible calls.
-  Non-vacuity: the contiguity witness (`append(&[0, 1, 3])` against a
+  `labels`, `snapshot_version`, `pending_edges`, and `mst_backbone` unchanged;
+  a retry after the failure cause is removed succeeds. Method: parameterized
+  error-path tests (the failure modes form a finite partition: contiguity
+  violation; injected `DataSource` failure during core-distance recompute).
+  Rationale: each failure mode is an explicit branch; exhaustive enumeration is
+  practical, so parameterized tests are proportionate. Domain: the two named
+  failure modes, each with a state-snapshot before/after comparison. Artefact:
+  `chutoro-core/src/session/tests/refresh_errors.rs`, using the existing
+  `FailableSource` pattern from `core_distance_errors.rs`. Evidence: red —
+  tests fail while `refresh` mutates state before its fallible calls (or does
+  not exist); green — pass once the commit block is ordered after all fallible
+  calls. Non-vacuity: the contiguity witness (`append(&[0, 1, 3])` against a
   4-point source, index 2 skipped — accepted by `append`, invalid for the
   rebuild) demonstrably reaches the guard because the same input passes once
-  index 2 is appended; moving `snapshot_version += 1` above the fallible
-  calls is the representative mutation the test must reject.
+  index 2 is appended; moving `snapshot_version += 1` above the fallible calls
+  is the representative mutation the test must reject.
 
 - Obligation: **OBL-6 batch partition equivalence.** For a single refresh
   over a contiguous dataset of at least `min_cluster_size` points, the
   incremental labels induce the same partition as `Chutoro::run` on the
   identical dataset (`adjusted_rand_index == 1.0`); across multiple
-  append/refresh rounds, ARI ≥ 0.95 (DES-12.7's threshold).
-  Method: differential unit test (single refresh) plus differential property
-  test (multi-refresh), both against the real batch pipeline — a faithful
+  append/refresh rounds, ARI ≥ 0.95 (DES-12.7's threshold). Method:
+  differential unit test (single refresh) plus differential property test
+  (multi-refresh), both against the real batch pipeline — a faithful
   contract-level boundary is unnecessary because the real oracle is cheap at
-  test sizes.
-  Domain: deterministic small fixture (unit); generated datasets of 8–64
-  points with 2–4 separated value clusters, split into 2–3 append rounds
-  (property).
-  Artefact: `refresh.rs` (`refresh_matches_batch_partition`, plus an
+  test sizes. Domain: deterministic small fixture (unit); generated datasets of
+  8–64 points with 2–4 separated value clusters, split into 2–3 append rounds
+  (property). Artefact: `refresh.rs` (`refresh_matches_batch_partition`, plus an
   `insta::assert_debug_snapshot!` of the fixture's label vector);
-  `refresh_properties.rs`
-  (`multi_refresh_matches_batch_within_ari_bound`).
-  Evidence: red — fails to compile before the API exists; green — passes;
-  the snapshot file is committed beside the test.
-  Non-vacuity: fixtures contain ≥ 2 genuine clusters, so ARI is not
-  trivially 1.0 for degenerate labellings (an all-noise or single-cluster
-  output scores < 1.0 against the batch oracle); a seeded fault replacing
-  `max` with `min` in `mutual_reachability_weight` must drive ARI below the
-  bound — this mutation check is performed once during EP-M3 and recorded in
-  Artefacts.
+  `refresh_properties.rs` (`multi_refresh_matches_batch_within_ari_bound`).
+  Evidence: red — fails to compile before the API exists; green — passes; the
+  snapshot file is committed beside the test. Non-vacuity: fixtures contain ≥ 2
+  genuine clusters, so ARI is not trivially 1.0 for degenerate labellings (an
+  all-noise or single-cluster output scores < 1.0 against the batch oracle); a
+  seeded fault replacing `max` with `min` in `mutual_reachability_weight` must
+  drive ARI below the bound — this mutation check is performed once during
+  EP-M3 and recorded in Artefacts.
 
 - Obligation: **OBL-7 overlap tolerance.** Duplicating any input edge across
   two of the three merge buffers leaves the output labels and backbone
-  unchanged.
-  Method: parameterized unit test on `rebuild_mst_labels` (pure, no session
-  needed).
-  Domain: the three buffer-pair combinations, each with a duplicated edge.
-  Artefact: `chutoro-core/src/session/refresh.rs` `#[cfg(test)]` module.
-  Evidence: red-then-green with the rest of EP-M1's pure-fn tests.
-  Non-vacuity: the duplicated edge is chosen to be MST-selected in the
-  deduplicated baseline, so a merge that double-counts it would either alter
-  the backbone (two copies recovered) or, with distinct sequence numbers,
+  unchanged. Method: parameterized unit test on `rebuild_mst_labels` (pure, no
+  session needed). Domain: the three buffer-pair combinations, each with a
+  duplicated edge. Artefact: `chutoro-core/src/session/refresh.rs`
+  `#[cfg(test)]` module. Evidence: red-then-green with the rest of EP-M1's
+  pure-fn tests. Non-vacuity: the duplicated edge is chosen to be MST-selected
+  in the deduplicated baseline, so a merge that double-counts it would either
+  alter the backbone (two copies recovered) or, with distinct sequence numbers,
   survive dedup and change the candidate count — the test asserts both the
   labels and the recovered backbone match the no-duplicate baseline exactly.
 
 - Obligation: **OBL-8 bounded rebuild safety (optional, go/no-go).** Within
-  a 2–3 node bound, `rebuild_mst_labels` never panics: it returns
-  `Ok` with `labels.len() == node_count` or `Err` for out-of-range
-  endpoints.
-  Method: bounded model check (Kani), `#[cfg(kani)]`, tight
-  `#[kani::unwind]`.
+  a 2–3 node bound, `rebuild_mst_labels` never panics: it returns `Ok` with
+  `labels.len() == node_count` or `Err` for out-of-range endpoints. Method:
+  bounded model check (Kani), `#[cfg(kani)]`, tight `#[kani::unwind]`.
   Rationale: complements OBL-3/OBL-5 with exhaustive small-bound coverage of
   panic freedom (index arithmetic), which sampling cannot guarantee; kept
   optional because heap-`Vec` harnesses hit a combinatorial cliff and MST
-  structural safety is already covered upstream (AXM-1).
-  Domain: `node_count ≤ 3`, symbolic edge endpoints and finite weights.
-  Artefact: harness in `chutoro-core/src/session/refresh.rs` behind
-  `#[cfg(kani)]`; run manually via `cargo kani`, not added to `make test` or
-  the default `make kani` tier without a follow-up decision.
-  Evidence: `cargo kani --harness verify_rebuild_bounded` completes with all
-  checks passed within a few minutes; otherwise record the cost in the
-  Decision Log and drop the harness (Verus plus the test suites remain the
-  verification of record).
-  Non-vacuity: the symbolic endpoint domain includes values `>= node_count`,
-  so the error branch is reachable; a `kani::cover!` on the `Ok` branch with
-  a non-empty edge set proves the success path is exercised too.
+  structural safety is already covered upstream (AXM-1). Domain:
+  `node_count ≤ 3`, symbolic edge endpoints and finite weights. Artefact:
+  harness in `chutoro-core/src/session/refresh.rs` behind `#[cfg(kani)]`; run
+  manually via `cargo kani`, not added to `make test` or the default
+  `make kani` tier without a follow-up decision. Evidence:
+  `cargo kani --harness verify_rebuild_bounded` completes with all checks
+  passed within a few minutes; otherwise record the cost in the Decision Log
+  and drop the harness (Verus plus the test suites remain the verification of
+  record). Non-vacuity: the symbolic endpoint domain includes values
+  `>= node_count`, so the error branch is reachable; a `kani::cover!` on the
+  `Ok` branch with a non-empty edge set proves the success path is exercised
+  too.
 
 No other non-trivial invariants are introduced: the metrics emission and
 `tracing` instrumentation are observability side channels with no behavioural
@@ -800,8 +761,8 @@ and Conformance Basis. No edits.
 
 1. Add `googletest`, `pretty_assertions`, and `insta` to `chutoro-core`'s
    `[dev-dependencies]` (via the workspace dependency table if one exists;
-   crate-level otherwise). Usage assignments, chosen for expressiveness
-   rather than blanket replacement:
+   crate-level otherwise). Usage assignments, chosen for expressiveness rather
+   than blanket replacement:
    - `pretty_assertions::assert_eq!` wherever whole label vectors or edge
      lists are compared, so failures render a readable diff.
    - `googletest` matchers (`assert_that!` with `len`, `each`, `eq`,
@@ -825,11 +786,10 @@ and Conformance Basis. No edits.
    `mutual_reachability_weight(distance, core_source, core_target) -> f32`
    returning `distance.max(core_source).max(core_target)`; generalize
    `mutual_reachability_edges` from `&EdgeHarvest` to `&[CandidateEdge]` and
-   promote it to `pub(crate)` (the batch caller passes
-   `harvested.as_slice()`; behaviour unchanged, batch tests stay green);
-   promote `map_cpu_mst_error` and `map_cpu_hierarchy_error` to `pub(crate)`
-   with their signatures unchanged. Then implement the pure rebuild in
-   `chutoro-core/src/session/refresh.rs`:
+   promote it to `pub(crate)` (the batch caller passes `harvested.as_slice()`;
+   behaviour unchanged, batch tests stay green); promote `map_cpu_mst_error` and
+   `map_cpu_hierarchy_error` to `pub(crate)` with their signatures unchanged.
+   Then implement the pure rebuild in `chutoro-core/src/session/refresh.rs`:
 
    ```rust
    pub(super) struct RefreshOutcome {
@@ -880,8 +840,8 @@ and Conformance Basis. No edits.
 ### EP-M2 — session wiring
 
 1. Red: unit tests in a new `chutoro-core/src/session/tests/refresh.rs`
-   (registered from `session/tests.rs`), using the `session_builder` fixture
-   and `make_session`; every test expecting real clusters builds with
+   (registered from `session/tests.rs`), using the `session_builder` fixture and
+   `make_session`; every test expecting real clusters builds with
    `with_min_cluster_size(2)` (or smaller) and enough points:
    - `refresh_publishes_labels_of_point_count_length` — build with
      `with_min_cluster_size(2)`; append `&[0,1,2,3]`; `refresh()`; assert
@@ -902,9 +862,8 @@ and Conformance Basis. No edits.
      vector with `insta`.
    Error-path tests in `chutoro-core/src/session/tests/refresh_errors.rs`
    (OBL-5): `failed_refresh_preserves_snapshot_and_pending` and
-   `contiguity_violation_reports_cpu_mst_failure`.
-   BDD: **reuse the existing session harness**
-   (`chutoro-core/tests/features/session_append.feature` and
+   `contiguity_violation_reports_cpu_mst_failure`. BDD: **reuse the existing
+   session harness** (`chutoro-core/tests/features/session_append.feature` and
    `chutoro-core/tests/session_append_bdd.rs`), as `11-1-4` did. Add the
    scenarios below plus `When I refresh the session` /
    `Then the label snapshot has length {count:usize}` /
@@ -924,18 +883,18 @@ and Conformance Basis. No edits.
        And the snapshot version is 1
    ```
 
-   Confirm the red state: the suite fails to compile because
-   `refresh`/`labels` do not exist (the expected red reason), converting to
-   assertion failures as the API lands.
+   Confirm the red state: the suite fails to compile because `refresh`/`labels`
+   do not exist (the expected red reason), converting to assertion failures as
+   the API lands.
 2. Green: in `session/mod.rs`, rename `_mst_edges: Vec<MstEdge>` to
-   `mst_backbone: Vec<CandidateEdge>` and `_historical_edges ->
-   historical_edges`, `_labels -> labels`, `_last_refresh_len ->
-   last_refresh_len`; update `session_impl.rs` construction; drop the unused
-   `MstEdge` import if nothing else needs it. Add
+   `mst_backbone: Vec<CandidateEdge>` and
+   `_historical_edges -> historical_edges`, `_labels -> labels`,
+   `_last_refresh_len -> last_refresh_len`; update `session_impl.rs`
+   construction; drop the unused `MstEdge` import if nothing else needs it. Add
    `pub fn labels(&self) -> Arc<Vec<usize>>` returning
-   `Arc::clone(&self.labels)`. Register the refresh metrics in the
-   construction `describe_*` block and implement
-   `pub fn refresh(&mut self) -> Result<()>` in `session_impl.rs`:
+   `Arc::clone(&self.labels)`. Register the refresh metrics in the construction
+   `describe_*` block and implement `pub fn refresh(&mut self) -> Result<()>` in
+   `session_impl.rs`:
    - Call `self.recompute_core_distances()?` (impure adapter step).
    - Set `node_count = self.point_count()` and call the pure rebuild:
 
@@ -980,13 +939,13 @@ and Conformance Basis. No edits.
 
 Add `chutoro-core/src/session/tests/refresh_properties.rs` (proptest,
 `suite_proptest_config`) covering OBL-3, OBL-4, determinism (identical
-append/refresh sequences under the fixed seed produce identical label
-vectors), `pending_edges` emptiness after every refresh, and OBL-6's
-multi-refresh differential property (append, refresh, append, refresh;
-ARI ≥ 0.95 against batch on the final dataset). Perform the two seeded-fault
-mutation checks recorded in the Verification Plan (truncated labels for
-OBL-3; `min` substitution for OBL-6), confirm the suites reject them, restore
-the code, and paste the failing output into Artefacts.
+append/refresh sequences under the fixed seed produce identical label vectors),
+`pending_edges` emptiness after every refresh, and OBL-6's multi-refresh
+differential property (append, refresh, append, refresh; ARI ≥ 0.95 against
+batch on the final dataset). Perform the two seeded-fault mutation checks
+recorded in the Verification Plan (truncated labels for OBL-3; `min`
+substitution for OBL-6), confirm the suites reject them, restore the code, and
+paste the failing output into Artefacts.
 
 ### EP-M4 — formal verification
 
@@ -1000,15 +959,14 @@ harness); apply its go/no-go rule and record the outcome either way.
 
 - `docs/chutoro-design.md` §12.5: mark `11.2.1` implemented, worded so the
   reader knows `historical_edges` retention/eviction is still deferred to
-  `11.2.5` (only the empty read path exists). Record the raw-backbone
-  retention (DES-FIG3 refinement), the `node_count = point_count` contiguity
-  invariant, the degenerate all-noise behaviour and its intentional
-  divergence from batch `run`, the auto-recompute behaviour (update §12.4's
-  dirty-set note), and the early minimal `labels()`.
+  `11.2.5` (only the empty read path exists). Record the raw-backbone retention
+  (DES-FIG3 refinement), the `node_count = point_count` contiguity invariant,
+  the degenerate all-noise behaviour and its intentional divergence from batch
+  `run`, the auto-recompute behaviour (update §12.4's dirty-set note), and the
+  early minimal `labels()`.
 - `docs/users-guide.md`: document the `append -> refresh -> labels` workflow
   and the two new public methods, with a runnable doctest that sets
-  `with_min_cluster_size` explicitly; state the warm-up (all-noise)
-  behaviour.
+  `with_min_cluster_size` explicitly; state the warm-up (all-noise) behaviour.
 - `docs/developers-guide.md`: document the hexagonal split (pure
   `rebuild_mst_labels` vs the HNSW-backed core-distance adapter), the shared
   lower-layer mutual-reachability helpers, the raw-backbone retention
@@ -1024,84 +982,71 @@ harness); apply its go/no-go rule and record the outcome either way.
 
 ## Milestones and plateaus
 
-No compatibility machinery is prescribed anywhere in this plan: the session
-API is pre-1.0 with no external consumers, `mst_backbone` is a private field,
-and every rename is applied atomically with its callers. Compatibility
-decision for all milestones: **none required** (nothing deployed, no wire or
-persisted format exists yet — session checkpointing arrives in §13).
+No compatibility machinery is prescribed anywhere in this plan: the session API
+is pre-1.0 with no external consumers, `mst_backbone` is a private field, and
+every rename is applied atomically with its callers. Compatibility decision for
+all milestones: **none required** (nothing deployed, no wire or persisted
+format exists yet — session checkpointing arrives in §13).
 
 - **EP-M1 — pure domain layer.**
   Outcome: batch mutual-reachability helpers promoted for session reuse;
-  `rebuild_mst_labels` implemented and unit-tested; dev-dependencies
-  adopted; session behaviour otherwise unchanged.
-  Requirements: advances RM-11.2.1; discharges DES-12.4's reweight formula
-  sharing; OBL-7 evidence lands here.
-  Acceptance evidence: `cargo nextest run -p chutoro-core -E
-  'test(refresh)'` green for the pure-fn suite; batch pipeline tests remain
-  green after the DRY refactor.
-  Conformance check: no public interface changed; no production dependency
-  added; helpers kept in `cpu_pipeline` (layering constraint); trace links
-  current.
-  Recovery: revert the milestone commit; nothing else depends on it yet.
-  Remaining gaps: session cannot yet call the rebuild.
+  `rebuild_mst_labels` implemented and unit-tested; dev-dependencies adopted;
+  session behaviour otherwise unchanged. Requirements: advances RM-11.2.1;
+  discharges DES-12.4's reweight formula sharing; OBL-7 evidence lands here.
+  Acceptance evidence: `cargo nextest run -p chutoro-core -E 'test(refresh)'`
+  green for the pure-fn suite; batch pipeline tests remain green after the DRY
+  refactor. Conformance check: no public interface changed; no production
+  dependency added; helpers kept in `cpu_pipeline` (layering constraint); trace
+  links current. Recovery: revert the milestone commit; nothing else depends on
+  it yet. Remaining gaps: session cannot yet call the rebuild.
 
 - **EP-M2 — session wiring.**
   Outcome: `refresh` and `labels` live; placeholder fields renamed;
   all-or-nothing publish; metrics registered; unit, error, and BDD suites
-  green. This is the plateau at which RM-11.2.1's acceptance criteria are
-  first observable.
-  Requirements: discharges RM-11.2.1 acceptance criteria; DES-12.5 steps
-  1–9 (with step 2 reading an empty buffer and step 8 storing the raw
-  backbone); DES-12.6 atomic publish (OBL-5).
-  Acceptance evidence: the six unit tests and two error tests named in the
-  Plan of work; the two BDD scenarios pass via the existing harness.
-  Conformance check: public surface grew by exactly `refresh` and `labels`;
-  no new error variant; DES-FIG3 deviation implemented as approved; trace
-  links updated to point at real test names.
-  Recovery: revert the milestone commit; EP-M1's layer remains valid.
-  Remaining gaps: property-level and formal evidence outstanding.
+  green. This is the plateau at which RM-11.2.1's acceptance criteria are first
+  observable. Requirements: discharges RM-11.2.1 acceptance criteria; DES-12.5
+  steps 1–9 (with step 2 reading an empty buffer and step 8 storing the raw
+  backbone); DES-12.6 atomic publish (OBL-5). Acceptance evidence: the six unit
+  tests and two error tests named in the Plan of work; the two BDD scenarios
+  pass via the existing harness. Conformance check: public surface grew by
+  exactly `refresh` and `labels`; no new error variant; DES-FIG3 deviation
+  implemented as approved; trace links updated to point at real test names.
+  Recovery: revert the milestone commit; EP-M1's layer remains valid. Remaining
+  gaps: property-level and formal evidence outstanding.
 
 - **EP-M3 — property suites.**
-  Outcome: OBL-3/OBL-4/OBL-6 property evidence plus the two recorded
-  mutation checks.
-  Requirements: DES-12.7 thresholds exercised incrementally.
-  Acceptance evidence: `make test` green including the new property file;
-  mutation-check transcripts pasted into Artefacts.
-  Conformance check: proptest configuration uses the shared
-  `suite_proptest_config` (CI reproducibility convention); no silent
-  reduction of case counts.
-  Recovery: revert the test-only commit; production code untouched.
-  Remaining gaps: lemmas unproven.
+  Outcome: OBL-3/OBL-4/OBL-6 property evidence plus the two recorded mutation
+  checks. Requirements: DES-12.7 thresholds exercised incrementally. Acceptance
+  evidence: `make test` green including the new property file; mutation-check
+  transcripts pasted into Artefacts. Conformance check: proptest configuration
+  uses the shared `suite_proptest_config` (CI reproducibility convention); no
+  silent reduction of case counts. Recovery: revert the test-only commit;
+  production code untouched. Remaining gaps: lemmas unproven.
 
 - **EP-M4 — formal verification.**
   Outcome: OBL-1 and OBL-2 discharged in Verus; OBL-8 attempted with its
-  go/no-go recorded.
-  Requirements: verification-plan obligations; ADR-002's tiering (Kani out
-  of `make test`).
-  Acceptance evidence: `make verus` green with the new proof file listed in
-  its run set; Decision Log entry if OBL-8 is dropped.
-  Conformance check: no `assume` in shipped proofs; proof spec mirrors the
-  production types faithfully (reviewed side by side).
-  Recovery: proofs are additive; revert freely.
-  Remaining gaps: documentation.
+  go/no-go recorded. Requirements: verification-plan obligations; ADR-002's
+  tiering (Kani out of `make test`). Acceptance evidence: `make verus` green
+  with the new proof file listed in its run set; Decision Log entry if OBL-8 is
+  dropped. Conformance check: no `assume` in shipped proofs; proof spec mirrors
+  the production types faithfully (reviewed side by side). Recovery: proofs are
+  additive; revert freely. Remaining gaps: documentation.
 
 - **EP-M5 — documentation.**
-  Outcome: design §12.4/§12.5/Figure 3 updated; users' and developers'
-  guides updated; ADR-006 authored and referenced; roadmap ticked.
-  Requirements: closes the DES-FIG3 and degenerate-behaviour deviations by
-  landing their upstream edits; completes RM-11.2.1.
-  Acceptance evidence: `make markdownlint` and `make nixie` green; roadmap
-  shows `[x] 11.2.1`.
-  Conformance check: every deviation recorded in Conformance Basis now has
-  its upstream edit landed or an accepted Decision Log entry; no unrecorded
-  drift remains (prerequisite for `COMPLETE`).
-  Recovery: docs-only; revert freely.
-  Remaining gaps: none for this roadmap item; `11.2.2`–`11.2.6` follow.
+  Outcome: design §12.4/§12.5/Figure 3 updated; users' and developers' guides
+  updated; ADR-006 authored and referenced; roadmap ticked. Requirements:
+  closes the DES-FIG3 and degenerate-behaviour deviations by landing their
+  upstream edits; completes RM-11.2.1. Acceptance evidence: `make markdownlint`
+  and `make nixie` green; roadmap shows `[x] 11.2.1`. Conformance check: every
+  deviation recorded in Conformance Basis now has its upstream edit landed or
+  an accepted Decision Log entry; no unrecorded drift remains (prerequisite for
+  `COMPLETE`). Recovery: docs-only; revert freely. Remaining gaps: none for
+  this roadmap item; `11.2.2`–`11.2.6` follow.
 
 ## Concrete steps
 
-Run from the repository root. Prefer Makefile targets; capture long output
-with `tee` to a `/tmp` log per `CLAUDE.md`.
+Run from the repository root. Prefer Makefile targets; capture long output with
+`tee` to a `/tmp` log per `CLAUDE.md`.
 
 ```bash
 # Focused red test (expect compile failure before implementation):
@@ -1126,8 +1071,8 @@ coderabbit review --agent
 
 Expected end state: `make test` passes with the new refresh unit, error,
 property, and BDD tests green; the single-refresh differential reports ARI
-`== 1.0` and the multi-refresh property stays ≥ 0.95; `make verus`
-discharges OBL-1 and OBL-2.
+`== 1.0` and the multi-refresh property stays ≥ 0.95; `make verus` discharges
+OBL-1 and OBL-2.
 
 ## Validation and acceptance
 
@@ -1147,8 +1092,7 @@ Acceptance (behaviour a human can verify), matching RM-11.2.1:
    `session.labels()` returns a vector of length `N` (`= point_count`).
 2. `session.snapshot_version()` increases by exactly one per `refresh` call.
 3. Incremental labels are partition-equivalent to `Chutoro::run` on the same
-   contiguous dataset (ARI `== 1.0` on the deterministic single-refresh
-   test).
+   contiguous dataset (ARI `== 1.0` on the deterministic single-refresh test).
 4. `pending_edges` is empty after `refresh`; a failed `refresh` leaves
    `snapshot_version` and `pending_edges` unchanged.
 
@@ -1164,12 +1108,11 @@ BLOCKED, and await acceptance.
 Quality criteria (what "done" means):
 
 - Tests: new unit + error + `proptest` + `rstest-bdd` suites pass under
-  `make test`; batch `cpu_pipeline` tests remain green after the DRY
-  refactor.
+  `make test`; batch `cpu_pipeline` tests remain green after the DRY refactor.
 - Verification: OBL-1 and OBL-2 discharged by `make verus` with no `assume`;
   OBL-3..OBL-7 discharged by the test suites with their recorded
-  non-vacuity/mutation evidence; OBL-8 discharged or explicitly dropped with
-  a Decision Log entry.
+  non-vacuity/mutation evidence; OBL-8 discharged or explicitly dropped with a
+  Decision Log entry.
 - Lint/typecheck: `make check-fmt` and `make lint` clean (warnings denied).
 - Review: `coderabbit review --agent` reports no unresolved concerns per
   milestone.
@@ -1180,21 +1123,21 @@ tolerance.
 
 ## Idempotence and recovery
 
-All edits are additive, field renames, or a single field-type change; steps
-are re-runnable. If a milestone's gate fails, fix forward within the
-iteration tolerance or revert the milestone's commit (work is committed per
-milestone). The pure `rebuild_mst_labels` is deterministic, so reruns produce
-identical snapshots. A failed `refresh` mutates no snapshot state; a retry
-re-processes the remaining dirty core-distance cells and republishes.
-Snapshot files (`.snap`) regenerate deterministically under AXM-4; delete and
-re-accept via `cargo insta review` if corrupted.
+All edits are additive, field renames, or a single field-type change; steps are
+re-runnable. If a milestone's gate fails, fix forward within the iteration
+tolerance or revert the milestone's commit (work is committed per milestone).
+The pure `rebuild_mst_labels` is deterministic, so reruns produce identical
+snapshots. A failed `refresh` mutates no snapshot state; a retry re-processes
+the remaining dirty core-distance cells and republishes. Snapshot files
+(`.snap`) regenerate deterministically under AXM-4; delete and re-accept via
+`cargo insta review` if corrupted.
 
 ## Artefacts and notes
 
-To be populated during implementation with: the red-state transcript, the
-green nextest summary, the two mutation-check failure transcripts (OBL-3
-truncation, OBL-6 `min` substitution), the `make verus` output for OBL-1 and
-OBL-2, and the OBL-8 outcome (runtime or drop decision).
+To be populated during implementation with: the red-state transcript, the green
+nextest summary, the two mutation-check failure transcripts (OBL-3 truncation,
+OBL-6 `min` substitution), the `make verus` output for OBL-1 and OBL-2, and the
+OBL-8 outcome (runtime or drop decision).
 
 ## Interfaces and dependencies
 
@@ -1238,12 +1181,12 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 
 Reused (unchanged) symbols: `crate::mst::parallel_kruskal_from_edges`
 (`pub(crate)`, the Kruskal entry point of both the batch path and refresh),
-`HnswError::into_chutoro_error`,
-`crate::HierarchyConfig`, `crate::extract_labels_from_mst`, `crate::MstEdge`,
-`crate::CandidateEdge`, `crate::adjusted_rand_index`. Internal change: the
-session's `mst_edges` field becomes `mst_backbone: Vec<CandidateEdge>`. New
-dev-dependencies (test-only): `googletest`, `pretty_assertions`, `insta`. No
-new production dependency; no new public error variant.
+`HnswError::into_chutoro_error`, `crate::HierarchyConfig`,
+`crate::extract_labels_from_mst`, `crate::MstEdge`, `crate::CandidateEdge`,
+`crate::adjusted_rand_index`. Internal change: the session's `mst_edges` field
+becomes `mst_backbone: Vec<CandidateEdge>`. New dev-dependencies (test-only):
+`googletest`, `pretty_assertions`, `insta`. No new production dependency; no
+new public error variant.
 
 ## Revision note
 
@@ -1252,63 +1195,62 @@ Changes from the first draft: (1) adopt **raw-backbone retention** (store MST
 edges as raw `CandidateEdge`, reweight from raw each refresh) to remove the
 cross-refresh weight ratchet the first draft would have shipped — the field
 `mst_edges` becomes `mst_backbone: Vec<CandidateEdge>`; (2) add **graceful
-degenerate handling** (empty and all-noise snapshots) so small sessions do
-not error and the flagship 4-point criterion holds; (3) home
+degenerate handling** (empty and all-noise snapshots) so small sessions do not
+error and the flagship 4-point criterion holds; (3) home
 `mutual_reachability_weight` in the lower `cpu_pipeline` layer to avoid a
 dependency inversion; (4) reuse existing `ChutoroError` variants
-(`CpuMstFailure` for contiguity violations) rather than add one;
-(5) enumerate concrete `chutoro.session.refresh.*` metrics with `describe_*`
-registration; (6) add a failed-refresh atomicity test, a multi-refresh
-differential property, and reuse the existing BDD harness; (7) reframe the
-Verus lemma around raw-retention reweight faithfulness; (8) record the
-auto-recompute and per-call-counter semantics and update §12.4 wording.
-Awaiting user approval before implementation.
+(`CpuMstFailure` for contiguity violations) rather than add one; (5) enumerate
+concrete `chutoro.session.refresh.*` metrics with `describe_*` registration;
+(6) add a failed-refresh atomicity test, a multi-refresh differential property,
+and reuse the existing BDD harness; (7) reframe the Verus lemma around
+raw-retention reweight faithfulness; (8) record the auto-recompute and
+per-call-counter semantics and update §12.4 wording. Awaiting user approval
+before implementation.
 
 Revised 2026-08-16 after a user gap review. Changes: (1) adopt `googletest`,
 `pretty_assertions`, and `insta` as dev-dependencies with concrete usage
-assignments in the new suites (first adoption in the workspace); (2) switch
-the pure rebuild from `EdgeHarvest::from_unsorted` + `parallel_kruskal` to
-the crate-internal `parallel_kruskal_from_edges` entry point, removing a
-redundant sort and allocation (recorded as a deviation from the roadmap
-item's literal wording); (3) document that dedup of the overlapping merged
-buffers happens in `mst::prepare_edge_list` (not `EdgeHarvest`) and add an
-overlap-tolerance unit test. Remaining work is unaffected; the plan still
-awaits approval.
+assignments in the new suites (first adoption in the workspace); (2) switch the
+pure rebuild from `EdgeHarvest::from_unsorted` + `parallel_kruskal` to the
+crate-internal `parallel_kruskal_from_edges` entry point, removing a redundant
+sort and allocation (recorded as a deviation from the roadmap item's literal
+wording); (3) document that dedup of the overlapping merged buffers happens in
+`mst::prepare_edge_list` (not `EdgeHarvest`) and add an overlap-tolerance unit
+test. Remaining work is unaffected; the plan still awaits approval.
 
 Redrafted 2026-08-23 to match the current execplans skill template. Changes:
 (1) added the mandatory `Conformance Basis` section with stable upstream
 identifiers (RM-11.2.1, DES-12.x, DES-FIG3), trace links from requirements
-through milestones to named acceptance tests, and the three recorded
-deviations (raw-backbone Figure 3 refinement, `parallel_kruskal_from_edges`
-wording, degenerate-size behaviour); (2) restructured verification into the
-mandatory `Verification Plan` with named obligations OBL-1..OBL-8, explicit
-axioms AXM-1..AXM-5, per-obligation method/domain/artefact/evidence, and
-non-vacuity arguments including two planned seeded-fault mutation checks;
-(3) replaced the standalone red-tests milestone with red → green → refactor
-stages *inside* each milestone so every milestone ends in a validated
-plateau, renumbering to EP-M1..EP-M5 with per-milestone conformance checks,
-recovery paths, and an explicit no-compatibility-machinery decision;
-(4) added the `Artefacts and notes` section as the destination for mutation
-and proof transcripts. No design or scope decisions changed; the plan still
-awaits approval before implementation.
+through milestones to named acceptance tests, and the three recorded deviations
+(raw-backbone Figure 3 refinement, `parallel_kruskal_from_edges` wording,
+degenerate-size behaviour); (2) restructured verification into the mandatory
+`Verification Plan` with named obligations OBL-1..OBL-8, explicit axioms
+AXM-1..AXM-5, per-obligation method/domain/artefact/evidence, and non-vacuity
+arguments including two planned seeded-fault mutation checks; (3) replaced the
+standalone red-tests milestone with red → green → refactor stages *inside* each
+milestone so every milestone ends in a validated plateau, renumbering to
+EP-M1..EP-M5 with per-milestone conformance checks, recovery paths, and an
+explicit no-compatibility-machinery decision; (4) added the
+`Artefacts and notes` section as the destination for mutation and proof
+transcripts. No design or scope decisions changed; the plan still awaits
+approval before implementation.
 
 Revised 2026-11-12 after rebasing onto main `14f1829`, to remove drift from
 code that landed meanwhile. Changes: (1) path references now use
 `chutoro-core/src/cpu_pipeline/mod.rs`, since the pipeline became a directory
-module; (2) `map_cpu_mst_error` and `map_cpu_hierarchy_error` are promoted
-with their current `&MstError`/`&HierarchyError` signatures, and the removed
+module; (2) `map_cpu_mst_error` and `map_cpu_hierarchy_error` are promoted with
+their current `&MstError`/`&HierarchyError` signatures, and the removed
 `map_cpu_hnsw_error` is replaced by the adapter-owned
-`HnswError::into_chutoro_error` (#224); (3) the refresh reweight reuses
-main's existing `mutual_reachability_edges`/`mutual_reachability_edge`
-helpers, factoring out only the private scalar `mutual_reachability_weight`
-as the proof and mutation target, and `rebuild_mst_labels` gains a
-`source_name` parameter for their errors; (4) the contiguity guard becomes an
-O(1) `core_distances.len() == node_count` check reporting `CpuHnswFailure`
+`HnswError::into_chutoro_error` (#224); (3) the refresh reweight reuses main's
+existing `mutual_reachability_edges`/`mutual_reachability_edge` helpers,
+factoring out only the private scalar `mutual_reachability_weight` as the proof
+and mutation target, and `rebuild_mst_labels` gains a `source_name` parameter
+for their errors; (4) the contiguity guard becomes an O(1)
+`core_distances.len() == node_count` check reporting `CpuHnswFailure`
 (`GRAPH_INVARIANT_VIOLATION`), matching the batch path's missing-core-distance
 error and staying deterministic ahead of Kruskal (#206); (5) the
 `parallel_kruskal_from_edges` decision now cites #276, which moved the batch
-path onto the same entry point, and records its `&[CandidateEdge]`
-signature; (6) the plan's ADR is renumbered ADR-006
+path onto the same entry point, and records its `&[CandidateEdge]` signature;
+(6) the plan's ADR is renumbered ADR-006
 (`docs/adr-006-incremental-refresh-domain-boundary.md`), because #289 took
 ADR-005 for the Cranelift development route. No scope change; the plan still
 awaits approval.
