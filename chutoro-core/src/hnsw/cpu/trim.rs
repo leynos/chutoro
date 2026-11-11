@@ -28,40 +28,10 @@ impl CpuHnsw {
     /// sequence so ties remain stable while a bounded binary heap retains only
     /// the best `max_connections` entries.
     ///
-    /// # Examples
-    /// ```rust,ignore
-    /// use chutoro_core::{
-    ///     CpuHnsw,
-    ///     DataSource,
-    ///     DataSourceError,
-    ///     HnswParams,
-    ///     hnsw::graph::EdgeContext,
-    ///     hnsw::insert::executor::TrimJob,
-    /// };
-    ///
-    /// # struct Dummy(Vec<f32>);
-    /// # impl DataSource for Dummy {
-    /// #     fn len(&self) -> usize { self.0.len() }
-    /// #     fn name(&self) -> &str { "dummy" }
-    /// #     fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-    /// #         let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
-    /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
-    /// #         Ok((a - b).abs())
-    /// #     }
-    /// # }
-    /// let params = HnswParams::new(1, 2).expect("params must permit at least two nodes");
-    /// let hnsw = CpuHnsw::with_capacity(params, 2).expect("capacity should accept two nodes");
-    /// let trim_jobs = vec![TrimJob {
-    ///     node: 0,
-    ///     ctx: EdgeContext { level: 0, max_connections: 1 },
-    ///     candidates: vec![0],
-    ///     sequences: vec![0],
-    /// }];
-    /// let results = hnsw
-    ///     .score_trim_jobs(trim_jobs, &Dummy(vec![0.0]))
-    ///     .expect("trim scoring must succeed in example");
-    /// assert_eq!(results[0].neighbours, vec![0]);
-    /// ```
+    /// The scoring behaviour is exercised by
+    /// `score_trim_jobs_keeps_the_nearest_candidates` in the CPU unit tests,
+    /// because this item is crate-private and so cannot appear in a doctest
+    /// compiled as an external crate.
     pub(crate) fn score_trim_jobs<D: DataSource + Sync>(
         &self,
         trim_jobs: Vec<TrimJob>,

@@ -62,8 +62,8 @@ impl CpuHnsw {
     /// Inserts a node into the graph, performing search under a shared lock.
     ///
     /// # Examples
-    /// ```rust,ignore
-    /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
+    /// ```
+    /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams, MetricDescriptor};
     /// # struct Dummy(Vec<f32>);
     /// # impl DataSource for Dummy {
     /// #     fn len(&self) -> usize { self.0.len() }
@@ -73,11 +73,18 @@ impl CpuHnsw {
     /// #         let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
     /// #         Ok((a - b).abs())
     /// #     }
+    /// #     fn metric_descriptor(&self) -> MetricDescriptor {
+    /// #         MetricDescriptor::new("test")
+    /// #     }
     /// # }
     /// let params = HnswParams::new(2, 4).expect("params");
     /// let data = Dummy(vec![0.0, 2.0, 4.0]);
-    /// let index = CpuHnsw::build(&data, params).expect("build must succeed");
-    /// index.insert(1, &data).expect("insert must succeed");
+    /// let index = CpuHnsw::with_capacity(params, data.len()).expect("index must allocate");
+    ///
+    /// // The first insertion seeds the entry point; the second links to it.
+    /// index.insert(0, &data).expect("first insert must succeed");
+    /// index.insert(1, &data).expect("second insert must succeed");
+    /// assert_eq!(index.len(), 2);
     /// ```
     ///
     /// # Errors
@@ -121,7 +128,7 @@ impl CpuHnsw {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```
     /// use chutoro_core::{CpuHnsw, DataSource, DataSourceError, HnswParams};
     /// # struct Dummy(Vec<f32>);
     /// # impl DataSource for Dummy {

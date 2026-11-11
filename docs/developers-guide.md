@@ -1461,6 +1461,27 @@ policy: eight required threads and a 1,800-second `slow-timeout` in `default`,
 and four required threads with the same timeout in `ci`. Other tests retain the
 60-second default per-test `slow-timeout`.
 
+The `Doctests` step runs `make test-doc` because the coverage action's
+`cargo nextest` invocation never runs doctests. The target compiles and runs
+every non-ignored workspace doctest as an external crate under `--all-features`
+with warnings denied, which is what keeps public examples such as the CPU HNSW
+constructors and insert paths checked against the API. An example marked
+`ignore` is skipped, so the gate cannot vouch for it; the CPU HNSW sources are
+kept free of ignored examples by the contract test below. `make test` runs the
+same target after nextest, so a local commit gate covers doctests too. An
+example on a crate-private item cannot be a doctest at all; cover it with a
+unit test in the owning module instead, as the `score_trim_jobs` unit test does.
+`tests/workflow_contracts/doctest_gate_test.py` pins that wiring: it fails if
+the target loses a flag, if `make test` stops running it, if CI drops the step,
+or if an ignored doctest reappears under the CPU HNSW sources. That scan covers
+only `chutoro-core/src/hnsw/cpu`; other HNSW modules, such as `insert` and
+`types`, still hold ignored examples that the gate does not check. It also runs
+the real target against a scratch workspace holding a passing and a failing
+example, through the standalone target, through `make test`, and through the
+command the CI `Doctests` step declares. A gate that skipped or tolerated a
+broken example would therefore fail the contract rather than pass it; the
+hosted runner itself is not simulated.
+
 The stable portable-SIMD no-feature check invokes its isolated Cargo fixture
 manifest directly, clears `RUSTC_BOOTSTRAP`, and asserts the `E0658`
 diagnostic. This avoids trybuild's inherited feature set for that contract.

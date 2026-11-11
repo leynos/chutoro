@@ -1,4 +1,4 @@
-.PHONY: help all clean test build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling install-kani install-verus kani kani-check kani-full verus bench test-workflow-contracts interrogate
+.PHONY: help all clean test test-doc build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling install-kani install-verus kani kani-check kani-full verus bench test-workflow-contracts interrogate
 
 export PATH := $(HOME)/.cargo/bin:$(HOME)/.bun/bin:$(PATH)
 
@@ -109,6 +109,13 @@ clean: ## Remove build artefacts
 test: ## Run tests with warnings treated as errors
 	$(CARGO) fetch --locked --target "$${CARGO_BUILD_TARGET:-host-tuple}"
 	RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }-D warnings $(STANDARD_RUSTFLAGS)" $(CARGO) nextest run --profile $(NEXTEST_PROFILE) --all-targets --all-features $(BUILD_JOBS) -E 'not kind(bench)'
+	$(MAKE) test-doc
+
+# `cargo nextest` does not run doctests, so `make test` runs this target as a
+# second step and CI invokes it directly. Doctest snippets are compiled as
+# external crates, which is what makes a public example a genuine API check.
+test-doc: ## Compile and run workspace doctests
+	RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }-D warnings $(STANDARD_RUSTFLAGS)" $(CARGO) test --doc --workspace --all-features $(BUILD_JOBS)
 
 target/%/$(APP): ## Build binary in debug or release mode
 	$(if $(findstring release,$(@)),RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }-Dmissing_docs -Dmissing_crate_level_docs",RUSTFLAGS="$${RUSTFLAGS:+$$RUSTFLAGS }$(STANDARD_RUSTFLAGS)") $(CARGO) build $(BUILD_JOBS) $(if $(findstring release,$(@)),--release) --bin $(APP)

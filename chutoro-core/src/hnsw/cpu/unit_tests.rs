@@ -5,7 +5,11 @@ use crate::{
     MetricDescriptor,
     datasource::DataSource,
     error::DataSourceError,
-    hnsw::{HnswParams, graph::NodeContext, insert::test_helpers::add_edge_if_missing},
+    hnsw::{
+        HnswParams,
+        graph::{EdgeContext, NodeContext},
+        insert::{TrimJob, test_helpers::add_edge_if_missing},
+    },
 };
 use std::{
     sync::{
@@ -228,6 +232,40 @@ fn heal_for_test_repairs_reachability_and_drains_its_tracking() {
         "healing must consume tracking created by reachability repair"
     );
 }
+
+/// Verifies trim scoring keeps the nearest candidates within the level's cap.
+#[test]
+fn score_trim_jobs_keeps_the_nearest_candidates() {
+    let params = HnswParams::new(1, 2).expect("params must permit at least one connection");
+    let index = CpuHnsw::with_capacity(params, 4).expect("capacity should accept four nodes");
+    let source = TestSource::new(vec![0.0, 10.0, 3.0, 7.0]);
+    let jobs = vec![TrimJob {
+        node: 0,
+        ctx: EdgeContext {
+            level: 0,
+            max_connections: 1,
+        },
+        // Supplied in reverse distance order: node 3 is 7 away and node 2 is
+        // 3 away, so preserving the input order would return `[3, 2]`.
+        candidates: vec![3, 2, 1],
+        sequences: vec![1, 2, 3],
+    }];
+
+    let results = index
+        .score_trim_jobs(jobs, &source)
+        .expect("trim scoring must succeed");
+    let [result] = results.as_slice() else {
+        panic!("one trim job must produce exactly one result");
+    };
+
+    assert_eq!(result.node, 0);
+    // The base-layer limit is twice `max_connections`, so the two nearest
+    // candidates survive. They were supplied in reverse distance order, so
+    // this also proves the scoring sorts by distance instead of preserving the
+    // caller's order.
+    assert_eq!(result.neighbours, vec![2, 3]);
+}
+
 #[derive(Clone)]
 struct TestSource {
     data: Vec<f32>,

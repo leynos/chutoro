@@ -164,7 +164,7 @@ impl CpuHnsw {
     /// Creates an empty index with the desired capacity.
     ///
     /// # Examples
-    /// ```rust,ignore
+    /// ```
     /// use chutoro_core::{CpuHnsw, HnswParams};
     /// let params = HnswParams::new(2, 8).expect("params");
     /// let index = CpuHnsw::with_capacity(params, 16).expect("capacity must be > 0");
