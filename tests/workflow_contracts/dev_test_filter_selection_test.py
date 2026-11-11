@@ -24,8 +24,15 @@ from dev_fast_make_support import REPO_ROOT, _make_output, _nextest_filter_expre
 from dev_fast_routing_test import POISONED_LOCK_TEST
 
 
-def _nextest_listing(filter_expression: str | None) -> dict[str, Any]:
-    """Return the parsed `cargo nextest list` report for one filter.
+def _run_nextest_list_build(
+    filter_expression: str | None,
+) -> subprocess.CompletedProcess[str]:
+    """Compile the workspace test binaries and list them under one filter.
+
+    `cargo nextest list` builds every test binary and writes Cargo artefacts;
+    it runs no test. That build is the expensive part of this contract, so the
+    completed process is returned rather than asserted on here, leaving the
+    failure report at the test boundary where the diagnostic tail belongs.
 
     The listing is the same workspace, target and feature selection the
     development route runs, so the filter is evaluated against the real test
@@ -43,19 +50,18 @@ def _nextest_listing(filter_expression: str | None) -> dict[str, Any]:
     ]
     if filter_expression is not None:
         command.extend(("-E", filter_expression))
-    completed = subprocess.run(
+    return subprocess.run(
         command,
         cwd=REPO_ROOT,
         check=False,
         capture_output=True,
         text=True,
     )
-    assert completed.returncode == 0, (
-        f"cargo nextest list failed with {completed.returncode} "
-        "(cargo-nextest must be installed to run this contract): "
-        f"{completed.stderr[-2000:]}"
-    )
-    return json.loads(completed.stdout)
+
+
+def _parse_nextest_listing(stdout: str) -> dict[str, Any]:
+    """Parse the JSON report `cargo nextest list` writes to standard output."""
+    return json.loads(stdout)
 
 
 def _cases(report: dict[str, Any]) -> dict[tuple[str, str], tuple[str, bool, str]]:
@@ -86,8 +92,22 @@ def test_development_filter_selects_exactly_the_intended_cases() -> None:
     output = _make_output("dev-test", overrides=("DEV_FAST_HOST_OS=Linux",))
     expression = _nextest_filter_expression(output)
 
-    baseline = _cases(_nextest_listing(None))
-    selected = _cases(_nextest_listing(expression))
+    listings = {
+        "unfiltered": _run_nextest_list_build(None),
+        "filtered": _run_nextest_list_build(expression),
+    }
+    failures = {
+        label: (completed.returncode, completed.stderr[-2000:])
+        for label, completed in listings.items()
+        if completed.returncode != 0
+    }
+    assert not failures, (
+        "cargo nextest list failed (cargo-nextest must be installed to run "
+        f"this contract): {failures!r}"
+    )
+
+    baseline = _cases(_parse_nextest_listing(listings["unfiltered"].stdout))
+    selected = _cases(_parse_nextest_listing(listings["filtered"].stdout))
 
     assert baseline, "the unfiltered listing must not be empty"
     assert set(selected) <= set(baseline), (
