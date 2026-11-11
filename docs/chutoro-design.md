@@ -2293,6 +2293,20 @@ rely on `rstest` parameterization to cover successful execution, builder
 validation failures, unsupported columns, and the text ingestion edge cases
 (empty files and insufficient items).
 
+##### 10.5.1. Test fixture ownership
+
+Keep reusable test fixtures in the narrowest crate that owns their behaviour.
+The core crate keeps its numeric `DataSource` doubles in crate-internal test
+utilities. The dense provider owns its Arrow and Parquet fixture builders in a
+public `testing` module behind an opt-in, non-default Cargo feature. Downstream
+test crates enable that feature through a development dependency. The CLI wraps
+the shared file writer with its temporary-directory and path conventions, while
+its `RunCommand` builders remain with the CLI command model.
+
+This keeps test-only sharing aligned with crate ownership and avoids adding
+Arrow or Parquet dependencies to the dependency-free `chutoro-test-support`
+leaf.
+
 #### 10.6. Error taxonomy and propagation
 
 Public crates expose structured errors built with `thiserror`. The core crate

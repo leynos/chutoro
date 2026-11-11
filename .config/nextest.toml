@@ -67,7 +67,7 @@ slow-timeout = { period = "180s", terminate-after = 1, grace-period = "5s" }
 # Reserve all test slots so concurrent HNSW builds and nested Cargo tests do
 # not starve this CPU-heavy property run.
 filter = "test(/hnsw_idempotency_preserved_proptest/)"
-threads-required = 8
+threads-required = "num-test-threads"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
@@ -153,7 +153,7 @@ slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 [[profile.ci.overrides]]
 # Idempotency proptest can exceed the default timeout under parallel load.
 filter = "test(/hnsw_idempotency_preserved_proptest/)"
-threads-required = 8
+threads-required = "num-test-threads"
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]

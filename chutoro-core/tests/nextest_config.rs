@@ -22,7 +22,7 @@ fn override_blocks(profile_name: &str) -> Vec<&'static str> {
     NEXTEST_CONFIG
         .split(&format!("[[profile.{profile_name}.overrides]]"))
         .skip(1)
-        .map(str::trim)
+        .map(|block| block.split("\n[").next().unwrap_or(block).trim())
         .collect()
 }
 
@@ -130,11 +130,12 @@ fn nextest_default_profile_keeps_benchmark_timeout_guards(
 #[test]
 /// Verifies the property-test workflow grants the idempotency case its budget.
 fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
+    let all_test_threads = "threads-required = \"num-test-threads\"";
     assert_override_present!(
         "ci",
         [
             "filter = \"test(/hnsw_idempotency_preserved_proptest/)\"",
-            "threads-required = 8",
+            all_test_threads,
             BENCH_SLOW_TIMEOUT,
         ]
     );
@@ -143,13 +144,22 @@ fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
         "default",
         [
             "filter = \"test(/hnsw_idempotency_preserved_proptest/)\"",
-            "threads-required = 8",
+            all_test_threads,
             BENCH_SLOW_TIMEOUT,
         ]
     );
 
     let pr_job = workflow_job_block("property-tests-pr").expect("property-tests-pr job must exist");
     assert!(pr_job.contains("timeout-minutes: 20"));
+}
+
+#[test]
+/// Verifies overrides do not absorb settings from the next profile table.
+fn nextest_override_blocks_stop_at_the_next_table() {
+    let blocks = override_blocks("default");
+    let final_block = blocks.last().expect("default profile must have overrides");
+    assert!(!final_block.contains("[profile.ci]"));
+    assert!(!final_block.contains("[[profile.ci.overrides]]"));
 }
 
 #[test]
