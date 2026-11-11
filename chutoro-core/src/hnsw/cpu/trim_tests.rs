@@ -244,3 +244,53 @@ fn trim_scoring_stays_on_the_thread_holding_the_insert_mutex() {
         )
     );
 }
+
+/// Verifies trim scoring records both of its metrics for one scored batch.
+///
+/// The histogram is the only place the cost of scoring inside the insertion
+/// critical section is visible, so the test pins it alongside the job counter
+/// rather than leaving the instruments unexercised.
+#[cfg(feature = "metrics")]
+#[test]
+fn trim_scoring_records_its_counter_and_histogram() {
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    let source = ThreadRecordingSource::new(DenseSource::synthetic(TRIM_POINTS));
+    let index = CpuHnsw::with_capacity(HnswParams::new(16, 200).expect("params"), TRIM_POINTS)
+        .expect("index");
+    let jobs: Vec<TrimJob> = (0..TRIM_JOBS).map(DenseSource::trim_job).collect();
+
+    ::metrics::with_local_recorder(&recorder, || {
+        index
+            .score_trim_jobs(jobs, &source)
+            .expect("trim scoring must succeed");
+    });
+
+    let snapshot_values: Vec<(String, DebugValue)> = snapshotter
+        .snapshot()
+        .into_hashmap()
+        .into_iter()
+        .map(|(key, (_, _, value))| (key.key().name().to_owned(), value))
+        .collect();
+    let value_for = |name: &str| {
+        snapshot_values
+            .iter()
+            .find(|(value_name, _)| value_name == name)
+            .map(|(_, value)| value)
+    };
+
+    assert_eq!(
+        value_for("chutoro.hnsw.trim.jobs_total"),
+        Some(&DebugValue::Counter(TRIM_JOBS as u64)),
+        "one scored batch must count every job it scored"
+    );
+    assert!(
+        matches!(
+            value_for("chutoro.hnsw.trim.duration_seconds"),
+            Some(DebugValue::Histogram(samples)) if !samples.is_empty()
+        ),
+        "one scored batch must record one duration sample"
+    );
+}

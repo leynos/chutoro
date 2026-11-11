@@ -46,10 +46,23 @@ impl CpuHnsw {
         // `CpuHnsw::build_with_edges` outright. Trim jobs are few — at most one
         // per staged neighbour update — so scoring them here in order costs far
         // less than the stall it prevents.
-        trim_jobs
+        #[cfg(feature = "metrics")]
+        let job_count = trim_jobs.len();
+        #[cfg(feature = "metrics")]
+        let started = std::time::Instant::now();
+        let scored: Result<Vec<TrimResult>, HnswError> = trim_jobs
             .into_iter()
             .map(|job| self.run_trim_job(job, source))
-            .collect()
+            .collect();
+        // Recorded on failure too: a batch that errors still spent time in the
+        // critical section, and that cost is what the histogram exists to show.
+        #[cfg(feature = "metrics")]
+        {
+            metrics::counter!("chutoro.hnsw.trim.jobs_total").increment(job_count as u64);
+            metrics::histogram!("chutoro.hnsw.trim.duration_seconds")
+                .record(started.elapsed().as_secs_f64());
+        }
+        scored
     }
 
     /// Score and retain the best candidates for one staged trim job.
