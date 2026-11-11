@@ -2,7 +2,7 @@
 
 use std::{io::Read, sync::Arc};
 
-use arrow_array::{Array, FixedSizeListArray, Float32Array, RecordBatch};
+use arrow_array::{Array, ArrayRef, FixedSizeListArray, Float32Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema};
 use bytes::Bytes;
 use cap_std::fs::Dir;
@@ -177,51 +177,89 @@ fn assert_record_batches_equal(expected: &RecordBatch, actual: &RecordBatch) {
     assert_eq!(expected.num_rows(), actual.num_rows());
     assert_eq!(expected.num_columns(), actual.num_columns());
 
-    let expected_list = expected
-        .column(0)
-        .as_any()
-        .downcast_ref::<FixedSizeListArray>()
-        .expect("feature column must be FixedSizeList");
-    let actual_list = actual
-        .column(0)
-        .as_any()
-        .downcast_ref::<FixedSizeListArray>()
-        .expect("feature column must be FixedSizeList");
+    let expected_list = feature_list(expected);
+    let actual_list = feature_list(actual);
     assert_eq!(expected_list.data_type(), actual_list.data_type());
     assert_eq!(expected_list.null_count(), actual_list.null_count());
-    for index in 0..expected_list.len() {
-        assert_eq!(expected_list.is_null(index), actual_list.is_null(index));
-    }
+    assert_row_validity_matches(expected_list, actual_list);
+    assert_child_rows_equal(expected_list, actual_list);
+}
 
-    for row_index in 0..expected_list.len() {
-        if expected_list.is_null(row_index) {
-            continue;
-        }
+/// Downcasts the feature column to its fixed-size list representation.
+fn feature_list(batch: &RecordBatch) -> &FixedSizeListArray {
+    batch
+        .column(0)
+        .as_any()
+        .downcast_ref::<FixedSizeListArray>()
+        .expect("feature column must be FixedSizeList")
+}
 
-        let expected_row = expected_list.value(row_index);
-        let actual_row = actual_list.value(row_index);
-        let expected_values = expected_row
-            .as_any()
-            .downcast_ref::<Float32Array>()
-            .expect("expected child values must be Float32");
-        let actual_values = actual_row
-            .as_any()
-            .downcast_ref::<Float32Array>()
-            .expect("actual child values must be Float32");
-        assert_eq!(expected_values.len(), actual_values.len());
-        for value_index in 0..expected_values.len() {
-            assert_eq!(
-                expected_values.is_null(value_index),
-                actual_values.is_null(value_index)
-            );
-            if !expected_values.is_null(value_index) {
-                assert_eq!(
-                    expected_values.value(value_index).to_bits(),
-                    actual_values.value(value_index).to_bits()
-                );
-            }
-        }
+/// Asserts each row's outer validity matches.
+fn assert_row_validity_matches(expected: &FixedSizeListArray, actual: &FixedSizeListArray) {
+    for index in 0..expected.len() {
+        assert_eq!(
+            expected.is_null(index),
+            actual.is_null(index),
+            "row {index} validity differs"
+        );
     }
+}
+
+/// Asserts every present row's child values match.
+fn assert_child_rows_equal(expected: &FixedSizeListArray, actual: &FixedSizeListArray) {
+    let present_rows = (0..expected.len()).filter(|index| !expected.is_null(*index));
+    for row_index in present_rows {
+        assert_child_row_equal(expected, actual, row_index);
+    }
+}
+
+/// Asserts one present row's child values match in width, validity, and bits.
+fn assert_child_row_equal(
+    expected: &FixedSizeListArray,
+    actual: &FixedSizeListArray,
+    row_index: usize,
+) {
+    let expected_row = expected.value(row_index);
+    let actual_row = actual.value(row_index);
+    let expected_values = float_values(&expected_row);
+    let actual_values = float_values(&actual_row);
+    assert_eq!(
+        expected_values.len(),
+        actual_values.len(),
+        "row {row_index} width differs"
+    );
+    for value_index in 0..expected_values.len() {
+        assert_child_value_equal(expected_values, actual_values, row_index, value_index);
+    }
+}
+
+/// Asserts one child value matches in validity and float bits.
+fn assert_child_value_equal(
+    expected: &Float32Array,
+    actual: &Float32Array,
+    row_index: usize,
+    value_index: usize,
+) {
+    assert_eq!(
+        expected.is_null(value_index),
+        actual.is_null(value_index),
+        "row {row_index} value {value_index} validity differs"
+    );
+    if !expected.is_null(value_index) {
+        assert_eq!(
+            expected.value(value_index).to_bits(),
+            actual.value(value_index).to_bits(),
+            "row {row_index} value {value_index} differs"
+        );
+    }
+}
+
+/// Downcasts one row's child values to their float representation.
+fn float_values(array: &ArrayRef) -> &Float32Array {
+    array
+        .as_any()
+        .downcast_ref::<Float32Array>()
+        .expect("child values must be Float32")
 }
 
 fn assert_list_shape(
