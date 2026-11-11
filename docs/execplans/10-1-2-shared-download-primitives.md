@@ -56,12 +56,12 @@ Hard invariants. Violation requires escalation, not a workaround.
   occupy exactly. A `Checksum` is 33 bytes on its own and cannot be stored
   inline under any arrangement.
 - All filesystem access in this crate must go through `cap-std` /
-  `cap_std::fs_utf8`. `chutoro_bench_datasets` is **not** in the
-  `excluded_crates` list for `no_std_fs_operations` in the root `dylint.toml`
-  (verified: the list contains `chutoro_benches`, `chutoro_test_support`,
-  `kani_nightly_gate_cli`, `benchmark_regression_gate_cli`, `kani_nightly_gate`,
-  `benchmark_regression_gate`, `chutoro_providers_dense`, and `chutoro_cli`).
-  Whitaker will reject `std::fs` here.
+  `cap_std::fs_utf8`. `chutoro_bench_datasets` appears in neither the
+  `excluded_crates` nor the `excluded_paths` list for `no_std_fs_operations` in
+  the root `dylint.toml` (verified: `excluded_crates` names only the four CI
+  gate crates, and `excluded_paths` names specific modules in `chutoro_cli`,
+  `chutoro_providers_dense`, and `chutoro_benches`). Whitaker will reject
+  `std::fs` here. Do not add a new exclusion to escape this rule.
 - The workspace denies `float_arithmetic`, `integer_division`, and
   `integer_division_remainder_used`. Backoff and jitter arithmetic must use
   integer shifts and multiply-shift, never floating point, division, or the
@@ -75,7 +75,8 @@ Hard invariants. Violation requires escalation, not a workaround.
   `cognitive-complexity-threshold = 9`, `too-many-arguments-threshold = 4`
   (which counts `&self`), and `excessive-nesting-threshold = 4`.
 - `RecipeContext::new` is a `pub const fn` with three positional arguments and
-  eight call sites, including two `trybuild` fixtures and several doctests. Its
+  eight call sites, including two `trybuild` fixtures (now in
+  `chutoro-compile-contracts/tests/trybuild/`) and several doctests. Its
   signature must not change. New capabilities arrive through a builder method,
   not through additional constructor parameters.
 - The recipe lifecycle stays synchronous, per ADR-004. Asynchronous code is
@@ -133,14 +134,19 @@ Hard invariants. Violation requires escalation, not a workaround.
   expected digest, so two incompatible partials cannot collide. A full-length
   mismatch on a *resumed* transfer earns exactly one clean restart before being
   declared fatal.
-- Risk: SHA-256 hasher state cannot be persisted across a process restart, so a
+- Risk: if SHA-256 hasher state is not persisted across a process restart, a
   resumed transfer must re-read its prefix to rebuild the digest, making a
   large transfer quadratic in the number of resumes. Severity: high.
-  Likelihood: high at GIST1M and above. Mitigation: chunked digests. The
-  sidecar stores a digest per fixed-size chunk, so a resume re-hashes at most
-  one partial chunk. Verified: `sha2 0.10.8` exposes no `SerializableState`, and
-  `crypto-common 0.1.6` does not define that trait; it arrived in
-  `digest 0.11`.
+  Likelihood: high at GIST1M and above. Mitigation: persist the hasher midstate
+  in the staging sidecar at each durable checkpoint. The workspace lockfile now
+  resolves `sha2 0.11.0` / `digest 0.11.3` / `crypto-common 0.2.2`, in which
+  `sha2::Sha256` implements `crypto_common::hazmat::SerializableState` with a
+  40-byte serialized state. A resume deserializes that state and continues
+  hashing from the recorded offset, re-reading nothing. Because the trait lives
+  in a `hazmat` module and its encoding is not a stable format, the sidecar
+  also records a state-format tag; an unrecognized tag or a deserialization
+  failure falls back to one linear re-hash of the durable prefix, never to a
+  restart or a fatal error.
 - Risk: abandoned `.part` files and half-extracted temporary directories are
   invisible to a content-addressed cache scan and accumulate until a runner
   fills its disk, surfacing as `ENOSPC` in unrelated jobs. Severity: high.
@@ -166,13 +172,13 @@ Hard invariants. Violation requires escalation, not a workaround.
   into a transport-neutral `RangeOutcome`; the domain parses header *values*
   but never branches on a status code.
 - Risk: the `ScriptedHttpServer` becomes a flaky test dependency. The project
-  already carries fourteen per-test timeout overrides in
-  `.config/nextest.toml`, and the default profile runs eight test binaries in
-  parallel with no retries. A blocking `accept()` after a panicked test is a
-  guaranteed 60-second hang and a hard kill. Severity: medium. Likelihood:
-  medium. Mitigation: non-blocking accept with an explicit deadline, an explicit
-  `shutdown(Both)`, a shutdown signal wired into `Drop`, joined threads, and
-  an explicit `ureq` read timeout.
+  already carries per-test timeout overrides in `.config/nextest.toml` (sixteen
+  per-test overrides at the time of writing), and the default profile runs
+  eight test threads with no retries for unlisted tests. A blocking `accept()`
+  after a panicked test is a guaranteed 60-second hang and a hard kill.
+  Severity: medium. Likelihood: medium. Mitigation: non-blocking accept with an
+  explicit deadline, an explicit `shutdown(Both)`, a shutdown signal wired into
+  `Drop`, joined threads, and an explicit `ureq` read timeout.
 - Risk: the crate goes from 5 dependencies to roughly 12 with no advisory or
   licence gate anywhere in the repository. Severity: medium. Likelihood: high.
   Mitigation: Stage 0 adds `deny.toml` and a CI job before any dependency lands.
@@ -188,7 +194,7 @@ Hard invariants. Violation requires escalation, not a workaround.
 - [ ] M1 (supply chain, Stage 0): `deny.toml`, a CI advisory and licence job,
   and the `bzip2-1.0.6` allowance recorded with a rationale.
 - [ ] M2 (integrity domain, Stage A): `DigestAlgorithm`, inhabited `Checksum`
-  with real hex parsing, `DigestSink` object-safe façade, `ChunkedDigest`.
+  with real hex parsing, `DigestSink` object-safe façade, `HashCheckpoint`.
 - [ ] M3 (error redesign, Stage A): boxed `IntegrityFailure`,
   `TransferFailure`, `ArchiveFailure` sub-enums; `ChecksumUnsupported` deleted;
   `FailureClass` and `RecipeError::class()`.
@@ -200,10 +206,10 @@ Hard invariants. Violation requires escalation, not a workaround.
   `accept_response`, `ContentRange` value parsing, `RetrySchedule`,
   `RetryClass`.
 - [ ] M7 (Verus, Stage B): the jitter-bound proof in
-  `verus/download_backoff.rs`, wired into `scripts/run-verus.sh`.
+  `verus/download_backoff.rs`, registered in the Makefile's `VERUS_PROOF_FILES`.
 - [ ] M8 (transfer adapters, Stage B): `ureq` `RangeFetcher`, cap-std
-  `PartialStore`/`PartialSlot` with sidecar, chunked digests, sweep, free-space
-  preflight, advisory lock.
+  `PartialStore`/`PartialSlot` with sidecar, checkpointed hasher midstate,
+  sweep, free-space preflight, advisory lock.
 - [ ] M9 (context wiring, Stage B): `RecipeContext::with_transfer` and
   `transfer()`; end-to-end scenario driven through `run_recipe`.
 - [ ] M10 (Stage B tests): `ScriptedHttpServer`; resume sequence proptest; the
@@ -229,36 +235,50 @@ Recorded during planning; extend during implementation.
 
 - Observation: `Checksum` is currently an **uninhabited** type. Its only
   variant `Sha256` is gated behind `#[cfg(any())]`, which is never true.
-  Evidence: `chutoro-bench-datasets/src/newtypes/keys.rs:70-76`. Impact:
+  Evidence: `chutoro-bench-datasets/src/newtypes/keys.rs:73-77`. Impact:
   `Option<Checksum>` is provably always `None`, so `SourceSpec.checksum` is a
   field the type system guarantees can never hold a value. Making it inhabited
-  changes `size_of::<SourceSpec>()`. Since no other workspace crate depends on
-  `chutoro-bench-datasets` (verified: the only reference beyond the workspace
-  member list is the crate's own dev-dependency self-reference), the blast
-  radius is entirely in-crate and no deprecation dance is warranted.
+  changes `size_of::<SourceSpec>()`. No production crate depends on
+  `chutoro-bench-datasets`, so no deprecation dance is warranted. The blast
+  radius is not entirely in-crate, however: since the 10.1.1 `trybuild`
+  fixtures moved, `chutoro-compile-contracts` takes this crate as a
+  dev-dependency, and
+  `chutoro-compile-contracts/tests/trybuild/ordered_recipe_support.rs` calls
+  `SourceSpec::primary(source)`. Any constructor change must update that
+  fixture and re-bless the `.stderr` snapshots beside it.
 - Observation: the tests that break when `Checksum` becomes real are **not**
   the ones an initial reading suggests. Evidence:
   `chutoro-bench-datasets/tests/error.rs` contains exactly one test,
   `recipe_error_other_wraps_arbitrary_source`, which never mentions checksums.
   The assertions that actually break are
-  `chutoro-bench-datasets/tests/newtypes.rs:48`
+  `chutoro-bench-datasets/tests/newtypes.rs:45`
   (`assert!(spec.checksum.is_none())`), and the doctests at
-  `src/newtypes/mod.rs:204` and `src/newtypes/mod.rs:228`, plus the
-  `Checksum::parse` doctest at `src/newtypes/keys.rs:92`. Impact: Stage A's
-  concrete steps name these four sites explicitly.
-- Observation: `sha2 0.10` cannot serialize hasher midstate. Evidence:
-  `SerializableState` appears nowhere in `sha2-0.10.8/src/`, and
-  `crypto-common 0.1.6` does not define it; the trait arrived in `digest 0.11`.
-  Impact: resume in a fresh process would have to re-read the whole prefix to
-  rebuild the digest. Chunked digests replace that with re-hashing at most one
-  partial chunk.
-- Observation: `cap-std` has no file locking. Evidence: `cap-std 3.4.5`
-  (the resolved version) exposes only `into_std()` and `as_fd()` on
-  `cap_std::fs::File`; there is no `lock` or `try_lock`. Impact: the obvious
-  `std::fs::File::lock` route is unavailable, because `into_std()` returns the
-  `std::fs::File` that Whitaker bans in this crate. Locking goes through
-  `rustix::fs::flock` on the borrowed file descriptor. `rustix` is already in
-  the lockfile via cap-std, so this adds no dependency.
+  `src/newtypes/mod.rs:207` and `src/newtypes/mod.rs:231`, plus the
+  `Checksum::parse` doctest at `src/newtypes/keys.rs:93`. Impact: Stage A's
+  concrete steps name these four sites explicitly, plus the
+  `chutoro-compile-contracts` fixture noted above.
+- Observation (superseded 2026-11-11): the first draft found that
+  `sha2 0.10` cannot serialize hasher midstate, and adopted chunked digests in
+  response. Two things have since changed. First, `main` now resolves
+  `sha2 0.11.0`, `digest 0.11.3`, and `crypto-common 0.2.2` through
+  `rstest-bdd -> i18n-embed -> rust-embed -> rust-embed-utils`, and
+  `sha2::Sha256` implements `SerializableState` there
+  (`sha2-0.11.0/src/block_api.rs:103`, exposed on the buffered `Sha256` by
+  `digest::buffer_fixed!`). Second, re-reading the chunked design exposed a
+  latent flaw: per-chunk digests cannot be combined into the whole-artefact
+  SHA-256 that a manifest pins, so under `sha2 0.10` the chunked design would
+  still have needed a full prefix re-read on every cross-process resume.
+  Impact: the plan now persists the hasher midstate instead; see the Decision
+  log. Issue #210 records the original finding.
+- Observation: `cap-std` has no file locking. Evidence: `cap-std 4.0.3`
+  (the resolved version, re-checked 2026-11-11; `3.4.5` behaved identically)
+  exposes only `into_std()` and `as_fd()` on `cap_std::fs::File`; there is no
+  `lock` or `try_lock`. Impact: the obvious `std::fs::File::lock` route is
+  unavailable, because `into_std()` returns the `std::fs::File` that Whitaker
+  bans in this crate. Locking goes through `rustix::fs::flock` on the borrowed
+  file descriptor. `rustix 1.1.4` is already in the lockfile via
+  `cap-primitives`, and provides `flock<Fd: AsFd>` at `src/fs/fd.rs:317`, so
+  this adds no new package.
 - Observation: every upstream this project actually uses honours HTTP range
   requests, with strong validators and no content coding. Evidence: probes on
   2026-08-16 against `ann-benchmarks.com/sift-128-euclidean.hdf5`,
@@ -283,25 +303,29 @@ Recorded during planning; extend during implementation.
   `deny.toml`, no `audit.toml`, and none of the eight workflows in
   `.github/workflows/` runs `cargo-deny`, `cargo-audit`, or any advisory check.
   Impact: Stage 0 exists.
-- Observation: `make verus` is a blocking pull-request gate, while no Kani
-  harness gates a merge at all. Evidence: `.github/workflows/ci.yml:112`
-  defines a `verus-proofs` job running `make verus` on every pull request;
-  `make kani` is invoked by no workflow whatsoever, and `make kani-full` runs
-  only in `.github/workflows/nightly-kani.yml:39`, which checks out `ref: main`
-  and is therefore post-merge, schedule-driven, and gated on recent commits.
-  Impact: every Verus proof adds latency to every pull request forever, so the
-  bar for adding one is higher than for a Kani harness — but a Kani harness is
-  cheap because it is *unenforced*, not because it is fast. The Kani harnesses
-  this plan adds will not gate anything until issue #202 is resolved, so they
-  must be run locally at each stage boundary and treated as developer tooling
-  rather than as a merge gate. See also issue #215.
+- Observation: `make verus` is a blocking pull-request gate on every pull
+  request, while `make kani` gates only pull requests that touch a fixed path
+  list. Evidence: `.github/workflows/ci.yml:248` defines a `verus-proofs` job
+  running `make verus` with no path filter. Issue #202 is closed:
+  `.github/workflows/kani-pr.yml` now runs `make kani` on pull requests, but its
+  `paths` filter covers `chutoro-core` HNSW and MST code, the dense SIMD
+  provider, `**/kani_*.rs`, the `Makefile`, and the root manifests — not
+  `chutoro-bench-datasets/**`. `make kani-full` runs nightly on `ref: main`
+  (`.github/workflows/nightly-kani.yml:73`) and names only the `chutoro-core`
+  and `chutoro-providers-dense` packages. Impact: every Verus proof adds
+  latency to every pull request, so the bar for adding one is higher than for a
+  Kani harness. The Kani harnesses this plan adds gate nothing unless the plan
+  also widens the `Kani PR` path filter and the `kani-full` package list; Stage
+  B does both (see Validation and acceptance). See also issue #215.
 - Observation: `PartialState::orphaned_cache_key` is structurally always
   `None`. Evidence: `PartialState::new` hardcodes it
-  (`src/newtypes/keys.rs:167-173`) and `cleanup_after_error` is its only caller
-  (`src/driver.rs:129`). Impact: it reads as populated and is a trap. Noted for
-  a follow-up; this plan does not extend `PartialState`.
+  (`src/newtypes/keys.rs:169-174`) and `cleanup_after_error` is its only
+  production caller (`src/driver.rs:140`); two test call sites in
+  `tests/recipe_lifecycle.rs` also go through `new`. Impact: it reads as
+  populated and is a trap. Noted for a follow-up; this plan does not extend
+  `PartialState`.
 - Observation: `RecipeError::Cleanup` discards the original error. Evidence:
-  `src/driver.rs:130-141` returns `RecipeError::cleanup(...)` built only from
+  `src/driver.rs:141-152` returns `RecipeError::cleanup(...)` built only from
   the cleanup failure, with the original surviving solely in a `warn!` field.
   Impact: noted for a follow-up; out of scope here.
 
@@ -354,14 +378,22 @@ Recorded during planning; extend during implementation.
   assertion, and second-tier `<= 128` assertions on each sub-enum bound the
   headroom rather than leaving it unmeasured. Date/Author: 2026-08-16, plan
   author, after design review.
-- Decision: digests are computed per fixed-size chunk and the chunk digests are
-  recorded in the staging sidecar. Rationale: `sha2 0.10` cannot persist hasher
-  state, so a flat digest forces a full prefix re-read on every cross-process
-  resume. `docs/benchmark-dataset-retrieval.md` §7.13 and §9 already call for
-  "per-shard checksum manifests" and "sharded object keys to avoid very large
-  single-object retries". One mechanism gives a linear resume, a restart floor
-  of one chunk, and a natural granularity for 10.1.5's locking. Date/Author:
-  2026-08-16, plan author, after design review.
+- Decision (supersedes the 2026-08-16 chunked-digest decision): the staging
+  sidecar records a hasher checkpoint — the durable offset, the 40-byte
+  `SerializableState` encoding of `sha2::Sha256`, and a state-format tag — and
+  a resume restores the hasher from it. Rationale: the chunked design could not
+  meet its own acceptance property, because per-chunk digests do not compose
+  into the whole-artefact SHA-256 that the manifest pins; it would still have
+  re-read the prefix on every cross-process resume. `main` now resolves
+  `sha2 0.11`, which persists midstate directly, and choosing the lockfile's
+  existing generation was already this plan's pinning rule. The checkpoint is
+  written in the same atomic sidecar update as the durable offset, so the two
+  can never disagree. The `hazmat` encoding is treated as untrusted: any
+  restore failure degrades to one linear prefix re-hash. The retrieval design's
+  §7.13 "per-shard checksum manifests" and §9 sharded object keys concern
+  sharded artefacts in object storage, owned by 10.1.3 and 10.1.4, and are not
+  met or blocked by this choice. Date/Author: 2026-11-11, plan author, during
+  the rebase onto `main` at `14f1829`.
 - Decision: delete `RecipeError::ChecksumUnsupported` rather than repurpose it.
   Rationale: repurposing keeps a name saying "unsupported" attached to a
   failure that is usually "malformed hex", and — decisively — any
@@ -544,7 +576,7 @@ pull request. Do not begin a stage until the previous stage's gates are green.
 Create `deny.toml` at the workspace root with `[advisories]`, `[licenses]`, and
 `[bans]` sections. Under `[licenses]`, allow the workspace's existing set and
 add an explicit `bzip2-1.0.6` allowance for `libbz2-rs-sys` with a rationale
-comment in the style of `dylint.toml`'s `excluded_crates`. Under `[bans]`, add a
+comment in the style of `dylint.toml`'s `excluded_paths`. Under `[bans]`, add a
 `deny` entry preventing two generations of `digest` from coexisting, so the
 `sha2` version decision cannot be silently undone.
 
@@ -552,9 +584,10 @@ Add a `cargo-deny` job to `.github/workflows/ci.yml` alongside the existing
 `verus-proofs` job. Add a `make deny` target and register it in `make all`. Run
 `mbake validate Makefile` — it is a gate.
 
-Because `sha2 0.10` is pinned deliberately against the newer 0.11, add a
-Dependabot ignore entry with the rationale, or the daily bot will reopen that
-pull request indefinitely.
+`sha2` follows the generation already in the lockfile (0.11 at the time of
+writing), so no Dependabot ignore entry is needed. If a future `digest` major
+release lands in the lockfile through a dev-dependency first, the `[bans]` rule
+fails loudly and the `sha2` requirement moves with it in the same pull request.
 
 Stage 0 validation: `make deny` exits 0 on the current tree;
 `mbake validate Makefile` passes; `make check-fmt` and `make lint` pass.
@@ -599,11 +632,18 @@ object-safe** — `update<B: AsRef<[u8]>>` is generic and `new() -> Self` requir
 façade: `fn update(&mut self, chunk: &[u8])` and
 `fn finish(self: Box<Self>) -> Checksum`.
 
-In `src/integrity/chunked.rs`, define `ChunkedDigest`: a chunk size constant (8
-MiB), a `Vec<[u8; 32]>` of per-chunk digests, and the whole-artefact digest.
-Provide `resume_point(staged_len) -> (whole_chunks, partial_offset)` as a pure
-function, and property-test that re-hashing from a chunk boundary yields the
-same whole-artefact digest as hashing straight through.
+In `src/integrity/checkpoint.rs`, define
+`HashCheckpoint { offset: u64, format: StateFormat, state: [u8; 40] }` and two
+functions: `checkpoint(&Sha256, offset) -> HashCheckpoint` and
+`restore(&HashCheckpoint) -> Result<Sha256, IntegrityFailure>`, using
+`sha2::digest::crypto_common::hazmat::SerializableState`. `StateFormat` is a
+one-variant enum naming the `sha2 0.11` encoding; a sidecar carrying any other
+tag is rejected by `restore`. Property-test, over arbitrary inputs and
+**arbitrary split points** (not only 64-byte block boundaries, because the
+buffered wrapper serializes its partial block), that hashing a prefix,
+checkpointing, restoring, and hashing the suffix yields the same digest as
+hashing straight through. Add a case that a corrupted or truncated state array
+is rejected rather than silently producing a wrong digest.
 
 In `src/error.rs`, replace `ChecksumUnsupported` with the three boxed variants
 and add the second-tier size assertions. Add `FailureClass` (deliberately
@@ -620,10 +660,14 @@ variants.
 Add a `make audit-unpinned` target that greps for `Integrity::Unpinned` and
 prints each occurrence with its justification.
 
-The four sites that must change, exactly: `src/error.rs:19-21`,
-`src/newtypes/keys.rs:83`, `src/newtypes/keys.rs:92`, `src/newtypes/keys.rs:96`
-for `ChecksumUnsupported`; and `tests/newtypes.rs:48`,
-`src/newtypes/mod.rs:204`, `src/newtypes/mod.rs:228` for `checksum.is_none()`.
+The sites that must change, exactly (line numbers as of `main` at `14f1829`):
+`src/error.rs:19-21`, `src/newtypes/keys.rs:84`, `src/newtypes/keys.rs:93`,
+`src/newtypes/keys.rs:97` for `ChecksumUnsupported`; and `tests/newtypes.rs:45`,
+`src/newtypes/mod.rs:207`, `src/newtypes/mod.rs:231` for `checksum.is_none()`.
+If either `SourceSpec` constructor changes signature, also update
+`chutoro-compile-contracts/tests/trybuild/ordered_recipe_support.rs` and
+re-bless `dataset_recipe_skip_phase.stderr` in the same directory with
+`TRYBUILD=overwrite`, reviewing the snapshot diff before committing it.
 
 Stage A validation: the red tests now pass; `make check-fmt`, `make lint`,
 `make test` all green; `coderabbit review --agent` clean or findings resolved.
@@ -676,12 +720,14 @@ TLS certificate expiry are terminal — retrying an expired certificate burns th
 whole schedule waiting for time to run backwards.
 
 **Verus** (M7): `verus/download_backoff.rs` proves the jitter bound and the
-saturation property. Wire it into the `PROOF_FILES` array in
-`scripts/run-verus.sh` — note that `edge_harvest_extract.rs` and
-`edge_harvest_ordering.rs` are *not* listed there because they are pulled in as
-`mod` declarations, so getting this wrong means the proof silently never runs.
-Use `by(nonlinear_arith)` for the multiply-shift bound; start with `#![auto]`
-triggers and read the note Verus prints, per the developers' guide.
+saturation property. Register it in `VERUS_PROOF_FILES` in the `Makefile`
+(currently `verus/edge_harvest_proofs.rs verus/session_core_distance.rs`; Verus
+accepts one root file per invocation and `rust-prover-tools` runs them in
+order) — note that `edge_harvest_extract.rs` and `edge_harvest_ordering.rs` are
+*not* listed there because they are pulled in as `mod` declarations, so getting
+this wrong means the proof silently never runs. Use `by(nonlinear_arith)` for
+the multiply-shift bound; start with `#![auto]` triggers and read the note
+Verus prints, per the developers' guide.
 
 **Adapters** (`src/transfer/adapters/`), not a top-level `adapters/` directory
 — AGENTS.md says group by feature, not layer, and nothing here is shared
@@ -701,7 +747,9 @@ test against the scripted server, not a comment.
 file is named by **expected digest**, so two incompatible partials cannot
 collide. The sidecar records
 `{url, expected_digest, expected_size, validator,
-chunk_digests, created_at, last_progress_at}`.
+hash_checkpoint, created_at, last_progress_at}`,
+where `hash_checkpoint` is the `HashCheckpoint` from Stage A and its `offset`
+is the durable offset.
 
 Two durability invariants, both load-bearing:
 
@@ -723,7 +771,7 @@ network and overlay mounts.
 
 Free-space preflight uses `rustix::fs::fstatvfs` against the pinned
 `size_bytes` before a byte moves, failing fast with a typed error instead of
-`ENOSPC` at hour six. `rustix` is already in the lockfile via cap-std.
+`ENOSPC` at hour six. `rustix` is already in the lockfile via `cap-primitives`.
 
 `PartialStore::sweep(max_age)` removes aged staging pairs, orphaned sidecars,
 and stale extraction temporaries, and is called **automatically at the start of
@@ -824,8 +872,9 @@ Three new ADRs, numbered 005, 006, 007, following the template in
   `Fetcher` rather than replacing it, with the transport-neutral `RangeOutcome`
   seam and the reasoning about 10.1.4.
 - ADR-006: the in-repo pin as integrity root because upstream publishes
-  nothing; mandatory `Integrity` with a greppable `Unpinned`; chunked digests;
-  and the divergence from `pooch` on retry after a digest mismatch.
+  nothing; mandatory `Integrity` with a greppable `Unpinned`; checkpointed
+  hasher midstate, and why chunked digests were rejected; and the divergence
+  from `pooch` on retry after a digest mismatch.
 - ADR-007: archive extraction policy — reject symlinks, hardlinks, and sparse
   entries; never call `Archive::unpack`; the three-axis expansion budget.
 
@@ -894,15 +943,20 @@ cargo kani -p chutoro-bench-datasets --default-unwind 4 \
 ```
 
 Add the two new harnesses to the `kani` target in the `Makefile`; it names
-harnesses explicitly (currently four across two packages), so a harness not
-listed there is never run even locally via that target.
+harnesses explicitly (currently six across `chutoro-core` and
+`chutoro-providers-dense`), so a harness not listed there is never run via that
+target. Add `chutoro-bench-datasets` to `kani-full` as well, which enumerates
+packages rather than harnesses.
 
-Registering them there does **not** make them a merge gate: `make kani` is
-invoked by no workflow, and `make kani-full` runs post-merge on `main` and
-currently does not complete (see `docs/kani-full-hnsw-hypothesis-testing.md`
-and issue #202). Until that is fixed, run both harnesses by hand at each stage
-boundary and record the result in `Progress`. Do not treat a green pull request
-as evidence that the harnesses passed.
+Registering them is necessary but not sufficient for a merge gate. The
+`Kani PR` workflow (`.github/workflows/kani-pr.yml`) runs `make kani` only when
+a pull request touches its `paths` list, which does not include this crate. In
+the Stage B pull request, add `chutoro-bench-datasets/src/**` and
+`chutoro-bench-datasets/Cargo.toml` to that list, so a change to the code under
+proof triggers the proof. Relying on the `**/kani_*.rs` glob alone is not
+enough: it fires when the harness changes, not when the code it verifies does.
+Until that change merges, run both harnesses by hand at each stage boundary and
+record the result in `Progress`.
 
 Expected transcript shape at a stage boundary:
 
@@ -1030,8 +1084,8 @@ metrics    = ["dep:metrics"]
 testing    = ["dep:cap-std"]
 
 [dependencies]
-sha2    = "0.10"
-ureq    = { version = "3.4", default-features = false,
+sha2    = "0.11"
+ureq    = { version = "3.5", default-features = false,
             features = ["rustls", "platform-verifier"], optional = true }
 tar     = { version = "0.4.46", default-features = false, optional = true }
 flate2  = { version = "1.1", default-features = false,
@@ -1040,18 +1094,22 @@ bzip2   = { version = "0.6", optional = true }
 liblzma = { version = "0.4", optional = true }
 rustix  = { version = "1.1", features = ["fs"], optional = true }
 metrics = { version = "0.24", optional = true }
-cap-std = { version = "3.4.5", optional = true, features = ["fs_utf8"] }
+cap-std = { version = "4.0.3", optional = true, features = ["fs_utf8"] }
 ```
 
 `sha2` is unconditional because integrity is domain, not infrastructure.
-`sha2 0.10`, not 0.11, unifies with the existing lockfile entry reached through
-`rstest-bdd → i18n-embed → rust-embed`; the `[bans]` rule in `deny.toml`
-prevents a second `digest` generation appearing. `flate2` with `zlib-rs`
-matches cargo, rustup, and uv. `bzip2 0.6` defaults to the pure-Rust
-`libbz2-rs-sys` backend, so no C toolchain. `liblzma` replaces the stale `xz2`
-(last released 2022) and is the heaviest item at 5.5 MB of vendored C, hence
-its own feature. `cap-std` moves from testing-only to a real optional
-dependency.
+`sha2 0.11` unifies with the existing lockfile entry reached through
+`rstest-bdd → i18n-embed → rust-embed → rust-embed-utils`, and it is the
+generation that persists hasher midstate; the `[bans]` rule in `deny.toml`
+prevents a second `digest` generation appearing. `ureq 3.5` and `rustls 0.23`
+already resolve in the lockfile through `chutoro-benches`, and `flate2 1.1`
+resolves there too, so the HTTP and gzip paths add features rather than
+packages; `cap-std 4.0.3` matches the existing testing-only requirement.
+`flate2` with `zlib-rs` matches cargo, rustup, and uv. `bzip2 0.6` defaults to
+the pure-Rust `libbz2-rs-sys` backend, so no C toolchain. `liblzma` replaces
+the stale `xz2` (last released 2022) and is the heaviest item at 5.5 MB of
+vendored C, hence its own feature. `cap-std` moves from testing-only to a real
+optional dependency.
 
 Signatures below are the contract each stage must produce.
 
@@ -1070,6 +1128,12 @@ pub trait DigestSink: Send {
     fn update(&mut self, chunk: &[u8]);
     fn finish(self: Box<Self>) -> Checksum;
 }
+
+// src/integrity/checkpoint.rs — midstate via `crypto_common::hazmat`.
+pub enum StateFormat { Sha2V011 }
+pub struct HashCheckpoint { pub offset: u64, pub format: StateFormat, pub state: [u8; 40] }
+pub fn checkpoint(hasher: &sha2::Sha256, offset: u64) -> HashCheckpoint;
+pub fn restore(checkpoint: &HashCheckpoint) -> Result<sha2::Sha256, IntegrityFailure>;
 
 // src/newtypes/mod.rs
 #[non_exhaustive]
@@ -1150,6 +1214,23 @@ counts toward `too-many-arguments-threshold = 4`; any future per-entry datum
 goes into `EntryMetadata`, never into the signature.
 
 ## Revision note
+
+2026-11-11 (third revision, rebase onto `main` at `14f1829`): 114 commits had
+landed under the plan. Re-verified every cited fact against the new tree and
+corrected the drift. Material changes: the lockfile now resolves `sha2 0.11`,
+which persists SHA-256 midstate, so chunked digests were replaced by a
+checkpointed hasher in the sidecar — this also fixes a latent flaw, since the
+chunked design could not have produced the pinned whole-artefact digest without
+re-reading the prefix; `sha2` is now required at `0.11` and the Dependabot
+ignore entry is dropped. Issue #202 has closed and `make kani` now gates pull
+requests behind a path filter, so the plan widens that filter and the
+`kani-full` package list rather than treating the harnesses as developer
+tooling. The `trybuild` fixtures moved to `chutoro-compile-contracts`, which is
+now a dev-dependent and in Stage A's blast radius. Verus proofs register in the
+Makefile's `VERUS_PROOF_FILES` because `scripts/run-verus.sh` is gone.
+`cap-std` is 4.0.3 (still no locking), `ureq` is 3.5, the `dylint.toml`
+exclusion wording and nextest counts were updated, and every line reference was
+refreshed.
 
 2026-08-16 (second revision): corrected the Kani claim in two places. The first
 draft said "Kani is nightly only"; issue #202 establishes that `make kani` runs
