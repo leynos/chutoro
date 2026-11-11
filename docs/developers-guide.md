@@ -148,8 +148,8 @@ the correctly named exclusion leaves that case unrun.
 `dev_fast_end_to_end_test.py` closes the gap by comparing live nextest
 selections and by running the real recipes.
 
-It is opt-in, because a cold Cranelift build costs far more than a contract
-suite should spend by default:
+It is opt-in, because building the workspace twice costs far more than a
+contract suite should spend by default:
 
 ```sh
 CHUTORO_DEV_FAST_E2E=1 make test-workflow-contracts
@@ -159,11 +159,17 @@ The selection comparison is the one opt-in check. It compares the development
 selection with the standard one and requires an exact difference of the
 poisoned-lock regression; a typo, a rename, or a dropped clause fails it.
 
+The selection comparison runs both `list` invocations on the *stable* pin, not
+the Cranelift fragment: test names come from the source, so they do not depend
+on the codegen backend, and enumerating under the nightly would pay a Cranelift
+build for evidence the probe contracts already buy. What it covers is the
+filter's membership.
+
 The two probe contracts that run the real recipes are *not* behind the switch.
 They build a synthetic crate rather than this workspace, so they cost seconds
-rather than the cold Cranelift build the switch exists to avoid. `dev-build`
-reads the compiler line Cargo printed for the probe's own `rustc` invocation,
-and `dev-test` reads it for the probe's *test harness*, selected by Cargo's
+rather than the workspace build the switch exists to avoid. `dev-build` reads
+the compiler line Cargo printed for the probe's own `rustc` invocation, and
+`dev-test` reads it for the probe's *test harness*, selected by Cargo's
 `--test` marker; both require `codegen-backend=cranelift` on every matching
 line. The dry-run contracts prove only that the recipe passes `--config` — not
 that Cargo honoured it, and only a verbose build prints the arguments at all. A
