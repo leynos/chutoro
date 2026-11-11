@@ -5,6 +5,7 @@
 //! performs concurrent cycle checks using a striped-lock union-find.
 
 mod error;
+
 #[cfg(not(kani))]
 mod union_find;
 
@@ -134,9 +135,35 @@ impl MinimumSpanningForest {
 /// # Errors
 ///
 /// Returns an error when:
-/// - `node_count == 0`
+/// - `node_count == 0`; this is decided before any edge is inspected
 /// - an edge references a node id `>= node_count`
 /// - an edge weight is non-finite
+///
+/// When several edges are invalid, the reported error is the one at the lowest
+/// index in [`EdgeHarvest::as_slice`] order. Within one edge, the source bound
+/// is checked before the target bound, and both before weight finiteness;
+/// [`MstError::NonFiniteWeight`] reports the original `(source, target)`
+/// orientation.
+///
+/// # Examples
+///
+/// ```
+/// use chutoro_core::{CandidateEdge, EdgeHarvest, MstError, parallel_kruskal};
+///
+/// let harvest = EdgeHarvest::new(vec![
+///     CandidateEdge::new(0, 1, 1.0, 0),
+///     CandidateEdge::new(5, 0, 1.0, 1),
+///     CandidateEdge::new(0, 7, 1.0, 2),
+/// ]);
+///
+/// assert_eq!(
+///     parallel_kruskal(3, &harvest),
+///     Err(MstError::InvalidNodeId {
+///         node: 5,
+///         node_count: 3,
+///     }),
+/// );
+/// ```
 pub fn parallel_kruskal(
     node_count: usize,
     edges: &EdgeHarvest,
@@ -248,21 +275,39 @@ fn is_mst_complete(
     union_find.components() == 1 && forest_edges.len() == node_count.saturating_sub(1)
 }
 
-#[cfg(not(kani))]
 /// Validate, canonicalize, sort, and deduplicate candidate edges.
+///
+/// Validation runs in parallel but error selection is sequential: the results
+/// are collected into a buffer in input order, then scanned from the start, so
+/// the reported error is always the one belonging to the lowest input index.
+/// "Input index" means the position in `edges`, which for the public entry
+/// point is [`EdgeHarvest::as_slice`] order.
+///
+/// This is deliberately not a fallible parallel collection. Rayon documents
+/// that a parallel `try_reduce` returns an unspecified error when several are
+/// present, and that collecting into a `Result` is likewise nondeterministic
+/// when more than one failure occurs. Both properties come from a shared abort
+/// flag: the first task to fail publishes an error and other tasks may stop
+/// early with a partial result, so a later reduction can surface whichever
+/// error happened to win the race rather than the lowest-index one. The
+/// ordered buffer makes the lowest-index rule true by construction instead of
+/// by a post-hoc minimum reduction.
+#[cfg(not(kani))]
 fn prepare_edge_list(edges: &[CandidateEdge], node_count: usize) -> Result<Vec<MstEdge>, MstError> {
-    let mut edge_list = edges
+    let mut validated = Vec::with_capacity(edges.len());
+    edges
         .par_iter()
-        .try_fold(Vec::new, |mut acc, edge| {
-            if let Some(mst_edge) = validate_and_canonicalize_edge(edge, node_count)? {
-                acc.push(mst_edge);
-            }
-            Ok(acc)
-        })
-        .try_reduce(Vec::new, |mut left, right| {
-            left.extend(right);
-            Ok(left)
-        })?;
+        .map(|edge| validate_and_canonicalize_edge(edge, node_count))
+        .collect_into_vec(&mut validated);
+
+    let mut edge_list = Vec::with_capacity(edges.len());
+    for result in validated {
+        match result {
+            Ok(Some(mst_edge)) => edge_list.push(mst_edge),
+            Ok(None) => {}
+            Err(error) => return Err(error),
+        }
+    }
 
     edge_list.par_sort_unstable();
     edge_list.dedup_by(|left, right| {

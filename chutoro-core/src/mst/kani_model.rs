@@ -92,6 +92,10 @@ pub(super) fn kruskal_model<'a>(
         });
     }
 
+    // Scanning the input in order and returning the first error mirrors the
+    // production path's lowest-index selection. Within the four-node and
+    // six-edge proof budget, a model error therefore matches production
+    // exactly rather than merely belonging to the same variant.
     let mut edge_list = [None; 6];
     let mut edge_count = 0;
     for edge in edges {
