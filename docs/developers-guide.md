@@ -2508,6 +2508,15 @@ write lock. The focused `hnsw::tests::write_lock` module enables a test-only
 write scope. Keep new insertion, trimming, and search code compatible with that
 guard.
 
+Insertion also serializes its apply-score-commit sequence through
+`insert_mutex`, and trim scoring runs inside that critical section. No code
+path inside it may block on, or dispatch work to, the Rayon pool: a worker that
+is due to run the nested work may already be blocked acquiring the same mutex,
+and the build then never returns. `CpuHnsw::score_trim_jobs` therefore scores
+its jobs in order on the calling thread, and `hnsw::cpu::trim_tests` pins that
+by recording `rayon::current_thread_index()` for every distance call it makes
+from inside a four-worker pool.
+
 `DataSource::batch_distances(query, candidates)` has the following cache-layer
 contracts:
 
