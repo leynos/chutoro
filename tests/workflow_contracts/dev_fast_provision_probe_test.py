@@ -81,6 +81,22 @@ TOOLCHAIN_PROBE_CALL = (
     "print(_installed_toolchains())"
 )
 
+#: The guard itself, which is what the suites actually call. Reading the
+#: helpers beneath it cannot show which outcome the guard chooses, so the skip
+#: is caught and reported: a guard that skips and a guard that runs both exit
+#: zero, and only the printed word tells them apart. A probe error is left
+#: uncaught so it reaches the test boundary as a non-zero exit.
+GUARD_CALL = """\
+import pytest
+from dev_fast_make_support import _skip_unless_pin_installed
+try:
+    _skip_unless_pin_installed('the guard contract')
+except pytest.skip.Exception as skipped:
+    print('skipped:', skipped)
+else:
+    print('ran')
+"""
+
 
 @dataclass(frozen=True)
 class Scenario:
@@ -102,6 +118,11 @@ class Scenario:
     #: scenario reaches ``_installed_toolchains`` rather than the component
     #: check that imports beside it.
     source: str = PROBE_CALL
+    #: What ``rustup toolchain list`` prints. The default is the pinned
+    #: toolchain, so cases that vary only the component listing keep saying
+    #: the same thing about the channel; a scenario testing the guard's skip
+    #: path overrides it with a listing that omits the pin.
+    toolchains: str | None = None
 
 
 def _with_stand_in_rustup(
@@ -119,7 +140,11 @@ def _with_stand_in_rustup(
         # The probe lives in this suite's own support module, which the child
         # interpreter finds only if the suite directory is on its path.
         "PYTHONPATH": str(Path(__file__).resolve().parent),
-        "STUB_TOOLCHAINS": f"{toolchain}-x86_64-unknown-linux-gnu (default)",
+        "STUB_TOOLCHAINS": (
+            scenario.toolchains
+            if scenario.toolchains is not None
+            else f"{toolchain}-x86_64-unknown-linux-gnu (default)"
+        ),
         "STUB_COMPONENTS": scenario.components,
         "STUB_COMPONENT_STATUS": str(scenario.component_status),
         "STUB_TOOLCHAIN_STATUS": str(scenario.toolchain_status),
@@ -296,6 +321,61 @@ def test_the_toolchain_probe_reports_an_absent_rustup_as_none(
     assert completed.stdout.strip() == "None", (
         "an absent rustup must answer None so the caller skips; got "
         f"{completed.stdout!r}"
+    )
+
+
+def test_the_skip_guard_lets_a_failed_toolchain_listing_reach_the_boundary(
+    tmp_path: Path,
+) -> None:
+    """The guard must not turn a broken probe into an unprovisioned host.
+
+    This is the decision the suites actually depend on: a host with rustup
+    that cannot list its toolchains must not be skipped, because skipping
+    there reports a provisioned host as unprovisioned and the development
+    route goes unexercised. Reading the helper underneath cannot show which
+    way the guard goes, so the guard itself runs.
+    """
+    completed = _with_stand_in_rustup(
+        tmp_path,
+        Scenario(
+            components=PROVISIONED_COMPONENTS,
+            toolchain_status=1,
+            source=GUARD_CALL,
+        ),
+    )
+
+    assert completed.returncode != 0, (
+        "a failed toolchain listing must not be reported as a skip; got "
+        f"{completed.stdout!r}"
+    )
+    assert "ToolchainProbeError" in completed.stderr, (
+        "the failure must name the toolchain probe error at the skip-guard "
+        f"boundary; got {completed.stderr!r}"
+    )
+
+
+def test_the_skip_guard_skips_a_successful_listing_without_the_pin(
+    tmp_path: Path,
+) -> None:
+    """The other half: a listing that answered without the pin is a skip.
+
+    A host that has rustup but never ran ``make install-dev-fast`` has simply
+    not provisioned the route, and failing there would break the contracts on
+    a machine that never claimed to support it.
+    """
+    completed = _with_stand_in_rustup(
+        tmp_path,
+        Scenario(
+            components=PROVISIONED_COMPONENTS,
+            toolchains="stable-x86_64-unknown-linux-gnu (default)",
+            source=GUARD_CALL,
+        ),
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip().startswith("skipped:"), (
+        "a successful listing without the pin must skip, not run or raise; "
+        f"got {completed.stdout!r}"
     )
 
 

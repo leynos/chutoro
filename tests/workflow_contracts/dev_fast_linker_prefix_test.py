@@ -7,7 +7,7 @@ prefix usable: ``gcc`` resolves ``ld.mold`` from ``PATH``, so without the line
 a developer who ran ``make install-dev-fast`` would still link with whichever
 mold the host happened to provide.
 
-Two contracts pin each half. The first installs with the default prefix and
+Three contracts pin each half. The first installs with the default prefix and
 links a real crate, proving the installed tree is one the linker route
 accepts. It replaces the fixture's version-reporting ``ld.mold`` with a proxy
 that records its call and then runs the host's real linker, so the build
@@ -17,6 +17,13 @@ the ``PATH`` line removed and a failing ``ld.mold`` ahead of the host's own,
 the same build must not reach the installed binary. Without that control the
 first contract would pass on a host that already had a working mold anywhere
 else.
+
+The first two need the pinned nightly and the Cranelift component, so they
+skip on a host without them and the export would go unchecked there. The
+third asks the same resolver question through the repository's own recipe on
+any host: an injected ``cargo`` records what ``PATH`` resolves, so the real
+``dev-build`` line is exercised without compiling anything, and the same run
+with the export removed must find no linker.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -37,7 +44,7 @@ from dev_fast_probe_support import (
     run_development_target,
     write_probe_repository,
 )
-from mold_install_support import Environment, Platform, Request, prepare
+from mold_install_support import Platform, Request, prepare
 
 #: The line whose removal is the control. It is anchored on the whole line so
 #: a reordered or reformatted assignment fails loudly rather than silently
@@ -240,12 +247,116 @@ def _linux_request() -> Request:
     return Request(platform=Platform("Linux", "x86_64"))
 
 
-#: A recipe asking the loader where ``ld.mold`` would come from. It reads the
-#: installed tree through ``PATH``, which is the only way the development
-#: recipes reach it, and prints the resolved path or ``MISSING``.
-RESOLVE_RECIPE = """probe:
-\t@command -v ld.mold || echo MISSING
+#: A ``cargo`` that answers the recipe without compiling anything. It asks
+#: ``PATH`` where ``ld.mold`` comes from, the same question a real build's
+#: ``gcc`` asks, and records the answer. The interpreter is named by absolute
+#: path because the contract deliberately runs under a ``PATH`` carrying no
+#: linker and no tool but ``make``; ``command`` and ``printf`` are shell
+#: builtins, so nothing else has to resolve for the script to run.
+LINKER_RESOLVING_CARGO = """#!/bin/sh
+if linker=$(command -v ld.mold); then
+  printf '%s\\n' "$linker" > __LOG__
+  exit 0
+fi
+printf 'MISSING\\n' > __LOG__
+exit 1
 """
+
+
+def _linker_resolving_cargo(directory: Path, log: Path) -> Path:
+    """Write a ``cargo`` that records the linker the recipe's ``PATH`` finds."""
+    directory.mkdir(parents=True, exist_ok=True)
+    cargo = directory / "cargo"
+    cargo.write_text(
+        LINKER_RESOLVING_CARGO.replace("__LOG__", str(log)), encoding="utf-8"
+    )
+    cargo.chmod(0o755)
+    return cargo
+
+
+def _run_dev_build(
+    directory: Path, home: Path, cargo: Path
+) -> subprocess.CompletedProcess[str]:
+    """Run the real ``dev-build`` recipe with ``cargo`` in place of Cargo.
+
+    ``CARGO`` is the Makefile's own override, so the recipe under test is the
+    repository's rather than a fixture shaped like it, and the ``PATH`` export
+    being exercised is the one developers get. ``APP`` names the probe so the
+    recipe's binary selection matches the crate in ``directory``, and the host
+    OS is stated because the clean ``PATH`` carries no ``uname`` to probe it
+    with - which is also what selects the Linux linker flag under test.
+    """
+    environment = probe_environment(directory, home)
+    environment["PATH"] = str(_clean_binary_directory(directory / "clean-bin"))
+    return subprocess.run(
+        [
+            "make",
+            "--no-print-directory",
+            "--file",
+            str(directory / "Makefile"),
+            "dev-build",
+            f"CARGO={cargo}",
+            f"APP={PROBE_CRATE}",
+            "DEV_FAST_HOST_OS=Linux",
+        ],
+        cwd=directory,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_the_real_dev_build_recipe_resolves_the_installed_linker(
+    tmp_path: Path,
+) -> None:
+    """The recipe's own export must be what finds the installed ``ld.mold``.
+
+    The compiling contracts need the pinned nightly and the Cranelift
+    component, so on a host without them they skip and this half of the
+    install goes unchecked. Injecting a ``cargo`` that records what ``PATH``
+    resolves answers the same question through the real recipe on any host.
+    Running it again with the export removed must then find no linker, or the
+    first answer came from the host rather than from the installed tree.
+    """
+    if not _mold_installable():
+        pytest.skip("the installer needs gcc, which this host does not provide")
+    installer = prepare(tmp_path, default_prefix=True, request=_linux_request())
+    installed = installer.install()
+    assert installed.returncode == 0, installed.stderr
+
+    directory = write_probe_repository(tmp_path / "exported")
+    link_log = tmp_path / "exported-linker"
+    cargo = _linker_resolving_cargo(tmp_path / "exported-cargo", link_log)
+    resolved = _run_dev_build(directory, installer.environment.home, cargo)
+
+    expected = installer.prefix / "bin" / "ld.mold"
+    assert resolved.returncode == 0, f"{resolved.stdout}\n{resolved.stderr}"
+    selected = link_log.read_text(encoding="utf-8").strip()
+    assert selected == str(expected), (
+        "the recipe's export must resolve the developer's installed linker, "
+        f"not the host's; expected {expected}, got {selected!r}"
+    )
+
+    control = write_probe_repository(tmp_path / "unexported")
+    (control / "Makefile").write_text(
+        _without_path_export(MAKEFILE_PATH.read_text(encoding="utf-8")),
+        encoding="utf-8",
+    )
+    control_log = tmp_path / "unexported-linker"
+    control_cargo = _linker_resolving_cargo(tmp_path / "unexported-cargo", control_log)
+    unresolved = _run_dev_build(control, installer.environment.home, control_cargo)
+
+    assert unresolved.returncode != 0, (
+        "without the export the recipe must not resolve a linker; a success "
+        f"means the export is not load-bearing:\n{unresolved.stdout}\n"
+        f"{unresolved.stderr}"
+    )
+    assert control_log.read_text(encoding="utf-8").strip() == "MISSING", (
+        "the same private home holds the installed linker, so only the "
+        "missing export can explain a failed resolution; got "
+        f"{control_log.read_text(encoding='utf-8')!r}"
+    )
 
 #: The program the probe runs from the clean ``PATH``. Everything else —
 #: including any mold the developer's own path carries — stays out of it.
@@ -270,74 +381,3 @@ def _clean_binary_directory(directory: Path) -> Path:
     assert found is not None, f"the probe needs {PROBE_TOOL} on this host"
     (directory / PROBE_TOOL).symlink_to(found)
     return directory
-
-
-def _resolve_under_export(
-    directory: Path, environment: Environment
-) -> subprocess.CompletedProcess[str]:
-    """Ask a Makefile carrying only the export where ``ld.mold`` resolves."""
-    makefile = directory / "Makefile"
-    # ``PATH_EXPORT`` is the assignment line without its newline, so the
-    # separator has to be restored or the recipe joins the same line.
-    makefile.write_text(f"{PATH_EXPORT}\n{RESOLVE_RECIPE}", encoding="utf-8")
-    values = dict(environment.values)
-    values["PATH"] = str(_clean_binary_directory(directory / "clean-bin"))
-    return subprocess.run(
-        ["make", "--no-print-directory", "--file", str(makefile), "probe"],
-        cwd=directory,
-        env=values,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-
-def test_the_default_prefix_linker_resolves_only_through_the_path_export(
-    tmp_path: Path,
-) -> None:
-    """The installed linker must be reachable, and only via the exported line.
-
-    The compiling contracts need the pinned nightly and the Cranelift
-    component, so on a host without them they skip and this half of the
-    install goes unchecked. This contract asks the cheaper question instead:
-    with a private home and a ``PATH`` that carries no linker at all, does a
-    Makefile holding only the export resolve the installed ``ld.mold``?
-    Running the same recipe with the export removed must then fail, or the
-    first answer came from the host rather than from the installed tree.
-    """
-    if not _mold_installable():
-        pytest.skip("the installer needs gcc, which this host does not provide")
-    installer = prepare(tmp_path, default_prefix=True, request=_linux_request())
-    installed = installer.install()
-    assert installed.returncode == 0, installed.stderr
-
-    directory = tmp_path / "exported"
-    directory.mkdir()
-    resolved = _resolve_under_export(directory, installer.environment)
-
-    expected = installer.prefix / "bin" / "ld.mold"
-    assert resolved.returncode == 0, resolved.stderr
-    assert resolved.stdout.strip() == str(expected), (
-        "the export must resolve the developer's installed linker, not the "
-        f"host's; expected {expected}, got {resolved.stdout.strip()!r}"
-    )
-
-    control = tmp_path / "unexported"
-    control.mkdir()
-    (control / "Makefile").write_text(RESOLVE_RECIPE, encoding="utf-8")
-    values = dict(installer.environment.values)
-    values["PATH"] = str(_clean_binary_directory(control / "clean-bin"))
-    unresolved = subprocess.run(
-        ["make", "--no-print-directory", "--file", str(control / "Makefile"), "probe"],
-        cwd=control,
-        env=values,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-
-    assert unresolved.returncode == 0, unresolved.stderr
-    assert unresolved.stdout.strip() == "MISSING", (
-        "without the export no linker may resolve from the clean PATH; a hit "
-        f"means the first half proved nothing: {unresolved.stdout.strip()!r}"
-    )

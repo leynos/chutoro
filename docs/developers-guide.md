@@ -1142,6 +1142,16 @@ that came out. Writing the proxy after the install keeps the installer's own
 prefix and pin verification under test, rather than bypassing them with a
 hand-made prefix.
 
+Both of those need the pinned nightly and the Cranelift component, so on a host
+without them they skip and the export goes unchecked there. A third contract
+asks the resolver question on any host: it runs the repository's own
+`dev-build` recipe with `CARGO` overridden to a script that records what `PATH`
+resolves as `ld.mold`. The recipe under test is therefore the shipped one, and
+the export being exercised is the line developers get, but nothing compiles.
+The same run against a copy of the Makefile with the export removed must find
+no linker, which is what shows the first answer came from the export rather
+than from the host.
+
 The end-to-end contracts select their compiler evidence the same way they
 select the fragment: by name. Matching the whole of nextest's stderr for
 `codegen-backend=cranelift` would also accept the flag on an unrelated crate or
@@ -1178,6 +1188,14 @@ and component listings therefore answer `None` only for absent rustup, and raise
 `ToolchainProbeError` or `ComponentProbeError` at the test boundary for a
 failed one. Only a listing that succeeded can say a toolchain or component is
 missing.
+
+`dev_fast_provision_probe_test.py` pins that at the boundary the suites
+actually cross. Reading the helpers underneath cannot show which way
+`_skip_unless_pin_installed` decides, because a guard that skips and a guard
+that runs both look the same from outside; the guard itself therefore runs
+against the stand-in `rustup`, and its two outcomes are asked for separately. A
+failed toolchain listing must reach the test boundary as `ToolchainProbeError`,
+and a listing that succeeded without the pin must skip.
 
 ### Installer flags are only wrong where the tool parses them
 
