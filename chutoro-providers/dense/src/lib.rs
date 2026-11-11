@@ -16,5 +16,8 @@ pub use errors::DenseMatrixProviderError;
 pub use provider::DenseMatrixProvider;
 pub use source::DenseSource;
 
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
+
 #[cfg(test)]
 mod tests;

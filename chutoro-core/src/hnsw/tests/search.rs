@@ -12,11 +12,11 @@ use crate::{
     },
 };
 
-use super::fixtures::DummySource;
+use crate::test_utils::NumericTestSource;
 
 #[rstest]
 fn greedy_descent_selects_closest_neighbour() {
-    let source = DummySource::new(vec![1.0, 0.8, 0.6, 0.0]);
+    let source = NumericTestSource::new("dummy", vec![1.0, 0.8, 0.6, 0.0]);
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let mut graph = Graph::with_capacity(params, source.len());
     graph
@@ -66,8 +66,8 @@ fn greedy_descent_selects_closest_neighbour() {
     assert_eq!(result, 2);
 }
 
-fn equal_distance_stopping_fixture() -> Result<(DummySource, Graph), String> {
-    let source = DummySource::new(vec![0.0, 1.0, 1.0, 0.2]);
+fn equal_distance_stopping_fixture() -> Result<(NumericTestSource, Graph), String> {
+    let source = NumericTestSource::new("dummy", vec![0.0, 1.0, 1.0, 0.2]);
     let params = HnswParams::new(2, 4).map_err(|error| format!("params must be valid: {error}"))?;
     let mut graph = Graph::with_capacity(params, source.len());
 
@@ -153,9 +153,10 @@ fn layer_search_halts_on_equal_distance_candidates() {
     );
 }
 
+/// Keeps equal-distance neighbours in deterministic node-id order.
 #[rstest]
 fn layer_search_orders_equal_distance_deterministically() {
-    let source = DummySource::new(vec![0.0, 1.0, 1.0, 1.0]);
+    let source = NumericTestSource::new("dummy", vec![0.0, 1.0, 1.0, 1.0]);
     let params = HnswParams::new(3, 4).expect("parameters must be valid");
     let mut graph = Graph::with_capacity(params, source.len());
 
@@ -211,7 +212,7 @@ fn layer_search_orders_equal_distance_deterministically() {
 
 #[rstest]
 fn search_respects_minimum_ef() {
-    let source = DummySource::new(vec![0.0, 1.5, 3.0]);
+    let source = NumericTestSource::new("dummy", vec![0.0, 1.5, 3.0]);
     let params = HnswParams::new(2, 4)
         .expect("params must be valid")
         .with_rng_seed(29);

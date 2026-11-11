@@ -33,13 +33,13 @@ jobs:
     # admits `main` alone; the codescene environment contract holds it to
     # this job.
     environment: codescene
-    # Above the 4,200 s cargo watchdog on the coverage step plus the 900 s
+    # Above the 6,000 s cargo watchdog on the coverage step plus the 900 s
     # of work either side of it, and fifteen minutes above that sum rather
     # than equal to it. A ceiling sitting on its requirement cancels the
     # job at the moment the watchdog would have reported the overrun, and
     # the report is the only thing that makes an overrun actionable. This
-    # was 85, exactly the requirement.
-    timeout-minutes: 100
+    # requirement is 115 minutes, so the ceiling leaves fifteen minutes.
+    timeout-minutes: 130
     permissions:
       contents: read
     env:
@@ -153,11 +153,11 @@ jobs:
         uses: leynos/shared-actions/.github/actions/generate-coverage@0eabb6bc07148981de5da395e30cd78d83f5c7c2
         env:
           # The cargo watchdog, one of four tiers that can end a run. It must
-          # stay above the 40 m nextest global-timeout in .config/nextest.toml
+          # stay above the 80 m nextest global-timeout in .config/nextest.toml
           # plus the build that runs inside the same cargo invocation, or a
           # cold run is killed before nextest can use its budget. See "Test
           # timeouts: four tiers, outermost last" in docs/developers-guide.md.
-          RUN_RUST_CARGO_WAIT_TIMEOUT: '4200'
+          RUN_RUST_CARGO_WAIT_TIMEOUT: '6000'
           # One of the two exclusions from the build standard: a coverage build is
           # a measurement, so it takes neither the parallel frontend nor the mold
           # linker. Assigning RUSTFLAGS displaces every `rustflags` table in

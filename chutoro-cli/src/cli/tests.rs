@@ -1,10 +1,7 @@
 //! Unit tests for the CLI commands and data ingestion helpers.
 
 use super::commands::{derive_data_source_name, run_command};
-use super::{
-    Cli, CliError, Command, ExecutionSummary, ParquetArgs, RunCommand, RunSource, render_summary,
-    run_cli,
-};
+use super::{Cli, CliError, Command, ExecutionSummary, render_summary, run_cli};
 
 use std::io;
 use std::path::Path;
@@ -27,14 +24,16 @@ use test_fixtures::create_parquet_file;
 
 #[path = "test_helpers.rs"]
 mod test_helpers;
-use test_helpers::{create_text_file, expect_err, temp_dir, text_cli, text_run_command};
+use test_helpers::{
+    create_text_file, expect_err, parquet_run_command, temp_dir, text_cli, text_run_command,
+};
 
 /// Runs the text pipeline once with the provided input file and minimum
 /// cluster size.
 ///
 /// Returns the [`ExecutionSummary`] produced by the CLI runner.
 fn run_text_once(path: &Path, min_cluster_size: usize) -> Result<ExecutionSummary, CliError> {
-    run_cli(text_cli(path.to_path_buf(), min_cluster_size, None))
+    run_cli(text_cli(path.to_path_buf(), min_cluster_size))
 }
 
 /// Observed assignment and cluster counts for a completed run.
@@ -109,7 +108,7 @@ fn run_text_rejects_insufficient_items(#[from(temp_dir)] temp_dir_result: io::Re
     let path =
         create_text_file(&dir, "lines.txt", "alpha\nbeta\n").expect("text fixture must be written");
     let err = expect_err!(
-        run_cli(text_cli(path, 3, None)),
+        run_cli(text_cli(path, 3)),
         "run must fail for insufficient items"
     );
     assert!(matches!(
@@ -122,7 +121,7 @@ fn run_text_rejects_insufficient_items(#[from(temp_dir)] temp_dir_result: io::Re
 fn run_text_rejects_empty_files(#[from(temp_dir)] temp_dir_result: io::Result<TempDir>) {
     let dir = temp_dir_result.expect("temp dir should be created");
     let path = create_text_file(&dir, "empty.txt", "").expect("text fixture must be written");
-    let err = expect_err!(run_cli(text_cli(path, 1, None)), "empty input must fail");
+    let err = expect_err!(run_cli(text_cli(path, 1)), "empty input must fail");
     assert!(matches!(err, CliError::Text(TextProviderError::EmptyInput)));
 }
 
@@ -131,15 +130,12 @@ fn run_parquet_success(#[from(temp_dir)] temp_dir_result: io::Result<TempDir>) {
     let dir = temp_dir_result.expect("temp dir should be created");
     let path = create_parquet_file(&dir, "vectors.parquet").expect("parquet fixture must be built");
     let cli = Cli {
-        command: Command::Run(RunCommand {
-            min_cluster_size: 2,
-            max_bytes: None,
-            source: RunSource::Parquet(ParquetArgs {
-                path,
-                column: "features".into(),
-                name: Some("parquet".into()),
-            }),
-        }),
+        command: Command::Run(parquet_run_command(
+            path,
+            "features".into(),
+            2,
+            Some("parquet".into()),
+        )),
     };
     let summary = run_cli(cli).expect("parquet run must succeed");
     let _ = assert_run_summary!(summary, 4);
@@ -150,15 +146,7 @@ fn run_parquet_rejects_missing_column(#[from(temp_dir)] temp_dir_result: io::Res
     let dir = temp_dir_result.expect("temp dir should be created");
     let path = create_parquet_file(&dir, "vectors.parquet").expect("parquet fixture must be built");
     let cli = Cli {
-        command: Command::Run(RunCommand {
-            min_cluster_size: 1,
-            max_bytes: None,
-            source: RunSource::Parquet(ParquetArgs {
-                path,
-                column: "unknown".into(),
-                name: None,
-            }),
-        }),
+        command: Command::Run(parquet_run_command(path, "unknown".into(), 1, None)),
     };
     let err = expect_err!(run_cli(cli), "unknown column must fail");
     assert!(matches!(
@@ -175,7 +163,7 @@ fn run_command_rejects_zero_min_cluster_size(
     let path = create_text_file(&dir, "lines.txt", "alpha\nbeta\ngamma\n")
         .expect("text fixture must be written");
     let err = expect_err!(
-        run_command(text_run_command(path, 0, None)),
+        run_command(text_run_command(path, 0)),
         "zero min-cluster-size must fail"
     );
     assert!(matches!(
@@ -225,7 +213,7 @@ fn run_command_emits_tracing_fields(#[from(temp_dir)] temp_dir_result: io::Resul
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
-    let command = text_run_command(path, 2, None);
+    let command = text_run_command(path, 2);
 
     let summary = tracing::subscriber::with_default(subscriber, || run_command(command))
         .expect("run must succeed");
@@ -292,7 +280,7 @@ fn open_text_reader_records_path_on_error(#[from(temp_dir)] temp_dir_result: io:
     let layer = RecordingLayer::default();
     let subscriber = tracing_subscriber::registry().with(layer.clone());
 
-    let command = text_run_command(missing_path, 1, None);
+    let command = text_run_command(missing_path, 1);
 
     let err = tracing::subscriber::with_default(subscriber, || run_command(command))
         .expect_err("missing file must fail");

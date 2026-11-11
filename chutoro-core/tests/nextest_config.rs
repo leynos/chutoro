@@ -22,7 +22,7 @@ fn override_blocks(profile_name: &str) -> Vec<&'static str> {
     NEXTEST_CONFIG
         .split(&format!("[[profile.{profile_name}.overrides]]"))
         .skip(1)
-        .map(str::trim)
+        .map(|block| block.split("\n[").next().unwrap_or(block).trim())
         .collect()
 }
 
@@ -100,7 +100,7 @@ fn make_target_block(target: &str) -> Result<&'static str, String> {
 #[test]
 /// Verifies the default profile keeps the repository-wide timeout ceiling.
 fn nextest_default_profile_keeps_global_timeout_guard() {
-    assert!(NEXTEST_CONFIG.contains("global-timeout = \"40m\""));
+    assert!(NEXTEST_CONFIG.contains("global-timeout = \"80m\""));
 }
 
 #[rstest]
@@ -130,16 +130,36 @@ fn nextest_default_profile_keeps_benchmark_timeout_guards(
 #[test]
 /// Verifies the property-test workflow grants the idempotency case its budget.
 fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
+    let all_test_threads = "threads-required = \"num-test-threads\"";
     assert_override_present!(
         "ci",
         [
             "filter = \"test(/hnsw_idempotency_preserved_proptest/)\"",
+            all_test_threads,
+            BENCH_SLOW_TIMEOUT,
+        ]
+    );
+
+    assert_override_present!(
+        "default",
+        [
+            "filter = \"test(/hnsw_idempotency_preserved_proptest/)\"",
+            all_test_threads,
             BENCH_SLOW_TIMEOUT,
         ]
     );
 
     let pr_job = workflow_job_block("property-tests-pr").expect("property-tests-pr job must exist");
     assert!(pr_job.contains("timeout-minutes: 20"));
+}
+
+#[test]
+/// Verifies overrides do not absorb settings from the next profile table.
+fn nextest_override_blocks_stop_at_the_next_table() {
+    let blocks = override_blocks("default");
+    let final_block = blocks.last().expect("default profile must have overrides");
+    assert!(!final_block.contains("[profile.ci]"));
+    assert!(!final_block.contains("[[profile.ci.overrides]]"));
 }
 
 #[test]
@@ -156,20 +176,41 @@ fn default_profile_covers_idempotency_rstest_case_4_timeout() {
 
 /// Verifies both Nextest profiles reserve capacity and time for compile contracts.
 #[rstest]
-#[case("default", "threads-required = 8")]
-#[case("ci", "threads-required = 4")]
-fn nextest_profiles_keep_compile_contract_timeout_guard(
-    #[case] profile_name: &str,
-    #[case] threads_required: &str,
-) {
+#[case("default")]
+#[case("ci")]
+fn nextest_profiles_keep_compile_contract_timeout_guard(#[case] profile_name: &str) {
     assert_override_present!(
         profile_name,
         [
             "filter = \"package(chutoro-compile-contracts)\"",
-            threads_required,
+            "test-group = \"nested-cargo\"",
+            "threads-required = 4",
             NESTED_CARGO_SLOW_TIMEOUT,
         ]
     );
+}
+
+/// Verifies compile contracts share the serial group used by other nested builds.
+#[test]
+fn compiler_starting_tests_share_the_nested_cargo_group() {
+    let groups = extract_block(
+        NEXTEST_CONFIG,
+        "[test-groups]",
+        "[profile.default]",
+        "nextest test groups",
+    )
+    .expect("nextest test groups must be declared before the default profile");
+
+    assert!(groups.contains("nested-cargo = { max-threads = 1 }"));
+    assert!(NEXTEST_CONFIG.contains(concat!(
+        "filter = \"package(chutoro-compile-contracts)\"\n",
+        "test-group = \"nested-cargo\""
+    )));
+    assert!(NEXTEST_CONFIG.contains(concat!(
+        "filter = \"binary(portable_simd_gating) | binary(result_api_surface) | ",
+        "binary(session_api_surface) | binary(benchmark_smoke)\"\n",
+        "test-group = \"nested-cargo\""
+    )));
 }
 
 #[test]

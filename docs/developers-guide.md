@@ -935,7 +935,7 @@ below derive their `Error` implementation with `thiserror`:
   `HnswError` transparently via `#[from]`, and adds `MissingTrimJob`,
   `ExcessTrimJobs`, `UnexpectedTrimTarget`, `MissingNode`, and
   `ReciprocityViolated` variants for the fixture's own expectations.
-- `FixtureError` in `chutoro-providers/dense/src/tests/support.rs` names the
+- `FixtureError` in `chutoro-providers/dense/src/testing/mod.rs` names the
   `RowLength`, `Dimension`, `Arrow`, and `Parquet` failure modes of the Arrow
   and Parquet builders.
 
@@ -951,18 +951,45 @@ from either path.
 
 ### Support-module boundaries
 
-Test modules split their fixtures into dedicated support modules when the test
-file approaches Whitaker's 400-line `module_max_lines` cap, keeping the test
-file focused on the behaviour under test. Current examples:
+Keep shared fixtures inside the narrowest owner that has multiple consumers.
+The core's crate-internal numeric source is in
+`chutoro-core/src/test_utils.rs`: use `NumericTestSource` for deterministic
+scalar absolute distances, and wrap it with `CountingSource` only when a test
+needs to inspect distance-call counts. Session tests use
+`session_test_source_with_len` to preserve their common name and
+`session-test:abs` metric descriptor. These fixtures are not public crate APIs
+and must not migrate into the dependency-free `chutoro-test-support` leaf.
 
-- `chutoro-core/src/session/tests/common.rs` — shared session fixtures and the
-  `SessionTestSource` data source.
+The dense provider owns reusable Arrow and Parquet fixtures in its public,
+non-default `testing` feature. A dependent crate enables it only in
+`[dev-dependencies]` with `features = ["testing"]`, then imports builders from
+`chutoro_providers_dense::testing`. Keep dimension, schema nullability, and
+null patterns in these builders; route both in-memory `Bytes` and on-disk
+`File` outputs through the same record-batch serializer. The feature is
+intended for dependent crates such as the CLI, while provider-specific
+record-batch ingestion helpers remain local to dense tests. The CLI may wrap
+the shared file writer with its `TempDir` and path convention, but must not
+rebuild the Arrow schema or record batch. Keep `RunCommand` builders in CLI
+test helpers because their types and defaults belong to the CLI boundary.
+
+Test modules split remaining local fixtures into dedicated support modules when
+the test file approaches Whitaker's 400-line `module_max_lines` cap, keeping
+the test file focused on the behaviour under test. Current examples:
+
+- `chutoro-core/src/session/tests/common.rs` — session builder setup and
+  batch-oracle helpers, composed with `NumericTestSource` from `test_utils.rs`.
 - `chutoro-core/src/session/tests/core_distance_support.rs` — batch-oracle
   helpers for core-distance tests.
 - `chutoro-core/src/hnsw/tests/property/test_runner_support/` — proptest
   runner configuration.
-- `chutoro-providers/dense/src/tests/support.rs` — Arrow and Parquet fixture
-  builders.
+- `chutoro-providers/dense/src/testing/mod.rs` — shared feature-gated Arrow and
+  Parquet fixture builders for dense and dev-dependent tests.
+- `chutoro-providers/dense/src/tests/support.rs` — provider-specific helpers
+  for converting record batches into providers.
+- `chutoro-cli/src/cli/test_fixtures.rs` — CLI path and temporary-directory
+  wrapper over the shared Parquet writer.
+- `chutoro-cli/src/cli/test_helpers.rs` — builders for common CLI test
+  commands.
 
 Support modules carry `//!` module docs and `///` item docs, with `# Errors`
 sections on fallible helpers.
@@ -1123,12 +1150,12 @@ so it is worth knowing which is which and in what order they can fire.
 
 Table: the four timers, innermost first, with where each is set.
 
-| Tier                     | What it bounds                     | Where it is set                                     | Current value                                |
-| ------------------------ | ---------------------------------- | --------------------------------------------------- | -------------------------------------------- |
-| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default, 900 s for the slowest override |
-| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 40 m                                         |
-| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m)                               |
-| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 100 m                                        |
+| Tier                     | What it bounds                     | Where it is set                                     | Current value                                  |
+| ------------------------ | ---------------------------------- | --------------------------------------------------- | ---------------------------------------------- |
+| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default, 1,800 s for the slowest override |
+| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 80 m                                           |
+| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 6,000 s (100 m)                                |
+| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 130 m                                          |
 
 Each tier must sit above the one before it.
 
@@ -1183,13 +1210,16 @@ The timeouts also record the work each test performs. The shared-execution
 property builds HNSW indexes through the batch and session paths, so it
 reserves four test slots and 180 seconds. The clustering-result
 feature-boundary tests now run in `chutoro-compile-contracts`. Its package
-override reserves eight test slots and 1,800 seconds in `default`; the `ci`
-profile reserves four slots and the same timeout. This serializes nested Cargo
-builds while giving cold fixture builds room to pass through shared compiler
-queues. The benchmark smoke test runs nested release-mode `cargo bench`
-commands, so it also reserves eight slots and 1,800 seconds. Tests in
-`chutoro-core/tests/nextest_config.rs` pin the compile-contract and benchmark
-smoke allowances to the authoritative overrides in `.config/nextest.toml`.
+override assigns them to the shared `nested-cargo` Nextest group with
+`max-threads = 1`, so trybuild and other compiler-starting tests cannot compete
+for their shared artefact directories. It reserves four test slots and allows
+1,800 seconds in both `default` and `ci`. The previous cold run reached the
+final Arrow and Parquet check at 1,500 seconds but timed out before trybuild
+returned. See the Nextest test-group documentation[^1]. The benchmark smoke
+test runs nested release-mode `cargo bench` commands, so it also reserves eight
+slots and 1,800 seconds. Tests in `chutoro-core/tests/nextest_config.rs` pin
+the compile-contract and benchmark smoke allowances to the authoritative
+overrides in `.config/nextest.toml`.
 
 ### The cargo watchdog is the tier nobody expects
 
@@ -1197,14 +1227,14 @@ The first two tiers are nextest's. The watchdog belongs to the shared
 `generate-coverage` action, which wraps the `cargo` invocation and kills it
 after a wall-clock budget. It defaults to 1,800 s, and until this was written
 no workflow here set it, so the coverage lanes ran under a budget this
-repository had not chosen and did not mention. Underneath a 40 m nextest
-budget, that default would have killed a cold run before nextest had spent
-three quarters of what it was given.
+repository had not chosen and did not mention. Underneath an 80 m nextest
+budget, that default would have killed a cold run after just three eighths of
+the available time.
 
 When the watchdog fires the step prints:
 
 ```text
-::error::cargo did not exit within 4200.0s; killing. This is a budget, not a
+::error::cargo did not exit within 6000.0s; killing. This is a budget, not a
 detected hang: raise the cargo-wait-timeout input, or
 RUN_RUST_CARGO_WAIT_TIMEOUT, if the build is legitimately slower. A cold
 sccache store makes the first run on a branch compile everything inside this
@@ -1232,7 +1262,7 @@ termination is immediate, and the grace period is ignored for timeouts. That
 allowance is seconds rather than minutes, but it is not zero.
 
 The watchdog is therefore sized as the global timeout, plus a termination
-allowance, plus a cold-build allowance: 40 m + 65 s + 15 m, taken up to 70 m.
+allowance, plus a cold-build allowance: 80 m + 65 s + 15 m, taken up to 100 m.
 
 The termination allowance is two terms, not one: the largest
 `slow-timeout.grace-period` the configuration sets, five seconds here, plus a
@@ -1262,7 +1292,7 @@ tier while appearing to declare one.
 The job timer starts when the job starts, before the formatting, linting,
 spelling and contract steps that precede coverage. Measured on run 33939048036:
 6 m 08 s before coverage and 16 s after, read across three runs rather than
-one. So the requirement is 70 m + 15 m = 85 m, and the ceiling is 100.
+one. So the requirement is 100 m + 15 m = 115 m, and the ceiling is 130.
 
 The ceiling is not that requirement. It is the requirement plus fifteen
 minutes, because a ceiling equal to the sum it contains cancels the job at the
@@ -1270,8 +1300,8 @@ moment the watchdog would have reported the overrun, and the report is the only
 thing that makes an overrun actionable. Equality buys nothing: it converts a
 legible failure into a cancellation with no log.
 
-This section first set the ceiling to 85, exactly the requirement, on a lane
-that is always the cold writer, which is where that trade is least affordable.
+This section first set the ceiling equal to its requirement, on a lane that is
+always the cold writer, which is where that trade is least affordable.
 
 ### What the current values are sized against
 
@@ -1456,10 +1486,10 @@ All test runs use the `nextest` CI profile (`--profile ci`). Benchmark targets
 require `threads-required = 8`; see `.config/nextest.toml`.
 
 Compile-contract tests belong in the `chutoro-compile-contracts` package. Its
-package-level `nextest` override owns the nested-Cargo timeout and concurrency
-policy: eight required threads and a 1,800-second `slow-timeout` in `default`,
-and four required threads with the same timeout in `ci`. Other tests retain the
-60-second default per-test `slow-timeout`.
+package-level `nextest` override shares the `nested-cargo` serial group with
+other tests that start compilers, reserves four required threads, and sets a
+1,800-second `slow-timeout` in both profiles. Other tests retain the 60-second
+default per-test `slow-timeout`.
 
 The `Doctests` step runs `make test-doc` because the coverage action's
 `cargo nextest` invocation never runs doctests. The target compiles and runs
@@ -2326,3 +2356,6 @@ it cannot outlive that command.
 Exception: Cranelift is not the development-profile backend, because Cranelift
 requires a nightly toolchain and this repository pins the stable `1.99.1`
 (recorded 2026-09-29). Revisit if the repository moves to a nightly pin.
+
+[^1]: Nextest test-group documentation:
+    <https://nexte.st/docs/configuration/test-groups/>
