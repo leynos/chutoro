@@ -195,8 +195,8 @@ mod tests {
             .expect("fresh generator lock must be available")
             .next_u64();
         let mut workers = Vec::with_capacity(index.worker_rngs.len());
-        for generator in &index.worker_rngs {
-            let mut generator = generator
+        for worker_generator in &index.worker_rngs {
+            let mut generator = worker_generator
                 .lock()
                 .expect("fresh worker generator lock must be available");
             generator.next_u64();
