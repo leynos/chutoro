@@ -34,6 +34,14 @@ const TRIM_CANDIDATES: usize = 32;
 /// Worker threads in the pool the trim-scoring regression installs into.
 const TRIM_THREADS: usize = 4;
 
+/// Rounds of trim scoring the regression performs inside one pool install.
+///
+/// A dispatching implementation can complete a single round on the calling
+/// worker when no other worker steals from it, so one round can pass by
+/// coincidence. Repeating the round makes that coincidence implausible without
+/// depending on timing.
+const TRIM_ROUNDS: usize = 8;
+
 /// Guards the arithmetic in [`DenseSource::trim_job`]: every job scores
 /// candidates drawn from `node + offset` without wrapping.
 const _: () = assert!(TRIM_JOBS + TRIM_CANDIDATES <= TRIM_POINTS);
@@ -181,28 +189,47 @@ impl DataSource for ThreadRecordingSource {
 /// used to be an `into_par_iter()` over the staged jobs, which let Rayon park
 /// the mutex holder on a latch that only a blocked worker could satisfy; the
 /// build then hung instead of returning, and a benchmark child that hit it had
-/// to be killed after 25 minutes. Scoring now stays on the calling thread, and
-/// this test pins that: it scores a batch of jobs from inside a worker of a
-/// four-thread pool, and every distance call must come from that one worker.
+/// to be killed after 25 minutes.
+///
+/// The test scores several rounds of jobs from inside a worker of a four-thread
+/// pool, and every distance call across every round must come from that worker.
+/// One round is not enough on its own: a dispatching implementation can finish
+/// the whole round on the caller when no other worker steals from it, so the
+/// round would pass despite the dispatch. Each round uses a fresh index, which
+/// keeps the distance cache from turning later rounds into cache hits that never
+/// reach the source, and repeats the race enough times that a scheduler that
+/// always kept the work on the caller is not a realistic explanation.
 #[test]
 fn trim_scoring_stays_on_the_thread_holding_the_insert_mutex() {
-    let index = CpuHnsw::with_capacity(HnswParams::new(16, 200).expect("params"), TRIM_POINTS)
-        .expect("index");
     let points = DenseSource::synthetic(TRIM_POINTS);
-    let jobs: Vec<TrimJob> = (0..TRIM_JOBS).map(DenseSource::trim_job).collect();
     let source = ThreadRecordingSource::new(points);
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(TRIM_THREADS)
         .build()
         .expect("a dedicated pool");
 
-    let (caller, scoring) = pool.install(|| {
+    let (caller, rounds) = pool.install(|| {
         let caller = rayon::current_thread_index();
-        (caller, index.score_trim_jobs(jobs, &source))
+        let rounds = (0..TRIM_ROUNDS)
+            .map(|_| {
+                let index =
+                    CpuHnsw::with_capacity(HnswParams::new(16, 200).expect("params"), TRIM_POINTS)
+                        .expect("index");
+                let jobs: Vec<TrimJob> = (0..TRIM_JOBS).map(DenseSource::trim_job).collect();
+                index.score_trim_jobs(jobs, &source)
+            })
+            .collect::<Vec<_>>();
+        (caller, rounds)
     });
 
-    let scored = scoring.expect("trim scoring must succeed");
-    assert_eq!(scored.len(), TRIM_JOBS, "every trim job must be scored");
+    for (round, scoring) in rounds.into_iter().enumerate() {
+        let scored = scoring.expect("trim scoring must succeed");
+        assert_eq!(
+            scored.len(),
+            TRIM_JOBS,
+            "round {round} must score every trim job"
+        );
+    }
     assert!(
         caller.is_some(),
         "the scoring closure should have run on a pool worker"
