@@ -15,8 +15,10 @@ use super::types::{MstFixture, WeightDistribution};
 
 /// Minimum node count for most generated graphs.
 const MIN_NODES: usize = 8;
+
 /// Maximum node count for most generated graphs.
 const MAX_NODES: usize = 64;
+
 /// Maximum node count for dense graphs (kept smaller to avoid quadratic
 /// edge explosion).
 const DENSE_MAX_NODES: usize = 32;

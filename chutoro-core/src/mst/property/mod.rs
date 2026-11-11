@@ -9,6 +9,7 @@
 
 mod concurrency;
 mod equivalence;
+mod error_strategies;
 mod helpers;
 pub(crate) mod oracle;
 mod strategies;

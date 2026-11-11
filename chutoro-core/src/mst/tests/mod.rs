@@ -95,6 +95,37 @@ fn check_forest_invariants(node_count: usize, edges: &[MstEdge]) -> usize {
     &[(0, 1, f32::NEG_INFINITY, 0)],
     MstError::NonFiniteWeight { left: 0, right: 1 }
 )]
+#[case::source_bound_precedes_target_and_finiteness(
+    2,
+    &[(5, 7, f32::NAN, 0)],
+    MstError::InvalidNodeId {
+        node: 5,
+        node_count: 2,
+    }
+)]
+#[case::target_bound_precedes_finiteness(
+    2,
+    &[(1, 7, f32::NAN, 0)],
+    MstError::InvalidNodeId {
+        node: 7,
+        node_count: 2,
+    }
+)]
+#[case::finiteness_precedes_self_loop(
+    2,
+    &[(1, 1, f32::NAN, 0)],
+    MstError::NonFiniteWeight { left: 1, right: 1 }
+)]
+#[case::non_finite_reports_original_orientation(
+    2,
+    &[(1, 0, f32::INFINITY, 0)],
+    MstError::NonFiniteWeight { left: 1, right: 0 }
+)]
+#[case::empty_graph_precedes_invalid_edges(
+    0,
+    &[(0, 1, 1.0, 0), (9, 9, f32::NAN, 1)],
+    MstError::EmptyGraph
+)]
 fn rejects_invalid_inputs(
     #[case] node_count: usize,
     #[case] edges: &[(usize, usize, f32, u64)],
@@ -189,6 +220,7 @@ fn undirected_edges_are_canonicalized_and_deduplicated() {
     assert_eq!(edge.sequence(), 10);
 }
 
+mod error_selection;
 mod forests;
 
 mod kani_model_equivalence;

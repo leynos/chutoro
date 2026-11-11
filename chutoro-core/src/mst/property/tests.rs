@@ -6,15 +6,19 @@
 //! the sequential oracle itself.
 
 use proptest::prelude::*;
+use proptest::test_runner::{TestCaseError, TestCaseResult};
 use rand::SeedableRng;
 use rand::rngs::SmallRng;
+use rayon::ThreadPoolBuilder;
 
-use crate::CandidateEdge;
 use crate::test_utils::suite_proptest_config;
+use crate::{CandidateEdge, EdgeHarvest};
 
+use super::super::{parallel_kruskal, parallel_kruskal_from_edges};
 use super::concurrency::{run_concurrency_safety_property, run_thread_pool_determinism_property};
 use super::equivalence::run_oracle_equivalence_property;
-use super::oracle::{SequentialMstResult, sequential_kruskal};
+use super::error_strategies::invalid_edge_list_strategy;
+use super::oracle::{SequentialMstResult, first_validation_error, sequential_kruskal};
 use super::strategies::{generate_fixture, mst_fixture_strategy};
 use super::structural::run_structural_invariants_property;
 use super::types::WeightDistribution;
@@ -94,6 +98,66 @@ proptest! {
     fn mst_thread_pool_determinism(fixture in mst_fixture_strategy()) {
         run_thread_pool_determinism_property(&fixture)?;
     }
+
+    #[test]
+    fn mst_error_selection_uses_the_lowest_index(
+        (node_count, edges) in invalid_edge_list_strategy(),
+    ) {
+        run_lowest_index_error_property(node_count, &edges)?;
+    }
+}
+
+/// Thread counts the error-selection property is pinned in.
+const ERROR_SELECTION_THREAD_COUNTS: [usize; 2] = [1, 8];
+
+/// Runs the lowest-index error-selection property for one generated input.
+///
+/// The expected error comes from an oracle that does not call the production
+/// validator, and both the direct slice path and the harvested path must agree
+/// with it exactly in every pinned pool.
+fn run_lowest_index_error_property(node_count: usize, edges: &[CandidateEdge]) -> TestCaseResult {
+    let expected = first_validation_error(node_count, edges)
+        .ok_or_else(|| TestCaseError::fail("strategy must generate at least two invalid edges"))?;
+    let harvest = EdgeHarvest::new(edges.to_vec());
+    let harvest_expected = first_validation_error(node_count, harvest.as_slice())
+        .ok_or_else(|| TestCaseError::fail("harvest must retain the invalid edges"))?;
+
+    for threads in ERROR_SELECTION_THREAD_COUNTS {
+        let pool = ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .map_err(|error| {
+                TestCaseError::fail(format!(
+                    "failed to build a {threads}-thread Rayon pool: {error}"
+                ))
+            })?;
+
+        let Err(direct) = pool.install(|| parallel_kruskal_from_edges(node_count, edges)) else {
+            return Err(TestCaseError::fail(format!(
+                "direct slice path must reject the input with {threads} thread(s)"
+            )));
+        };
+        prop_assert_eq!(
+            &direct,
+            &expected,
+            "direct slice path with {} threads",
+            threads
+        );
+
+        let Err(via_harvest) = pool.install(|| parallel_kruskal(node_count, &harvest)) else {
+            return Err(TestCaseError::fail(format!(
+                "harvest path must reject the input with {threads} thread(s)"
+            )));
+        };
+        prop_assert_eq!(
+            &via_harvest,
+            &harvest_expected,
+            "harvest path with {} threads",
+            threads
+        );
+    }
+
+    Ok(())
 }
 
 // ========================================================================

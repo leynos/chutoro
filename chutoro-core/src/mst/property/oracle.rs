@@ -7,9 +7,63 @@
 
 use std::cmp::Ordering;
 
-use crate::CandidateEdge;
+use crate::{CandidateEdge, MstError};
 
 use super::helpers::{find_root, is_invalid_edge};
+
+/// Returns the first validation error for `edges` in input order.
+///
+/// This is an independent oracle: it restates the contract directly instead of
+/// calling `validate_and_canonicalize_edge`, so a change to either the ordering
+/// or the per-edge precedence shows up as a disagreement. `EmptyGraph` is
+/// decided before any edge is inspected, matching the production entry point.
+///
+/// # Examples
+///
+/// ```ignore
+/// let edges = [
+///     CandidateEdge::new(0, 1, 1.0, 0),
+///     CandidateEdge::new(5, 0, 1.0, 1),
+///     CandidateEdge::new(0, 1, f32::NAN, 2),
+/// ];
+/// assert_eq!(
+///     first_validation_error(3, &edges),
+///     Some(MstError::InvalidNodeId { node: 5, node_count: 3 }),
+/// );
+/// ```
+pub(super) fn first_validation_error(
+    node_count: usize,
+    edges: &[CandidateEdge],
+) -> Option<MstError> {
+    if node_count == 0 {
+        return Some(MstError::EmptyGraph);
+    }
+
+    for edge in edges {
+        let source = edge.source();
+        let target = edge.target();
+        if source >= node_count {
+            return Some(MstError::InvalidNodeId {
+                node: source,
+                node_count,
+            });
+        }
+        if target >= node_count {
+            return Some(MstError::InvalidNodeId {
+                node: target,
+                node_count,
+            });
+        }
+        if !edge.distance().is_finite() {
+            return Some(MstError::NonFiniteWeight {
+                left: source,
+                right: target,
+            });
+        }
+    }
+
+    None
+}
 
 /// Result of the sequential Kruskal oracle.
 #[derive(Clone, Debug)]
