@@ -790,6 +790,22 @@ when it sorts by `(weight, source, target, sequence)` before the union-find
 scan. The `cpu_pipeline` mutual-reachability transform therefore hands its
 `Vec<CandidateEdge>` straight to `parallel_kruskal_from_edges`.
 
+`prepare_edge_list` validates through a parallel map into an index-ordered
+buffer and then scans that buffer sequentially, so the returned error is the
+one at the lowest index of the slice it was given (`EdgeHarvest::as_slice`
+order through the public entry point). Do not replace that with `try_fold` /
+`try_reduce` or with collecting into `Result`: Rayon documents that both
+surface an unspecified error when several are present, because a shared abort
+flag lets other tasks stop early with a partial result.
+
+Tests that depend on error selection must build explicit
+`rayon::ThreadPoolBuilder` pools (for example one and eight threads) and
+install the call in them. Never set or read `RAYON_NUM_THREADS` in tests:
+repository policy forbids the environment mutation, and CI pins it to `1`,
+which hides the race. Assert exact `MstError` values, and cover the rule with a
+property test whose oracle computes the first error independently of
+`validate_and_canonicalize_edge`.
+
 `EdgeHarvest::from_parallel_inserts` carries the same discarded ordering; only
 `prepare_edge_list`'s `(weight, source, target, sequence)` order is observable
 downstream. Recovering it means changing the harvest contract.

@@ -1278,6 +1278,18 @@ Scale caveat: `parallel_kruskal` measured 1.88 ms against an 853 ms
 that falls as `n` grows. The waste removed here is real but bounded; this is a
 cheap correction, not a large end-to-end win.
 
+_Implementation update (2026-11-12)._ Edge validation now reports a
+deterministic error. When several candidate edges are invalid,
+`prepare_edge_list` returns the error belonging to the lowest input index,
+defined as the position in `EdgeHarvest::as_slice()` (or the slice passed to
+the crate-internal entry point). Validation still checks an edge's source
+bound, then its target bound, then weight finiteness, and reports the original
+orientation; `EmptyGraph` is decided before any edge is validated. This
+strengthens the previous contract, which used a fallible parallel reduction and
+could report any one of several errors depending on Rayon's scheduling.
+`ChutoroError::CpuMstFailure` continues to carry the selected inner code and
+message unchanged.
+
 #### 6.4. Property-based input generation for CPU HNSW tests
 
 The CPU module now ships with dedicated property-based generators that exercise
