@@ -304,25 +304,24 @@ def _run_make(target: str, manifest: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.parametrize(
-    ("target", "expected", "should_pass", "marker"),
-    [
-        # The standalone target stands in for the CI step's command.
-        ("test-doc", 42, True, "test result: ok"),
-        ("test-doc", 41, False, "test result: FAILED"),
-        # `make test` is the local entry point that runs nextest first.
-        ("test", 42, True, "test result: ok"),
-        ("test", 41, False, "test result: FAILED"),
-    ],
-)
+#: The fixture answer and result line each expected outcome must produce.
+_OUTCOMES = {
+    True: (42, "test result: ok"),
+    False: (41, "test result: FAILED"),
+}
+
+
+@pytest.mark.parametrize("target", ["test-doc", "test"])
+@pytest.mark.parametrize("should_pass", [True, False])
 def test_every_entry_point_propagates_the_doctest_outcome(
-    tmp_path: Path,
-    target: str,
-    expected: int,
-    should_pass: bool,
-    marker: str,
+    tmp_path: Path, target: str, should_pass: bool
 ) -> None:
-    """A broken example must fail each entry point, not only the bare target."""
+    """A broken example must fail each entry point, not only the bare target.
+
+    `test-doc` is the command the CI step declares; `test` is the local
+    entry point that runs nextest first.
+    """
+    expected, marker = _OUTCOMES[should_pass]
     result = _run_make(target, _write_doctest_fixture(tmp_path, _fixture_source(expected)))
     if should_pass:
         assert result.returncode == 0, result.stdout + result.stderr
