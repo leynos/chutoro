@@ -2,8 +2,6 @@
 
 use std::collections::BinaryHeap;
 
-use rayon::prelude::*;
-
 use crate::{
     DataSource,
     hnsw::{
@@ -18,7 +16,7 @@ use crate::{
 use super::CpuHnsw;
 
 impl CpuHnsw {
-    /// Scores trim jobs in parallel, validating candidate, sequence, and
+    /// Scores trim jobs one at a time, validating candidate, sequence, and
     /// distance lengths before emitting ranked neighbour lists capped at each
     /// edge context's `max_connections`.
     ///
@@ -41,10 +39,17 @@ impl CpuHnsw {
             return Ok(Vec::new());
         }
 
+        // Scoring runs inside the insertion critical section, so every other
+        // Rayon worker may already be blocked waiting for `insert_mutex`.
+        // Dispatching these jobs to the pool lets Rayon park this thread on a
+        // latch that only a blocked worker could satisfy, which hung
+        // `CpuHnsw::build_with_edges` outright. Trim jobs are few — at most one
+        // per staged neighbour update — so scoring them here in order costs far
+        // less than the stall it prevents.
         trim_jobs
-            .into_par_iter()
+            .into_iter()
             .map(|job| self.run_trim_job(job, source))
-            .collect::<Result<Vec<_>, HnswError>>()
+            .collect()
     }
 
     /// Score and retain the best candidates for one staged trim job.

@@ -313,4 +313,7 @@ impl CpuHnsw {
 }
 
 #[cfg(test)]
+mod trim_tests;
+
+#[cfg(test)]
 mod unit_tests;
