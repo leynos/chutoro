@@ -60,16 +60,21 @@ This plan authorizes:
 - `ClusteringSession::refresh`.
 - A minimal non-blocking `ClusteringSession::labels` accessor sufficient to
   observe the published snapshot.
-- One shared `mutual_reachability_weight` helper, homed in the batch pipeline
-  layer (`cpu_pipeline.rs`) and called *down* into by the session.
+- Reusing the batch pipeline's existing mutual-reachability helpers rather
+  than adding a parallel one: `mutual_reachability_edges` is generalized from
+  `&EdgeHarvest` to `&[CandidateEdge]` and promoted to `pub(crate)`, and the
+  scalar formula inside `mutual_reachability_edge` is factored out as a
+  private `mutual_reachability_weight`. All three stay in
+  `cpu_pipeline/mod.rs`; the session calls *down* into them.
 - **Raw-distance retention of the MST backbone.** The session retains the MST
   edges it selected as *raw* `CandidateEdge` values (not weighted `MstEdge`),
   so every refresh reweights from raw distances and current core distances.
   This is a small, correctness-critical refinement of design Figure 3 (see
-  Decision Log and ADR-005); without it, reweighting a previously weighted
+  Decision Log and ADR-006); without it, reweighting a previously weighted
   edge ratchets weights upward across refreshes.
-- Promoting `map_cpu_mst_error` and `map_cpu_hierarchy_error` from private to
-  `pub(crate)` so `refresh` can reuse them.
+- Promoting `map_cpu_mst_error(&MstError)` and
+  `map_cpu_hierarchy_error(&HierarchyError)` from private to `pub(crate)`,
+  signatures unchanged, so `refresh` can reuse them.
 - Adding `googletest`, `pretty_assertions`, and `insta` as dev-dependencies
   (first adoption in the workspace; see Decision Log).
 
@@ -96,13 +101,15 @@ Hard invariants. Violation requires escalation, not a workaround.
   machinery (via `crate::mst::parallel_kruskal_from_edges`, which the public
   `parallel_kruskal` delegates to), `crate::extract_labels_from_mst`,
   `crate::HierarchyConfig`, `crate::MstEdge`, and `crate::CandidateEdge`. The
-  incremental mutual-reachability weighting must be numerically identical to
-  the batch path in `chutoro-core/src/cpu_pipeline.rs`, and must always be
-  computed from **raw** distances so it does not depend on refresh history.
-- Home the shared `mutual_reachability_weight` helper in the lower layer
-  (`cpu_pipeline.rs`, `pub(crate)`); the session calls *down* to it. Do not
-  have the batch pipeline import from the session module (the session already
-  depends down on the pipeline via `map_cpu_hnsw_error`).
+  incremental mutual-reachability weighting must be the batch path's own
+  helper in `chutoro-core/src/cpu_pipeline/mod.rs`, not a copy, and must always
+  be computed from **raw** distances so it does not depend on refresh history.
+- Keep the shared weighting helpers in the lower layer
+  (`cpu_pipeline/mod.rs`, `pub(crate)`); the session calls *down* to them. Do
+  not have the batch pipeline import from the session module. HNSW errors
+  already reach `ChutoroError` through the adapter-owned
+  `HnswError::into_chutoro_error` (moved there by #224), which the session
+  wraps as `map_hnsw_error`.
 - Preserve existing public behaviour of `CpuHnsw::insert`,
   `CpuHnsw::insert_harvesting`, `CpuHnsw::search`, `ChutoroBuilder::build`,
   `ChutoroBuilder::build_session`, `ClusteringSession::append`,
@@ -114,7 +121,7 @@ Hard invariants. Violation requires escalation, not a workaround.
   path.
 - Add no new production dependency and no **new public** `ChutoroError`
   variant. Degenerate and invalid-input paths reuse the existing
-  `EmptySource`, `InsufficientItems`, and `CpuMstFailure` variants (see
+  `EmptySource`, `InsufficientItems`, and `CpuHnswFailure` variants (see
   Decision Log). The approved assertion crates `googletest`,
   `pretty_assertions`, and `insta` enter the workspace as **dev-dependencies
   only** (see Decision Log); they must not appear in any `[dependencies]`
@@ -141,7 +148,8 @@ Hard invariants. Violation requires escalation, not a workaround.
   `ClusteringSession::labels`, and one new `pub(crate)` helper must change,
   stop and escalate. Changing the internal `mst_edges` field type from
   `Vec<MstEdge>` to `Vec<CandidateEdge>` is authorized by this plan. Promoting
-  `map_cpu_mst_error`/`map_cpu_hierarchy_error` to `pub(crate)` is authorized.
+  `map_cpu_mst_error`/`map_cpu_hierarchy_error` and the existing
+  `mutual_reachability_edges` to `pub(crate)` is authorized.
   Adding any **new public** `ChutoroError` variant is not — stop and escalate.
 - Dependencies: if any new external dependency is required beyond the three
   authorized dev-dependencies (`googletest`, `pretty_assertions`, `insta`),
@@ -161,16 +169,24 @@ Hard invariants. Violation requires escalation, not a workaround.
   to `append` (`CpuHnsw::insert_with_edges(node, source)` uses `node`
   verbatim), and `core_distances`/`extract_labels_from_mst` are indexed by
   that id. `refresh` passes `node_count = point_count()`. A non-contiguous
-  append (for example `&[0, 1, 5]`) makes `point_count()` 3 while an edge
-  endpoint reaches id 5, so the reweight step would index `core_distances[5]`
-  out of range.
+  append (for example `&[0, 1, 5]`) makes `point_count()` 3, while
+  `core_distances` grows to length 6 with `INFINITY` padding at ids 3 and 4,
+  and an edge endpoint reaches id 5, which Kruskal would reject as an invalid
+  node id.
   Severity: high. Likelihood: low (all shipped paths append contiguous
   prefixes; the batch pipeline has the same assumption).
-  Mitigation: the pure rebuild validates every endpoint `< node_count` and
-  `< core_distances.len()` and returns `ChutoroError::CpuMstFailure` with a
-  descriptive message (no panic) — the same variant `parallel_kruskal` itself
-  would produce for an invalid node id. Document the contiguity requirement
-  on `append` and `refresh` and in ADR-005.
+  Mitigation: the pure rebuild first checks the O(1) precondition
+  `core_distances.len() == node_count`. `mark_core_distance_dirty` grows
+  `core_distances` to the highest appended index plus one, and the HNSW
+  rejects duplicate inserts, so the two lengths agree exactly when the
+  appended indices form the prefix `[0, point_count)`. A mismatch returns
+  `HnswError::GraphInvariantViolation` mapped through
+  `HnswError::into_chutoro_error` to `ChutoroError::CpuHnswFailure`
+  (`GRAPH_INVARIANT_VIOLATION`), the variant the batch path already uses for
+  an edge endpoint with no core distance. No panic. Because the check runs
+  before Kruskal, the reported error is deterministic, unlike Kruskal's own
+  selection among several invalid edges (issue #206). Document the
+  contiguity requirement on `append` and `refresh` and in ADR-006.
 
 - Risk: **Cross-refresh weight drift (mitigated by raw retention).** If the
   MST backbone were retained as weighted `MstEdge` and reweighted again, the
@@ -216,8 +232,8 @@ Hard invariants. Violation requires escalation, not a workaround.
 
 ## Progress
 
-- [ ] EP-M1: Pure domain layer — `mutual_reachability_weight` in
-  `cpu_pipeline.rs`, `rebuild_mst_labels` (with raw-backbone recovery) in
+- [ ] EP-M1: Pure domain layer — batch mutual-reachability helpers promoted
+  in `cpu_pipeline/mod.rs`, `rebuild_mst_labels` (with raw-backbone recovery) in
   `chutoro-core/src/session/refresh.rs`, dev-dependency adoption, and the
   pure-function unit tests (red first, then green).
 - [ ] EP-M2: Session wiring — `refresh` and `labels` methods, field renames,
@@ -228,7 +244,7 @@ Hard invariants. Violation requires escalation, not a workaround.
 - [ ] EP-M4: Formal verification — Verus lemmas OBL-1 and OBL-2; optional
   bounded Kani harness (go/no-go).
 - [ ] EP-M5: Documentation — design §12.5, users' guide, developers' guide,
-  ADR-005; mark roadmap `11.2.1` done.
+  ADR-006; mark roadmap `11.2.1` done.
 
 ## Surprises & discoveries
 
@@ -236,18 +252,26 @@ Hard invariants. Violation requires escalation, not a workaround.
   **semantically lossy**.
   Evidence: `MstEdge.weight()` is a mutual-reachability weight;
   `CandidateEdge::new(.., distance, ..)` expects a raw distance
-  (`chutoro-core/src/mst/mod.rs`, `cpu_pipeline.rs`).
+  (`chutoro-core/src/mst/mod.rs`, `cpu_pipeline/mod.rs`).
   Impact: retaining the backbone as weighted `MstEdge` and reweighting again
   ratchets weights upward across refreshes. This plan retains the backbone as
   raw `CandidateEdge` instead. The `mst_edges` field therefore becomes
   `mst_backbone: Vec<CandidateEdge>`.
 
-- Observation: mutual-reachability weighting in the batch path is an inline
-  `.map()` closure, not a named function; `map_cpu_mst_error` and
-  `map_cpu_hierarchy_error` are private.
-  Evidence: `chutoro-core/src/cpu_pipeline.rs`.
-  Impact: extract a shared `pub(crate) mutual_reachability_weight` in
-  `cpu_pipeline.rs` and promote the two mappers to `pub(crate)`.
+- Observation: after the 2026-11-11 rebase, main already has named
+  mutual-reachability helpers, and the pipeline module has moved. (The first
+  draft saw an inline `.map()` closure in `cpu_pipeline.rs`.)
+  Evidence: `chutoro-core/src/cpu_pipeline/mod.rs` (formerly
+  `cpu_pipeline.rs`) defines private
+  `mutual_reachability_edges(source_name, &EdgeHarvest, &[f32])`, a
+  `par_iter` over `mutual_reachability_edge`, which reports an endpoint with
+  no core distance as `CpuHnswFailure` via `missing_core_distance`.
+  `map_cpu_mst_error(&MstError)` and
+  `map_cpu_hierarchy_error(&HierarchyError)` are still private and now take
+  references. `map_cpu_hnsw_error` no longer exists: #224 moved HNSW error
+  mapping to `HnswError::into_chutoro_error`.
+  Impact: promote and reuse the existing helpers instead of adding a parallel
+  one, and promote the two mappers with their current signatures.
 
 - Observation: the default `min_cluster_size` is 5.
   Evidence: `chutoro-core/src/builder.rs`; `session_builder()` is a bare
@@ -294,9 +318,10 @@ Hard invariants. Violation requires escalation, not a workaround.
 
 - Decision: Reuse existing `ChutoroError` variants; add none.
   Rationale: `EmptySource`/`InsufficientItems` cover degenerate sizes (if a
-  future decision reverts to erroring), and `CpuMstFailure` covers a
-  contiguity violation (an invalid MST node id, exactly what the Kruskal
-  machinery reports). This keeps the interface tolerance intact.
+  future decision reverts to erroring), and `CpuHnswFailure`
+  (`GRAPH_INVARIANT_VIOLATION`) covers a contiguity violation, matching the
+  batch path's missing-core-distance error (see the 2026-11-12 entry below).
+  This keeps the interface tolerance intact.
   Date/Author: 2026-07-22, planning (post expert review).
 
 - Decision: Expose a minimal `ClusteringSession::labels` accessor (returning
@@ -314,7 +339,7 @@ Hard invariants. Violation requires escalation, not a workaround.
   Rationale: HNSW node id equals the source index, and both `core_distances`
   and `extract_labels_from_mst` are indexed by that id; this matches the
   batch pipeline's assumption. The pure rebuild guards it and returns
-  `CpuMstFailure` rather than panicking on an out-of-range endpoint.
+  `CpuHnswFailure` rather than panicking (see Risks).
   Date/Author: 2026-07-22, planning.
 
 - Decision: `historical_edges` is read into the merge but not populated here.
@@ -332,18 +357,36 @@ Hard invariants. Violation requires escalation, not a workaround.
 
 - Decision: Call `parallel_kruskal_from_edges` directly instead of the
   roadmap's "construct a fresh `EdgeHarvest`" wording.
-  Rationale: the `pub(crate)` entry point at `chutoro-core/src/mst/mod.rs`
-  accepts `impl IntoIterator<Item = &CandidateEdge>` and is what the public
-  `parallel_kruskal` itself delegates to. `EdgeHarvest::from_unsorted` exists
-  to guarantee harvest ordering, but `prepare_edge_list` re-sorts by weight
-  regardless, so routing through `EdgeHarvest` adds a redundant O(E log E)
-  sort and an intermediate allocation purely to satisfy the wrapper type.
-  The observable result is identical (same validation, canonicalization,
-  sort, dedup, and union-find). The roadmap's stated intent — "run
+  Rationale: this is what the batch pipeline itself now does. Since #276
+  (main `0e43b9e`), `build_mutual_reachability_forest` calls the `pub(crate)`
+  entry point `parallel_kruskal_from_edges(node_count, &[CandidateEdge])` in
+  `chutoro-core/src/mst/mod.rs` directly, because `EdgeHarvest`'s ordering
+  sort is redundant: `prepare_edge_list` re-sorts by weight regardless. The
+  public `parallel_kruskal` delegates to the same entry point, so the
+  observable result is identical (same validation, canonicalization, sort,
+  dedup, and union-find), and the session matches the batch path rather than
+  departing from it. The roadmap's stated intent — "run
   `parallel_kruskal` over the combined set" — is met via its own internal
   entry point; recorded here because it deviates from the item's literal
   wording (see Conformance Basis).
-  Date/Author: 2026-08-16, planning (gap review).
+  Date/Author: 2026-08-16, planning (gap review); rationale updated
+  2026-11-12 after #276 landed.
+
+- Decision: Reuse the batch pipeline's mutual-reachability helpers and
+  error path for the refresh reweight and contiguity guard.
+  Rationale: main now has named, private `mutual_reachability_edges` and
+  `mutual_reachability_edge` helpers. Promoting and reusing them guarantees
+  numerical identity with batch by construction, inherits the per-endpoint
+  missing-core-distance check, and avoids a second copy of the formula. Only
+  the scalar `distance.max(core_source).max(core_target)` is factored out as
+  a private `mutual_reachability_weight`, so OBL-1 and the OBL-6 mutation
+  check have a small, named target. The contiguity guard follows the same
+  error path (`CpuHnswFailure`, `GRAPH_INVARIANT_VIOLATION`) instead of the
+  earlier `CpuMstFailure`, so a non-contiguous session fails the same way in
+  both pipelines and is detected deterministically before Kruskal. The
+  rebuild takes a `source_name: &str` because the helpers need it for the
+  error; it stays pure.
+  Date/Author: 2026-11-12, planning (post-rebase drift review).
 
 - Decision: Dedup of the merged candidate set relies on
   `mst::prepare_edge_list`, not on any pre-merge filtering.
@@ -386,7 +429,7 @@ optimization target (out of scope here). Compare the shipped `refresh` against
 the three observable success criteria in Purpose. Before marking this plan
 `COMPLETE`, reconcile every discovery with the Conformance Basis artefacts:
 the DES-FIG3 raw-backbone refinement and the §12.4 auto-recompute wording
-must have landed in `docs/chutoro-design.md`, and ADR-005 must exist and be
+must have landed in `docs/chutoro-design.md`, and ADR-006 must exist and be
 referenced from the design document.
 
 ## Context and orientation
@@ -401,8 +444,8 @@ The reader needs no prior plans. Relevant facts, with full paths:
     `_last_refresh_len: usize`, awaiting this item.
   - `session_impl.rs` — construction and `append` (calls
     `CpuHnsw::insert_harvesting`, extends `pending_edges`, marks
-    core-distance dirty). It already reuses
-    `crate::cpu_pipeline::map_cpu_hnsw_error` via `map_hnsw_error`.
+    core-distance dirty). Its `map_hnsw_error` wraps the adapter-owned
+    `HnswError::into_chutoro_error` (moved there by #224).
   - `core_distance.rs` — `recompute_core_distances` (incremental) and
     `recompute_core_distances_full` (batch-equivalent), plus pure helpers.
   - `config.rs` — `SessionConfig` (`min_cluster_size() -> NonZeroUsize`,
@@ -411,14 +454,16 @@ The reader needs no prior plans. Relevant facts, with full paths:
     `SessionTestSource`, `#[fixture] session_builder`, `make_session`, and
     `harvest_expected_edges`; siblings `append.rs`, `core_distance.rs`,
     `core_distance_errors.rs`, `properties.rs`, `concurrency.rs`.
-- The batch pipeline `chutoro-core/src/cpu_pipeline.rs` shows the target
-  sequence: build+harvest, per-point core distance, inline mutual-reachability
-  reweighting, `parallel_kruskal(items, &harvest)`, then
+- The batch pipeline `chutoro-core/src/cpu_pipeline/mod.rs` shows the target
+  sequence: build+harvest, per-point core distance,
+  `mutual_reachability_edges` (a `par_iter` over `mutual_reachability_edge`),
+  `parallel_kruskal_from_edges(items, &mutual_edges)`, then
   `extract_labels_from_mst(items, forest.edges(),
-  HierarchyConfig::new(mcs))`. It also defines the crate-internal error
-  mapper `map_cpu_hnsw_error` (`pub(crate)`) plus `map_cpu_mst_error` and
-  `map_cpu_hierarchy_error`, which are currently **private** and must be
-  promoted to `pub(crate)` for `refresh` to reuse them.
+  HierarchyConfig::new(mcs))`. Its error mappers
+  `map_cpu_mst_error(&MstError)` and
+  `map_cpu_hierarchy_error(&HierarchyError)` are currently **private** and
+  must be promoted to `pub(crate)` for `refresh` to reuse them. HNSW errors
+  map through `HnswError::into_chutoro_error`.
 - Primitive signatures (verified), each defined in the noted module:
 
   ```text
@@ -429,10 +474,15 @@ The reader needs no prior plans. Relevant facts, with full paths:
   // validates, canonicalizes (source <= target), sorts by weight, and dedups
   // identical (weight, source, target) triples before union-find. Note the
   // dedup lives HERE, not in EdgeHarvest, which never dedups.
-  parallel_kruskal_from_edges(node_count: usize,
-      edges: impl IntoIterator<Item = &CandidateEdge>)
+  parallel_kruskal_from_edges(node_count: usize, edges: &[CandidateEdge])
       -> Result<MinimumSpanningForest, MstError>
   MinimumSpanningForest::edges() -> &[MstEdge]
+
+  // chutoro-core/src/cpu_pipeline/mod.rs  (private today)
+  mutual_reachability_edges(source_name: &str, harvested: &EdgeHarvest,
+      core_distances: &[f32]) -> Result<Vec<CandidateEdge>>
+  mutual_reachability_edge(source_name: &str, edge: &CandidateEdge,
+      core_distances: &[f32]) -> Result<CandidateEdge>
 
   // chutoro-core/src/hierarchy/mod.rs  (returns a node_count-length vector)
   extract_labels_from_mst(node_count: usize, edges: &[MstEdge],
@@ -499,7 +549,7 @@ these identifiers:
 - **DES-FIG3** — design Figure 3, the `ClusteringSession` state sketch
   (`mst_edges: Vec<MstEdge>`).
 - ADRs: ADR-002 (Kani adoption) and ADR-003 (adapter boundaries) govern
-  verification and layering conventions. ADR-005 is authored by this plan.
+  verification and layering conventions. ADR-006 is authored by this plan.
 
 Trace links (upstream → milestone → acceptance evidence):
 
@@ -522,13 +572,14 @@ requiring the plan approver's acceptance at the approval gate):
 
 - **DES-FIG3 deviation**: `mst_edges: Vec<MstEdge>` becomes
   `mst_backbone: Vec<CandidateEdge>` (raw retention). Upstream impact:
-  Figure 3 and §12.5 step 8 wording must be updated in EP-M5; ADR-005 records
+  Figure 3 and §12.5 step 8 wording must be updated in EP-M5; ADR-006 records
   the rationale. Downstream impact: roadmap `11.2.5` retains raw non-MST
   edges against the same representation.
 - **RM-11.2.1 literal-wording deviation**: "construct a fresh `EdgeHarvest`"
   is realized via `parallel_kruskal_from_edges`, which the public wrapper
-  delegates to. No behavioural difference; roadmap text is satisfied in
-  intent. No upstream edit required.
+  delegates to and which the batch pipeline has called directly since #276.
+  No behavioural difference; roadmap text is satisfied in intent. No upstream
+  edit required.
 - **Degenerate-size behaviour**: batch `run` errors below
   `min_cluster_size`; `refresh` publishes an all-noise snapshot instead.
   Upstream impact: §12.5 gains a sentence in EP-M5 documenting warm-up
@@ -755,24 +806,29 @@ and Conformance Basis. No edits.
      lists are compared, so failures render a readable diff.
    - `googletest` matchers (`assert_that!` with `len`, `each`, `eq`,
      `matches_pattern!`) for structural claims — "every label is below the
-     cluster-count bound", "the error is `CpuMstFailure` with this code".
+     cluster-count bound", "the error is `CpuHnswFailure` with code
+     `GRAPH_INVARIANT_VIOLATION`".
    - `insta::assert_debug_snapshot!` for the deterministic single-refresh
      label vector of the fixed fixture (OBL-6); review with
      `cargo insta review`; commit the `.snap` file.
    Plain `assert!`/`assert_eq!` remains fine for trivial scalar checks;
    `prop_assert!` continues inside `proptest` blocks.
-2. Red: write the pure-function tests in
-   `chutoro-core/src/session/refresh.rs` `#[cfg(test)]` (they fail to
-   compile until the functions exist): `mutual_reachability_weight`
-   commutativity/lower-bound/idempotence cases, and `rebuild_mst_labels`
-   label length, empty and all-noise short-circuits, out-of-range endpoint
-   error, raw-backbone recovery, and OBL-7 overlap tolerance.
-3. Green: in `chutoro-core/src/cpu_pipeline.rs`, add a `pub(crate)`
+2. Red: write the pure-function tests (they fail to compile until the
+   functions exist): `mutual_reachability_weight`
+   commutativity/lower-bound/idempotence cases in
+   `chutoro-core/src/cpu_pipeline/tests/`, and, in
+   `chutoro-core/src/session/refresh.rs` `#[cfg(test)]`, `rebuild_mst_labels`
+   label length, empty and all-noise short-circuits, the non-contiguous
+   point-id error, raw-backbone recovery, and OBL-7 overlap tolerance.
+3. Green: in `chutoro-core/src/cpu_pipeline/mod.rs`, factor the formula in
+   `mutual_reachability_edge` out as a private
    `mutual_reachability_weight(distance, core_source, core_target) -> f32`
-   returning `distance.max(core_source).max(core_target)`; refactor the
-   batch path's inline `.map()` to call it (behaviour unchanged; batch tests
-   stay green); promote `map_cpu_mst_error` and `map_cpu_hierarchy_error` to
-   `pub(crate)`. Then implement the pure rebuild in
+   returning `distance.max(core_source).max(core_target)`; generalize
+   `mutual_reachability_edges` from `&EdgeHarvest` to `&[CandidateEdge]` and
+   promote it to `pub(crate)` (the batch caller passes
+   `harvested.as_slice()`; behaviour unchanged, batch tests stay green);
+   promote `map_cpu_mst_error` and `map_cpu_hierarchy_error` to `pub(crate)`
+   with their signatures unchanged. Then implement the pure rebuild in
    `chutoro-core/src/session/refresh.rs`:
 
    ```rust
@@ -782,6 +838,7 @@ and Conformance Basis. No edits.
    }
 
    pub(super) fn rebuild_mst_labels(
+       source_name: &str,                // for helper error messages
        node_count: usize,
        mst_backbone: &[CandidateEdge],   // raw, from the prior refresh
        historical_edges: &[CandidateEdge],
@@ -792,17 +849,20 @@ and Conformance Basis. No edits.
    ```
 
    `rebuild_mst_labels`:
+   - Checks `core_distances.len() == node_count` first, returning
+     `CpuHnswFailure` (`GRAPH_INVARIANT_VIOLATION`) on mismatch (no panic;
+     see Risks).
    - Short-circuits `node_count == 0` to an empty `RefreshOutcome`.
    - Short-circuits `node_count < min_cluster_size` to all-noise labels
      (`vec![0; node_count]`) and an empty backbone (a warm-up session keeps
      no structure yet).
    - Builds the combined raw `Vec<CandidateEdge>` = `mst_backbone` ++
      `historical_edges` ++ `pending_edges` (all raw).
-   - Validates every endpoint `< node_count` and `< core_distances.len()`,
-     returning `ChutoroError::CpuMstFailure` on violation (no panic).
-   - Reweights each edge with `mutual_reachability_weight`, preserving
-     `(source, target, sequence)` (OBL-2's index-preservation contract).
-   - `parallel_kruskal_from_edges(node_count, reweighted.iter())` (no
+   - Reweights with `mutual_reachability_edges(source_name, &combined,
+     core_distances)`, which preserves `(source, target, sequence)` (OBL-2's
+     index-preservation contract) and keeps its per-endpoint
+     missing-core-distance check as defence in depth.
+   - `parallel_kruskal_from_edges(node_count, &reweighted)` (no
      `EdgeHarvest` construction; see Decision Log) mapped via
      `map_cpu_mst_error`, then `extract_labels_from_mst(node_count,
      forest.edges(), HierarchyConfig::new(min_cluster_size))` mapped via
@@ -910,8 +970,9 @@ and Conformance Basis. No edits.
      (distinct-label histogram), each `describe_*`-registered in
      construction.
    - Document errors: `ChutoroError::DataSource`/`CpuHnswFailure` from the
-     core-distance recompute, and `CpuMstFailure`/`CpuHierarchyFailure` from
-     the pure rebuild.
+     core-distance recompute; from the pure rebuild, `CpuHnswFailure`
+     (`GRAPH_INVARIANT_VIOLATION`) for a non-contiguous session, and
+     `CpuMstFailure`/`CpuHierarchyFailure` for internal faults.
 3. Refactor and validate: unit, error, and BDD suites green; milestone
    gates; record the EP-M2 conformance check.
 
@@ -950,13 +1011,13 @@ harness); apply its go/no-go rule and record the outcome either way.
   behaviour.
 - `docs/developers-guide.md`: document the hexagonal split (pure
   `rebuild_mst_labels` vs the HNSW-backed core-distance adapter), the shared
-  lower-layer `mutual_reachability_weight` helper, the raw-backbone
-  retention rationale, the dedup-in-`prepare_edge_list` fact, and the
-  contiguity invariant with its `CpuMstFailure` guard.
-- `docs/adr-005-incremental-refresh-domain-boundary.md`: a Y-Statement ADR
+  lower-layer mutual-reachability helpers, the raw-backbone retention
+  rationale, the dedup-in-`prepare_edge_list` fact, and the contiguity
+  invariant with its `CpuHnswFailure` guard.
+- `docs/adr-006-incremental-refresh-domain-boundary.md`: a Y-Statement ADR
   capturing (a) the pure-domain refresh boundary, (b) raw-backbone retention
   and why weighted retention is unsound across refreshes, (c) the contiguous
-  point-id invariant and its `CpuMstFailure` guard, (d) graceful degenerate
+  point-id invariant and its `CpuHnswFailure` guard, (d) graceful degenerate
   handling diverging from batch `run`, and (e) exposing `labels()` ahead of
   `11.2.2`. Reference it from the design doc.
 - `docs/roadmap.md`: tick `11.2.1` to `[x]` once all gates pass.
@@ -970,7 +1031,7 @@ decision for all milestones: **none required** (nothing deployed, no wire or
 persisted format exists yet — session checkpointing arrives in §13).
 
 - **EP-M1 — pure domain layer.**
-  Outcome: `mutual_reachability_weight` shared by batch and (soon) session;
+  Outcome: batch mutual-reachability helpers promoted for session reuse;
   `rebuild_mst_labels` implemented and unit-tested; dev-dependencies
   adopted; session behaviour otherwise unchanged.
   Requirements: advances RM-11.2.1; discharges DES-12.4's reweight formula
@@ -979,7 +1040,7 @@ persisted format exists yet — session checkpointing arrives in §13).
   'test(refresh)'` green for the pure-fn suite; batch pipeline tests remain
   green after the DRY refactor.
   Conformance check: no public interface changed; no production dependency
-  added; helper homed in `cpu_pipeline` (layering constraint); trace links
+  added; helpers kept in `cpu_pipeline` (layering constraint); trace links
   current.
   Recovery: revert the milestone commit; nothing else depends on it yet.
   Remaining gaps: session cannot yet call the rebuild.
@@ -1026,7 +1087,7 @@ persisted format exists yet — session checkpointing arrives in §13).
 
 - **EP-M5 — documentation.**
   Outcome: design §12.4/§12.5/Figure 3 updated; users' and developers'
-  guides updated; ADR-005 authored and referenced; roadmap ticked.
+  guides updated; ADR-006 authored and referenced; roadmap ticked.
   Requirements: closes the DES-FIG3 and degenerate-behaviour deviations by
   landing their upstream edits; completes RM-11.2.1.
   Acceptance evidence: `make markdownlint` and `make nixie` green; roadmap
@@ -1140,16 +1201,18 @@ OBL-2, and the OBL-8 outcome (runtime or drop decision).
 At the end of this work the following must exist in `chutoro-core`:
 
 ```rust
-// chutoro-core/src/cpu_pipeline.rs
-pub(crate) fn mutual_reachability_weight(
+// chutoro-core/src/cpu_pipeline/mod.rs
+// Existing helper, generalized from &EdgeHarvest to a slice and promoted:
+pub(crate) fn mutual_reachability_edges(
+    source_name: &str, edges: &[CandidateEdge], core_distances: &[f32],
+) -> Result<Vec<CandidateEdge>>;
+// Scalar formula factored out of mutual_reachability_edge (stays private):
+fn mutual_reachability_weight(
     distance: f32, core_source: f32, core_target: f32,
 ) -> f32;
-// map_cpu_mst_error and map_cpu_hierarchy_error promoted from private to
-// pub(crate) so session/refresh.rs can reuse them:
-pub(crate) fn map_cpu_mst_error(error: MstError) -> ChutoroError;
-pub(crate) fn map_cpu_hierarchy_error(
-    error: HierarchyError,
-) -> ChutoroError;
+// Existing mappers promoted from private to pub(crate), signatures unchanged:
+pub(crate) fn map_cpu_mst_error(error: &MstError) -> ChutoroError;
+pub(crate) fn map_cpu_hierarchy_error(error: &HierarchyError) -> ChutoroError;
 
 // chutoro-core/src/session/refresh.rs
 pub(super) struct RefreshOutcome {
@@ -1157,6 +1220,7 @@ pub(super) struct RefreshOutcome {
     pub mst_backbone: Vec<CandidateEdge>,
 }
 pub(super) fn rebuild_mst_labels(
+    source_name: &str,
     node_count: usize,
     mst_backbone: &[CandidateEdge],
     historical_edges: &[CandidateEdge],
@@ -1173,7 +1237,8 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 ```
 
 Reused (unchanged) symbols: `crate::mst::parallel_kruskal_from_edges`
-(`pub(crate)`, the refresh path's Kruskal entry point),
+(`pub(crate)`, the Kruskal entry point of both the batch path and refresh),
+`HnswError::into_chutoro_error`,
 `crate::HierarchyConfig`, `crate::extract_labels_from_mst`, `crate::MstEdge`,
 `crate::CandidateEdge`, `crate::adjusted_rand_index`. Internal change: the
 session's `mst_edges` field becomes `mst_backbone: Vec<CandidateEdge>`. New
@@ -1226,3 +1291,24 @@ recovery paths, and an explicit no-compatibility-machinery decision;
 (4) added the `Artefacts and notes` section as the destination for mutation
 and proof transcripts. No design or scope decisions changed; the plan still
 awaits approval before implementation.
+
+Revised 2026-11-12 after rebasing onto main `14f1829`, to remove drift from
+code that landed meanwhile. Changes: (1) path references now use
+`chutoro-core/src/cpu_pipeline/mod.rs`, since the pipeline became a directory
+module; (2) `map_cpu_mst_error` and `map_cpu_hierarchy_error` are promoted
+with their current `&MstError`/`&HierarchyError` signatures, and the removed
+`map_cpu_hnsw_error` is replaced by the adapter-owned
+`HnswError::into_chutoro_error` (#224); (3) the refresh reweight reuses
+main's existing `mutual_reachability_edges`/`mutual_reachability_edge`
+helpers, factoring out only the private scalar `mutual_reachability_weight`
+as the proof and mutation target, and `rebuild_mst_labels` gains a
+`source_name` parameter for their errors; (4) the contiguity guard becomes an
+O(1) `core_distances.len() == node_count` check reporting `CpuHnswFailure`
+(`GRAPH_INVARIANT_VIOLATION`), matching the batch path's missing-core-distance
+error and staying deterministic ahead of Kruskal (#206); (5) the
+`parallel_kruskal_from_edges` decision now cites #276, which moved the batch
+path onto the same entry point, and records its `&[CandidateEdge]`
+signature; (6) the plan's ADR is renumbered ADR-006
+(`docs/adr-006-incremental-refresh-domain-boundary.md`), because #289 took
+ADR-005 for the Cranelift development route. No scope change; the plan still
+awaits approval.
