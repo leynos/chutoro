@@ -2406,14 +2406,118 @@ pipeline is described in
 
 ## Verus proofs
 
-Verus is used for formal verification of edge harvest primitives. Run proofs via
-`make verus`, which delegates to the pinned `rust-prover-tools` package.
-Installation is idempotent: it probes for the installed executable first and
-otherwise downloads the pinned release archive recorded in
-`tools/verus/VERSION` and verifies it against `tools/verus/SHA256SUMS`. Verus
-accepts one input filename per invocation, so the target passes each proof file
-in turn, in order, stopping at the first failure. Add a proof by naming it in
-`VERUS_PROOF_FILES` or by extending the default list in the `verus` target.
+Verus is used for formal verification of edge harvest primitives and session
+core-distance logic, in `verus/edge_harvest_proofs.rs` and
+`verus/session_core_distance.rs`. Run proofs via `make verus`, which delegates
+to the pinned `rust-prover-tools` package. Installation is idempotent: it
+probes for the installed executable first and otherwise downloads the pinned
+release archive recorded in `tools/verus/VERSION` and verifies it against
+`tools/verus/SHA256SUMS`. Verus accepts one input filename per invocation, so
+the target passes each proof file in turn, in order, stopping at the first
+failure. Add a proof by naming it in `VERUS_PROOF_FILES` or by extending the
+default list in the `verus` target. Continuous integration verifies a new proof
+only if it is in that default list or is a module of a selected root.
+
+### Choosing a verification tool
+
+Verus, Kani and `proptest` answer different questions, and they cost the
+repository different amounts at review time. The distinction that matters is
+not which tool is stronger but what each one actually checks and what runs
+before a merge.
+
+| Tool       | CI execution                                                                  | Proof selection                                                | Standing pull-request cost                        | What it checks                                          |
+| ---------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------- |
+| Verus      | Every pull request (`ci.yml`, no path filter)                                 | Default `VERUS_PROOF_FILES` roots in the `Makefile`            | Every pull request, for the lifetime of the proof | A specification model transcribed from production logic |
+| Kani       | Path-filtered pull requests to `main` (`kani-pr.yml`); nightly full suite     | Six harnesses in `make kani`; package list in `make kani-full` | Only when a path filter matches                   | Executable Rust under `cfg(kani)`                       |
+| `proptest` | Path-filtered pull requests to `main` (`property-tests.yml`); weekly deep run | Test targets in the property suites                            | Only when a path filter matches                   | Shipped code at realistic sizes                         |
+
+*Table 1: Verification tools, what each checks, and what it costs at review
+time.*
+
+Verus runs on every pull request. The `verus-proofs` job in `ci.yml` has no
+path filter, so an opened, synchronized or reopened pull request pays for it
+whether or not the change touches a proof. Each selected root adds latency to
+every pull request for the lifetime of the proof. The `.verus` cache in that
+job reduces the installation cost but does not remove it: a cache miss
+downloads and verifies the pinned release again.
+
+Kani is narrower. `make kani` runs six curated harnesses, and the path-filtered
+`kani-pr.yml` workflow runs it only for pull requests to `main` that touch a
+harness, its production module, the `Makefile` or the Cargo dependency graph. A
+new harness reaches that gate only if it matches a path filter and is named in
+the `make kani` list. Otherwise it runs only in the nightly `make kani-full`
+sweep, and only if its package is in that target's package list; the dataset
+crate is not. The nightly job can also skip with a green result when its
+commit-recency gate finds no recent `main` commits. See
+[Kani CI policy](#kani-ci-policy) for the tier details.
+
+`proptest` runs in the path-filtered `property-tests.yml` workflow described
+under [Continuous integration](#continuous-integration). It samples shipped
+code at realistic sizes and shrinks a failing case, but it does not cover every
+input.
+
+These are configured pull-request checks intended as gates. Which of them a
+merge actually requires is decided by GitHub branch protection or rulesets, not
+by the workflow files.
+
+#### The drift hazard in transcribed proofs
+
+Verus proofs under `verus/` are standalone transcriptions of production logic
+into specification types. `verus/edge_harvest_proofs.rs` opens with
+`pub type NodeId = nat;`, and `verus/session_core_distance.rs` mirrors
+`session::core_distance::core_distance_from_neighbours` as a spec function.
+Nothing at build level links a proof to `src/`, and no equivalence check
+compares the two. If the implementation drifts, the proof stays green and
+nothing reports the divergence.
+
+That hazard is acceptable for stable arithmetic or algebraic properties, where
+the transcription is the whole content of the claim. It is costly for logic
+expected to change, because the proof then certifies a model that no longer
+matches the code. Production-side tests mitigate it only for the cases they
+cover: `chutoro-core/src/hnsw/tests/edge_harvest/coverage.rs` and
+`chutoro-core/src/session/tests/core_distance.rs` exercise the shipped
+functions, but they are evidence about tested cases, not a proof of equivalence.
+
+`#[cfg(kani)]` models carry the same hazard. The
+[Kani CI policy](#kani-ci-policy) requires exhaustive finite-state equivalence
+tests for every such model, and
+`chutoro-core/src/mst/tests/kani_model_equivalence.rs` is the worked example:
+it enumerates every edge subset of the complete graph on one to four nodes
+under several weight assignments and both subset encodings. That is bounded
+evidence over enumerated cases, not a general equivalence proof.
+
+#### A selection heuristic
+
+- Use Kani for bounded state spaces and for arithmetic or overflow checks on
+  executable Rust. Prefer a harness over production code; when a `#[cfg(kani)]`
+  model is unavoidable, require the equivalence tests the
+  [Kani CI policy](#kani-ci-policy) mandates.
+- Use Verus for stable unbounded or nonlinear properties that will not drift,
+  and weigh the per-pull-request cost of each new selected root before adding
+  one.
+- Use `proptest` when the property must be checked against shipped code at
+  realistic sizes. It samples rather than covers all inputs, so it cannot
+  establish a universal claim.
+
+Roadmap item 10.1.2 (PR #199) applied this rule to three candidate proofs:
+
+- A `Path::join` containment lemma was rejected. It would have proved a theorem
+  about a handwritten model of `Path::join`, which Verus does not model, so the
+  proof would not have constrained the shipped path handling.
+- A resume-sequence lemma was rejected. It would have rigorously proved the
+  easy induction step while assuming the `Content-Range` parser, where the
+  actual risk lives. A `proptest` state machine exercising the real functions
+  replaced it.
+- A jitter bound, `(sample × span) >> 64 ≤ span`, was retained. It is stable,
+  nonlinear and unbounded in both operands: `proptest` cannot sample it and
+  Kani cannot prove it.
+
+The heuristic selects a tool; it does not relax the obligations. Every new
+invariant still requires a `proptest` or Kani check, and every new lemma or
+contractual business rule still requires a substantive Verus proof. One tool
+does not substitute for another. See
+[ADR 002 § Complementary Testing Strategy](adr-002-adoption-of-kani-formal-verification.md#complementary-testing-strategy)
+for the normative rationale.
 
 ### Quantifier trigger annotations
 
