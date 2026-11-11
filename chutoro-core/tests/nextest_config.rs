@@ -134,6 +134,16 @@ fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
         "ci",
         [
             "filter = \"test(/hnsw_idempotency_preserved_proptest/)\"",
+            "threads-required = 8",
+            BENCH_SLOW_TIMEOUT,
+        ]
+    );
+
+    assert_override_present!(
+        "default",
+        [
+            "filter = \"test(/hnsw_idempotency_preserved_proptest/)\"",
+            "threads-required = 8",
             BENCH_SLOW_TIMEOUT,
         ]
     );
