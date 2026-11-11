@@ -25,6 +25,7 @@ from dev_fast_make_support import (
     _cargo_invocations,
     _make_output,
     _mutated_makefile,
+    _nextest_filter_expression,
 )
 from dev_fast_rustflags_support import _assert_test_rustflags
 from rust_declaration_reading import declared_in_module
@@ -40,21 +41,6 @@ TEST_HELPERS_PATH = (
 POISONED_LOCK_TEST = (
     "hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring"
 )
-
-
-def _nextest_filter_expression(output: str) -> str:
-    """Return the filter expression of the single development nextest run."""
-    invocations = [
-        (line, tokens)
-        for line, tokens in _cargo_invocations(output)
-        if "nextest" in tokens
-    ]
-    assert len(invocations) == 1, (
-        f"expected one development nextest invocation, found {invocations!r}"
-    )
-    _, tokens = invocations[0]
-    filter_index = tokens.index("-E")
-    return tokens[filter_index + 1]
 
 
 def test_development_test_excludes_only_the_poisoned_lock_regression() -> None:

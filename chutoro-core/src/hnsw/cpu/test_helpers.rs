@@ -114,10 +114,12 @@ impl Drop for WriteGraphMarkerGuard {
 mod tests {
     //! Regression coverage for the fallible graph helpers.
     //!
-    //! These cases deliberately poison the graph lock, which means they panic
-    //! inside `catch_unwind`. The opt-in Cranelift development route cannot
-    //! unwind that panic at all, so `dev-test` excludes this exact case and the
-    //! stable test gate is the one that runs it.
+    //! The poisoning case deliberately panics inside `catch_unwind`. The opt-in
+    //! Cranelift development route cannot unwind that panic at all, so
+    //! `dev-test` excludes that exact case and the stable test gate is the one
+    //! that runs it. The successful case stays in the development route: it
+    //! proves the replacement is applied, which is what makes the poisoning
+    //! case's preservation assertions mean something.
 
     use std::num::NonZeroUsize;
     use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -126,6 +128,7 @@ mod tests {
     use rand::RngCore as _;
 
     use super::*;
+    use crate::hnsw::cpu::rng::mix_worker_seed;
 
     /// Poisons the graph lock by panicking while its write guard is alive.
     fn poison_graph_lock(index: &CpuHnsw) {
@@ -265,6 +268,89 @@ mod tests {
                 .next_u64(),
             expected_worker.next_u64(),
             "failed reconfiguration must not rebuild the worker generators",
+        );
+    }
+
+    /// Replaces every derived structure of a healthy index.
+    ///
+    /// The poisoning case asserts that a refused swap changes nothing. That
+    /// assertion is only meaningful if a *permitted* swap changes everything,
+    /// which is what this case measures: without it, a `reconfigure_for_test`
+    /// that acquired the lock and then returned early would satisfy the
+    /// regression while silently leaving `make dev-test` testing stale state.
+    ///
+    /// The graph is checked through its own parameter copy as well as the
+    /// index field, because the two are set at different points of the helper
+    /// and a partial swap could update one without the other.
+    #[test]
+    fn reconfigure_replaces_parameters_generators_and_cache() {
+        let params = HnswParams::new(2, 4).expect("initial parameters must be valid");
+        let mut index = CpuHnsw::with_capacity(params.clone(), 3).expect("index must initialize");
+        let (mut expected_fallback, mut expected_worker) = advance_generators_and_cache(&mut index);
+
+        let replacement = distinguishable(&params);
+        index
+            .reconfigure_for_test(replacement.clone())
+            .expect("an unpoisoned index must accept new parameters");
+
+        assert_eq!(
+            index.params, replacement,
+            "reconfiguration must adopt the new parameters",
+        );
+        index
+            .inspect_graph(|graph| {
+                assert_eq!(
+                    graph.params(),
+                    &replacement,
+                    "reconfiguration must hand the new parameters to the graph",
+                );
+            })
+            .expect("graph inspection must succeed");
+
+        // The generators now continue from the replacement seed rather than
+        // from where the advance left them. One draw from each live generator
+        // is compared both ways, so the assertion needs no assumption about how
+        // far the replacement sequences have advanced and consumes exactly the
+        // state it inspects.
+        let mut replacement_fallback = SmallRng::seed_from_u64(replacement.rng_seed());
+        let mut replacement_worker =
+            SmallRng::seed_from_u64(mix_worker_seed(replacement.rng_seed(), 0));
+        let fallback_draw = index.rng.lock().expect("generator lock").next_u64();
+        assert_eq!(
+            fallback_draw,
+            replacement_fallback.next_u64(),
+            "the fallback generator must resume from the replacement seed",
+        );
+        assert_ne!(
+            fallback_draw,
+            expected_fallback.next_u64(),
+            "reconfiguration must replace the fallback generator, not continue it",
+        );
+        let worker_draw = index
+            .worker_rngs
+            .first()
+            .expect("a built index holds worker generators")
+            .lock()
+            .expect("worker generator lock")
+            .next_u64();
+        assert_eq!(
+            worker_draw,
+            replacement_worker.next_u64(),
+            "reconfiguration must rebuild the worker generators from the new seed",
+        );
+        assert_ne!(
+            worker_draw,
+            expected_worker.next_u64(),
+            "reconfiguration must not leave the worker generators where they were",
+        );
+
+        let metric = crate::MetricDescriptor::new("test-helpers");
+        assert!(
+            matches!(
+                index.distance_cache.begin_lookup(&metric, 0, 1),
+                crate::hnsw::distance_cache::LookupOutcome::Miss(_)
+            ),
+            "reconfiguration must replace the distance cache",
         );
     }
 }

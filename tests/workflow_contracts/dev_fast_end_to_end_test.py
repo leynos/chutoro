@@ -33,7 +33,12 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from dev_fast_make_support import MAKEFILE_PATH, _skip_unless_pin_installed
+from dev_fast_make_support import (
+    MAKEFILE_PATH,
+    _make_output,
+    _nextest_filter_expression,
+    _skip_unless_pin_installed,
+)
 from dev_fast_probe_support import (
     CRANELIFT_ARGUMENT,
     PROBE_CRATE,
@@ -125,7 +130,7 @@ def test_dev_test_runs_the_suite_through_the_pinned_toolchain(
     The compiler arguments are checked too, because nextest reporting a pass
     says nothing about which backend compiled the test.
 
-    ``filter_expression`` supplies the probe-shaped filter: the production one
+    ``RecipeOverrides`` supplies the probe-shaped filter: the production one
     scopes its exclusion with ``package(chutoro-core)``, and nextest rejects a
     ``package(...)`` naming nothing in the tree, so ``dev-test`` would fail
     before the recipe's own plumbing was exercised.
@@ -137,8 +142,7 @@ def test_dev_test_runs_the_suite_through_the_pinned_toolchain(
         directory,
         probe_environment(directory, tmp_path / "home"),
         "dev-test",
-        build_jobs="--cargo-verbose",
-        filter_expression=PROBE_FILTER,
+        {"BUILD_JOBS": "--cargo-verbose", "DEV_TEST_FILTER": PROBE_FILTER},
     )
 
     assert completed.returncode == 0, (
@@ -349,34 +353,12 @@ def test_listing_parse_reports_test_names(listing: str, expected: set[str]) -> N
 def dev_test_filter() -> str:
     """Return the filter expression ``make dev-test`` really passes to nextest.
 
-    This is a dry run, so it is cheap enough to keep outside the opt-in gate.
-    The expression it reads is the same one the real recipe builds.
+    The tokenizing helpers are shared with the routing suite rather than
+    re-derived here: both suites read the same Makefile, and a second parser
+    could disagree with the first on a recipe that gained another ``-E``.
     """
-    completed = subprocess.run(
-        [
-            "make",
-            "--no-print-directory",
-            "--file",
-            "Makefile",
-            "--dry-run",
-            "--always-make",
-            "DEV_FAST_HOST_OS=Linux",
-            "dev-test",
-        ],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert completed.returncode == 0, completed.stderr
-    marker = "-E '"
-    start = completed.stdout.find(marker)
-    assert start != -1, f"dev-test must pass -E: {completed.stdout}"
-    start += len(marker)
-    end = completed.stdout.find("'", start)
-    assert end != -1, f"dev-test filter is unterminated: {completed.stdout}"
-    return completed.stdout[start:end]
+    output = _make_output("dev-test", overrides=("DEV_FAST_HOST_OS=Linux",))
+    return _nextest_filter_expression(output)
 
 
 @requires_repository_selection

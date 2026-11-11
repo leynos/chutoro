@@ -74,6 +74,28 @@ def _cargo_invocations(output: str) -> list[tuple[str, list[str]]]:
     return invocations
 
 
+def _nextest_filter_expression(output: str) -> str:
+    """Return the filter expression of the single development nextest run.
+
+    It reads the evaluated recipe rather than the Makefile text, so a variable
+    that expands to the filter is followed to its final value. Exactly one
+    nextest invocation is required: the development target runs the suite
+    once, and a second run would leave this helper choosing between two
+    expressions without saying which the assertion measured.
+    """
+    invocations = [
+        (line, tokens)
+        for line, tokens in _cargo_invocations(output)
+        if "nextest" in tokens
+    ]
+    assert len(invocations) == 1, (
+        f"expected one development nextest invocation, found {invocations!r}"
+    )
+    _, tokens = invocations[0]
+    filter_index = tokens.index("-E")
+    return tokens[filter_index + 1]
+
+
 def _pinned_toolchain() -> str:
     """Return the toolchain channel pinned for the development route."""
     toolchain = DEV_FAST_TOOLCHAIN_PATH.read_text(encoding="utf-8").strip()

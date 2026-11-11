@@ -1163,6 +1163,13 @@ parameters differ from the active ones in every field, which keeps that
 comparison from passing vacuously. This is the one case
 [the development route](#rust-toolchain-and-build-routing) cannot run.
 
+Its companion, `reconfigure_replaces_parameters_generators_and_cache`, performs
+the swap the poisoned case refuses and measures that every derived structure
+moved. A preservation assertion alone is satisfied by a helper that acquires
+the lock and returns early, which would leave `make dev-test` building against
+stale state; the pair states both halves of the boundary. The companion stays
+in the development route, because it induces no panic for Cranelift to unwind.
+
 ### Test-only budget types
 
 `chutoro-core/src/hnsw/tests/property/test_runner_support/budget_types.rs`
@@ -1242,6 +1249,13 @@ and runs both targets against a small probe crate built by
 `dev_fast_probe_support.py`, asserting that `dev-build` produces a binary rustc
 compiled with Cranelift and that `dev-test` runs and passes the probe's suite
 through nextest.
+
+A recipe's make variables reach the probe as one mapping, not as a parameter
+each, and the filter expression is read by the one tokenizing helper in
+`dev_fast_make_support.py`. Both points exist for the same reason: several
+suites read the same Makefile, and a second parser or a per-variable parameter
+would eventually disagree with the first, on a recipe that gained another `-E`
+or a caller that forgot to forward a value.
 
 `dev_fast_linker_prefix_test.py` covers the other half of the install. Every
 other installer contract sets `MOLD_INSTALL_PREFIX`, so none of them exercises
