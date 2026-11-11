@@ -181,14 +181,21 @@ fn delete_node_reverts_when_it_would_disconnect_graph(
     );
 }
 
-/// Verifies the graph fixture returns the parameter error it was handed.
+/// Verifies the graph fixture returns each parameter error it was handed.
 ///
 /// The fixtures are shared setup, so a failure has to arrive at the test as a
 /// typed error. Returning it unchanged is what lets a caller decide whether to
-/// propagate or report the failure.
+/// propagate or report the failure. Several distinct errors are compared, so a
+/// fixture that special-cases one variant or rewrites a reason is caught.
 #[rstest]
-fn small_graph_returns_the_parameter_error_it_was_given() {
-    let expected = HnswError::EmptyBuild;
+#[case(HnswError::EmptyBuild)]
+#[case(HnswError::InvalidParameters {
+    reason: String::from("max_connections must be at least 2"),
+})]
+#[case(HnswError::InvalidParameters {
+    reason: String::from("ef_construction must exceed max_connections"),
+})]
+fn small_graph_returns_the_parameter_error_it_was_given(#[case] expected: HnswError) {
     let result = small_graph(Err(expected.clone()));
 
     assert_eq!(
