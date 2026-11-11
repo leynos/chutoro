@@ -172,7 +172,7 @@ def test_the_installer_places_a_default_prefix_tree_the_linker_loads(
     selected = link_log.read_text(encoding="utf-8").split()
     assert selected and set(selected) == {str(installed_linker)}, (
         "every link must resolve the developer's installed ld.mold, not the "
-        f"host's; expected only {str(installed_linker)}, got {selected!r}"
+        f"host's; expected only {installed_linker!s}, got {selected!r}"
     )
     binary = directory / "target" / "debug" / PROBE_CRATE
     assert binary.is_file(), f"the recipe produced no artifact at {binary}"

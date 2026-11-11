@@ -30,11 +30,11 @@ from dev_fast_probe_support import (
     PROBE_GREETING,
     assert_probe_inputs_are_real,
     crate_compilations,
+    harness_compilations,
     linker_missing_reason,
     nextest_missing_reason,
     probe_environment,
     run_development_target,
-    harness_compilations,
     write_probe_repository,
 )
 

@@ -18,14 +18,13 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-
 from dev_fast_make_support import (
     REPO_ROOT,
     ComponentProbeError,
-    _has_cranelift_backend,
     _pinned_toolchain,
 )
 
@@ -83,15 +82,32 @@ TOOLCHAIN_PROBE_CALL = (
 )
 
 
+@dataclass(frozen=True)
+class Scenario:
+    """One provisioning state for the stand-in ``rustup`` to report.
+
+    These travel together because a case always describes a single host: a
+    component listing, whether each listing succeeds, and which probe reads
+    them. Separate keyword arguments left the helper with five parameters and
+    made a case that varied only one of them read as though it varied several.
+    """
+
+    #: What ``rustup component list`` prints.
+    components: str
+    #: The exit status of ``rustup component list``; non-zero is a broken probe.
+    component_status: int = 0
+    #: The exit status of ``rustup toolchain list``; non-zero is a broken probe.
+    toolchain_status: int = 0
+    #: The probe source the child interpreter runs, so a toolchain-only
+    #: scenario reaches ``_installed_toolchains`` rather than the component
+    #: check that imports beside it.
+    source: str = PROBE_CALL
+
+
 def _with_stand_in_rustup(
-    tmp_path: Path,
-    *,
-    components: str,
-    component_status: int = 0,
-    toolchain_status: int = 0,
-    source: str = PROBE_CALL,
+    tmp_path: Path, scenario: Scenario
 ) -> subprocess.CompletedProcess[str]:
-    """Run a probe against a stand-in whose toolchain listing is scripted."""
+    """Run a probe against a stand-in whose listings the scenario scripts."""
     binary_directory = tmp_path / "bin"
     binary_directory.mkdir(parents=True, exist_ok=True)
     rustup = binary_directory / "rustup"
@@ -104,9 +120,9 @@ def _with_stand_in_rustup(
         # interpreter finds only if the suite directory is on its path.
         "PYTHONPATH": str(Path(__file__).resolve().parent),
         "STUB_TOOLCHAINS": f"{toolchain}-x86_64-unknown-linux-gnu (default)",
-        "STUB_COMPONENTS": components,
-        "STUB_COMPONENT_STATUS": str(component_status),
-        "STUB_TOOLCHAIN_STATUS": str(toolchain_status),
+        "STUB_COMPONENTS": scenario.components,
+        "STUB_COMPONENT_STATUS": str(scenario.component_status),
+        "STUB_TOOLCHAIN_STATUS": str(scenario.toolchain_status),
     }
     return subprocess.run(
         [
@@ -116,7 +132,7 @@ def _with_stand_in_rustup(
             # which has no site-packages of its own.
             sys.executable,
             "-c",
-            source,
+            scenario.source,
         ],
         cwd=REPO_ROOT,
         env=environment,
@@ -132,7 +148,9 @@ def test_the_cranelift_probe_accepts_a_provisioned_toolchain(tmp_path: Path) -> 
     Without this side, a probe that always answered ``False`` would skip every
     execution-level suite on a developer host and still look correct.
     """
-    completed = _with_stand_in_rustup(tmp_path, components=PROVISIONED_COMPONENTS)
+    completed = _with_stand_in_rustup(
+        tmp_path, Scenario(components=PROVISIONED_COMPONENTS)
+    )
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == "True", (
@@ -150,7 +168,9 @@ def test_the_cranelift_probe_rejects_the_component_set_ci_installs(
     a toolchain-only probe passes and the build then fails with "failed to
     find a ``codegen-backends`` folder". The probe has to see the difference.
     """
-    completed = _with_stand_in_rustup(tmp_path, components=UNPROVISIONED_COMPONENTS)
+    completed = _with_stand_in_rustup(
+        tmp_path, Scenario(components=UNPROVISIONED_COMPONENTS)
+    )
 
     assert completed.returncode == 0, completed.stderr
     assert completed.stdout.strip() == "False", (
@@ -171,7 +191,7 @@ def test_the_cranelift_probe_is_not_fooled_by_a_longer_component_name(
     """
     completed = _with_stand_in_rustup(
         tmp_path,
-        components="rustc-codegen-craneliftx-x86_64-unknown-linux-gnu",
+        Scenario(components="rustc-codegen-craneliftx-x86_64-unknown-linux-gnu"),
     )
 
     assert completed.returncode == 0, completed.stderr
@@ -192,7 +212,8 @@ def test_a_failed_component_listing_raises_rather_than_reporting_absence(
     means the probe or rustup is broken and the caller must say so.
     """
     completed = _with_stand_in_rustup(
-        tmp_path, components=UNPROVISIONED_COMPONENTS, component_status=1
+        tmp_path,
+        Scenario(components=UNPROVISIONED_COMPONENTS, component_status=1),
     )
 
     assert completed.returncode != 0, (
@@ -208,7 +229,8 @@ def test_a_failed_component_listing_raises_rather_than_reporting_absence(
 def test_an_unreadable_listing_is_reported_as_a_probe_error(tmp_path: Path) -> None:
     """The raised type must carry the toolchain and the reason it could not read."""
     completed = _with_stand_in_rustup(
-        tmp_path, components=UNPROVISIONED_COMPONENTS, component_status=1
+        tmp_path,
+        Scenario(components=UNPROVISIONED_COMPONENTS, component_status=1),
     )
 
     assert completed.returncode != 0, completed.stdout
@@ -230,9 +252,11 @@ def test_a_failed_toolchain_listing_raises_rather_than_skipping(
     """
     completed = _with_stand_in_rustup(
         tmp_path,
-        components=PROVISIONED_COMPONENTS,
-        toolchain_status=1,
-        source=TOOLCHAIN_PROBE_CALL,
+        Scenario(
+            components=PROVISIONED_COMPONENTS,
+            toolchain_status=1,
+            source=TOOLCHAIN_PROBE_CALL,
+        ),
     )
 
     assert completed.returncode != 0, (
