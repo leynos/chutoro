@@ -1132,6 +1132,25 @@ contract installs with the default prefix and links the probe with a failing
 the shim to stop the build. Together they show the export is load-bearing
 rather than decorative.
 
+A successful build alone would not show which linker produced it, and the
+fixture's archive carries a version-reporting stand-in that links nothing. The
+first contract therefore replaces that stand-in after the install with a proxy
+that records the path it was invoked through and then delegates to the host's
+real `ld.mold`. The record is what lets the contract assert that every link
+resolved the installed tree, and the delegation is what lets it run the binary
+that came out. Writing the proxy after the install keeps the installer's own
+prefix and pin verification under test, rather than bypassing them with a
+hand-made prefix.
+
+The end-to-end contracts select their compiler evidence the same way they
+select the fragment: by name. Matching the whole of nextest's stderr for
+`codegen-backend=cranelift` would also accept the flag on an unrelated crate or
+in nextest's own prose. `crate_compilations` selects the `rustc` lines Cargo
+printed for the probe crate, and `harness_compilations` narrows that to the one
+carrying Cargo's `--test` marker, so `dev-test` asserts on the invocation that
+compiled the test harness rather than on the build that happened to share its
+crate name.
+
 The contracts that need the pinned nightly skip when it is not provisioned,
 because `make install-dev-fast` is the route that installs it and a test must
 not provision or reach the network. The contracts that compile or link check
@@ -1149,11 +1168,16 @@ the linker rather than skipping, so those cases check for it too. Testing with
 `shutil.which` rather than a fixed path keeps a developer who installed the
 linker elsewhere in the route.
 
-The probes distinguish an absent component from an unreadable component list.
-Only a listing that succeeded can say the backend is missing; a rustup that
-cannot answer raises `ComponentProbeError` at the test boundary, because a
-broken listing is a defect in the probe or the host rather than a developer who
-has not provisioned the route.
+The probes distinguish an absent listing from one that could not be read, and
+the rule is the same for both. No rustup at all means the host never claimed
+the route, so its cases skip. A rustup that is present and answers with a
+failure is a broken probe, because the guard can no longer tell "not
+provisioned" from "probe broken": skipping there would let a provisioned host
+pass the whole suite without exercising the development route. The toolchain
+and component listings therefore answer `None` only for absent rustup, and raise
+`ToolchainProbeError` or `ComponentProbeError` at the test boundary for a
+failed one. Only a listing that succeeded can say a toolchain or component is
+missing.
 
 ### Installer flags are only wrong where the tool parses them
 

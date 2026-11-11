@@ -26,11 +26,15 @@ import pytest
 from dev_fast_make_support import _skip_unless_pin_installed
 from dev_fast_probe_support import (
     CRANELIFT_ARGUMENT,
+    PROBE_CRATE,
+    PROBE_GREETING,
     assert_probe_inputs_are_real,
+    crate_compilations,
     linker_missing_reason,
     nextest_missing_reason,
     probe_environment,
     run_development_target,
+    harness_compilations,
     write_probe_repository,
 )
 
@@ -74,14 +78,19 @@ def test_dev_build_compiles_and_links_the_probe_with_cranelift(tmp_path: Path) -
     assert completed.returncode == 0, (
         f"dev-build failed on a minimal crate:\n{completed.stdout}\n{completed.stderr}"
     )
-    assert CRANELIFT_ARGUMENT in completed.stderr, (
-        "dev-build must hand the fragment's Cranelift backend to rustc; got:\n"
+    compiled = crate_compilations(completed.stderr, PROBE_CRATE)
+    assert compiled, (
+        "dev-build must print the rustc invocation it ran for the probe; got:\n"
         f"{completed.stderr}"
     )
-    binary = directory / "target" / "debug" / "devprobe"
+    assert all(CRANELIFT_ARGUMENT in line for line in compiled), (
+        "every probe compilation must carry the fragment's Cranelift backend; "
+        f"got {compiled!r}"
+    )
+    binary = directory / "target" / "debug" / PROBE_CRATE
     assert binary.is_file(), f"dev-build produced no binary at {binary}"
     ran = subprocess.run([str(binary)], check=False, capture_output=True, text=True)
-    assert ran.stdout.strip() == "devprobe ok", (
+    assert ran.stdout.strip() == PROBE_GREETING, (
         f"the development binary must run: {ran.returncode} {ran.stdout!r}"
     )
 
@@ -112,9 +121,14 @@ def test_dev_test_runs_the_suite_through_the_pinned_toolchain(
     assert completed.returncode == 0, (
         f"dev-test failed on a minimal crate:\n{completed.stdout}\n{completed.stderr}"
     )
-    assert CRANELIFT_ARGUMENT in completed.stderr, (
-        "dev-test must compile the probe's test with the fragment's Cranelift "
-        f"backend, not only run it; got:\n{completed.stderr}"
+    harnesses = harness_compilations(completed.stderr, PROBE_CRATE)
+    assert harnesses, (
+        "dev-test must print the rustc invocation that built the probe's test "
+        f"harness; got:\n{completed.stderr}"
+    )
+    assert all(CRANELIFT_ARGUMENT in line for line in harnesses), (
+        "the probe's test harness must be compiled with the fragment's "
+        f"Cranelift backend, not only run; got {harnesses!r}"
     )
     assert "the_route_runs_tests" in completed.stderr, (
         f"dev-test must report the probe's test by name; got:\n{completed.stderr}"
@@ -137,7 +151,7 @@ def test_a_missing_backend_argument_is_detectable_in_the_probe_output(
     environment = probe_environment(directory, tmp_path / "home")
 
     built = subprocess.run(
-        ["cargo", "build", "--bin", "devprobe", "--verbose"],
+        ["cargo", "build", "--bin", PROBE_CRATE, "--verbose"],
         cwd=directory,
         check=False,
         capture_output=True,

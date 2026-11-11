@@ -81,18 +81,32 @@ def _pinned_toolchain() -> str:
     return toolchain
 
 
+class ProbeError(RuntimeError):
+    """A rustup listing could not be read, so its answer is unknown."""
+
+
+class ToolchainProbeError(ProbeError):
+    """The toolchain listing could not be read, so its answer is unknown."""
+
+
+class ComponentProbeError(ProbeError):
+    """The component listing could not be read, so its answer is unknown."""
+
+
 def _installed_toolchains() -> set[str] | None:
-    """Return the toolchain names rustup reports, or ``None`` if it failed.
+    """Return the toolchain names rustup reports, or ``None`` without rustup.
 
     ``rustup toolchain list`` prints one name per line, usually with a host
     triple appended and optionally a ``(default)`` or ``(active)`` marker.
     Splitting each line on whitespace keeps the name and drops the marker, so
     callers can compare names rather than substrings.
 
-    A host without rustup at all has no installed toolchains, which is the
-    same answer as a rustup that ran and failed. Both must report ``None``
-    rather than raise, or the skip guard would turn an absent toolchain into
-    an error.
+    An absent ``rustup`` is a host that has not provisioned the route at all,
+    so it answers ``None`` and the caller skips. A listing that ran and failed
+    is different: the host has rustup, so the guard cannot tell "not
+    provisioned" from "probe broken", and answering ``None`` would let a
+    provisioned host pass the whole suite without exercising the
+    development route. That case raises :class:`ToolchainProbeError` instead.
     """
     try:
         listed = subprocess.run(
@@ -105,7 +119,9 @@ def _installed_toolchains() -> set[str] | None:
     except FileNotFoundError:
         return None
     if listed.returncode != 0:
-        return None
+        raise ToolchainProbeError(
+            f"rustup could not list its toolchains: {listed.stderr.strip()}"
+        )
     return {
         fields[0] for fields in map(str.split, listed.stdout.splitlines()) if fields
     }
@@ -128,10 +144,6 @@ def _is_toolchain_installed(toolchain: str, installed: set[str]) -> bool:
     return any(
         name == toolchain or name.startswith(f"{toolchain}-") for name in installed
     )
-
-
-class ComponentProbeError(RuntimeError):
-    """The component listing could not be read, so its answer is unknown."""
 
 
 def _installed_components(toolchain: str) -> tuple[str, ...]:
@@ -200,10 +212,12 @@ def _skip_unless_pin_installed(reason: str, *, needs_cranelift: bool = False) ->
     toolchain-only guard would run the build and then fail on the missing
     backend. Callers that only read configuration leave it ``False``.
 
-    A listing that cannot be read is not a skip: the host claims the toolchain
-    is installed, so an unreadable component list is a defect in the probe or
-    in rustup, and :class:`ComponentProbeError` reaches the test boundary with
-    that fact rather than being reported as an unprovisioned host.
+    Only an absent rustup is a skip. A listing that ran and failed is not:
+    the host has rustup, so the guard cannot tell "not provisioned" from
+    "probe broken", and reporting it as an unprovisioned host would let a
+    provisioned one pass without exercising the route. Either listing raises
+    its own probe error (:class:`ToolchainProbeError` or
+    :class:`ComponentProbeError`) so the test boundary sees the difference.
     """
     toolchain = _pinned_toolchain()
     installed = _installed_toolchains()

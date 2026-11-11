@@ -10,8 +10,8 @@ the build then dies on the missing Cranelift codegen component.
 These contracts drive the probes against a stand-in ``rustup`` so every
 provisioning state is stated without needing a real toolchain, and without
 asking the host's own rustup anything. The stand-in reports what the scenario
-describes, including failure, so a probe that cannot distinguish an absent
-component from an unreadable listing is visible here.
+describes, including a failure of either listing, so a probe that cannot tell
+an absent toolchain or component from an unreadable listing is visible here.
 """
 
 from __future__ import annotations
@@ -31,12 +31,20 @@ from dev_fast_make_support import (
 
 #: A ``rustup`` that answers ``toolchain list`` and ``component list`` from a
 #: scenario described by environment variables, so one script covers every
-#: provisioning state. ``STUB_COMPONENT_STATUS`` lets a scenario fail the
-#: component listing while the toolchain itself still looks installed.
+#: provisioning state. ``STUB_TOOLCHAIN_STATUS`` and ``STUB_COMPONENT_STATUS``
+#: let a scenario fail either listing while the other still answers, which is
+#: how a provisioned host with a broken probe is told apart from an
+#: unprovisioned one.
 RUSTUP_STAND_IN = """#!/usr/bin/env bash
 case "${1:-}" in
   toolchain)
-    printf '%b\\n' "${STUB_TOOLCHAINS:-}"
+    status="${STUB_TOOLCHAIN_STATUS:-0}"
+    if [ "$status" = 0 ]; then
+      printf '%b\\n' "${STUB_TOOLCHAINS:-}"
+    else
+      printf 'error: no toolchain directory\\n' >&2
+    fi
+    exit "$status"
     ;;
   component)
     printf '%b\\n' "${STUB_COMPONENTS:-}"
@@ -67,11 +75,23 @@ PROBE_CALL = (
     "print(_has_cranelift_backend(_pinned_toolchain()))"
 )
 
+#: The same, asking only for the toolchain listing, so a scenario that fails
+#: that listing reaches the toolchain probe rather than the component probe.
+TOOLCHAIN_PROBE_CALL = (
+    "from dev_fast_make_support import _installed_toolchains; "
+    "print(_installed_toolchains())"
+)
+
 
 def _with_stand_in_rustup(
-    tmp_path: Path, *, components: str, component_status: int = 0
+    tmp_path: Path,
+    *,
+    components: str,
+    component_status: int = 0,
+    toolchain_status: int = 0,
+    source: str = PROBE_CALL,
 ) -> subprocess.CompletedProcess[str]:
-    """Run the Cranelift probe against a stand-in whose toolchain is present."""
+    """Run a probe against a stand-in whose toolchain listing is scripted."""
     binary_directory = tmp_path / "bin"
     binary_directory.mkdir(parents=True, exist_ok=True)
     rustup = binary_directory / "rustup"
@@ -86,6 +106,7 @@ def _with_stand_in_rustup(
         "STUB_TOOLCHAINS": f"{toolchain}-x86_64-unknown-linux-gnu (default)",
         "STUB_COMPONENTS": components,
         "STUB_COMPONENT_STATUS": str(component_status),
+        "STUB_TOOLCHAIN_STATUS": str(toolchain_status),
     }
     return subprocess.run(
         [
@@ -95,7 +116,7 @@ def _with_stand_in_rustup(
             # which has no site-packages of its own.
             sys.executable,
             "-c",
-            PROBE_CALL,
+            source,
         ],
         cwd=REPO_ROOT,
         env=environment,
@@ -194,6 +215,63 @@ def test_an_unreadable_listing_is_reported_as_a_probe_error(tmp_path: Path) -> N
     assert _pinned_toolchain() in completed.stderr, (
         "the error must name the toolchain whose components could not be read; "
         f"got {completed.stderr!r}"
+    )
+
+
+def test_a_failed_toolchain_listing_raises_rather_than_skipping(
+    tmp_path: Path,
+) -> None:
+    """A listing that ran and failed must not be reported as unprovisioned.
+
+    The guard skips when rustup is absent, which is correct: the host never
+    claimed to be provisioned. A rustup that is present and cannot list its
+    toolchains is a broken probe, and skipping there would let a provisioned
+    host pass the whole suite without exercising the development route.
+    """
+    completed = _with_stand_in_rustup(
+        tmp_path,
+        components=PROVISIONED_COMPONENTS,
+        toolchain_status=1,
+        source=TOOLCHAIN_PROBE_CALL,
+    )
+
+    assert completed.returncode != 0, (
+        "a failed toolchain listing must not answer as an absent toolchain; "
+        f"got {completed.stdout!r}"
+    )
+    assert "ToolchainProbeError" in completed.stderr, (
+        "the failure must name the toolchain probe error at the test boundary; "
+        f"got {completed.stderr!r}"
+    )
+
+
+def test_the_toolchain_probe_reports_an_absent_rustup_as_none(
+    tmp_path: Path,
+) -> None:
+    """Absent rustup is a skip, so it must answer ``None`` and not raise.
+
+    This is the other half of the pair above: a host without rustup has
+    simply not provisioned the route, and turning that into an error would
+    fail every contract on a machine that never claimed to support it.
+    """
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    completed = subprocess.run(
+        [sys.executable, "-c", TOOLCHAIN_PROBE_CALL],
+        cwd=REPO_ROOT,
+        env={
+            "PATH": str(empty),
+            "PYTHONPATH": str(Path(__file__).resolve().parent),
+        },
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout.strip() == "None", (
+        "an absent rustup must answer None so the caller skips; got "
+        f"{completed.stdout!r}"
     )
 
 

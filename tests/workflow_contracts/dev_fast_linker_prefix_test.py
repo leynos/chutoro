@@ -9,10 +9,14 @@ mold the host happened to provide.
 
 Two contracts pin each half. The first installs with the default prefix and
 links a real crate, proving the installed tree is one the linker route
-accepts. The second is its control: with the ``PATH`` line removed and a
-failing ``ld.mold`` ahead of the host's own, the same build must not reach the
-installed binary. Without that control the first contract would pass on a
-host that already had a working mold anywhere else.
+accepts. It replaces the fixture's version-reporting ``ld.mold`` with a proxy
+that records its call and then runs the host's real linker, so the build
+produces a runnable artifact and the contract can read which path ``gcc``
+selected rather than infer it from a success. The second is its control: with
+the ``PATH`` line removed and a failing ``ld.mold`` ahead of the host's own,
+the same build must not reach the installed binary. Without that control the
+first contract would pass on a host that already had a working mold anywhere
+else.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -27,6 +31,8 @@ from pathlib import Path
 import pytest
 from dev_fast_make_support import MAKEFILE_PATH, _skip_unless_pin_installed
 from dev_fast_probe_support import (
+    PROBE_CRATE,
+    PROBE_GREETING,
     probe_environment,
     run_development_target,
     write_probe_repository,
@@ -53,6 +59,24 @@ fi
 exit 1
 """
 
+#: An ``ld.mold`` that records the path it was invoked through and then hands
+#: the link to the host's real linker. The installed archive carries a
+#: version-reporting stand-in that links nothing, so a build using it would
+#: report success without producing an artifact. Recording before the handoff
+#: lets the contract read which ``ld.mold`` the link resolved, and delegating
+#: lets it check the artifact that came out.
+LINKER_PROXY = """#!/usr/bin/env bash
+printf '%s\\n' "$0" >> __LOG__
+exec __REAL__ "$@"
+"""
+
+
+def _host_linker() -> Path | None:
+    """Return the host's own ``ld.mold``, which the proxy delegates to."""
+    found = shutil.which("ld.mold")
+    return Path(found) if found is not None else None
+
+
 def _mold_installable() -> bool:
     """Report whether this host can build and run the probe's Cranelift route."""
     return shutil.which("gcc") is not None
@@ -67,6 +91,22 @@ def _poisoned_path(directory: Path, log: Path) -> Path:
     return directory
 
 
+def _recording_proxy(path: Path, log: Path, real_linker: Path) -> None:
+    """Replace an installed ``ld.mold`` with one that records and delegates.
+
+    The installer verifies the binaries it stages, so the proxy is written
+    after the install rather than served in the archive. It keeps the
+    installer's own prefixes and pins under test, and turns the compile into
+    a read of which ``ld.mold`` the recipe actually selected.
+    """
+    body = (
+        LINKER_PROXY.replace("__LOG__", str(log))
+        .replace("__REAL__", str(real_linker))
+    )
+    path.write_text(body, encoding="utf-8")
+    path.chmod(0o755)
+
+
 def test_the_installer_places_a_default_prefix_tree_the_linker_loads(
     tmp_path: Path,
 ) -> None:
@@ -77,9 +117,20 @@ def test_the_installer_places_a_default_prefix_tree_the_linker_loads(
     private home is what joins those two halves: the install proves the
     default prefix is populated, and the build proves the exported ``PATH``
     is what the linker consults.
+
+    Two things stop a bare success from meaning anything. A host may already
+    carry a working mold, so a failing shim ahead of everything makes the
+    success depend on the export. And the fixture's installed ``ld.mold`` is
+    a stand-in that links nothing, so a build reaching it could still report
+    success without an artifact; the proxy therefore records the path the
+    link resolved and delegates to the host's real linker, and the contract
+    reads both the record and the binary it produced.
     """
     if not _mold_installable():
         pytest.skip("the linker route needs gcc, which this host does not provide")
+    real_linker = _host_linker()
+    if real_linker is None:
+        pytest.skip("the linker route needs ld.mold, which this host does not provide")
     _skip_unless_pin_installed(
         "the linker route links with the pinned nightly", needs_cranelift=True
     )
@@ -88,9 +139,13 @@ def test_the_installer_places_a_default_prefix_tree_the_linker_loads(
     installed = installer.install()
 
     assert installed.returncode == 0, installed.stderr
-    assert (installer.prefix / "bin" / "ld.mold").is_file(), (
+    installed_linker = installer.prefix / "bin" / "ld.mold"
+    assert installed_linker.is_file(), (
         f"the default prefix must hold ld.mold: {installer.prefix}"
     )
+    link_log = tmp_path / "link-log"
+    _recording_proxy(installed_linker, link_log, real_linker)
+
     # A host may already carry a working mold, so a bare success would not
     # show that the installed one was the linker consulted. The failing shim
     # ahead of everything makes the success depend on the export: it pushes
@@ -113,6 +168,18 @@ def test_the_installer_places_a_default_prefix_tree_the_linker_loads(
     assert not poison_log.exists(), (
         "the failing shim must never be consulted; the exported prefix has "
         f"to come first on PATH:\n{poison_log.read_text(encoding='utf-8')}"
+    )
+    selected = link_log.read_text(encoding="utf-8").split()
+    assert selected and set(selected) == {str(installed_linker)}, (
+        "every link must resolve the developer's installed ld.mold, not the "
+        f"host's; expected only {str(installed_linker)}, got {selected!r}"
+    )
+    binary = directory / "target" / "debug" / PROBE_CRATE
+    assert binary.is_file(), f"the recipe produced no artifact at {binary}"
+    ran = subprocess.run([str(binary)], check=False, capture_output=True, text=True)
+    assert ran.stdout.strip() == PROBE_GREETING, (
+        "the artifact the installed linker produced must run: "
+        f"{ran.returncode} {ran.stdout!r} {ran.stderr!r}"
     )
 
 

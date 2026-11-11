@@ -28,18 +28,28 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 #: subject is the Make recipe, not the crate, and a tiny tree keeps the
 #: compiles inside a test-sized budget. The empty ``[workspace]`` stops the
 #: probe joining the checkout's workspace if it is ever written inside it.
-PROBE_MANIFEST = """\
+#: The crate name is a constant because callers select its compiler lines out
+#: of Cargo's verbose output by that name.
+PROBE_CRATE = "devprobe"
+
+PROBE_MANIFEST = f"""\
 [package]
-name = "devprobe"
+name = "{PROBE_CRATE}"
 version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "devprobe"
+name = "{PROBE_CRATE}"
 path = "src/main.rs"
 
 [workspace]
 """
+
+#: What the probe binary prints, so a caller can tell an artifact this route
+#: produced from one that merely appeared at the expected path. It matches
+#: :data:`PROBE_CRATE` because the source below is written as a plain literal;
+#: the assertion in ``assert_probe_inputs_are_real`` keeps the two in step.
+PROBE_GREETING = f"{PROBE_CRATE} ok"
 
 PROBE_MAIN = """\
 //! Minimal probe crate for the development route.
@@ -73,6 +83,12 @@ PROBE_INPUTS = (
 #: reaches rustc. It appears only in a verbose build, so callers pass
 #: ``--verbose`` through ``BUILD_JOBS`` rather than re-deriving the route.
 CRANELIFT_ARGUMENT = "codegen-backend=cranelift"
+
+#: The marker Cargo puts on a ``rustc`` invocation for a test target. The
+#: development routes build a binary and a test harness from the same crate,
+#: and only a line carrying this marker shows that the *test* was compiled
+#: with the fragment rather than merely linked from a shared build.
+TEST_HARNESS_MARKER = "--test"
 
 
 def write_probe_repository(directory: Path) -> Path:
@@ -170,7 +186,7 @@ def run_development_target(
             "--file",
             str(directory / "Makefile"),
             target,
-            "APP=devprobe",
+            f"APP={PROBE_CRATE}",
             f"BUILD_JOBS={build_jobs}",
         ],
         cwd=directory,
@@ -181,17 +197,74 @@ def run_development_target(
     )
 
 
+def crate_compilations(stderr: str, crate: str) -> list[str]:
+    """Return the ``rustc`` command lines Cargo ran for ``crate``.
+
+    Cargo prints each compiler invocation as ``Running `... rustc ...``` on
+    standard error when verbose, and nextest prefixes those lines with its own
+    run output. Matching the whole stream for a flag would also accept one
+    that appeared on an unrelated crate or in nextest's prose, so the lines
+    are selected by crate name and returned for a caller to inspect.
+
+    >>> crate_compilations("  Running `rustc --crate-name probe`", "probe")
+    ['Running `rustc --crate-name probe`']
+    >>> crate_compilations("  Running `rustc --crate-name other`", "probe")
+    []
+    """
+    return [
+        line.strip()
+        for line in stderr.splitlines()
+        if "rustc" in line and f"--crate-name {crate}" in line
+    ]
+
+
+def harness_compilations(stderr: str, crate: str) -> list[str]:
+    """Return the subset of compiler lines that built a test harness.
+
+    A crate compiled both as a binary and as its test harness produces two
+    lines carrying the same crate name, so the caller asserting on the test
+    build has to select the one with Cargo's test marker.
+
+    >>> lines = ["rustc --crate-name p src/main.rs", "rustc --crate-name p --test"]
+    >>> harness_compilations("\\n".join(lines), "p")[0].endswith("--test")
+    True
+    """
+    return [
+        line for line in crate_compilations(stderr, crate) if _has_test_marker(line)
+    ]
+
+
+def _has_test_marker(line: str) -> bool:
+    """Report whether a compiler line builds the crate's test harness.
+
+    The check is per token because ``--test`` is bare: a path or a
+    ``--test-args`` flag inside the same line would satisfy a substring test
+    without being Cargo's marker.
+    """
+    return TEST_HARNESS_MARKER in line.split()
+
+
 def assert_probe_inputs_are_real() -> None:
     """Require each copied input to exist and still be read by the Makefile.
 
     The list is checked rather than trusted because the Makefile gains
     parse-time reads over time, and a stale list would let a probe pass with
-    a pin no developer has.
+    a pin no developer has. The greeting is checked against the crate name for
+    the same reason: an assertion reading one while the binary prints the other
+    would fail as though the route were broken.
     """
     for relative in PROBE_INPUTS:
         assert (REPO_ROOT / relative).is_file(), (
             f"the probe copies {relative}, which the repository does not ship"
         )
+    assert f'println!("{PROBE_GREETING}")' in PROBE_MAIN, (
+        f"the probe source must print {PROBE_GREETING!r}, the greeting its "
+        "callers assert on"
+    )
+    assert f'name = "{PROBE_CRATE}"' in PROBE_MANIFEST, (
+        f"the probe manifest must name the crate {PROBE_CRATE!r}, which is how "
+        "callers select its compiler lines"
+    )
 
 
 def nextest_missing_reason() -> str | None:
