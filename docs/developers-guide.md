@@ -1152,6 +1152,11 @@ The same run against a copy of the Makefile with the export removed must find
 no linker, which is what shows the first answer came from the export rather
 than from the host.
 
+That contract asks for no compiler, and the installer unpacks a prebuilt
+archive, so nothing in it needs `gcc`. Gating it on one would restore exactly
+the skip it exists to remove; the only tool it requires is `make`, and the clean
+`PATH` it runs under asserts that much.
+
 The end-to-end contracts select their compiler evidence the same way they
 select the fragment: by name. Matching the whole of nextest's stderr for
 `codegen-backend=cranelift` would also accept the flag on an unrelated crate or

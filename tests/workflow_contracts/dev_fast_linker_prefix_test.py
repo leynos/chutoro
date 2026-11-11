@@ -318,9 +318,12 @@ def test_the_real_dev_build_recipe_resolves_the_installed_linker(
     resolves answers the same question through the real recipe on any host.
     Running it again with the export removed must then find no linker, or the
     first answer came from the host rather than from the installed tree.
+
+    Nothing here compiles, and the installer unpacks a prebuilt archive, so
+    this contract asks for no compiler either: gating it on ``gcc`` would
+    reintroduce the skip it exists to remove. Only ``make`` has to be present,
+    and ``_clean_binary_directory`` asserts that much.
     """
-    if not _mold_installable():
-        pytest.skip("the installer needs gcc, which this host does not provide")
     installer = prepare(tmp_path, default_prefix=True, request=_linux_request())
     installed = installer.install()
     assert installed.returncode == 0, installed.stderr
