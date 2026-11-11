@@ -1473,8 +1473,10 @@ example on a crate-private item cannot be a doctest at all; cover it with a
 unit test in the owning module instead, as the `score_trim_jobs` unit test does.
 `tests/workflow_contracts/doctest_gate_test.py` pins that wiring: it fails if
 the target loses a flag, if `make test` stops running it, if CI drops the step,
-or if an ignored doctest reappears under the CPU HNSW sources. It also runs the
-real target against a scratch workspace holding a passing and a failing
+or if an ignored doctest reappears under the CPU HNSW sources. That scan covers
+only `chutoro-core/src/hnsw/cpu`; other HNSW modules, such as `insert` and
+`types`, still hold ignored examples that the gate does not check. It also runs
+the real target against a scratch workspace holding a passing and a failing
 example, through the standalone target, through `make test`, and through the
 command the CI `Doctests` step declares. A gate that skipped or tolerated a
 broken example would therefore fail the contract rather than pass it; the

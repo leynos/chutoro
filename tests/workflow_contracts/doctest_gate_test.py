@@ -255,8 +255,8 @@ def _write_doctest_fixture(root: Path, lib_source: str) -> Path:
     return root / "Cargo.toml"
 
 
-def _cargo_wrapper(root: Path, manifest: Path) -> Path:
-    """Write a `cargo` shim that runs the subcommand in *manifest*'s workspace.
+def _cargo_wrapper(root: Path) -> Path:
+    """Write a `cargo` shim that runs the subcommand in the manifest's workspace.
 
     `--manifest-path` belongs to the subcommand, so it cannot be appended to
     the `CARGO` value the recipe expands before `test`. The shim inserts it
@@ -289,7 +289,7 @@ def _run_make(target: str, manifest: Path) -> subprocess.CompletedProcess[str]:
     """Run *target* against the fixture workspace."""
     make = shutil.which("make")
     assert make, "the doctest gate test needs make"
-    wrapper = _cargo_wrapper(manifest.parent, manifest)
+    wrapper = _cargo_wrapper(manifest.parent)
     return subprocess.run(  # noqa: S603 - fixed argv, no shell
         [
             make,
@@ -304,32 +304,31 @@ def _run_make(target: str, manifest: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_the_target_runs_a_passing_doctest(tmp_path: Path) -> None:
-    """A compiling example must be executed, not skipped."""
-    result = _run_make("test-doc", _write_doctest_fixture(tmp_path, _fixture_source(42)))
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "test result: ok" in result.stdout
-
-
-def test_the_target_fails_a_failing_doctest(tmp_path: Path) -> None:
-    """A failing example must fail the target, or the gate is advisory."""
-    result = _run_make("test-doc", _write_doctest_fixture(tmp_path, _fixture_source(41)))
-    assert result.returncode != 0, result.stdout + result.stderr
-    assert "test result: FAILED" in result.stdout
-
-
-def test_make_test_passes_when_the_doctest_passes(tmp_path: Path) -> None:
-    """The local entry point must succeed when the example does."""
-    result = _run_make("test", _write_doctest_fixture(tmp_path, _fixture_source(42)))
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "test result: ok" in result.stdout
-
-
-def test_make_test_fails_when_the_doctest_fails(tmp_path: Path) -> None:
-    """A broken example must fail `make test`, not only the bare target."""
-    result = _run_make("test", _write_doctest_fixture(tmp_path, _fixture_source(41)))
-    assert result.returncode != 0, result.stdout + result.stderr
-    assert "test result: FAILED" in result.stdout
+@pytest.mark.parametrize(
+    ("target", "expected", "should_pass", "marker"),
+    [
+        # The standalone target stands in for the CI step's command.
+        ("test-doc", 42, True, "test result: ok"),
+        ("test-doc", 41, False, "test result: FAILED"),
+        # `make test` is the local entry point that runs nextest first.
+        ("test", 42, True, "test result: ok"),
+        ("test", 41, False, "test result: FAILED"),
+    ],
+)
+def test_every_entry_point_propagates_the_doctest_outcome(
+    tmp_path: Path,
+    target: str,
+    expected: int,
+    should_pass: bool,
+    marker: str,
+) -> None:
+    """A broken example must fail each entry point, not only the bare target."""
+    result = _run_make(target, _write_doctest_fixture(tmp_path, _fixture_source(expected)))
+    if should_pass:
+        assert result.returncode == 0, result.stdout + result.stderr
+    else:
+        assert result.returncode != 0, result.stdout + result.stderr
+    assert marker in result.stdout
 
 
 def _ci_doctest_command() -> list[str]:
