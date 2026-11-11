@@ -1166,10 +1166,13 @@ worth keeping them apart:
 - The test runner needs the Python environment `make test-workflow-contracts`
   provides.
 
-The compiler is absent from all three. Hiding `gcc` alone is enough to show
-that, which is how the contract was verified: with a `PATH` holding those tools
-and no `gcc`, `shutil.which("gcc")` reports `None` and the contract passes
-rather than skipping.
+Nothing in that route requires a compiler. Only the first of the three `PATH`s
+is free of one, though: the installer and the test runner inherit the
+developer's environment, which may well carry `gcc`. What the contract
+establishes is that no compiler is needed, and that was checked by running it
+with `gcc` hidden from the pytest process: `shutil.which("gcc")` reported
+`None` there, and the contract passed rather than skipping. That is a condition
+of the verification run, not a claim that every run is compiler-free.
 
 The end-to-end contracts select their compiler evidence the same way they
 select the fragment: by name. Matching the whole of nextest's stderr for
