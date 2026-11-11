@@ -253,6 +253,36 @@ def test_test_flag_assertion_rejects_a_missing_development_exclusion(
         _assert_development_exclusion(expression)
 
 
+@pytest.mark.parametrize(
+    "extra",
+    (
+        pytest.param("-E 'all()'", id="short-form-separated"),
+        pytest.param("-Eall()", id="short-form-attached"),
+        pytest.param("--filterset 'all()'", id="long-form-separated"),
+        pytest.param("--filterset=all()", id="long-form-attached"),
+    ),
+)
+def test_additional_nextest_filter_is_rejected(tmp_path: Path, extra: str) -> None:
+    """A second filter argument must be reported, not silently accepted.
+
+    Nextest does not treat a repeated filter as an override: it unions the
+    expressions, so a recipe that appended `-E 'all()'` would run every case
+    the development filter excludes, including the poisoned-lock regression
+    that aborts under Cranelift. A parser reading only the first `-E` would
+    keep reporting the intended exclusion while the real run reselected it.
+    """
+    makefile = _mutated_makefile(
+        tmp_path,
+        "-E '$(DEV_TEST_FILTER)'",
+        f"-E '$(DEV_TEST_FILTER)' {extra}",
+    )
+    output = _make_output(
+        "dev-test", makefile=makefile, overrides=("DEV_FAST_HOST_OS=Linux",)
+    )
+    with pytest.raises(AssertionError, match="exactly one nextest filter"):
+        _nextest_filter_expression(output)
+
+
 def test_exclusion_assertion_rejects_an_unclosed_filter_group(
     tmp_path: Path,
 ) -> None:

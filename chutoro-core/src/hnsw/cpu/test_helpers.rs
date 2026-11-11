@@ -126,6 +126,7 @@ mod tests {
     use std::time::Duration;
 
     use rand::RngCore as _;
+    use rayon::ThreadPoolBuilder;
 
     use super::*;
     use crate::hnsw::cpu::rng::mix_worker_seed;
@@ -144,7 +145,39 @@ mod tests {
         assert!(poisoned.is_err(), "the poisoning panic must have unwound");
     }
 
-    /// Advances both generators and caches one distance, returning copies of
+    /// The Rayon width these tests build their indexes under.
+    ///
+    /// More than one worker is the point rather than a convenience. A
+    /// per-worker generator is only observable at index one and above, so a
+    /// single-worker index would let a rebuild that replaced worker zero and
+    /// left the rest untouched pass as a full replacement.
+    const TEST_WORKER_THREADS: usize = 4;
+
+    /// Runs `f` against an index built inside a pool of
+    /// [`TEST_WORKER_THREADS`] Rayon workers.
+    ///
+    /// `with_capacity` sizes the per-worker generators by the pool that is
+    /// current when it runs, so the index has to be built inside `install`.
+    /// Building it outside would size the generators from whatever pool the
+    /// test harness happens to have and make the worker count unknowable.
+    fn with_workers<R: Send>(f: impl FnOnce(&mut CpuHnsw) -> R + Send) -> R {
+        let pool = ThreadPoolBuilder::new()
+            .num_threads(TEST_WORKER_THREADS)
+            .build()
+            .expect("a multi-worker Rayon pool must build");
+        pool.install(|| {
+            let params = HnswParams::new(2, 4).expect("initial parameters must be valid");
+            let mut index = CpuHnsw::with_capacity(params, 3).expect("index must initialize");
+            assert!(
+                index.worker_rngs.len() > 1,
+                "the checks below cover per-worker generators, so the pool must \
+                 produce more than one",
+            );
+            f(&mut index)
+        })
+    }
+
+    /// Advances every generator and caches one distance, returning copies of
     /// the generators as they now stand.
     ///
     /// A preserved generator is only meaningful if it had already progressed:
@@ -152,19 +185,23 @@ mod tests {
     /// reconfiguration had rebuilt them from the seed. The returned copies are
     /// the expected continuation, so the check after the failure is a real
     /// state comparison rather than a second independent draw.
-    fn advance_generators_and_cache(index: &mut CpuHnsw) -> (SmallRng, SmallRng) {
+    ///
+    /// Every worker generator is advanced and returned, not just the first, so
+    /// the checks that follow cover each of them.
+    fn advance_generators_and_cache(index: &mut CpuHnsw) -> (SmallRng, Vec<SmallRng>) {
         index
             .rng
             .lock()
             .expect("fresh generator lock must be available")
             .next_u64();
-        index
-            .worker_rngs
-            .first()
-            .expect("a built index holds worker generators")
-            .lock()
-            .expect("fresh worker generator lock must be available")
-            .next_u64();
+        let mut workers = Vec::with_capacity(index.worker_rngs.len());
+        for generator in &index.worker_rngs {
+            let mut generator = generator
+                .lock()
+                .expect("fresh worker generator lock must be available");
+            generator.next_u64();
+            workers.push(generator.clone());
+        }
 
         let metric = crate::MetricDescriptor::new("test-helpers");
         let miss = match index.distance_cache.begin_lookup(&metric, 0, 1) {
@@ -179,14 +216,7 @@ mod tests {
             .expect("the distance is finite");
 
         let fallback = index.rng.lock().expect("generator lock").clone();
-        let worker = index
-            .worker_rngs
-            .first()
-            .expect("a built index holds worker generators")
-            .lock()
-            .expect("worker generator lock")
-            .clone();
-        (fallback, worker)
+        (fallback, workers)
     }
 
     /// Returns a parameter set whose every field differs from `params`.
@@ -209,66 +239,64 @@ mod tests {
 
     #[test]
     fn graph_helpers_report_poisoning_without_reconfiguring() {
-        let params = HnswParams::new(2, 4).expect("initial parameters must be valid");
-        let mut index = CpuHnsw::with_capacity(params.clone(), 3).expect("index must initialize");
-        let (mut expected_fallback, mut expected_worker) = advance_generators_and_cache(&mut index);
+        with_workers(|index| {
+            let params = index.params.clone();
+            let (mut expected_fallback, mut expected_workers) = advance_generators_and_cache(index);
 
-        poison_graph_lock(&index);
+            poison_graph_lock(index);
 
-        assert!(
-            matches!(
-                index.inspect_graph(|_| ()),
-                Err(HnswError::LockPoisoned { resource: "graph" })
-            ),
-            "inspection must report the poisoned graph lock",
-        );
+            assert!(
+                matches!(
+                    index.inspect_graph(|_| ()),
+                    Err(HnswError::LockPoisoned { resource: "graph" })
+                ),
+                "inspection must report the poisoned graph lock",
+            );
 
-        let replacement = distinguishable(&params);
-        assert_ne!(
-            replacement, params,
-            "the replacement must differ in every field, or this proves nothing",
-        );
-        assert!(
-            matches!(
-                index.reconfigure_for_test(replacement),
-                Err(HnswError::LockPoisoned { resource: "graph" })
-            ),
-            "reconfiguration must report the poisoned graph lock",
-        );
-        // Whole-struct equality covers the seed and the cache configuration
-        // as well as the two widths.
-        assert_eq!(
-            index.params, params,
-            "failed reconfiguration must retain the active parameters",
-        );
-        // The cache kept its distance, and the generators resume from exactly
-        // where the advance left them: these are the draws that would have
-        // followed it, which a generator rebuilt from `params` would not
-        // reproduce. `reconfigure_for_test` would have replaced all three.
-        let metric = crate::MetricDescriptor::new("test-helpers");
-        assert!(
-            matches!(
-                index.distance_cache.begin_lookup(&metric, 0, 1),
-                crate::hnsw::distance_cache::LookupOutcome::Hit(_)
-            ),
-            "failed reconfiguration must retain the cached distance",
-        );
-        assert_eq!(
-            index.rng.lock().expect("generator lock").next_u64(),
-            expected_fallback.next_u64(),
-            "failed reconfiguration must not rebuild the fallback generator",
-        );
-        assert_eq!(
-            index
-                .worker_rngs
-                .first()
-                .expect("a built index holds worker generators")
-                .lock()
-                .expect("worker generator lock")
-                .next_u64(),
-            expected_worker.next_u64(),
-            "failed reconfiguration must not rebuild the worker generators",
-        );
+            let replacement = distinguishable(&params);
+            assert_ne!(
+                replacement, params,
+                "the replacement must differ in every field, or this proves nothing",
+            );
+            assert!(
+                matches!(
+                    index.reconfigure_for_test(replacement),
+                    Err(HnswError::LockPoisoned { resource: "graph" })
+                ),
+                "reconfiguration must report the poisoned graph lock",
+            );
+            // Whole-struct equality covers the seed and the cache configuration
+            // as well as the two widths.
+            assert_eq!(
+                index.params, params,
+                "failed reconfiguration must retain the active parameters",
+            );
+            // The cache kept its distance, and the generators resume from
+            // exactly where the advance left them: these are the draws that
+            // would have followed it, which a generator rebuilt from `params`
+            // would not reproduce. `reconfigure_for_test` would have replaced
+            // every generator after this point.
+            let metric = crate::MetricDescriptor::new("test-helpers");
+            assert!(
+                matches!(
+                    index.distance_cache.begin_lookup(&metric, 0, 1),
+                    crate::hnsw::distance_cache::LookupOutcome::Hit(_)
+                ),
+                "failed reconfiguration must retain the cached distance",
+            );
+            assert_eq!(
+                index.rng.lock().expect("generator lock").next_u64(),
+                expected_fallback.next_u64(),
+                "failed reconfiguration must not rebuild the fallback generator",
+            );
+            for (worker, expected) in index.worker_rngs.iter().zip(&mut expected_workers) {
+                assert_eq!(
+                    worker.lock().expect("worker generator lock").next_u64(),
+                    expected.next_u64(),
+                    "failed reconfiguration must not rebuild any worker generator",
+                );
+            }
+        });
     }
 
     /// Replaces every derived structure of a healthy index.
@@ -284,73 +312,79 @@ mod tests {
     /// and a partial swap could update one without the other.
     #[test]
     fn reconfigure_replaces_parameters_generators_and_cache() {
-        let params = HnswParams::new(2, 4).expect("initial parameters must be valid");
-        let mut index = CpuHnsw::with_capacity(params.clone(), 3).expect("index must initialize");
-        let (mut expected_fallback, mut expected_worker) = advance_generators_and_cache(&mut index);
+        with_workers(|index| {
+            let params = index.params.clone();
+            let (mut expected_fallback, mut expected_workers) = advance_generators_and_cache(index);
 
-        let replacement = distinguishable(&params);
-        index
-            .reconfigure_for_test(replacement.clone())
-            .expect("an unpoisoned index must accept new parameters");
+            let replacement = distinguishable(&params);
+            index
+                .reconfigure_for_test(replacement.clone())
+                .expect("an unpoisoned index must accept new parameters");
 
-        assert_eq!(
-            index.params, replacement,
-            "reconfiguration must adopt the new parameters",
-        );
-        index
-            .inspect_graph(|graph| {
+            assert_eq!(
+                index.params, replacement,
+                "reconfiguration must adopt the new parameters",
+            );
+            index
+                .inspect_graph(|graph| {
+                    assert_eq!(
+                        graph.params(),
+                        &replacement,
+                        "reconfiguration must hand the new parameters to the graph",
+                    );
+                })
+                .expect("graph inspection must succeed");
+
+            // The generators now continue from the replacement seed rather than
+            // from where the advance left them. One draw from each live
+            // generator is compared both ways, so the assertion needs no
+            // assumption about how far the replacement sequences have advanced
+            // and consumes exactly the state it inspects.
+            let mut replacement_fallback = SmallRng::seed_from_u64(replacement.rng_seed());
+            let fallback_draw = index.rng.lock().expect("generator lock").next_u64();
+            assert_eq!(
+                fallback_draw,
+                replacement_fallback.next_u64(),
+                "the fallback generator must resume from the replacement seed",
+            );
+            assert_ne!(
+                fallback_draw,
+                expected_fallback.next_u64(),
+                "reconfiguration must replace the fallback generator, not continue it",
+            );
+
+            // Every worker is checked against the seed derived for its own
+            // index. A rebuild that replaced only worker zero would otherwise
+            // read as a full replacement.
+            for (worker_index, (worker, expected)) in index
+                .worker_rngs
+                .iter()
+                .zip(&mut expected_workers)
+                .enumerate()
+            {
+                let mut replacement_worker =
+                    SmallRng::seed_from_u64(mix_worker_seed(replacement.rng_seed(), worker_index));
+                let draw = worker.lock().expect("worker generator lock").next_u64();
                 assert_eq!(
-                    graph.params(),
-                    &replacement,
-                    "reconfiguration must hand the new parameters to the graph",
+                    draw,
+                    replacement_worker.next_u64(),
+                    "worker {worker_index} must resume from the replacement seed",
                 );
-            })
-            .expect("graph inspection must succeed");
+                assert_ne!(
+                    draw,
+                    expected.next_u64(),
+                    "reconfiguration must not leave worker {worker_index} where it was",
+                );
+            }
 
-        // The generators now continue from the replacement seed rather than
-        // from where the advance left them. One draw from each live generator
-        // is compared both ways, so the assertion needs no assumption about how
-        // far the replacement sequences have advanced and consumes exactly the
-        // state it inspects.
-        let mut replacement_fallback = SmallRng::seed_from_u64(replacement.rng_seed());
-        let mut replacement_worker =
-            SmallRng::seed_from_u64(mix_worker_seed(replacement.rng_seed(), 0));
-        let fallback_draw = index.rng.lock().expect("generator lock").next_u64();
-        assert_eq!(
-            fallback_draw,
-            replacement_fallback.next_u64(),
-            "the fallback generator must resume from the replacement seed",
-        );
-        assert_ne!(
-            fallback_draw,
-            expected_fallback.next_u64(),
-            "reconfiguration must replace the fallback generator, not continue it",
-        );
-        let worker_draw = index
-            .worker_rngs
-            .first()
-            .expect("a built index holds worker generators")
-            .lock()
-            .expect("worker generator lock")
-            .next_u64();
-        assert_eq!(
-            worker_draw,
-            replacement_worker.next_u64(),
-            "reconfiguration must rebuild the worker generators from the new seed",
-        );
-        assert_ne!(
-            worker_draw,
-            expected_worker.next_u64(),
-            "reconfiguration must not leave the worker generators where they were",
-        );
-
-        let metric = crate::MetricDescriptor::new("test-helpers");
-        assert!(
-            matches!(
-                index.distance_cache.begin_lookup(&metric, 0, 1),
-                crate::hnsw::distance_cache::LookupOutcome::Miss(_)
-            ),
-            "reconfiguration must replace the distance cache",
-        );
+            let metric = crate::MetricDescriptor::new("test-helpers");
+            assert!(
+                matches!(
+                    index.distance_cache.begin_lookup(&metric, 0, 1),
+                    crate::hnsw::distance_cache::LookupOutcome::Miss(_)
+                ),
+                "reconfiguration must replace the distance cache",
+            );
+        });
     }
 }

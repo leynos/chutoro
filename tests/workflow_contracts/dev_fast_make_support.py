@@ -74,6 +74,41 @@ def _cargo_invocations(output: str) -> list[tuple[str, list[str]]]:
     return invocations
 
 
+#: Nextest's filter-expression option in every spelling the pinned command
+#: accepts. The short form also attaches its value directly, as in `-Eall()`,
+#: which a search for the bare `-E` token misses.
+_FILTER_OPTIONS = ("-E", "--filterset")
+
+
+def _filter_expressions(tokens: list[str]) -> list[str]:
+    """Return every nextest filter expression named by ``tokens``.
+
+    A repeated filter is not an override. The pinned nextest unions repeated
+    ``-E``/``--filterset`` arguments, so `-E 'all()'` after the development
+    filter reselects the poisoned-lock regression while a parser that read only
+    the first expression would still report the intended selection. Extraction
+    therefore reports every expression it finds, and its callers require
+    exactly one rather than leaving a second one unmeasured.
+
+    >>> _filter_expressions(["nextest", "run", "-E", "all()"])
+    ['all()']
+    >>> _filter_expressions(["nextest", "-Eall()", "--filterset=none()"])
+    ['all()', 'none()']
+    """
+    expressions: list[str] = []
+    for position, token in enumerate(tokens):
+        if token in _FILTER_OPTIONS:
+            assert position + 1 < len(tokens), (
+                f"{token} must name a filter expression: {tokens!r}"
+            )
+            expressions.append(tokens[position + 1])
+        elif token.startswith("--filterset="):
+            expressions.append(token[len("--filterset=") :])
+        elif token.startswith("-E") and len(token) > 2:
+            expressions.append(token[2:].removeprefix("="))
+    return expressions
+
+
 def _nextest_filter_expression(output: str) -> str:
     """Return the filter expression of the single development nextest run.
 
@@ -82,6 +117,10 @@ def _nextest_filter_expression(output: str) -> str:
     nextest invocation is required: the development target runs the suite
     once, and a second run would leave this helper choosing between two
     expressions without saying which the assertion measured.
+
+    Exactly one filter expression is required for the same reason, with a
+    sharper failure: nextest accepts several and unions them, so a second
+    argument widens the run without changing the first one this helper reads.
     """
     invocations = [
         (line, tokens)
@@ -92,8 +131,12 @@ def _nextest_filter_expression(output: str) -> str:
         f"expected one development nextest invocation, found {invocations!r}"
     )
     _, tokens = invocations[0]
-    filter_index = tokens.index("-E")
-    return tokens[filter_index + 1]
+    expressions = _filter_expressions(tokens)
+    assert len(expressions) == 1, (
+        "dev-test must pass exactly one nextest filter expression; nextest "
+        f"unions repeats, so each extra one reselects excluded cases: {tokens!r}"
+    )
+    return expressions[0]
 
 
 def _pinned_toolchain() -> str:
