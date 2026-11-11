@@ -65,6 +65,13 @@ def _assert_development_exclusion(expression: str) -> None:
     `error: expected close parenthesis`, so `make dev-test` runs nothing at
     all. Balance is therefore checked before the textual assertions, which
     would otherwise pass against an unparseable expression.
+
+    The polarity is checked as well as the presence. A negated case clause
+    — ``... & not test(=...)`` — keeps every string the positive filter
+    contains and still starts with the expected prefix, so a presence-only
+    check accepts it. What `make dev-test` would then run is the
+    poisoned-lock regression and nothing else, which is the opposite of the
+    intended exclusion.
     """
     depth = 0
     for character in expression:
@@ -82,6 +89,10 @@ def _assert_development_exclusion(expression: str) -> None:
     )
     assert expression.startswith("not kind(bench) & not ("), (
         f"dev-test must filter benchmarks and then one named case: {expression!r}"
+    )
+    assert f"not test(={POISONED_LOCK_TEST})" not in expression, (
+        "dev-test must exclude the poisoned-lock regression, not select it "
+        f"alone: {expression!r}"
     )
 
 
@@ -304,6 +315,35 @@ def test_exclusion_assertion_rejects_an_unclosed_filter_group(
     )
     with pytest.raises(AssertionError, match="unclosed group"):
         _assert_development_exclusion(_nextest_filter_expression(output))
+
+
+def test_exclusion_assertion_rejects_an_inverted_filter_group(
+    tmp_path: Path,
+) -> None:
+    """A filter that isolates the excluded case is rejected, not accepted.
+
+    The inverted group keeps every string the positive filter contains, so the
+    textual assertions alone cannot tell the two apart: presence checks pass
+    and only the polarity differs. What `make dev-test` would then run is the
+    poisoned-lock regression and nothing else — the case the Cranelift route
+    cannot survive — so this mutation has to fail loudly.
+    """
+    makefile = _mutated_makefile(
+        tmp_path,
+        "DEV_TEST_FILTER = not kind(bench) & not "
+        "(package(chutoro-core) & test(=$(POISONED_LOCK_TEST)))",
+        "DEV_TEST_FILTER = not kind(bench) & not "
+        "(package(chutoro-core) & not test(=$(POISONED_LOCK_TEST)))",
+    )
+    output = _make_output(
+        "dev-test", makefile=makefile, overrides=("DEV_FAST_HOST_OS=Linux",)
+    )
+    expression = _nextest_filter_expression(output)
+    assert POISONED_LOCK_TEST in expression, (
+        "the mutation must keep the case name, or the polarity is not what fails"
+    )
+    with pytest.raises(AssertionError, match="not select it alone"):
+        _assert_development_exclusion(expression)
 
 
 def test_standard_route_assertion_rejects_a_contaminated_bench_command(
