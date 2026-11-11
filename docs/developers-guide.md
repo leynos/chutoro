@@ -2508,16 +2508,18 @@ Roadmap item 10.1.2 (PR #199) applied this rule to three candidate proofs:
   easy induction step while assuming the `Content-Range` parser, where the
   actual risk lives. A `proptest` state machine exercising the real functions
   replaced it.
-- A jitter bound, `(sample × span) >> 64 ≤ span`, was retained. It is stable,
-  nonlinear and unbounded in both operands: `proptest` cannot sample it and
-  Kani cannot prove it.
+- A jitter bound, `(sample × span) >> 64 ≤ span`, was retained. It is stable and
+  nonlinear, and both operands range over the full 64-bit domain rather than a
+  bounded harness domain: `proptest` can sample individual values but cannot
+  cover that space, and Kani cannot prove it at that bound.
 
-The heuristic selects a tool; it does not relax the obligations. Every new
+The heuristic selects a tool; it does not relax the obligations in
+[Rust-specific guidance](../AGENTS.md#rust-specific-guidance). Every new
 invariant still requires a `proptest` or Kani check, and every new lemma or
 contractual business rule still requires a substantive Verus proof. One tool
 does not substitute for another. See
 [ADR 002 § Complementary Testing Strategy](adr-002-adoption-of-kani-formal-verification.md#complementary-testing-strategy)
-for the normative rationale.
+for the rationale behind the division of labour.
 
 ### Quantifier trigger annotations
 
