@@ -18,13 +18,18 @@ simd_neon = ["chutoro-providers-dense/simd_neon"]
 mockable.workspace = true
 
 [dev-dependencies]
+anyhow = "1.0.86"
 arrow-array.workspace = true
 arrow-schema.workspace = true
 bytes = "1.10"
 camino = "1.1"
+cap-std = { version = "4.0.3", features = ["fs_utf8"] }
+clap = "4.5.51"
 mockable.workspace = true
 parquet = { workspace = true, features = ["arrow"] }
 rstest = "0.28"
+tempfile = "3.10"
+toml = "1.1.4"
 trybuild = "1.0.114"
 
 [dev-dependencies.chutoro-bench-datasets]
@@ -36,9 +41,17 @@ features = ["testing"]
 version = "0.1.0-beta1"
 path = "../chutoro-core"
 
+[dev-dependencies.chutoro-cli]
+version = "0.1.0-beta1"
+path = "../chutoro-cli"
+
 [dev-dependencies.chutoro-providers-dense]
 version = "0.1.0-beta1"
 path = "../chutoro-providers/dense"
+
+[dev-dependencies.chutoro-providers-text]
+version = "0.1.0-beta1"
+path = "../chutoro-providers/text"
 
 [lints]
 workspace = true
