@@ -111,8 +111,43 @@ fn bounded_count_as_f64(value: usize) -> f64 {
     f64::from(u32::try_from(value).unwrap_or(u32::MAX))
 }
 
+/// Largest integer an `f64` represents exactly: 2^53 bytes, or 8 PiB.
+#[cfg(feature = "cpu")]
+const MAX_EXACT_F64_BYTES: u64 = 1 << 53;
+
 /// Converts a byte value to the exact range representable by the metrics recorder.
+///
+/// Memory limits routinely exceed `u32::MAX`, so the value is rebuilt from its
+/// two 32-bit halves, each of which converts losslessly. Both the product and
+/// the sum stay below 2^53, so the result is exact; only values above 8 PiB
+/// saturate.
 #[cfg(feature = "cpu")]
 fn bounded_bytes_as_f64(value: u64) -> f64 {
-    f64::from(u32::try_from(value).unwrap_or(u32::MAX))
+    const HALF_WORD: f64 = 4_294_967_296.0;
+    let bounded = value.min(MAX_EXACT_F64_BYTES);
+    let high = u32::try_from(bounded >> 32).unwrap_or(u32::MAX);
+    let low = u32::try_from(bounded & u64::from(u32::MAX)).unwrap_or(u32::MAX);
+    f64::from(high).mul_add(HALF_WORD, f64::from(low))
+}
+
+#[cfg(all(test, feature = "cpu"))]
+mod tests {
+    //! Unit tests for exact byte conversion.
+
+    use super::*;
+    use rstest::rstest;
+
+    #[rstest]
+    #[case::zero(0, 0.0)]
+    #[case::u32_max(u64::from(u32::MAX), 4_294_967_295.0)]
+    #[case::eight_gibibytes(8 << 30, 8_589_934_592.0)]
+    #[case::odd_above_u32(u64::from(u32::MAX) + 2, 4_294_967_297.0)]
+    #[case::exact_limit(MAX_EXACT_F64_BYTES, 9_007_199_254_740_992.0)]
+    #[case::saturates(u64::MAX, 9_007_199_254_740_992.0)]
+    fn bytes_convert_exactly_up_to_two_to_the_fifty_third(
+        #[case] bytes: u64,
+        #[case] expected: f64,
+    ) {
+        assert_eq!(bounded_bytes_as_f64(bytes).to_bits(), expected.to_bits());
+    }
 }
