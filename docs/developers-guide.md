@@ -165,6 +165,13 @@ on the codegen backend, and enumerating under the nightly would pay a Cranelift
 build for evidence the probe contracts already buy. What it covers is the
 filter's membership.
 
+It asks for `-T oneline` and reads each line as a binary id and a test name,
+exactly two whitespace fields. The shape matters: only the *binary* id is
+guaranteed to carry a `::` separator. An integration test appears as
+`pkg::suite case` and a root-level unit test as `pkg case`, so a parse keyed on
+`::` would drop the second kind from both selections and let the comparison
+pass over the omission it exists to find.
+
 The two probe contracts that run the real recipes are *not* behind the switch.
 They build a synthetic crate rather than this workspace, so they cost seconds
 rather than the workspace build the switch exists to avoid. `dev-build` reads
@@ -1261,7 +1268,10 @@ each, and the filter expression is read by the one tokenizing helper in
 `dev_fast_make_support.py`. Both points exist for the same reason: several
 suites read the same Makefile, and a second parser or a per-variable parameter
 would eventually disagree with the first, on a recipe that gained another `-E`
-or a caller that forgot to forward a value.
+or a caller that forgot to forward a value. The nextest listing parse follows
+the same split: `dev_fast_listing_support.py` holds it, and
+`dev_fast_listing_parse_test.py` pins its cases as literal transcripts, so the
+end-to-end suite consumes the parse without carrying its edge cases.
 
 `dev_fast_linker_prefix_test.py` covers the other half of the install. Every
 other installer contract sets `MOLD_INSTALL_PREFIX`, so none of them exercises

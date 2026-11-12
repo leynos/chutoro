@@ -28,11 +28,11 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import os
-import re
 import subprocess
 from pathlib import Path
 
 import pytest
+from dev_fast_listing_support import _parse_nextest_listing
 from dev_fast_make_support import (
     MAKEFILE_PATH,
     _make_output,
@@ -211,11 +211,6 @@ STANDARD_FILTER = "not kind(bench)"
 POISONED_LOCK_TEST = (
     "hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring"
 )
-#: Colour must be disabled for the parse. An escape code splits the package
-#: prefix from the test path, and an exact suffix match would then fail
-#: silently - the parse would return fewer names and the comparison would pass
-#: for the wrong reason.
-ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 #: ``cargo nextest list`` builds every test binary before it can ask them what
 #: they contain, so this is a compile budget rather than a parsing one. It is
 #: generous because the two selections run back to back on one workspace and
@@ -226,25 +221,6 @@ requires_repository_selection = pytest.mark.skipif(
     not os.environ.get("CHUTORO_DEV_FAST_E2E"),
     reason="opt-in: set CHUTORO_DEV_FAST_E2E=1 to enumerate the real suite",
 )
-
-
-def _parse_nextest_listing(listing: str) -> set[str]:
-    """Return the test names a ``cargo nextest list`` transcript names.
-
-    Pure: it reads text and decides nothing about where that text came from,
-    which is what lets the cases below check the parse without compiling the
-    workspace. ``nextest list`` writes one test per line, prefixed with the
-    binary it belongs to, and only a test line carries a ``::`` separator, so
-    a line without one names no test. The escape strip is defensive: colour is
-    disabled for the call, but a coloured line would leave the reset sequence
-    attached to the name and the caller's exact suffix match would then fail
-    silently and read as a case the filter dropped.
-    """
-    return {
-        stripped
-        for line in listing.splitlines()
-        if "::" in (stripped := ANSI_ESCAPE.sub("", line))
-    }
 
 
 def _build_and_list_nextest_selection(*, filter_expression: str) -> set[str]:
@@ -261,6 +237,10 @@ def _build_and_list_nextest_selection(*, filter_expression: str) -> set[str]:
     the binary prefix, which is what makes membership direct evidence rather
     than an inference from counts. Counts move whenever an unrelated test is
     added, so they cannot show which case a filter dropped.
+
+    ``-T oneline`` is asked for rather than left to ``auto``, which reads the
+    terminal: a captured pipe already yields one line per test, but saying so
+    keeps the parse from depending on how the process was launched.
     """
     completed = subprocess.run(
         [
@@ -271,6 +251,8 @@ def _build_and_list_nextest_selection(*, filter_expression: str) -> set[str]:
             "--all-features",
             "--color",
             "never",
+            "-T",
+            "oneline",
             "-E",
             filter_expression,
         ],
@@ -289,64 +271,6 @@ def _build_and_list_nextest_selection(*, filter_expression: str) -> set[str]:
 def _selected(selection: set[str], test_name: str) -> set[str]:
     """Return the selection entries naming ``test_name``."""
     return {entry for entry in selection if entry.endswith(test_name)}
-
-
-#: The full ``chutoro-core`` name of the poisoned-lock regression, as a real
-#: ``cargo nextest list`` writes it: the binary prefix, then the test path.
-_POISONED_LOCK_LISTING = f"chutoro-core {POISONED_LOCK_TEST}"
-#: The same line as nextest writes it under ``--color always``. The reset
-#: sequence follows the test name, so an unstripped parse yields a name no
-#: suffix match can find, and the exclusion would read as applied when the
-#: filter had dropped nothing.
-_COLOURED_POISONED_LOCK_LISTING = (
-    "\x1b[35;1mchutoro-core\x1b[0m "
-    "\x1b[36mhnsw::cpu::test_helpers::tests\x1b[0m\x1b[36m::\x1b[0m"
-    "\x1b[34;1mgraph_helpers_report_poisoning_without_reconfiguring\x1b[0m"
-)
-
-
-@pytest.mark.parametrize(
-    ("listing", "expected"),
-    (
-        pytest.param(
-            _POISONED_LOCK_LISTING + "\n",
-            {_POISONED_LOCK_LISTING},
-            id="plain-line-keeps-the-binary-prefix",
-        ),
-        pytest.param(
-            _COLOURED_POISONED_LOCK_LISTING + "\n",
-            {_POISONED_LOCK_LISTING},
-            id="coloured-line-strips-escapes",
-        ),
-        pytest.param(
-            "chutoro-core a::b\nchutoro-core c::d\n",
-            {"chutoro-core a::b", "chutoro-core c::d"},
-            id="several-lines-keep-every-name",
-        ),
-        pytest.param(
-            "chutoro-core a::b\nchutoro-core a::b\n",
-            {"chutoro-core a::b"},
-            id="repeated-name-collapses",
-        ),
-        # The parse sees only text, so it cannot know a line is a test except
-        # by its shape. A line naming no test must not enter the set: counting
-        # one would make the comparison differ for a reason the filter did not
-        # cause, and the failure would point at the exclusion rather than at
-        # the parse.
-        pytest.param("chutoro-core\n", set(), id="line-without-a-test-names-none"),
-        pytest.param("\n\n", set(), id="blank-lines-name-no-test"),
-        pytest.param("", set(), id="empty-transcript-names-no-test"),
-    ),
-)
-def test_listing_parse_reports_test_names(listing: str, expected: set[str]) -> None:
-    """The parse must report names, not lines, and must survive colour.
-
-    Each row is one shape the transcript can take. The assertion reads the
-    parsed set directly, which is what the selection comparison consumes, so a
-    parser that stopped at the first line or kept the escape codes fails here
-    rather than in an opt-in end-to-end run.
-    """
-    assert _parse_nextest_listing(listing) == expected
 
 
 @pytest.fixture(scope="module")
