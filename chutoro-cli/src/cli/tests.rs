@@ -1,7 +1,10 @@
 //! Unit tests for the CLI commands and data ingestion helpers.
 
 use super::commands::{derive_data_source_name, run_command};
-use super::{Cli, CliError, Command, ExecutionSummary, render_summary, run_cli};
+use super::{
+    Cli, CliError, Command, ExecutionSummary, RunCommand, RunSource, TextMetric, render_summary,
+    run_cli,
+};
 
 use std::io;
 use std::path::Path;
@@ -205,6 +208,21 @@ fn clap_rejects_unknown_metric() {
     assert!(result.is_err());
 }
 
+/// Levenshtein is the only text metric, so a first run need not name it.
+#[rstest]
+fn clap_defaults_the_text_metric_to_levenshtein() {
+    let cli = Cli::try_parse_from(["chutoro", "run", "text", "data.txt"])
+        .expect("the text metric should be optional");
+    let Command::Run(RunCommand {
+        source: RunSource::Text(args),
+        ..
+    }) = cli.command
+    else {
+        panic!("expected a text run command");
+    };
+    assert!(matches!(args.metric, TextMetric::Levenshtein));
+}
+
 #[rstest]
 fn run_command_emits_tracing_fields(#[from(temp_dir)] temp_dir_result: io::Result<TempDir>) {
     let dir = temp_dir_result.expect("temp dir should be created");
@@ -310,3 +328,4 @@ fn open_text_reader_records_path_on_error(#[from(temp_dir)] temp_dir_result: io:
 
 #[path = "test_memory_guard.rs"]
 mod test_memory_guard;
+// weave: run 'weave explain chutoro-cli/src/cli/tests.rs' for per-hunk detail, 'weave check' to verify your resolution
