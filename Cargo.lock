@@ -457,7 +457,7 @@ dependencies = [
 
 [[package]]
 name = "chutoro-bench-datasets"
-version = "0.1.0"
+version = "0.1.0-beta1"
 dependencies = [
  "bytes",
  "camino",
@@ -480,7 +480,7 @@ dependencies = [
 
 [[package]]
 name = "chutoro-benches"
-version = "0.1.0"
+version = "0.1.0-beta1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -504,7 +504,7 @@ dependencies = [
 
 [[package]]
 name = "chutoro-cli"
-version = "0.1.0"
+version = "0.1.0-beta1"
 dependencies = [
  "anyhow",
  "arrow-array",
@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "chutoro-compile-contracts"
-version = "0.1.0"
+version = "0.1.0-beta1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -543,7 +543,7 @@ dependencies = [
 
 [[package]]
 name = "chutoro-core"
-version = "0.1.0"
+version = "0.1.0-beta1"
 dependencies = [
  "chutoro-test-support",
  "dashmap",
@@ -568,7 +568,7 @@ dependencies = [
 
 [[package]]
 name = "chutoro-providers-dense"
-version = "0.1.0"
+version = "0.1.0-beta1"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "chutoro-providers-text"
-version = "0.1.0"
+version = "0.1.0-beta1"
 dependencies = [
  "chutoro-core",
  "rstest",
@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "chutoro-test-support"
-version = "0.1.0"
+version = "0.1.0-beta1"
 dependencies = [
  "mockable",
  "rstest",
