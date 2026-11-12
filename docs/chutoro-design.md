@@ -879,12 +879,15 @@ Cluster stability is computed using an excess-of-mass score:
 `stability(cluster) = Σ (lambda_leave - lambda_birth) * child_size`, summing
 over point leaves and child-cluster exits. The extractor then selects clusters
 using a recursive EOM rule (choose the parent if its stability exceeds the sum
-of its children's selected stabilities, otherwise keep the children). Flat
-labels are produced by propagating the nearest selected ancestor label to each
-point. Points that never observe a selected ancestor are classified as noise
-and are assigned a dedicated label appended after the selected clusters so
-labels remain contiguous starting at zero. When no clusters are selected, all
-points are classified as noise and receive label `0`.
+of its children's selected stabilities, otherwise keep the children). An exact
+tie therefore keeps the children: integer-valued metrics such as Levenshtein
+distance produce such ties routinely, and resolving them towards the parent
+would merge well-separated groups. Flat labels are produced by propagating the
+nearest selected ancestor label to each point. Points that never observe a
+selected ancestor are classified as noise and are assigned a dedicated label
+appended after the selected clusters so labels remain contiguous starting at
+zero. When no clusters are selected, all points are classified as noise and
+receive label `0`.
 
 #### 6.3. SIMD utilization
 
