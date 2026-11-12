@@ -592,7 +592,6 @@ dependencies = [
 name = "chutoro-test-support"
 version = "0.1.0"
 dependencies = [
- "cap-std",
  "mockable",
  "rstest",
  "thiserror 2.0.21",
