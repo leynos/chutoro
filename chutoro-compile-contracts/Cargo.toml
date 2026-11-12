@@ -28,16 +28,16 @@ rstest = "0.28"
 trybuild = "1.0.114"
 
 [dev-dependencies.chutoro-bench-datasets]
-version = "0.1.0"
+version = "0.1.0-beta1"
 path = "../chutoro-bench-datasets"
 features = ["testing"]
 
 [dev-dependencies.chutoro-core]
-version = "0.1.0"
+version = "0.1.0-beta1"
 path = "../chutoro-core"
 
 [dev-dependencies.chutoro-providers-dense]
-version = "0.1.0"
+version = "0.1.0-beta1"
 path = "../chutoro-providers/dense"
 
 [lints]
