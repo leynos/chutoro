@@ -329,7 +329,10 @@ fn select_stable_clusters_inner(
         child_selected.push((before, selected.len()));
     }
 
-    if child_score > cluster.stability {
+    // The parent wins only when its stability strictly exceeds the children's
+    // sum. Integer-valued metrics produce exact ties routinely, and resolving
+    // a tie towards the parent would merge well-separated groups.
+    if child_score >= cluster.stability {
         return Ok(child_score);
     }
 
