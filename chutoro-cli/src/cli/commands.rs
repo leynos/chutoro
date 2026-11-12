@@ -103,7 +103,7 @@ pub struct TextArgs {
     pub path: PathBuf,
 
     /// Distance metric to use when comparing lines.
-    #[arg(long, value_enum)]
+    #[arg(long, value_enum, default_value_t = TextMetric::Levenshtein)]
     pub metric: TextMetric,
 
     /// Override name for the data source (defaults to the file name).
