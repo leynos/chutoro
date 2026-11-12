@@ -1,306 +1,309 @@
-# Migration notes
+# Migrating to v0.1.0
 
-This document records compatibility changes for upcoming Chutoro releases.
+This guide covers the changes in the v0.1.0 release series, up to and including
+v0.1.0-beta1, the first release published to crates.io.
 
-## 0.2.0
+New users can skip it: start with the [users' guide](users-guide.md) instead.
+Read on if you depended on Chutoro through a Git or path dependency before
+v0.1.0-beta1. Most applications need only the dependency change below; the
+remaining sections apply only if you use the API or behaviour they name.
 
-### The `skeleton` feature is removed
+## Depend on the published prerelease
 
-`chutoro-core` no longer declares the `skeleton` feature. It had enabled
-nothing since the CPU backend stopped depending on it, and it was kept only so
-that older manifests would still resolve. Remove `"skeleton"` from any
-`features` list that names it for `chutoro-core`; Cargo rejects a dependency
-that requests an undeclared feature. No code or behaviour changes.
+Replace the Git or path dependency with the published crate. A plain `"0.1.0"`
+requirement does not match a prerelease, so name the beta explicitly:
 
-### `DataSource::distance_batch` takes `PointPair` slices
+<!-- tested-example: migration-dependency -->
+
+```toml
+[dependencies]
+chutoro-core = "0.1.0-beta1"
+```
+
+The data-source crates and the command-line tool follow the same version:
+`chutoro-providers-dense`, `chutoro-providers-text`, and `chutoro-cli`.
+
+## Build batch distances from `PointPair`
 
 `DataSource::distance_batch` no longer accepts `&[(usize, usize)]`. A pair is
-now the semantic `PointPair` type, whose ordered `left` and `right` accessors
-name the direction of the computation.
+now the semantic `PointPair` type, whose `left()` and `right()` accessors name
+the direction of the computation. Build pairs with the constructor, or convert
+an existing tuple collection with `PointPair::from`:
 
-Callers that built tuple pairs replace them with the equivalent constructor:
+<!-- tested-example: migration-point-pair-construction -->
 
 ```rust
 use chutoro_core::PointPair;
 
 let pairs = [PointPair::new(0, 1), PointPair::new(2, 0)];
-```
-
-`PointPair` implements `From<(usize, usize)>`, so an existing collection can be
-mapped rather than rebuilt:
-
-```rust
-use chutoro_core::PointPair;
 
 let raw_pairs = vec![(0, 1), (2, 0)];
-let pairs: Vec<PointPair> = raw_pairs.into_iter().map(PointPair::from).collect();
+let converted: Vec<PointPair> = raw_pairs.into_iter().map(PointPair::from).collect();
+
+assert_eq!(converted, pairs);
+assert_eq!((pairs[1].left(), pairs[1].right()), (2, 0));
 ```
 
-Implementers that override `distance_batch` must change the parameter type to
-`&[PointPair]` and read the endpoints with `pair.left()` and `pair.right()`. An
-implementation that forwards to a tuple-oriented kernel converts inside its own
-boundary; the ordering of each pair must be preserved.
+Implementations that override `distance_batch` change the parameter type to
+`&[PointPair]` and read each endpoint through its accessor. A kernel that still
+expects tuples converts at its own boundary, preserving each pair's order:
 
-### `CacheKey` and `ObjectKey` are opaque string keys
-
-`chutoro-bench-datasets` no longer exposes `camino::Utf8PathBuf` through its
-storage keys. `CacheKey` and `ObjectKey` wrap an `Arc<str>`, and `new` accepts
-any `impl Into<Arc<str>>`, such as `&str` or `String`. The path-returning
-`to_path_buf` and `into_inner` accessors are removed; read the identifier with
-`AsRef<str>` or `Display`.
+<!-- tested-example: migration-point-pair-override -->
 
 ```rust
-use chutoro_bench_datasets::CacheKey;
+use chutoro_core::{DataSource, DataSourceError, PointPair};
 
-let key = CacheKey::new("cache/mnist/raw.gz");
-assert_eq!(key.as_ref(), "cache/mnist/raw.gz");
-```
+struct Line(Vec<f32>);
 
-Adapters that need a filesystem path, object-store prefix, or other
-backend-specific address resolve it inside their own boundary, for example
-`Utf8PathBuf::from(key.as_ref())`. The `Storage` and `Publisher` port
-signatures are unchanged, so recipe code needs no migration beyond replacing
-path accessor calls.
-
-### Memory guard models the multi-layer harvest
-
-The pre-flight memory guard behind `ChutoroBuilder::with_max_bytes` now
-estimates the candidate edges that CPU HNSW construction harvests. It decides
-before construction starts, so it has no measured harvest to count: it derives
-the count from the effective `ef_construction` search width and the level
-sampler's expected layer count. Candidate, mutual-reachability,
-validation-buffer and prepared-edge terms use `n × ef × layers` instead of the
-single-layer `n × M` model. The estimate is therefore larger than before for
-the same input, so a limit that used to admit a batch may now reject it with
-`ChutoroError::MemoryLimitExceeded`.
-
-The parameter-aware estimate derives its layer count from the configured level
-multiplier, so `HnswParams::with_level_multiplier` changes the estimate; a
-multiplier that stops no node counts all `max_level + 1` layers. The legacy
-`estimate_peak_bytes(point_count, max_connections)` helper keeps its
-two-argument signature. It uses `4 × M` as the harvest width and the default
-level multiplier and cap, but it passes zero as the search-state width, so it
-omits the search-state term that `estimate_peak_bytes_for_hnsw_params`
-includes. Raise the configured limit, or lower `ef_construction` and
-`max_level`, if a previously accepted batch no longer fits.
-
-### New metrics: trim scoring
-
-Enabling the `metrics` feature now also emits
-`chutoro.hnsw.trim.jobs_submitted_total` and
-`chutoro.hnsw.trim.duration_seconds`. The counter adds the full batch size for
-every non-empty trim batch the insertion boundary scores, including a batch
-that fails during scoring. The histogram records one wall-time sample per
-non-empty batch, including failed batches, so it covers the time insertion
-spends holding its mutex while scoring. Neither instrument carries labels, so
-their cardinality is fixed, and both are additive: builds without the feature
-are unchanged.
-
-### New `core_distances` stage label
-
-The `metrics` feature already emitted `chutoro.cpu_pipeline.stage_seconds` for
-the `mutual_reachability` and `kruskal` stages. CPU batch runs now also record
-a sample for the `core_distances` stage in the same histogram, so the batch
-core-distance share is readable beside the rest of the pipeline. The label set
-stays fixed and grows by exactly one value; existing labels keep their meaning,
-a failing stage still records no sample, and builds without the feature are
-unchanged.
-
-### Additive API: `http` staging locks
-
-The new `http` feature exposes `chutoro_bench_datasets::transfer`, which
-re-exports `StagingLock`, `StagingLockGuard`, `LockPolicy`, `LockPolicyError`,
-`LockStep`, `LockAttempt`, `DEFAULT_POLL_INTERVAL`, and `MIN_POLL_INTERVAL`. It
-enables the optional `cap-std` and `rustix` dependencies; `default` and
-`testing` are unchanged, so existing consumers see no behaviour change unless
-they opt in.
-
-Four `RecipeError` variants describe staging-lock failures:
-`StagingLockInvalidName`, `StagingLockContended`, `StagingLockIo`, and
-`StagingLockUnsupportedPlatform`. `RecipeError` remains `#[non_exhaustive]`, so
-an exhaustive downstream `match` already needs a wildcard arm; add specific
-arms only where the caller reacts to a lock failure. The
-[user's guide](users-guide.md#staging-download-locks) shows the feature and the
-API, and [ADR-009](adrs/adr-0009-staging-lock-via-rustix-flock.md) records the
-design.
-
-### Additive API: core-distance selection helper
-
-`chutoro_core::core_distance_from_neighbours` exposes the core-distance
-selection rule that the batch pipeline, incremental sessions, and the benchmark
-harness use. It takes a point's sorted, non-self neighbours and the minimum
-cluster size and returns the `m - 1`-th neighbour's distance, the farthest
-supplied neighbour when the list is shorter, or `0.0` for an empty list. This
-is a new function; no existing API changes. Adapters still own the HNSW search
-and the removal of the query point from its own neighbour list.
-
-### Batch core distances run in parallel
-
-The CPU batch pipeline now searches the HNSW graph for all points through an
-indexed Rayon parallel iterator instead of a serial loop. Output order and
-error identity are unchanged: results stay in source-index order, and the
-reported error belongs to the lowest source index at any thread count. Callers
-that pinned behaviour to a single thread should pin `RAYON_NUM_THREADS` or
-install an explicit Rayon pool. The incremental session path remains serial. The
-[user's guide](users-guide.md#running-the-clustering-pipeline) documents the
-contract.
-
-Because those searches hold state at the same time, the `with_max_bytes`
-estimate now counts one search state per Rayon worker rather than one per run. A
-`max_bytes` that admitted a run under the former estimate can therefore be
-rejected on a wide pool, which is the intended conservative behaviour: the
-former estimate under-counted live search state.
-`estimate_peak_bytes_for_hnsw_params` keeps its single-search meaning, and the
-new `estimate_peak_bytes_for_hnsw_params_with_concurrency` takes the cluster
-size and the pool width explicitly, so each worker's search state is sized to
-the width the batch stage actually searches at rather than to the construction
-breadth alone.
-
-### Additive API: dense-provider test fixtures
-
-The dense provider exposes reusable Arrow and Parquet fixture builders through
-its opt-in `testing` feature. Crates that use them in their own tests should
-enable the feature only in `[dev-dependencies]`. This does not change runtime
-defaults or require a migration for existing consumers. The
-[user's guide](users-guide.md#reusing-dense-fixtures-in-dependent-tests) shows
-how to enable the feature.
-
-### Additive API: `ALL` on error-code enums
-
-Every error-code enum exposes an `ALL` slice listing its variants in
-declaration order. Diagnostics and tests can enumerate the taxonomy without a
-hand-maintained list. The enums remain `#[non_exhaustive]`, so `ALL` can grow
-in a minor release; do not treat its length as a stability guarantee.
-
-### Error-code enums are non-exhaustive and implement `Display`
-
-`MstErrorCode`, `HierarchyErrorCode`, and `HnswErrorCode` are now
-`#[non_exhaustive]`, matching the error enums they describe. A downstream
-`match` that lists every variant without a catch-all arm no longer compiles;
-add one, such as `_`. A match that already ends in a catch-all binding needs no
-change:
-
-```rust
-# use chutoro_core::{MstError, MstErrorCode};
-# fn describe(error: &MstError) -> &'static str {
-match error.code() {
-    MstErrorCode::EmptyGraph => "empty graph",
-    _ => "other MST failure",
+impl DataSource for Line {
+    fn len(&self) -> usize { self.0.len() }
+    fn name(&self) -> &str { "line" }
+    fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+        let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+        let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+        Ok((a - b).abs())
+    }
+    fn distance_batch(&self, pairs: &[PointPair], out: &mut [f32]) -> Result<(), DataSourceError> {
+        if pairs.len() != out.len() {
+            return Err(DataSourceError::OutputLengthMismatch {
+                out: out.len(),
+                expected: pairs.len(),
+            });
+        }
+        for (slot, pair) in out.iter_mut().zip(pairs) {
+            *slot = self.distance(pair.left(), pair.right())?;
+        }
+        Ok(())
+    }
 }
-# }
+
+fn main() -> Result<(), DataSourceError> {
+    let pairs = [PointPair::new(0, 1), PointPair::new(2, 0)];
+    let mut out = [0.0; 2];
+    Line(vec![1.0, 4.0, 9.0]).distance_batch(&pairs, &mut out)?;
+    assert_eq!(out, [3.0, 8.0]);
+    Ok(())
+}
 ```
 
-All three also implement `Display`, which renders the same stable string as
-`as_str()`, so either form can be logged without a separate match.
+## Construct results with `try_from_assignments`
 
-### `Checksum` is an inhabited value with a `sha256:<hex>` parser
+The public `ClusteringResult::from_assignments` constructor has been removed.
+Code that builds a result from externally supplied assignments uses the fallible
+`ClusteringResult::try_from_assignments` and handles `NonContiguousClusterIds`:
 
-`Checksum` was an uninhabited enum whose only variant sat behind
-`#[cfg(any())]`, so `SourceSpec.checksum` could never hold a value. It is now
-the struct `Checksum { algorithm: DigestAlgorithm, bytes: [u8; 32] }`, and
-`SourceSpec.checksum` accepts a parsed value. `DigestAlgorithm` is a
-non-exhaustive enum that currently names only SHA-256.
-
-`Checksum::parse` accepts `sha256:<hex>` in either hexadecimal case, requires
-64 payload bytes, and displays the canonical lowercase form:
-
-```rust
-use chutoro_bench_datasets::{Checksum, DigestAlgorithm};
-
-let text = concat!(
-    "sha256:",
-    "0123456789abcdef0123456789abcdef",
-    "0123456789abcdef0123456789abcdef",
-);
-let checksum = Checksum::parse(text)?;
-assert_eq!(checksum.algorithm(), DigestAlgorithm::Sha256);
-assert_eq!(checksum.to_string(), text);
-# Ok::<(), chutoro_bench_datasets::RecipeError>(())
-```
-
-### `RecipeError::ChecksumUnsupported` is removed
-
-Checksum support no longer returns a "deferred" placeholder. Parsing failures
-now return `RecipeError::Integrity`, which boxes an `IntegrityFailure`; the
-`RecipeError::integrity` constructor builds one. Replace a match on the removed
-variant:
-
-```rust
-use chutoro_bench_datasets::{IntegrityFailure, RecipeError};
-
-let error = RecipeError::integrity(IntegrityFailure::MissingAlgorithmPrefix);
-assert!(matches!(error, RecipeError::Integrity(_)));
-```
-
-Code that matched `RecipeError::ChecksumUnsupported` should handle
-`RecipeError::Integrity` and inspect the boxed `IntegrityFailure` for the
-specific cause, such as `UnknownAlgorithm` or `InvalidDigestLength`.
-
-## 0.1.0
-
-The public `ClusteringResult::from_assignments` constructor is no longer
-available. Code that constructs results from externally supplied assignments
-must use the fallible `ClusteringResult::try_from_assignments` constructor:
+<!-- tested-example: migration-try-from-assignments -->
 
 ```rust
 use chutoro_core::{ClusterId, ClusteringResult, NonContiguousClusterIds};
 
-fn make_result(
-    assignments: Vec<ClusterId>,
-) -> Result<ClusteringResult, NonContiguousClusterIds> {
-    ClusteringResult::try_from_assignments(assignments)
+fn main() -> Result<(), NonContiguousClusterIds> {
+    let result = ClusteringResult::try_from_assignments(vec![
+        ClusterId::new(0),
+        ClusterId::new(1),
+        ClusterId::new(0),
+    ])?;
+    assert_eq!(result.cluster_count(), 2);
+
+    let gap = ClusteringResult::try_from_assignments(vec![ClusterId::new(0), ClusterId::new(2)]);
+    assert!(gap.is_err(), "identifiers must be contiguous from zero");
+    Ok(())
 }
 ```
 
-Callers must propagate or match `NonContiguousClusterIds` errors. The variants
-identify missing zero, gaps, duplicates, and identifiers that exceed or reach
-the host pointer-width limit. The former panicking helper remains an internal
-CPU-pipeline convenience only.
+The error's variants identify a missing zero, gaps, and identifiers that exceed
+or reach the host pointer-width limit.
 
-### Additive API: `EdgeHarvest::as_slice`
+## Run batches through `Chutoro::run`
 
-`EdgeHarvest::as_slice` returns the harvested candidate edges as a
-`&[CandidateEdge]`. The method is additive: existing callers of `iter`,
-`into_iter`, and `into_inner` are unaffected and need no migration. Consumers
-that fan work out with Rayon should prefer `as_slice`, because it borrows the
-edge list directly instead of collecting an intermediate vector of references.
+The public `run_cpu_pipeline` entry point has been removed. Build a `Chutoro`
+from `ChutoroBuilder` and call `run`, which applies the same validated
+configuration, preconditions, memory guard, and instrumentation:
 
-### Cluster selection keeps exact stability ties
+<!-- tested-example: migration-run-pipeline -->
 
-Stable-cluster selection now keeps the child clusters when a parent cluster's
-stability is exactly equal to the sum of its children's stabilities. A parent
-is selected only when its stability strictly exceeds that total, matching the
-excess-of-mass rule in the design document. Previously an exact tie selected
-the parent.
+```rust
+use chutoro_core::{ChutoroBuilder, ChutoroError, DataSource, DataSourceError};
 
-Integer-valued metrics make exact ties routine, so `ClusteringResult` can
-report a different `cluster_count` and different flat labels for the same input:
+struct Line(Vec<f32>);
 
-```text
-words: apple apply apples appel banana bananas bandana banane
-Levenshtein distance, min_cluster_size = 2
+impl DataSource for Line {
+    fn len(&self) -> usize { self.0.len() }
+    fn name(&self) -> &str { "line" }
+    fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
+        let a = self.0.get(i).ok_or(DataSourceError::OutOfBounds { index: i })?;
+        let b = self.0.get(j).ok_or(DataSourceError::OutOfBounds { index: j })?;
+        Ok((a - b).abs())
+    }
+}
 
-before: cluster_count = 1, assignments = [0 0 0 0 0 0 0 0]
-after:  cluster_count = 2, assignments = [0 0 0 0 1 1 1 1]
+fn main() -> Result<(), ChutoroError> {
+    let source = Line(vec![0.0, 0.1, 0.2, 0.3, 9.0, 9.1, 9.2, 9.3]);
+    let result = ChutoroBuilder::new().with_min_cluster_size(3).build()?.run(&source)?;
+    assert_eq!(result.cluster_count(), 2);
+    Ok(())
+}
 ```
 
-Callers that store expected cluster counts, expected flat labels, or partitions
-derived from them must regenerate those expectations for integer-valued
-metrics. Continuous metrics rarely produce exact ties, so their results are
-normally unchanged.
+## Allow for new error codes
 
-### CLI diagnostics default to `warn`
+`ChutoroErrorCode`, `DataSourceErrorCode`, `HnswErrorCode`, `MstErrorCode`, and
+`HierarchyErrorCode` are all `#[non_exhaustive]`. A `match` that lists every
+variant without a catch-all arm no longer compiles; add one. Each code enum
+also implements `Display`, rendering the same string as `as_str()`, and lists
+its variants in an `ALL` slice, which may grow in a minor release:
 
-The `chutoro-cli` binary now installs its `tracing` filter at the `warn` level
-when `RUST_LOG` is unset or invalid, instead of `info`. This is a change in CLI
-output rather than in the library API: a successful run writes only its summary
-and no longer emits span lifecycle lines on `stderr`. Operators who relied on
-the previous verbose output must request it explicitly:
+<!-- tested-example: migration-error-code-match -->
+
+```rust
+use chutoro_core::{EdgeHarvest, MstError, MstErrorCode, parallel_kruskal};
+
+fn describe(error: &MstError) -> &'static str {
+    match error.code() {
+        MstErrorCode::EmptyGraph => "empty graph",
+        _ => "other MST failure",
+    }
+}
+
+fn main() {
+    let error = parallel_kruskal(0, &EdgeHarvest::from_unsorted(Vec::new())).expect_err("there are no nodes");
+    assert_eq!(describe(&error), "empty graph");
+    assert_eq!(error.code().to_string(), "EMPTY_GRAPH");
+    assert!(MstErrorCode::ALL.contains(&MstErrorCode::EmptyGraph));
+}
+```
+
+`parallel_kruskal` now validates edges in a fixed order, so when several edges
+are invalid it always reports the first. The users' guide lists
+[every subsystem code](users-guide.md#look-up-subsystem-error-codes).
+
+## Expect HNSW parameters to apply to batch runs
+
+`ChutoroBuilder::with_hnsw_params` now configures one-shot `run` calls as well
+as sessions. Earlier snapshots built the batch index with default parameters,
+so a run that set non-default `HnswParams` may now take a different amount of
+time and memory.
+
+## Expect larger memory estimates
+
+The estimate behind `with_max_bytes` now counts more of what a run really
+allocates, so a limit that admitted a run before may now reject it with
+`ChutoroError::MemoryLimitExceeded`:
+
+- the configured distance-cache capacity;
+- the candidate edges harvested from every expected index layer, which grow
+  with `ef_construction` and `max_level`; and
+- one search state per thread of the Rayon pool that runs the batch, sized by
+  `min_cluster_size` as well as by `ef_construction`.
+
+Raise the limit, or lower `ef_construction`, `max_level`, or the distance-cache
+capacity. `estimate_peak_bytes_for_hnsw_params_with_concurrency` returns the
+figure `run` checks, and `batch_search_width` the width each search uses.
+`estimate_peak_bytes_for_hnsw_params` and `estimate_peak_bytes` keep their
+signatures and their single-search meaning. See
+[Bound memory use](users-guide.md#bound-memory-use).
+
+## Expect parallel core-distance searches
+
+Batch runs now search for every item's neighbours in parallel on the calling
+thread's Rayon pool. Results and reported errors do not depend on the thread
+count, but a run uses more threads than before. Set `RAYON_NUM_THREADS`, or run
+inside an explicit pool, to restrict it. See
+[Control parallelism](users-guide.md#control-parallelism).
+
+## Expect separate clusters on exact stability ties
+
+Cluster selection now keeps the child clusters when a parent's stability
+exactly equals the sum of its children's, as the
+[design document](chutoro-design.md) specifies. Earlier snapshots kept the
+parent, which merged well-separated groups whenever an integer-valued metric,
+such as Levenshtein distance, produced an exact tie. Some datasets therefore
+report more clusters than before: the eight words in the
+[README example](../README.md#try-it-from-the-command-line) used to form one
+cluster and now form two. Regenerate any stored cluster counts or labels for
+integer-valued metrics; continuous metrics rarely tie.
+
+## Note the quieter command-line defaults
+
+`chutoro-cli` no longer prints a spurious "structured logging already
+configured elsewhere" warning on every invocation. Two defaults also changed:
+
+- `--metric` on the `text` source is optional and defaults to `levenshtein`,
+  its only value. Scripts that pass it keep working.
+- Diagnostics default to the `warn` level, so a successful run writes only its
+  summary. Set `RUST_LOG` to restore the earlier span trace:
+
+<!-- tested-example: migration-cli-verbose -->
 
 ```sh
-RUST_LOG=info chutoro-cli run text words.txt
+RUST_LOG=info chutoro-cli run --min-cluster-size 2 text words.txt
 ```
 
-The `text` data source also defaults `--metric` to `levenshtein`, its only
-supported value, so a first run need not name it. Invocations that pass the
-flag explicitly continue to work unchanged.
+Embedders of the `chutoro_cli` library crate should note that
+`LoggingError::InstallFailed` now carries a
+`tracing::subscriber::SetGlobalDefaultError` rather than a
+`tracing_subscriber::util::TryInitError`.
+
+## Prefer `EdgeHarvest::as_slice` for parallel consumers
+
+This change is additive. `EdgeHarvest::as_slice` returns the harvested
+candidate edges as a `&[CandidateEdge]`, so a Rayon consumer can split the list
+without first collecting a vector of references. Existing callers of `iter`,
+`into_iter`, and `into_inner` need no changes.
+
+## Use the new helpers and metrics
+
+These changes are additive and need no migration:
+
+- `core_distance_from_neighbours` exposes the rule that `run` and sessions use
+  to pick a core distance from a sorted neighbour list.
+- `CandidateEdge::canonicalize` is the Oxford spelling of `canonicalise`, which
+  remains as an alias.
+- The dense provider's `testing` feature exposes Arrow and Parquet fixture
+  builders for tests; enable it only under `[dev-dependencies]`.
+- With the `metrics` feature, `chutoro.cpu_pipeline.stage_seconds` gains the
+  `core_distances` stage, and HNSW insertion records
+  `chutoro.hnsw.trim.jobs_submitted_total` and
+  `chutoro.hnsw.trim.duration_seconds`. None adds an unbounded label.
+
+The users' guide describes each one in context.
+
+## Update benchmark dataset recipes
+
+`chutoro-bench-datasets` is contributor tooling and is not published, but
+recipes written against an earlier snapshot need these changes:
+
+- `CacheKey` and `ObjectKey` are opaque string identifiers. `new` accepts any
+  `impl Into<Arc<str>>`, and `to_path_buf` and `into_inner` are removed. Read a
+  key with `as_ref()` or `Display`, and let a storage adapter derive a path
+  from it, for example with `Utf8PathBuf::from(key.as_ref())`.
+- `Checksum` now holds a value. `Checksum::parse` reads `sha256:<hex>` in either
+  case and displays the lowercase form.
+- `RecipeError::ChecksumUnsupported` is removed. A malformed checksum returns
+  `RecipeError::Integrity`, which boxes an `IntegrityFailure` naming the cause.
+- The optional `http` feature adds `StagingLock` and its policy types, with
+  four new `RecipeError` variants for lock failures. `RecipeError` is
+  `#[non_exhaustive]`, so existing matches already have a catch-all arm.
+
+<!-- tested-example: migration-bench-datasets -->
+
+```rust
+use chutoro_bench_datasets::{CacheKey, Checksum, DigestAlgorithm, IntegrityFailure, RecipeError};
+
+fn main() -> Result<(), RecipeError> {
+    let key = CacheKey::new("cache/mnist/raw.gz");
+    assert_eq!(key.as_ref(), "cache/mnist/raw.gz");
+
+    let text = concat!("sha256:", "0123456789abcdef0123456789abcdef", "0123456789abcdef0123456789abcdef");
+    let checksum = Checksum::parse(text)?;
+    assert_eq!(checksum.algorithm(), DigestAlgorithm::Sha256);
+    assert_eq!(checksum.to_string(), text);
+
+    let error = RecipeError::integrity(IntegrityFailure::MissingAlgorithmPrefix);
+    assert!(matches!(error, RecipeError::Integrity(_)));
+    Ok(())
+}
+```
+
+The [developers' guide](developers-guide.md#benchmark-dataset-recipes) covers
+the recipe model and the staging lock.

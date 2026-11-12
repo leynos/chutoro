@@ -9,6 +9,8 @@ open each document.
 - [Repository layout](repository-layout.md): a contributor-oriented map of the
   repository tree and the responsibilities of major paths.
 - [User's guide](users-guide.md): user-facing guidance for applying Chutoro.
+- [v0.1.0 migration guide](v0-1-0-migration-guide.md): changes for anyone
+  upgrading from a pre-release snapshot to the v0.1.0 series.
 - [Developer's guide](developers-guide.md): maintainer-facing build, test, and
   contribution guidance.
 - [Documentation style guide](documentation-style-guide.md): the writing,
@@ -37,8 +39,6 @@ open each document.
   Rust documentation tests concise and maintainable.
 - [Rust testing with rstest fixtures](rust-testing-with-rstest-fixtures.md):
   guidance for shared test setup using `rstest`.
-- [Migration notes](migration-notes.md): compatibility changes for upcoming
-  Chutoro releases.
 
 ## Decision records
 
