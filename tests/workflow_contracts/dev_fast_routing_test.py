@@ -79,6 +79,32 @@ def test_filter_contract_rejects_a_wider_development_exclusion(
         assert_development_exclusion(expression)
 
 
+@pytest.mark.parametrize(("case", "expression"), wider_development_filters())
+def test_a_wider_exclusion_in_the_recipe_is_rejected(
+    tmp_path: Path, case: str, expression: str
+) -> None:
+    """The same rejection must hold for the filter the recipe really passes.
+
+    The case above asserts the contract rejects a wider string. That string
+    never travels through make, so it would still pass if the recipe quoted,
+    escaped or joined the filter into something the contract reads
+    differently. Mutating the Makefile and reading the filter back through
+    ``make --dry-run`` closes that gap: what fails here is the expression
+    nextest would actually be handed.
+    """
+    makefile = _mutated_makefile(
+        tmp_path,
+        "DEV_TEST_FILTER = not kind(bench) & not "
+        "(package(chutoro-core) & test(=$(POISONED_LOCK_TEST)))",
+        f"DEV_TEST_FILTER = {expression}",
+    )
+    output = _make_output(
+        "dev-test", makefile=makefile, overrides=("DEV_FAST_HOST_OS=Linux",)
+    )
+    with pytest.raises(AssertionError):
+        assert_development_exclusion(_nextest_filter_expression(output))
+
+
 def _assert_poisoned_lock_case_is_named_once() -> None:
     """Require the exclusion to be declared in the Makefile, not duplicated."""
     makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
