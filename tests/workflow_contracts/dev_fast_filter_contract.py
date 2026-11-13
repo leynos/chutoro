@@ -92,19 +92,57 @@ def assert_development_exclusion(expression: str) -> None:
     rejects one — but that is a rejection the *model* raises, and it would
     fire on any expression naming a crate the model lacks. The comparison
     below is what constrains this filter, whatever the model does.
+
+    The checks run in order of how much they can tell the reader, from the
+    syntactic faults that make nextest refuse the filter outright to the
+    whole-expression equality that subsumes the rest.
     """
     expected = expected_development_filter()
+    _assert_balanced(expression)
+    _assert_exclusion_present(expression)
+    _assert_selection_is_intended(expression)
+    assert expression == expected, (
+        "dev-test must pass exactly the intended filter; "
+        f"expected {expected!r}, got {expression!r}"
+    )
+
+
+def _assert_balanced(expression: str) -> None:
+    """Require every group the expression opens to be closed.
+
+    nextest refuses an unbalanced filter, so `make dev-test` would run
+    nothing at all rather than the wrong selection. The checks that follow
+    pass against such an expression, which is why this one runs first.
+
+    >>> _assert_balanced(expected_development_filter())
+    """
     depth = 0
     for character in expression:
         if character == "(":
             depth += 1
         elif character == ")":
             depth -= 1
-            assert depth >= 0, f"dev-test filter closes an unopened group: {expression!r}"
+            assert depth >= 0, (
+                f"dev-test filter closes an unopened group: {expression!r}"
+            )
     assert depth == 0, (
         f"dev-test filter leaves {depth} unclosed group(s), which nextest "
         f"rejects: {expression!r}"
     )
+
+
+def _assert_exclusion_present(expression: str) -> None:
+    """Require the negated, package-scoped clause the filter exists to carry.
+
+    Presence alone is not enough, so the polarity and the leading clause are
+    checked with it. A negated case clause — ``... & not test(=...)`` — keeps
+    every string the positive filter contains and still starts with the
+    expected prefix, so a presence-only check accepts it; what `make
+    dev-test` would then run is the poisoned-lock regression and nothing
+    else.
+
+    >>> _assert_exclusion_present(expected_development_filter())
+    """
     assert f"test(={POISONED_LOCK_TEST})" in expression, (
         f"dev-test must exclude the poisoned-lock regression: {expression!r}"
     )
@@ -115,6 +153,18 @@ def assert_development_exclusion(expression: str) -> None:
         "dev-test must exclude the poisoned-lock regression, not select it "
         f"alone: {expression!r}"
     )
+
+
+def _assert_selection_is_intended(expression: str) -> None:
+    """Require the modelled selection to be the standard set minus one case.
+
+    The model raises rather than returning an empty set for a crate it holds
+    no entry for, so that failure is translated here: a caller of this
+    contract sees a contract rejection, not a lookup failure escaping from a
+    helper it never called.
+
+    >>> _assert_selection_is_intended(expected_development_filter())
+    """
     try:
         selection = selection_of(expression)
     except LookupError as unmodelled:
@@ -124,10 +174,6 @@ def assert_development_exclusion(expression: str) -> None:
     assert selection == intended_selection, (
         "dev-test must select the standard set minus the poisoned-lock case: "
         f"{expression!r} selects {sorted(selection)!r}"
-    )
-    assert expression == expected, (
-        "dev-test must pass exactly the intended filter; "
-        f"expected {expected!r}, got {expression!r}"
     )
 
 
