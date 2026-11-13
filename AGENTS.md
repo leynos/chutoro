@@ -178,9 +178,10 @@ project:
   are never a merge gate, and direct Cargo uses stable Rust 1.99.1 and
   `.cargo/config.toml`, above the workspace MSRV of 1.89. See the
   [toolchain and build routing guide](docs/developers-guide.md#rust-toolchain-and-build-routing).
-- Cranelift aborts on a panic it cannot unwind, so `make dev-test` excludes the
-  `hnsw::cpu::test_helpers::tests` poisoned-lock regression, which panics while
-  holding a graph write guard. The standard `make test` gate stays on the
+- Cranelift aborts on a panic taken while an `RwLock` write guard is alive, so
+  `make dev-test` excludes the `hnsw::cpu::test_helpers::tests` poisoned-lock
+  regression, which panics while holding a graph write guard. A panic with no
+  guard held unwinds normally. The standard `make test` gate stays on the
   stable pin and does not exclude it, so that regression still runs at the
   merge gate.
 - Clippy warnings MUST be disallowed.

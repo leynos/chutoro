@@ -215,8 +215,9 @@ deserves recording here rather than only in the developers' guide, because it
 is the single place where the development route is knowingly narrower than the
 merge gate.
 
-Cranelift aborts on a panic it cannot unwind
-(`fatal runtime error: failed to initiate panic, error 5`). The regression
+Cranelift aborts on a panic taken while an `RwLock` write guard is alive
+(`fatal runtime error: failed to initiate panic, error 5`); a panic with no
+guard held unwinds normally. The regression
 `hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring`
 induces a panic while a graph write guard is alive, then inspects the poison
 through `catch_unwind`. Under the development backend the process dies before

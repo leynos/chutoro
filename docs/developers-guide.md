@@ -100,9 +100,10 @@ Linux `rustflags` table in `.cargo/config.toml` links with it, and the standard
 `STANDARD_LINKER_FLAGS`, so a Linux host needs `mold` for the standard targets
 as well. Outside Linux the fragment leaves the platform linker selected.
 
-The backend cannot unwind a panic. A test that wants to observe lock poisoning
-must panic while a write guard is alive and catch the unwind, and under
-Cranelift that attempt aborts the process with
+The backend cannot unwind a panic taken while a write guard is alive. Ordinary
+unwinding still works: a plain `catch_unwind(|| panic!())` unwinds normally. A
+test that wants to observe lock poisoning must panic while the guard is held
+and catch that unwind, and under Cranelift the attempt aborts the process with
 `fatal runtime error: failed to initiate panic, error 5` instead of unwinding.
 `dev-test` therefore excludes exactly one case, the poisoned-lock regression in
 `hnsw::cpu::test_helpers::tests`, through `DEV_TEST_FILTER`. The standard
