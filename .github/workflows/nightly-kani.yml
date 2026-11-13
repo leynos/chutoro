@@ -30,7 +30,7 @@ jobs:
         with:
           ref: main
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@0eabb6bc07148981de5da395e30cd78d83f5c7c2
+        uses: leynos/shared-actions/.github/actions/setup-rust@a0519a1476ab769ca7b8badfa794f3751213f1ea
         with:
           install-mold: 'true'
           # Kani compiles through `kani-compiler`, which sccache does not
@@ -67,7 +67,7 @@ jobs:
           enable-cache: false
       - name: Install Kani
         if: ${{ steps.gate.outputs.should_run == 'true' }}
-        uses: leynos/shared-actions/.github/actions/install-prover-tools@203eedc136c14c28041e92c06a929383807b3a3f
+        uses: leynos/shared-actions/.github/actions/install-prover-tools@a0519a1476ab769ca7b8badfa794f3751213f1ea
         with:
           tools: kani
           runner-image: ubuntu2404
