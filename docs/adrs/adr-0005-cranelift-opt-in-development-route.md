@@ -207,6 +207,8 @@ Neither change alters the decision. What changes is that the pin can no longer
 be silently skipped, and that both development targets are now exercised end to
 end rather than only through dry runs.
 
+## Addendum — 2026-11-13
+
 The decision above describes `dev-test` as a convenience route that runs the
 same suite on a different backend. One case is not run, and the exclusion
 deserves recording here rather than only in the developers' guide, because it

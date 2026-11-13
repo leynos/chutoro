@@ -52,6 +52,7 @@ from dev_fast_probe_support import (
     run_development_target,
     write_probe_repository,
 )
+from dev_fast_selection_contract import assert_development_selection_is_standard_minus_one
 
 #: The development filter, shaped like the production one but without the
 #: ``package(chutoro-core)`` scope. The probe crate is one synthetic package,
@@ -205,12 +206,6 @@ REPO_ROOT = MAKEFILE_PATH.parent
 #: The filter the standard gate runs, and therefore the baseline the
 #: development route is measured against.
 STANDARD_FILTER = "not kind(bench)"
-#: The case ``DEV_TEST_FILTER`` must drop, written out here rather than read
-#: from the Makefile: a contract that imported the thing it checks could not
-#: notice a rename on either side.
-POISONED_LOCK_TEST = (
-    "hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring"
-)
 #: ``cargo nextest list`` builds every test binary before it can ask them what
 #: they contain, so this is a compile budget rather than a parsing one. It is
 #: generous because the two selections run back to back on one workspace and
@@ -268,11 +263,6 @@ def _build_and_list_nextest_selection(*, filter_expression: str) -> set[str]:
     return _parse_nextest_listing(completed.stdout)
 
 
-def _selected(selection: set[str], test_name: str) -> set[str]:
-    """Return the selection entries naming ``test_name``."""
-    return {entry for entry in selection if entry.endswith(test_name)}
-
-
 @pytest.fixture(scope="module")
 def dev_test_filter() -> str:
     """Return the filter expression ``make dev-test`` really passes to nextest.
@@ -309,16 +299,6 @@ def test_development_selection_is_the_standard_selection_minus_one_case(
         filter_expression=STANDARD_FILTER
     )
 
-    assert _selected(dev_selection, POISONED_LOCK_TEST) == set(), (
-        "dev-test must not select the poisoned-lock regression"
-    )
-    assert len(_selected(standard_selection, POISONED_LOCK_TEST)) == 1, (
-        "the standard gate must select the poisoned-lock regression"
-    )
-    assert dev_selection == standard_selection - _selected(
-        standard_selection, POISONED_LOCK_TEST
-    ), (
-        "dev-test must select every standard case except the poisoned-lock "
-        f"regression; unexpected difference: "
-        f"{dev_selection ^ standard_selection}"
+    assert_development_selection_is_standard_minus_one(
+        dev_selection, standard_selection
     )
