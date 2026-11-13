@@ -4,7 +4,11 @@
 //! scheduling property that keeps it from stranding the worker that holds the
 //! insert mutex.
 
-use std::{collections::BTreeSet, sync::Mutex};
+use std::{
+    collections::BTreeSet,
+    sync::{Condvar, Mutex},
+    time::Duration,
+};
 
 use crate::{
     MetricDescriptor,
@@ -34,13 +38,13 @@ const TRIM_CANDIDATES: usize = 32;
 /// Worker threads in the pool the trim-scoring regression installs into.
 const TRIM_THREADS: usize = 4;
 
-/// Rounds of trim scoring the regression performs inside one pool install.
+/// How long the caller's first distance call waits for another worker.
 ///
-/// A dispatching implementation can complete a single round on the calling
-/// worker when no other worker steals from it, so one round can pass by
-/// coincidence. Repeating the round makes that coincidence implausible without
-/// depending on timing.
-const TRIM_ROUNDS: usize = 8;
+/// The wait is what makes the scheduling check deterministic. A dispatching
+/// implementation has this long to let an idle worker steal a job and record
+/// itself; a sequential implementation waits out the whole interval once and
+/// then scores normally.
+const OTHER_WORKER_WAIT: Duration = Duration::from_secs(2);
 
 /// Guards the arithmetic in [`DenseSource::trim_job`]: every job scores
 /// candidates drawn from `node + offset` without wrapping.
@@ -130,10 +134,23 @@ impl DataSource for DenseSource {
     }
 }
 
+/// Shared state for [`ThreadRecordingSource`].
+struct Recording {
+    /// Distinct Rayon workers that have asked for a distance.
+    workers: BTreeSet<Option<usize>>,
+    /// The pool worker the test will score from, once it is known.
+    caller: Option<usize>,
+    /// Whether a worker other than the caller has recorded a call.
+    other_worker_seen: bool,
+    /// Whether the caller has already served its one bounded wait.
+    waited: bool,
+}
+
 /// Wraps a source and records which Rayon worker asked for each distance.
 struct ThreadRecordingSource {
     points: DenseSource,
-    workers: Mutex<BTreeSet<Option<usize>>>,
+    recording: Mutex<Recording>,
+    other_worker: Condvar,
 }
 
 impl ThreadRecordingSource {
@@ -141,16 +158,31 @@ impl ThreadRecordingSource {
     fn new(points: DenseSource) -> Self {
         Self {
             points,
-            workers: Mutex::new(BTreeSet::new()),
+            recording: Mutex::new(Recording {
+                workers: BTreeSet::new(),
+                caller: None,
+                other_worker_seen: false,
+                waited: false,
+            }),
+            other_worker: Condvar::new(),
         }
+    }
+
+    /// Tells the source which worker will score, enabling the bounded wait.
+    fn set_caller(&self, caller: Option<usize>) {
+        self.recording
+            .lock()
+            .expect("the worker record is never poisoned by this test")
+            .caller = caller;
     }
 
     /// Returns the distinct worker indices that have called
     /// [`DataSource::distance`].
     fn workers(&self) -> BTreeSet<Option<usize>> {
-        self.workers
+        self.recording
             .lock()
             .expect("the worker record is never poisoned by this test")
+            .workers
             .clone()
     }
 }
@@ -166,13 +198,37 @@ impl DataSource for ThreadRecordingSource {
         "trim-scoring-regression"
     }
 
-    /// Records the calling worker, then forwards to the wrapped source.
+    /// Records the calling worker, giving the pool one bounded chance to steal
+    /// work before a dispatching implementation can finish on the caller.
     fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
-        let _ = self
-            .workers
+        let worker = rayon::current_thread_index();
+        let mut recording = self
+            .recording
             .lock()
-            .expect("the worker record is never poisoned by this test")
-            .insert(rayon::current_thread_index());
+            .expect("the worker record is never poisoned by this test");
+        recording.workers.insert(worker);
+        if recording
+            .caller
+            .is_some_and(|caller| Some(caller) != worker)
+        {
+            recording.other_worker_seen = true;
+            self.other_worker.notify_all();
+        } else if recording.caller.is_some() && !recording.waited {
+            // The first call on the caller blocks until another worker takes a
+            // job or the interval expires. Waiting on every call would pay the
+            // interval once per distance; waiting on none of them would leave
+            // detection to work stealing alone.
+            recording.waited = true;
+            let (guard, _timeout) = self
+                .other_worker
+                .wait_timeout_while(recording, OTHER_WORKER_WAIT, |state| {
+                    !state.other_worker_seen
+                })
+                .expect("the worker record is never poisoned by this test");
+            drop(guard);
+            return self.points.distance(left, right);
+        }
+        drop(recording);
         self.points.distance(left, right)
     }
 
@@ -191,45 +247,35 @@ impl DataSource for ThreadRecordingSource {
 /// build then hung instead of returning, and a benchmark child that hit it had
 /// to be killed after 25 minutes.
 ///
-/// The test scores several rounds of jobs from inside a worker of a four-thread
-/// pool, and every distance call across every round must come from that worker.
-/// One round is not enough on its own: a dispatching implementation can finish
-/// the whole round on the caller when no other worker steals from it, so the
-/// round would pass despite the dispatch. Each round uses a fresh index, which
-/// keeps the distance cache from turning later rounds into cache hits that never
-/// reach the source, and repeats the race enough times that a scheduler that
-/// always kept the work on the caller is not a realistic explanation.
+/// The check is deterministic rather than probabilistic: the caller's first
+/// distance call waits up to [`OTHER_WORKER_WAIT`] for a call from another
+/// worker. A dispatching implementation hands the idle pool an opportunity to
+/// steal and fails; a sequential one waits the interval out once and completes
+/// on the caller. Repeating rounds is unnecessary, because the wait supplies
+/// the opportunity that timing used to supply by chance.
 #[test]
 fn trim_scoring_stays_on_the_thread_holding_the_insert_mutex() {
-    let points = DenseSource::synthetic(TRIM_POINTS);
-    let source = ThreadRecordingSource::new(points);
+    let source = ThreadRecordingSource::new(DenseSource::synthetic(TRIM_POINTS));
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(TRIM_THREADS)
         .build()
         .expect("a dedicated pool");
 
-    let (caller, rounds) = pool.install(|| {
+    let (caller, scored) = pool.install(|| {
         let caller = rayon::current_thread_index();
-        let rounds = (0..TRIM_ROUNDS)
-            .map(|_| {
-                let index =
-                    CpuHnsw::with_capacity(HnswParams::new(16, 200).expect("params"), TRIM_POINTS)
-                        .expect("index");
-                let jobs: Vec<TrimJob> = (0..TRIM_JOBS).map(DenseSource::trim_job).collect();
-                index.score_trim_jobs(jobs, &source)
-            })
-            .collect::<Vec<_>>();
-        (caller, rounds)
+        source.set_caller(caller);
+        let index = CpuHnsw::with_capacity(HnswParams::new(16, 200).expect("params"), TRIM_POINTS)
+            .expect("index");
+        let jobs: Vec<TrimJob> = (0..TRIM_JOBS).map(DenseSource::trim_job).collect();
+        (caller, index.score_trim_jobs(jobs, &source))
     });
 
-    for (round, scoring) in rounds.into_iter().enumerate() {
-        let scored = scoring.expect("trim scoring must succeed");
-        assert_eq!(
-            scored.len(),
-            TRIM_JOBS,
-            "round {round} must score every trim job"
-        );
-    }
+    let scored_jobs = scored.expect("trim scoring must succeed");
+    assert_eq!(
+        scored_jobs.len(),
+        TRIM_JOBS,
+        "every trim job must be scored"
+    );
     assert!(
         caller.is_some(),
         "the scoring closure should have run on a pool worker"
@@ -244,53 +290,9 @@ fn trim_scoring_stays_on_the_thread_holding_the_insert_mutex() {
         )
     );
 }
-
-/// Verifies trim scoring records both of its metrics for one scored batch.
+/// Metric assertions for the trim-scoring boundary.
 ///
-/// The histogram is the only place the cost of scoring inside the insertion
-/// critical section is visible, so the test pins it alongside the job counter
-/// rather than leaving the instruments unexercised.
+/// They live in their own file so the scheduling regression and the recorder
+/// setup stay within the module size the lint suite allows.
 #[cfg(feature = "metrics")]
-#[test]
-fn trim_scoring_records_its_counter_and_histogram() {
-    use metrics_util::debugging::{DebugValue, DebuggingRecorder};
-
-    let recorder = DebuggingRecorder::new();
-    let snapshotter = recorder.snapshotter();
-    let source = ThreadRecordingSource::new(DenseSource::synthetic(TRIM_POINTS));
-    let index = CpuHnsw::with_capacity(HnswParams::new(16, 200).expect("params"), TRIM_POINTS)
-        .expect("index");
-    let jobs: Vec<TrimJob> = (0..TRIM_JOBS).map(DenseSource::trim_job).collect();
-
-    ::metrics::with_local_recorder(&recorder, || {
-        index
-            .score_trim_jobs(jobs, &source)
-            .expect("trim scoring must succeed");
-    });
-
-    let snapshot_values: Vec<(String, DebugValue)> = snapshotter
-        .snapshot()
-        .into_hashmap()
-        .into_iter()
-        .map(|(key, (_, _, value))| (key.key().name().to_owned(), value))
-        .collect();
-    let value_for = |name: &str| {
-        snapshot_values
-            .iter()
-            .find(|(value_name, _)| value_name == name)
-            .map(|(_, value)| value)
-    };
-
-    assert_eq!(
-        value_for("chutoro.hnsw.trim.jobs_total"),
-        Some(&DebugValue::Counter(TRIM_JOBS as u64)),
-        "one scored batch must count every job it scored"
-    );
-    assert!(
-        matches!(
-            value_for("chutoro.hnsw.trim.duration_seconds"),
-            Some(DebugValue::Histogram(samples)) if !samples.is_empty()
-        ),
-        "one scored batch must record one duration sample"
-    );
-}
+mod metric_recording;
