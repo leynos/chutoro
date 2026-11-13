@@ -118,7 +118,7 @@ Then add unit tests for the commit path. Prefer a dedicated test module in
   and returns `HnswError::GraphInvariantViolation`.
 
 Document any design decision in
-`docs/adr-002-adoption-of-kani-formal-verification.md` (or
+`docs/adrs/adr-0002-adoption-of-kani-formal-verification.md` (or
 `docs/chutoro-design.md` if it affects architecture). Finally, mark the
 relevant Phase 1 roadmap entry as done in `docs/roadmap.md` once the feature is
 complete and tests pass.

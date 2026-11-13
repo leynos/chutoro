@@ -104,7 +104,8 @@ kani-full: ## Run all Kani formal verification harnesses
 ### 5. Create Documentation
 
 - [x] Create this execution plan (`docs/execplans/phase-1-...`)
-- [x] Create ADR-002 (`docs/adr-002-adoption-of-kani-formal-verification.md`)
+- [x] Create ADR-002
+      (`docs/adrs/adr-0002-adoption-of-kani-formal-verification.md`)
 
 ## Verification
 
@@ -156,4 +157,4 @@ make kani-full
 - [Kani Rust Verifier](https://github.com/model-checking/kani)
 - [Kani Documentation](https://model-checking.github.io/kani/)
 - [Property Testing Design](../property-testing-design.md)
-- [ADR-002: Adoption of Kani](../adr-002-adoption-of-kani-formal-verification.md)
+- [ADR-002: Adoption of Kani](../adrs/adr-0002-adoption-of-kani-formal-verification.md)

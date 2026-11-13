@@ -42,19 +42,19 @@ open each document.
 
 ## Decision records
 
-- [ADR 001: commit post-processing](adr-001-commit-post-processing.md):
+- [ADR 001: commit post-processing](adrs/adr-0001-commit-post-processing.md):
   accepted guidance for commit post-processing behaviour.
-- [ADR 002: adoption of Kani formal verification](adr-002-adoption-of-kani-formal-verification.md):
+- [ADR 002: adoption of Kani formal verification](adrs/adr-0002-adoption-of-kani-formal-verification.md):
   accepted guidance for using Kani bounded model checking in this repository.
-- [ADR 003: SoA prefetch adapter boundary](adr-003-soa-prefetch-adapter-boundary.md):
+- [ADR 003: SoA prefetch adapter boundary](adrs/adr-0003-soa-prefetch-adapter-boundary.md):
   accepted guidance for the dense adapter boundary and deferred structural
   optimization levers.
-- [ADR 004: benchmark dataset recipe trait](adr-004-bench-dataset-recipe-trait.md):
+- [ADR 004: benchmark dataset recipe trait](adrs/adr-0004-bench-dataset-recipe-trait.md):
   accepted guidance for typed benchmark dataset preparation and publication.
 - [ADR 005: Cranelift as an opt-in development
-  route](adr-005-cranelift-opt-in-development-route.md): accepted guidance for
-  keeping the accelerated backend outside the build standard and every merge
-  gate.
+  route](adrs/adr-0005-cranelift-opt-in-development-route.md): accepted
+  guidance for keeping the accelerated backend outside the build standard and
+  every merge gate.
 
 ## Execution plans
 
