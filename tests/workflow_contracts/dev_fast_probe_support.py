@@ -20,6 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
+import typing as typ
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -172,16 +173,26 @@ def _rustup_home() -> Path | None:
     return Path(reported.stdout.strip())
 
 
+#: The make variables every run sets. ``APP`` points the recipe at the probe's
+#: binary, and ``BUILD_JOBS`` is where the compiler arguments the backend
+#: assertion reads come from. Callers add to this map rather than gaining a
+#: parameter each: they are one concept - what this run tells make - and
+#: CodeScene's advisory rule counts parameters, not concepts.
+BASE_MAKE_VARIABLES: typ.Final[dict[str, str]] = {
+    "APP": PROBE_CRATE,
+    "BUILD_JOBS": "--verbose",
+}
+
+
 def run_development_target(
     directory: Path,
     environment: dict[str, str],
     target: str,
-    *,
-    build_jobs: str = "--verbose",
+    make_variables: typ.Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run one development recipe against the probe crate in ``directory``.
 
-    ``APP=devprobe`` points the recipe at the probe's binary and
+    ``APP`` points the recipe at the probe's binary and
     ``BUILD_JOBS`` reaches the Cargo invocation with the compiler arguments
     the backend assertion reads. ``CI`` is cleared so the nextest profile is
     the developer's default rather than the gate's.
@@ -189,7 +200,18 @@ def run_development_target(
     ``dev-build`` needs ``--verbose``, but ``dev-test`` needs
     ``--cargo-verbose`` instead: nextest starts its own Cargo, and only the
     latter flag makes that inner build print the line the assertion reads.
-    The default suits the direct Cargo route; a nextest caller passes its own.
+    The default suits the direct Cargo route; a nextest caller overrides it
+    through ``make_variables``.
+
+    A ``DEV_TEST_FILTER`` in ``make_variables`` replaces the production filter
+    for the run. That filter is written against this repository's own sources:
+    it scopes the poisoned-lock exclusion with ``package(chutoro-core)``, and
+    nextest rejects a ``package(...)`` naming a package the tree does not
+    contain (``error: operator didn't match any packages``). The probe crate is
+    a single synthetic package, so a caller exercising the recipe's own
+    plumbing passes an expression built the same way but without that scope.
+    Leaving the default alone is deliberate: changing the production filter to
+    suit a fixture would trade a real guarantee for a synthetic one.
 
     Cargo writes its progress and nextest its run report to standard error,
     leaving standard output for make's echo of the recipe, so callers read the
@@ -197,6 +219,7 @@ def run_development_target(
     """
     environment = dict(environment)
     environment.pop("CI", None)
+    variables = {**BASE_MAKE_VARIABLES, **(make_variables or {})}
     return subprocess.run(
         [
             "make",
@@ -204,8 +227,7 @@ def run_development_target(
             "--file",
             str(directory / "Makefile"),
             target,
-            f"APP={PROBE_CRATE}",
-            f"BUILD_JOBS={build_jobs}",
+            *(f"{name}={value}" for name, value in variables.items()),
         ],
         cwd=directory,
         check=False,

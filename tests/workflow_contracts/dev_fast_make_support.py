@@ -74,6 +74,81 @@ def _cargo_invocations(output: str) -> list[tuple[str, list[str]]]:
     return invocations
 
 
+#: Nextest's filter-expression option in every spelling the pinned command
+#: accepts. The short form also attaches its value directly, as in `-Eall()`,
+#: which a search for the bare `-E` token misses.
+#:
+#: ``--filter-expr`` is not a second feature: the pinned 0.9.143 declares it as
+#: a clap ``alias`` of ``--filterset``, so it appends to the same argument list.
+#: A parser that knew only the two names above would let
+#: ``--filter-expr 'all()'`` widen the development run past the one-filter
+#: check. Nextest does not document the alias in its help text, so it is pinned
+#: here by its source: ``cargo-nextest/src/dispatch/core/filter.rs`` at
+#: ``cargo-nextest-0.9.143``, ``alias = "filter-expr"`` on ``filterset``.
+_FILTER_OPTIONS = ("-E", "--filterset", "--filter-expr")
+
+
+def _filter_expressions(tokens: list[str]) -> list[str]:
+    """Return every nextest filter expression named by ``tokens``.
+
+    A repeated filter is not an override. The pinned nextest unions repeated
+    filter arguments, so `-E 'all()'` after the development filter reselects
+    the poisoned-lock regression while a parser that read only the first
+    expression would still report the intended selection. Extraction therefore
+    reports every expression it finds, and its callers require exactly one
+    rather than leaving a second one unmeasured.
+
+    >>> _filter_expressions(["nextest", "run", "-E", "all()"])
+    ['all()']
+    >>> _filter_expressions(["nextest", "-Eall()", "--filterset=none()"])
+    ['all()', 'none()']
+    >>> _filter_expressions(["nextest", "--filter-expr", "all()"])
+    ['all()']
+    """
+    expressions: list[str] = []
+    for position, token in enumerate(tokens):
+        if token in _FILTER_OPTIONS:
+            assert position + 1 < len(tokens), (
+                f"{token} must name a filter expression: {tokens!r}"
+            )
+            expressions.append(tokens[position + 1])
+        elif token.startswith(("--filterset=", "--filter-expr=")):
+            expressions.append(token.partition("=")[2])
+        elif token.startswith("-E") and len(token) > 2:
+            expressions.append(token[2:].removeprefix("="))
+    return expressions
+
+
+def _nextest_filter_expression(output: str) -> str:
+    """Return the filter expression of the single development nextest run.
+
+    It reads the evaluated recipe rather than the Makefile text, so a variable
+    that expands to the filter is followed to its final value. Exactly one
+    nextest invocation is required: the development target runs the suite
+    once, and a second run would leave this helper choosing between two
+    expressions without saying which the assertion measured.
+
+    Exactly one filter expression is required for the same reason, with a
+    sharper failure: nextest accepts several and unions them, so a second
+    argument widens the run without changing the first one this helper reads.
+    """
+    invocations = [
+        (line, tokens)
+        for line, tokens in _cargo_invocations(output)
+        if "nextest" in tokens
+    ]
+    assert len(invocations) == 1, (
+        f"expected one development nextest invocation, found {invocations!r}"
+    )
+    _, tokens = invocations[0]
+    expressions = _filter_expressions(tokens)
+    assert len(expressions) == 1, (
+        "dev-test must pass exactly one nextest filter expression; nextest "
+        f"unions repeats, so each extra one reselects excluded cases: {tokens!r}"
+    )
+    return expressions[0]
+
+
 def _pinned_toolchain() -> str:
     """Return the toolchain channel pinned for the development route."""
     toolchain = DEV_FAST_TOOLCHAIN_PATH.read_text(encoding="utf-8").strip()
@@ -285,6 +360,12 @@ def _assert_nextest_scope(line: str, tokens: list[str]) -> None:
     ``--all-features`` would skip tests, ``--all-targets`` alone is not enough
     without ``run``, and omitting the benchmark filter makes nextest attempt
     cases the standard gate excludes.
+
+    The filter is not pinned to a literal here: the development route also
+    excludes the Cranelift-incompatible poisoned-lock regression, so the
+    precise expression is owned by `_assert_development_exclusion` in the
+    routing suite. This check only requires the benchmark exclusion to be
+    present.
     """
     nextest_args = tokens[tokens.index("nextest") + 1 :]
     assert nextest_args[0] == "run", (
@@ -296,8 +377,8 @@ def _assert_nextest_scope(line: str, tokens: list[str]) -> None:
         )
     assert "-E" in nextest_args, f"dev-test must filter benchmarks: {line!r}"
     filter_index = nextest_args.index("-E")
-    assert nextest_args[filter_index + 1] == "not kind(bench)", (
-        f"dev-test must exclude only benchmarks: {line!r}"
+    assert nextest_args[filter_index + 1].startswith("not kind(bench)"), (
+        f"dev-test must exclude benchmarks: {line!r}"
     )
 
 

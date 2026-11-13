@@ -206,3 +206,30 @@ removes the guard in a private copy to show the defect returning without it.
 Neither change alters the decision. What changes is that the pin can no longer
 be silently skipped, and that both development targets are now exercised end to
 end rather than only through dry runs.
+
+## Addendum — 2026-11-13
+
+The decision above describes `dev-test` as a convenience route that runs the
+same suite on a different backend. One case is not run, and the exclusion
+deserves recording here rather than only in the developers' guide, because it
+is the single place where the development route is knowingly narrower than the
+merge gate.
+
+Cranelift aborts on a panic taken while an `RwLock` write guard is alive
+(`fatal runtime error: failed to initiate panic, error 5`); a panic with no
+guard held unwinds normally. The regression
+`hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring`
+induces a panic while a graph write guard is alive, then inspects the poison
+through `catch_unwind`. Under the development backend the process dies before
+the assertion is reached, so the case cannot report a meaningful result there.
+
+`DEV_TEST_FILTER` therefore excludes exactly that case, named once through the
+`POISONED_LOCK_TEST` variable so a rename is a one-line edit. The exclusion is
+scoped to the development route only: `make test`, on the pinned stable
+toolchain, keeps running the regression, and it is a merge gate. A contract
+test requires the exclusion to name a declaration that actually exists at the
+module level the path implies, because nextest treats an unmatched `test(=...)`
+clause as an empty match and would otherwise silently run the aborting case.
+
+This narrows the development route's coverage; it does not narrow the gate's.
+The rule that no gate selects Cranelift is unchanged.

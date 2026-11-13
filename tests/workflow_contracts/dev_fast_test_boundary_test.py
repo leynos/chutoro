@@ -37,6 +37,12 @@ def _assert_stable_test(output: str) -> None:
     one *nextest* invocation rather than exactly one command, while still
     rejecting a fragment selection or a toolchain override anywhere in the
     recipe.
+
+    The gate must also keep *every* test case it can run. The poisoned-lock
+    regression panics inside `catch_unwind`; that is fine on the stable pin
+    and fatal on the Cranelift development route, so the exclusion belongs to
+    `dev-test` alone. A filter that grew one here would silently retire the
+    regression at the merge gate.
     """
     invocations = _cargo_invocations(output)
     assert invocations, f"make test must emit Cargo commands, got {output!r}"
@@ -69,7 +75,11 @@ def _assert_stable_test(output: str) -> None:
     )
 
     filter_index = tokens.index("-E")
-    assert tokens[filter_index + 1] == "not kind(bench)", (
+    expression = tokens[filter_index + 1]
+    assert "test(=" not in expression, (
+        f"make test must not exclude a named case: {line!r}"
+    )
+    assert expression == "not kind(bench)", (
         f"make test must filter only benchmarks: {line!r}"
     )
 
@@ -94,6 +104,12 @@ def test_standard_test_is_a_single_stable_nextest_run() -> None:
             '-D warnings" $(CARGO) nextest run',
             "lost",
             id="test-loses-documentation-denials",
+        ),
+        pytest.param(
+            "-E 'not kind(bench)'",
+            "-E '$(DEV_TEST_FILTER)'",
+            "must not exclude a named case",
+            id="test-inherits-the-development-exclusion",
         ),
     ),
 )

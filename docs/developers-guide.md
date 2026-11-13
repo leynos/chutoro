@@ -100,12 +100,93 @@ Linux `rustflags` table in `.cargo/config.toml` links with it, and the standard
 `STANDARD_LINKER_FLAGS`, so a Linux host needs `mold` for the standard targets
 as well. Outside Linux the fragment leaves the platform linker selected.
 
+The backend cannot unwind a panic taken while a write guard is alive. Ordinary
+unwinding still works: a plain `catch_unwind(|| panic!())` unwinds normally. A
+test that wants to observe lock poisoning must panic while the guard is held
+and catch that unwind, and under Cranelift the attempt aborts the process with
+`fatal runtime error: failed to initiate panic, error 5` instead of unwinding.
+`dev-test` therefore excludes exactly one case, the poisoned-lock regression in
+`hnsw::cpu::test_helpers::tests`, through `DEV_TEST_FILTER`. The standard
+`test` gate is on the stable pin and keeps no such exclusion, so the regression
+runs at the merge gate; the development route only gives up its own accelerated
+copy.
+
+nextest treats an exclusion that matches nothing as an empty match rather than
+an error, so the filter string must name a case that really exists at that path.
+`rust_declaration_reading.declared_in_module` reads
+`chutoro-core/src/hnsw/cpu/test_helpers.rs` to check that it does, and it
+accepts only a declaration *directly* inside a top-level `mod tests`. A case
+moved into a nested module has a longer path than the filter names, so that
+move is a missing exclusion too. The reading blanks comments and literals
+through `rust_source_reading`, this suite's single Rust lexer, before counting
+braces; a brace inside a string or character literal would otherwise end the
+module span early and hide the declaration.
+
+`rust_declaration_reading` owns one question — is this name declared at this
+module's own level — and no other. Its only call-site is
+`dev_fast_routing_test.py`, and nothing outside `tests/workflow_contracts` may
+import it. It reads source text rather than the Makefile, so it does not
+duplicate the dry-run reading. The lexer itself stays in `rust_source_reading`:
+a second Rust scanner here would eventually disagree with the first about where
+a raw string or a nested block comment ends.
+
 Those three development targets declare themselves `.PHONY` beside their
 recipes rather than in the file-wide list at the top of the `Makefile`. The
 file-wide list is a single long line that other work also edits, so appending
 to it invites a merge conflict with any concurrent change to the same targets.
 Keeping the opt-in feature's declarations next to its recipes means this
 feature and its declarations move together.
+
+### End-to-end contracts for the development route
+
+The contracts in `tests/workflow_contracts/dev_fast_*_test.py` read a
+`make --dry-run` transcript. That pins what the Makefile *says* and cannot
+distinguish a correct exclusion from one whose string misspells the test name.
+The two are not equivalent. nextest treats a `test(=...)` clause that matches
+no registered test as an empty match, so the misspelt form excludes nothing,
+still selects the poisoned-lock regression, and aborts under Cranelift; only
+the correctly named exclusion leaves that case unrun.
+`dev_fast_end_to_end_test.py` closes the gap by comparing live nextest
+selections and by running the real recipes.
+
+It is opt-in, because building the workspace twice costs far more than a
+contract suite should spend by default:
+
+```sh
+CHUTORO_DEV_FAST_E2E=1 make test-workflow-contracts
+```
+
+The selection comparison is the one opt-in check. It compares the development
+selection with the standard one and requires an exact difference of the
+poisoned-lock regression; a typo, a rename, or a dropped clause fails it.
+
+The selection comparison runs both `list` invocations on the *stable* pin, not
+the Cranelift fragment: test names come from the source, so they do not depend
+on the codegen backend, and enumerating under the nightly would pay a Cranelift
+build for evidence the probe contracts already buy. What it covers is the
+filter's membership.
+
+It asks for `-T oneline` and reads each line as a binary id and a test name,
+exactly two whitespace fields. The shape matters: only the *binary* id is
+guaranteed to carry a `::` separator. An integration test appears as
+`pkg::suite case` and a root-level unit test as `pkg case`, so a parse keyed on
+`::` would drop the second kind from both selections and let the comparison
+pass over the omission it exists to find.
+
+The two probe contracts that run the real recipes are *not* behind the switch.
+They build a synthetic crate rather than this workspace, so they cost seconds
+rather than the workspace build the switch exists to avoid. `dev-build` reads
+the compiler line Cargo printed for the probe's own `rustc` invocation, and
+`dev-test` reads it for the probe's *test harness*, selected by Cargo's
+`--test` marker; both require `codegen-backend=cranelift` on every matching
+line. The dry-run contracts prove only that the recipe passes `--config` — not
+that Cargo honoured it, and only a verbose build prints the arguments at all. A
+fragment that stopped selecting the backend would leave every text-level
+assertion passing while the build quietly reverted to stable Rust.
+
+`dev-test` runs against a probe-shaped filter, not the production one: the
+production expression scopes its exclusion with `package(chutoro-core)`, and
+nextest rejects a `package(...)` that names nothing in the tree.
 
 ## GitHub Actions runner profiles
 
@@ -1043,6 +1124,66 @@ below derive their `Error` implementation with `thiserror`:
   `RowLength`, `Dimension`, `Arrow`, and `Parquet` failure modes of the Arrow
   and Parquet builders.
 
+### Graph-lock test helpers
+
+`chutoro-core/src/hnsw/cpu/test_helpers.rs` carries two fixtures that reach
+into a `CpuHnsw`'s shared graph: `inspect_graph` runs a closure under the graph
+read lock, and `reconfigure_for_test` swaps the parameters and the structures
+derived from them. Both return `Result<_, HnswError>` rather than panicking, in
+line with the [fallible fixture policy](#fallible-fixture-policy). A `#[test]`
+caller adds `.expect("...")` at its own boundary, and the poisoned-lock
+regression reads the error value instead.
+
+`inspect_graph` returns `HnswError::LockPoisoned { resource: "graph" }` when
+the read lock is already poisoned. `reconfigure_for_test` acquires the graph
+write lock **before** it touches anything else, so that same error leaves the
+index exactly as it was: the parameters, random generators, and distance cache
+are replaced only once the graph has accepted the new parameters. Reconfiguring
+first and locking second would leave a half-applied configuration behind on the
+one path where the caller can still observe it.
+
+```rust
+// Inside `hnsw::cpu::test_helpers::tests`, where the private graph field is
+// reachable. A fresh index has a healthy lock, so the poison is induced first:
+// panicking while a graph write guard is alive marks the lock poisoned.
+let params = HnswParams::new(2, 4).expect("valid parameters");
+let mut index = CpuHnsw::with_capacity(params.clone(), 3).expect("index");
+let poisoned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let _guard = index.graph.write().expect("graph write lock");
+    panic!("poison the graph lock");
+}));
+assert!(poisoned.is_err(), "the induced panic must mark the lock poisoned");
+
+// A poisoned graph lock is reported, not panicked, and nothing is replaced.
+assert!(matches!(
+    index.reconfigure_for_test(HnswParams::new(3, 6).expect("valid")),
+    Err(HnswError::LockPoisoned { resource: "graph" })
+));
+assert_eq!(index.params, params);
+```
+
+The `#[cfg(test)]`-gated helper module is what makes `index.graph` reachable
+here; outside it the field is private, so the example is not a pattern for
+production callers.
+
+The regression that proves this,
+`hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring`,
+poisons the lock by panicking while a write guard is alive, then inspects the
+poison through `catch_unwind`. Before poisoning, it advances both random
+generators and caches one distance, so the state a failed reconfiguration is
+meant to leave alone already exists: the test asserts the parameters, the
+cached distance, and the generators' next draws afterwards. The replacement
+parameters differ from the active ones in every field, which keeps that
+comparison from passing vacuously. This is the one case
+[the development route](#rust-toolchain-and-build-routing) cannot run.
+
+Its companion, `reconfigure_replaces_parameters_generators_and_cache`, performs
+the swap the poisoned case refuses and measures that every derived structure
+moved. A preservation assertion alone is satisfied by a helper that acquires
+the lock and returns early, which would leave `make dev-test` building against
+stale state; the pair states both halves of the boundary. The companion stays
+in the development route, because it induces no panic for Cranelift to unwind.
+
 ### Test-only budget types
 
 `chutoro-core/src/hnsw/tests/property/test_runner_support/budget_types.rs`
@@ -1122,6 +1263,67 @@ and runs both targets against a small probe crate built by
 `dev_fast_probe_support.py`, asserting that `dev-build` produces a binary rustc
 compiled with Cranelift and that `dev-test` runs and passes the probe's suite
 through nextest.
+
+A recipe's make variables reach the probe as one mapping, not as a parameter
+each, and the filter expression is read by the one tokenizing helper in
+`dev_fast_make_support.py`. Both points exist for the same reason: several
+suites read the same Makefile, and a second parser or a per-variable parameter
+would eventually disagree with the first, on a recipe that gained another `-E`
+or a caller that forgot to forward a value. The nextest listing parse follows
+the same split: `dev_fast_listing_support.py` holds it, and
+`dev_fast_listing_parse_test.py` pins its cases as literal transcripts, so the
+end-to-end suite consumes the parse without carrying its edge cases.
+
+The exclusion filter is held to the set it selects, not to the presence of a
+case name. `dev_fast_filter_contract.py` builds the one correct filter and
+supplies five mutations that each exclude more than intended: a clause appended
+outside the negated group, a second alternative inside it, the package clause
+dropped, and a `not package(...)` for a crate the workspace has. All five keep
+the poisoned-lock name and the expected prefix, so a substring check accepts
+every one of them. The routing suite requires `assert_development_exclusion` to
+reject each mutation, once directly and once through the recipe — the mutated
+Makefile is read back with `make --dry-run`, so a filter the recipe quotes or
+escapes into something else cannot hide a contract that would have accepted it.
+That is what holds `dev-test` to giving up exactly one case. The end-to-end
+selection comparison would catch the same widening, but it is opt-in and never
+runs on CI, so this contract is the only thing standing in for it there.
+
+That assertion evaluates the expression against a small model of nextest's
+selection grammar, built from the documented operators rather than by calling
+nextest. The model lives in `dev_fast_expression_model.py` rather than in the
+contract, so the two readings can genuinely disagree: a model that shared the
+contract's code could not contradict it, and the property below would pass for
+either. The model's universe holds the poisoned-lock case, a benchmark in the
+same package, an unrelated case in each package, and one test name registered
+in both packages. Each entry is a `(package, name)` pair rather than a name,
+because a name alone cannot hold both registrations of the collision and so
+could not show what `package(...)` is for. nextest 0.9.143 compares
+`test(=name)` against the whole registered name, module path included, so this
+is an exact match and not a suffix match; `gw::collide::case` therefore matches
+both of its registrations, and only the package clause narrows that to one
+crate's copy. The same fail-if-reverted doctest that pins the exact match also
+pins the collision and its narrowing. The model rejects a `package(...)`
+argument it holds no entry for rather than reading it as an empty selection,
+which a `not` would then turn into a no-op. A Hypothesis property drives the
+assertion over generated filters built from the same pieces and requires the
+filter the contract accepts to select the intended set; the reverse does not
+hold, and that asymmetry is deliberate, because a filter naming a crate the
+model lacks is one only the exact-form comparison rejects. The property fails
+if the assertion is weakened to accept a filter that selects less than
+intended, which is the check that it is not merely restating itself.
+
+The selection comparison is split the same way.
+`dev_fast_selection_contract.py` holds the decision — the development selection
+equals the standard selection minus exactly the one case — and
+`dev_fast_selection_contract_test.py` exercises it on fabricated listings in
+the default suite. The live end-to-end test still supplies real selections, but
+the decision itself no longer depends on compiling the workspace to be tested.
+One fabricated row drops a root-level case, whose name carries no `::`, because
+a comparison keyed on that separator would agree with itself about the omission
+it exists to find. That row also keeps the poisoned-lock case out of its
+selection, so it clears the two assertions that precede the whole-selection
+comparison and fails on the comparison alone; otherwise the comparison could be
+deleted and the row would still pass.
 
 `dev_fast_linker_prefix_test.py` covers the other half of the install. Every
 other installer contract sets `MOLD_INSTALL_PREFIX`, so none of them exercises
