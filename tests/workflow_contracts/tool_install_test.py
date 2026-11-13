@@ -22,6 +22,7 @@ from pathlib import Path
 import pytest
 from workflow_support import (
     ROOT,
+    installs_prover,
     job,
     is_reusable_call,
     jobs,
@@ -53,6 +54,7 @@ UNPINNED_USES_RE = re.compile(r"^[^@]+@(?!\b[0-9a-f]{40}\b)")
 #: to the shared prover tool.
 SCRIPT = "script"
 ACTION = "action"
+PROVER = "prover"
 TARGET = "target"
 
 #: Each installer and the first command that needs the tool it provides.
@@ -63,8 +65,8 @@ TARGET = "target"
 INSTALLER_ORDER = (
     (SCRIPT, "scripts/install-nextest.sh", re.compile(r"cargo\s+nextest\b")),
     (SCRIPT, "scripts/install-sccache.sh", re.compile(r"\bsccache\s+--")),
-    (ACTION, "install-prover-tools", re.compile(r"\bmake\s+kani(-full)?\b")),
-    (ACTION, "install-prover-tools", re.compile(r"\bmake\s+verus\b")),
+    (PROVER, "kani", re.compile(r"\bmake\s+kani(-full)?\b")),
+    (PROVER, "verus", re.compile(r"\bmake\s+verus\b")),
     (ACTION, "install-whitaker", re.compile(r"\bmake\s+lint\b")),
 )
 
@@ -97,6 +99,8 @@ def _provides_tool(step: dict[str, typ.Any], kind: str, name: str) -> bool:
     """Report whether a step installs the named tool."""
     if kind == SCRIPT:
         return name in run_script(step)
+    if kind == PROVER:
+        return installs_prover(step, name)
     if kind == TARGET:
         return re.search(rf"\bmake\s+{re.escape(name)}\b", run_script(step)) is not None
     return f"/{name}@" in uses_reference(step)
