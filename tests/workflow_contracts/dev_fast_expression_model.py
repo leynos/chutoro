@@ -151,16 +151,26 @@ class _Cursor:
 
 
 def _matching_paren(expression: str, opening: int) -> int:
-    """Return the index of the ``)`` matching the ``(`` at ``opening``."""
+    """Return the index of the ``)`` matching the ``(`` at ``opening``.
+
+    >>> _matching_paren("a(b(c)d)e", 1)
+    7
+    """
     depth = 0
     for index in range(opening, len(expression)):
-        if expression[index] == "(":
-            depth += 1
-        elif expression[index] == ")":
-            depth -= 1
-            if depth == 0:
-                return index
+        depth += _nesting_delta(expression[index])
+        if depth == 0:
+            return index
     raise AssertionError(f"unclosed parenthesis in {expression!r}")
+
+
+def _nesting_delta(character: str) -> int:
+    """Return how ``character`` changes the parenthesis nesting depth."""
+    if character == "(":
+        return 1
+    if character == ")":
+        return -1
+    return 0
 
 
 def _parse_or(
