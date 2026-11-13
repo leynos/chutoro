@@ -102,6 +102,7 @@ class _Cursor:
     """Walk an expression, yielding one whole token per step."""
 
     def __init__(self, expression: str) -> None:
+        """Start the cursor at the first character of ``expression``."""
         self._expression = expression
         self._index = 0
 
