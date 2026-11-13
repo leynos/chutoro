@@ -91,30 +91,62 @@ def _tokens(expression: str) -> tuple[str, ...]:
     # group and stands alone. That one rule keeps ``kind(bench)``,
     # ``package(chutoro-core)`` and ``test(=a)`` whole while leaving
     # ``not ( ... )`` as three tokens.
+    cursor = _Cursor(expression)
     tokens: list[str] = []
-    index = 0
-    while index < len(expression):
-        character = expression[index]
-        if character.isspace():
-            index += 1
-        elif character in "&|()":
-            tokens.append(character)
-            index += 1
-        else:
-            start = index
-            while (
-                index < len(expression)
-                and not expression[index].isspace()
-                and expression[index] not in "&|()"
-            ):
-                index += 1
-            if index < len(expression) and expression[index] == "(":
-                close = _matching_paren(expression, index)
-                tokens.append(expression[start : close + 1])
-                index = close + 1
-            else:
-                tokens.append(expression[start:index])
+    while not cursor.is_done:
+        tokens.append(cursor.next_token())
     return tuple(tokens)
+
+
+class _Cursor:
+    """Walk an expression, yielding one whole token per step."""
+
+    def __init__(self, expression: str) -> None:
+        self._expression = expression
+        self._index = 0
+
+    @property
+    def is_done(self) -> bool:
+        """Return whether every character has been consumed."""
+        return self._index >= len(self._expression)
+
+    def next_token(self) -> str:
+        """Return the token at the cursor and advance past it."""
+        while not self.is_done and self._expression[self._index].isspace():
+            self._index += 1
+        assert not self.is_done, "next_token called with nothing left"
+        if self._expression[self._index] in "&|()":
+            return self._advance(1)
+        return self._next_named_token()
+
+    def _advance(self, count: int) -> str:
+        """Return the ``count`` characters at the cursor and step past them."""
+        start = self._index
+        self._index += count
+        return self._expression[start : self._index]
+
+    def _next_named_token(self) -> str:
+        """Return a name, with its argument list when one follows it."""
+        start = self._index
+        self._scan_name()
+        self._scan_argument_list_if_present()
+        return self._expression[start : self._index]
+
+    def _scan_name(self) -> None:
+        """Advance over the run of non-separator characters at the cursor."""
+        while not self.is_done and not self._is_separator(self._expression[self._index]):
+            self._index += 1
+
+    def _scan_argument_list_if_present(self) -> None:
+        """Advance over a ``(...)`` straight after the name, if there is one."""
+        if self.is_done or self._expression[self._index] != "(":
+            return
+        self._index = _matching_paren(self._expression, self._index) + 1
+
+    @staticmethod
+    def _is_separator(character: str) -> bool:
+        """Return whether ``character`` ends a name."""
+        return character.isspace() or character in "&|()"
 
 
 def _matching_paren(expression: str, opening: int) -> int:
@@ -176,17 +208,37 @@ def _predicate(token: str) -> set[TestName]:
         return set(BENCH_TESTS)
     if token == "kind(test)":
         return set(UNIVERSE) - BENCH_TESTS
-    if token.startswith("package(") and token.endswith(")"):
-        package = token[len("package(") : -1]
-        return {name for name, owner in _PACKAGE_OF.items() if owner == package}
-    assert token.startswith("test(=") and token.endswith(")"), (
+    name, argument = _split_predicate(token)
+    if name == "package":
+        return _package_selection(argument)
+    assert name == "test", f"model does not cover this predicate: {token!r}"
+    return _test_name_selection(token, argument)
+
+
+def _package_selection(package: str) -> set[TestName]:
+    """Return the tests belonging to ``package``."""
+    return {entry for entry, owner in _PACKAGE_OF.items() if owner == package}
+
+
+def _test_name_selection(token: str, argument: str) -> set[TestName]:
+    """Return the tests a ``test(=name)`` predicate selects.
+
+    nextest matches the bare test name, so a class-qualified model key named
+    like the excluded case is matched too. That is what makes an unqualified
+    exclusion observably wider than a package-scoped one.
+    """
+    assert argument.startswith("="), f"unsupported test predicate: {token!r}"
+    named = argument.removeprefix("=").rsplit("::", 1)[-1]
+    return {entry for entry in UNIVERSE if bare(entry) == named}
+
+
+def _split_predicate(token: str) -> tuple[str, str]:
+    """Split ``name(argument)`` into its parts, rejecting any other shape."""
+    assert token.endswith(")") and "(" in token, (
         f"model does not cover this predicate: {token!r}"
     )
-    # nextest matches the bare test name, so a class-qualified model key
-    # named like the excluded case is matched too. That is what makes an
-    # unqualified exclusion observably wider than a package-scoped one.
-    named = token[len("test(=") : -1].rsplit("::", 1)[-1]
-    return {name for name in UNIVERSE if bare(name) == named}
+    name, _, argument = token.partition("(")
+    return name, argument[:-1]
 
 
 def bare(name: TestName) -> str:
