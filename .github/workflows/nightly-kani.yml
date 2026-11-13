@@ -53,9 +53,9 @@ jobs:
       # cold install of all three takes 16 s on a GitHub runner (run
       # 33819842254), so the archive would cost more to move than the work it
       # avoids and would consume most of the repository's cache quota.
-      # `make install-kani` delegates to the pinned rust-prover-tools release,
-      # which verifies both archives against its own SHA-256 pins and repeats
-      # the download only when an executable is missing.
+      # The shared install-prover-tools action delegates to the pinned
+      # rust-prover-tools release, which verifies both archives against its
+      # own SHA-256 pins.
       - name: Setup uv for the prover tooling
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
@@ -67,7 +67,11 @@ jobs:
           enable-cache: false
       - name: Install Kani
         if: ${{ steps.gate.outputs.should_run == 'true' }}
-        run: make install-kani
+        uses: leynos/shared-actions/.github/actions/install-prover-tools@203eedc136c14c28041e92c06a929383807b3a3f
+        with:
+          tools: kani
+          runner-image: ubuntu2404
+          cache: 'false'
       - name: Run Kani full suite
         if: ${{ steps.gate.outputs.should_run == 'true' }}
         run: make kani-full

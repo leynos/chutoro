@@ -57,14 +57,14 @@ TARGET = "target"
 
 #: Each installer and the first command that needs the tool it provides.
 #:
-#: Kani and Verus are targets rather than scripts because the download,
-#: checksum, and extraction mechanics live in ``rust-prover-tools``; the
-#: repository owns only the pins under ``tools/`` and the delegation.
+#: Kani and Verus install through the shared ``install-prover-tools`` action
+#: because the download, checksum, and extraction mechanics live in
+#: ``rust-prover-tools``; the repository owns only the pins under ``tools/``.
 INSTALLER_ORDER = (
     (SCRIPT, "scripts/install-nextest.sh", re.compile(r"cargo\s+nextest\b")),
     (SCRIPT, "scripts/install-sccache.sh", re.compile(r"\bsccache\s+--")),
-    (TARGET, "install-kani", re.compile(r"\bmake\s+kani(-full)?\b")),
-    (TARGET, "install-verus", re.compile(r"\bmake\s+verus\b")),
+    (ACTION, "install-prover-tools", re.compile(r"\bmake\s+kani(-full)?\b")),
+    (ACTION, "install-prover-tools", re.compile(r"\bmake\s+verus\b")),
     (ACTION, "install-whitaker", re.compile(r"\bmake\s+lint\b")),
 )
 

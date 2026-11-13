@@ -22,7 +22,7 @@ import re
 from pathlib import Path
 
 import pytest
-from workflow_support import job, run_script, steps, uses_reference
+from workflow_support import installs_prover, job, run_script, steps, uses_reference
 
 #: The uv action, which puts `uv tool run` on PATH for the prover target.
 SETUP_UV_RE = re.compile(r"^astral-sh/setup-uv@[0-9a-f]{40}$")
@@ -30,11 +30,12 @@ SETUP_UV_RE = re.compile(r"^astral-sh/setup-uv@[0-9a-f]{40}$")
 #: The Python the prover tool needs, and the input that pins it.
 PYTHON_VERSION = "3.14"
 
-#: Each workflow, its job, and the install and execution commands it runs.
+#: Each workflow, its job, the tool its install step asks the shared
+#: install-prover-tools action for, and the execution command it runs.
 PROVER_JOBS = (
-    ("kani-pr.yml", "kani", "make install-kani", "make kani"),
-    ("ci.yml", "verus-proofs", "make install-verus", "make verus"),
-    ("nightly-kani.yml", "kani-full", "make install-kani", "make kani-full"),
+    ("kani-pr.yml", "kani", "kani", "make kani"),
+    ("ci.yml", "verus-proofs", "verus", "make verus"),
+    ("nightly-kani.yml", "kani-full", "kani", "make kani-full"),
 )
 
 #: The gate the nightly job puts on every step that uses the prover tool.
@@ -106,12 +107,10 @@ def test_uv_setup_is_pinned_and_precedes_the_install(
         f"got enable-cache: {with_block.get('enable-cache')!r}"
     )
 
-    install_at = _step_index(
-        job_steps, lambda step: run_script(step).strip() == install
-    )
+    install_at = _step_index(job_steps, lambda step: installs_prover(step, install))
     assert install_at is not None, (
-        f"{workflow_name}:{job_name} runs no {install!r} step, got "
-        f"{[run_script(step) for step in job_steps]!r}"
+        f"{workflow_name}:{job_name} has no SHA-pinned install-prover-tools step "
+        f"for {install!r}, got {[uses_reference(step) for step in job_steps]!r}"
     )
     assert setup_at < install_at, (
         f"{workflow_name}:{job_name} sets up uv at step {setup_at} but installs "
@@ -138,9 +137,7 @@ def test_setup_install_and_run_share_one_condition(
     job_steps = steps(job(workflow_name, job_name))
     positions = {
         "uv setup": _uv_setup_index(job_steps),
-        "install": _step_index(
-            job_steps, lambda step: run_script(step).strip() == install
-        ),
+        "install": _step_index(job_steps, lambda step: installs_prover(step, install)),
         "execution": _step_index(job_steps, lambda step: run_script(step).strip() == run),
     }
     missing = [name for name, index in positions.items() if index is None]

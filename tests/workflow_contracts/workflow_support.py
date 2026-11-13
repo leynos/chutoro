@@ -405,6 +405,22 @@ def run_script(step: dict[str, typ.Any]) -> str:
     return script if isinstance(script, str) else ""
 
 
+#: The shared action that installs the provers, which a prover job must call.
+INSTALL_PROVER_ACTION = "leynos/shared-actions/.github/actions/install-prover-tools"
+
+
+def installs_prover(step: dict[str, typ.Any], tool: str) -> bool:
+    """Return whether a step installs *tool* through the shared action, SHA-pinned."""
+    action, _, pin = uses_reference(step).partition("@")
+    inputs = step.get("with")
+    tools = str(inputs.get("tools", "")).split() if isinstance(inputs, dict) else []
+    return (
+        action == INSTALL_PROVER_ACTION
+        and re.fullmatch(r"[0-9a-f]{40}", pin) is not None
+        and tool in tools
+    )
+
+
 def shared_action_name(reference: str) -> str | None:
     """Return the shared action's directory name, if the step uses one."""
     prefix = "leynos/shared-actions/.github/actions/"

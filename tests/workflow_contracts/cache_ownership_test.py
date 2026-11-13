@@ -25,10 +25,10 @@ from workflow_support import (
     SHARED_ACTION_OWNED_PATHS,
     cache_is_enabled,
     declared_cache_paths,
+    installs_prover,
     jobs,
     load_workflow,
     shared_action_name,
-    run_script,
     steps,
     uses_reference,
     workflow_names,
@@ -242,15 +242,10 @@ def test_every_cache_step_declares_an_explainable_key(workflow_name: str) -> Non
             )
 
 
-#: Each installer command and the cache-step path that must restore its work
+#: Each installed tool and the cache-step path that must restore its work
 #: first. Pairing them by tool keeps the ordering check meaningful once a job
 #: installs more than one tool.
-INSTALLER_CACHE_PAIRS = (("make install-verus", ".verus"),)
-
-
-def _first_index(items: list[str], predicate: cabc.Callable[[str], bool]) -> int | None:
-    """Return the first index whose item satisfies the predicate."""
-    return next((index for index, item in enumerate(items) if predicate(item)), None)
+INSTALLER_CACHE_PAIRS = (("verus", ".verus"),)
 
 
 @pytest.mark.parametrize("workflow_name", workflow_names())
@@ -258,9 +253,15 @@ def test_cache_setup_precedes_the_install_it_protects(workflow_name: str) -> Non
     """A cache restored after an install has already paid for the install."""
     for job_name, definition in jobs(load_workflow(workflow_name)).items():
         job_steps = steps(definition)
-        scripts = [run_script(step) for step in job_steps]
         for installer, cached_path in INSTALLER_CACHE_PAIRS:
-            install_at = _first_index(scripts, lambda s, i=installer: i in s)
+            install_at = next(
+                (
+                    index
+                    for index, step in enumerate(job_steps)
+                    if installs_prover(step, installer)
+                ),
+                None,
+            )
             if install_at is None:
                 continue
             cache_at = next(
