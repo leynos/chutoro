@@ -1275,30 +1275,38 @@ end-to-end suite consumes the parse without carrying its edge cases.
 
 The exclusion filter is held to the set it selects, not to the presence of a
 case name. `dev_fast_filter_contract.py` builds the one correct filter and
-supplies three mutations that each exclude more than intended: a clause
-appended outside the negated group, a second alternative inside it, and the
-package clause dropped. All three keep the poisoned-lock name and the expected
-prefix, so a substring check accepts every one of them. The routing suite
-requires `assert_development_exclusion` to reject each mutation, which is what
-holds `dev-test` to giving up exactly one case. The end-to-end selection
-comparison would catch the same widening, but it is opt-in and never runs on
-CI, so this contract is the only thing standing in for it there.
+supplies five mutations that each exclude more than intended: a clause appended
+outside the negated group, a second alternative inside it, the package clause
+dropped, and a `not package(...)` for a crate the workspace has. All five keep
+the poisoned-lock name and the expected prefix, so a substring check accepts
+every one of them. The routing suite requires `assert_development_exclusion` to
+reject each mutation, once directly and once through the recipe — the mutated
+Makefile is read back with `make --dry-run`, so a filter the recipe quotes or
+escapes into something else cannot hide a contract that would have accepted it.
+That is what holds `dev-test` to giving up exactly one case. The end-to-end
+selection comparison would catch the same widening, but it is opt-in and never
+runs on CI, so this contract is the only thing standing in for it there.
 
 That assertion evaluates the expression against a small model of nextest's
 selection grammar, built from the documented operators rather than by calling
 nextest. The model lives in `dev_fast_expression_model.py` rather than in the
 contract, so the two readings can genuinely disagree: a model that shared the
 contract's code could not contradict it, and the property below would pass for
-either. The model's universe holds the poisoned-lock case, an ordinary case and
-a benchmark in the same package, and a case in another package that shares the
-excluded bare name — the last because `test(=name)` matches the bare name, so
-an unqualified exclusion drops the other crate's case too, which is what makes
-the package clause observable. A Hypothesis property drives the assertion over
-generated filters built from the same pieces and requires its verdict to agree
-with the model, so a filter written in a shape no table row spells out still
-has a definite expected answer. The property fails if the assertion is weakened
-to accept a filter that selects less than intended, which is the check that it
-is not merely restating itself.
+either. The model's universe holds the poisoned-lock case, a benchmark in the
+same package, and three tests whose names all end in `case` — two in the same
+package and the third in another. The three exist because nextest 0.9.143
+compares `test(=name)` against the whole registered name, module path included.
+A bare-name match would conflate them, so the model could no longer show a
+package clause narrowing a `test(=...)` selection to one crate's copy. The
+model rejects a `package(...)` argument it holds no entry for rather than
+reading it as an empty selection, which a `not` would then turn into a no-op. A
+Hypothesis property drives the assertion over generated filters built from the
+same pieces and requires the filter the contract accepts to select the intended
+set; the reverse does not hold, and that asymmetry is deliberate, because a
+filter naming a crate the model lacks is one only the exact-form comparison
+rejects. The property fails if the assertion is weakened to accept a filter
+that selects less than intended, which is the check that it is not merely
+restating itself.
 
 The selection comparison is split the same way.
 `dev_fast_selection_contract.py` holds the decision — the development selection
@@ -1308,7 +1316,10 @@ the default suite. The live end-to-end test still supplies real selections, but
 the decision itself no longer depends on compiling the workspace to be tested.
 One fabricated row drops a root-level case, whose name carries no `::`, because
 a comparison keyed on that separator would agree with itself about the omission
-it exists to find.
+it exists to find. That row also keeps the poisoned-lock case out of its
+selection, so it clears the two assertions that precede the whole-selection
+comparison and fails on the comparison alone; otherwise the comparison could be
+deleted and the row would still pass.
 
 `dev_fast_linker_prefix_test.py` covers the other half of the install. Every
 other installer contract sets `MOLD_INSTALL_PREFIX`, so none of them exercises

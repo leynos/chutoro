@@ -87,6 +87,11 @@ def assert_development_exclusion(expression: str) -> None:
     needs no such enumeration, and it also rejects operators the model does
     not implement, such as ``-E``'s ``rdeps`` or ``default``, which would
     otherwise be read as selecting nothing.
+
+    The model is not silent about an unmodelled crate — `_package_selection`
+    rejects one — but that is a rejection the *model* raises, and it would
+    fire on any expression naming a crate the model lacks. The comparison
+    below is what constrains this filter, whatever the model does.
     """
     expected = expected_development_filter()
     depth = 0
@@ -110,9 +115,15 @@ def assert_development_exclusion(expression: str) -> None:
         "dev-test must exclude the poisoned-lock regression, not select it "
         f"alone: {expression!r}"
     )
-    assert selection_of(expression) == intended_selection, (
+    try:
+        selection = selection_of(expression)
+    except LookupError as unmodelled:
+        raise AssertionError(
+            f"dev-test filter names a crate the model cannot place: {unmodelled}"
+        ) from unmodelled
+    assert selection == intended_selection, (
         "dev-test must select the standard set minus the poisoned-lock case: "
-        f"{expression!r} selects {sorted(selection_of(expression))!r}"
+        f"{expression!r} selects {sorted(selection)!r}"
     )
     assert expression == expected, (
         "dev-test must pass exactly the intended filter; "
@@ -127,14 +138,14 @@ def wider_development_filters() -> tuple[tuple[str, str], ...]:
     each one passes a presence-and-prefix check; they differ only in how they
     admit more exclusion, which is what the exact comparison must catch.
 
-    The ``extra-package`` case is the one a modelled-selection oracle cannot
-    see. It names a package the model holds no entry for, so it selects the
-    intended set *as modelled* while dropping a real package's tests in the
-    workspace. Only comparing the expression itself rejects it.
+    The two ``*-package`` cases name crates the model holds no entry for, so
+    each drops a real crate's tests in the workspace while the modelled set is
+    unchanged. They are rejected twice over: the model raises on an unmodelled
+    crate, and the exact-form comparison rejects the text regardless.
 
     >>> [(case, expr != expected_development_filter())
     ...  for case, expr in wider_development_filters()]
-    [('appended-clause', True), ('widened-group', True), ('dropped-package', True), ('extra-package', True)]
+    [('appended-clause', True), ('widened-group', True), ('dropped-package', True), ('extra-package', True), ('unmodelled-package', True)]
     """
     expected = expected_development_filter()
     return (
@@ -148,4 +159,5 @@ def wider_development_filters() -> tuple[tuple[str, str], ...]:
         ),
         ("dropped-package", f"not kind(bench) & not (test(={POISONED_LOCK_TEST}))"),
         ("extra-package", f"{expected} & not package(chutoro-providers-text)"),
+        ("unmodelled-package", f"{expected} & not package(chutoro-providers-dense)"),
     )

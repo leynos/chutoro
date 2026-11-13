@@ -100,22 +100,23 @@ def test_contract_accepts_only_the_intended_expression(expression: str) -> None:
     builds that differs — an appended conjunct, a widened disjunction, a
     dropped package clause, an inverted kind clause — must be rejected.
 
-    The model answers the same question independently, and the two oracles are
-    cross-checked. An expression the model says selects the intended set, but
-    which is not the expected text, is exactly the gap this records: the
-    ``extra-package`` near miss is such a case, and it must be rejected even
-    though the modelled selection is right.
+    The model answers a narrower question, and the property asserts only its
+    sound direction: the filter the contract accepts must select the intended
+    set. The reverse does not hold, and that asymmetry is the point. A filter
+    that appends ``& not package(<crate the model holds no entry for>)``
+    selects the intended set as modelled while dropping that crate's tests in
+    the workspace, so only the exact-form comparison rejects it.
     """
     is_expected = expression == expected_development_filter()
-    selects_intended = selection_of(expression) == intended_selection
     assert _accepts(expression) == is_expected, (
         "the contract and the expected form disagree about "
         f"{expression!r}: modelled selection {sorted(selection_of(expression))!r}"
     )
-    assert is_expected <= selects_intended, (
-        "an expression the contract accepts must also select the intended set, "
-        f"but {expression!r} selects {sorted(selection_of(expression))!r}"
-    )
+    if is_expected:
+        assert selection_of(expression) == intended_selection, (
+            "the expected filter must select the intended set, but "
+            f"{sorted(selection_of(expression))!r}"
+        )
 
 
 def test_contract_rejects_every_wider_filter() -> None:

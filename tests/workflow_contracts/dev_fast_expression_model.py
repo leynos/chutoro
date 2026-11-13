@@ -24,11 +24,11 @@ POISONED_LOCK_TEST = (
 )
 
 #: A small universe wide enough to distinguish the set shapes the filter can
-#: produce: the case under test, another case in the same package, a benchmark
-#: in the same package, and a case in another package that shares the excluded
-#: name. The last one is what makes the package clause observable: nextest's
-#: `test(=name)` matches the bare name, so an unqualified exclusion would drop
-#: the other crate's same-named case as well.
+#: produce: the case under test, a benchmark in the same package, and three
+#: tests whose names all end in ``case``, two of them in the same package and
+#: the third in another. The last three are what make the package clause and
+#: the exact-name match observable separately: nextest's `test(=case)` matches
+#: no complete name at all, and a package clause narrows by crate.
 type TestName = str
 
 DEV_PACKAGE = "chutoro-core"
@@ -37,13 +37,21 @@ OTHER_PACKAGE = "other-crate"
 #: Package and kind are independent: the standard gate's benchmark lives in
 #: the same package as ordinary cases, so a model that tied them together
 #: would make `kind(bench)` and `package(...)` inseparable.
+#:
+#: Three entries end in ``case`` on purpose. nextest matches ``test(=name)``
+#: against the whole registered name, not its last ``::`` segment, so the three
+#: stay distinct under an exact match while a bare-name match would conflate
+#: them. That is what lets the model show a package clause narrowing a
+#: ``test(=...)`` selection instead of selecting all three.
 _PACKAGE_OF: dict[TestName, str] = {
     POISONED_LOCK_TEST: DEV_PACKAGE,
     "hnsw::cpu::other::case": DEV_PACKAGE,
     "bench::hnsw::throughput": DEV_PACKAGE,
     "other-crate::test::case": OTHER_PACKAGE,
-    # Same bare test name, different package: unqualified exclusion drops it.
-    POISONED_LOCK_TEST.rsplit("::", 1)[-1] + "@" + OTHER_PACKAGE: OTHER_PACKAGE,
+    # The third ``case``: same last segment as the two above, same package as
+    # the first, so neither a bare-name match nor a package clause alone picks
+    # it out.
+    "gw::collide::case": DEV_PACKAGE,
 }
 BENCH_TESTS = frozenset({"bench::hnsw::throughput"})
 UNIVERSE: tuple[TestName, ...] = tuple(_PACKAGE_OF)
@@ -66,7 +74,7 @@ def model_selection(expression: str) -> frozenset[TestName]:
     vacuously.
 
     >>> sorted(model_selection("not kind(bench) & package(chutoro-core) & not test(=hnsw::cpu::other::case)"))
-    ['hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring']
+    ['gw::collide::case', 'hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring']
     """
     tokens = _tokens(expression)
     selected, position = _parse_or(tokens, 0)
@@ -227,20 +235,47 @@ def _predicate(token: str) -> set[TestName]:
 
 
 def _package_selection(package: str) -> set[TestName]:
-    """Return the tests belonging to ``package``."""
+    """Return the tests belonging to ``package``, rejecting unknown crates.
+
+    An unmodelled crate must not read as an empty selection. ``not
+    package(...)`` over an empty set removes nothing, so a filter naming a
+    real crate the model holds no entry for would select the intended set *as
+    modelled* while dropping that crate's tests in the workspace. Failing
+    here is what makes such a filter visibly wrong instead.
+
+    ``chutoro-providers-dense`` is a crate of the real workspace that the
+    model holds no entry for, so asking for it raises rather than returning an
+    empty set a ``not`` would then read as a no-op. The exception is raised
+    rather than asserted so that pytest's assertion rewriting leaves its
+    traceback alone and this doctest can pin the message.
+
+    >>> sorted(_package_selection(DEV_PACKAGE))
+    ['bench::hnsw::throughput', 'gw::collide::case', 'hnsw::cpu::other::case', 'hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring']
+    >>> _package_selection("chutoro-providers-dense")
+    Traceback (most recent call last):
+    ...
+    LookupError: model holds no test in package 'chutoro-providers-dense'
+    """
+    if package not in set(_PACKAGE_OF.values()):
+        raise LookupError(f"model holds no test in package {package!r}")
     return {entry for entry, owner in _PACKAGE_OF.items() if owner == package}
 
 
 def _test_name_selection(token: str, argument: str) -> set[TestName]:
     """Return the tests a ``test(=name)`` predicate selects.
 
-    nextest matches the bare test name, so a class-qualified model key named
-    like the excluded case is matched too. That is what makes an unqualified
-    exclusion observably wider than a package-scoped one.
+    nextest 0.9.143 compares ``=`` against the whole registered test name,
+    module path included, so this is an exact match and not a suffix match.
+    Conflating the two would make every test whose name ends in the same
+    segment identical, which is what the three ``case`` entries above exist to
+    expose.
+
+    >>> sorted(_test_name_selection("test(=hnsw::cpu::other::case)", "=hnsw::cpu::other::case"))
+    ['hnsw::cpu::other::case']
     """
     assert argument.startswith("="), f"unsupported test predicate: {token!r}"
-    named = argument.removeprefix("=").rsplit("::", 1)[-1]
-    return {entry for entry in UNIVERSE if bare(entry) == named}
+    named = argument.removeprefix("=")
+    return {entry for entry in UNIVERSE if entry == named}
 
 
 def _split_predicate(token: str) -> tuple[str, str]:
@@ -252,17 +287,6 @@ def _split_predicate(token: str) -> tuple[str, str]:
     return name, argument[:-1]
 
 
-def bare(name: TestName) -> str:
-    """Return the test name nextest would match, without the model's key suffix.
-
-    >>> bare("case_name@other-crate")
-    'case_name'
-    >>> bare("hnsw::cpu::other::case")
-    'case'
-    """
-    return name.split("@", 1)[0].rsplit("::", 1)[-1]
-
-
 def selection_of(expression: str) -> frozenset[TestName]:
     """Return the model selection, extending the universe to any unknown name.
 
@@ -270,21 +294,30 @@ def selection_of(expression: str) -> frozenset[TestName]:
     filter that names an unrelated case look identical to the intended one.
     The model therefore adds every name the expression mentions, and treats
     each as an ordinary non-benchmark case in its own package.
+
+    A ``package(...)`` argument gets no such extension, and cannot: ``not
+    package(x)`` subtracts from the universe, so any fixed stand-in for an
+    unmodelled crate is cancelled by the ``not``. `_package_selection` rejects
+    such a crate instead, which a caller reading this selection sees as an
+    error rather than as the intended set.
+
+    >>> sorted(selection_of("not kind(bench) & not (package(chutoro-core) & test(=hnsw::cpu::other::case))"))
+    ['gw::collide::case', 'hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring', 'other-crate::test::case']
     """
     return model_selection(expression) | _unknown_tests(expression)
 
 
 def _unknown_tests(expression: str) -> frozenset[TestName]:
-    """Return the mentioned test names the fixed universe does not hold."""
-    return _named_tests(expression) - frozenset(UNIVERSE)
+    """Return the mentioned test names the fixed universe does not hold.
 
-
-def _named_tests(expression: str) -> frozenset[TestName]:
-    """Return every test name the expression mentions, known or not."""
-    return frozenset(
+    >>> sorted(_unknown_tests("test(=not_in_universe)"))
+    ['not_in_universe']
+    """
+    mentioned = frozenset(
         token[len("test(=") : -1]
         for token in _tokens(expression)
         if token.startswith("test(=") and token.endswith(")")
     )
+    return mentioned - frozenset(UNIVERSE)
 
 
