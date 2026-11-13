@@ -279,7 +279,8 @@ jobs:
           enable-cache: false
       # Installs into the gitignored workspace `.verus` directory (the
       # version-named subdirectory `verus run` looks in by default), which the
-      # cache above owns, and puts Z3 under `.verus/z3`.
+      # cache above owns. The action also installs the tool's pinned Z3 there,
+      # which this older Verus does not use.
       - name: Install Verus
         id: verus-install
         uses: leynos/shared-actions/.github/actions/install-prover-tools@203eedc136c14c28041e92c06a929383807b3a3f
@@ -287,9 +288,10 @@ jobs:
           tools: verus
           runner-image: ubuntu2404
           repo-root: ${{ github.workspace }}
+      # No `VERUS_Z3_PATH`: this Verus release bundles the Z3 it needs (4.12.5),
+      # and the solver the action also installs is a newer one Verus would
+      # refuse.
       - name: Run Verus proofs
-        env:
-          VERUS_Z3_PATH: ${{ steps.verus-install.outputs.z3-path }}
         run: make verus
       - name: Record Verus cache state
         if: ${{ always() }}
