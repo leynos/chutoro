@@ -23,47 +23,49 @@ POISONED_LOCK_TEST = (
     "hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring"
 )
 
-#: A small universe wide enough to distinguish the set shapes the filter can
-#: produce: the case under test, a benchmark in the same package, and three
-#: tests whose names all end in ``case``, two of them in the same package and
-#: the third in another. The last three are what make the package clause and
-#: the exact-name match observable separately: nextest's `test(=case)` matches
-#: no complete name at all, and a package clause narrows by crate.
+#: A complete registered test name, as nextest reports it.
 type TestName = str
 
+#: A test as (package, complete registered name). A name alone is not a key:
+#: the same name can be registered in two crates, and the model must be able to
+#: hold both to show what ``package(...)`` is for.
+type TestId = tuple[str, TestName]
+
+#: A small universe wide enough to distinguish the set shapes the filter can
+#: produce. Package and kind are independent: the benchmark lives in the same
+#: package as ordinary cases, so a model that tied them together would make
+#: `kind(bench)` and `package(...)` inseparable.
+#:
+#: ``COLLIDING_TEST`` is registered in both packages on purpose. nextest matches
+#: ``test(=name)`` against the complete name, so one predicate matches both
+#: registrations, and only a package clause separates them. That is what makes
+#: the package clause observable rather than merely present.
 DEV_PACKAGE = "chutoro-core"
 OTHER_PACKAGE = "other-crate"
+COLLIDING_TEST = "gw::collide::case"
 
-#: Package and kind are independent: the standard gate's benchmark lives in
-#: the same package as ordinary cases, so a model that tied them together
-#: would make `kind(bench)` and `package(...)` inseparable.
-#:
-#: Three entries end in ``case`` on purpose. nextest matches ``test(=name)``
-#: against the whole registered name, not its last ``::`` segment, so the three
-#: stay distinct under an exact match while a bare-name match would conflate
-#: them. That is what lets the model show a package clause narrowing a
-#: ``test(=...)`` selection instead of selecting all three.
-_PACKAGE_OF: dict[TestName, str] = {
-    POISONED_LOCK_TEST: DEV_PACKAGE,
-    "hnsw::cpu::other::case": DEV_PACKAGE,
-    "bench::hnsw::throughput": DEV_PACKAGE,
-    "other-crate::test::case": OTHER_PACKAGE,
-    # The third ``case``: same last segment as the two above, same package as
-    # the first, so neither a bare-name match nor a package clause alone picks
-    # it out.
-    "gw::collide::case": DEV_PACKAGE,
-}
-BENCH_TESTS = frozenset({"bench::hnsw::throughput"})
-UNIVERSE: tuple[TestName, ...] = tuple(_PACKAGE_OF)
+#: A stand-in package for a test name the model has never seen, so an unknown
+#: name is still one ordinary non-benchmark case and not an empty set.
+_UNMODELLED_PACKAGE = "unmodelled"
+
+UNIVERSE: tuple[TestId, ...] = (
+    (DEV_PACKAGE, POISONED_LOCK_TEST),
+    (DEV_PACKAGE, "hnsw::cpu::other::case"),
+    (DEV_PACKAGE, "bench::hnsw::throughput"),
+    (OTHER_PACKAGE, "other-crate::test::case"),
+    (DEV_PACKAGE, COLLIDING_TEST),
+    (OTHER_PACKAGE, COLLIDING_TEST),
+)
+BENCH_TESTS: frozenset[TestId] = frozenset({(DEV_PACKAGE, "bench::hnsw::throughput")})
 
 #: What `dev-test` is meant to run: the standard selection, minus the one case.
-intended_selection: frozenset[TestName] = frozenset(
-    set(UNIVERSE) - BENCH_TESTS - {POISONED_LOCK_TEST}
+intended_selection: frozenset[TestId] = frozenset(
+    set(UNIVERSE) - BENCH_TESTS - {(DEV_PACKAGE, POISONED_LOCK_TEST)}
 )
 
 
-def model_selection(expression: str) -> frozenset[TestName]:
-    """Return the tests the model says `expression` selects.
+def model_selection(expression: str) -> frozenset[TestId]:
+    """Return the (package, name) tests `expression` selects.
 
     Written from the documented nextest grammar rather than by asking nextest,
     so the property below compares two independent readings. The grammar here
@@ -74,7 +76,16 @@ def model_selection(expression: str) -> frozenset[TestName]:
     vacuously.
 
     >>> sorted(model_selection("not kind(bench) & package(chutoro-core) & not test(=hnsw::cpu::other::case)"))
-    ['gw::collide::case', 'hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring']
+    [('chutoro-core', 'gw::collide::case'), ('chutoro-core', 'hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring')]
+
+    The collision is the point of keying on ``(package, name)``: one
+    ``test(=...)`` predicate matches both registrations of `COLLIDING_TEST`,
+    and only the package clause narrows that to one crate's copy.
+
+    >>> sorted(model_selection("test(=gw::collide::case)"))
+    [('chutoro-core', 'gw::collide::case'), ('other-crate', 'gw::collide::case')]
+    >>> sorted(model_selection("package(chutoro-core) & test(=gw::collide::case)"))
+    [('chutoro-core', 'gw::collide::case')]
     """
     tokens = _tokens(expression)
     selected, position = _parse_or(tokens, 0)
@@ -183,7 +194,7 @@ def _nesting_delta(character: str) -> int:
 
 def _parse_or(
     tokens: tuple[str, ...], position: int
-) -> tuple[set[TestName], int]:
+) -> tuple[set[TestId], int]:
     """Parse a disjunction, the loosest-binding operator."""
     left, position = _parse_and(tokens, position)
     while position < len(tokens) and tokens[position] == "|":
@@ -194,7 +205,7 @@ def _parse_or(
 
 def _parse_and(
     tokens: tuple[str, ...], position: int
-) -> tuple[set[TestName], int]:
+) -> tuple[set[TestId], int]:
     """Parse a conjunction of possibly-negated terms."""
     left, position = _parse_term(tokens, position)
     while position < len(tokens) and tokens[position] == "&":
@@ -205,7 +216,7 @@ def _parse_and(
 
 def _parse_term(
     tokens: tuple[str, ...], position: int
-) -> tuple[set[TestName], int]:
+) -> tuple[set[TestId], int]:
     """Parse one predicate, optionally negated or parenthesised."""
     assert position < len(tokens), "expression ends where a term is expected"
     token = tokens[position]
@@ -221,7 +232,7 @@ def _parse_term(
     return _predicate(token), position + 1
 
 
-def _predicate(token: str) -> set[TestName]:
+def _predicate(token: str) -> set[TestId]:
     """Return the tests one leaf predicate selects."""
     if token == "kind(bench)":
         return set(BENCH_TESTS)
@@ -234,7 +245,7 @@ def _predicate(token: str) -> set[TestName]:
     return _test_name_selection(token, argument)
 
 
-def _package_selection(package: str) -> set[TestName]:
+def _package_selection(package: str) -> set[TestId]:
     """Return the tests belonging to ``package``, rejecting unknown crates.
 
     An unmodelled crate must not read as an empty selection. ``not
@@ -250,32 +261,37 @@ def _package_selection(package: str) -> set[TestName]:
     traceback alone and this doctest can pin the message.
 
     >>> sorted(_package_selection(DEV_PACKAGE))
-    ['bench::hnsw::throughput', 'gw::collide::case', 'hnsw::cpu::other::case', 'hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring']
+    [('chutoro-core', 'bench::hnsw::throughput'), ('chutoro-core', 'gw::collide::case'), ('chutoro-core', 'hnsw::cpu::other::case'), ('chutoro-core', 'hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring')]
     >>> _package_selection("chutoro-providers-dense")
     Traceback (most recent call last):
     ...
     LookupError: model holds no test in package 'chutoro-providers-dense'
     """
-    if package not in set(_PACKAGE_OF.values()):
+    if not any(owner == package for owner, _ in UNIVERSE):
         raise LookupError(f"model holds no test in package {package!r}")
-    return {entry for entry, owner in _PACKAGE_OF.items() if owner == package}
+    return {(owner, name) for owner, name in UNIVERSE if owner == package}
 
 
-def _test_name_selection(token: str, argument: str) -> set[TestName]:
+def _test_name_selection(token: str, argument: str) -> set[TestId]:
     """Return the tests a ``test(=name)`` predicate selects.
 
     nextest 0.9.143 compares ``=`` against the whole registered test name,
     module path included, so this is an exact match and not a suffix match.
     Conflating the two would make every test whose name ends in the same
-    segment identical, which is what the three ``case`` entries above exist to
-    expose.
+    segment identical.
+
+    A name is not unique across packages: ``gw::collide::case`` is registered
+    in two crates here, so this predicate returns both and only
+    ``package(...)`` narrows it to one.
 
     >>> sorted(_test_name_selection("test(=hnsw::cpu::other::case)", "=hnsw::cpu::other::case"))
-    ['hnsw::cpu::other::case']
+    [('chutoro-core', 'hnsw::cpu::other::case')]
+    >>> sorted(_test_name_selection("test(=gw::collide::case)", "=gw::collide::case"))
+    [('chutoro-core', 'gw::collide::case'), ('other-crate', 'gw::collide::case')]
     """
     assert argument.startswith("="), f"unsupported test predicate: {token!r}"
     named = argument.removeprefix("=")
-    return {entry for entry in UNIVERSE if entry == named}
+    return {(owner, name) for owner, name in UNIVERSE if name == named}
 
 
 def _split_predicate(token: str) -> tuple[str, str]:
@@ -287,13 +303,13 @@ def _split_predicate(token: str) -> tuple[str, str]:
     return name, argument[:-1]
 
 
-def selection_of(expression: str) -> frozenset[TestName]:
+def selection_of(expression: str) -> frozenset[TestId]:
     """Return the model selection, extending the universe to any unknown name.
 
-    A test name outside `UNIVERSE` would otherwise select nothing, making a
-    filter that names an unrelated case look identical to the intended one.
-    The model therefore adds every name the expression mentions, and treats
-    each as an ordinary non-benchmark case in its own package.
+    A test name outside `UNIVERSE` would otherwise select nothing at all, so
+    ``not test(=something_else)`` would remove nothing and a filter naming an
+    unrelated case would look identical to the intended one. The model
+    therefore adds every name the expression mentions, under `_UNMODELLED_PACKAGE`.
 
     A ``package(...)`` argument gets no such extension, and cannot: ``not
     package(x)`` subtracts from the universe, so any fixed stand-in for an
@@ -302,22 +318,23 @@ def selection_of(expression: str) -> frozenset[TestName]:
     error rather than as the intended set.
 
     >>> sorted(selection_of("not kind(bench) & not (package(chutoro-core) & test(=hnsw::cpu::other::case))"))
-    ['gw::collide::case', 'hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring', 'other-crate::test::case']
+    [('chutoro-core', 'gw::collide::case'), ('chutoro-core', 'hnsw::cpu::test_helpers::tests::graph_helpers_report_poisoning_without_reconfiguring'), ('other-crate', 'gw::collide::case'), ('other-crate', 'other-crate::test::case')]
     """
     return model_selection(expression) | _unknown_tests(expression)
 
 
-def _unknown_tests(expression: str) -> frozenset[TestName]:
+def _unknown_tests(expression: str) -> frozenset[TestId]:
     """Return the mentioned test names the fixed universe does not hold.
 
     >>> sorted(_unknown_tests("test(=not_in_universe)"))
-    ['not_in_universe']
+    [('unmodelled', 'not_in_universe')]
     """
     mentioned = frozenset(
         token[len("test(=") : -1]
         for token in _tokens(expression)
         if token.startswith("test(=") and token.endswith(")")
     )
-    return mentioned - frozenset(UNIVERSE)
+    known = {name for _, name in UNIVERSE}
+    return frozenset((_UNMODELLED_PACKAGE, name) for name in mentioned - known)
 
 

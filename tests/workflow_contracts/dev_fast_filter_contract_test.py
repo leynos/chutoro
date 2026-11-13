@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from dev_fast_expression_model import (
     DEV_PACKAGE,
-    POISONED_LOCK_TEST,
     UNIVERSE,
     intended_selection,
     selection_of,
@@ -72,18 +71,23 @@ def _accepts(expression: str) -> bool:
     return True
 
 
+#: Test names the generator may name. Taken from the universe's own names
+#: rather than the universe itself, which now holds ``(package, name)`` pairs:
+#: a pair interpolated into a predicate would produce an unmodelled expression
+#: that the contract rejects for the wrong reason, so the property would pass
+#: without exercising anything. ``root_level_case`` is deliberately absent from
+#: the universe, so the generator can also exercise a name the model extends.
+_GENERATED_NAMES: tuple[str, ...] = (
+    *(name for _, name in UNIVERSE),
+    "root_level_case",
+)
+
 #: Builds a filter from the pieces the real one is made of, so generated
 #: expressions stay close enough to the documented grammar to model.
 _FILTER_STRATEGIES: st.SearchStrategy[str] = st.builds(
     _compose_filter,
-    exclusion=st.sampled_from(
-        (
-            POISONED_LOCK_TEST,
-            UNIVERSE[1],
-            "root_level_case",
-        )
-    ),
-    extra_clause=st.one_of(st.none(), st.sampled_from(UNIVERSE)),
+    exclusion=st.sampled_from(_GENERATED_NAMES),
+    extra_clause=st.one_of(st.none(), st.sampled_from(_GENERATED_NAMES)),
     shape=st.sampled_from(("exact", "appended", "widened", "dropped-package")),
     negate_kind=st.booleans(),
 )

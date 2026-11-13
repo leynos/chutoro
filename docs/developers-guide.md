@@ -1293,20 +1293,23 @@ nextest. The model lives in `dev_fast_expression_model.py` rather than in the
 contract, so the two readings can genuinely disagree: a model that shared the
 contract's code could not contradict it, and the property below would pass for
 either. The model's universe holds the poisoned-lock case, a benchmark in the
-same package, and three tests whose names all end in `case` — two in the same
-package and the third in another. The three exist because nextest 0.9.143
-compares `test(=name)` against the whole registered name, module path included.
-A bare-name match would conflate them, so the model could no longer show a
-package clause narrowing a `test(=...)` selection to one crate's copy. The
-model rejects a `package(...)` argument it holds no entry for rather than
-reading it as an empty selection, which a `not` would then turn into a no-op. A
-Hypothesis property drives the assertion over generated filters built from the
-same pieces and requires the filter the contract accepts to select the intended
-set; the reverse does not hold, and that asymmetry is deliberate, because a
-filter naming a crate the model lacks is one only the exact-form comparison
-rejects. The property fails if the assertion is weakened to accept a filter
-that selects less than intended, which is the check that it is not merely
-restating itself.
+same package, an unrelated case in each package, and one test name registered
+in both packages. Each entry is a `(package, name)` pair rather than a name,
+because a name alone cannot hold both registrations of the collision and so
+could not show what `package(...)` is for. nextest 0.9.143 compares
+`test(=name)` against the whole registered name, module path included, so this
+is an exact match and not a suffix match; `gw::collide::case` therefore matches
+both of its registrations, and only the package clause narrows that to one
+crate's copy. The same fail-if-reverted doctest that pins the exact match also
+pins the collision and its narrowing. The model rejects a `package(...)`
+argument it holds no entry for rather than reading it as an empty selection,
+which a `not` would then turn into a no-op. A Hypothesis property drives the
+assertion over generated filters built from the same pieces and requires the
+filter the contract accepts to select the intended set; the reverse does not
+hold, and that asymmetry is deliberate, because a filter naming a crate the
+model lacks is one only the exact-form comparison rejects. The property fails
+if the assertion is weakened to accept a filter that selects less than
+intended, which is the check that it is not merely restating itself.
 
 The selection comparison is split the same way.
 `dev_fast_selection_contract.py` holds the decision — the development selection
