@@ -74,7 +74,13 @@ jobs:
           # path a second owner with a competing key.
           enable-cache: false
       - name: Install Kani
-        run: make install-kani
+        uses: leynos/shared-actions/.github/actions/install-prover-tools@203eedc136c14c28041e92c06a929383807b3a3f
+        with:
+          tools: kani
+          runner-image: ubuntu2404
+          # Deliberately uncached, as before: a cold install is quicker than
+          # moving the archives, and they would take most of the cache quota.
+          cache: 'false'
       # Kani installs a verifier bundle and its own pinned nightly
       # toolchain, which is the largest thing this job puts on the disk and
       # the one input a smaller shape could run out of room for. The

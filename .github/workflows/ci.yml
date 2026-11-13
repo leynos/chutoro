@@ -257,9 +257,6 @@ jobs:
       contents: read
     env:
       CARGO_TERM_COLOR: always
-      # Install into the gitignored workspace .verus directory rather than
-      # RUNNER_TEMP so the cache archives a stable, predictable path.
-      VERUS_INSTALL_DIR: ${{ github.workspace }}/.verus
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       # Sole owner of .verus. The key is the pinned version plus the digest
@@ -280,8 +277,20 @@ jobs:
         with:
           python-version: '3.14'
           enable-cache: false
+      # Installs into the gitignored workspace `.verus` directory (the
+      # version-named subdirectory `verus run` looks in by default), which the
+      # cache above owns. The action also installs the tool's pinned Z3 there,
+      # which this older Verus does not use.
       - name: Install Verus
-        run: make install-verus
+        id: verus-install
+        uses: leynos/shared-actions/.github/actions/install-prover-tools@203eedc136c14c28041e92c06a929383807b3a3f
+        with:
+          tools: verus
+          runner-image: ubuntu2404
+          repo-root: ${{ github.workspace }}
+      # No `VERUS_Z3_PATH`: this Verus release bundles the Z3 it needs (4.12.5),
+      # and the solver the action also installs is a newer one Verus would
+      # refuse.
       - name: Run Verus proofs
         run: make verus
       - name: Record Verus cache state
@@ -293,5 +302,5 @@ jobs:
             printf '### Verus cache\n\n'
             printf -- '- restore hit: %s\n' "${VERUS_CACHE_HIT:-false}"
             printf -- '- size: %s\n' \
-              "$(du -sh "${VERUS_INSTALL_DIR}" 2>/dev/null | cut -f1)"
+              "$(du -sh .verus 2>/dev/null | cut -f1)"
           } >> "$GITHUB_STEP_SUMMARY"

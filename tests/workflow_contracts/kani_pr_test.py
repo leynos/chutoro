@@ -287,9 +287,8 @@ DISK_READING = "df -h ."
 def _run_commands(workflow: dict[str, object]) -> list[str]:
     """Return every step's `run` script, in the order the job executes them."""
     return [
-        step["run"].strip()
+        step["run"].strip() if isinstance(step.get("run"), str) else str(step.get("uses"))
         for step in _steps(workflow)
-        if isinstance(step.get("run"), str)
     ]
 
 
@@ -320,7 +319,10 @@ def test_disk_headroom_is_read_around_the_suite(workflow: dict[str, object]) -> 
         f"one after the suite, found {len(readings)} in {commands!r}"
     )
 
-    install = _index_of(commands, "make install-kani")
+    install_action = "leynos/shared-actions/.github/actions/install-prover-tools@"
+    installs = [i for i, run in enumerate(commands) if run.startswith(install_action)]
+    assert len(installs) == 1, f"expected one shared install step, got {commands!r}"
+    install = installs[0]
     suite = _index_of(commands, "make kani")
     after_install, after_suite = readings
 
