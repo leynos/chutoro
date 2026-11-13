@@ -10,30 +10,23 @@ single group inside a negated clause, so a substring check accepts a filter
 that adds a second exclusion outside the group, widens the group with ``|``,
 or drops the package clause entirely. Each narrows `dev-test` past the one
 case it is meant to give up, which only the opt-in end-to-end selection
-comparison would otherwise catch.
+comparison would otherwise catch. Equality against the expected form rejects
+all of them without needing to model which packages exist.
 
-The `given` property below states that invariant over a generated grammar
-rather than a handful of cases, and decides it against
-`dev_fast_expression_model`'s independent reading of the same expression: the
-property accepts an expression if and only if the model says it selects the
-standard set minus the one case.
+The `given` property that exercises this over a generated grammar lives in
+`dev_fast_filter_contract_test`, not here. pytest collects files named
+``*_test.py``, so a property in this support module would never run.
 
 Run via ``make test-workflow-contracts``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 from dev_fast_expression_model import (
-    DEV_PACKAGE,
     POISONED_LOCK_TEST,
-    UNIVERSE,
     intended_selection,
     selection_of,
 )
-from hypothesis import given, settings
-from hypothesis import strategies as st
 
 __all__ = [
     "POISONED_LOCK_TEST",
@@ -59,85 +52,6 @@ def expected_development_filter() -> str:
     )
 
 
-def _compose_filter(
-    exclusion: str,
-    extra_clause: str | None,
-    shape: str,
-    negate_kind: bool,
-) -> str:
-    """Compose one filter in a named shape from generated pieces.
-
-    ``negate_kind`` swaps ``kind(bench)`` for ``kind(test)``, which inverts
-    what the leading clause removes without changing the exclusion's shape.
-    That is what shows the property is deciding on the modelled selection
-    rather than on the expression's prefix.
-    """
-    kind = "kind(bench)" if negate_kind else "kind(test)"
-    scoped = f"package({DEV_PACKAGE}) & test(={exclusion})"
-    if shape == "appended":
-        return f"not {kind} & not ({scoped}) & test(={extra_clause or exclusion})"
-    if shape == "widened":
-        return f"not {kind} & not ({scoped} | test(={extra_clause or exclusion}))"
-    if shape == "dropped-package":
-        return f"not {kind} & not (test(={exclusion}))"
-    return f"not {kind} & not ({scoped})"
-
-
-def _accepts(expression: str) -> bool:
-    """Return whether the contract accepts ``expression``."""
-    try:
-        assert_development_exclusion(expression)
-    except AssertionError:
-        return False
-    return True
-
-
-#: Builds a filter from the pieces the real one is made of, so generated
-#: expressions stay close enough to the documented grammar to model.
-_FILTER_STRATEGIES: st.SearchStrategy[str] = st.builds(
-    _compose_filter,
-    exclusion=st.sampled_from(
-        (
-            POISONED_LOCK_TEST,
-            UNIVERSE[1],
-            "root_level_case",
-        )
-    ),
-    extra_clause=st.one_of(st.none(), st.sampled_from(UNIVERSE)),
-    shape=st.sampled_from(("exact", "appended", "widened", "dropped-package")),
-    negate_kind=st.booleans(),
-)
-
-
-@settings(max_examples=200, deadline=None)
-@given(expression=_FILTER_STRATEGIES)
-def test_contract_accepts_exactly_the_filters_that_select_the_intended_set(
-    expression: str,
-) -> None:
-    """Accept only the expressions whose modelled selection is the intended one.
-
-    The model is a second, independent reading of the documented grammar, so
-    a generated combination the table cases never spell out still has a
-    definite expected answer. Acceptance is compared to that answer, not to
-    the shape, so an expression written another way but selecting the same
-    tests is accepted and one written to look right but selecting fewer is
-    rejected.
-
-    The generated filter names only cases the universe holds, so the answer is
-    always ``intended_selection``: every shape that removes more than the one
-    case selects a strict subset and must be rejected. A name outside the
-    universe reaches `selection_of`, which adds it to the modelled selection
-    rather than ignoring it — an exclusion naming a case that does not exist
-    removes nothing, and the property must see that rather than read the
-    filter as intended.
-    """
-    selected = selection_of(expression)
-    assert _accepts(expression) == (selected == intended_selection), (
-        "the contract and the selection model disagree about "
-        f"{expression!r}: modelled selection {sorted(selected)!r}"
-    )
-
-
 def assert_development_exclusion(expression: str) -> None:
     """Require the development filter to exclude exactly the poisoned-lock case.
 
@@ -154,16 +68,27 @@ def assert_development_exclusion(expression: str) -> None:
     poisoned-lock regression and nothing else, which is the opposite of the
     intended exclusion.
 
-    The whole expression is compared last, not searched for a substring. The
-    exclusion is one group inside a negated clause, so a substring check
-    accepts a filter that adds a second exclusion — ``... & test(=other)``
-    outside the group, or ``... | test(=other)`` inside it — and also one
-    that drops the package clause instead of adding anything. Each silently
-    narrows `dev-test` past the single case it is meant to give up, which is
-    the same class of omission the selection contract exists to catch. Only
-    the end-to-end comparison would notice otherwise, and that is opt-in, so
-    it never runs on CI.
+    The whole expression is compared last, and compared for equality rather
+    than searched for a substring. The exclusion is one group inside a negated
+    clause, so a substring check accepts a filter that adds a second exclusion
+    — ``... & test(=other)`` outside the group, or ``... | test(=other)``
+    inside it — and also one that drops the package clause instead of adding
+    anything. Each silently narrows `dev-test` past the single case it is
+    meant to give up, which is the same class of omission the selection
+    contract exists to catch. Only the end-to-end comparison would notice
+    otherwise, and that is opt-in, so it never runs on CI.
+
+    Equality against the expected form is what makes this complete. A
+    selection comparison alone is not: it can only see tests the model knows,
+    so ``& not package(chutoro-providers-text)`` selects the intended set *as
+    modelled* while dropping a real package's tests in the workspace. The
+    model would have to enumerate every package to catch that, and nextest's
+    filter language is not closed over a fixed universe. Comparing the text
+    needs no such enumeration, and it also rejects operators the model does
+    not implement, such as ``-E``'s ``rdeps`` or ``default``, which would
+    otherwise be read as selecting nothing.
     """
+    expected = expected_development_filter()
     depth = 0
     for character in expression:
         if character == "(":
@@ -189,6 +114,10 @@ def assert_development_exclusion(expression: str) -> None:
         "dev-test must select the standard set minus the poisoned-lock case: "
         f"{expression!r} selects {sorted(selection_of(expression))!r}"
     )
+    assert expression == expected, (
+        "dev-test must pass exactly the intended filter; "
+        f"expected {expected!r}, got {expression!r}"
+    )
 
 
 def wider_development_filters() -> tuple[tuple[str, str], ...]:
@@ -198,9 +127,14 @@ def wider_development_filters() -> tuple[tuple[str, str], ...]:
     each one passes a presence-and-prefix check; they differ only in how they
     admit more exclusion, which is what the exact comparison must catch.
 
+    The ``extra-package`` case is the one a modelled-selection oracle cannot
+    see. It names a package the model holds no entry for, so it selects the
+    intended set *as modelled* while dropping a real package's tests in the
+    workspace. Only comparing the expression itself rejects it.
+
     >>> [(case, expr != expected_development_filter())
     ...  for case, expr in wider_development_filters()]
-    [('appended-clause', True), ('widened-group', True), ('dropped-package', True)]
+    [('appended-clause', True), ('widened-group', True), ('dropped-package', True), ('extra-package', True)]
     """
     expected = expected_development_filter()
     return (
@@ -213,4 +147,5 @@ def wider_development_filters() -> tuple[tuple[str, str], ...]:
             ),
         ),
         ("dropped-package", f"not kind(bench) & not (test(={POISONED_LOCK_TEST}))"),
+        ("extra-package", f"{expected} & not package(chutoro-providers-text)"),
     )
