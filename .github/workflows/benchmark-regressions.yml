@@ -55,7 +55,7 @@ jobs:
       # nothing ever moves, which reports a healthy cache that stores
       # nothing. Skipping the install also saves the download.
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@0eabb6bc07148981de5da395e30cd78d83f5c7c2
+        uses: leynos/shared-actions/.github/actions/setup-rust@a0519a1476ab769ca7b8badfa794f3751213f1ea
         with:
           install-mold: 'true'
           use-sccache: 'false'
@@ -102,7 +102,7 @@ jobs:
       # nothing ever moves, which reports a healthy cache that stores
       # nothing. Skipping the install also saves the download.
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@0eabb6bc07148981de5da395e30cd78d83f5c7c2
+        uses: leynos/shared-actions/.github/actions/setup-rust@a0519a1476ab769ca7b8badfa794f3751213f1ea
         with:
           install-mold: 'true'
           use-sccache: 'false'
@@ -151,7 +151,7 @@ jobs:
       # nothing ever moves, which reports a healthy cache that stores
       # nothing. Skipping the install also saves the download.
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@0eabb6bc07148981de5da395e30cd78d83f5c7c2
+        uses: leynos/shared-actions/.github/actions/setup-rust@a0519a1476ab769ca7b8badfa794f3751213f1ea
         with:
           install-mold: 'true'
           use-sccache: 'false'
