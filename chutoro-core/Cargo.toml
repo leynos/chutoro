@@ -1,8 +1,14 @@
 [package]
 name = "chutoro-core"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.89.0"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "FISHDBC density-based clustering over pluggable distance sources, with a parallel CPU backend."
+readme = "../README.md"
+keywords = ["clustering", "fishdbc", "hdbscan", "hnsw", "density"]
+categories = ["algorithms", "science"]
 
 [features]
 default = ["cpu"]
@@ -38,7 +44,6 @@ rstest-bdd = "0.6.0-beta1"
 rstest-bdd-macros = "0.6.0-beta1"
 
 [dev-dependencies.chutoro-test-support]
-version = "0.1.0"
 path = "../chutoro-test-support"
 
 [lints]
