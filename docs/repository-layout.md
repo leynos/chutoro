@@ -110,6 +110,10 @@ Generated tooling directories must not be edited by hand:
   `chutoro-compile-contracts/`. Trybuild fixtures live under `tests/trybuild/`,
   and isolated Cargo fixture manifests live under `tests/fixtures/` within that
   package.
+- The same package holds the user-facing documentation contracts. Its
+  `src/lib.rs` runs every Rust example in `README.md`, `docs/users-guide.md`,
+  and `docs/v0-1-0-migration-guide.md` as a doctest, and
+  `tests/documentation_examples_tests.rs` checks every other fenced example.
 
 ## Core session module
 

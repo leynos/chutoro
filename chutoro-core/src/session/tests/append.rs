@@ -56,7 +56,7 @@ fn append_batch_accumulates_direct_harvested_edges(session_builder: ChutoroBuild
 #[rstest]
 fn append_delegates_duplicate_rejection_to_hnsw(session_builder: ChutoroBuilder) {
     // Duplicate detection is delegated to CpuHnsw::insert_harvesting, which
-    // returns HnswError::DuplicateIndex, mapped here to ChutoroError::CpuHnswFailure.
+    // returns HnswError::DuplicateNode, mapped here to ChutoroError::CpuHnswFailure.
     let (mut session, _) = make_session(session_builder, 2).expect("session must build");
 
     session.append(&[0]).expect("first append must succeed");

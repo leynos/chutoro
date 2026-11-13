@@ -909,6 +909,42 @@ before tagging a release:
 cargo publish --workspace --dry-run
 ```
 
+## User-facing documentation examples
+
+Every fenced example in `README.md`, `docs/users-guide.md`, and
+`docs/v0-1-0-migration-guide.md` is executable. Each fence is preceded by a
+stable marker naming it, on its own line:
+
+```markdown
+<!-- tested-example: guide-first-run -->
+```
+
+The shared loader in `chutoro-compile-contracts/tests/documentation_examples/`
+owns this format. It rejects unmarked, unterminated, and duplicate fences, and
+reads the published text so that no test keeps a copy that could drift.
+
+- **Rust fences** run as doctests. `chutoro-compile-contracts/src/lib.rs`
+  includes each document with `#[doc = include_str!(...)]` under
+  `cfg(doctest)`, so `make test-doc` (and therefore `make test`) compiles and
+  runs every Rust example against the workspace crates, including the providers
+  and the CLI library. A Rust fence must be a plain `rust` fence with no hidden
+  `#` lines: rustdoc attributes would weaken the run, and hidden lines render
+  literally on GitHub and crates.io. Write a complete program with an explicit
+  `fn main` instead.
+- **Every other fence** is checked by a semantic contract in
+  `tests/documentation_examples_tests.rs`. Dependency snippets must name a
+  published crate at the workspace version. Install commands must fetch that
+  version of `chutoro-cli`. Each documented CLI run is parsed by the real
+  `clap` definition, executed against its documented input, and compared with
+  its documented output, byte for byte.
+
+`EXPECTED_EXAMPLE_IDS` in that test is the exact set of markers. To add an
+example, add its marker and its identifier, and give any non-Rust fence a
+contract that checks what it claims. `tests/documentation_examples_loader.rs`
+covers the loader's failure modes. Adding a document means listing it in the
+loader's `DOCUMENTS` and including it in `src/lib.rs`; a contract fails if the
+two lists disagree.
+
 ## Workspace lint and check-cfg policy
 
 The seven workspace crates inherit the root `[workspace.lints]` policy through
