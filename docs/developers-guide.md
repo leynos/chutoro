@@ -52,16 +52,16 @@ script shares `scripts/lib/pinned-download.sh` with the CI installers, so its
 version and digest are read through the same fail-closed helper rather than by
 a private copy of that logic.
 
-[ADR-005](adr-005-cranelift-opt-in-development-route.md) records why the route
-is opt-in rather than the development-profile default, and what keeps it out of
-every merge gate. Each development target validates the host probe before using
-it. The probe is captured once with its exit status, because a `?=` default over
-`$(shell uname -s)` is recursively expanded and would re-run the command on
-every reference; a recipe could then pass one answer to its check and select
-its flags from another. An empty value reads as "not Linux" everywhere it is
-tested, and a probe that answers but exits non-zero is refused too, so neither
-case can silently drop the linker selection. `DEV_FAST_HOST_OS` remains
-overridable for a host whose `uname` cannot run.
+[ADR-005](adrs/adr-0005-cranelift-opt-in-development-route.md) records why the
+route is opt-in rather than the development-profile default, and what keeps it
+out of every merge gate. Each development target validates the host probe
+before using it. The probe is captured once with its exit status, because a
+`?=` default over `$(shell uname -s)` is recursively expanded and would re-run
+the command on every reference; a recipe could then pass one answer to its
+check and select its flags from another. An empty value reads as "not Linux"
+everywhere it is tested, and a probe that answers but exits non-zero is refused
+too, so neither case can silently drop the linker selection. `DEV_FAST_HOST_OS`
+remains overridable for a host whose `uname` cannot run.
 
 The exit status is appended by the probe's own shell rather than read back from
 `.SHELLSTATUS`. That variable reports whichever `$(shell)` call ran last, so a
@@ -2400,7 +2400,7 @@ and `StubRecipe`. The behavioural tests in
 against both in-memory and filesystem-backed adapters.
 
 The design rationale is recorded in
-[`ADR-004`](adr-004-bench-dataset-recipe-trait.md). The broader dataset
+[`ADR-004`](adrs/adr-0004-bench-dataset-recipe-trait.md). The broader dataset
 pipeline is described in
 [`benchmark-dataset-retrieval.md`](benchmark-dataset-retrieval.md) §3.1.
 

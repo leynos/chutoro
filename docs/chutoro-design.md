@@ -1197,10 +1197,10 @@ distance-cache miss subset means batches reaching the dense adapter are often
 smaller than the logical graph beam, so any extra packing, prefetch, or scratch
 reuse must prove itself against this fragmented workload.
 
-ADR-003 (`docs/adr-003-soa-prefetch-adapter-boundary.md`) records the boundary
-decision: keep SoA and prefetch policy private to dense adapters; defer
-cross-node beam aggregation, persistent dimension-major SoA storage, and a
-public `batch_distances_into` buffer-reuse API into separate evidence-gated
+ADR-003 (`docs/adrs/adr-0003-soa-prefetch-adapter-boundary.md`) records the
+boundary decision: keep SoA and prefetch policy private to dense adapters;
+defer cross-node beam aggregation, persistent dimension-major SoA storage, and
+a public `batch_distances_into` buffer-reuse API into separate evidence-gated
 roadmap items. If a later item fails its benchmark threshold, record the null
 result beside that item rather than widening the core `DataSource` trait or
 HNSW graph policy speculatively.

@@ -191,7 +191,7 @@ milestone begins.
   declared-source ordering.
 - [x] M8 (docs and ADR): `docs/users-guide.md` and
   `docs/developers-guide.md` updates, ADR captured at
-  `docs/adr-004-bench-dataset-recipe-trait.md`, and a brief note added to
+  `docs/adrs/adr-0004-bench-dataset-recipe-trait.md`, and a brief note added to
   `docs/benchmark-dataset-retrieval.md` referencing the ADR.
 - [x] M9 (final validation): `make check-fmt`, `make lint`, `make test`, then
   `coderabbit review --agent` final pass. Mark roadmap item 10.1.1 as `done` in
@@ -496,8 +496,8 @@ Compare results against the purpose section.
   `cargo clippy -p chutoro-bench-datasets --all-targets --all-features -- -D warnings`
   and `cargo test -p chutoro-bench-datasets --features testing`.
 
-- M8 landed `docs/adr-004-bench-dataset-recipe-trait.md` plus users' guide,
-  developers' guide, and benchmark dataset retrieval cross-references.
+- M8 landed `docs/adrs/adr-0004-bench-dataset-recipe-trait.md` plus users'
+  guide, developers' guide, and benchmark dataset retrieval cross-references.
   Documentation validation passed with targeted `mdtablefix`,
   `markdownlint-cli2`, `make markdownlint`, and `make nixie`.
 
@@ -975,7 +975,7 @@ Stage G validation: `cargo test -p chutoro-bench-datasets --features testing`;
 
 ### Stage H: ADR, documentation, and roadmap update (M8)
 
-Create `docs/adr-004-bench-dataset-recipe-trait.md` using the Y-statement
+Create `docs/adrs/adr-0004-bench-dataset-recipe-trait.md` using the Y-statement
 format (see `arch-decision-records` skill). Capture:
 
 - the typestate-style typed handoffs decision;
@@ -1079,7 +1079,7 @@ Acceptance is observable behaviour, not a code count.
 - `coderabbit review --agent` reports no unresolved concerns at the
   milestone boundaries.
 - The roadmap item `10.1.1` is ticked as `[x]` in `docs/roadmap.md`.
-- The ADR is present at `docs/adr-004-bench-dataset-recipe-trait.md`.
+- The ADR is present at `docs/adrs/adr-0004-bench-dataset-recipe-trait.md`.
 - `docs/users-guide.md` and `docs/developers-guide.md` reflect the new crate.
 
 Quality criteria:

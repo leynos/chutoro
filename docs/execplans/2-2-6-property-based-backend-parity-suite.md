@@ -347,8 +347,8 @@ later items that will actually consume it.
   ADR is only required if Stage C calibration surfaces a substantive trade-off
   (for example, an epsilon policy the GPU side cannot honour); in that case,
   write `docs/adr-003-distance-semantics-contract.md` following the
-  dotted-numbering convention of `adr-001-commit-post-processing.md` and
-  `adr-002-adoption-of-kani-formal-verification.md`, and reference it from
+  dotted-numbering convention of `adr-0001-commit-post-processing.md` and
+  `adr-0002-adoption-of-kani-formal-verification.md`, and reference it from
   §6.3. Date/Author: 2026-05-04, planning.
 - Decision: build the dense parity suite's proptest `Config` from
   `chutoro_test_support::ci::property_test_profile::ProptestRunProfile`.

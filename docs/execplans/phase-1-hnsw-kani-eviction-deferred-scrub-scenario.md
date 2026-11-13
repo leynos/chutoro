@@ -159,8 +159,9 @@ Use fixtures from the existing test module (`params_two_connections`,
 
 Record decisions in the `Decision Log` section of this document. If
 architectural choices affect `docs/chutoro-design.md` or the Architecture
-Decision Record (ADR) `docs/adr-002-adoption-of-kani-formal-verification.md`,
-update those as well.
+Decision Record (ADR)
+`docs/adrs/adr-0002-adoption-of-kani-formal-verification.md`, update those as
+well.
 
 ### Step 4: Update Roadmap
 

@@ -51,11 +51,11 @@ After this change a developer can:
    occur* in the HNSW hot path (≈ 8-48), with cycle-count and per-bucket SoA
    lane-utilization data, not just wall-time.
 2. Read `docs/chutoro-design.md` §6.3, `docs/developers-guide.md`, and
-   `docs/adr-003-soa-prefetch-adapter-boundary.md` and find documented: how
-   2.2.x satisfies 2.3.1's layout/locking structure, the cache-fragmentation
-   reality, the invariant that scoring never runs under the write lock and the
-   test that proves it, and the deferred structural levers with their
-   trade-offs.
+   `docs/adrs/adr-0003-soa-prefetch-adapter-boundary.md` and find documented:
+   how 2.2.x satisfies 2.3.1's layout/locking structure, the
+   cache-fragmentation reality, the invariant that scoring never runs under the
+   write lock and the test that proves it, and the deferred structural levers
+   with their trade-offs.
 3. See clustering output **unchanged** under fixed seeds — every delta is
    behaviour-preserving, proven by the existing search-correctness,
    idempotency, mutation, and backend-parity suites plus the new write-lock
@@ -626,7 +626,7 @@ Stop and escalate (do not work around) when:
   roadmap mark — reflecting whatever the evidence supports.
   - [x] (2026-06-25) Drafted the Milestone 2 documentation update:
     `docs/chutoro-design.md` §6.3 now records the 2.3.1 implementation
-    evidence and points to ADR-003; `docs/adr-003-soa-prefetch-adapter-boundary.md`
+    evidence and points to ADR-003; `docs/adrs/adr-0003-soa-prefetch-adapter-boundary.md`
     records the adapter-boundary decision and deferred alternatives;
     `docs/roadmap.md` now carries deferred items 2.3.3-2.3.5 for cross-node
     beam scoring, persistent dimension-major SoA storage, and
@@ -1111,9 +1111,9 @@ query-centric port method the dense adapter overrides.
   `docs/rust-testing-with-rstest-fixtures.md`, `docs/rust-doctest-dry-guide.md`,
   `docs/reliable-testing-in-rust-via-dependency-injection.md`,
   `docs/complexity-antipatterns-and-refactoring-strategies.md`.
-- ADRs: `docs/adr-001-commit-post-processing.md`,
-  `docs/adr-002-adoption-of-kani-formal-verification.md`; this plan adds
-  `docs/adr-003-soa-prefetch-adapter-boundary.md`.
+- ADRs: `docs/adrs/adr-0001-commit-post-processing.md`,
+  `docs/adrs/adr-0002-adoption-of-kani-formal-verification.md`; this plan adds
+  `docs/adrs/adr-0003-soa-prefetch-adapter-boundary.md`.
 - Skills: `rust-router` → `rust-performance-and-layout`,
   `rust-memory-and-state`, `rust-unsafe-and-ffi` (only if prefetch needs
   `unsafe`), `rust-unit-testing`, `proptest`, `kani`, `nextest`,
@@ -1208,7 +1208,7 @@ Goal: record what is true regardless of whether E1-E3 are built.
    cache-fragmentation reality; the scoring-outside-write-lock invariant and
    its guard; the measured cache-miss-subset/scoring-share numbers; and a
    null-result template if E1-E3 are dropped.
-2. `docs/adr-003-soa-prefetch-adapter-boundary.md` (Y-Statement;
+2. `docs/adrs/adr-0003-soa-prefetch-adapter-boundary.md` (Y-Statement;
    `arch-decision-records` skill): the decision to keep SoA/prefetch private to
    the dense adapter; the cross-node-beam and secondary-SoA-copy and
    `batch_distances_into` alternatives with memory-vs-repack and

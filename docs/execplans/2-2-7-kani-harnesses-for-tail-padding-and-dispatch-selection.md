@@ -34,8 +34,8 @@ Success is observable when:
   `make kani-full` workflow without adding Kani to the normal `make test` path.
 - `make check-fmt`, `make lint`, and `make test` all succeed.
 - `docs/chutoro-design.md`, `docs/developers-guide.md`, and
-  `docs/adr-002-adoption-of-kani-formal-verification.md` record the dense SIMD
-  proof contract. `docs/users-guide.md` is updated only if implementation
+  `docs/adrs/adr-0002-adoption-of-kani-formal-verification.md` record the dense
+  SIMD proof contract. `docs/users-guide.md` is updated only if implementation
   changes public behaviour or public API; this plan expects no such change.
 - `docs/roadmap.md` marks `2.2.7` done only after implementation, proof runs,
   tests, documentation, CodeRabbit review, and the quality gates all pass.
@@ -203,7 +203,7 @@ Use these skills:
   unchanged.
 - [x] (2026-05-24) Stage E: updated `docs/chutoro-design.md`,
   `docs/developers-guide.md`, and
-  `docs/adr-002-adoption-of-kani-formal-verification.md`; update
+  `docs/adrs/adr-0002-adoption-of-kani-formal-verification.md`; update
   `docs/users-guide.md` was not needed because public behaviour did not change.
 - [x] (2026-05-24) Stage F: ran focused proof/test commands, focused
   Markdown lint, `make kani`, `make check-fmt`, `make lint`, and `make test`.
@@ -512,7 +512,7 @@ the timestamped progress entries above:
 8. Update documentation after the code shape is known. Add a
    `2.2.7` implementation update to `docs/chutoro-design.md` §6.3, extend
    `docs/developers-guide.md` with dense SIMD Kani workflow notes, and extend
-   `docs/adr-002-adoption-of-kani-formal-verification.md` with the
+   `docs/adrs/adr-0002-adoption-of-kani-formal-verification.md` with the
    dense-provider harness policy. Update `docs/users-guide.md` only if public
    behaviour or public API changes.
 

@@ -225,7 +225,7 @@ demonstrates:
 - Hand-tracing the three-node reconciliation harness exposed a production
   ordering defect (healing clobbered by the origin's write-back); the fix and
   the retirement of the intractable deterministic harnesses are recorded in
-  [kani-full-hnsw-hypothesis-testing.md](./kani-full-hnsw-hypothesis-testing.md)
+  [kani-full-hnsw-hypothesis-testing.md](../kani-full-hnsw-hypothesis-testing.md)
   and the developers' guide "Kani CI policy" section.
 - The commit-path, three-node reconciliation, and eviction-scrub harnesses
   exceeded practical CBMC budgets and are replaced by exact unit-test twins;
@@ -316,6 +316,6 @@ intended as future formal verification targets:
 
 - [Kani Rust Verifier](https://github.com/model-checking/kani)
 - [Kani Documentation](https://model-checking.github.io/kani/)
-- [Property Testing Design](./property-testing-design.md)
-- [ADR-001: Commit Post-processing](./adr-001-commit-post-processing.md)
-- [Execution Plan: Phase 1](./execplans/phase-1-hnsw-graph-invariant-kani-harness.md)
+- [Property Testing Design](../property-testing-design.md)
+- [ADR-001: Commit Post-processing](./adr-0001-commit-post-processing.md)
+- [Execution Plan: Phase 1](../execplans/phase-1-hnsw-graph-invariant-kani-harness.md)

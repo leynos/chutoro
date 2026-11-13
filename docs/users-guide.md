@@ -450,7 +450,7 @@ assert_eq!(published.manifest_uri().as_str(), "manifests/example.json");
 ```
 
 For the design rationale behind the four-phase trait and port split, see
-[ADR-004: Benchmark dataset recipe trait](adr-004-bench-dataset-recipe-trait.md).
+[ADR-004: Benchmark dataset recipe trait](adrs/adr-0004-bench-dataset-recipe-trait.md).
 
 ## Benchmarking
 
