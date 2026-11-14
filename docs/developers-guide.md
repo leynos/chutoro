@@ -1911,6 +1911,37 @@ Example:
 assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].source == source_node;
 ```
 
+## Markdown formatting and lint scope
+
+`make fmt` applies two Markdown tools with independent file selectors, after
+`cargo fmt --all` has formatted the Rust sources:
+
+- `mdtablefix --in-place --git --include-untracked` formats Markdown. The
+  `--git` and `--include-untracked` options take the file list from Git, so the
+  selection is every tracked file plus every untracked file that Git does not
+  ignore. A path covered by `.gitignore` is never formatted.
+- `markdownlint-cli2 --fix "**/*.md"` applies lint fixes. markdownlint-cli2
+  expands that glob itself and filters the result through the `ignores` list in
+  `.markdownlint-cli2.jsonc`. `.gitignore` has no bearing on this selection.
+
+Because the selectors are independent, excluding a tree from `make fmt`
+requires an entry in both `.gitignore` and `.markdownlint-cli2.jsonc`. The
+`.verus/` tree is the worked example. `scripts/install-verus.sh` unpacks the
+pinned Verus release there, and that release ships Markdown the repository
+neither owns nor maintains. Formatting or linting it would rewrite vendor files
+and fail a gate on content outside repository ownership. `.gitignore` therefore
+lists `.verus/`, and the lint configuration carries the matching `**/.verus/**`
+ignore, whose pattern is not anchored to the repository root.
+
+`make markdownlint` and `make nixie` do not read either list. They build their
+file list with `find` and exclude generated trees with `-not -path` rules, so a
+new generated top-level tree needs an entry in three places: `.gitignore`,
+`.markdownlint-cli2.jsonc`, and the two `find` recipes in the `Makefile`.
+`tests/workflow_contracts/markdown_format_scope_test.py` runs the real
+formatter, and the linter where its command-line tool is installed, against a
+throwaway repository containing both a root and a nested `.verus/` tree, so the
+lists cannot drift apart unnoticed.
+
 ## Spelling gate
 
 Run `make spelling` to enforce en-GB-oxendict spelling in tracked Markdown
