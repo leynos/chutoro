@@ -95,9 +95,17 @@ retries = 1
 # blind spot: its sibling in the same source file was named here and it was
 # not, so four of the five tests that pay this cost were covered and the fifth
 # was terminated at sixty seconds on a cold cache.
+#
+# Ten minutes, not five. A fixture pays for the Arrow and Parquet stack it
+# compiles, and on a shared machine that build queues in the compile-admission
+# pool behind other agents' work. A warm run of
+# `portable_simd_with_feature_compiles` measured 290s here with its sibling
+# fixture building alongside it, and five minutes terminated the pair on three
+# consecutive full-suite runs. The longer allowance costs nothing when the
+# fixture builds quickly, because a passing test is never terminated.
 filter = "test(/portable_simd_without_feature_is_rejected|portable_simd_with_feature_compiles|session_api_compiles_when_cpu_feature_is_enabled|session_api_is_unavailable_without_cpu_feature|dataset_recipe_phase_order|arrow_parquet_types_share_one_family/)"
 threads-required = 4
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
 # Benchmark smoke integration coverage runs nested cargo bench commands and
@@ -110,9 +118,10 @@ slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
 [[profile.default.overrides]]
 # Trybuild tests compile fixture crates with a nested cargo invocation; under
 # a cold coverage target directory the dependency rebuild can exceed the
-# generic 60s timeout.
+# generic 60s timeout. This repeats a test the block above already names, and
+# it carries the same ten-minute allowance so the two cannot cap each other.
 filter = "test(/dataset_recipe_phase_order/)"
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.default.overrides]]
 # The clustering-result API checks run trybuild and a nested CPU-disabled Cargo
@@ -185,16 +194,19 @@ retries = 1
 #
 # `session_api_is_unavailable_without_cpu_feature` spawns `cargo check` rather
 # than constructing a trybuild harness; the cost is the same and so is the
-# allowance.
+# allowance, which follows the default profile's ten minutes so a fixture that
+# fits there also fits here.
 filter = "test(/portable_simd_without_feature_is_rejected|portable_simd_with_feature_compiles|session_api_compiles_when_cpu_feature_is_enabled|session_api_is_unavailable_without_cpu_feature|dataset_recipe_phase_order|arrow_parquet_types_share_one_family/)"
 threads-required = 4
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
 # Trybuild tests compile fixture crates with a nested cargo invocation; the
-# rebuild can exceed the generic 60s timeout on shared runners.
+# rebuild can exceed the generic 60s timeout on shared runners. This repeats a
+# test the block above already names, and it carries the same ten-minute
+# allowance so the two cannot cap each other.
 filter = "test(/dataset_recipe_phase_order/)"
-slow-timeout = { period = "300s", terminate-after = 1, grace-period = "5s" }
+slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
 
 [[profile.ci.overrides]]
 # Keep the feature-boundary checks serial in the reduced CI profile as well.

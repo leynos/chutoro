@@ -16,6 +16,13 @@ const LONG_BENCH_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"900s\", terminate-after = 1, grace-period = \"5s\" }";
 const TRYBUILD_SLOW_TIMEOUT: &str =
     "slow-timeout = { period = \"300s\", terminate-after = 1, grace-period = \"5s\" }";
+
+// The fixture crate these checks compile pulls in the Arrow and Parquet stack,
+// so even a warm build is a five-minute job on a shared machine. The budget
+// covers the compile-admission queue the build waits in as well as the build,
+// which is why it is twice the allowance the smaller trybuild fixtures get.
+const COLD_FIXTURE_SLOW_TIMEOUT: &str =
+    "slow-timeout = { period = \"600s\", terminate-after = 1, grace-period = \"5s\" }";
 const NESTED_BENCH_SMOKE_TIMEOUT: &str = TRYBUILD_SLOW_TIMEOUT;
 
 fn override_blocks(profile_name: &str) -> Vec<&'static str> {
@@ -149,7 +156,7 @@ fn nextest_profiles_keep_trybuild_timeout_guards(#[case] profile_name: &str) {
             "portable_simd_with_feature_compiles",
             "session_api_compiles_when_cpu_feature_is_enabled",
             "threads-required = 4",
-            TRYBUILD_SLOW_TIMEOUT,
+            COLD_FIXTURE_SLOW_TIMEOUT,
         ]
     );
 }
