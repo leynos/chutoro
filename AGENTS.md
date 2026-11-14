@@ -165,13 +165,17 @@ project:
   - `make test` executes:
 
     ```sh
-    cargo nextest run --all-targets --all-features -E 'not kind(bench)'
+    cargo nextest run --profile <default|ci> --all-targets --all-features \
+      -E 'not kind(bench)'
+    cargo test --doc --workspace --all-features
     ```
 
     running the full workspace test suite on the stable pin, with `RUSTFLAGS`
-    carrying `-D warnings` and the build standard's flags. Use `make fmt`
-    (`cargo fmt --all` plus Markdown formatting) to apply formatting fixes
-    reported by the formatter checks.
+    carrying `-D warnings` and the build standard's flags, followed by the
+    workspace doctests (`make test-doc`), which nextest does not run. The
+    nextest profile defaults to `default` locally and `ci` under CI
+    (`NEXTEST_PROFILE`). Use `make fmt` (`cargo fmt --all` plus Markdown
+    formatting) to apply formatting fixes reported by the formatter checks.
 - Cranelift is opt-in for development speed only. `make dev-build` and
   `make dev-test` select the nightly fragment in `tools/dev-fast/`;
   `make install-dev-fast` installs its components and the `mold` archive. They
