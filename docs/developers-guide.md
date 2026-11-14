@@ -276,14 +276,14 @@ pinned, checksum-verified prebuilt archive:
 Table: Each tool CI installs, the installer that fetches it, and where its
 version and digest are pinned.
 
-| Tool          | Installer                                                  | Pin                                      |
-| ------------- | ---------------------------------------------------------- | ---------------------------------------- |
-| Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, currently 0.2.7            |
-| mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.0            |
-| cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS` |
-| sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS` |
-| Kani          | `scripts/install-kani.sh`                                  | `tools/kani/VERSION` and `SHA256SUMS`    |
-| Verus         | `scripts/install-verus.sh`                                 | `tools/verus/VERSION` and `SHA256SUMS`   |
+| Tool          | Installer                                                  | Pin                                                                                       |
+| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, default 0.2.12, at action commit `88ac795de687eda016db24983f87a25d6db49fdb` |
+| mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.0                                                             |
+| cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS`                                                  |
+| sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS`                                                  |
+| Kani          | `scripts/install-kani.sh`                                  | `tools/kani/VERSION` and `SHA256SUMS`                                                     |
+| Verus         | `scripts/install-verus.sh`                                 | `tools/verus/VERSION` and `SHA256SUMS`                                                    |
 
 The four repository scripts share `scripts/lib/pinned-download.sh`, which reads
 the pinned version, looks the archive's SHA-256 up in the sibling manifest, and
@@ -823,8 +823,9 @@ agent-facing rule.
 
 ### CI resolution and configuration
 
-CI installs Whitaker through the shared `install-whitaker` action, pinned to a
-reviewed commit. The action pins the `whitaker-installer` release it accepts,
+CI installs Whitaker through the shared `install-whitaker` action, pinned to
+the reviewed commit `88ac795de687eda016db24983f87a25d6db49fdb`. The action pins
+the `whitaker-installer` release it accepts - 0.2.12 is that commit's default -
 verifies the installer and Clippy-snapshot digests against its own manifest,
 and runs the installer with `--no-source-fallback`, so a source build is a
 failure rather than a slow success. The installer bootstraps the Dylint driver
@@ -985,12 +986,12 @@ so it is worth knowing which is which and in what order they can fire.
 
 Table: the four timers, innermost first, with where each is set.
 
-| Tier                     | What it bounds                     | Where it is set                                     | Current value                                |
-| ------------------------ | ---------------------------------- | --------------------------------------------------- | -------------------------------------------- |
-| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default, 900 s for the slowest override |
-| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 40 m                                         |
-| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m)                               |
-| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 100 m                                        |
+| Tier                     | What it bounds                     | Where it is set                                     | Current value                                                                   |
+| ------------------------ | ---------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default, 900 s for the slowest override, 600 s for the cold fixture family |
+| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 40 m                                                                            |
+| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m)                                                                  |
+| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 100 m                                                                           |
 
 Each tier must sit above the one before it.
 
@@ -1040,6 +1041,33 @@ them with humantime, which sums a sequence of value-and-unit pairs, so `5m`,
 `1m30s`, and `2h 37min` are all valid. A seconds-only reader answered nothing
 for each, dropped the override from the extending set, and reported the tests
 it covers as uncovered on a configuration nextest accepts.
+
+### How many allowances fit under the run-wide ceiling
+
+A per-test allowance and the run-wide ceiling are compared one test at a time,
+but the ceiling bounds the sum of what actually runs. The cold Arrow/Parquet
+fixture family is the case where that difference could bite: its override asks
+for 600 s and declares `threads-required = 4`, so the number of fixtures that
+can run at once decides how much of the 40-minute global timeout the family can
+consume.
+
+Neither lane runs the six names one after another. The coverage lane invokes
+the shared action, which runs `cargo llvm-cov nextest` without `--profile`, so
+the `default` profile's eight threads apply and two fixtures run at once: six
+tests in three waves, 1,800 s at the ceiling. `make test` selects the `ci`
+profile, which runs four threads and so one fixture at a time, but its nextest
+filter excludes the session API binary and the rejected portable-SIMD case, and
+those run afterwards under plain `cargo test`, outside nextest's clock. Three
+of the six therefore reach nextest there, which is again three waves.
+
+Both bounds sit 600 s inside the 40-minute ceiling, and the coverage step
+measured under four minutes before this allowance doubled. That is why the
+allowance was raised without moving the global timeout, the watchdog, and the
+job ceiling: the documented cascade in the next section would otherwise push
+the watchdog to 5,400 s and the job ceiling to 120 minutes to buy headroom the
+run does not need. `.config/nextest.toml` records the same arithmetic beside
+the override, so changing either the allowance or the thread counts shows up
+where the decision was made.
 
 ### The cargo watchdog is the tier nobody expects
 

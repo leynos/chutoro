@@ -103,6 +103,16 @@ retries = 1
 # fixture building alongside it, and five minutes terminated the pair on three
 # consecutive full-suite runs. The longer allowance costs nothing when the
 # fixture builds quickly, because a passing test is never terminated.
+#
+# The six names are never six serial allowances inside one 40-minute run, which
+# is what makes ten minutes each affordable. `threads-required = 4` lets two of
+# them run at once in the default profile's eight threads, and the coverage
+# lane runs that profile, so six tests cost three waves: 1800s at the ceiling.
+# `make test` selects the `ci` profile, which runs four threads and therefore
+# one fixture at a time, but its nextest filter leaves only three of the six
+# here; the session API pair and the rejected portable-SIMD case run afterwards
+# under plain `cargo test`, outside nextest's clock. That is three waves too.
+# Either way the family's worst case stays 600s inside the global timeout.
 filter = "test(/portable_simd_without_feature_is_rejected|portable_simd_with_feature_compiles|session_api_compiles_when_cpu_feature_is_enabled|session_api_is_unavailable_without_cpu_feature|dataset_recipe_phase_order|arrow_parquet_types_share_one_family/)"
 threads-required = 4
 slow-timeout = { period = "600s", terminate-after = 1, grace-period = "5s" }
