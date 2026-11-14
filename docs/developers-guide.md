@@ -130,6 +130,14 @@ duplicate the dry-run reading. The lexer itself stays in `rust_source_reading`:
 a second Rust scanner here would eventually disagree with the first about where
 a raw string or a nested block comment ends.
 
+`tests/workflow_contracts/dev_test_filter_selection_test.py` executes Nextest's
+own filter evaluation over the workspace and compares it with an unfiltered
+baseline. A filtered listing reports every case with a `filter-match` status,
+so the contract checks that the poisoned-lock case is rejected, that no
+benchmark case is selected, and that every other runnable case still is.
+Listing runs no test, and the filter is evaluated over the compiled names on
+the stable pin, so the Cranelift route stays out of the merge gate.
+
 Those three development targets declare themselves `.PHONY` beside their
 recipes rather than in the file-wide list at the top of the `Makefile`. The
 file-wide list is a single long line that other work also edits, so appending
@@ -1221,13 +1229,17 @@ facts in three places, and nothing but a contract notices when they drift.
 placement, the tool installs, the cache ownership, the CodeScene rule set and
 the timeout tiers below.
 
-The target needs `uv` on the path and nothing else installed: it obtains
-`pytest`, `PyYAML`, `pathspec` and `hypothesis` for the run through
-`uv run --with`, so the versions are the target's business rather than the
-developer's. `hypothesis` is there because the timeout derivations are driven
-as properties over generated configurations, not only against the values this
-repository happens to hold. The `build-test` job runs the same target, so a
-contract that passes here passes there.
+The target needs `uv` on the path for its Python harness: it obtains `pytest`,
+`PyYAML`, `pathspec` and `hypothesis` for the run through `uv run --with`, so
+the versions are the target's business rather than the developer's.
+`hypothesis` is there because the timeout derivations are driven as properties
+over generated configurations, not only against the values this repository
+happens to hold. One contract also needs a Rust toolchain and `cargo nextest`
+on the path: `dev_test_filter_selection_test.py` runs `cargo nextest list` over
+the workspace, which compiles the test binaries without running them. CI
+installs the pinned Nextest from `scripts/install-nextest.sh` before the
+contract step. The `build-test` job runs the same target, so a contract that
+passes here passes there.
 
 The target runs pytest with `--doctest-modules`, so every example in a
 docstring under `tests/workflow_contracts/` is executed as a test. That is not

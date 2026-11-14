@@ -6,31 +6,31 @@ use crate::hnsw::{HnswError, graph::NodeContext, graph::core::Graph, params::Hns
 
 /// Creates default parameters for most deletion tests (`max_connections=2`, `ef_construction=4`).
 #[fixture]
-fn basic_params() -> HnswParams {
-    match HnswParams::new(2, 4) {
-        Ok(params) => params,
-        Err(err) => panic!("params must be valid: {err}"),
-    }
+fn basic_params() -> Result<HnswParams, HnswError> {
+    HnswParams::new(2, 4)
 }
 
 /// Creates a graph with capacity 3 using basic params.
 #[fixture]
-fn small_graph(basic_params: HnswParams) -> Graph {
-    Graph::with_capacity(basic_params, 3)
+fn small_graph(
+    #[from(basic_params)] basic_params_res: Result<HnswParams, HnswError>,
+) -> Result<Graph, HnswError> {
+    let basic_params = basic_params_res?;
+    Ok(Graph::with_capacity(basic_params, 3))
 }
 
 /// Creates restricted parameters for disconnection tests (`max_connections=1`, `ef_construction=1`).
 #[fixture]
-fn restricted_params() -> HnswParams {
-    match HnswParams::new(1, 1) {
-        Ok(params) => params,
-        Err(err) => panic!("params must be valid: {err}"),
-    }
+fn restricted_params() -> Result<HnswParams, HnswError> {
+    HnswParams::new(1, 1)
 }
 
 /// Verifies deletion reconnects former neighbours without disconnecting the graph.
 #[rstest]
-fn delete_node_reconnects_neighbours_and_preserves_reachability(mut small_graph: Graph) {
+fn delete_node_reconnects_neighbours_and_preserves_reachability(
+    #[from(small_graph)] small_graph_res: Result<Graph, HnswError>,
+) {
+    let mut small_graph = small_graph_res.expect("deletion graph fixture must be valid");
     small_graph
         .insert_first(NodeContext {
             node: 0,
@@ -77,7 +77,10 @@ fn delete_node_reconnects_neighbours_and_preserves_reachability(mut small_graph:
 
 /// Verifies repeated deletion of an empty slot reports no mutation.
 #[rstest]
-fn delete_node_returns_ok_false_for_missing_node(mut small_graph: Graph) {
+fn delete_node_returns_ok_false_for_missing_node(
+    #[from(small_graph)] small_graph_res: Result<Graph, HnswError>,
+) {
+    let mut small_graph = small_graph_res.expect("deletion graph fixture must be valid");
     small_graph
         .insert_first(NodeContext {
             node: 0,
@@ -107,7 +110,10 @@ fn delete_node_returns_ok_false_for_missing_node(mut small_graph: Graph) {
 
 /// Verifies deletion rejects node indices beyond graph capacity.
 #[rstest]
-fn delete_node_returns_invalid_parameters_for_out_of_bounds_index(mut small_graph: Graph) {
+fn delete_node_returns_invalid_parameters_for_out_of_bounds_index(
+    #[from(small_graph)] small_graph_res: Result<Graph, HnswError>,
+) {
+    let mut small_graph = small_graph_res.expect("deletion graph fixture must be valid");
     let result = small_graph.delete_node(5);
 
     match result {
@@ -118,7 +124,10 @@ fn delete_node_returns_invalid_parameters_for_out_of_bounds_index(mut small_grap
 
 /// Verifies failed deletion restores nodes, entry point, and queued mutations.
 #[rstest]
-fn delete_node_reverts_when_it_would_disconnect_graph(restricted_params: HnswParams) {
+fn delete_node_reverts_when_it_would_disconnect_graph(
+    #[from(restricted_params)] restricted_params_res: Result<HnswParams, HnswError>,
+) {
+    let restricted_params = restricted_params_res.expect("restricted parameters must be valid");
     let mut graph = Graph::with_capacity(restricted_params, 5);
     graph
         .insert_first(NodeContext {
@@ -169,5 +178,29 @@ fn delete_node_reverts_when_it_would_disconnect_graph(restricted_params: HnswPar
         graph.take_touched_nodes(),
         vec![(4, 0)],
         "failed deletion must restore the pre-mutation healing queue",
+    );
+}
+
+/// Verifies the graph fixture returns each parameter error it was handed.
+///
+/// The fixtures are shared setup, so a failure has to arrive at the test as a
+/// typed error. Returning it unchanged is what lets a caller decide whether to
+/// propagate or report the failure. Several distinct errors are compared, so a
+/// fixture that special-cases one variant or rewrites a reason is caught.
+#[rstest]
+#[case(HnswError::EmptyBuild)]
+#[case(HnswError::InvalidParameters {
+    reason: String::from("max_connections must be at least 2"),
+})]
+#[case(HnswError::InvalidParameters {
+    reason: String::from("ef_construction must exceed max_connections"),
+})]
+fn small_graph_returns_the_parameter_error_it_was_given(#[case] expected: HnswError) {
+    let result = small_graph(Err(expected.clone()));
+
+    assert_eq!(
+        result.expect_err("the fixture must return the parameter error"),
+        expected,
+        "the fixture must not replace the error it was given",
     );
 }
