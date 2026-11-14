@@ -160,6 +160,31 @@ def test_every_action_reference_is_pinned_to_a_commit(workflow_name: str) -> Non
             )
 
 
+#: The shared installer action whose pin decides how the Dylint driver is
+#: bootstrapped. Every workflow that lints must agree on it.
+WHITAKER_INSTALLER_ACTION = "/install-whitaker@"
+
+
+def test_workflows_agree_on_the_whitaker_installer_pin() -> None:
+    """One installer pin decides what every lint job tests.
+
+    The installer bootstraps the Dylint driver from a verified Clippy
+    snapshot, so two workflows on different pins can disagree about the same
+    commit. Comparing the pins across workflows catches that drift, which
+    checking each file against a pattern cannot.
+    """
+    pins = {
+        reference.split("@", 1)[1]
+        for workflow_name in workflow_names()
+        for definition in jobs(load_workflow(workflow_name)).values()
+        for step in steps(definition)
+        if WHITAKER_INSTALLER_ACTION in (reference := uses_reference(step))
+    }
+
+    assert pins, "no workflow installs Whitaker through the shared action"
+    assert len(pins) == 1, f"workflows pin install-whitaker to {sorted(pins)}"
+
+
 @pytest.mark.parametrize("workflow_name", workflow_names())
 def test_installers_run_before_the_tools_they_provide(workflow_name: str) -> None:
     """A tool installed after its first use was never actually installed."""

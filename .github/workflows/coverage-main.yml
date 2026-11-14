@@ -128,9 +128,11 @@ jobs:
             --features simd_avx2,simd_avx512,simd_neon
       # `make lint` runs the Whitaker Dylint suite, which needs the suite
       # installed. The shared action owns the installer binary and the
-      # ~/.local/share/whitaker cache for this job.
+      # ~/.local/share/whitaker cache for this job. The pin is the same one
+      # `ci.yml` uses, so both jobs bootstrap the driver from the same
+      # verified Clippy snapshot instead of upstream Clippy's default branch.
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@82feb2b7aac45b7efff40c9c4bb632551b14521c
+        uses: leynos/shared-actions/.github/actions/install-whitaker@88ac795de687eda016db24983f87a25d6db49fdb
       - name: Lint
         run: make lint
       - name: Test and Measure Coverage

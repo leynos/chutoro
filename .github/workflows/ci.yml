@@ -137,9 +137,13 @@ jobs:
       # The shared action resolves a pinned prebuilt whitaker-installer
       # release and verifies its published digest, replacing the former
       # crates.io source-build fallback. It owns the installer binary and
-      # the ~/.local/share/whitaker suite cache.
+      # the ~/.local/share/whitaker suite cache. This pin defaults to
+      # installer 0.2.12, whose Clippy snapshot bootstraps the Dylint driver
+      # without resolving upstream Clippy's default branch; installer 0.2.8
+      # requested `master`, which Clippy has renamed to `main`, so a cold
+      # driver build failed before any file was linted.
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@82feb2b7aac45b7efff40c9c4bb632551b14521c
+        uses: leynos/shared-actions/.github/actions/install-whitaker@88ac795de687eda016db24983f87a25d6db49fdb
       - name: Lint
         run: make lint
       - name: Setup uv

@@ -823,12 +823,20 @@ agent-facing rule.
 
 ### CI resolution and configuration
 
-CI resolves the newest `whitaker-installer` release at run time — via
-`gh api repos/leynos/whitaker/releases/latest` — rather than pinning a version,
-then installs that release and runs it to obtain the `whitaker` wrapper.
-Because the suite version is not pinned, a new Whitaker release can introduce
-findings on code that has not otherwise changed; treat such findings as genuine
-and fix them rather than pinning around them.
+CI installs Whitaker through the shared `install-whitaker` action, pinned to a
+reviewed commit. The action pins the `whitaker-installer` release it accepts,
+verifies the installer and Clippy-snapshot digests against its own manifest,
+and runs the installer with `--no-source-fallback`, so a source build is a
+failure rather than a slow success. The installer bootstraps the Dylint driver
+from a verified, commit-pinned Clippy snapshot; installer 0.2.8 instead asked
+upstream Clippy for `master`, and a cold driver build failed once Clippy
+renamed that branch to `main`.
+
+The lint suite itself is still a rolling release taken from Whitaker's default
+branch tip, because prebuilt lint libraries are published only for the tip. A
+new suite release can therefore introduce findings on code that has not
+otherwise changed; treat such findings as genuine and fix them rather than
+pinning around them.
 
 Per-lint configuration, including `no_std_fs_operations` crate exclusions with
 rationale comments, lives in the root `dylint.toml`.
