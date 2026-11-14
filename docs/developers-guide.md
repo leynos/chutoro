@@ -1918,8 +1918,10 @@ assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].source == s
 
 - `mdtablefix --in-place --git --include-untracked` formats Markdown. The
   `--git` and `--include-untracked` options take the file list from Git, so the
-  selection is every tracked file plus every untracked file that Git does not
-  ignore. A path covered by `.gitignore` is never formatted.
+  selection is every tracked file plus every untracked file Git does not ignore.
+  `.gitignore` therefore decides which untracked files are formatted. It does
+  not remove a tracked file, because Git reports tracked paths whether or not a
+  pattern matches them.
 - `markdownlint-cli2 --fix "**/*.md"` applies lint fixes. markdownlint-cli2
   expands that glob itself and filters the result through the `ignores` list in
   `.markdownlint-cli2.jsonc`. `.gitignore` has no bearing on this selection.
@@ -1933,25 +1935,30 @@ and fail a gate on content outside repository ownership. `.gitignore` therefore
 lists `.verus/`, and the lint configuration carries the matching `**/.verus/**`
 ignore, whose pattern is not anchored to the repository root.
 
-`make markdownlint` and `make nixie` do not read either list. They build their
-file list with `find` and exclude generated trees with `-not -path` rules, so a
-new generated top-level tree needs an entry in three places: `.gitignore`,
-`.markdownlint-cli2.jsonc`, and the two `find` recipes in the `Makefile`. The
-`find` recipes match `./.verus/*` and so cover the top-level tree only; a
-nested generated tree is held out of `make markdownlint` by the lint
+`make markdownlint` and `make nixie` build their file list with `find` rather
+than from Git, so `.gitignore` does not narrow it, and both exclude generated
+trees with `-not -path` rules. The `markdownlint` target then hands that list
+to markdownlint-cli2, which still applies the `ignores` list in its
+configuration, so a generated tree `find` selects is dropped before it is
+linted. `make nixie` reads neither list: the files `find` returns are the files
+it validates. A new generated top-level tree therefore needs an entry in three
+places: `.gitignore`, `.markdownlint-cli2.jsonc`, and the `find` recipes in the
+`Makefile`. Those recipes match `./.verus/*` and so cover the top-level tree
+only; a nested generated tree is held out of `make markdownlint` by the lint
 configuration, which is why the ignore pattern is not anchored to the root.
 
 `tests/workflow_contracts/markdown_format_scope_test.py` builds a throwaway
 repository from the committed `.gitignore`, `.markdownlint-cli2.jsonc` and
-`Makefile`, adds a root and a nested `.verus/` tree beside an ordinary
-document, and runs the `fmt`, `check-fmt` and `markdownlint` targets against
-it. The Rust and spelling steps of those targets are stubbed because the
-fixture holds only Markdown; the Markdown commands run as committed. The suite
-asserts that the ordinary document is rewritten and reported while neither
-generated tree is, and it removes each exclusion in turn to show the generated
-file would otherwise be rewritten or reported. Continuous integration fails the
-suite when a required tool is missing instead of skipping it; a developer
-machine without the tool skips the affected cases.
+`Makefile`, adds a root and a nested `.verus/` tree beside two ordinary
+documents, one staged and one left untracked, and runs the `fmt`, `check-fmt`
+and `markdownlint` targets against it. The Rust and spelling steps of those
+targets are stubbed because the fixture holds only Markdown; the Markdown
+commands run as committed. The suite asserts that both ordinary documents are
+rewritten and reported while neither generated tree is, and it removes each
+exclusion in turn to show the generated file would otherwise be rewritten or
+reported. Continuous integration fails the suite when a required tool is
+missing instead of skipping it; a developer machine without the tool skips the
+affected cases.
 
 ## Spelling gate
 
