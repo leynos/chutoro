@@ -33,6 +33,18 @@ Implementers that override `distance_batch` must change the parameter type to
 implementation that forwards to a tuple-oriented kernel converts inside its own
 boundary; the ordering of each pair must be preserved.
 
+### New metrics: trim scoring
+
+Enabling the `metrics` feature now also emits
+`chutoro.hnsw.trim.jobs_submitted_total` and
+`chutoro.hnsw.trim.duration_seconds`. The counter adds the full batch size for
+every non-empty trim batch the insertion boundary scores, including a batch
+that fails during scoring. The histogram records one wall-time sample per
+non-empty batch, including failed batches, so it covers the time insertion
+spends holding its mutex while scoring. Neither instrument carries labels, so
+their cardinality is fixed, and both are additive: builds without the feature
+are unchanged.
+
 ## 0.1.0
 
 The public `ClusteringResult::from_assignments` constructor is no longer

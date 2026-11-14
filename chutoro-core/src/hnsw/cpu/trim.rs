@@ -2,8 +2,6 @@
 
 use std::collections::BinaryHeap;
 
-use rayon::prelude::*;
-
 use crate::{
     DataSource,
     hnsw::{
@@ -18,7 +16,7 @@ use crate::{
 use super::CpuHnsw;
 
 impl CpuHnsw {
-    /// Scores trim jobs in parallel, validating candidate, sequence, and
+    /// Scores trim jobs one at a time, validating candidate, sequence, and
     /// distance lengths before emitting ranked neighbour lists capped at each
     /// edge context's `max_connections`.
     ///
@@ -41,10 +39,48 @@ impl CpuHnsw {
             return Ok(Vec::new());
         }
 
+        // Scoring runs inside the insertion critical section, so every other
+        // Rayon worker may already be blocked waiting for `insert_mutex`.
+        // Dispatching these jobs to the pool lets Rayon park this thread on a
+        // latch that only a blocked worker could satisfy, which hung
+        // `CpuHnsw::build_with_edges` outright. Trim jobs are few — at most one
+        // per staged neighbour update — so scoring them here in order costs far
+        // less than the stall it prevents.
         trim_jobs
-            .into_par_iter()
+            .into_iter()
             .map(|job| self.run_trim_job(job, source))
-            .collect::<Result<Vec<_>, HnswError>>()
+            .collect()
+    }
+
+    /// Scores one staged trim batch at the insertion boundary and records its
+    /// cost.
+    ///
+    /// Insertion calls this rather than [`Self::score_trim_jobs`], which stays
+    /// a pure scoring unit. The observation belongs here because the caller is
+    /// the point that knows the insertion critical section is held, and that
+    /// held section is what the instruments exist to show.
+    ///
+    /// The batch is recorded whether scoring succeeds or fails, because a
+    /// failed batch spends the same time inside the critical section. An empty
+    /// batch records nothing: it costs nothing to score, and counting it would
+    /// describe work the critical section never did.
+    ///
+    /// The counter counts jobs submitted, not jobs completed. Scoring stops at
+    /// the first invalid job, so a count taken afterwards would under-report
+    /// the work the boundary was asked to do.
+    pub(crate) fn score_trim_jobs_with_metrics<D: DataSource + Sync>(
+        &self,
+        trim_jobs: Vec<TrimJob>,
+        source: &D,
+    ) -> Result<Vec<TrimResult>, HnswError> {
+        #[cfg(feature = "metrics")]
+        let submitted_jobs = trim_jobs.len();
+        #[cfg(feature = "metrics")]
+        let started = std::time::Instant::now();
+        let scored = self.score_trim_jobs(trim_jobs, source);
+        #[cfg(feature = "metrics")]
+        record_trim_scoring(submitted_jobs, started.elapsed());
+        scored
     }
 
     /// Score and retain the best candidates for one staged trim job.
@@ -103,4 +139,19 @@ impl CpuHnsw {
             neighbours,
         })
     }
+}
+
+/// Records one trim batch's submitted job count and wall time.
+///
+/// Called from the insertion boundary for every non-empty batch, whether
+/// scoring succeeded or failed. The job count is the batch size handed to
+/// [`CpuHnsw::score_trim_jobs`], not the number that completed, so the counter
+/// name says `submitted` to make that distinction explicit.
+#[cfg(feature = "metrics")]
+fn record_trim_scoring(submitted_jobs: usize, elapsed: std::time::Duration) {
+    if submitted_jobs == 0 {
+        return;
+    }
+    metrics::counter!("chutoro.hnsw.trim.jobs_submitted_total").increment(submitted_jobs as u64);
+    metrics::histogram!("chutoro.hnsw.trim.duration_seconds").record(elapsed.as_secs_f64());
 }

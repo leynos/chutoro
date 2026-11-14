@@ -214,7 +214,7 @@ impl CpuHnsw {
                 },
             )
         })?;
-        let trim_results = self.score_trim_jobs(trim_jobs, source)?;
+        let trim_results = self.score_trim_jobs_with_metrics(trim_jobs, source)?;
         self.write_graph(|graph| {
             let mut executor = graph.insertion_executor();
             executor.commit(prepared, trim_results)
@@ -311,6 +311,9 @@ impl CpuHnsw {
         HnswInvariantChecker::new(self)
     }
 }
+
+#[cfg(test)]
+mod trim_tests;
 
 #[cfg(test)]
 mod unit_tests;

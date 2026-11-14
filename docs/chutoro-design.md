@@ -803,6 +803,17 @@ timing. The sequence numbers are assigned once per insertion and recorded
 inside the graph so property tests and deterministic builds see identical
 outcomes run after run.
 
+_Implementation update (2026-11-08)._ Insertion serializes the
+apply-score-commit sequence through a single `Mutex<()>`, so only one worker
+plans against the graph at a time. Trim scoring used to dispatch its jobs with
+`into_par_iter()` while that guard was held, which invited a deadlock: a pool
+worker that was due to run nested trim work might already be blocked acquiring
+the same mutex, and the build then never returned. A benchmark child that hit
+the stall had to be killed after 25 minutes. `CpuHnsw` now scores trim jobs on
+the thread holding the guard, and `hnsw::cpu::trim_tests` pins the property.
+The rule generalizes to the whole critical section: no code path inside it may
+block on or dispatch work to the Rayon pool.
+
 #### 6.2. Algorithmic Implementation Sketch
 
 The implementation will follow the three-pillar structure of FISHDBC, with the

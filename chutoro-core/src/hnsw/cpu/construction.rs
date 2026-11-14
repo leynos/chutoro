@@ -194,6 +194,19 @@ impl CpuHnsw {
                 "Orphaned forward edges removed by deferred scrubs, \
                  labelled by base or upper layer."
             );
+            metrics::describe_counter!(
+                "chutoro.hnsw.trim.jobs_submitted_total",
+                metrics::Unit::Count,
+                "Trim jobs submitted for scoring at the insertion boundary, \
+                 counted once per non-empty batch. A batch that fails scoring \
+                 still counts every job it was given."
+            );
+            metrics::describe_histogram!(
+                "chutoro.hnsw.trim.duration_seconds",
+                metrics::Unit::Seconds,
+                "Wall time to score one batch of trim jobs on the thread \
+                 holding the insertion mutex."
+            );
         }
 
         let base_seed = params.rng_seed();

@@ -383,6 +383,13 @@ to the entry node. `chutoro.hnsw.reconciliation.orphan_scrubs_total` increments
 once for each deferred scrub that removes an orphaned forward edge; its `layer`
 label is `base` for base-layer scrubs and `upper` for upper-layer scrubs.
 
+The trim-scoring path emits one counter and one histogram when the `metrics`
+feature is enabled. `chutoro.hnsw.trim.jobs_submitted_total` adds the full
+batch size for each non-empty batch, including a batch that fails during
+scoring, and `chutoro.hnsw.trim.duration_seconds` records one wall-time sample
+per non-empty batch, including failed batches, on the thread holding the
+insertion mutex. Neither carries labels, so their cardinality is fixed.
+
 Choose an `ExecutionStrategy` that matches the compiled features. Allowing
 `Auto` keeps behaviour stable across builds while seamlessly adopting GPU
 support when available.
