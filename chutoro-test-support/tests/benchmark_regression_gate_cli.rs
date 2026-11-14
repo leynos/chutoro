@@ -1,10 +1,8 @@
 //! Behavioural tests for the benchmark regression gate binary.
 
-use std::error::Error;
 use std::path::PathBuf;
 use std::process::Command;
 
-use chutoro_test_support::process::find_test_binary;
 use rstest::{fixture, rstest};
 
 #[derive(Debug, Clone, Copy)]
@@ -52,11 +50,7 @@ struct GateCase {
     expected_mode: "discovery_only",
     expected_should_compare: false,
 })]
-fn benchmark_gate_binary_outputs_expected_mode(
-    #[from(gate_runner)] gate_runner_result: Result<GateRunner, Box<dyn Error>>,
-    #[case] case: GateCase,
-) {
-    let gate_runner = gate_runner_result.expect("gate runner must be created");
+fn benchmark_gate_binary_outputs_expected_mode(gate_runner: GateRunner, #[case] case: GateCase) {
     let output = gate_runner
         .run(case.event, case.policy)
         .expect("benchmark_regression_gate binary must run");
@@ -86,11 +80,10 @@ fn benchmark_gate_binary_outputs_expected_mode(
 #[case("pull_request_target", "pull_request")]
 #[case("push", "other")]
 fn benchmark_gate_binary_reports_event(
-    #[from(gate_runner)] gate_runner_result: Result<GateRunner, Box<dyn Error>>,
+    gate_runner: GateRunner,
     #[case] event: &str,
     #[case] expected_event: &str,
 ) {
-    let gate_runner = gate_runner_result.expect("gate runner must be created");
     let output = gate_runner
         .run(event, None)
         .expect("benchmark_regression_gate binary must run");
@@ -105,7 +98,7 @@ fn benchmark_gate_binary_reports_event(
 }
 
 #[fixture]
-fn gate_runner() -> Result<GateRunner, Box<dyn Error>> {
+fn gate_runner() -> GateRunner {
     GateRunner::new()
 }
 
@@ -114,9 +107,14 @@ struct GateRunner {
 }
 
 impl GateRunner {
-    fn new() -> Result<Self, Box<dyn Error>> {
-        let binary_path = find_test_binary("benchmark_regression_gate")?;
-        Ok(Self { binary_path })
+    /// Point at the gate binary Cargo built for this integration test.
+    ///
+    /// Cargo guarantees `CARGO_BIN_EXE_<name>` at compile time for a binary
+    /// in the same package, whatever the target or build-directory layout.
+    fn new() -> Self {
+        Self {
+            binary_path: PathBuf::from(env!("CARGO_BIN_EXE_benchmark_regression_gate")),
+        }
     }
 
     fn run(&self, event: &str, policy: Option<&str>) -> std::io::Result<std::process::Output> {
