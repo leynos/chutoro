@@ -1936,11 +1936,22 @@ ignore, whose pattern is not anchored to the repository root.
 `make markdownlint` and `make nixie` do not read either list. They build their
 file list with `find` and exclude generated trees with `-not -path` rules, so a
 new generated top-level tree needs an entry in three places: `.gitignore`,
-`.markdownlint-cli2.jsonc`, and the two `find` recipes in the `Makefile`.
-`tests/workflow_contracts/markdown_format_scope_test.py` runs the real
-formatter, and the linter where its command-line tool is installed, against a
-throwaway repository containing both a root and a nested `.verus/` tree, so the
-lists cannot drift apart unnoticed.
+`.markdownlint-cli2.jsonc`, and the two `find` recipes in the `Makefile`. The
+`find` recipes match `./.verus/*` and so cover the top-level tree only; a
+nested generated tree is held out of `make markdownlint` by the lint
+configuration, which is why the ignore pattern is not anchored to the root.
+
+`tests/workflow_contracts/markdown_format_scope_test.py` builds a throwaway
+repository from the committed `.gitignore`, `.markdownlint-cli2.jsonc` and
+`Makefile`, adds a root and a nested `.verus/` tree beside an ordinary
+document, and runs the `fmt`, `check-fmt` and `markdownlint` targets against
+it. The Rust and spelling steps of those targets are stubbed because the
+fixture holds only Markdown; the Markdown commands run as committed. The suite
+asserts that the ordinary document is rewritten and reported while neither
+generated tree is, and it removes each exclusion in turn to show the generated
+file would otherwise be rewritten or reported. Continuous integration fails the
+suite when a required tool is missing instead of skipping it; a developer
+machine without the tool skips the affected cases.
 
 ## Spelling gate
 
