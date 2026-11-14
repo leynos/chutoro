@@ -1,7 +1,13 @@
 [package]
 name = "chutoro-cli"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Command-line FISHDBC clustering of Parquet feature vectors and text corpora with chutoro."
+keywords = ["clustering", "fishdbc", "hdbscan", "cli", "parquet"]
+categories = ["command-line-utilities", "science"]
 
 [dependencies]
 anyhow = "1.0.86"
@@ -13,15 +19,15 @@ tracing-log = "0.2.0"
 tracing-subscriber = { version = "0.3.20", features = ["env-filter", "fmt", "json"] }
 
 [dependencies.chutoro-core]
-version = "0.1.0"
+version = "0.1.0-beta1"
 path = "../chutoro-core"
 
 [dependencies.chutoro-providers-dense]
-version = "0.1.0"
+version = "0.1.0-beta1"
 path = "../chutoro-providers/dense"
 
 [dependencies.chutoro-providers-text]
-version = "0.1.0"
+version = "0.1.0-beta1"
 path = "../chutoro-providers/text"
 
 [dev-dependencies]
