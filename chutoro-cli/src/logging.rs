@@ -9,10 +9,9 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 use thiserror::Error;
+use tracing::subscriber::SetGlobalDefaultError;
 use tracing_log::LogTracer;
-use tracing_subscriber::{
-    EnvFilter, Layer, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
-};
+use tracing_subscriber::{EnvFilter, Layer, fmt::format::FmtSpan, layer::SubscriberExt};
 
 /// Environment variable selecting human-readable or JSON log output.
 const LOG_FORMAT_ENV: &str = "CHUTORO_LOG_FORMAT";
@@ -45,9 +44,9 @@ pub enum LoggingError {
     /// Failed to install the global tracing subscriber.
     #[error("failed to install tracing subscriber: {source}")]
     InstallFailed {
-        /// Error raised by `tracing_subscriber`.
+        /// Error raised when another global dispatcher is already set.
         #[source]
-        source: tracing_subscriber::util::TryInitError,
+        source: SetGlobalDefaultError,
     },
 }
 
@@ -124,16 +123,20 @@ fn install_subscriber_with_env(env: &dyn Env) -> Result<(), LoggingError> {
         base_fmt_layer.boxed()
     };
 
+    let subscriber = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer);
+    // `set_global_default` installs only the `tracing` dispatcher. The
+    // `try_init` convenience would also install the `log` bridge, so pairing
+    // it with an explicit bridge reported a spurious conflict on every run.
+    tracing::subscriber::set_global_default(subscriber)
+        .map_err(|source| LoggingError::InstallFailed { source })?;
+
     // Installing the log bridge is best-effort. If another logger already owns
     // the global slot, crates emitting via the `log` facade will continue using
     // that logger; tracing-native spans and events are unaffected.
     drop(LogTracer::init());
-
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(fmt_layer)
-        .try_init()
-        .map_err(|source| LoggingError::InstallFailed { source })
+    Ok(())
 }
 
 /// Read the requested output format through an injected environment reader.
@@ -164,9 +167,9 @@ fn env_filter_from_env(env: &dyn Env) -> EnvFilter {
 ///
 /// # Examples
 /// ```ignore
-/// use tracing_subscriber::util::TryInitError;
+/// use tracing::subscriber::SetGlobalDefaultError;
 ///
-/// fn on_conflict(err: TryInitError) {
+/// fn on_conflict(err: SetGlobalDefaultError) {
 ///     report_logging_conflict(&err);
 /// }
 /// ```
@@ -174,7 +177,7 @@ fn env_filter_from_env(env: &dyn Env) -> EnvFilter {
     clippy::print_stderr,
     reason = "pre-initialization diagnostic; structured logging unavailable; stderr is sole output channel"
 )]
-fn report_logging_conflict(source: &tracing_subscriber::util::TryInitError) {
+fn report_logging_conflict(source: &SetGlobalDefaultError) {
     eprintln!("structured logging already configured elsewhere: {source}");
 }
 
