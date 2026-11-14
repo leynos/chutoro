@@ -282,25 +282,25 @@ pub(super) proof fn lemma_edge_leq_total_ordering()
 /// ```text
 /// Edges with source > target yield swapped endpoints.
 /// ```
-pub(super) proof fn lemma_canonicalise_preserves_fields(edge: CandidateEdgeSpec)
+pub(super) proof fn lemma_canonicalize_preserves_fields(edge: CandidateEdgeSpec)
     ensures
-        edge.canonicalise().distance == edge.distance,
-        edge.canonicalise().sequence == edge.sequence,
-        edge.canonicalise().source <= edge.canonicalise().target,
-        edge.canonicalise().source
+        edge.canonicalize().distance == edge.distance,
+        edge.canonicalize().sequence == edge.sequence,
+        edge.canonicalize().source <= edge.canonicalize().target,
+        edge.canonicalize().source
             == if edge.source <= edge.target {
                 edge.source
             } else {
                 edge.target
             },
-        edge.canonicalise().target
+        edge.canonicalize().target
             == if edge.source <= edge.target {
                 edge.target
             } else {
                 edge.source
             },
 {
-    let canonical = edge.canonicalise();
+    let canonical = edge.canonicalize();
 
     if edge.source <= edge.target {
         assert(canonical == edge);

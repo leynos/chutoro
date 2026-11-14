@@ -10,7 +10,7 @@ use std::collections::HashSet;
 #[cfg(any(test, debug_assertions))]
 use crate::hnsw::graph::Graph;
 
-use super::{limits::compute_connection_limit, types::FinalisedUpdate};
+use super::{limits::compute_connection_limit, types::FinalizedUpdate};
 
 /// Verifies reciprocity and degree bounds for insertion-touched nodes.
 #[cfg(any(test, debug_assertions))]
@@ -119,7 +119,7 @@ pub(super) struct ReciprocityWorkspace<'a> {
     /// Pre-filter candidates used when a level needs a fallback link.
     pub(super) original: &'a [Vec<usize>],
     /// Final node updates whose reverse links may be adjusted.
-    pub(super) final_updates: &'a mut [FinalisedUpdate],
+    pub(super) final_updates: &'a mut [FinalizedUpdate],
     /// Identifier of the node receiving reciprocal links.
     pub(super) new_node: usize,
     /// Base connection limit used for fallback selection.
@@ -164,7 +164,7 @@ struct FallbackSelector<'a> {
     /// Original candidates by graph level.
     original: &'a [Vec<usize>],
     /// Committed updates that may receive a reverse edge.
-    final_updates: &'a mut [FinalisedUpdate],
+    final_updates: &'a mut [FinalizedUpdate],
     /// Newly inserted node requiring a reciprocal link.
     new_node: usize,
     /// Base connection limit for each candidate level.

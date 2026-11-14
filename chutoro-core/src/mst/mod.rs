@@ -249,7 +249,7 @@ fn is_mst_complete(
 }
 
 #[cfg(not(kani))]
-/// Validate, canonicalise, sort, and deduplicate candidate edges.
+/// Validate, canonicalize, sort, and deduplicate candidate edges.
 fn prepare_edge_list(edges: &[CandidateEdge], node_count: usize) -> Result<Vec<MstEdge>, MstError> {
     let mut edge_list = edges
         .par_iter()

@@ -12,7 +12,7 @@ fn distance_semantics_contract_snapshot() {
         format!("{:?}", semantics::DistanceSemantics::default_euclidean()),
         concat!(
             "DistanceSemantics { epsilon: 1e-5, ",
-            "non_finite_policy: CanonicaliseToNan, ",
+            "non_finite_policy: CanonicalizeToNan, ",
             "zero_vector_policy: ReturnZero, ",
             "tie_breaking: LowestRowIndexFirst }",
         ),

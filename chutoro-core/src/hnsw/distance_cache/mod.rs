@@ -108,7 +108,7 @@ struct DistanceKey {
 }
 
 impl DistanceKey {
-    /// Construct a key by canonicalising the node-pair order.
+    /// Construct a key by canonicalizing the node-pair order.
     const fn new(metric: MetricDescriptor, a: usize, b: usize) -> Self {
         let (left, right) = if a <= b { (a, b) } else { (b, a) };
         Self {
