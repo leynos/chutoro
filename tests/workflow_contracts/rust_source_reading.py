@@ -341,6 +341,66 @@ def _body_span(
     return opening, len(text)
 
 
+def function_body(text: str, name: str) -> str | None:
+    """Return one named function's body as code, or None when it is absent.
+
+    The extent runs from the opening brace through its matching brace, with
+    comments and literals blanked and spacing around `::` and `(` collapsed.
+    Blanking both is what makes this reading answer where a *call* is rather
+    than where a name is written: a marker in a comment or a string literal is
+    a mention, and a mention is not a dispatch. Blanking preserves positions,
+    so the extent the brace scan finds is still the source's own.
+
+    A source holding several functions is read function by function, so a
+    marker in a sibling function is not attributed to this one. Names are
+    compared exactly; a call, a mention in a comment and a declaration in a
+    nested module are all a different name.
+
+    Parameters
+    ----------
+    text
+        The contents of one Rust source file.
+    name
+        The function whose body is wanted, without any qualifier.
+
+    Examples
+    --------
+    >>> function_body("fn a() { work(); }", "a")
+    '{ work(); }'
+    >>> function_body("fn b() { work(); }", "a") is None
+    True
+    >>> 'work' in function_body("fn a() { // work\\n run(); }", "a")
+    False
+    >>> 'run' in function_body("fn a() { // work\\n run(); }", "a")
+    True
+    >>> 'into_par_iter' in function_body(
+    ...     'fn a() { let note = "into_par_iter"; run(); }', "a"
+    ... )
+    False
+
+    Returns
+    -------
+    str or None
+        The body as code, or None when no function of that name is declared.
+    """
+    regions = _regions(text)
+    # The declaration is found on the comment-blanked source, whose positions
+    # are the text's own; the extent is then taken from the fully blanked
+    # source so a brace or marker inside a literal cannot end the body early.
+    comments = (region for region in regions if region.is_comment)
+    declarations = _blank(text, comments)
+    code = _blank(text, regions)
+    literals = _literal_spans(regions)
+    for match in _FUNCTION.finditer(declarations):
+        if match["name"] != name:
+            continue
+        span = _body_span(declarations, literals, match.end())
+        if span is None:
+            return None
+        return _normalised(code[span[0] : span[1]]).strip()
+    return None
+
+
 #: Attributes that make a function a test nextest will run and therefore
 #: bound. `#[test]` alone is not enough: this repository declares tests with
 #: `rstest` as a matter of course, and a costly test written that way would be

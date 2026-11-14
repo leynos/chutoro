@@ -40,10 +40,14 @@ const TRIM_THREADS: usize = 4;
 
 /// How long the caller's first distance call waits for another worker.
 ///
-/// The wait is what makes the scheduling check deterministic. A dispatching
-/// implementation has this long to let an idle worker steal a job and record
-/// itself; a sequential implementation waits out the whole interval once and
-/// then scores normally.
+/// The wait gives an idle pool a steal opportunity, so a dispatching
+/// implementation is caught in practice rather than in principle. It is a
+/// scheduling observation, not a proof: if no worker steals before the
+/// interval expires, the caller can finish a parallel batch itself and the
+/// assertion still holds. The deterministic guard for dispatch is the source
+/// contract in `tests/workflow_contracts/trim_scoring_dispatch_test.py`; this
+/// wait keeps the runtime test as broader coverage. A sequential
+/// implementation waits out the whole interval once and then scores normally.
 const OTHER_WORKER_WAIT: Duration = Duration::from_secs(2);
 
 /// Guards the arithmetic in [`DenseSource::trim_job`]: every job scores
@@ -238,21 +242,25 @@ impl DataSource for ThreadRecordingSource {
     }
 }
 
-/// Verifies trim scoring never hands work to another Rayon worker.
+/// Observes that trim scoring stays on the thread holding the insert mutex.
 ///
-/// Trimming runs while the caller holds `insert_mutex`, so every other worker in
-/// a parallel build may already be blocked acquiring that same mutex. Scoring
-/// used to be an `into_par_iter()` over the staged jobs, which let Rayon park
-/// the mutex holder on a latch that only a blocked worker could satisfy; the
-/// build then hung instead of returning, and a benchmark child that hit it had
-/// to be killed after 25 minutes.
+/// Trimming runs while the caller holds `insert_mutex`, so every other worker
+/// in a parallel build may already be blocked acquiring that same mutex.
+/// Scoring used to be an `into_par_iter()` over the staged jobs, which let
+/// Rayon park the mutex holder on a latch that only a blocked worker could
+/// satisfy; the build then hung instead of returning, and a benchmark child
+/// that hit it had to be killed after 25 minutes.
 ///
-/// The check is deterministic rather than probabilistic: the caller's first
-/// distance call waits up to [`OTHER_WORKER_WAIT`] for a call from another
-/// worker. A dispatching implementation hands the idle pool an opportunity to
-/// steal and fails; a sequential one waits the interval out once and completes
-/// on the caller. Repeating rounds is unnecessary, because the wait supplies
-/// the opportunity that timing used to supply by chance.
+/// This test records which worker serves each distance call, and the caller's
+/// first call waits up to [`OTHER_WORKER_WAIT`] for a call from another
+/// worker. A dispatching implementation therefore gets a steal opportunity and
+/// fails in practice; a sequential one waits the interval out once and
+/// completes on the caller. The result is a scheduling observation, not a
+/// proof: if no worker steals before the interval expires, the caller can
+/// finish the parallel batch itself and the assertion still holds. The
+/// deterministic guard for this specific regression is the source contract in
+/// `tests/workflow_contracts/trim_scoring_dispatch_test.py`; this test remains
+/// as broader coverage.
 #[test]
 fn trim_scoring_stays_on_the_thread_holding_the_insert_mutex() {
     let source = ThreadRecordingSource::new(DenseSource::synthetic(TRIM_POINTS));
