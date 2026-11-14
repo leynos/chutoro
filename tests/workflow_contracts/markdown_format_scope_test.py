@@ -11,10 +11,10 @@ reported by a linter.
 
 These tests copy the committed `.gitignore`, `.markdownlint-cli2.jsonc` and
 `Makefile` into a throwaway repository that also holds a generated `.verus/`
-tree and an ordinary document, then run the real targets against it. Removing
-each exclusion in turn shows the generated file would otherwise be rewritten or
-reported, so a test fails when an exclusion stops being load-bearing rather
-than only when the file lists drift.
+tree and two ordinary documents, one staged and one untracked, then run the
+real targets against it. Removing each exclusion in turn shows the generated
+file would otherwise be rewritten or reported, so a test fails when an
+exclusion stops being load-bearing rather than only when the file lists drift.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -38,6 +38,8 @@ MAKEFILE_NAME = "Makefile"
 GENERATED_DIR = ".verus"
 NESTED_GENERATED_DIR = "nested/.verus"
 ORDINARY_MARKDOWN = Path("docs", "ordinary.md")
+UNTRACKED_ORDINARY_MARKDOWN = Path("docs", "untracked.md")
+ORDINARY_MARKDOWN_PATHS = (ORDINARY_MARKDOWN, UNTRACKED_ORDINARY_MARKDOWN)
 GENERATED_MARKDOWN = Path(GENERATED_DIR, "generated.md")
 NESTED_GENERATED_MARKDOWN = Path(NESTED_GENERATED_DIR, "generated.md")
 GENERATED_MARKDOWN_PATHS = (GENERATED_MARKDOWN, NESTED_GENERATED_MARKDOWN)
@@ -229,9 +231,12 @@ def markdown_scope_repo(tmp_path: Path) -> Path:
         target = repo / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / name, target)
-    for path in (ORDINARY_MARKDOWN, *GENERATED_MARKDOWN_PATHS):
+    for path in (*ORDINARY_MARKDOWN_PATHS, *GENERATED_MARKDOWN_PATHS):
         (repo / path).write_text(UNFORMATTED_MARKDOWN, encoding="utf-8")
     subprocess.run(["git", "init", "--quiet", str(repo)], check=True)
+    # Only one ordinary document is staged. The other stays untracked, which is
+    # the state `--include-untracked` exists to cover, and the generated trees
+    # are untracked and ignored.
     subprocess.run(
         ["git", "-C", str(repo), "add", GITIGNORE_NAME, str(ORDINARY_MARKDOWN)],
         check=True,
@@ -242,7 +247,11 @@ def markdown_scope_repo(tmp_path: Path) -> Path:
 def test_make_fmt_reformats_ordinary_markdown_and_spares_generated_verus(
     markdown_scope_repo: Path,
 ) -> None:
-    """`make fmt` rewrites the ordinary document and no generated one."""
+    """`make fmt` rewrites both ordinary documents and no generated one.
+
+    One ordinary document is staged and the other untracked, so this also
+    covers the selection `--include-untracked` adds.
+    """
     _require("mdtablefix")
     if not _markdownlint_command():
         _require("markdownlint-cli2")
@@ -250,13 +259,18 @@ def test_make_fmt_reformats_ordinary_markdown_and_spares_generated_verus(
         path: (markdown_scope_repo / path).read_bytes()
         for path in GENERATED_MARKDOWN_PATHS
     }
-    ordinary = markdown_scope_repo / ORDINARY_MARKDOWN
-    original_ordinary = ordinary.read_text(encoding="utf-8")
+    ordinary_before = {
+        path: (markdown_scope_repo / path).read_text(encoding="utf-8")
+        for path in ORDINARY_MARKDOWN_PATHS
+    }
 
     completed = _make(markdown_scope_repo, "fmt", _lint_override())
 
     assert completed.returncode == 0, _output(completed)
-    assert ordinary.read_text(encoding="utf-8") != original_ordinary
+    for path, content in ordinary_before.items():
+        assert (markdown_scope_repo / path).read_text(encoding="utf-8") != content, (
+            f"{path} was not reformatted"
+        )
     for path, content in generated_before.items():
         assert (markdown_scope_repo / path).read_bytes() == content, (
             f"{path} was reformatted"
@@ -273,24 +287,27 @@ def test_make_check_fmt_reports_only_ordinary_markdown(
     output = _output(completed)
 
     assert completed.returncode != 0, output
-    assert "docs/ordinary.md" in output
+    for path in ORDINARY_MARKDOWN_PATHS:
+        assert str(path) in output
     assert "generated.md" not in output
 
 
 def test_make_markdownlint_reports_only_ordinary_markdown(
     markdown_scope_repo: Path,
 ) -> None:
-    """The lint target reports the ordinary document and no generated one.
+    """The lint target reports both ordinary documents and no generated one.
 
     Both generated trees are present. The `find` recipe skips the root one and
     the configuration pattern skips the nested one, so the report mentions
-    neither.
+    neither. The untracked ordinary document is still linted, because the
+    candidate list comes from `find` rather than from Git.
     """
     completed = _markdownlint(markdown_scope_repo, SPELLING_STUB)
     findings = _finding_lines(_output(completed))
 
     assert completed.returncode != 0, findings
-    assert any("docs/ordinary.md" in line for line in findings), findings
+    for path in ORDINARY_MARKDOWN_PATHS:
+        assert any(str(path) in line for line in findings), findings
     assert not any("generated.md" in line for line in findings), findings
 
 
