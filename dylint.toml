@@ -9,12 +9,18 @@
 # `?` cannot be removed without breaking `clippy::question_mark` and the
 # error-handling policy in `docs/developers-guide.md`.
 #
-# Raising the threshold separates the two: a desugared `?` cluster charges two
-# arms on the line that carries the `?`, while genuine nesting accumulates
-# depth, branch predicates, and per-arm flow across the whole region, so real
-# `if`/`match`/loop nesting still crosses the threshold. Hosted CI reports the
-# bumps that survive against this value, so the separation stays observable
-# rather than assumed; re-read that report before changing the number.
+# Raising the threshold to 4.0 clears the desugaring from the report without
+# blinding the rule to real structure: a desugared `?` charges two arms on the
+# single line that carries it, while genuine nesting accumulates depth, branch
+# predicates, and per-arm flow across the whole region and still crosses 4.0.
+#
+# The threshold cannot separate every case, and should not be raised to try.
+# A `?` inside a loop scores the same as a handwritten two-arm `match` inside
+# a loop, so hiding the one would hide the other. The three findings that
+# survived 4.0 had that shape and were fixed by extracting their complexity
+# clusters into helpers, as `docs/developers-guide.md` records. Hosted CI
+# prints the bumps that survive against this value; re-read that report before
+# changing the number.
 threshold = 4.0
 
 [no_std_fs_operations]

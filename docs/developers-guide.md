@@ -1113,13 +1113,28 @@ suite 0.2.12 report eight such findings on code this change does not touch,
 where the same code passed `make lint` under the suite resolve of the day
 before.
 
-The higher threshold separates the desugaring from the signal the rule exists
-to find. A desugared `?` charges two arms at one point in the function, while
-genuine nesting accumulates depth, branch predicates, and per-arm flow across
-the region it covers, so separated clusters of `if`/`match`/loop logic still
-cross 4.0. The hosted `Lint` step prints the bumps that survive against the
-configured value, which is the check to read before changing it; record the
-reason in `dylint.toml` as well.
+The higher threshold removes the desugaring that dominates such a report
+without blinding the rule to real structure. A desugared `?` charges two arms
+on the single line that carries it, so a run of `?` operators falls below 4.0,
+while genuine nesting accumulates depth, branch predicates, and per-arm flow
+across the whole region it covers and still crosses 4.0.
+
+The threshold is a blunt instrument, not a classifier, and it is worth knowing
+where it stops working. A `?` inside a loop scores the same as a handwritten
+two-arm `match` inside a loop, because the suite sees the lowered `ControlFlow`
+match and cannot tell it from the authored construct. Raising the threshold far
+enough to hide the former would hide the latter too. The three findings that
+survived 4.0 were exactly that shape, and the answer was the usual one for this
+rule: extract the complexity clusters into named helpers.
+`batch_distances_for_trim` gave up its cache-probe and miss-application loops to
+`fill_cached_trim_distances` and `apply_trim_miss_distances`;
+`extract_flat_labels` moved to `single_linkage::labels` alongside the labeller
+it drives; and `recompute_core_distances` delegates its searches to
+`session::core_updates`.
+
+The hosted `Lint` step prints the bumps that survive against the configured
+value, which is the check to read before changing it; record the reason in
+`dylint.toml` as well.
 
 ## Test fixture conventions
 
