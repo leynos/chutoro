@@ -63,19 +63,28 @@ impl DisjointSet {
     }
 
     /// Find a component root while compressing the traversed path.
-    pub(super) fn find(&mut self, mut node: usize) -> Result<usize, HierarchyError> {
-        let mut root = node;
-        while self.parent_at(root)? != root {
-            root = self.parent_at(root)?;
-        }
+    pub(super) fn find(&mut self, node: usize) -> Result<usize, HierarchyError> {
+        let root = self.search_root(node)?;
+        self.compress_path(node, root)?;
+        Ok(root)
+    }
 
+    /// Walk parent pointers until a node points at itself.
+    fn search_root(&self, mut node: usize) -> Result<usize, HierarchyError> {
+        while self.parent_at(node)? != node {
+            node = self.parent_at(node)?;
+        }
+        Ok(node)
+    }
+
+    /// Point every visited node directly at `root`.
+    fn compress_path(&mut self, mut node: usize, root: usize) -> Result<(), HierarchyError> {
         while self.parent_at(node)? != node {
             let parent = self.parent_at(node)?;
             self.set_parent(node, root)?;
             node = parent;
         }
-
-        Ok(root)
+        Ok(())
     }
 
     /// Union two components and return their resulting root.

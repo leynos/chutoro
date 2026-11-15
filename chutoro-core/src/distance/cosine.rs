@@ -57,19 +57,7 @@ pub fn cosine_distance(
 
     let (dot, left_squares, right_squares) = accumulate_components(&left_vector, &right_vector);
 
-    let (left_norm, right_norm) = match cached_norms {
-        Some(precomputed_norms) => {
-            ensure_cached_norms_usable(left_squares, right_squares)?;
-            (
-                precomputed_norms.left_norm(),
-                precomputed_norms.right_norm(),
-            )
-        }
-        None => (
-            Norm::from_squared_sum(left_squares, VectorKind::Left)?,
-            Norm::from_squared_sum(right_squares, VectorKind::Right)?,
-        ),
-    };
+    let (left_norm, right_norm) = resolve_norms(cached_norms, left_squares, right_squares)?;
 
     let denominator = f64::from(*left_norm).mul(f64::from(*right_norm));
     let similarity = narrow_to_f32(dot.div(denominator));
@@ -77,4 +65,33 @@ pub fn cosine_distance(
     let clamped_similarity = similarity.clamp(-1.0, 1.0);
 
     Ok(Distance::from_raw(1.0_f32.sub(clamped_similarity)))
+}
+
+/// Prefer caller-supplied norms, validating them against the current vectors.
+///
+/// Cached norms avoid repeating the square-sum reduction for repeated queries.
+/// They are only trustworthy once their squared sums are checked against the
+/// vectors in hand, so a stale cache is rejected rather than silently reused.
+fn resolve_norms(
+    cached_norms: Option<CosineNorms>,
+    left_squares: f64,
+    right_squares: f64,
+) -> Result<(Norm, Norm)> {
+    let Some(precomputed_norms) = cached_norms else {
+        return compute_norms(left_squares, right_squares);
+    };
+
+    ensure_cached_norms_usable(left_squares, right_squares)?;
+    Ok((
+        precomputed_norms.left_norm(),
+        precomputed_norms.right_norm(),
+    ))
+}
+
+/// Derive both L2 norms from the accumulated squared sums.
+fn compute_norms(left_squares: f64, right_squares: f64) -> Result<(Norm, Norm)> {
+    Ok((
+        Norm::from_squared_sum(left_squares, VectorKind::Left)?,
+        Norm::from_squared_sum(right_squares, VectorKind::Right)?,
+    ))
 }

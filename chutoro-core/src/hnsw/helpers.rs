@@ -6,8 +6,10 @@ use std::num::NonZeroUsize;
 
 use crate::DataSource;
 
+use crate::datasource::MetricDescriptor;
+
 use super::{
-    distance_cache::{DistanceCache, LookupOutcome},
+    distance_cache::{DistanceCache, LookupOutcome, PendingMiss},
     error::HnswError,
     types::Neighbour,
     validate::{validate_batch_distances, validate_distance},
@@ -129,17 +131,40 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
     candidates: &[usize],
     source: &D,
 ) -> Result<Vec<f32>, HnswError> {
-    if candidates.is_empty() {
-        return Ok(Vec::new());
+    let metric = source.metric_descriptor();
+    let mut lookup = collect_trim_lookup(cache, &metric, node, candidates);
+
+    if lookup.miss_candidates.is_empty() {
+        return Ok(lookup.distances);
     }
 
-    let metric = source.metric_descriptor();
+    fill_trim_misses(cache, source, node, &mut lookup)?;
+    Ok(lookup.distances)
+}
+
+/// Cache lookup state for one trim batch.
+struct TrimLookup {
+    /// Distance slot per candidate, seeded from cache hits.
+    distances: Vec<f32>,
+    /// Candidate identifiers whose distance was not cached.
+    miss_candidates: Vec<usize>,
+    /// Destination slot and completion metadata for each miss.
+    miss_meta: Vec<(usize, PendingMiss)>,
+}
+
+/// Look every candidate up, filling hits and recording the misses to compute.
+fn collect_trim_lookup(
+    cache: &DistanceCache,
+    metric: &MetricDescriptor,
+    node: usize,
+    candidates: &[usize],
+) -> TrimLookup {
     let mut distances = vec![0.0; candidates.len()];
     let mut miss_candidates = Vec::new();
     let mut miss_meta = Vec::new();
 
     for (index, (&candidate, distance_slot)) in candidates.iter().zip(&mut distances).enumerate() {
-        match cache.begin_lookup(&metric, node, candidate) {
+        match cache.begin_lookup(metric, node, candidate) {
             LookupOutcome::Hit(value) => *distance_slot = value,
             LookupOutcome::Miss(miss) => {
                 miss_candidates.push(candidate);
@@ -148,31 +173,59 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
         }
     }
 
-    if miss_candidates.is_empty() {
-        return Ok(distances);
+    TrimLookup {
+        distances,
+        miss_candidates,
+        miss_meta,
+    }
+}
+
+/// Compute the uncached distances and merge them into the batch slots.
+fn fill_trim_misses<D: DataSource + Sync>(
+    cache: &DistanceCache,
+    source: &D,
+    node: usize,
+    lookup: &mut TrimLookup,
+) -> Result<(), HnswError> {
+    let miss_distances = validate_batch_distances(None, source, node, &lookup.miss_candidates)?;
+    ensure_miss_count(&lookup.miss_candidates, &miss_distances)?;
+    write_trim_misses(cache, lookup, miss_distances)
+}
+
+/// Reject a batch whose computed distance count does not match its candidates.
+fn ensure_miss_count(candidates: &[usize], distances: &[f32]) -> Result<(), HnswError> {
+    if distances.len() == candidates.len() {
+        return Ok(());
     }
 
-    let miss_distances = validate_batch_distances(None, source, node, &miss_candidates)?;
-    if miss_distances.len() != miss_candidates.len() {
-        return Err(HnswError::InvalidParameters {
-            reason: format!(
-                "miss distance count ({}) mismatches candidates ({})",
-                miss_distances.len(),
-                miss_candidates.len()
-            ),
-        });
-    }
+    Err(HnswError::InvalidParameters {
+        reason: format!(
+            "miss distance count ({}) mismatches candidates ({})",
+            distances.len(),
+            candidates.len()
+        ),
+    })
+}
+
+/// Complete each cached miss and copy its distance into the batch slot.
+fn write_trim_misses(
+    cache: &DistanceCache,
+    lookup: &mut TrimLookup,
+    miss_distances: Vec<f32>,
+) -> Result<(), HnswError> {
+    let miss_meta = std::mem::take(&mut lookup.miss_meta);
 
     for ((index, miss), distance) in miss_meta.into_iter().zip(miss_distances) {
         cache.complete_miss(miss, distance)?;
-        *distances
+        *lookup
+            .distances
             .get_mut(index)
             .ok_or_else(|| HnswError::InvalidParameters {
                 reason: format!("distance slot {index} is outside the candidate batch"),
             })? = distance;
     }
 
-    Ok(distances)
+    Ok(())
 }
 
 #[cfg(test)]

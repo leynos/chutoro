@@ -55,20 +55,39 @@ impl<'graph> EdgeReconciler<'graph> {
         previous: &[usize],
         next: &[usize],
     ) {
-        let mut isolated: Vec<usize> = Vec::new();
-        for &target in previous {
-            if next.contains(&target) {
-                continue;
-            }
-            if self.remove_reverse_edge(ctx, target) {
-                isolated.push(target);
-            }
-        }
+        let isolated = self.collect_isolated(ctx, previous, next);
 
         if isolated.is_empty() {
             return;
         }
 
+        self.heal_isolated_nodes(ctx, isolated);
+    }
+
+    /// Remove reciprocal edges for dropped neighbours and report isolated nodes.
+    fn collect_isolated(
+        &mut self,
+        ctx: &UpdateContext,
+        previous: &[usize],
+        next: &[usize],
+    ) -> Vec<usize> {
+        let dropped = previous
+            .iter()
+            .copied()
+            .filter(|target| !next.contains(target));
+        let mut isolated: Vec<usize> = Vec::new();
+
+        for target in dropped {
+            if self.remove_reverse_edge(ctx, target) {
+                isolated.push(target);
+            }
+        }
+
+        isolated
+    }
+
+    /// Restore base connectivity for nodes the removed edges left isolated.
+    fn heal_isolated_nodes(&mut self, ctx: &UpdateContext, isolated: Vec<usize>) {
         tracing::debug!(
             operation = "reconcile_removed_edges",
             level = ctx.level,
