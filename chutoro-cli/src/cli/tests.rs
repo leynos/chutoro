@@ -2,8 +2,8 @@
 
 use super::commands::{derive_data_source_name, run_command};
 use super::{
-    Cli, CliError, Command, ExecutionSummary, ParquetArgs, RunCommand, RunSource, render_summary,
-    run_cli,
+    Cli, CliError, Command, ExecutionSummary, ParquetArgs, RunCommand, RunSource, TextMetric,
+    render_summary, run_cli,
 };
 
 use std::io;
@@ -215,6 +215,21 @@ fn clap_rejects_unknown_metric() {
     ];
     let result = Cli::try_parse_from(args);
     assert!(result.is_err());
+}
+
+/// Levenshtein is the only text metric, so a first run need not name it.
+#[rstest]
+fn clap_defaults_the_text_metric_to_levenshtein() {
+    let cli = Cli::try_parse_from(["chutoro", "run", "text", "data.txt"])
+        .expect("the text metric should be optional");
+    let Command::Run(RunCommand {
+        source: RunSource::Text(args),
+        ..
+    }) = cli.command
+    else {
+        panic!("expected a text run command");
+    };
+    assert!(matches!(args.metric, TextMetric::Levenshtein));
 }
 
 #[rstest]

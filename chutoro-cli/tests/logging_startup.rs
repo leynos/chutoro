@@ -4,7 +4,7 @@
 //! shows what an operator sees on `stderr` before any command runs.
 
 use std::{
-    io,
+    io::{self, Write},
     process::{Command, Output},
 };
 
@@ -28,5 +28,38 @@ fn help_starts_without_a_logging_conflict_warning() {
     assert!(
         !stderr.contains("structured logging already configured"),
         "unexpected logging conflict on stderr: {stderr}"
+    );
+}
+
+/// A successful run prints its summary on `stdout` and nothing on `stderr`
+/// unless the operator asks for diagnostics with `RUST_LOG`.
+#[test]
+fn successful_run_is_quiet_on_stderr_by_default() {
+    let mut corpus = tempfile::Builder::new()
+        .prefix("words")
+        .suffix(".txt")
+        .tempfile()
+        .expect("a temporary corpus should be created");
+    corpus
+        .write_all(b"apple\napply\napples\nappel\n")
+        .expect("the corpus should be written");
+    let path = corpus
+        .path()
+        .to_str()
+        .expect("the temporary path should be UTF-8");
+
+    let output = run_cli(&["run", "--min-cluster-size", "2", "text", path])
+        .expect("the chutoro-cli binary should start");
+
+    assert!(output.status.success(), "the run should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.starts_with("data source: words"),
+        "unexpected stdout: {stdout}"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.is_empty(),
+        "unexpected diagnostics on stderr: {stderr}"
     );
 }

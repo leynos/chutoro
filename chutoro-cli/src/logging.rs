@@ -17,6 +17,11 @@ use tracing_subscriber::{EnvFilter, Layer, fmt::format::FmtSpan, layer::Subscrib
 const LOG_FORMAT_ENV: &str = "CHUTORO_LOG_FORMAT";
 /// Environment variable selecting tracing directives.
 const RUST_LOG_ENV: &str = "RUST_LOG";
+/// Filter applied when `RUST_LOG` is unset or invalid.
+///
+/// Span lifecycle events are logged at `info`, so an `info` default would
+/// bury the summary under start-up noise on every run.
+const DEFAULT_FILTER: &str = "warn";
 
 /// Marker indicating that global logging initialization has completed.
 static INITIALIZED: OnceLock<()> = OnceLock::new();
@@ -55,7 +60,8 @@ pub enum LoggingError {
 /// The log format defaults to human-readable output, but can be switched to
 /// JSON by setting `CHUTORO_LOG_FORMAT=json`. Diagnostics are emitted to
 /// `stderr` so CLI payloads on `stdout` remain parseable. The log level is
-/// controlled via `RUST_LOG`.
+/// controlled via `RUST_LOG` and defaults to `warn`, so a successful run
+/// writes only its summary unless the operator asks for diagnostics.
 ///
 /// # Errors
 /// Returns [`LoggingError`] if the environment variable contains invalid
@@ -151,12 +157,12 @@ fn log_format_from_env(env: &dyn Env) -> Result<bool, LoggingError> {
     }
 }
 
-/// Build a tracing filter from an injected reader, defaulting to `info`.
+/// Build a tracing filter from an injected reader, defaulting to `warn`.
 fn env_filter_from_env(env: &dyn Env) -> EnvFilter {
     env.raw(RUST_LOG_ENV)
         .ok()
         .and_then(|directives| EnvFilter::try_new(directives).ok())
-        .unwrap_or_else(|| EnvFilter::new("info"))
+        .unwrap_or_else(|| EnvFilter::new(DEFAULT_FILTER))
 }
 /// Emit a pre-initialization diagnostic to stderr when structured logging
 /// initialization collides with an existing subscriber.
@@ -268,7 +274,7 @@ mod tests {
             Err(env::VarError::NotPresent)
         });
 
-        assert_eq!(env_filter_from_env(&env).to_string(), "info");
+        assert_eq!(env_filter_from_env(&env).to_string(), DEFAULT_FILTER);
     }
 
     #[test]
@@ -279,7 +285,7 @@ mod tests {
             Ok("chutoro=not-a-level".to_owned())
         });
 
-        assert_eq!(env_filter_from_env(&env).to_string(), "info");
+        assert_eq!(env_filter_from_env(&env).to_string(), DEFAULT_FILTER);
     }
 
     #[test]
