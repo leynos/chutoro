@@ -254,6 +254,30 @@ pub(super) fn generate_lattice_graph(rng: &mut SmallRng) -> GeneratedGraph {
 /// assert!(!graph.edges.is_empty());
 /// ```
 pub(super) fn generate_disconnected_graph(rng: &mut SmallRng) -> GeneratedGraph {
+    let (component_sizes, node_count) = random_component_sizes(rng);
+
+    let mut edges = Vec::new();
+    let mut sequence = 0u64;
+    let mut node_offset = 0;
+
+    for &size in &component_sizes {
+        let component = ComponentSpec::new(node_offset, size);
+        add_component_with_bridge(rng, &mut edges, &mut sequence, &component);
+        node_offset += size;
+    }
+
+    GeneratedGraph {
+        node_count,
+        edges,
+        metadata: GraphMetadata::Disconnected {
+            component_count: component_sizes.len(),
+            component_sizes,
+        },
+    }
+}
+
+/// Draws 2–5 component sizes and returns them with the total node count.
+fn random_component_sizes(rng: &mut SmallRng) -> (Vec<usize>, usize) {
     let component_count = rng.gen_range(2..=5);
     let mut component_sizes = Vec::with_capacity(component_count);
     let mut node_count = 0;
@@ -264,36 +288,33 @@ pub(super) fn generate_disconnected_graph(rng: &mut SmallRng) -> GeneratedGraph 
         node_count += size;
     }
 
-    let mut edges = Vec::new();
-    let mut sequence = 0u64;
-    let mut node_offset = 0;
+    (component_sizes, node_count)
+}
 
-    for &size in &component_sizes {
-        let component_start_edge_count = edges.len();
-        let component = ComponentSpec::new(node_offset, size);
-        add_component_edges(rng, &mut edges, &mut sequence, &component);
-        // Guarantee at least one edge per component to avoid empty graphs.
-        if edges.len() == component_start_edge_count && size >= 2 {
-            let distance = rng.gen_range(0.1_f32..10.0);
-            edges.push(CandidateEdge::new(
-                node_offset,
-                node_offset + 1,
-                distance,
-                sequence,
-            ));
-            sequence += 1;
-        }
-        node_offset += size;
+/// Adds a component's edges, bridging it when random selection produced none.
+///
+/// An empty component would make the generated graph indistinguishable from a
+/// smaller one, so a component of two or more nodes always gets an edge.
+fn add_component_with_bridge(
+    rng: &mut SmallRng,
+    edges: &mut Vec<CandidateEdge>,
+    sequence: &mut u64,
+    component: &ComponentSpec,
+) {
+    let edges_before = edges.len();
+    add_component_edges(rng, edges, sequence, component);
+    if edges.len() != edges_before || component.size < 2 {
+        return;
     }
 
-    GeneratedGraph {
-        node_count,
-        edges,
-        metadata: GraphMetadata::Disconnected {
-            component_count,
-            component_sizes,
-        },
-    }
+    let distance = rng.gen_range(0.1_f32..10.0);
+    edges.push(CandidateEdge::new(
+        component.node_offset,
+        component.node_offset + 1,
+        distance,
+        *sequence,
+    ));
+    *sequence += 1;
 }
 
 /// Adds edges within a single component (extracted to reduce nesting).

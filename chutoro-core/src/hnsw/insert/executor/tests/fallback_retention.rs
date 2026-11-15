@@ -30,6 +30,47 @@ fn fallback_cycle() -> Result<Graph, HnswError> {
 ///
 /// At base-layer capacity two, only one other planned owner can insert a reverse
 /// edge into the selected fallback owner, so its newly appended edge survives.
+/// Builds the insertion plan that fills both base-layer fallback owners.
+fn two_owner_plan() -> InsertionPlan {
+    InsertionPlan {
+        layers: vec![LayerPlan {
+            level: 0,
+            neighbours: vec![
+                Neighbour {
+                    id: 2,
+                    distance: 0.0,
+                },
+                Neighbour {
+                    id: 3,
+                    distance: 1.0,
+                },
+            ],
+        }],
+    }
+}
+
+/// States the adjacency each trim job must retain after reconciliation.
+///
+/// Returns an error rather than panicking when the executor trims an owner this
+/// test did not plan for, so the test body owns the verdict.
+fn trim_results(trim_jobs: Vec<TrimJob>) -> Result<Vec<TrimResult>, String> {
+    trim_jobs
+        .into_iter()
+        .map(|job| {
+            let neighbours = match job.node {
+                2 => vec![1, 3],
+                3 => vec![2, 4],
+                other => return Err(format!("unexpected trim owner {other}")),
+            };
+            Ok(TrimResult {
+                node: job.node,
+                ctx: job.ctx,
+                neighbours,
+            })
+        })
+        .collect()
+}
+
 #[test]
 fn commit_retains_workspace_fallback_after_second_owner_reconciliation() {
     let params = HnswParams::new(1, 4).expect("params must be valid");
@@ -45,21 +86,7 @@ fn commit_retains_workspace_fallback_after_second_owner_reconciliation() {
             },
             ApplyContext {
                 params: &params,
-                plan: InsertionPlan {
-                    layers: vec![LayerPlan {
-                        level: 0,
-                        neighbours: vec![
-                            Neighbour {
-                                id: 2,
-                                distance: 0.0,
-                            },
-                            Neighbour {
-                                id: 3,
-                                distance: 1.0,
-                            },
-                        ],
-                    }],
-                },
+                plan: two_owner_plan(),
             },
         )
         .expect("apply the bounded two-owner plan");
@@ -67,18 +94,7 @@ fn commit_retains_workspace_fallback_after_second_owner_reconciliation() {
     // before the second owner exercises front eviction on that fallback list.
     prepared.updates.sort_by_key(|update| update.node);
     assert_eq!(trim_jobs.len(), 2, "both full owners must require trimming");
-    let trims = trim_jobs
-        .into_iter()
-        .map(|job| TrimResult {
-            node: job.node,
-            ctx: job.ctx,
-            neighbours: match job.node {
-                2 => vec![1, 3],
-                3 => vec![2, 4],
-                other => panic!("unexpected trim owner {other}"),
-            },
-        })
-        .collect();
+    let trims = trim_results(trim_jobs).expect("trim owners must be the planned pair");
     executor
         .commit(prepared, trims)
         .expect("commit workspace fallback");

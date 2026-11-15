@@ -13,14 +13,7 @@ fn level_sampling_matches_geometric_tail() {
     let mut counts = vec![0_usize; params.max_level() + 1];
     let samples = 10_000;
     for _ in 0..samples {
-        let mut level = 0_usize;
-        while level < params.max_level() {
-            let draw: f64 = rng.sample(Standard);
-            if params.should_stop(draw) {
-                break;
-            }
-            level += 1;
-        }
+        let level = sample_level(&mut rng, &params);
         let count = counts
             .get_mut(level)
             .expect("sampled level must be within the configured maximum");
@@ -30,6 +23,27 @@ fn level_sampling_matches_geometric_tail() {
     let connection_count = u32::try_from(params.max_connections())
         .expect("test parameters fit within an exact f64 conversion");
     let continue_prob = f64::from(connection_count).recip();
+    assert_geometric_tail(&counts, continue_prob);
+}
+
+/// Draws one level from the same geometric climb the inserter performs.
+fn sample_level(rng: &mut SmallRng, params: &HnswParams) -> usize {
+    let mut level = 0_usize;
+    while level < params.max_level() {
+        let draw: f64 = rng.sample(Standard);
+        if params.should_stop(draw) {
+            break;
+        }
+        level += 1;
+    }
+    level
+}
+
+/// Asserts the first three observed level ratios approach the geometric tail.
+///
+/// Only adjacent levels that were both sampled are considered, so the sparse
+/// tail of the distribution cannot make the ratio meaningless.
+fn assert_geometric_tail(counts: &[usize], continue_prob: f64) {
     for window in counts
         .windows(2)
         .filter(|pair| matches!(pair, [current, next] if *current > 0 && *next > 0))
