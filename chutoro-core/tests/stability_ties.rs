@@ -4,6 +4,12 @@
 //! provider, routinely give a parent cluster exactly the same stability as the
 //! sum of its children. The design selects the parent only when its stability
 //! strictly exceeds the children's, so a tie must keep the separate groups.
+//!
+//! The whole crate is CPU-only: `ChutoroBuilder` reports `BackendUnavailable`
+//! when the `cpu` feature is absent, so every fixture here is meaningless in a
+//! build without it.
+
+#![cfg(feature = "cpu")]
 
 use chutoro_core::{ChutoroBuilder, DataSource, DataSourceError};
 

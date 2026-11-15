@@ -22,6 +22,8 @@
 mod condense;
 mod error;
 mod forest;
+#[cfg(test)]
+mod property;
 
 use core::ops::AddAssign;
 use std::num::NonZeroUsize;
