@@ -154,10 +154,16 @@ fn property_tests_pr_timeout_covers_hnsw_idempotency_budget() {
 #[test]
 /// Verifies overrides do not absorb settings from the next profile table.
 fn nextest_override_blocks_stop_at_the_next_table() {
-    let blocks = override_blocks("default");
-    let final_block = blocks.last().expect("default profile must have overrides");
-    assert!(!final_block.contains("[profile.ci]"));
-    assert!(!final_block.contains("[[profile.ci.overrides]]"));
+    for block in override_blocks("default") {
+        assert!(
+            !block.contains("[profile.ci]"),
+            "default override absorbed the [profile.ci] header: {block}"
+        );
+        assert!(
+            !block.contains("[[profile.ci.overrides]]"),
+            "default override absorbed a [[profile.ci.overrides]] header: {block}"
+        );
+    }
 }
 
 #[test]

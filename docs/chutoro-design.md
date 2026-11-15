@@ -2315,8 +2315,7 @@ the shared file writer with its temporary-directory and path conventions, while
 its `RunCommand` builders remain with the CLI command model.
 
 This keeps test-only sharing aligned with crate ownership and avoids adding
-Arrow or Parquet dependencies to the dependency-free `chutoro-test-support`
-leaf.
+Arrow or Parquet dependencies to the `chutoro-test-support` leaf.
 
 #### 10.6. Error taxonomy and propagation
 
