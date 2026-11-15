@@ -440,15 +440,15 @@ pinned, checksum-verified prebuilt archive:
 Table: Each tool CI installs, the installer that fetches it, and where its
 version and digest are pinned.
 
-| Tool          | Installer                                                  | Pin                                      |
-| ------------- | ---------------------------------------------------------- | ---------------------------------------- |
-| Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, currently 0.2.7            |
-| `mold`        | `leynos/shared-actions/.github/actions/setup-rust`         | Action input, currently 2.41.0           |
-| mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.1            |
-| cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS` |
-| sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS` |
-| Kani          | `make install-kani`                                        | `tools/kani/VERSION`                     |
-| Verus         | `make install-verus`                                       | `tools/verus/VERSION` and `SHA256SUMS`   |
+| Tool          | Installer                                                  | Pin                                                                                       |
+| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, default 0.2.11, at action commit `a0519a1476ab769ca7b8badfa794f3751213f1ea` |
+| `mold`        | `leynos/shared-actions/.github/actions/setup-rust`         | Action input, currently 2.41.0                                                            |
+| mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.1                                                             |
+| cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS`                                                  |
+| sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS`                                                  |
+| Kani          | `make install-kani`                                        | `tools/kani/VERSION`                                                                      |
+| Verus         | `make install-verus`                                       | `tools/verus/VERSION` and `SHA256SUMS`                                                    |
 
 The two remaining repository scripts share `scripts/lib/pinned-download.sh`,
 which reads the pinned version, looks the archive's SHA-256 up in the sibling
@@ -1077,12 +1077,22 @@ agent-facing rule.
 
 ### CI resolution and configuration
 
-CI resolves the newest `whitaker-installer` release at run time — via
-`gh api repos/leynos/whitaker/releases/latest` — rather than pinning a version,
-then installs that release and runs it to obtain the `whitaker` wrapper.
-Because the suite version is not pinned, a new Whitaker release can introduce
-findings on code that has not otherwise changed; treat such findings as genuine
-and fix them rather than pinning around them.
+CI installs Whitaker through the shared `install-whitaker` action, pinned to
+the reviewed `leynos/shared-actions` commit
+`a0519a1476ab769ca7b8badfa794f3751213f1ea`; at that commit the action's input
+defaults to `whitaker-installer` 0.2.11. The action resolves the pinned
+prebuilt release, verifies the installer and Clippy-snapshot digests against
+its own manifest, and runs the installer with `--no-source-fallback`, so a
+source build is a failure rather than a slow success. The installer bootstraps
+the Dylint driver from a verified, commit-pinned Clippy snapshot; installer
+0.2.8 instead asked upstream Clippy for `master`, and a cold driver build
+failed once Clippy renamed that branch to `main`.
+
+The lint suite itself is still a rolling release taken from Whitaker's default
+branch tip, because prebuilt lint libraries are published only for the tip. A
+new suite release can therefore introduce findings on code that has not
+otherwise changed; treat such findings as genuine and fix them rather than
+pinning around them.
 
 Per-lint configuration, including `no_std_fs_operations` crate exclusions with
 rationale comments, lives in the root `dylint.toml`.
