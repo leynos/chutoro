@@ -116,7 +116,11 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     }
 
     /// Search for `point`'s neighbours while excluding the point itself.
-    fn search_non_self_neighbours(&self, point: usize, ef: NonZeroUsize) -> Result<Vec<Neighbour>> {
+    pub(super) fn search_non_self_neighbours(
+        &self,
+        point: usize,
+        ef: NonZeroUsize,
+    ) -> Result<Vec<Neighbour>> {
         #[cfg(feature = "metrics")]
         metrics::counter!("chutoro.session.core_distance.queries_total").increment(1);
 
@@ -235,10 +239,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             return Ok(());
         };
 
-        let mut neighbour_lists = Vec::with_capacity(new_indices.len());
-        for &point in &new_indices {
-            neighbour_lists.push(self.search_non_self_neighbours(point, ef)?);
-        }
+        let neighbour_lists = self.new_point_neighbour_lists(&new_indices, ef)?;
 
         let neighbour_slices = neighbour_lists
             .iter()
@@ -251,19 +252,10 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
             u32::try_from(existing_targets.len()).map_or_else(|_| f64::from(u32::MAX), f64::from),
         );
 
-        let mut pending_updates = Vec::with_capacity(new_indices.len() + existing_targets.len());
-        for (point, neighbours) in new_indices.iter().copied().zip(&neighbour_lists) {
-            let core = core_distance_from_neighbours(neighbours, self.config.min_cluster_size());
-            pending_updates.push((point, core));
-        }
-
         #[cfg(feature = "metrics")]
         let recomputed_existing = existing_targets.len();
-        for point in existing_targets {
-            let neighbours = self.search_non_self_neighbours(point, ef)?;
-            let core = core_distance_from_neighbours(&neighbours, self.config.min_cluster_size());
-            pending_updates.push((point, core));
-        }
+        let mut pending_updates = self.new_point_core_distances(&new_indices, &neighbour_lists);
+        pending_updates.extend(self.existing_point_core_distances(&existing_targets, ef)?);
 
         for (point, core) in pending_updates {
             self.write_core_distance_value(point, core);

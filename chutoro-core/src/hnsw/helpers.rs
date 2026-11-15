@@ -4,10 +4,10 @@
 
 use std::num::NonZeroUsize;
 
-use crate::DataSource;
+use crate::{DataSource, MetricDescriptor};
 
 use super::{
-    distance_cache::{DistanceCache, LookupOutcome},
+    distance_cache::{DistanceCache, LookupOutcome, PendingMiss},
     error::HnswError,
     types::Neighbour,
     validate::{validate_batch_distances, validate_distance},
@@ -134,12 +134,73 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
     }
 
     let metric = source.metric_descriptor();
+    let query = TrimQuery {
+        cache,
+        metric: &metric,
+        node,
+    };
     let mut distances = vec![0.0; candidates.len()];
+    let lookups = fill_cached_trim_distances(&query, candidates, &mut distances);
+    if lookups.miss_candidates.is_empty() {
+        return Ok(distances);
+    }
+
+    let miss_distances = validate_batch_distances(None, source, node, &lookups.miss_candidates)?;
+    if miss_distances.len() != lookups.miss_candidates.len() {
+        return Err(HnswError::InvalidParameters {
+            reason: format!(
+                "miss distance count ({}) mismatches candidates ({})",
+                miss_distances.len(),
+                lookups.miss_candidates.len()
+            ),
+        });
+    }
+
+    apply_trim_miss_distances(cache, &mut distances, lookups.miss_meta, miss_distances)?;
+    Ok(distances)
+}
+
+/// The fixed context of one trim distance batch.
+///
+/// The three fields travel together through every lookup in the batch: they
+/// identify which cache entry a candidate distance belongs to. Grouping them
+/// keeps the helpers below within the repository's argument limit without
+/// splitting a context that is only meaningful whole.
+struct TrimQuery<'a> {
+    /// Cache shared with the rest of the graph maintenance.
+    cache: &'a DistanceCache,
+    /// Metric the distance is measured in, part of the cache key.
+    metric: &'a MetricDescriptor,
+    /// Node whose candidate distances are being resolved.
+    node: usize,
+}
+
+/// Cache hits and outstanding misses collected from a trim distance batch.
+struct TrimLookups {
+    /// Candidates whose distance was not cached, in candidate order.
+    miss_candidates: Vec<usize>,
+    /// Pending miss handles paired with the result slot each one fills.
+    miss_meta: Vec<(usize, PendingMiss)>,
+}
+
+/// Fills the cached distances and reports which candidates still need a query.
+///
+/// Separated from [`batch_distances_for_trim`] because the cache probe is one
+/// decision — reuse the cached value or record a miss — while applying the
+/// computed misses is a different one, with its own error path.
+fn fill_cached_trim_distances(
+    query: &TrimQuery<'_>,
+    candidates: &[usize],
+    distances: &mut [f32],
+) -> TrimLookups {
     let mut miss_candidates = Vec::new();
     let mut miss_meta = Vec::new();
 
-    for (index, (&candidate, distance_slot)) in candidates.iter().zip(&mut distances).enumerate() {
-        match cache.begin_lookup(&metric, node, candidate) {
+    for (index, (&candidate, distance_slot)) in candidates.iter().zip(distances).enumerate() {
+        match query
+            .cache
+            .begin_lookup(query.metric, query.node, candidate)
+        {
             LookupOutcome::Hit(value) => *distance_slot = value,
             LookupOutcome::Miss(miss) => {
                 miss_candidates.push(candidate);
@@ -148,21 +209,22 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
         }
     }
 
-    if miss_candidates.is_empty() {
-        return Ok(distances);
+    TrimLookups {
+        miss_candidates,
+        miss_meta,
     }
+}
 
-    let miss_distances = validate_batch_distances(None, source, node, &miss_candidates)?;
-    if miss_distances.len() != miss_candidates.len() {
-        return Err(HnswError::InvalidParameters {
-            reason: format!(
-                "miss distance count ({}) mismatches candidates ({})",
-                miss_distances.len(),
-                miss_candidates.len()
-            ),
-        });
-    }
-
+/// Stores freshly computed miss distances in the cache and the result batch.
+///
+/// The miss handles are completed before the slot is written, so a cache
+/// rejection leaves the distance buffer untouched.
+fn apply_trim_miss_distances(
+    cache: &DistanceCache,
+    distances: &mut [f32],
+    miss_meta: Vec<(usize, PendingMiss)>,
+    miss_distances: Vec<f32>,
+) -> Result<(), HnswError> {
     for ((index, miss), distance) in miss_meta.into_iter().zip(miss_distances) {
         cache.complete_miss(miss, distance)?;
         *distances
@@ -172,7 +234,7 @@ pub(crate) fn batch_distances_for_trim<D: DataSource + Sync>(
             })? = distance;
     }
 
-    Ok(distances)
+    Ok(())
 }
 
 #[cfg(test)]

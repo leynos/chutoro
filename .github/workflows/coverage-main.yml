@@ -146,7 +146,7 @@ jobs:
       # installed. The shared action owns the installer binary and the
       # ~/.local/share/whitaker cache for this job.
       - name: Install Whitaker
-        uses: leynos/shared-actions/.github/actions/install-whitaker@a0519a1476ab769ca7b8badfa794f3751213f1ea # shared-actions 5a99aed7 (whitaker-installer 0.2.11)
+        uses: leynos/shared-actions/.github/actions/install-whitaker@a0519a1476ab769ca7b8badfa794f3751213f1ea # action default whitaker-installer 0.2.12
       - name: Lint
         run: make lint
       - name: Test and Measure Coverage

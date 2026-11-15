@@ -127,5 +127,9 @@ Session code is split by responsibility under `chutoro-core/src/session/`:
 - `core_distance.rs` owns the pure core-distance helpers and the recompute
   workflow. The pure helpers must not depend on HNSW adapter internals beyond
   the public `Neighbour` value.
+- `core_updates.rs` owns the neighbour searches the recompute workflow drives:
+  the new points, the existing points their arrival disturbs, and the
+  core-distance extraction over each. Keeping one stage per helper keeps the
+  driver readable and each search independently reviewable.
 - `clock.rs` is compiled only with the `metrics` feature and owns the
   monotonic-clock support used for deterministic latency tests.

@@ -440,15 +440,15 @@ pinned, checksum-verified prebuilt archive:
 Table: Each tool CI installs, the installer that fetches it, and where its
 version and digest are pinned.
 
-| Tool          | Installer                                                  | Pin                                      |
-| ------------- | ---------------------------------------------------------- | ---------------------------------------- |
-| Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, currently 0.2.7            |
-| `mold`        | `leynos/shared-actions/.github/actions/setup-rust`         | Action input, currently 2.41.0           |
-| mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.1            |
-| cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS` |
-| sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS` |
-| Kani          | `make install-kani`                                        | `tools/kani/VERSION`                     |
-| Verus         | `make install-verus`                                       | `tools/verus/VERSION` and `SHA256SUMS`   |
+| Tool          | Installer                                                  | Pin                                                                                       |
+| ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, default 0.2.12, at action commit `a0519a1476ab769ca7b8badfa794f3751213f1ea` |
+| `mold`        | `leynos/shared-actions/.github/actions/setup-rust`         | Action input, currently 2.41.0                                                            |
+| mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.1                                                             |
+| cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS`                                                  |
+| sccache       | `scripts/install-sccache.sh`                               | `tools/sccache/VERSION` and `SHA256SUMS`                                                  |
+| Kani          | `make install-kani`                                        | `tools/kani/VERSION`                                                                      |
+| Verus         | `make install-verus`                                       | `tools/verus/VERSION` and `SHA256SUMS`                                                    |
 
 The two remaining repository scripts share `scripts/lib/pinned-download.sh`,
 which reads the pinned version, looks the archive's SHA-256 up in the sibling
@@ -1077,15 +1077,64 @@ agent-facing rule.
 
 ### CI resolution and configuration
 
-CI resolves the newest `whitaker-installer` release at run time — via
-`gh api repos/leynos/whitaker/releases/latest` — rather than pinning a version,
-then installs that release and runs it to obtain the `whitaker` wrapper.
-Because the suite version is not pinned, a new Whitaker release can introduce
-findings on code that has not otherwise changed; treat such findings as genuine
-and fix them rather than pinning around them.
+CI installs Whitaker through the shared `install-whitaker` action, pinned to
+the reviewed `leynos/shared-actions` commit
+`a0519a1476ab769ca7b8badfa794f3751213f1ea`; at that commit the action's input
+defaults to `whitaker-installer` 0.2.12. The action resolves the pinned
+prebuilt release, verifies the installer and Clippy-snapshot digests against
+its own manifest, and runs the installer with `--no-source-fallback`, so a
+source build is a failure rather than a slow success. The installer bootstraps
+the Dylint driver from a verified, commit-pinned Clippy snapshot; installer
+0.2.8 instead asked upstream Clippy for `master`, and a cold driver build
+failed once Clippy renamed that branch to `main`.
+
+The lint suite itself is still a rolling release taken from Whitaker's default
+branch tip, because prebuilt lint libraries are published only for the tip. A
+new suite release can therefore introduce findings on code that has not
+otherwise changed; treat such findings as genuine and fix them rather than
+pinning around them. Retuning one of a rule's own thresholds in `dylint.toml`
+is not pinning: it changes how the rule scores code, so it needs recorded
+evidence and a rationale comment beside the setting.
 
 Per-lint configuration, including `no_std_fs_operations` crate exclusions with
 rationale comments, lives in the root `dylint.toml`.
+
+### `bumpy_road_function` threshold
+
+The root `dylint.toml` raises `bumpy_road_function`'s threshold from the rule's
+default of 2.5 to 4.0. The suite charges compiler desugarings as authored
+structure, so the two-arm `ControlFlow` `match` that rustc lowers `?` to is
+scored in full: each arm contributes its nesting depth and its control-flow
+weight, on the line that carries the `?`. A run of `?` operators a few lines
+apart therefore reads as a bumpy road, even though it expresses error
+propagation rather than nested logic, and neither `clippy::question_mark` nor
+the error-handling policy above leaves a way to remove them. That is what made
+suite 0.2.12 report eight such findings on code this change does not touch,
+where the same code passed `make lint` under the suite resolve of the day
+before.
+
+The higher threshold removes the desugaring that dominates such a report
+without blinding the rule to real structure. A desugared `?` charges two arms
+on the single line that carries it, so a run of `?` operators falls below 4.0,
+while genuine nesting accumulates depth, branch predicates, and per-arm flow
+across the whole region it covers and still crosses 4.0.
+
+The threshold is a blunt instrument, not a classifier, and it is worth knowing
+where it stops working. A `?` inside a loop scores the same as a handwritten
+two-arm `match` inside a loop, because the suite sees the lowered `ControlFlow`
+match and cannot tell it from the authored construct. Raising the threshold far
+enough to hide the former would hide the latter too. The three findings that
+survived 4.0 were exactly that shape, and the answer was the usual one for this
+rule: extract the complexity clusters into named helpers.
+`batch_distances_for_trim` gave up its cache-probe and miss-application loops to
+`fill_cached_trim_distances` and `apply_trim_miss_distances`;
+`extract_flat_labels` moved to `single_linkage::labels` alongside the labeller
+it drives; and `recompute_core_distances` delegates its searches to
+`session::core_updates`.
+
+The hosted `Lint` step prints the bumps that survive against the configured
+value, which is the check to read before changing it; record the reason in
+`dylint.toml` as well.
 
 ## Test fixture conventions
 
@@ -1550,12 +1599,12 @@ so it is worth knowing which is which and in what order they can fire.
 
 Table: the four timers, innermost first, with where each is set.
 
-| Tier                     | What it bounds                     | Where it is set                                     | Current value                                |
-| ------------------------ | ---------------------------------- | --------------------------------------------------- | -------------------------------------------- |
-| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default, 900 s for the slowest override |
-| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 40 m                                         |
-| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m)                               |
-| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 100 m                                        |
+| Tier                     | What it bounds                     | Where it is set                                     | Current value                                                     |
+| ------------------------ | ---------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------- |
+| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default; overrides reach 1,800 s (1,500 s on the CI profile) |
+| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 40 m                                                              |
+| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m)                                                    |
+| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 100 m                                                             |
 
 Each tier must sit above the one before it.
 
@@ -2662,6 +2711,56 @@ Example:
 ```rust
 assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].source == source_node;
 ```
+
+## Markdown formatting and lint scope
+
+`make fmt` applies two Markdown tools with independent file selectors, after
+`cargo fmt --all` has formatted the Rust sources:
+
+- `mdtablefix --in-place --git --include-untracked` formats Markdown. The
+  `--git` and `--include-untracked` options take the file list from Git, so the
+  selection is every tracked file plus every untracked file Git does not ignore.
+  `.gitignore` therefore decides which untracked files are formatted. It does
+  not remove a tracked file, because Git reports tracked paths whether or not a
+  pattern matches them.
+- `markdownlint-cli2 --fix "**/*.md"` applies lint fixes. markdownlint-cli2
+  expands that glob itself and filters the result through the `ignores` list in
+  `.markdownlint-cli2.jsonc`. `.gitignore` has no bearing on this selection.
+
+Because the selectors are independent, excluding a tree from `make fmt`
+requires an entry in both `.gitignore` and `.markdownlint-cli2.jsonc`. The
+`.verus/` tree is the worked example. `make install-verus` unpacks the pinned
+Verus release there through `rust-prover-tools`, and that release ships
+Markdown the repository neither owns nor maintains. Formatting or linting it
+would rewrite vendor files and fail a gate on content outside repository
+ownership. `.gitignore` therefore lists `.verus/`, and the lint configuration
+carries the matching `**/.verus/**` ignore, whose pattern is not anchored to
+the repository root.
+
+`make markdownlint` and `make nixie` build their file list with `find` rather
+than from Git, so `.gitignore` does not narrow it, and both exclude generated
+trees with `-not -path` rules. The `markdownlint` target then hands that list
+to markdownlint-cli2, which still applies the `ignores` list in its
+configuration, so a generated tree `find` selects is dropped before it is
+linted. `make nixie` reads neither list: the files `find` returns are the files
+it validates. A new generated top-level tree therefore needs an entry in three
+places: `.gitignore`, `.markdownlint-cli2.jsonc`, and the `find` recipes in the
+`Makefile`. Those recipes match `./.verus/*` and so cover the top-level tree
+only; a nested generated tree is held out of `make markdownlint` by the lint
+configuration, which is why the ignore pattern is not anchored to the root.
+
+`tests/workflow_contracts/markdown_format_scope_test.py` builds a throwaway
+repository from the committed `.gitignore`, `.markdownlint-cli2.jsonc` and
+`Makefile`, adds a root and a nested `.verus/` tree beside two ordinary
+documents, one staged and one left untracked, and runs the `fmt`, `check-fmt`
+and `markdownlint` targets against it. The Rust and spelling steps of those
+targets are stubbed because the fixture holds only Markdown; the Markdown
+commands run as committed. The suite asserts that both ordinary documents are
+rewritten and reported while neither generated tree is, and it removes each
+exclusion in turn to show the generated file would otherwise be rewritten or
+reported. Continuous integration fails the suite when a required tool is
+missing instead of skipping it; a developer machine without the tool skips the
+affected cases.
 
 ## Spelling gate
 

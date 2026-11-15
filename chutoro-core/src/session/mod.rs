@@ -220,6 +220,7 @@ impl<D: DataSource + Send + Sync> ClusteringSession<D> {
 mod clock;
 mod config;
 mod core_distance;
+mod core_updates;
 mod session_impl;
 
 #[cfg(test)]

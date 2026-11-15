@@ -1,5 +1,28 @@
 # Configuration for the Whitaker Dylint suite (see `make lint-whitaker`).
 
+[bumpy_road_function]
+# The suite charges compiler desugarings as authored structure, so the
+# two-arm `ControlFlow` match that rustc lowers `?` to is scored in full: each
+# arm contributes its nesting depth and its control-flow weight. A run of `?`
+# operators a few lines apart therefore registers as a "bumpy road", although
+# it expresses error propagation rather than nested conditional logic, and the
+# `?` cannot be removed without breaking `clippy::question_mark` and the
+# error-handling policy in `docs/developers-guide.md`.
+#
+# Raising the threshold to 4.0 clears the desugaring from the report without
+# blinding the rule to real structure: a desugared `?` charges two arms on the
+# single line that carries it, while genuine nesting accumulates depth, branch
+# predicates, and per-arm flow across the whole region and still crosses 4.0.
+#
+# The threshold cannot separate every case, and should not be raised to try.
+# A `?` inside a loop scores the same as a handwritten two-arm `match` inside
+# a loop, so hiding the one would hide the other. The three findings that
+# survived 4.0 had that shape and were fixed by extracting their complexity
+# clusters into helpers, as `docs/developers-guide.md` records. Hosted CI
+# prints the bumps that survive against this value; re-read that report before
+# changing the number.
+threshold = 4.0
+
 [no_std_fs_operations]
 excluded_paths = [
     # The command module opens the input path supplied by the user. This is

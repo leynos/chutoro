@@ -159,36 +159,17 @@ fn generate_identical_weights(rng: &mut SmallRng) -> MstFixture {
 /// edges.
 fn generate_sparse(rng: &mut SmallRng) -> MstFixture {
     let node_count = rng.gen_range(MIN_NODES..=MAX_NODES);
-    let mut edges = Vec::new();
-    let mut seq = 0u64;
-
-    // Build a random spanning tree via random permutation walk.
-    let mut perm: Vec<usize> = (0..node_count).collect();
-    shuffle(&mut perm, rng);
-    for (&left, &right) in perm.iter().zip(perm.iter().skip(1)) {
-        let weight = rng.gen_range(0.1_f32..100.0);
-        let (s, t) = canonical(left, right);
-        edges.push(CandidateEdge::new(s, t, weight, seq));
-        seq += 1;
-    }
+    let mut builder = EdgeBuilder::default();
+    builder.spanning_tree(node_count, rng);
 
     // Add a small number of extra edges (roughly 0.5n to n).
     let extra_lower_bound = node_count.checked_div(2).unwrap_or(0);
     let extra_count = rng.gen_range(extra_lower_bound..=node_count);
-    for _ in 0..extra_count {
-        let i = rng.gen_range(0..node_count);
-        let j = rng.gen_range(0..node_count);
-        if i != j {
-            let weight = rng.gen_range(0.1_f32..100.0);
-            let (s, t) = canonical(i, j);
-            edges.push(CandidateEdge::new(s, t, weight, seq));
-            seq += 1;
-        }
-    }
+    builder.extra_edges(node_count, extra_count, rng);
 
     MstFixture {
         node_count,
-        edges,
+        edges: builder.edges,
         distribution: WeightDistribution::Sparse,
     }
 }
@@ -260,6 +241,35 @@ impl EdgeBuilder {
         if size >= 2 && self.edges.len() == start_len {
             let weight = rng.gen_range(0.1_f32..100.0);
             self.push(node_offset, node_offset + 1, weight);
+        }
+    }
+
+    /// Adds a spanning tree by walking a shuffled permutation of the nodes.
+    ///
+    /// Consecutive permutation entries are always distinct, so every step adds
+    /// one edge and the graph is connected without further checks.
+    fn spanning_tree(&mut self, node_count: usize, rng: &mut SmallRng) {
+        let mut perm: Vec<usize> = (0..node_count).collect();
+        shuffle(&mut perm, rng);
+        for (&left, &right) in perm.iter().zip(perm.iter().skip(1)) {
+            let weight = rng.gen_range(0.1_f32..100.0);
+            let (s, t) = canonical(left, right);
+            self.push(s, t, weight);
+        }
+    }
+
+    /// Adds `extra_count` random edges, skipping the self-pairs that would
+    /// carry no distance.
+    fn extra_edges(&mut self, node_count: usize, extra_count: usize, rng: &mut SmallRng) {
+        for _ in 0..extra_count {
+            let i = rng.gen_range(0..node_count);
+            let j = rng.gen_range(0..node_count);
+            if i == j {
+                continue;
+            }
+            let weight = rng.gen_range(0.1_f32..100.0);
+            let (s, t) = canonical(i, j);
+            self.push(s, t, weight);
         }
     }
 }
