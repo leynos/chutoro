@@ -321,6 +321,21 @@ internal to `chutoro-core`, where the CPU pipeline guarantees the precondition.
 Each assignment stores a `ClusterId`. The underlying value can be accessed with
 `get()` when serializing or displaying results.
 
+### How clusters are selected
+
+Cluster selection follows the design's excess-of-mass rule. A parent cluster
+replaces its descendants only when its stability strictly exceeds the summed
+stability of its children; an exact tie keeps the child clusters.
+Integer-valued metrics, such as Levenshtein distance over short words, produce
+exact ties often, so `cluster_count` can be higher for those inputs than for a
+continuous metric over the same points.
+
+For example, the words `apple`, `apply`, `apples`, `appel`, `banana`, `bananas`,
+`bandana` and `banane` are at most two edits apart within each word family and
+at least four edits apart between the families. Their root cluster and their
+two children score the same stability, so the strict rule reports two clusters
+and assigns the first four words to one cluster and the last four to the other.
+
 ## Error handling
 
 Builder validation returns `ChutoroError::InvalidMinClusterSize` when the

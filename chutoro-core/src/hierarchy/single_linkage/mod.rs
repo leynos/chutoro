@@ -24,6 +24,9 @@ mod error;
 mod forest;
 mod labels;
 
+#[cfg(test)]
+mod property;
+
 use core::ops::AddAssign;
 use std::num::NonZeroUsize;
 
