@@ -1599,12 +1599,12 @@ so it is worth knowing which is which and in what order they can fire.
 
 Table: the four timers, innermost first, with where each is set.
 
-| Tier                     | What it bounds                     | Where it is set                                     | Current value                                |
-| ------------------------ | ---------------------------------- | --------------------------------------------------- | -------------------------------------------- |
-| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default, 900 s for the slowest override |
-| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 40 m                                         |
-| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m)                               |
-| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 100 m                                        |
+| Tier                     | What it bounds                     | Where it is set                                     | Current value                                                     |
+| ------------------------ | ---------------------------------- | --------------------------------------------------- | ----------------------------------------------------------------- |
+| Per-test `slow-timeout`  | one test                           | `.config/nextest.toml`                              | 60 s default; overrides reach 1,800 s (1,500 s on the CI profile) |
+| nextest `global-timeout` | the whole test run                 | `.config/nextest.toml`                              | 40 m                                                              |
+| Cargo watchdog           | one `cargo` invocation, wall clock | `RUN_RUST_CARGO_WAIT_TIMEOUT` on the coverage steps | 4,200 s (70 m)                                                    |
+| Job `timeout-minutes`    | the whole job                      | the job holding the coverage step                   | 100 m                                                             |
 
 Each tier must sit above the one before it.
 
@@ -2729,12 +2729,13 @@ assert forall|i: int| #![auto] 0 <= i < edges.len() implies edges[i].source == s
 
 Because the selectors are independent, excluding a tree from `make fmt`
 requires an entry in both `.gitignore` and `.markdownlint-cli2.jsonc`. The
-`.verus/` tree is the worked example. `scripts/install-verus.sh` unpacks the
-pinned Verus release there, and that release ships Markdown the repository
-neither owns nor maintains. Formatting or linting it would rewrite vendor files
-and fail a gate on content outside repository ownership. `.gitignore` therefore
-lists `.verus/`, and the lint configuration carries the matching `**/.verus/**`
-ignore, whose pattern is not anchored to the repository root.
+`.verus/` tree is the worked example. `make install-verus` unpacks the pinned
+Verus release there through `rust-prover-tools`, and that release ships
+Markdown the repository neither owns nor maintains. Formatting or linting it
+would rewrite vendor files and fail a gate on content outside repository
+ownership. `.gitignore` therefore lists `.verus/`, and the lint configuration
+carries the matching `**/.verus/**` ignore, whose pattern is not anchored to
+the repository root.
 
 `make markdownlint` and `make nixie` build their file list with `find` rather
 than from Git, so `.gitignore` does not narrow it, and both exclude generated
