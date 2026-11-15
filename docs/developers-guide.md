@@ -1175,7 +1175,10 @@ A builder that stages an insertion scenario must not attach the node under test.
 `build_trimming_test_graph` accepts only the `reserve_id` for its placeholder
 and leaves the insertion id to the caller. Do not reintroduce the new node as a
 builder parameter; a caller that pre-attaches it makes `apply` fail before the
-scenario begins.
+scenario begins. The caller must also choose the insertion id so that it
+differs from the entry node, every id in `trimmed_neighbours`, and
+`reserve_id`. The builder cannot check that condition without receiving the id
+it deliberately does not take.
 
 The same rule applies to unused parameters. Never silence one with a fake read
 such as `let _ = name;`. Remove the parameter, or prefix it with `_` when the

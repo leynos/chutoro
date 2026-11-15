@@ -174,6 +174,11 @@ pub(super) fn verify_post_trim_reciprocity(
 /// `InsertionExecutor::apply` requires that node's slot to stay free until the
 /// insertion runs, so callers pass only the reserved placeholder id.
 ///
+/// Callers must choose the insertion id so that it differs from the entry
+/// node, every id in `trimmed_neighbours`, and `reserve_id`. The builder
+/// cannot check that condition without receiving the id it deliberately does
+/// not take.
+///
 /// # Errors
 /// Returns [`TrimmingFixtureError`] when the graph rejects the configured
 /// nodes, for example when `reserve_id` collides with an attached neighbour.
