@@ -1168,6 +1168,20 @@ fn trims_the_entry_node() -> Result<(), TrimmingFixtureError> {
 }
 ```
 
+### Graph builders reserve, they do not pre-attach
+
+A builder that stages an insertion scenario must not attach the node under test.
+`InsertionExecutor::apply` requires that node's slot to be free, so
+`build_trimming_test_graph` accepts only the `reserve_id` for its placeholder
+and leaves the insertion id to the caller. Do not reintroduce the new node as a
+builder parameter; a caller that pre-attaches it makes `apply` fail before the
+scenario begins.
+
+The same rule applies to unused parameters. Never silence one with a fake read
+such as `let _ = name;`. Remove the parameter, or prefix it with `_` when the
+signature must keep it, so the compiler's `unused_variables` lint still reports
+a genuine mistake.
+
 ### Typed error contracts
 
 Fixtures return a named error enum rather than `Box<dyn Error>`, so the
