@@ -206,55 +206,96 @@ struct ParsedImages {
     dimensions: usize,
 }
 
+/// Number of bytes in an IDX image header.
+const IDX_HEADER_LEN: usize = 16;
+
+/// Header fields that apply to every image in one IDX archive.
+#[derive(Debug)]
+struct IdxHeader {
+    /// Number of images in the archive.
+    count: usize,
+    /// Number of pixels in each image.
+    dimensions: usize,
+}
+
 /// Decode and validate one gzip-compressed IDX image archive.
 fn parse_idx_images(path: &Path, gzipped_bytes: &[u8]) -> Result<ParsedImages, SyntheticError> {
     let decoded = gunzip_bytes(path, gzipped_bytes)?;
-    if decoded.len() < 16 {
+    let header = parse_idx_header(path, &decoded)?;
+    let data = decode_payload(path, &decoded, &header)?;
+
+    Ok(ParsedImages {
+        data,
+        count: header.count,
+        dimensions: header.dimensions,
+    })
+}
+
+/// Read the IDX header, validating its magic and declared image extent.
+fn parse_idx_header(path: &Path, decoded: &[u8]) -> Result<IdxHeader, SyntheticError> {
+    if decoded.len() < IDX_HEADER_LEN {
         return Err(invalid_mnist(path, "header is shorter than 16 bytes"));
     }
 
-    let magic = read_u32_be(slice_at(&decoded, 0, 4, path)?, path, "magic")?;
-    if magic != IDX_IMAGE_MAGIC {
-        return Err(invalid_mnist(
-            path,
-            &format!("unexpected IDX magic {magic}, expected {IDX_IMAGE_MAGIC}"),
-        ));
-    }
+    ensure_idx_magic(path, decoded)?;
 
-    let count = usize::try_from(read_u32_be(slice_at(&decoded, 4, 8, path)?, path, "count")?)
+    let count = usize::try_from(read_u32_be(slice_at(decoded, 4, 8, path)?, path, "count")?)
         .map_err(|_| invalid_mnist(path, "count does not fit usize"))?;
-    let rows = usize::try_from(read_u32_be(slice_at(&decoded, 8, 12, path)?, path, "rows")?)
+    let rows = usize::try_from(read_u32_be(slice_at(decoded, 8, 12, path)?, path, "rows")?)
         .map_err(|_| invalid_mnist(path, "row count does not fit usize"))?;
     let cols = usize::try_from(read_u32_be(
-        slice_at(&decoded, 12, 16, path)?,
+        slice_at(decoded, 12, IDX_HEADER_LEN, path)?,
         path,
         "cols",
     )?)
     .map_err(|_| invalid_mnist(path, "column count does not fit usize"))?;
     let dimensions = rows.checked_mul(cols).ok_or(SyntheticError::Overflow)?;
-    let payload_len = count
-        .checked_mul(dimensions)
-        .ok_or(SyntheticError::Overflow)?;
 
-    let payload = decoded
-        .get(16..)
-        .ok_or_else(|| invalid_mnist(path, "missing payload bytes"))?;
-    if payload.len() != payload_len {
-        return Err(invalid_mnist(
-            path,
-            &format!(
-                "payload length mismatch: expected {payload_len}, got {}",
-                payload.len()
-            ),
-        ));
+    Ok(IdxHeader { count, dimensions })
+}
+
+/// Reject an archive whose magic value does not describe images.
+fn ensure_idx_magic(path: &Path, decoded: &[u8]) -> Result<(), SyntheticError> {
+    let magic = read_u32_be(slice_at(decoded, 0, 4, path)?, path, "magic")?;
+    if magic == IDX_IMAGE_MAGIC {
+        return Ok(());
     }
 
-    let data = payload.iter().map(|value| f32::from(*value)).collect();
-    Ok(ParsedImages {
-        data,
-        count,
-        dimensions,
-    })
+    Err(invalid_mnist(
+        path,
+        &format!("unexpected IDX magic {magic}, expected {IDX_IMAGE_MAGIC}"),
+    ))
+}
+
+/// Decode pixel bytes after checking they match the header's declared extent.
+fn decode_payload(
+    path: &Path,
+    decoded: &[u8],
+    header: &IdxHeader,
+) -> Result<Vec<f32>, SyntheticError> {
+    let expected_len = header
+        .count
+        .checked_mul(header.dimensions)
+        .ok_or(SyntheticError::Overflow)?;
+    let payload = decoded
+        .get(IDX_HEADER_LEN..)
+        .ok_or_else(|| invalid_mnist(path, "missing payload bytes"))?;
+
+    ensure_payload_len(path, payload.len(), expected_len)?;
+
+    Ok(payload.iter().map(|value| f32::from(*value)).collect())
+}
+
+/// Reject a payload whose length differs from the header's declared extent.
+fn ensure_payload_len(path: &Path, actual: usize, expected: usize) -> Result<(), SyntheticError> {
+    if actual == expected {
+        return Ok(());
+    }
+
+    Err(invalid_mnist(
+        path,
+        &format!("payload length mismatch: expected {expected}, got {actual}"),
+    ))
 }
 
 /// Decompress an MNIST archive and map decoder failures to domain errors.
