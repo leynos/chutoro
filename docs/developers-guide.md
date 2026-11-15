@@ -442,7 +442,7 @@ version and digest are pinned.
 
 | Tool          | Installer                                                  | Pin                                                                                       |
 | ------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, default 0.2.11, at action commit `a0519a1476ab769ca7b8badfa794f3751213f1ea` |
+| Whitaker      | `leynos/shared-actions/.github/actions/install-whitaker`   | Action input, default 0.2.12, at action commit `a0519a1476ab769ca7b8badfa794f3751213f1ea` |
 | `mold`        | `leynos/shared-actions/.github/actions/setup-rust`         | Action input, currently 2.41.0                                                            |
 | mdtablefix    | `leynos/shared-actions/.github/actions/install-mdtablefix` | Action input, currently 0.6.1                                                             |
 | cargo-nextest | `scripts/install-nextest.sh`                               | `tools/nextest/VERSION` and `SHA256SUMS`                                                  |
@@ -1080,7 +1080,7 @@ agent-facing rule.
 CI installs Whitaker through the shared `install-whitaker` action, pinned to
 the reviewed `leynos/shared-actions` commit
 `a0519a1476ab769ca7b8badfa794f3751213f1ea`; at that commit the action's input
-defaults to `whitaker-installer` 0.2.11. The action resolves the pinned
+defaults to `whitaker-installer` 0.2.12. The action resolves the pinned
 prebuilt release, verifies the installer and Clippy-snapshot digests against
 its own manifest, and runs the installer with `--no-source-fallback`, so a
 source build is a failure rather than a slow success. The installer bootstraps
