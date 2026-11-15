@@ -973,6 +973,31 @@ precondition fails, including when an identifier reaches or exceeds the host
 pointer-width limit. See the [design document](./chutoro-design.md) for the
 architectural rationale and boundary details.
 
+## Publishing crates
+
+Four crates are published to crates.io: `chutoro-core`,
+`chutoro-providers-dense`, `chutoro-providers-text`, and `chutoro-cli`. Every
+other workspace member sets `publish = false`. Each published crate inherits
+`version`, `edition`, `rust-version`, `license`, and `repository` from
+`[workspace.package]` and declares its own `description`, `keywords`, and
+`categories`. `chutoro-core` ships the repository `README.md` as its crates.io
+page.
+
+The workspace carries a single version. During a prerelease series it is a
+prerelease such as `0.1.0-beta1`. A plain `0.1.0` requirement does not match a
+prerelease, so every internal path dependency between published crates states
+the exact workspace version alongside its `path`. Path dev-dependencies on
+`chutoro-test-support` carry no version: Cargo strips version-less path
+dev-dependencies when packaging, which keeps the unpublished helper crate out
+of the published manifests.
+
+Check that every published crate packages and builds from its packaged sources
+before tagging a release:
+
+```sh
+cargo publish --workspace --dry-run
+```
+
 ## Workspace lint and check-cfg policy
 
 The seven workspace crates inherit the root `[workspace.lints]` policy through

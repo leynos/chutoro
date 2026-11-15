@@ -1,7 +1,13 @@
 [package]
 name = "chutoro-providers-dense"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Parquet and Arrow dense-vector data source for chutoro clustering."
+keywords = ["clustering", "parquet", "arrow", "embeddings", "fishdbc"]
+categories = ["algorithms", "science"]
 
 [features]
 default = ["simd_avx2", "simd_avx512", "simd_neon"]
@@ -16,7 +22,7 @@ arrow-schema = { workspace = true }
 parquet = { workspace = true, features = ["arrow"] }
 thiserror = "2.0.17"
 [dependencies.chutoro-core]
-version = "0.1.0"
+version = "0.1.0-beta1"
 path = "../../chutoro-core"
 default-features = false
 features = ["skeleton"]
@@ -30,7 +36,6 @@ rstest = "0.28"
 test-strategy = "0.4.3"
 
 [dev-dependencies.chutoro-test-support]
-version = "0.1.0"
 path = "../../chutoro-test-support"
 
 [lints]
