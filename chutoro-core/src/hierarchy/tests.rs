@@ -244,3 +244,35 @@ fn hierarchy_error_codes_are_stable(
     assert_eq!(code, expected_code);
     assert_eq!(code.as_str(), expected_name);
 }
+
+/// Equal parent and child stability must keep the children.
+///
+/// Integer-valued metrics such as Levenshtein distance routinely produce exact
+/// stability ties. The design's excess-of-mass rule selects the parent only
+/// when its stability strictly exceeds the children's sum, so a tie must not
+/// collapse two well-separated groups into one cluster. Here each group of
+/// four is joined internally at weight 2 and the groups meet at weight 4: the
+/// root scores `8 × ¼ = 2` and the children score `2 × 4 × (½ − ¼) = 2`.
+#[test]
+fn stability_tie_keeps_child_clusters() {
+    let within = |left, right, sequence| CandidateEdge::new(left, right, 2.0, sequence);
+    let harvest = EdgeHarvest::new(vec![
+        within(0, 1, 0),
+        within(0, 2, 1),
+        within(0, 3, 2),
+        within(4, 5, 3),
+        within(4, 6, 4),
+        within(4, 7, 5),
+        CandidateEdge::new(0, 7, 4.0, 6),
+    ]);
+    let forest = parallel_kruskal(8, &harvest).expect("MST should succeed");
+
+    let labels = extract_labels_from_mst(
+        8,
+        forest.edges(),
+        HierarchyConfig::new(NonZeroUsize::new(2).expect("non-zero")),
+    )
+    .expect("hierarchy extraction should succeed");
+
+    assert_eq!(labels, vec![0, 0, 0, 0, 1, 1, 1, 1]);
+}
