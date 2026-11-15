@@ -185,6 +185,36 @@ fn memory_limit_rejection_records_bounded_metrics_and_tracing() {
     assert!(!event.fields.contains_key("data_source"));
 }
 
+/// Byte histograms must report limits above `u32::MAX` exactly.
+///
+/// Production memory limits routinely exceed 4 GiB; recording them clamped
+/// to `u32::MAX` would make an 8 GiB limit indistinguishable from a 4 GiB one.
+#[cfg(feature = "cpu")]
+#[test]
+fn memory_limits_above_four_gibibytes_are_recorded_exactly() {
+    let limit: u64 = 8 * 1024 * 1024 * 1024;
+    let chutoro = ChutoroBuilder::new()
+        .with_min_cluster_size(2)
+        .with_execution_strategy(ExecutionStrategy::CpuOnly)
+        .with_max_bytes(limit)
+        .build()
+        .expect("configuration must be valid");
+    let recorder = metrics_util::debugging::DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+
+    metrics::with_local_recorder(&recorder, || {
+        chutoro
+            .run(&Dummy::new(vec![1.0, 3.0, 6.0, 10.0]))
+            .expect("an 8 GiB limit must admit a four-item run");
+    });
+
+    let snapshot = snapshotter.snapshot().into_vec();
+    assert_histogram_sample(
+        metric_value!(&snapshot, MEMORY_LIMIT_BYTES, &[("backend", "cpu")]),
+        8_589_934_592.0,
+    );
+}
+
 #[test]
 fn empty_and_insufficient_rejections_record_stable_outcomes() {
     let recorder = metrics_util::debugging::DebuggingRecorder::new();
