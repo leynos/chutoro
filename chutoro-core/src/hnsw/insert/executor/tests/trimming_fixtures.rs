@@ -4,12 +4,17 @@
 //! exercise the insertion executor's trimming and reciprocity restoration
 //! logic.
 
+use proptest::prelude::*;
+
 use super::*;
-use crate::hnsw::{
-    error::HnswError,
-    graph::{ApplyContext, Graph, NodeContext},
-    params::{HnswParams, connection_limit_for_level},
-    types::{InsertionPlan, LayerPlan, Neighbour},
+use crate::{
+    hnsw::{
+        error::HnswError,
+        graph::{ApplyContext, Graph, NodeContext},
+        params::{HnswParams, connection_limit_for_level},
+        types::{InsertionPlan, LayerPlan, Neighbour},
+    },
+    test_utils::suite_proptest_config,
 };
 
 /// Failure modes of the trimming fixtures.
@@ -247,6 +252,44 @@ fn documented_example_saturates_the_entry_node() -> Result<(), TrimmingFixtureEr
     apply_insertion_with_trim(&mut graph, &params, new_node_id, trimmed_neighbours)?;
 
     verify_post_trim_reciprocity(&graph, &params, new_node_id, evicted)
+}
+
+proptest! {
+    #![proptest_config(suite_proptest_config(64))]
+
+    /// The builder keeps the insertion slot free for any generated id layout.
+    ///
+    /// The regression tests above pin two hand-picked scenarios. This property
+    /// varies the neighbour set and the insertion id, so the contract stated in
+    /// the builder's Rustdoc is checked across the input space a caller can
+    /// actually choose from.
+    #[test]
+    fn build_trimming_test_graph_keeps_the_insertion_slot_free_for_generated_ids(
+        raw_neighbours in prop::collection::vec(1usize..=16, 1..8),
+        new_node_id in 17usize..=32,
+    ) {
+        let mut trimmed_neighbours = raw_neighbours;
+        trimmed_neighbours.sort_unstable();
+        trimmed_neighbours.dedup();
+        let reserve_id = new_node_id.saturating_add(1);
+        let params = HnswParams::new(4, 16)
+            .map_err(|error| TestCaseError::fail(error.to_string()))?;
+
+        let graph = build_trimming_test_graph(&params, &trimmed_neighbours, reserve_id)
+            .map_err(|error| TestCaseError::fail(error.to_string()))?;
+
+        prop_assert!(
+            graph.node(new_node_id).is_none(),
+            "the node under test must stay absent for ids {:?} and reserve {}",
+            trimmed_neighbours,
+            reserve_id,
+        );
+        prop_assert!(
+            graph.node(reserve_id).is_some(),
+            "the reserved placeholder {} must be attached",
+            reserve_id,
+        );
+    }
 }
 
 fn attach_neighbours(
