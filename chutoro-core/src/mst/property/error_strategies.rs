@@ -20,13 +20,16 @@ pub(super) fn invalid_edge_list_strategy() -> impl Strategy<Value = (usize, Vec<
         (2usize..24).prop_flat_map(move |len| {
             (
                 distinct_position_pair(len),
-                prop::collection::vec(invalid_edge_strategy(node_count), 2),
+                (
+                    invalid_edge_strategy(node_count),
+                    invalid_edge_strategy(node_count),
+                ),
                 prop::collection::vec(valid_edge_strategy(node_count), len.saturating_sub(2)),
             )
                 .prop_map(move |(positions, invalid_edges, valid_edges)| {
                     (
                         node_count,
-                        place_invalid_edges(len, positions, invalid_edges, valid_edges),
+                        place_invalid_edges(positions, invalid_edges, valid_edges),
                     )
                 })
         })
@@ -35,24 +38,32 @@ pub(super) fn invalid_edge_list_strategy() -> impl Strategy<Value = (usize, Vec<
 
 /// Places the two invalid edges at `positions`, filling the other slots with
 /// valid edges.
+///
+/// The generator supplies exactly `len − 2` valid edges, so the three spans
+/// cover the list without needing to detect a short input. Drawing the
+/// invalid edges as a fixed pair rather than a `Vec` keeps the placement
+/// infallible: there is no iterator state to run dry.
 fn place_invalid_edges(
-    len: usize,
     positions: (usize, usize),
-    invalid_edges: Vec<CandidateEdge>,
+    invalid_edges: (CandidateEdge, CandidateEdge),
     valid_edges: Vec<CandidateEdge>,
 ) -> Vec<CandidateEdge> {
     let (low, high) = ascending_pair(positions);
-    let mut invalid_iter = invalid_edges.into_iter();
+    let (first_invalid, second_invalid) = invalid_edges;
     let mut valid_iter = valid_edges.into_iter();
-    (0..len)
-        .map(|index| {
-            if index == low || index == high {
-                invalid_iter.next().expect("exactly two invalid edges")
-            } else {
-                valid_iter.next().expect("enough valid edges")
-            }
-        })
-        .collect()
+
+    let mut placed = Vec::with_capacity(valid_iter.len().saturating_add(2));
+    placed.extend(valid_iter.by_ref().take(low));
+    placed.push(first_invalid);
+    // The positions are distinct, so at least one valid edge separates them.
+    placed.extend(
+        valid_iter
+            .by_ref()
+            .take(high.saturating_sub(low).saturating_sub(1)),
+    );
+    placed.push(second_invalid);
+    placed.extend(valid_iter);
+    placed
 }
 
 /// Returns the pair with the smaller value first.
