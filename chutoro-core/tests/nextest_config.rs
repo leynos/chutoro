@@ -211,8 +211,9 @@ fn compiler_starting_tests_share_the_nested_cargo_group() {
         "test-group = \"nested-cargo\""
     )));
     assert!(NEXTEST_CONFIG.contains(concat!(
-        "filter = \"binary(portable_simd_gating) | binary(result_api_surface) | ",
-        "binary(session_api_surface) | binary(benchmark_smoke)\"\n",
+        "filter = \"binary(dense_testing_feature) | binary(portable_simd_gating) | ",
+        "binary(result_api_surface) | binary(session_api_surface) | ",
+        "binary(benchmark_smoke)\"\n",
         "test-group = \"nested-cargo\""
     )));
 }
