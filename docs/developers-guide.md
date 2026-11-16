@@ -735,10 +735,13 @@ pub fn search<D: DataSource + Sync>(
 ) -> Result<Vec<Neighbour>, HnswError>;
 ```
 
-`build` and `build_with_edges` seed the entry point from node `0` and insert
-the remaining nodes in parallel. `build_with_edges` is the preferred path when
-the caller needs the deterministic `EdgeHarvest` used by the MST stage.
-`with_capacity` is the entry point for manual or incremental index population.
+`build` and `build_with_edges` seed the entry point from node `0`
+single-threaded, then dispatch the remaining insertions across Rayon workers.
+Each insertion is serialized by the index's insert mutex, so Rayon provides
+worker dispatch rather than concurrent graph mutation. `build_with_edges` is
+the preferred path when the caller needs the deterministic `EdgeHarvest` used
+by the MST stage. `with_capacity` is the entry point for manual or incremental
+index population.
 
 `insert` mutates the graph without allocating harvested edge storage.
 `insert_harvesting` performs the same planning and commit sequence, but also

@@ -131,8 +131,15 @@ impl CpuHnsw {
 
     /// Shared initial setup for both `build` and `build_with_edges`.
     ///
-    /// Creates the index, inserts the entry point (node 0), and returns
-    /// the index ready for parallel insertion of remaining nodes.
+    /// Creates the index and installs the entry point (node 0) while still
+    /// running single-threaded, before either caller dispatches any Rayon
+    /// work. The entry point is written directly through the graph write lock
+    /// and does not take `insert_mutex`, because no other thread can observe
+    /// the index yet.
+    ///
+    /// Both callers then insert nodes `1..items` on Rayon workers. Each of
+    /// those insertions is serialized by `insert_mutex`, so Rayon provides
+    /// worker dispatch rather than concurrent graph mutation.
     fn build_initial<D: DataSource + Sync>(
         source: &D,
         params: HnswParams,
