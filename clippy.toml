@@ -6,6 +6,7 @@ disallowed-methods = [
     { path = "std::env::vars_os", reason = "inject an environment reader" },
     { path = "std::env::set_var", reason = "use a stub environment in tests" },
     { path = "std::env::remove_var", reason = "use a stub environment in tests" },
+    { path = "std::env::set_current_dir", reason = "process-wide working directory; pass the directory in or use Command::current_dir" },
 ]
 
 cognitive-complexity-threshold = 9     # default is 25 
