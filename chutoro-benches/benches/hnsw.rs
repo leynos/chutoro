@@ -3,8 +3,6 @@
 //! Measures the time to construct an HNSW index using both the plain
 //! `build` path and the `build_with_edges` path that additionally
 //! harvests candidate edges for MST construction.
-use std::{path::PathBuf, time::Duration};
-
 use criterion::{
     BatchSize, BenchmarkGroup, BenchmarkId, Criterion, black_box, criterion_main,
     measurement::WallTime,
@@ -20,16 +18,18 @@ use chutoro_benches::{
     ef_sweep::{BENCH_DIMENSIONS, BENCH_SEED, make_bench_source, make_hnsw_params_with_ef},
     error::BenchSetupError,
     params::HnswBenchParams,
-    profiling::{
-        EdgeScalingBounds, HnswMemoryInput, HnswMemoryRecord, ProfilingError,
-        measure_peak_resident_set_size, write_hnsw_memory_report,
-    },
     source::{
         Anisotropy, GaussianBlobConfig, ManifoldConfig, ManifoldPattern, MnistConfig,
         SyntheticSource, SyntheticTextConfig,
     },
 };
 use chutoro_core::{CpuHnsw, DataSource, HnswError, HnswParams};
+
+#[path = "internal/hnsw_memory_profile.rs"]
+mod memory_profile;
+
+#[path = "internal/hnsw_environment.rs"]
+mod environment;
 
 /// Dataset sizes to benchmark.
 const POINT_COUNTS: &[usize] = &[100, 500, 1_000, 5_000];
@@ -42,18 +42,6 @@ const DIVERSE_POINT_COUNT: usize = 1_000;
 
 /// Dataset size used when nextest probes one Criterion case with `--exact`.
 const EXACT_PROBE_POINT_COUNT: usize = 100;
-
-/// Sampling cadence for peak resident-set-size profiling.
-const MEMORY_SAMPLE_INTERVAL: Duration = Duration::from_millis(2);
-
-/// Report destination for derived memory metrics.
-const MEMORY_REPORT_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../target/benchmarks/hnsw_memory_profile.csv"
-);
-
-/// Multiplicative edge-scaling tolerance around `expected = n * M`.
-const EDGE_SCALING_BOUNDS: EdgeScalingBounds = EdgeScalingBounds::new(8, 8);
 
 /// Criterion label for the text-source Levenshtein-distance case.
 const TEXT_LEVENSHTEIN_BENCH_LABEL: &str = "text_levenshtein";
@@ -276,74 +264,9 @@ fn hnsw_build(c: &mut Criterion) {
     }
 }
 
-/// Determine whether this invocation should collect HNSW memory measurements.
-fn should_collect_memory_profile_with_env(env: &dyn Env) -> bool {
-    if let Some(value) = env.string("CHUTORO_BENCH_HNSW_MEMORY_PROFILE") {
-        let normalized = value.trim().to_ascii_lowercase();
-        if matches!(normalized.as_str(), "0" | "false" | "off") {
-            return false;
-        }
-        if matches!(normalized.as_str(), "1" | "true" | "on") {
-            return true;
-        }
-    }
-    !is_benchmark_discovery() && !is_exact_benchmark_probe()
-}
-
-/// Resolve the memory-report path through an injected environment reader.
-fn memory_report_path_with_env(env: &dyn Env) -> PathBuf {
-    env.os_string("CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH")
-        .map_or_else(|| PathBuf::from(MEMORY_REPORT_PATH), PathBuf::from)
-}
-/// Collect and write optional HNSW memory measurements before benchmark setup.
-fn profile_hnsw_memory_impl() -> Result<Option<PathBuf>, BenchSetupError> {
-    profile_hnsw_memory_impl_with_env(&DefaultEnv)
-}
-
-/// Collect memory measurements through an injected environment reader.
-fn profile_hnsw_memory_impl_with_env(env: &dyn Env) -> Result<Option<PathBuf>, BenchSetupError> {
-    if !should_collect_memory_profile_with_env(env) {
-        return Ok(None);
-    }
-
-    let report_path = memory_report_path_with_env(env);
-    let mut records = Vec::new();
-
-    for &point_count in POINT_COUNTS {
-        let source = make_bench_source(point_count)?;
-
-        for &m in MAX_CONNECTIONS {
-            let params = make_hnsw_params(m)?;
-            let ef_construction = params.ef_construction();
-            let (build_result, measurement) =
-                match measure_peak_resident_set_size(MEMORY_SAMPLE_INTERVAL, || {
-                    CpuHnsw::build_with_edges(&source, params.clone())
-                }) {
-                    Ok(measurement) => measurement,
-                    Err(ProfilingError::UnsupportedPlatform { .. }) => return Ok(None),
-                    Err(err) => return Err(err.into()),
-                };
-            let (_index, harvest) = build_result?;
-            records.push(HnswMemoryRecord::new(
-                HnswMemoryInput {
-                    point_count,
-                    max_connections: m,
-                    ef_construction,
-                    measurement,
-                    edge_count: harvest.len(),
-                },
-                EDGE_SCALING_BOUNDS,
-            )?);
-        }
-    }
-
-    write_hnsw_memory_report(&report_path, &records)
-        .map(Some)
-        .map_err(BenchSetupError::from)
-}
 /// Register edge-harvesting HNSW measurements and optional memory reporting.
 fn hnsw_build_with_edges_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
-    let _maybe_report_path = profile_hnsw_memory_impl()?;
+    let _maybe_report_path = memory_profile::profile_hnsw_memory_impl()?;
     bench_hnsw_build_generic(c, "hnsw_build_with_edges", |source, params| {
         CpuHnsw::build_with_edges(source, params).map(|_| ())
     })
@@ -404,7 +327,7 @@ fn hnsw_build_diverse_sources_impl_with_env(
         &params,
     );
 
-    if should_include_mnist_with_env(env) {
+    if environment::should_include_mnist_with_env(env) {
         let mnist = SyntheticSource::load_mnist(&MnistConfig::default_with_env(env))?;
         bench_build_source(
             &mut group,
@@ -422,123 +345,10 @@ fn hnsw_build_diverse_sources_impl_with_env(
     Ok(())
 }
 
-/// Determine whether the diverse-source benchmark should include MNIST.
-fn should_include_mnist_with_env(env: &dyn Env) -> bool {
-    env.string("CHUTORO_BENCH_ENABLE_MNIST").as_deref() == Some("1")
-}
 /// Register the public Criterion diverse-source HNSW entrypoint.
 fn hnsw_build_diverse_sources(c: &mut Criterion) {
     if let Err(err) = hnsw_build_diverse_sources_impl(c) {
         panic!("hnsw_build_diverse_sources benchmark setup failed: {err}");
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    //! Tests for HNSW memory-profile environment configuration.
-
-    #[rstest::fixture]
-    fn env_with_memory_settings_unset() -> mockable::MockEnv {
-        let mut env = mockable::MockEnv::new();
-
-        env.expect_string().returning(|key| {
-            assert_eq!(key, "CHUTORO_BENCH_HNSW_MEMORY_PROFILE");
-            None
-        });
-        env.expect_os_string().returning(|key| {
-            assert_eq!(key, "CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH");
-            None
-        });
-
-        env
-    }
-
-    #[test]
-    fn memory_profile_explicitly_disabled_by_environment() {
-        let mut env = mockable::MockEnv::new();
-        env.expect_string().returning(|key| {
-            assert_eq!(key, "CHUTORO_BENCH_HNSW_MEMORY_PROFILE");
-            Some("false".to_owned())
-        });
-
-        assert!(!super::should_collect_memory_profile_with_env(&env));
-    }
-
-    #[test]
-    fn memory_profile_explicitly_enabled_by_environment() {
-        let mut env = mockable::MockEnv::new();
-        env.expect_string().returning(|key| {
-            assert_eq!(key, "CHUTORO_BENCH_HNSW_MEMORY_PROFILE");
-            Some("true".to_owned())
-        });
-
-        assert!(super::should_collect_memory_profile_with_env(&env));
-    }
-
-    #[test]
-    fn memory_profile_uses_benchmark_mode_when_environment_is_unset() {
-        let env = env_with_memory_settings_unset();
-
-        assert_eq!(
-            super::should_collect_memory_profile_with_env(&env),
-            !super::is_benchmark_discovery() && !super::is_exact_benchmark_probe()
-        );
-    }
-
-    #[test]
-    fn memory_report_path_defaults_when_environment_is_unset() {
-        let env = env_with_memory_settings_unset();
-
-        assert_eq!(
-            super::memory_report_path_with_env(&env),
-            std::path::PathBuf::from(super::MEMORY_REPORT_PATH)
-        );
-    }
-
-    #[test]
-    fn memory_report_path_uses_configured_os_string() {
-        let configured_path = std::path::PathBuf::from("reports/hnsw-memory.csv");
-        let expected_path = configured_path.clone();
-        let mut env = mockable::MockEnv::new();
-        env.expect_os_string().returning(move |key| {
-            assert_eq!(key, "CHUTORO_BENCH_HNSW_MEMORY_REPORT_PATH");
-            Some(std::ffi::OsString::from(configured_path.clone()))
-        });
-
-        assert_eq!(super::memory_report_path_with_env(&env), expected_path);
-    }
-
-    #[test]
-    fn mnist_is_excluded_when_environment_is_unset() {
-        let mut env = mockable::MockEnv::new();
-        env.expect_string().returning(|key| {
-            assert_eq!(key, "CHUTORO_BENCH_ENABLE_MNIST");
-            None
-        });
-
-        assert!(!super::should_include_mnist_with_env(&env));
-    }
-
-    #[test]
-    fn mnist_is_excluded_when_environment_is_disabled() {
-        let mut env = mockable::MockEnv::new();
-        env.expect_string().returning(|key| {
-            assert_eq!(key, "CHUTORO_BENCH_ENABLE_MNIST");
-            Some("0".to_owned())
-        });
-
-        assert!(!super::should_include_mnist_with_env(&env));
-    }
-
-    #[test]
-    fn mnist_is_included_when_environment_is_enabled() {
-        let mut env = mockable::MockEnv::new();
-        env.expect_string().returning(|key| {
-            assert_eq!(key, "CHUTORO_BENCH_ENABLE_MNIST");
-            Some("1".to_owned())
-        });
-
-        assert!(super::should_include_mnist_with_env(&env));
     }
 }
 

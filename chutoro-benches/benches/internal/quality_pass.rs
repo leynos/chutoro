@@ -1,6 +1,8 @@
 //! Clustering-quality pass helpers for the HNSW `ef_construction` sweep.
 
-use std::{num::NonZeroUsize, path::PathBuf, time::Instant};
+use std::{num::NonZeroUsize, time::Instant};
+
+use camino::Utf8PathBuf;
 
 use chutoro_benches::{
     clustering_quality::{
@@ -18,7 +20,7 @@ use chutoro_core::{
     extract_labels_from_mst, parallel_kruskal,
 };
 
-use crate::{
+use super::{
     CLUSTERING_QUALITY_CLUSTER_COUNT, CLUSTERING_QUALITY_MIN_CLUSTER_SIZE,
     CLUSTERING_QUALITY_POINT_COUNT, cluster_quality_report_path,
     should_collect_cluster_quality_report,
@@ -173,7 +175,7 @@ fn pipeline_labels_with_hnsw_params(
 
 /// Runs one optional cluster-quality sweep across configured HNSW `(M, ef)` pairs.
 ///
-/// Returns `Ok(Some(PathBuf))` when reporting is enabled and the CSV write
+/// Returns `Ok(Some(Utf8PathBuf))` when reporting is enabled and the CSV write
 /// succeeds, `Ok(None)` when reporting is disabled, and `Err(BenchSetupError)`
 /// for setup, pipeline, scoring, or report-write failures.
 ///
@@ -185,7 +187,8 @@ fn pipeline_labels_with_hnsw_params(
 /// Preconditions and guarantees:
 /// - Requires non-zero `CLUSTERING_QUALITY_MIN_CLUSTER_SIZE`.
 /// - Uses deterministic benchmark fixtures/parameters for reproducible output.
-pub(super) fn measure_clustering_quality_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
+pub(super) fn measure_clustering_quality_vs_ef_impl() -> Result<Option<Utf8PathBuf>, BenchSetupError>
+{
     if !should_collect_cluster_quality_report() {
         return Ok(None);
     }
@@ -221,7 +224,7 @@ pub(super) fn measure_clustering_quality_vs_ef_impl() -> Result<Option<PathBuf>,
         }
     }
 
-    write_clustering_quality_report(cluster_quality_report_path(), &records)
+    write_clustering_quality_report(&cluster_quality_report_path(), &records)
         .map(Some)
         .map_err(BenchSetupError::ClusteringQualityReport)
 }

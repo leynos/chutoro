@@ -5,13 +5,11 @@
 
 mod memory_sampler;
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
-
+use camino::{Utf8Path, Utf8PathBuf};
 pub use memory_sampler::{PeakRssMeasurement, measure_peak_resident_set_size};
 use thiserror::Error;
+
+use crate::report_file::write_report_file;
 
 /// Validates whether harvested edge count is within expected scaling bounds.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -280,20 +278,14 @@ fn validate_edge_scaling(
 /// Returns [`ProfilingError`] when creating the parent directory or writing
 /// the report file fails.
 pub fn write_hnsw_memory_report(
-    report_path: impl AsRef<Path>,
+    report_path: &Utf8Path,
     records: &[HnswMemoryRecord],
-) -> Result<PathBuf, ProfilingError> {
-    let report_file_path = report_path.as_ref().to_path_buf();
-    if let Some(parent) = report_file_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
+) -> Result<Utf8PathBuf, ProfilingError> {
     let mut output = String::from(HnswMemoryRecord::csv_header());
     for record in records {
         output.push_str(&record.to_csv_row());
     }
-    fs::write(&report_file_path, output)?;
-    Ok(report_file_path)
+    write_report_file(report_path, &output).map_err(ProfilingError::from)
 }
 
 #[cfg(test)]

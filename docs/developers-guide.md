@@ -2516,6 +2516,17 @@ entrypoint wiring and place testable profiling, candidate-planning, and
 argument-selection logic in `chutoro-benches/src/`, with unit tests beside the
 library modules. This gives those tests Cargo's normal test harness and avoids
 lint expectations for code that only appears unused in the harness-free build.
+The HNSW and `ef_construction` sweep environment-policy modules are a narrow
+exception: each is included only by its owning Criterion target and dedicated
+integration test target, and remains private to those harnesses. Put helpers
+reused across benchmarks in `chutoro-benches/src/`.
+
+Report writers share `chutoro-benches/src/report_file.rs`, a crate-private
+helper that creates missing parent directories and writes a UTF-8 path through
+a capability-scoped `cap_std` directory handle. Its only callers are the
+recall, clustering-quality, and memory-profile writers. Benchmark harnesses
+keep calling those public writers rather than the helper, so the capability
+boundary stays inside the support crate.
 
 The library seam is owned by `chutoro-benches`: benchmark binaries may call it,
 but production crates must not depend on it. Prefer pure helpers without

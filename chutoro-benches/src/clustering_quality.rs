@@ -4,12 +4,10 @@
 //! Information (NMI) scoring against ground-truth labels, together with a CSV
 //! report writer used by benchmark harnesses.
 
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
-
+use camino::{Utf8Path, Utf8PathBuf};
 pub use chutoro_core::{ClusteringQualityError, ClusteringQualityScore};
+
+use crate::report_file::write_report_file;
 
 /// A single row in the ARI/NMI quality report.
 #[derive(Clone, Debug, PartialEq)]
@@ -99,20 +97,14 @@ pub fn clustering_quality_score(
 ///
 /// Returns [`std::io::Error`] when directory creation or file writing fails.
 pub fn write_clustering_quality_report(
-    report_path: impl AsRef<Path>,
+    report_path: &Utf8Path,
     records: &[ClusteringQualityMeasurement],
-) -> Result<PathBuf, std::io::Error> {
-    let report_file_path = report_path.as_ref().to_path_buf();
-    if let Some(parent) = report_file_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
+) -> Result<Utf8PathBuf, std::io::Error> {
     let mut output = String::from(ClusteringQualityMeasurement::csv_header());
     for record in records {
         output.push_str(&record.to_csv_row());
     }
-    fs::write(&report_file_path, output)?;
-    Ok(report_file_path)
+    write_report_file(report_path, &output)
 }
 
 #[cfg(test)]
@@ -181,7 +173,9 @@ mod tests {
     #[test]
     fn write_clustering_quality_report_writes_header_and_rows() {
         let temp_dir = tempfile::tempdir().expect("tempdir should be created");
-        let report_path = temp_dir.path().join("quality.csv");
+        let report_path = camino::Utf8Path::from_path(temp_dir.path())
+            .expect("tempdir path must be UTF-8")
+            .join("quality.csv");
         let rows = vec![ClusteringQualityMeasurement {
             point_count: 1000,
             max_connections: 16,

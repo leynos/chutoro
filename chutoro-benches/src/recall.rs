@@ -4,13 +4,12 @@
 //! recall scorer, and a CSV report writer so benchmarks can quantify
 //! build-time versus recall trade-offs across `ef_construction` values.
 
-use std::{
-    collections::{BinaryHeap, HashSet},
-    fs,
-    path::{Path, PathBuf},
-};
+use std::collections::{BinaryHeap, HashSet};
 
+use camino::{Utf8Path, Utf8PathBuf};
 use chutoro_core::{DataSource, DataSourceError, Neighbour};
+
+use crate::report_file::write_report_file;
 
 /// Integer-only recall score, avoiding `float_arithmetic` lint concerns.
 ///
@@ -173,20 +172,14 @@ fn recall_fraction(score: RecallScore) -> String {
 ///
 /// Returns [`std::io::Error`] if directory creation or file writing fails.
 pub fn write_recall_report(
-    report_path: impl AsRef<Path>,
+    report_path: &Utf8Path,
     records: &[RecallMeasurement],
-) -> Result<PathBuf, std::io::Error> {
-    let report_file_path = report_path.as_ref().to_path_buf();
-    if let Some(parent) = report_file_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
+) -> Result<Utf8PathBuf, std::io::Error> {
     let mut output = String::from(RecallMeasurement::csv_header());
     for record in records {
         output.push_str(&record.to_csv_row());
     }
-    fs::write(&report_file_path, output)?;
-    Ok(report_file_path)
+    write_report_file(report_path, &output)
 }
 
 #[cfg(test)]
@@ -340,9 +333,11 @@ mod tests {
             recall: RecallScore { hits: 9, total: 10 },
             build_time_millis: 42,
         }];
+        let report_path =
+            Utf8Path::from_path(temp_file.path()).expect("temp file path must be UTF-8");
         let written_path =
-            write_recall_report(temp_file.path(), &records).expect("report write must succeed");
-        let contents = fs::read_to_string(&written_path).expect("report must be readable");
+            write_recall_report(report_path, &records).expect("report write must succeed");
+        let contents = std::fs::read_to_string(&written_path).expect("report must be readable");
         assert!(contents.starts_with("point_count,max_connections"));
         // Header + 1 data row
         assert_eq!(contents.lines().count(), 2);
