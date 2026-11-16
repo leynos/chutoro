@@ -3,6 +3,10 @@
 //! The hierarchy builder exposes a compact semantic error surface while its
 //! forest and condensation phases remain implementation details.
 
+use std::fmt;
+
+use crate::error::define_error_codes;
+
 /// Errors returned by hierarchy extraction.
 #[derive(Clone, Debug, thiserror::Error, PartialEq)]
 #[non_exhaustive]
@@ -58,53 +62,22 @@ pub enum HierarchyError {
     },
 }
 
-impl HierarchyError {
-    /// Returns a stable, machine-readable error code for the variant.
-    #[must_use]
-    pub const fn code(&self) -> HierarchyErrorCode {
-        match self {
-            Self::EmptyDataset => HierarchyErrorCode::EmptyDataset,
-            Self::MinClusterSizeTooLarge { .. } => HierarchyErrorCode::MinClusterSizeTooLarge,
-            Self::InvalidEdgeWeight { .. } => HierarchyErrorCode::InvalidEdgeWeight,
-            Self::InvalidEdgeEndpoint { .. } => HierarchyErrorCode::InvalidEdgeEndpoint,
-            Self::InvalidForestReference { .. } => HierarchyErrorCode::InvalidForestReference,
-            Self::InvalidClusterReference { .. } => HierarchyErrorCode::InvalidClusterReference,
-            Self::InvalidPointReference { .. } => HierarchyErrorCode::InvalidPointReference,
-        }
-    }
-}
-
-/// Machine-readable error codes for [`HierarchyError`].
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum HierarchyErrorCode {
-    /// The caller requested hierarchy extraction for an empty dataset.
-    EmptyDataset,
-    /// The configured minimum cluster size exceeds the dataset size.
-    MinClusterSizeTooLarge,
-    /// An input edge weight was invalid for hierarchy extraction.
-    InvalidEdgeWeight,
-    /// An input edge endpoint was outside the dataset.
-    InvalidEdgeEndpoint,
-    /// A constructed linkage forest referenced a missing node.
-    InvalidForestReference,
-    /// Condensation referenced a missing cluster.
-    InvalidClusterReference,
-    /// Condensation referenced a point outside the dataset.
-    InvalidPointReference,
-}
-
-impl HierarchyErrorCode {
-    /// Returns the symbolic identifier for logging and metrics surfaces.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::EmptyDataset => "EMPTY_DATASET",
-            Self::MinClusterSizeTooLarge => "MIN_CLUSTER_SIZE_TOO_LARGE",
-            Self::InvalidEdgeWeight => "INVALID_EDGE_WEIGHT",
-            Self::InvalidEdgeEndpoint => "INVALID_EDGE_ENDPOINT",
-            Self::InvalidForestReference => "INVALID_FOREST_REFERENCE",
-            Self::InvalidClusterReference => "INVALID_CLUSTER_REFERENCE",
-            Self::InvalidPointReference => "INVALID_POINT_REFERENCE",
-        }
+define_error_codes! {
+    /// Machine-readable error codes for [`HierarchyError`].
+    enum HierarchyErrorCode for HierarchyError {
+        /// The caller requested hierarchy extraction for an empty dataset.
+        EmptyDataset => EmptyDataset => "EMPTY_DATASET",
+        /// The configured minimum cluster size exceeds the dataset size.
+        MinClusterSizeTooLarge => MinClusterSizeTooLarge { .. } => "MIN_CLUSTER_SIZE_TOO_LARGE",
+        /// An input edge weight was invalid for hierarchy extraction.
+        InvalidEdgeWeight => InvalidEdgeWeight { .. } => "INVALID_EDGE_WEIGHT",
+        /// An input edge endpoint was outside the dataset.
+        InvalidEdgeEndpoint => InvalidEdgeEndpoint { .. } => "INVALID_EDGE_ENDPOINT",
+        /// A constructed linkage forest referenced a missing node.
+        InvalidForestReference => InvalidForestReference { .. } => "INVALID_FOREST_REFERENCE",
+        /// Condensation referenced a missing cluster.
+        InvalidClusterReference => InvalidClusterReference { .. } => "INVALID_CLUSTER_REFERENCE",
+        /// Condensation referenced a point outside the dataset.
+        InvalidPointReference => InvalidPointReference { .. } => "INVALID_POINT_REFERENCE",
     }
 }

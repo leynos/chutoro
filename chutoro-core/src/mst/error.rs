@@ -6,6 +6,10 @@
 //! invariants). Keeping them in one place lets callers inspect, retry, or map
 //! them without depending on the algorithm module itself.
 
+use std::fmt;
+
+use crate::error::define_error_codes;
+
 /// Errors returned while computing a minimum spanning tree/forest.
 #[derive(Clone, Debug, thiserror::Error, PartialEq)]
 #[non_exhaustive]
@@ -47,45 +51,18 @@ pub enum MstError {
     },
 }
 
-impl MstError {
-    /// Returns a stable, machine-readable error code for the variant.
-    #[must_use]
-    pub const fn code(&self) -> MstErrorCode {
-        match self {
-            Self::EmptyGraph => MstErrorCode::EmptyGraph,
-            Self::InvalidNodeId { .. } => MstErrorCode::InvalidNodeId,
-            Self::NonFiniteWeight { .. } => MstErrorCode::NonFiniteWeight,
-            Self::LockPoisoned { .. } => MstErrorCode::LockPoisoned,
-            Self::InvariantViolation { .. } => MstErrorCode::InvariantViolation,
-        }
-    }
-}
-
-/// Machine-readable error codes for [`MstError`].
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum MstErrorCode {
-    /// The caller requested an MST for an empty graph.
-    EmptyGraph,
-    /// An edge referenced a node id that is not present in the graph.
-    InvalidNodeId,
-    /// An edge contained a non-finite weight.
-    NonFiniteWeight,
-    /// A synchronization primitive became poisoned after a panic.
-    LockPoisoned,
-    /// An internal invariant was violated.
-    InvariantViolation,
-}
-
-impl MstErrorCode {
-    /// Returns the symbolic identifier for logging and metrics surfaces.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::EmptyGraph => "EMPTY_GRAPH",
-            Self::InvalidNodeId => "INVALID_NODE_ID",
-            Self::NonFiniteWeight => "NON_FINITE_WEIGHT",
-            Self::LockPoisoned => "LOCK_POISONED",
-            Self::InvariantViolation => "INVARIANT_VIOLATION",
-        }
+define_error_codes! {
+    /// Machine-readable error codes for [`MstError`].
+    enum MstErrorCode for MstError {
+        /// The caller requested an MST for an empty graph.
+        EmptyGraph => EmptyGraph => "EMPTY_GRAPH",
+        /// An edge referenced a node id that is not present in the graph.
+        InvalidNodeId => InvalidNodeId { .. } => "INVALID_NODE_ID",
+        /// An edge contained a non-finite weight.
+        NonFiniteWeight => NonFiniteWeight { .. } => "NON_FINITE_WEIGHT",
+        /// A synchronization primitive became poisoned after a panic.
+        LockPoisoned => LockPoisoned { .. } => "LOCK_POISONED",
+        /// An internal invariant was violated.
+        InvariantViolation => InvariantViolation { .. } => "INVARIANT_VIOLATION",
     }
 }
