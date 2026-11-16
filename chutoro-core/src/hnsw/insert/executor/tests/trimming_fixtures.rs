@@ -227,6 +227,28 @@ fn build_trimming_test_graph_leaves_the_insertion_slot_free() {
     );
 }
 
+/// The example in `docs/developers-guide.md` must keep exercising a real trim.
+///
+/// Level 0 admits `2 * max_connections` links, so the documented parameters
+/// leave the entry node over capacity. A roomier configuration would make the
+/// executor produce no trim job and the example would fail before reaching the
+/// assertions it is meant to demonstrate.
+#[test]
+fn documented_example_saturates_the_entry_node() -> Result<(), TrimmingFixtureError> {
+    let params = HnswParams::new(1, 4)?;
+    let trimmed_neighbours = vec![1, 3];
+    let new_node_id: usize = 4;
+    let reserve_id = new_node_id.saturating_add(1);
+    let evicted = 3;
+
+    let mut graph = build_trimming_test_graph(&params, &trimmed_neighbours, reserve_id)?;
+    setup_reciprocal_edges_with_reserve(&mut graph, &trimmed_neighbours, evicted, reserve_id)?;
+
+    apply_insertion_with_trim(&mut graph, &params, new_node_id, trimmed_neighbours)?;
+
+    verify_post_trim_reciprocity(&graph, &params, new_node_id, evicted)
+}
+
 fn attach_neighbours(
     graph: &mut Graph,
     neighbours: &[usize],

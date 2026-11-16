@@ -1162,11 +1162,11 @@ themselves and use `?`:
 ```rust
 #[rstest]
 fn trims_the_entry_node() -> Result<(), TrimmingFixtureError> {
-    let params = HnswParams::new(4, 16)?;
-    let trimmed_neighbours = vec![1, 2];
-    let new_node_id = 3;
+    let params = HnswParams::new(1, 4)?;
+    let trimmed_neighbours = vec![1, 3];
+    let new_node_id = 4;
     let reserve_id = new_node_id + 1;
-    let evicted = 2;
+    let evicted = 3;
 
     let mut graph = build_trimming_test_graph(&params, &trimmed_neighbours, reserve_id)?;
     setup_reciprocal_edges_with_reserve(&mut graph, &trimmed_neighbours, evicted, reserve_id)?;
@@ -1182,6 +1182,13 @@ Reciprocity can only be checked after the insertion has run. The caller
 therefore reserves a separate id for the builder's placeholder: `new_node_id`
 stays free for `apply_insertion_with_trim`, which attaches it before the
 post-trim assertions inspect its edges.
+
+The example saturates the entry node on purpose. Level 0 admits
+`2 * max_connections` links, so `max_connections = 1` allows two neighbours and
+attaching the new node to the entry's two existing neighbours forces the
+executor to produce a trim job. A roomier configuration would leave the entry
+node within its limit, and `apply_insertion_with_trim` would reject the
+scenario with `TrimmingFixtureError::MissingTrimJob` before the assertions run.
 
 ### Graph builders reserve, they do not pre-attach
 
