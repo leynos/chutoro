@@ -2,7 +2,7 @@
 //!
 //! Defines error enums exposed by the public API and a convenient result alias.
 
-use std::{fmt, num::NonZeroUsize, sync::Arc};
+use std::{num::NonZeroUsize, sync::Arc};
 
 use thiserror::Error;
 
@@ -17,7 +17,8 @@ use crate::builder::ExecutionStrategy;
 ///
 /// Every generated code enum is `#[non_exhaustive]` and implements `Display`,
 /// so routine growth of an error taxonomy does not break downstream exhaustive
-/// matches.
+/// matches. The expansion names `::core::fmt` by absolute path, so call sites
+/// do not need to import `fmt`.
 macro_rules! define_error_codes {
     (
         $(#[$enum_meta:meta])*
@@ -51,8 +52,8 @@ macro_rules! define_error_codes {
             }
         }
 
-        impl fmt::Display for $CodeTy {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        impl ::core::fmt::Display for $CodeTy {
+            fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                 f.write_str(self.as_str())
             }
         }

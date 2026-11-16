@@ -3,8 +3,6 @@
 //! The hierarchy builder exposes a compact semantic error surface while its
 //! forest and condensation phases remain implementation details.
 
-use std::fmt;
-
 use crate::error::define_error_codes;
 
 /// Errors returned by hierarchy extraction.

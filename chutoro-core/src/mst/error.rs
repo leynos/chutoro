@@ -6,8 +6,6 @@
 //! invariants). Keeping them in one place lets callers inspect, retry, or map
 //! them without depending on the algorithm module itself.
 
-use std::fmt;
-
 use crate::error::define_error_codes;
 
 /// Errors returned while computing a minimum spanning tree/forest.

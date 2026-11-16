@@ -1,6 +1,6 @@
 //! Error types produced by the CPU HNSW implementation.
 
-use std::{fmt, sync::Arc};
+use std::sync::Arc;
 
 use thiserror::Error;
 
