@@ -328,4 +328,3 @@ fn open_text_reader_records_path_on_error(#[from(temp_dir)] temp_dir_result: io:
 
 #[path = "test_memory_guard.rs"]
 mod test_memory_guard;
-// weave: run 'weave explain chutoro-cli/src/cli/tests.rs' for per-hunk detail, 'weave check' to verify your resolution
