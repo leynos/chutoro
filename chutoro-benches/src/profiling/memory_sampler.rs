@@ -36,22 +36,12 @@ pub fn measure_peak_resident_set_size<T>(
     if sample_interval.is_zero() {
         return Err(ProfilingError::ZeroSamplingInterval);
     }
-    #[cfg(target_os = "linux")]
-    {
-        measure_peak_resident_set_size_linux(sample_interval, operation)
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = operation;
-        Err(ProfilingError::UnsupportedPlatform {
-            os: std::env::consts::OS,
-        })
-    }
+    measure_peak_resident_set_size_impl(sample_interval, operation)
 }
 
 /// Measure peak resident-set size on Linux while the operation runs.
 #[cfg(target_os = "linux")]
-fn measure_peak_resident_set_size_linux<T>(
+fn measure_peak_resident_set_size_impl<T>(
     sample_interval: Duration,
     operation: impl FnOnce() -> T,
 ) -> Result<(T, PeakRssMeasurement), ProfilingError> {
@@ -105,6 +95,21 @@ fn measure_peak_resident_set_size_linux<T>(
             peak_rss_bytes: peak_delta_bytes,
         },
     ))
+}
+
+/// Report that sampling is unsupported on this target without running the operation.
+///
+/// The parameters stay underscore-prefixed so the compiler's `unused_variables`
+/// lint still reports genuine mistakes elsewhere; unlike a `let _ = ...;`
+/// discard, an unused parameter here is an intentional part of the signature.
+#[cfg(not(target_os = "linux"))]
+fn measure_peak_resident_set_size_impl<T>(
+    _sample_interval: Duration,
+    _operation: impl FnOnce() -> T,
+) -> Result<(T, PeakRssMeasurement), ProfilingError> {
+    Err(ProfilingError::UnsupportedPlatform {
+        os: std::env::consts::OS,
+    })
 }
 
 /// Compute the non-negative peak resident-set increase from a baseline.

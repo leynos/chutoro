@@ -1162,11 +1162,50 @@ themselves and use `?`:
 ```rust
 #[rstest]
 fn trims_the_entry_node() -> Result<(), TrimmingFixtureError> {
-    let graph = build_trimming_test_graph(&params, &[1, 2], 3)?;
-    verify_post_trim_reciprocity(&graph, &params, 3, 1)?;
+    let params = HnswParams::new(1, 4)?;
+    let trimmed_neighbours = vec![1, 3];
+    let new_node_id = 4;
+    let reserve_id = new_node_id + 1;
+    let evicted = 3;
+
+    let mut graph = build_trimming_test_graph(&params, &trimmed_neighbours, reserve_id)?;
+    setup_reciprocal_edges_with_reserve(&mut graph, &trimmed_neighbours, evicted, reserve_id)?;
+
+    apply_insertion_with_trim(&mut graph, &params, new_node_id, trimmed_neighbours)?;
+
+    verify_post_trim_reciprocity(&graph, &params, new_node_id, evicted)?;
     Ok(())
 }
 ```
+
+Reciprocity can only be checked after the insertion has run. The caller
+therefore reserves a separate id for the builder's placeholder: `new_node_id`
+stays free for `apply_insertion_with_trim`, which attaches it before the
+post-trim assertions inspect its edges.
+
+The example saturates the entry node on purpose. Level 0 admits
+`2 * max_connections` links, so `max_connections = 1` allows two neighbours and
+attaching the new node to the entry's two existing neighbours forces the
+executor to produce a trim job. A roomier configuration would leave the entry
+node within its limit, and `apply_insertion_with_trim` would reject the
+scenario with `TrimmingFixtureError::MissingTrimJob` before the assertions run.
+
+### Graph builders reserve, they do not pre-attach
+
+A builder that stages an insertion scenario must not attach the node under test.
+`InsertionExecutor::apply` requires that node's slot to be free, so
+`build_trimming_test_graph` accepts only the `reserve_id` for its placeholder
+and leaves the insertion id to the caller. Do not reintroduce the new node as a
+builder parameter; a caller that pre-attaches it makes `apply` fail before the
+scenario begins. The caller must also choose the insertion id so that it
+differs from the entry node, every id in `trimmed_neighbours`, and
+`reserve_id`. The builder cannot check that condition without receiving the id
+it deliberately does not take.
+
+The same rule applies to unused parameters. Never silence one with a fake read
+such as `let _ = name;`. Remove the parameter, or prefix it with `_` when the
+signature must keep it, so the compiler's `unused_variables` lint still reports
+a genuine mistake.
 
 ### Typed error contracts
 

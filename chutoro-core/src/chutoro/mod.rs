@@ -218,6 +218,7 @@ impl Chutoro {
             return Self::record_batch_result(backend, Err(err));
         }
 
+        #[cfg(all(feature = "cpu", feature = "metrics"))]
         self.record_batch_resources(items);
 
         if let Err(error) = self.check_memory_limit(source, items) {
@@ -252,6 +253,10 @@ impl Chutoro {
     }
 
     /// Records bounded CPU resource observations before the memory guard runs.
+    ///
+    /// The call site carries the same cfg gate, so a build without both
+    /// capabilities needs neither a stub nor a fake read to keep an unused
+    /// receiver and parameter quiet.
     #[cfg(all(feature = "cpu", feature = "metrics"))]
     fn record_batch_resources(&self, items: usize) {
         let hnsw_params = self.hnsw_params();
@@ -261,12 +266,6 @@ impl Chutoro {
             crate::memory::estimate_peak_bytes_for_hnsw_params(items, hnsw_params),
             self.max_bytes,
         );
-    }
-
-    /// Does not record CPU resources when the required features are unavailable.
-    #[cfg(not(all(feature = "cpu", feature = "metrics")))]
-    const fn record_batch_resources(&self, items: usize) {
-        let _ = (self, items);
     }
 
     /// Returns an error if the estimated peak memory exceeds `max_bytes`.
@@ -333,11 +332,22 @@ impl Chutoro {
         }
         #[cfg(not(feature = "cpu"))]
         {
-            let _ = (source, items);
-            Err(ChutoroError::BackendUnavailable {
-                requested: ExecutionStrategy::CpuOnly,
-            })
+            Self::cpu_backend_unavailable(source, items)
         }
+    }
+
+    /// Report that the CPU backend is unavailable in this build.
+    ///
+    /// The parameters are underscore-prefixed so this cfg-only branch does not
+    /// need a fake read to silence `unused_variables`.
+    #[cfg(not(feature = "cpu"))]
+    const fn cpu_backend_unavailable<D: DataSource + Sync>(
+        _source: &D,
+        _items: usize,
+    ) -> Result<ClusteringResult> {
+        Err(ChutoroError::BackendUnavailable {
+            requested: ExecutionStrategy::CpuOnly,
+        })
     }
 
     /// Return the current GPU-backend-unavailable result.
