@@ -82,3 +82,27 @@ CPU-pipeline convenience only.
 `into_iter`, and `into_inner` are unaffected and need no migration. Consumers
 that fan work out with Rayon should prefer `as_slice`, because it borrows the
 edge list directly instead of collecting an intermediate vector of references.
+
+### Cluster selection keeps exact stability ties
+
+Stable-cluster selection now keeps the child clusters when a parent cluster's
+stability is exactly equal to the sum of its children's stabilities. A parent
+is selected only when its stability strictly exceeds that total, matching the
+excess-of-mass rule in the design document. Previously an exact tie selected
+the parent.
+
+Integer-valued metrics make exact ties routine, so `ClusteringResult` can
+report a different `cluster_count` and different flat labels for the same input:
+
+```text
+words: apple apply apples appel banana bananas bandana banane
+Levenshtein distance, min_cluster_size = 2
+
+before: cluster_count = 1, assignments = [0 0 0 0 0 0 0 0]
+after:  cluster_count = 2, assignments = [0 0 0 0 1 1 1 1]
+```
+
+Callers that store expected cluster counts, expected flat labels, or partitions
+derived from them must regenerate those expectations for integer-valued
+metrics. Continuous metrics rarely produce exact ties, so their results are
+normally unchanged.
