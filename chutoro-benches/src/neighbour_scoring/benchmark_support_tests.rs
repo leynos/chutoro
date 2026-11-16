@@ -181,3 +181,30 @@ fn default_build_profile_configuration_is_stable() {
     assert_eq!(DEFAULT_BUILD_PROFILE_POINT_COUNTS, &[10_000, 100_000]);
     assert_eq!(DEFAULT_BUILD_PROFILE_DIMENSION, 128);
 }
+
+/// `make_values` mixes the dimension into [`BENCH_SEED`] with XOR, so the
+/// generated stream depends on the seed bits that overlap the dimension.
+/// Reconstructing the stream from an independently XOR-seeded generator fails
+/// if the seed is combined with `|` or `&` instead, because both substitute a
+/// different seed for each case below.
+#[rstest]
+#[case::overlapping_low_bits(3)]
+#[case::mixed_overlapping_bits(5)]
+fn make_values_reconstructs_xor_seeded_stream(#[case] dimension: usize) {
+    use rand::{Rng, SeedableRng, rngs::SmallRng};
+
+    use super::{BENCH_SEED, make_values};
+
+    const ROW_COUNT: usize = 4;
+    let seed_dimension = u64::try_from(dimension).expect("dimension must fit in u64");
+    let value_count = ROW_COUNT.saturating_mul(dimension);
+    let mut rng = SmallRng::seed_from_u64(BENCH_SEED ^ seed_dimension);
+    let expected_values = std::iter::repeat_with(|| rng.gen_range(-1.0_f32..1.0_f32))
+        .take(value_count)
+        .collect::<Vec<_>>();
+
+    let actual_values =
+        make_values(ROW_COUNT, dimension).expect("fixture values must be generated");
+
+    assert_eq!(actual_values, expected_values);
+}
