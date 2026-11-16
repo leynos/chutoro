@@ -3,11 +3,12 @@
 use camino::Utf8Path;
 use cap_std::{ambient_authority, fs_utf8::Dir};
 use chutoro_benches::neighbour_scoring::{
-    BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilizationReportRow, REPORT_DIR_NAME,
-    ReportTarget, build_profile_report_target_value, report_parent_dir_value,
-    should_collect_build_profile_value, truthy_env_value, write_build_profile_report_csv,
-    write_lane_utilization_report_csv,
+    BUILD_PROFILE_ENV, BUILD_PROFILE_REPORT, BuildProfileReportRow, LaneUtilizationReportRow,
+    REPORT_DIR_NAME, ReportTarget, build_profile_report_target, build_profile_report_target_value,
+    report_parent_dir_value, should_collect_build_profile, should_collect_build_profile_value,
+    truthy_env_value, write_build_profile_report_csv, write_lane_utilization_report_csv,
 };
+use mockable::MockEnv;
 use rstest::{fixture, rstest};
 use std::{io::Write, process::Command, time::Duration};
 use tempfile::{NamedTempFile, TempDir, tempdir};
@@ -56,6 +57,42 @@ fn should_collect_build_profile_recognizes_env_values(
 ) {
     assert_eq!(truthy_env_value(value), expected);
     assert_eq!(should_collect_build_profile_value(value), expected);
+}
+
+#[rstest]
+#[case::enabled(Some("yes"), true)]
+#[case::disabled(None, false)]
+fn should_collect_build_profile_reads_injected_environment(
+    #[case] value: Option<&str>,
+    #[case] expected: bool,
+) {
+    let mut env = MockEnv::new();
+    let configured_value = value.map(str::to_owned);
+    env.expect_string().returning(move |key| {
+        assert_eq!(key, BUILD_PROFILE_ENV);
+        configured_value.clone()
+    });
+
+    assert_eq!(should_collect_build_profile(&env), expected);
+}
+
+#[test]
+fn build_profile_report_target_resolves_enabled_parent_directory() {
+    let mut env = MockEnv::new();
+    env.expect_string().returning(|key| match key {
+        "CARGO_TARGET_DIR" => Some("configured-target".to_owned()),
+        BUILD_PROFILE_ENV => Some("yes".to_owned()),
+        unexpected => panic!("unexpected environment key: {unexpected}"),
+    });
+
+    let target = build_profile_report_target(&env).expect("enabled report target must resolve");
+
+    assert_eq!(
+        target.path(),
+        Utf8Path::new("configured-target")
+            .join(REPORT_DIR_NAME)
+            .join(BUILD_PROFILE_REPORT),
+    );
 }
 
 #[test]

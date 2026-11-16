@@ -10,7 +10,7 @@ use criterion::{BatchSize, BenchmarkId, Criterion, criterion_main};
 use mockable::DefaultEnv;
 
 use chutoro_benches::{
-    criterion_support::{is_benchmark_discovery, is_exact_benchmark_probe},
+    criterion_support::{is_benchmark_discovery_args, is_exact_benchmark_probe_args},
     ef_sweep::{
         BENCH_SEED, EF_CONSTRUCTION_VALUES, EF_SWEEP_MAX_CONNECTIONS, EF_SWEEP_POINT_COUNTS,
         make_bench_source, make_hnsw_params_with_ef, resolve_ef_construction,
@@ -70,7 +70,7 @@ fn configure_ef_sweep_group(
     group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
 ) {
     group.sample_size(10);
-    if is_exact_benchmark_probe() {
+    if is_exact_benchmark_probe_args(std::env::args()) {
         group.warm_up_time(Duration::from_millis(1));
         group.measurement_time(Duration::from_millis(10));
     }
@@ -78,7 +78,9 @@ fn configure_ef_sweep_group(
 
 /// Select full or reduced source sizes for this Criterion invocation.
 fn ef_sweep_point_counts() -> &'static [usize] {
-    if is_benchmark_discovery() || is_exact_benchmark_probe() {
+    if is_benchmark_discovery_args(std::env::args())
+        || is_exact_benchmark_probe_args(std::env::args())
+    {
         DISCOVERY_EF_SWEEP_POINT_COUNTS
     } else {
         EF_SWEEP_POINT_COUNTS

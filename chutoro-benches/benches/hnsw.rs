@@ -11,8 +11,9 @@ use mockable::{DefaultEnv, Env};
 
 use chutoro_benches::{
     criterion_support::{
-        configure_short_measurement_group, is_benchmark_discovery, is_exact_benchmark_probe,
-        is_nextest_exact_benchmark_probe, point_count_for_exact_probe_args, register_noop_benches,
+        configure_short_measurement_group, is_benchmark_discovery_args,
+        is_exact_benchmark_probe_args, is_nextest_exact_benchmark_probe,
+        point_count_for_exact_probe_args, register_noop_benches,
         should_short_circuit_exact_label_probe_args,
     },
     ef_sweep::{BENCH_DIMENSIONS, BENCH_SEED, make_bench_source, make_hnsw_params_with_ef},
@@ -123,7 +124,7 @@ fn hnsw_source_point_count(point_count: usize) -> usize {
 
 /// Configure sampling for an HNSW Criterion benchmark group.
 fn configure_hnsw_group(group: &mut BenchmarkGroup<'_, WallTime>) {
-    configure_short_measurement_group(group, 10, is_exact_benchmark_probe());
+    configure_short_measurement_group(group, 10, is_exact_benchmark_probe_args(std::env::args()));
 }
 
 /// Identify the text case that must use a bounded exact-probe measurement.
@@ -193,7 +194,7 @@ fn bench_hnsw_build_generic<F>(
 where
     F: FnMut(&SyntheticSource, HnswParams) -> Result<(), HnswError>,
 {
-    if is_benchmark_discovery() || is_nextest_exact_benchmark_probe() {
+    if is_benchmark_discovery_args(std::env::args()) || is_nextest_exact_benchmark_probe() {
         register_hnsw_build_probe_benches(c, group_name);
         return Ok(());
     }
