@@ -582,7 +582,7 @@ tool checks a different artefact and carries a different cost at review time;
 see
 [Choosing a verification tool](developers-guide.md#choosing-a-verification-tool)
 and
-[ADR 002 § Complementary Testing Strategy](adr-002-adoption-of-kani-formal-verification.md#complementary-testing-strategy).
+[ADR 002 § Complementary Testing Strategy](adrs/adr-0002-adoption-of-kani-formal-verification.md#complementary-testing-strategy).
 
 ### A1: `extract_candidate_edges` invariants
 

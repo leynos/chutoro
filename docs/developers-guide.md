@@ -2798,7 +2798,7 @@ invariant over a range of inputs, states, orderings or transitions still
 requires a `proptest` or Kani check, with the level of rigour chosen by
 judgement, and every new lemma or contractual business rule still requires a
 substantive Verus proof. One tool does not substitute for another. See
-[ADR 002 § Complementary Testing Strategy](adr-002-adoption-of-kani-formal-verification.md#complementary-testing-strategy)
+[ADR 002 § Complementary Testing Strategy](adrs/adr-0002-adoption-of-kani-formal-verification.md#complementary-testing-strategy)
 for the rationale behind the division of labour.
 
 ### Quantifier trigger annotations
