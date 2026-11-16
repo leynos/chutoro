@@ -2754,9 +2754,13 @@ validation and preparation.
 
 Recipes receive infrastructure through `RecipeContext`. `Fetcher` reads source
 bytes with a mandatory `max_bytes` cap, `Storage` is a mutable cache with
-overwrite semantics, and `Publisher` is the final write-once sink. Network
-download, archive extraction, object-store adapters, lockfiles, checksum
-verification, and licence gates are deferred to later roadmap items.
+overwrite semantics, and `Publisher` is the final write-once sink. `CacheKey`
+and `ObjectKey` are opaque string newtypes: recipes treat them as identifiers,
+and any interpretation of a key as a filesystem path, object-store prefix, or
+other backend-specific address belongs to the `Storage` and `Publisher`
+adapters. Network download, archive extraction, object-store adapters,
+lockfiles, checksum verification, and licence gates are deferred to later
+roadmap items.
 
 Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,
