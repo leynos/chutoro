@@ -1,4 +1,10 @@
-//! Assertions for expected clustering quality scores.
+//! Quality assertions shared by the functional clustering tests.
+//!
+//! `assert_quality_score_is_one` keeps the absolute tolerance for scores
+//! derived from floating-point calculations in one place, so every functional
+//! ARI/NMI case compares against the same bound. This is a private child of
+//! the `functional_ari_nmi` integration-test root, which declares it with
+//! `#[path]`.
 
 /// Absolute tolerance for clustering-quality values derived from floating-point calculations.
 const QUALITY_SCORE_TOLERANCE: f64 = 1.0e-12_f64;

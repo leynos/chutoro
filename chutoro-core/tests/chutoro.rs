@@ -1,4 +1,10 @@
-//! Tests for the `Chutoro` orchestration API.
+//! Integration tests for the `Chutoro` orchestration API.
+//!
+//! The root builds clusterings end to end and reads the session and pipeline
+//! facades back. Assignment-validation examples sit in the private
+//! `assignment_validation` child module, which this root declares with
+//! `#[path]` so those cases still run in one integration-test binary and this
+//! file stays within the module-size budget.
 
 #[path = "chutoro/assignment_validation.rs"]
 mod assignment_validation;

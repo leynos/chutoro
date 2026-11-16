@@ -1,4 +1,11 @@
-//! Assignment validation examples and the independent contiguity model.
+//! Validation examples for `ClusteringResult::try_from_assignments`.
+//!
+//! The cases exercise the contiguity check on hand-picked assignments, and a
+//! property test cross-checks them against `model_assignment_validation`, an
+//! independent model of the same rule that does not reuse the production
+//! helper. This is a private child of the `chutoro` integration-test root,
+//! which declares it with `#[path]`; keeping the cases here leaves the root
+//! within the module-size budget without splitting the test binary.
 
 use chutoro_core::{ClusterId, ClusteringResult, NonContiguousClusterIds};
 use proptest::prelude::*;
