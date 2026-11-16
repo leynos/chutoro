@@ -9,13 +9,25 @@ use thiserror::Error;
 use crate::builder::ExecutionStrategy;
 
 /// Define an error-code enum and map its variants to stable strings.
+///
+/// Each mapping names the error variant's pattern so the generated `code()`
+/// can destructure it. A variant may be a unit variant (no pattern), a struct
+/// variant (a brace group such as `{ .. }`), or a tuple variant (a
+/// parenthesised group such as `(_)`).
+///
+/// Every generated code enum is `#[non_exhaustive]` and implements `Display`,
+/// so routine growth of an error taxonomy does not break downstream exhaustive
+/// matches.
 macro_rules! define_error_codes {
     (
         $(#[$enum_meta:meta])*
         enum $CodeTy:ident for $ErrTy:ident {
             $(
                 $(#[$variant_meta:meta])*
-                $CodeVariant:ident => $ErrVariant:ident $( { $($pattern:tt)* } )? => $code:expr
+                $CodeVariant:ident => $ErrVariant:ident
+                    $( { $($struct_pattern:tt)* } )?
+                    $( ( $($tuple_pattern:tt)* ) )?
+                    => $code:expr
             ),+ $(,)?
         }
     ) => {
@@ -31,6 +43,7 @@ macro_rules! define_error_codes {
 
         impl $CodeTy {
             /// Return the stable machine-readable representation of this error code.
+            #[must_use]
             pub const fn as_str(self) -> &'static str {
                 match self {
                     $(Self::$CodeVariant => $code,)+
@@ -50,14 +63,25 @@ macro_rules! define_error_codes {
                 stringify!($CodeTy),
                 "`] for this error."
             )]
+            #[must_use]
             pub const fn code(&self) -> $CodeTy {
                 match self {
-                    $(Self::$ErrVariant $( { $($pattern)* } )? => $CodeTy::$CodeVariant,)+
+                    $(
+                        Self::$ErrVariant
+                            $( { $($struct_pattern)* } )?
+                            $( ( $($tuple_pattern)* ) )?
+                            => $CodeTy::$CodeVariant,
+                    )+
                 }
             }
         }
     };
 }
+
+// Re-exported so the CPU error modules generate their code enums with the same
+// contract instead of hand-writing one.
+#[cfg(feature = "cpu")]
+pub(crate) use define_error_codes;
 
 /// An error produced by [`crate::DataSource`] operations.
 #[non_exhaustive]
