@@ -1162,11 +1162,26 @@ themselves and use `?`:
 ```rust
 #[rstest]
 fn trims_the_entry_node() -> Result<(), TrimmingFixtureError> {
-    let graph = build_trimming_test_graph(&params, &[1, 2], 3)?;
-    verify_post_trim_reciprocity(&graph, &params, 3, 1)?;
+    let params = HnswParams::new(4, 16)?;
+    let trimmed_neighbours = vec![1, 2];
+    let new_node_id = 3;
+    let reserve_id = new_node_id + 1;
+    let evicted = 2;
+
+    let mut graph = build_trimming_test_graph(&params, &trimmed_neighbours, reserve_id)?;
+    setup_reciprocal_edges_with_reserve(&mut graph, &trimmed_neighbours, evicted, reserve_id)?;
+
+    apply_insertion_with_trim(&mut graph, &params, new_node_id, trimmed_neighbours)?;
+
+    verify_post_trim_reciprocity(&graph, &params, new_node_id, evicted)?;
     Ok(())
 }
 ```
+
+Reciprocity can only be checked after the insertion has run. The caller
+therefore reserves a separate id for the builder's placeholder: `new_node_id`
+stays free for `apply_insertion_with_trim`, which attaches it before the
+post-trim assertions inspect its edges.
 
 ### Graph builders reserve, they do not pre-attach
 
