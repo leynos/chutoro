@@ -1,9 +1,9 @@
 //! Shared fixtures and data sources for session tests.
 //!
-//! This module provides the small in-memory [`SessionTestSource`], the
-//! `session_builder` fixture, and helper constructors used by the focused
-//! session test modules. Centralizing these fixtures keeps append, builder,
-//! concurrency, metrics, and property tests aligned with production
+//! This module provides the session-specific constructor for the shared
+//! numeric source, the `session_builder` fixture, and helper constructors
+//! used by focused session tests. Centralizing these fixtures keeps append,
+//! builder, concurrency, metrics, and property tests aligned with production
 //! [`super::ClusteringSession`] construction semantics.
 
 use std::sync::Arc;
@@ -11,57 +11,9 @@ use std::sync::Arc;
 use rstest::fixture;
 
 use crate::{
-    CandidateEdge, ChutoroBuilder, ChutoroError, ClusteringSession, CpuHnsw, DataSource,
-    DataSourceError, HnswError, HnswParams, MetricDescriptor,
+    CandidateEdge, ChutoroBuilder, ChutoroError, ClusteringSession, CpuHnsw, DataSource, HnswError,
+    HnswParams, MetricDescriptor, test_utils::NumericTestSource,
 };
-
-/// An in-memory [`DataSource`] test double whose distance is the absolute
-/// difference between two values.
-///
-/// The source always reports the fixed name `"session-test"`.
-#[derive(Clone, Debug)]
-pub(super) struct SessionTestSource {
-    values: Vec<f32>,
-    name: &'static str,
-}
-
-impl SessionTestSource {
-    /// Builds a source of `len` points valued `0.0, 1.0, ..., (len - 1) as f32`.
-    pub(super) fn with_len(len: usize) -> Self {
-        Self {
-            values: (0..len)
-                .map(|value| value.to_string().parse::<f32>().unwrap_or(f32::INFINITY))
-                .collect(),
-            name: "session-test",
-        }
-    }
-}
-
-impl DataSource for SessionTestSource {
-    fn len(&self) -> usize {
-        self.values.len()
-    }
-
-    fn name(&self) -> &str {
-        self.name
-    }
-
-    fn distance(&self, i: usize, j: usize) -> Result<f32, DataSourceError> {
-        let left = self
-            .values
-            .get(i)
-            .ok_or(DataSourceError::OutOfBounds { index: i })?;
-        let right = self
-            .values
-            .get(j)
-            .ok_or(DataSourceError::OutOfBounds { index: j })?;
-        Ok(left.mul_add(1.0, std::ops::Neg::neg(*right)).abs())
-    }
-
-    fn metric_descriptor(&self) -> MetricDescriptor {
-        MetricDescriptor::new("session-test:abs")
-    }
-}
 
 /// Returns a fresh [`ChutoroBuilder`] for tests to customize.
 #[fixture]
@@ -70,10 +22,23 @@ pub(super) fn session_builder() -> ChutoroBuilder {
 }
 
 /// Pairs a constructed [`ClusteringSession`] with the `Arc` handle to its
-/// backing [`SessionTestSource`], so callers can inspect the source directly.
-pub(super) type SessionAndSource = (ClusteringSession<SessionTestSource>, Arc<SessionTestSource>);
+/// backing [`NumericTestSource`], so callers can inspect the source directly.
+pub(super) type SessionAndSource = (ClusteringSession<NumericTestSource>, Arc<NumericTestSource>);
 
-/// Builds a [`SessionTestSource`] of `source_len` points and constructs a
+/// Builds the standard numeric source used by the session test suite.
+///
+/// # Examples
+/// ```ignore
+/// let source = session_test_source_with_len(3);
+/// assert_eq!(source.name(), "session-test");
+/// assert_eq!(source.metric_descriptor().as_str(), "session-test:abs");
+/// ```
+pub(super) fn session_test_source_with_len(len: usize) -> NumericTestSource {
+    NumericTestSource::with_len("session-test", len)
+        .using_metric_descriptor(MetricDescriptor::new("session-test:abs"))
+}
+
+/// Builds a [`NumericTestSource`] of `source_len` points and constructs a
 /// session from it via `builder`.
 ///
 /// # Errors
@@ -85,7 +50,7 @@ pub(super) fn make_session(
     builder: ChutoroBuilder,
     source_len: usize,
 ) -> Result<SessionAndSource, ChutoroError> {
-    let source = Arc::new(SessionTestSource::with_len(source_len));
+    let source = Arc::new(session_test_source_with_len(source_len));
     let session = builder.build_session(Arc::clone(&source))?;
     Ok((session, source))
 }
@@ -101,7 +66,7 @@ pub(super) fn make_session(
 /// `insert_harvesting` call, short-circuiting on the first failure.
 pub(super) fn harvest_expected_edges(
     hnsw_params: HnswParams,
-    source: &SessionTestSource,
+    source: &NumericTestSource,
     indices: &[usize],
 ) -> Result<Vec<CandidateEdge>, HnswError> {
     let direct_index = CpuHnsw::with_capacity(hnsw_params, source.len().max(1))?;

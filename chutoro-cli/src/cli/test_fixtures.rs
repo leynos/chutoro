@@ -6,17 +6,16 @@
 
 use std::fs::File;
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use arrow_array::{ArrayRef, FixedSizeListArray, Float32Array, RecordBatch};
-use arrow_schema::{ArrowError, DataType, Field, Schema};
-use parquet::arrow::arrow_writer::ArrowWriter;
+use chutoro_providers_dense::testing::{
+    build_list_array, feature_field, write_parquet_file as write_shared_parquet_file,
+};
 use tempfile::TempDir;
 
 /// Creates a small Parquet file containing a fixed `features` column.
 ///
-/// The file is written to `dir` using the provided `name`, and contains a
-/// single record batch with a `features: FixedSizeList<Float32, 2>` column.
+/// The shared provider fixture builders construct the `features` field and
+/// two-dimensional array; this wrapper supplies the temporary path.
 ///
 /// This is intended for CLI tests that exercise Parquet ingestion without
 /// relying on external fixtures.
@@ -29,29 +28,15 @@ pub fn create_parquet_file(
     name: &str,
 ) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let path = dir.path().join(name);
-    let schema = build_schema();
-    let batch = build_record_batch(schema.clone())?;
-    let file = File::create(&path)?;
-    let mut writer = ArrowWriter::try_new(file, schema, None)?;
-    writer.write(&batch)?;
-    writer.close()?;
+    let rows = vec![
+        vec![0.0, 0.0],
+        vec![1.0, 1.0],
+        vec![2.0, 2.0],
+        vec![3.0, 3.0],
+    ];
+    let array = build_list_array(&rows, 2, false)?;
+    let field = feature_field(2, false, false)?;
+    let mut file = File::create(&path)?;
+    write_shared_parquet_file(&mut file, field, array)?;
     Ok(path)
-}
-
-fn build_schema() -> Arc<Schema> {
-    let item_field = Arc::new(Field::new("item", DataType::Float32, false));
-    let list_type = DataType::FixedSizeList(item_field.clone(), 2);
-    Arc::new(Schema::new(vec![Field::new("features", list_type, false)]))
-}
-
-/// Builds the single record batch backing the Parquet fixture.
-///
-/// Propagates the Arrow error rather than panicking so the calling test owns
-/// the failure diagnostics.
-fn build_record_batch(schema: Arc<Schema>) -> Result<RecordBatch, ArrowError> {
-    // Flat buffer representing 4 2D points: (0,0), (1,1), (2,2), (3,3).
-    let values = Float32Array::from(vec![0.0_f32, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0]);
-    let item_field = Arc::new(Field::new("item", DataType::Float32, false));
-    let list = FixedSizeListArray::new(item_field, 2, Arc::new(values) as ArrayRef, None);
-    RecordBatch::try_new(schema, vec![Arc::new(list) as ArrayRef])
 }
