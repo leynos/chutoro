@@ -53,18 +53,36 @@ fn run_corpus(envs: &[(&str, &str)]) -> io::Result<Output> {
     run_cli_with_env(&args, envs)
 }
 
-/// A standalone process owns both the `tracing` dispatcher and the `log`
-/// bridge, so start-up must not report a conflict with another logger.
-#[test]
-fn help_starts_without_a_logging_conflict_warning() {
-    let output = run_cli(&["--help"]).expect("the chutoro-cli binary should start");
+/// Assert that `output` completed successfully and return its diagnostics.
+///
+/// Checking the exit status here keeps every test in this module focused on
+/// the content it cares about; a crashed process otherwise surfaces as a
+/// puzzling content assertion rather than a clear status failure.
+fn stderr_of_successful_run(output: &Output) -> String {
+    assert!(
+        output.status.success(),
+        "the chutoro-cli binary should exit successfully"
+    );
+    String::from_utf8_lossy(&output.stderr).into_owned()
+}
 
-    assert!(output.status.success(), "--help should succeed");
-    let stderr = String::from_utf8_lossy(&output.stderr);
+/// Assert that the process reported no logging conflict on `stderr`.
+fn assert_no_logging_conflict(stderr: &str) {
     assert!(
         !stderr.contains(CONFLICT_WARNING),
         "unexpected logging conflict on stderr: {stderr}"
     );
+}
+
+/// A standalone process owns both the `tracing` dispatcher and the `log`
+/// bridge, so start-up must not report a conflict with another logger.
+#[test]
+fn help_starts_without_a_logging_conflict_warning() {
+    let stderr = stderr_of_successful_run(
+        &run_cli(&["--help"]).expect("the chutoro-cli binary should start"),
+    );
+
+    assert_no_logging_conflict(&stderr);
 }
 
 /// A completed command must report its event on `stderr`, which proves the
@@ -72,38 +90,32 @@ fn help_starts_without_a_logging_conflict_warning() {
 /// quiet.
 #[test]
 fn a_completed_run_logs_its_event() {
-    let output = run_corpus(&[("RUST_LOG", "info")]).expect("the chutoro-cli binary should start");
+    let stderr = stderr_of_successful_run(
+        &run_corpus(&[("RUST_LOG", "info")]).expect("the chutoro-cli binary should start"),
+    );
 
-    assert!(output.status.success(), "the run command should succeed");
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains(COMPLETION_EVENT),
         "expected the completion event on stderr: {stderr}"
     );
-    assert!(
-        !stderr.contains(CONFLICT_WARNING),
-        "unexpected logging conflict on stderr: {stderr}"
-    );
+    assert_no_logging_conflict(&stderr);
 }
 
 /// Selecting JSON output must produce the same event as structured data,
 /// which proves `CHUTORO_LOG_FORMAT` reaches the installed formatter.
 #[test]
 fn a_completed_run_logs_json_when_requested() {
-    let output = run_corpus(&[("RUST_LOG", "info"), ("CHUTORO_LOG_FORMAT", "json")])
-        .expect("the chutoro-cli binary should start");
-
-    assert!(output.status.success(), "the run command should succeed");
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr_of_successful_run(
+        &run_corpus(&[("RUST_LOG", "info"), ("CHUTORO_LOG_FORMAT", "json")])
+            .expect("the chutoro-cli binary should start"),
+    );
     let json_event = format!("\"message\":\"{COMPLETION_EVENT}\"");
+
     assert!(
         stderr.contains(&json_event),
         "expected a JSON completion event on stderr: {stderr}"
     );
-    assert!(
-        !stderr.contains(CONFLICT_WARNING),
-        "unexpected logging conflict on stderr: {stderr}"
-    );
+    assert_no_logging_conflict(&stderr);
 }
 
 /// A successful run prints its summary on `stdout` and nothing on `stderr`
@@ -126,13 +138,12 @@ fn successful_run_is_quiet_on_stderr_by_default() {
     let output = run_cli(&["run", "--min-cluster-size", "2", "text", path])
         .expect("the chutoro-cli binary should start");
 
-    assert!(output.status.success(), "the run should succeed");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.starts_with("data source: words"),
         "unexpected stdout: {stdout}"
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = stderr_of_successful_run(&output);
     assert!(
         stderr.is_empty(),
         "unexpected diagnostics on stderr: {stderr}"
