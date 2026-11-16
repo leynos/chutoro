@@ -274,6 +274,17 @@ mod tests {
         assert_eq!(env_filter_from_env(&env).to_string(), "debug");
     }
 
+    /// Assert that a resolved filter is the documented `warn` default.
+    ///
+    /// Comparing against [`DEFAULT_FILTER`] keeps these tests in step with the
+    /// intended policy, while the literal pins the level users actually
+    /// observe. Without the literal, changing the constant to `error` would
+    /// keep every fallback test green.
+    fn assert_default_filter(filter: &str) {
+        assert_eq!(filter, DEFAULT_FILTER);
+        assert_eq!(filter, "warn");
+    }
+
     #[test]
     fn env_filter_defaults_when_rust_log_is_unavailable() {
         let mut env = MockEnv::new();
@@ -282,7 +293,7 @@ mod tests {
             Err(env::VarError::NotPresent)
         });
 
-        assert_eq!(env_filter_from_env(&env).to_string(), DEFAULT_FILTER);
+        assert_default_filter(&env_filter_from_env(&env).to_string());
     }
 
     #[test]
@@ -293,7 +304,7 @@ mod tests {
             Ok("chutoro=not-a-level".to_owned())
         });
 
-        assert_eq!(env_filter_from_env(&env).to_string(), DEFAULT_FILTER);
+        assert_default_filter(&env_filter_from_env(&env).to_string());
     }
 
     #[test]
