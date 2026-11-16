@@ -1236,7 +1236,7 @@ is already `#[non_exhaustive]`.
 Hand-writing a code enum is not permitted. When a mapping needs a pattern to
 destructure the error variant, name it in the macro: unit variants take no
 pattern, struct variants take a brace group such as `{ .. }`, and tuple
-variants take a parenthesised group such as `(_)`, for example
+variants take a parenthesized group such as `(_)`, for example
 `DataSource => DataSource(_) => "DATA_SOURCE"`.
 
 ### Graph-lock test helpers

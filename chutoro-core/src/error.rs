@@ -13,7 +13,7 @@ use crate::builder::ExecutionStrategy;
 /// Each mapping names the error variant's pattern so the generated `code()`
 /// can destructure it. A variant may be a unit variant (no pattern), a struct
 /// variant (a brace group such as `{ .. }`), or a tuple variant (a
-/// parenthesised group such as `(_)`).
+/// parenthesized group such as `(_)`).
 ///
 /// Every generated code enum is `#[non_exhaustive]` and implements `Display`,
 /// so routine growth of an error taxonomy does not break downstream exhaustive
