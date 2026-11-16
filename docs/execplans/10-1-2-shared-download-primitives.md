@@ -305,18 +305,20 @@ Recorded during planning; extend during implementation.
   Impact: Stage 0 exists.
 - Observation: `make verus` is a blocking pull-request gate on every pull
   request, while `make kani` gates only pull requests that touch a fixed path
-  list. Evidence: `.github/workflows/ci.yml:248` defines a `verus-proofs` job
+  list. Evidence: `.github/workflows/ci.yml:255` defines a `verus-proofs` job
   running `make verus` with no path filter. Issue #202 is closed:
   `.github/workflows/kani-pr.yml` now runs `make kani` on pull requests, but its
   `paths` filter covers `chutoro-core` HNSW and MST code, the dense SIMD
   provider, `**/kani_*.rs`, the `Makefile`, and the root manifests — not
   `chutoro-bench-datasets/**`. `make kani-full` runs nightly on `ref: main`
-  (`.github/workflows/nightly-kani.yml:73`) and names only the `chutoro-core`
+  (`.github/workflows/nightly-kani.yml:77`) and names only the `chutoro-core`
   and `chutoro-providers-dense` packages. Impact: every Verus proof adds
   latency to every pull request, so the bar for adding one is higher than for a
-  Kani harness. The Kani harnesses this plan adds gate nothing unless the plan
-  also widens the `Kani PR` path filter and the `kani-full` package list; Stage
-  B does both (see Validation and acceptance). See also issue #215.
+  Kani harness. The Kani harnesses this plan adds run on no pull request unless
+  the plan also widens the `Kani PR` path filter and the `kani-full` package
+  list; Stage B does both (see Validation and acceptance). Even then they do
+  not *gate* a merge: per issue #396, the live `main` ruleset requires only
+  `build-test` and `verus-proofs`, not the `kani` job. See also issue #215.
 - Observation: `PartialState::orphaned_cache_key` is structurally always
   `None`. Evidence: `PartialState::new` hardcodes it
   (`src/newtypes/keys.rs:169-174`) and `cleanup_after_error` is its only
@@ -532,8 +534,8 @@ records that archive extraction is deferred and that 10.1.1 introduces no public
 
 - `docs/benchmark-dataset-retrieval.md`, especially §3.2 (this item's source of
   truth), §5 (the cost model), §7.13 (DEEP1B), and §9 (key risks).
-- `docs/adr-004-bench-dataset-recipe-trait.md` for the existing port and phase
-  decisions, which this milestone amends.
+- `docs/adrs/adr-0004-bench-dataset-recipe-trait.md` for the existing port and
+  phase decisions, which this milestone amends.
 - `docs/chutoro-design.md` for project-wide design conventions.
 - `docs/property-testing-design.md` §6.2 for property-test layout conventions,
   and Appendix A for how Verus candidates are framed here.
@@ -660,7 +662,7 @@ variants.
 Add a `make audit-unpinned` target that greps for `Integrity::Unpinned` and
 prints each occurrence with its justification.
 
-The sites that must change, exactly (line numbers as of `main` at `14f1829`):
+The sites that must change, exactly (line numbers as of `main` at `2222257`):
 `src/error.rs:19-21`, `src/newtypes/keys.rs:84`, `src/newtypes/keys.rs:93`,
 `src/newtypes/keys.rs:97` for `ChecksumUnsupported`; and `tests/newtypes.rs:45`,
 `src/newtypes/mod.rs:207`, `src/newtypes/mod.rs:231` for `checksum.is_none()`.
@@ -728,6 +730,18 @@ order) — note that `edge_harvest_extract.rs` and `edge_harvest_ordering.rs` ar
 this wrong means the proof silently never runs. Use `by(nonlinear_arith)` for
 the multiply-shift bound; start with `#![auto]` triggers and read the note
 Verus prints, per the developers' guide.
+
+A standalone Verus proof cannot fail when production code drifts (issue #394).
+Tie it to the shipped function in two ways. First, keep the production
+`jitter_offset(sample: u64, span: u64) -> u64` a single expression,
+`((u128::from(sample) * u128::from(span)) >> 64)` narrowed to `u64`, with a doc
+comment naming `verus/download_backoff.rs` as its proof. Second, add an rstest
+case table that calls the production function at the proof's boundary points
+(`sample` and `span` each in `{0, 1, u64::MAX}`) and a proptest over arbitrary
+pairs, both asserting `jitter_offset(sample, span) <= span`. If #394's proof
+ledger exists when Stage B lands, add an entry recording the production symbol,
+the model symbol, the representation relation, the domain, and the connecting
+test.
 
 **Adapters** (`src/transfer/adapters/`), not a top-level `adapters/` directory
 — AGENTS.md says group by feature, not layer, and nothing here is shared
@@ -865,22 +879,25 @@ resume a half-extracted temporary directory; delete and re-extract.
 
 ### Stage D: documentation and final validation (M15, M16)
 
-Three new ADRs, numbered 005, 006, 007, following the template in
-`docs/documentation-style-guide.md`:
+Three new ADRs, following the template and the
+`docs/adrs/adr-nnnn-title-slug.md` naming convention in
+`docs/documentation-style-guide.md`. Allocate the next free serial numbers at
+the time of writing; `adr-0005` is already taken by the Cranelift ADR, so as of
+`main` at `2222257` these would be 0006, 0007, and 0008:
 
-- ADR-005: a streaming `RangeFetcher` port added *alongside* the byte-oriented
+- ADR-0006: a streaming `RangeFetcher` port added *alongside* the byte-oriented
   `Fetcher` rather than replacing it, with the transport-neutral `RangeOutcome`
   seam and the reasoning about 10.1.4.
-- ADR-006: the in-repo pin as integrity root because upstream publishes
+- ADR-0007: the in-repo pin as integrity root because upstream publishes
   nothing; mandatory `Integrity` with a greppable `Unpinned`; checkpointed
   hasher midstate, and why chunked digests were rejected; and the divergence
   from `pooch` on retry after a digest mismatch.
-- ADR-007: archive extraction policy — reject symlinks, hardlinks, and sparse
+- ADR-0008: archive extraction policy — reject symlinks, hardlinks, and sparse
   entries; never call `Archive::unpack`; the three-axis expansion budget.
 
-Amend `docs/adr-004-bench-dataset-recipe-trait.md`: its "Archive extraction is
-deferred… 10.1.1 does not introduce a public `Extractor` port" clause is now
-superseded. Do not silently contradict a live ADR.
+Amend `docs/adrs/adr-0004-bench-dataset-recipe-trait.md`: its "Archive
+extraction is deferred… 10.1.1 does not introduce a public `Extractor` port"
+clause is now superseded. Do not silently contradict a live ADR.
 
 Update `docs/users-guide.md` §"Preparing benchmark datasets" (feature flags,
 the offline story, the fatal-versus-retryable taxonomy),
@@ -948,7 +965,11 @@ harnesses explicitly (currently six across `chutoro-core` and
 target. Add `chutoro-bench-datasets` to `kani-full` as well, which enumerates
 packages rather than harnesses.
 
-Registering them is necessary but not sufficient for a merge gate. The
+Registering them is necessary but not sufficient for them to run on pull
+requests. Put each harness in a file named `kani_*.rs` or under a
+`kani_proofs/` directory: the workflow-contract inventory
+(`tests/workflow_contracts/kani_pr_test.py`) discovers harnesses by filename,
+and issue #396 found declarations elsewhere that it silently misses. The
 `Kani PR` workflow (`.github/workflows/kani-pr.yml`) runs `make kani` only when
 a pull request touches its `paths` list, which does not include this crate. In
 the Stage B pull request, add `chutoro-bench-datasets/src/**` and
@@ -956,7 +977,9 @@ the Stage B pull request, add `chutoro-bench-datasets/src/**` and
 proof triggers the proof. Relying on the `**/kani_*.rs` glob alone is not
 enough: it fires when the harness changes, not when the code it verifies does.
 Until that change merges, run both harnesses by hand at each stage boundary and
-record the result in `Progress`.
+record the result in `Progress`. Even after it merges, a green pull request is
+not proof that the harnesses passed until issue #396 makes `kani` a required
+check; read the `Kani PR` job result rather than the overall status.
 
 Expected transcript shape at a stage boundary:
 
@@ -1214,6 +1237,21 @@ counts toward `too-many-arguments-threshold = 4`; any future per-entry datum
 goes into `EntryMetadata`, never into the signature.
 
 ## Revision note
+
+2026-11-16 (fourth revision, rebase onto `main` at `2222257`): 17 further
+commits landed. None touched `chutoro-bench-datasets`, the resolved versions of
+`sha2`, `cap-std`, `rustix`, or `ureq`, the `Kani PR` path filter, or the
+Makefile's Kani and Verus registrations, so the design is unchanged. Prover
+installation in CI now goes through the shared `install-prover-tools` action,
+which shifted the cited workflow line numbers; those were refreshed. Two issues
+filed since the last revision tightened the verification story: #396
+established that `kani` is not a required check on `main`, so the plan no
+longer calls the widened path filter a merge gate and names harness files so
+the filename-based inventory discovers them; and #394, on proofs disconnected
+from production code, added a production-tie test for the Verus jitter proof.
+ADRs moved to `docs/adrs/` with four-digit serials and `adr-0005` was allocated
+to the Cranelift route, so the three new ADRs are renumbered and the ADR-0004
+path is corrected.
 
 2026-11-11 (third revision, rebase onto `main` at `14f1829`): 114 commits had
 landed under the plan. Re-verified every cited fact against the new tree and
