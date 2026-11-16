@@ -3,12 +3,14 @@
 //! Varies `ef_construction` independently of `M` to show build-time versus
 //! recall trade-offs. Complements the main HNSW benchmarks in `hnsw.rs`
 //! which hold `ef_construction = M * 2` fixed.
-use std::{num::NonZeroUsize, path::PathBuf, time::Duration, time::Instant};
+use std::{num::NonZeroUsize, time::Duration, time::Instant};
 
+use camino::Utf8PathBuf;
 use criterion::{BatchSize, BenchmarkId, Criterion, criterion_main};
 use mockable::DefaultEnv;
 
 use chutoro_benches::{
+    criterion_support::{is_benchmark_discovery, is_exact_benchmark_probe},
     ef_sweep::{
         BENCH_SEED, EF_CONSTRUCTION_VALUES, EF_SWEEP_MAX_CONNECTIONS, EF_SWEEP_POINT_COUNTS,
         make_bench_source, make_hnsw_params_with_ef, resolve_ef_construction,
@@ -63,11 +65,6 @@ fn unwrap_build(result: Result<CpuHnsw, chutoro_core::HnswError>, context: &str)
 
 // -- Recall measurement ------------------------------------------------
 
-/// Determine whether nextest is executing an exact Criterion probe.
-fn is_exact_benchmark_probe() -> bool {
-    std::env::args().any(|arg| arg == "--exact")
-}
-
 /// Configure sampling for one `ef_construction` sweep group.
 fn configure_ef_sweep_group(
     group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
@@ -81,7 +78,7 @@ fn configure_ef_sweep_group(
 
 /// Select full or reduced source sizes for this Criterion invocation.
 fn ef_sweep_point_counts() -> &'static [usize] {
-    if environment::is_discovery_mode() {
+    if is_benchmark_discovery() || is_exact_benchmark_probe() {
         DISCOVERY_EF_SWEEP_POINT_COUNTS
     } else {
         EF_SWEEP_POINT_COUNTS
@@ -93,7 +90,7 @@ fn should_collect_recall_report() -> bool {
     environment::should_collect_recall_report_with_env(&DefaultEnv)
 }
 /// Resolve the configured destination for the recall report.
-fn recall_report_path() -> PathBuf {
+fn recall_report_path() -> Utf8PathBuf {
     environment::recall_report_path_with_env(&DefaultEnv)
 }
 /// Determine whether this invocation should write the clustering-quality report.
@@ -101,7 +98,7 @@ fn should_collect_cluster_quality_report() -> bool {
     environment::should_collect_cluster_quality_report_with_env(&DefaultEnv)
 }
 /// Resolve the configured destination for the clustering-quality report.
-fn cluster_quality_report_path() -> PathBuf {
+fn cluster_quality_report_path() -> Utf8PathBuf {
     environment::cluster_quality_report_path_with_env(&DefaultEnv)
 }
 /// Returns an evenly-spaced query index for deterministic recall sampling.
@@ -147,7 +144,7 @@ fn collect_recall_over_queries(
 }
 
 /// Measure recall across the configured `ef_construction` values.
-fn measure_recall_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
+fn measure_recall_vs_ef_impl() -> Result<Option<Utf8PathBuf>, BenchSetupError> {
     if !should_collect_recall_report() {
         return Ok(None);
     }
@@ -179,7 +176,7 @@ fn measure_recall_vs_ef_impl() -> Result<Option<PathBuf>, BenchSetupError> {
         }
     }
 
-    write_recall_report(recall_report_path(), &records)
+    write_recall_report(&recall_report_path(), &records)
         .map(Some)
         .map_err(BenchSetupError::RecallReport)
 }

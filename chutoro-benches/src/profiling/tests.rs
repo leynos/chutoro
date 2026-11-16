@@ -1,8 +1,9 @@
 //! Unit tests for profiling output.
 
 use super::*;
+use camino::Utf8PathBuf;
 use rstest::rstest;
-use std::{fs, time::Duration};
+use std::time::Duration;
 
 #[derive(Debug)]
 struct ScalingCase {
@@ -84,7 +85,10 @@ fn memory_record_rejects_zero_denominators(
 
 #[rstest]
 fn write_hnsw_memory_report_persists_header_and_rows() {
-    let temp_path = std::env::temp_dir().join("hnsw_memory_profile_report_test.csv");
+    let temp_path = Utf8PathBuf::from_path_buf(
+        std::env::temp_dir().join("hnsw_memory_profile_report_test.csv"),
+    )
+    .expect("temp path must be UTF-8");
     let records = vec![
         HnswMemoryRecord::new(
             HnswMemoryInput {
@@ -100,8 +104,8 @@ fn write_hnsw_memory_report_persists_header_and_rows() {
     ];
     let written_path =
         write_hnsw_memory_report(&temp_path, &records).expect("report write must succeed");
-    let contents = fs::read_to_string(&written_path).expect("report must be readable");
+    let contents = std::fs::read_to_string(&written_path).expect("report must be readable");
     assert!(contents.starts_with("point_count,max_connections"));
     assert!(contents.contains('\n'));
-    fs::remove_file(written_path).expect("temp report cleanup must succeed");
+    std::fs::remove_file(written_path).expect("temp report cleanup must succeed");
 }

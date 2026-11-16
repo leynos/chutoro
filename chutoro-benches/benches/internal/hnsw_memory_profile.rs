@@ -1,7 +1,8 @@
 //! Optional memory profiling for HNSW Criterion benchmarks.
 
-use std::{path::PathBuf, time::Duration};
+use std::time::Duration;
 
+use camino::Utf8PathBuf;
 use mockable::{DefaultEnv, Env};
 
 use chutoro_benches::{
@@ -24,12 +25,14 @@ const MEMORY_SAMPLE_INTERVAL: Duration = Duration::from_millis(2);
 const EDGE_SCALING_BOUNDS: EdgeScalingBounds = EdgeScalingBounds::new(8, 8);
 
 /// Collect and write optional HNSW memory measurements before benchmark setup.
-pub(super) fn profile_hnsw_memory_impl() -> Result<Option<PathBuf>, BenchSetupError> {
+pub(super) fn profile_hnsw_memory_impl() -> Result<Option<Utf8PathBuf>, BenchSetupError> {
     profile_hnsw_memory_impl_with_env(&DefaultEnv)
 }
 
 /// Collect memory measurements through an injected environment reader.
-fn profile_hnsw_memory_impl_with_env(env: &dyn Env) -> Result<Option<PathBuf>, BenchSetupError> {
+fn profile_hnsw_memory_impl_with_env(
+    env: &dyn Env,
+) -> Result<Option<Utf8PathBuf>, BenchSetupError> {
     if !should_collect_memory_profile_with_env(env) {
         return Ok(None);
     }

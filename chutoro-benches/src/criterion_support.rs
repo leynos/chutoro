@@ -36,7 +36,27 @@ fn args_contain_flag(args: impl IntoIterator<Item = impl AsRef<str>>, flag: &str
 /// ```
 #[must_use]
 pub fn is_benchmark_discovery() -> bool {
-    is_cli_flag_present("--list")
+    is_benchmark_discovery_args(std::env::args())
+}
+
+/// Returns whether a supplied argument sequence asks Criterion to list
+/// benchmark identifiers.
+///
+/// # Examples
+///
+/// ```
+/// use chutoro_benches::criterion_support::is_benchmark_discovery_args;
+///
+/// assert!(is_benchmark_discovery_args(["bench", "--list"]));
+/// assert!(!is_benchmark_discovery_args(["bench", "--exact"]));
+/// ```
+#[must_use]
+pub fn is_benchmark_discovery_args<I, S>(args: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    args_contain_flag(args, "--list")
 }
 
 /// Returns whether Criterion is probing one exact benchmark case.
@@ -235,9 +255,9 @@ mod tests {
     use rstest::rstest;
 
     use super::{
-        args_contain_flag, is_exact_benchmark_probe_args, is_nextest_exact_benchmark_probe_args,
-        is_nextest_exact_benchmark_probe_args_with_env, point_count_for_exact_probe_args,
-        should_short_circuit_exact_label_probe_args,
+        args_contain_flag, is_benchmark_discovery_args, is_exact_benchmark_probe_args,
+        is_nextest_exact_benchmark_probe_args, is_nextest_exact_benchmark_probe_args_with_env,
+        point_count_for_exact_probe_args, should_short_circuit_exact_label_probe_args,
     };
 
     #[test]
@@ -250,6 +270,14 @@ mod tests {
     fn args_contain_flag_rejects_absent_flag() {
         let args = ["bench", "--exact", "hnsw_build"];
         assert!(!args_contain_flag(args, "--list"));
+    }
+
+    #[rstest]
+    #[case::list(["bench", "--list"], true)]
+    #[case::exact(["bench", "--exact"], false)]
+    #[case::embedded(["bench", "not--list"], false)]
+    fn discovery_detection_reads_literal_argument(#[case] args: [&str; 2], #[case] expected: bool) {
+        assert_eq!(is_benchmark_discovery_args(args), expected);
     }
 
     #[rstest]

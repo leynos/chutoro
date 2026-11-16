@@ -12,4 +12,5 @@ pub mod neighbour_scoring;
 pub mod params;
 pub mod profiling;
 pub mod recall;
+mod report_file;
 pub mod source;
