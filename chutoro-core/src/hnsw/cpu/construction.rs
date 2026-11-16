@@ -27,8 +27,9 @@ impl CpuHnsw {
     ///
     /// The first item seeds the entry point; remaining items are dispatched
     /// across Rayon workers, with each insertion serialized by the internal
-    /// insert mutex (single-writer semantics). This method uses a
-    /// non-harvesting path that avoids edge allocation overhead.
+    /// insert mutex (single-writer semantics). This method uses the
+    /// non-harvesting collector path, whose `WANTS_EDGES = false` flag skips
+    /// `extract_candidate_edges`, so no per-insert edge vector is allocated.
     ///
     /// Use [`Self::build_with_edges`] if you need candidate edges for MST
     /// construction.
@@ -63,7 +64,9 @@ impl CpuHnsw {
         let index = Self::build_initial(source, params)?;
         let items = source.len();
 
-        // Non-harvesting path: use try_for_each to avoid edge allocation
+        // Non-harvesting path: `try_for_each` discards per-node results, and the
+        // `NoopCollector` insertion reports `WANTS_EDGES = false`, so neither
+        // candidate edges nor a per-insert edge vector are ever built.
         if items > 1 {
             (1..items)
                 .into_par_iter()
