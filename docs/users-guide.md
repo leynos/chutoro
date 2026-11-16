@@ -8,7 +8,9 @@ behaviour of the CPU FISHDBC implementation.
 
 The guide targets developers embedding Chutoro inside their services. It
 assumes familiarity with Rust, asynchronous job runners, and dependency
-management via Cargo.
+management via Cargo. The section on the
+[`chutoro-cli` binary](#running-the-chutoro-cli-binary) also applies to anyone
+running the clustering pipeline from the command line.
 
 ## Adding the crate
 
@@ -126,6 +128,53 @@ configuration and run preconditions as the supported batch API.
 `ExecutionStrategy::Auto` runs the CPU backend. The `gpu` feature prepares the
 orchestration surface for a future accelerator backend; requesting
 `ExecutionStrategy::GpuPreferred` currently yields `BackendUnavailable`.
+
+## Running the `chutoro-cli` binary
+
+The `chutoro-cli` crate builds a binary of the same name for clustering data
+held in a file. It exposes one `run` command with two data-source variants:
+
+```sh
+chutoro-cli run text words.txt
+chutoro-cli run parquet features.parquet --column embedding
+```
+
+Both variants accept `--min-cluster-size`, which defaults to `5`, and `--name`,
+which overrides the data-source name reported in the summary and diagnostics.
+When `--name` is omitted the name is derived from the file name.
+
+Results are written to `stdout` as human-readable text:
+
+```text
+data source: <name>
+clusters: <count>
+<index>	<cluster-id>
+```
+
+### Quiet diagnostics by default
+
+Diagnostics are written to `stderr` through `tracing` and default to the `warn`
+level, so a successful run prints only its summary. Span lifecycle events are
+logged at `info`, so `RUST_LOG=info` restores the verbose trace:
+
+```sh
+RUST_LOG=info chutoro-cli run text words.txt
+```
+
+`RUST_LOG` accepts any `tracing-subscriber` filter directive. A malformed
+directive falls back to the `warn` default rather than failing the run. Set
+`CHUTORO_LOG_FORMAT=json` to receive the same diagnostics as structured JSON
+records.
+
+### Choosing a text metric
+
+`--metric` accepts `levenshtein` and defaults to it, because it is the only
+supported value. Naming it explicitly remains valid, so existing scripts
+continue to work:
+
+```sh
+chutoro-cli run text words.txt --metric levenshtein
+```
 
 ## Incremental clustering sessions
 
