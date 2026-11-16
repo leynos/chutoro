@@ -2566,10 +2566,20 @@ distance_cache     = cache_entries × 80      (configured cache capacity)
 candidate_edges    = n × M × 32             (CandidateEdge structs)
 core_distances     = n × 4                  (f32 per point)
 mutual_edges       = n × M × 32             (recomputed edges)
+validated_edges    = n × M × 48             (Result<Option<MstEdge>, MstError> slots)
+prepared_edges     = n × M × 32             (MstEdge list retained for sorting)
 mst_forest         = n × 32                 (MstEdge structs)
 
 estimated_bytes = (sum of above) × 1.5      (safety multiplier)
 ```
+
+`validated_edges` and `prepared_edges` cover the two candidate-sized buffers
+that `prepare_edge_list` holds at the same time: the ordered
+`Result<Option<MstEdge>, MstError>` slots filled by the parallel map, and the
+`MstEdge` list built by the sequential scan before the results buffer is
+dropped. At `M = 16` and one million points the safety multiplier turns them
+into roughly 1.8 GiB of the guarded total, which an estimate tuned only for the
+graph structures would miss.
 
 For one-shot runs, the memory guard calls
 `estimate_peak_bytes_for_hnsw_params(point_count, &HnswParams)`. That helper

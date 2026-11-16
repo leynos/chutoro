@@ -36,6 +36,16 @@ const CANDIDATE_EDGE_BYTES: u64 = 32;
 /// Size of a single `MstEdge` (identical layout to `CandidateEdge`).
 const MST_EDGE_BYTES: u64 = 32;
 
+/// Estimated size of one slot in the ordered validation buffer built by
+/// `prepare_edge_list`: a `Result<Option<MstEdge>, MstError>`.
+///
+/// The `Result` discriminant, the `Option` discriminant, and the largest
+/// `MstError` variant (`InvariantViolation`, which carries a `&'static str`
+/// and two `usize` values) together dominate the payload, so this is larger
+/// than [`MST_EDGE_BYTES`]. A unit test pins the constant against the real
+/// layout so it cannot silently underestimate the buffer.
+const VALIDATED_EDGE_SLOT_BYTES: u64 = 48;
+
 /// Estimated per-entry overhead for the distance cache, accounting for the
 /// `DashMap` slot, the `LruCache` bookkeeping, and the stored key/value.
 const CACHE_ENTRY_BYTES: u64 = 80;
@@ -66,6 +76,10 @@ const USIZE_BYTES: u64 = std::mem::size_of::<usize>() as u64;
 /// - Candidate edges harvested during HNSW build (`≈ n × M`).
 /// - Core-distance vector (`n × sizeof(f32)`).
 /// - Mutual-reachability edge rewrite (same count as candidate edges).
+/// - The ordered validation buffer built by `prepare_edge_list`
+///   (`≈ n × M` slots of `Result<Option<MstEdge>, MstError>`).
+/// - The prepared edge list retained for sorting and deduplication
+///   (`≈ n × M` `MstEdge` values).
 /// - MST forest edges (`n` edges, rounding up from `n − 1`).
 ///
 /// A 1.5× safety multiplier is applied to the raw total to account for heap
@@ -154,6 +168,16 @@ const fn estimate_peak_bytes_with_search_width(
     // Mutual-reachability rewrite: same count as candidate edges.
     let mutual_edges = candidate_edges;
 
+    // Ordered validation buffer: one `Result<Option<MstEdge>, MstError>` slot
+    // per candidate edge, sized before the parallel map fills it in place.
+    let validated_edge_slots = n
+        .saturating_mul(m)
+        .saturating_mul(VALIDATED_EDGE_SLOT_BYTES);
+
+    // Prepared edge list: the surviving `MstEdge` values are copied out of the
+    // validation buffer before it is dropped, so both exist at the same time.
+    let prepared_edges = n.saturating_mul(m).saturating_mul(MST_EDGE_BYTES);
+
     // MST forest: up to n edges (n − 1 for a connected graph, rounded up).
     let mst_forest = n.saturating_mul(MST_EDGE_BYTES);
 
@@ -166,6 +190,8 @@ const fn estimate_peak_bytes_with_search_width(
         .saturating_add(candidate_edges)
         .saturating_add(core_distances)
         .saturating_add(mutual_edges)
+        .saturating_add(validated_edge_slots)
+        .saturating_add(prepared_edges)
         .saturating_add(mst_forest)
         .saturating_add(search_state);
 
@@ -239,147 +265,4 @@ pub fn format_bytes(bytes: u64) -> String {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
-    //! Unit tests for memory accounting.
-
-    use super::*;
-    use rstest::rstest;
-
-    // -- estimate_peak_bytes: happy paths -----------------------------------
-
-    #[rstest]
-    #[case::small_m16(100, 16)]
-    #[case::medium_m8(1_000, 8)]
-    #[case::large_m16(1_000_000, 16)]
-    #[case::large_m24(1_000_000, 24)]
-    fn estimate_returns_positive_for_non_empty(
-        #[case] point_count: usize,
-        #[case] max_connections: usize,
-    ) {
-        let bytes = estimate_peak_bytes(point_count, max_connections);
-        assert!(
-            bytes > 0,
-            "expected positive estimate for n={point_count}, M={max_connections}, got {bytes}"
-        );
-    }
-
-    #[rstest]
-    #[case::m8_vs_m16(1_000, 8, 16)]
-    #[case::m16_vs_m24(1_000, 16, 24)]
-    fn estimate_grows_with_max_connections(
-        #[case] point_count: usize,
-        #[case] m_small: usize,
-        #[case] m_large: usize,
-    ) {
-        let small = estimate_peak_bytes(point_count, m_small);
-        let large = estimate_peak_bytes(point_count, m_large);
-        assert!(
-            large > small,
-            "expected M={m_large} estimate ({large}) > M={m_small} estimate ({small})"
-        );
-    }
-
-    #[cfg(feature = "cpu")]
-    #[rstest]
-    fn parameter_estimate_grows_with_effective_search_width() {
-        let narrow = crate::HnswParams::new(4, 4).expect("parameters must be valid");
-        let wide = crate::HnswParams::new(4, 64).expect("parameters must be valid");
-
-        let narrow_bytes = estimate_peak_bytes_for_hnsw_params(100, &narrow);
-        let wide_bytes = estimate_peak_bytes_for_hnsw_params(100, &wide);
-
-        assert!(
-            wide_bytes > narrow_bytes,
-            "a wider effective search state must increase the memory estimate"
-        );
-    }
-
-    #[cfg(feature = "cpu")]
-    #[rstest]
-    fn parameter_estimate_grows_with_distance_cache_capacity() {
-        let default_params = crate::HnswParams::new(4, 16).expect("parameters must be valid");
-        let cache_capacity = std::num::NonZeroUsize::new(
-            crate::DistanceCacheConfig::DEFAULT_MAX_ENTRIES.saturating_mul(2),
-        )
-        .expect("doubled default cache capacity must be non-zero");
-        let custom_cache_params = default_params
-            .clone()
-            .with_distance_cache_max_entries(cache_capacity);
-
-        let default_bytes = estimate_peak_bytes_for_hnsw_params(100, &default_params);
-        let custom_cache_bytes = estimate_peak_bytes_for_hnsw_params(100, &custom_cache_params);
-
-        assert!(
-            custom_cache_bytes > default_bytes,
-            "a larger configured distance cache must increase the memory estimate"
-        );
-    }
-
-    #[rstest]
-    #[case::hundred_vs_thousand(100, 1_000, 16)]
-    #[case::thousand_vs_million(1_000, 1_000_000, 16)]
-    fn estimate_grows_with_point_count(
-        #[case] n_small: usize,
-        #[case] n_large: usize,
-        #[case] max_connections: usize,
-    ) {
-        let small = estimate_peak_bytes(n_small, max_connections);
-        let large = estimate_peak_bytes(n_large, max_connections);
-        assert!(
-            large > small,
-            "expected n={n_large} estimate ({large}) > n={n_small} estimate ({small})"
-        );
-    }
-
-    // -- estimate_peak_bytes: edge cases ------------------------------------
-
-    #[rstest]
-    fn estimate_zero_points_returns_zero() {
-        assert_eq!(estimate_peak_bytes(0, 16), 0);
-    }
-
-    #[rstest]
-    fn estimate_one_point_returns_positive_with_cache_base() {
-        let bytes = estimate_peak_bytes(1, 16);
-        assert!(bytes > 0, "single point should still have overhead");
-        // The estimate includes the full distance cache base cost (~120 MiB),
-        // so even a single point produces a sizeable estimate.
-        assert!(
-            bytes > 100_000_000,
-            "expected cache base cost to dominate for n=1"
-        );
-    }
-
-    #[rstest]
-    fn estimate_m_one_returns_valid() {
-        let bytes = estimate_peak_bytes(1_000, 1);
-        assert!(bytes > 0, "M=1 should still produce a positive estimate");
-    }
-
-    // -- estimate_peak_bytes: overflow protection ---------------------------
-
-    #[rstest]
-    fn estimate_huge_point_count_does_not_panic() {
-        // Must not panic; saturating arithmetic should cap at u64::MAX.
-        let bytes = estimate_peak_bytes(usize::MAX, 24);
-        assert!(bytes > 0);
-    }
-
-    // -- format_bytes -------------------------------------------------------
-
-    #[rstest]
-    #[case::zero(0, "0 B")]
-    #[case::small(512, "512 B")]
-    #[case::just_below_kib(1023, "1023 B")]
-    #[case::one_kib(1024, "1.0 KiB")]
-    #[case::rounds_half_to_even_down(1280, "1.2 KiB")]
-    #[case::one_and_half_kib(1536, "1.5 KiB")]
-    #[case::rounds_half_to_even_up(1792, "1.8 KiB")]
-    #[case::one_mib(1_048_576, "1.0 MiB")]
-    #[case::one_gib(1_073_741_824, "1.0 GiB")]
-    #[case::one_tib(1_099_511_627_776, "1.0 TiB")]
-    #[case::two_point_four_gib(2_576_980_378, "2.4 GiB")]
-    fn format_bytes_produces_expected_output(#[case] input: u64, #[case] expected: &str) {
-        assert_eq!(format_bytes(input), expected);
-    }
-}
+mod tests;
