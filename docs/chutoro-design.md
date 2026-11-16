@@ -2603,10 +2603,10 @@ memory for common dataset sizes and HNSW `M` values:
 
 | Points     | M = 8     | M = 16    | M = 24    |
 | ---------- | --------- | --------- | --------- |
-| 10,000     | ~131 MiB  | ~140 MiB  | ~149 MiB  |
-| 100,000    | ~228 MiB  | ~320 MiB  | ~411 MiB  |
-| 1,000,000  | ~1.2 GiB  | ~2.1 GiB  | ~3.0 GiB  |
-| 10,000,000 | ~10.7 GiB | ~19.6 GiB | ~28.6 GiB |
+| 10,000     | ~140 MiB  | ~158 MiB  | ~177 MiB  |
+| 100,000    | ~320 MiB  | ~503 MiB  | ~686 MiB  |
+| 1,000,000  | ~2.1 GiB  | ~3.9 GiB  | ~5.6 GiB  |
+| 10,000,000 | ~19.6 GiB | ~37.5 GiB | ~55.4 GiB |
 
 _Table 4: Estimated peak memory by dataset size and `M` parameter. All values
 include the 1.5× safety multiplier._

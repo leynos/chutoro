@@ -128,6 +128,9 @@ fn estimate_huge_point_count_does_not_panic() {
 
 // -- prepare_edge_list buffers ------------------------------------------
 
+// The slot constants describe MST types, which only exist with the `cpu`
+// feature; the remaining memory tests stay available without it.
+#[cfg(feature = "cpu")]
 #[rstest]
 fn buffer_slot_constants_cover_the_real_layouts() {
     // Compare in the `usize` domain so the constants keep their `u64`
