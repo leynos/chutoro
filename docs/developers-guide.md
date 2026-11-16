@@ -1013,11 +1013,14 @@ non-Unicode paths.
 In tests, use `MockEnv` from `mockable`'s `mock` feature and configure
 `mockall` expectations such as `expect_string`, `expect_os_string`, or
 `expect_path_buf` for the accessors exercised by the code under test. Do not
-call `std::env::{var, var_os, vars, vars_os, set_var, remove_var}` in library
-or test code. The root Clippy policy denies these methods so that environment
-access remains injectable and in-process tests do not mutate process-global
-state. Subprocess tests may configure a child explicitly with `Command::env` or
-`Command::env_remove`.
+call
+`std::env::{var, var_os, vars, vars_os, set_var, remove_var, set_current_dir}`
+in library or test code. The root Clippy policy denies these methods so that
+environment access remains injectable and in-process tests do not mutate
+process-global state, including the working directory. Subprocess tests may
+configure a child explicitly with `Command::env`, `Command::env_remove` or
+`Command::current_dir`; code that needs a directory takes it as an argument
+rather than changing the process's own.
 
 ## Whitaker lint suite
 
