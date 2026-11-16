@@ -90,6 +90,13 @@ pub fn should_collect_build_profile_value(value: Option<&str>) -> bool {
 /// The environment reader is injected so callers decide where values come
 /// from and tests can supply a stub without touching the process environment.
 ///
+/// # Parameters
+/// - `env`: Environment reader queried for [`BUILD_PROFILE_ENV`].
+///
+/// # Returns
+/// `true` when `env` supplies a truthy value for [`BUILD_PROFILE_ENV`], and
+/// `false` otherwise, including when the variable is unset.
+///
 /// # Examples
 ///
 /// ```
@@ -205,6 +212,16 @@ pub fn build_profile_report_target_value(
 ///
 /// The environment reader is injected for the same reason as
 /// [`should_collect_build_profile`].
+///
+/// # Parameters
+/// - `env`: Environment reader queried for [`BUILD_PROFILE_ENV`] and the
+///   `CARGO_TARGET_DIR` override.
+///
+/// # Returns
+/// `Some` report target below the resolved Cargo target directory when
+/// collection is enabled, or `None` when [`BUILD_PROFILE_ENV`] is unset or not
+/// truthy. Without a `CARGO_TARGET_DIR` override, the parent directory is the
+/// workspace `target` directory.
 ///
 /// # Examples
 ///
