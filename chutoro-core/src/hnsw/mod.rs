@@ -1,9 +1,10 @@
 //! CPU implementation of the Hierarchical Navigable Small World (HNSW) graph.
 //!
 //! The implementation mirrors the concurrency model described in the design
-//! documents: Rayon drives parallel insertion, every search acquires a shared
-//! lock on the graph, and write access is limited to the mutation window when
-//! inserting a node.
+//! documents: Rayon dispatches insertions across workers, but every insertion
+//! is serialized by the index's insert mutex, so only one worker mutates the
+//! graph at a time. Every search acquires a shared lock on the graph, and
+//! write access is limited to the mutation window when inserting a node.
 
 mod cpu;
 mod distance_cache;

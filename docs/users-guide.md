@@ -311,8 +311,8 @@ invalid setup or inconsistent runtime state.
 
 After insertion, `search(source, query, ef)` returns the `ef` nearest
 neighbours currently reachable from the HNSW entry point. The query source must
-implement `DataSource + Sync`, matching the requirement for parallel insertion.
-For an end-to-end example, see the Rustdoc for
+implement `DataSource + Sync` so that concurrent searches can share it. For an
+end-to-end example, see the Rustdoc for
 `chutoro_core::CpuHnsw::insert_harvesting`.
 
 ### Insertion guarantees

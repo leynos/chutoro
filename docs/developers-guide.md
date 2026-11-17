@@ -739,8 +739,10 @@ pub fn search<D: DataSource + Sync>(
 single-threaded, then dispatch the remaining insertions across Rayon workers.
 Each insertion is serialized by the index's insert mutex, so Rayon provides
 worker dispatch rather than concurrent graph mutation. `build_with_edges` is
-the preferred path when the caller needs the deterministic `EdgeHarvest` used
-by the MST stage. `with_capacity` is the entry point for manual or incremental
+the preferred path when the caller needs the `EdgeHarvest` used by the MST
+stage. Harvested edges are sorted into a stable order, but worker scheduling
+can change the insertion order, so the harvested edge set itself can vary
+between builds. `with_capacity` is the entry point for manual or incremental
 index population.
 
 `insert` mutates the graph without allocating harvested edge storage.
