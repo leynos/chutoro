@@ -26,19 +26,6 @@ fn args_contain_flag(args: impl IntoIterator<Item = impl AsRef<str>>, flag: &str
     args.into_iter().any(|arg| arg.as_ref() == flag)
 }
 
-/// Returns whether Criterion is listing benchmark identifiers.
-///
-/// ```no_run
-/// # use chutoro_benches::criterion_support::is_benchmark_discovery;
-/// if is_benchmark_discovery() {
-///     // Register placeholder benchmarks without expensive setup.
-/// }
-/// ```
-#[must_use]
-pub fn is_benchmark_discovery() -> bool {
-    is_benchmark_discovery_args(std::env::args())
-}
-
 /// Returns whether a supplied argument sequence asks Criterion to list
 /// benchmark identifiers.
 ///
@@ -106,21 +93,6 @@ where
     } else {
         configured_point_count
     }
-}
-
-/// Reads process arguments and returns whether Criterion is probing one exact
-/// benchmark case.
-///
-/// # Examples
-///
-/// ```
-/// use chutoro_benches::criterion_support::is_exact_benchmark_probe;
-///
-/// let _is_exact = is_exact_benchmark_probe();
-/// ```
-#[must_use]
-pub fn is_exact_benchmark_probe() -> bool {
-    is_exact_benchmark_probe_args(std::env::args())
 }
 
 /// Returns whether nextest is running one Criterion exact benchmark case.

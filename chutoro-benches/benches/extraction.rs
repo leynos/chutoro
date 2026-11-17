@@ -21,7 +21,7 @@ use std::num::NonZeroUsize;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use chutoro_benches::{
-    criterion_support::{configure_short_measurement_group, is_exact_benchmark_probe},
+    criterion_support::{configure_short_measurement_group, is_exact_benchmark_probe_args},
     error::BenchSetupError,
     params::ExtractionBenchParams,
     source::{SyntheticConfig, SyntheticSource},
@@ -49,7 +49,7 @@ const M: usize = 16;
 fn configure_extraction_group(
     group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>,
 ) {
-    configure_short_measurement_group(group, 20, is_exact_benchmark_probe());
+    configure_short_measurement_group(group, 20, is_exact_benchmark_probe_args(std::env::args()));
 }
 
 /// Register extraction measurements and return setup failures to the caller.

@@ -85,23 +85,28 @@ pub fn should_collect_build_profile_value(value: Option<&str>) -> bool {
     truthy_env_value(value)
 }
 
-/// Reads the process environment and returns whether build-profile collection
-/// is enabled.
+/// Returns whether build-profile collection is enabled in `env`.
+///
+/// The environment reader is injected so callers decide where values come
+/// from and tests can supply a stub without touching the process environment.
+///
+/// # Parameters
+/// - `env`: Environment reader queried for [`BUILD_PROFILE_ENV`].
+///
+/// # Returns
+/// `true` when `env` supplies a truthy value for [`BUILD_PROFILE_ENV`], and
+/// `false` otherwise, including when the variable is unset.
 ///
 /// # Examples
 ///
 /// ```
 /// use chutoro_benches::neighbour_scoring::should_collect_build_profile;
+/// use mockable::DefaultEnv;
 ///
-/// let _enabled = should_collect_build_profile();
+/// let _enabled = should_collect_build_profile(&DefaultEnv);
 /// ```
 #[must_use]
-pub fn should_collect_build_profile() -> bool {
-    should_collect_build_profile_with_env(&DefaultEnv)
-}
-
-/// Read build-profile collection configuration through an injected reader.
-fn should_collect_build_profile_with_env(env: &dyn Env) -> bool {
+pub fn should_collect_build_profile(env: &dyn Env) -> bool {
     should_collect_build_profile_value(env.string(BUILD_PROFILE_ENV).as_deref())
 }
 /// Returns the parent directory used for benchmark reports.
@@ -203,23 +208,31 @@ pub fn build_profile_report_target_value(
         .then(|| report_path_value(report_parent_dir, BUILD_PROFILE_REPORT))
 }
 
-/// Reads the process environment and returns the build-profile report target
-/// when collection is enabled.
+/// Returns the build-profile report target enabled in `env`.
+///
+/// The environment reader is injected for the same reason as
+/// [`should_collect_build_profile`].
+///
+/// # Parameters
+/// - `env`: Environment reader queried for [`BUILD_PROFILE_ENV`] and the
+///   `CARGO_TARGET_DIR` override.
+///
+/// # Returns
+/// `Some` report target below the resolved Cargo target directory when
+/// collection is enabled, or `None` when [`BUILD_PROFILE_ENV`] is unset or not
+/// truthy. Without a `CARGO_TARGET_DIR` override, the parent directory is the
+/// workspace `target` directory.
 ///
 /// # Examples
 ///
 /// ```
 /// use chutoro_benches::neighbour_scoring::build_profile_report_target;
+/// use mockable::DefaultEnv;
 ///
-/// let _target = build_profile_report_target();
+/// let _target = build_profile_report_target(&DefaultEnv);
 /// ```
 #[must_use]
-pub fn build_profile_report_target() -> Option<ReportTarget> {
-    build_profile_report_target_with_env(&DefaultEnv)
-}
-
-/// Resolve an enabled build-profile report target through an injected reader.
-fn build_profile_report_target_with_env(env: &dyn Env) -> Option<ReportTarget> {
+pub fn build_profile_report_target(env: &dyn Env) -> Option<ReportTarget> {
     let report_parent_dir = report_parent_dir_with_env(env);
     build_profile_report_target_value(env.string(BUILD_PROFILE_ENV).as_deref(), &report_parent_dir)
 }
@@ -234,8 +247,7 @@ mod tests {
 
     use super::{
         BUILD_PROFILE_ENV, BUILD_PROFILE_REPORT, CARGO_TARGET_DIR_ENV, DEFAULT_REPORT_PARENT_DIR,
-        build_profile_report_target_with_env, report_parent_dir_with_env,
-        should_collect_build_profile_with_env,
+        build_profile_report_target, report_parent_dir_with_env, should_collect_build_profile,
     };
 
     #[rstest]
@@ -251,7 +263,7 @@ mod tests {
             Some(value.to_owned())
         });
 
-        assert_eq!(should_collect_build_profile_with_env(&env), expected);
+        assert_eq!(should_collect_build_profile(&env), expected);
     }
 
     #[test]
@@ -291,7 +303,7 @@ mod tests {
             unexpected => panic!("unexpected environment key: {unexpected}"),
         });
 
-        assert!(build_profile_report_target_with_env(&env).is_none());
+        assert!(build_profile_report_target(&env).is_none());
     }
 
     #[test]
@@ -303,7 +315,7 @@ mod tests {
             unexpected => panic!("unexpected environment key: {unexpected}"),
         });
 
-        let target = build_profile_report_target_with_env(&env)
+        let target = build_profile_report_target(&env)
             .expect("enabled build-profile report must have a target");
         assert_eq!(
             target.path(),

@@ -58,6 +58,19 @@ fn source() -> ProfilingSource<StubSource> {
 }
 
 #[test]
+fn profiling_source_delegates_name_to_wrapped_source() {
+    assert_eq!(source().name(), "stub");
+}
+
+#[test]
+fn profiling_source_delegates_metric_descriptor_to_wrapped_source() {
+    assert_eq!(
+        source().metric_descriptor(),
+        MetricDescriptor::new("stub:absolute")
+    );
+}
+
+#[test]
 fn profiling_source_initializes_counters_to_zero() {
     let source = source();
     let stats = source.take_snapshot().expect("snapshot must be available");
