@@ -813,6 +813,9 @@ the stall had to be killed after 25 minutes. `CpuHnsw` now scores trim jobs on
 the thread holding the guard, and `hnsw::cpu::trim_tests` pins the property.
 The rule generalizes to the whole critical section: no code path inside it may
 block on or dispatch work to the Rayon pool.
+[ADR-006](adrs/adr-0006-sequential-trim-scoring.md) records the decision, the
+rejected alternatives, and the limit that a `DataSource` callback which itself
+waits on the same pool remains outside the fix's guarantee.
 
 #### 6.2. Algorithmic Implementation Sketch
 

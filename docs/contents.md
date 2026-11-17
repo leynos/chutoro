@@ -55,6 +55,10 @@ open each document.
   route](adrs/adr-0005-cranelift-opt-in-development-route.md): accepted
   guidance for keeping the accelerated backend outside the build standard and
   every merge gate.
+- [ADR 006: sequential trim scoring under the insertion
+  mutex](adrs/adr-0006-sequential-trim-scoring.md): accepted guidance for
+  scoring trim jobs on the thread that holds `insert_mutex` instead of
+  dispatching them to the Rayon pool.
 
 ## Execution plans
 
