@@ -1,6 +1,6 @@
 //! Unit tests for the CPU HNSW index.
 
-use super::*;
+use super::{collectors::EdgeCollector, *};
 use crate::{
     MetricDescriptor,
     datasource::DataSource,
@@ -9,6 +9,7 @@ use crate::{
         HnswParams,
         graph::{EdgeContext, NodeContext},
         insert::{TrimJob, test_helpers::add_edge_if_missing},
+        types::CandidateEdge,
     },
 };
 use std::{
@@ -58,6 +59,52 @@ fn insert_waits_for_mutex() {
     drop(guard);
     handle.join().expect("thread joins");
     assert!(finished.load(AtomicOrdering::SeqCst));
+}
+
+/// Collector that records any edges the insertion path hands it.
+///
+/// Declaring `WANTS_EDGES = false` mimics [`NoopCollector`], but the counters
+/// expose a regression if the extraction guard is removed: an unconditional
+/// `extract_candidate_edges` would call `collect` with real edges.
+struct RecordingCollector {
+    calls: usize,
+    edges: usize,
+}
+
+impl EdgeCollector for RecordingCollector {
+    const WANTS_EDGES: bool = false;
+
+    fn collect(&mut self, edges: Vec<CandidateEdge>) {
+        self.calls += 1;
+        self.edges += edges.len();
+    }
+}
+
+/// Verifies a non-harvesting collector never receives extracted edges, even
+/// for an insertion that would otherwise produce them.
+#[test]
+fn non_harvesting_insert_never_collects_edges() {
+    let params = HnswParams::new(2, 4).expect("params").with_rng_seed(53);
+    let index = CpuHnsw::with_capacity(params, 3).expect("index");
+    let source = TestSource::new(vec![0.0, 1.0, 2.0]);
+
+    index.insert(0, &source).expect("seed entry point");
+
+    // A second insertion into a populated graph plans real neighbours, so an
+    // ungated extraction would be observable here.
+    let mut collector = RecordingCollector { calls: 0, edges: 0 };
+    index
+        .insert_with_collector(1, &source, &mut collector)
+        .expect("insert must succeed");
+
+    assert_eq!(
+        collector.calls, 0,
+        "non-harvesting collector must not be called"
+    );
+    assert_eq!(
+        collector.edges, 0,
+        "no candidate edges may be extracted for it"
+    );
 }
 
 /// Verifies localized healing repairs inserted edges without sweeping unrelated ones.

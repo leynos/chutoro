@@ -825,11 +825,12 @@ build benchmark (`chutoro-benches/benches/hnsw.rs`) covers
 `POINT_COUNTS = [100, 500, 1_000, 5_000]` on both build paths, and no
 measurement identifies the mutex as the bottleneck at those sizes. The
 `ClusteringSession` writer also relies on this serialization (§12.6).
-Separately, the non-harvesting build path is now allocation-free per insertion:
-`EdgeCollector` exposes a compile-time `WANTS_EDGES` flag, `NoopCollector` sets
-it to `false`, and `insert_with_collector` therefore never calls
-`extract_candidate_edges` for `CpuHnsw::build`, so no per-node
-`Vec<CandidateEdge>` is allocated.
+Separately, the non-harvesting build path no longer allocates a candidate-edge
+vector per insertion: `EdgeCollector` exposes a compile-time `WANTS_EDGES` flag,
+`NoopCollector` sets it to `false`, and `insert_with_collector` therefore
+never calls `extract_candidate_edges` for `CpuHnsw::build`, so no per-node
+`Vec<CandidateEdge>` is allocated. Other insertion allocations remain; the
+planner still allocates its per-insertion layer vector.
 
 #### 6.2. Algorithmic Implementation Sketch
 
