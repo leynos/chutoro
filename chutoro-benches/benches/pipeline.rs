@@ -8,17 +8,12 @@
 //! With the `pipeline-profile` feature, one untimed run per size also writes
 //! the per-stage breakdown before Criterion registers its benchmarks. The
 //! profile is written by `chutoro_benches::pipeline_profile`.
+// `missing_docs` can only be scoped to the whole module: an `expect` attached
+// to a macro invocation is ignored, and the undocumented items are the ones
+// `criterion_group!` and `criterion_main!` expand to.
 #![expect(
     missing_docs,
     reason = "Criterion macros generate items without doc comments"
-)]
-#![expect(
-    clippy::shadow_reuse,
-    reason = "Criterion bench_with_input closures rebind parameter names"
-)]
-#![expect(
-    clippy::excessive_nesting,
-    reason = "Criterion bench_with_input + error handling requires deep nesting"
 )]
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
@@ -32,6 +27,10 @@ use chutoro_benches::{
     source::{SyntheticConfig, SyntheticSource},
 };
 use chutoro_core::{Chutoro, ChutoroBuilder, ExecutionStrategy, HnswParams};
+
+// Only the profiled path reads the generated length through the trait.
+#[cfg(feature = "pipeline-profile")]
+use chutoro_core::DataSource as _;
 
 /// Seed used for synthetic data generation and HNSW level sampling.
 const SEED: u64 = 42;
@@ -99,7 +98,10 @@ fn build_cases() -> Result<Vec<PipelineCase>, BenchSetupError> {
 /// Registers the whole-pipeline measurements and returns setup failures.
 #[expect(
     clippy::panic_in_result_fn,
-    reason = "Criterion measurement closures cannot propagate errors via Result"
+    clippy::shadow_reuse,
+    clippy::excessive_nesting,
+    reason = "Criterion's bench_with_input closures rebind the parameter name, \
+              nest the timing loop, and cannot propagate errors through Result"
 )]
 fn pipeline_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     if is_benchmark_discovery() || is_nextest_exact_benchmark_probe() {
@@ -146,7 +148,9 @@ fn profile_cases(cases: &[PipelineCase]) -> Result<(), BenchSetupError> {
 
     let samples = cases
         .iter()
-        .map(|case| measure_pipeline_stages(case.point_count, &case.source, &case.chutoro))
+        // Label rows with the size actually generated: an `--exact` probe
+        // builds a smaller source than the nominal benchmark ID implies.
+        .map(|case| measure_pipeline_stages(case.source.len(), &case.source, &case.chutoro))
         .collect::<Result<Vec<_>, _>>()?;
     let path = write_pipeline_profile(&samples)?;
     eprintln!("[pipeline-profile] stage profile written to {path}");

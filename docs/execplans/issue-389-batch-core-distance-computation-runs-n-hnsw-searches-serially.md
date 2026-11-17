@@ -158,8 +158,19 @@ and 150 lines of benchmark and profiling support.
   `--baseline before` at four threads and a fresh stage profile; medians, stage
   shares, and the distance-cache contention check recorded under
   `Artefacts and notes`.
-- [ ] `EP-M4` remainder: documentation, follow-up issue, full gates, and
-  delivery.
+- [x] (2026-11-17 19:05Z) `EP-M4` documentation and follow-up: developers'
+  guide, design document, roadmap link, and issue
+  [#430](https://github.com/leynos/chutoro/issues/430).
+- [x] (2026-11-17 21:30Z) Full deterministic gates on the candidate tree:
+  `make check-fmt`, `make lint` (interrogate, rustdoc, Clippy, Whitaker),
+  `make test` (1,434 passed, 1 skipped, 0 failed), `make markdownlint`
+  (including spelling), and `make nixie`.
+- [x] (2026-11-17 22:40Z) CodeRabbit review addressed: lint expectations scoped
+  to `pipeline_impl` (with `missing_docs` kept module-wide because an `expect`
+  on a macro invocation is ignored), profile rows labelled with the generated
+  source size, and the parity/tie/property trials given distinct metric
+  descriptors so they start with a cold distance cache.
+- [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
 
@@ -234,7 +245,31 @@ and 150 lines of benchmark and profiling support.
 
 ## Outcomes & retrospective
 
-Pending implementation.
+Delivered as draft pull request
+[#431](https://github.com/leynos/chutoro/pull/431). A user can now run the
+one-shot CPU pipeline and see the batch core-distance stage use the surrounding
+Rayon pool, with per-index results and error identity unchanged at one and
+eight threads. The stage profile shows `core_distances` falling from about 37%
+of the pipeline to about 13%, and the whole-run medians fall by 13.6% at n =
+1,000 and 10.6% at n = 10,000.
+
+What worked well: keeping the ordered collect and the serial first-error scan
+as a tiny private seam made the determinism contract easy to state and to
+mutate against, and the independent sequential oracle kept the parity tests
+from sharing a defect with production. Measuring before parallelizing
+established that the stage was worth the change and gave the after run a fixed
+reference.
+
+What to carry forward: a short-circuiting `collect::<Result<Vec<_>>>()` looks
+equivalent but changes observable error identity at thread counts above one, so
+the developers' guide now warns against "simplifying" it. Distinct metric
+descriptors are the cheapest way to isolate distance-cache state between
+trials. Full-workspace gates are expensive on this host under compile
+admission; the focused suites for changed crates gave fast signal, while the
+full run needed to wait for a drained queue.
+
+Remaining work is tracked in
+[#430](https://github.com/leynos/chutoro/issues/430) for the session path.
 
 ## Context and orientation
 

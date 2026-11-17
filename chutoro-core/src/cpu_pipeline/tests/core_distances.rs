@@ -90,17 +90,26 @@ fn sequential_core_distances<D: DataSource + Sync>(
 #[case::single_thread(1)]
 #[case::eight_threads(8)]
 fn parallel_searches_match_the_sequential_reference(#[case] threads: usize) {
-    let source = NumericTestSource::with_len("parity", 24);
-    let (index, ef) = build_fixture_index(&source).expect("fixture index must build");
+    // Distinct metric descriptors keep the stages' distance-cache entries
+    // apart, so the trials exercise concurrent misses instead of replaying
+    // hits inserted by the index build or the sequential reference.
+    let build_source = NumericTestSource::with_len("parity", 24)
+        .using_metric_descriptor(MetricDescriptor::new("parity:build"));
+    let (index, ef) = build_fixture_index(&build_source).expect("fixture index must build");
     let inputs = CoreDistanceInputs::new(
-        source.len(),
+        build_source.len(),
         NonZeroUsize::new(3).expect("three is non-zero"),
         ef,
     );
 
-    let expected = sequential_core_distances(&source, &index, &inputs)
+    let reference = NumericTestSource::with_len("parity", 24)
+        .using_metric_descriptor(MetricDescriptor::new("parity:reference"));
+    let expected = sequential_core_distances(&reference, &index, &inputs)
         .expect("sequential reference must succeed");
-    let actual = with_pool(threads, || compute_core_distances(&source, &index, &inputs))
+
+    let trial = NumericTestSource::with_len("parity", 24)
+        .using_metric_descriptor(MetricDescriptor::new("parity:trial"));
+    let actual = with_pool(threads, || compute_core_distances(&trial, &index, &inputs))
         .expect("thread pool must build")
         .expect("parallel computation must succeed");
 
@@ -112,20 +121,26 @@ fn parallel_searches_match_the_sequential_reference(#[case] threads: usize) {
 #[case::eight_threads(8)]
 fn ties_resolve_identically_at_every_thread_count(#[case] threads: usize) {
     // Pairs of equal points make every distance a tie between two ids.
-    let source = NumericTestSource::new(
-        "ties",
-        vec![0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0],
-    );
-    let (index, ef) = build_fixture_index(&source).expect("fixture index must build");
+    let data = vec![0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0];
+    let build_source = NumericTestSource::new("ties", data.clone())
+        .using_metric_descriptor(MetricDescriptor::new("ties:build"));
+    let (index, ef) = build_fixture_index(&build_source).expect("fixture index must build");
     let inputs = CoreDistanceInputs::new(
-        source.len(),
+        build_source.len(),
         NonZeroUsize::new(2).expect("two is non-zero"),
         ef,
     );
 
-    let expected = sequential_core_distances(&source, &index, &inputs)
+    // As in the parity test, distinct descriptors give each stage its own
+    // cache entries so the parallel trial starts cold.
+    let reference = NumericTestSource::new("ties", data.clone())
+        .using_metric_descriptor(MetricDescriptor::new("ties:reference"));
+    let expected = sequential_core_distances(&reference, &index, &inputs)
         .expect("sequential reference must succeed");
-    let actual = with_pool(threads, || compute_core_distances(&source, &index, &inputs))
+
+    let trial = NumericTestSource::new("ties", data)
+        .using_metric_descriptor(MetricDescriptor::new("ties:trial"));
+    let actual = with_pool(threads, || compute_core_distances(&trial, &index, &inputs))
         .expect("thread pool must build")
         .expect("parallel computation must succeed");
 
@@ -317,11 +332,12 @@ proptest! {
     fn parallel_searches_match_the_reference_for_generated_sources(
         (values, cluster_size) in generated_source(),
     ) {
-        let source = NumericTestSource::new("generated", values);
+        let build_source = NumericTestSource::new("generated", values.clone())
+            .using_metric_descriptor(MetricDescriptor::new("generated:build"));
         let params = HnswParams::new(4, 8)
             .map_err(|error| TestCaseError::fail(error.to_string()))?
             .with_rng_seed(11);
-        let (index, _) = CpuHnsw::build_with_edges(&source, params)
+        let (index, _) = CpuHnsw::build_with_edges(&build_source, params)
             .map_err(|error| TestCaseError::fail(error.to_string()))?;
 
         // Mirror the production `ef` formula so the generated cases search at
@@ -329,18 +345,27 @@ proptest! {
         let desired = cluster_size
             .saturating_add(1)
             .max(8)
-            .min(source.len());
+            .min(build_source.len());
         let inputs = CoreDistanceInputs::new(
-            source.len(),
+            build_source.len(),
             NonZeroUsize::new(cluster_size).ok_or_else(|| {
                 TestCaseError::fail("generated cluster sizes are non-zero")
             })?,
             NonZeroUsize::new(desired).unwrap_or(NonZeroUsize::MIN),
         );
-        let expected = sequential_core_distances(&source, &index, &inputs)
+
+        // Distinct descriptors keep the reference's and each trial's cache
+        // entries apart, so every trial exercises concurrent cache misses.
+        let reference = NumericTestSource::new("generated", values.clone())
+            .using_metric_descriptor(MetricDescriptor::new("generated:reference"));
+        let expected = sequential_core_distances(&reference, &index, &inputs)
             .map_err(|error| TestCaseError::fail(error.to_string()))?;
 
         for threads in THREAD_COUNTS {
+            let trial = NumericTestSource::new("generated", values.clone())
+                .using_metric_descriptor(MetricDescriptor::new(format!(
+                    "generated:trial-{threads}"
+                )));
             let actual = ThreadPoolBuilder::new()
                 .num_threads(threads)
                 .build()
@@ -349,7 +374,7 @@ proptest! {
                         "failed to build a {threads}-thread Rayon pool: {error}"
                     ))
                 })?
-                .install(|| compute_core_distances(&source, &index, &inputs))
+                .install(|| compute_core_distances(&trial, &index, &inputs))
                 .map_err(|error| {
                     TestCaseError::fail(format!(
                         "parallel computation failed with {threads} threads: {error}"
