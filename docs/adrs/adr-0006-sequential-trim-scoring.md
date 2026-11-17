@@ -11,7 +11,7 @@ and runs sequentially on the thread that holds `insert_mutex`.
 
 ## Context and problem statement
 
-`CpuHnsw` parallelises construction across Rayon workers, and each insertion
+`CpuHnsw` parallelizes construction across Rayon workers, and each insertion
 serializes its plan-apply-score-commit transaction through `insert_mutex`
 (`chutoro-core/src/hnsw/cpu/mod.rs`). After applying a staged insertion, the
 worker holding that mutex scored the resulting trim jobs with
