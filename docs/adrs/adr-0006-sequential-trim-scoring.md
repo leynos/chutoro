@@ -125,18 +125,20 @@ section may block on, or dispatch work to, the Rayon pool.
   update, and the new metrics let a future regression in batch size surface.
 - **Arbitrary `DataSource` callbacks are not made safe.** The fix removes
   nested dispatch owned by the core, not dispatch owned by a source
-  implementation. A `DataSource` whose `distance`, `distance_batch`, or
-  `batch_distances` blocks on, or dispatches to, the same Rayon pool while
-  called under `insert_mutex` can still deadlock. The trait documentation now
-  states this, together with the prohibition on re-entering the same index.
+  implementation. A `DataSource` whose `distance`, `distance_batch`,
+  `batch_distances`, or `metric_descriptor` blocks on, or dispatches to, the
+  same Rayon pool while called under `insert_mutex` can still deadlock; trim
+  batch construction reads the metric descriptor inside the critical section.
+  The trait documentation now states this, together with the prohibition on
+  re-entering the same index.
 - **The deterministic guard reads source text.**
   `tests/workflow_contracts/trim_scoring_dispatch_test.py` rejects every Rayon
-  entry point in `score_trim_jobs`, but it cannot see dispatch reached through
-  a helper. The runtime scheduling test in `hnsw::cpu::trim_tests` remains as
-  broader coverage, and it is an observation rather than a proof: if no worker
-  steals before the observation interval expires, a dispatching implementation
-  could pass a single round by coincidence, which is why the test scores eight
-  rounds with a fresh index per round.
+  entry point written directly in `score_trim_jobs`, but it cannot see dispatch
+  reached through a helper. The runtime scheduling test in
+  `hnsw::cpu::trim_tests` remains as broader coverage, and it is an observation
+  rather than a proof: the caller's first distance call waits up to two seconds
+  for another worker, and if no worker steals in that interval a dispatching
+  implementation can still finish the batch on the caller and pass.
 - **A watchdog stress test was considered and rejected.** An earlier
   watchdog-based stress test passed three times out of three on the unfixed
   code, because the stall is a scheduling race rather than a deterministic
@@ -150,8 +152,10 @@ section may block on, or dispatch work to, the Rayon pool.
 - Trim scoring is deterministic in input order, including first-error
   selection.
 - Two new operational metrics describe the serial scoring cost.
-- A future change that reintroduces nested dispatch into the scorer fails the
-  deterministic contract, whatever the scheduler does.
+- A future change that reintroduces nested dispatch written directly into
+  `score_trim_jobs` fails the source contract deterministically, regardless of
+  scheduler timing. Dispatch hidden in a helper is caught only by the runtime
+  observation.
 
 ## Validation evidence
 
@@ -161,8 +165,13 @@ Negative control: against a temporary `into_par_iter()` implementation, the
 runtime test failed in 0.03 s having observed all four workers, and the source
 contract rejects the dispatch deterministically.
 
-Positive evidence: on the fixed tree the runtime test passes in about 0.3 s
-over eight rounds, and the full gate set passed on commit `28a9687`
+Positive evidence: the checked-in runtime test scores one batch on one index
+inside a four-worker pool, and its caller's first distance call waits up to two
+seconds for another worker before asserting that every call came from the
+caller. It passes on the fixed tree. An earlier eight-round variant of the same
+experiment, with a fresh index per round, completed in about 0.3 s and was the
+form tested while the fix was developed; it is historical evidence, not the
+checked-in regression. The full gate set passed on commit `28a9687`
 (`make check-fmt`, `make markdownlint` including spelling, `make lint`,
 `make typecheck`, `make test` with 1374 passed and 1 skipped, `make nixie`, and
 `make test-workflow-contracts` with 843 passed and 1 skipped). Hosted CI on the

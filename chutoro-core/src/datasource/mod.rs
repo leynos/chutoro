@@ -110,9 +110,11 @@ impl From<(usize, usize)> for PointPair {
 /// pool that is driving the build. The callback already runs under the mutex
 /// that waiting work needs, so any of these can deadlock a parallel
 /// construction. The constraint applies to [`Self::distance`],
-/// [`Self::distance_batch`], and [`Self::batch_distances`] alike; the fix
-/// recorded in ADR-006 removes nested Rayon dispatch owned by the core, not
-/// dispatch owned by a source implementation.
+/// [`Self::distance_batch`], [`Self::batch_distances`], and
+/// [`Self::metric_descriptor`] alike, because trim batch construction reads
+/// the metric while the mutex is held; the fix recorded in ADR-006 removes
+/// nested Rayon dispatch owned by the core, not dispatch owned by a source
+/// implementation.
 ///
 /// # Examples
 /// ```
