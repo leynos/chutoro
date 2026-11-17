@@ -149,9 +149,17 @@ and 150 lines of benchmark and profiling support.
   doctests, unit tests, export fixture, and the session, batch, and benchmark
   consumers migrated; the benchmark's unreachable invariant branch removed.
   Session regression and BDD suites pass unchanged.
-- [ ] `EP-M3`: parallel batch searches with ordered, lowest-index error
-  selection and evidence tests.
-- [ ] `EP-M4`: after-measurement, documentation, follow-up issue, and delivery.
+- [x] (2026-11-17 17:05Z) `EP-M3`: parallel batch searches with ordered,
+  lowest-index error selection, the generic collector seam, and the parity,
+  tie, sparse, singleton, empty, property, synthetic-failure, and real-search
+  self-pair tests at one and eight threads. Mutation evidence recorded in the
+  verification plan.
+- [x] (2026-11-17 18:10Z) `EP-M4` measurement: `pipeline` bench rerun against
+  `--baseline before` at four threads and a fresh stage profile; medians, stage
+  shares, and the distance-cache contention check recorded under
+  `Artefacts and notes`.
+- [ ] `EP-M4` remainder: documentation, follow-up issue, full gates, and
+  delivery.
 
 ## Surprises & discoveries
 
@@ -167,6 +175,18 @@ and 150 lines of benchmark and profiling support.
   rejects. Evidence: `chutoro-core/src/hnsw/helpers.rs`. Impact: a real-search
   failure fixture can target specific point indices without needing to know
   HNSW traversal order.
+- Observation: the four-thread stage speedup (3.81x at n = 1,000, 3.66x at
+  n = 10,000) is close to the theoretical maximum, so the shared distance cache
+  is not the bottleneck at this width and needs no change. Evidence:
+  `Artefacts and notes`, after-measurement profile. Impact: the follow-up issue
+  should not propose cache surgery without a wider-contention datum.
+- Observation: `make lint-clippy` reports `chutoro-benches` failures only after
+  the workspace's earlier crates compile, so an earlier run that stopped in
+  `chutoro-core` hid four benchmark-target lints in `pipeline.rs` and
+  `pipeline_profile.rs`. Evidence:
+  `error: could not compile chutoro-benches (bench "pipeline")` after the
+  `chutoro-core` fixes landed. Impact: always read the gate log to its final
+  summary rather than the first failure block.
 
 ## Decision log
 
@@ -196,9 +216,18 @@ and 150 lines of benchmark and profiling support.
   owns the target-directory convention and `report_file::write_report_file`
   already creates missing parents; reusing them avoids a second, divergent
   report location. The override keeps reruns able to preserve an earlier
-  profile. Date/Author: 2026-11-17, implementation agent. Rationale: per-worker
-  timing would change the histogram's meaning and cardinality, and a failed
-  stage never produced a latency sample before. Date/Author: 2026-11-17,
+  profile. Date/Author: 2026-11-17, implementation agent.
+- D5. Decision: leave the sharded distance cache unchanged. Rationale: the
+  stage reaches 3.66-3.81x on four threads, so cache shard contention does not
+  measurably limit this workload; changing the cache would add risk without
+  evidence. The follow-up issue records the measurement rather than a
+  speculative fix. Date/Author: 2026-11-17, implementation agent.
+- D6. Decision: reuse the existing benchmark-file lint conventions
+  (`#![expect(clippy::shadow_reuse, clippy::excessive_nesting)]`) and the local
+  `panic_in_result_fn` suppression used by `mst.rs`, rather than restructuring
+  the Criterion registration closures. Rationale: the lints describe
+  unavoidable Criterion API shapes, and every other bench target in the crate
+  carries the same targeted expectations. Date/Author: 2026-11-17,
   implementation agent.
 
 ## Outcomes & retrospective
@@ -348,23 +377,28 @@ The selection rule `C(L, m)` over a non-self, ascending-distance list `L` is:
   Method: property tests and named cases using explicit one-thread and
   eight-thread pools, compared with a sequential oracle. Rationale: order
   preservation over generated datasets is exactly the risk. Artefact:
-  `chutoro-core/src/cpu_pipeline/tests/core_distances.rs`. Evidence: the test
-  fails if the collector reorders values (for example by using `flat_map` or
-  unordered collect). Non-vacuity: fixtures include ties, sparse lists, and a
-  singleton; the oracle is a separate sequential loop over `index.search`.
+  `chutoro-core/src/cpu_pipeline/tests/core_distances.rs`. Evidence:
+  `successful_results_keep_source_order` reverses completion order with sleeps
+  and still requires index order, so an unordered collection fails it.
+  Non-vacuity: fixtures include ties, sparse lists, and a singleton; the oracle
+  is a separate sequential loop over `index.search`.
 - Obligation `INV-error`.
   Method: synthetic failure test with errors at indices 3, 7, and 11 and
   artificial delays at lower indices, plus a real-search self-pair failure
   fixture, each at one and eight threads. Rationale: the failure mode is
   scheduling-dependent, so it must be driven through real Rayon pools.
-  Artefact: same test module. Evidence: the test fails if errors are collected
-  through `collect::<Result<Vec<_>>>()`. Non-vacuity: the delayed lower index
-  actually fails, and the real fixture is shown to fail at the intended index.
+  Artefact: same test module. Evidence: mutating the seam to
+  `results.collect::<Result<Vec<T>, E>>()` makes the eight-thread case return
+  `Err(11)` instead of `Err(3)` (observed 2026-11-17), so the test rejects the
+  completion-ordered collector for the intended reason. Non-vacuity: the
+  delayed lower index actually fails, and the real fixture is shown to fail at
+  the intended index.
 - Obligation `INV-every-index-runs`.
-  Method: a counting source that records which query indices were searched in
-  the presence of a failure. Rationale: side-effect behaviour is observable and
-  cheap to pin. Artefact: same test module. Evidence: all `n` queries are
-  recorded even when point 3 fails.
+  Method: a counter that records which index tasks ran in the presence of a
+  failure. Rationale: side-effect behaviour is observable and cheap to pin.
+  Artefact: same test module. Evidence: the ordered collector records all 16
+  indices; the mutated collector recorded 4 at one thread and 12 at eight
+  threads before returning.
 - Obligation `REQ-measure`.
   Method: Criterion baseline comparison plus a local-recorder stage profile.
   Rationale: performance claims need before/after evidence on the same host.
@@ -617,7 +651,52 @@ The remaining whole-run time is the HNSW build and label extraction, which are
 not stage-labelled. The `core_distances` stage is about 37% of the whole
 pipeline at both sizes before parallelization.
 
-After measurement (`EP-M4`): to be recorded.
+After measurement (`EP-M4`, 2026-11-17, parallel `compute_core_distances`):
+
+```plaintext
+RAYON_NUM_THREADS=4 cargo bench --offline --locked -p chutoro-benches \
+  --features pipeline-profile --bench pipeline -- --baseline before
+```
+
+Criterion compares against the saved `before` baseline under the same host and
+settings:
+
+```plaintext
+pipeline/n=1000         time:   [1.1818 s 1.2259 s 1.2683 s]
+                        change: [-19.478% -16.117% -12.940%] (p = 0.00 < 0.05)
+pipeline/n=10000        time:   [31.590 s 33.926 s 37.188 s]
+                        change: [-14.560% -7.7311% +1.9803%] (p = 0.10 > 0.05)
+```
+
+Saved medians: n = 1,000 falls from 1.4538 s to 1.2557 s (−13.6%); n = 10,000
+falls from 36.6385 s to 32.7410 s (−10.6%). The n = 10,000 interval is wide
+because ten samples of a ~35 s pipeline span minutes of host activity, so its
+Criterion p-value does not reach the 0.05 threshold; the stage profile below
+attributes the improvement to the intended stage either way.
+
+Stage profile after the change (same process, one untimed run per size):
+
+```plaintext
+point_count,stage,seconds,share
+1000,whole_run,1.298107,1.0000
+1000,core_distances,0.172432,0.1328
+1000,kruskal,0.002713,0.0021
+1000,mutual_reachability,0.013450,0.0104
+10000,whole_run,29.621945,1.0000
+10000,core_distances,3.602843,0.1216
+10000,kruskal,0.021009,0.0007
+10000,mutual_reachability,0.027135,0.0009
+```
+
+The `core_distances` stage falls from 0.657 s to 0.172 s at n = 1,000 (3.81x)
+and from 13.179 s to 3.603 s at n = 10,000 (3.66x) on a four-thread pool, so
+the stage scales near-linearly and shows no pathological distance-cache
+contention at this width. Its share of the pipeline falls from 37.6% to 13.3%
+and from 36.9% to 12.2% respectively. Whole-pipeline gains are smaller than the
+stage gain because the unlabelled HNSW build still dominates: Amdahl's law over
+a 37% stage at four threads predicts a 1.28x whole-run ceiling, and the
+observed medians sit below that ceiling rather than contradicting the stage
+result.
 
 ## Interfaces and dependencies
 
