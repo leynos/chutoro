@@ -8,8 +8,8 @@
 
 use std::num::NonZeroUsize;
 
-use super::{ClusteringSession, core_distance::core_distance_from_neighbours};
-use crate::{DataSource, Neighbour, Result};
+use super::ClusteringSession;
+use crate::{DataSource, Neighbour, Result, core_distance::core_distance_from_neighbours};
 
 impl<D: DataSource + Send + Sync> ClusteringSession<D> {
     /// Searches the non-self neighbours of every newly inserted point.

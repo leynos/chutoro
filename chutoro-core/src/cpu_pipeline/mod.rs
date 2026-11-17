@@ -19,7 +19,8 @@ use rayon::prelude::*;
 
 use crate::{
     CandidateEdge, ClusterId, CpuHnsw, DataSource, EdgeHarvest, HierarchyConfig, HnswError,
-    HnswParams, MinimumSpanningForest, MstError, Result, error::ChutoroError,
+    HnswParams, MinimumSpanningForest, MstError, Result,
+    core_distance::core_distance_from_neighbours, error::ChutoroError,
     mst::parallel_kruskal_from_edges, result::ClusteringResult,
 };
 use tracing::debug;
@@ -223,11 +224,10 @@ fn compute_core_distances<D: DataSource + Sync>(
             .search(source, point, inputs.ef)
             .map_err(|error| error.into_chutoro_error(Arc::from(source.name())))?;
         let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
-        let core = others
-            .get(inputs.min_cluster_size.get().saturating_sub(1))
-            .or_else(|| others.last())
-            .map_or(0.0, |neighbour| neighbour.distance);
-        core_distances.push(core);
+        core_distances.push(core_distance_from_neighbours(
+            &others,
+            inputs.min_cluster_size,
+        ));
     }
 
     Ok(core_distances)

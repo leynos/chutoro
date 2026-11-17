@@ -124,9 +124,13 @@ Session code is split by responsibility under `chutoro-core/src/session/`:
 - `hnsw/error.rs` owns `HnswError::into_chutoro_error`, the shared adapter
   boundary for CPU pipeline and session callers. It preserves data-source
   errors and classifies every other HNSW error as a CPU HNSW failure.
-- `core_distance.rs` owns the pure core-distance helpers and the recompute
-  workflow. The pure helpers must not depend on HNSW adapter internals beyond
-  the public `Neighbour` value.
+- `core_distance.rs` owns the session-specific core-distance helpers and the
+  recompute workflow. The pure helpers must not depend on HNSW adapter
+  internals beyond the public `Neighbour` value.
+- `chutoro-core/src/core_distance.rs` owns the shared `m`-th-neighbour
+  selection rule, `core_distance_from_neighbours`. The batch pipeline, the
+  session helpers, and the benchmark harness all call it, so no call site
+  re-implements the fallbacks.
 - `core_updates.rs` owns the neighbour searches the recompute workflow drives:
   the new points, the existing points their arrival disturbs, and the
   core-distance extraction over each. Keeping one stage per helper keeps the

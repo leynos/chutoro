@@ -1,37 +1,17 @@
 //! Pure core-distance helpers for incremental clustering sessions.
 //!
-//! The helpers in this module make the domain decisions for core-distance
-//! computation without knowing how HNSW searches are executed. Adapter code is
-//! responsible for obtaining sorted neighbour lists and filtering out the query
-//! point before calling these functions.
+//! The helpers in this module make the session-specific decisions for
+//! core-distance computation without knowing how HNSW searches are executed.
+//! Adapter code is responsible for obtaining sorted neighbour lists and
+//! filtering out the query point before calling these functions. The selection
+//! rule itself is shared with the batch path and lives in
+//! [`crate::core_distance`].
 
 use std::{collections::BTreeSet, num::NonZeroUsize};
 
 use super::ClusteringSession;
-use crate::{DataSource, Neighbour, Result};
+use crate::{DataSource, Neighbour, Result, core_distance::core_distance_from_neighbours};
 use tracing::{instrument, warn};
-
-/// Computes a core distance from sorted non-self neighbours.
-///
-/// `neighbours` must already be sorted in ascending distance order and must
-/// not contain the query point. The function mirrors the batch CPU pipeline:
-/// return the `m - 1` element when at least `m` neighbours exist, the last
-/// available neighbour when the list is shorter, or `0.0` when the list is
-/// empty.
-pub(super) fn core_distance_from_neighbours(
-    neighbours: &[Neighbour],
-    min_cluster_size: NonZeroUsize,
-) -> f32 {
-    if neighbours.len() >= min_cluster_size.get() {
-        neighbours
-            .get(min_cluster_size.get().saturating_sub(1))
-            .map_or(0.0, |neighbour| neighbour.distance)
-    } else {
-        neighbours
-            .last()
-            .map_or(0.0, |neighbour| neighbour.distance)
-    }
-}
 
 /// Computes the HNSW `ef` used for core-distance neighbour searches.
 ///
