@@ -191,12 +191,14 @@ and 150 lines of benchmark and profiling support.
 ## Decision log
 
 - D1. Decision: parallelize the batch stage only, and defer session
-  parallelization to a follow-up issue. Rationale: the batch stage has a clean
-  read-only seam (`&CpuHnsw`, `&DataSource`). The session methods hold
-  `&mut self`, so parallel searches must first be separated from the writes
-  that follow; bundling that larger refactor would enlarge the risk surface of
-  a performance change. The issue explicitly allows either decision provided it
-  is explicit. Date/Author: 2026-11-17, implementation agent.
+  parallelization to follow-up issue
+  [#430](https://github.com/leynos/chutoro/issues/430), linked from roadmap
+  item 11.2.4. Rationale: the batch stage has a clean read-only seam
+  (`&CpuHnsw`, `&DataSource`). The session methods hold `&mut self`, so
+  parallel searches must first be separated from the writes that follow;
+  bundling that larger refactor would enlarge the risk surface of a performance
+  change. The issue explicitly allows either decision provided it is explicit.
+  Date/Author: 2026-11-17, implementation agent.
 - D2. Decision: collect indexed results into `Vec<Result<T, E>>`, then scan
   serially for the first error. Rationale: `collect::<Result<Vec<_>>>()`
   returns whichever error Rayon observes first, which is nondeterministic. A

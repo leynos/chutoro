@@ -934,12 +934,16 @@ harvested edges remain pending.
 `recompute_core_distances` computes core distances for dirty newly inserted
 source indices and for existing points that appear in those new points'
 non-self HNSW neighbour lists. `recompute_core_distances_full` searches every
-inserted point and mirrors the batch CPU core-distance loop. The
-`core_distance(i)` accessor returns `None` for cells that are dirty, unset, or
-outside the source-indexed storage, and it also treats non-finite cells as
-unavailable. Callers that need to distinguish an out-of-range read from a dirty
-inserted point should check their own source index bookkeeping; `point_count()`
-reports the number of inserted points, not a maximum source index.
+inserted point and applies the same selection rule as the batch CPU
+core-distance stage, but it still walks its targets serially because the
+session mutates its own state between searches. Parallelizing that path is a
+separate change; do not assume the batch stage's pooling or error-ordering
+contracts already apply to the session. The `core_distance(i)` accessor returns
+`None` for cells that are dirty, unset, or outside the source-indexed storage,
+and it also treats non-finite cells as unavailable. Callers that need to
+distinguish an out-of-range read from a dirty inserted point should check their
+own source index bookkeeping; `point_count()` reports the number of inserted
+points, not a maximum source index.
 
 Session construction allocates HNSW capacity from `source.len().max(1)` while
 still leaving the index empty. `append` prevalidates each requested index
@@ -1022,10 +1026,10 @@ The latency histogram reads time through the internal `MonotonicClock` trait.
 public constructor or builder API; it exists solely to make metrics assertions
 deterministic while preserving the public session contract.
 
-The one-shot CPU pipeline records its two expensive stages separately:
+The one-shot CPU pipeline records its expensive stages separately:
 
 - `chutoro.cpu_pipeline.stage_seconds`, a histogram labelled by the bounded
-  `stage` names `mutual_reachability` and `kruskal`.
+  `stage` names `core_distances`, `mutual_reachability`, and `kruskal`.
 
 The label values come from the private `PipelineStage` enum in `cpu_pipeline`,
 so the cardinality is fixed at compile time. Adding a stage means adding an
@@ -1033,6 +1037,35 @@ enum variant and its `as_label` arm; never pass a formatted string or other
 runtime value as the label. Call sites go through `record_stage`, which is a
 no-op when the `metrics` feature is disabled, so the pipeline code carries no
 conditional compilation of its own.
+
+Stage timings are read once on the orchestration thread with `Instant` and
+recorded only after the stage returns `Ok`, so a failed stage contributes no
+sample and the clock never sits inside a worker.
+
+### Batch core-distance stage
+
+`compute_core_distances` searches HNSW once per source index with an indexed
+`rayon` parallel iterator, so it runs on the caller's pool rather than a pool
+of its own. Two contracts follow from that:
+
+- Results are returned in source index order. The indexed collect preserves
+  order even when the searches finish out of order.
+- When several searches fail, the returned error belongs to the lowest source
+  index, not whichever worker reported first. The stage collects
+  `Vec<Result<T, E>>` and then scans it serially. Do not "simplify" that to
+  `collect::<Result<Vec<_>>>()`: the short-circuiting form returns a
+  nondeterministic error at thread counts above one.
+
+Unlike the previous serial loop, an early failure does not stop later searches.
+Those later results only populate the shared distance cache, which is a lookup
+accelerator, so clustering output is unaffected while every index is still
+exercised. The parity tests in `cpu_pipeline/tests/core_distances.rs` compare
+one- and eight-thread pools against an independent sequential oracle; keep the
+oracle separate from the production helper so a shared defect cannot hide.
+
+The selection rule itself lives in
+`chutoro_core::core_distance_from_neighbours` and is shared with the session
+and benchmark harnesses.
 
 The pipeline is split into `build_index_and_core_distances` and
 `build_mutual_reachability_forest` so the mutual-reachability transform and the
@@ -2591,7 +2624,9 @@ successful verification within the CI budget.*
 
 The `chutoro-benches` crate provides Criterion benchmarks for the four CPU
 pipeline stages: Hierarchical Navigable Small World (HNSW) index construction,
-edge harvest, minimum spanning tree (MST) computation, and hierarchy extraction.
+edge harvest, minimum spanning tree (MST) computation, and hierarchy
+extraction. A `pipeline` target additionally measures the whole `Chutoro::run`
+path, with an opt-in per-stage profile described below.
 
 ### Running benchmarks
 
@@ -2645,6 +2680,38 @@ set -o pipefail
 cargo bench -p chutoro-benches --bench hnsw_ef_sweep -- --list \
   2>&1 | tee /tmp/bench-hnsw-ef-sweep-list.log
 ```
+
+### Whole-pipeline and stage-profile benchmarks
+
+The `pipeline` target measures `Chutoro::run` end to end at 1,000 and 10,000
+synthetic points, so a change in any stage shows up as a whole-run change.
+Because a whole run at these sizes costs seconds, the group uses ten samples
+with a short measurement target; expect Criterion's "unable to complete 10
+samples" warning and read the interval, not a single number.
+
+The opt-in `pipeline-profile` feature adds one untimed run per size before
+Criterion registers its benchmarks and writes the stage breakdown as CSV:
+
+```sh
+set -o pipefail
+RAYON_NUM_THREADS=4 cargo bench -p chutoro-benches --features pipeline-profile \
+  --bench pipeline -- --save-baseline before \
+  2>&1 | tee /tmp/bench-pipeline-before.log
+
+set -o pipefail
+RAYON_NUM_THREADS=4 cargo bench -p chutoro-benches --features pipeline-profile \
+  --bench pipeline -- --baseline before \
+  2>&1 | tee /tmp/bench-pipeline-after.log
+```
+
+The profile lands at `target/benchmarks/pipeline_profile.csv` and contains one
+`whole_run` row plus one row per stage label, each with its share of the whole
+run. Set `CHUTORO_BENCH_PIPELINE_PROFILE_PATH` to write it elsewhere; use that
+to keep the baseline profile when the after run would otherwise overwrite it.
+
+Parallel stage scaling is a property of the caller's Rayon pool, so pin
+`RAYON_NUM_THREADS` (or run under an explicit pool) when comparing before and
+after numbers. Do not compare a four-thread run with an unpinned one.
 
 ### Neighbour scoring measurements
 
