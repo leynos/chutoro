@@ -11,6 +11,8 @@
 //! measurement depends on the feature. Criterion itself never observes these
 //! runs, so profiling cannot bias the recorded benchmark distribution.
 
+use std::fmt::Write as _;
+
 use camino::Utf8PathBuf;
 use mockable::{DefaultEnv, Env};
 
@@ -81,19 +83,17 @@ pub struct PipelineProfileSample {
 pub fn format_pipeline_profile(samples: &[PipelineProfileSample]) -> String {
     let mut csv = String::from(PROFILE_HEADER);
     for sample in samples {
-        push_row(
-            &mut csv,
-            sample.point_count,
-            WHOLE_RUN_STAGE,
-            sample.total_seconds,
-            1.0,
-        );
+        // The whole-run row is the total by definition, so its share is 1.0.
+        let whole_run = PipelineStageSample {
+            stage: WHOLE_RUN_STAGE.to_owned(),
+            seconds: sample.total_seconds,
+        };
+        push_row(&mut csv, sample.point_count, &whole_run, 1.0);
         for stage in &sample.stages {
             push_row(
                 &mut csv,
                 sample.point_count,
-                &stage.stage,
-                stage.seconds,
+                stage,
                 share_of_total(stage.seconds, sample.total_seconds),
             );
         }
@@ -102,11 +102,21 @@ pub fn format_pipeline_profile(samples: &[PipelineProfileSample]) -> String {
 }
 
 /// Appends one CSV row with a stage's seconds and share.
-fn push_row(csv: &mut String, point_count: usize, stage: &str, seconds: f64, share: f64) {
-    csv.push_str(&format!("{point_count},{stage},{seconds:.6},{share:.4}\n"));
+fn push_row(csv: &mut String, point_count: usize, stage: &PipelineStageSample, share: f64) {
+    // Writing to a `String` cannot fail, so the `Result` carries no information
+    // the caller could act on; name it to keep `must_use` lints satisfied.
+    let _row_write = writeln!(
+        csv,
+        "{point_count},{},{:.6},{share:.4}",
+        stage.stage, stage.seconds
+    );
 }
 
 /// Returns `seconds / total`, or zero when the total is not positive.
+#[expect(
+    clippy::float_arithmetic,
+    reason = "a stage share is a reporting ratio, not domain arithmetic"
+)]
 fn share_of_total(seconds: f64, total: f64) -> f64 {
     if total > 0.0 { seconds / total } else { 0.0 }
 }

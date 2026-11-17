@@ -12,6 +12,14 @@
     missing_docs,
     reason = "Criterion macros generate items without doc comments"
 )]
+#![expect(
+    clippy::shadow_reuse,
+    reason = "Criterion bench_with_input closures rebind parameter names"
+)]
+#![expect(
+    clippy::excessive_nesting,
+    reason = "Criterion bench_with_input + error handling requires deep nesting"
+)]
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 
 use chutoro_benches::{
@@ -89,6 +97,10 @@ fn build_cases() -> Result<Vec<PipelineCase>, BenchSetupError> {
 }
 
 /// Registers the whole-pipeline measurements and returns setup failures.
+#[expect(
+    clippy::panic_in_result_fn,
+    reason = "Criterion measurement closures cannot propagate errors via Result"
+)]
 fn pipeline_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     if is_benchmark_discovery() || is_nextest_exact_benchmark_probe() {
         register_pipeline_probe_benches(c);
@@ -124,6 +136,11 @@ fn pipeline_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
 
 /// Writes the optional stage profile before Criterion registration.
 #[cfg(feature = "pipeline-profile")]
+#[expect(
+    clippy::print_stderr,
+    reason = "one-off benchmark diagnostic naming the written profile; \
+              structured logging is not installed in benchmark binaries"
+)]
 fn profile_cases(cases: &[PipelineCase]) -> Result<(), BenchSetupError> {
     use chutoro_benches::pipeline_profile::{measure_pipeline_stages, write_pipeline_profile};
 

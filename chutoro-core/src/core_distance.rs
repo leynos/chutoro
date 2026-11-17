@@ -65,6 +65,11 @@ mod tests {
     use crate::Neighbour;
 
     /// Builds neighbours with increasing distances starting at `first`.
+    #[expect(
+        clippy::float_arithmetic,
+        clippy::cast_precision_loss,
+        reason = "fixture distances are small whole numbers built from indices"
+    )]
     fn neighbours(count: usize, first: f32) -> Vec<Neighbour> {
         (0..count)
             .map(|index| Neighbour {

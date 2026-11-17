@@ -4,6 +4,7 @@
 //! parallel mutual-reachability transform and the slice-based Kruskal entry
 //! point are checked end to end, not only through their own unit tests.
 
+mod core_distances;
 mod error_mapping;
 mod fixture;
 #[cfg(feature = "metrics")]

@@ -212,25 +212,56 @@ fn record_stage(label: &'static str, elapsed: Duration) {
 const fn record_stage(_label: &'static str, _elapsed: Duration) {}
 
 /// Computes every point's core distance from its nearest non-self neighbours.
+///
+/// The per-point searches run on the caller's rayon pool. Results keep source
+/// index order because the indexed parallel iterator preserves it.
+///
+/// Every index runs its search before the result is inspected. If several
+/// points fail, the returned error is the one with the lowest source index,
+/// matching the serial loop's error identity. The difference from a serial
+/// fail-fast loop is that later points still populate the shared distance
+/// cache after an earlier point failed; that cache is a lookup accelerator, so
+/// observable clustering output is unaffected.
 #[cfg(feature = "cpu")]
 fn compute_core_distances<D: DataSource + Sync>(
     source: &D,
     index: &CpuHnsw,
     inputs: &CoreDistanceInputs,
 ) -> Result<Vec<f32>> {
-    let mut core_distances = Vec::with_capacity(inputs.items);
-    for point in 0..inputs.items {
+    // Allocate the source name once; only failing points clone the `Arc`.
+    let source_name = Arc::from(source.name());
+
+    collect_ordered_results((0..inputs.items).into_par_iter().map(|point| {
         let neighbours = index
             .search(source, point, inputs.ef)
-            .map_err(|error| error.into_chutoro_error(Arc::from(source.name())))?;
+            .map_err(|error| error.into_chutoro_error(Arc::clone(&source_name)))?;
         let others: Vec<_> = neighbours.into_iter().filter(|n| n.id != point).collect();
-        core_distances.push(core_distance_from_neighbours(
+        Ok(core_distance_from_neighbours(
             &others,
             inputs.min_cluster_size,
-        ));
-    }
+        ))
+    }))
+}
 
-    Ok(core_distances)
+/// Collects indexed parallel results, returning the first error by index.
+///
+/// The parallel iterator is drained completely before any error is inspected,
+/// so every index runs. Collecting into a `Vec` first, then folding that vector
+/// serially, selects the error at the lowest source index. Collecting directly
+/// into `Result<Vec<_>, _>` would instead return whichever error rayon observes
+/// first, which is not deterministic across thread counts.
+#[cfg(feature = "cpu")]
+fn collect_ordered_results<T, E>(
+    results: impl ParallelIterator<Item = std::result::Result<T, E>>,
+) -> std::result::Result<Vec<T>, E>
+where
+    T: Send,
+    E: Send,
+{
+    results
+        .collect::<Vec<std::result::Result<T, E>>>()
+        .into_iter()
+        .collect()
 }
 
 /// Groups the controls for a single CPU batch core-distance computation.
