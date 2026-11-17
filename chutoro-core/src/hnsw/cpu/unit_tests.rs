@@ -63,9 +63,11 @@ fn insert_waits_for_mutex() {
 
 /// Collector that records any edges the insertion path hands it.
 ///
-/// Declaring `WANTS_EDGES = false` mimics [`NoopCollector`], but the counters
-/// expose a regression if the extraction guard is removed: an unconditional
-/// `extract_candidate_edges` would call `collect` with real edges.
+/// Declaring `WANTS_EDGES = false` mimics [`NoopCollector`], so the counters
+/// stay at zero unless the insertion path hands edges to a collector that
+/// declared no interest in them. The counts observe the collector boundary
+/// only; they say nothing about an extraction whose result is discarded before
+/// `collect` is reached.
 struct RecordingCollector {
     calls: usize,
     edges: usize,
@@ -80,8 +82,12 @@ impl EdgeCollector for RecordingCollector {
     }
 }
 
-/// Verifies a non-harvesting collector never receives extracted edges, even
-/// for an insertion that would otherwise produce them.
+/// Verifies a non-harvesting collector is never handed edges, even for an
+/// insertion that would otherwise produce them.
+///
+/// The assertion covers the collector boundary. That the extraction itself is
+/// skipped follows from the guard at the call site, which encloses both
+/// `extract_candidate_edges` and `collect` in `if C::WANTS_EDGES`.
 #[test]
 fn non_harvesting_insert_never_collects_edges() {
     let params = HnswParams::new(2, 4).expect("params").with_rng_seed(53);
@@ -90,8 +96,9 @@ fn non_harvesting_insert_never_collects_edges() {
 
     index.insert(0, &source).expect("seed entry point");
 
-    // A second insertion into a populated graph plans real neighbours, so an
-    // ungated extraction would be observable here.
+    // A second insertion into a populated graph plans real neighbours, so if
+    // the guard around `collect` were dropped this insertion would hand the
+    // collector a non-empty edge list.
     let mut collector = RecordingCollector { calls: 0, edges: 0 };
     index
         .insert_with_collector(1, &source, &mut collector)
@@ -101,10 +108,7 @@ fn non_harvesting_insert_never_collects_edges() {
         collector.calls, 0,
         "non-harvesting collector must not be called"
     );
-    assert_eq!(
-        collector.edges, 0,
-        "no candidate edges may be extracted for it"
-    );
+    assert_eq!(collector.edges, 0, "no candidate edges may be handed to it");
 }
 
 /// Verifies localized healing repairs inserted edges without sweeping unrelated ones.
