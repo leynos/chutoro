@@ -268,7 +268,7 @@ impl DataSource for SelfFailingSource {
 #[test]
 #[expect(
     clippy::cast_precision_loss,
-    reason = "the fixture is a hand-written sequence of small whole numbers"
+    reason = "the fixture is a handwritten sequence of small whole numbers"
 )]
 fn real_search_failure_reports_the_lowest_failing_query() {
     let data: Vec<f32> = (0..12).map(|value| value as f32).collect();
