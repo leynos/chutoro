@@ -2668,6 +2668,12 @@ deterministic guard for this regression. `hnsw::cpu::trim_tests` records
 four-worker pool, which catches a dispatch in practice, including one reached
 through a helper the source reading cannot see.
 
+[ADR-006](adrs/adr-0006-sequential-trim-scoring.md) records the deadlock cycle,
+the rejected alternatives, and the limits of the fix for arbitrary `DataSource`
+callbacks. In particular, the fix removes nested dispatch owned by the core; a
+source implementation that blocks on, or dispatches to, the same Rayon pool
+while a distance callback runs under `insert_mutex` can still deadlock.
+
 `DataSource::batch_distances(query, candidates)` has the following cache-layer
 contracts:
 

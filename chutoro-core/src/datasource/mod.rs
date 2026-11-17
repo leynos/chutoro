@@ -102,6 +102,18 @@ impl From<(usize, usize)> for PointPair {
 
 /// Abstraction over a collection of items that can yield pairwise distances.
 ///
+/// # Concurrency and re-entrancy
+///
+/// During HNSW insertion, distance callbacks are invoked while the caller holds
+/// the index's insertion mutex. An implementation must not re-enter the same
+/// index, block on another insertion into it, or wait for work from the Rayon
+/// pool that is driving the build. The callback already runs under the mutex
+/// that waiting work needs, so any of these can deadlock a parallel
+/// construction. The constraint applies to [`Self::distance`],
+/// [`Self::distance_batch`], and [`Self::batch_distances`] alike; the fix
+/// recorded in ADR-006 removes nested Rayon dispatch owned by the core, not
+/// dispatch owned by a source implementation.
+///
 /// # Examples
 /// ```
 /// use chutoro_core::{DataSource, DataSourceError, PointPair};
