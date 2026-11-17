@@ -106,3 +106,19 @@ Callers that store expected cluster counts, expected flat labels, or partitions
 derived from them must regenerate those expectations for integer-valued
 metrics. Continuous metrics rarely produce exact ties, so their results are
 normally unchanged.
+
+### CLI diagnostics default to `warn`
+
+The `chutoro-cli` binary now installs its `tracing` filter at the `warn` level
+when `RUST_LOG` is unset or invalid, instead of `info`. This is a change in CLI
+output rather than in the library API: a successful run writes only its summary
+and no longer emits span lifecycle lines on `stderr`. Operators who relied on
+the previous verbose output must request it explicitly:
+
+```sh
+RUST_LOG=info chutoro-cli run text words.txt
+```
+
+The `text` data source also defaults `--metric` to `levenshtein`, its only
+supported value, so a first run need not name it. Invocations that pass the
+flag explicitly continue to work unchanged.
