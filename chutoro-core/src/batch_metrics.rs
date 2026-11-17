@@ -132,9 +132,11 @@ fn bounded_bytes_as_f64(value: u64) -> f64 {
 
 #[cfg(all(test, feature = "cpu"))]
 mod tests {
-    //! Unit tests for exact byte conversion.
+    //! Unit and property tests for exact byte conversion.
 
     use super::*;
+    use crate::test_utils::suite_proptest_config;
+    use proptest::prelude::*;
     use rstest::rstest;
 
     #[rstest]
@@ -149,5 +151,34 @@ mod tests {
         #[case] expected: f64,
     ) {
         assert_eq!(bounded_bytes_as_f64(bytes).to_bits(), expected.to_bits());
+    }
+
+    proptest! {
+        #![proptest_config(suite_proptest_config(256))]
+
+        /// Every byte count within the exactly representable range survives the
+        /// conversion bit-for-bit. `u64` to `f64` is exact at or below 2^53, so
+        /// it is an independent oracle for the two-halves reconstruction.
+        #[test]
+        fn bytes_below_the_exact_limit_round_trip(bytes in 0u64..=MAX_EXACT_F64_BYTES) {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "the strategy caps bytes at 2^53, where u64 to f64 is exact"
+            )]
+            let expected = bytes as f64;
+            prop_assert_eq!(bounded_bytes_as_f64(bytes).to_bits(), expected.to_bits());
+        }
+
+        /// Any value the conversion cannot represent exactly must saturate at
+        /// 2^53 rather than drift upward or clamp at an unrelated bound.
+        #[test]
+        fn bytes_above_the_exact_limit_saturate(
+            bytes in (MAX_EXACT_F64_BYTES + 1)..=u64::MAX,
+        ) {
+            prop_assert_eq!(
+                bounded_bytes_as_f64(bytes).to_bits(),
+                9_007_199_254_740_992.0f64.to_bits()
+            );
+        }
     }
 }
