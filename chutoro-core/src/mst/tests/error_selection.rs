@@ -31,42 +31,31 @@ fn pools() -> Result<Vec<(usize, rayon::ThreadPool)>, String> {
         .collect()
 }
 
-/// Collects the direct slice path's error from every pinned pool.
-fn slice_errors(
-    node_count: usize,
-    edges: &[CandidateEdge],
-) -> Result<Vec<(usize, MstError)>, String> {
-    let mut observed = Vec::new();
+/// Runs `attempt` in every pinned pool and asserts each reports `expected`.
+///
+/// The attempt is expected to fail validation; returning `Ok` means the
+/// contract was not exercised. Mismatches are reported as errors rather than
+/// panics so the helper stays usable in a `Result`-returning test body.
+fn assert_every_pool_reports<F>(expected: &MstError, attempt: F) -> Result<(), String>
+where
+    F: Fn() -> Result<(), MstError> + Sync,
+{
     for (threads, pool) in pools()? {
-        match pool.install(|| parallel_kruskal_from_edges(node_count, edges)) {
-            Ok(_) => {
+        match pool.install(&attempt) {
+            Ok(()) => {
                 return Err(format!(
                     "the input must be rejected with {threads} thread(s)"
                 ));
             }
-            Err(error) => observed.push((threads, error)),
-        }
-    }
-    Ok(observed)
-}
-
-/// Collects the harvest path's error from every pinned pool.
-fn harvest_errors(
-    node_count: usize,
-    harvest: &EdgeHarvest,
-) -> Result<Vec<(usize, MstError)>, String> {
-    let mut observed = Vec::new();
-    for (threads, pool) in pools()? {
-        match pool.install(|| parallel_kruskal(node_count, harvest)) {
-            Ok(_) => {
+            Err(error) if &error == expected => {}
+            Err(error) => {
                 return Err(format!(
-                    "the input must be rejected with {threads} thread(s)"
+                    "{threads} thread(s) reported {error:?}, expected {expected:?}"
                 ));
             }
-            Err(error) => observed.push((threads, error)),
         }
     }
-    Ok(observed)
+    Ok(())
 }
 
 #[test]
@@ -82,14 +71,10 @@ fn small_multi_invalid_input_reports_the_lowest_index() {
         node_count: 3,
     };
 
-    for (threads, error) in
-        slice_errors(3, &edges).expect("pools must build and the input must be rejected")
-    {
-        assert_eq!(
-            &error, &expected,
-            "direct slice path with {threads} thread(s)"
-        );
-    }
+    assert_every_pool_reports(&expected, || {
+        parallel_kruskal_from_edges(3, &edges).map(|_| ())
+    })
+    .expect("pools must build and the input must be rejected");
 }
 
 #[test]
@@ -106,14 +91,10 @@ fn large_multi_invalid_input_reports_the_lowest_index() {
         .collect();
     let expected = MstError::NonFiniteWeight { left: 0, right: 1 };
 
-    for (threads, error) in
-        slice_errors(4, &edges).expect("pools must build and the input must be rejected")
-    {
-        assert_eq!(
-            &error, &expected,
-            "direct slice path with {threads} thread(s)"
-        );
-    }
+    assert_every_pool_reports(&expected, || {
+        parallel_kruskal_from_edges(4, &edges).map(|_| ())
+    })
+    .expect("pools must build and the input must be rejected");
 }
 
 #[test]
@@ -128,14 +109,10 @@ fn invalid_edge_after_a_complete_tree_is_still_reported() {
         node_count: 3,
     };
 
-    for (threads, error) in
-        slice_errors(3, &edges).expect("pools must build and the input must be rejected")
-    {
-        assert_eq!(
-            &error, &expected,
-            "direct slice path with {threads} thread(s)"
-        );
-    }
+    assert_every_pool_reports(&expected, || {
+        parallel_kruskal_from_edges(3, &edges).map(|_| ())
+    })
+    .expect("pools must build and the input must be rejected");
 }
 
 #[test]
@@ -153,9 +130,6 @@ fn harvest_order_defines_the_input_index() {
         node_count: 2,
     };
 
-    for (threads, error) in
-        harvest_errors(2, &harvest).expect("pools must build and the input must be rejected")
-    {
-        assert_eq!(&error, &expected, "harvest path with {threads} thread(s)");
-    }
+    assert_every_pool_reports(&expected, || parallel_kruskal(2, &harvest).map(|_| ()))
+        .expect("pools must build and the input must be rejected");
 }

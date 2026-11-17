@@ -24,6 +24,11 @@ fn estimate_returns_positive_for_non_empty(
     );
 }
 
+/// Asserts that a larger configuration produces a strictly larger estimate.
+fn assert_estimate_grows(lower: u64, higher: u64, context: &str) {
+    assert!(higher > lower, "expected {context}: {higher} > {lower}");
+}
+
 #[rstest]
 #[case::m8_vs_m16(1_000, 8, 16)]
 #[case::m16_vs_m24(1_000, 16, 24)]
@@ -32,11 +37,10 @@ fn estimate_grows_with_max_connections(
     #[case] m_small: usize,
     #[case] m_large: usize,
 ) {
-    let small = estimate_peak_bytes(point_count, m_small);
-    let large = estimate_peak_bytes(point_count, m_large);
-    assert!(
-        large > small,
-        "expected M={m_large} estimate ({large}) > M={m_small} estimate ({small})"
+    assert_estimate_grows(
+        estimate_peak_bytes(point_count, m_small),
+        estimate_peak_bytes(point_count, m_large),
+        &format!("M={m_large} versus M={m_small} at n={point_count}"),
     );
 }
 
@@ -84,11 +88,10 @@ fn estimate_grows_with_point_count(
     #[case] n_large: usize,
     #[case] max_connections: usize,
 ) {
-    let small = estimate_peak_bytes(n_small, max_connections);
-    let large = estimate_peak_bytes(n_large, max_connections);
-    assert!(
-        large > small,
-        "expected n={n_large} estimate ({large}) > n={n_small} estimate ({small})"
+    assert_estimate_grows(
+        estimate_peak_bytes(n_small, max_connections),
+        estimate_peak_bytes(n_large, max_connections),
+        &format!("n={n_large} versus n={n_small} at M={max_connections}"),
     );
 }
 
@@ -149,6 +152,16 @@ fn buffer_slot_constants_cover_the_real_layouts() {
     );
 }
 
+#[cfg(feature = "cpu")]
+#[rstest]
+fn default_max_level_constant_matches_the_hnsw_defaults() {
+    assert_eq!(
+        DEFAULT_HNSW_MAX_LEVEL,
+        crate::HnswParams::default().max_level(),
+        "the memory model must track the level cap the sampler enforces"
+    );
+}
+
 #[rstest]
 #[case::million_m16(1_000_000, 16)]
 #[case::thousand_m8(1_000, 8)]
@@ -160,29 +173,132 @@ fn estimate_includes_the_prepare_edge_list_buffers(
     // multiplier, minus the two `prepare_edge_list` buffers.
     let n = point_count as u64;
     let m = max_connections as u64;
+    let harvest_width = m.saturating_mul(LEGACY_EF_PER_CONNECTION as u64);
+    let edges = harvested_edge_count(n, harvest_width, max_connections, DEFAULT_HNSW_MAX_LEVEL);
     let without_buffers = n
         .saturating_mul(2_u64.saturating_mul(m).saturating_mul(USIZE_BYTES))
         .saturating_add(n.saturating_mul(NODE_OVERHEAD_BYTES))
-        .saturating_add(n.saturating_mul(m).saturating_mul(CANDIDATE_EDGE_BYTES))
+        .saturating_add(edges.saturating_mul(CANDIDATE_EDGE_BYTES))
         .saturating_add(n.saturating_mul(F32_BYTES))
-        .saturating_add(n.saturating_mul(m).saturating_mul(CANDIDATE_EDGE_BYTES))
+        .saturating_add(edges.saturating_mul(CANDIDATE_EDGE_BYTES))
         .saturating_add(n.saturating_mul(MST_EDGE_BYTES))
         .saturating_mul(SAFETY_MULTIPLIER_NUMERATOR)
         .saturating_div(SAFETY_MULTIPLIER_DENOMINATOR);
 
-    let buffer_contribution = n
-        .saturating_mul(m)
+    let buffer_contribution = edges
         .saturating_mul(VALIDATED_EDGE_SLOT_BYTES.saturating_add(MST_EDGE_BYTES))
         .saturating_mul(SAFETY_MULTIPLIER_NUMERATOR)
         .saturating_div(SAFETY_MULTIPLIER_DENOMINATOR);
 
-    let estimate = estimate_peak_bytes_with_search_width(point_count, max_connections, 0, 0);
+    let estimate = estimate_peak_bytes_with_search_width(EstimateInputs {
+        point_count,
+        max_connections,
+        effective_search_width: 0,
+        distance_cache_capacity: 0,
+        harvest_width: max_connections.saturating_mul(LEGACY_EF_PER_CONNECTION),
+        max_level: DEFAULT_HNSW_MAX_LEVEL,
+    });
 
     assert_eq!(
         estimate.saturating_sub(without_buffers),
         buffer_contribution,
         "n={point_count}, M={max_connections}: both prepare_edge_list buffers must \
          appear exactly once in the estimate"
+    );
+}
+
+// -- multi-layer harvest model ------------------------------------------
+
+/// Deterministic scalar data source used to probe real harvest sizes.
+#[cfg(feature = "cpu")]
+struct ScalarSource {
+    values: Vec<f32>,
+}
+
+#[cfg(feature = "cpu")]
+impl ScalarSource {
+    /// Builds `len` pseudo-random non-negative values.
+    ///
+    /// Values are drawn as 16-bit integers and widened with `f32::from`, which
+    /// is exact. Keeping the generator in integer arithmetic avoids the float
+    /// restriction lints the workspace denies while still spreading the points
+    /// far enough apart to exercise the graph.
+    fn new(len: usize) -> Self {
+        let mut state = 0x1234_5678_9abc_def0_u64;
+        let values = (0..len)
+            .map(|_| {
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                f32::from(u16::try_from(state >> 48).unwrap_or(u16::MAX))
+            })
+            .collect();
+        Self { values }
+    }
+}
+
+#[cfg(feature = "cpu")]
+impl crate::DataSource for ScalarSource {
+    fn len(&self) -> usize {
+        self.values.len()
+    }
+
+    fn name(&self) -> &'static str {
+        "scalar"
+    }
+
+    fn distance(&self, left: usize, right: usize) -> Result<f32, crate::DataSourceError> {
+        let a = self
+            .values
+            .get(left)
+            .copied()
+            .ok_or(crate::DataSourceError::OutOfBounds { index: left })?;
+        let b = self
+            .values
+            .get(right)
+            .copied()
+            .ok_or(crate::DataSourceError::OutOfBounds { index: right })?;
+        // `mul_add` expresses the subtraction without the float operators the
+        // workspace restriction lints deny.
+        Ok(a.mul_add(1.0, std::ops::Neg::neg(b)).abs())
+    }
+}
+
+// The model describes the CPU HNSW build, so the probe needs the `cpu`
+// feature even though the estimator itself is always compiled.
+#[cfg(feature = "cpu")]
+#[rstest]
+#[case::default_parameters(16, 64)]
+#[case::narrow_graph(4, 16)]
+fn estimate_covers_multi_layer_harvests(
+    #[case] max_connections: usize,
+    #[case] ef_construction: usize,
+) {
+    const POINT_COUNT: usize = 500;
+    let source = ScalarSource::new(POINT_COUNT);
+    let params = crate::HnswParams::new(max_connections, ef_construction)
+        .expect("test parameters must be valid");
+    let (_, harvest) =
+        crate::CpuHnsw::build_with_edges(&source, params).expect("the probe build must succeed");
+
+    // `extract_candidate_edges` records candidates from every layer, so the
+    // harvest is several times the single-layer `n × M` count.
+    assert!(
+        harvest.len() > POINT_COUNT.saturating_mul(max_connections),
+        "the probe must exercise a multi-layer harvest, got {} edges",
+        harvest.len()
+    );
+
+    let modelled = harvested_edge_count(
+        POINT_COUNT as u64,
+        ef_construction as u64,
+        max_connections,
+        DEFAULT_HNSW_MAX_LEVEL,
+    );
+    assert!(
+        (harvest.len() as u64) <= modelled,
+        "harvest of {} edges must stay within the modelled {modelled}",
+        harvest.len()
     );
 }
 

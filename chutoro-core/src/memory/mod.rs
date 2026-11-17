@@ -46,6 +46,26 @@ const MST_EDGE_BYTES: u64 = 32;
 /// layout so it cannot silently underestimate the buffer.
 const VALIDATED_EDGE_SLOT_BYTES: u64 = 48;
 
+/// Construction search breadth the legacy [`estimate_peak_bytes`] helper
+/// assumes, expressed as a multiple of `M`.
+///
+/// That helper has no `ef_construction` parameter, so it models the documented
+/// default pair (`M = 16`, `ef_construction = 64`). The sample interval sees
+/// no better information, and four times `M` keeps the legacy estimate
+/// meaningful across the `M` values in Table 4 of the design document.
+const LEGACY_EF_PER_CONNECTION: usize = 4;
+
+/// Highest graph level the default HNSW level sampler can reach.
+///
+/// Mirrors `HnswParams::default().max_level()`. The memory module compiles
+/// without the `cpu` feature, so it cannot import the parameter type; a
+/// `cpu`-gated unit test keeps the two values in step.
+const DEFAULT_HNSW_MAX_LEVEL: usize = 12;
+
+/// Fixed-point scale used to keep the expected layer count in integer
+/// arithmetic within [`estimate_peak_bytes_with_search_width`].
+const LAYER_FRACTION_SCALE: u64 = 8;
+
 /// Estimated per-entry overhead for the distance cache, accounting for the
 /// `DashMap` slot, the `LruCache` bookkeeping, and the stored key/value.
 const CACHE_ENTRY_BYTES: u64 = 80;
@@ -73,14 +93,26 @@ const USIZE_BYTES: u64 = std::mem::size_of::<usize>() as u64;
 /// - HNSW level-0 adjacency lists (`2 × M` neighbours per node).
 /// - Per-node struct overhead (Vec headers, sequence counter, alignment).
 /// - Distance cache at `DistanceCacheConfig::DEFAULT_MAX_ENTRIES` capacity.
-/// - Candidate edges harvested during HNSW build (`≈ n × M`).
+/// - Candidate edges harvested during HNSW build (`≈ n × ef × layers`).
 /// - Core-distance vector (`n × sizeof(f32)`).
 /// - Mutual-reachability edge rewrite (same count as candidate edges).
 /// - The ordered validation buffer built by `prepare_edge_list`
-///   (`≈ n × M` slots of `Result<Option<MstEdge>, MstError>`).
+///   (one `Result<Option<MstEdge>, MstError>` slot per harvested edge).
 /// - The prepared edge list retained for sorting and deduplication
-///   (`≈ n × M` `MstEdge` values).
+///   (one `MstEdge` per harvested edge).
 /// - MST forest edges (`n` edges, rounding up from `n − 1`).
+///
+/// The harvested edge count is the multi-layer count, not `n × M`.
+/// `extract_candidate_edges` records up to `ef` search results from every
+/// layer a node occupies, duplicates included, so a healthy build harvests
+/// roughly `n × ef` edges. `harvested_edge_count` models that with the level
+/// sampler's geometric distribution; see its documentation for the exact
+/// assumption.
+///
+/// This helper has no `ef_construction` parameter, so it models the documented
+/// default ratio of four times `M`. Prefer
+/// `estimate_peak_bytes_for_hnsw_params` when the construction breadth is
+/// known.
 ///
 /// A 1.5× safety multiplier is applied to the raw total to account for heap
 /// fragmentation, Rayon thread-local buffers, and transient allocations.
@@ -98,12 +130,14 @@ const USIZE_BYTES: u64 = std::mem::size_of::<usize>() as u64;
 /// ```
 #[must_use]
 pub const fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> u64 {
-    estimate_peak_bytes_with_search_width(
+    estimate_peak_bytes_with_search_width(EstimateInputs {
         point_count,
         max_connections,
-        0,
-        DEFAULT_CACHE_MAX_ENTRIES,
-    )
+        effective_search_width: 0,
+        distance_cache_capacity: DEFAULT_CACHE_MAX_ENTRIES,
+        harvest_width: max_connections.saturating_mul(LEGACY_EF_PER_CONNECTION),
+        max_level: DEFAULT_HNSW_MAX_LEVEL,
+    })
 }
 
 /// Returns the guarded peak estimate for concrete CPU HNSW parameters.
@@ -126,21 +160,100 @@ pub fn estimate_peak_bytes_for_hnsw_params(
     point_count: usize,
     hnsw_params: &crate::HnswParams,
 ) -> u64 {
-    estimate_peak_bytes_with_search_width(
+    let effective_search_width = hnsw_params.effective_ef_construction(point_count);
+    estimate_peak_bytes_with_search_width(EstimateInputs {
         point_count,
-        hnsw_params.max_connections(),
-        hnsw_params.effective_ef_construction(point_count),
-        hnsw_params.distance_cache_config().max_entries().get(),
-    )
+        max_connections: hnsw_params.max_connections(),
+        effective_search_width,
+        distance_cache_capacity: hnsw_params.distance_cache_config().max_entries().get(),
+        // Layer searches retain up to `ef` candidates each, so the harvest
+        // width matches the bounded construction breadth.
+        harvest_width: effective_search_width,
+        max_level: hnsw_params.max_level(),
+    })
+}
+
+/// Returns the expected number of HNSW layers a node occupies, in eighths.
+///
+/// The level sampler continues to the next layer with probability `1 / M`, so
+/// the expected layer count is `1 + 1/M + 1/M² + …`, which converges to
+/// `M / (M − 1)`; sampling is also capped at `max_level`. With `M = 1` every
+/// draw continues, so each node reaches the cap. The result is rounded up in
+/// eighths (at most 12.5% above the exact expectation) so the caller can stay
+/// in integer arithmetic.
+const fn expected_layers_eighths(max_connections: usize, max_level: usize) -> u64 {
+    let layer_cap = (max_level as u64)
+        .saturating_add(1)
+        .saturating_mul(LAYER_FRACTION_SCALE);
+    if max_connections <= 1 {
+        return layer_cap;
+    }
+    let m = max_connections as u64;
+    // ceil(8 × M / (M − 1)), expressed with integer arithmetic.
+    let geometric = LAYER_FRACTION_SCALE
+        .saturating_mul(m)
+        .saturating_add(m.saturating_sub(2))
+        .div_euclid(m - 1);
+    if geometric < layer_cap {
+        geometric
+    } else {
+        layer_cap
+    }
+}
+
+/// Returns the expected number of candidate edges an HNSW build harvests.
+///
+/// `extract_candidate_edges` records up to `harvest_width` search results from
+/// every layer a node occupies, and the same neighbour may appear in several
+/// layers, so the harvest is `point_count × harvest_width × layers` rather
+/// than one fan-out per node. The model is an expectation: a single node can
+/// occupy up to `max_level + 1` layers, which is the strict worst case, while
+/// the geometric distribution concentrates the total near its mean at the
+/// dataset sizes the guard serves. The 1.5× safety multiplier in the caller
+/// leaves headroom above that mean.
+const fn harvested_edge_count(
+    point_count: u64,
+    harvest_width: u64,
+    max_connections: usize,
+    max_level: usize,
+) -> u64 {
+    point_count
+        .saturating_mul(harvest_width)
+        .saturating_mul(expected_layers_eighths(max_connections, max_level))
+        .div_euclid(LAYER_FRACTION_SCALE)
+}
+
+/// Inputs to the shared peak-memory estimate.
+///
+/// Grouping them keeps the estimator signature readable and lets the two
+/// public entry points differ only in the fields they supply.
+#[derive(Clone, Copy)]
+struct EstimateInputs {
+    /// Number of points in the batch.
+    point_count: usize,
+    /// HNSW `M` parameter.
+    max_connections: usize,
+    /// Bound on the construction search breadth, used for search state.
+    effective_search_width: usize,
+    /// Configured distance-cache capacity, in entries.
+    distance_cache_capacity: usize,
+    /// Candidates retained by each layer search.
+    harvest_width: usize,
+    /// Highest graph level the level sampler can reach.
+    max_level: usize,
 }
 
 /// Calculates the shared estimate from graph, search-state, and cache capacities.
-const fn estimate_peak_bytes_with_search_width(
-    point_count: usize,
-    max_connections: usize,
-    effective_search_width: usize,
-    distance_cache_capacity: usize,
-) -> u64 {
+const fn estimate_peak_bytes_with_search_width(inputs: EstimateInputs) -> u64 {
+    let EstimateInputs {
+        point_count,
+        max_connections,
+        effective_search_width,
+        distance_cache_capacity,
+        harvest_width,
+        max_level,
+    } = inputs;
+
     if point_count == 0 {
         return 0;
     }
@@ -159,8 +272,9 @@ const fn estimate_peak_bytes_with_search_width(
     // batches, so account for every configured entry rather than point count.
     let distance_cache = (distance_cache_capacity as u64).saturating_mul(CACHE_ENTRY_BYTES);
 
-    // Candidate edges: approximately n * M edges from the HNSW build.
-    let candidate_edges = n.saturating_mul(m).saturating_mul(CANDIDATE_EDGE_BYTES);
+    // Candidate edges harvested across every layer the inserted nodes occupy.
+    let harvested_edges = harvested_edge_count(n, harvest_width as u64, max_connections, max_level);
+    let candidate_edges = harvested_edges.saturating_mul(CANDIDATE_EDGE_BYTES);
 
     // Core-distance vector: one f32 per point.
     let core_distances = n.saturating_mul(F32_BYTES);
@@ -169,14 +283,12 @@ const fn estimate_peak_bytes_with_search_width(
     let mutual_edges = candidate_edges;
 
     // Ordered validation buffer: one `Result<Option<MstEdge>, MstError>` slot
-    // per candidate edge, sized before the parallel map fills it in place.
-    let validated_edge_slots = n
-        .saturating_mul(m)
-        .saturating_mul(VALIDATED_EDGE_SLOT_BYTES);
+    // per harvested edge, sized before the parallel map fills it in place.
+    let validated_edge_slots = harvested_edges.saturating_mul(VALIDATED_EDGE_SLOT_BYTES);
 
     // Prepared edge list: the surviving `MstEdge` values are copied out of the
     // validation buffer before it is dropped, so both exist at the same time.
-    let prepared_edges = n.saturating_mul(m).saturating_mul(MST_EDGE_BYTES);
+    let prepared_edges = harvested_edges.saturating_mul(MST_EDGE_BYTES);
 
     // MST forest: up to n edges (n − 1 for a connected graph, rounded up).
     let mst_forest = n.saturating_mul(MST_EDGE_BYTES);

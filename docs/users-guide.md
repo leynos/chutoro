@@ -78,7 +78,9 @@ incremental sessions. For a batch run, `max_connections` and `ef_construction`
 are passed to CPU HNSW construction. The configured `max_connections` and the
 effective, dataset-bounded construction-search width derived from
 `ef_construction` are included when estimating the run's peak memory for a
-limit set with `with_max_bytes`:
+limit set with `with_max_bytes`. The estimate counts the full multi-layer
+candidate-edge harvest, so it grows with `ef_construction` rather than with
+`max_connections` alone:
 
 ```rust
 use chutoro_core::{ChutoroBuilder, HnswParams};
