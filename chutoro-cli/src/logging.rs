@@ -9,10 +9,9 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 use thiserror::Error;
+use tracing::subscriber::SetGlobalDefaultError;
 use tracing_log::LogTracer;
-use tracing_subscriber::{
-    EnvFilter, Layer, fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt,
-};
+use tracing_subscriber::{EnvFilter, Layer, fmt::format::FmtSpan, layer::SubscriberExt};
 
 /// Environment variable selecting human-readable or JSON log output.
 const LOG_FORMAT_ENV: &str = "CHUTORO_LOG_FORMAT";
@@ -45,9 +44,9 @@ pub enum LoggingError {
     /// Failed to install the global tracing subscriber.
     #[error("failed to install tracing subscriber: {source}")]
     InstallFailed {
-        /// Error raised by `tracing_subscriber`.
+        /// Error raised when another global dispatcher is already set.
         #[source]
-        source: tracing_subscriber::util::TryInitError,
+        source: SetGlobalDefaultError,
     },
 }
 
@@ -124,16 +123,24 @@ fn install_subscriber_with_env(env: &dyn Env) -> Result<(), LoggingError> {
         base_fmt_layer.boxed()
     };
 
-    // Installing the log bridge is best-effort. If another logger already owns
-    // the global slot, crates emitting via the `log` facade will continue using
-    // that logger; tracing-native spans and events are unaffected.
+    let subscriber = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer);
+    // `set_global_default` installs only the `tracing` dispatcher. The
+    // `try_init` convenience would also install the `log` bridge, so pairing
+    // it with the explicit bridge below reported a spurious conflict on every
+    // run. Keep the failure until the bridge has been attempted.
+    let dispatcher_install = tracing::subscriber::set_global_default(subscriber);
+
+    // The dispatcher and the `log` bridge occupy separate global slots, so the
+    // bridge is attempted even when installation above failed: a caller that
+    // installed its own subscriber still gains forwarding from `log` records.
+    // Installing it is best-effort. If another logger already owns the `log`
+    // slot, crates emitting via the `log` facade continue using that logger;
+    // tracing-native spans and events are unaffected.
     drop(LogTracer::init());
 
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(fmt_layer)
-        .try_init()
-        .map_err(|source| LoggingError::InstallFailed { source })
+    dispatcher_install.map_err(|source| LoggingError::InstallFailed { source })
 }
 
 /// Read the requested output format through an injected environment reader.
@@ -164,9 +171,9 @@ fn env_filter_from_env(env: &dyn Env) -> EnvFilter {
 ///
 /// # Examples
 /// ```ignore
-/// use tracing_subscriber::util::TryInitError;
+/// use tracing::subscriber::SetGlobalDefaultError;
 ///
-/// fn on_conflict(err: TryInitError) {
+/// fn on_conflict(err: SetGlobalDefaultError) {
 ///     report_logging_conflict(&err);
 /// }
 /// ```
@@ -174,7 +181,7 @@ fn env_filter_from_env(env: &dyn Env) -> EnvFilter {
     clippy::print_stderr,
     reason = "pre-initialization diagnostic; structured logging unavailable; stderr is sole output channel"
 )]
-fn report_logging_conflict(source: &tracing_subscriber::util::TryInitError) {
+fn report_logging_conflict(source: &SetGlobalDefaultError) {
     eprintln!("structured logging already configured elsewhere: {source}");
 }
 
@@ -283,5 +290,23 @@ mod tests {
     fn init_logging_is_idempotent() {
         init_logging().expect("logging must initialize");
         init_logging().expect("subsequent calls must be no-ops");
+    }
+
+    #[test]
+    fn install_reports_a_conflict_when_a_dispatcher_is_already_set() {
+        // Take the dispatcher slot the way an embedding caller would. The
+        // result is ignored because another test in this binary may have taken
+        // it first; either way the slot is occupied before installation runs.
+        drop(tracing::subscriber::set_global_default(
+            tracing_subscriber::registry(),
+        ));
+
+        let mut env = MockEnv::new();
+        env.expect_raw()
+            .returning(|_| Err(env::VarError::NotPresent));
+
+        let error = install_subscriber_with_env(&env)
+            .expect_err("installing over an existing dispatcher must fail");
+        assert!(matches!(error, LoggingError::InstallFailed { .. }));
     }
 }
