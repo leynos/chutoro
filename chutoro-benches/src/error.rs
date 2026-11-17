@@ -45,4 +45,10 @@ pub enum BenchSetupError {
     /// A data-source distance computation failed.
     #[error("data source error: {0}")]
     DataSource(#[from] chutoro_core::DataSourceError),
+    /// A whole-pipeline run failed while profiling.
+    #[error("pipeline run failed: {0}")]
+    Pipeline(#[from] chutoro_core::ChutoroError),
+    /// The pipeline stage profile could not be written.
+    #[error("pipeline profile report failed: {0}")]
+    PipelineProfileReport(std::io::Error),
 }

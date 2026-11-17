@@ -487,6 +487,8 @@ dependencies = [
  "chutoro-providers-dense",
  "criterion",
  "flate2",
+ "metrics",
+ "metrics-util",
  "mockable",
  "proptest",
  "rand 0.8.7",

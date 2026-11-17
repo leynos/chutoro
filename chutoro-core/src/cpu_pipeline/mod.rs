@@ -82,7 +82,12 @@ fn build_index_and_core_distances<D: DataSource + Sync>(
         .min(items);
     let ef = NonZeroUsize::new(desired).unwrap_or(NonZeroUsize::MIN);
     let core_distance_inputs = CoreDistanceInputs::new(items, min_cluster_size, ef);
+    let core_distance_started = Instant::now();
     let core_distances = compute_core_distances(source, &index, &core_distance_inputs)?;
+    record_stage(
+        PipelineStage::CoreDistances.as_label(),
+        core_distance_started.elapsed(),
+    );
 
     Ok((harvested, core_distances))
 }
@@ -175,6 +180,8 @@ fn missing_core_distance(source_name: &str, endpoint: &str, node: usize) -> Chut
 #[cfg(feature = "cpu")]
 #[derive(Clone, Copy)]
 enum PipelineStage {
+    /// Per-point HNSW searches that yield the batch core distances.
+    CoreDistances,
     /// Mutual-reachability weighting of the harvested candidate edges.
     MutualReachability,
     /// Minimum spanning forest construction over the weighted edges.
@@ -186,6 +193,7 @@ impl PipelineStage {
     /// Returns the stable metric label for this stage.
     const fn as_label(self) -> &'static str {
         match self {
+            Self::CoreDistances => "core_distances",
             Self::MutualReachability => "mutual_reachability",
             Self::Kruskal => "kruskal",
         }

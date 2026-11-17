@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[features]
+pipeline-profile = ["chutoro-core/metrics", "dep:metrics", "dep:metrics-util"]
+
 [dependencies]
 arrow-array = { workspace = true }
 arrow-schema = { workspace = true }
@@ -13,6 +16,8 @@ chutoro-core = { path = "../chutoro-core" }
 chutoro-providers-dense = { path = "../chutoro-providers/dense" }
 criterion = { version = "0.5.1", features = ["html_reports"] }
 flate2 = "1.1.9"
+metrics = { version = "0.24.0", optional = true }
+metrics-util = { version = "0.20", features = ["debugging"], optional = true }
 mockable = { workspace = true }
 rand = { version = "0.8.5", features = ["small_rng"] }
 strsim = "0.11.1"
@@ -47,6 +52,10 @@ harness = false
 
 [[bench]]
 name = "mst"
+harness = false
+
+[[bench]]
+name = "pipeline"
 harness = false
 
 [[bench]]

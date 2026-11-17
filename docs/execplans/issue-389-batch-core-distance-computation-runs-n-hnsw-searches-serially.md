@@ -145,8 +145,9 @@ and 150 lines of benchmark and profiling support.
   (`28c27bb`), `search` does not take `insert_mutex`, and established the
   one-thread/eight-thread pool convention from existing tests.
 - [x] (2026-11-17 14:30Z) Branch renamed and Lody session titled.
-- [ ] `EP-M1`: stage timing, `pipeline` Criterion target, opt-in profile, and
-  the recorded serial baseline.
+- [x] (2026-11-17 15:50Z) `EP-M1`: `core_distances` stage label, `pipeline`
+  Criterion target for n = 1,000 and n = 10,000, opt-in `pipeline-profile`
+  CSV, benchmark discovery coverage, and the serial `before` baseline.
 - [ ] `EP-M2`: shared `core_distance_from_neighbours` helper and three
   consumers migrated.
 - [ ] `EP-M3`: parallel batch searches with ordered, lowest-index error
@@ -188,6 +189,19 @@ and 150 lines of benchmark and profiling support.
   Date/Author: 2026-11-17, implementation agent.
 - D3. Decision: keep stage timing on the orchestration thread and record it
   only when the stage succeeds, matching the existing `record_stage` calls.
+  Rationale: a failed run has no meaningful stage duration, and recording
+  before `?` would count abandoned work. The clock is read once per stage, so
+  the measurement cannot bias the searches themselves.
+  Date/Author: 2026-11-17, implementation agent.
+- D4. Decision: write the profile to the existing benchmark report
+  convention, `<CARGO_TARGET_DIR>/benchmarks/pipeline_profile.csv`, instead of
+  creating a new directory, and honour
+  `CHUTORO_BENCH_PIPELINE_PROFILE_PATH` as a full-path override.
+  Rationale: `neighbour_scoring::report_path` already owns the target-directory
+  convention and `report_file::write_report_file` already creates missing
+  parents; reusing them avoids a second, divergent report location. The
+  override keeps reruns able to preserve an earlier profile.
+  Date/Author: 2026-11-17, implementation agent.
   Rationale: per-worker timing would change the histogram's meaning and
   cardinality, and a failed stage never produced a latency sample before.
   Date/Author: 2026-11-17, implementation agent.
@@ -403,11 +417,12 @@ Add the `pipeline-profile` feature to `chutoro-benches` enabling
 `chutoro-core/metrics`, optional `metrics`, and optional
 `metrics-util/debugging`. Under that feature, the `pipeline` target installs a
 `DebuggingRecorder` for one untimed pipeline run before Criterion registration
-and writes one CSV row per stage plus a whole-run row to
-`target/chutoro-benchmarks/pipeline_profile.csv` (overridable with
-`CHUTORO_BENCH_PIPELINE_PROFILE_PATH`). The row set includes each stage's
-seconds and share of the whole run, so the `core_distances` share is explicit.
-Without the feature, the profile step is a no-op.
+and writes one CSV row per stage plus a whole-run row to the shared benchmark
+report directory, `<CARGO_TARGET_DIR>/benchmarks/pipeline_profile.csv`, whose
+full path is overridable with `CHUTORO_BENCH_PIPELINE_PROFILE_PATH`. The row
+set includes each stage's seconds and share of the whole run, so the
+`core_distances` share is explicit. Without the feature, the profile step is a
+no-op.
 
 Extend `chutoro-benches/tests/benchmark_smoke.rs` to assert `--list` coverage
 and one `--exact` probe for the new target.
@@ -573,7 +588,42 @@ git log --oneline --all --grep='378\|386'
 `read_graph_guard()` and uses `self.distance_cache`; it contains no
 `insert_mutex` reference.
 
-Baseline and after measurements: to be recorded during `EP-M1` and `EP-M4`.
+Baseline measurement (`EP-M1`, 2026-11-17, serial `compute_core_distances`):
+
+```plaintext
+RAYON_NUM_THREADS=4 cargo bench --offline --locked -p chutoro-benches \
+  --features pipeline-profile --bench pipeline -- --save-baseline before
+```
+
+Host: 6-core Linux. Criterion group: sample size 10, default 3 s warm-up and
+5 s measurement target; the logged "unable to complete 10 samples in 5.0 s"
+warning is expected for these sizes. Results:
+
+```plaintext
+pipeline/n=1000         time:   [1.4361 s 1.4615 s 1.4941 s]
+pipeline/n=10000        time:   [35.825 s 36.768 s 37.783 s]
+```
+
+Stage profile from the same process (one untimed run per size,
+`target/benchmarks/pipeline_profile.csv`):
+
+```plaintext
+point_count,stage,seconds,share
+1000,whole_run,1.747013,1.0000
+1000,core_distances,0.656701,0.3759
+1000,kruskal,0.002283,0.0013
+1000,mutual_reachability,0.014921,0.0085
+10000,whole_run,35.734580,1.0000
+10000,core_distances,13.179279,0.3688
+10000,kruskal,0.030802,0.0009
+10000,mutual_reachability,0.058460,0.0016
+```
+
+The remaining whole-run time is the HNSW build and label extraction, which are
+not stage-labelled. The `core_distances` stage is about 37% of the whole
+pipeline at both sizes before parallelization.
+
+After measurement (`EP-M4`): to be recorded.
 
 ## Interfaces and dependencies
 
