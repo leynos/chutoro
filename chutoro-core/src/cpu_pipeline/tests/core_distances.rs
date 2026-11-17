@@ -44,6 +44,15 @@ fn with_pool<T: Send>(
     Ok(pool.install(task))
 }
 
+/// Builds `count` distinct, evenly spaced fixture values.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "the fixture is a handwritten sequence of small whole numbers"
+)]
+fn distinct_values(count: usize) -> Vec<f32> {
+    (0..count).map(|value| value as f32).collect()
+}
+
 /// Builds a deterministic index over `source` and the `ef` its searches use.
 ///
 /// The `ef` mirrors the production formula for this stage so the tests
@@ -87,64 +96,42 @@ fn sequential_core_distances<D: DataSource + Sync>(
 }
 
 #[rstest::rstest]
-#[case::single_thread(1)]
-#[case::eight_threads(8)]
-fn parallel_searches_match_the_sequential_reference(#[case] threads: usize) {
-    // Distinct metric descriptors keep the stages' distance-cache entries
-    // apart, so the trials exercise concurrent misses instead of replaying
+#[case::distinct_points("parity", distinct_values(24), 3)]
+#[case::ties(
+    "ties",
+    vec![0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0],
+    2
+)]
+fn parallel_searches_match_the_sequential_reference(
+    #[case] name: &'static str,
+    #[case] values: Vec<f32>,
+    #[case] min_cluster_size: usize,
+    #[values(1, 8)] threads: usize,
+) {
+    // Distinct metric descriptors keep each stage's distance-cache entries
+    // apart, so the trial exercises concurrent misses instead of replaying
     // hits inserted by the index build or the sequential reference.
-    let build_source = NumericTestSource::with_len("parity", 24)
-        .using_metric_descriptor(MetricDescriptor::new("parity:build"));
+    let build_source = NumericTestSource::new(name, values.clone())
+        .using_metric_descriptor(MetricDescriptor::new(format!("{name}:build")));
     let (index, ef) = build_fixture_index(&build_source).expect("fixture index must build");
     let inputs = CoreDistanceInputs::new(
         build_source.len(),
-        NonZeroUsize::new(3).expect("three is non-zero"),
+        NonZeroUsize::new(min_cluster_size).expect("case cluster sizes are non-zero"),
         ef,
     );
 
-    let reference = NumericTestSource::with_len("parity", 24)
-        .using_metric_descriptor(MetricDescriptor::new("parity:reference"));
+    let reference = NumericTestSource::new(name, values.clone())
+        .using_metric_descriptor(MetricDescriptor::new(format!("{name}:reference")));
     let expected = sequential_core_distances(&reference, &index, &inputs)
         .expect("sequential reference must succeed");
 
-    let trial = NumericTestSource::with_len("parity", 24)
-        .using_metric_descriptor(MetricDescriptor::new("parity:trial"));
+    let trial = NumericTestSource::new(name, values)
+        .using_metric_descriptor(MetricDescriptor::new(format!("{name}:trial")));
     let actual = with_pool(threads, || compute_core_distances(&trial, &index, &inputs))
         .expect("thread pool must build")
         .expect("parallel computation must succeed");
 
-    assert_eq!(actual, expected, "thread count {threads}");
-}
-
-#[rstest::rstest]
-#[case::single_thread(1)]
-#[case::eight_threads(8)]
-fn ties_resolve_identically_at_every_thread_count(#[case] threads: usize) {
-    // Pairs of equal points make every distance a tie between two ids.
-    let data = vec![0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 3.0, 3.0, 4.0, 4.0];
-    let build_source = NumericTestSource::new("ties", data.clone())
-        .using_metric_descriptor(MetricDescriptor::new("ties:build"));
-    let (index, ef) = build_fixture_index(&build_source).expect("fixture index must build");
-    let inputs = CoreDistanceInputs::new(
-        build_source.len(),
-        NonZeroUsize::new(2).expect("two is non-zero"),
-        ef,
-    );
-
-    // As in the parity test, distinct descriptors give each stage its own
-    // cache entries so the parallel trial starts cold.
-    let reference = NumericTestSource::new("ties", data.clone())
-        .using_metric_descriptor(MetricDescriptor::new("ties:reference"));
-    let expected = sequential_core_distances(&reference, &index, &inputs)
-        .expect("sequential reference must succeed");
-
-    let trial = NumericTestSource::new("ties", data)
-        .using_metric_descriptor(MetricDescriptor::new("ties:trial"));
-    let actual = with_pool(threads, || compute_core_distances(&trial, &index, &inputs))
-        .expect("thread pool must build")
-        .expect("parallel computation must succeed");
-
-    assert_eq!(actual, expected, "thread count {threads}");
+    assert_eq!(actual, expected, "case {name} with {threads} threads");
 }
 
 #[rstest::rstest]

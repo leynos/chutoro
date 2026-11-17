@@ -8,19 +8,13 @@
 //! With the `pipeline-profile` feature, one untimed run per size also writes
 //! the per-stage breakdown before Criterion registers its benchmarks. The
 //! profile is written by `chutoro_benches::pipeline_profile`.
-// `missing_docs` can only be scoped to the whole module: an `expect` attached
-// to a macro invocation is ignored, and the undocumented items are the ones
-// `criterion_group!` and `criterion_main!` expand to.
-#![expect(
-    missing_docs,
-    reason = "Criterion macros generate items without doc comments"
-)]
-use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_main};
 
 use chutoro_benches::{
     criterion_support::{
-        configure_short_measurement_group, is_benchmark_discovery, is_exact_benchmark_probe,
-        is_nextest_exact_benchmark_probe, point_count_for_exact_probe_args, register_noop_benches,
+        configure_short_measurement_group, is_benchmark_discovery_args,
+        is_exact_benchmark_probe_args, is_nextest_exact_benchmark_probe,
+        point_count_for_exact_probe_args, register_noop_benches,
     },
     error::BenchSetupError,
     params::PipelineBenchParams,
@@ -104,7 +98,7 @@ fn build_cases() -> Result<Vec<PipelineCase>, BenchSetupError> {
               nest the timing loop, and cannot propagate errors through Result"
 )]
 fn pipeline_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
-    if is_benchmark_discovery() || is_nextest_exact_benchmark_probe() {
+    if is_benchmark_discovery_args(std::env::args()) || is_nextest_exact_benchmark_probe() {
         register_pipeline_probe_benches(c);
         return Ok(());
     }
@@ -113,7 +107,11 @@ fn pipeline_impl(c: &mut Criterion) -> Result<(), BenchSetupError> {
     profile_cases(&cases)?;
 
     let mut group = c.benchmark_group("pipeline");
-    configure_short_measurement_group(&mut group, 10, is_exact_benchmark_probe());
+    configure_short_measurement_group(
+        &mut group,
+        10,
+        is_exact_benchmark_probe_args(std::env::args()),
+    );
 
     for case in &cases {
         let bench_params = PipelineBenchParams {
@@ -170,7 +168,11 @@ fn register_pipeline_probe_benches(c: &mut Criterion) {
         .copied()
         .map(|point_count| PipelineBenchParams { point_count });
     register_noop_benches(c, "pipeline", params, |group| {
-        configure_short_measurement_group(group, 10, is_exact_benchmark_probe());
+        configure_short_measurement_group(
+            group,
+            10,
+            is_exact_benchmark_probe_args(std::env::args()),
+        );
     });
 }
 
@@ -181,5 +183,14 @@ fn pipeline(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, pipeline);
+/// Runs the whole-pipeline Criterion group with the default configuration.
+///
+/// This replaces `criterion_group!`, whose expansion is an undocumented public
+/// function; declaring the group here lets the workspace's `missing_docs` lint
+/// stay enabled for the rest of the benchmark.
+fn benches() {
+    let mut criterion = Criterion::default().configure_from_args();
+    pipeline(&mut criterion);
+}
+
 criterion_main!(benches);

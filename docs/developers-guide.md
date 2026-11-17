@@ -2807,6 +2807,14 @@ still trigger strict denials — most notably `missing_docs`, `shadow_reuse`, an
 the diagnostic unavoidable. Handwritten benchmark support remains subject to
 the same root policy.
 
+Where a macro expansion would force a file-wide suppression, declare the group
+by hand instead. `criterion_group!` expands to an undocumented public `benches`
+function, so a documented `fn benches()` that calls
+`Criterion::default().configure_from_args()` and then the target function keeps
+`missing_docs` enabled for the rest of the file. `criterion_main!` only expands
+to `fn main`, which needs no documentation.
+`chutoro-benches/benches/pipeline.rs` uses this form.
+
 ### Adding a new benchmark
 
 1. Create a new file in `chutoro-benches/benches/`.

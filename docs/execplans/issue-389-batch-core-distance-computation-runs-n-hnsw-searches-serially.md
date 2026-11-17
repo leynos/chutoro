@@ -170,6 +170,16 @@ and 150 lines of benchmark and profiling support.
   on a macro invocation is ignored), profile rows labelled with the generated
   source size, and the parity/tie/property trials given distinct metric
   descriptors so they start with a cold distance cache.
+- [x] (2026-11-17 22:50Z) Rebased onto `origin/main` (`6ddcd0a`). The replay
+  itself was clean; main had removed the process-argument wrappers
+  `is_benchmark_discovery` and `is_exact_benchmark_probe` from
+  `chutoro_benches::criterion_support` (#426), so the new bench was migrated to
+  `is_benchmark_discovery_args(std::env::args())` and
+  `is_exact_benchmark_probe_args(std::env::args())` in the same pass.
+- [x] (2026-11-17 22:50Z) CodeRabbit round two addressed: the parity and tie
+  fixtures are one `rstest` table over `(values, min cluster size)` crossed
+  with the thread counts, and `criterion_group!` was replaced by a documented
+  `benches` function, which removed the file-wide `missing_docs` expectation.
 - [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
@@ -242,6 +252,19 @@ and 150 lines of benchmark and profiling support.
   unavoidable Criterion API shapes, and every other bench target in the crate
   carries the same targeted expectations. Date/Author: 2026-11-17,
   implementation agent.
+- D7. Decision: declare the Criterion group as a documented `benches` function
+  and keep `criterion_main!(benches)`, instead of using `criterion_group!`.
+  Rationale: the macro expands to an undocumented public function, which forced
+  a file-wide `missing_docs` suppression over every item in the benchmark; the
+  handwritten function matches the macro's expansion
+  (`Criterion::default().configure_from_args()` followed by the target call)
+  and lets the lint stay enabled. Date/Author: 2026-11-17, implementation agent.
+- D8. Decision: adapt the benchmark to main's argument-passing helpers
+  (`is_benchmark_discovery_args`, `is_exact_benchmark_probe_args`) rather than
+  reintroducing the removed process-argument wrappers. Rationale: #426 removed
+  those wrappers from `chutoro_benches::criterion_support` so each decision is
+  testable from a supplied argument sequence; matching every other bench target
+  keeps one API. Date/Author: 2026-11-17, implementation agent.
 
 ## Outcomes & retrospective
 
@@ -266,7 +289,11 @@ the developers' guide now warns against "simplifying" it. Distinct metric
 descriptors are the cheapest way to isolate distance-cache state between
 trials. Full-workspace gates are expensive on this host under compile
 admission; the focused suites for changed crates gave fast signal, while the
-full run needed to wait for a drained queue.
+full run needed to wait for a drained queue. A clean textual rebase does not
+prove that a benchmark still compiles: main removed the shared
+`criterion_support` process-argument wrappers while this branch was open, so
+the bench targets need a focused `cargo check` after every rebase even when
+`range-diff` reports an unchanged replay.
 
 Remaining work is tracked in
 [#430](https://github.com/leynos/chutoro/issues/430) for the session path.
@@ -783,3 +810,7 @@ No runtime dependency is added to `chutoro-core`.
 - 2026-11-17: Initial ExecPlan written from the issue text and repository
   reconnaissance at `e5006af`; implementation proceeds under the user's
   explicit instruction to deliver, measure, and open a draft pull request.
+- 2026-11-17: Rebased onto `origin/main` at `6ddcd0a` and folded in both
+  CodeRabbit review rounds; the benchmark now uses main's `_args`
+  `criterion_support` helpers and a documented Criterion group function (D7,
+  D8).
