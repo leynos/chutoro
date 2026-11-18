@@ -1,69 +1,73 @@
-//! Path-backed key newtypes and recipe lifecycle contract types.
+//! Opaque key newtypes and recipe lifecycle contract types.
 //!
 //! Includes cache and object-store key wrappers, checksum and manifest
 //! digest placeholders, and the phase, port, and partial-state types used
 //! to describe recipe execution and failure cleanup.
+//!
+//! Cache and object keys are opaque strings in the domain model. Any
+//! interpretation of a key as a filesystem path, object-store prefix, or other
+//! backend-specific address belongs to the [`Storage`](crate::Storage) and
+//! [`Publisher`](crate::Publisher) adapters, so recipe logic never depends on
+//! how a backend names its records.
 
-use camino::{Utf8Path, Utf8PathBuf};
+use std::sync::Arc;
 
 use crate::RecipeError;
 
 /// Cache object key used by mutable recipe storage.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct CacheKey(Utf8PathBuf);
+pub struct CacheKey(Arc<str>);
 
 /// Object-store key used by the publish sink.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct ObjectKey(Utf8PathBuf);
+pub struct ObjectKey(Arc<str>);
 
-/// Implement the common path-wrapper API for a recipe storage key type.
-macro_rules! impl_path_key {
-    ($name:ident, $create_doc:literal, $example_path:literal) => {
+/// Implement the common opaque-key API for a recipe storage key type.
+macro_rules! impl_opaque_key {
+    ($name:ident, $create_doc:literal, $example_key:literal) => {
         impl $name {
             #[doc = $create_doc]
+            ///
+            /// The value is opaque to the domain. Interpreting it as a path or
+            /// any other backend-specific address is the adapter's concern.
             ///
             /// # Examples
             ///
             /// ```
             #[doc = concat!("use chutoro_bench_datasets::", stringify!($name), ";")]
             ///
-            #[doc = concat!("let key = ", stringify!($name), "::new(\"", $example_path, "\");")]
-            #[doc = concat!("assert_eq!(key.as_ref().as_str(), \"", $example_path, "\");")]
+            #[doc = concat!("let key = ", stringify!($name), "::new(\"", $example_key, "\");")]
+            #[doc = concat!("assert_eq!(key.as_ref(), \"", $example_key, "\");")]
+            #[doc = concat!("assert_eq!(key.to_string(), \"", $example_key, "\");")]
             /// ```
             #[must_use]
-            pub fn new(value: impl Into<Utf8PathBuf>) -> Self {
+            pub fn new(value: impl Into<Arc<str>>) -> Self {
                 Self(value.into())
-            }
-
-            /// Return an owned copy of the wrapped path.
-            #[must_use]
-            pub fn to_path_buf(&self) -> Utf8PathBuf {
-                self.0.clone()
-            }
-
-            /// Consume the key and return the wrapped path.
-            #[must_use]
-            pub fn into_inner(self) -> Utf8PathBuf {
-                self.0
             }
         }
 
-        impl AsRef<Utf8Path> for $name {
-            fn as_ref(&self) -> &Utf8Path {
+        impl AsRef<str> for $name {
+            fn as_ref(&self) -> &str {
                 &self.0
+            }
+        }
+
+        impl std::fmt::Display for $name {
+            fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str(self.as_ref())
             }
         }
     };
 }
 
-impl_path_key!(
+impl_opaque_key!(
     CacheKey,
-    "Create a cache key from a UTF-8 path.",
+    "Create a cache key from an opaque identifier.",
     "mnist/raw.gz"
 );
-impl_path_key!(
+impl_opaque_key!(
     ObjectKey,
-    "Create an object key from a UTF-8 path.",
+    "Create an object key from an opaque identifier.",
     "manifests/mnist.json"
 );
 

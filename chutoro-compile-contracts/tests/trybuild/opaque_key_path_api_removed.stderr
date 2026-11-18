@@ -1,0 +1,53 @@
+error[E0599]: no method named `to_path_buf` found for struct `CacheKey` in the current scope
+ --> tests/trybuild/opaque_key_path_api_removed.rs:8:19
+  |
+8 |     let _ = cache.to_path_buf();
+  |                   ^^^^^^^^^^^ method not found in `CacheKey`
+
+error[E0599]: no method named `into_inner` found for struct `CacheKey` in the current scope
+ --> tests/trybuild/opaque_key_path_api_removed.rs:9:27
+  |
+9 |     let _ = cache.clone().into_inner();
+  |                           ^^^^^^^^^^ method not found in `CacheKey`
+
+error[E0308]: mismatched types
+  --> tests/trybuild/opaque_key_path_api_removed.rs:10:24
+   |
+10 |     let _: &Utf8Path = cache.as_ref();
+   |            ---------   ^^^^^^^^^^^^^^ expected `&Utf8Path`, found `&str`
+   |            |
+   |            expected due to this
+   |
+   = note: expected reference `&Utf8Path`
+              found reference `&str`
+help: call `Into::into` on this expression to convert `&str` into `&Utf8Path`
+   |
+10 |     let _: &Utf8Path = cache.as_ref().into();
+   |                                      +++++++
+
+error[E0599]: no method named `to_path_buf` found for struct `ObjectKey` in the current scope
+  --> tests/trybuild/opaque_key_path_api_removed.rs:13:20
+   |
+13 |     let _ = object.to_path_buf();
+   |                    ^^^^^^^^^^^ method not found in `ObjectKey`
+
+error[E0599]: no method named `into_inner` found for struct `ObjectKey` in the current scope
+  --> tests/trybuild/opaque_key_path_api_removed.rs:14:28
+   |
+14 |     let _ = object.clone().into_inner();
+   |                            ^^^^^^^^^^ method not found in `ObjectKey`
+
+error[E0308]: mismatched types
+  --> tests/trybuild/opaque_key_path_api_removed.rs:15:24
+   |
+15 |     let _: &Utf8Path = object.as_ref();
+   |            ---------   ^^^^^^^^^^^^^^^ expected `&Utf8Path`, found `&str`
+   |            |
+   |            expected due to this
+   |
+   = note: expected reference `&Utf8Path`
+              found reference `&str`
+help: call `Into::into` on this expression to convert `&str` into `&Utf8Path`
+   |
+15 |     let _: &Utf8Path = object.as_ref().into();
+   |                                       +++++++

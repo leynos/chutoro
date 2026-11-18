@@ -735,10 +735,15 @@ pub fn search<D: DataSource + Sync>(
 ) -> Result<Vec<Neighbour>, HnswError>;
 ```
 
-`build` and `build_with_edges` seed the entry point from node `0` and insert
-the remaining nodes in parallel. `build_with_edges` is the preferred path when
-the caller needs the deterministic `EdgeHarvest` used by the MST stage.
-`with_capacity` is the entry point for manual or incremental index population.
+`build` and `build_with_edges` seed the entry point from node `0`
+single-threaded, then dispatch the remaining insertions across Rayon workers.
+Each insertion is serialized by the index's insert mutex, so Rayon provides
+worker dispatch rather than concurrent graph mutation. `build_with_edges` is
+the preferred path when the caller needs the `EdgeHarvest` used by the MST
+stage. Harvested edges are sorted into a stable order, but worker scheduling
+can change the insertion order, so the harvested edge set itself can vary
+between builds. `with_capacity` is the entry point for manual or incremental
+index population.
 
 `insert` mutates the graph without allocating harvested edge storage.
 `insert_harvesting` performs the same planning and commit sequence, but also
@@ -2757,9 +2762,13 @@ validation and preparation.
 
 Recipes receive infrastructure through `RecipeContext`. `Fetcher` reads source
 bytes with a mandatory `max_bytes` cap, `Storage` is a mutable cache with
-overwrite semantics, and `Publisher` is the final write-once sink. Network
-download, archive extraction, object-store adapters, lockfiles, checksum
-verification, and licence gates are deferred to later roadmap items.
+overwrite semantics, and `Publisher` is the final write-once sink. `CacheKey`
+and `ObjectKey` are opaque string newtypes: recipes treat them as identifiers,
+and any interpretation of a key as a filesystem path, object-store prefix, or
+other backend-specific address belongs to the `Storage` and `Publisher`
+adapters. Network download, archive extraction, object-store adapters,
+lockfiles, checksum verification, and licence gates are deferred to later
+roadmap items.
 
 Enable the crate's `testing` feature for adapter contract tests. It exposes
 `InMemoryFetcher`, `InMemoryStorage`, `InMemoryPublisher`, `FilesystemFetcher`,

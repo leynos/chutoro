@@ -364,8 +364,8 @@ invalid setup or inconsistent runtime state.
 
 After insertion, `search(source, query, ef)` returns the `ef` nearest
 neighbours currently reachable from the HNSW entry point. The query source must
-implement `DataSource + Sync`, matching the requirement for parallel insertion.
-For an end-to-end example, see the Rustdoc for
+implement `DataSource + Sync` so that concurrent searches can share it. For an
+end-to-end example, see the Rustdoc for
 `chutoro_core::CpuHnsw::insert_harvesting`.
 
 ### Insertion guarantees
@@ -547,6 +547,30 @@ assert_eq!(published.manifest_uri().as_str(), "manifests/example.json");
 
 For the design rationale behind the four-phase trait and port split, see
 [ADR-004: Benchmark dataset recipe trait](adrs/adr-0004-bench-dataset-recipe-trait.md).
+
+### Identifying cache and object keys
+
+`CacheKey` and `ObjectKey` are opaque identifiers in the recipe model. Recipes
+treat them as names rather than addresses. Adapters that need a filesystem path
+or object-store prefix resolve it at their own boundary.
+
+Construct a key from a string literal or an owned `String` with `new`, and read
+the identifier back with `AsRef<str>` or `Display`:
+
+```rust
+use chutoro_bench_datasets::{CacheKey, ObjectKey};
+
+let cache = CacheKey::new("cache/mnist/raw.gz");
+let object = ObjectKey::new(String::from("manifests/mnist.json"));
+
+assert_eq!(cache.as_ref(), "cache/mnist/raw.gz");
+assert_eq!(object.to_string(), "manifests/mnist.json");
+```
+
+The path-returning `to_path_buf` and `into_inner` accessors are removed. An
+adapter derives its own address from the identifier, for example
+`Utf8PathBuf::from(key.as_ref())`. See the
+[0.2.0 migration notes](migration-notes.md#020) for the full compatibility note.
 
 ## Benchmarking
 

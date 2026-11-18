@@ -33,6 +33,27 @@ Implementers that override `distance_batch` must change the parameter type to
 implementation that forwards to a tuple-oriented kernel converts inside its own
 boundary; the ordering of each pair must be preserved.
 
+### `CacheKey` and `ObjectKey` are opaque string keys
+
+`chutoro-bench-datasets` no longer exposes `camino::Utf8PathBuf` through its
+storage keys. `CacheKey` and `ObjectKey` wrap an `Arc<str>`, and `new` accepts
+any `impl Into<Arc<str>>`, such as `&str` or `String`. The path-returning
+`to_path_buf` and `into_inner` accessors are removed; read the identifier with
+`AsRef<str>` or `Display`.
+
+```rust
+use chutoro_bench_datasets::CacheKey;
+
+let key = CacheKey::new("cache/mnist/raw.gz");
+assert_eq!(key.as_ref(), "cache/mnist/raw.gz");
+```
+
+Adapters that need a filesystem path, object-store prefix, or other
+backend-specific address resolve it inside their own boundary, for example
+`Utf8PathBuf::from(key.as_ref())`. The `Storage` and `Publisher` port
+signatures are unchanged, so recipe code needs no migration beyond replacing
+path accessor calls.
+
 ### New metrics: trim scoring
 
 Enabling the `metrics` feature now also emits
