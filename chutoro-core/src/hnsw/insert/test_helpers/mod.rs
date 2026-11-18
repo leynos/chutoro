@@ -1,4 +1,5 @@
-//! Test-only helpers for repairing graph connectivity and reciprocity.
+//! Test-only helpers: graph connectivity and reciprocity repair, plus a probe
+//! that counts candidate-edge extractions for the non-harvesting insert test.
 
 mod edge_helpers;
 #[cfg(test)]
