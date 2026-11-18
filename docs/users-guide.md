@@ -388,7 +388,7 @@ Every machine-readable code enum (`ChutoroErrorCode`, `DataSourceErrorCode`,
 `#[non_exhaustive]`, implements `Display`, and exposes `as_str()`. `Display`
 renders the same stable string as `as_str()`, while the owning error's `code()`
 returns the code value. Because the code enums are `#[non_exhaustive]`, a
-downstream `match` must keep a wildcard arm; see the
+downstream `match` must keep a catch-all arm, such as `_`; see the
 [0.2.0 migration notes](migration-notes.md#error-code-enums-are-non-exhaustive-and-implement-display)
 for the migration.
 

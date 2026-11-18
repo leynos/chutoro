@@ -5,8 +5,11 @@
 //! matches them. These fixtures pin the contract in both directions: an
 //! exhaustive match fails to compile, and the wildcard form compiles.
 //!
-//! The generated `code()` and `as_str()` accessors are `#[must_use]`, so a
-//! caller that discards one of their results must fail to compile too.
+//! The generated `code()` and `as_str()` accessors are `#[must_use]`, so
+//! discarding one of their results as a bare statement raises the
+//! `unused_must_use` warning by default. The fixtures deny that lint, which
+//! turns the warning into the compile error they assert. An explicit discard
+//! with `let _ = ...` stays valid under the denial.
 
 /// Verifies the error-code enums require a wildcard arm downstream.
 #[test]
@@ -18,7 +21,7 @@ fn error_codes_require_wildcard_arm() {
     cases.compile_fail("tests/trybuild/error_code_hnsw_exhaustive.rs");
 }
 
-/// Verifies the generated accessors cannot have their results discarded.
+/// Verifies a denied `unused_must_use` rejects a discarded accessor result.
 #[test]
 fn error_code_accessors_are_must_use() {
     let cases = trybuild::TestCases::new();

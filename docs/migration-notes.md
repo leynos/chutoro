@@ -58,13 +58,18 @@ how to enable the feature.
 
 `MstErrorCode`, `HierarchyErrorCode`, and `HnswErrorCode` are now
 `#[non_exhaustive]`, matching the error enums they describe. A downstream
-exhaustive `match` over one of them must add a wildcard arm:
+`match` that lists every variant without a catch-all arm no longer compiles;
+add one, such as `_`. A match that already ends in a catch-all binding needs no
+change:
 
 ```rust
+# use chutoro_core::{MstError, MstErrorCode};
+# fn describe(error: &MstError) -> &'static str {
 match error.code() {
     MstErrorCode::EmptyGraph => "empty graph",
     _ => "other MST failure",
 }
+# }
 ```
 
 All three also implement `Display`, which renders the same stable string as
