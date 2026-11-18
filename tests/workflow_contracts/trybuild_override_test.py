@@ -68,6 +68,7 @@ COMPILE_CONTRACT_TESTS: typ.Final[frozenset[str]] = frozenset({
     "clustering_result_panicking_constructor_is_private_when_cpu_enabled",
     "clustering_result_api_is_checked_without_cpu",
     "error_codes_require_wildcard_arm",
+    "error_code_accessors_are_must_use",
 })
 
 def _period_seconds(timeout: object) -> float | None:
