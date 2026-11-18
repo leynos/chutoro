@@ -76,7 +76,6 @@ two-argument signature and models the documented defaults:
 configured limit, or lower `ef_construction` and `max_level`, if a previously
 accepted batch no longer fits.
 
-
 ### New metrics: trim scoring
 
 Enabling the `metrics` feature now also emits
