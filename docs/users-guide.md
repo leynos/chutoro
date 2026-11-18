@@ -111,6 +111,10 @@ histograms use only the bounded `backend` label:
 - `chutoro.batch.memory_limit_bytes` (Bytes) records the configured memory
   limit when one is present.
 
+Both byte histograms record the exact byte count up to 2^53 bytes (8 PiB), so
+an 8 GiB limit and a 64 GiB limit stay distinguishable; larger values saturate
+at 2^53.
+
 The stable `ChutoroErrorCode` vocabulary includes
 `CHUTORO_INVALID_MIN_CLUSTER_SIZE`, `CHUTORO_EMPTY_SOURCE`,
 `CHUTORO_INSUFFICIENT_ITEMS`, `CHUTORO_BACKEND_UNAVAILABLE`,
