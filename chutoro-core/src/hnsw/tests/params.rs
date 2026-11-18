@@ -1,4 +1,10 @@
-//! Parameter validation tests for HNSW configuration structures.
+//! Tests for [`HnswParams`] validation and derived expectations.
+//!
+//! Covers constructor validation, the builder overrides that must preserve
+//! unrelated settings, the effective search width used for small batches, and
+//! the layer expectation that `crate::memory` consumes. The expectation cases
+//! pin exact counts in eighths, so changing the sampler's stop rule or its
+//! clamp fails here instead of silently shifting every memory estimate.
 
 use std::{num::NonZeroUsize, time::Duration};
 

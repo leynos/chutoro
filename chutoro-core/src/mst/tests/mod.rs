@@ -1,4 +1,11 @@
 //! Unit tests for the parallel Kruskal MST implementation.
+//!
+//! Exercises [`parallel_kruskal`] and its `prepare_edge_list` front end
+//! directly: per-edge validation precedence and original orientation,
+//! `EmptyGraph` precedence, and the forest invariants compared against the
+//! sequential reference. Child modules hold the deterministic error-selection
+//! regressions and the exhaustive equivalence tests for the sequential Kani
+//! model.
 
 use rstest::rstest;
 

@@ -1,4 +1,14 @@
 //! Parameter handling for the CPU HNSW implementation.
+//!
+//! Owns [`HnswParams`], the validated configuration that drives CPU index
+//! construction: neighbour fan-out, construction search width, the sampled
+//! level distribution and its cap, the insertion seed, and the distance-cache
+//! settings. Two consumers share these values. The construction path uses the
+//! sampler's stop rule and the effective search width, while
+//! `crate::memory::estimate_peak_bytes_for_hnsw_params` uses
+//! [`HnswParams::expected_layers_eighths`] to size the multi-layer edge
+//! harvest. Keeping both in one type stops the memory estimate from drifting
+//! away from the graph the builder actually produces.
 
 use std::{num::NonZeroUsize, ops::Neg, time::Duration};
 
