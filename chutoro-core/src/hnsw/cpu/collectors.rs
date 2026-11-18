@@ -93,9 +93,12 @@ mod tests {
     use super::{EdgeCollector, NoopCollector, VecCollector};
 
     /// The build path relies on `NoopCollector` declaring `WANTS_EDGES =
-    /// false`; flipping either flag silently reintroduces per-insert edge
-    /// allocation on the non-harvesting path. Both values are compile-time
-    /// constants, so the checks live in `const` blocks.
+    /// false`: flipping it to `true` reintroduces per-insert edge allocation on
+    /// the non-harvesting path. `VecCollector` relies on `true` for the
+    /// opposite reason — flipping it to `false` would silently stop harvesting,
+    /// because the insertion path would then skip the extraction that feeds
+    /// `collect`. Both values are compile-time constants, so the checks live in
+    /// `const` blocks.
     #[test]
     fn collectors_declare_their_edge_requirements() {
         const {
