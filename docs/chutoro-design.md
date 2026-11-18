@@ -817,6 +817,24 @@ block on or dispatch work to the Rayon pool.
 rejected alternatives, and the limit that a `DataSource` callback which itself
 waits on the same pool remains outside the fix's guarantee.
 
+_Implementation update (2026-11-16)._ The insertion mutex stays a single-writer
+lock; it is retained rather than narrowed. `CpuHnsw::insert_mutex: Mutex<()>`
+is acquired before level sampling and held through planning, apply, trim
+scoring, and commit, so Rayon supplies worker dispatch while exactly one worker
+plans against or mutates the graph. Narrowing it would replace one critical
+section, whose deadlock hazard is already understood and pinned by the trim
+tests, with finer-grained coordination that has no demonstrated gain: the HNSW
+build benchmark (`chutoro-benches/benches/hnsw.rs`) covers
+`POINT_COUNTS = [100, 500, 1_000, 5_000]` on both build paths, and no
+measurement identifies the mutex as the bottleneck at those sizes. The
+`ClusteringSession` writer also relies on this serialization (§12.6).
+Separately, the non-harvesting build path no longer allocates a candidate-edge
+vector per insertion: `EdgeCollector` exposes a compile-time `WANTS_EDGES` flag,
+`NoopCollector` sets it to `false`, and `insert_with_collector` therefore
+never calls `extract_candidate_edges` for `CpuHnsw::build`, so no per-node
+`Vec<CandidateEdge>` is allocated. Other insertion allocations remain; the
+planner still allocates its per-insertion layer vector.
+
 #### 6.2. Algorithmic Implementation Sketch
 
 The implementation will follow the three-pillar structure of FISHDBC, with the

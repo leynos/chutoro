@@ -64,6 +64,9 @@ pub(super) fn extract_candidate_edges(
     source_sequence: u64,
     plan: &InsertionPlan,
 ) -> Vec<CandidateEdge> {
+    #[cfg(test)]
+    test_helpers::record_edge_extraction();
+
     plan.layers
         .iter()
         .flat_map(|layer| {

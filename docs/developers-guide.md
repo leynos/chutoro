@@ -2659,13 +2659,15 @@ write lock. The focused `hnsw::tests::write_lock` module enables a test-only
 write scope. Keep new insertion, trimming, and search code compatible with that
 guard.
 
-Insertion also serializes its apply-score-commit sequence through
-`insert_mutex`, and trim scoring runs inside that critical section. No code
-path inside it may block on, or dispatch work to, the Rayon pool: a worker that
-is due to run the nested work may already be blocked acquiring the same mutex,
-and the build then never returns. `CpuHnsw::score_trim_jobs` therefore scores
-its jobs in order on the calling thread. Two checks cover that, and they are
-deliberately different in kind. The
+Insertion also holds `insert_mutex` across the whole insertion: it is acquired
+before level sampling and retained through planning, apply, trim scoring, and
+commit. Only one worker therefore plans against or mutates the graph at a time,
+and Rayon supplies worker dispatch without concurrent graph mutation. No code
+path inside that critical section may block on, or dispatch work to, the Rayon
+pool: a worker that is due to run the nested work may already be blocked
+acquiring the same mutex, and the build then never returns.
+`CpuHnsw::score_trim_jobs` therefore scores its jobs in order on the calling
+thread. Two checks cover that, and they are deliberately different in kind. The
 `tests/workflow_contracts/trim_scoring_dispatch_test.py` contract reads the
 scorer's body and rejects every Rayon entry point in it, which is the
 deterministic guard for this regression. `hnsw::cpu::trim_tests` records
@@ -2690,6 +2692,25 @@ contracts:
 
 These contracts let `hnsw/validate.rs` and `hnsw/helpers.rs` merge cache hits
 and misses without corrupting caller buffers after a provider error.
+
+### CPU HNSW edge collector contract
+
+`EdgeCollector` (`chutoro-core/src/hnsw/cpu/collectors.rs`) separates candidate
+edge harvesting from the insertion logic. Its required associated constant
+`WANTS_EDGES` declares whether an implementation observes edges at all:
+`NoopCollector` sets it to `false` and `VecCollector` sets it to `true`.
+
+`CpuHnsw::insert_with_collector` reads that constant and, when it is `false`,
+skips both `extract_candidate_edges` and `collect`. The constant is part of the
+trait rather than a runtime option, so each monomorphization elides the skipped
+branch and the non-harvesting build path allocates no per-insert edge vector.
+
+Every new `EdgeCollector` implementation must declare `WANTS_EDGES` explicitly;
+there is no default. Declaring `false` while `collect` expects edges silently
+disables harvesting, because the insertion path will never call `collect`.
+`non_harvesting_insert_skips_edge_extraction` in `hnsw::cpu::collector_tests`
+pins the guard through a test-only extraction counter, so a change that hoists
+the extraction out of the guard fails even if `collect` stays gated.
 
 ### `PointPair` and the batch-distance boundary
 

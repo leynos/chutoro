@@ -50,7 +50,17 @@ pub struct CpuHnsw {
     worker_rngs: Vec<Mutex<SmallRng>>,
     /// Shared cache of distances computed during graph operations.
     distance_cache: DistanceCache,
-    /// Serializes the graph-mutation phase of each insertion.
+    /// Serializes each whole insertion, giving the index single-writer
+    /// semantics: one worker samples, plans, applies, scores, and commits
+    /// while the others wait. Rayon supplies worker dispatch, not concurrent
+    /// graph mutation.
+    ///
+    /// The lock is intentionally not narrowed. No benchmark has identified it
+    /// as a bottleneck at the input sizes the HNSW build benchmark exercises,
+    /// and finer-grained coordination would add complexity without a
+    /// demonstrated gain. The rationale is recorded in the concurrency model
+    /// of `docs/chutoro-design.md` (§6.1); §12.6 depends on this
+    /// serialization.
     insert_mutex: Mutex<()>,
     /// Monotonic sequence assigning deterministic order to inserted nodes.
     next_sequence: AtomicU64,
@@ -164,8 +174,12 @@ impl CpuHnsw {
 
     /// Core insertion logic parameterized by edge collection strategy.
     ///
-    /// Uses the [`EdgeCollector`] trait to separate edge harvesting from
-    /// insertion, enabling zero-overhead paths when edges are not needed.
+    /// [`EdgeCollector::WANTS_EDGES`] is checked before edge extraction, so a
+    /// collector that does not observe edges — [`NoopCollector`], used by
+    /// `CpuHnsw::build` — skips `extract_candidate_edges` entirely and
+    /// allocates no per-insert edge vector. The insertion itself remains
+    /// single-writer: `insert_mutex` is held across planning, apply, trim
+    /// scoring, and commit.
     fn insert_with_collector<D: DataSource + Sync, C: EdgeCollector>(
         &self,
         node: usize,
@@ -200,9 +214,14 @@ impl CpuHnsw {
             })
         })?;
 
-        // Extract candidate edges before consuming the plan
-        let edges = extract_candidate_edges(node, sequence, &plan);
-        collector.collect(edges);
+        // Extract candidate edges before consuming the plan. Collectors
+        // that never observe edges skip both the extraction allocation and
+        // the collect call; the constant lets each monomorphization elide
+        // the branch.
+        if C::WANTS_EDGES {
+            let edges = extract_candidate_edges(node, sequence, &plan);
+            collector.collect(edges);
+        }
 
         let (prepared, trim_jobs) = self.write_graph(|graph| {
             let mut executor = graph.insertion_executor();
@@ -311,6 +330,9 @@ impl CpuHnsw {
         HnswInvariantChecker::new(self)
     }
 }
+
+#[cfg(test)]
+mod collector_tests;
 
 #[cfg(test)]
 mod trim_tests;

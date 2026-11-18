@@ -292,13 +292,13 @@ fn score_trim_jobs_keeps_the_nearest_candidates() {
 }
 
 #[derive(Clone)]
-struct TestSource {
+pub(super) struct TestSource {
     data: Vec<f32>,
 }
 
 impl TestSource {
     /// Builds a deterministic source for index tests from the supplied scalar values.
-    fn new(data: Vec<f32>) -> Self {
+    pub(super) fn new(data: Vec<f32>) -> Self {
         Self { data }
     }
 }
