@@ -2566,7 +2566,7 @@ conservative estimate of the peak memory that the CPU pipeline will require:
 hnsw_adjacency     = n × (2 × M) × 8       (level-0 neighbour IDs)
 hnsw_node_overhead = n × 80                 (Node structs, Vec headers)
 distance_cache     = cache_entries × 80      (configured cache capacity)
-harvested_edges    = n × ef × layers(M)     (candidates from every layer)
+harvested_edges    = n × ef × layers(params) (candidates from every layer)
 candidate_edges    = harvested_edges × 32   (CandidateEdge structs)
 core_distances     = n × 4                  (f32 per point)
 mutual_edges       = harvested_edges × 32   (recomputed edges)
@@ -2581,12 +2581,24 @@ estimated_bytes = (sum of above) × 1.5      (safety multiplier)
 `extract_candidate_edges` records up to `ef` search results from every layer an
 inserted node occupies, and the same neighbour may appear in several layers, so
 a healthy build harvests roughly `n × ef` edges. The level sampler continues to
-the next layer with probability `1 / M`, so the expected layer count is the
-geometric series `1 + 1/M + 1/M² + …`, which converges to `M / (M − 1)`. The
-estimator computes it in eighths, rounding up, and caps it at `max_level + 1`;
-`M = 1` never stops early, so every node reaches the cap. Measured builds match
-the model: at `M = 16`, `ef = 64` and 1,000 points a build harvested 65,027
-edges, about 65 per node and 4.1 times `n × M`.
+the next layer with probability `1 / M` under its default multiplier of
+`1 / ln(M)`, so the expected layer count is the geometric series
+`1 + 1/M + 1/M² + …`, which converges to `M / (M − 1)`. The estimator computes
+it in eighths, rounding up, and caps it at `max_level + 1`; `M = 1` never stops
+early, so every node reaches the cap. Measured builds match the model: at
+`M = 16`, `ef = 64` and 1,000 points a build harvested 65,027 edges, about 65
+per node and 4.1 times `n × M`.
+
+`HnswParams::with_level_multiplier` accepts any positive value, and the
+parameter-aware estimate honours it rather than assuming the default. The
+sampler stops once `ln(draw) × −multiplier ≥ 1`, so it continues with
+probability `q = exp(−1 / multiplier)` and the expectation is `1 / (1 − q)`,
+capped at `max_level + 1`. A multiplier large enough that `q` exceeds the
+greatest representable draw below one never stops, so every node occupies all
+`max_level + 1` layers; the estimate then uses that cap instead of the
+geometric mean. A very small multiplier underflows `q` to zero and models a
+single layer. `HnswParams::expected_layers_eighths` performs this conversion so
+the estimator stays in integer arithmetic.
 
 `validated_edges` and `prepared_edges` cover the two candidate-sized buffers
 that `prepare_edge_list` holds at the same time: the ordered
@@ -2601,15 +2613,18 @@ For one-shot runs, the memory guard calls
 derives `effective_ef_construction` as
 `min(ef_construction, max(point_count, max_connections))` and uses it both for
 the construction-search state and for the per-layer harvest width. It reads
-`max_level` from the same parameters, so a reduced level cap lowers the
-modelled layer count. Retaining `max_connections` as the lower bound keeps the
-estimate aligned with the allocation made by the batch pipeline. It also sets
-`cache_entries` from the configured `DistanceCacheConfig::max_entries` value,
-so enlarged or reduced distance caches are reflected in the guard. The legacy
-public `estimate_peak_bytes(n, M)` helper has no `ef_construction` parameter,
-so it models the documented default ratio of four times `M` (the default pair is
-`M = 16`, `ef_construction = 64`), assumes the default level cap, and
-continues to use `DistanceCacheConfig::DEFAULT_MAX_ENTRIES` for compatibility.
+`max_level` and the level multiplier from the same parameters, so a reduced
+level cap lowers the modelled layer count and an overridden multiplier moves it
+between one layer and the cap. Retaining `max_connections` as the lower bound
+keeps the estimate aligned with the allocation made by the batch pipeline. It
+also sets `cache_entries` from the configured
+`DistanceCacheConfig::max_entries` value, so enlarged or reduced distance
+caches are reflected in the guard. The legacy public
+`estimate_peak_bytes(n, M)` helper has no parameter object, so it models the
+documented default ratio of four times `M` (the default pair is `M = 16`,
+`ef_construction = 64`), assumes the default level multiplier and level cap,
+and continues to use `DistanceCacheConfig::DEFAULT_MAX_ENTRIES` for
+compatibility.
 
 The 1.5× safety multiplier covers heap fragmentation, Rayon thread-local
 buffers, and transient allocations that are difficult to predict statically. It
@@ -2617,12 +2632,13 @@ also covers the gap between the expected layer count and the realized one. The
 estimate is intentionally pessimistic: it is better to reject a dataset that
 might have fit than to begin processing and run out of memory mid-pipeline.
 
-The layer count is an expectation, not a strict upper bound. A single node can
-occupy up to `max_level + 1` layers, which would multiply the harvest by that
-factor; the geometric distribution keeps the total near its mean at the dataset
-sizes the guard serves, and the 1.5× multiplier leaves headroom above that
-mean. The buffer terms therefore track the multi-layer harvest rather than
-establishing a formal worst-case bound.
+The layer count is an expectation, not a strict upper bound, except where the
+configured multiplier forces the cap. A single node can occupy up to
+`max_level + 1` layers, which would multiply the harvest by that factor; under
+the default multiplier the geometric distribution keeps the total near its mean
+at the dataset sizes the guard serves, and the 1.5× multiplier leaves headroom
+above that mean. The buffer terms therefore track the multi-layer harvest
+rather than establishing a formal worst-case bound for every distribution.
 
 **Expected memory requirements.** The following table shows estimated peak
 memory for common dataset sizes and HNSW `M` values:

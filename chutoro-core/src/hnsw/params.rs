@@ -9,6 +9,13 @@ use crate::hnsw::{distance_cache::DistanceCacheConfig, error::HnswError};
 /// Greatest finite sampling draw strictly below one.
 const LARGEST_DRAW_BELOW_ONE: f64 = f64::from_bits(0x3FEF_FFFF_FFFF_FFFF);
 
+/// Fixed-point scale that lets callers carry a fractional layer count.
+///
+/// The level expectation is a real number, while the memory estimator works in
+/// integer arithmetic. Reporting eighths keeps a fractional layer meaningful
+/// without floating point at the call site.
+const LAYER_EIGHTHS: u64 = 8;
+
 /// Configuration parameters for the CPU HNSW index.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HnswParams {
@@ -142,6 +149,37 @@ impl HnswParams {
     /// Return the highest permitted sampled graph level.
     pub(crate) const fn max_level(&self) -> usize {
         self.max_level
+    }
+
+    /// Return the expected number of graph layers a node occupies, in eighths.
+    ///
+    /// [`Self::should_stop`] continues to the next level with probability
+    /// `exp(-1 / level_multiplier)`, so the expected layer count is the
+    /// geometric series `1 + q + q² + … = 1 / (1 - q)`, capped at
+    /// `max_level + 1`. The default multiplier of `1 / ln(M)` gives `q = 1 / M`
+    /// and an expectation of `M / (M - 1)`. A multiplier large enough that
+    /// `q` exceeds the greatest representable draw below one stops no node, so
+    /// every node reaches the cap; the returned count reflects that.
+    ///
+    /// The result is rounded up in eighths so callers can stay in integer
+    /// arithmetic, and never falls below one layer: level zero is always
+    /// occupied. At the default `M = 16` the count is nine eighths, matching
+    /// `ceil(8 × M / (M - 1))`.
+    pub(crate) fn expected_layers_eighths(&self) -> u64 {
+        let layer_cap = u64::try_from(self.max_level)
+            .unwrap_or(u64::MAX)
+            .saturating_add(1)
+            .saturating_mul(LAYER_EIGHTHS);
+        // q = exp(-1 / multiplier); the multiplier is finite and positive.
+        let continuation = self.level_multiplier.recip().neg().exp();
+        let remaining = continuation.neg().mul_add(1.0, 1.0);
+        // `mul_add(8.0, 0.0)` is `8 / remaining`, kept operator-free for the
+        // float restriction lints.
+        let eighths = remaining.recip().mul_add(8.0, 0.0).ceil();
+        eighths
+            .to_u64()
+            .unwrap_or(u64::MAX)
+            .clamp(LAYER_EIGHTHS, layer_cap)
     }
 
     /// Return the seed used by insertion-level sampling.

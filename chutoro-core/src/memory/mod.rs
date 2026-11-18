@@ -109,10 +109,11 @@ const USIZE_BYTES: u64 = std::mem::size_of::<usize>() as u64;
 /// sampler's geometric distribution; see its documentation for the exact
 /// assumption.
 ///
-/// This helper has no `ef_construction` parameter, so it models the documented
-/// default ratio of four times `M`. Prefer
-/// `estimate_peak_bytes_for_hnsw_params` when the construction breadth is
-/// known.
+/// This helper has no parameter object at all, so it models the documented
+/// default construction ratio of four times `M` and the default level
+/// multiplier of `1 / ln(M)`. Prefer
+/// `estimate_peak_bytes_for_hnsw_params` when the construction breadth, level
+/// cap or level multiplier are known.
 ///
 /// A 1.5× safety multiplier is applied to the raw total to account for heap
 /// fragmentation, Rayon thread-local buffers, and transient allocations.
@@ -136,7 +137,7 @@ pub const fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> 
         effective_search_width: 0,
         distance_cache_capacity: DEFAULT_CACHE_MAX_ENTRIES,
         harvest_width: max_connections.saturating_mul(LEGACY_EF_PER_CONNECTION),
-        max_level: DEFAULT_HNSW_MAX_LEVEL,
+        layers_eighths: default_layers_eighths(max_connections),
     })
 }
 
@@ -144,6 +145,10 @@ pub const fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> 
 ///
 /// This extends [`estimate_peak_bytes`] with the temporary search-state
 /// allocation and distance-cache capacity configured for the CPU HNSW index.
+/// It also derives the expected layer count from the configured level
+/// multiplier, so a multiplier that drives every node to `max_level` is
+/// counted at the full `max_level + 1` layers rather than at the default
+/// geometric mean.
 ///
 /// # Examples
 ///
@@ -169,20 +174,28 @@ pub fn estimate_peak_bytes_for_hnsw_params(
         // Layer searches retain up to `ef` candidates each, so the harvest
         // width matches the bounded construction breadth.
         harvest_width: effective_search_width,
-        max_level: hnsw_params.max_level(),
+        // The parameters own the sampler, so their expectation follows an
+        // overridden level multiplier, including one that reaches the cap.
+        layers_eighths: hnsw_params.expected_layers_eighths(),
     })
 }
 
-/// Returns the expected number of HNSW layers a node occupies, in eighths.
+/// Returns the expected number of HNSW layers a node occupies, in eighths,
+/// for the default level sampler.
 ///
-/// The level sampler continues to the next layer with probability `1 / M`, so
-/// the expected layer count is `1 + 1/M + 1/M² + …`, which converges to
-/// `M / (M − 1)`; sampling is also capped at `max_level`. With `M = 1` every
-/// draw continues, so each node reaches the cap. The result is rounded up in
-/// eighths (at most 12.5% above the exact expectation) so the caller can stay
-/// in integer arithmetic.
-const fn expected_layers_eighths(max_connections: usize, max_level: usize) -> u64 {
-    let layer_cap = (max_level as u64)
+/// The default level multiplier is `1 / ln(M)`, so a node continues to the
+/// next layer with probability `1 / M` and the expected count is
+/// `1 + 1/M + 1/M² + …`, which converges to `M / (M − 1)`; sampling is also
+/// capped at [`DEFAULT_HNSW_MAX_LEVEL`]. With `M = 1` every draw continues, so
+/// each node reaches the cap. The result is rounded up in eighths (at most
+/// 12.5% above the exact expectation) so the estimator can stay in integer
+/// arithmetic.
+///
+/// This models the legacy entry point, which has no parameter object. The
+/// parameter-aware estimate asks [`crate::HnswParams`] for the expectation of
+/// its configured sampler, so an overridden level multiplier is honoured.
+const fn default_layers_eighths(max_connections: usize) -> u64 {
+    let layer_cap = (DEFAULT_HNSW_MAX_LEVEL as u64)
         .saturating_add(1)
         .saturating_mul(LAYER_FRACTION_SCALE);
     if max_connections <= 1 {
@@ -206,20 +219,16 @@ const fn expected_layers_eighths(max_connections: usize, max_level: usize) -> u6
 /// `extract_candidate_edges` records up to `harvest_width` search results from
 /// every layer a node occupies, and the same neighbour may appear in several
 /// layers, so the harvest is `point_count × harvest_width × layers` rather
-/// than one fan-out per node. The model is an expectation: a single node can
-/// occupy up to `max_level + 1` layers, which is the strict worst case, while
-/// the geometric distribution concentrates the total near its mean at the
-/// dataset sizes the guard serves. The 1.5× safety multiplier in the caller
-/// leaves headroom above that mean.
-const fn harvested_edge_count(
-    point_count: u64,
-    harvest_width: u64,
-    max_connections: usize,
-    max_level: usize,
-) -> u64 {
+/// than one fan-out per node, where `layers_eighths` is the expected layer
+/// count in eighths. The model is an expectation: a single node can occupy up
+/// to `max_level + 1` layers, which is the strict worst case, while the
+/// sampler's distribution concentrates the total near its mean at the dataset
+/// sizes the guard serves. The 1.5× safety multiplier in the caller leaves
+/// headroom above that mean.
+const fn harvested_edge_count(point_count: u64, harvest_width: u64, layers_eighths: u64) -> u64 {
     point_count
         .saturating_mul(harvest_width)
-        .saturating_mul(expected_layers_eighths(max_connections, max_level))
+        .saturating_mul(layers_eighths)
         .div_euclid(LAYER_FRACTION_SCALE)
 }
 
@@ -239,8 +248,8 @@ struct EstimateInputs {
     distance_cache_capacity: usize,
     /// Candidates retained by each layer search.
     harvest_width: usize,
-    /// Highest graph level the level sampler can reach.
-    max_level: usize,
+    /// Expected layers a node occupies, in eighths.
+    layers_eighths: u64,
 }
 
 /// Calculates the shared estimate from graph, search-state, and cache capacities.
@@ -251,7 +260,7 @@ const fn estimate_peak_bytes_with_search_width(inputs: EstimateInputs) -> u64 {
         effective_search_width,
         distance_cache_capacity,
         harvest_width,
-        max_level,
+        layers_eighths,
     } = inputs;
 
     if point_count == 0 {
@@ -273,7 +282,7 @@ const fn estimate_peak_bytes_with_search_width(inputs: EstimateInputs) -> u64 {
     let distance_cache = (distance_cache_capacity as u64).saturating_mul(CACHE_ENTRY_BYTES);
 
     // Candidate edges harvested across every layer the inserted nodes occupy.
-    let harvested_edges = harvested_edge_count(n, harvest_width as u64, max_connections, max_level);
+    let harvested_edges = harvested_edge_count(n, harvest_width as u64, layers_eighths);
     let candidate_edges = harvested_edges.saturating_mul(CANDIDATE_EDGE_BYTES);
 
     // Core-distance vector: one f32 per point.

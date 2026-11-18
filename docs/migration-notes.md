@@ -53,6 +53,27 @@ backend-specific address resolve it inside their own boundary, for example
 `Utf8PathBuf::from(key.as_ref())`. The `Storage` and `Publisher` port
 signatures are unchanged, so recipe code needs no migration beyond replacing
 path accessor calls.
+||||||| parent of 61e5123 (Derive the layer estimate from the level multiplier)
+
+### Memory guard models the multi-layer harvest
+
+The pre-flight memory guard behind `ChutoroBuilder::with_max_bytes` now counts
+the candidate edges that CPU HNSW construction actually harvests. Candidate,
+mutual-reachability, validation-buffer and prepared-edge terms use
+`n × ef × layers`, where `layers` is the level sampler's expected layer count,
+instead of the single-layer `n × M` model. The estimate is therefore larger
+than before for the same input, so a limit that used to admit a batch may now
+reject it with `ChutoroError::MemoryLimitExceeded`.
+
+The parameter-aware estimate derives its layer count from the configured level
+multiplier, so `HnswParams::with_level_multiplier` changes the estimate; a
+multiplier that stops no node counts all `max_level + 1` layers. The legacy
+`estimate_peak_bytes(point_count, max_connections)` helper keeps its
+two-argument signature and models the documented defaults:
+`ef_construction = 4 × M` and the default level multiplier and cap. Raise the
+configured limit, or lower `ef_construction` and `max_level`, if a previously
+accepted batch no longer fits.
+
 
 ### New metrics: trim scoring
 

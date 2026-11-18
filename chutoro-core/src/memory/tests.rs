@@ -174,7 +174,7 @@ fn estimate_includes_the_prepare_edge_list_buffers(
     let n = point_count as u64;
     let m = max_connections as u64;
     let harvest_width = m.saturating_mul(LEGACY_EF_PER_CONNECTION as u64);
-    let edges = harvested_edge_count(n, harvest_width, max_connections, DEFAULT_HNSW_MAX_LEVEL);
+    let edges = harvested_edge_count(n, harvest_width, default_layers_eighths(max_connections));
     let without_buffers = n
         .saturating_mul(2_u64.saturating_mul(m).saturating_mul(USIZE_BYTES))
         .saturating_add(n.saturating_mul(NODE_OVERHEAD_BYTES))
@@ -196,7 +196,7 @@ fn estimate_includes_the_prepare_edge_list_buffers(
         effective_search_width: 0,
         distance_cache_capacity: 0,
         harvest_width: max_connections.saturating_mul(LEGACY_EF_PER_CONNECTION),
-        max_level: DEFAULT_HNSW_MAX_LEVEL,
+        layers_eighths: default_layers_eighths(max_connections),
     });
 
     assert_eq!(
@@ -292,13 +292,75 @@ fn estimate_covers_multi_layer_harvests(
     let modelled = harvested_edge_count(
         POINT_COUNT as u64,
         ef_construction as u64,
-        max_connections,
-        DEFAULT_HNSW_MAX_LEVEL,
+        default_layers_eighths(max_connections),
     );
     assert!(
         (harvest.len() as u64) <= modelled,
         "harvest of {} edges must stay within the modelled {modelled}",
         harvest.len()
+    );
+}
+
+// -- level expectation --------------------------------------------------
+
+#[cfg(feature = "cpu")]
+#[rstest]
+fn default_parameters_match_the_geometric_layer_model() {
+    let params = crate::HnswParams::default();
+
+    assert_eq!(
+        params.expected_layers_eighths(),
+        default_layers_eighths(params.max_connections()),
+        "the default sampler must reproduce the legacy geometric model"
+    );
+}
+
+#[cfg(feature = "cpu")]
+#[rstest]
+fn a_large_level_multiplier_uses_the_level_cap() {
+    // A very large multiplier keeps every draw below the sampler's stop
+    // threshold, so every node occupies all `max_level + 1` layers.
+    let params = crate::HnswParams::new(16, 64)
+        .expect("test parameters must be valid")
+        .with_level_multiplier(1.0e20);
+    let cap_eighths = u64::try_from(params.max_level())
+        .unwrap_or(u64::MAX)
+        .saturating_add(1)
+        .saturating_mul(LAYER_FRACTION_SCALE);
+
+    assert_eq!(
+        params.expected_layers_eighths(),
+        cap_eighths,
+        "a cap-reaching multiplier must model every permitted layer"
+    );
+}
+
+#[cfg(feature = "cpu")]
+#[rstest]
+fn a_capped_level_multiplier_raises_the_parameter_estimate() {
+    let base = crate::HnswParams::new(16, 64).expect("test parameters must be valid");
+    let capped = base.clone().with_level_multiplier(1.0e20);
+
+    let base_bytes = estimate_peak_bytes_for_hnsw_params(1_000, &base);
+    let capped_bytes = estimate_peak_bytes_for_hnsw_params(1_000, &capped);
+
+    assert!(
+        capped_bytes > base_bytes,
+        "the capped layer count must raise the estimate, got {capped_bytes} <= {base_bytes}"
+    );
+}
+
+#[cfg(feature = "cpu")]
+#[rstest]
+fn a_tiny_level_multiplier_keeps_nodes_at_level_zero() {
+    // A multiplier this small underflows the continuation probability to
+    // zero, so every node stops at level zero.
+    let params = crate::HnswParams::default().with_level_multiplier(f64::MIN_POSITIVE);
+
+    assert_eq!(
+        params.expected_layers_eighths(),
+        LAYER_FRACTION_SCALE,
+        "a never-continuing sampler models exactly one layer"
     );
 }
 

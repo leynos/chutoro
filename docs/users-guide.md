@@ -80,7 +80,10 @@ effective, dataset-bounded construction-search width derived from
 `ef_construction` are included when estimating the run's peak memory for a
 limit set with `with_max_bytes`. The estimate counts the full multi-layer
 candidate-edge harvest, so it grows with `ef_construction` rather than with
-`max_connections` alone:
+`max_connections` alone. The expected layer count follows the configured level
+multiplier: the default gives the geometric mean `M / (M − 1)`, while a
+multiplier large enough to stop no node counts every permitted layer, up to
+`max_level + 1`:
 
 ```rust
 use chutoro_core::{ChutoroBuilder, HnswParams};
