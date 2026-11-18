@@ -823,10 +823,16 @@ substitute one estimate for the other when investigating a
 in [the design document](./chutoro-design.md), §11.4.
 
 `harvested_edge_count(point_count, harvest_width, layers_eighths)` computes
-`n × harvest_width × layers_eighths / 8`. `harvest_width` is the effective
-`ef_construction` because a layer search retains up to `ef` candidates, and the
-layer term is an integer count in eighths, so the estimator stays in integer
-arithmetic and can remain a `const fn`.
+`n × harvest_width × layers_eighths / 8`. The two entry points supply different
+widths. `estimate_peak_bytes_for_hnsw_params` passes the effective construction
+search width, `hnsw_params.effective_ef_construction(point_count)`, because a
+layer search retains up to `ef` candidates. The two-argument
+`estimate_peak_bytes` has no parameter object, so it passes
+`LEGACY_EF_PER_CONNECTION × max_connections` — four times the neighbour
+fan-out, the documented default `ef_construction` of `4 × M`. The harvest
+counts therefore differ whenever a caller configures another `ef_construction`.
+The layer term is an integer count in eighths, so the estimator stays in
+integer arithmetic and can remain a `const fn`.
 
 The layer count is an expectation, not a worst case. A build can exceed it, so
 the estimate is an approximate budget rather than a proof of a peak allocation.
