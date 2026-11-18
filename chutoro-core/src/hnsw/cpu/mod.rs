@@ -332,6 +332,9 @@ impl CpuHnsw {
 }
 
 #[cfg(test)]
+mod collector_tests;
+
+#[cfg(test)]
 mod trim_tests;
 
 #[cfg(test)]

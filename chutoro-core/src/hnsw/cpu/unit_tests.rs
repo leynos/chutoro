@@ -1,6 +1,6 @@
 //! Unit tests for the CPU HNSW index.
 
-use super::{collectors::EdgeCollector, *};
+use super::*;
 use crate::{
     MetricDescriptor,
     datasource::DataSource,
@@ -9,7 +9,6 @@ use crate::{
         HnswParams,
         graph::{EdgeContext, NodeContext},
         insert::{TrimJob, test_helpers::add_edge_if_missing},
-        types::CandidateEdge,
     },
 };
 use std::{
@@ -59,56 +58,6 @@ fn insert_waits_for_mutex() {
     drop(guard);
     handle.join().expect("thread joins");
     assert!(finished.load(AtomicOrdering::SeqCst));
-}
-
-/// Collector that records any edges the insertion path hands it.
-///
-/// Declaring `WANTS_EDGES = false` mimics [`NoopCollector`], so the counters
-/// stay at zero unless the insertion path hands edges to a collector that
-/// declared no interest in them. The counts observe the collector boundary
-/// only; they say nothing about an extraction whose result is discarded before
-/// `collect` is reached.
-struct RecordingCollector {
-    calls: usize,
-    edges: usize,
-}
-
-impl EdgeCollector for RecordingCollector {
-    const WANTS_EDGES: bool = false;
-
-    fn collect(&mut self, edges: Vec<CandidateEdge>) {
-        self.calls += 1;
-        self.edges += edges.len();
-    }
-}
-
-/// Verifies a non-harvesting collector is never handed edges, even for an
-/// insertion that would otherwise produce them.
-///
-/// The assertion covers the collector boundary. That the extraction itself is
-/// skipped follows from the guard at the call site, which encloses both
-/// `extract_candidate_edges` and `collect` in `if C::WANTS_EDGES`.
-#[test]
-fn non_harvesting_insert_never_collects_edges() {
-    let params = HnswParams::new(2, 4).expect("params").with_rng_seed(53);
-    let index = CpuHnsw::with_capacity(params, 3).expect("index");
-    let source = TestSource::new(vec![0.0, 1.0, 2.0]);
-
-    index.insert(0, &source).expect("seed entry point");
-
-    // A second insertion into a populated graph plans real neighbours, so if
-    // the guard around `collect` were dropped this insertion would hand the
-    // collector a non-empty edge list.
-    let mut collector = RecordingCollector { calls: 0, edges: 0 };
-    index
-        .insert_with_collector(1, &source, &mut collector)
-        .expect("insert must succeed");
-
-    assert_eq!(
-        collector.calls, 0,
-        "non-harvesting collector must not be called"
-    );
-    assert_eq!(collector.edges, 0, "no candidate edges may be handed to it");
 }
 
 /// Verifies localized healing repairs inserted edges without sweeping unrelated ones.
@@ -343,13 +292,13 @@ fn score_trim_jobs_keeps_the_nearest_candidates() {
 }
 
 #[derive(Clone)]
-struct TestSource {
+pub(super) struct TestSource {
     data: Vec<f32>,
 }
 
 impl TestSource {
     /// Builds a deterministic source for index tests from the supplied scalar values.
-    fn new(data: Vec<f32>) -> Self {
+    pub(super) fn new(data: Vec<f32>) -> Self {
         Self { data }
     }
 }

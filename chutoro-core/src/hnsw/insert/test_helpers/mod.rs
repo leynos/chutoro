@@ -1,12 +1,18 @@
 //! Test-only helpers for repairing graph connectivity and reciprocity.
 
 mod edge_helpers;
+#[cfg(test)]
+mod extraction_probe;
 
 pub(crate) use edge_helpers::add_edge_if_missing;
 #[cfg(test)]
 pub(super) use edge_helpers::assert_no_edge;
 #[cfg(test)]
 pub(crate) use edge_helpers::{EdgeSymmetry, assert_bidirectional_edge, edge_symmetry};
+#[cfg(test)]
+pub(crate) use extraction_probe::count as edge_extraction_count;
+#[cfg(test)]
+pub(super) use extraction_probe::record as record_edge_extraction;
 
 // `cargo kani` sets `cfg(kani)` but not `cfg(test)`, so anything reachable
 // only from tests must be gated or it becomes dead code under `-D warnings`.

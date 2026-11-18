@@ -99,6 +99,10 @@ mod tests {
     /// because the insertion path would then skip the extraction that feeds
     /// `collect`. Both values are compile-time constants, so the checks live in
     /// `const` blocks.
+    ///
+    /// This is deliberately a non-behavioural guard: it pins the constants the
+    /// insertion path branches on. The insertion behaviour itself is covered by
+    /// `non_harvesting_insert_skips_edge_extraction` in `cpu::collector_tests`.
     #[test]
     fn collectors_declare_their_edge_requirements() {
         const {
