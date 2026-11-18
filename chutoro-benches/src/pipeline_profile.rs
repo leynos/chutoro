@@ -16,7 +16,11 @@ use std::fmt::Write as _;
 use camino::Utf8PathBuf;
 use mockable::{DefaultEnv, Env};
 
-use crate::{error::BenchSetupError, report_file::write_report_file};
+use crate::{
+    error::BenchSetupError,
+    neighbour_scoring::{CARGO_TARGET_DIR_ENV, report_parent_dir_value, report_path_value},
+    report_file::write_report_file,
+};
 
 /// Filename of the pipeline stage profile below the benchmark report directory.
 pub const PIPELINE_PROFILE_REPORT: &str = "pipeline_profile.csv";
@@ -143,9 +147,15 @@ pub fn write_pipeline_profile(
 /// Resolves the profile destination through an injected environment reader.
 ///
 /// An explicit override wins; otherwise the shared report convention applies.
+/// Both environment reads go through `env`, so a mocked environment controls
+/// the whole path and not merely the filename.
 fn profile_path_with_env(env: &dyn Env) -> Utf8PathBuf {
     env.string(PIPELINE_PROFILE_PATH_ENV).map_or_else(
-        || crate::neighbour_scoring::report_path(PIPELINE_PROFILE_REPORT).path(),
+        || {
+            let report_parent_dir =
+                report_parent_dir_value(env.string(CARGO_TARGET_DIR_ENV).as_deref());
+            report_path_value(&report_parent_dir, PIPELINE_PROFILE_REPORT).path()
+        },
         Utf8PathBuf::from,
     )
 }
@@ -215,9 +225,11 @@ fn collect_stage_samples(snapshot: metrics_util::debugging::Snapshot) -> Vec<Pip
 mod tests {
     //! Tests for pipeline stage profile formatting and measurement.
 
-    use camino::Utf8PathBuf;
+    use camino::{Utf8Path, Utf8PathBuf};
     use mockable::MockEnv;
     use rstest::rstest;
+
+    use crate::neighbour_scoring::{CARGO_TARGET_DIR_ENV, report_path_value};
 
     use super::{
         PIPELINE_PROFILE_PATH_ENV, PIPELINE_PROFILE_REPORT, PROFILE_HEADER, PipelineProfileSample,
@@ -288,14 +300,17 @@ mod tests {
     #[test]
     fn missing_override_falls_back_to_the_report_convention() {
         let mut env = MockEnv::new();
-        env.expect_string().returning(|key| {
-            assert_eq!(key, PIPELINE_PROFILE_PATH_ENV);
-            None
+        env.expect_string().returning(|key| match key {
+            PIPELINE_PROFILE_PATH_ENV => None,
+            other => {
+                assert_eq!(other, CARGO_TARGET_DIR_ENV);
+                Some("configured-target".to_owned())
+            }
         });
 
         assert_eq!(
-            profile_path_with_env(&env).file_name(),
-            Some(PIPELINE_PROFILE_REPORT)
+            profile_path_with_env(&env),
+            report_path_value(Utf8Path::new("configured-target"), PIPELINE_PROFILE_REPORT).path()
         );
     }
 

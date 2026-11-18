@@ -35,7 +35,7 @@ pub use benchmark_runner::neighbour_scoring as run_neighbour_scoring;
 
 #[doc(hidden)]
 pub use build_profile::{
-    BUILD_PROFILE_ENV, BUILD_PROFILE_REPORT, REPORT_DIR_NAME, ReportTarget,
+    BUILD_PROFILE_ENV, BUILD_PROFILE_REPORT, CARGO_TARGET_DIR_ENV, REPORT_DIR_NAME, ReportTarget,
     build_profile_report_target, build_profile_report_target_value, report_parent_dir,
     report_parent_dir_value, report_path, report_path_value, should_collect_build_profile,
     should_collect_build_profile_value, truthy_env_value,

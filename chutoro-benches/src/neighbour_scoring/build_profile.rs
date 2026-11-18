@@ -10,7 +10,7 @@ pub const BUILD_PROFILE_ENV: &str = "CHUTORO_BENCH_NEIGHBOUR_PROFILE";
 pub const BUILD_PROFILE_REPORT: &str = "neighbour_scoring_build_profile.csv";
 
 /// Environment variable overriding the Cargo target directory.
-const CARGO_TARGET_DIR_ENV: &str = "CARGO_TARGET_DIR";
+pub const CARGO_TARGET_DIR_ENV: &str = "CARGO_TARGET_DIR";
 /// Fallback parent directory for generated benchmark reports.
 const DEFAULT_REPORT_PARENT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../target");
 /// Directory below the report parent where benchmark diagnostics are written.

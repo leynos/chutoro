@@ -180,6 +180,16 @@ and 150 lines of benchmark and profiling support.
   fixtures are one `rstest` table over `(values, min cluster size)` crossed
   with the thread counts, and `criterion_group!` was replaced by a documented
   `benches` function, which removed the file-wide `missing_docs` expectation.
+- [x] (2026-11-18 00:30Z) Post-rebase deterministic gates on `52965aa`:
+  `make check-fmt`, `make test` (1,448 passed, 1 skipped, 0 failed; doctests
+  ok), `make typecheck`, `make lint` (interrogate, rustdoc, Clippy, Whitaker),
+  `make markdownlint`, `make spelling`, and `make nixie` all pass. The count
+  exceeds the earlier 1,434 because the parallel-stage work adds 18 tests.
+  Force-pushed with lease from `d7d4356` to `52965aa`.
+- [x] (2026-11-18 00:50Z) CodeRabbit round three addressed (D9): the profile
+  fallback resolves `CARGO_TARGET_DIR` through the injected environment, the
+  fallback test asserts the complete path, and the benchmark commands in this
+  plan pass `--features pipeline-profile`.
 - [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
@@ -265,6 +275,14 @@ and 150 lines of benchmark and profiling support.
   those wrappers from `chutoro_benches::criterion_support` so each decision is
   testable from a supplied argument sequence; matching every other bench target
   keeps one API. Date/Author: 2026-11-17, implementation agent.
+- D9. Decision: resolve the fallback profile destination from the injected
+  `Env` itself, using `report_parent_dir_value` and `report_path_value`,
+  instead of `neighbour_scoring::report_path`, which reads `CARGO_TARGET_DIR`
+  through `DefaultEnv`. Rationale: the developers' guide confines `DefaultEnv`
+  to the application boundary, and a mocked environment must control the whole
+  path for the fallback test to mean anything. `CARGO_TARGET_DIR_ENV` is now
+  shared so the variable name is not repeated. Date/Author: 2026-11-18,
+  implementation agent.
 
 ## Outcomes & retrospective
 
@@ -522,7 +540,8 @@ and one `--exact` probe for the new target.
 Run the serial baseline:
 
 ```plaintext
-cargo bench -p chutoro-benches --bench pipeline -- --save-baseline before --noplot
+cargo bench -p chutoro-benches --features pipeline-profile --bench pipeline \
+  -- --save-baseline before --noplot
 ```
 
 Record medians for both sizes and the stage profile in `Artefacts and notes`.
@@ -644,9 +663,14 @@ rather than re-running gates.
 - Run the metrics test
   `cargo nextest run --all-features -p chutoro-core -E 'test(every_stage_records_a_latency_sample)'`
   and expect three labels exactly.
-- Run
-  `cargo bench -p chutoro-benches --bench pipeline -- --baseline before --noplot`
-  and expect both benchmark IDs to report a change measurement.
+- Run the after measurement and expect both benchmark IDs to report a change
+  measurement:
+
+  ```plaintext
+  cargo bench -p chutoro-benches --features pipeline-profile --bench pipeline \
+    -- --baseline before --noplot
+  ```
+
 - Run `make check-fmt`, `make lint`, `make test`, `make markdownlint`, and
   `make nixie`; expect all to pass.
 
@@ -814,3 +838,6 @@ No runtime dependency is added to `chutoro-core`.
   CodeRabbit review rounds; the benchmark now uses main's `_args`
   `criterion_support` helpers and a documented Criterion group function (D7,
   D8).
+- 2026-11-18: Folded in the third CodeRabbit review round: the profile
+  fallback reads the injected environment (D9), and the plan's benchmark
+  commands enable `pipeline-profile`.
