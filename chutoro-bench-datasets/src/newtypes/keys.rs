@@ -38,6 +38,7 @@ macro_rules! impl_opaque_key {
             ///
             #[doc = concat!("let key = ", stringify!($name), "::new(\"", $example_key, "\");")]
             #[doc = concat!("assert_eq!(key.as_ref(), \"", $example_key, "\");")]
+            #[doc = concat!("assert_eq!(key.to_string(), \"", $example_key, "\");")]
             /// ```
             #[must_use]
             pub fn new(value: impl Into<Arc<str>>) -> Self {

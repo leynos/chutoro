@@ -1,6 +1,8 @@
 //! Integration tests for dataset recipe domain value types.
 
-use chutoro_bench_datasets::{RecipeError, RecipeVersion, SourceRole, SourceSpec, SourceUrl};
+use chutoro_bench_datasets::{
+    CacheKey, ObjectKey, RecipeError, RecipeVersion, SourceRole, SourceSpec, SourceUrl,
+};
 use rstest::rstest;
 
 mod common;
@@ -43,4 +45,26 @@ fn source_spec_with_role_sets_role_and_no_checksum() {
     assert_eq!(spec.role, SourceRole::Secondary);
     assert_eq!(spec.url, url);
     assert!(spec.checksum.is_none());
+}
+
+#[test]
+fn opaque_keys_display_the_wrapped_identifier() {
+    fn assert_display(key: impl AsRef<str> + std::fmt::Display, expected: &str) {
+        assert_eq!(key.as_ref(), expected);
+        assert_eq!(key.to_string(), expected);
+        assert_eq!(format!("{key}"), expected);
+    }
+
+    assert_display(CacheKey::new("cache/a.bin"), "cache/a.bin");
+    assert_display(ObjectKey::new("prepared/a.bin"), "prepared/a.bin");
+}
+
+#[test]
+fn opaque_keys_accept_owned_strings() {
+    let cache = CacheKey::new(String::from("cache/owned.bin"));
+    let object = ObjectKey::new(String::from("prepared/owned.bin"));
+
+    assert_eq!(cache.as_ref(), "cache/owned.bin");
+    assert_eq!(object.to_string(), "prepared/owned.bin");
+    assert_eq!(format!("{object}"), "prepared/owned.bin");
 }
