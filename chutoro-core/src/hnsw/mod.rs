@@ -1,8 +1,10 @@
 //! CPU implementation of the Hierarchical Navigable Small World (HNSW) graph.
 //!
 //! The implementation mirrors the concurrency model described in the design
-//! documents: Rayon dispatches insertions across workers, but every insertion
-//! is serialized by the index's insert mutex, so only one worker mutates the
+//! documents: the build seed (node 0) is written before any worker is
+//! dispatched and without the insert mutex, then Rayon dispatches the
+//! remaining insertions across workers. Every dispatched insertion is
+//! serialized by the index's insert mutex, so only one worker mutates the
 //! graph at a time. Every search acquires a shared lock on the graph, and
 //! write access is limited to the mutation window when inserting a node.
 
