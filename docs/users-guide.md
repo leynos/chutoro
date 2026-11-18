@@ -495,6 +495,31 @@ assert_eq!(published.manifest_uri().as_str(), "manifests/example.json");
 For the design rationale behind the four-phase trait and port split, see
 [ADR-004: Benchmark dataset recipe trait](adrs/adr-0004-bench-dataset-recipe-trait.md).
 
+### Identifying cache and object keys
+
+`CacheKey` and `ObjectKey` are opaque identifiers in the recipe model. Recipes
+treat them as names rather than addresses, so one recipe works with the
+in-memory, filesystem, and object-store adapters.
+
+Construct a key from a string literal or an owned `String` with `new`, and read
+the identifier back with `AsRef<str>` or `Display`:
+
+```rust
+use chutoro_bench_datasets::{CacheKey, ObjectKey};
+
+let cache = CacheKey::new("cache/mnist/raw.gz");
+let object = ObjectKey::new(String::from("manifests/mnist.json"));
+
+assert_eq!(cache.as_ref(), "cache/mnist/raw.gz");
+assert_eq!(object.to_string(), "manifests/mnist.json");
+```
+
+The path-returning `to_path_buf` and `into_inner` accessors are removed.
+`Storage` and `Publisher` adapters resolve a filesystem path or object-store
+prefix at their own boundary, for example `Utf8PathBuf::from(key.as_ref())`.
+See the [0.2.0 migration notes](migration-notes.md#020) for the full
+compatibility note.
+
 ## Benchmarking
 
 The companion `chutoro-benches` crate ships Criterion benchmarks for the four
