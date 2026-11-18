@@ -810,6 +810,53 @@ property test whose oracle computes the first error independently of
 `prepare_edge_list`'s `(weight, source, target, sequence)` order is observable
 downstream. Recovering it means changing the harvest contract.
 
+## Memory estimate model
+
+`estimate_peak_bytes` and `estimate_peak_bytes_for_hnsw_params` back
+`ChutoroBuilder::with_max_bytes`. Both build one `EstimateInputs` and share
+`estimate_peak_bytes_with_search_width`; only their inputs differ. The public
+contract and the term-by-term arithmetic are in
+[the design document](./chutoro-design.md), §11.4.
+
+`harvested_edge_count(point_count, harvest_width, layers_eighths)` computes
+`n × harvest_width × layers_eighths / 8`. `harvest_width` is the effective
+`ef_construction`, because a layer search retains up to `ef` candidates, and
+the layer term is an integer count in eighths, so the estimator stays in
+integer arithmetic and can remain a `const fn`.
+
+The layer count is an expectation, not a worst case. A build can exceed it, so
+the estimate is an approximate budget rather than a proof of a peak allocation.
+The CPU-gated `estimate_covers_multi_layer_harvests` regression builds a real
+index and pins its harvest inside the modelled multi-layer count; it guards the
+model's order of magnitude, not an upper bound.
+
+`HnswParams::expected_layers_eighths` derives that expectation from the
+configured sampler. `should_stop` compares `ln(draw) × −multiplier` against
+`1`, so a node continues with probability `q = exp(−1 / multiplier)` and the
+expected count is `1 / (1 − q)`, rounded up and clamped to `max_level + 1`. The
+default multiplier `1 / ln(M)` gives `q = 1 / M` and the geometric mean
+`M / (M − 1)`. A multiplier large enough to stop no node reaches the cap, and
+one whose continuation probability underflows reports a single layer. The
+result is in eighths (`LAYER_EIGHTHS`) so no caller handles a fraction.
+
+`estimate_peak_bytes_for_hnsw_params` consumes that value directly. The
+two-argument `estimate_peak_bytes` has no parameter object, so it uses
+`default_layers_eighths(max_connections)`, the integer form of
+`ceil(8 × M / (M − 1))` capped at the same level count. Keep the two
+consistent. The CPU-gated `default_parameters_match_the_geometric_layer_model`
+checks that the default `HnswParams` reproduces the legacy formula, and
+`default_max_level_constant_matches_the_hnsw_defaults` keeps
+`DEFAULT_HNSW_MAX_LEVEL` equal to `HnswParams::default().max_level()`.
+
+`prepare_edge_list` holds two candidate-sized buffers at peak, and the estimate
+includes both: one `Result<Option<MstEdge>, MstError>` slot per harvested edge
+while validation runs in parallel, and the prepared `MstEdge` list retained for
+sorting and deduplication. The CPU-gated
+`buffer_slot_constants_cover_the_real_layouts` checks the per-slot constants
+against the real types. The candidate and mutual-reachability terms use the
+same harvested count, because the CPU pipeline rewrites and re-sorts the full
+candidate set.
+
 ## Session public APIs
 
 The public session surface is CPU-only. `build_session` constructs an empty
