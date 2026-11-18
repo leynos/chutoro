@@ -1,0 +1,15 @@
+error: unused return value of `MstErrorCode::as_str` that must be used
+ --> tests/trybuild/error_code_as_str_must_use.rs:8:5
+  |
+8 |     MstErrorCode::EmptyGraph.as_str();
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+note: the lint level is defined here
+ --> tests/trybuild/error_code_as_str_must_use.rs:3:9
+  |
+3 | #![deny(unused_must_use)]
+  |         ^^^^^^^^^^^^^^^
+help: use `let _ = ...` to ignore the resulting value
+  |
+8 |     let _ = MstErrorCode::EmptyGraph.as_str();
+  |     +++++++

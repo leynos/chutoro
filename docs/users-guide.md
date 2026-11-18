@@ -436,6 +436,15 @@ code through `code()` and the code's `as_str()` method.
 and invalid buffers. Propagate these errors verbatim, so callers receive stable
 error codes via `DataSourceError::code()`.
 
+Every machine-readable code enum (`ChutoroErrorCode`, `DataSourceErrorCode`,
+`MstErrorCode`, `HierarchyErrorCode`, and `HnswErrorCode`) is
+`#[non_exhaustive]`, implements `Display`, and exposes `as_str()`. `Display`
+renders the same stable string as `as_str()`, while the owning error's `code()`
+returns the code value. Because the code enums are `#[non_exhaustive]`, a
+downstream `match` must keep a catch-all arm, such as `_`; see the
+[0.2.0 migration notes](migration-notes.md#error-code-enums-are-non-exhaustive-and-implement-display)
+for the migration.
+
 ## Distance helpers
 
 `chutoro-core` also ships scalar Euclidean and cosine distance helpers. Both
