@@ -54,6 +54,22 @@ defaults or require a migration for existing consumers. The
 [user's guide](users-guide.md#reusing-dense-fixtures-in-dependent-tests) shows
 how to enable the feature.
 
+### Error-code enums are non-exhaustive and implement `Display`
+
+`MstErrorCode`, `HierarchyErrorCode`, and `HnswErrorCode` are now
+`#[non_exhaustive]`, matching the error enums they describe. A downstream
+exhaustive `match` over one of them must add a wildcard arm:
+
+```rust
+match error.code() {
+    MstErrorCode::EmptyGraph => "empty graph",
+    _ => "other MST failure",
+}
+```
+
+All three also implement `Display`, which renders the same stable string as
+`as_str()`, so either form can be logged without a separate match.
+
 ## 0.1.0
 
 The public `ClusteringResult::from_assignments` constructor is no longer
