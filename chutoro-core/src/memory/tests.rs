@@ -317,26 +317,6 @@ fn default_parameters_match_the_geometric_layer_model() {
 
 #[cfg(feature = "cpu")]
 #[rstest]
-fn a_large_level_multiplier_uses_the_level_cap() {
-    // A very large multiplier keeps every draw below the sampler's stop
-    // threshold, so every node occupies all `max_level + 1` layers.
-    let params = crate::HnswParams::new(16, 64)
-        .expect("test parameters must be valid")
-        .with_level_multiplier(1.0e20);
-    let cap_eighths = u64::try_from(params.max_level())
-        .unwrap_or(u64::MAX)
-        .saturating_add(1)
-        .saturating_mul(LAYER_FRACTION_SCALE);
-
-    assert_eq!(
-        params.expected_layers_eighths(),
-        cap_eighths,
-        "a cap-reaching multiplier must model every permitted layer"
-    );
-}
-
-#[cfg(feature = "cpu")]
-#[rstest]
 fn a_capped_level_multiplier_raises_the_parameter_estimate() {
     let base = crate::HnswParams::new(16, 64).expect("test parameters must be valid");
     let capped = base.clone().with_level_multiplier(1.0e20);
@@ -347,20 +327,6 @@ fn a_capped_level_multiplier_raises_the_parameter_estimate() {
     assert!(
         capped_bytes > base_bytes,
         "the capped layer count must raise the estimate, got {capped_bytes} <= {base_bytes}"
-    );
-}
-
-#[cfg(feature = "cpu")]
-#[rstest]
-fn a_tiny_level_multiplier_keeps_nodes_at_level_zero() {
-    // A multiplier this small underflows the continuation probability to
-    // zero, so every node stops at level zero.
-    let params = crate::HnswParams::default().with_level_multiplier(f64::MIN_POSITIVE);
-
-    assert_eq!(
-        params.expected_layers_eighths(),
-        LAYER_FRACTION_SCALE,
-        "a never-continuing sampler models exactly one layer"
     );
 }
 

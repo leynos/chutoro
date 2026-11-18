@@ -812,17 +812,21 @@ downstream. Recovering it means changing the harvest contract.
 
 ## Memory estimate model
 
-`estimate_peak_bytes` and `estimate_peak_bytes_for_hnsw_params` back
-`ChutoroBuilder::with_max_bytes`. Both build one `EstimateInputs` and share
-`estimate_peak_bytes_with_search_width`; only their inputs differ. The public
-contract and the term-by-term arithmetic are in
-[the design document](./chutoro-design.md), §11.4.
+In CPU builds the memory guard behind `ChutoroBuilder::with_max_bytes` calls
+`estimate_peak_bytes_for_hnsw_params` with the builder's `HnswParams`.
+`estimate_peak_bytes(point_count, max_connections)` is a public helper for
+callers holding no parameter object: it models the documented defaults and has
+no caller inside the library. Both build one `EstimateInputs` and share
+`estimate_peak_bytes_with_search_width`; only their inputs differ, so do not
+substitute one estimate for the other when investigating a
+`MemoryLimitExceeded`. The public contract and the term-by-term arithmetic are
+in [the design document](./chutoro-design.md), §11.4.
 
 `harvested_edge_count(point_count, harvest_width, layers_eighths)` computes
 `n × harvest_width × layers_eighths / 8`. `harvest_width` is the effective
-`ef_construction`, because a layer search retains up to `ef` candidates, and
-the layer term is an integer count in eighths, so the estimator stays in
-integer arithmetic and can remain a `const fn`.
+`ef_construction` because a layer search retains up to `ef` candidates, and the
+layer term is an integer count in eighths, so the estimator stays in integer
+arithmetic and can remain a `const fn`.
 
 The layer count is an expectation, not a worst case. A build can exceed it, so
 the estimate is an approximate budget rather than a proof of a peak allocation.
@@ -831,13 +835,18 @@ index and pins its harvest inside the modelled multi-layer count; it guards the
 model's order of magnitude, not an upper bound.
 
 `HnswParams::expected_layers_eighths` derives that expectation from the
-configured sampler. `should_stop` compares `ln(draw) × −multiplier` against
-`1`, so a node continues with probability `q = exp(−1 / multiplier)` and the
-expected count is `1 / (1 − q)`, rounded up and clamped to `max_level + 1`. The
-default multiplier `1 / ln(M)` gives `q = 1 / M` and the geometric mean
-`M / (M − 1)`. A multiplier large enough to stop no node reaches the cap, and
-one whose continuation probability underflows reports a single layer. The
-result is in eighths (`LAYER_EIGHTHS`) so no caller handles a fraction.
+configured sampler. `should_stop` stops once `ln(draw) × −multiplier < 1`, so a
+node continues with probability `q = exp(−1 / multiplier)` and reaches level
+`k` with probability `q^k`. Sampling stops at `max_level`, so the expectation
+is the finite sum `(1 − q^L) / (1 − q)` over `L = max_level + 1` layers,
+rounded up in eighths and clamped to `[8, 8 × L]`. The finite sum matters when
+the cap binds: the infinite series `1 / (1 − q)` overstates the layer count
+there. The default multiplier `1 / ln(M)` gives `q = 1 / M` and the geometric
+mean `M / (M − 1)`; `M = 1` makes the default multiplier unbounded, so it
+reaches the cap. A multiplier large enough to stop no node also reaches the
+cap, and one whose continuation probability falls below the sampler's minimum
+clamped draw reports a single layer. The result is in eighths (`LAYER_EIGHTHS`)
+so no caller handles a fraction.
 
 `estimate_peak_bytes_for_hnsw_params` consumes that value directly. The
 two-argument `estimate_peak_bytes` has no parameter object, so it uses

@@ -9,6 +9,12 @@ use crate::hnsw::{distance_cache::DistanceCacheConfig, error::HnswError};
 /// Greatest finite sampling draw strictly below one.
 const LARGEST_DRAW_BELOW_ONE: f64 = f64::from_bits(0x3FEF_FFFF_FFFF_FFFF);
 
+/// Smallest draw the level sampler clamps a uniform sample to.
+///
+/// A continuation probability below this value can never be drawn, so the
+/// sampler always stops and every node keeps only level zero.
+const MIN_SAMPLED_DRAW: f64 = 1.0e-12;
+
 /// Fixed-point scale that lets callers carry a fractional layer count.
 ///
 /// The level expectation is a real number, while the memory estimator works in
@@ -153,13 +159,18 @@ impl HnswParams {
 
     /// Return the expected number of graph layers a node occupies, in eighths.
     ///
-    /// [`Self::should_stop`] continues to the next level with probability
-    /// `exp(-1 / level_multiplier)`, so the expected layer count is the
-    /// geometric series `1 + q + q² + … = 1 / (1 - q)`, capped at
-    /// `max_level + 1`. The default multiplier of `1 / ln(M)` gives `q = 1 / M`
-    /// and an expectation of `M / (M - 1)`. A multiplier large enough that
-    /// `q` exceeds the greatest representable draw below one stops no node, so
-    /// every node reaches the cap; the returned count reflects that.
+    /// [`Self::should_stop`] continues while the clamped draw stays at or below
+    /// `q = exp(-1 / level_multiplier)`, so a node reaches level `k` with
+    /// probability `q^k`. Sampling stops at `max_level`, so the expectation is
+    /// the finite sum `(1 - q^L) / (1 - q)` over `L = max_level + 1` layers.
+    /// The infinite series `1 / (1 - q)` overstates it whenever the cap binds.
+    /// The default multiplier of `1 / ln(M)` gives `q = 1 / M` and, for the
+    /// levels that fit under the cap, the geometric mean `M / (M - 1)`.
+    ///
+    /// Two regimes need explicit handling. A multiplier large enough that `q`
+    /// reaches the greatest permitted draw continues on every draw, so every
+    /// node occupies the cap. A `q` below the sampler's minimum clamped draw
+    /// can never be drawn, so every node keeps only level zero.
     ///
     /// The result is rounded up in eighths so callers can stay in integer
     /// arithmetic, and never falls below one layer: level zero is always
@@ -171,11 +182,29 @@ impl HnswParams {
             .saturating_add(1)
             .saturating_mul(LAYER_EIGHTHS);
         // q = exp(-1 / multiplier); the multiplier is finite and positive.
-        let continuation = self.level_multiplier.recip().neg().exp();
-        let remaining = continuation.neg().mul_add(1.0, 1.0);
-        // `mul_add(8.0, 0.0)` is `8 / remaining`, kept operator-free for the
-        // float restriction lints.
-        let eighths = remaining.recip().mul_add(8.0, 0.0).ceil();
+        let sampled = self.level_multiplier.recip().neg().exp();
+        if sampled >= LARGEST_DRAW_BELOW_ONE {
+            // Every permitted draw continues, so the node reaches the cap.
+            return layer_cap;
+        }
+        // The sampler clamps its draw, so a probability below the minimum
+        // clamped draw can never be reached and every node keeps level zero.
+        let continuation = if sampled < MIN_SAMPLED_DRAW {
+            0.0
+        } else {
+            sampled
+        };
+        let levels = i32::try_from(self.max_level.saturating_add(1)).unwrap_or(i32::MAX);
+        let cap_probability = continuation.powi(levels);
+        // `(1 - q^L) / (1 - q)` with method calls rather than float operators,
+        // which the restriction lints reject. `1 - q` is positive because the
+        // cap-reaching regime returned above.
+        let numerator = cap_probability.neg().mul_add(1.0, 1.0);
+        let denominator = continuation.neg().mul_add(1.0, 1.0);
+        let eighths = numerator
+            .mul_add(denominator.recip(), 0.0)
+            .mul_add(8.0, 0.0)
+            .ceil();
         eighths
             .to_u64()
             .unwrap_or(u64::MAX)
@@ -197,7 +226,7 @@ impl HnswParams {
     /// The multiplier of `1/ln(M)` induces a geometric tail where the chance of
     /// rising to the next layer is `1/M`, mirroring the reference algorithm.
     pub(crate) fn should_stop(&self, draw: f64) -> bool {
-        let clamped = draw.clamp(1.0e-12, LARGEST_DRAW_BELOW_ONE);
+        let clamped = draw.clamp(MIN_SAMPLED_DRAW, LARGEST_DRAW_BELOW_ONE);
         clamped.ln().mul_add(self.level_multiplier.neg(), 0.0) < 1.0
     }
 

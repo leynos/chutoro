@@ -2584,21 +2584,27 @@ a healthy build harvests roughly `n × ef` edges. The level sampler continues to
 the next layer with probability `1 / M` under its default multiplier of
 `1 / ln(M)`, so the expected layer count is the geometric series
 `1 + 1/M + 1/M² + …`, which converges to `M / (M − 1)`. The estimator computes
-it in eighths, rounding up, and caps it at `max_level + 1`; `M = 1` never stops
-early, so every node reaches the cap. Measured builds match the model: at
-`M = 16`, `ef = 64` and 1,000 points a build harvested 65,027 edges, about 65
-per node and 4.1 times `n × M`.
+it in eighths, rounding up, and caps it at `max_level + 1`; at the default cap
+the difference from the finite sum below is below the rounding resolution.
+`M = 1` never stops early, so every node reaches the cap. Measured builds match
+the model: at `M = 16`, `ef = 64` and 1,000 points a build harvested 65,027
+edges, about 65 per node and 4.1 times `n × M`.
 
 `HnswParams::with_level_multiplier` accepts any positive value, and the
 parameter-aware estimate honours it rather than assuming the default. The
-sampler stops once `ln(draw) × −multiplier ≥ 1`, so it continues with
-probability `q = exp(−1 / multiplier)` and the expectation is `1 / (1 − q)`,
-capped at `max_level + 1`. A multiplier large enough that `q` exceeds the
-greatest representable draw below one never stops, so every node occupies all
-`max_level + 1` layers; the estimate then uses that cap instead of the
-geometric mean. A very small multiplier underflows `q` to zero and models a
-single layer. `HnswParams::expected_layers_eighths` performs this conversion so
-the estimator stays in integer arithmetic.
+sampler stops once `ln(draw) × −multiplier < 1`, so it continues with
+probability `q = exp(−1 / multiplier)`. A node reaches level `k` with
+probability `q^k`, and sampling stops at `max_level`, so the expectation is the
+finite sum `(1 − q^L) / (1 − q)` over `L = max_level + 1` layers. Use the
+finite sum rather than `1 / (1 − q)`: whenever the cap binds, the infinite
+series overstates the expectation and inflates the estimate. Two regimes need
+explicit handling. A multiplier large enough that `q` reaches the greatest
+representable draw below one continues on every draw, so every node occupies all
+`max_level + 1` layers and the estimate uses that cap. A `q` below the
+sampler's minimum clamped draw of `1e-12` can never be drawn, so every node
+keeps only level zero and the count is a single layer.
+`HnswParams::expected_layers_eighths` performs this conversion so the estimator
+stays in integer arithmetic.
 
 `validated_edges` and `prepared_edges` cover the two candidate-sized buffers
 that `prepare_edge_list` holds at the same time: the ordered
