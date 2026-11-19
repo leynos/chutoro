@@ -17,11 +17,12 @@ use rayon::ThreadPoolBuilder;
 use rayon::prelude::*;
 
 use crate::test_utils::{NumericTestSource, suite_proptest_config};
-use crate::{
-    ChutoroError, CpuHnsw, DataSource, DataSourceError, HnswParams, MetricDescriptor, Neighbour,
-};
+use crate::{CpuHnsw, DataSource, HnswParams, MetricDescriptor};
 
 use super::super::{CoreDistanceInputs, collect_ordered_results, compute_core_distances};
+use super::core_distance_support::{
+    build_fixture_index, distinct_values, generated_source, sequential_core_distances, with_pool,
+};
 
 /// Rayon thread counts every result must agree on.
 const THREAD_COUNTS: [usize; 2] = [1, 8];
@@ -31,69 +32,6 @@ const FAILING_INDICES: [usize; 3] = [3, 7, 11];
 
 /// Item count of the synthetic ordering fixture.
 const SYNTHETIC_ITEMS: usize = 16;
-
-/// Runs `task` inside a Rayon pool with exactly `threads` workers.
-///
-/// Building the pool can fail only for an unusable thread count or an operating
-/// system resource failure, so callers decide how to report that.
-fn with_pool<T: Send>(
-    threads: usize,
-    task: impl FnOnce() -> T + Send,
-) -> Result<T, rayon::ThreadPoolBuildError> {
-    let pool = ThreadPoolBuilder::new().num_threads(threads).build()?;
-    Ok(pool.install(task))
-}
-
-/// Builds `count` distinct, evenly spaced fixture values.
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "the fixture is a handwritten sequence of small whole numbers"
-)]
-fn distinct_values(count: usize) -> Vec<f32> {
-    (0..count).map(|value| value as f32).collect()
-}
-
-/// Builds a deterministic index over `source` and the `ef` its searches use.
-///
-/// The `ef` mirrors the production formula for this stage so the tests
-/// exercise the same search width the pipeline requests.
-fn build_fixture_index(
-    source: &NumericTestSource,
-) -> Result<(CpuHnsw, NonZeroUsize), crate::HnswError> {
-    let params = HnswParams::new(4, 16)?.with_rng_seed(42);
-    let (index, _) = CpuHnsw::build_with_edges(source, params)?;
-    // `max(1)` keeps the search width non-zero for an empty source.
-    let ef = NonZeroUsize::new(source.len().max(1)).unwrap_or(NonZeroUsize::MIN);
-    Ok((index, ef))
-}
-
-/// Computes core distances serially, restating the selection rule directly.
-///
-/// This deliberately does not call the shared helper: it is the independent
-/// reference the parallel path is compared against.
-fn sequential_core_distances<D: DataSource + Sync>(
-    source: &D,
-    index: &CpuHnsw,
-    inputs: &CoreDistanceInputs,
-) -> Result<Vec<f32>, crate::HnswError> {
-    let mut core_distances = Vec::with_capacity(inputs.items);
-    for point in 0..inputs.items {
-        let neighbours = index.search(source, point, inputs.ef)?;
-        let others: Vec<Neighbour> = neighbours
-            .into_iter()
-            .filter(|neighbour| neighbour.id != point)
-            .collect();
-        let core = if others.len() >= inputs.min_cluster_size.get() {
-            others
-                .get(inputs.min_cluster_size.get().saturating_sub(1))
-                .map_or(0.0, |neighbour| neighbour.distance)
-        } else {
-            others.last().map_or(0.0, |neighbour| neighbour.distance)
-        };
-        core_distances.push(core);
-    }
-    Ok(core_distances)
-}
 
 #[rstest::rstest]
 #[case::distinct_points("parity", distinct_values(24), 3)]
@@ -233,95 +171,6 @@ fn successful_results_keep_source_order(#[case] threads: usize) {
     assert_eq!(actual, (0..8).collect::<Vec<_>>(), "thread count {threads}");
 }
 
-/// A source that rejects the self-pair distance for selected queries.
-///
-/// HNSW only needs `distance(query, query)` when it has to materialise the
-/// query itself, so rejecting that pair fails exactly those queries.
-struct SelfFailingSource {
-    /// Backing data and metric descriptor for the trial.
-    inner: NumericTestSource,
-    /// Query indices whose self-pair must fail.
-    failing: Vec<usize>,
-}
-
-impl DataSource for SelfFailingSource {
-    fn len(&self) -> usize {
-        self.inner.len()
-    }
-
-    fn name(&self) -> &str {
-        self.inner.name()
-    }
-
-    fn metric_descriptor(&self) -> MetricDescriptor {
-        self.inner.metric_descriptor()
-    }
-
-    fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
-        if left == right && self.failing.contains(&left) {
-            // A synthetic rejection; the index is preserved in the error so
-            // the test can prove which query produced it.
-            return Err(DataSourceError::OutOfBounds { index: left });
-        }
-        self.inner.distance(left, right)
-    }
-}
-
-#[rstest::rstest]
-#[case::single_thread(1)]
-#[case::eight_threads(8)]
-fn real_search_failure_reports_the_lowest_failing_query(#[case] threads: usize) {
-    let data: Vec<f32> = (0..12u8).map(f32::from).collect();
-    let build_source = NumericTestSource::new("self-fail", data.clone())
-        .using_metric_descriptor(MetricDescriptor::new("self-fail:build"));
-    let (index, ef) = build_fixture_index(&build_source).expect("fixture index must build");
-    let inputs = CoreDistanceInputs::new(
-        build_source.len(),
-        NonZeroUsize::new(2).expect("two is non-zero"),
-        ef,
-    );
-
-    // A descriptor per thread count keeps the clean trial off the index build's
-    // cache entries, so both trials run concurrent searches on a cold cache.
-    let clean_source = NumericTestSource::new("self-fail", data.clone())
-        .using_metric_descriptor(MetricDescriptor::new(format!("self-fail:clean-{threads}")));
-    let clean = with_pool(threads, || {
-        compute_core_distances(&clean_source, &index, &inputs)
-    })
-    .expect("thread pool must build")
-    .expect("clean trial must succeed");
-    assert_eq!(clean.len(), 12, "thread count {threads}");
-
-    // Distinct metric descriptors give each trial a fresh distance cache, so
-    // neither trial can be answered from the other trial's cache entries.
-    for trial in ["a", "b"] {
-        let descriptor = format!("self-fail:trial-{threads}-{trial}");
-        let failing_source = SelfFailingSource {
-            inner: NumericTestSource::new("self-fail", data.clone())
-                .using_metric_descriptor(MetricDescriptor::new(descriptor.clone())),
-            failing: vec![3, 11],
-        };
-
-        let error = with_pool(threads, || {
-            compute_core_distances(&failing_source, &index, &inputs)
-        })
-        .expect("thread pool must build")
-        .expect_err("a rejected self-pair must fail the stage");
-
-        assert!(
-            matches!(
-                error,
-                ChutoroError::DataSource {
-                    error: DataSourceError::OutOfBounds { index: 3 },
-                    ..
-                }
-            ),
-            "trial {descriptor} with {threads} threads must report the lowest failing query, \
-             got {error:?}"
-        );
-    }
-}
-
 proptest! {
     #![proptest_config(suite_proptest_config(32))]
 
@@ -380,10 +229,4 @@ proptest! {
             prop_assert_eq!(&actual, &expected, "thread count {}", threads);
         }
     }
-}
-
-/// Generates a source's values and a plausible minimum cluster size.
-fn generated_source() -> impl Strategy<Value = (Vec<f32>, usize)> {
-    (2usize..10)
-        .prop_flat_map(|point_count| (prop::collection::vec(0.0f32..16.0, point_count), 1usize..6))
 }
