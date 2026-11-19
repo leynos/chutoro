@@ -1,6 +1,9 @@
 //! Property tests for shared one-shot and session execution configuration.
 
-use std::sync::{Arc, atomic::AtomicUsize};
+use std::{
+    num::NonZeroUsize,
+    sync::{Arc, atomic::AtomicUsize},
+};
 
 use proptest::prelude::*;
 use tracing_subscriber::layer::SubscriberExt;
@@ -44,8 +47,11 @@ proptest! {
         );
         // The guard sizes concurrent search state from the ambient pool, and
         // this test observes it from the same context as `run`.
+        let cluster_size = NonZeroUsize::new(min_cluster_size)
+            .ok_or_else(|| TestCaseError::fail("generated cluster size must be non-zero"))?;
         let estimate = estimate_peak_bytes_for_hnsw_params_with_concurrency(
             point_count,
+            cluster_size,
             &params,
             super::concurrent_core_distance_searches(),
         );

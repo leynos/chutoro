@@ -243,6 +243,15 @@ and 150 lines of benchmark and profiling support.
   `make check-fmt`, `make test` (1,518 passed, 1 skipped; doctests ok),
   `make typecheck`, and `make lint` (interrogate, rustdoc, Clippy, Whitaker)
   all pass.
+- [x] (2026-11-19 19:00Z) CodeRabbit round five addressed (D13): the
+  search-state term of the concurrency estimate is now sized at
+  `batch_search_width`, the rule the batch stage itself applies, while the
+  harvested-edge term keeps the construction width; the single-search helper is
+  unchanged. `batch_search_width` and the estimate move to `memory/batch.rs` so
+  the split modules stay within Whitaker's limit. Gates on the resulting tree:
+  `make check-fmt`, `make test` (1,492 passed, 1 skipped; doctests ok),
+  `make typecheck`, `make lint` (interrogate, rustdoc, Clippy, Whitaker),
+  `make markdownlint`, `make spelling`, and `make nixie` all pass.
 - [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
@@ -369,6 +378,19 @@ and 150 lines of benchmark and profiling support.
   hanging the suite. The distance cache releases its shard guards before calling
   `DataSource::distance`, so the wait cannot deadlock on a cache lock.
   Date/Author: 2026-11-19, implementation agent.
+- D13. Decision: extract the batch stage's search-width rule into the public
+  `batch_search_width(point_count, min_cluster_size, hnsw_params)`, and have
+  `estimate_peak_bytes_for_hnsw_params_with_concurrency` size each concurrent
+  search state with it while keeping the construction width for the
+  harvested-edge term. Rationale: the batch stage searches at
+  `max(min_cluster_size + 1, effective_ef_construction)` capped at the point
+  count, so sizing the guard from the construction breadth alone under-counted
+  the per-worker state whenever the cluster size was wider. Sharing one rule
+  stops the pipeline and the guard drifting apart again; the harvest width must
+  stay at the construction breadth because that is the breadth the build
+  harvests at. `estimate_peak_bytes_for_hnsw_params` keeps its single-search
+  semantics, so existing callers see no change. Date/Author: 2026-11-19,
+  implementation agent.
 
 ## Outcomes & retrospective
 

@@ -265,6 +265,7 @@ impl Chutoro {
             hnsw_params.effective_ef_construction(items),
             crate::memory::estimate_peak_bytes_for_hnsw_params_with_concurrency(
                 items,
+                self.min_cluster_size(),
                 hnsw_params,
                 concurrent_core_distance_searches(),
             ),
@@ -281,6 +282,7 @@ impl Chutoro {
         #[cfg(feature = "cpu")]
         let estimated = crate::memory::estimate_peak_bytes_for_hnsw_params_with_concurrency(
             items,
+            self.min_cluster_size(),
             self.hnsw_params(),
             concurrent_core_distance_searches(),
         );

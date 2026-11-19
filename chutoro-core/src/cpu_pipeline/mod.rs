@@ -76,12 +76,7 @@ fn build_index_and_core_distances<D: DataSource + Sync>(
     let (index, harvested) = CpuHnsw::build_with_edges(source, effective_hnsw_params.clone())
         .map_err(|error| error.into_chutoro_error(Arc::from(source.name())))?;
 
-    let desired = min_cluster_size
-        .get()
-        .saturating_add(1)
-        .max(effective_hnsw_params.ef_construction())
-        .min(items);
-    let ef = NonZeroUsize::new(desired).unwrap_or(NonZeroUsize::MIN);
+    let ef = crate::memory::batch_search_width(items, min_cluster_size, hnsw_params);
     let core_distance_inputs = CoreDistanceInputs::new(items, min_cluster_size, ef);
     let core_distance_started = Instant::now();
     let core_distances = compute_core_distances(source, &index, &core_distance_inputs)?;

@@ -103,15 +103,19 @@ let result = chutoro.run(&Dummy(vec![1.0, 2.0, 4.0, 8.0]))?;
 
 The estimate also counts one HNSW search state per thread of the Rayon pool
 that will run the batch, because the parallel core-distance stage searches
-several points at once. A memory check made outside an explicit pool therefore
-uses the global pool's width.
+several points at once. Each state is sized to the batch search width: the
+larger of `min_cluster_size + 1` and the effective construction width, capped
+at the number of points. Raising `min_cluster_size` therefore raises the
+estimate. A memory check made outside an explicit pool uses the global pool's
+width.
 
 When the estimate exceeds the configured limit, `run` returns
 `ChutoroError::MemoryLimitExceeded` before allocating the pipeline. Omitting
 `with_max_bytes` leaves this guard disabled.
-`estimate_peak_bytes_for_hnsw_params` reports the single-search estimate, and
+`estimate_peak_bytes_for_hnsw_params` reports the single-search estimate.
 `estimate_peak_bytes_for_hnsw_params_with_concurrency` reports the estimate for
-an explicit search width.
+an explicit cluster size and pool width, and `batch_search_width` reports the
+width the batch stage searches at for a given cluster size.
 
 On CPU builds, the batch core-distance stage searches the HNSW graph for every
 point through an indexed Rayon parallel iterator. It therefore runs on the

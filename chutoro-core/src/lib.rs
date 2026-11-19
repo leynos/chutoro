@@ -44,7 +44,8 @@ pub use crate::{
 
 #[cfg(feature = "cpu")]
 pub use crate::memory::{
-    estimate_peak_bytes_for_hnsw_params, estimate_peak_bytes_for_hnsw_params_with_concurrency,
+    batch_search_width, estimate_peak_bytes_for_hnsw_params,
+    estimate_peak_bytes_for_hnsw_params_with_concurrency,
 };
 
 #[cfg(feature = "cpu")]

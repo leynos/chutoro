@@ -31,6 +31,12 @@ const MEMORY_LIMIT_BYTES: &str = "chutoro.batch.memory_limit_bytes";
 /// The guard sizes concurrent search state from the ambient Rayon pool, and
 /// these tests assert its recorded value from the same context.
 #[cfg(feature = "cpu")]
+fn cluster_size() -> std::num::NonZeroUsize {
+    std::num::NonZeroUsize::MIN
+        .checked_add(1)
+        .unwrap_or(std::num::NonZeroUsize::MIN)
+}
+
 fn ambient_search_concurrency() -> std::num::NonZeroUsize {
     std::num::NonZeroUsize::new(rayon::current_num_threads()).unwrap_or(std::num::NonZeroUsize::MIN)
 }
@@ -92,6 +98,7 @@ fn successful_cpu_run_records_bounded_resources_and_tracing() {
     let source = Dummy::new(vec![1.0, 3.0, 6.0, 10.0]);
     let estimate = estimate_peak_bytes_for_hnsw_params_with_concurrency(
         source.len(),
+        cluster_size(),
         &params,
         ambient_search_concurrency(),
     );
@@ -145,6 +152,7 @@ fn memory_limit_rejection_records_bounded_metrics_and_tracing() {
     let source = Dummy::new(vec![1.0, 3.0, 6.0, 10.0]);
     let estimate = estimate_peak_bytes_for_hnsw_params_with_concurrency(
         source.len(),
+        cluster_size(),
         &params,
         ambient_search_concurrency(),
     );

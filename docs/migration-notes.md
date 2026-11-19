@@ -125,8 +125,10 @@ estimate now counts one search state per Rayon worker rather than one per run. A
 rejected on a wide pool, which is the intended conservative behaviour: the
 former estimate under-counted live search state.
 `estimate_peak_bytes_for_hnsw_params` keeps its single-search meaning, and the
-new `estimate_peak_bytes_for_hnsw_params_with_concurrency` takes the width
-explicitly.
+new `estimate_peak_bytes_for_hnsw_params_with_concurrency` takes the cluster
+size and the pool width explicitly, so each worker's search state is sized to
+the width the batch stage actually searches at rather than to the construction
+breadth alone.
 
 ### Additive API: dense-provider test fixtures
 

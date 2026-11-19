@@ -38,6 +38,14 @@ fn ambient_search_concurrency() -> NonZeroUsize {
     NonZeroUsize::new(rayon::current_num_threads()).unwrap_or(NonZeroUsize::MIN)
 }
 
+/// Returns the cluster size the memory-limit fixtures configure.
+const fn cluster_size() -> NonZeroUsize {
+    match NonZeroUsize::new(2) {
+        Some(size) => size,
+        None => NonZeroUsize::MIN,
+    }
+}
+
 #[fixture]
 fn dummy() -> Dummy {
     Dummy::new(vec![1.0, 3.0, 6.0])
@@ -213,6 +221,7 @@ fn run_memory_limit_uses_builder_hnsw_params(dummy: Dummy) {
     let hnsw_params = HnswParams::new(4, 16).expect("parameters must be valid");
     let estimated_bytes = estimate_peak_bytes_for_hnsw_params_with_concurrency(
         dummy.len(),
+        cluster_size(),
         &hnsw_params,
         ambient_search_concurrency(),
     );
@@ -252,11 +261,16 @@ fn run_memory_limit_uses_configured_distance_cache_capacity(dummy: Dummy) {
     let searches = ambient_search_concurrency();
     let default_estimate = estimate_peak_bytes_for_hnsw_params_with_concurrency(
         dummy.len(),
+        cluster_size(),
         &default_params,
         searches,
     );
-    let parameter_aware_estimate =
-        estimate_peak_bytes_for_hnsw_params_with_concurrency(dummy.len(), &hnsw_params, searches);
+    let parameter_aware_estimate = estimate_peak_bytes_for_hnsw_params_with_concurrency(
+        dummy.len(),
+        cluster_size(),
+        &hnsw_params,
+        searches,
+    );
     let max_bytes = parameter_aware_estimate - 1;
     assert!(
         max_bytes > default_estimate,

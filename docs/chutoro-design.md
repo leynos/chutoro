@@ -2637,10 +2637,16 @@ multi-layer count; assuming one `n × M` pass would understate them by the same
 factor of four.
 
 For one-shot runs, the memory guard calls
-`estimate_peak_bytes_for_hnsw_params(point_count, &HnswParams)`. That helper
-derives `effective_ef_construction` as
-`min(ef_construction, max(point_count, max_connections))` and uses it both for
-the construction-search state and for the per-layer harvest width. It reads
+`estimate_peak_bytes_for_hnsw_params_with_concurrency`, which derives
+`effective_ef_construction` as
+`min(ef_construction, max(point_count, max_connections))` and uses it for the
+per-layer harvest width. It sizes each concurrent search state at
+`batch_search_width`, the same rule the batch stage applies: the larger of
+`min_cluster_size + 1` and `effective_ef_construction`, capped at
+`point_count`. Sharing the rule keeps the guard and the pipeline from drifting,
+and a cluster size wider than the construction breadth raises the estimate. The
+single-search `estimate_peak_bytes_for_hnsw_params` helper uses the
+construction width for both the search state and the harvest. It reads
 `max_level` and the level multiplier from the same parameters, so a reduced
 level cap lowers the modelled layer count and an overridden multiplier moves it
 between one layer and the cap. Retaining `max_connections` as the lower bound
