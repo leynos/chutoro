@@ -537,16 +537,16 @@ the transform reports `NON_FINITE_WEIGHT`.
 every variant except `DataSource` becomes
 `ChutoroError::CpuHnswFailure { code, message }`.
 
-| Code variant              | `as_str()` value            | Error variant and fields                         | Producing condition                                                                                                                                                                 | Classification     |
-| ------------------------- | --------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `EmptyBuild`              | `EMPTY_BUILD`               | `HnswError::EmptyBuild`                          | `build` or `build_with_edges` was called on a source with no items                                                                                                                  | Caller input       |
-| `InvalidParameters`       | `INVALID_PARAMETERS`        | `HnswError::InvalidParameters { reason }`        | Invalid configuration, such as zero `max_connections`, `ef_construction` below `max_connections`, zero capacity, a level above `max_level`, or a batch response of the wrong length | Caller input       |
-| `DuplicateNode`           | `DUPLICATE_NODE`            | `HnswError::DuplicateNode { node }`              | The same node identifier was inserted twice                                                                                                                                         | Caller input       |
-| `GraphEmpty`              | `GRAPH_EMPTY`               | `HnswError::GraphEmpty`                          | Search or planning ran on an index with no entry point, such as a `with_capacity` index before its first insertion                                                                  | Caller input       |
-| `GraphInvariantViolation` | `GRAPH_INVARIANT_VIOLATION` | `HnswError::GraphInvariantViolation { message }` | The graph is inconsistent, including a harvested edge that has no core distance                                                                                                     | Internal fault     |
-| `NonFiniteDistance`       | `NON_FINITE_DISTANCE`       | `HnswError::NonFiniteDistance { left, right }`   | The source returned NaN or infinity for a distance                                                                                                                                  | Data-source output |
-| `LockPoisoned`            | `LOCK_POISONED`             | `HnswError::LockPoisoned { resource }`           | A panic poisoned the `"graph"`, `"insert mutex"`, `"rng mutex"`, or `"worker rng mutex"` lock                                                                                       | Runtime fault      |
-| `DataSource`              | `DATA_SOURCE`               | `HnswError::DataSource(DataSourceError)`         | A `distance` or `distance_batch` call failed                                                                                                                                        | Data-source output |
+| Code variant              | `as_str()` value            | Error variant and fields                         | Producing condition                                                                                                                                                                                                       | Classification                     |
+| ------------------------- | --------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `EmptyBuild`              | `EMPTY_BUILD`               | `HnswError::EmptyBuild`                          | `build` or `build_with_edges` was called on a source with no items                                                                                                                                                        | Caller input                       |
+| `InvalidParameters`       | `INVALID_PARAMETERS`        | `HnswError::InvalidParameters { reason }`        | Invalid configuration, such as zero `max_connections`, `ef_construction` below `max_connections`, zero capacity, or a level above `max_level`; also a batch response whose length does not match the requested candidates | Caller input or data-source output |
+| `DuplicateNode`           | `DUPLICATE_NODE`            | `HnswError::DuplicateNode { node }`              | The same node identifier was inserted twice                                                                                                                                                                               | Caller input                       |
+| `GraphEmpty`              | `GRAPH_EMPTY`               | `HnswError::GraphEmpty`                          | Search or planning ran on an index with no entry point, such as a `with_capacity` index before its first insertion                                                                                                        | Caller input                       |
+| `GraphInvariantViolation` | `GRAPH_INVARIANT_VIOLATION` | `HnswError::GraphInvariantViolation { message }` | The graph is inconsistent, including a harvested edge that has no core distance                                                                                                                                           | Internal fault                     |
+| `NonFiniteDistance`       | `NON_FINITE_DISTANCE`       | `HnswError::NonFiniteDistance { left, right }`   | The source returned NaN or infinity for a distance                                                                                                                                                                        | Data-source output                 |
+| `LockPoisoned`            | `LOCK_POISONED`             | `HnswError::LockPoisoned { resource }`           | A panic poisoned the `"graph"`, `"insert mutex"`, `"rng mutex"`, or `"worker rng mutex"` lock                                                                                                                             | Runtime fault                      |
+| `DataSource`              | `DATA_SOURCE`               | `HnswError::DataSource(DataSourceError)`         | A `distance` or `distance_batch` call failed                                                                                                                                                                              | Data-source output                 |
 
 _Table 2: HNSW error codes produced by the CPU backend._
 
@@ -556,6 +556,11 @@ _Table 2: HNSW error codes produced by the CPU backend._
 available from `data_source_code()`. `DATA_SOURCE` is therefore never the
 `code` field of a `CpuHnswFailure`; it is the `HnswErrorCode` for the wrapped
 data-source failure at the typed API boundary.
+
+`INVALID_PARAMETERS` covers two distinct faults. Invalid configuration is the
+caller's responsibility, while a batch response whose length does not match the
+requested candidates originates in the `DataSource`; repair the provider in the
+latter case.
 
 `GRAPH_EMPTY` reports caller-visible state rather than a defect. An index
 created by `CpuHnsw::with_capacity` has no entry point until its first
