@@ -34,7 +34,7 @@ use crate::{
 
 use super::{
     DenseSource,
-    insertion_observation::{ObservationState, Probe},
+    insertion_observation::{CallbackRecord, ObservationState, Probe},
 };
 
 /// Small fan-out so a seeded graph fills its adjacency lists quickly and the
@@ -165,58 +165,48 @@ impl DataSource for InsertionRecordingSource<'_> {
     }
 }
 
-/// Observes trim scoring on a real insertion staying on the mutex holder.
-///
-/// The collector marks the moment planning ends. Every callback after that
-/// mark is inside the insertion critical section, so it must run on the thread
-/// that set the mark, on the same Rayon worker, while `insert_mutex` is held.
-///
-/// The source forces cache misses by keeping one cache entry, so every trim
-/// job reaches the distance callbacks rather than being answered entirely from
-/// the cache. A pass is an observation, not a proof; see the module docs.
-#[test]
-fn insertion_trim_scoring_runs_on_the_insert_mutex_holder() {
-    let observation = Arc::new(ObservationState::new());
-    let params = HnswParams::new(SMALL_MAX_CONNECTIONS, SMALL_EF_CONSTRUCTION)
+/// Builds the small parameter set that makes an insertion stage trim jobs.
+fn small_params() -> HnswParams {
+    HnswParams::new(SMALL_MAX_CONNECTIONS, SMALL_EF_CONSTRUCTION)
         .expect("small fan-out parameters must be valid")
         .with_distance_cache_max_entries(
             NonZeroUsize::new(1).expect("one is a non-zero cache capacity"),
-        );
-    let pool = rayon::ThreadPoolBuilder::new()
+        )
+}
+
+/// Builds the dedicated pool the observation runs in.
+fn dedicated_pool() -> rayon::ThreadPool {
+    rayon::ThreadPoolBuilder::new()
         .num_threads(INSERTION_THREADS)
         .build()
-        .expect("a dedicated pool");
+        .expect("a dedicated pool")
+}
 
-    let (insertion, caller) = pool.install(|| {
-        let caller = rayon::current_thread_index();
-        let index = CpuHnsw::with_capacity(params, super::TRIM_POINTS).expect("index");
-        let source = InsertionRecordingSource::new(
-            DenseSource::synthetic(super::TRIM_POINTS),
-            &index,
-            Arc::clone(&observation),
-        );
-        let mut collector = PhaseMarkingCollector::new(Arc::clone(&observation));
+/// Inserts the seed nodes, resetting the observation so their callbacks are
+/// discarded.
+fn seed_index(
+    index: &CpuHnsw,
+    source: &InsertionRecordingSource<'_>,
+    collector: &mut PhaseMarkingCollector,
+    observation: &ObservationState,
+) {
+    for node in 0..SEEDED_NODES {
+        observation.reset(false);
+        index
+            .insert_with_collector(node, source, collector)
+            .expect("preparatory insertion must succeed");
+    }
+}
 
-        for node in 0..SEEDED_NODES {
-            observation.reset(false);
-            index
-                .insert_with_collector(node, &source, &mut collector)
-                .expect("preparatory insertion must succeed");
-        }
-
-        // Only the target insertion's callbacks are evidence.
-        observation.reset(true);
-        let insertion = index.insert_with_collector(SEEDED_NODES, &source, &mut collector);
-        (insertion, caller)
-    });
-
-    insertion.expect("the target insertion must succeed");
-    let records = observation.records();
+/// Asserts the target insertion staged real trim work on a pool worker.
+///
+/// Without trim work the observation would pass vacuously, and the one-entry
+/// cache is what forces that work to reach the distance callbacks.
+fn assert_trim_activity(records: &[CallbackRecord], caller: Option<usize>) {
     let batch_calls = records
         .iter()
         .filter(|record| record.callback == "batch_distances")
         .count();
-
     assert!(
         batch_calls >= 2,
         concat!(
@@ -233,6 +223,10 @@ fn insertion_trim_scoring_runs_on_the_insert_mutex_holder() {
         caller.is_some(),
         "the insertion closure should have run on a pool worker"
     );
+}
+
+/// Asserts every recorded callback ran on the insert-mutex holder.
+fn assert_callbacks_on_holder(records: &[CallbackRecord], observation: &ObservationState) {
     assert!(
         records
             .iter()
@@ -251,4 +245,43 @@ fn insertion_trim_scoring_runs_on_the_insert_mutex_holder() {
             .all(|record| record.probe == Probe::WouldBlock),
         "every post-planning callback must observe a held insert mutex"
     );
+}
+
+/// Observes trim scoring on a real insertion staying on the mutex holder.
+///
+/// The collector marks the moment planning ends. Every callback after that
+/// mark is inside the insertion critical section, so it must run on the thread
+/// that set the mark, on the same Rayon worker, while `insert_mutex` is held.
+///
+/// The source forces cache misses by keeping one cache entry, so every trim
+/// job reaches the distance callbacks rather than being answered entirely from
+/// the cache. A pass is an observation, not a proof; see the module docs.
+#[test]
+fn insertion_trim_scoring_runs_on_the_insert_mutex_holder() {
+    let observation = Arc::new(ObservationState::new());
+    let pool = dedicated_pool();
+
+    let caller = pool.install(|| {
+        let caller = rayon::current_thread_index();
+        let index = CpuHnsw::with_capacity(small_params(), super::TRIM_POINTS).expect("index");
+        let source = InsertionRecordingSource::new(
+            DenseSource::synthetic(super::TRIM_POINTS),
+            &index,
+            Arc::clone(&observation),
+        );
+        let mut collector = PhaseMarkingCollector::new(Arc::clone(&observation));
+
+        seed_index(&index, &source, &mut collector, &observation);
+
+        // Only the target insertion's callbacks are evidence.
+        observation.reset(true);
+        index
+            .insert_with_collector(SEEDED_NODES, &source, &mut collector)
+            .expect("the target insertion must succeed");
+        caller
+    });
+
+    let records = observation.records();
+    assert_trim_activity(&records, caller);
+    assert_callbacks_on_holder(&records, &observation);
 }
