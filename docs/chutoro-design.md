@@ -2634,9 +2634,12 @@ compatibility.
 
 The 1.5× safety multiplier covers heap fragmentation, Rayon thread-local
 buffers, and transient allocations that are difficult to predict statically. It
-also covers the gap between the expected layer count and the realized one. The
-estimate is intentionally pessimistic: it is better to reject a dataset that
-might have fit than to begin processing and run out of memory mid-pipeline.
+also leaves headroom above the expected layer count, but it is not a guarantee
+that every permitted layer is covered. At `M = 2` the capped expectation is
+about two layers per node, while a sample can place a node in all thirteen
+default layers; 1.5× of two layers cannot span that gap. The estimate is
+intentionally pessimistic: it is better to reject a dataset that might have fit
+than to begin processing and run out of memory mid-pipeline.
 
 The layer count is an expectation, not a strict upper bound, except where the
 configured multiplier forces the cap. A single node can occupy up to

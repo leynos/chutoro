@@ -78,10 +78,12 @@ incremental sessions. For a batch run, `max_connections` and `ef_construction`
 are passed to CPU HNSW construction. The configured `max_connections` and the
 effective, dataset-bounded construction-search width derived from
 `ef_construction` are included when estimating the run's peak memory for a
-limit set with `with_max_bytes`. The estimate counts the full multi-layer
-candidate-edge harvest, so it grows with `ef_construction` rather than with
-`max_connections` alone. The expected layer count follows the configured level
-multiplier. The default multiplier's uncapped expectation is the geometric mean
+limit set with `with_max_bytes`. The estimate counts the multi-layer
+candidate-edge harvest using the expected layer count, so it grows with
+`ef_construction` rather than with `max_connections` alone. That layer count is
+an estimate of the expected harvest, not a guarantee that every permitted layer
+is covered. The expected layer count follows the configured level multiplier.
+The default multiplier's uncapped expectation is the geometric mean
 `M / (M − 1)`; the estimate uses the finite sum capped at `max_level + 1`, so a
 low configured level cap lowers it below that mean. `M = 1` reaches the level
 cap because its default multiplier is unbounded, and a multiplier large enough
