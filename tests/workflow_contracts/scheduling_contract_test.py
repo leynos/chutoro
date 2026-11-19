@@ -58,13 +58,70 @@ def makefile_text() -> str:
     return MAKEFILE.read_text(encoding="utf-8")
 
 
+def _strip_shell_comment(line: str) -> str:
+    """Return `line` without its trailing shell comment.
+
+    Only an unescaped ``#`` starts a comment, so a literal ``\\#`` survives.
+    Comments are removed before any assertion reads a command, because a
+    comment that mentioned a flag would otherwise stand in for the flag on an
+    invocation that omits it.
+
+    Examples
+    --------
+    >>> _strip_shell_comment("make test#run the suite")
+    'make test'
+    """
+    comment = re.search(r"(?<!\\)#", line)
+    return line if comment is None else line[: comment.start()]
+
+
+def recipe_commands(text: str, target: str) -> list[str]:
+    """Return one target's recipe as logical shell commands.
+
+    Backslash continuations are joined into a single command, shell comments
+    are removed, and blank lines are dropped. Commands are returned rather
+    than the joined recipe so a caller can check an invocation on its own;
+    counting matches across the whole recipe would accept one command that
+    supplies a match twice beside another that supplies none.
+
+    Examples
+    --------
+    >>> recipe_commands("build:\\n\\tcargo build --release\\n", "build")
+    ['cargo build --release']
+    >>> recipe_commands("build:\\n\\t# cargo build\\n", "build")
+    []
+    """
+    pattern = re.compile(
+        rf"^{re.escape(target)}:[^\n]*\n(?P<recipe>(?:[ \t]+[^\n]*\n)*)",
+        re.MULTILINE,
+    )
+    match = pattern.search(text)
+    if match is None:
+        raise ValueError(f"{target} is not declared with a recipe")
+    commands: list[str] = []
+    pending = ""
+    for raw in match.group("recipe").splitlines():
+        command = _strip_shell_comment(raw.strip())
+        if not command:
+            continue
+        if command.endswith("\\"):
+            pending = f"{pending}{command[:-1]} "
+            continue
+        commands.append(" ".join(f"{pending}{command}".split()))
+        pending = ""
+    if pending.strip():
+        commands.append(" ".join(pending.split()))
+    return commands
+
+
 def target_recipe(text: str, target: str) -> str:
     """Return the tab-indented recipe of one Make target.
 
     The target line itself may carry a ``##`` help comment. Recipe lines are
-    the tab-indented lines that follow, backslash continuations included; a
-    missing target or an empty recipe fails rather than returning no recipe,
-    because an empty string would satisfy every substring check vacuously.
+    the tab-indented lines that follow, backslash continuations included and
+    shell comments removed; a missing target or an empty recipe fails rather
+    than returning no recipe, because an empty string would satisfy every
+    substring check vacuously.
 
     Examples
     --------
@@ -75,18 +132,23 @@ def target_recipe(text: str, target: str) -> str:
     ...
     ValueError: build has no recipe
     """
-    pattern = re.compile(
-        rf"^{re.escape(target)}:[^\n]*\n(?P<recipe>(?:[ \t]+[^\n]*\n)*)",
-        re.MULTILINE,
-    )
-    match = pattern.search(text)
-    if match is None:
-        raise ValueError(f"{target} is not declared with a recipe")
-    lines = [line.strip() for line in match.group("recipe").splitlines()]
-    recipe = " ".join(line for line in lines if line)
-    if not recipe:
+    commands = recipe_commands(text, target)
+    if not commands:
         raise ValueError(f"{target} has no recipe")
-    return recipe
+    return " ".join(commands)
+
+
+def nextest_invocations() -> list[str]:
+    """Return each nextest command in the scheduling target.
+
+    Commands are returned separately so that an assertion about an
+    invocation's arguments fails when that invocation alone omits them.
+    """
+    return [
+        command
+        for command in recipe_commands(makefile_text(), TARGET)
+        if "nextest run" in command
+    ]
 
 
 def phony_targets(text: str) -> set[str]:
@@ -100,18 +162,51 @@ def phony_targets(text: str) -> set[str]:
     return set(" ".join(declared).replace("\\\n", " ").split())
 
 
+def _invocations_missing_flag(invocations: list[str]) -> list[int]:
+    """Return the indices of invocations without ``--no-tests=fail``.
+
+    Examples
+    --------
+    >>> _invocations_missing_flag(["nextest run --no-tests=fail", "nextest run"])
+    [1]
+    """
+    return [
+        index
+        for index, command in enumerate(invocations)
+        if "--no-tests=fail" not in command
+    ]
+
+
 def test_the_target_retires_when_the_filter_selects_nothing() -> None:
     """A filter that matches nothing must fail rather than pass.
 
     ``cargo nextest`` exits successfully when a filter selects no test. That
     default would let a rename retire the evidence silently, so the flag is
-    part of the contract rather than a local convenience. Each invocation
-    carries its own flag; a shared one would cover only the last command.
+    part of the contract rather than a local convenience. Each invocation is
+    checked on its own: counting flags across the whole recipe would accept a
+    command that carries the flag twice beside one that omits it.
     """
-    recipe = target_recipe(makefile_text(), TARGET)
-    assert recipe.count("--no-tests=fail") == len(REGRESSIONS), (
-        "every scheduling invocation must fail when it selects no test"
+    invocations = nextest_invocations()
+    assert len(invocations) == len(REGRESSIONS), (
+        "the target must run one nextest invocation per regression"
     )
+    without_flag = _invocations_missing_flag(invocations)
+    assert not without_flag, (
+        f"scheduling invocation(s) {without_flag} must pass --no-tests=fail"
+    )
+
+
+def test_a_flag_on_another_invocation_does_not_cover_a_missing_one() -> None:
+    """The flag is a per-invocation requirement, not a recipe allowance.
+
+    One command carrying the flag twice must not cover a second command that
+    omits it; that is exactly the shape a whole-recipe count accepts.
+    """
+    invocations = [
+        "cargo nextest run -E 'test(=a)' --no-tests=fail --no-tests=fail",
+        "cargo nextest run -E 'test(=b)'",
+    ]
+    assert _invocations_missing_flag(invocations) == [1]
 
 
 def test_each_regression_runs_in_its_own_invocation() -> None:
@@ -121,12 +216,14 @@ def test_each_regression_runs_in_its_own_invocation() -> None:
     matching, so ``--no-tests=fail`` never fires. A separate invocation makes
     each name, and the test it must select, fail on its own.
     """
-    recipe = target_recipe(makefile_text(), TARGET)
-    assert recipe.count("nextest run") == len(REGRESSIONS), (
+    invocations = nextest_invocations()
+    assert len(invocations) == len(REGRESSIONS), (
         "the target must run one nextest invocation per regression"
     )
     for name in REGRESSIONS:
-        assert recipe.count(f"test(={QUALIFIED_REGRESSIONS[name]})") == 1, (
+        selector = f"test(={QUALIFIED_REGRESSIONS[name]})"
+        count = sum(command.count(selector) for command in invocations)
+        assert count == 1, (
             f"{name} must be selected by exactly one exact-match invocation"
         )
 
