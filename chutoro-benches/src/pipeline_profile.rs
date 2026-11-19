@@ -11,7 +11,7 @@
 //! measurement depends on the feature. Criterion itself never observes these
 //! runs, so profiling cannot bias the recorded benchmark distribution.
 
-use std::fmt::Write as _;
+use std::{borrow::Cow, fmt::Write as _};
 
 use camino::Utf8PathBuf;
 use mockable::{DefaultEnv, Env};
@@ -62,7 +62,9 @@ pub struct PipelineProfileSample {
 ///
 /// Each stage row carries its share of the whole run, so the `core_distances`
 /// share is readable without recomputing it. A zero-length total yields a zero
-/// share rather than a non-finite value.
+/// share rather than a non-finite value. Stage names are quoted when they
+/// contain a comma, quote, or line break, so every row keeps the declared four
+/// fields. The built-in labels never need quoting.
 ///
 /// # Examples
 ///
@@ -107,13 +109,29 @@ pub fn format_pipeline_profile(samples: &[PipelineProfileSample]) -> String {
 
 /// Appends one CSV row with a stage's seconds and share.
 fn push_row(csv: &mut String, point_count: usize, stage: &PipelineStageSample, share: f64) {
+    let stage_name = csv_field(&stage.stage);
     // Writing to a `String` cannot fail, so the `Result` carries no information
     // the caller could act on; name it to keep `must_use` lints satisfied.
     let _row_write = writeln!(
         csv,
-        "{point_count},{},{:.6},{share:.4}",
-        stage.stage, stage.seconds
+        "{point_count},{stage_name},{:.6},{share:.4}",
+        stage.seconds
     );
+}
+
+/// Returns `field` as one CSV field, quoting it when CSV would otherwise split
+/// or misparse it.
+///
+/// RFC 4180 escapes an embedded quote by doubling it and encloses any field
+/// holding a comma, quote, or line break. Fields that need neither are returned
+/// unchanged, so the conventional stage labels keep their plain form.
+fn csv_field(field: &str) -> Cow<'_, str> {
+    let needs_quoting = field.contains(|character| matches!(character, ',' | '"' | '\n' | '\r'));
+    if needs_quoting {
+        Cow::Owned(format!("\"{}\"", field.replace('"', "\"\"")))
+    } else {
+        Cow::Borrowed(field)
+    }
 }
 
 /// Returns `seconds / total`, or zero when the total is not positive.
@@ -281,6 +299,28 @@ mod tests {
         let csv = format_pipeline_profile(&[sample]);
 
         assert!(csv.contains(&format!("1,core_distances,{seconds:.6},{expected:.4}\n")));
+    }
+
+    #[rstest]
+    #[case::plain_label("core_distances", "core_distances")]
+    #[case::comma("search,extra", "\"search,extra\"")]
+    #[case::quote("search\"extra", "\"search\"\"extra\"")]
+    #[case::line_break("search\nextra", "\"search\nextra\"")]
+    fn stage_names_are_escaped_as_one_csv_field(#[case] stage: &str, #[case] expected: &str) {
+        let sample = PipelineProfileSample {
+            point_count: 1,
+            total_seconds: 1.0,
+            stages: vec![PipelineStageSample {
+                stage: stage.to_owned(),
+                seconds: 1.0,
+            }],
+        };
+
+        let csv = format_pipeline_profile(&[sample]);
+        assert!(
+            csv.contains(&format!("1,{expected},1.000000,1.0000\n")),
+            "stage {stage:?} must stay one field, got csv: {csv}"
+        );
     }
 
     #[test]
