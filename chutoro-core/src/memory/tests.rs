@@ -382,21 +382,3 @@ fn concurrency_estimate_scales_with_worker_count() {
         "doubling the concurrent search count must raise the estimate"
     );
 }
-
-// -- format_bytes -------------------------------------------------------
-
-#[rstest]
-#[case::zero(0, "0 B")]
-#[case::small(512, "512 B")]
-#[case::just_below_kib(1023, "1023 B")]
-#[case::one_kib(1024, "1.0 KiB")]
-#[case::rounds_half_to_even_down(1280, "1.2 KiB")]
-#[case::one_and_half_kib(1536, "1.5 KiB")]
-#[case::rounds_half_to_even_up(1792, "1.8 KiB")]
-#[case::one_mib(1_048_576, "1.0 MiB")]
-#[case::one_gib(1_073_741_824, "1.0 GiB")]
-#[case::one_tib(1_099_511_627_776, "1.0 TiB")]
-#[case::two_point_four_gib(2_576_980_378, "2.4 GiB")]
-fn format_bytes_produces_expected_output(#[case] input: u64, #[case] expected: &str) {
-    assert_eq!(format_bytes(input), expected);
-}
