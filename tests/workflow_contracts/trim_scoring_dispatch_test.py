@@ -25,7 +25,6 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import pytest
-
 from trim_scoring_reading import (
     COMMENTED_MENTION,
     DISPATCHING,
@@ -33,8 +32,10 @@ from trim_scoring_reading import (
     LISTED_HELPER_DISPATCH,
     LITERAL_MENTION,
     SCANNED_FILES,
+    SCOPED_HELPER_NAME,
     SCORER,
     SEQUENTIAL,
+    SLICE_JOIN,
     TRIM_SOURCE,
     UNLISTED_SIBLING,
     MissingFunctionError,
@@ -93,6 +94,8 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
         pytest.param(DISPATCHING, "into_par_iter", id="a-parallel-iterator"),
         pytest.param(COMMENTED_MENTION, None, id="a-mention-in-a-comment"),
         pytest.param(LITERAL_MENTION, None, id="a-mention-in-a-literal"),
+        pytest.param(SLICE_JOIN, None, id="a-slice-join"),
+        pytest.param(SCOPED_HELPER_NAME, None, id="a-helper-named-with-scope"),
         pytest.param(
             UNLISTED_SIBLING, None, id="a-dispatch-in-an-unlisted-sibling"
         ),
@@ -150,6 +153,13 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
         pytest.param(".par_sort", "items.par_sort()", id="par-sort"),
         pytest.param(".par_extend(", "out.par_extend(items)", id="par-extend"),
         pytest.param(
+            ".par_windows", "items.par_windows(2)", id="par-windows"
+        ),
+        pytest.param(".par_split", "items.par_split()", id="par-split"),
+        pytest.param(".par_lines", "text.par_lines()", id="par-lines"),
+        pytest.param(".par_chars", "text.par_chars()", id="par-chars"),
+        pytest.param(".par_drain", "items.par_drain(..)", id="par-drain"),
+        pytest.param(
             "rayon::",
             "rayon::current_thread_index()",
             id="a-qualified-rayon-path",
@@ -159,8 +169,17 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
         pytest.param("scope_fifo(", "scope_fifo(|scope| run())", id="scope-fifo"),
         pytest.param("spawn(", "spawn(run())", id="spawn"),
         pytest.param("spawn_fifo(", "spawn_fifo(run())", id="spawn-fifo"),
+        pytest.param(
+            "spawn_broadcast(",
+            "spawn_broadcast(|ctx| run(ctx))",
+            id="spawn-broadcast",
+        ),
         pytest.param("join(", "join(left, right)", id="join"),
         pytest.param("join_context(", "join_context(left, right)", id="join-context"),
+        pytest.param("broadcast(", "broadcast(|ctx| run(ctx))", id="broadcast"),
+        pytest.param(
+            ".broadcast(", "pool.broadcast(|ctx| run(ctx))", id="method-broadcast"
+        ),
     ],
 )
 def test_every_marker_in_the_set_is_detected(marker: str, call: str) -> None:

@@ -2840,12 +2840,16 @@ reads the bodies of the five functions on the scoring path —
 `insert_with_collector` in `cpu/mod.rs`; `score_trim_jobs`,
 `score_trim_jobs_with_metrics`, and `run_trim_job` in `cpu/trim.rs`; and
 `batch_distances_for_trim` in `hnsw/helpers.rs` — and rejects every recognized
-Rayon entry point in them, including prelude adapter methods such as
-`.par_bridge()` and `.par_chunks()` and the `spawn_fifo`, `scope_fifo`, and
-`join_context` free functions. It also checks a checked-in copy of the former
-`score_trim_jobs` and requires it to read as a dispatch, so the fixture cannot
-drift into agreement with the fixed code. A missing function fails the contract
-rather than reading as clean. `make test-workflow-contracts` runs it.
+Rayon entry point in them, including the parallel slice and string adapters (the
+`.par_bridge()`, `.par_chunks()`, `.par_windows()`, `.par_split()`,
+`.par_lines()`, `.par_chars()`, and `.par_drain()` methods) and the
+`spawn_fifo`, `scope_fifo`, `join_context`, `broadcast`, and `spawn_broadcast`
+calls. Each entry is a boundary-aware pattern rather than a substring, so a
+slice `names.join(", ")` in the scored body is not reported as a Rayon join. It
+also checks a checked-in copy of the former `score_trim_jobs` and requires it
+to read as a dispatch, so the fixture cannot drift into agreement with the
+fixed code. A missing function fails the contract rather than reading as clean.
+`make test-workflow-contracts` runs it.
 
 The scan's limits are part of the contract. It can see a listed helper that
 dispatches, but not an unlisted helper called by one of the five, not an

@@ -136,11 +136,14 @@ section may block on, or dispatch work to, the Rayon pool.
   functions on the scoring path — `insert_with_collector` in `cpu/mod.rs`;
   `score_trim_jobs`, `score_trim_jobs_with_metrics`, and `run_trim_job` in
   `cpu/trim.rs`; and `batch_distances_for_trim` in `hnsw/helpers.rs` — and
-  rejects every recognized Rayon entry-point marker in any of their bodies,
-  including prelude adapters such as `.par_bridge()` and `.par_chunks()` and the
-  `spawn_fifo`, `scope_fifo`, and `join_context` free functions. Dispatch in a
-  listed helper is therefore caught. Dispatch it cannot see still evades it: an
-  unlisted helper called by one of the five, an aliased import such as
+  rejects every recognized Rayon entry point in any of their bodies, including
+  the parallel slice and string adapters (`.par_bridge()`, `.par_chunks()`,
+  `.par_windows()`, `.par_split()`, `.par_lines()`, `.par_chars()`, and
+  `.par_drain()`) and the `spawn_fifo`, `scope_fifo`, `join_context`,
+  `broadcast`, and `spawn_broadcast` calls. Each entry is a boundary-aware
+  pattern, so a slice `names.join(", ")` is not read as a Rayon join. Dispatch
+  in a listed helper is therefore caught. Dispatch it cannot see still evades
+  it: an unlisted helper called by one of the five, an aliased import such as
   `use rayon::spawn as run; run(...)`, or a `DataSource` that dispatches on its
   own account. The scan fails closed when a pinned function is missing, so a
   rename or a move cannot read as clean. The runtime scheduling tests in
@@ -234,15 +237,18 @@ Negative control (2026-11-19, scratch worktree detached at the branch head):
 restoring `trim_jobs.into_par_iter()` in `score_trim_jobs` produced both
 expected outcomes.
 
-- The Python contract failed deterministically: two tests failed, seventeen
-  passed, and the failure named
-  `('chutoro-core/src/hnsw/cpu/trim.rs', 'score_trim_jobs'): 'into_par_iter'`.
-- Both runtime regressions failed in the same run: the direct test observed
-  callbacks on four worker indices instead of the caller alone, and the
-  insertion-path test observed a post-planning callback on a different thread
-  from the `insert_mutex` holder. They failed in 0.024 s and 0.009 s
-  respectively because the dedicated pool had an idle worker to accept the
-  steal offer.
+- The Python contract failed deterministically. Run from
+  `tests/workflow_contracts` as `pytest -q trim_scoring_dispatch_test.py`, it
+  collected 34 cases: two failed and thirty-two passed. The scan's failure named
+  `('chutoro-core/src/hnsw/cpu/trim.rs', 'score_trim_jobs'): 'into_par_iter'`,
+  and the historical-fixture test reported
+  `the current scorer must score in place, found 'into_par_iter'`.
+- An earlier run of the same mutation failed both runtime regressions: the
+  direct test observed callbacks on four worker indices instead of the caller
+  alone, and the insertion-path test observed a post-planning callback on a
+  different thread from the `insert_mutex` holder. They failed in 0.024 s and
+  0.009 s respectively because the dedicated pool had an idle worker to accept
+  the steal offer.
 
 The runtime outcome is scheduler-dependent by construction — a pool with no
 idle worker can let the mutated caller finish the batch itself — which is why

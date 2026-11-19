@@ -19,37 +19,55 @@ limits are stated beside ``SCANNED_FILES`` so a passing scan is not over-read.
 
 from __future__ import annotations
 
+import re
 import typing as typ
 from dataclasses import dataclass
 from pathlib import Path
 
 from rust_source_reading import function_body
-
 from workflow_support import ROOT as REPO_ROOT
 
-#: Rayon entry points that hand a job to the shared pool. A body containing
-#: any of these is dispatching rather than scoring in place. `into_par_iter`
-#: precedes `par_iter` so the more specific name is reported for a parallel
-#: iterator, and `rayon::` precedes the bare calls so a qualified call names
-#: its namespace rather than only its function. The parallel adapter methods
-#: are listed explicitly because a `use rayon::prelude::*` import lets a body
-#: call them directly; their names contain no `par_iter`, so the entries above
-#: would not match and a lexical scan would read such a body as serial.
-DISPATCH_MARKERS: typ.Final[tuple[str, ...]] = (
-    "into_par_iter",
-    "par_iter",
-    ".par_bridge(",
-    ".par_chunks",
-    ".par_sort",
-    ".par_extend(",
-    "rayon::",
-    ".install(",
-    "scope(",
-    "scope_fifo(",
-    "spawn(",
-    "spawn_fifo(",
-    "join(",
-    "join_context(",
+#: Rayon entry points that hand a job to the shared pool, as (label, pattern)
+#: pairs. A body containing any of these is dispatching rather than scoring in
+#: place; the label is what a failure reports, so it names the shape that
+#: matched rather than echoing the whole body.
+#:
+#: The patterns are boundary-aware because a raw substring is wrong in both
+#: directions. `join(` appears in `names.join(", ")`, which is a slice join,
+#: and `scope(` appears in `with_scope(`, an ordinary identifier; a body that
+#: built an error message with either would fail the contract for neither. A
+#: prelude import can also call `.par_windows()`, `.par_split()`, `.par_lines()`,
+#: `.par_chars()`, `.par_drain()`, `broadcast()`, or `spawn_broadcast()`, and a
+#: substring set without them reads such a body as serial. Free functions are
+#: anchored so a path-qualified call is left to the `rayon::` marker and a
+#: method of the same name to its own marker.
+#:
+#: `into_par_iter` precedes `par_iter` so the more specific name is reported
+#: for a parallel iterator, and `rayon::` precedes the bare calls so a
+#: qualified call names its namespace rather than only its function.
+DISPATCH_MARKERS: typ.Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
+    ("into_par_iter", re.compile(r"\binto_par_iter\b")),
+    ("par_iter", re.compile(r"\bpar_iter\b")),
+    (".par_bridge(", re.compile(r"\.par_bridge\s*\(")),
+    (".par_chunks", re.compile(r"\.par_chunks")),
+    (".par_sort", re.compile(r"\.par_sort")),
+    (".par_extend(", re.compile(r"\.par_extend\s*\(")),
+    (".par_windows", re.compile(r"\.par_windows")),
+    (".par_split", re.compile(r"\.par_split")),
+    (".par_lines", re.compile(r"\.par_lines")),
+    (".par_chars", re.compile(r"\.par_chars")),
+    (".par_drain", re.compile(r"\.par_drain")),
+    ("rayon::", re.compile(r"rayon\s*::")),
+    (".install(", re.compile(r"\.install\s*\(")),
+    ("scope(", re.compile(r"(?<![.\w:])scope\s*\(")),
+    ("scope_fifo(", re.compile(r"(?<![.\w:])scope_fifo\s*\(")),
+    ("spawn(", re.compile(r"(?<![.\w:])spawn\s*\(")),
+    ("spawn_fifo(", re.compile(r"(?<![.\w:])spawn_fifo\s*\(")),
+    ("spawn_broadcast(", re.compile(r"(?<![.\w:])spawn_broadcast\s*\(")),
+    ("join(", re.compile(r"(?<![.\w:])join\s*\(")),
+    ("join_context(", re.compile(r"(?<![.\w:])join_context\s*\(")),
+    ("broadcast(", re.compile(r"(?<![.\w:])broadcast\s*\(")),
+    (".broadcast(", re.compile(r"\.broadcast\s*\(")),
 )
 
 
@@ -173,6 +191,23 @@ fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
 }
 """
 
+#: A slice join in the scored body. `join(` is a Rayon free function, but
+#: `names.join(", ")` is `[String]::join`, which dispatches nothing; a
+#: substring matcher reported it and failed a correct body.
+SLICE_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> String {
+    names.join(", ")
+}
+"""
+
+#: A helper whose name ends in `scope`. A substring match on `scope(` read it
+#: as Rayon's `scope`; the boundary anchor leaves it alone.
+SCOPED_HELPER_NAME = """
+fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
+    with_scope(|| jobs.into_iter().map(score).collect())
+}
+"""
+
 #: A dispatch in a sibling function that the pinned list does not name. A
 #: file-level search would report it and fail a scorer that is itself serial.
 UNLISTED_SIBLING = """
@@ -252,7 +287,10 @@ def dispatch_marker(source: str, name: str) -> str | None:
             "prove its body scores serially"
         )
         raise MissingFunctionError(message)
-    return next((marker for marker in DISPATCH_MARKERS if marker in body), None)
+    return next(
+        (label for label, pattern in DISPATCH_MARKERS if pattern.search(body)),
+        None,
+    )
 
 
 def dispatch_markers(source: str, names: typ.Sequence[str]) -> dict[str, str | None]:
