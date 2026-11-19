@@ -54,8 +54,8 @@ struct SelfFailingSource {
     served_queries: Mutex<BTreeSet<usize>>,
     /// Failing queries in the order their rejections were produced.
     rejections: Mutex<Vec<usize>>,
-    /// Set once [`LATE_FAILURE`] has been rejected.
-    late_failure_observed: AtomicBool,
+    /// When [`LATE_FAILURE`] was rejected, if it has been.
+    late_failure_at: Mutex<Option<Instant>>,
     /// Set only when the early failure saw the late rejection in time.
     ordering_witnessed: AtomicBool,
     /// `Some` only when a second worker can observe the late failure.
@@ -74,7 +74,7 @@ impl SelfFailingSource {
             failing,
             served_queries: Mutex::new(BTreeSet::new()),
             rejections: Mutex::new(Vec::new()),
-            late_failure_observed: AtomicBool::new(false),
+            late_failure_at: Mutex::new(None),
             ordering_witnessed: AtomicBool::new(false),
             ordering_wait,
         }
@@ -109,8 +109,9 @@ impl SelfFailingSource {
 
     /// Waits, within the configured bound, for the late failure to be seen.
     ///
-    /// The flag is accepted only while the deadline still holds, so a rejection
-    /// that lands after the bound cannot be mistaken for an in-time witness. A
+    /// The witness compares the rejection timestamp with the deadline rather
+    /// than the moment this worker noticed it, so neither a paused worker nor a
+    /// sleep overshoot can turn a late rejection into an in-time witness. A
     /// timeout is not fatal here: the early query still rejects its own pair so
     /// the stage reaches its assertions, which then fail on the unset ordering
     /// witness rather than hanging the suite.
@@ -119,10 +120,26 @@ impl SelfFailingSource {
             return;
         };
         let deadline = Instant::now() + wait;
-        while Instant::now() < deadline {
-            if self.late_failure_observed.load(Ordering::SeqCst) {
-                self.ordering_witnessed.store(true, Ordering::SeqCst);
-                return;
+        let Some(rejected_at) = self.wait_for_late_rejection(deadline) else {
+            return;
+        };
+        if rejected_at <= deadline {
+            self.ordering_witnessed.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Polls for the late rejection until it arrives or the deadline passes.
+    fn wait_for_late_rejection(&self, deadline: Instant) -> Option<Instant> {
+        loop {
+            let rejected_at = *self
+                .late_failure_at
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if rejected_at.is_some() {
+                return rejected_at;
+            }
+            if Instant::now() >= deadline {
+                return None;
             }
             std::thread::sleep(Duration::from_millis(1));
         }
@@ -162,7 +179,10 @@ impl DataSource for SelfFailingSource {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .push(left);
             if left == LATE_FAILURE {
-                self.late_failure_observed.store(true, Ordering::SeqCst);
+                *self
+                    .late_failure_at
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Instant::now());
             }
             // A synthetic rejection; the index is preserved in the error so
             // the test can prove which query produced it.

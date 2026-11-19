@@ -265,6 +265,12 @@ and 150 lines of benchmark and profiling support.
   release-after-`index.search` hook is declined with evidence: the seam has no
   observable search return, and the call-site mutation run shows the existing
   witness already rejects a completion-ordered collector at both thread counts.
+- [x] (2026-11-19 21:10Z) Round-five deadline race closed: the early worker
+  compared the clock with its deadline and then loaded a flag, so a worker
+  paused between the two could set the witness after the bound. The late
+  rejection now stores the `Instant` at which it was produced, after its
+  rejection-log push, and the wait compares that timestamp with the deadline. A
+  late rejection can no longer be mistaken for an in-time one.
 - [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
@@ -415,9 +421,10 @@ and 150 lines of benchmark and profiling support.
   collector would follow. The call-site short-circuiting mutation shows the
   test discriminates rather than passing vacuously: at eight threads the mutant
   reports index 11 instead of 3, and at one thread it serves only four of the
-  twelve queries. The bounded wait was also changed to accept the flag only
-  while the deadline still holds, so a rejection that lands after the bound
-  cannot set the witness. Date/Author: 2026-11-19, implementation agent.
+  twelve queries. The late rejection records the `Instant` at which it
+  happened, and the bounded wait compares that timestamp with its own deadline,
+  so neither a paused worker nor a sleep overshoot can turn a late rejection
+  into an in-time witness. Date/Author: 2026-11-19, implementation agent.
 
 ## Outcomes & retrospective
 
