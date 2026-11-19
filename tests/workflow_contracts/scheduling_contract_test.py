@@ -299,6 +299,21 @@ def test_the_target_is_phony() -> None:
     )
 
 
+def test_the_target_is_declared_once() -> None:
+    """A later duplicate recipe would override the one this contract reads.
+
+    GNU make keeps the last recipe declared for a repeated target and only
+    warns. The contract reads the first declaration, so a duplicate could
+    replace the gated recipe with a command the checks never saw.
+    """
+    declarations = re.findall(
+        rf"^{re.escape(TARGET)}:", makefile_text(), re.MULTILINE
+    )
+    assert len(declarations) == 1, (
+        f"{TARGET} must be declared once; found {len(declarations)} recipes"
+    )
+
+
 def _build_test_steps() -> list[dict[str, object]]:
     """Return the ``build-test`` steps that run a script, in order.
 
