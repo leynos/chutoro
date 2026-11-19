@@ -52,8 +52,12 @@ struct SelfFailingSource {
     failing: Vec<usize>,
     /// Query indices that reached this source, which is the left operand.
     served_queries: Mutex<BTreeSet<usize>>,
+    /// Failing queries in the order their rejections were produced.
+    rejections: Mutex<Vec<usize>>,
     /// Set once [`LATE_FAILURE`] has been rejected.
     late_failure_observed: AtomicBool,
+    /// Set only when the early failure saw the late rejection in time.
+    ordering_witnessed: AtomicBool,
     /// `Some` only when a second worker can observe the late failure.
     ordering_wait: Option<Duration>,
 }
@@ -69,7 +73,9 @@ impl SelfFailingSource {
             inner,
             failing,
             served_queries: Mutex::new(BTreeSet::new()),
+            rejections: Mutex::new(Vec::new()),
             late_failure_observed: AtomicBool::new(false),
+            ordering_witnessed: AtomicBool::new(false),
             ordering_wait,
         }
     }
@@ -84,19 +90,38 @@ impl SelfFailingSource {
             .clone()
     }
 
-    /// Reports whether the late failure was rejected.
-    fn late_failure_observed(&self) -> bool {
-        self.late_failure_observed.load(Ordering::SeqCst)
+    /// Returns the failing queries in the order their rejections were produced.
+    fn rejections(&self) -> Vec<usize> {
+        self.rejections
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Reports whether the early failure witnessed the late rejection in time.
+    ///
+    /// Unlike the late-failure flag itself, this is set only from inside the
+    /// early failure's bounded wait. A late rejection that arrives after the
+    /// deadline, or after the stage has returned, cannot set it.
+    fn ordering_witnessed(&self) -> bool {
+        self.ordering_witnessed.load(Ordering::SeqCst)
     }
 
     /// Waits, within the configured bound, for the late failure to be seen.
+    ///
+    /// A timeout is not fatal here: the early query still rejects its own pair
+    /// so the stage reaches its assertions, which then fail on the unset
+    /// ordering witness rather than hanging the suite.
     fn await_late_failure(&self) {
         let Some(wait) = self.ordering_wait else {
             return;
         };
         let deadline = Instant::now() + wait;
-        while !self.late_failure_observed() && Instant::now() < deadline {
+        while !self.late_failure_observed.load(Ordering::SeqCst) && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(1));
+        }
+        if self.late_failure_observed.load(Ordering::SeqCst) {
+            self.ordering_witnessed.store(true, Ordering::SeqCst);
         }
     }
 }
@@ -126,6 +151,13 @@ impl DataSource for SelfFailingSource {
             self.await_late_failure();
         }
         if left == right && self.failing.contains(&left) {
+            // The rejection is logged before the wake-up flag is set, so the
+            // recorded order cannot show the early failure first merely because
+            // it woke up faster than the late failure finished logging.
+            self.rejections
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(left);
             if left == LATE_FAILURE {
                 self.late_failure_observed.store(true, Ordering::SeqCst);
             }
@@ -204,8 +236,15 @@ fn real_search_failure_reports_the_lowest_failing_query(#[case] threads: usize) 
         );
         if threads > 1 {
             assert!(
-                failing_source.late_failure_observed(),
-                "trial {descriptor} must reject query {LATE_FAILURE} before query {EARLY_FAILURE}"
+                failing_source.ordering_witnessed(),
+                "trial {descriptor} with {threads} threads timed out waiting for query \
+                 {LATE_FAILURE}, so the lowest-index ordering was never witnessed"
+            );
+            assert_eq!(
+                failing_source.rejections(),
+                vec![LATE_FAILURE, EARLY_FAILURE],
+                "trial {descriptor} with {threads} threads must reject query {LATE_FAILURE} \
+                 before query {EARLY_FAILURE}"
             );
         }
     }

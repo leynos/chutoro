@@ -252,6 +252,13 @@ and 150 lines of benchmark and profiling support.
   `make check-fmt`, `make test` (1,492 passed, 1 skipped; doctests ok),
   `make typecheck`, `make lint` (interrogate, rustdoc, Clippy, Whitaker),
   `make markdownlint`, `make spelling`, and `make nixie` all pass.
+- [x] (2026-11-19 19:30Z) Round-five follow-ups addressed: the real-search
+  regression now fails the eight-thread trial when its bounded wait expires
+  instead of falling through to a flag the stage might set later, records the
+  order in which the two rejections were produced, and asserts that the late
+  rejection came first; the cluster-size concurrency case runs at one and eight
+  workers. The call-site short-circuiting mutation was re-run and the result
+  recorded in the verification plan.
 - [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
@@ -580,15 +587,20 @@ The selection rule `C(L, m)` over a non-self, ascending-distance list `L` is:
   Artefact: same test module. Evidence: mutating the seam to
   `results.collect::<Result<Vec<T>, E>>()` makes the eight-thread case return
   `Err(11)` instead of `Err(3)` (observed 2026-11-17), so the test rejects the
-  completion-ordered collector for the intended reason. Non-vacuity: the
-  delayed lower index actually fails, and the real fixture is shown to fail at
-  the intended index.
+  completion-ordered collector for the intended reason. The same mutation
+  applied at the call site on 2026-11-19 made `case_2_eight_threads` report
+  `OutOfBounds { index: 11 }` and `case_1_single_thread` serve only
+  `{0, 1, 2, 3}` of the twelve queries, so both thread counts reject it.
+  Non-vacuity: the delayed lower index actually fails, and the real fixture is
+  shown to fail at the intended index.
 - Obligation `INV-every-index-runs`.
   Method: a counter that records which index tasks ran in the presence of a
   failure. Rationale: side-effect behaviour is observable and cheap to pin.
   Artefact: same test module. Evidence: the ordered collector records all 16
   indices; the mutated collector recorded 4 at one thread and 12 at eight
-  threads before returning.
+  threads before returning. The call-site mutation on 2026-11-19 recorded
+  `{0, 1, 2, 3}` at one thread, which the real-search fixture now asserts
+  against directly.
 - Obligation `REQ-measure`.
   Method: Criterion baseline comparison plus a local-recorder stage profile.
   Rationale: performance claims need before/after evidence on the same host.

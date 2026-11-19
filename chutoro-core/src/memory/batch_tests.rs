@@ -82,10 +82,13 @@ fn batch_search_width_follows_the_cluster_size(
 }
 
 #[cfg(feature = "cpu")]
-#[test]
-fn a_large_cluster_size_raises_the_concurrent_search_term() {
+#[rstest]
+#[case::single_worker(1)]
+#[case::eight_workers(8)]
+fn a_large_cluster_size_raises_the_concurrent_search_term(#[case] concurrent_searches: usize) {
     let params = crate::HnswParams::new(4, 16).expect("parameters must be valid");
-    let searches = std::num::NonZeroUsize::new(8).expect("eight is non-zero");
+    let searches =
+        std::num::NonZeroUsize::new(concurrent_searches).expect("case counts are non-zero");
     let small_cluster = std::num::NonZeroUsize::new(2).expect("two is non-zero");
     let large_cluster = std::num::NonZeroUsize::new(1_000).expect("one thousand is non-zero");
 
@@ -104,6 +107,7 @@ fn a_large_cluster_size_raises_the_concurrent_search_term() {
 
     assert!(
         large > small,
-        "a cluster size wider than the construction breadth must raise the estimate"
+        "with {concurrent_searches} concurrent searches, a cluster size wider than the \
+         construction breadth must raise the estimate"
     );
 }
