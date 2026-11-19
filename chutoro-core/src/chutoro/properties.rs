@@ -7,7 +7,8 @@ use tracing_subscriber::layer::SubscriberExt;
 
 use super::*;
 use crate::{
-    ChutoroBuilder, ExecutionStrategy, HnswParams, estimate_peak_bytes_for_hnsw_params,
+    ChutoroBuilder, ExecutionStrategy, HnswParams,
+    estimate_peak_bytes_for_hnsw_params_with_concurrency,
     test_utils::{CountingSource, suite_proptest_config},
 };
 use chutoro_test_support::tracing::RecordingLayer;
@@ -41,7 +42,13 @@ proptest! {
                 .collect(),
             Arc::new(AtomicUsize::new(0)),
         );
-        let estimate = estimate_peak_bytes_for_hnsw_params(point_count, &params);
+        // The guard sizes concurrent search state from the ambient pool, and
+        // this test observes it from the same context as `run`.
+        let estimate = estimate_peak_bytes_for_hnsw_params_with_concurrency(
+            point_count,
+            &params,
+            super::concurrent_core_distance_searches(),
+        );
 
         let memory_limited = ChutoroBuilder::new()
             .with_min_cluster_size(min_cluster_size)

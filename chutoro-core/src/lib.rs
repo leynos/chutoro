@@ -43,7 +43,9 @@ pub use crate::{
 };
 
 #[cfg(feature = "cpu")]
-pub use crate::memory::estimate_peak_bytes_for_hnsw_params;
+pub use crate::memory::{
+    estimate_peak_bytes_for_hnsw_params, estimate_peak_bytes_for_hnsw_params_with_concurrency,
+};
 
 #[cfg(feature = "cpu")]
 /// Shared core-distance selection rule; requires the `cpu` feature.

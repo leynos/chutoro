@@ -330,6 +330,58 @@ fn a_capped_level_multiplier_raises_the_parameter_estimate() {
     );
 }
 
+// -- estimate_peak_bytes: concurrency -----------------------------------
+
+#[cfg(feature = "cpu")]
+#[rstest]
+#[case::single_search(1)]
+#[case::eight_workers(8)]
+#[case::many_workers(64)]
+fn concurrency_estimate_keeps_one_search_state_per_worker(#[case] concurrent_searches: usize) {
+    use std::num::NonZeroUsize;
+
+    let params = crate::HnswParams::new(4, 16).expect("parameters must be valid");
+    let searches = NonZeroUsize::new(concurrent_searches).expect("case counts are non-zero");
+    let with_concurrency =
+        estimate_peak_bytes_for_hnsw_params_with_concurrency(100, &params, searches);
+
+    if concurrent_searches == 1 {
+        assert_eq!(
+            with_concurrency,
+            estimate_peak_bytes_for_hnsw_params(100, &params),
+            "a single concurrent search must match the one-state estimate"
+        );
+    } else {
+        assert!(
+            with_concurrency > estimate_peak_bytes_for_hnsw_params(100, &params),
+            "{concurrent_searches} concurrent searches must raise the estimate"
+        );
+    }
+}
+
+#[cfg(feature = "cpu")]
+#[test]
+fn concurrency_estimate_scales_with_worker_count() {
+    use std::num::NonZeroUsize;
+
+    let params = crate::HnswParams::new(4, 64).expect("parameters must be valid");
+    let two = estimate_peak_bytes_for_hnsw_params_with_concurrency(
+        100,
+        &params,
+        NonZeroUsize::new(2).expect("two is non-zero"),
+    );
+    let four = estimate_peak_bytes_for_hnsw_params_with_concurrency(
+        100,
+        &params,
+        NonZeroUsize::new(4).expect("four is non-zero"),
+    );
+
+    assert!(
+        four > two,
+        "doubling the concurrent search count must raise the estimate"
+    );
+}
+
 // -- format_bytes -------------------------------------------------------
 
 #[rstest]

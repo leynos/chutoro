@@ -4,7 +4,9 @@
 //! reject oversized datasets before any allocation occurs.  The estimate is
 //! intentionally pessimistic — it uses a safety multiplier to account for heap
 //! fragmentation, Rayon thread-local buffers, and temporary allocations that
-//! are difficult to predict statically.
+//! are difficult to predict statically. Search state is counted once per
+//! concurrent search, because the batch core-distance stage runs one search per
+//! Rayon worker.
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -14,6 +16,7 @@
 /// Rayon thread-local buffers, and transient allocations.  1.5× is chosen as
 /// a balance between avoiding false positives and catching genuine OOM risks.
 const SAFETY_MULTIPLIER_NUMERATOR: u64 = 3;
+
 /// Denominator paired with the safety multiplier numerator.
 const SAFETY_MULTIPLIER_DENOMINATOR: u64 = 2;
 
@@ -76,6 +79,7 @@ const F32_BYTES: u64 = 4;
 /// Conservative allocation budget for one `SearchState` width unit. It covers
 /// two binary heaps and two hash sets, including their expected spare capacity.
 const SEARCH_STATE_BYTES_PER_WIDTH: u64 = 256;
+
 /// Size of a `usize` — derived at compile time so the estimate adapts to the
 /// target platform (8 bytes on 64-bit, 4 bytes on 32-bit).
 const USIZE_BYTES: u64 = std::mem::size_of::<usize>() as u64;
@@ -138,6 +142,7 @@ pub const fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> 
         distance_cache_capacity: DEFAULT_CACHE_MAX_ENTRIES,
         harvest_width: max_connections.saturating_mul(LEGACY_EF_PER_CONNECTION),
         layers_eighths: default_layers_eighths(max_connections),
+        concurrent_searches: 1,
     })
 }
 
@@ -149,6 +154,10 @@ pub const fn estimate_peak_bytes(point_count: usize, max_connections: usize) -> 
 /// multiplier, so a multiplier that drives every node to `max_level` is
 /// counted at the full `max_level + 1` layers rather than at the default
 /// geometric mean.
+///
+/// It assumes one live search state; use
+/// [`estimate_peak_bytes_for_hnsw_params_with_concurrency`] when several
+/// searches can run at once, as the parallel batch core-distance stage does.
 ///
 /// # Examples
 ///
@@ -177,6 +186,7 @@ pub fn estimate_peak_bytes_for_hnsw_params(
         // The parameters own the sampler, so their expectation follows an
         // overridden level multiplier, including one that reaches the cap.
         layers_eighths: hnsw_params.expected_layers_eighths(),
+        concurrent_searches: 1,
     })
 }
 
@@ -212,6 +222,59 @@ const fn default_layers_eighths(max_connections: usize) -> u64 {
     } else {
         layer_cap
     }
+}
+
+/// Returns the guarded peak estimate when several searches can be live at once.
+///
+/// The batch core-distance stage runs one HNSW search per Rayon worker, so its
+/// search-state allocation scales with the pool width rather than staying at
+/// the single state assumed by [`estimate_peak_bytes_for_hnsw_params`]. Pass
+/// the width of the pool that will execute the run.
+///
+/// The estimate is still applied as a pre-flight guard: it predicts the run
+/// from the configured parameters and the given concurrency, not from observed
+/// allocation.
+///
+/// # Examples
+///
+/// ```
+/// use std::num::NonZeroUsize;
+///
+/// use chutoro_core::{
+///     HnswParams, estimate_peak_bytes_for_hnsw_params,
+///     estimate_peak_bytes_for_hnsw_params_with_concurrency,
+/// };
+///
+/// let params = HnswParams::new(16, 64).expect("parameters must be valid");
+/// let one_search = estimate_peak_bytes_for_hnsw_params(1_000, &params);
+/// let eight_searches = estimate_peak_bytes_for_hnsw_params_with_concurrency(
+///     1_000,
+///     &params,
+///     NonZeroUsize::new(8).expect("eight is non-zero"),
+/// );
+/// assert!(eight_searches > one_search);
+/// ```
+#[cfg(feature = "cpu")]
+#[must_use]
+pub fn estimate_peak_bytes_for_hnsw_params_with_concurrency(
+    point_count: usize,
+    hnsw_params: &crate::HnswParams,
+    concurrent_searches: std::num::NonZeroUsize,
+) -> u64 {
+    let effective_search_width = hnsw_params.effective_ef_construction(point_count);
+    estimate_peak_bytes_with_search_width(EstimateInputs {
+        point_count,
+        max_connections: hnsw_params.max_connections(),
+        effective_search_width,
+        distance_cache_capacity: hnsw_params.distance_cache_config().max_entries().get(),
+        // Layer searches retain up to `ef` candidates each, so the harvest
+        // width matches the bounded construction breadth.
+        harvest_width: effective_search_width,
+        // The parameters own the sampler, so their expectation follows an
+        // overridden level multiplier, including one that reaches the cap.
+        layers_eighths: hnsw_params.expected_layers_eighths(),
+        concurrent_searches: concurrent_searches.get(),
+    })
 }
 
 /// Returns the expected number of candidate edges an HNSW build harvests.
@@ -250,6 +313,8 @@ struct EstimateInputs {
     harvest_width: usize,
     /// Expected layers a node occupies, in eighths.
     layers_eighths: u64,
+    /// Search states that can be live at the same time; at least one.
+    concurrent_searches: usize,
 }
 
 /// Calculates the shared estimate from graph, search-state, and cache capacities.
@@ -261,8 +326,8 @@ const fn estimate_peak_bytes_with_search_width(inputs: EstimateInputs) -> u64 {
         distance_cache_capacity,
         harvest_width,
         layers_eighths,
+        concurrent_searches,
     } = inputs;
-
     if point_count == 0 {
         return 0;
     }
@@ -302,8 +367,16 @@ const fn estimate_peak_bytes_with_search_width(inputs: EstimateInputs) -> u64 {
     // MST forest: up to n edges (n − 1 for a connected graph, rounded up).
     let mst_forest = n.saturating_mul(MST_EDGE_BYTES);
 
-    // CPU construction creates search queues sized by the effective `ef`.
-    let search_state = search_width.saturating_mul(SEARCH_STATE_BYTES_PER_WIDTH);
+    // CPU construction creates search queues sized by the effective `ef`, and
+    // the parallel core-distance stage keeps one such queue set per worker.
+    let concurrent_states = if concurrent_searches == 0 {
+        1
+    } else {
+        concurrent_searches
+    };
+    let search_state = search_width
+        .saturating_mul(SEARCH_STATE_BYTES_PER_WIDTH)
+        .saturating_mul(concurrent_states as u64);
 
     let subtotal = hnsw_adjacency
         .saturating_add(hnsw_nodes)
@@ -324,10 +397,13 @@ const fn estimate_peak_bytes_with_search_width(inputs: EstimateInputs) -> u64 {
 
 /// Number of bytes in one kibibyte.
 const KIB: u64 = 1024;
+
 /// Number of bytes in one mebibyte.
 const MIB: u64 = 1024 * KIB;
+
 /// Number of bytes in one gibibyte.
 const GIB: u64 = 1024 * MIB;
+
 /// Number of bytes in one tebibyte.
 const TIB: u64 = 1024 * GIB;
 
