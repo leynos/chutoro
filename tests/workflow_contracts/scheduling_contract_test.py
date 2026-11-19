@@ -8,9 +8,10 @@ step deleted beside it would all leave the suite green.
 These tests read the Makefile recipe and the ``build-test`` job in
 ``.github/workflows/ci.yml``. They pin the target, one invocation per fully
 qualified exact-match test name, the zero-test failure flag on each, the
-unconditional execution of the step, and the dependency on an installed
-``cargo-nextest``. They also require default features so the gate cannot become
-collateral damage when the coverage action's feature set changes.
+unconditional and blocking execution of the step within an unconditional job,
+and the dependency on an installed ``cargo-nextest``. They also require default
+features so the gate cannot become collateral damage when the coverage action's
+feature set changes.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -97,7 +98,8 @@ def recipe_commands(text: str, target: str) -> list[str]:
     )
     match = pattern.search(text)
     if match is None:
-        raise ValueError(f"{target} is not declared with a recipe")
+        message = f"{target} is not declared with a recipe"
+        raise ValueError(message)
     commands: list[str] = []
     pending = ""
     for raw in match.group("recipe").splitlines():
@@ -134,7 +136,8 @@ def target_recipe(text: str, target: str) -> str:
     """
     commands = recipe_commands(text, target)
     if not commands:
-        raise ValueError(f"{target} has no recipe")
+        message = f"{target} has no recipe"
+        raise ValueError(message)
     return " ".join(commands)
 
 
@@ -206,7 +209,9 @@ def test_a_flag_on_another_invocation_does_not_cover_a_missing_one() -> None:
         "cargo nextest run -E 'test(=a)' --no-tests=fail --no-tests=fail",
         "cargo nextest run -E 'test(=b)'",
     ]
-    assert _invocations_missing_flag(invocations) == [1]
+    assert _invocations_missing_flag(invocations) == [1], (
+        "only the unflagged invocation may be reported"
+    )
 
 
 def test_each_regression_runs_in_its_own_invocation() -> None:
@@ -253,15 +258,19 @@ def test_the_target_runs_the_core_library_with_default_features() -> None:
     alter what the scheduling gate builds.
     """
     recipe = target_recipe(makefile_text(), TARGET)
-    assert "nextest run" in recipe
-    assert "-p chutoro-core" in recipe
-    assert "--lib" in recipe
-    assert "--all-features" not in recipe
+    assert "nextest run" in recipe, "the target must run nextest"
+    assert "-p chutoro-core" in recipe, "the gate must select chutoro-core"
+    assert "--lib" in recipe, "the gate must run the library target"
+    assert "--all-features" not in recipe, (
+        "the gate must not widen the feature set"
+    )
 
 
 def test_the_target_is_phony() -> None:
     """A file named like the target must not satisfy it."""
-    assert TARGET in phony_targets(makefile_text())
+    assert TARGET in phony_targets(makefile_text()), (
+        f"{TARGET} must be declared phony"
+    )
 
 
 def _build_test_steps() -> list[dict[str, object]]:
@@ -296,17 +305,21 @@ def _step_running(command: str) -> dict[str, object] | None:
 
 
 def _assert_unconditional(step: dict[str, object] | None, command: str) -> None:
-    """Fail unless `step` exists and runs without a step-level condition.
+    """Fail unless `step` exists and its failure would fail the job.
 
     These steps have no side effect worth guarding: they either run the
     evidence or the job has not done its work. A condition, including
     ``if: false``, would let the step disappear while the contract still
-    found its command in the file.
+    found its command in the file, and ``continue-on-error`` would let a
+    failing regression leave the job green.
     """
     assert step is not None, f"build-test must run {command}"
     condition = step.get("if")
     assert condition is None, (
         f"{command} must run unconditionally; it is guarded by {condition!r}"
+    )
+    assert "continue-on-error" not in step, (
+        f"{command} must fail the job when it fails; it is non-blocking"
     )
 
 
@@ -320,6 +333,20 @@ def test_ci_runs_the_scheduling_target_beside_the_workflow_contracts() -> None:
         "the scheduling gate belongs with the workflow contracts"
     )
     _assert_unconditional(_step_running(f"make {TARGET}"), f"make {TARGET}")
+
+
+def test_the_build_test_job_is_not_conditional() -> None:
+    """A job-level condition skips every step the contract relies on.
+
+    The step check reads only the scheduling step's own guard. A condition
+    on ``build-test`` itself would skip the whole job, including that step,
+    and the evidence would never run.
+    """
+    definition = job("ci.yml", "build-test")
+    condition = definition.get("if")
+    assert condition is None, (
+        f"build-test must run unconditionally; it is guarded by {condition!r}"
+    )
 
 
 def test_ci_installs_nextest_before_the_scheduling_target() -> None:

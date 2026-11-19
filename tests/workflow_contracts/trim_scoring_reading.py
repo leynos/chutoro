@@ -31,15 +31,25 @@ from workflow_support import ROOT as REPO_ROOT
 #: any of these is dispatching rather than scoring in place. `into_par_iter`
 #: precedes `par_iter` so the more specific name is reported for a parallel
 #: iterator, and `rayon::` precedes the bare calls so a qualified call names
-#: its namespace rather than only its function.
+#: its namespace rather than only its function. The parallel adapter methods
+#: are listed explicitly because a `use rayon::prelude::*` import lets a body
+#: call them directly; their names contain no `par_iter`, so the entries above
+#: would not match and a lexical scan would read such a body as serial.
 DISPATCH_MARKERS: typ.Final[tuple[str, ...]] = (
     "into_par_iter",
     "par_iter",
+    ".par_bridge(",
+    ".par_chunks",
+    ".par_sort",
+    ".par_extend(",
     "rayon::",
     ".install(",
     "scope(",
+    "scope_fifo(",
     "spawn(",
+    "spawn_fifo(",
     "join(",
+    "join_context(",
 )
 
 
@@ -237,10 +247,11 @@ def dispatch_marker(source: str, name: str) -> str | None:
     """
     body = function_body(source, name)
     if body is None:
-        raise MissingFunctionError(
+        message = (
             f"{name} is not declared in this source; the contract cannot "
             "prove its body scores serially"
         )
+        raise MissingFunctionError(message)
     return next((marker for marker in DISPATCH_MARKERS if marker in body), None)
 
 

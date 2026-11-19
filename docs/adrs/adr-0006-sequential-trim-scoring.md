@@ -136,17 +136,19 @@ section may block on, or dispatch work to, the Rayon pool.
   functions on the scoring path — `insert_with_collector` in `cpu/mod.rs`;
   `score_trim_jobs`, `score_trim_jobs_with_metrics`, and `run_trim_job` in
   `cpu/trim.rs`; and `batch_distances_for_trim` in `hnsw/helpers.rs` — and
-  rejects every recognized Rayon entry-point marker in any of their bodies.
-  Dispatch in a listed helper is therefore caught. Dispatch it cannot see still
-  evades it: an unlisted helper called by one of the five, an aliased import
-  such as `use rayon::spawn as run; run(...)`, or a `DataSource` that
-  dispatches on its own account. The scan fails closed when a pinned function
-  is missing, so a rename or a move cannot read as clean. The runtime
-  scheduling tests in `hnsw::cpu::trim_tests` remain as broader coverage, and
-  they may catch unlisted helper dispatch, but they are observations rather
-  than proofs: the caller's first distance callback waits up to two seconds for
-  another worker, and if no worker steals in that interval a dispatching
-  implementation can still finish the batch on the caller and pass.
+  rejects every recognized Rayon entry-point marker in any of their bodies,
+  including prelude adapters such as `.par_bridge()` and `.par_chunks()` and the
+  `spawn_fifo`, `scope_fifo`, and `join_context` free functions. Dispatch in a
+  listed helper is therefore caught. Dispatch it cannot see still evades it: an
+  unlisted helper called by one of the five, an aliased import such as
+  `use rayon::spawn as run; run(...)`, or a `DataSource` that dispatches on its
+  own account. The scan fails closed when a pinned function is missing, so a
+  rename or a move cannot read as clean. The runtime scheduling tests in
+  `hnsw::cpu::trim_tests` remain as broader coverage, and they may catch
+  unlisted helper dispatch, but they are observations rather than proofs: the
+  caller's first distance callback waits up to two seconds for another worker,
+  and if no worker steals in that interval a dispatching implementation can
+  still finish the batch on the caller and pass.
 - **A watchdog stress test was considered and rejected.** An earlier
   watchdog-based stress test passed three times out of three on the unfixed
   code, because the stall is a scheduling race rather than a deterministic
@@ -213,9 +215,10 @@ features, and the `build-test` CI job runs that target unconditionally beside
 `make test-workflow-contracts`.
 `tests/workflow_contracts/scheduling_contract_test.py` pins the target recipe,
 one invocation per fully qualified test name, the zero-test failure flag on
-each, the unconditional execution of the step and its nextest installer, and
-the order that installs `cargo-nextest` before the target runs. It also checks
-that each named regression is still declared under `cpu/trim_tests`.
+each, the unconditional and blocking execution of the step and its nextest
+installer within an unconditional job, and the order that installs
+`cargo-nextest` before the target runs. It also checks that each named
+regression is still declared under `cpu/trim_tests`.
 
 Positive evidence: both runtime regressions pass on the fixed tree, and the
 full gate set passed on commit `28a9687` (`make check-fmt`, `make markdownlint`

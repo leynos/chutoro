@@ -145,6 +145,10 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
     [
         pytest.param("into_par_iter", "jobs.into_par_iter()", id="into-par-iter"),
         pytest.param("par_iter", "jobs.par_iter()", id="par-iter"),
+        pytest.param(".par_bridge(", "jobs.par_bridge()", id="par-bridge"),
+        pytest.param(".par_chunks", "items.par_chunks(2)", id="par-chunks"),
+        pytest.param(".par_sort", "items.par_sort()", id="par-sort"),
+        pytest.param(".par_extend(", "out.par_extend(items)", id="par-extend"),
         pytest.param(
             "rayon::",
             "rayon::current_thread_index()",
@@ -152,8 +156,11 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
         ),
         pytest.param(".install(", "pool.install(|| run())", id="install"),
         pytest.param("scope(", "scope(|scope| run())", id="scope"),
+        pytest.param("scope_fifo(", "scope_fifo(|scope| run())", id="scope-fifo"),
         pytest.param("spawn(", "spawn(run())", id="spawn"),
+        pytest.param("spawn_fifo(", "spawn_fifo(run())", id="spawn-fifo"),
         pytest.param("join(", "join(left, right)", id="join"),
+        pytest.param("join_context(", "join_context(left, right)", id="join-context"),
     ],
 )
 def test_every_marker_in_the_set_is_detected(marker: str, call: str) -> None:
