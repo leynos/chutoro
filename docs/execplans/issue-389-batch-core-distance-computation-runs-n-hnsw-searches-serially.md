@@ -195,6 +195,19 @@ and 150 lines of benchmark and profiling support.
   eight threads, each trial with its own metric descriptor, and the users'
   guide and migration notes document `core_distance_from_neighbours`,
   `chutoro.cpu_pipeline.stage_seconds`, and the batch parallelism contract.
+- [x] (2026-11-19 04:55Z) Rebased onto `origin/main` (`bab414a`) after #427
+  merged. All eleven commits replayed with one conflict in
+  `docs/users-guide.md`: main's byte-histogram precision paragraph and this
+  branch's stage-metrics paragraph sit in the same list, and both are kept.
+  `git range-diff 6ddcd0a..d26817f bab414a..HEAD` shows ten identical commits
+  and the eleventh differing only by the resolved context; `git diff --check`
+  is clean. New head `616aa4a`, force-pushed with lease from `d26817f`.
+- [x] (2026-11-19 05:40Z) Post-rebase deterministic gates on `616aa4a`:
+  `make check-fmt`, `make test` (1,484 passed, 1 skipped, 0 failed; doctests
+  ok), `make typecheck`, `make lint` (interrogate, rustdoc, Clippy, Whitaker),
+  `make markdownlint` (0 issues), `make nixie`, and `make spelling` all pass.
+  Hosted CI for the same head is green for build-test, Kani, benchmark smoke,
+  property tests, Verus, CodeScene, and Gecko.
 - [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
@@ -849,3 +862,6 @@ No runtime dependency is added to `chutoro-core`.
 - 2026-11-19: Added a two-thread-count call-site regression for the real-search
   failure path, and documented the public helper, the stage metric label, and
   the batch parallelism contract in the users' guide and migration notes.
+- 2026-11-19: Rebased a second time onto `origin/main` at `bab414a`, resolving
+  one `docs/users-guide.md` conflict by keeping both branches' paragraphs, and
+  re-ran every deterministic gate on the new head.
