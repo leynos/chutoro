@@ -74,6 +74,7 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     ("spawn_fifo(", re.compile(r"(?<![.\w:])spawn_fifo\s*\(")),
     (".spawn_fifo(", re.compile(r"\.spawn_fifo\s*\(")),
     ("spawn_broadcast(", re.compile(r"(?<![.\w:])spawn_broadcast\s*\(")),
+    (".spawn_broadcast(", re.compile(r"\.spawn_broadcast\s*\(")),
     ("join(", re.compile(r"(?<![.\w:])join\s*\(")),
     ("join_context(", re.compile(r"(?<![.\w:])join_context\s*\(")),
     ("broadcast(", re.compile(r"(?<![.\w:])broadcast\s*\(")),

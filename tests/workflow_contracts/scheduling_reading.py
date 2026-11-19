@@ -75,9 +75,7 @@ FEATURE_FLAGS = (
 #: Attributes that register a function with the test harness. Matched on the
 #: attribute's path, so `#[rstest(...)]` counts and `#[test_only_helper]` does
 #: not.
-TEST_ATTRIBUTE = re.compile(
-    r"^#\[\s*(?:test|rstest|tokio::test|async_std::test)\b"
-)
+TEST_ATTRIBUTE = re.compile(r"^#\[\s*(?:test|rstest|tokio::test|async_std::test)\b")
 
 
 def makefile_text() -> str:
@@ -390,7 +388,10 @@ def declares_test(source: str, name: str) -> bool:
     declaration = re.search(rf"fn\s+{re.escape(name)}\s*\(", source)
     if declaration is None:
         return False
-    for line in reversed(source[: declaration.start()].splitlines()):
+    # Start at the declaration's own line: slicing at the `fn` keyword leaves
+    # its indentation as a blank-looking line that would end the walk early.
+    line_start = source.rfind("\n", 0, declaration.start()) + 1
+    for line in reversed(source[:line_start].splitlines()):
         stripped = line.strip()
         if TEST_ATTRIBUTE.match(stripped) is not None:
             return True

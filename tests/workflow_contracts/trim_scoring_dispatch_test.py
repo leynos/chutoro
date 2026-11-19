@@ -183,6 +183,11 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
             "spawn_broadcast(|ctx| run(ctx))",
             id="spawn-broadcast",
         ),
+        pytest.param(
+            ".spawn_broadcast(",
+            "pool.spawn_broadcast(|ctx| run(ctx))",
+            id="method-spawn-broadcast",
+        ),
         pytest.param("join(", "join(left, right)", id="join"),
         pytest.param("join_context(", "join_context(left, right)", id="join-context"),
         pytest.param("broadcast(", "broadcast(|ctx| run(ctx))", id="broadcast"),

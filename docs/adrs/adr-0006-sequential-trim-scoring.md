@@ -218,8 +218,9 @@ The checked-in evidence now has three parts.
 each with a fully qualified exact-match filter, `--no-tests=fail`, and default
 features, and the `build-test` CI job runs that target unconditionally beside
 `make test-workflow-contracts`.
-`tests/workflow_contracts/scheduling_contract_test.py`, reading through
-`scheduling_reading.py`, pins the target recipe, one invocation per fully
+`tests/workflow_contracts/scheduling_contract_test.py` and
+`scheduling_ci_test.py`, reading through `scheduling_reading.py` and
+`workflow_support.py`, pin the target recipe, one invocation per fully
 qualified test name, each invocation's whole filter expression as exactly one
 selector, the zero-test failure flag on each, the absence of every
 feature-selection flag (`--all-features`, `--no-default-features`, `--features`
