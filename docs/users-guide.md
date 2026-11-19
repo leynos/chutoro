@@ -108,8 +108,8 @@ uses the global pool's width.
 
 When the estimate exceeds the configured limit, `run` returns
 `ChutoroError::MemoryLimitExceeded` before allocating the pipeline. Omitting
-`with_max_bytes` leaves this guard disabled. `estimate_peak_bytes_for_hnsw_params`
-reports the single-search estimate, and
+`with_max_bytes` leaves this guard disabled.
+`estimate_peak_bytes_for_hnsw_params` reports the single-search estimate, and
 `estimate_peak_bytes_for_hnsw_params_with_concurrency` reports the estimate for
 an explicit search width.
 
