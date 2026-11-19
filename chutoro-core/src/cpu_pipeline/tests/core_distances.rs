@@ -267,13 +267,11 @@ impl DataSource for SelfFailingSource {
     }
 }
 
-#[test]
-#[expect(
-    clippy::cast_precision_loss,
-    reason = "the fixture is a handwritten sequence of small whole numbers"
-)]
-fn real_search_failure_reports_the_lowest_failing_query() {
-    let data: Vec<f32> = (0..12).map(|value| value as f32).collect();
+#[rstest::rstest]
+#[case::single_thread(1)]
+#[case::eight_threads(8)]
+fn real_search_failure_reports_the_lowest_failing_query(#[case] threads: usize) {
+    let data: Vec<f32> = (0..12u8).map(f32::from).collect();
     let build_source = NumericTestSource::new("self-fail", data.clone())
         .using_metric_descriptor(MetricDescriptor::new("self-fail:build"));
     let (index, ef) = build_fixture_index(&build_source).expect("fixture index must build");
@@ -283,21 +281,32 @@ fn real_search_failure_reports_the_lowest_failing_query() {
         ef,
     );
 
-    let clean =
-        compute_core_distances(&build_source, &index, &inputs).expect("clean trial must succeed");
-    assert_eq!(clean.len(), 12);
+    // A descriptor per thread count keeps the clean trial off the index build's
+    // cache entries, so both trials run concurrent searches on a cold cache.
+    let clean_source = NumericTestSource::new("self-fail", data.clone())
+        .using_metric_descriptor(MetricDescriptor::new(format!("self-fail:clean-{threads}")));
+    let clean = with_pool(threads, || {
+        compute_core_distances(&clean_source, &index, &inputs)
+    })
+    .expect("thread pool must build")
+    .expect("clean trial must succeed");
+    assert_eq!(clean.len(), 12, "thread count {threads}");
 
     // Distinct metric descriptors give each trial a fresh distance cache, so
     // neither trial can be answered from the other trial's cache entries.
-    for descriptor in ["self-fail:trial-a", "self-fail:trial-b"] {
+    for trial in ["a", "b"] {
+        let descriptor = format!("self-fail:trial-{threads}-{trial}");
         let failing_source = SelfFailingSource {
             inner: NumericTestSource::new("self-fail", data.clone())
-                .using_metric_descriptor(MetricDescriptor::new(descriptor)),
+                .using_metric_descriptor(MetricDescriptor::new(descriptor.clone())),
             failing: vec![3, 11],
         };
 
-        let error = compute_core_distances(&failing_source, &index, &inputs)
-            .expect_err("a rejected self-pair must fail the stage");
+        let error = with_pool(threads, || {
+            compute_core_distances(&failing_source, &index, &inputs)
+        })
+        .expect("thread pool must build")
+        .expect_err("a rejected self-pair must fail the stage");
 
         assert!(
             matches!(
@@ -307,7 +316,8 @@ fn real_search_failure_reports_the_lowest_failing_query() {
                     ..
                 }
             ),
-            "trial {descriptor} must report the lowest failing query, got {error:?}"
+            "trial {descriptor} with {threads} threads must report the lowest failing query, \
+             got {error:?}"
         );
     }
 }

@@ -88,6 +88,36 @@ spends holding its mutex while scoring. Neither instrument carries labels, so
 their cardinality is fixed, and both are additive: builds without the feature
 are unchanged.
 
+### New metric: CPU pipeline stage timing
+
+Enabling the `metrics` feature now also emits
+`chutoro.cpu_pipeline.stage_seconds`, one histogram sample per successful CPU
+pipeline stage. The bounded `stage` label takes `core_distances`,
+`mutual_reachability`, or `kruskal`; a failing stage records no sample. The
+label set is fixed, so the instrument's cardinality does not grow with the
+source size, and builds without the feature are unchanged.
+
+### Additive API: core-distance selection helper
+
+`chutoro_core::core_distance_from_neighbours` exposes the core-distance
+selection rule that the batch pipeline, incremental sessions, and the benchmark
+harness use. It takes a point's sorted, non-self neighbours and the minimum
+cluster size and returns the `m - 1`-th neighbour's distance, the farthest
+supplied neighbour when the list is shorter, or `0.0` for an empty list. This
+is a new function; no existing API changes. Adapters still own the HNSW search
+and the removal of the query point from its own neighbour list.
+
+### Batch core distances run in parallel
+
+The CPU batch pipeline now searches the HNSW graph for all points through an
+indexed Rayon parallel iterator instead of a serial loop. Output order and
+error identity are unchanged: results stay in source-index order, and the
+reported error belongs to the lowest source index at any thread count. Callers
+that pinned behaviour to a single thread should pin `RAYON_NUM_THREADS` or
+install an explicit Rayon pool. The incremental session path remains serial. The
+[user's guide](users-guide.md#running-the-clustering-pipeline) documents the
+contract.
+
 ### Additive API: dense-provider test fixtures
 
 The dense provider exposes reusable Arrow and Parquet fixture builders through

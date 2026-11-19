@@ -190,6 +190,11 @@ and 150 lines of benchmark and profiling support.
   fallback resolves `CARGO_TARGET_DIR` through the injected environment, the
   fallback test asserts the complete path, and the benchmark commands in this
   plan pass `--features pipeline-profile`.
+- [x] (2026-11-19 00:30Z) Review follow-up for the public documentation gap:
+  the real-search failure test now runs the production call site at one and
+  eight threads, each trial with its own metric descriptor, and the users'
+  guide and migration notes document `core_distance_from_neighbours`,
+  `chutoro.cpu_pipeline.stage_seconds`, and the batch parallelism contract.
 - [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
@@ -841,3 +846,6 @@ No runtime dependency is added to `chutoro-core`.
 - 2026-11-18: Folded in the third CodeRabbit review round: the profile
   fallback reads the injected environment (D9), and the plan's benchmark
   commands enable `pipeline-profile`.
+- 2026-11-19: Added a two-thread-count call-site regression for the real-search
+  failure path, and documented the public helper, the stage metric label, and
+  the batch parallelism contract in the users' guide and migration notes.
