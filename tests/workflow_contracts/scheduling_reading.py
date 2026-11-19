@@ -48,6 +48,13 @@ QUALIFIED_REGRESSIONS = {
 #: coverage: a filter the reading cannot see is a filter it cannot vouch for.
 FILTER_FLAGS = ("-E", "--filter-expr")
 
+#: The spellings of the Cargo executable a scheduling invocation may start
+#: with. `$(CARGO)` is what the Makefile uses; a literal `cargo` is accepted
+#: because it runs the same command. A command that only mentions nextest in
+#: an argument, such as `echo $(CARGO) nextest run ...`, runs nothing, and
+#: every assertion about its arguments would still pass.
+CARGO_COMMANDS = ("$(CARGO)", "cargo")
+
 #: Attributes that register a function with the test harness. Matched on the
 #: attribute's path, so `#[rstest(...)]` counts and `#[test_only_helper]` does
 #: not.
@@ -148,16 +155,45 @@ def target_recipe(text: str, target: str) -> str:
     return " ".join(commands)
 
 
+def is_nextest_invocation(command: str) -> bool:
+    """Return whether `command` runs nextest in its executable position.
+
+    A recipe line that only mentions nextest in an argument runs nothing.
+    Make's ignore-error prefix does the same damage from the other side: a
+    line beginning `-` runs nextest, but the target stays green when the
+    regression fails. Both spelling the executable differently from
+    `CARGO_COMMANDS` and carrying a prefix leave the command out of the
+    invocation list, where the one-per-regression count rejects it.
+
+    Examples
+    --------
+    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core --lib")
+    True
+    >>> is_nextest_invocation("echo $(CARGO) nextest run -p chutoro-core")
+    False
+    >>> is_nextest_invocation("-$(CARGO) nextest run -p chutoro-core")
+    False
+    """
+    tokens = shlex.split(command)
+    return (
+        len(tokens) >= 3
+        and tokens[0] in CARGO_COMMANDS
+        and tokens[1:3] == ["nextest", "run"]
+    )
+
+
 def nextest_invocations() -> list[str]:
-    """Return each nextest command in the scheduling target.
+    """Return each command the scheduling target actually runs.
 
     Commands are returned separately so that an assertion about an
-    invocation's arguments fails when that invocation alone omits them.
+    invocation's arguments fails when that invocation alone omits them. Only
+    a command that runs nextest counts; a mention, an unrelated script, or an
+    error-ignoring prefix is not an invocation.
     """
     return [
         command
         for command in recipe_commands(makefile_text(), TARGET)
-        if "nextest run" in command
+        if is_nextest_invocation(command)
     ]
 
 

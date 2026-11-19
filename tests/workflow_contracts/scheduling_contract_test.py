@@ -28,9 +28,11 @@ from scheduling_reading import (
     TARGET,
     declares_test,
     invocations_missing_flag,
+    is_nextest_invocation,
     makefile_text,
     nextest_invocations,
     phony_targets,
+    recipe_commands,
     selected_regression,
     target_recipe,
 )
@@ -68,6 +70,49 @@ def test_a_flag_on_another_invocation_does_not_cover_a_missing_one() -> None:
     ]
     assert invocations_missing_flag(invocations) == [1], (
         "only the unflagged invocation may be reported"
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        pytest.param(
+            "echo $(CARGO) nextest run -p chutoro-core --lib",
+            id="a-mentioned-command",
+        ),
+        pytest.param(
+            "-$(CARGO) nextest run -p chutoro-core --lib",
+            id="an-ignored-error",
+        ),
+        pytest.param(
+            "./scripts/nextest-runner nextest run",
+            id="an-unrelated-runner",
+        ),
+    ],
+)
+def test_only_a_command_that_runs_nextest_counts(command: str) -> None:
+    """A mention is not an invocation, and Make's `-` hides a failure.
+
+    Counting the text anywhere in a recipe accepts ``echo $(CARGO) nextest
+    run ...``, which runs nothing while every argument assertion passes.
+    Accepting a leading ``-`` is the same problem with a worse outcome: the
+    regression runs, fails, and the target still succeeds.
+    """
+    assert not is_nextest_invocation(command), (
+        f"{command!r} must not count as a scheduling invocation"
+    )
+
+
+def test_the_recipe_does_not_ignore_errors() -> None:
+    """Make suppresses a failure for any recipe line beginning with `-`.
+
+    The CI step and job checks reject ``continue-on-error``, but neither sees
+    a recipe-level prefix, so the target's own commands are read for one.
+    """
+    commands = recipe_commands(makefile_text(), TARGET)
+    ignored = [command for command in commands if command.startswith("-")]
+    assert not ignored, (
+        f"the scheduling recipe must not ignore errors: {ignored}"
     )
 
 

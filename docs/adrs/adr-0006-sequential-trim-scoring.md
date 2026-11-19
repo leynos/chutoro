@@ -218,9 +218,11 @@ features, and the `build-test` CI job runs that target unconditionally beside
 qualified test name, each invocation's whole filter expression as exactly one
 selector, the zero-test failure flag on each, the unconditional and blocking
 execution of the step and its nextest installer within an unconditional job,
-and the order that installs `cargo-nextest` before the target runs. It also
-checks that each named regression is still declared under `cpu/trim_tests` with
-a test attribute, since an undiscovered function cannot trip `--no-tests=fail`.
+the order that installs `cargo-nextest` before the target runs, and that the
+recipe's commands run nextest in executable position without Make's
+error-ignoring `-` prefix. It also checks that each named regression is still
+declared under `cpu/trim_tests` with a test attribute, since an undiscovered
+function cannot trip `--no-tests=fail`.
 
 Positive evidence: both runtime regressions pass on the fixed tree, and the
 full gate set passed on commit `28a9687` (`make check-fmt`, `make markdownlint`
