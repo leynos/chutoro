@@ -222,6 +222,27 @@ and 150 lines of benchmark and profiling support.
   tree: `make check-fmt`, `make typecheck`, `make test` (1,492 passed, 1
   skipped; doctests ok), and `make lint` (interrogate, rustdoc, Clippy,
   Whitaker) all pass.
+- [x] (2026-11-19 11:20Z) Rebased a third time onto `origin/main`
+  (`4a66ba6`) after #428 renamed `memory.rs` to `memory/mod.rs`, split its
+  tests into `memory/tests.rs`, and rewrote the estimator around an
+  `EstimateInputs` struct. Two commits conflicted. In the concurrency commit,
+  main's richer `EstimateInputs` model was kept and a `concurrent_searches`
+  field threaded through all three entry points; the replayed round-four commit
+  then added its duplicate `PeakEstimateInputs` struct, which was dropped in
+  favour of main's name. The same replay had duplicated the module doc block in
+  `cpu_pipeline/tests/mod.rs`, which was corrected by amending that commit and
+  replaying the rest, leaving the final tree byte-identical to the pre-amend
+  rebase result. `git range-diff` against `bab414a..8c59b0e` now shows every
+  commit either identical or explained.
+- [x] (2026-11-19 12:05Z) Merge repair: the rebased `memory` module spanned
+  461 lines and its test module 402, both over Whitaker's 400-line limit. The
+  module now splits by responsibility: `memory/estimate.rs` owns the capacity
+  model and the estimator, `memory/format.rs` owns byte formatting with its
+  table test, and `memory/mod.rs` re-exports the public surface. The shared
+  estimate tests stay in `memory/tests.rs`. Post-repair gates on the new head:
+  `make check-fmt`, `make test` (1,518 passed, 1 skipped; doctests ok),
+  `make typecheck`, and `make lint` (interrogate, rustdoc, Clippy, Whitaker)
+  all pass.
 - [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
@@ -917,3 +938,7 @@ No runtime dependency is added to `chutoro-core`.
   the real-search regression proves full coverage and failure ordering (D12),
   and the migration note distinguishes the new `core_distances` label from the
   stage labels that pre-existed.
+- 2026-11-19: Rebased a third time onto `origin/main` at `4a66ba6`, keeping
+  main's `EstimateInputs`-based estimator and threading `concurrent_searches`
+  through it, then split the merged module into `estimate`, `format`, and
+  re-export layers to restore the 400-line limit.
