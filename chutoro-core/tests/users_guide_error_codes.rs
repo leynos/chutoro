@@ -9,6 +9,7 @@
 use chutoro_core::{
     ChutoroErrorCode, DataSourceErrorCode, HierarchyErrorCode, HnswErrorCode, MstErrorCode,
 };
+use rstest::rstest;
 
 const USERS_GUIDE: &str = include_str!("../../docs/users-guide.md");
 
@@ -148,28 +149,31 @@ fn assert_codes_documented(codes: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
-/// Verifies the guide lists every MST error code.
-#[test]
-fn documents_every_mst_error_code() {
-    let codes: Vec<&str> = MST_CODES.iter().map(|code| (*code).as_str()).collect();
-    assert_codes_documented(&codes).expect("every MST code must appear in the guide");
+/// Collects the stable strings of the MST code enum.
+fn mst_code_strings() -> Vec<&'static str> {
+    MST_CODES.iter().map(|code| (*code).as_str()).collect()
 }
 
-/// Verifies the guide lists every HNSW error code.
-#[test]
-fn documents_every_hnsw_error_code() {
-    let codes: Vec<&str> = HNSW_CODES.iter().map(|code| (*code).as_str()).collect();
-    assert_codes_documented(&codes).expect("every HNSW code must appear in the guide");
+/// Collects the stable strings of the HNSW code enum.
+fn hnsw_code_strings() -> Vec<&'static str> {
+    HNSW_CODES.iter().map(|code| (*code).as_str()).collect()
 }
 
-/// Verifies the guide lists every hierarchy error code.
-#[test]
-fn documents_every_hierarchy_error_code() {
-    let codes: Vec<&str> = HIERARCHY_CODES
+/// Collects the stable strings of the hierarchy code enum.
+fn hierarchy_code_strings() -> Vec<&'static str> {
+    HIERARCHY_CODES
         .iter()
         .map(|code| (*code).as_str())
-        .collect();
-    assert_codes_documented(&codes).expect("every hierarchy code must appear in the guide");
+        .collect()
+}
+
+/// Verifies the guide lists every code of each subsystem.
+#[rstest]
+#[case::mst(mst_code_strings())]
+#[case::hnsw(hnsw_code_strings())]
+#[case::hierarchy(hierarchy_code_strings())]
+fn documents_every_subsystem_error_code(#[case] codes: Vec<&'static str>) {
+    assert_codes_documented(&codes).expect("every subsystem code must appear in the guide");
 }
 
 /// Verifies the section does not name a code that no enum can produce.
