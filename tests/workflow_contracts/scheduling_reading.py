@@ -160,6 +160,26 @@ def target_recipe(text: str, target: str) -> str:
     return " ".join(commands)
 
 
+def _shell_tokens(command: str) -> list[str]:
+    """Split `command` into words, keeping quoted text whole.
+
+    ``shlex.split`` leaves an unspaced ``||true`` attached to the word before
+    it, so a separator check on the resulting tokens misses it. Splitting on
+    the separator characters themselves still respects quotes, and leaves a
+    word such as ``$(CARGO)`` intact because only separators are punctuation.
+
+    Examples
+    --------
+    >>> _shell_tokens("$(CARGO) nextest run ||true")
+    ['$(CARGO)', 'nextest', 'run', '||', 'true']
+    >>> _shell_tokens("nextest run -E 'test(=a) | all()'")
+    ['nextest', 'run', '-E', 'test(=a) | all()']
+    """
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+    lexer.whitespace_split = True
+    return list(lexer)
+
+
 def is_nextest_invocation(command: str) -> bool:
     """Return whether `command` runs nextest in its executable position.
 
@@ -182,11 +202,13 @@ def is_nextest_invocation(command: str) -> bool:
     ...     "$(CARGO) nextest run -p chutoro-core || true"
     ... )
     False
+    >>> is_nextest_invocation(
+    ...     "$(CARGO) nextest run -p chutoro-core ||true"
+    ... )
+    False
     """
-    tokens = shlex.split(command)
-    if any(
-        token in SHELL_SEPARATORS or ";" in token for token in tokens
-    ):
+    tokens = _shell_tokens(command)
+    if any(token in SHELL_SEPARATORS for token in tokens):
         return False
     return (
         len(tokens) >= 3

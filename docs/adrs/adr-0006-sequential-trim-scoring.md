@@ -137,7 +137,8 @@ section may block on, or dispatch work to, the Rayon pool.
   `score_trim_jobs`, `score_trim_jobs_with_metrics`, and `run_trim_job` in
   `cpu/trim.rs`; and `batch_distances_for_trim` in `hnsw/helpers.rs` — and
   rejects every recognized Rayon entry point in any of their bodies, including
-  the parallel slice and string adapters (`.par_bridge()`, `.par_chunks()`,
+  the `into_par_iter()`, `par_iter_mut()`, and `par_iter()` adapters, the
+  parallel slice and string adapters (`.par_bridge()`, `.par_chunks()`,
   `.par_windows()`, `.par_split()`, `.par_lines()`, `.par_chars()`, and
   `.par_drain()`) and the `spawn_fifo`, `scope_fifo`, `join_context`,
   `broadcast`, and `spawn_broadcast` calls. Each entry is a boundary-aware
@@ -224,9 +225,10 @@ execution of the step and its nextest installer within an unconditional job,
 the order that installs `cargo-nextest` before the target runs, and that the
 recipe's commands run nextest in executable position without Make's
 error-ignoring `-` prefix or a failure-masking shell suffix such as `|| true`.
-It also checks that each named regression is still declared under
-`cpu/trim_tests` with a test attribute, since an undiscovered function cannot
-trip `--no-tests=fail`.
+Commands are tokenized with shell separators rather than whitespace alone, so
+an unspaced `||true` reads as the operator it is. It also checks that each
+named regression is still declared under `cpu/trim_tests` with a test
+attribute, since an undiscovered function cannot trip `--no-tests=fail`.
 
 Positive evidence: both runtime regressions pass on the fixed tree, and the
 full gate set passed on commit `28a9687` (`make check-fmt`, `make markdownlint`

@@ -47,6 +47,7 @@ from workflow_support import ROOT as REPO_ROOT
 #: qualified call names its namespace rather than only its function.
 DISPATCH_MARKERS: typ.Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     ("into_par_iter", re.compile(r"\binto_par_iter\b")),
+    ("par_iter_mut", re.compile(r"\bpar_iter_mut\b")),
     ("par_iter", re.compile(r"\bpar_iter\b")),
     (".par_bridge(", re.compile(r"\.par_bridge\s*\(")),
     (".par_chunks", re.compile(r"\.par_chunks")),

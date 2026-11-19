@@ -96,6 +96,10 @@ def test_a_flag_on_another_invocation_does_not_cover_a_missing_one() -> None:
             "$(CARGO) nextest run -p chutoro-core --lib; true",
             id="a-semicolon-suffix",
         ),
+        pytest.param(
+            "$(CARGO) nextest run -p chutoro-core --lib ||true",
+            id="an-unspaced-or-true-suffix",
+        ),
     ],
 )
 def test_only_a_command_that_runs_nextest_counts(command: str) -> None:

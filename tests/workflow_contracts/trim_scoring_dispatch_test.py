@@ -147,6 +147,7 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
     ("marker", "call"),
     [
         pytest.param("into_par_iter", "jobs.into_par_iter()", id="into-par-iter"),
+        pytest.param("par_iter_mut", "jobs.par_iter_mut()", id="par-iter-mut"),
         pytest.param("par_iter", "jobs.par_iter()", id="par-iter"),
         pytest.param(".par_bridge(", "jobs.par_bridge()", id="par-bridge"),
         pytest.param(".par_chunks", "items.par_chunks(2)", id="par-chunks"),

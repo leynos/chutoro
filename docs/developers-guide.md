@@ -2840,7 +2840,8 @@ reads the bodies of the five functions on the scoring path —
 `insert_with_collector` in `cpu/mod.rs`; `score_trim_jobs`,
 `score_trim_jobs_with_metrics`, and `run_trim_job` in `cpu/trim.rs`; and
 `batch_distances_for_trim` in `hnsw/helpers.rs` — and rejects every recognized
-Rayon entry point in them, including the parallel slice and string adapters (the
+Rayon entry point in them, including the `into_par_iter()`, `par_iter_mut()`,
+and `par_iter()` adapters, the parallel slice and string adapters (the
 `.par_bridge()`, `.par_chunks()`, `.par_windows()`, `.par_split()`,
 `.par_lines()`, `.par_chars()`, and `.par_drain()` methods) and the
 `spawn_fifo`, `scope_fifo`, `join_context`, `broadcast`, and `spawn_broadcast`
@@ -2868,16 +2869,17 @@ expression to be exactly one selector, so a widened expression such as
 `test(=name) | all()` cannot keep an invocation non-empty after the regression
 is renamed. The recipe's commands must run nextest in executable position and
 must not carry Make's error-ignoring `-` prefix or a failure-masking shell
-suffix such as `|| true`, so a command that merely mentions nextest, or one
-whose failure would be suppressed, cannot stand in for the regression. The CI
-step that runs the target is pinned unconditional, as is the nextest
-installation it depends on. The declaration the recipe names must still carry a
-test attribute, because a plain function of the same name is never discovered
-and the zero-test flag cannot fire for it. The direct test scores a synthetic
-batch; the insertion-path test drives a real insertion in a dedicated
-four-worker pool and records the thread, the Rayon worker, and a non-blocking
-`insert_mutex` `try_lock` for every post-planning distance callback. Both
-assert that the callbacks stay on the mutex holder.
+suffix such as `|| true` (spaced or not: the commands are tokenized with shell
+separators, so `||true` is read as the operator it is), so a command that
+merely mentions nextest, or one whose failure would be suppressed, cannot stand
+in for the regression. The CI step that runs the target is pinned
+unconditional, as is the nextest installation it depends on. The declaration
+the recipe names must still carry a test attribute, because a plain function of
+the same name is never discovered and the zero-test flag cannot fire for it.
+The direct test scores a synthetic batch; the insertion-path test drives a real
+insertion in a dedicated four-worker pool and records the thread, the Rayon
+worker, and a non-blocking `insert_mutex` `try_lock` for every post-planning
+distance callback. Both assert that the callbacks stay on the mutex holder.
 
 What the two checks establish differs:
 
