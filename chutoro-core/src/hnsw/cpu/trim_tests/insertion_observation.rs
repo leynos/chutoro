@@ -117,9 +117,15 @@ impl ObservationState {
     /// Marks the point at which planning has finished.
     ///
     /// The collector runs while `insert_mutex` is held, so the current thread
-    /// is the critical-section thread for every callback that follows.
+    /// is the critical-section thread for every callback that follows. A
+    /// preparatory insertion stops at `Idle` and is ignored: recording its
+    /// scoring would pay the bounded wait once per seed for evidence the
+    /// regression deliberately discards.
     pub(super) fn mark_post_planning(&self) {
         let mut state = self.lock();
+        if state.phase != Phase::Preparing {
+            return;
+        }
         state.phase = Phase::Scoring;
         state.critical_thread = Some(std::thread::current().id());
         state.critical_worker = rayon::current_thread_index();
