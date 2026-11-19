@@ -55,6 +55,11 @@ FILTER_FLAGS = ("-E", "--filter-expr")
 #: every assertion about its arguments would still pass.
 CARGO_COMMANDS = ("$(CARGO)", "cargo")
 
+#: Shell separators that continue a recipe line after the nextest invocation.
+#: `|| true` and `; true` make the line succeed after nextest fails, so the
+#: target stays green while the regression it exists to run is broken.
+SHELL_SEPARATORS = frozenset({";", ";;", "&&", "||", "|", "&"})
+
 #: Attributes that register a function with the test harness. Matched on the
 #: attribute's path, so `#[rstest(...)]` counts and `#[test_only_helper]` does
 #: not.
@@ -159,11 +164,11 @@ def is_nextest_invocation(command: str) -> bool:
     """Return whether `command` runs nextest in its executable position.
 
     A recipe line that only mentions nextest in an argument runs nothing.
-    Make's ignore-error prefix does the same damage from the other side: a
-    line beginning `-` runs nextest, but the target stays green when the
-    regression fails. Both spelling the executable differently from
-    `CARGO_COMMANDS` and carrying a prefix leave the command out of the
-    invocation list, where the one-per-regression count rejects it.
+    Three other shapes run it and still leave the target green when the
+    regression fails: Make's ignore-error prefix, `|| true`, and a second
+    command after `;`. Each spelling that is not the plain Cargo command
+    leaves the line out of the invocation list, where the
+    one-per-regression count rejects it.
 
     Examples
     --------
@@ -173,8 +178,16 @@ def is_nextest_invocation(command: str) -> bool:
     False
     >>> is_nextest_invocation("-$(CARGO) nextest run -p chutoro-core")
     False
+    >>> is_nextest_invocation(
+    ...     "$(CARGO) nextest run -p chutoro-core || true"
+    ... )
+    False
     """
     tokens = shlex.split(command)
+    if any(
+        token in SHELL_SEPARATORS or ";" in token for token in tokens
+    ):
+        return False
     return (
         len(tokens) >= 3
         and tokens[0] in CARGO_COMMANDS

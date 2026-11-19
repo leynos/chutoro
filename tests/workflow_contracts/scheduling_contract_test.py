@@ -88,15 +88,24 @@ def test_a_flag_on_another_invocation_does_not_cover_a_missing_one() -> None:
             "./scripts/nextest-runner nextest run",
             id="an-unrelated-runner",
         ),
+        pytest.param(
+            "$(CARGO) nextest run -p chutoro-core --lib || true",
+            id="an-or-true-suffix",
+        ),
+        pytest.param(
+            "$(CARGO) nextest run -p chutoro-core --lib; true",
+            id="a-semicolon-suffix",
+        ),
     ],
 )
 def test_only_a_command_that_runs_nextest_counts(command: str) -> None:
-    """A mention is not an invocation, and Make's `-` hides a failure.
+    """A mention is not an invocation, and a mask hides a failure.
 
     Counting the text anywhere in a recipe accepts ``echo $(CARGO) nextest
     run ...``, which runs nothing while every argument assertion passes.
-    Accepting a leading ``-`` is the same problem with a worse outcome: the
-    regression runs, fails, and the target still succeeds.
+    Accepting a leading ``-``, a ``|| true`` suffix, or a command after ``;``
+    is the same problem with a worse outcome: the regression runs, fails, and
+    the target still succeeds.
     """
     assert not is_nextest_invocation(command), (
         f"{command!r} must not count as a scheduling invocation"
