@@ -367,9 +367,12 @@ callers.
 `insert_harvesting` follows the same insertion rules as `insert` and returns
 `Result<Vec<CandidateEdge>, HnswError>`. `HnswError::DuplicateNode` is returned
 when the same node identifier is inserted twice. `HnswError::DataSource`
-surfaces failures from `distance` or `distance_batch`, while `EmptyBuild`,
-`InvalidParameters`, `NonFiniteDistance`, and lock-related errors report
-invalid setup or inconsistent runtime state.
+surfaces failures from `distance` or `distance_batch`, and
+`HnswError::NonFiniteDistance` reports a non-finite value returned by either
+call. `HnswError::InvalidParameters` covers invalid setup, including a batch
+response whose length does not match the candidates requested, while
+lock-related errors report inconsistent runtime state. See
+[HNSW errors](#hnsw-errors) for the complete code list.
 
 After insertion, `search(source, query, ef)` returns the `ef` nearest
 neighbours currently reachable from the HNSW entry point. The query source must
@@ -433,37 +436,167 @@ via `ChutoroError` variants:
   CPU backend encounters internal failures in HNSW construction/search, MST
   construction, or hierarchy extraction.
 
-`CpuMstFailure` carries the selected `MstError` code and message verbatim in its
-`code` and `message` fields. Callers that invoke `parallel_kruskal` directly
-can rely on a deterministic validation rule: when several candidate edges are
-invalid, the reported error is the one at the lowest index in
-`EdgeHarvest::as_slice()` order. Within one edge, the source bound is checked
-before the target bound, and both before weight finiteness; `NonFiniteWeight`
-reports the original `(source, target)` orientation. `EmptyGraph` takes
-precedence over every edge-level error. `Chutoro::run` surfaces these failures
-through `CpuMstFailure`, but does not promise which malformed raw candidate
-reaches the MST stage, because the harvest depends on HNSW construction.
-
-Callers using `extract_labels_from_mst` can inspect its typed `HierarchyError`
-result for invalid input and internal reference failures: `EmptyDataset`,
-`MinClusterSizeTooLarge`, `InvalidEdgeWeight`, and `InvalidEdgeEndpoint`
-describe invalid extraction inputs, while `InvalidForestReference`,
-`InvalidClusterReference`, and `InvalidPointReference` identify inconsistent
-intermediate hierarchy state. Each variant exposes a stable machine-readable
-code through `code()` and the code's `as_str()` method.
-
 `DataSourceError` distinguishes out-of-bounds indices, dimension mismatches,
 and invalid buffers. Propagate these errors verbatim, so callers receive stable
 error codes via `DataSourceError::code()`.
 
-Every machine-readable code enum (`ChutoroErrorCode`, `DataSourceErrorCode`,
-`MstErrorCode`, `HierarchyErrorCode`, and `HnswErrorCode`) is
-`#[non_exhaustive]`, implements `Display`, and exposes `as_str()`. `Display`
-renders the same stable string as `as_str()`, while the owning error's `code()`
-returns the code value. Because the code enums are `#[non_exhaustive]`, a
-downstream `match` must keep a catch-all arm, such as `_`; see the
+`ChutoroError`, `ChutoroErrorCode`, `DataSourceError`, and
+`DataSourceErrorCode` are always available. The subsystem error types described
+below, and their code enums, require the default `cpu` feature.
+
+### Subsystem error codes
+
+The CPU pipeline is built from three subsystems, and each publishes a typed
+error with a stable, machine-readable code: `MstError` and `MstErrorCode` from
+`parallel_kruskal`; `HnswError` and `HnswErrorCode` from `CpuHnsw`
+construction, insertion, and search; and `HierarchyError` and
+`HierarchyErrorCode` from `extract_labels_from_mst`. These are the errors a
+direct caller of those APIs receives. Each error's `code()` method returns its
+code enum, `as_str()` returns the stable string listed in the tables below, and
+`Display` renders that same string.
+
+`Chutoro::run` does not forward these typed errors. It maps them to
+`ChutoroError::CpuMstFailure`, `ChutoroError::CpuHnswFailure`, or
+`ChutoroError::CpuHierarchyFailure`, each carrying only two `Arc<str>` fields:
+`code`, the subsystem's `as_str()` value, and `message`, its `Display` text.
+The wrapper does not retain the typed error or its structured fields, so
+recover detail by matching the `code` string and treat the message as
+human-readable context. `HnswError::DataSource` is the exception; it becomes
+`ChutoroError::DataSource`, as described under [HNSW errors](#hnsw-errors).
+
+The `ChutoroErrorCode` value identifies the stage, not the cause. A
+`CpuMstFailure` has outer code `CHUTORO_CPU_MST_FAILURE`, a `CpuHnswFailure` has
+`CHUTORO_CPU_HNSW_FAILURE`, and a `CpuHierarchyFailure` has
+`CHUTORO_CPU_HIERARCHY_FAILURE`, while the inner `code` field holds the
+subsystem code such as `INVALID_NODE_ID`. The batch-metrics `error_code` label
+described in
+[Running the clustering pipeline](#running-the-clustering-pipeline) carries the
+outer `ChutoroErrorCode` string, not the inner subsystem code.
+
+Match the inner `code` string rather than the message. The message may change
+between releases, and the code enums are `#[non_exhaustive]`, so treat an
+unrecognized code as an unknown failure rather than assuming the set is closed.
+`ChutoroErrorCode`, `DataSourceErrorCode`, `MstErrorCode`,
+`HierarchyErrorCode`, and `HnswErrorCode` are all `#[non_exhaustive]`, implement
+`Display`, and expose `as_str()`; `Display` renders the same stable string as
+`as_str()`, while the owning error's `code()` returns the code value. A
+downstream `match` must therefore keep a catch-all arm, such as `_`; see the
 [0.2.0 migration notes](migration-notes.md#error-code-enums-are-non-exhaustive-and-implement-display)
-for the migration.
+for the migration, and the
+[developers' guide](developers-guide.md#generated-error-code-enums) for why the
+enums are generated by `define_error_codes!`.
+
+The classification in each table uses four categories:
+
+- **Caller input**: the caller supplied an invalid argument or configuration.
+- **Data-source output**: the `DataSource` returned an unusable value.
+- **Runtime fault**: a synchronization primitive was poisoned by an earlier
+  panic, usually in unrelated code.
+- **Internal fault**: a Chutoro invariant failed; report it as a defect.
+
+#### MST errors
+
+`parallel_kruskal` returns `MstError`, and `Chutoro::run` surfaces the same
+failure as `ChutoroError::CpuMstFailure`.
+
+| Code variant         | `as_str()` value      | Error variant and fields                                        | Producing condition                                                                                            | Classification |
+| -------------------- | --------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | -------------- |
+| `EmptyGraph`         | `EMPTY_GRAPH`         | `MstError::EmptyGraph`                                          | `node_count` is zero; checked before any edge is inspected                                                     | Caller input   |
+| `InvalidNodeId`      | `INVALID_NODE_ID`     | `MstError::InvalidNodeId { node, node_count }`                  | An edge endpoint is greater than or equal to `node_count`; the source bound is checked before the target bound | Caller input   |
+| `NonFiniteWeight`    | `NON_FINITE_WEIGHT`   | `MstError::NonFiniteWeight { left, right }`                     | An edge weight is NaN or infinite; `left` and `right` keep the original orientation                            | Caller input   |
+| `LockPoisoned`       | `LOCK_POISONED`       | `MstError::LockPoisoned { resource }`                           | The `"union-find root lock"` was poisoned by an earlier panic                                                  | Runtime fault  |
+| `InvariantViolation` | `INVARIANT_VIOLATION` | `MstError::InvariantViolation { invariant, index, lock_count }` | An internal union-find index lies outside its lock, parent, or rank table                                      | Internal fault |
+
+_Table 1: MST error codes produced by `parallel_kruskal`._
+
+Kruskal validates a graph in a fixed order. It reports `EMPTY_GRAPH` before
+inspecting any edge when `node_count` is zero. It then visits edges in
+`EdgeHarvest::as_slice()` order and, for each edge, checks the source bound,
+the target bound, and finally weight finiteness. When several edges are
+invalid, the reported error is the one at the lowest input index; `EmptyGraph`
+takes precedence over every edge-level error. Self-edges are ignored after
+validation, finite negative weights are accepted, and an empty edge list or a
+disconnected graph returns a minimum spanning forest rather than an error.
+
+In the `Chutoro::run` pipeline, earlier stages normally pre-empt these errors.
+An empty source returns `ChutoroError::EmptySource` and a source smaller than
+`min_cluster_size` returns `ChutoroError::InsufficientItems`, so `EMPTY_GRAPH`
+is reachable only through the direct API. Problems detected earlier in the
+pipeline surface as HNSW failures rather than MST failures: a non-finite
+distance becomes HNSW `NON_FINITE_DISTANCE`, and a harvested edge with no core
+distance becomes HNSW `GRAPH_INVARIANT_VIOLATION`. Kruskal still validates the
+transformed mutual-reachability weights, so a non-finite value that survives
+the transform reports `NON_FINITE_WEIGHT`.
+
+#### HNSW errors
+
+`CpuHnsw` construction, `insert`, `insert_harvesting`, and `search` return
+`HnswError`. `Chutoro::run` and incremental sessions use the same conversion:
+every variant except `DataSource` becomes
+`ChutoroError::CpuHnswFailure { code, message }`.
+
+| Code variant              | `as_str()` value            | Error variant and fields                         | Producing condition                                                                                                                                                                 | Classification     |
+| ------------------------- | --------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `EmptyBuild`              | `EMPTY_BUILD`               | `HnswError::EmptyBuild`                          | `build` or `build_with_edges` was called on a source with no items                                                                                                                  | Caller input       |
+| `InvalidParameters`       | `INVALID_PARAMETERS`        | `HnswError::InvalidParameters { reason }`        | Invalid configuration, such as zero `max_connections`, `ef_construction` below `max_connections`, zero capacity, a level above `max_level`, or a batch response of the wrong length | Caller input       |
+| `DuplicateNode`           | `DUPLICATE_NODE`            | `HnswError::DuplicateNode { node }`              | The same node identifier was inserted twice                                                                                                                                         | Caller input       |
+| `GraphEmpty`              | `GRAPH_EMPTY`               | `HnswError::GraphEmpty`                          | Search or planning ran on an index without an entry point                                                                                                                           | Internal fault     |
+| `GraphInvariantViolation` | `GRAPH_INVARIANT_VIOLATION` | `HnswError::GraphInvariantViolation { message }` | The graph is inconsistent, including a harvested edge that has no core distance                                                                                                     | Internal fault     |
+| `NonFiniteDistance`       | `NON_FINITE_DISTANCE`       | `HnswError::NonFiniteDistance { left, right }`   | The source returned NaN or infinity for a distance                                                                                                                                  | Data-source output |
+| `LockPoisoned`            | `LOCK_POISONED`             | `HnswError::LockPoisoned { resource }`           | A panic poisoned the `"graph"`, `"insert mutex"`, `"rng mutex"`, or `"worker rng mutex"` lock                                                                                       | Runtime fault      |
+| `DataSource`              | `DATA_SOURCE`               | `HnswError::DataSource(DataSourceError)`         | A `distance` or `distance_batch` call failed                                                                                                                                        | Data-source output |
+
+_Table 2: HNSW error codes produced by the CPU backend._
+
+`HnswError::DataSource` is the exception: it becomes
+`ChutoroError::DataSource { data_source, error }`, whose outer code is
+`CHUTORO_DATA_SOURCE_FAILURE` and whose inner `DataSourceErrorCode` is
+available from `data_source_code()`. `DATA_SOURCE` is therefore never the
+`code` field of a `CpuHnswFailure`; it is the `HnswErrorCode` for the wrapped
+data-source failure at the typed API boundary.
+
+In `Chutoro::run`, a stable empty source returns `ChutoroError::EmptySource`
+before HNSW construction, so `EMPTY_BUILD` is reachable only through the direct
+`CpuHnsw::build` and `CpuHnsw::build_with_edges` APIs. Sessions convert HNSW
+failures with the same rule as batch runs. When the pipeline cannot find a core
+distance for a harvested edge, it reports `GRAPH_INVARIANT_VIOLATION` directly
+rather than through the MST stage.
+
+#### Hierarchy errors
+
+`extract_labels_from_mst` returns `HierarchyError`, and `Chutoro::run` maps it
+to `ChutoroError::CpuHierarchyFailure { code, message }`.
+
+| Code variant              | `as_str()` value             | Error variant and fields                                                  | Producing condition                                                            | Classification |
+| ------------------------- | ---------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------- |
+| `EmptyDataset`            | `EMPTY_DATASET`              | `HierarchyError::EmptyDataset`                                            | Extraction was called with `node_count` zero                                   | Caller input   |
+| `MinClusterSizeTooLarge`  | `MIN_CLUSTER_SIZE_TOO_LARGE` | `HierarchyError::MinClusterSizeTooLarge { node_count, min_cluster_size }` | `min_cluster_size` is larger than `node_count`                                 | Caller input   |
+| `InvalidEdgeWeight`       | `INVALID_EDGE_WEIGHT`        | `HierarchyError::InvalidEdgeWeight { left, right, weight }`               | An edge weight is negative or non-finite; `left` and `right` are canonicalized | Caller input   |
+| `InvalidEdgeEndpoint`     | `INVALID_EDGE_ENDPOINT`      | `HierarchyError::InvalidEdgeEndpoint { endpoint, node_count }`            | An MST edge endpoint lies outside the dataset                                  | Caller input   |
+| `InvalidForestReference`  | `INVALID_FOREST_REFERENCE`   | `HierarchyError::InvalidForestReference { node_id }`                      | The linkage forest references a missing node                                   | Internal fault |
+| `InvalidClusterReference` | `INVALID_CLUSTER_REFERENCE`  | `HierarchyError::InvalidClusterReference { cluster_id }`                  | Condensation references a missing cluster                                      | Internal fault |
+| `InvalidPointReference`   | `INVALID_POINT_REFERENCE`    | `HierarchyError::InvalidPointReference { point_id, node_count }`          | Condensation references a point outside the dataset                            | Internal fault |
+
+_Table 3: hierarchy error codes produced by `extract_labels_from_mst`._
+
+Extraction validates in a fixed order: an empty dataset with `EMPTY_DATASET`,
+then a `min_cluster_size` larger than the dataset with
+`MIN_CLUSTER_SIZE_TOO_LARGE`, then each edge in input order. For each edge,
+both endpoints are checked before the weight. An endpoint outside the dataset
+reports `INVALID_EDGE_ENDPOINT`; a negative or non-finite weight reports
+`INVALID_EDGE_WEIGHT`. The values `0.0` and `-0.0` are accepted, and the error's
+`left` and `right` fields are canonicalized to the smaller and larger
+endpoint. The extractor does not verify that the edges form a minimum spanning
+forest.
+
+In the `Chutoro::run` pipeline, `EmptySource` and `InsufficientItems` pre-empt
+`EMPTY_DATASET` and `MIN_CLUSTER_SIZE_TOO_LARGE`. Kruskal validates endpoints
+before extraction, so `INVALID_EDGE_ENDPOINT` is reachable only through the
+direct API. A negative weight reaches extraction only when negative data-source
+distances survive the core-distance maximum applied by the mutual-reachability
+transform. The three reference codes (`INVALID_FOREST_REFERENCE`,
+`INVALID_CLUSTER_REFERENCE`, and `INVALID_POINT_REFERENCE`) describe internal
+hierarchy state, so report them as defects.
 
 ## Distance helpers
 
