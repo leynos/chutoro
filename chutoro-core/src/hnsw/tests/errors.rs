@@ -1,9 +1,11 @@
 //! Error handling tests covering invalid parameters and data source failures.
 
+use std::sync::Arc;
+
 use rstest::{fixture, rstest};
 
 use crate::{
-    DataSource, DataSourceError,
+    ChutoroError, ChutoroErrorCode, DataSource, DataSourceError, DataSourceErrorCode,
     hnsw::{
         CpuHnsw, HnswError, HnswParams,
         distance_cache::{DistanceCache, DistanceCacheConfig},
@@ -201,4 +203,74 @@ fn with_capacity_rejects_zero_capacity() {
     let params = HnswParams::new(2, 4).expect("params must be valid");
     let err = CpuHnsw::with_capacity(params, 0).expect_err("capacity must be positive");
     assert!(matches!(err, HnswError::InvalidParameters { .. }));
+}
+
+/// Verifies a data-source failure keeps the outer variant and inner code.
+#[test]
+fn into_chutoro_error_preserves_data_source_failures() {
+    let error = HnswError::DataSource(DataSourceError::EmptyData);
+    let mapped = error.clone().into_chutoro_error(Arc::from("fixture"));
+
+    assert_eq!(mapped.code(), ChutoroErrorCode::DataSourceFailure);
+    assert_eq!(
+        mapped.data_source_code(),
+        Some(DataSourceErrorCode::EmptyData)
+    );
+    match &mapped {
+        ChutoroError::DataSource {
+            data_source,
+            error: inner,
+        } => {
+            assert_eq!(&**data_source, "fixture");
+            assert_eq!(inner, &DataSourceError::EmptyData);
+        }
+        other => panic!("expected DataSource, got {other:?}"),
+    }
+}
+
+/// Verifies every non-data-source failure becomes a CPU HNSW failure with its
+/// code and message forwarded.
+#[rstest]
+#[case(HnswError::EmptyBuild, "EMPTY_BUILD")]
+#[case(
+    HnswError::InvalidParameters {
+        reason: String::from("ef must exceed max connections")
+    },
+    "INVALID_PARAMETERS"
+)]
+#[case(HnswError::DuplicateNode { node: 3 }, "DUPLICATE_NODE")]
+#[case(HnswError::GraphEmpty, "GRAPH_EMPTY")]
+#[case(
+    HnswError::GraphInvariantViolation {
+        message: String::from("missing sequence")
+    },
+    "GRAPH_INVARIANT_VIOLATION"
+)]
+#[case(
+    HnswError::NonFiniteDistance { left: 0, right: 1 },
+    "NON_FINITE_DISTANCE"
+)]
+#[case(
+    HnswError::LockPoisoned {
+        resource: "graph"
+    },
+    "LOCK_POISONED"
+)]
+fn into_chutoro_error_forwards_non_data_source_variants(
+    #[case] error: HnswError,
+    #[case] expected_code: &str,
+) {
+    let expected_message = error.to_string();
+    let inner_code = error.code().as_str();
+    let mapped = error.into_chutoro_error(Arc::from("fixture"));
+
+    assert_eq!(mapped.code(), ChutoroErrorCode::CpuHnswFailure);
+    match &mapped {
+        ChutoroError::CpuHnswFailure { code, message } => {
+            assert_eq!(&**code, expected_code);
+            assert_eq!(&**code, inner_code);
+            assert_eq!(&**message, expected_message.as_str());
+        }
+        other => panic!("expected CpuHnswFailure, got {other:?}"),
+    }
 }
