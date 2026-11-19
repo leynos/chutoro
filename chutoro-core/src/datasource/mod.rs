@@ -105,13 +105,13 @@ impl From<(usize, usize)> for PointPair {
 /// # Concurrency and re-entrancy
 ///
 /// During HNSW insertion, callbacks are invoked while the caller holds the
-/// index's insertion mutex. During [`CpuHnsw::search`], they are invoked while
+/// index's insertion mutex. During `CpuHnsw::search`, they are invoked while
 /// the caller holds the graph read guard. An implementation must not, from any
 /// callback:
 ///
 /// - call `insert`, or otherwise re-enter the same index in a way that needs
 ///   its insertion mutex or graph write guard;
-/// - call [`CpuHnsw::search`], or otherwise re-enter the same index in a way
+/// - call `CpuHnsw::search`, or otherwise re-enter the same index in a way
 ///   that needs its graph read guard: a writer queued behind the outer search
 ///   can keep the nested reader waiting until the outer call returns, which it
 ///   cannot do while the callback is running;
@@ -128,8 +128,6 @@ impl From<(usize, usize)> for PointPair {
 /// while the insertion mutex is held. The fix recorded in ADR-006 removes
 /// nested Rayon dispatch owned by the core, not dispatch owned by a source
 /// implementation.
-///
-/// [`CpuHnsw::search`]: crate::hnsw::CpuHnsw::search
 ///
 /// # Examples
 /// ```
