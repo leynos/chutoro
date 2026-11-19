@@ -17,7 +17,7 @@ use chutoro_benches::{
 };
 use chutoro_core::{
     CandidateEdge, CpuHnsw, DataSource, EdgeHarvest, HierarchyConfig, HnswError, HnswParams,
-    extract_labels_from_mst, parallel_kruskal,
+    core_distance_from_neighbours, extract_labels_from_mst, parallel_kruskal,
 };
 
 use super::{
@@ -54,29 +54,14 @@ fn compute_core_distances(
             .into_iter()
             .filter(|neighbour| neighbour.id != point)
             .collect();
-        let core_distance = if others.len() >= min_cluster_size.get() {
-            let core_rank = min_cluster_size.get().saturating_sub(1);
-            others
-                .get(core_rank)
-                .map(|neighbour| f64::from(neighbour.distance))
-                .ok_or_else(|| {
-                    BenchSetupError::Hnsw(HnswError::GraphInvariantViolation {
-                        message: format!(
-                            "core distance neighbour missing at core_rank {core_rank} for \
-                             min_cluster_size {} (others length {})",
-                            min_cluster_size.get(),
-                            others.len()
-                        ),
-                    })
-                })?
-        } else {
-            if others.is_empty() {
-                empty_neighbours_count += 1;
-            }
-            others
-                .last()
-                .map_or(0.0, |neighbour| f64::from(neighbour.distance))
-        };
+        // The shared rule already covers the rank and short-list fallbacks, so
+        // no invariant branch is needed here: `core_distance_from_neighbours`
+        // is total. The sweep keeps `f64` distances because its downstream
+        // comparisons are computed in `f64`.
+        let core_distance = f64::from(core_distance_from_neighbours(&others, min_cluster_size));
+        if others.is_empty() {
+            empty_neighbours_count += 1;
+        }
         core_distances.push(core_distance);
     }
     if empty_neighbours_count > 0 {

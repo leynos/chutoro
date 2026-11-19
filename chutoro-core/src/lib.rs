@@ -7,6 +7,8 @@ mod builder;
 mod chutoro;
 mod clustering_quality;
 #[cfg(feature = "cpu")]
+mod core_distance;
+#[cfg(feature = "cpu")]
 mod cpu_pipeline;
 mod datasource;
 mod distance;
@@ -41,7 +43,14 @@ pub use crate::{
 };
 
 #[cfg(feature = "cpu")]
-pub use crate::memory::estimate_peak_bytes_for_hnsw_params;
+pub use crate::memory::{
+    batch_search_width, estimate_peak_bytes_for_hnsw_params,
+    estimate_peak_bytes_for_hnsw_params_with_concurrency,
+};
+
+#[cfg(feature = "cpu")]
+/// Shared core-distance selection rule; requires the `cpu` feature.
+pub use crate::core_distance::core_distance_from_neighbours;
 
 #[cfg(feature = "cpu")]
 /// CPU-accelerated HNSW index components; requires the `cpu` feature.

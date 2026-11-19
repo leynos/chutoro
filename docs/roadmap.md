@@ -831,7 +831,9 @@ ______________________________________________________________________
   fraction between baseline and current dataset (shared point-id prefix size
   divided by current dataset size); only compute ARI/NMI or trigger
   `refresh_full()` when the overlap fraction ≥ `minimum_overlap_fraction`;
-  otherwise treat the baseline as stale. Requires 11.2.1. (See
+  otherwise treat the baseline as stale. The session core-distance searches
+  this path runs are still serial; parallelizing them is tracked in
+  [#430](https://github.com/leynos/chutoro/issues/430). Requires 11.2.1. (See
   `docs/chutoro-design.md` §12.4)
   - Acceptance criteria: after `refresh_full()`, ARI/NMI against a
     batch baseline is ≥ 0.98 on a dataset that has undergone ≥ 50

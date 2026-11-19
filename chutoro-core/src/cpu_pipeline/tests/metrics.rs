@@ -45,6 +45,7 @@ fn every_stage_records_a_latency_sample() {
     assert_eq!(
         stages,
         [
+            ("core_distances".to_owned(), 1),
             ("kruskal".to_owned(), 1),
             ("mutual_reachability".to_owned(), 1)
         ],

@@ -882,6 +882,28 @@ non-decreasing weight order; within each equal-weight bucket, cycle checks are
 parallelized via a striped-lock union-find so disjoint unions can proceed
 concurrently without deadlocks.
 
+_Implementation update (2026-11-17)._ Core distances sit between HNSW
+construction and mutual-reachability weighting, and the one-shot pipeline now
+computes them on the caller's Rayon pool instead of walking the source
+serially. Each worker takes one source index, runs `CpuHnsw::search`, drops the
+query point from its own neighbour list, and applies
+`chutoro_core::core_distance_from_neighbours`. The indexed parallel iterator
+preserves source order in the result vector, and the stage collects
+`Vec<Result<T, E>>` before scanning it serially, so several failing searches
+still report the error with the lowest source index rather than whichever
+worker finished first. Short-circuiting the collect would make error identity
+depend on thread scheduling, which the tests reject at one and eight threads. A
+side effect is that searches after an early failure still run and populate the
+distance cache; the cache only accelerates lookups, so observable output is
+unchanged. On a four-thread pool the stage improved by 3.81x at 1,000 points
+and 3.66x at 10,000 points, close enough to linear that shard contention in the
+distance cache is not a limiting factor at this width; the whole-pipeline gain
+is smaller because HNSW construction still dominates. The incremental session
+path (`recompute_core_distances` and `recompute_core_distances_full`) remains
+serial: those methods interleave searches with writes to session state, so
+parallelizing them requires a separate ownership change and is tracked as
+follow-up work rather than folded into this stage.
+
 - **Cluster Extraction:** The final stage, which involves processing the MST to
   build the cluster hierarchy and extract the stable clusters, is generally
   less computationally intensive than the graph construction phases. An initial
@@ -2615,10 +2637,16 @@ multi-layer count; assuming one `n × M` pass would understate them by the same
 factor of four.
 
 For one-shot runs, the memory guard calls
-`estimate_peak_bytes_for_hnsw_params(point_count, &HnswParams)`. That helper
-derives `effective_ef_construction` as
-`min(ef_construction, max(point_count, max_connections))` and uses it both for
-the construction-search state and for the per-layer harvest width. It reads
+`estimate_peak_bytes_for_hnsw_params_with_concurrency`, which derives
+`effective_ef_construction` as
+`min(ef_construction, max(point_count, max_connections))` and uses it for the
+per-layer harvest width. It sizes each concurrent search state at
+`batch_search_width`, the same rule the batch stage applies: the larger of
+`min_cluster_size + 1` and `effective_ef_construction`, capped at
+`point_count`. Sharing the rule keeps the guard and the pipeline from drifting,
+and a cluster size wider than the construction breadth raises the estimate. The
+single-search `estimate_peak_bytes_for_hnsw_params` helper uses the
+construction width for both the search state and the harvest. It reads
 `max_level` and the level multiplier from the same parameters, so a reduced
 level cap lowers the modelled layer count and an overridden multiplier moves it
 between one layer and the cap. Retaining `max_connections` as the lower bound

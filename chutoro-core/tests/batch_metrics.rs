@@ -26,6 +26,21 @@ const ESTIMATED_BYTES: &str = "chutoro.batch.estimated_bytes";
 #[cfg(feature = "cpu")]
 const MEMORY_LIMIT_BYTES: &str = "chutoro.batch.memory_limit_bytes";
 
+/// Mirrors the concurrency the memory guard derives for this test thread.
+///
+/// The guard sizes concurrent search state from the ambient Rayon pool, and
+/// these tests assert its recorded value from the same context.
+#[cfg(feature = "cpu")]
+fn cluster_size() -> std::num::NonZeroUsize {
+    std::num::NonZeroUsize::MIN
+        .checked_add(1)
+        .unwrap_or(std::num::NonZeroUsize::MIN)
+}
+
+fn ambient_search_concurrency() -> std::num::NonZeroUsize {
+    std::num::NonZeroUsize::new(rayon::current_num_threads()).unwrap_or(std::num::NonZeroUsize::MIN)
+}
+
 macro_rules! metric_value {
     ($snapshot:expr, $name:expr, $labels:expr $(,)?) => {
         $snapshot
@@ -77,11 +92,16 @@ macro_rules! assert_outcome {
 #[cfg(feature = "cpu")]
 #[test]
 fn successful_cpu_run_records_bounded_resources_and_tracing() {
-    use chutoro_core::{HnswParams, estimate_peak_bytes_for_hnsw_params};
+    use chutoro_core::{HnswParams, estimate_peak_bytes_for_hnsw_params_with_concurrency};
 
     let params = HnswParams::new(2, 4).expect("parameters must be valid");
     let source = Dummy::new(vec![1.0, 3.0, 6.0, 10.0]);
-    let estimate = estimate_peak_bytes_for_hnsw_params(source.len(), &params);
+    let estimate = estimate_peak_bytes_for_hnsw_params_with_concurrency(
+        source.len(),
+        cluster_size(),
+        &params,
+        ambient_search_concurrency(),
+    );
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(2)
         .with_execution_strategy(ExecutionStrategy::CpuOnly)
@@ -126,11 +146,16 @@ fn successful_cpu_run_records_bounded_resources_and_tracing() {
 #[cfg(feature = "cpu")]
 #[test]
 fn memory_limit_rejection_records_bounded_metrics_and_tracing() {
-    use chutoro_core::{HnswParams, estimate_peak_bytes_for_hnsw_params};
+    use chutoro_core::{HnswParams, estimate_peak_bytes_for_hnsw_params_with_concurrency};
 
     let params = HnswParams::new(2, 4).expect("parameters must be valid");
     let source = Dummy::new(vec![1.0, 3.0, 6.0, 10.0]);
-    let estimate = estimate_peak_bytes_for_hnsw_params(source.len(), &params);
+    let estimate = estimate_peak_bytes_for_hnsw_params_with_concurrency(
+        source.len(),
+        cluster_size(),
+        &params,
+        ambient_search_concurrency(),
+    );
     let limit = estimate - 1;
     let chutoro = ChutoroBuilder::new()
         .with_min_cluster_size(2)

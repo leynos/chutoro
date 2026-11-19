@@ -263,7 +263,12 @@ impl Chutoro {
         crate::batch_metrics::record_cpu_resources(
             hnsw_params.max_connections(),
             hnsw_params.effective_ef_construction(items),
-            crate::memory::estimate_peak_bytes_for_hnsw_params(items, hnsw_params),
+            crate::memory::estimate_peak_bytes_for_hnsw_params_with_concurrency(
+                items,
+                self.min_cluster_size(),
+                hnsw_params,
+                concurrent_core_distance_searches(),
+            ),
             self.max_bytes,
         );
     }
@@ -275,8 +280,12 @@ impl Chutoro {
         };
 
         #[cfg(feature = "cpu")]
-        let estimated =
-            crate::memory::estimate_peak_bytes_for_hnsw_params(items, self.hnsw_params());
+        let estimated = crate::memory::estimate_peak_bytes_for_hnsw_params_with_concurrency(
+            items,
+            self.min_cluster_size(),
+            self.hnsw_params(),
+            concurrent_core_distance_searches(),
+        );
         #[cfg(not(feature = "cpu"))]
         let estimated = 0;
 
@@ -365,6 +374,17 @@ impl Chutoro {
             requested: self.execution_strategy,
         })
     }
+}
+
+/// Returns how many core-distance searches can be live at once.
+///
+/// The batch stage searches every point through an indexed Rayon iterator, so
+/// the ambient pool's width also bounds the number of live search states. A
+/// memory check made outside any explicit pool therefore sees the global pool's
+/// width, which is the pool the stage will use unless the caller installs one.
+#[cfg(feature = "cpu")]
+fn concurrent_core_distance_searches() -> NonZeroUsize {
+    NonZeroUsize::new(rayon::current_num_threads()).unwrap_or(NonZeroUsize::MIN)
 }
 
 #[cfg(test)]

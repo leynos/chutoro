@@ -9,7 +9,7 @@ verus! {
 /// Ordered distance values for a non-self neighbour list.
 pub type Distance = int;
 
-/// Mirrors `session::core_distance::core_distance_from_neighbours`.
+/// Mirrors `chutoro_core::core_distance_from_neighbours`.
 ///
 /// ## Example
 /// ```text

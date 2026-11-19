@@ -7,6 +7,7 @@ use chutoro_benches::neighbour_scoring::{LANE_REPORT, REPORT_DIR_NAME, report_pa
 
 const HNSW_EXACT_BENCH: &str = "hnsw_build/n=100,M=8,ef=16";
 const MST_EXACT_BENCH: &str = "parallel_kruskal/n=100";
+const PIPELINE_EXACT_BENCH: &str = "pipeline/n=1000";
 const SMOKE_RAYON_THREADS: &str = "2";
 type TestResult<T = ()> = Result<T, Box<dyn Error>>;
 
@@ -110,6 +111,16 @@ fn benchmark_binaries_cover_discovery_and_exact_smoke_paths() -> TestResult {
         &format!("Benchmarking {MST_EXACT_BENCH}"),
     );
 
+    let pipeline_list_output = cargo_bench_output("pipeline", &["--list"])?;
+    assert_discovery_entries(
+        &pipeline_list_output,
+        &[
+            format!("{PIPELINE_EXACT_BENCH}: benchmark"),
+            "pipeline/n=10000: benchmark".to_owned(),
+        ],
+        &format!("Benchmarking {PIPELINE_EXACT_BENCH}"),
+    );
+
     let neighbour_scoring_list_output = cargo_bench_output("neighbour_scoring", &["--list"])?;
     assert_discovery_entries(
         &neighbour_scoring_list_output,
@@ -145,6 +156,13 @@ fn benchmark_binaries_cover_discovery_and_exact_smoke_paths() -> TestResult {
         &format!("Benchmarking {MST_EXACT_BENCH}"),
     );
     assert_contains!(&mst_exact_output, "time:");
+
+    let pipeline_exact_output = cargo_bench_output("pipeline", &[PIPELINE_EXACT_BENCH, "--exact"])?;
+    assert_contains!(
+        &pipeline_exact_output,
+        &format!("Benchmarking {PIPELINE_EXACT_BENCH}"),
+    );
+    assert_contains!(&pipeline_exact_output, "time:");
 
     Ok(())
 }

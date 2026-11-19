@@ -101,9 +101,32 @@ let result = chutoro.run(&Dummy(vec![1.0, 2.0, 4.0, 8.0]))?;
 # Ok::<(), chutoro_core::ChutoroError>(())
 ```
 
+The estimate also counts one HNSW search state per thread of the Rayon pool
+that will run the batch, because the parallel core-distance stage searches
+several points at once. Each state is sized to the batch search width: the
+larger of `min_cluster_size + 1` and the effective construction width, capped
+at the number of points. Raising `min_cluster_size` therefore raises the
+estimate. A memory check made outside an explicit pool uses the global pool's
+width.
+
 When the estimate exceeds the configured limit, `run` returns
 `ChutoroError::MemoryLimitExceeded` before allocating the pipeline. Omitting
 `with_max_bytes` leaves this guard disabled.
+`estimate_peak_bytes_for_hnsw_params` reports the single-search estimate.
+`estimate_peak_bytes_for_hnsw_params_with_concurrency` reports the estimate for
+an explicit cluster size and pool width, and `batch_search_width` reports the
+width the batch stage searches at for a given cluster size.
+
+On CPU builds, the batch core-distance stage searches the HNSW graph for every
+point through an indexed Rayon parallel iterator. It therefore runs on the
+calling thread's Rayon pool: pin `RAYON_NUM_THREADS`, or install an explicit
+`rayon::ThreadPoolBuilder` pool, to control the width. Two contracts match the
+former serial loop. Results keep source-index order regardless of completion
+order, and when several searches fail the reported error belongs to the lowest
+source index at any thread count. Unlike the serial loop, every point is still
+searched after an earlier point fails, so a failing run can perform more work
+before it reports the error. The incremental session path remains serial
+because its searches interleave with session-state writes.
 
 When the `metrics` feature is enabled, one-shot runs emit bounded batch
 metrics. The `chutoro.batch.runs_total` counter has the labels `backend`,
@@ -123,6 +146,15 @@ histograms use only the bounded `backend` label:
 Both byte histograms record the exact byte count up to 2^53 bytes (8 PiB), so
 an 8 GiB limit and a 64 GiB limit stay distinguishable; larger values saturate
 at 2^53.
+
+`chutoro.cpu_pipeline.stage_seconds` records one histogram sample per
+successful CPU pipeline stage, timed once on the orchestration thread. Its
+bounded `stage` label takes `core_distances`, `mutual_reachability`, or
+`kruskal`; the last two were already recorded, and the batch stage now adds the
+`core_distances` sample so its share is readable beside the whole run. A stage
+that fails records no sample, because an abandoned stage has no meaningful
+duration. The label set is fixed, and no sample carries a source name or
+payload data.
 
 The stable `ChutoroErrorCode` vocabulary includes
 `CHUTORO_INVALID_MIN_CLUSTER_SIZE`, `CHUTORO_EMPTY_SOURCE`,
@@ -476,6 +508,37 @@ Use `CosineNorms::from_vectors` or `CosineNorms::new` to pre-compute validated
 L2 norms for cosine distance. Reuse the cached norms across repeated queries to
 avoid redundant work; the cosine helper verifies cached values before it
 performs the final calculation.
+
+`core_distance_from_neighbours` applies the core-distance selection rule that
+the batch pipeline, incremental sessions, and the benchmark harness share.
+Supply the point's neighbours ordered by ascending distance and without the
+query point, plus the minimum cluster size `m` as a `NonZeroUsize`. The helper
+returns the distance of the `m - 1`-th neighbour, falls back to the farthest
+supplied neighbour when fewer than `m` neighbours are available, and returns
+`0.0` for an empty list. Because selection is positional, equal distances
+resolve in list order, so the result is deterministic for a given search result.
+
+```rust
+use std::num::NonZeroUsize;
+
+use chutoro_core::{Neighbour, core_distance_from_neighbours};
+
+let neighbours = [
+    Neighbour { id: 1, distance: 0.5 },
+    Neighbour { id: 2, distance: 1.5 },
+    Neighbour { id: 3, distance: 2.5 },
+];
+let min_cluster_size = NonZeroUsize::new(2).expect("two is non-zero");
+
+assert_eq!(
+    core_distance_from_neighbours(&neighbours, min_cluster_size),
+    1.5
+);
+
+// A short neighbour list falls back to its farthest entry.
+let large = NonZeroUsize::new(5).expect("five is non-zero");
+assert_eq!(core_distance_from_neighbours(&neighbours, large), 2.5);
+```
 
 ## Feature flags and execution strategies
 

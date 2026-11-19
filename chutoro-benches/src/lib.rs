@@ -10,6 +10,7 @@ pub mod ef_sweep;
 pub mod error;
 pub mod neighbour_scoring;
 pub mod params;
+pub mod pipeline_profile;
 pub mod profiling;
 pub mod recall;
 mod report_file;
