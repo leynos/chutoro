@@ -126,7 +126,7 @@ fn push_row(csv: &mut String, point_count: usize, stage: &PipelineStageSample, s
 /// holding a comma, quote, or line break. Fields that need neither are returned
 /// unchanged, so the conventional stage labels keep their plain form.
 fn csv_field(field: &str) -> Cow<'_, str> {
-    let needs_quoting = field.contains(|character| matches!(character, ',' | '"' | '\n' | '\r'));
+    let needs_quoting = field.contains([',', '"', '\n', '\r']);
     if needs_quoting {
         Cow::Owned(format!("\"{}\"", field.replace('"', "\"\"")))
     } else {

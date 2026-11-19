@@ -197,6 +197,7 @@ fn estimate_includes_the_prepare_edge_list_buffers(
         distance_cache_capacity: 0,
         harvest_width: max_connections.saturating_mul(LEGACY_EF_PER_CONNECTION),
         layers_eighths: default_layers_eighths(max_connections),
+        concurrent_searches: 1,
     });
 
     assert_eq!(

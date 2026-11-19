@@ -60,7 +60,11 @@ struct SelfFailingSource {
 
 impl SelfFailingSource {
     /// Builds a source from its inner data, failing queries, and wait policy.
-    fn new(inner: NumericTestSource, failing: Vec<usize>, ordering_wait: Option<Duration>) -> Self {
+    const fn new(
+        inner: NumericTestSource,
+        failing: Vec<usize>,
+        ordering_wait: Option<Duration>,
+    ) -> Self {
         Self {
             inner,
             failing,
@@ -72,9 +76,11 @@ impl SelfFailingSource {
 
     /// Returns the queries this source has served, in index order.
     fn served_queries(&self) -> BTreeSet<usize> {
+        // A poisoned lock still holds a coherent set: each insertion is atomic
+        // under the guard, so recovering the poison cannot hide a torn write.
         self.served_queries
             .lock()
-            .expect("served-query lock must not be poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
     }
 
@@ -110,10 +116,11 @@ impl DataSource for SelfFailingSource {
 
     fn distance(&self, left: usize, right: usize) -> Result<f32, DataSourceError> {
         // HNSW always passes the active query as the left operand, so this set
-        // proves which searches ran. The guard is released before any wait.
+        // proves which searches ran. The guard is released before any wait, and
+        // a poisoned lock still holds a coherent set of whole insertions.
         self.served_queries
             .lock()
-            .expect("served-query lock must not be poisoned")
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .insert(left);
         if left == EARLY_FAILURE && right == EARLY_FAILURE {
             self.await_late_failure();
