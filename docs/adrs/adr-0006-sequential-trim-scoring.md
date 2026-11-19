@@ -207,13 +207,14 @@ The checked-in evidence now has three parts.
   observes real scoring rather than an empty batch. It shares the two-second
   steal window with the direct test.
 
-`make test-scheduling-contract` runs both regressions with `--no-tests=fail`
-and default features, and the `build-test` CI job runs that target beside
-`make test-workflow-contracts`.
+`make test-scheduling-contract` runs one nextest invocation per regression,
+each with `--no-tests=fail` and default features, and the `build-test` CI job
+runs that target unconditionally beside `make test-workflow-contracts`.
 `tests/workflow_contracts/scheduling_contract_test.py` pins the target recipe,
-both exact test names, the zero-test failure flag, and the order that installs
-`cargo-nextest` before the target runs. It also checks that each named
-regression is still declared under `cpu/trim_tests`.
+one invocation per exact test name, the zero-test failure flag on each, the
+unconditional execution of the step and its nextest installer, and the order
+that installs `cargo-nextest` before the target runs. It also checks that each
+named regression is still declared under `cpu/trim_tests`.
 
 Positive evidence: both runtime regressions pass on the fixed tree, and the
 full gate set passed on commit `28a9687` (`make check-fmt`, `make markdownlint`

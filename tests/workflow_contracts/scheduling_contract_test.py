@@ -6,8 +6,9 @@ runs nowhere protects nothing: a renamed test, a removed Make target, or a CI
 step deleted beside it would all leave the suite green.
 
 These tests read the Makefile recipe and the ``build-test`` job in
-``.github/workflows/ci.yml``. They pin the target, both exact test names, the
-zero-test failure flag, and the dependency on an installed ``cargo-nextest``.
+``.github/workflows/ci.yml``. They pin the target, both exact test names, one
+invocation per regression, the zero-test failure flag, the unconditional
+execution of the step, and the dependency on an installed ``cargo-nextest``.
 They also require default features so the gate cannot become collateral damage
 when the coverage action's feature set changes.
 
@@ -93,14 +94,34 @@ def test_the_target_retires_when_the_filter_selects_nothing() -> None:
 
     ``cargo nextest`` exits successfully when a filter selects no test. That
     default would let a rename retire the evidence silently, so the flag is
-    part of the contract rather than a local convenience.
+    part of the contract rather than a local convenience. Each invocation
+    carries its own flag; a shared one would cover only the last command.
     """
     recipe = target_recipe(makefile_text(), TARGET)
-    assert "--no-tests=fail" in recipe
+    assert recipe.count("--no-tests=fail") == len(REGRESSIONS), (
+        "every scheduling invocation must fail when it selects no test"
+    )
+
+
+def test_each_regression_runs_in_its_own_invocation() -> None:
+    """One combined filter cannot vouch for a single missing name.
+
+    A disjunction still selects the surviving test when the other name stops
+    matching, so ``--no-tests=fail`` never fires. A separate invocation makes
+    each name, and the test it must select, fail on its own.
+    """
+    recipe = target_recipe(makefile_text(), TARGET)
+    assert recipe.count("nextest run") == len(REGRESSIONS), (
+        "the target must run one nextest invocation per regression"
+    )
+    for name in REGRESSIONS:
+        assert recipe.count(f"test({name})") == 1, (
+            f"{name} must be selected by exactly one invocation"
+        )
 
 
 def test_both_scheduling_regressions_are_selected() -> None:
-    """Both test names must appear in the selection expression.
+    """Both test names must appear in the selection expressions.
 
     Dropping either name would leave the other's single observation standing
     in for a property that needs both a direct and a real-insertion witness.
@@ -129,13 +150,50 @@ def test_the_target_is_phony() -> None:
     assert TARGET in phony_targets(makefile_text())
 
 
-def _build_test_runs() -> list[str]:
-    """Return the run scripts of the ``build-test`` job, in order."""
+def _build_test_steps() -> list[dict[str, object]]:
+    """Return the ``build-test`` steps that run a script, in order.
+
+    The step mapping is kept rather than only its command because a step can
+    carry a condition that skips it. Reading the command alone would accept a
+    step guarded by ``if: false`` as evidence that the gate runs.
+    """
     return [
-        run_script(step).strip()
+        step
         for step in steps(job("ci.yml", "build-test"))
         if run_script(step).strip()
     ]
+
+
+def _build_test_runs() -> list[str]:
+    """Return the run scripts of the ``build-test`` job, in order."""
+    return [run_script(step).strip() for step in _build_test_steps()]
+
+
+def _step_running(command: str) -> dict[str, object] | None:
+    """Return the ``build-test`` step whose script is exactly `command`."""
+    return next(
+        (
+            step
+            for step in _build_test_steps()
+            if run_script(step).strip() == command
+        ),
+        None,
+    )
+
+
+def _assert_unconditional(step: dict[str, object] | None, command: str) -> None:
+    """Fail unless `step` exists and runs without a step-level condition.
+
+    These steps have no side effect worth guarding: they either run the
+    evidence or the job has not done its work. A condition, including
+    ``if: false``, would let the step disappear while the contract still
+    found its command in the file.
+    """
+    assert step is not None, f"build-test must run {command}"
+    condition = step.get("if")
+    assert condition is None, (
+        f"{command} must run unconditionally; it is guarded by {condition!r}"
+    )
 
 
 def test_ci_runs_the_scheduling_target_beside_the_workflow_contracts() -> None:
@@ -147,6 +205,7 @@ def test_ci_runs_the_scheduling_target_beside_the_workflow_contracts() -> None:
     assert "make test-workflow-contracts" in runs, (
         "the scheduling gate belongs with the workflow contracts"
     )
+    _assert_unconditional(_step_running(f"make {TARGET}"), f"make {TARGET}")
 
 
 def test_ci_installs_nextest_before_the_scheduling_target() -> None:
@@ -154,7 +213,8 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
 
     ``scripts/install-nextest.sh`` is the job's only nextest installation. A
     scheduling step placed before it would fail for a reason unrelated to the
-    regressions it exists to run.
+    regressions it exists to run, and either step being skipped would break
+    the chain just as surely as running them in the wrong order.
     """
     runs = _build_test_runs()
     install = next(
@@ -170,6 +230,15 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
     assert install < target, (
         "cargo-nextest must be installed before the scheduling target runs"
     )
+    installer = next(
+        (
+            step
+            for step in _build_test_steps()
+            if "install-nextest.sh" in run_script(step)
+        ),
+        None,
+    )
+    _assert_unconditional(installer, "scripts/install-nextest.sh")
 
 
 @pytest.mark.parametrize("name", REGRESSIONS)

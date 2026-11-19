@@ -2843,13 +2843,14 @@ implementation that dispatches on its own account. Those cases are why the
 runtime regressions exist, and why a passing scan is not a proof of the whole
 path.
 
-`make test-scheduling-contract` runs the two runtime regressions with the
-filter pinned to their exact names and `--no-tests=fail`, so a rename cannot
-retire the evidence silently. The direct test scores a synthetic batch; the
-insertion-path test drives a real insertion in a dedicated four-worker pool and
-records the thread, the Rayon worker, and a non-blocking `insert_mutex`
-`try_lock` for every post-planning distance callback. Both assert that the
-callbacks stay on the mutex holder.
+`make test-scheduling-contract` runs one nextest invocation per regression,
+each pinned to its exact name with `--no-tests=fail`, so neither a rename nor a
+surviving sibling can retire the evidence silently. The CI step that runs the
+target is pinned unconditional, as is the nextest installation it depends on.
+The direct test scores a synthetic batch; the insertion-path test drives a real
+insertion in a dedicated four-worker pool and records the thread, the Rayon
+worker, and a non-blocking `insert_mutex` `try_lock` for every post-planning
+distance callback. Both assert that the callbacks stay on the mutex holder.
 
 What the two checks establish differs:
 

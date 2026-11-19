@@ -322,11 +322,16 @@ test-workflow-contracts: ## Validate the CI workflow contracts
 # The two regressions are the runtime scheduling evidence for the insertion
 # critical section. A filter that matches nothing passes by default, so
 # `--no-tests=fail` keeps a rename from silently retiring that evidence.
-# Default features are deliberate: the regressions are feature-independent,
-# and this target must not depend on the coverage action's feature set.
+# Each regression runs in its own invocation: one filter cannot vouch for a
+# name the other still selects. Default features are deliberate: the
+# regressions are feature-independent, and this target must not depend on the
+# coverage action's feature set.
 test-scheduling-contract: ## Run the HNSW critical-section scheduling regressions
 	$(CARGO) nextest run -p chutoro-core --lib --profile $(NEXTEST_PROFILE) \
-		-E 'test(insertion_trim_scoring_runs_on_the_insert_mutex_holder) | test(direct_trim_scoring_stays_on_the_calling_worker)' \
+		-E 'test(insertion_trim_scoring_runs_on_the_insert_mutex_holder)' \
+		--no-tests=fail
+	$(CARGO) nextest run -p chutoro-core --lib --profile $(NEXTEST_PROFILE) \
+		-E 'test(direct_trim_scoring_stays_on_the_calling_worker)' \
 		--no-tests=fail
 
 help: ## Show available targets
