@@ -214,23 +214,49 @@ def test_a_flag_on_another_invocation_does_not_cover_a_missing_one() -> None:
     )
 
 
+def _selectors_in(command: str) -> list[str]:
+    """Return the regressions whose exact selector `command` contains.
+
+    Examples
+    --------
+    >>> _selectors_in("nextest run -E 'test(=a)'")
+    []
+    >>> _selectors_in(
+    ...     "nextest run -E 'test(=hnsw::cpu::trim_tests::"
+    ...     "direct_trim_scoring_stays_on_the_calling_worker)'"
+    ... )
+    ['direct_trim_scoring_stays_on_the_calling_worker']
+    """
+    return [
+        name
+        for name in REGRESSIONS
+        if f"test(={QUALIFIED_REGRESSIONS[name]})" in command
+    ]
+
+
 def test_each_regression_runs_in_its_own_invocation() -> None:
     """One combined filter cannot vouch for a single missing name.
 
     A disjunction still selects the surviving test when the other name stops
-    matching, so ``--no-tests=fail`` never fires. A separate invocation makes
-    each name, and the test it must select, fail on its own.
+    matching, so ``--no-tests=fail`` never fires. Each invocation must select
+    exactly one regression, and the invocations must cover every regression
+    once: a per-name total spread across commands would accept two selectors
+    in one command and an unrelated test in the other.
     """
     invocations = nextest_invocations()
     assert len(invocations) == len(REGRESSIONS), (
         "the target must run one nextest invocation per regression"
     )
-    for name in REGRESSIONS:
-        selector = f"test(={QUALIFIED_REGRESSIONS[name]})"
-        count = sum(command.count(selector) for command in invocations)
-        assert count == 1, (
-            f"{name} must be selected by exactly one exact-match invocation"
-        )
+    selected = [_selectors_in(command) for command in invocations]
+    assert all(len(names) == 1 for names in selected), (
+        "each invocation must select exactly one regression; "
+        f"got {selected}"
+    )
+    chosen = [names[0] for names in selected]
+    assert sorted(chosen) == sorted(REGRESSIONS), (
+        "the invocations must cover each regression exactly once; "
+        f"got {chosen}"
+    )
 
 
 def test_both_scheduling_regressions_are_selected() -> None:
@@ -346,6 +372,9 @@ def test_the_build_test_job_is_not_conditional() -> None:
     condition = definition.get("if")
     assert condition is None, (
         f"build-test must run unconditionally; it is guarded by {condition!r}"
+    )
+    assert "continue-on-error" not in definition, (
+        "build-test must fail when a gate fails; the job tolerates failure"
     )
 
 
