@@ -101,9 +101,17 @@ let result = chutoro.run(&Dummy(vec![1.0, 2.0, 4.0, 8.0]))?;
 # Ok::<(), chutoro_core::ChutoroError>(())
 ```
 
+The estimate also counts one HNSW search state per thread of the Rayon pool
+that will run the batch, because the parallel core-distance stage searches
+several points at once. A memory check made outside an explicit pool therefore
+uses the global pool's width.
+
 When the estimate exceeds the configured limit, `run` returns
 `ChutoroError::MemoryLimitExceeded` before allocating the pipeline. Omitting
-`with_max_bytes` leaves this guard disabled.
+`with_max_bytes` leaves this guard disabled. `estimate_peak_bytes_for_hnsw_params`
+reports the single-search estimate, and
+`estimate_peak_bytes_for_hnsw_params_with_concurrency` reports the estimate for
+an explicit search width.
 
 On CPU builds, the batch core-distance stage searches the HNSW graph for every
 point through an indexed Rayon parallel iterator. It therefore runs on the
@@ -138,10 +146,11 @@ at 2^53.
 `chutoro.cpu_pipeline.stage_seconds` records one histogram sample per
 successful CPU pipeline stage, timed once on the orchestration thread. Its
 bounded `stage` label takes `core_distances`, `mutual_reachability`, or
-`kruskal`, so the batch core-distance share is readable beside the whole run. A
-stage that fails records no sample, because an abandoned stage has no
-meaningful duration. The label set is fixed, and no sample carries a source
-name or payload data.
+`kruskal`; the last two were already recorded, and the batch stage now adds the
+`core_distances` sample so its share is readable beside the whole run. A stage
+that fails records no sample, because an abandoned stage has no meaningful
+duration. The label set is fixed, and no sample carries a source name or
+payload data.
 
 The stable `ChutoroErrorCode` vocabulary includes
 `CHUTORO_INVALID_MIN_CLUSTER_SIZE`, `CHUTORO_EMPTY_SOURCE`,

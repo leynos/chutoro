@@ -88,14 +88,15 @@ spends holding its mutex while scoring. Neither instrument carries labels, so
 their cardinality is fixed, and both are additive: builds without the feature
 are unchanged.
 
-### New metric: CPU pipeline stage timing
+### New `core_distances` stage label
 
-Enabling the `metrics` feature now also emits
-`chutoro.cpu_pipeline.stage_seconds`, one histogram sample per successful CPU
-pipeline stage. The bounded `stage` label takes `core_distances`,
-`mutual_reachability`, or `kruskal`; a failing stage records no sample. The
-label set is fixed, so the instrument's cardinality does not grow with the
-source size, and builds without the feature are unchanged.
+The `metrics` feature already emitted `chutoro.cpu_pipeline.stage_seconds` for
+the `mutual_reachability` and `kruskal` stages. CPU batch runs now also record a
+sample for the `core_distances` stage in the same histogram, so the batch
+core-distance share is readable beside the rest of the pipeline. The label set
+stays fixed and grows by exactly one value; existing labels keep their meaning,
+a failing stage still records no sample, and builds without the feature are
+unchanged.
 
 ### Additive API: core-distance selection helper
 
@@ -117,6 +118,15 @@ that pinned behaviour to a single thread should pin `RAYON_NUM_THREADS` or
 install an explicit Rayon pool. The incremental session path remains serial. The
 [user's guide](users-guide.md#running-the-clustering-pipeline) documents the
 contract.
+
+Because those searches hold state at the same time, the `with_max_bytes`
+estimate now counts one search state per Rayon worker rather than one per run.
+A `max_bytes` that admitted a run under the former estimate can therefore be
+rejected on a wide pool, which is the intended conservative behaviour: the
+former estimate under-counted live search state. `estimate_peak_bytes_for_hnsw_params`
+keeps its single-search meaning, and the new
+`estimate_peak_bytes_for_hnsw_params_with_concurrency` takes the width
+explicitly.
 
 ### Additive API: dense-provider test fixtures
 
