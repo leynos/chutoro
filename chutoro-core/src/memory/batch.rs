@@ -31,7 +31,6 @@ use super::estimate::{EstimateInputs, estimate_peak_bytes_with_search_width};
 /// assert_eq!(batch_search_width(1_000, cluster, &params).get(), 65);
 /// assert_eq!(batch_search_width(8, cluster, &params).get(), 8);
 /// ```
-#[cfg(feature = "cpu")]
 #[must_use]
 pub fn batch_search_width(
     point_count: usize,
@@ -83,7 +82,6 @@ pub fn batch_search_width(
 /// );
 /// assert!(eight_searches > one_search);
 /// ```
-#[cfg(feature = "cpu")]
 #[must_use]
 pub fn estimate_peak_bytes_for_hnsw_params_with_concurrency(
     point_count: usize,

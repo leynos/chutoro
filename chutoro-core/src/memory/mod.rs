@@ -8,6 +8,7 @@
 //! concurrent search, because the batch core-distance stage runs one search per
 //! Rayon worker, and each state is sized to the width that stage searches at.
 
+#[cfg(feature = "cpu")]
 mod batch;
 mod estimate;
 mod format;
