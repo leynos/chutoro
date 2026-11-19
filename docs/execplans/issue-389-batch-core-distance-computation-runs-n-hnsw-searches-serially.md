@@ -259,6 +259,12 @@ and 150 lines of benchmark and profiling support.
   rejection came first; the cluster-size concurrency case runs at one and eight
   workers. The call-site short-circuiting mutation was re-run and the result
   recorded in the verification plan.
+- [x] (2026-11-19 20:30Z) Round-five residue (D14): the bounded ordering wait
+  now accepts the late-failure flag only while its deadline still holds, so a
+  rejection that lands after the bound cannot set the witness. The requested
+  release-after-`index.search` hook is declined with evidence: the seam has no
+  observable search return, and the call-site mutation run shows the existing
+  witness already rejects a completion-ordered collector at both thread counts.
 - [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
@@ -398,6 +404,20 @@ and 150 lines of benchmark and profiling support.
   harvests at. `estimate_peak_bytes_for_hnsw_params` keeps its single-search
   semantics, so existing callers see no change. Date/Author: 2026-11-19,
   implementation agent.
+- D14. Decision: keep the failure-ordering witness at the `DataSource` seam and
+  decline a hook that releases the early query only after the late query's
+  `index.search` returns. Rationale: `compute_core_distances` sees the source
+  only through `DataSource::distance`, and nothing in the public pipeline
+  exposes the return of `CpuHnsw::search`, so such a hook would have to be
+  test-only instrumentation inside shipping code. The witness instead pins the
+  property the contract consumes: the late rejection is produced strictly
+  before the early rejection exists, which is the ordering a completion-ordered
+  collector would follow. The call-site short-circuiting mutation shows the
+  test discriminates rather than passing vacuously: at eight threads the mutant
+  reports index 11 instead of 3, and at one thread it serves only four of the
+  twelve queries. The bounded wait was also changed to accept the flag only
+  while the deadline still holds, so a rejection that lands after the bound
+  cannot set the witness. Date/Author: 2026-11-19, implementation agent.
 
 ## Outcomes & retrospective
 

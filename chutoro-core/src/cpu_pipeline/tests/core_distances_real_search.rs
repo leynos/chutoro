@@ -109,19 +109,22 @@ impl SelfFailingSource {
 
     /// Waits, within the configured bound, for the late failure to be seen.
     ///
-    /// A timeout is not fatal here: the early query still rejects its own pair
-    /// so the stage reaches its assertions, which then fail on the unset
-    /// ordering witness rather than hanging the suite.
+    /// The flag is accepted only while the deadline still holds, so a rejection
+    /// that lands after the bound cannot be mistaken for an in-time witness. A
+    /// timeout is not fatal here: the early query still rejects its own pair so
+    /// the stage reaches its assertions, which then fail on the unset ordering
+    /// witness rather than hanging the suite.
     fn await_late_failure(&self) {
         let Some(wait) = self.ordering_wait else {
             return;
         };
         let deadline = Instant::now() + wait;
-        while !self.late_failure_observed.load(Ordering::SeqCst) && Instant::now() < deadline {
+        while Instant::now() < deadline {
+            if self.late_failure_observed.load(Ordering::SeqCst) {
+                self.ordering_witnessed.store(true, Ordering::SeqCst);
+                return;
+            }
             std::thread::sleep(Duration::from_millis(1));
-        }
-        if self.late_failure_observed.load(Ordering::SeqCst) {
-            self.ordering_witnessed.store(true, Ordering::SeqCst);
         }
     }
 }
