@@ -19,6 +19,9 @@ use crate::{
 
 use super::CpuHnsw;
 
+mod insertion_observation;
+mod insertion_path;
+
 /// Dimensions of each point in [`DenseSource`].
 const TRIM_DIMENSIONS: usize = 16;
 
@@ -242,7 +245,13 @@ impl DataSource for ThreadRecordingSource {
     }
 }
 
-/// Observes that trim scoring stays on the thread holding the insert mutex.
+/// Observes that direct trim scoring stays on the calling worker.
+///
+/// This is the unit-level counterpart to
+/// `insertion_trim_scoring_runs_on_the_insert_mutex_holder`. It scores a
+/// synthetic batch through `score_trim_jobs` rather than driving a real
+/// insertion, so it isolates the scorer's own scheduling from the rest of the
+/// insertion transaction.
 ///
 /// Trimming runs while the caller holds `insert_mutex`, so every other worker
 /// in a parallel build may already be blocked acquiring that same mutex.
@@ -262,7 +271,7 @@ impl DataSource for ThreadRecordingSource {
 /// `tests/workflow_contracts/trim_scoring_dispatch_test.py`; this test remains
 /// as broader coverage.
 #[test]
-fn trim_scoring_stays_on_the_thread_holding_the_insert_mutex() {
+fn direct_trim_scoring_stays_on_the_calling_worker() {
     let source = ThreadRecordingSource::new(DenseSource::synthetic(TRIM_POINTS));
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(TRIM_THREADS)
