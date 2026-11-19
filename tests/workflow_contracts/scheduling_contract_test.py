@@ -13,171 +13,28 @@ and the dependency on an installed ``cargo-nextest``. They also require default
 features so the gate cannot become collateral damage when the coverage action's
 feature set changes.
 
+The reading itself, with the cases that keep its filtering honest, lives in
+``scheduling_reading``.
+
 Run via ``make test-workflow-contracts``.
 """
 
 from __future__ import annotations
 
-import re
-from pathlib import Path
-
 import pytest
-
-from workflow_support import job, run_script, steps
-
-ROOT = Path(__file__).resolve().parents[2]
-MAKEFILE = ROOT / "Makefile"
-
-#: The target that runs both scheduling regressions.
-TARGET = "test-scheduling-contract"
-
-#: The exact test names the filter must select.
-REGRESSIONS = (
-    "insertion_trim_scoring_runs_on_the_insert_mutex_holder",
-    "direct_trim_scoring_stays_on_the_calling_worker",
+from scheduling_reading import (
+    QUALIFIED_REGRESSIONS,
+    REGRESSIONS,
+    TARGET,
+    declares_test,
+    invocations_missing_flag,
+    makefile_text,
+    nextest_invocations,
+    phony_targets,
+    selected_regression,
+    target_recipe,
 )
-
-#: The fully qualified nextest names, which the recipes must match exactly.
-QUALIFIED_REGRESSIONS = {
-    "insertion_trim_scoring_runs_on_the_insert_mutex_holder": (
-        "hnsw::cpu::trim_tests::insertion_path::"
-        "insertion_trim_scoring_runs_on_the_insert_mutex_holder"
-    ),
-    "direct_trim_scoring_stays_on_the_calling_worker": (
-        "hnsw::cpu::trim_tests::direct_trim_scoring_stays_on_the_calling_worker"
-    ),
-}
-
-
-def makefile_text() -> str:
-    """Return the Makefile source this contract reads.
-
-    Reading once keeps every assertion below looking at the same text, so a
-    failure names the file once rather than reporting a diagnostic from a
-    different read.
-    """
-    return MAKEFILE.read_text(encoding="utf-8")
-
-
-def _strip_shell_comment(line: str) -> str:
-    """Return `line` without its trailing shell comment.
-
-    Only an unescaped ``#`` starts a comment, so a literal ``\\#`` survives.
-    Comments are removed before any assertion reads a command, because a
-    comment that mentioned a flag would otherwise stand in for the flag on an
-    invocation that omits it.
-
-    Examples
-    --------
-    >>> _strip_shell_comment("make test#run the suite")
-    'make test'
-    """
-    comment = re.search(r"(?<!\\)#", line)
-    return line if comment is None else line[: comment.start()]
-
-
-def recipe_commands(text: str, target: str) -> list[str]:
-    """Return one target's recipe as logical shell commands.
-
-    Backslash continuations are joined into a single command, shell comments
-    are removed, and blank lines are dropped. Commands are returned rather
-    than the joined recipe so a caller can check an invocation on its own;
-    counting matches across the whole recipe would accept one command that
-    supplies a match twice beside another that supplies none.
-
-    Examples
-    --------
-    >>> recipe_commands("build:\\n\\tcargo build --release\\n", "build")
-    ['cargo build --release']
-    >>> recipe_commands("build:\\n\\t# cargo build\\n", "build")
-    []
-    """
-    pattern = re.compile(
-        rf"^{re.escape(target)}:[^\n]*\n(?P<recipe>(?:[ \t]+[^\n]*\n)*)",
-        re.MULTILINE,
-    )
-    match = pattern.search(text)
-    if match is None:
-        message = f"{target} is not declared with a recipe"
-        raise ValueError(message)
-    commands: list[str] = []
-    pending = ""
-    for raw in match.group("recipe").splitlines():
-        command = _strip_shell_comment(raw.strip())
-        if not command:
-            continue
-        if command.endswith("\\"):
-            pending = f"{pending}{command[:-1]} "
-            continue
-        commands.append(" ".join(f"{pending}{command}".split()))
-        pending = ""
-    if pending.strip():
-        commands.append(" ".join(pending.split()))
-    return commands
-
-
-def target_recipe(text: str, target: str) -> str:
-    """Return the tab-indented recipe of one Make target.
-
-    The target line itself may carry a ``##`` help comment. Recipe lines are
-    the tab-indented lines that follow, backslash continuations included and
-    shell comments removed; a missing target or an empty recipe fails rather
-    than returning no recipe, because an empty string would satisfy every
-    substring check vacuously.
-
-    Examples
-    --------
-    >>> target_recipe("build:\\n\\tcargo build\\n", "build")
-    'cargo build'
-    >>> target_recipe("build:\\n", "build")
-    Traceback (most recent call last):
-    ...
-    ValueError: build has no recipe
-    """
-    commands = recipe_commands(text, target)
-    if not commands:
-        message = f"{target} has no recipe"
-        raise ValueError(message)
-    return " ".join(commands)
-
-
-def nextest_invocations() -> list[str]:
-    """Return each nextest command in the scheduling target.
-
-    Commands are returned separately so that an assertion about an
-    invocation's arguments fails when that invocation alone omits them.
-    """
-    return [
-        command
-        for command in recipe_commands(makefile_text(), TARGET)
-        if "nextest run" in command
-    ]
-
-
-def phony_targets(text: str) -> set[str]:
-    """Return the names a ``.PHONY`` declaration covers.
-
-    GNU make collapses continued declarations, so the continuation backslashes
-    are removed before splitting. A target absent from this set can be skipped
-    when a file of the same name exists.
-    """
-    declared = re.findall(r"^\.PHONY:((?:.*\\\n)*.*)$", text, re.MULTILINE)
-    return set(" ".join(declared).replace("\\\n", " ").split())
-
-
-def _invocations_missing_flag(invocations: list[str]) -> list[int]:
-    """Return the indices of invocations without ``--no-tests=fail``.
-
-    Examples
-    --------
-    >>> _invocations_missing_flag(["nextest run --no-tests=fail", "nextest run"])
-    [1]
-    """
-    return [
-        index
-        for index, command in enumerate(invocations)
-        if "--no-tests=fail" not in command
-    ]
+from workflow_support import ROOT, job, run_script, steps
 
 
 def test_the_target_retires_when_the_filter_selects_nothing() -> None:
@@ -193,7 +50,7 @@ def test_the_target_retires_when_the_filter_selects_nothing() -> None:
     assert len(invocations) == len(REGRESSIONS), (
         "the target must run one nextest invocation per regression"
     )
-    without_flag = _invocations_missing_flag(invocations)
+    without_flag = invocations_missing_flag(invocations)
     assert not without_flag, (
         f"scheduling invocation(s) {without_flag} must pass --no-tests=fail"
     )
@@ -209,29 +66,9 @@ def test_a_flag_on_another_invocation_does_not_cover_a_missing_one() -> None:
         "cargo nextest run -E 'test(=a)' --no-tests=fail --no-tests=fail",
         "cargo nextest run -E 'test(=b)'",
     ]
-    assert _invocations_missing_flag(invocations) == [1], (
+    assert invocations_missing_flag(invocations) == [1], (
         "only the unflagged invocation may be reported"
     )
-
-
-def _selectors_in(command: str) -> list[str]:
-    """Return the regressions whose exact selector `command` contains.
-
-    Examples
-    --------
-    >>> _selectors_in("nextest run -E 'test(=a)'")
-    []
-    >>> _selectors_in(
-    ...     "nextest run -E 'test(=hnsw::cpu::trim_tests::"
-    ...     "direct_trim_scoring_stays_on_the_calling_worker)'"
-    ... )
-    ['direct_trim_scoring_stays_on_the_calling_worker']
-    """
-    return [
-        name
-        for name in REGRESSIONS
-        if f"test(={QUALIFIED_REGRESSIONS[name]})" in command
-    ]
 
 
 def test_each_regression_runs_in_its_own_invocation() -> None:
@@ -239,24 +76,36 @@ def test_each_regression_runs_in_its_own_invocation() -> None:
 
     A disjunction still selects the surviving test when the other name stops
     matching, so ``--no-tests=fail`` never fires. Each invocation must select
-    exactly one regression, and the invocations must cover every regression
-    once: a per-name total spread across commands would accept two selectors
-    in one command and an unrelated test in the other.
+    exactly one regression with an expression naming nothing else, and the
+    invocations must cover every regression once: a per-name total spread
+    across commands would accept two selectors in one command and an
+    unrelated test in the other.
     """
     invocations = nextest_invocations()
     assert len(invocations) == len(REGRESSIONS), (
         "the target must run one nextest invocation per regression"
     )
-    selected = [_selectors_in(command) for command in invocations]
-    assert all(len(names) == 1 for names in selected), (
-        "each invocation must select exactly one regression; "
-        f"got {selected}"
-    )
-    chosen = [names[0] for names in selected]
+    chosen = [selected_regression(command) for command in invocations]
     assert sorted(chosen) == sorted(REGRESSIONS), (
         "the invocations must cover each regression exactly once; "
         f"got {chosen}"
     )
+
+
+def test_a_widened_expression_is_rejected() -> None:
+    """A disjunction with all() keeps an invocation non-empty forever.
+
+    Both invocations could carry ``test(=name) | all()`` and pass every count:
+    the expression selects every test, so the zero-test flag never fires once
+    the named regression is renamed. The whole expression has to name the
+    regression, not merely contain its selector.
+    """
+    widened = (
+        "cargo nextest run -E "
+        f"'test(={QUALIFIED_REGRESSIONS[REGRESSIONS[0]]}) | all()'"
+    )
+    with pytest.raises(ValueError, match="must select exactly one regression"):
+        selected_regression(widened)
 
 
 def test_both_scheduling_regressions_are_selected() -> None:
@@ -306,9 +155,11 @@ def test_the_target_is_declared_once() -> None:
     warns. The contract reads the first declaration, so a duplicate could
     replace the gated recipe with a command the checks never saw.
     """
-    declarations = re.findall(
-        rf"^{re.escape(TARGET)}:", makefile_text(), re.MULTILINE
-    )
+    declarations = [
+        line
+        for line in makefile_text().splitlines()
+        if line.startswith(f"{TARGET}:")
+    ]
     assert len(declarations) == 1, (
         f"{TARGET} must be declared once; found {len(declarations)} recipes"
     )
@@ -427,18 +278,34 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
 
 
 @pytest.mark.parametrize("name", REGRESSIONS)
-def test_each_regression_is_a_real_test_in_the_scanned_rust_sources(name: str) -> None:
+def test_each_regression_is_a_real_test_in_the_scanned_rust_sources(
+    name: str,
+) -> None:
     """The selected names must still exist as tests in the Rust source.
 
     This is a second, independent reading: the Makefile could name a test that
     was renamed in the Rust source, and the zero-test flag would only catch
-    that at CI time. Reading the declaration here fails at review time.
+    that at CI time. Reading the declaration here fails at review time. The
+    declaration must carry a test attribute, because a plain function of the
+    same name is never registered with the harness.
     """
-    sources = (ROOT / "chutoro-core" / "src" / "hnsw" / "cpu" / "trim_tests").glob(
-        "*.rs"
+    sources = (
+        ROOT / "chutoro-core" / "src" / "hnsw" / "cpu" / "trim_tests"
+    ).glob("*.rs")
+    declarations = [path.read_text(encoding="utf-8") for path in sources]
+    assert any(declares_test(source, name) for source in declarations), (
+        f"{name} must still be declared as a test under cpu/trim_tests"
     )
-    declarations = {path.read_text(encoding="utf-8") for path in sources}
-    assert any(
-        re.search(rf"fn\s+{re.escape(name)}\s*\(", source)
-        for source in declarations
-    ), f"{name} must still be declared under cpu/trim_tests"
+
+
+def test_a_plain_function_does_not_satisfy_the_declaration_check() -> None:
+    """A matching name without an attribute is not a registered test.
+
+    ``--no-tests=fail`` cannot fire for a function the harness never
+    discovered, so the declaration check would pass while the Makefile filter
+    selected nothing.
+    """
+    source = f"fn {REGRESSIONS[0]}() {{}}"
+    assert not declares_test(source, REGRESSIONS[0]), (
+        "an unattributed function must not read as a declared test"
+    )

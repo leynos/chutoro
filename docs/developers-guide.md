@@ -2857,13 +2857,19 @@ path.
 `make test-scheduling-contract` runs one nextest invocation per regression,
 each pinned to its fully qualified name with an exact-match filter
 (`test(=...)`) and `--no-tests=fail`, so neither a rename, a like-named
-fixture, nor a surviving sibling can retire the evidence silently. The CI step
-that runs the target is pinned unconditional, as is the nextest installation it
-depends on. The direct test scores a synthetic batch; the insertion-path test
-drives a real insertion in a dedicated four-worker pool and records the thread,
-the Rayon worker, and a non-blocking `insert_mutex` `try_lock` for every
-post-planning distance callback. Both assert that the callbacks stay on the
-mutex holder.
+fixture, nor a surviving sibling can retire the evidence silently. The workflow
+contract, `scheduling_contract_test.py` with its companion
+`scheduling_reading.py`, also requires each invocation's whole filter
+expression to be exactly one selector, so a widened expression such as
+`test(=name) | all()` cannot keep an invocation non-empty after the regression
+is renamed. The CI step that runs the target is pinned unconditional, as is the
+nextest installation it depends on. The declaration the recipe names must still
+carry a test attribute, because a plain function of the same name is never
+discovered and the zero-test flag cannot fire for it. The direct test scores a
+synthetic batch; the insertion-path test drives a real insertion in a dedicated
+four-worker pool and records the thread, the Rayon worker, and a non-blocking
+`insert_mutex` `try_lock` for every post-planning distance callback. Both
+assert that the callbacks stay on the mutex holder.
 
 What the two checks establish differs:
 

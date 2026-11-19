@@ -213,12 +213,14 @@ The checked-in evidence now has three parts.
 each with a fully qualified exact-match filter, `--no-tests=fail`, and default
 features, and the `build-test` CI job runs that target unconditionally beside
 `make test-workflow-contracts`.
-`tests/workflow_contracts/scheduling_contract_test.py` pins the target recipe,
-one invocation per fully qualified test name, the zero-test failure flag on
-each, the unconditional and blocking execution of the step and its nextest
-installer within an unconditional job, and the order that installs
-`cargo-nextest` before the target runs. It also checks that each named
-regression is still declared under `cpu/trim_tests`.
+`tests/workflow_contracts/scheduling_contract_test.py`, reading through
+`scheduling_reading.py`, pins the target recipe, one invocation per fully
+qualified test name, each invocation's whole filter expression as exactly one
+selector, the zero-test failure flag on each, the unconditional and blocking
+execution of the step and its nextest installer within an unconditional job,
+and the order that installs `cargo-nextest` before the target runs. It also
+checks that each named regression is still declared under `cpu/trim_tests` with
+a test attribute, since an undiscovered function cannot trip `--no-tests=fail`.
 
 Positive evidence: both runtime regressions pass on the fixed tree, and the
 full gate set passed on commit `28a9687` (`make check-fmt`, `make markdownlint`
