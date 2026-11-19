@@ -213,6 +213,15 @@ and 150 lines of benchmark and profiling support.
   names are quoted as a single field, the real-search regression records every
   query served and holds the early failure until the late one has failed, and
   the migration note now says which stage labels pre-existed.
+- [x] (2026-11-19 09:40Z) Round-four lint compliance: `memory.rs` moves its
+  test module to `memory_tests.rs` so the module stays under Whitaker's
+  400-line limit; the peak-estimate inputs became a `Copy` struct so the
+  estimator keeps four arguments; the test source's constructor is `const fn`
+  and its lock recovery uses `PoisonError::into_inner` instead of `expect`; and
+  the CSV predicate uses `str::contains([char; 4])`. Gates on the resulting
+  tree: `make check-fmt`, `make typecheck`, `make test` (1,492 passed, 1
+  skipped; doctests ok), and `make lint` (interrogate, rustdoc, Clippy,
+  Whitaker) all pass.
 - [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
