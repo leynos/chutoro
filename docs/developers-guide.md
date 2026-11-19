@@ -1327,6 +1327,20 @@ variants take no pattern, struct variants take a brace group such as `{ .. }`,
 and tuple variants take a parenthesized group such as `(_)`, for example
 `DataSource => DataSource(_) => "DATA_SOURCE"`.
 
+### Users-guide error-code sync test
+
+`chutoro-core/tests/users_guide_error_codes.rs` loads the shipped
+`docs/users-guide.md` with `include_str!` and checks the "Subsystem error
+codes" section against the public code enums in both directions. Every string
+that `MstErrorCode`, `HnswErrorCode`, or `HierarchyErrorCode` produces must
+appear as a backticked token, and no backticked upper-snake-case token outside
+those enums and `ChutoroErrorCode` and `DataSourceErrorCode` may appear.
+
+Adding, renaming, or removing a code therefore requires the matching table row
+to change in the same commit. The test names the enums and variants it covers,
+so a new code enum is not picked up automatically; extend the inventories in
+the test when the documented surface grows.
+
 ### Graph-lock test helpers
 
 `chutoro-core/src/hnsw/cpu/test_helpers.rs` carries two fixtures that reach
