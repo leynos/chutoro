@@ -367,9 +367,9 @@ callers.
 `insert_harvesting` follows the same insertion rules as `insert` and returns
 `Result<Vec<CandidateEdge>, HnswError>`. `HnswError::DuplicateNode` is returned
 when the same node identifier is inserted twice. `HnswError::DataSource`
-surfaces failures from `distance` or `distance_batch`, and
-`HnswError::NonFiniteDistance` reports a non-finite value returned by either
-call. `HnswError::InvalidParameters` covers invalid setup, including a batch
+surfaces failures from `distance`, `distance_batch`, or `batch_distances`, and
+`HnswError::NonFiniteDistance` reports a non-finite value returned by any of
+them. `HnswError::InvalidParameters` covers invalid setup, including a batch
 response whose length does not match the candidates requested, while
 lock-related errors report inconsistent runtime state. See
 [HNSW errors](#hnsw-errors) for the complete code list.
@@ -546,7 +546,7 @@ every variant except `DataSource` becomes
 | `GraphInvariantViolation` | `GRAPH_INVARIANT_VIOLATION` | `HnswError::GraphInvariantViolation { message }` | The graph is inconsistent, including a harvested edge that has no core distance                                                                                                                                           | Internal fault                     |
 | `NonFiniteDistance`       | `NON_FINITE_DISTANCE`       | `HnswError::NonFiniteDistance { left, right }`   | The source returned NaN or infinity for a distance                                                                                                                                                                        | Data-source output                 |
 | `LockPoisoned`            | `LOCK_POISONED`             | `HnswError::LockPoisoned { resource }`           | A panic poisoned the `"graph"`, `"insert mutex"`, `"rng mutex"`, or `"worker rng mutex"` lock                                                                                                                             | Runtime fault                      |
-| `DataSource`              | `DATA_SOURCE`               | `HnswError::DataSource(DataSourceError)`         | A `distance` or `distance_batch` call failed                                                                                                                                                                              | Data-source output                 |
+| `DataSource`              | `DATA_SOURCE`               | `HnswError::DataSource(DataSourceError)`         | A `distance`, `distance_batch`, or `batch_distances` call failed                                                                                                                                                          | Data-source output                 |
 
 _Table 2: HNSW error codes produced by the CPU backend._
 
