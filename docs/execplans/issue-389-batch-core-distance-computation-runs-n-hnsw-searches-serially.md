@@ -208,6 +208,11 @@ and 150 lines of benchmark and profiling support.
   `make markdownlint` (0 issues), `make nixie`, and `make spelling` all pass.
   Hosted CI for the same head is green for build-test, Kani, benchmark smoke,
   property tests, Verus, CodeScene, and Gecko.
+- [x] (2026-11-19 07:10Z) CodeRabbit round four addressed (D10, D11, D12): the
+  peak-memory estimate counts one search state per Rayon worker, CSV stage
+  names are quoted as a single field, the real-search regression records every
+  query served and holds the early failure until the late one has failed, and
+  the migration note now says which stage labels pre-existed.
 - [ ] `EP-M4` delivery confirmation: re-push and final review.
 
 ## Surprises & discoveries
@@ -229,6 +234,12 @@ and 150 lines of benchmark and profiling support.
   is not the bottleneck at this width and needs no change. Evidence:
   `Artefacts and notes`, after-measurement profile. Impact: the follow-up issue
   should not propose cache surgery without a wider-contention datum.
+- Observation: `validate_distance` consults the distance cache and then calls
+  `DataSource::distance` with no cache guard live: `begin_lookup` returns a
+  `PendingMiss` after dropping the `DashMap` entry guard, and `complete_miss`
+  inserts afterwards. Evidence: `chutoro-core/src/hnsw/validate.rs` and
+  `distance_cache/mod.rs`. Impact: a test fixture may block inside `distance`
+  without risking a lock held by another worker.
 - Observation: `make lint-clippy` reports `chutoro-benches` failures only after
   the workspace's earlier crates compile, so an earlier run that stopped in
   `chutoro-core` hid four benchmark-target lints in `pipeline.rs` and
@@ -301,6 +312,33 @@ and 150 lines of benchmark and profiling support.
   path for the fallback test to mean anything. `CARGO_TARGET_DIR_ENV` is now
   shared so the variable name is not repeated. Date/Author: 2026-11-18,
   implementation agent.
+- D10. Decision: make the batch memory guard count one HNSW search state per
+  Rayon worker through a new public
+  `estimate_peak_bytes_for_hnsw_params_with_concurrency`, keeping the existing
+  `estimate_peak_bytes_for_hnsw_params` at its single-search meaning. The
+  guard derives the worker count from `rayon::current_num_threads()`.
+  Rationale: the parallel stage holds one search state per live search, so the
+  former one-search estimate under-counted peak memory and could admit a run
+  that exhausts the limit. A separate explicit function keeps the old estimate
+  usable for callers that know they run one search, and the `with_max_bytes`
+  rejection is conservative rather than silent over-commitment.
+  Date/Author: 2026-11-19, implementation agent.
+- D11. Decision: quote a CSV stage name only when it contains a comma, quote,
+  carriage return, or line feed, doubling embedded quotes. Rationale: RFC 4180
+  minimal quoting keeps the built-in labels unchanged while preventing a
+  composed label from splitting the row. The profile still declares four
+  fields per row. Date/Author: 2026-11-19, implementation agent.
+- D12. Decision: strengthen the real-search regression with a recorded
+  query set and a bounded ordering handshake rather than lengthening the
+  synthetic collector test. Rationale: the production call site, not the
+  collector alone, must be shown to search every point after a failure; and
+  the eight-thread case must demonstrate a higher-index failure completing
+  before the reported lower-index one. The handshake waits only when the pool
+  has a second worker, so the one-thread case never waits on itself, and the
+  timeout falls through so a scheduling anomaly fails the ordering witness
+  instead of hanging the suite. The distance cache releases its shard guards
+  before calling `DataSource::distance`, so the wait cannot deadlock on a cache
+  lock. Date/Author: 2026-11-19, implementation agent.
 
 ## Outcomes & retrospective
 
@@ -865,3 +903,8 @@ No runtime dependency is added to `chutoro-core`.
 - 2026-11-19: Rebased a second time onto `origin/main` at `bab414a`, resolving
   one `docs/users-guide.md` conflict by keeping both branches' paragraphs, and
   re-ran every deterministic gate on the new head.
+- 2026-11-19: Folded in the fourth CodeRabbit review round: the peak-memory
+  estimate is concurrency-aware (D10), profile stage names are CSV-safe (D11),
+  the real-search regression proves full coverage and failure ordering (D12),
+  and the migration note distinguishes the new `core_distances` label from the
+  stage labels that pre-existed.
