@@ -2845,12 +2845,14 @@ and `par_iter()` adapters, the parallel slice and string adapters (the
 `.par_bridge()`, `.par_chunks()`, `.par_windows()`, `.par_split()`,
 `.par_lines()`, `.par_chars()`, and `.par_drain()` methods) and the
 `spawn_fifo`, `scope_fifo`, `join_context`, `broadcast`, and `spawn_broadcast`
-calls. Each entry is a boundary-aware pattern rather than a substring, so a
-slice `names.join(", ")` in the scored body is not reported as a Rayon join. It
-also checks a checked-in copy of the former `score_trim_jobs` and requires it
-to read as a dispatch, so the fixture cannot drift into agreement with the
-fixed code. A missing function fails the contract rather than reading as clean.
-`make test-workflow-contracts` runs it.
+calls, together with their `ThreadPool` method forms such as `pool.scope(...)`
+and `scope.spawn(...)`, which run work in the pool as surely as the free
+functions do. Each entry is a boundary-aware pattern rather than a substring,
+so a slice `names.join(", ")` in the scored body is not reported as a Rayon
+join. It also checks a checked-in copy of the former `score_trim_jobs` and
+requires it to read as a dispatch, so the fixture cannot drift into agreement
+with the fixed code. A missing function fails the contract rather than reading
+as clean. `make test-workflow-contracts` runs it.
 
 The scan's limits are part of the contract. It can see a listed helper that
 dispatches, but not an unlisted helper called by one of the five, not an
@@ -2862,10 +2864,12 @@ path.
 `make test-scheduling-contract` runs one nextest invocation per regression,
 each pinned to its fully qualified name with an exact-match filter
 (`test(=...)`) and `--no-tests=fail`, so neither a rename, a like-named
-fixture, nor a surviving sibling can retire the evidence silently. The workflow
-contract, `scheduling_contract_test.py` with its companion
-`scheduling_reading.py`, also requires each invocation's whole filter
-expression to be exactly one selector, so a widened expression such as
+fixture, nor a surviving sibling can retire the evidence silently. The target
+builds the default feature set, and every spelling that would change it is
+rejected: `--all-features`, `--no-default-features`, `--features` including its
+`=` form, and `-F`. The workflow contract, `scheduling_contract_test.py` with
+its companion `scheduling_reading.py`, also requires each invocation's whole
+filter expression to be exactly one selector, so a widened expression such as
 `test(=name) | all()` cannot keep an invocation non-empty after the regression
 is renamed. The recipe's commands must run nextest in executable position and
 must not carry Make's error-ignoring `-` prefix or a failure-masking shell

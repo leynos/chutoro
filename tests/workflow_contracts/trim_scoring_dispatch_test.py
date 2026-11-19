@@ -167,9 +167,17 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
         ),
         pytest.param(".install(", "pool.install(|| run())", id="install"),
         pytest.param("scope(", "scope(|scope| run())", id="scope"),
+        pytest.param(".scope(", "pool.scope(|scope| run())", id="method-scope"),
         pytest.param("scope_fifo(", "scope_fifo(|scope| run())", id="scope-fifo"),
+        pytest.param(
+            ".scope_fifo(", "pool.scope_fifo(|scope| run())", id="method-scope-fifo"
+        ),
         pytest.param("spawn(", "spawn(run())", id="spawn"),
+        pytest.param(".spawn(", "scope.spawn(|_| run())", id="method-spawn"),
         pytest.param("spawn_fifo(", "spawn_fifo(run())", id="spawn-fifo"),
+        pytest.param(
+            ".spawn_fifo(", "scope.spawn_fifo(|_| run())", id="method-spawn-fifo"
+        ),
         pytest.param(
             "spawn_broadcast(",
             "spawn_broadcast(|ctx| run(ctx))",

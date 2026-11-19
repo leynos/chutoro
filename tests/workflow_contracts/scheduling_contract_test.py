@@ -27,6 +27,7 @@ from scheduling_reading import (
     REGRESSIONS,
     TARGET,
     declares_test,
+    feature_flags,
     invocations_missing_flag,
     is_nextest_invocation,
     makefile_text,
@@ -194,9 +195,31 @@ def test_the_target_runs_the_core_library_with_default_features() -> None:
     assert "nextest run" in recipe, "the target must run nextest"
     assert "-p chutoro-core" in recipe, "the gate must select chutoro-core"
     assert "--lib" in recipe, "the gate must run the library target"
-    assert "--all-features" not in recipe, (
-        "the gate must not widen the feature set"
+    flags = feature_flags(recipe)
+    assert not flags, (
+        f"the gate must build the default features; it passes {flags}"
     )
+
+
+@pytest.mark.parametrize(
+    "flag",
+    [
+        pytest.param("--all-features", id="all-features"),
+        pytest.param("--no-default-features", id="no-default-features"),
+        pytest.param("--features metrics", id="features"),
+        pytest.param("--features=metrics", id="features-equals"),
+        pytest.param("-F metrics", id="short-features"),
+    ],
+)
+def test_every_feature_selection_spelling_is_rejected(flag: str) -> None:
+    """A feature change must not be able to ride along with the gate.
+
+    Rejecting ``--all-features`` alone leaves four other spellings that alter
+    what the gate builds, including the ``--features=name`` form a check for
+    the bare flag cannot see.
+    """
+    recipe = f"$(CARGO) nextest run -p chutoro-core --lib {flag}"
+    assert feature_flags(recipe), f"{flag} must be rejected"
 
 
 def test_the_target_is_phony() -> None:

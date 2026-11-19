@@ -42,6 +42,11 @@ from workflow_support import ROOT as REPO_ROOT
 #: anchored so a path-qualified call is left to the `rayon::` marker and a
 #: method of the same name to its own marker.
 #:
+#: `scope` and `spawn` have method forms on `ThreadPool` that run work in the
+#: pool, so each is recognised with and without a receiver. The method patterns
+#: are separate because a dot before the name rules out the free-function
+#: anchor.
+#:
 #: `into_par_iter` precedes `par_iter` so the more specific name is reported
 #: for a parallel iterator, and `rayon::` precedes the bare calls so a
 #: qualified call names its namespace rather than only its function.
@@ -61,9 +66,13 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     ("rayon::", re.compile(r"rayon\s*::")),
     (".install(", re.compile(r"\.install\s*\(")),
     ("scope(", re.compile(r"(?<![.\w:])scope\s*\(")),
+    (".scope(", re.compile(r"\.scope\s*\(")),
     ("scope_fifo(", re.compile(r"(?<![.\w:])scope_fifo\s*\(")),
+    (".scope_fifo(", re.compile(r"\.scope_fifo\s*\(")),
     ("spawn(", re.compile(r"(?<![.\w:])spawn\s*\(")),
+    (".spawn(", re.compile(r"\.spawn\s*\(")),
     ("spawn_fifo(", re.compile(r"(?<![.\w:])spawn_fifo\s*\(")),
+    (".spawn_fifo(", re.compile(r"\.spawn_fifo\s*\(")),
     ("spawn_broadcast(", re.compile(r"(?<![.\w:])spawn_broadcast\s*\(")),
     ("join(", re.compile(r"(?<![.\w:])join\s*\(")),
     ("join_context(", re.compile(r"(?<![.\w:])join_context\s*\(")),

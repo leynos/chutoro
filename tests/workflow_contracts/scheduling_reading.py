@@ -60,6 +60,18 @@ CARGO_COMMANDS = ("$(CARGO)", "cargo")
 #: target stays green while the regression it exists to run is broken.
 SHELL_SEPARATORS = frozenset({";", ";;", "&&", "||", "|", "&"})
 
+#: Every spelling that selects a feature set. The regressions are
+#: feature-independent, so the gate must build the default set: a feature flag
+#: would tie the evidence to whatever that set compiles, which is the change
+#: the gate exists to notice. `--features` also covers its `=` form, and `-F`
+#: is Cargo's short spelling.
+FEATURE_FLAGS = (
+    "--all-features",
+    "--no-default-features",
+    "--features",
+    "-F",
+)
+
 #: Attributes that register a function with the test harness. Matched on the
 #: attribute's path, so `#[rstest(...)]` counts and `#[test_only_helper]` does
 #: not.
@@ -230,6 +242,26 @@ def nextest_invocations() -> list[str]:
         for command in recipe_commands(makefile_text(), TARGET)
         if is_nextest_invocation(command)
     ]
+
+
+def feature_flags(recipe: str) -> list[str]:
+    """Return the feature-selection flags `recipe` carries.
+
+    Which features a gate builds is part of what it proves, so the default set
+    is a requirement rather than an incidental property of today's recipe.
+    Every spelling is reported, including the `--features=name` form that a
+    check for the bare flag alone would miss.
+
+    Examples
+    --------
+    >>> feature_flags("nextest run -p chutoro-core --lib")
+    []
+    >>> feature_flags("nextest run --all-features")
+    ['--all-features']
+    >>> feature_flags("nextest run --features=metrics")
+    ['--features']
+    """
+    return [flag for flag in FEATURE_FLAGS if flag in recipe]
 
 
 def phony_targets(text: str) -> set[str]:
