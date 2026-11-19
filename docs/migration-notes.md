@@ -54,6 +54,28 @@ backend-specific address resolve it inside their own boundary, for example
 signatures are unchanged, so recipe code needs no migration beyond replacing
 path accessor calls.
 
+### Memory guard models the multi-layer harvest
+
+The pre-flight memory guard behind `ChutoroBuilder::with_max_bytes` now
+estimates the candidate edges that CPU HNSW construction harvests. It decides
+before construction starts, so it has no measured harvest to count: it derives
+the count from the effective `ef_construction` search width and the level
+sampler's expected layer count. Candidate, mutual-reachability,
+validation-buffer and prepared-edge terms use `n × ef × layers` instead of the
+single-layer `n × M` model. The estimate is therefore larger than before for
+the same input, so a limit that used to admit a batch may now reject it with
+`ChutoroError::MemoryLimitExceeded`.
+
+The parameter-aware estimate derives its layer count from the configured level
+multiplier, so `HnswParams::with_level_multiplier` changes the estimate; a
+multiplier that stops no node counts all `max_level + 1` layers. The legacy
+`estimate_peak_bytes(point_count, max_connections)` helper keeps its
+two-argument signature. It uses `4 × M` as the harvest width and the default
+level multiplier and cap, but it passes zero as the search-state width, so it
+omits the search-state term that `estimate_peak_bytes_for_hnsw_params`
+includes. Raise the configured limit, or lower `ef_construction` and
+`max_level`, if a previously accepted batch no longer fits.
+
 ### New metrics: trim scoring
 
 Enabling the `metrics` feature now also emits

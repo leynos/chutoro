@@ -1,4 +1,14 @@
 //! Parameter handling for the CPU HNSW implementation.
+//!
+//! Owns [`HnswParams`], the validated configuration that drives CPU index
+//! construction: neighbour fan-out, construction search width, the sampled
+//! level distribution and its cap, the insertion seed, and the distance-cache
+//! settings. Two consumers share these values. The construction path uses the
+//! sampler's stop rule and the effective search width, while
+//! `crate::memory::estimate_peak_bytes_for_hnsw_params` uses
+//! [`HnswParams::expected_layers_eighths`] to size the multi-layer edge
+//! harvest. Keeping both in one type stops the memory estimate from drifting
+//! away from the graph the builder actually produces.
 
 use std::{num::NonZeroUsize, ops::Neg, time::Duration};
 
@@ -8,6 +18,19 @@ use crate::hnsw::{distance_cache::DistanceCacheConfig, error::HnswError};
 
 /// Greatest finite sampling draw strictly below one.
 const LARGEST_DRAW_BELOW_ONE: f64 = f64::from_bits(0x3FEF_FFFF_FFFF_FFFF);
+
+/// Smallest draw the level sampler clamps a uniform sample to.
+///
+/// A continuation probability below this value can never be drawn, so the
+/// sampler always stops and every node keeps only level zero.
+const MIN_SAMPLED_DRAW: f64 = 1.0e-12;
+
+/// Fixed-point scale that lets callers carry a fractional layer count.
+///
+/// The level expectation is a real number, while the memory estimator works in
+/// integer arithmetic. Reporting eighths keeps a fractional layer meaningful
+/// without floating point at the call site.
+const LAYER_EIGHTHS: u64 = 8;
 
 /// Configuration parameters for the CPU HNSW index.
 #[derive(Clone, Debug, PartialEq)]
@@ -144,6 +167,60 @@ impl HnswParams {
         self.max_level
     }
 
+    /// Return the expected number of graph layers a node occupies, in eighths.
+    ///
+    /// [`Self::should_stop`] continues while the clamped draw stays at or below
+    /// `q = exp(-1 / level_multiplier)`, so a node reaches level `k` with
+    /// probability `q^k`. Sampling stops at `max_level`, so the expectation is
+    /// the finite sum `(1 - q^L) / (1 - q)` over `L = max_level + 1` layers.
+    /// The infinite series `1 / (1 - q)` overstates it whenever the cap binds.
+    /// The default multiplier of `1 / ln(M)` gives `q = 1 / M` and, for the
+    /// levels that fit under the cap, the geometric mean `M / (M - 1)`.
+    ///
+    /// Two regimes need explicit handling. A multiplier large enough that `q`
+    /// reaches the greatest permitted draw continues on every draw, so every
+    /// node occupies the cap. A `q` below the sampler's minimum clamped draw
+    /// can never be drawn, so every node keeps only level zero.
+    ///
+    /// The result is rounded up in eighths so callers can stay in integer
+    /// arithmetic, and never falls below one layer: level zero is always
+    /// occupied. At the default `M = 16` the count is nine eighths, matching
+    /// `ceil(8 × M / (M - 1))`.
+    pub(crate) fn expected_layers_eighths(&self) -> u64 {
+        let layer_cap = u64::try_from(self.max_level)
+            .unwrap_or(u64::MAX)
+            .saturating_add(1)
+            .saturating_mul(LAYER_EIGHTHS);
+        // q = exp(-1 / multiplier); the multiplier is finite and positive.
+        let sampled = self.level_multiplier.recip().neg().exp();
+        if sampled >= LARGEST_DRAW_BELOW_ONE {
+            // Every permitted draw continues, so the node reaches the cap.
+            return layer_cap;
+        }
+        // The sampler clamps its draw, so a probability below the minimum
+        // clamped draw can never be reached and every node keeps level zero.
+        let continuation = if sampled < MIN_SAMPLED_DRAW {
+            0.0
+        } else {
+            sampled
+        };
+        let levels = i32::try_from(self.max_level.saturating_add(1)).unwrap_or(i32::MAX);
+        let cap_probability = continuation.powi(levels);
+        // `(1 - q^L) / (1 - q)` with method calls rather than float operators,
+        // which the restriction lints reject. `1 - q` is positive because the
+        // cap-reaching regime returned above.
+        let numerator = cap_probability.neg().mul_add(1.0, 1.0);
+        let denominator = continuation.neg().mul_add(1.0, 1.0);
+        let eighths = numerator
+            .mul_add(denominator.recip(), 0.0)
+            .mul_add(8.0, 0.0)
+            .ceil();
+        eighths
+            .to_u64()
+            .unwrap_or(u64::MAX)
+            .clamp(LAYER_EIGHTHS, layer_cap)
+    }
+
     /// Return the seed used by insertion-level sampling.
     pub(crate) const fn rng_seed(&self) -> u64 {
         self.rng_seed
@@ -159,7 +236,7 @@ impl HnswParams {
     /// The multiplier of `1/ln(M)` induces a geometric tail where the chance of
     /// rising to the next layer is `1/M`, mirroring the reference algorithm.
     pub(crate) fn should_stop(&self, draw: f64) -> bool {
-        let clamped = draw.clamp(1.0e-12, LARGEST_DRAW_BELOW_ONE);
+        let clamped = draw.clamp(MIN_SAMPLED_DRAW, LARGEST_DRAW_BELOW_ONE);
         clamped.ln().mul_add(self.level_multiplier.neg(), 0.0) < 1.0
     }
 

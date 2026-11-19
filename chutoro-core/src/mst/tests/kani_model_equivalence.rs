@@ -157,6 +157,18 @@ fn model_matches_production_for_all_bounded_graphs(#[case] deselected: Deselecte
     vec![CandidateEdge::new(0, 1, f32::NAN, 0)],
     MstError::NonFiniteWeight { left: 0, right: 1 },
 )]
+#[case::competing_invalid_edges(
+    2,
+    vec![
+        CandidateEdge::new(0, 1, 1.0, 0),
+        CandidateEdge::new(5, 0, 1.0, 1),
+        CandidateEdge::new(0, 7, 1.0, 2),
+    ],
+    MstError::InvalidNodeId {
+        node: 5,
+        node_count: 2,
+    }
+)]
 /// Asserts the model rejects invalid inputs with production's errors.
 fn model_matches_production_errors(
     #[case] node_count: usize,

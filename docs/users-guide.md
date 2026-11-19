@@ -78,7 +78,16 @@ incremental sessions. For a batch run, `max_connections` and `ef_construction`
 are passed to CPU HNSW construction. The configured `max_connections` and the
 effective, dataset-bounded construction-search width derived from
 `ef_construction` are included when estimating the run's peak memory for a
-limit set with `with_max_bytes`:
+limit set with `with_max_bytes`. The estimate counts the multi-layer
+candidate-edge harvest using the expected layer count, so it grows with
+`ef_construction` rather than with `max_connections` alone. That layer count is
+an estimate of the expected harvest, not a guarantee that every permitted layer
+is covered. The expected layer count follows the configured level multiplier.
+The default multiplier's uncapped expectation is the geometric mean
+`M / (M − 1)`; the estimate uses the finite sum capped at `max_level + 1`, so a
+low configured level cap lowers it below that mean. `M = 1` reaches the level
+cap because its default multiplier is unbounded, and a multiplier large enough
+to stop no node also counts every permitted layer, up to `max_level + 1`:
 
 ```rust
 use chutoro_core::{ChutoroBuilder, HnswParams};
@@ -423,6 +432,17 @@ via `ChutoroError` variants:
 - `CpuHnswFailure`, `CpuMstFailure`, and `CpuHierarchyFailure`: raised when the
   CPU backend encounters internal failures in HNSW construction/search, MST
   construction, or hierarchy extraction.
+
+`CpuMstFailure` carries the selected `MstError` code and message verbatim in its
+`code` and `message` fields. Callers that invoke `parallel_kruskal` directly
+can rely on a deterministic validation rule: when several candidate edges are
+invalid, the reported error is the one at the lowest index in
+`EdgeHarvest::as_slice()` order. Within one edge, the source bound is checked
+before the target bound, and both before weight finiteness; `NonFiniteWeight`
+reports the original `(source, target)` orientation. `EmptyGraph` takes
+precedence over every edge-level error. `Chutoro::run` surfaces these failures
+through `CpuMstFailure`, but does not promise which malformed raw candidate
+reaches the MST stage, because the harvest depends on HNSW construction.
 
 Callers using `extract_labels_from_mst` can inspect its typed `HierarchyError`
 result for invalid input and internal reference failures: `EmptyDataset`,

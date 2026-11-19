@@ -1278,6 +1278,18 @@ Scale caveat: `parallel_kruskal` measured 1.88 ms against an 853 ms
 that falls as `n` grows. The waste removed here is real but bounded; this is a
 cheap correction, not a large end-to-end win.
 
+_Implementation update (2026-11-12)._ Edge validation now reports a
+deterministic error. When several candidate edges are invalid,
+`prepare_edge_list` returns the error belonging to the lowest input index,
+defined as the position in `EdgeHarvest::as_slice()` (or the slice passed to
+the crate-internal entry point). Validation still checks an edge's source
+bound, then its target bound, then weight finiteness, and reports the original
+orientation; `EmptyGraph` is decided before any edge is validated. This
+strengthens the previous contract, which used a fallible parallel reduction and
+could report any one of several errors depending on Rayon's scheduling.
+`ChutoroError::CpuMstFailure` continues to carry the selected inner code and
+message unchanged.
+
 #### 6.4. Property-based input generation for CPU HNSW tests
 
 The CPU module now ships with dedicated property-based generators that exercise
@@ -2051,8 +2063,9 @@ order before dispatching. The memory estimate uses the configured HNSW
 and its memory guard. For one-shot CPU execution, the configured
 `ef_construction` is bounded to the effective width
 `min(ef_construction, max(point_count, max_connections))`. The memory guard
-uses `estimate_peak_bytes_for_hnsw_params` so that same effective width is
-included in its estimate.
+uses `estimate_peak_bytes_for_hnsw_params`, so that same effective width
+drives both the construction-search state and the per-layer candidate-edge
+harvest in its estimate.
 
 _Implementation update (2025-12-18)._ The CPU pipeline is available when the
 `cpu` feature is enabled (it is part of the default feature set). The `Auto`
@@ -2478,7 +2491,9 @@ To validate expected scaling, each run computes `expected_edges = n * M` and
 marks whether the harvested edge count remains within a bounded multiplicative
 tolerance of that expectation. This preserves a robust "same-order" guard in
 the presence of parallel insertion variability while still detecting gross
-regressions in edge growth.
+regressions in edge growth. The harvest exceeds `n × M` systematically because
+every layer contributes candidates; §11.4 models that multi-layer factor
+explicitly.
 
 ### 11.3. HNSW `ef_construction` parameter coverage (roadmap 2.1.4)
 
@@ -2545,63 +2560,126 @@ guard fires before any pipeline allocation, avoiding wasted work and
 out-of-memory crashes.
 
 **Estimation formula.** The function `estimate_peak_bytes(n, M)` computes a
-conservative upper bound on the peak memory that the CPU pipeline will require:
+conservative estimate of the peak memory that the CPU pipeline will require:
 
 ```text
 hnsw_adjacency     = n × (2 × M) × 8       (level-0 neighbour IDs)
 hnsw_node_overhead = n × 80                 (Node structs, Vec headers)
 distance_cache     = cache_entries × 80      (configured cache capacity)
-candidate_edges    = n × M × 32             (CandidateEdge structs)
+harvested_edges    = n × ef × layers(params) (candidates from every layer)
+candidate_edges    = harvested_edges × 32   (CandidateEdge structs)
 core_distances     = n × 4                  (f32 per point)
-mutual_edges       = n × M × 32             (recomputed edges)
+mutual_edges       = harvested_edges × 32   (recomputed edges)
+validated_edges    = harvested_edges × 48   (Result<Option<MstEdge>, MstError> slots)
+prepared_edges     = harvested_edges × 32   (MstEdge list retained for sorting)
 mst_forest         = n × 32                 (MstEdge structs)
 
 estimated_bytes = (sum of above) × 1.5      (safety multiplier)
 ```
 
+`harvested_edges` is the multi-layer count, not `n × M`.
+`extract_candidate_edges` records up to `ef` search results from every layer an
+inserted node occupies, and the same neighbour may appear in several layers, so
+a healthy build harvests roughly `n × ef` edges. The level sampler continues to
+the next layer with probability `1 / M` under its default multiplier of
+`1 / ln(M)`, so the expected layer count is the geometric series
+`1 + 1/M + 1/M² + …`, which converges to `M / (M − 1)`. The estimator computes
+it in eighths, rounding up, and caps it at `max_level + 1`; at the default cap
+the difference from the finite sum below is below the rounding resolution.
+`M = 1` never stops early, so every node reaches the cap. Measured builds match
+the model: at `M = 16`, `ef = 64` and 1,000 points a build harvested 65,027
+edges, about 65 per node and 4.1 times `n × M`.
+
+`HnswParams::with_level_multiplier` accepts any positive value, and the
+parameter-aware estimate honours it rather than assuming the default. The
+sampler stops once `ln(draw) × −multiplier < 1`, so it continues with
+probability `q = exp(−1 / multiplier)`. A node reaches level `k` with
+probability `q^k`, and sampling stops at `max_level`, so the expectation is the
+finite sum `(1 − q^L) / (1 − q)` over `L = max_level + 1` layers. Use the
+finite sum rather than `1 / (1 − q)`: whenever the cap binds, the infinite
+series overstates the expectation and inflates the estimate. Two regimes need
+explicit handling. A multiplier large enough that `q` reaches the greatest
+representable draw below one continues on every draw, so every node occupies all
+`max_level + 1` layers and the estimate uses that cap. A `q` below the
+sampler's minimum clamped draw of `1e-12` can never be drawn, so every node
+keeps only level zero and the count is a single layer.
+`HnswParams::expected_layers_eighths` performs this conversion so the estimator
+stays in integer arithmetic.
+
+`validated_edges` and `prepared_edges` cover the two candidate-sized buffers
+that `prepare_edge_list` holds at the same time: the ordered
+`Result<Option<MstEdge>, MstError>` slots filled by the parallel map, and the
+`MstEdge` list built by the sequential scan before the results buffer is
+dropped. Because both buffers scale with `harvested_edges`, they inherit the
+multi-layer count; assuming one `n × M` pass would understate them by the same
+factor of four.
+
 For one-shot runs, the memory guard calls
 `estimate_peak_bytes_for_hnsw_params(point_count, &HnswParams)`. That helper
 derives `effective_ef_construction` as
-`min(ef_construction, max(point_count, max_connections))` and includes the
-construction-search state required by that bounded width. Retaining
-`max_connections` as the lower bound keeps the estimate aligned with the
-allocation made by the batch pipeline. It also sets `cache_entries` from the
-configured `DistanceCacheConfig::max_entries` value, so enlarged or reduced
-distance caches are reflected in the guard. The legacy public
-`estimate_peak_bytes(n, M)` helper continues to use
-`DistanceCacheConfig::DEFAULT_MAX_ENTRIES` for compatibility.
+`min(ef_construction, max(point_count, max_connections))` and uses it both for
+the construction-search state and for the per-layer harvest width. It reads
+`max_level` and the level multiplier from the same parameters, so a reduced
+level cap lowers the modelled layer count and an overridden multiplier moves it
+between one layer and the cap. Retaining `max_connections` as the lower bound
+keeps the estimate aligned with the allocation made by the batch pipeline. It
+also sets `cache_entries` from the configured
+`DistanceCacheConfig::max_entries` value, so enlarged or reduced distance
+caches are reflected in the guard. The legacy public
+`estimate_peak_bytes(n, M)` helper has no parameter object, so it models the
+documented default ratio of four times `M` (the default pair is `M = 16`,
+`ef_construction = 64`), assumes the default level multiplier and level cap,
+and continues to use `DistanceCacheConfig::DEFAULT_MAX_ENTRIES` for
+compatibility.
 
 The 1.5× safety multiplier covers heap fragmentation, Rayon thread-local
-buffers, and transient allocations that are difficult to predict statically.
-The estimate is intentionally pessimistic: it is better to reject a dataset
-that might have fit than to begin processing and run out of memory mid-pipeline.
+buffers, and transient allocations that are difficult to predict statically. It
+also leaves headroom above the expected layer count, but it is not a guarantee
+that every permitted layer is covered. At `M = 2` the capped expectation is
+about two layers per node, while a sample can place a node in all thirteen
+default layers; 1.5× of two layers cannot span that gap. The estimate is
+intentionally pessimistic: it is better to reject a dataset that might have fit
+than to begin processing and run out of memory mid-pipeline.
+
+The layer count is an expectation, not a strict upper bound, except where the
+configured multiplier forces the cap. A single node can occupy up to
+`max_level + 1` layers, which would multiply the harvest by that factor; under
+the default multiplier the geometric distribution keeps the total near its mean
+at the dataset sizes the guard serves, and the 1.5× multiplier leaves headroom
+above that mean. The buffer terms therefore track the multi-layer harvest
+rather than establishing a formal worst-case bound for every distribution.
 
 **Expected memory requirements.** The following table shows estimated peak
 memory for common dataset sizes and HNSW `M` values:
 
 | Points     | M = 8     | M = 16    | M = 24    |
 | ---------- | --------- | --------- | --------- |
-| 10,000     | ~131 MiB  | ~140 MiB  | ~149 MiB  |
-| 100,000    | ~228 MiB  | ~320 MiB  | ~411 MiB  |
-| 1,000,000  | ~1.2 GiB  | ~2.1 GiB  | ~3.0 GiB  |
-| 10,000,000 | ~10.7 GiB | ~19.6 GiB | ~28.6 GiB |
+| 10,000     | ~206 MiB  | ~274 MiB  | ~350 MiB  |
+| 100,000    | ~979 MiB  | ~1.6 GiB  | ~2.4 GiB  |
+| 1,000,000  | ~8.5 GiB  | ~15.1 GiB | ~22.5 GiB |
+| 10,000,000 | ~84.0 GiB | ~150 GiB  | ~224 GiB  |
 
 _Table 4: Estimated peak memory by dataset size and `M` parameter. All values
 include the 1.5× safety multiplier._
 
 **Guidance.** For interactive exploration on a workstation with 16 GiB of RAM,
-datasets up to ~1M points with `M = 16` are practical. For million-point-scale
-work, ensure at least 4 GiB of headroom above the estimate. The `--max-bytes`
-flag accepts human-readable suffixes: `--max-bytes 2G`, `--max-bytes 512M`, or
-plain byte counts.
+datasets up to ~100,000 points with `M = 16` are comfortable. Million-point
+runs with the default parameters estimate ~15 GiB and need a host with at least
+32 GiB, leaving room for the data source. The `--max-bytes` flag accepts
+human-readable suffixes: `--max-bytes 2G`, `--max-bytes 512M`, or plain byte
+counts.
 
-**Limitations.** The table above assumes the default HNSW `M = 16` and
+**Limitations.** The table above uses the legacy `estimate_peak_bytes(n, M)`
+helper, which assumes the default `ef_construction = 4 × M` ratio and
 `DistanceCacheConfig::DEFAULT_MAX_ENTRIES = 1 048 576`; the parameter-aware
-one-shot estimate instead uses the configured cache capacity. Custom HNSW
-parameters or enlarged caches will shift actual memory usage. The formula does
-not account for the data source's own memory footprint (e.g., the in-memory
-Parquet column or text corpus), which must be added separately for a complete
-picture.
+one-shot estimate instead uses the configured construction breadth, cache
+capacity and level cap. Custom HNSW parameters or enlarged caches will shift
+actual memory usage. The layer count is the expectation of the level sampler,
+so a pathological run in which many nodes occupy many layers can exceed the
+estimate; the strict worst case is `max_level + 1` layers per node. The formula
+does not account for the data source's own memory footprint (e.g., the
+in-memory Parquet column or text corpus), which must be added separately for a
+complete picture.
 
 ### 11.5. Optional Gaussian clustering-quality tracking (roadmap 2.1.6)
 

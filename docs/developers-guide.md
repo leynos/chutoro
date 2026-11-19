@@ -790,9 +790,87 @@ when it sorts by `(weight, source, target, sequence)` before the union-find
 scan. The `cpu_pipeline` mutual-reachability transform therefore hands its
 `Vec<CandidateEdge>` straight to `parallel_kruskal_from_edges`.
 
+`prepare_edge_list` validates through a parallel map into an index-ordered
+buffer and then scans that buffer sequentially, so the returned error is the
+one at the lowest index of the slice it was given (`EdgeHarvest::as_slice`
+order through the public entry point). Do not replace that with `try_fold` /
+`try_reduce` or with collecting into `Result`: Rayon documents that both
+surface an unspecified error when several are present, because a shared abort
+flag lets other tasks stop early with a partial result.
+
+Tests that depend on error selection must build explicit
+`rayon::ThreadPoolBuilder` pools (for example one and eight threads) and
+install the call in them. Never set or read `RAYON_NUM_THREADS` in tests:
+repository policy forbids the environment mutation, and CI pins it to `1`,
+which hides the race. Assert exact `MstError` values, and cover the rule with a
+property test whose oracle computes the first error independently of
+`validate_and_canonicalize_edge`.
+
 `EdgeHarvest::from_parallel_inserts` carries the same discarded ordering; only
 `prepare_edge_list`'s `(weight, source, target, sequence)` order is observable
 downstream. Recovering it means changing the harvest contract.
+
+## Memory estimate model
+
+In CPU builds the memory guard behind `ChutoroBuilder::with_max_bytes` calls
+`estimate_peak_bytes_for_hnsw_params` with the builder's `HnswParams`.
+`estimate_peak_bytes(point_count, max_connections)` is a public helper for
+callers holding no parameter object: it models the documented defaults and has
+no caller inside the library. Both build one `EstimateInputs` and share
+`estimate_peak_bytes_with_search_width`; only their inputs differ, so do not
+substitute one estimate for the other when investigating a
+`MemoryLimitExceeded`. The public contract and the term-by-term arithmetic are
+in [the design document](./chutoro-design.md), §11.4.
+
+`harvested_edge_count(point_count, harvest_width, layers_eighths)` computes
+`n × harvest_width × layers_eighths / 8`. The two entry points supply different
+widths. `estimate_peak_bytes_for_hnsw_params` passes the effective construction
+search width, `hnsw_params.effective_ef_construction(point_count)`, because a
+layer search retains up to `ef` candidates. The two-argument
+`estimate_peak_bytes` has no parameter object, so it passes
+`LEGACY_EF_PER_CONNECTION × max_connections` — four times the neighbour
+fan-out, the documented default `ef_construction` of `4 × M`. The harvest
+counts therefore differ whenever a caller configures another `ef_construction`.
+The layer term is an integer count in eighths, so the estimator stays in
+integer arithmetic and can remain a `const fn`.
+
+The layer count is an expectation, not a worst case. A build can exceed it, so
+the estimate is an approximate budget rather than a proof of a peak allocation.
+The CPU-gated `estimate_covers_multi_layer_harvests` regression builds a real
+index and pins its harvest inside the modelled multi-layer count; it guards the
+model's order of magnitude, not an upper bound.
+
+`HnswParams::expected_layers_eighths` derives that expectation from the
+configured sampler. `should_stop` stops once `ln(draw) × −multiplier < 1`, so a
+node continues with probability `q = exp(−1 / multiplier)` and reaches level
+`k` with probability `q^k`. Sampling stops at `max_level`, so the expectation
+is the finite sum `(1 − q^L) / (1 − q)` over `L = max_level + 1` layers,
+rounded up in eighths and clamped to `[8, 8 × L]`. The finite sum matters when
+the cap binds: the infinite series `1 / (1 − q)` overstates the layer count
+there. The default multiplier `1 / ln(M)` gives `q = 1 / M` and the geometric
+mean `M / (M − 1)`; `M = 1` makes the default multiplier unbounded, so it
+reaches the cap. A multiplier large enough to stop no node also reaches the
+cap, and one whose continuation probability falls below the sampler's minimum
+clamped draw reports a single layer. The result is in eighths (`LAYER_EIGHTHS`)
+so no caller handles a fraction.
+
+`estimate_peak_bytes_for_hnsw_params` consumes that value directly. The
+two-argument `estimate_peak_bytes` has no parameter object, so it uses
+`default_layers_eighths(max_connections)`, the integer form of
+`ceil(8 × M / (M − 1))` capped at the same level count. Keep the two
+consistent. The CPU-gated `default_parameters_match_the_geometric_layer_model`
+checks that the default `HnswParams` reproduces the legacy formula, and
+`default_max_level_constant_matches_the_hnsw_defaults` keeps
+`DEFAULT_HNSW_MAX_LEVEL` equal to `HnswParams::default().max_level()`.
+
+`prepare_edge_list` holds two candidate-sized buffers at peak, and the estimate
+includes both: one `Result<Option<MstEdge>, MstError>` slot per harvested edge
+while validation runs in parallel, and the prepared `MstEdge` list retained for
+sorting and deduplication. The CPU-gated
+`buffer_slot_constants_cover_the_real_layouts` checks the per-slot constants
+against the real types. The candidate and mutual-reachability terms use the
+same harvested count, because the CPU pipeline rewrites and re-sorts the full
+candidate set.
 
 ## Session public APIs
 
