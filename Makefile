@@ -328,10 +328,10 @@ test-workflow-contracts: ## Validate the CI workflow contracts
 # coverage action's feature set.
 test-scheduling-contract: ## Run the HNSW critical-section scheduling regressions
 	$(CARGO) nextest run -p chutoro-core --lib --profile $(NEXTEST_PROFILE) \
-		-E 'test(insertion_trim_scoring_runs_on_the_insert_mutex_holder)' \
+		-E 'test(=hnsw::cpu::trim_tests::insertion_path::insertion_trim_scoring_runs_on_the_insert_mutex_holder)' \
 		--no-tests=fail
 	$(CARGO) nextest run -p chutoro-core --lib --profile $(NEXTEST_PROFILE) \
-		-E 'test(direct_trim_scoring_stays_on_the_calling_worker)' \
+		-E 'test(=hnsw::cpu::trim_tests::direct_trim_scoring_stays_on_the_calling_worker)' \
 		--no-tests=fail
 
 help: ## Show available targets

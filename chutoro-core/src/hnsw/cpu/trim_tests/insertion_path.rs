@@ -23,6 +23,7 @@
 use std::{
     num::NonZeroUsize,
     sync::{Arc, TryLockError},
+    thread::ThreadId,
 };
 
 use crate::{
@@ -134,9 +135,20 @@ impl DataSource for InsertionRecordingSource<'_> {
 
     fn distance_batch(&self, pairs: &[PointPair], out: &mut [f32]) -> Result<(), DataSourceError> {
         self.record("distance_batch");
-        for (pair, slot) in pairs.iter().zip(out.iter_mut()) {
+        // Mirror the default implementation: reject a length mismatch before
+        // writing, and compute into a temporary so a failed distance leaves
+        // `out` untouched. Recording each distance would otherwise be lost.
+        if pairs.len() != out.len() {
+            return Err(DataSourceError::OutputLengthMismatch {
+                out: out.len(),
+                expected: pairs.len(),
+            });
+        }
+        let mut computed = vec![0.0_f32; pairs.len()];
+        for (pair, slot) in pairs.iter().zip(computed.iter_mut()) {
             *slot = self.distance(pair.left(), pair.right())?;
         }
+        out.copy_from_slice(&computed);
         Ok(())
     }
 
@@ -198,11 +210,30 @@ fn seed_index(
     }
 }
 
+/// Identifies the thread that invoked an insertion and its Rayon worker.
+#[derive(Clone, Copy, Debug)]
+struct InsertingThread {
+    /// Thread that called `insert_with_collector`.
+    thread: ThreadId,
+    /// Rayon worker index of that thread, when it is a pool worker.
+    worker: Option<usize>,
+}
+
+impl InsertingThread {
+    /// Captures the calling thread, which must be the mutex holder.
+    fn capture() -> Self {
+        Self {
+            thread: std::thread::current().id(),
+            worker: rayon::current_thread_index(),
+        }
+    }
+}
+
 /// Asserts the target insertion staged real trim work on a pool worker.
 ///
 /// Without trim work the observation would pass vacuously, and the one-entry
 /// cache is what forces that work to reach the distance callbacks.
-fn assert_trim_activity(records: &[CallbackRecord], caller: Option<usize>) {
+fn assert_trim_activity(records: &[CallbackRecord], inserting: InsertingThread) {
     let batch_calls = records
         .iter()
         .filter(|record| record.callback == "batch_distances")
@@ -220,23 +251,41 @@ fn assert_trim_activity(records: &[CallbackRecord], caller: Option<usize>) {
         "the one-entry cache must force trim scoring to compute a distance"
     );
     assert!(
-        caller.is_some(),
-        "the insertion closure should have run on a pool worker"
+        inserting.worker.is_some(),
+        "the target insertion should have run on a pool worker"
     );
 }
 
-/// Asserts every recorded callback ran on the insert-mutex holder.
-fn assert_callbacks_on_holder(records: &[CallbackRecord], observation: &ObservationState) {
+/// Asserts the collector and every callback ran on the inserting thread.
+///
+/// The inserting thread, not the collector's thread, is the reference: an
+/// implementation that handed both collection and scoring to another worker
+/// would agree with itself while the mutex holder waited.
+fn assert_callbacks_on_holder(
+    records: &[CallbackRecord],
+    observation: &ObservationState,
+    inserting: InsertingThread,
+) {
+    assert_eq!(
+        observation.critical_thread(),
+        Some(inserting.thread),
+        "the edge collector must run on the insert-mutex holder"
+    );
+    assert_eq!(
+        observation.critical_worker(),
+        inserting.worker,
+        "the edge collector must run on the holder's Rayon worker"
+    );
     assert!(
         records
             .iter()
-            .all(|record| Some(record.thread) == observation.critical_thread()),
+            .all(|record| record.thread == inserting.thread),
         "every post-planning callback must run on the insert-mutex holder"
     );
     assert!(
         records
             .iter()
-            .all(|record| record.worker == observation.critical_worker()),
+            .all(|record| record.worker == inserting.worker),
         "every post-planning callback must stay on the holder's Rayon worker"
     );
     assert!(
@@ -251,7 +300,8 @@ fn assert_callbacks_on_holder(records: &[CallbackRecord], observation: &Observat
 ///
 /// The collector marks the moment planning ends. Every callback after that
 /// mark is inside the insertion critical section, so it must run on the thread
-/// that set the mark, on the same Rayon worker, while `insert_mutex` is held.
+/// that made the insertion, on the same Rayon worker, while `insert_mutex` is
+/// held.
 ///
 /// The source forces cache misses by keeping one cache entry, so every trim
 /// job reaches the distance callbacks rather than being answered entirely from
@@ -261,8 +311,8 @@ fn insertion_trim_scoring_runs_on_the_insert_mutex_holder() {
     let observation = Arc::new(ObservationState::new());
     let pool = dedicated_pool();
 
-    let caller = pool.install(|| {
-        let caller = rayon::current_thread_index();
+    let inserting = pool.install(|| {
+        let inserting = InsertingThread::capture();
         let index = CpuHnsw::with_capacity(small_params(), super::TRIM_POINTS).expect("index");
         let source = InsertionRecordingSource::new(
             DenseSource::synthetic(super::TRIM_POINTS),
@@ -278,10 +328,10 @@ fn insertion_trim_scoring_runs_on_the_insert_mutex_holder() {
         index
             .insert_with_collector(SEEDED_NODES, &source, &mut collector)
             .expect("the target insertion must succeed");
-        caller
+        inserting
     });
 
     let records = observation.records();
-    assert_trim_activity(&records, caller);
-    assert_callbacks_on_holder(&records, &observation);
+    assert_trim_activity(&records, inserting);
+    assert_callbacks_on_holder(&records, &observation, inserting);
 }

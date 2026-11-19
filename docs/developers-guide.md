@@ -2814,9 +2814,10 @@ The exceptions are explicit rather than accidental:
   `PoisonError::into_inner` because each mutation it performs is atomic under
   the guard, so a panic cannot leave the usage list half-updated.
 - **Search re-entry.** `search` holds the graph read guard across `DataSource`
-  callbacks. A source must not call `insert` (which needs the write guard) on
-  the same index from a callback, and nested `search` is not guaranteed to make
-  progress while a writer is waiting.
+  callbacks. From a callback, a source must not call `insert` (which needs the
+  write guard) or `search` again (which needs a read guard) on the same index.
+  The nested reader can be held behind a writer queued for the outer search and
+  never get the guard, while the outer search waits for the callback.
 - **LRU then DashMap.** That is the only permitted order. The reverse order is
   what would let a lookup and an eviction deadlock.
 
@@ -2844,13 +2845,15 @@ runtime regressions exist, and why a passing scan is not a proof of the whole
 path.
 
 `make test-scheduling-contract` runs one nextest invocation per regression,
-each pinned to its exact name with `--no-tests=fail`, so neither a rename nor a
-surviving sibling can retire the evidence silently. The CI step that runs the
-target is pinned unconditional, as is the nextest installation it depends on.
-The direct test scores a synthetic batch; the insertion-path test drives a real
-insertion in a dedicated four-worker pool and records the thread, the Rayon
-worker, and a non-blocking `insert_mutex` `try_lock` for every post-planning
-distance callback. Both assert that the callbacks stay on the mutex holder.
+each pinned to its fully qualified name with an exact-match filter
+(`test(=...)`) and `--no-tests=fail`, so neither a rename, a like-named
+fixture, nor a surviving sibling can retire the evidence silently. The CI step
+that runs the target is pinned unconditional, as is the nextest installation it
+depends on. The direct test scores a synthetic batch; the insertion-path test
+drives a real insertion in a dedicated four-worker pool and records the thread,
+the Rayon worker, and a non-blocking `insert_mutex` `try_lock` for every
+post-planning distance callback. Both assert that the callbacks stay on the
+mutex holder.
 
 What the two checks establish differs:
 

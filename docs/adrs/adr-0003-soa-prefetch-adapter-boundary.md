@@ -126,16 +126,21 @@ API justification before implementation.
 
 ## Clarification (2026-11-19)
 
-The Context bullet saying that "HNSW insert planning and trim scoring compute
-distances before acquiring the graph write lock" refers to the graph write
-guard only. It must not be read as scoring being lock-free. Insert planning
-runs while `insert_mutex` is held; trim scoring also runs under that mutex,
-after the apply closure has released the graph write guard, and it now scores
-sequentially on the mutex holder.
+The Context bullet that described HNSW insert planning and trim scoring as
+computing distances before the graph write lock was incomplete and is replaced
+by the actual phase order:
+
+1. Insert planning computes its distances while `insert_mutex` and the graph
+   read guard are held.
+2. Apply takes the graph write guard, mutates the graph, and releases it.
+3. Trim scoring computes its distances with `insert_mutex` still held and no
+   graph guard, scoring sequentially on the mutex holder.
+4. Commit takes the graph write guard again.
+
+This correction only fixes the sequence; it does not change the SoA/prefetch
+decision or its measurements, and the adapter boundary and the evidence for
+deferring structural work remain as stated.
 [ADR-006](adr-0006-sequential-trim-scoring.md) records the deadlock that a
 parallel scorer invited and the scheduling rule for the whole critical section;
 the per-primitive contract is in the
 [HNSW lock and scheduling contract](../developers-guide.md#hnsw-lock-and-scheduling-contract).
-This clarification does not change the SoA/prefetch decision or its
-measurements: the adapter boundary and the evidence for deferring structural
-work remain as stated.

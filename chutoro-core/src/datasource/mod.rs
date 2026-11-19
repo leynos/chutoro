@@ -111,6 +111,10 @@ impl From<(usize, usize)> for PointPair {
 ///
 /// - call `insert`, or otherwise re-enter the same index in a way that needs
 ///   its insertion mutex or graph write guard;
+/// - call [`CpuHnsw::search`], or otherwise re-enter the same index in a way
+///   that needs its graph read guard: a writer queued behind the outer search
+///   can keep the nested reader waiting until the outer call returns, which it
+///   cannot do while the callback is running;
 /// - block on another insertion into the same index;
 /// - dispatch work to, or wait for work from, the Rayon pool that is driving
 ///   the build or the search.

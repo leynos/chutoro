@@ -6,11 +6,11 @@ runs nowhere protects nothing: a renamed test, a removed Make target, or a CI
 step deleted beside it would all leave the suite green.
 
 These tests read the Makefile recipe and the ``build-test`` job in
-``.github/workflows/ci.yml``. They pin the target, both exact test names, one
-invocation per regression, the zero-test failure flag, the unconditional
-execution of the step, and the dependency on an installed ``cargo-nextest``.
-They also require default features so the gate cannot become collateral damage
-when the coverage action's feature set changes.
+``.github/workflows/ci.yml``. They pin the target, one invocation per fully
+qualified exact-match test name, the zero-test failure flag on each, the
+unconditional execution of the step, and the dependency on an installed
+``cargo-nextest``. They also require default features so the gate cannot become
+collateral damage when the coverage action's feature set changes.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -35,6 +35,17 @@ REGRESSIONS = (
     "insertion_trim_scoring_runs_on_the_insert_mutex_holder",
     "direct_trim_scoring_stays_on_the_calling_worker",
 )
+
+#: The fully qualified nextest names, which the recipes must match exactly.
+QUALIFIED_REGRESSIONS = {
+    "insertion_trim_scoring_runs_on_the_insert_mutex_holder": (
+        "hnsw::cpu::trim_tests::insertion_path::"
+        "insertion_trim_scoring_runs_on_the_insert_mutex_holder"
+    ),
+    "direct_trim_scoring_stays_on_the_calling_worker": (
+        "hnsw::cpu::trim_tests::direct_trim_scoring_stays_on_the_calling_worker"
+    ),
+}
 
 
 def makefile_text() -> str:
@@ -115,8 +126,8 @@ def test_each_regression_runs_in_its_own_invocation() -> None:
         "the target must run one nextest invocation per regression"
     )
     for name in REGRESSIONS:
-        assert recipe.count(f"test({name})") == 1, (
-            f"{name} must be selected by exactly one invocation"
+        assert recipe.count(f"test(={QUALIFIED_REGRESSIONS[name]})") == 1, (
+            f"{name} must be selected by exactly one exact-match invocation"
         )
 
 
@@ -125,10 +136,16 @@ def test_both_scheduling_regressions_are_selected() -> None:
 
     Dropping either name would leave the other's single observation standing
     in for a property that needs both a direct and a real-insertion witness.
+    The substring form is rejected as well: nextest treats it as a partial
+    match, so a renamed regression could leave a like-named fixture passing.
     """
     recipe = target_recipe(makefile_text(), TARGET)
     missing = [name for name in REGRESSIONS if name not in recipe]
     assert not missing, f"the filter must select {missing}"
+    for name in REGRESSIONS:
+        assert f"test({name})" not in recipe, (
+            f"{name} must be matched exactly, not as a substring"
+        )
 
 
 def test_the_target_runs_the_core_library_with_default_features() -> None:
