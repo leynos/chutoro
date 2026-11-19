@@ -1,4 +1,4 @@
-.PHONY: help all clean test test-doc build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling install-kani install-verus kani kani-check kani-full verus bench test-workflow-contracts interrogate
+.PHONY: help all clean test test-doc build release typecheck lint lint-clippy lint-whitaker fmt check-fmt markdownlint nixie spelling install-kani install-verus kani kani-check kani-full verus bench test-workflow-contracts test-scheduling-contract interrogate
 
 # `lint-clippy` and `lint-whitaker` share Cargo's package cache and the
 # compiler-admission pool. Running them under `make -j` makes two builds
@@ -318,6 +318,16 @@ test-workflow-contracts: ## Validate the CI workflow contracts
 	uv run --with 'pytest>=8' --with 'pyyaml>=6' --with 'pathspec>=0.12' \
 		--with 'hypothesis>=6' pytest tests/workflow_contracts \
 		--doctest-modules -q
+
+# The two regressions are the runtime scheduling evidence for the insertion
+# critical section. A filter that matches nothing passes by default, so
+# `--no-tests=fail` keeps a rename from silently retiring that evidence.
+# Default features are deliberate: the regressions are feature-independent,
+# and this target must not depend on the coverage action's feature set.
+test-scheduling-contract: ## Run the HNSW critical-section scheduling regressions
+	$(CARGO) nextest run -p chutoro-core --lib --profile $(NEXTEST_PROFILE) \
+		-E 'test(insertion_trim_scoring_runs_on_the_insert_mutex_holder) | test(direct_trim_scoring_stays_on_the_calling_worker)' \
+		--no-tests=fail
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \

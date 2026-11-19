@@ -1,171 +1,88 @@
-"""The trim scorer never hands its jobs to the Rayon pool.
+"""The insertion critical section never hands its work to the Rayon pool.
 
 ``CpuHnsw::insert_with_collector`` holds ``insert_mutex`` while it scores trim
-jobs. Scoring used to run them through ``into_par_iter()``, which let Rayon
-park the mutex holder on a latch that only a worker blocked on the same mutex
-could satisfy; a parallel build then hung outright, and a benchmark child that
-hit it had to be killed after twenty-five minutes.
+jobs. Scoring used to run them through ``into_par_iter()``, which let Rayon park
+the mutex holder on a latch that only a worker blocked on the same mutex could
+satisfy; a parallel build then hung outright, and a benchmark child that hit it
+had to be killed after twenty-five minutes.
 
-A runtime regression test records the Rayon worker that serves each distance
-call and waits, briefly, for a call from another worker. That catches the
-dispatch in practice, but it is a scheduling observation rather than a proof:
-if no idle worker steals before the wait expires, the caller can finish the
-parallel batch itself and the observation still looks sequential.
+Two runtime regressions in ``hnsw::cpu::trim_tests`` observe where scoring runs.
+The insertion-path test drives a real insertion and records the thread that
+serves each post-planning distance call; the direct test scores a synthetic
+batch. Both are scheduling observations rather than proofs: if no idle worker
+steals before the bounded wait expires, the caller can finish a parallel batch
+itself and the observation still looks sequential.
 
-This contract is the deterministic guard for the specific former regression,
-the one a review asked for rather than a second runtime test. It reads
-``score_trim_jobs`` from the source and rejects every Rayon entry point in its
-body, so restoring ``into_par_iter()`` fails here whatever the scheduler does.
-It cannot see indirect dispatch -- a helper that dispatches on the scorer's
-behalf -- which is why the runtime test stays as broader coverage.
+This contract is the deterministic guard. It reads the five functions on the
+scoring path out of the source and rejects every Rayon entry point in their
+bodies, so restoring ``into_par_iter()`` fails here whatever the scheduler
+does. The reading itself, its pinned function list, and its synthetic cases
+live in ``trim_scoring_reading``; the limits of that reading are stated there.
 
 Run via ``make test-workflow-contracts``.
 """
 
 from __future__ import annotations
 
-import typing as typ
-
 import pytest
-from rust_source_reading import function_body
 
-from workflow_support import ROOT as REPO_ROOT
-
-#: The scorer whose body must stay serial. The runtime regression exercises
-#: the same function; this contract reads it rather than running it.
-SCORED_FUNCTION: typ.Final[str] = "score_trim_jobs"
-
-TRIM_SOURCE = REPO_ROOT / "chutoro-core" / "src" / "hnsw" / "cpu" / "trim.rs"
-
-#: Rayon entry points that hand a job to the shared pool. A body containing
-#: any of these is dispatching rather than scoring in place. `into_par_iter`
-#: precedes `par_iter` so the more specific name is reported for a parallel
-#: iterator, and `rayon::` precedes the bare calls so a qualified call names
-#: its namespace rather than only its function.
-DISPATCH_MARKERS: typ.Final[tuple[str, ...]] = (
-    "into_par_iter",
-    "par_iter",
-    "rayon::",
-    ".install(",
-    "scope(",
-    "spawn(",
-    "join(",
+from trim_scoring_reading import (
+    COMMENTED_MENTION,
+    DISPATCHING,
+    HISTORICAL_SCORE_TRIM_JOBS,
+    LISTED_HELPER_DISPATCH,
+    LITERAL_MENTION,
+    SCANNED_FILES,
+    SCORER,
+    SEQUENTIAL,
+    TRIM_SOURCE,
+    UNLISTED_SIBLING,
+    MissingFunctionError,
+    dispatch_marker,
+    dispatch_markers,
+    scan_pinned_functions,
 )
 
-#: A body that scores in place: the shape the contract requires.
-SEQUENTIAL = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    jobs.into_iter().map(score).collect()
-}
-"""
-
-#: The former regression, restored. This is the shape the contract exists to
-#: reject, and the shape a benchmark once spent twenty-five minutes inside.
-DISPATCHING = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    jobs.into_par_iter().map(score).collect()
-}
-"""
-
-#: A comment in the scored body naming the dispatch it must not contain. A
-#: reading that scanned raw text would report this and fail a correct body,
-#: so the existing comment explaining the deadlock must stay harmless.
-COMMENTED_MENTION = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    // into_par_iter() would strand the insert mutex holder.
-    jobs.into_iter().map(score).collect()
-}
-"""
-
-#: The same mention inside a string literal, which a reader that blanked only
-#: comments would still report. A warning about the dispatch is not one.
-LITERAL_MENTION = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    let warning = "into_par_iter() strands the insert mutex holder";
-    jobs.into_iter().map(score).collect()
-}
-"""
-
-#: A dispatch in a sibling function. Scoping the reading to the named body is
-#: what keeps this out of the verdict; a file-level search would report it and
-#: fail a scorer that is itself serial.
-SIBLING_DISPATCH = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    jobs.into_iter().map(score).collect()
-}
-
-fn build_worker_rngs(jobs: Vec<Job>) -> Vec<Scored> {
-    jobs.into_par_iter().map(score).collect()
-}
-"""
+#: The number of functions the pinned list must cover.
+PINNED_FUNCTIONS = sum(len(entry.functions) for entry in SCANNED_FILES)
 
 
-class MissingFunctionError(LookupError):
-    """Raised when the function this contract must read is not in the source.
-
-    Failing closed is the point. A reading that returned no marker for a
-    source it could not find the function in would report the scorer as serial
-    whenever the function was renamed or moved, which is exactly when the
-    guard is worth having. The missing function is the one signal that the
-    contract has stopped reading the code it claims to police.
-    """
-
-
-def dispatch_marker(source: str, name: str = SCORED_FUNCTION) -> str | None:
-    """Return the first Rayon dispatch marker in `name`'s body, if any.
-
-    The body is read through :func:`rust_source_reading.function_body`, so a
-    marker written in a comment or a string literal is a mention rather than a
-    dispatch, and a marker in a sibling function is not attributed to this
-    one. A source that does not declare the function raises rather than
-    reading as clean.
-
-    Parameters
-    ----------
-    source
-        The contents of one Rust source file.
-    name
-        The function to read. Defaults to the trim scorer this contract is
-        about, and is a parameter so the reading can be driven with the
-        synthetic sources above.
-
-    Examples
-    --------
-    >>> dispatch_marker(
-    ...     "fn score_trim_jobs() { jobs.into_par_iter().collect() }"
-    ... )
-    'into_par_iter'
-    >>> dispatch_marker("fn score_trim_jobs() { work() }") is None
-    True
-
-    Returns
-    -------
-    str or None
-        The first marker found, in `DISPATCH_MARKERS` order, or None when the
-        body dispatches nothing.
-    """
-    body = function_body(source, name)
-    if body is None:
-        raise MissingFunctionError(
-            f"{name} is not declared in this source; the contract cannot "
-            "prove its body scores serially"
-        )
-    return next((marker for marker in DISPATCH_MARKERS if marker in body), None)
-
-
-def test_the_scorer_dispatches_nothing_to_the_pool() -> None:
+def test_the_scoring_path_dispatches_nothing_to_the_pool() -> None:
     """The former regression must not return without a failing check.
 
-    The runtime regression observes the same property, but only when a worker
+    The runtime regressions observe the same property, but only when a worker
     happens to steal a job. This reading is the deterministic guard for the
-    specific regression: restoring ``into_par_iter()`` in the scorer fails
-    here whatever the scheduler does with the pool.
+    specific regression: restoring ``into_par_iter()`` in any listed function
+    fails here whatever the scheduler does with the pool.
     """
-    marker = dispatch_marker(TRIM_SOURCE.read_text(encoding="utf-8"))
-    assert marker is None, (
-        "score_trim_jobs must score jobs serially while it holds insert_mutex; "
-        f"found {marker!r}, which hands work to a pool that may already be "
-        "blocked on that same mutex"
+    markers = scan_pinned_functions()
+    dispatching = {where: marker for where, marker in markers.items() if marker}
+    assert not dispatching, (
+        "the insertion critical section must score in place; these functions "
+        f"hand work to the pool: {dispatching}"
+    )
+    assert len(markers) == PINNED_FUNCTIONS == 5, (
+        "the pinned list must cover the five functions on the scoring path, "
+        f"read {sorted(markers)}"
+    )
+
+
+def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
+    """The checked-in fixture pins both sides of the guard.
+
+    The historical scorer must read as a dispatch, and the current scorer must
+    read as serial. If either reading changed, the fixture would no longer
+    demonstrate that the contract distinguishes the old path from the fixed
+    one.
+    """
+    historical = dispatch_marker(HISTORICAL_SCORE_TRIM_JOBS, SCORER)
+    current = dispatch_marker(TRIM_SOURCE.read_text(encoding="utf-8"), SCORER)
+    assert historical == "into_par_iter", (
+        "the historical fixture must carry the dispatch it was copied to "
+        f"record, found {historical!r}"
+    )
+    assert current is None, (
+        f"the current scorer must score in place, found {current!r}"
     )
 
 
@@ -176,7 +93,9 @@ def test_the_scorer_dispatches_nothing_to_the_pool() -> None:
         pytest.param(DISPATCHING, "into_par_iter", id="a-parallel-iterator"),
         pytest.param(COMMENTED_MENTION, None, id="a-mention-in-a-comment"),
         pytest.param(LITERAL_MENTION, None, id="a-mention-in-a-literal"),
-        pytest.param(SIBLING_DISPATCH, None, id="a-dispatch-in-a-sibling"),
+        pytest.param(
+            UNLISTED_SIBLING, None, id="a-dispatch-in-an-unlisted-sibling"
+        ),
     ],
 )
 def test_the_reading_answers_for_the_named_body_alone(
@@ -187,21 +106,44 @@ def test_the_reading_answers_for_the_named_body_alone(
     The real body is serial, so a reading that scanned the whole file, or that
     kept comments and literals intact, would still pass it. These sources make
     the scoping and the blanking load-bearing: a comment explaining the
-    deadlock, a string literal warning about it and a dispatch in a sibling
-    function all have to read as clean.
+    deadlock, a string literal warning about it and a dispatch in a function
+    nobody pinned all have to read as clean.
     """
-    assert dispatch_marker(source) == marker, (
+    assert dispatch_marker(source, SCORER) == marker, (
         f"the reading must return {marker!r} for this source; it returned "
-        f"{dispatch_marker(source)!r}"
+        f"{dispatch_marker(source, SCORER)!r}"
     )
+
+
+def test_a_listed_helper_dispatch_is_attributed_to_that_helper() -> None:
+    """Scoping must not let a listed helper hide its own dispatch.
+
+    The scorer stays serial, so a scan that read only ``score_trim_jobs``
+    would pass. Reading the pinned helper list is what catches the dispatch
+    in ``run_trim_job``, which reaches the pool from the same critical section.
+    """
+    markers = dispatch_markers(
+        LISTED_HELPER_DISPATCH, ("score_trim_jobs", "run_trim_job")
+    )
+    assert markers == {"score_trim_jobs": None, "run_trim_job": "into_par_iter"}
+
+
+def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
+    """A dispatch outside the pinned list belongs to another concern.
+
+    ``build_worker_rngs`` legitimately dispatches during construction and is
+    not on the insertion scoring path. Attributing its marker to the scorer
+    would fail a correct body, which is the opposite of what the scan is for.
+    """
+    assert dispatch_markers(UNLISTED_SIBLING, ("score_trim_jobs",)) == {
+        "score_trim_jobs": None
+    }
 
 
 @pytest.mark.parametrize(
     ("marker", "call"),
     [
-        pytest.param(
-            "into_par_iter", "jobs.into_par_iter()", id="into-par-iter"
-        ),
+        pytest.param("into_par_iter", "jobs.into_par_iter()", id="into-par-iter"),
         pytest.param("par_iter", "jobs.par_iter()", id="par-iter"),
         pytest.param(
             "rayon::",
@@ -222,17 +164,19 @@ def test_every_marker_in_the_set_is_detected(marker: str, call: str) -> None:
     parameter and the detection cannot drift apart.
     """
     source = f"fn score_trim_jobs() {{ {call}; }}"
-    assert dispatch_marker(source) == marker, (
+    assert dispatch_marker(source, SCORER) == marker, (
         f"{call!r} must be reported as {marker!r}, the entry that names it"
     )
 
 
-def test_a_missing_scorer_fails_rather_than_reading_as_clean() -> None:
+def test_a_missing_function_fails_rather_than_reading_as_clean() -> None:
     """A renamed or moved function must fail the contract, not pass it.
 
     With no body to read there is no marker to report, so a reading that
     shrugged would keep calling the scorer serial after it had moved out of
     the file. Raising is what makes the silence loud.
     """
-    with pytest.raises(MissingFunctionError, match=SCORED_FUNCTION):
-        dispatch_marker("fn build_worker_rngs() { jobs.into_par_iter() }")
+    with pytest.raises(MissingFunctionError, match="score_trim_jobs"):
+        dispatch_marker(
+            "fn build_worker_rngs() { jobs.into_par_iter() }", "score_trim_jobs"
+        )
