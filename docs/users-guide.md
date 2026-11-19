@@ -452,8 +452,10 @@ error with a stable, machine-readable code: `MstError` and `MstErrorCode` from
 construction, insertion, and search; and `HierarchyError` and
 `HierarchyErrorCode` from `extract_labels_from_mst`. These are the errors a
 direct caller of those APIs receives. Each error's `code()` method returns its
-code enum, `as_str()` returns the stable string listed in the tables below, and
-`Display` renders that same string.
+code enum, whose `as_str()` returns the stable string listed in the tables
+below. The error's own `Display` renders a human-readable message such as
+`edge references node 3, but node_count is 3`; only `code().as_str()` and the
+code enum's `Display` are machine-readable.
 
 `Chutoro::run` does not forward these typed errors. It maps them to
 `ChutoroError::CpuMstFailure`, `ChutoroError::CpuHnswFailure`, or
