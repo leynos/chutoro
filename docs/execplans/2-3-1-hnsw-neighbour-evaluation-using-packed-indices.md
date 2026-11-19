@@ -65,12 +65,22 @@ After this change a developer can:
 
 Confirmed by reading the code (file:line cited in `Surprises & discoveries`):
 
-- **Scoring already happens outside the write lock.** `InsertionPlanner::plan`
-  (`insert/planner.rs:78`) scores under the *read* lock;
-  `CpuHnsw::score_trim_jobs` (`cpu/trim.rs:65`) scores with **no lock held**,
+- **Scoring already happens outside the graph write lock.** The insertion
+  planner (`InsertionPlanner::plan`, `insert/planner.rs:78`) scores under the
+  *read* lock; `CpuHnsw::score_trim_jobs` (`cpu/trim.rs`) scores while
+  `insert_mutex` is held, and now sequentially on the mutex holder rather than
   in parallel via Rayon; neither `write_graph` closure in
   `insert_with_collector` (`cpu/mod.rs:402-416`) computes a distance. This is
   the plan's strongest, most durable deliverable (committed scope C1).
+
+  *Correction (2026-11-19).* The original bullet said scoring ran "with no lock
+  held, in parallel via Rayon". That described the graph write guard correctly
+  but was wrong about the insertion lock: scoring runs inside the
+  `insert_mutex` critical section, and parallel dispatch there deadlocked
+  `build_with_edges`. PR #386 made scoring serial and
+  [ADR-006](../adrs/adr-0006-sequential-trim-scoring.md) records why. The
+  measurement conclusions in this plan are unchanged, because they compare
+  distance work outside the *write* guard; only the lock statement is corrected.
 - **SoA scoring already exists** as an adapter detail: `DenseMatrixProvider`
   reaches a 64-byte-aligned, 16-lane-padded, dimension-major SoA
   `DensePointView` (`dense/src/simd/point_view.rs`) and
@@ -671,11 +681,15 @@ Stop and escalate (do not work around) when:
 
 ## Surprises & discoveries
 
-- Observation: scoring already runs outside the write lock.
-  Evidence: `cpu/trim.rs:65` (`score_trim_jobs`, no lock);
-  `insert/planner.rs:78` (planner under read lock); no distance call inside
-  either `write_graph` closure (`cpu/mod.rs:402-416`). Impact: the locking part
-  of 2.3.1 is verification + documentation (C1), not re-architecture.
+- Observation: scoring already runs outside the graph write lock, but not
+  outside `insert_mutex`. Evidence: `cpu/trim.rs` (`score_trim_jobs`) is called
+  with `insert_mutex` held; `insert/planner.rs:78` (planner under read lock);
+  no distance call inside either `write_graph` closure (`cpu/mod.rs:402-416`).
+  Impact: the locking part of 2.3.1 is verification + documentation (C1), not
+  re-architecture. *Correction (2026-11-19):* the original text claimed "no
+  lock"; scoring runs under `insert_mutex` and is now serial (PR #386,
+  [ADR-006](../adrs/adr-0006-sequential-trim-scoring.md)). The C1 conclusion
+  stands for the write guard.
 - Observation: the write-lock marker must be opt-in for tests that exercise the
   invariant. Evidence: an always-on test-only marker introduced enough overhead
   for the full `make test` suite to time out while running
@@ -1056,9 +1070,11 @@ Insertion: `CpuHnsw::insert_with_collector` (`cpu/mod.rs:364-419`):
    (`cache: Some(cache)`, line 394). Returns `InsertionPlan`.
 3. **Apply (write lock #1)** (lines 402-410): stage updates, produce
    `Vec<TrimJob>`. *No distance computation.*
-4. **Score trim jobs (no lock)** `score_trim_jobs` (line 412; `cpu/trim.rs:65`):
-   parallel Rayon scoring of the cache-*miss* subset, deterministic bounded
-   heap.
+4. **Score trim jobs (`insert_mutex` held, no graph lock)** `score_trim_jobs`
+   (line 412; `cpu/trim.rs`): serial scoring of the cache-*miss* subset on the
+   mutex holder, deterministic bounded heap. *Correction (2026-11-19):* this
+   step originally said "no lock" and "parallel Rayon scoring"; both were
+   wrong, see [ADR-006](../adrs/adr-0006-sequential-trim-scoring.md).
 5. **Commit (write lock #2)** (lines 413-416): reconcile reciprocity, heal
    connectivity. *No distance computation.*
 

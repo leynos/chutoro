@@ -738,12 +738,14 @@ pub fn search<D: DataSource + Sync>(
 `build` and `build_with_edges` seed the entry point from node `0`
 single-threaded, then dispatch the remaining insertions across Rayon workers.
 Each insertion is serialized by the index's insert mutex, so Rayon provides
-worker dispatch rather than concurrent graph mutation. `build_with_edges` is
-the preferred path when the caller needs the `EdgeHarvest` used by the MST
-stage. Harvested edges are sorted into a stable order, but worker scheduling
-can change the insertion order, so the harvested edge set itself can vary
-between builds. `with_capacity` is the entry point for manual or incremental
-index population.
+worker dispatch rather than concurrent graph mutation. That mutex is a
+scheduling boundary as well as a mutual-exclusion one; see
+[the lock and scheduling contract](#hnsw-lock-and-scheduling-contract).
+`build_with_edges` is the preferred path when the caller needs the
+`EdgeHarvest` used by the MST stage. Harvested edges are sorted into a stable
+order, but worker scheduling can change the insertion order, so the harvested
+edge set itself can vary between builds. `with_capacity` is the entry point for
+manual or incremental index population.
 
 `insert` mutates the graph without allocating harvested edge storage.
 `insert_harvesting` performs the same planning and commit sequence, but also
@@ -2509,6 +2511,20 @@ The two minimum-spanning-tree (MST) harnesses are fast-tier proofs and run in
 harness, including the distance and HNSW invariant proofs that are not in the
 fast list.
 
+What the HNSW harnesses prove is bounded. The graph-structure obligations FV04
+and FV08 model graph state — adjacency, reciprocity, level membership, and the
+commit invariants over those — on concrete or two-node configurations. They do
+not model scheduling, lock acquisition, or lock waits, and they therefore say
+nothing about deadlock freedom or about which thread runs a callback. Liveness
+obligations stay separate from graph-structure obligations. The insertion
+critical-section contract in
+[the lock and scheduling contract](#hnsw-lock-and-scheduling-contract) is
+outside what any of them can establish, and a future change to scheduling
+beyond that critical section must come with a bounded scheduler or lock model
+plus production-path regressions rather than an extension of these structural
+harnesses. The reasons Kani is not applied to concurrency-heavy code are
+recorded in [ADR-0002](adrs/adr-0002-adoption-of-kani-formal-verification.md).
+
 Kani harnesses must stay within the tractable CBMC state space. For graph code
 there is a sharp combinatorial cliff between two-node and three-node
 configurations that drive the full commit machinery: three deterministic
@@ -2758,27 +2774,100 @@ write lock. The focused `hnsw::tests::write_lock` module enables a test-only
 write scope. Keep new insertion, trimming, and search code compatible with that
 guard.
 
-Insertion also holds `insert_mutex` across the whole insertion: it is acquired
+### HNSW lock and scheduling contract
+
+Every lock in the CPU index has a stated span and a stated set of operations it
+may cover. The central rule is:
+
+> No code path that holds a lock listed below may block on, dispatch to, or
+> wait for work that needs a lock the holder already owns, directly or through
+> the Rayon pool.
+
+Insertion holds `insert_mutex` across the whole transaction: it is acquired
 before level sampling and retained through planning, apply, trim scoring, and
 commit. Only one worker therefore plans against or mutates the graph at a time,
-and Rayon supplies worker dispatch without concurrent graph mutation. No code
-path inside that critical section may block on, or dispatch work to, the Rayon
-pool: a worker that is due to run the nested work may already be blocked
-acquiring the same mutex, and the build then never returns.
-`CpuHnsw::score_trim_jobs` therefore scores its jobs in order on the calling
-thread. Two checks cover that, and they are deliberately different in kind. The
-`tests/workflow_contracts/trim_scoring_dispatch_test.py` contract reads the
-scorer's body and rejects every Rayon entry point in it, which is the
-deterministic guard for this regression. `hnsw::cpu::trim_tests` records
-`rayon::current_thread_index()` for every distance call made from inside a
-four-worker pool, which catches a dispatch in practice, including one reached
-through a helper the source reading cannot see.
+and Rayon supplies worker dispatch without concurrent graph mutation. Breaking
+the rule above is not a latency problem; it is a deadlock, because the worker
+that would run the nested work may already be blocked acquiring the same mutex.
 
-[ADR-006](adrs/adr-0006-sequential-trim-scoring.md) records the deadlock cycle,
-the rejected alternatives, and the limits of the fix for arbitrary `DataSource`
-callbacks. In particular, the fix removes nested dispatch owned by the core; a
-source implementation that blocks on, or dispatches to, the same Rayon pool
-while a distance callback runs under `insert_mutex` can still deadlock.
+| Lock or primitive                                    | Span                                                                 | Callbacks permitted                                        | Pool dispatch or wait | Nested locks                                                                                    | Prohibitions                                                                                             |
+| ---------------------------------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `insert_mutex` (`Mutex<()>`)                         | From before level sampling until after commit of one insertion       | Yes; distance and metric callbacks, under the prohibitions | No                    | Graph guards (planning, apply, commit), RNG mutex while sampling, cache guards during callbacks | No Rayon dispatch or blocking wait; no `DataSource` call that dispatches, blocks, or re-enters insertion |
+| Worker RNG (`worker_rngs[i]`, `Mutex<SmallRng>`)     | One `sample_level` draw                                              | No                                                         | No                    | Taken while `insert_mutex` is held; takes nothing else                                          | Never held across a graph guard or a distance callback                                                   |
+| Fallback RNG (`rng`, `Mutex<SmallRng>`)              | One `sample_level` draw on a thread outside the pool                 | No                                                         | No                    | As the worker RNG                                                                               | As the worker RNG                                                                                        |
+| Graph read guard (`RwLock::read`)                    | Planning's search; all of `search`, including `ensure_query_present` | Yes; the read phase scores while it is held                | No                    | `insert_mutex` during planning; none in `search`                                                | No dispatch or blocking wait; no insertion, which needs the write guard                                  |
+| Graph write guard (`RwLock::write`)                  | The apply and commit closures; `reconfigure_for_test`                | No; ADR-003 keeps distance work outside it                 | No                    | `insert_mutex` during apply and commit                                                          | No `DataSource` calls, no dispatch, no wait                                                              |
+| DashMap entry (`DistanceCache::entries`)             | One `get`, `insert`, `remove`, or `contains_key`                     | No                                                         | No                    | May be taken while an LRU shard guard is held                                                   | Drop the entry guard before `touch`; never take an LRU shard guard while holding one                     |
+| LRU shard (`LruShard::usage`, `Mutex<LruCache<..>>`) | One usage update and the eviction it causes                          | No                                                         | No                    | LRU shard first, then DashMap entry                                                             | No callbacks, dispatch, or wait; recover poison rather than propagating it                               |
+| Counters (`len`, sequence, `Relaxed` atomics)        | One load or store                                                    | Not applicable                                             | Not applicable        | None                                                                                            | Relaxed ordering is sufficient only because `insert_mutex` orders graph and length changes               |
+
+The exceptions are explicit rather than accidental:
+
+- **Bootstrap.** `build_initial` inserts node `0` without `insert_mutex`
+  because no worker has been dispatched yet and no other thread can observe the
+  index. Every later insertion is serialized.
+- **`reconfigure_for_test`.** It takes the graph write guard through
+  `write_graph` before replacing the RNG and distance cache, so a poisoned
+  graph lock leaves the index unchanged rather than half-reconfigured.
+- **Poison recovery.** The graph and insertion mutexes report
+  `HnswError::LockPoisoned`. The LRU usage mutex recovers with
+  `PoisonError::into_inner` because each mutation it performs is atomic under
+  the guard, so a panic cannot leave the usage list half-updated.
+- **Search re-entry.** `search` holds the graph read guard across `DataSource`
+  callbacks. A source must not call `insert` (which needs the write guard) on
+  the same index from a callback, and nested `search` is not guaranteed to make
+  progress while a writer is waiting.
+- **LRU then DashMap.** That is the only permitted order. The reverse order is
+  what would let a lookup and an eviction deadlock.
+
+### How the scheduling contract is checked
+
+`CpuHnsw::score_trim_jobs` scores its jobs in order on the calling thread. Two
+checks cover that, and they are deliberately different in kind.
+
+`tests/workflow_contracts/trim_scoring_dispatch_test.py` is the deterministic
+guard. Through the pinned list in its companion `trim_scoring_reading.py`, it
+reads the bodies of the five functions on the scoring path —
+`insert_with_collector` in `cpu/mod.rs`; `score_trim_jobs`,
+`score_trim_jobs_with_metrics`, and `run_trim_job` in `cpu/trim.rs`; and
+`batch_distances_for_trim` in `hnsw/helpers.rs` — and rejects every Rayon entry
+point in them. It also checks a checked-in copy of the former `score_trim_jobs`
+and requires it to read as a dispatch, so the fixture cannot drift into
+agreement with the fixed code. A missing function fails the contract rather
+than reading as clean. `make test-workflow-contracts` runs it.
+
+The scan's limits are part of the contract. It can see a listed helper that
+dispatches, but not an unlisted helper called by one of the five, not an
+aliased Rayon import such as `use rayon::spawn as run`, and not a `DataSource`
+implementation that dispatches on its own account. Those cases are why the
+runtime regressions exist, and why a passing scan is not a proof of the whole
+path.
+
+`make test-scheduling-contract` runs the two runtime regressions with the
+filter pinned to their exact names and `--no-tests=fail`, so a rename cannot
+retire the evidence silently. The direct test scores a synthetic batch; the
+insertion-path test drives a real insertion in a dedicated four-worker pool and
+records the thread, the Rayon worker, and a non-blocking `insert_mutex`
+`try_lock` for every post-planning distance callback. Both assert that the
+callbacks stay on the mutex holder.
+
+What the two checks establish differs:
+
+- A failure of the Python contract is deterministic: a dispatch marker in a
+  pinned body fails whatever the scheduler does.
+- A failure of a Rust regression is scheduler-dependent. Scoring is observed
+  while a bounded steal window is open, so a dispatching implementation is
+  caught only when an idle worker accepts the offer. A pass is an observation,
+  not a proof; when no worker steals, a dispatching scorer can still finish on
+  the caller.
+- Neither check establishes deadlock freedom for arbitrary `DataSource`
+  callbacks. [ADR-006](adrs/adr-0006-sequential-trim-scoring.md) records the
+  deadlock cycle, the rejected alternatives, and the limits of the fix, and
+  [ADR-0002](adrs/adr-0002-adoption-of-kani-formal-verification.md) records the
+  concurrency limitations that bound what any structural harness can show. The
+  fix removes nested dispatch owned by the core; a source implementation that
+  blocks on, or dispatches to, the same Rayon pool while a distance callback
+  runs under `insert_mutex` can still deadlock.
 
 `DataSource::batch_distances(query, candidates)` has the following cache-layer
 contracts:

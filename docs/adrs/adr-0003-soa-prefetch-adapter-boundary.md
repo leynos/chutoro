@@ -123,3 +123,19 @@ API justification before implementation.
   The deferred roadmap items intentionally keep that path open.
 - Keeping `batch_distances_into` deferred means allocation improvements remain
   local until profiling proves a shared trait method is needed.
+
+## Clarification (2026-11-19)
+
+The Context bullet saying that "HNSW insert planning and trim scoring compute
+distances before acquiring the graph write lock" refers to the graph write
+guard only. It must not be read as scoring being lock-free. Insert planning
+runs while `insert_mutex` is held; trim scoring also runs under that mutex,
+after the apply closure has released the graph write guard, and it now scores
+sequentially on the mutex holder.
+[ADR-006](adr-0006-sequential-trim-scoring.md) records the deadlock that a
+parallel scorer invited and the scheduling rule for the whole critical section;
+the per-primitive contract is in the
+[HNSW lock and scheduling contract](../developers-guide.md#hnsw-lock-and-scheduling-contract).
+This clarification does not change the SoA/prefetch decision or its
+measurements: the adapter boundary and the evidence for deferring structural
+work remain as stated.

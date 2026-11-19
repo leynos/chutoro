@@ -132,20 +132,36 @@ section may block on, or dispatch work to, the Rayon pool.
   The trait documentation now states this, together with the prohibition on
   re-entering the same index.
 - **The deterministic guard reads source text.**
-  `tests/workflow_contracts/trim_scoring_dispatch_test.py` rejects the Rayon
-  entry-point markers it recognizes when they appear directly in
-  `score_trim_jobs`. Dispatch it does not recognize evades it: an aliased
-  import such as `use rayon::spawn as run; run(...)`, or a helper that
-  dispatches on the scorer's behalf. The runtime scheduling test in
-  `hnsw::cpu::trim_tests` remains as broader coverage, and it may catch helper
-  dispatch, but it is an observation rather than a proof: the caller's first
-  distance call waits up to two seconds for another worker, and if no worker
-  steals in that interval a dispatching implementation can still finish the
-  batch on the caller and pass.
+  `tests/workflow_contracts/trim_scoring_dispatch_test.py` pins the five
+  functions on the scoring path — `insert_with_collector` in `cpu/mod.rs`;
+  `score_trim_jobs`, `score_trim_jobs_with_metrics`, and `run_trim_job` in
+  `cpu/trim.rs`; and `batch_distances_for_trim` in `hnsw/helpers.rs` — and
+  rejects every recognized Rayon entry-point marker in any of their bodies.
+  Dispatch in a listed helper is therefore caught. Dispatch it cannot see still
+  evades it: an unlisted helper called by one of the five, an aliased import
+  such as `use rayon::spawn as run; run(...)`, or a `DataSource` that
+  dispatches on its own account. The scan fails closed when a pinned function
+  is missing, so a rename or a move cannot read as clean. The runtime
+  scheduling tests in `hnsw::cpu::trim_tests` remain as broader coverage, and
+  they may catch unlisted helper dispatch, but they are observations rather
+  than proofs: the caller's first distance callback waits up to two seconds for
+  another worker, and if no worker steals in that interval a dispatching
+  implementation can still finish the batch on the caller and pass.
 - **A watchdog stress test was considered and rejected.** An earlier
   watchdog-based stress test passed three times out of three on the unfixed
   code, because the stall is a scheduling race rather than a deterministic
   failure.
+- **Broader scheduling changes need stronger evidence than this ADR's.**
+  Neither the lexical scan nor the bounded runtime observations establish
+  deadlock freedom, and none of them should be extended into a structural
+  harness that claims to. A future change to scheduling beyond this critical
+  section — a narrower lock, a second mutex, work stealing across insertions,
+  or any path that may wait while holding a graph or cache lock — needs a
+  bounded scheduler or lock model that covers the new interaction *and*
+  production-path regressions. The concurrency limitations in
+  [ADR-0002](adr-0002-adoption-of-kani-formal-verification.md) explain why the
+  existing Kani harnesses do not model lock waits or deadlock freedom and
+  cannot be stretched to cover this.
 
 ## Consequences
 
@@ -156,29 +172,73 @@ section may block on, or dispatch work to, the Rayon pool.
   selection.
 - Two new operational metrics describe the serial scoring cost.
 - A future change that reintroduces one of the recognized Rayon entry-point
-  markers directly into `score_trim_jobs` fails the source contract
+  markers into any of the five pinned functions fails the source contract
   deterministically, regardless of scheduler timing. Dispatch reached through
-  an alias or a helper is caught, if at all, only by the runtime observation.
+  an unlisted helper, an alias, or a source implementation is caught, if at
+  all, only by the runtime observation.
 
 ## Validation evidence
 
-The fix merged as PR #386 on 2026-11-14.
+The fix merged as PR #386 on 2026-11-14, in merge commit
+`28c27bb9fa22599b68189655f42b393b129720ff`.
 
-Negative control: against a temporary `into_par_iter()` implementation, the
-runtime test failed in 0.03 s having observed all four workers, and the source
-contract rejects the dispatch deterministically.
+The checked-in evidence now has three parts.
 
-Positive evidence: the checked-in runtime test scores one batch on one index
-inside a four-worker pool, and its caller's first distance call waits up to two
-seconds for another worker before asserting that every call came from the
-caller. It passes on the fixed tree. An earlier eight-round variant of the same
-experiment, with a fresh index per round, completed in about 0.3 s and was the
-form tested while the fix was developed; it is historical evidence, not the
-checked-in regression. The full gate set passed on commit `28a9687`
-(`make check-fmt`, `make markdownlint` including spelling, `make lint`,
-`make typecheck`, `make test` with 1374 passed and 1 skipped, `make nixie`, and
-`make test-workflow-contracts` with 843 passed and 1 skipped). Hosted CI on the
-same head was green.
+- **Historical fixture.** The workflow contract carries a verbatim copy of the
+  former `score_trim_jobs` from commit
+  `56d6909c7019ac7caa6d485d11ebf5708b47528e`, `cpu/trim.rs` lines 35-48, and
+  asserts that it reads as `into_par_iter` while the current scorer reads with
+  no marker. The fixture is checked in rather than read from Git history, so a
+  shallow checkout does not retire the evidence, and it cannot drift into
+  agreement with the fixed code.
+- **Direct runtime regression.**
+  `direct_trim_scoring_stays_on_the_calling_worker` scores a synthetic batch in
+  a dedicated four-worker pool and records the thread, the Rayon worker, and an
+  `insert_mutex` probe for every distance callback. Every callback must come
+  from the caller.
+- **Insertion-path runtime regression.**
+  `insertion_trim_scoring_runs_on_the_insert_mutex_holder` seeds an index with
+  twelve nodes at `M = 4`, `ef_construction = 8`, and a one-entry distance
+  cache, then inserts the thirteenth through `insert_with_collector` in a
+  dedicated four-worker pool. A `WANTS_EDGES = true` collector marks the end of
+  planning; every later distance callback must report the same thread, the same
+  Rayon worker, and `WouldBlock` from a non-blocking `try_lock`. The one-entry
+  cache forces at least two trim jobs to reach the source, so the regression
+  observes real scoring rather than an empty batch. It shares the two-second
+  steal window with the direct test.
+
+`make test-scheduling-contract` runs both regressions with `--no-tests=fail`
+and default features, and the `build-test` CI job runs that target beside
+`make test-workflow-contracts`.
+`tests/workflow_contracts/scheduling_contract_test.py` pins the target recipe,
+both exact test names, the zero-test failure flag, and the order that installs
+`cargo-nextest` before the target runs. It also checks that each named
+regression is still declared under `cpu/trim_tests`.
+
+Positive evidence: both runtime regressions pass on the fixed tree, and the
+full gate set passed on commit `28a9687` (`make check-fmt`, `make markdownlint`
+including spelling, `make lint`, `make typecheck`, `make test` with 1374 passed
+and 1 skipped, `make nixie`, and `make test-workflow-contracts` with 843 passed
+and 1 skipped). Hosted CI on the same head was green.
+
+Negative control (2026-11-19, scratch worktree detached at the branch head):
+restoring `trim_jobs.into_par_iter()` in `score_trim_jobs` produced both
+expected outcomes.
+
+- The Python contract failed deterministically: two tests failed, seventeen
+  passed, and the failure named
+  `('chutoro-core/src/hnsw/cpu/trim.rs', 'score_trim_jobs'): 'into_par_iter'`.
+- Both runtime regressions failed in the same run: the direct test observed
+  callbacks on four worker indices instead of the caller alone, and the
+  insertion-path test observed a post-planning callback on a different thread
+  from the `insert_mutex` holder. They failed in 0.024 s and 0.009 s
+  respectively because the dedicated pool had an idle worker to accept the
+  steal offer.
+
+The runtime outcome is scheduler-dependent by construction — a pool with no
+idle worker can let the mutated caller finish the batch itself — which is why
+the Python contract, not the runtime regressions, is the guarantee. The scratch
+mutation was discarded and the candidate worktree was never changed.
 
 ## References
 
