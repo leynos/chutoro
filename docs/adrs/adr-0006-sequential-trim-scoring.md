@@ -262,15 +262,16 @@ named regression is still declared under `cpu/trim_tests` with a test
 attribute, since an undiscovered function cannot trip `--no-tests=fail`, and
 that a declaration quoted inside a string literal does not stand in for one.
 
-Positive evidence, on commit `f0b8bbb` on 2026-11-20: both runtime regressions
+Positive evidence, on commit `a7f3b28` on 2026-11-20: both runtime regressions
 pass, one nextest invocation each, 1 passed with 674 skipped apiece, and
-`make check-fmt`, `make markdownlint` including spelling, `make lint`
-(interrogate at 100% documented over 782 definitions, rustdoc, Clippy and
-Whitaker), `make typecheck`, `make nixie`, and `make test-workflow-contracts`
-(959 passed, 1 skipped) all pass. `make test` passed 1481 nextest tests with 1
-skipped and 141 doctests with 24 ignored on head `447a824`; that is the last
-head to change a Rust source, and the commits after it touch only these
-contracts and the documentation this record describes.
+`make check-fmt`, `make markdownlint` including spelling, `make interrogate`
+(at 100% documented over 786 definitions), and `make test-workflow-contracts`
+(964 passed, 1 skipped) all pass. `make lint` (rustdoc, Clippy and Whitaker),
+`make typecheck`, `make nixie`, and `make test` passed on earlier heads: 1481
+nextest tests with 1 skipped and 141 doctests with 24 ignored on `447a824`, and
+the lint gates on `f0b8bbb`. Those heads are the last to change a Rust source,
+and the commits after them touch only these contracts and the documentation
+this record describes.
 
 Negative control (2026-11-19, scratch worktree detached at the branch head):
 restoring `trim_jobs.into_par_iter()` in `score_trim_jobs` produced both
