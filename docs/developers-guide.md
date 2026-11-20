@@ -2780,8 +2780,9 @@ Every lock in the CPU index has a stated span and a stated set of operations it
 may cover. The central rule is:
 
 > No code path that holds a lock listed below may block on, dispatch to, or
-> wait for work that needs a lock the holder already owns, directly or through
-> the Rayon pool.
+> wait for work on the Rayon pool. Independently, no such path may wait for
+> work that needs a lock the holder already owns, whether that work runs on the
+> pool or on another thread.
 
 Insertion holds `insert_mutex` across the whole transaction: it is acquired
 before level sampling and retained through planning, apply, trim scoring, and
@@ -2843,10 +2844,12 @@ the scoring path — `insert_with_collector` in `cpu/mod.rs`; `score_trim_jobs`,
 `batch_distances_for_trim` in `hnsw/helpers.rs` — and rejects every recognized
 Rayon entry point in them, including the `into_par_iter()`, `par_iter_mut()`,
 and `par_iter()` adapters, the parallel slice and string adapters (the
-`.par_bridge()`, `.par_chunks()`, `.par_rchunks()`, `.par_windows()`,
-`.par_split()`, `.par_lines()`, `.par_chars()`, `.par_drain()`, `.par_sort()`,
-and `.par_extend()` methods, each standing for its mutable and `_exact` forms
-as well) and the `spawn_fifo`, `scope_fifo`, `join_context`, `broadcast`, and
+`.par_bridge()`, `.par_chunks()`, `.par_rchunks()`, `.par_chunk_by()`,
+`.par_windows()`, `.par_array_windows()`, `.par_split()`, `.par_lines()`,
+`.par_chars()`, `.par_char_indices()`, `.par_bytes()`, `.par_encode_utf16()`,
+`.par_matches()`, `.par_match_indices()`, `.par_drain()`, `.par_sort()`, and
+`.par_extend()` methods, each standing for its mutable and `_exact` forms as
+well) and the `spawn_fifo`, `scope_fifo`, `join_context`, `broadcast`, and
 `spawn_broadcast` calls, together with their `ThreadPool` method forms such as
 `pool.scope(...)` and `scope.spawn(...)`, which run work in the pool as surely
 as the free functions do. Three receiver forms are matched more narrowly. The
@@ -2891,13 +2894,14 @@ builds the default feature set, and every spelling that would change it is
 rejected: `--all-features`, `--no-default-features`, `--features` including its
 `=` form, and `-F`. An invocation carrying `--no-run` is rejected as well: it
 compiles the selected tests without executing them, so it satisfies every
-selector and count while producing no runtime evidence. The workflow contract,
-`scheduling_contract_test.py` and `scheduling_ci_test.py` with their companions
-`scheduling_reading.py`, `scheduling_command_reading.py`,
+selector and count while producing no runtime evidence. The workflow contract —
+`scheduling_contract_test.py`, `scheduling_ci_test.py` and
+`scheduling_shell_test.py`, with their companions `scheduling_reading.py`,
+`scheduling_command_reading.py`, `scheduling_invocation_reading.py`,
 `scheduling_script_reading.py`, `scheduling_line_reading.py`,
-`scheduling_shell_reading.py`, and `rust_declaration_reading.py`, also requires
-each invocation's whole filter expression to be exactly one selector, so a
-widened expression such as `test(=name) | all()` cannot keep an invocation
+`scheduling_shell_reading.py`, and `rust_declaration_reading.py` — also
+requires each invocation's whole filter expression to be exactly one selector,
+so a widened expression such as `test(=name) | all()` cannot keep an invocation
 non-empty after the regression is renamed. The recipe's commands must run
 nextest in executable position and must not carry Make's error-ignoring `-`
 prefix or a failure-masking shell suffix such as `|| true` (spaced or not: the
@@ -2920,8 +2924,8 @@ data for the same reason, so `echo \&\& installer` prints both ampersands. The
 CI step that runs the target is pinned unconditional, as is the nextest
 installation it depends on, and that installation has to be a command in its
 own right: a step that only prints or comments the installer path installs
-nothing, and neither does one whose failure is masked (`installer || true`,
-`installer; true`, or a `||` anywhere later in the same command line, as in
+nothing, and neither does one whose failure is masked (`installer || true`, or a
+`||` anywhere later in the same command line, as in
 `installer && echo installed || true`), one an earlier `||` can skip
 (`true || installer` installs nothing when `true` succeeds), one an earlier
 `&&` may skip (`false && installer` never runs either, and only `;` starts a
@@ -2929,9 +2933,15 @@ command list that runs whatever came before it), one sent to the background
 (`installer &` lets the next command start first, and so does a `&` that ends a
 later command in the chain, as in `installer && echo done &`), one that only
 parses the script (`bash -n installer`), or one whose `&&` chain is followed by
-another command. The step's effective shell is resolved through the workflow,
-job, and step scopes, and a custom template is rejected when it only
-syntax-checks the script, as `bash -n {0}` does. `errexit` exempts a failing
+another command. A `;` is not a mask: it ends the installer's own list, so its
+failure is not exempt from `errexit` and the step stops there, which is why
+`installer; true`, `installer ; make test` and a trailing `installer ;` all
+count. The step's effective shell is resolved through the workflow, job, and
+step scopes, and a custom `bash` or `sh` template must execute the script under
+`errexit`: `bash {0}` is rejected because a failed line would not stop the
+step, and so is any template that only syntax-checks the script, whether as
+`bash -n {0}`, in a combined cluster such as `bash -en {0}`, or as
+`bash -o noexec {0}` or `bash -eo noexec {0}`. `errexit` exempts a failing
 command inside an AND/OR list unless it is the command after the final `&&`, so
 `installer && echo installed` on one line and `true` on the next leaves the
 step green, while the same chain as the script's last command fails it. A

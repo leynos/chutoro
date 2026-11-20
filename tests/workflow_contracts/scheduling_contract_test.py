@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import pytest
 from rust_declaration_reading import declares_test
-from scheduling_command_reading import is_nextest_invocation
+from scheduling_invocation_reading import is_nextest_invocation
 from scheduling_reading import (
     QUALIFIED_REGRESSIONS,
     REGRESSIONS,

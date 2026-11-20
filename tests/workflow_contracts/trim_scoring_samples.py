@@ -210,6 +210,59 @@ fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
 }
 """
 
+#: `par_chunk_by` dispatches a slice by a predicate. It shares its prefix with
+#: neither `par_chunks` nor `par_rchunks`, so the chunk entries miss it.
+PAR_CHUNK_BY = """
+fn score_trim_jobs(jobs: &[Job]) -> usize {
+    jobs.par_chunk_by(|left, right| left == right).count()
+}
+"""
+
+#: `par_array_windows` dispatches constant-size windows. It is not spelled
+#: with `par_windows`, so the window entry misses it.
+PAR_ARRAY_WINDOWS = """
+fn score_trim_jobs(jobs: &[Job]) -> usize {
+    jobs.par_array_windows::<2>().count()
+}
+"""
+
+#: `par_char_indices` dispatches a string by character index. It is not
+#: `par_chars` followed by more text, so the character entry misses it.
+PAR_CHAR_INDICES = """
+fn score_trim_jobs(text: &str) -> usize {
+    text.par_char_indices().map(|(index, _)| index).sum()
+}
+"""
+
+#: `par_bytes` dispatches a string's bytes, a method no other entry names.
+PAR_BYTES = """
+fn score_trim_jobs(text: &str) -> usize {
+    text.par_bytes().map(|byte| byte as usize).sum()
+}
+"""
+
+#: `par_encode_utf16` dispatches a string's UTF-16 encoding.
+PAR_ENCODE_UTF16 = """
+fn score_trim_jobs(text: &str) -> usize {
+    text.par_encode_utf16().count()
+}
+"""
+
+#: `par_matches` dispatches a string's matches of a pattern.
+PAR_MATCHES = """
+fn score_trim_jobs(text: &str) -> usize {
+    text.par_matches('a').count()
+}
+"""
+
+#: `par_match_indices` dispatches the positions of a string's matches. Its
+#: spelling is not a prefix of `par_matches`, so it needs its own entry.
+PAR_MATCH_INDICES = """
+fn score_trim_jobs(text: &str) -> usize {
+    text.par_match_indices('a').count()
+}
+"""
+
 #: A helper whose name ends in `scope`. A substring match on `scope(` read it
 #: as Rayon's `scope`; the boundary anchor leaves it alone.
 SCOPED_HELPER_NAME = """

@@ -9,42 +9,27 @@ starts, quoted text is data even where it spells an operator, an operator ends
 one simple command and begins another, and the words are split the way the
 shell splits them rather than on whitespace.
 
-This module holds that reading for the scheduling gate. The recipe itself, its
-target, and the filter expressions it passes live in ``scheduling_reading``,
-the CI-step reading lives in ``scheduling_script_reading``, its line joining
-and quote masking live in ``scheduling_line_reading``, and the declarations
-the recipe names live in ``rust_declaration_reading``.
+This module holds the shell-level reading: quotes, comments, and the words a
+command is made of. The recipe itself, its target, and the filter expressions
+it passes live in ``scheduling_reading``, the CI-step reading lives in
+``scheduling_script_reading``, its line joining and quote masking live in
+``scheduling_line_reading``, the nextest invocation selected from a command
+lives in ``scheduling_invocation_reading``, and the declarations the recipe
+names live in ``rust_declaration_reading``.
 
 Re-use policy: import from ``scheduling_reading``,
-``scheduling_script_reading``, ``scheduling_line_reading`` and
-``scheduling_contract_test`` only. Those files were pushed past the 400-line
-limit ``AGENTS.md`` sets when these readers lived beside the recipe, and this
-module keeps each one inside it. A new shell rule belongs here with the shell
-behaviour it models stated beside it, so a later reader can check the rule
-against the shell rather than against the tests.
+``scheduling_script_reading``, ``scheduling_line_reading``,
+``scheduling_invocation_reading`` and ``scheduling_contract_test`` only. Those
+files were pushed past the 400-line limit ``AGENTS.md`` sets when these
+readers lived beside the recipe, and this module keeps each one inside it. A
+new shell rule belongs here with the shell behaviour it models stated beside
+it, so a later reader can check the rule against the shell rather than against
+the tests.
 """
 
 from __future__ import annotations
 
-import re
 import shlex
-
-#: The spellings of the Cargo executable a scheduling invocation may start
-#: with. `$(CARGO)` is what the Makefile uses; a literal `cargo` is accepted
-#: because it runs the same command. A command that only mentions nextest in
-#: an argument, such as `echo $(CARGO) nextest run ...`, runs nothing, and
-#: every assertion about its arguments would still pass.
-CARGO_COMMANDS = ("$(CARGO)", "cargo")
-
-#: Shell separators that continue a recipe line after the nextest invocation.
-#: `|| true` and `; true` make the line succeed after nextest fails, so the
-#: target stays green while the regression it exists to run is broken.
-SHELL_SEPARATORS = frozenset({";", ";;", "&&", "||", "|", "&"})
-
-#: Flags that compile without running. `--no-run` builds the tests and executes
-#: none of them, so an invocation carrying it produces no runtime evidence even
-#: though its selector, count and flags all look right.
-COMPILE_ONLY_FLAGS = ("--no-run",)
 
 #: Characters after which the shell can start a new word. An operator ends the
 #: word before it, so a ``#`` written straight after one is still at a word
@@ -76,6 +61,20 @@ def closing_quote(line: str, start: int) -> int | None:
     after it. An ordinary single-quoted string has no escapes. An unclosed
     quote returns ``None``, because whether that is an error depends on what
     the caller is reading.
+
+    Parameters
+    ----------
+    line
+        The command line containing the quote.
+    start
+        The index of the opening quote.
+
+    Returns
+    -------
+    int | None
+        The index of the closing quote, or ``None`` when the quote is never
+        closed. Callers that cannot read the rest of the line raise
+        ``ValueError`` for that case.
 
     Examples
     --------
@@ -220,6 +219,16 @@ def strip_shell_comment(line: str) -> str:
     reads a command, because a comment that mentioned a flag would otherwise
     stand in for the flag on an invocation that omits it.
 
+    Parameters
+    ----------
+    line
+        The command line to read.
+
+    Returns
+    -------
+    str
+        The line with any trailing shell comment removed.
+
     Examples
     --------
     >>> strip_shell_comment("make test # run the suite")
@@ -248,6 +257,16 @@ def shell_tokens(command: str) -> list[str]:
     mask after it. Comments are already removed, with shell word boundaries, by
     ``strip_shell_comment``; the lexer must not remove them a second time.
 
+    Parameters
+    ----------
+    command
+        The command to split.
+
+    Returns
+    -------
+    list[str]
+        The command's words, with quoted text kept whole.
+
     Examples
     --------
     >>> shell_tokens("$(CARGO) nextest run ||true")
@@ -262,95 +281,3 @@ def shell_tokens(command: str) -> list[str]:
     lexer.whitespace_split = True
     return list(lexer)
 
-
-#: Redirection operators, with Cargo's word after each being a file name
-#: rather than an argument. A leading file-descriptor number is part of the
-#: operator, as in ``2>``.
-_REDIRECTION = re.compile(r"\d*(?:&>>?|>>|>|<|<>|>\||<<<|<<)")
-
-
-def _is_redirection(token: str) -> bool:
-    """Return whether `token` is a redirection operator.
-
-    Examples
-    --------
-    >>> _is_redirection(">")
-    True
-    >>> _is_redirection("2>")
-    True
-    >>> _is_redirection(">log#1")
-    False
-    """
-    return _REDIRECTION.fullmatch(token) is not None
-
-
-def command_arguments(command: str) -> list[str]:
-    """Return `command`'s words with its redirections and their targets removed.
-
-    A redirection's target is a file name, not an argument. In
-    ``nextest run --no-tests=pass > --no-tests=fail`` the only
-    ``--no-tests=fail`` is the file written to, and the command still runs
-    with ``--no-tests=pass``, so a check that matched the whole word list
-    would accept the opposite setting. An attached form such as ``>log#1`` is
-    one word and can never be read as a flag, but the spaced form arrives as
-    an operator and a separate word, which is why the target is dropped here
-    rather than matched as a word.
-
-    Examples
-    --------
-    >>> command_arguments("nextest run --no-tests=pass > --no-tests=fail")
-    ['nextest', 'run', '--no-tests=pass']
-    >>> command_arguments("nextest run --no-tests=fail >log#1")
-    ['nextest', 'run', '--no-tests=fail', '>log#1']
-    >>> command_arguments("nextest run 2> --no-tests=fail --lib")
-    ['nextest', 'run', '--lib']
-    """
-    arguments: list[str] = []
-    redirects_next = False
-    for token in shell_tokens(command):
-        if redirects_next:
-            redirects_next = False
-            continue
-        if _is_redirection(token):
-            redirects_next = True
-            continue
-        arguments.append(token)
-    return arguments
-
-
-def is_nextest_invocation(command: str) -> bool:
-    """Return whether `command` runs nextest in its executable position.
-
-    A recipe line that only mentions nextest in an argument runs nothing.
-    Three other shapes run it and still leave the target green when the
-    regression fails: Make's ignore-error prefix, `|| true`, and a second
-    command after `;`. A fourth runs nothing at all: `--no-run` compiles the
-    tests without executing them, so the selector is satisfied and the
-    evidence is not produced. Each spelling that is not the plain Cargo
-    command leaves the line out of the invocation list, where the
-    one-per-regression count rejects it.
-
-    Examples
-    --------
-    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core --lib")
-    True
-    >>> is_nextest_invocation("echo $(CARGO) nextest run -p chutoro-core")
-    False
-    >>> is_nextest_invocation("-$(CARGO) nextest run -p chutoro-core")
-    False
-    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core || true")
-    False
-    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core ||true")
-    False
-    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core --no-run")
-    False
-    """
-    tokens = shell_tokens(command)
-    rejected = SHELL_SEPARATORS.union(COMPILE_ONLY_FLAGS)
-    if any(token in rejected for token in tokens):
-        return False
-    return (
-        len(tokens) >= 3
-        and tokens[0] in CARGO_COMMANDS
-        and tokens[1:3] == ["nextest", "run"]
-    )

@@ -93,14 +93,28 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, _Predicate], ...]] = (
     # `par_rchunks_mut` and both `_exact` forms all start with it, just as
     # `.par_chunks` carries its mutable and `_exact` forms.
     (".par_rchunks", _matches(r"\.par_rchunks")),
+    # `par_chunk_by` starts with neither `par_chunks` nor `par_rchunks`, so
+    # the chunk entries above leave it unread.
+    (".par_chunk_by", _matches(r"\.par_chunk_by")),
     (".par_sort", _matches(r"\.par_sort")),
     # `ParallelExtend::par_extend` is generic, so a turbofish may sit between
     # the name and the argument list, as it may for `install`.
     (".par_extend(", calls_the_method("par_extend")),
     (".par_windows", _matches(r"\.par_windows")),
+    # `par_array_windows` contains neither `par_windows` nor `par_chunks`, so
+    # it needs its own entry.
+    (".par_array_windows", _matches(r"\.par_array_windows")),
     (".par_split", _matches(r"\.par_split")),
     (".par_lines", _matches(r"\.par_lines")),
     (".par_chars", _matches(r"\.par_chars")),
+    # The three string adapters below are distinct words: `par_char_indices`
+    # is not `par_chars` followed by text, and `par_matches` is not a prefix
+    # of `par_match_indices`.
+    (".par_char_indices", _matches(r"\.par_char_indices")),
+    (".par_bytes", _matches(r"\.par_bytes")),
+    (".par_encode_utf16", _matches(r"\.par_encode_utf16")),
+    (".par_matches", _matches(r"\.par_matches")),
+    (".par_match_indices", _matches(r"\.par_match_indices")),
     (".par_drain", _matches(r"\.par_drain")),
     ("rayon::", _matches(r"rayon\s*::")),
     (".install(", calls_the_method("install")),

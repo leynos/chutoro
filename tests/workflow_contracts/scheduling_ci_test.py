@@ -53,21 +53,6 @@ def _step_running(command: str) -> dict[str, object] | None:
     )
 
 
-def _scope(shell: str | None) -> dict[str, object]:
-    """Return a workflow or job declaring `shell` as its run default, if any.
-
-    Examples
-    --------
-    >>> _scope("bash")
-    {'defaults': {'run': {'shell': 'bash'}}}
-    >>> _scope(None)
-    {}
-    """
-    if shell is None:
-        return {}
-    return {"defaults": {"run": {"shell": shell}}}
-
-
 def _assert_unconditional(step: dict[str, object] | None, command: str) -> None:
     """Fail unless `step` exists and its failure would fail the job.
 
@@ -196,8 +181,14 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
             f"{NEXTEST_INSTALLER} || true", False, id="failure-masked"
         ),
         pytest.param(
-            f"{NEXTEST_INSTALLER}; true", False, id="masked-after-a-semicolon"
+            f"{NEXTEST_INSTALLER}; true", True, id="a-semicolon-does-not-mask"
         ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} ; make test",
+            True,
+            id="a-semicolon-ends-the-installers-own-list",
+        ),
+        pytest.param(f"{NEXTEST_INSTALLER} ;", True, id="a-trailing-semicolon"),
         pytest.param(
             f"bash -n {NEXTEST_INSTALLER}", False, id="syntax-check-only"
         ),
@@ -296,9 +287,12 @@ def test_the_installer_selector_reads_executable_use(
     installer`` gives the selector a command that runs to completion and never
     installs, and so does a preceding ``&&`` whose left side may fail, as
     ``false && installer`` never runs. Only ``;`` starts a command list that
-    runs whatever came before it. A trailing ``&`` lets the rest of the step
-    start first whether it follows the installer or a later command in the
-    chain.
+    runs whatever came before it. A ``;`` after the installer ends the
+    installer's own list, so its failure is not exempt from ``errexit`` and
+    the step stops there: ``installer; true`` and ``installer ; make test``
+    both count, and so does a trailing ``installer ;``. A trailing ``&`` lets
+    the rest of the step start first whether it follows the installer or a
+    later command in the chain.
 
     Text decides the reading as well as syntax: a quoted ``&&`` is an
     argument, not an operator, and an escaped operator is data for the same
@@ -316,54 +310,3 @@ def test_the_installer_selector_reads_executable_use(
     assert installs_nextest(script) is expected, (
         f"installs_nextest must return {expected} for {script!r}"
     )
-
-
-@pytest.mark.parametrize(
-    ("workflow_shell", "job_shell", "step_shell", "expected"),
-    [
-        pytest.param(None, None, None, None, id="the-runner-default"),
-        pytest.param("sh", None, None, "sh", id="a-workflow-default"),
-        pytest.param("sh", "bash", None, "bash", id="a-job-override"),
-        pytest.param(None, None, "bash", "bash", id="a-step-default"),
-        pytest.param(
-            "sh",
-            "bash",
-            "bash -n {0}",
-            "bash -n {0}",
-            id="a-step-override",
-        ),
-    ],
-)
-def test_the_effective_shell_follows_override_precedence(
-    workflow_shell: str | None,
-    job_shell: str | None,
-    step_shell: str | None,
-    expected: str | None,
-) -> None:
-    """A shell declared at any scope decides how the step's script is run.
-
-    A step's own ``shell`` wins over the job's default, which wins over the
-    workflow's. Reading only the step would miss a default declared higher up,
-    and reading only the defaults would miss the step that overrides them.
-    """
-    workflow = _scope(workflow_shell)
-    definition = _scope(job_shell)
-    step = {} if step_shell is None else {"shell": step_shell}
-    assert effective_shell(step, definition, workflow) == expected
-
-
-@pytest.mark.parametrize("scope", ["workflow", "job", "step"])
-def test_a_syntax_only_shell_is_rejected_at_every_scope(scope: str) -> None:
-    """``bash -n`` parses the script and runs none of the gate's command.
-
-    GitHub accepts a shell template at all three scopes, so a syntax-only
-    template declared at any of them would leave the step green with no
-    evidence produced.
-    """
-    shell = "bash -n {0}"
-    workflow = _scope(shell) if scope == "workflow" else {}
-    definition = _scope(shell) if scope == "job" else {}
-    step = {"shell": shell} if scope == "step" else {}
-    effective = effective_shell(step, definition, workflow)
-    assert effective == shell
-    assert not runs_the_script(effective)

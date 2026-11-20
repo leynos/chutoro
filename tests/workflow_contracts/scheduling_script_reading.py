@@ -38,12 +38,20 @@ INTERPRETERS = frozenset({"bash", "sh", "dash"})
 #: any run of them as one token, so ``|&`` arrives whole.
 _OPERATOR_CHARS = frozenset(";&|")
 
-#: The only operator that carries the installer's failure to the end of a
-#: line. ``installer && make test`` fails when the installer fails; every other
-#: operator replaces that status somewhere later on the line, so ``|| true``,
-#: ``; true`` and ``installer && echo installed || true`` all install nothing
-#: and report success.
+#: The only operator that carries the installer's failure to the end of an
+#: AND/OR list. ``installer && make test`` fails when the installer fails;
+#: every other operator ends the list at the installer, so ``installer ||
+#: true`` and ``installer && echo installed || true`` install nothing that can
+#: fail the step. A ``;`` is not a mask: it ends the installer's own list, and
+#: a failure there is not exempt from ``errexit``.
 _CARRYING_OPERATOR = "&&"
+
+#: The operator that ends the installer's own list. A failing simple command
+#: in its own list stops the script under ``errexit``, so the installer's
+#: status reaches the step whatever later commands would do. This shares the
+#: spelling of ``_UNCONDITIONAL_BEFORE`` but answers the other end of the
+#: command: whether a failure survives, not whether a command runs.
+_OWN_LIST_END = ";"
 
 #: Operators after which a command is certain to run. Only ``;`` starts a
 #: fresh command list unconditionally. A command after ``&&`` runs only when
@@ -185,12 +193,15 @@ def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
     installer's own operator decides what happens next, but so does every
     operator after it: ``installer && echo installed || true`` records the
     installation attempt and still reports success, so reading the installer's
-    operator alone accepted a masked line. The whole line's end has to be read
-    too: a trailing ``&`` backgrounds the last command, so the shell moves on
-    before it finishes and its failure belongs to no one. That holds whether
-    the backgrounded command is the installer (``installer &``) or a later one
-    (``installer && echo done &``), which is why the check reads the final
-    segment rather than the installer's own.
+    operator alone accepted a masked line. A ``;`` is different: it ends the
+    installer's own list, and a failing simple command in its own list is not
+    exempt from ``errexit``, so ``installer ; make test`` and a trailing
+    ``installer ;`` both stop the step when the installer fails. The whole
+    line's end has to be read too: a trailing ``&`` backgrounds the last
+    command, so the shell moves on before it finishes and its failure belongs
+    to no one. That holds whether the backgrounded command is the installer
+    (``installer &``) or a later one (``installer && echo done &``), which is
+    why the check reads the final segment rather than the installer's own.
 
     Examples
     --------
@@ -200,6 +211,10 @@ def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
     False
     >>> _status_reaches_the_end(_lines("a && b || c")[0], 0)
     False
+    >>> _status_reaches_the_end(_lines("a ; b")[0], 0)
+    True
+    >>> _status_reaches_the_end(_lines("a ;")[0], 0)
+    True
     >>> _status_reaches_the_end(_lines("a && b")[0], 1)
     True
     >>> _status_reaches_the_end(_lines("a &")[0], 0)
@@ -207,6 +222,8 @@ def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
     >>> _status_reaches_the_end(_lines("a && b &")[0], 0)
     False
     """
+    if line[index].follows == _OWN_LIST_END:
+        return True
     if line[index].follows not in {"", _CARRYING_OPERATOR}:
         return False
     if line[-1].follows:
@@ -278,11 +295,13 @@ def installs_nextest(script: str) -> bool:
     than only immediately after the installer, and a trailing ``&`` lets the
     next command start first. A failure carried by ``&&`` is exempt from
     ``errexit`` unless it is the line's last command, so such a chain must
-    also end the script, or a later line that succeeds absorbs the status.
-    Physical lines are joined where the shell joins them: a trailing ``&&``
-    or ``||`` continues the list onto the next line, so ``true ||`` followed
-    by an installer line never runs the installer, and an installer followed
-    by ``&&`` carries its failure into the next line.
+    also end the script, or a later line that succeeds absorbs the status. A
+    ``;`` ends the installer's own list instead, so ``installer ; make test``
+    stops the step when the installer fails, as does a trailing
+    ``installer ;``. Physical lines are joined where the shell joins them: a
+    trailing ``&&`` or ``||`` continues the list onto the next line, so
+    ``true ||`` followed by an installer line never runs the installer, and
+    an installer followed by ``&&`` carries its failure into the next line.
 
     Examples
     --------
@@ -311,6 +330,12 @@ def installs_nextest(script: str) -> bool:
     False
     >>> installs_nextest("scripts/install-nextest.sh && echo installed\\ntrue")
     False
+    >>> installs_nextest("scripts/install-nextest.sh ; make test")
+    True
+    >>> installs_nextest("scripts/install-nextest.sh; true")
+    True
+    >>> installs_nextest("scripts/install-nextest.sh ;")
+    True
     """
     lines = _lines(script)
     return any(

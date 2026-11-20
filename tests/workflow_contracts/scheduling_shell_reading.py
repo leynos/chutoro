@@ -2,27 +2,40 @@
 
 GitHub lets a workflow, a job, or a step name the shell a ``run`` script is
 handed to. A custom template such as ``bash -n {0}`` parses that script and
-executes none of it, so a step carrying one would satisfy every other check
-while the gate never ran. Resolving the shell that actually applies means
-reading all three scopes in override order and then reading the template for
-an option that only checks syntax.
+executes none of it, and one such as ``bash {0}`` runs it without ``errexit``,
+so a later successful command would absorb a failed gate. The scheduling
+contract reads a step's commands as failing the step when ``errexit`` holds, so
+a template that does not enable it is no more evidence than a syntax check.
+Resolving the shell that actually applies means reading all three scopes in
+override order and then reading the template for an option that only checks
+syntax, a command or stdin mode that never runs the script, or a missing
+``errexit``.
 
-This module holds that reading. ``scheduling_ci_test`` holds the assertions
-over it, so neither file outgrows the 400-line limit ``AGENTS.md`` sets.
+This module holds that reading. ``scheduling_shell_test`` holds the assertions
+over the precedence and the template forms, and ``scheduling_ci_test`` applies
+``runs_the_script`` to the step that runs the scheduling target; the split
+keeps each file inside the 400-line limit ``AGENTS.md`` sets.
 
-Re-use policy: import from ``scheduling_ci_test`` only. A new shell-template
-rule belongs here with the GitHub behaviour it models stated beside it, so a
-later reader can check the rule against the runner rather than against the
-tests.
+Re-use policy: import from ``scheduling_shell_test`` and ``scheduling_ci_test``
+only. A new shell-template rule belongs here with the GitHub behaviour it
+models stated beside it, so a later reader can check the rule against the
+runner rather than against the tests.
 """
 
 from __future__ import annotations
 
-#: Shell keywords GitHub runs with its default execution flags.
+#: Shells whose execution flags this reader models. GitHub runs the default
+#: ``run`` shell as ``bash -e {0}`` on Linux, and documents the ``bash`` and
+#: ``sh`` shorthands as expanding to shells that enable ``errexit``.
 EXECUTING_SHELLS = frozenset({"bash", "sh"})
 
-#: Shell options that parse a script and execute none of it.
+#: Shell words that parse a script and execute none of it.
 SYNTAX_ONLY_OPTIONS = frozenset({"-n", "--noexec"})
+
+#: Shell option names, written as the word after ``-o`` or ``-O``, that
+#: matter to this reader.
+_NOEXEC_OPTION = "noexec"
+_ERREXIT_OPTION = "errexit"
 
 
 def _default_run_shell(scope: dict[str, object]) -> str | None:
@@ -73,13 +86,155 @@ def effective_shell(
     return None
 
 
-def runs_the_script(shell: str | None) -> bool:
-    """Return whether `shell` executes the step's script.
+def _is_short_cluster(word: str) -> bool:
+    """Return whether `word` groups short shell options, as ``-eo`` does.
 
-    A custom shell template must contain ``{0}``, where GitHub substitutes the
-    script's path, and must not hand the shell an option that only parses the
-    script: ``bash -n {0}`` and ``sh --noexec {0}`` check syntax and run
-    nothing.
+    A long option such as ``--noprofile`` is not a cluster, and the single
+    word ``-`` is an operand rather than an option.
+
+    Examples
+    --------
+    >>> _is_short_cluster("-eo")
+    True
+    >>> _is_short_cluster("--noprofile")
+    False
+    >>> _is_short_cluster("-")
+    False
+    """
+    return word.startswith("-") and not word.startswith("--") and word != "-"
+
+
+def _enables(word: str, letter: str) -> bool:
+    """Return whether the short option cluster `word` enables `letter`.
+
+    Examples
+    --------
+    >>> _enables("-eo", "e")
+    True
+    >>> _enables("--errexit", "e")
+    False
+    >>> _enables("pipefail", "o")
+    False
+    """
+    return _is_short_cluster(word) and letter in word[1:]
+
+
+def _takes_an_operand(word: str) -> bool:
+    """Return whether `word` names a shell option whose value follows it.
+
+    ``-o`` and ``-O`` take the option name as the next word, and either may
+    sit inside a cluster, as in ``-eo pipefail``.
+
+    Examples
+    --------
+    >>> _takes_an_operand("-o")
+    True
+    >>> _takes_an_operand("-eo")
+    True
+    >>> _takes_an_operand("-e")
+    False
+    """
+    return word in {"-o", "-O"} or _enables(word, "o")
+
+
+def _syntax_only(options: list[str]) -> bool:
+    """Return whether these options parse the script and run none of it.
+
+    Bash reads short options as a cluster, so ``-en`` is ``-e`` plus ``-n``,
+    and names an option with ``-o``, so ``-o noexec`` and ``-eo noexec``
+    reach the same mode in two words.
+
+    Examples
+    --------
+    >>> _syntax_only(["-n"])
+    True
+    >>> _syntax_only(["-en"])
+    True
+    >>> _syntax_only(["-eo", "noexec"])
+    True
+    >>> _syntax_only(["-eo", "pipefail"])
+    False
+    """
+    previous = ""
+    for word in options:
+        if word in SYNTAX_ONLY_OPTIONS or _enables(word, "n"):
+            return True
+        if _takes_an_operand(previous) and word == _NOEXEC_OPTION:
+            return True
+        previous = word
+    return False
+
+
+def _enables_errexit(options: list[str]) -> bool:
+    """Return whether these options make a failing command fail the shell.
+
+    ``-e`` may be spelled inside a cluster such as ``-eo pipefail``, and the
+    same setting may be named with ``-o errexit``.
+
+    Examples
+    --------
+    >>> _enables_errexit(["-e"])
+    True
+    >>> _enables_errexit(["-eo", "pipefail"])
+    True
+    >>> _enables_errexit(["-o", "errexit"])
+    True
+    >>> _enables_errexit(["--noprofile"])
+    False
+    """
+    previous = ""
+    for word in options:
+        if _enables(word, "e"):
+            return True
+        if _takes_an_operand(previous) and word == _ERREXIT_OPTION:
+            return True
+        previous = word
+    return False
+
+
+def _reaches_the_script(options: list[str]) -> bool:
+    """Return whether ``{0}`` is the script the shell runs, not an argument.
+
+    Bash stops reading options at its first operand and runs that operand as
+    the script, so an option word left over before ``{0}`` would run something
+    else. ``-c`` and ``-s`` are rejected outright: they run a command string or
+    read the script from stdin, and ``{0}`` would only be a positional
+    argument. Option values such as ``pipefail`` after ``-o`` are skipped.
+
+    Examples
+    --------
+    >>> _reaches_the_script(["-e"])
+    True
+    >>> _reaches_the_script(["-eo", "pipefail"])
+    True
+    >>> _reaches_the_script(["-e", "noexec"])
+    False
+    >>> _reaches_the_script(["-ec", "run()"])
+    False
+    >>> _reaches_the_script(["-s"])
+    False
+    """
+    index = 0
+    while index < len(options):
+        word = options[index]
+        if word == "--command" or _enables(word, "c") or _enables(word, "s"):
+            return False
+        if not word.startswith("-") or word == "-":
+            return False
+        index += 2 if _takes_an_operand(word) else 1
+    return True
+
+
+def runs_the_script(shell: str | None) -> bool:
+    """Return whether `shell` runs the step's script under ``errexit``.
+
+    With no ``shell`` the runner's default applies, which is ``bash -e {0}``
+    on Linux; the ``bash`` and ``sh`` shorthands also enable ``errexit``. A
+    custom template is read as words: its interpreter must be one whose flags
+    this reader models, it must contain ``{0}`` where the script's path is
+    substituted, ``{0}`` must be the script operand, and the options before it
+    must enable ``errexit`` without selecting a syntax-only, command, or stdin
+    mode.
 
     Examples
     --------
@@ -89,14 +244,31 @@ def runs_the_script(shell: str | None) -> bool:
     True
     >>> runs_the_script("bash --noprofile --norc -eo pipefail {0}")
     True
+    >>> runs_the_script("bash {0}")
+    False
+    >>> runs_the_script("sh {0}")
+    False
     >>> runs_the_script("bash -n {0}")
     False
+    >>> runs_the_script("bash -en {0}")
+    False
+    >>> runs_the_script("bash -eo noexec {0}")
+    False
     >>> runs_the_script("bash -n")
+    False
+    >>> runs_the_script("python {0}")
     False
     """
     if shell is None or shell in EXECUTING_SHELLS:
         return True
     if "{0}" not in shell:
         return False
-    command = shell.split("{0}", 1)[0]
-    return not any(option in SYNTAX_ONLY_OPTIONS for option in command.split())
+    command = shell.split("{0}", 1)[0].split()
+    if not command or command[0].rsplit("/", 1)[-1] not in EXECUTING_SHELLS:
+        return False
+    options = command[1:]
+    return (
+        _reaches_the_script(options)
+        and not _syntax_only(options)
+        and _enables_errexit(options)
+    )

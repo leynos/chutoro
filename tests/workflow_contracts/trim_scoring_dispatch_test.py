@@ -47,6 +47,13 @@ from trim_scoring_samples import (
     LISTED_HELPER_DISPATCH,
     LITERAL_MENTION,
     NESTED_GENERIC_PATH_JOIN,
+    PAR_ARRAY_WINDOWS,
+    PAR_BYTES,
+    PAR_CHAR_INDICES,
+    PAR_CHUNK_BY,
+    PAR_ENCODE_UTF16,
+    PAR_MATCHES,
+    PAR_MATCH_INDICES,
     PATH_JOIN,
     PATH_JOIN_TRAILING_COMMA,
     POOL_JOIN,
@@ -134,6 +141,19 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
         pytest.param(TUPLE_JOIN, ".join(", id="a-tuple-type-join"),
         pytest.param(UNIT_TYPE_LOCAL, None, id="a-unit-and-tuple-type-local"),
         pytest.param(REVERSE_CHUNKS, ".par_rchunks", id="reverse-chunks"),
+        pytest.param(PAR_CHUNK_BY, ".par_chunk_by", id="par-chunk-by"),
+        pytest.param(
+            PAR_ARRAY_WINDOWS, ".par_array_windows", id="par-array-windows"
+        ),
+        pytest.param(PAR_CHAR_INDICES, ".par_char_indices", id="par-char-indices"),
+        pytest.param(PAR_BYTES, ".par_bytes", id="par-bytes"),
+        pytest.param(
+            PAR_ENCODE_UTF16, ".par_encode_utf16", id="par-encode-utf16"
+        ),
+        pytest.param(PAR_MATCHES, ".par_matches", id="par-matches"),
+        pytest.param(
+            PAR_MATCH_INDICES, ".par_match_indices", id="par-match-indices"
+        ),
         pytest.param(SCOPED_HELPER_NAME, None, id="a-helper-named-with-scope"),
         pytest.param(
             UNLISTED_SIBLING, None, id="a-dispatch-in-an-unlisted-sibling"
@@ -203,6 +223,33 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
         pytest.param(".par_split", "items.par_split()", id="par-split"),
         pytest.param(".par_lines", "text.par_lines()", id="par-lines"),
         pytest.param(".par_chars", "text.par_chars()", id="par-chars"),
+        pytest.param(
+            ".par_char_indices",
+            "text.par_char_indices()",
+            id="par-char-indices",
+        ),
+        pytest.param(".par_bytes", "text.par_bytes()", id="par-bytes"),
+        pytest.param(
+            ".par_encode_utf16", "text.par_encode_utf16()", id="par-encode-utf16"
+        ),
+        pytest.param(
+            ".par_matches", "text.par_matches('a')", id="par-matches"
+        ),
+        pytest.param(
+            ".par_match_indices",
+            "text.par_match_indices('a')",
+            id="par-match-indices",
+        ),
+        pytest.param(
+            ".par_chunk_by",
+            "items.par_chunk_by(|a, b| a == b)",
+            id="par-chunk-by",
+        ),
+        pytest.param(
+            ".par_array_windows",
+            "items.par_array_windows::<2>()",
+            id="par-array-windows",
+        ),
         pytest.param(".par_drain", "items.par_drain(..)", id="par-drain"),
         pytest.param(
             "rayon::",

@@ -8,7 +8,7 @@ justifies them.
 
 ## Date
 
-2026-06-25
+2026-11-20
 
 ## Context and problem statement
 
@@ -20,8 +20,11 @@ provides the structural boundary needed for most of that request:
 - HNSW candidate scoring calls `DataSource::batch_distances(query, candidates)`.
 - The dense provider keeps `DensePointView<'a>` and SIMD dispatch private to
   the dense adapter.
-- HNSW insert planning and trim scoring compute distances before acquiring the
-  graph write lock; the C1 guard now tests that invariant.
+- HNSW insert planning computes its distances while the graph read guard is
+  held, apply takes and releases the graph write guard, trim scoring computes
+  its distances after apply with `insert_mutex` still held, and commit takes
+  the write guard again. No distance is computed under the write lock, and the
+  C1 guard tests that invariant.
 
 Milestone 0 measurements for this execplan also showed that accumulated batch
 scoring accounted for 8.30% of the 10k-point synthetic build and 3.61% of the
@@ -127,8 +130,8 @@ API justification before implementation.
 ## Clarification (2026-11-19)
 
 The Context bullet that described HNSW insert planning and trim scoring as
-computing distances before the graph write lock was incomplete and is replaced
-by the actual phase order:
+computing distances before the graph write lock was incomplete. It has been
+corrected to the actual phase order:
 
 1. Insert planning computes its distances while `insert_mutex` and the graph
    read guard are held.

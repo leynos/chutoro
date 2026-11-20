@@ -8,7 +8,8 @@ The reading is separate from the assertions for the same reasons as
 ``trim_scoring_reading``: it carries its own cases and doctests, and keeping
 both in one file pushed it past the 400-line limit ``AGENTS.md`` sets. Reading
 one shell command — where its comment ends and whether it runs nextest at all —
-lives in ``scheduling_command_reading`` for the same reason.
+lives in ``scheduling_command_reading`` and ``scheduling_invocation_reading``
+for the same reason.
 
 Nothing here asserts anything. A reader that cannot read its subject raises
 rather than returning an empty answer, so a caller never mistakes a reading
@@ -20,10 +21,10 @@ from __future__ import annotations
 import re
 import shlex
 
-from scheduling_command_reading import (
+from scheduling_command_reading import strip_shell_comment
+from scheduling_invocation_reading import (
     command_arguments,
     is_nextest_invocation,
-    strip_shell_comment,
 )
 from workflow_support import ROOT
 
@@ -82,10 +83,12 @@ def recipe_commands(text: str, target: str) -> list[str]:
     """Return one target's recipe as logical shell commands.
 
     Backslash continuations are joined into a single command, shell comments
-    are removed, and blank lines are dropped. Commands are returned rather
-    than the joined recipe so a caller can check an invocation on its own;
-    counting matches across the whole recipe would accept one command that
-    supplies a match twice beside another that supplies none.
+    are removed, and blank lines are dropped. Make ignores a blank line inside
+    a recipe, so the recipe does not end at one: two invocations separated by
+    a blank line are still both commands of the target. Commands are returned
+    rather than the joined recipe so a caller can check an invocation on its
+    own; counting matches across the whole recipe would accept one command
+    that supplies a match twice beside another that supplies none.
 
     Examples
     --------
@@ -93,9 +96,12 @@ def recipe_commands(text: str, target: str) -> list[str]:
     ['cargo build --release']
     >>> recipe_commands("build:\\n\\t# cargo build\\n", "build")
     []
+    >>> recipe_commands("build:\\n\\tcargo build\\n\\n\\tcargo test\\n", "build")
+    ['cargo build', 'cargo test']
     """
     pattern = re.compile(
-        rf"^{re.escape(target)}:[^\n]*\n(?P<recipe>(?:[ \t]+[^\n]*\n)*)",
+        rf"^{re.escape(target)}:[^\n]*\n"
+        r"(?P<recipe>(?:[ \t]+[^\n]*\n|[ \t]*\n)*)",
         re.MULTILINE,
     )
     match = pattern.search(text)
