@@ -16,6 +16,15 @@ const USERS_GUIDE: &str = include_str!("../../docs/users-guide.md");
 /// Heading that opens the code reference under test.
 const SECTION_HEADING: &str = "### Subsystem error codes";
 
+/// Heading that opens the MST code table.
+const MST_HEADING: &str = "#### MST errors";
+
+/// Heading that opens the HNSW code table.
+const HNSW_HEADING: &str = "#### HNSW errors";
+
+/// Heading that opens the hierarchy code table.
+const HIERARCHY_HEADING: &str = "#### Hierarchy errors";
+
 /// Every `MstErrorCode` variant, mirroring the integration error tests.
 const MST_CODES: [MstErrorCode; 5] = [
     MstErrorCode::EmptyGraph,
@@ -77,13 +86,11 @@ fn heading_level(line: &str) -> Option<usize> {
     ((1..=6).contains(&level) && has_space).then_some(level)
 }
 
-/// Returns the reference section, stopping at the next heading of the same or
-/// a higher level.
-///
-/// The section owns `####` child headings, so only a `###` or `##` heading can
-/// end it.
-fn subsystem_section() -> Option<&'static str> {
-    let (_, rest) = USERS_GUIDE.split_once(SECTION_HEADING)?;
+/// Returns the block opened by `heading`, stopping at the next heading of the
+/// same or a higher level.
+fn heading_block(heading: &'static str) -> Option<&'static str> {
+    let (_, rest) = USERS_GUIDE.split_once(heading)?;
+    let level = heading_level(heading)?;
     let end = rest
         .match_indices('\n')
         .map(|(index, _)| index + 1)
@@ -92,11 +99,29 @@ fn subsystem_section() -> Option<&'static str> {
             rest.get(*start..)
                 .and_then(|tail| tail.lines().next())
                 .and_then(heading_level)
-                .is_some_and(|level| level <= 3)
+                .is_some_and(|found| found <= level)
         })
         .min()
         .unwrap_or(rest.len());
     Some(rest.get(..end).unwrap_or(rest).trim_end())
+}
+
+/// Returns the reference section, stopping at the next heading of the same or
+/// a higher level.
+///
+/// The section owns `####` child headings, so only a `###` or `##` heading can
+/// end it.
+fn subsystem_section() -> Option<&'static str> {
+    heading_block(SECTION_HEADING)
+}
+
+/// Returns the table rows inside the block opened by `heading`.
+///
+/// Prose in the same subsection does not count, so a code must appear in a row
+/// of that subsystem's own table rather than elsewhere in the section.
+fn table_rows(heading: &'static str) -> Option<Vec<&'static str>> {
+    let block = heading_block(heading)?;
+    Some(block.lines().filter(|line| line.starts_with('|')).collect())
 }
 
 /// Reports whether a backticked token looks like a stable error code.
@@ -136,14 +161,13 @@ fn known_code_strings() -> Vec<&'static str> {
         .collect()
 }
 
-/// Asserts that each code is documented as a backticked token.
-fn assert_codes_documented(codes: &[&str]) -> Result<(), String> {
-    let section =
-        subsystem_section().ok_or_else(|| format!("guide must contain {SECTION_HEADING}"))?;
+/// Asserts that each code appears in a row of the table under `heading`.
+fn assert_codes_tabulated(heading: &'static str, codes: &[&str]) -> Result<(), String> {
+    let rows = table_rows(heading).ok_or_else(|| format!("guide must contain {heading}"))?;
     for code in codes {
         let token = format!("`{code}`");
-        if !section.contains(&token) {
-            return Err(format!("guide must document {token}"));
+        if !rows.iter().any(|row| row.contains(&token)) {
+            return Err(format!("{heading} must tabulate {token}"));
         }
     }
     Ok(())
@@ -167,13 +191,17 @@ fn hierarchy_code_strings() -> Vec<&'static str> {
         .collect()
 }
 
-/// Verifies the guide lists every code of each subsystem.
+/// Verifies the guide lists every code of each subsystem in its own table.
 #[rstest]
-#[case::mst(mst_code_strings())]
-#[case::hnsw(hnsw_code_strings())]
-#[case::hierarchy(hierarchy_code_strings())]
-fn documents_every_subsystem_error_code(#[case] codes: Vec<&'static str>) {
-    assert_codes_documented(&codes).expect("every subsystem code must appear in the guide");
+#[case::mst(MST_HEADING, mst_code_strings())]
+#[case::hnsw(HNSW_HEADING, hnsw_code_strings())]
+#[case::hierarchy(HIERARCHY_HEADING, hierarchy_code_strings())]
+fn documents_every_subsystem_error_code(
+    #[case] heading: &'static str,
+    #[case] codes: Vec<&'static str>,
+) {
+    assert_codes_tabulated(heading, &codes)
+        .expect("every subsystem code must appear in its subsystem's table");
 }
 
 /// Verifies the section does not name a code that no enum can produce.

@@ -1333,8 +1333,9 @@ and tuple variants take a parenthesized group such as `(_)`, for example
 `docs/users-guide.md` with `include_str!` and checks the "Subsystem error
 codes" section against the public code enums in both directions. Every string
 that `MstErrorCode`, `HnswErrorCode`, or `HierarchyErrorCode` produces must
-appear as a backticked token, and no backticked upper-snake-case token outside
-those enums and `ChutoroErrorCode` and `DataSourceErrorCode` may appear.
+appear in a row of that subsystem's own table, and no backticked
+upper-snake-case token outside those enums and `ChutoroErrorCode` and
+`DataSourceErrorCode` may appear.
 
 Adding, renaming, or removing a code therefore requires the matching table row
 to change in the same commit. The test names the enums and variants it covers,
