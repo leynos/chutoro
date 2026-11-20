@@ -269,11 +269,11 @@ regression is still declared under `cpu/trim_tests` with a test attribute,
 since an undiscovered function cannot trip `--no-tests=fail`, and that a
 declaration quoted inside a string literal does not stand in for one.
 
-Positive evidence, on commit `a7f3b28` on 2026-11-20: both runtime regressions
+Positive evidence, on commit `c14cc21` on 2026-11-20: both runtime regressions
 pass, one nextest invocation each, 1 passed with 674 skipped apiece, and
 `make check-fmt`, `make markdownlint` including spelling, `make interrogate`
-(at 100% documented over 786 definitions), and `make test-workflow-contracts`
-(964 passed, 1 skipped) all pass. `make lint` (rustdoc, Clippy and Whitaker),
+(at 100% documented over 792 definitions), and `make test-workflow-contracts`
+(972 passed, 1 skipped) all pass. `make lint` (rustdoc, Clippy and Whitaker),
 `make typecheck`, `make nixie`, and `make test` passed on earlier heads: 1481
 nextest tests with 1 skipped and 141 doctests with 24 ignored on `447a824`, and
 the lint gates on `f0b8bbb`. Those heads are the last to change a Rust source,
