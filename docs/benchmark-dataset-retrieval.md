@@ -88,6 +88,10 @@ consumption._
   canonical field ordering, stable hash inputs, and explicit lock states, so
   property tests can verify manifest canonicalization, duplicate-preparation
   suppression, and lock release after failure.
+- Treat archive extraction as `.gz`, `.bz2`, `.xz`, and `.tar`, with
+  `ArchiveFormat::None` adopting bare downloads in place; `.zip` is out of
+  scope for 10.1.2 and 10.3.10 (see
+  [ADR 007](adrs/adr-0007-glove-source-and-zip-scope.md)).
 
 ### 3.3. Governance and telemetry
 
@@ -204,7 +208,7 @@ Effort scale:
 | SNAP com-Amazon                                    | Fully automatable download; medium graph-to-vector prep. `M`.                                                                | 0.160 (128d embeddings)                                 | 0.014                  | 0.002                    | 0.002                        |
 | SNAP com-DBLP                                      | Fully automatable download; medium graph-to-vector prep. `M`.                                                                | 0.151 (128d embeddings)                                 | 0.014                  | 0.002                    | 0.002                        |
 | Peripheral blood mononuclear cell (PBMC) 68k (10x) | Source page is lead-form gated; pipeline is only partly automatable end-to-end. `L`.                                         | 0.013 (50d principal component analysis (PCA) + labels) | 0.001                  | 0.000                    | 0.000                        |
-| GloVe word vectors                                 | Fully automatable download; moderate normalize/select-dimension prep. `M`.                                                   | 0.896 (GloVe-200 HDF5)                                  | 0.081                  | 0.009                    | 0.009                        |
+| GloVe word vectors                                 | Fully automatable via ANN-Benchmarks HDF5; no extraction or projection. `S`.                                                 | 0.896 (GloVe-200 HDF5)                                  | 0.081                  | 0.009                    | 0.009                        |
 | SIFT1M                                             | Fully automatable via ANN-Benchmarks HDF5. `S`.                                                                              | 0.489                                                   | 0.044                  | 0.005                    | 0.005                        |
 | GIST1M                                             | Fully automatable via ANN-Benchmarks HDF5. `S-M`.                                                                            | 3.600                                                   | 0.324                  | 0.036                    | 0.036                        |
 | DEEP1B / BigANN                                    | Automatable but operationally heavy (multi-hundred-GB artefacts, resumable download, sharded upload, long validation). `XL`. | 89.4-476.8 (1B vectors, uint8 to float32)               | 8.046-42.912           | 0.894-4.768              | 0.894-4.768                  |
@@ -276,10 +280,23 @@ retrieval cost by provider._
 
 ### 7.10. GloVe vectors
 
-- Add downloader for selected dimensionality bundles and checksum verification.
-- Normalize storage format and optionally include sampled subsets for smoke
-  runs.
-- Register angular-distance tuples for `cpu` and `scale` profiles.
+- Fetch the four ANN-Benchmarks HDF5 files `glove-{25,50,100,200}-angular.hdf5`
+  from <https://ann-benchmarks.com/>. They carry the Stanford Twitter 27B
+  vectors (2B tweets, 27B tokens, 1.2M vocabulary) and are adopted in place with
+  `ArchiveFormat::None`; no archive extraction is required.
+- Pin a first-party SHA-256 digest for each file in the repository checksum
+  manifest and verify it on every fetch. Do not use the MD5 values published
+  with the Zenodo reproducibility artefact.
+- Validate 1,183,514 train rows and 10,000 test rows, the exact dimension named
+  by the file, finite coordinates, non-zero row magnitude, and
+  `neighbors`/`distances` shapes of `(10000, 100)`. The files carry no tokens,
+  so no tokenizer or projection step applies.
+- Retain sampled subsets for smoke runs and register angular-distance tuples
+  for `cpu` and `scale` profiles.
+- Licence: `PDDL-1.0`. The `glove.6B.zip` Wikipedia/Gigaword bundle is not
+  used because it is a different corpus, has a 400K vocabulary, and omits the
+  25-dimensional vectors. See
+  [ADR 007](adrs/adr-0007-glove-source-and-zip-scope.md).
 
 ### 7.11. SIFT1M
 

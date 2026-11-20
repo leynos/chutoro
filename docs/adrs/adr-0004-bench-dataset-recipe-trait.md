@@ -95,3 +95,9 @@ dataset crate.
   licence enforcement dependency in 10.1.1.
 - In-memory test adapters use `Mutex` to satisfy the public `Send + Sync` port
   bounds while remaining local deterministic test doubles.
+
+## Related
+
+- [ADR 007: GloVe source and ZIP scope](adr-0007-glove-source-and-zip-scope.md)
+  records the archive-format boundary that 10.1.2 subsequently implements. It
+  does not change the decision above.

@@ -59,6 +59,9 @@ open each document.
   mutex](adrs/adr-0006-sequential-trim-scoring.md): accepted guidance for
   scoring trim jobs on the thread that holds `insert_mutex` instead of
   dispatching them to the Rayon pool.
+- [ADR 007: GloVe source and ZIP scope](adrs/adr-0007-glove-source-and-zip-scope.md):
+  accepted guidance for sourcing GloVe from ANN-Benchmarks HDF5 and keeping ZIP
+  out of the download and dataset scope.
 
 ## Execution plans
 
