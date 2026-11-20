@@ -38,8 +38,10 @@ from trim_scoring_reading import (
     scan_pinned_functions,
 )
 from trim_scoring_samples import (
+    ASSOCIATED_SCOPE,
     BOUND_JOIN,
     COMMENTED_MENTION,
+    CONST_EXPRESSION_INSTALL,
     DISPATCHING,
     FACTORY_JOIN,
     GENERIC_PATH_JOIN,
@@ -57,6 +59,7 @@ from trim_scoring_samples import (
     PATH_JOIN,
     PATH_JOIN_TRAILING_COMMA,
     POOL_JOIN,
+    QUALIFIED_PATH_JOIN,
     REVERSE_CHUNKS,
     SCOPED_HELPER_NAME,
     SEQUENTIAL,
@@ -134,10 +137,18 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
             None,
             id="a-nested-generic-path-join",
         ),
+        pytest.param(
+            QUALIFIED_PATH_JOIN, None, id="a-qualified-path-join"
+        ),
         pytest.param(POOL_JOIN, ".join(", id="a-pool-join"),
         pytest.param(BOUND_JOIN, ".join(", id="a-bound-callable-join"),
         pytest.param(FACTORY_JOIN, ".join(", id="a-factory-call-join"),
         pytest.param(UNIT_INSTALL, ".install(", id="a-unit-type-install"),
+        pytest.param(
+            CONST_EXPRESSION_INSTALL,
+            ".install(",
+            id="a-const-expression-install",
+        ),
         pytest.param(TUPLE_JOIN, ".join(", id="a-tuple-type-join"),
         pytest.param(UNIT_TYPE_LOCAL, None, id="a-unit-and-tuple-type-local"),
         pytest.param(REVERSE_CHUNKS, ".par_rchunks", id="reverse-chunks"),
@@ -155,6 +166,9 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
             PAR_MATCH_INDICES, ".par_match_indices", id="par-match-indices"
         ),
         pytest.param(SCOPED_HELPER_NAME, None, id="a-helper-named-with-scope"),
+        pytest.param(
+            ASSOCIATED_SCOPE, "ThreadPool::", id="an-associated-function-scope"
+        ),
         pytest.param(
             UNLISTED_SIBLING, None, id="a-dispatch-in-an-unlisted-sibling"
         ),
@@ -210,6 +224,9 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
         pytest.param("par_iter", "jobs.par_iter()", id="par-iter"),
         pytest.param(".par_bridge(", "jobs.par_bridge()", id="par-bridge"),
         pytest.param(".par_chunks", "items.par_chunks(2)", id="par-chunks"),
+        pytest.param(
+            ".par_chunks", "items . par_chunks(2)", id="a-spaced-par-chunks"
+        ),
         pytest.param(".par_sort", "items.par_sort()", id="par-sort"),
         pytest.param(".par_extend(", "out.par_extend(items)", id="par-extend"),
         pytest.param(
@@ -274,6 +291,14 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
         ),
         pytest.param("scope(", "scope(|scope| run())", id="scope"),
         pytest.param(".scope(", "pool.scope(|scope| run())", id="method-scope"),
+        pytest.param(
+            ".scope(", "pool . scope(|scope| run())", id="a-spaced-method-scope"
+        ),
+        pytest.param(
+            "ThreadPool::",
+            "ThreadPool::scope(pool, |_| ())",
+            id="an-associated-function-scope",
+        ),
         pytest.param("scope_fifo(", "scope_fifo(|scope| run())", id="scope-fifo"),
         pytest.param(
             ".scope_fifo(", "pool.scope_fifo(|scope| run())", id="method-scope-fifo"

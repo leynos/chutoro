@@ -263,6 +263,36 @@ fn score_trim_jobs(text: &str) -> usize {
 }
 """
 
+#: A pool install whose type arguments include a const expression. The `1 << 2`
+#: in `[u8; { 1 << 2 }]` spells two angle brackets that open no type list, so a
+#: scan that counted them ran past the call and read this dispatch as serial.
+CONST_EXPRESSION_INSTALL = """
+fn score_trim_jobs(jobs: Vec<Job>) {
+    pool.install::<_, [u8; { 1 << 2 }]>(|| score(jobs));
+}
+"""
+
+#: A path join whose single argument is a qualified path. The comma in
+#: `<Paths<A, B> as HasPath>::path()` separates type arguments rather than
+#: values, so this is one argument; a scan that read it as two reported a
+#: parallel join and failed a correct scorer.
+QUALIFIED_PATH_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
+    cache_dir.join(<Paths<A, B> as HasPath>::path())
+}
+"""
+
+#: An associated-function call to a pool entry point. Rust lets an inherent
+#: method be called through its type, so `ThreadPool::scope(pool, ...)` runs
+#: the closure on the pool exactly as `pool.scope(...)` does. The free-function
+#: anchor rejects the `::` and the receiver pattern requires a dot, so neither
+#: entry read this dispatch.
+ASSOCIATED_SCOPE = """
+fn score_trim_jobs(jobs: Vec<Job>) {
+    ThreadPool::scope(pool, |_| score(jobs));
+}
+"""
+
 #: A helper whose name ends in `scope`. A substring match on `scope(` read it
 #: as Rayon's `scope`; the boundary anchor leaves it alone.
 SCOPED_HELPER_NAME = """

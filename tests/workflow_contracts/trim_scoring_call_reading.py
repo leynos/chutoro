@@ -60,6 +60,8 @@ def pool_join(body: str) -> bool:
     False
     >>> pool_join("pool.join(f(a, b))")
     False
+    >>> pool_join("path.join(<Paths<A, B> as HasPath>::path())")
+    False
     """
     return any(
         _has_second_argument(body, start)
@@ -73,9 +75,10 @@ def _has_second_argument(text: str, start: int) -> bool:
     The scan runs from just inside the opening parenthesis, counting nesting
     so a comma inside a nested call is not read as a separator, and stops at
     the matching close. A turbofish's type arguments are skipped for the same
-    reason: ``make_path::<A, B>()`` is one value, not two. Only a comma found
-    at the list's own level counts, and only when a value rather than the
-    close follows it.
+    reason: ``make_path::<A, B>()`` is one value, not two, and neither is a
+    qualified path such as ``<Paths<A, B> as HasPath>::path()``. Only a comma
+    found at the list's own level counts, and only when a value rather than
+    the close follows it.
 
     Examples
     --------
@@ -91,9 +94,11 @@ def _has_second_argument(text: str, start: int) -> bool:
     depth = 1
     index = start
     while index < len(text):
-        generics_end = _after_generics(text, index, start)
-        if generics_end is not None:
-            index = generics_end
+        skipped = _after_generics(text, index, start)
+        if skipped is None:
+            skipped = _after_qualified_path(text, index, start)
+        if skipped is not None:
+            index = skipped
             continue
         if text[index] == "," and _separates_arguments(depth, text, index):
             return True
@@ -102,6 +107,58 @@ def _has_second_argument(text: str, start: int) -> bool:
             return False
         index += 1
     return False
+
+
+def _after_qualified_path(text: str, index: int, start: int) -> int | None:
+    """Return the index past a ``<Type as Trait>::`` path at `index`, if any.
+
+    A qualified path is the other place a type list appears in an expression,
+    and it opens with a bare ``<`` rather than ``::<``. Its commas separate
+    type arguments, so ``join(<Paths<A, B> as HasPath>::path())`` passes one
+    value rather than two. Only a path beginning a value is skipped: in a
+    comparison such as ``a < b`` the angle follows an operand, so it opens
+    nothing. A real path also closes into ``::``, which is what a comparison
+    in that position cannot spell.
+
+    Examples
+    --------
+    >>> _after_qualified_path("<A as B>::c()", 0, 0)
+    10
+    >>> _after_qualified_path("a < b > ::c", 2, 0) is None
+    True
+    >>> _after_qualified_path("<A as B>", 0, 0) is None
+    True
+    """
+    if text[index] != "<":
+        return None
+    if not _opens_a_value(text, index, start):
+        return None
+    rest = _skip_whitespace(text, _after_turbofish(text, index))
+    if not text.startswith("::", rest):
+        return None
+    return rest + 2
+
+
+def _opens_a_value(text: str, index: int, start: int) -> bool:
+    """Return whether the character at `index` begins a value of its own.
+
+    A value begins the scanned list, follows the opening bracket, or follows
+    the comma that ended the previous argument. Anywhere else the character
+    follows an operand, as the ``<`` of ``a < b`` does.
+
+    Examples
+    --------
+    >>> _opens_a_value("<A>::b()", 0, 0)
+    True
+    >>> _opens_a_value("a < b", 2, 0)
+    False
+    >>> _opens_a_value("<A>::b, c", 0, 0)
+    True
+    >>> _opens_a_value("x, <A>::b", 3, 0)
+    True
+    """
+    before = text[start:index].rstrip()
+    return not before or before[-1] in "(,"
 
 
 def _after_generics(text: str, index: int, start: int) -> int | None:
@@ -212,8 +269,12 @@ def _after_turbofish(text: str, start: int) -> int:
     A list may itself be generic: in ``make_path::<Outer<A, B>, C>()`` the
     commas inside ``Outer<A, B>`` belong to the inner list. Stopping at the
     first ``>`` ended the skip inside that inner list, leaving its comma to be
-    read as an argument separator, so the angles are counted instead. An
-    unclosed list ends at the end of the text.
+    read as an argument separator, so the angles are counted instead. A
+    bracketed region holds expressions rather than type delimiters: the ``<<``
+    of an array length such as ``[u8; { 1 << 2 }]`` is a shift, and counting
+    it as two openings ran past the call entirely. Such a region is skipped
+    whole, while a function type's arrow is still not a close. An unclosed
+    list ends at the end of the text.
 
     Examples
     --------
@@ -223,11 +284,20 @@ def _after_turbofish(text: str, start: int) -> int:
     18
     >>> _after_turbofish("::<fn() -> u8>())", 2)
     14
+    >>> _after_turbofish("::<_, [u8; { 1 << 2 }]>(x)", 2)
+    23
     >>> _after_turbofish("::<unclosed", 2)
     11
     """
     depth = 1
+    brackets = 0
     for index in range(start + 1, len(text)):
+        if brackets:
+            brackets += _bracket_change(text[index])
+            continue
+        if text[index] in _OPENING:
+            brackets = 1
+            continue
         depth += _angle_change(text, index)
         if depth == 0:
             return index + 1

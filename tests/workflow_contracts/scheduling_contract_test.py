@@ -25,6 +25,7 @@ from __future__ import annotations
 import pytest
 from rust_declaration_reading import declares_test
 from scheduling_invocation_reading import is_nextest_invocation
+from makefile_reading import phony_targets
 from scheduling_reading import (
     QUALIFIED_REGRESSIONS,
     REGRESSIONS,
@@ -33,7 +34,6 @@ from scheduling_reading import (
     invocations_missing_flag,
     makefile_text,
     nextest_invocations,
-    phony_targets,
     recipe_commands,
     selected_regression,
     target_recipe,

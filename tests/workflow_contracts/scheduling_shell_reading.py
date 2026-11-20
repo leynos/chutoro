@@ -7,9 +7,9 @@ so a later successful command would absorb a failed gate. The scheduling
 contract reads a step's commands as failing the step when ``errexit`` holds, so
 a template that does not enable it is no more evidence than a syntax check.
 Resolving the shell that actually applies means reading all three scopes in
-override order and then reading the template for an option that only checks
-syntax, a command or stdin mode that never runs the script, or a missing
-``errexit``.
+override order and then reading the template for an option that never runs the
+script — a syntax check, a help or version report, a command or stdin mode —
+or for a missing ``errexit``.
 
 This module holds that reading. ``scheduling_shell_test`` holds the assertions
 over the precedence and the template forms, and ``scheduling_ci_test`` applies
@@ -29,8 +29,11 @@ from __future__ import annotations
 #: ``sh`` shorthands as expanding to shells that enable ``errexit``.
 EXECUTING_SHELLS = frozenset({"bash", "sh"})
 
-#: Shell words that parse a script and execute none of it.
-SYNTAX_ONLY_OPTIONS = frozenset({"-n", "--noexec"})
+#: Shell options that make the shell exit without running the script. The
+#: syntax-only modes parse it and execute none of it; ``--help`` and
+#: ``--version`` answer the request and exit successfully, so ``bash --help -e
+#: {0}`` is no evidence that ``{0}`` ran however ``errexit`` is set.
+NON_EXECUTING_OPTIONS = frozenset({"-n", "--noexec", "--help", "--version"})
 
 #: Shell option names, written as the word after ``-o`` or ``-O``, that
 #: matter to this reader.
@@ -137,27 +140,31 @@ def _takes_an_operand(word: str) -> bool:
     return word in {"-o", "-O"} or _enables(word, "o")
 
 
-def _syntax_only(options: list[str]) -> bool:
-    """Return whether these options parse the script and run none of it.
+def _executes_nothing(options: list[str]) -> bool:
+    """Return whether these options leave the script unexecuted.
 
     Bash reads short options as a cluster, so ``-en`` is ``-e`` plus ``-n``,
     and names an option with ``-o``, so ``-o noexec`` and ``-eo noexec``
-    reach the same mode in two words.
+    reach the same mode in two words. ``--help`` and ``--version`` are not
+    syntax modes, but Bash reports and exits on either, so the script is just
+    as unrun.
 
     Examples
     --------
-    >>> _syntax_only(["-n"])
+    >>> _executes_nothing(["-n"])
     True
-    >>> _syntax_only(["-en"])
+    >>> _executes_nothing(["-en"])
     True
-    >>> _syntax_only(["-eo", "noexec"])
+    >>> _executes_nothing(["-eo", "noexec"])
     True
-    >>> _syntax_only(["-eo", "pipefail"])
+    >>> _executes_nothing(["--help", "-e"])
+    True
+    >>> _executes_nothing(["-eo", "pipefail"])
     False
     """
     previous = ""
     for word in options:
-        if word in SYNTAX_ONLY_OPTIONS or _enables(word, "n"):
+        if word in NON_EXECUTING_OPTIONS or _enables(word, "n"):
             return True
         if _takes_an_operand(previous) and word == _NOEXEC_OPTION:
             return True
@@ -273,8 +280,8 @@ def runs_the_script(shell: str | None) -> bool:
     custom template is read as words: its interpreter must be one whose flags
     this reader models, it must contain ``{0}`` where the script's path is
     substituted, ``{0}`` must be the script operand, and the options before it
-    must enable ``errexit`` without selecting a syntax-only, command, or stdin
-    mode.
+    must enable ``errexit`` without selecting a command or stdin mode or an
+    option that leaves the script unexecuted.
 
     Examples
     --------
@@ -294,6 +301,10 @@ def runs_the_script(shell: str | None) -> bool:
     False
     >>> runs_the_script("bash -eo noexec {0}")
     False
+    >>> runs_the_script("bash --help -e {0}")
+    False
+    >>> runs_the_script("bash --version -e {0}")
+    False
     >>> runs_the_script("bash -n")
     False
     >>> runs_the_script("python {0}")
@@ -309,6 +320,6 @@ def runs_the_script(shell: str | None) -> bool:
     options = command[1:]
     return (
         _reaches_the_script(options)
-        and not _syntax_only(options)
+        and not _executes_nothing(options)
         and _enables_errexit(options)
     )

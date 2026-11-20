@@ -25,6 +25,7 @@ from __future__ import annotations
 import typing as typ
 
 from scheduling_command_reading import shell_tokens
+from scheduling_errexit_reading import errexit_states
 from scheduling_line_reading import logical_lines, mask_quotes, restore_quotes
 
 #: The script that installs ``cargo-nextest`` for the job.
@@ -116,9 +117,11 @@ def _lines(script: str) -> list[list[_Segment]]:
 
     Lines arrive with their continuations resolved and their comments removed
     by ``scheduling_line_reading``, so a ``#`` inside a redirection stays part
-    of its word and a comment line runs nothing. Each line's quoted text is
-    masked, so a quoted operator stays an argument, and the lexer's own
-    comment handling is turned off so it cannot cut the line a second time.
+    of its word and a comment line runs nothing. A here-document's body never
+    arrives: it is stdin for the command that opened the document, so the
+    reader drops it rather than reading it as commands. Each line's quoted
+    text is masked, so a quoted operator stays an argument, and the lexer's
+    own comment handling is turned off so it cannot cut the line a second time.
 
     Examples
     --------
@@ -281,27 +284,80 @@ def _runs_installer(words: list[str]) -> bool:
     return words[0] in INTERPRETERS and words[1:] == [NEXTEST_INSTALLER]
 
 
+def _carries_to_the_step(
+    lines: list[list[_Segment]], number: int, segment: _Segment
+) -> bool:
+    """Return whether a failure of `segment` still fails the step.
+
+    A command that fails inside an AND/OR list is exempt from ``errexit``
+    unless it is the command after the final ``&&``, so the installer's
+    failure in an ``&&`` chain reaches the step only through the line's own
+    status. A later line that succeeds replaces that status, so such a chain
+    also has to be the script's last command line. Every other operator leaves
+    the failure in the installer's own list, where nothing exempts it.
+
+    Examples
+    --------
+    >>> _carries_to_the_step(_lines("a && b"), 0, _lines("a && b")[0][0])
+    True
+    >>> _carries_to_the_step(
+    ...     _lines("a && b\\ntrue"), 0, _lines("a && b")[0][0]
+    ... )
+    False
+    >>> _carries_to_the_step(_lines("a ; b"), 0, _lines("a ; b")[0][0])
+    True
+    """
+    if segment.follows == _CARRYING_OPERATOR:
+        return _ends_the_script(lines, number)
+    return True
+
+
+def _counts_as_installation(
+    lines: list[list[_Segment]],
+    states: list[list[bool]],
+    number: int,
+    index: int,
+) -> bool:
+    """Return whether ``lines[number][index]`` installs nextest, blocking.
+
+    The command has to be a listing of the installer, not a mention of it; it
+    has to be certain to run and to run in the foreground; and its failure has
+    to be allowed to fail the step, which also means the shell has not turned
+    ``errexit`` off before it. Each clause delegates to the function beside
+    it, which carries the shell behaviour that decides the answer.
+
+    Examples
+    --------
+    >>> lines = _lines("installer")
+    >>> _counts_as_installation(lines, [[True]], 0, 0)
+    False
+    >>> lines = _lines("scripts/install-nextest.sh")
+    >>> _counts_as_installation(lines, [[True]], 0, 0)
+    True
+    >>> _counts_as_installation(lines, [[False]], 0, 0)
+    False
+    """
+    segment = lines[number][index]
+    return (
+        states[number][index]
+        and _runs_installer(segment.words)
+        and _reaches_the_installer(lines[number], index)
+        and _status_reaches_the_end(lines[number], index)
+        and _carries_to_the_step(lines, number, segment)
+    )
+
+
 def installs_nextest(script: str) -> bool:
     """Return whether `script` executes the nextest installer, blocking.
 
-    The path must be a command's first word, or the argument of a shell
-    interpreter. A substring check accepted ``echo scripts/install-nextest.sh``
-    and a commented-out line, so the ordering contract could pass without
-    anything being installed. The command must also be certain to run, run in
-    the foreground, and be allowed to fail the step: an earlier ``||`` can skip
-    it, an earlier ``&&`` runs it only if everything before it succeeded, so
-    ``false && installer`` never installs, a masked failure installs nothing
-    and reports success, the mask can sit anywhere later on the line rather
-    than only immediately after the installer, and a trailing ``&`` lets the
-    next command start first. A failure carried by ``&&`` is exempt from
-    ``errexit`` unless it is the line's last command, so such a chain must
-    also end the script, or a later line that succeeds absorbs the status. A
-    ``;`` ends the installer's own list instead, so ``installer ; make test``
-    stops the step when the installer fails, as does a trailing
-    ``installer ;``. Physical lines are joined where the shell joins them: a
-    trailing ``&&`` or ``||`` continues the list onto the next line, so
-    ``true ||`` followed by an installer line never runs the installer, and
-    an installer followed by ``&&`` carries its failure into the next line.
+    The script is read as the shell reads it — continuations resolved,
+    comments and here-document bodies dropped, quoted text kept as data,
+    ``errexit`` tracked from line to line — and each command it runs is asked
+    whether it installs. A substring check accepted
+    ``echo scripts/install-nextest.sh`` and a commented-out line, so the
+    ordering contract could pass without anything being installed; requiring a
+    command that runs and that the step hears fail is what makes the answer
+    evidence.
 
     Examples
     --------
@@ -313,39 +369,31 @@ def installs_nextest(script: str) -> bool:
     False
     >>> installs_nextest("scripts/install-nextest.sh && make test")
     True
-    >>> installs_nextest("scripts/install-nextest.sh && echo done || true")
-    False
-    >>> installs_nextest("true || scripts/install-nextest.sh")
-    False
-    >>> installs_nextest("false && scripts/install-nextest.sh")
-    False
     >>> installs_nextest("scripts/install-nextest.sh &")
     False
     >>> installs_nextest("echo '&&' scripts/install-nextest.sh")
     False
-    >>> escaped = "echo " + chr(92) + "&" + chr(92) + "& " + NEXTEST_INSTALLER
-    >>> installs_nextest(escaped)
-    False
-    >>> installs_nextest("scripts/install-nextest.sh >install#log || true")
-    False
-    >>> installs_nextest("scripts/install-nextest.sh && echo installed\\ntrue")
-    False
     >>> installs_nextest("scripts/install-nextest.sh ; make test")
     True
-    >>> installs_nextest("scripts/install-nextest.sh; true")
+    >>> installs_nextest(
+    ...     "set +e" + chr(10) + NEXTEST_INSTALLER + chr(10) + "true"
+    ... )
+    False
+    >>> installs_nextest(
+    ...     "set +e" + chr(10) + "set -e" + chr(10) + NEXTEST_INSTALLER
+    ... )
     True
-    >>> installs_nextest("scripts/install-nextest.sh ;")
-    True
+    >>> installs_nextest(
+    ...     "cat <<'EOF'" + chr(10) + NEXTEST_INSTALLER + chr(10) + "EOF"
+    ... )
+    False
     """
     lines = _lines(script)
+    states = errexit_states(
+        [[segment.words for segment in line] for line in lines]
+    )
     return any(
-        _runs_installer(segment.words)
-        and _reaches_the_installer(line, index)
-        and _status_reaches_the_end(line, index)
-        and (
-            segment.follows != _CARRYING_OPERATOR
-            or _ends_the_script(lines, number)
-        )
+        _counts_as_installation(lines, states, number, index)
         for number, line in enumerate(lines)
-        for index, segment in enumerate(line)
+        for index in range(len(line))
     )

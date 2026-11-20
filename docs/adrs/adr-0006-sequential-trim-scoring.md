@@ -243,8 +243,9 @@ features, and the `build-test` CI job runs that target unconditionally beside
 `make test-workflow-contracts`.
 `tests/workflow_contracts/scheduling_contract_test.py`, `scheduling_ci_test.py`
 and `scheduling_shell_test.py`, reading through `scheduling_reading.py`,
-`scheduling_command_reading.py`, `scheduling_invocation_reading.py`,
-`scheduling_script_reading.py`, `scheduling_line_reading.py`,
+`makefile_reading.py`, `scheduling_command_reading.py`,
+`scheduling_invocation_reading.py`, `scheduling_script_reading.py`,
+`scheduling_errexit_reading.py`, `scheduling_line_reading.py`,
 `scheduling_shell_reading.py`, `rust_declaration_reading.py`, and
 `workflow_support.py`, pin the target recipe, one invocation per fully
 qualified test name, each invocation's whole filter expression as exactly one

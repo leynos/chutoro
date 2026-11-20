@@ -10,9 +10,11 @@ installer on the next) or invent a status-bearing last command that the shell
 never runs separately.
 
 This module performs both joins, and sets a line's quoted text aside so that
-an operator inside quotes is never read as one. ``scheduling_script_reading``
-reads the resulting lines as simple commands, so the two concerns stay apart
-and neither file outgrows the 400-line limit ``AGENTS.md`` sets.
+an operator inside quotes is never read as one. It also drops here-document
+bodies, whose text is standard input for the command that opened them rather
+than a command line of its own. ``scheduling_script_reading`` reads the
+resulting lines as simple commands, so the two concerns stay apart and neither
+file outgrows the 400-line limit ``AGENTS.md`` sets.
 
 Re-use policy: import from ``scheduling_script_reading`` only; this module
 reuses the comment and quote scanning in ``scheduling_command_reading``. A new
@@ -38,6 +40,11 @@ _LIST_OPERATORS = ("&&", "||", "|&", "|")
 #: or comment character, so masking the text keeps it whole through both
 #: readings.
 _QUOTED = "\x01{}\x02"
+
+#: Characters that end a here-document's delimiter word. The shell lets a
+#: metacharacter follow it, as ``cat <<EOF; make test`` does, so the word ends
+#: where the operator begins.
+_DELIMITER_ENDS = frozenset(" \t;&|()<>")
 
 
 class MaskedLine(typ.NamedTuple):
@@ -178,6 +185,114 @@ def _joined_lines(script: str) -> list[str]:
     return lines
 
 
+def _delimiter_start(masked: str, start: int) -> int:
+    """Return the index where a ``<<`` operator's delimiter word begins.
+
+    ``<<-`` strips leading tabs from the body, and either form may put spaces
+    between the operator and the word.
+
+    Examples
+    --------
+    >>> _delimiter_start("<<EOF", 2)
+    2
+    >>> _delimiter_start("<<-EOF", 2)
+    3
+    >>> _delimiter_start("<< EOF", 2)
+    3
+    """
+    if masked.startswith("-", start):
+        start += 1
+    while start < len(masked) and masked[start] in " \t":
+        start += 1
+    return start
+
+
+def _delimiter_end(masked: str, start: int) -> int:
+    """Return the index where the delimiter word beginning at `start` ends.
+
+    Examples
+    --------
+    >>> _delimiter_end("EOF; make test", 0)
+    3
+    >>> _delimiter_end("EOF", 0)
+    3
+    """
+    end = start
+    while end < len(masked) and masked[end] not in _DELIMITER_ENDS:
+        end += 1
+    return end
+
+
+def here_document_terminators(line: str) -> list[str]:
+    """Return the words that end the here-documents `line` opens.
+
+    A here-document's body is standard input for the command that reads it,
+    not a command the shell runs. Read as commands, a body that named the
+    installer looked like an installation, so ``cat <<'EOF'`` alone satisfied
+    an ordering contract that ran nothing. Quoted text is data, so a ``<<``
+    inside quotes opens nothing; the delimiter itself may be quoted, and the
+    quoted form is restored because that is the word the closing line repeats.
+
+    A ``<<`` in an arithmetic expansion is read as an opening too, which can
+    only make later commands look like body text: the reading then finds no
+    evidence rather than false evidence, so the mistake fails the contract
+    instead of passing it.
+
+    Examples
+    --------
+    >>> here_document_terminators("cat <<'EOF'")
+    ['EOF']
+    >>> here_document_terminators("cat <<-EOF")
+    ['EOF']
+    >>> here_document_terminators("echo '<<EOF'")
+    []
+    >>> here_document_terminators("cat <<EOF; make test")
+    ['EOF']
+    >>> here_document_terminators("cat <<A <<B")
+    ['A', 'B']
+    """
+    masked = mask_quotes(line)
+    terminators: list[str] = []
+    index = masked.text.find("<<")
+    while index != -1:
+        start = _delimiter_start(masked.text, index + 2)
+        end = _delimiter_end(masked.text, start)
+        if end > start:
+            terminators.append(
+                restore_quotes(masked.text[start:end], masked.quoted)
+            )
+        index = masked.text.find("<<", max(end, index + 2))
+    return terminators
+
+
+def _consumes_body_line(line: str, terminators: list[str]) -> bool:
+    """Return whether `line` belongs to a here-document body, consuming it.
+
+    `terminators` holds the words that end the documents still open, outermost
+    first. The line that ends the current body closes the document and is
+    consumed with it, so the next line is read as a command again.
+
+    Examples
+    --------
+    >>> open_documents = ["EOF"]
+    >>> _consumes_body_line("installer", open_documents)
+    True
+    >>> open_documents
+    ['EOF']
+    >>> _consumes_body_line("EOF", open_documents)
+    True
+    >>> open_documents
+    []
+    >>> _consumes_body_line("installer", open_documents)
+    False
+    """
+    if not terminators:
+        return False
+    if line.strip() == terminators[0]:
+        terminators.pop(0)
+    return True
+
+
 def logical_lines(script: str) -> list[str]:
     """Return `script` as the command lines a shell would read.
 
@@ -190,7 +305,9 @@ def logical_lines(script: str) -> list[str]:
     trailing comment cannot absorb the next line, and a comment or blank line
     between a continuation and the command it continues is skipped as the
     shell skips it. A comment-only line with nothing to continue stays as an
-    empty line, which runs no command.
+    empty line, which runs no command. A here-document's body is not a command
+    line either: the line that opened it names the word that ends the body,
+    and every line up to and including that word is dropped.
 
     Examples
     --------
@@ -206,10 +323,20 @@ def logical_lines(script: str) -> list[str]:
     ...     "installer && " + chr(35) + " note" + chr(10) + "true"
     ... )
     ['installer && true']
+    >>> logical_lines("cat <<'EOF'" + chr(10) + "installer" + chr(10) + "EOF")
+    ["cat <<'EOF'"]
+    >>> logical_lines(
+    ...     "cat <<'EOF'" + chr(10) + "installer" + chr(10) + "EOF"
+    ...     + chr(10) + "installer"
+    ... )
+    ["cat <<'EOF'", 'installer']
     """
     lines: list[str] = []
     pending = ""
+    terminators: list[str] = []
     for line in _joined_lines(script):
+        if _consumes_body_line(line, terminators):
+            continue
         stripped = strip_shell_comment(line).strip()
         if pending and not stripped:
             continue
@@ -217,6 +344,7 @@ def logical_lines(script: str) -> list[str]:
         if _ends_with_operator(pending):
             continue
         lines.append(pending)
+        terminators = here_document_terminators(pending)
         pending = ""
     if pending.strip():
         lines.append(pending)

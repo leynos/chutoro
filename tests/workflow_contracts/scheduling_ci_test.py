@@ -270,6 +270,31 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
             True,
             id="a-continuation-past-a-comment-line",
         ),
+        pytest.param(
+            f"set +e\n{NEXTEST_INSTALLER}\ntrue",
+            False,
+            id="errexit-disabled-before-the-installer",
+        ),
+        pytest.param(
+            f"set -e\n{NEXTEST_INSTALLER}",
+            True,
+            id="errexit-enabled-before-the-installer",
+        ),
+        pytest.param(
+            f"set +e\nset -e\n{NEXTEST_INSTALLER}",
+            True,
+            id="errexit-restored-before-the-installer",
+        ),
+        pytest.param(
+            f"cat <<'EOF'\n{NEXTEST_INSTALLER}\nEOF",
+            False,
+            id="a-here-document-body",
+        ),
+        pytest.param(
+            f"cat <<'EOF'\n{NEXTEST_INSTALLER}\nEOF\n{NEXTEST_INSTALLER}",
+            True,
+            id="after-a-here-document-body",
+        ),
     ],
 )
 def test_the_installer_selector_reads_executable_use(
@@ -305,7 +330,10 @@ def test_the_installer_selector_reads_executable_use(
     the status. A chain that ends in a trailing operator continues onto the
     next line, so the two lines are read as the one command list the shell
     runs, and a backslash continuation inside the path itself joins the two
-    halves into the word the shell runs.
+    halves into the word the shell runs. A here-document's body is input for
+    its command rather than a command line, so a path written there installs
+    nothing; and ``errexit`` itself can be turned off, so ``set +e`` before
+    the installer makes its failure ignorable until ``set -e`` restores it.
     """
     assert installs_nextest(script) is expected, (
         f"installs_nextest must return {expected} for {script!r}"

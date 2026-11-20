@@ -2897,8 +2897,9 @@ compiles the selected tests without executing them, so it satisfies every
 selector and count while producing no runtime evidence. The workflow contract —
 `scheduling_contract_test.py`, `scheduling_ci_test.py` and
 `scheduling_shell_test.py`, with their companions `scheduling_reading.py`,
-`scheduling_command_reading.py`, `scheduling_invocation_reading.py`,
-`scheduling_script_reading.py`, `scheduling_line_reading.py`,
+`makefile_reading.py`, `scheduling_command_reading.py`,
+`scheduling_invocation_reading.py`, `scheduling_script_reading.py`,
+`scheduling_errexit_reading.py`, `scheduling_line_reading.py`,
 `scheduling_shell_reading.py`, and `rust_declaration_reading.py` — also
 requires each invocation's whole filter expression to be exactly one selector,
 so a widened expression such as `test(=name) | all()` cannot keep an invocation

@@ -80,57 +80,79 @@ def _matches(expression: str) -> _Predicate:
 #: argument is spelled or whether it carries a trailing comma. Both readings
 #: live in `trim_scoring_call_reading`.
 #:
+#: `ThreadPool`'s associated-function forms. Rust lets an inherent method be
+#: called through its type, so `ThreadPool::scope(pool, |_| ())` runs the same
+#: work as `pool.scope(|_| ())`. The receiver patterns require a dot and the
+#: free-function anchors reject the `::`, so without this entry the call met
+#: no marker at all. `ThreadPool::new` builds a pool without dispatching to
+#: it, so only the entry points are named.
+_THREAD_POOL_CALLS = (
+    r"\bThreadPool\s*::\s*"
+    r"(?:install|join|scope|scope_fifo|spawn|spawn_fifo|spawn_broadcast|broadcast)"
+    r"\s*\("
+)
+
 #: `into_par_iter` precedes `par_iter` so the more specific name is reported
 #: for a parallel iterator, and `rayon::` precedes the bare calls so a
 #: qualified call names its namespace rather than only its function.
+#:
+#: Rust permits whitespace between a receiver and its `.`, and the reading
+#: normalises only the spacing around `::` and before `(`, so every receiver
+#: pattern allows `\s*` after the dot: `jobs . par_chunks(2)` dispatches just
+#: as `jobs.par_chunks(2)` does.
 DISPATCH_MARKERS: typ.Final[tuple[tuple[str, _Predicate], ...]] = (
     ("into_par_iter", _matches(r"\binto_par_iter\b")),
     ("par_iter_mut", _matches(r"\bpar_iter_mut\b")),
     ("par_iter", _matches(r"\bpar_iter\b")),
-    (".par_bridge(", _matches(r"\.par_bridge\s*\(")),
-    (".par_chunks", _matches(r"\.par_chunks")),
+    (".par_bridge(", _matches(r"\.\s*par_bridge\s*\(")),
+    (".par_chunks", _matches(r"\.\s*par_chunks")),
     # The prefix carries the reverse-chunk family too: `par_rchunks`,
     # `par_rchunks_mut` and both `_exact` forms all start with it, just as
     # `.par_chunks` carries its mutable and `_exact` forms.
-    (".par_rchunks", _matches(r"\.par_rchunks")),
+    (".par_rchunks", _matches(r"\.\s*par_rchunks")),
     # `par_chunk_by` starts with neither `par_chunks` nor `par_rchunks`, so
     # the chunk entries above leave it unread.
-    (".par_chunk_by", _matches(r"\.par_chunk_by")),
-    (".par_sort", _matches(r"\.par_sort")),
+    (".par_chunk_by", _matches(r"\.\s*par_chunk_by")),
+    (".par_sort", _matches(r"\.\s*par_sort")),
     # `ParallelExtend::par_extend` is generic, so a turbofish may sit between
     # the name and the argument list, as it may for `install`.
     (".par_extend(", calls_the_method("par_extend")),
-    (".par_windows", _matches(r"\.par_windows")),
+    (".par_windows", _matches(r"\.\s*par_windows")),
     # `par_array_windows` contains neither `par_windows` nor `par_chunks`, so
     # it needs its own entry.
-    (".par_array_windows", _matches(r"\.par_array_windows")),
-    (".par_split", _matches(r"\.par_split")),
-    (".par_lines", _matches(r"\.par_lines")),
-    (".par_chars", _matches(r"\.par_chars")),
+    (".par_array_windows", _matches(r"\.\s*par_array_windows")),
+    (".par_split", _matches(r"\.\s*par_split")),
+    (".par_lines", _matches(r"\.\s*par_lines")),
+    (".par_chars", _matches(r"\.\s*par_chars")),
     # The three string adapters below are distinct words: `par_char_indices`
     # is not `par_chars` followed by text, and `par_matches` is not a prefix
     # of `par_match_indices`.
-    (".par_char_indices", _matches(r"\.par_char_indices")),
-    (".par_bytes", _matches(r"\.par_bytes")),
-    (".par_encode_utf16", _matches(r"\.par_encode_utf16")),
-    (".par_matches", _matches(r"\.par_matches")),
-    (".par_match_indices", _matches(r"\.par_match_indices")),
-    (".par_drain", _matches(r"\.par_drain")),
+    (".par_char_indices", _matches(r"\.\s*par_char_indices")),
+    (".par_bytes", _matches(r"\.\s*par_bytes")),
+    (".par_encode_utf16", _matches(r"\.\s*par_encode_utf16")),
+    (".par_matches", _matches(r"\.\s*par_matches")),
+    (".par_match_indices", _matches(r"\.\s*par_match_indices")),
+    (".par_drain", _matches(r"\.\s*par_drain")),
     ("rayon::", _matches(r"rayon\s*::")),
+    ("ThreadPool::", _matches(_THREAD_POOL_CALLS)),
     (".install(", calls_the_method("install")),
+    # Each receiver form precedes its free-function form. With whitespace
+    # between the dot and the name the free pattern's anchor sees a space
+    # rather than the dot, so both patterns match; the more specific entry has
+    # to be the one that reports it.
+    (".scope(", _matches(r"\.\s*scope\s*\(")),
     ("scope(", _matches(r"(?<![.\w:])scope\s*\(")),
-    (".scope(", _matches(r"\.scope\s*\(")),
+    (".scope_fifo(", _matches(r"\.\s*scope_fifo\s*\(")),
     ("scope_fifo(", _matches(r"(?<![.\w:])scope_fifo\s*\(")),
-    (".scope_fifo(", _matches(r"\.scope_fifo\s*\(")),
+    (".spawn(", _matches(r"\.\s*spawn\s*\(")),
     ("spawn(", _matches(r"(?<![.\w:])spawn\s*\(")),
-    (".spawn(", _matches(r"\.spawn\s*\(")),
+    (".spawn_fifo(", _matches(r"\.\s*spawn_fifo\s*\(")),
     ("spawn_fifo(", _matches(r"(?<![.\w:])spawn_fifo\s*\(")),
-    (".spawn_fifo(", _matches(r"\.spawn_fifo\s*\(")),
+    (".spawn_broadcast(", _matches(r"\.\s*spawn_broadcast\s*\(")),
     ("spawn_broadcast(", _matches(r"(?<![.\w:])spawn_broadcast\s*\(")),
-    (".spawn_broadcast(", _matches(r"\.spawn_broadcast\s*\(")),
     (".join(", pool_join),
     ("join(", _matches(r"(?<![.\w:])join\s*\(")),
     ("join_context(", _matches(r"(?<![.\w:])join_context\s*\(")),
+    (".broadcast(", _matches(r"\.\s*broadcast\s*\(")),
     ("broadcast(", _matches(r"(?<![.\w:])broadcast\s*\(")),
-    (".broadcast(", _matches(r"\.broadcast\s*\(")),
 )

@@ -9,7 +9,9 @@ The reading is separate from the assertions for the same reasons as
 both in one file pushed it past the 400-line limit ``AGENTS.md`` sets. Reading
 one shell command — where its comment ends and whether it runs nextest at all —
 lives in ``scheduling_command_reading`` and ``scheduling_invocation_reading``
-for the same reason.
+for the same reason, and reading the target's ``.PHONY`` declaration lives in
+``makefile_reading`` because a Make comment and continuation are not shell
+syntax.
 
 Nothing here asserts anything. A reader that cannot read its subject raises
 rather than returning an empty answer, so a caller never mistakes a reading
@@ -85,10 +87,12 @@ def recipe_commands(text: str, target: str) -> list[str]:
     Backslash continuations are joined into a single command, shell comments
     are removed, and blank lines are dropped. Make ignores a blank line inside
     a recipe, so the recipe does not end at one: two invocations separated by
-    a blank line are still both commands of the target. Commands are returned
-    rather than the joined recipe so a caller can check an invocation on its
-    own; counting matches across the whole recipe would accept one command
-    that supplies a match twice beside another that supplies none.
+    a blank line are still both commands of the target. A continuation deletes
+    the backslash and the newline with nothing inserted, so a word split across
+    the pair is rejoined rather than broken. Commands are returned rather than
+    the joined recipe so a caller can check an invocation on its own; counting
+    matches across the whole recipe would accept one command that supplies a
+    match twice beside another that supplies none.
 
     Examples
     --------
@@ -98,6 +102,12 @@ def recipe_commands(text: str, target: str) -> list[str]:
     []
     >>> recipe_commands("build:\\n\\tcargo build\\n\\n\\tcargo test\\n", "build")
     ['cargo build', 'cargo test']
+    >>> split = "build:" + chr(10) + chr(9) + "run --no-" + chr(92) + chr(10)
+    >>> recipe_commands(split + chr(9) + "run" + chr(10), "build")
+    ['run --no-run']
+    >>> joined = "build:" + chr(10) + chr(9) + "run " + chr(92) + chr(10)
+    >>> recipe_commands(joined + chr(9) + "--release" + chr(10), "build")
+    ['run --release']
     """
     pattern = re.compile(
         rf"^{re.escape(target)}:[^\n]*\n"
@@ -115,7 +125,7 @@ def recipe_commands(text: str, target: str) -> list[str]:
         if not command:
             continue
         if command.endswith("\\"):
-            pending = f"{pending}{command[:-1]} "
+            pending = f"{pending}{command[:-1]}"
             continue
         commands.append(" ".join(f"{pending}{command}".split()))
         pending = ""
@@ -182,108 +192,6 @@ def feature_flags(recipe: str) -> list[str]:
     ['--features']
     """
     return [flag for flag in FEATURE_FLAGS if flag in recipe]
-
-
-def _make_comment_start(line: str) -> int | None:
-    """Return the index of the first unescaped ``#`` in `line`, if any.
-
-    A Make comment starts at an unescaped ``#`` anywhere on the line, not only
-    at a word start as a shell comment does, and ``\\#`` is a literal ``#`` in
-    a target name.
-
-    Examples
-    --------
-    >>> _make_comment_start("clean # tidy up")
-    6
-    >>> escaped = "clean " + chr(92) + "#1"
-    >>> _make_comment_start(escaped) is None
-    True
-    """
-    index = 0
-    while index < len(line):
-        if line[index] == "\\" and index + 1 < len(line):
-            index += 2
-            continue
-        if line[index] == "#":
-            return index
-        index += 1
-    return None
-
-
-def _comment_continues(line: str) -> bool:
-    """Return whether a Make comment runs past the end of `line`.
-
-    GNU make continues a comment whose line ends in a backslash, so the whole
-    next line is comment text and declares no target.
-
-    Examples
-    --------
-    >>> _comment_continues("clean # note " + chr(92))
-    True
-    >>> _comment_continues("clean # note")
-    False
-    """
-    return line.rstrip().endswith("\\")
-
-
-def _declared_names(line: str) -> list[str]:
-    """Return the target names one declaration line adds.
-
-    The continuation backslash ends the line rather than naming a target, an
-    escaped ``#`` names a target that contains one, and anything from an
-    unescaped ``#`` on is a Make comment rather than a name.
-
-    Examples
-    --------
-    >>> _declared_names(" clean " + chr(92))
-    ['clean']
-    >>> _declared_names(" clean" + chr(92) + "#1")
-    ['clean#1']
-    >>> _declared_names(" clean # tidy up")
-    ['clean']
-    """
-    comment = _make_comment_start(line)
-    uncommented = line if comment is None else line[:comment]
-    return uncommented.rstrip().removesuffix("\\").replace("\\#", "#").split()
-
-
-def phony_targets(text: str) -> set[str]:
-    """Return the names a ``.PHONY`` declaration covers.
-
-    GNU make collapses continued declarations, so each declaration is read
-    line by line and a continuation backslash only joins the next line's
-    names. Comments are removed first: ``.PHONY: clean # test-scheduling-
-    contract`` declares ``clean`` alone, and reading the comment would make a
-    same-named file seem covered when the target could still be skipped. A
-    comment ending in a backslash continues onto the next line, which declares
-    nothing either, so ``.PHONY: clean # \\`` followed by
-    ``test-scheduling-contract`` still declares only ``clean``.
-
-    Examples
-    --------
-    >>> sorted(phony_targets(".PHONY: clean " + chr(35) + " " + TARGET))
-    ['clean']
-    >>> declaration = ".PHONY: clean " + chr(92) + chr(10) + " " + TARGET
-    >>> sorted(phony_targets(declaration))
-    ['clean', 'test-scheduling-contract']
-    >>> continued = (
-    ...     ".PHONY: clean " + chr(35) + " " + chr(92) + chr(10) + " " + TARGET
-    ... )
-    >>> sorted(phony_targets(continued))
-    ['clean']
-    """
-    declared = re.findall(r"^\.PHONY:((?:.*\\\n)*.*)$", text, re.MULTILINE)
-    names: set[str] = set()
-    for declaration in declared:
-        in_comment = False
-        for line in declaration.splitlines():
-            if in_comment:
-                in_comment = _comment_continues(line)
-                continue
-            if _make_comment_start(line) is not None:
-                in_comment = _comment_continues(line)
-            names.update(_declared_names(line))
-    return names
 
 
 def invocations_missing_flag(invocations: list[str]) -> list[int]:
