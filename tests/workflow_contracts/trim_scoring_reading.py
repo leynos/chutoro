@@ -5,11 +5,11 @@ jobs. Scoring used to run through ``into_par_iter()``, which let Rayon park the
 mutex holder on a latch that only a worker blocked on the same mutex could
 satisfy, so a parallel build hung outright.
 
-This module is the reading: the pinned function list, the marker set, the
-checked-in historical fixture, the source-reading helpers, and the synthetic
-cases that keep the reading honest. The assertions that use them live in
-``trim_scoring_dispatch_test``, so neither module outgrows the 400-line limit
-``AGENTS.md`` sets.
+This module is the reading: the pinned function list, the marker set and the
+source-reading helpers that apply them. The synthetic sources it must accept
+or reject live in ``trim_scoring_samples``, and the assertions over both live
+in ``trim_scoring_dispatch_test``, so no one of the three outgrows the
+400-line limit ``AGENTS.md`` sets.
 
 The reading is lexical. It cannot see dispatch through a helper that is not
 one of the five pinned functions, through an aliased import such as
@@ -50,9 +50,13 @@ from workflow_support import ROOT as REPO_ROOT
 #: Two method patterns are narrower than the rest. `ThreadPool::install` is
 #: generic, so its turbofish (`pool.install::<_, _>(...)`) sits between the
 #: name and the argument list and is allowed for. `ThreadPool::join` takes two
-#: closures, whereas `[T]::join` and `Path::join` take a separator or a path,
-#: so the receiver form is matched only when a closure (optionally `move`)
-#: follows the parenthesis. Every other `join` method stays a slice join.
+#: arguments, whereas `[T]::join` and `Path::join` take one, so the receiver
+#: form is matched only when a comma follows its first argument. That first
+#: argument is either a closure, possibly `move`, or a name that may be a
+#: path or a reference: `pool.join(left, right)` passes bound callables just
+#: as `pool.join(|| a(), || b())` passes inline ones. A slice or path join is
+#: left alone because its single argument is a string literal or a lone name
+#: with no comma after it.
 #:
 #: `into_par_iter` precedes `par_iter` so the more specific name is reported
 #: for a parallel iterator, and `rayon::` precedes the bare calls so a
@@ -63,6 +67,10 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     ("par_iter", re.compile(r"\bpar_iter\b")),
     (".par_bridge(", re.compile(r"\.par_bridge\s*\(")),
     (".par_chunks", re.compile(r"\.par_chunks")),
+    # The prefix carries the reverse-chunk family too: `par_rchunks`,
+    # `par_rchunks_mut` and both `_exact` forms all start with it, just as
+    # `.par_chunks` carries its mutable and `_exact` forms.
+    (".par_rchunks", re.compile(r"\.par_rchunks")),
     (".par_sort", re.compile(r"\.par_sort")),
     (".par_extend(", re.compile(r"\.par_extend\s*\(")),
     (".par_windows", re.compile(r"\.par_windows")),
@@ -84,7 +92,11 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     (".spawn_broadcast(", re.compile(r"\.spawn_broadcast\s*\(")),
     (
         ".join(",
-        re.compile(r"\.join\s*(?:::<[^()]*>)?\s*\(\s*(?:move\s+)?\|"),
+        re.compile(
+            r"\.join\s*(?:::<[^()]*>)?\s*\(\s*"
+            r"(?:(?:move\s+)?\|"
+            r"|&?[A-Za-z_]\w*(?:::[A-Za-z_]\w*)*\s*,)"
+        ),
     ),
     ("join(", re.compile(r"(?<![.\w:])join\s*\(")),
     ("join_context(", re.compile(r"(?<![.\w:])join_context\s*\(")),
@@ -154,125 +166,6 @@ TRIM_SOURCE: typ.Final[Path] = (
 
 #: The function every fixture and the real source is read for.
 SCORER: typ.Final[str] = "score_trim_jobs"
-
-#: The former scorer, copied verbatim from commit
-#: 56d6909c7019ac7caa6d485d11ebf5708b47528e,
-#: ``chutoro-core/src/hnsw/cpu/trim.rs`` lines 35-48.
-#:
-#: It is checked in rather than read from Git history so the contract keeps
-#: its evidence when history is shallow. The marker it carries is the
-#: regression the contract exists to reject.
-HISTORICAL_SCORE_TRIM_JOBS: typ.Final[str] = """
-    pub(crate) fn score_trim_jobs<D: DataSource + Sync>(
-        &self,
-        trim_jobs: Vec<TrimJob>,
-        source: &D,
-    ) -> Result<Vec<TrimResult>, HnswError> {
-        if trim_jobs.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        trim_jobs
-            .into_par_iter()
-            .map(|job| self.run_trim_job(job, source))
-            .collect::<Result<Vec<_>, HnswError>>()
-    }
-"""
-
-#: A body that scores in place: the shape the contract requires.
-SEQUENTIAL = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    jobs.into_iter().map(score).collect()
-}
-"""
-
-#: The former regression, restored. This is the shape the contract exists to
-#: reject, and the shape a benchmark once spent twenty-five minutes inside.
-DISPATCHING = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    jobs.into_par_iter().map(score).collect()
-}
-"""
-
-#: A comment in the scored body naming the dispatch it must not contain. A
-#: reading that scanned raw text would report this and fail a correct body,
-#: so the existing comment explaining the deadlock must stay harmless.
-COMMENTED_MENTION = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    // into_par_iter() would strand the insert mutex holder.
-    jobs.into_iter().map(score).collect()
-}
-"""
-
-#: The same mention inside a string literal, which a reader that blanked only
-#: comments would still report. A warning about the dispatch is not one.
-LITERAL_MENTION = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    let warning = "into_par_iter() strands the insert mutex holder";
-    jobs.into_iter().map(score).collect()
-}
-"""
-
-#: A slice join in the scored body. `join(` is a Rayon free function, but
-#: `names.join(", ")` is `[String]::join`, which dispatches nothing; a
-#: substring matcher reported it and failed a correct body.
-SLICE_JOIN = """
-fn score_trim_jobs(jobs: Vec<Job>) -> String {
-    names.join(", ")
-}
-"""
-
-#: A path join, which is not a dispatch: `Path::join` takes a path, and the
-#: closure check is what stops the receiver form reporting it as a pool join.
-PATH_JOIN = """
-fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
-    cache_dir.join(&cache_file)
-}
-"""
-
-#: A pool join, which is a dispatch: `ThreadPool::join` runs both closures on
-#: the pool, unlike the slice join above. The receiver form needed its own
-#: marker, and the closure check is what keeps the two apart.
-POOL_JOIN = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Scored {
-    pool.join(|| score(left), || score(right))
-}
-"""
-
-#: A helper whose name ends in `scope`. A substring match on `scope(` read it
-#: as Rayon's `scope`; the boundary anchor leaves it alone.
-SCOPED_HELPER_NAME = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    with_scope(|| jobs.into_iter().map(score).collect())
-}
-"""
-
-#: A dispatch in a sibling function that the pinned list does not name. A
-#: file-level search would report it and fail a scorer that is itself serial.
-UNLISTED_SIBLING = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    jobs.into_iter().map(score).collect()
-}
-
-fn build_worker_rngs(jobs: Vec<Job>) -> Vec<Scored> {
-    jobs.into_par_iter().map(score).collect()
-}
-"""
-
-#: A dispatch in a helper the pinned list does name. Scoping the reading to
-#: named bodies must not become a way to miss a listed helper: `run_trim_job`
-#: computes the distances a trim job needs, so dispatch there reaches the pool
-#: from inside the critical section just as surely as dispatch in the scorer.
-LISTED_HELPER_DISPATCH = """
-fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
-    jobs.into_iter().map(|job| run_trim_job(job)).collect()
-}
-
-fn run_trim_job(job: Job) -> Scored {
-    batch.into_par_iter().map(score).collect()
-}
-"""
-
 
 class MissingFunctionError(LookupError):
     """Raised when a function this contract must read is not in the source.

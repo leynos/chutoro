@@ -14,9 +14,10 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import shlex
+import typing as typ
 
 import pytest
-from scheduling_reading import SHELL_SEPARATORS, TARGET
+from scheduling_reading import TARGET
 from workflow_support import job, run_script, steps
 
 #: The script that installs ``cargo-nextest`` for the job.
@@ -25,6 +26,16 @@ NEXTEST_INSTALLER = "scripts/install-nextest.sh"
 #: Words that run the command after them. ``bash scripts/install-nextest.sh``
 #: installs; ``echo scripts/install-nextest.sh`` only prints the path.
 INTERPRETERS = frozenset({"bash", "sh", "dash"})
+
+#: Characters that end one simple command and begin another. ``shlex`` yields
+#: any run of them as one token, so ``|&`` arrives whole.
+_OPERATOR_CHARS = frozenset(";&|")
+
+#: Operators after which the installer's own status still decides the step.
+#: ``&&`` qualifies: a failed installer skips what follows it and fails the
+#: line. Every other operator replaces that status, so ``|| true`` and
+#: ``; true`` install nothing and report success.
+_SURVIVING_OPERATORS = frozenset({"", "&&"})
 
 
 def _joined_lines(script: str) -> list[str]:
@@ -59,45 +70,89 @@ def _joined_lines(script: str) -> list[str]:
     return lines
 
 
-def _simple_commands(script: str) -> list[list[str]]:
-    """Return the simple commands `script` runs, one token list each.
+class _Segment(typ.NamedTuple):
+    """One simple command and the operator that ends it.
+
+    The operator is kept because it decides what the job sees when the
+    command fails: ``installer || true`` runs the installer and reports
+    success, so a segment read without its operator cannot say whether the
+    installation was allowed to fail.
+    """
+
+    words: list[str]
+    follows: str
+
+
+def _segments(script: str) -> list[_Segment]:
+    """Return each simple command `script` runs, with its trailing operator.
 
     A step's script can hold several commands, separated by newlines or by
     shell operators, and a comment line names a script without running it.
     Splitting first is what makes "is the installer executed?" a question
-    about a command's first word rather than about a substring.
+    about a command's first word rather than about a substring. The operator
+    that follows the command is retained, because ``||`` and ``;`` hide a
+    failure that ``&&`` does not.
 
     Examples
     --------
-    >>> _simple_commands("echo scripts/install-nextest.sh")
-    [['echo', 'scripts/install-nextest.sh']]
-    >>> _simple_commands("# scripts/install-nextest.sh")
+    >>> _segments("echo scripts/install-nextest.sh")
+    [_Segment(words=['echo', 'scripts/install-nextest.sh'], follows='')]
+    >>> [segment.words for segment in _segments("a || true")]
+    [['a'], ['true']]
+    >>> [segment.follows for segment in _segments("a || true")]
+    ['||', '']
+    >>> _segments("# scripts/install-nextest.sh")
     []
     """
-    commands: list[list[str]] = []
+    segments: list[_Segment] = []
     for line in _joined_lines(script):
         lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|")
         lexer.whitespace_split = True
-        current: list[str] = []
+        words: list[str] = []
         for token in lexer:
-            if token in SHELL_SEPARATORS:
-                if current:
-                    commands.append(current)
-                current = []
+            if set(token) <= _OPERATOR_CHARS:
+                if words:
+                    segments.append(_Segment(words, token))
+                words = []
                 continue
-            current.append(token)
-        if current:
-            commands.append(current)
-    return commands
+            words.append(token)
+        if words:
+            segments.append(_Segment(words, ""))
+    return segments
+
+
+def _runs_installer(words: list[str]) -> bool:
+    """Return whether `words` run the installer as a command of their own.
+
+    A shell may run the script, but then the script is the only thing the
+    shell is given. ``bash -n scripts/install-nextest.sh`` only parses it, so
+    a path anywhere in the argument list read a syntax check as an
+    installation.
+
+    Examples
+    --------
+    >>> _runs_installer(["scripts/install-nextest.sh"])
+    True
+    >>> _runs_installer(["bash", "scripts/install-nextest.sh"])
+    True
+    >>> _runs_installer(["bash", "-n", "scripts/install-nextest.sh"])
+    False
+    """
+    if not words:
+        return False
+    if words[0] == NEXTEST_INSTALLER:
+        return True
+    return words[0] in INTERPRETERS and words[1:] == [NEXTEST_INSTALLER]
 
 
 def installs_nextest(script: str) -> bool:
-    """Return whether `script` executes the nextest installer.
+    """Return whether `script` executes the nextest installer, blocking.
 
     The path must be a command's first word, or the argument of a shell
     interpreter. A substring check accepted ``echo scripts/install-nextest.sh``
     and a commented-out line, so the ordering contract could pass without
-    anything being installed.
+    anything being installed. The command must also be allowed to fail the
+    step: a masked failure installs nothing and reports success.
 
     Examples
     --------
@@ -105,11 +160,15 @@ def installs_nextest(script: str) -> bool:
     True
     >>> installs_nextest("echo scripts/install-nextest.sh")
     False
+    >>> installs_nextest("scripts/install-nextest.sh || true")
+    False
+    >>> installs_nextest("scripts/install-nextest.sh && make test")
+    True
     """
     return any(
-        command[0] == NEXTEST_INSTALLER
-        or (command[0] in INTERPRETERS and NEXTEST_INSTALLER in command[1:])
-        for command in _simple_commands(script)
+        _runs_installer(segment.words)
+        and segment.follows in _SURVIVING_OPERATORS
+        for segment in _segments(script)
     )
 
 
@@ -233,21 +292,42 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
         pytest.param(
             f"make test && {NEXTEST_INSTALLER}", True, id="after-another-command"
         ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} && make test-workflow-contracts",
+            True,
+            id="before-another-command",
+        ),
         pytest.param(f"echo {NEXTEST_INSTALLER}", False, id="printed"),
         pytest.param(f"# {NEXTEST_INSTALLER}", False, id="commented"),
         pytest.param(
             f"echo hi  # {NEXTEST_INSTALLER}", False, id="trailing-comment"
+        ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} || true", False, id="failure-masked"
+        ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER}; true", False, id="masked-after-a-semicolon"
+        ),
+        pytest.param(
+            f"bash -n {NEXTEST_INSTALLER}", False, id="syntax-check-only"
+        ),
+        pytest.param(
+            f"bash {NEXTEST_INSTALLER} || true",
+            False,
+            id="a-shell-that-masks",
         ),
     ],
 )
 def test_the_installer_selector_reads_executable_use(
     script: str, expected: bool
 ) -> None:
-    """Printing or commenting the path must not read as installing it.
+    """Printing, commenting, parsing or masking the path installs nothing.
 
     The ordering contract places the installer before the scheduling target,
     so a selector that accepted a mention would let a step that installs
-    nothing satisfy it.
+    nothing satisfy it. The same is true of a command whose failure is
+    swallowed: ``installer || true`` runs the script and reports success
+    whether or not it worked, and ``bash -n`` only parses it.
     """
     assert installs_nextest(script) is expected, (
         f"installs_nextest must return {expected} for {script!r}"

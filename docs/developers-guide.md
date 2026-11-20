@@ -2842,20 +2842,26 @@ reads the bodies of the five functions on the scoring path —
 `batch_distances_for_trim` in `hnsw/helpers.rs` — and rejects every recognized
 Rayon entry point in them, including the `into_par_iter()`, `par_iter_mut()`,
 and `par_iter()` adapters, the parallel slice and string adapters (the
-`.par_bridge()`, `.par_chunks()`, `.par_windows()`, `.par_split()`,
-`.par_lines()`, `.par_chars()`, and `.par_drain()` methods) and the
-`spawn_fifo`, `scope_fifo`, `join_context`, `broadcast`, and `spawn_broadcast`
-calls, together with their `ThreadPool` method forms such as `pool.scope(...)`
-and `scope.spawn(...)`, which run work in the pool as surely as the free
-functions do. Two receiver forms are matched more narrowly: the generic
+`.par_bridge()`, `.par_chunks()`, `.par_rchunks()`, `.par_windows()`,
+`.par_split()`, `.par_lines()`, `.par_chars()`, and `.par_drain()` methods,
+each standing for its mutable and `_exact` forms as well) and the `spawn_fifo`,
+`scope_fifo`, `join_context`, `broadcast`, and `spawn_broadcast` calls,
+together with their `ThreadPool` method forms such as `pool.scope(...)` and
+`scope.spawn(...)`, which run work in the pool as surely as the free functions
+do. Two receiver forms are matched more narrowly: the generic
 `pool.install::<_, _>(...)` allows the turbofish between the name and the
-argument list, and `pool.join(...)` counts only when a closure follows the
-parenthesis. Each entry is a boundary-aware pattern rather than a substring, so
-a slice `names.join(", ")` or a path `dir.join("file")` in the scored body is
-not reported as a Rayon join. It also checks a checked-in copy of the former
-`score_trim_jobs` and requires it to read as a dispatch, so the fixture cannot
-drift into agreement with the fixed code. A missing function fails the contract
-rather than reading as clean. `make test-workflow-contracts` runs it.
+argument list, and `pool.join(...)` counts because it takes two arguments where
+a slice or path join takes one, so it is recognized whether its first argument
+is an inline closure or a bound callable such as `pool.join(left, right)`. Each
+entry is a boundary-aware pattern rather than a substring, so a slice
+`names.join(", ")`, a slice join on a variable separator, or a path
+`dir.join("file")` in the scored body is not reported as a Rayon join. The
+synthetic sources these readings are checked against live in
+`trim_scoring_samples.py`, beside the reader rather than inside it. The
+contract also checks a checked-in copy of the former `score_trim_jobs` and
+requires it to read as a dispatch, so the fixture cannot drift into agreement
+with the fixed code. A missing function fails the contract rather than reading
+as clean. `make test-workflow-contracts` runs it.
 
 The scan's limits are part of the contract. It can see a listed helper that
 dispatches, but not an unlisted helper called by one of the five, not an
@@ -2885,10 +2891,13 @@ a command that merely mentions nextest, or one whose failure would be
 suppressed, cannot stand in for the regression. The CI step that runs the
 target is pinned unconditional, as is the nextest installation it depends on,
 and that installation has to be a command in its own right: a step that only
-prints or comments the installer path installs nothing. The declaration the
-recipe names must still carry a test attribute, because a plain function of the
-same name is never discovered and the zero-test flag cannot fire for it. The
-direct test scores a synthetic batch; the insertion-path test drives a real
+prints or comments the installer path installs nothing, and neither does one
+whose failure is masked (`installer || true`, `installer; true`) or one that
+only parses the script (`bash -n installer`). The declaration the recipe names
+must still carry a test attribute, because a plain function of the same name is
+never discovered and the zero-test flag cannot fire for it, and an attributed
+declaration quoted inside a string literal is an example rather than a test.
+The direct test scores a synthetic batch; the insertion-path test drives a real
 insertion in a dedicated four-worker pool and records the thread, the Rayon
 worker, and a non-blocking `insert_mutex` `try_lock` for every post-planning
 distance callback. Both assert that the callbacks stay on the mutex holder.

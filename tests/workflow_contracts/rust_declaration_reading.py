@@ -17,7 +17,8 @@ The scheduling contract asks the other question: the Make target names two
 regressions, and a function of that name that no attribute registers is never
 discovered, so ``--no-tests=fail`` cannot fire for it. :func:`declares_test`
 answers that with the same lexing and the same attribute recognition the
-development route already uses.
+development route already uses, blanking literals as well as comments so an
+example inside a string is not read as a declaration.
 
 The lexing is :mod:`rust_source_reading`'s, this suite's one Rust reader. It
 already knows where code stops and a comment, string, raw string, byte string
@@ -125,9 +126,9 @@ def declares_test(source: str, name: str) -> bool:
     A function with the right name is not evidence by itself: the harness only
     runs it when an attribute registers it, and ``--no-tests=fail`` cannot
     fire for a test that was never discovered. The name is taken from the
-    signature, so a mention in a comment is not a declaration, and the
-    attribute is read backwards from it, so a doc comment or a ``#[cfg]``
-    between the two changes nothing.
+    signature, so a mention in a comment or in a string literal is not a
+    declaration, and the attribute is read backwards from it, so a doc comment
+    or a ``#[cfg]`` between the two changes nothing.
 
     Parameters
     ----------
@@ -146,13 +147,15 @@ def declares_test(source: str, name: str) -> bool:
     False
     >>> declares_test("#[rstest]\\n/// Doc.\\nfn verify() {}", "verify")
     True
+    >>> declares_test('const S: &str = "#[test]\\nfn verify() {}";', "verify")
+    False
 
     Returns
     -------
     bool
         True when the declaration carries an attribute the harness registers.
     """
-    code = _blank(source, (region for region in _regions(source) if region.is_comment))
+    code = _blank(source, _regions(source))
     for match in _FUNCTION.finditer(code):
         if match["name"] == name:
             return _is_test(code, match.start())

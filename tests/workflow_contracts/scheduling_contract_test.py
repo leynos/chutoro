@@ -310,6 +310,11 @@ def test_each_regression_is_a_real_test_in_the_scanned_rust_sources(
         ),
         pytest.param("fn verify() {}", False, id="an-unattributed-function"),
         pytest.param(
+            'const S: &str = "#[test]\\nfn verify() {}";',
+            False,
+            id="a-declaration-in-a-literal",
+        ),
+        pytest.param(
             "fn helper() {}\nfn verify() {}",
             False,
             id="a-function-below-an-untested-sibling",
