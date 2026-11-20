@@ -14,7 +14,8 @@ features so the gate cannot become collateral damage when the coverage action's
 feature set changes.
 
 The reading itself, with the cases that keep its filtering honest, lives in
-``scheduling_reading``.
+``scheduling_reading``; the Rust declaration reading is the suite's shared
+``rust_declaration_reading``.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -22,11 +23,11 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import pytest
+from rust_declaration_reading import declares_test
 from scheduling_reading import (
     QUALIFIED_REGRESSIONS,
     REGRESSIONS,
     TARGET,
-    declares_test,
     feature_flags,
     invocations_missing_flag,
     is_nextest_invocation,
@@ -101,6 +102,12 @@ def test_a_flag_on_another_invocation_does_not_cover_a_missing_one() -> None:
             "$(CARGO) nextest run -p chutoro-core --lib ||true",
             id="an-unspaced-or-true-suffix",
         ),
+        pytest.param(
+            "$(CARGO) nextest run -p chutoro-core --lib"
+            f" -E 'test(={QUALIFIED_REGRESSIONS[REGRESSIONS[0]]})'"
+            " --no-tests=fail --no-run",
+            id="a-compile-only-run",
+        ),
     ],
 )
 def test_only_a_command_that_runs_nextest_counts(command: str) -> None:
@@ -110,10 +117,31 @@ def test_only_a_command_that_runs_nextest_counts(command: str) -> None:
     run ...``, which runs nothing while every argument assertion passes.
     Accepting a leading ``-``, a ``|| true`` suffix, or a command after ``;``
     is the same problem with a worse outcome: the regression runs, fails, and
-    the target still succeeds.
+    the target still succeeds. ``--no-run`` is the same problem again in a
+    shape that satisfies every argument check: the command carries the exact
+    selector and the zero-test flag, and compiles the tests without running
+    them.
     """
     assert not is_nextest_invocation(command), (
         f"{command!r} must not count as a scheduling invocation"
+    )
+
+
+def test_the_same_command_without_no_run_is_the_invocation_it_must_be() -> None:
+    """A compile-only rejection must not reject the run the target needs.
+
+    The negative case carries the target's complete selector. The same
+    command with the flag removed is exactly what the recipe runs, so a
+    predicate that rejected it would leave the gate with no invocation at
+    all.
+    """
+    command = (
+        "$(CARGO) nextest run -p chutoro-core --lib"
+        f" -E 'test(={QUALIFIED_REGRESSIONS[REGRESSIONS[0]]})'"
+        " --no-tests=fail"
+    )
+    assert is_nextest_invocation(command), (
+        f"{command!r} must count as a scheduling invocation"
     )
 
 

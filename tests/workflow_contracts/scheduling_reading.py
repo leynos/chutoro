@@ -60,6 +60,11 @@ CARGO_COMMANDS = ("$(CARGO)", "cargo")
 #: target stays green while the regression it exists to run is broken.
 SHELL_SEPARATORS = frozenset({";", ";;", "&&", "||", "|", "&"})
 
+#: Flags that compile without running. `--no-run` builds the tests and executes
+#: none of them, so an invocation carrying it produces no runtime evidence even
+#: though its selector, count and flags all look right.
+COMPILE_ONLY_FLAGS = ("--no-run",)
+
 #: Every spelling that selects a feature set. The regressions are
 #: feature-independent, so the gate must build the default set: a feature flag
 #: would tie the evidence to whatever that set compiles, which is the change
@@ -71,11 +76,6 @@ FEATURE_FLAGS = (
     "--features",
     "-F",
 )
-
-#: Attributes that register a function with the test harness. Matched on the
-#: attribute's path, so `#[rstest(...)]` counts and `#[test_only_helper]` does
-#: not.
-TEST_ATTRIBUTE = re.compile(r"^#\[\s*(?:test|rstest|tokio::test|async_std::test)\b")
 
 
 def makefile_text() -> str:
@@ -196,8 +196,10 @@ def is_nextest_invocation(command: str) -> bool:
     A recipe line that only mentions nextest in an argument runs nothing.
     Three other shapes run it and still leave the target green when the
     regression fails: Make's ignore-error prefix, `|| true`, and a second
-    command after `;`. Each spelling that is not the plain Cargo command
-    leaves the line out of the invocation list, where the
+    command after `;`. A fourth runs nothing at all: `--no-run` compiles the
+    tests without executing them, so the selector is satisfied and the
+    evidence is not produced. Each spelling that is not the plain Cargo
+    command leaves the line out of the invocation list, where the
     one-per-regression count rejects it.
 
     Examples
@@ -208,17 +210,16 @@ def is_nextest_invocation(command: str) -> bool:
     False
     >>> is_nextest_invocation("-$(CARGO) nextest run -p chutoro-core")
     False
-    >>> is_nextest_invocation(
-    ...     "$(CARGO) nextest run -p chutoro-core || true"
-    ... )
+    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core || true")
     False
-    >>> is_nextest_invocation(
-    ...     "$(CARGO) nextest run -p chutoro-core ||true"
-    ... )
+    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core ||true")
+    False
+    >>> is_nextest_invocation("$(CARGO) nextest run -p chutoro-core --no-run")
     False
     """
     tokens = _shell_tokens(command)
-    if any(token in SHELL_SEPARATORS for token in tokens):
+    rejected = SHELL_SEPARATORS.union(COMPILE_ONLY_FLAGS)
+    if any(token in rejected for token in tokens):
         return False
     return (
         len(tokens) >= 3
@@ -367,34 +368,3 @@ def selected_regression(command: str) -> str:
         )
         raise ValueError(message)
     return matches[0]
-
-
-def declares_test(source: str, name: str) -> bool:
-    """Return whether `source` declares `name` as a test.
-
-    A function with the right name is not evidence by itself: the harness only
-    runs it when an attribute registers it, and ``--no-tests=fail`` cannot
-    fire for a test that was never discovered. The backwards walk stops at the
-    first line that is neither an attribute nor a doc comment, so an unrelated
-    declaration above the function is not read as its attribute.
-
-    Examples
-    --------
-    >>> declares_test("#[test]\\nfn verify() {}", "verify")
-    True
-    >>> declares_test("fn verify() {}", "verify")
-    False
-    """
-    declaration = re.search(rf"fn\s+{re.escape(name)}\s*\(", source)
-    if declaration is None:
-        return False
-    # Start at the declaration's own line: slicing at the `fn` keyword leaves
-    # its indentation as a blank-looking line that would end the walk early.
-    line_start = source.rfind("\n", 0, declaration.start()) + 1
-    for line in reversed(source[:line_start].splitlines()):
-        stripped = line.strip()
-        if TEST_ATTRIBUTE.match(stripped) is not None:
-            return True
-        if not stripped.startswith(("#[", "///")):
-            return False
-    return False

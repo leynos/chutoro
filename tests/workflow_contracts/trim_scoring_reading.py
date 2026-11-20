@@ -47,6 +47,13 @@ from workflow_support import ROOT as REPO_ROOT
 #: are separate because a dot before the name rules out the free-function
 #: anchor.
 #:
+#: Two method patterns are narrower than the rest. `ThreadPool::install` is
+#: generic, so its turbofish (`pool.install::<_, _>(...)`) sits between the
+#: name and the argument list and is allowed for. `ThreadPool::join` takes two
+#: closures, whereas `[T]::join` and `Path::join` take a separator or a path,
+#: so the receiver form is matched only when a closure (optionally `move`)
+#: follows the parenthesis. Every other `join` method stays a slice join.
+#:
 #: `into_par_iter` precedes `par_iter` so the more specific name is reported
 #: for a parallel iterator, and `rayon::` precedes the bare calls so a
 #: qualified call names its namespace rather than only its function.
@@ -64,7 +71,7 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     (".par_chars", re.compile(r"\.par_chars")),
     (".par_drain", re.compile(r"\.par_drain")),
     ("rayon::", re.compile(r"rayon\s*::")),
-    (".install(", re.compile(r"\.install\s*\(")),
+    (".install(", re.compile(r"\.install\s*(?:::<[^()]*>)?\s*\(")),
     ("scope(", re.compile(r"(?<![.\w:])scope\s*\(")),
     (".scope(", re.compile(r"\.scope\s*\(")),
     ("scope_fifo(", re.compile(r"(?<![.\w:])scope_fifo\s*\(")),
@@ -75,6 +82,10 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, re.Pattern[str]], ...]] = (
     (".spawn_fifo(", re.compile(r"\.spawn_fifo\s*\(")),
     ("spawn_broadcast(", re.compile(r"(?<![.\w:])spawn_broadcast\s*\(")),
     (".spawn_broadcast(", re.compile(r"\.spawn_broadcast\s*\(")),
+    (
+        ".join(",
+        re.compile(r"\.join\s*(?:::<[^()]*>)?\s*\(\s*(?:move\s+)?\|"),
+    ),
     ("join(", re.compile(r"(?<![.\w:])join\s*\(")),
     ("join_context(", re.compile(r"(?<![.\w:])join_context\s*\(")),
     ("broadcast(", re.compile(r"(?<![.\w:])broadcast\s*\(")),
@@ -208,6 +219,23 @@ fn score_trim_jobs(jobs: Vec<Job>) -> Vec<Scored> {
 SLICE_JOIN = """
 fn score_trim_jobs(jobs: Vec<Job>) -> String {
     names.join(", ")
+}
+"""
+
+#: A path join, which is not a dispatch: `Path::join` takes a path, and the
+#: closure check is what stops the receiver form reporting it as a pool join.
+PATH_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
+    cache_dir.join(&cache_file)
+}
+"""
+
+#: A pool join, which is a dispatch: `ThreadPool::join` runs both closures on
+#: the pool, unlike the slice join above. The receiver form needed its own
+#: marker, and the closure check is what keeps the two apart.
+POOL_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> Scored {
+    pool.join(|| score(left), || score(right))
 }
 """
 

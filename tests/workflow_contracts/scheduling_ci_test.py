@@ -13,8 +13,104 @@ Run via ``make test-workflow-contracts``.
 
 from __future__ import annotations
 
-from scheduling_reading import TARGET
+import shlex
+
+import pytest
+from scheduling_reading import SHELL_SEPARATORS, TARGET
 from workflow_support import job, run_script, steps
+
+#: The script that installs ``cargo-nextest`` for the job.
+NEXTEST_INSTALLER = "scripts/install-nextest.sh"
+
+#: Words that run the command after them. ``bash scripts/install-nextest.sh``
+#: installs; ``echo scripts/install-nextest.sh`` only prints the path.
+INTERPRETERS = frozenset({"bash", "sh", "dash"})
+
+
+def _joined_lines(script: str) -> list[str]:
+    """Return `script`'s lines with backslash continuations joined.
+
+    A workflow script wraps long commands with a trailing backslash. Passing
+    one of those lines to ``shlex`` on its own raises ``No escaped
+    character``, because the escape has nothing left to escape, so the
+    continuations are resolved first.
+
+    Examples
+    --------
+    The continuation is built with ``chr(92)`` and ``chr(10)``, because a
+    docstring holding those escapes would end the example's line:
+
+    >>> _joined_lines(
+    ...     "cargo build " + chr(92) + chr(10) + "  --release"
+    ... )
+    ['cargo build    --release']
+    """
+    lines: list[str] = []
+    pending = ""
+    for raw in script.splitlines():
+        line = raw.rstrip()
+        if line.endswith("\\"):
+            pending = f"{pending}{line[:-1]} "
+            continue
+        lines.append(f"{pending}{line}")
+        pending = ""
+    if pending.strip():
+        lines.append(pending)
+    return lines
+
+
+def _simple_commands(script: str) -> list[list[str]]:
+    """Return the simple commands `script` runs, one token list each.
+
+    A step's script can hold several commands, separated by newlines or by
+    shell operators, and a comment line names a script without running it.
+    Splitting first is what makes "is the installer executed?" a question
+    about a command's first word rather than about a substring.
+
+    Examples
+    --------
+    >>> _simple_commands("echo scripts/install-nextest.sh")
+    [['echo', 'scripts/install-nextest.sh']]
+    >>> _simple_commands("# scripts/install-nextest.sh")
+    []
+    """
+    commands: list[list[str]] = []
+    for line in _joined_lines(script):
+        lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|")
+        lexer.whitespace_split = True
+        current: list[str] = []
+        for token in lexer:
+            if token in SHELL_SEPARATORS:
+                if current:
+                    commands.append(current)
+                current = []
+                continue
+            current.append(token)
+        if current:
+            commands.append(current)
+    return commands
+
+
+def installs_nextest(script: str) -> bool:
+    """Return whether `script` executes the nextest installer.
+
+    The path must be a command's first word, or the argument of a shell
+    interpreter. A substring check accepted ``echo scripts/install-nextest.sh``
+    and a commented-out line, so the ordering contract could pass without
+    anything being installed.
+
+    Examples
+    --------
+    >>> installs_nextest("scripts/install-nextest.sh")
+    True
+    >>> installs_nextest("echo scripts/install-nextest.sh")
+    False
+    """
+    return any(
+        command[0] == NEXTEST_INSTALLER
+        or (command[0] in INTERPRETERS and NEXTEST_INSTALLER in command[1:])
+        for command in _simple_commands(script)
+    )
 
 
 def _build_test_steps() -> list[dict[str, object]]:
@@ -106,7 +202,7 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
     """
     runs = _build_test_runs()
     install = next(
-        (index for index, run in enumerate(runs) if "install-nextest.sh" in run),
+        (index for index, run in enumerate(runs) if installs_nextest(run)),
         None,
     )
     target = next(
@@ -122,8 +218,37 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
         (
             step
             for step in _build_test_steps()
-            if "install-nextest.sh" in run_script(step)
+            if installs_nextest(run_script(step))
         ),
         None,
     )
-    _assert_unconditional(installer, "scripts/install-nextest.sh")
+    _assert_unconditional(installer, NEXTEST_INSTALLER)
+
+
+@pytest.mark.parametrize(
+    ("script", "expected"),
+    [
+        pytest.param(NEXTEST_INSTALLER, True, id="the-installer"),
+        pytest.param(f"bash {NEXTEST_INSTALLER}", True, id="through-a-shell"),
+        pytest.param(
+            f"make test && {NEXTEST_INSTALLER}", True, id="after-another-command"
+        ),
+        pytest.param(f"echo {NEXTEST_INSTALLER}", False, id="printed"),
+        pytest.param(f"# {NEXTEST_INSTALLER}", False, id="commented"),
+        pytest.param(
+            f"echo hi  # {NEXTEST_INSTALLER}", False, id="trailing-comment"
+        ),
+    ],
+)
+def test_the_installer_selector_reads_executable_use(
+    script: str, expected: bool
+) -> None:
+    """Printing or commenting the path must not read as installing it.
+
+    The ordering contract places the installer before the scheduling target,
+    so a selector that accepted a mention would let a step that installs
+    nothing satisfy it.
+    """
+    assert installs_nextest(script) is expected, (
+        f"installs_nextest must return {expected} for {script!r}"
+    )

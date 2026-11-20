@@ -142,18 +142,21 @@ section may block on, or dispatch work to, the Rayon pool.
   `.par_windows()`, `.par_split()`, `.par_lines()`, `.par_chars()`, and
   `.par_drain()`) and the `spawn_fifo`, `scope_fifo`, `join_context`,
   `broadcast`, and `spawn_broadcast` calls with their `ThreadPool` method forms
-  such as `pool.scope(...)` and `scope.spawn(...)`. Each entry is a
-  boundary-aware pattern, so a slice `names.join(", ")` is not read as a Rayon
-  join. Dispatch in a listed helper is therefore caught. Dispatch it cannot see
-  still evades it: an unlisted helper called by one of the five, an aliased
-  import such as `use rayon::spawn as run; run(...)`, or a `DataSource` that
-  dispatches on its own account. The scan fails closed when a pinned function
-  is missing, so a rename or a move cannot read as clean. The runtime
-  scheduling tests in `hnsw::cpu::trim_tests` remain as broader coverage, and
-  they may catch unlisted helper dispatch, but they are observations rather
-  than proofs: the caller's first distance callback waits up to two seconds for
-  another worker, and if no worker steals in that interval a dispatching
-  implementation can still finish the batch on the caller and pass.
+  such as `pool.scope(...)` and `scope.spawn(...)`. The generic
+  `pool.install::<_, _>(...)` is recognized through its turbofish, and
+  `pool.join(...)` only when a closure follows the parenthesis, so a slice or
+  path join stays clean. Each entry is a boundary-aware pattern, so a slice
+  `names.join(", ")` is not read as a Rayon join. Dispatch in a listed helper
+  is therefore caught; dispatch it cannot see still evades it: an unlisted
+  helper called by one of the five, an aliased import such as
+  `use rayon::spawn as run; run(...)`, or a `DataSource` that dispatches on its
+  own account. The scan fails closed when a pinned function is missing, so a
+  rename or a move cannot read as clean. The runtime scheduling tests in
+  `hnsw::cpu::trim_tests` remain as broader coverage, and they may catch
+  unlisted helper dispatch, but they are observations rather than proofs: the
+  caller's first distance callback waits up to two seconds for another worker,
+  and if no worker steals in that interval a dispatching implementation can
+  still finish the batch on the caller and pass.
 - **A watchdog stress test was considered and rejected.** An earlier
   watchdog-based stress test passed three times out of three on the unfixed
   code, because the stall is a scheduling race rather than a deterministic
@@ -219,20 +222,23 @@ each with a fully qualified exact-match filter, `--no-tests=fail`, and default
 features, and the `build-test` CI job runs that target unconditionally beside
 `make test-workflow-contracts`.
 `tests/workflow_contracts/scheduling_contract_test.py` and
-`scheduling_ci_test.py`, reading through `scheduling_reading.py` and
-`workflow_support.py`, pin the target recipe, one invocation per fully
-qualified test name, each invocation's whole filter expression as exactly one
-selector, the zero-test failure flag on each, the absence of every
-feature-selection flag (`--all-features`, `--no-default-features`, `--features`
-and its `=` form, and `-F`), the unconditional and blocking execution of the
-step and its nextest installer within an unconditional job, the order that
-installs `cargo-nextest` before the target runs, and that the recipe's commands
-run nextest in executable position without Make's error-ignoring `-` prefix or
-a failure-masking shell suffix such as `|| true`. Commands are tokenized with
-shell separators rather than whitespace alone, so an unspaced `||true` reads as
-the operator it is. It also checks that each named regression is still declared
-under `cpu/trim_tests` with a test attribute, since an undiscovered function
-cannot trip `--no-tests=fail`.
+`scheduling_ci_test.py`, reading through `scheduling_reading.py`,
+`rust_declaration_reading.py`, and `workflow_support.py`, pin the target
+recipe, one invocation per fully qualified test name, each invocation's whole
+filter expression as exactly one selector, the zero-test failure flag on each,
+the absence of every feature-selection flag (`--all-features`,
+`--no-default-features`, `--features` and its `=` form, and `-F`), the absence
+of `--no-run` (which compiles the selected tests without executing them), the
+unconditional and blocking execution of the step and its nextest installer
+within an unconditional job, the order that installs `cargo-nextest` before the
+target runs, and that the installer appears as a command in its own right
+rather than as an argument to `echo` or inside a comment. It also requires the
+recipe's commands to run nextest in executable position without Make's
+error-ignoring `-` prefix or a failure-masking shell suffix such as `|| true`.
+Commands are tokenized with shell separators rather than whitespace alone, so
+an unspaced `||true` reads as the operator it is. Finally, it checks that each
+named regression is still declared under `cpu/trim_tests` with a test
+attribute, since an undiscovered function cannot trip `--no-tests=fail`.
 
 Positive evidence: both runtime regressions pass on the fixed tree, and the
 full gate set passed on commit `28a9687` (`make check-fmt`, `make markdownlint`

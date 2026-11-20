@@ -31,6 +31,8 @@ from trim_scoring_reading import (
     HISTORICAL_SCORE_TRIM_JOBS,
     LISTED_HELPER_DISPATCH,
     LITERAL_MENTION,
+    PATH_JOIN,
+    POOL_JOIN,
     SCANNED_FILES,
     SCOPED_HELPER_NAME,
     SCORER,
@@ -95,6 +97,8 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
         pytest.param(COMMENTED_MENTION, None, id="a-mention-in-a-comment"),
         pytest.param(LITERAL_MENTION, None, id="a-mention-in-a-literal"),
         pytest.param(SLICE_JOIN, None, id="a-slice-join"),
+        pytest.param(PATH_JOIN, None, id="a-path-join"),
+        pytest.param(POOL_JOIN, ".join(", id="a-pool-join"),
         pytest.param(SCOPED_HELPER_NAME, None, id="a-helper-named-with-scope"),
         pytest.param(
             UNLISTED_SIBLING, None, id="a-dispatch-in-an-unlisted-sibling"
@@ -166,6 +170,11 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
             id="a-qualified-rayon-path",
         ),
         pytest.param(".install(", "pool.install(|| run())", id="install"),
+        pytest.param(
+            ".install(",
+            "pool.install::<_, _>(|| run())",
+            id="generic-install",
+        ),
         pytest.param("scope(", "scope(|scope| run())", id="scope"),
         pytest.param(".scope(", "pool.scope(|scope| run())", id="method-scope"),
         pytest.param("scope_fifo(", "scope_fifo(|scope| run())", id="scope-fifo"),
@@ -187,6 +196,9 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
             ".spawn_broadcast(",
             "pool.spawn_broadcast(|ctx| run(ctx))",
             id="method-spawn-broadcast",
+        ),
+        pytest.param(
+            ".join(", "pool.join(|| left(), || right())", id="method-join"
         ),
         pytest.param("join(", "join(left, right)", id="join"),
         pytest.param("join_context(", "join_context(left, right)", id="join-context"),

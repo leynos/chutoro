@@ -2847,12 +2847,15 @@ and `par_iter()` adapters, the parallel slice and string adapters (the
 `spawn_fifo`, `scope_fifo`, `join_context`, `broadcast`, and `spawn_broadcast`
 calls, together with their `ThreadPool` method forms such as `pool.scope(...)`
 and `scope.spawn(...)`, which run work in the pool as surely as the free
-functions do. Each entry is a boundary-aware pattern rather than a substring,
-so a slice `names.join(", ")` in the scored body is not reported as a Rayon
-join. It also checks a checked-in copy of the former `score_trim_jobs` and
-requires it to read as a dispatch, so the fixture cannot drift into agreement
-with the fixed code. A missing function fails the contract rather than reading
-as clean. `make test-workflow-contracts` runs it.
+functions do. Two receiver forms are matched more narrowly: the generic
+`pool.install::<_, _>(...)` allows the turbofish between the name and the
+argument list, and `pool.join(...)` counts only when a closure follows the
+parenthesis. Each entry is a boundary-aware pattern rather than a substring, so
+a slice `names.join(", ")` or a path `dir.join("file")` in the scored body is
+not reported as a Rayon join. It also checks a checked-in copy of the former
+`score_trim_jobs` and requires it to read as a dispatch, so the fixture cannot
+drift into agreement with the fixed code. A missing function fails the contract
+rather than reading as clean. `make test-workflow-contracts` runs it.
 
 The scan's limits are part of the contract. It can see a listed helper that
 dispatches, but not an unlisted helper called by one of the five, not an
@@ -2867,24 +2870,28 @@ each pinned to its fully qualified name with an exact-match filter
 fixture, nor a surviving sibling can retire the evidence silently. The target
 builds the default feature set, and every spelling that would change it is
 rejected: `--all-features`, `--no-default-features`, `--features` including its
-`=` form, and `-F`. The workflow contract, `scheduling_contract_test.py` and
-`scheduling_ci_test.py` with their companion `scheduling_reading.py`, also
-requires each invocation's whole filter expression to be exactly one selector,
-so a widened expression such as `test(=name) | all()` cannot keep an invocation
-non-empty after the regression is renamed. The recipe's commands must run
-nextest in executable position and must not carry Make's error-ignoring `-`
-prefix or a failure-masking shell suffix such as `|| true` (spaced or not: the
-commands are tokenized with shell separators, so `||true` is read as the
-operator it is), so a command that merely mentions nextest, or one whose
-failure would be suppressed, cannot stand in for the regression. The CI step
-that runs the target is pinned unconditional, as is the nextest installation it
-depends on. The declaration the recipe names must still carry a test attribute,
-because a plain function of the same name is never discovered and the zero-test
-flag cannot fire for it. The direct test scores a synthetic batch; the
-insertion-path test drives a real insertion in a dedicated four-worker pool and
-records the thread, the Rayon worker, and a non-blocking `insert_mutex`
-`try_lock` for every post-planning distance callback. Both assert that the
-callbacks stay on the mutex holder.
+`=` form, and `-F`. An invocation carrying `--no-run` is rejected as well: it
+compiles the selected tests without executing them, so it satisfies every
+selector and count while producing no runtime evidence. The workflow contract,
+`scheduling_contract_test.py` and `scheduling_ci_test.py` with their companions
+`scheduling_reading.py` and `rust_declaration_reading.py`, also requires each
+invocation's whole filter expression to be exactly one selector, so a widened
+expression such as `test(=name) | all()` cannot keep an invocation non-empty
+after the regression is renamed. The recipe's commands must run nextest in
+executable position and must not carry Make's error-ignoring `-` prefix or a
+failure-masking shell suffix such as `|| true` (spaced or not: the commands are
+tokenized with shell separators, so `||true` is read as the operator it is), so
+a command that merely mentions nextest, or one whose failure would be
+suppressed, cannot stand in for the regression. The CI step that runs the
+target is pinned unconditional, as is the nextest installation it depends on,
+and that installation has to be a command in its own right: a step that only
+prints or comments the installer path installs nothing. The declaration the
+recipe names must still carry a test attribute, because a plain function of the
+same name is never discovered and the zero-test flag cannot fire for it. The
+direct test scores a synthetic batch; the insertion-path test drives a real
+insertion in a dedicated four-worker pool and records the thread, the Rayon
+worker, and a non-blocking `insert_mutex` `try_lock` for every post-planning
+distance callback. Both assert that the callbacks stay on the mutex holder.
 
 What the two checks establish differs:
 
