@@ -55,13 +55,27 @@ _OPERATOR_CHARS = frozenset(";&|()<>")
 _WORD_SEPARATORS = frozenset(" \t\n")
 
 
+def _is_ansi_c_string(line: str, start: int) -> bool:
+    """Return whether the quote at `start` opens a Bash ``$'...'`` string.
+
+    Examples
+    --------
+    >>> _is_ansi_c_string("$'a'", 1)
+    True
+    >>> _is_ansi_c_string("'a'", 0)
+    False
+    """
+    return start > 0 and line[start - 1] == "$"
+
+
 def closing_quote(line: str, start: int) -> int | None:
     """Return the index of the quote that closes the one at `start`.
 
-    A double-quoted string may escape its own quote, so a backslash is skipped
-    together with the character after it. A single-quoted string has no
-    escapes. An unclosed quote returns ``None``, because whether that is an
-    error depends on what the caller is reading.
+    A double-quoted string and a Bash ANSI-C string (``$'...'``) may escape
+    their own quote, so a backslash is skipped together with the character
+    after it. An ordinary single-quoted string has no escapes. An unclosed
+    quote returns ``None``, because whether that is an error depends on what
+    the caller is reading.
 
     Examples
     --------
@@ -72,11 +86,15 @@ def closing_quote(line: str, start: int) -> int | None:
     >>> escaped = '"a ' + chr(92) + '" b"'
     >>> closing_quote(escaped, 0)
     7
+    >>> ansi = "$'a" + chr(92) + "'b'"
+    >>> closing_quote(ansi, 1)
+    6
     """
     quote = line[start]
+    escape_aware = quote == '"' or _is_ansi_c_string(line, start)
     index = start + 1
     while index < len(line):
-        if line[index] == "\\" and quote == '"':
+        if line[index] == "\\" and escape_aware:
             index += 2
             continue
         if line[index] == quote:

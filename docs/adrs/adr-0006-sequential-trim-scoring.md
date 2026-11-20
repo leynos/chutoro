@@ -150,17 +150,18 @@ section may block on, or dispatch work to, the Rayon pool.
   `pool.install::<_, ()>(...)`, `out.par_extend::<()>(items)` and
   `pool.join::<_, _, (), ()>(...)`, and whose angles are counted rather than
   matched, so a nested list such as `::<Outer<A, B>, C>` and an arrow in a
-  function type such as `::<fn() -> u8>` are still read as one list.
-  `pool.join(...)` is matched because it takes two arguments where a slice or
-  path join takes one. The join is read from its argument list rather than from
-  what the first argument looks like: a top-level comma with a value after it
-  means two arguments, so an inline closure, a bound callable such as
-  `pool.join(left, right)`, and a call that builds one such as
-  `pool.join(make_job(), || ())` are all caught, while a trailing comma, or a
-  comma between turbofish type arguments — including one inside a nested list
-  such as `dir.join(make_path::<Outer<A, B>, C>())` — leaves
-  `names.join(separator,)` and `dir.join(make_path::<A, B>())` slice and path
-  joins. Each remaining entry is a boundary-aware pattern, so a slice
+  function type such as `::<fn() -> u8>` are still read as one list. Rust
+  permits whitespace and comments between the `.` and the method name, so
+  `pool. install(...)` is read as the call it is. `pool.join(...)` is matched
+  because it takes two arguments where a slice or path join takes one. The join
+  is read from its argument list rather than from what the first argument looks
+  like: a top-level comma with a value after it means two arguments, so an
+  inline closure, a bound callable such as `pool.join(left, right)`, and a call
+  that builds one such as `pool.join(make_job(), || ())` are all caught, while
+  a trailing comma, or a comma between turbofish type arguments — including one
+  inside a nested list such as `dir.join(make_path::<Outer<A, B>, C>())` —
+  leaves `names.join(separator,)` and `dir.join(make_path::<A, B>())` slice and
+  path joins. Each remaining entry is a boundary-aware pattern, so a slice
   `names.join(", ")` is not read as a Rayon join. The synthetic sources these
   readings are checked against live in `trim_scoring_samples.py`, beside the
   reader rather than inside it. Dispatch in a listed helper is therefore
@@ -241,21 +242,24 @@ features, and the `build-test` CI job runs that target unconditionally beside
 `tests/workflow_contracts/scheduling_contract_test.py` and
 `scheduling_ci_test.py`, reading through `scheduling_reading.py`,
 `scheduling_command_reading.py`, `scheduling_script_reading.py`,
-`scheduling_line_reading.py`, `rust_declaration_reading.py`, and
-`workflow_support.py`, pin the target recipe, one invocation per fully
-qualified test name, each invocation's whole filter expression as exactly one
-selector, the zero-test failure flag on each, the absence of every
-feature-selection flag (`--all-features`, `--no-default-features`, `--features`
-and its `=` form, and `-F`), the absence of `--no-run` (which compiles the
-selected tests without executing them), the unconditional and blocking
-execution of the step and its nextest installer within an unconditional job,
-the order that installs `cargo-nextest` before the target runs, and that the
-installer appears as a command in its own right rather than as an argument to
-`echo` or inside a comment, certain to run — no earlier `||` can skip it
-(`true || installer`) — in the foreground (a trailing `&` is rejected, whether
-it follows the installer or a later command, as in `installer && echo done &`),
-with no operator that would replace its status, neither directly after it
-(`|| true`, `; true`) nor further along the same command line
+`scheduling_line_reading.py`, `scheduling_shell_reading.py`,
+`rust_declaration_reading.py`, and `workflow_support.py`, pin the target
+recipe, one invocation per fully qualified test name, each invocation's whole
+filter expression as exactly one selector, the zero-test failure flag on each,
+the absence of every feature-selection flag (`--all-features`,
+`--no-default-features`, `--features` and its `=` form, and `-F`), the absence
+of `--no-run` (which compiles the selected tests without executing them), the
+unconditional and blocking execution of the step and its nextest installer
+within an unconditional job, the order that installs `cargo-nextest` before the
+target runs, and that the installer appears as a command in its own right
+rather than as an argument to `echo` or inside a comment, certain to run — no
+earlier `||` can skip it (`true || installer`), and an earlier `&&` runs it
+only when everything before it succeeded, so `false && installer` never
+installs it and only `;` starts a command list that runs whatever came before
+it — in the foreground (a trailing `&` is rejected, whether it follows the
+installer or a later command, as in `installer && echo done &`), with no
+operator that would replace its status, neither directly after it (`|| true`,
+`; true`) nor further along the same command line
 (`installer && echo installed || true`), nor after the chain's own line:
 `errexit` exempts a failing command inside an AND/OR list unless it is the
 command after the final `&&`, so `installer && echo installed` followed by a
@@ -270,18 +274,26 @@ redirection too. A physical line ending in `&&`, `||`, `|` or `|&` continues
 the command list onto the next line, so `true ||` followed by an installer line
 never runs the installer while an installer followed by `&&` carries its
 failure into the next line; comments and blank lines between the two are
-skipped as the shell skips them. A `.PHONY` declaration is read with its
-comments removed as well, so a target named only after a `#` is not declared
-phony. Comments are removed with shell word boundaries, so a `#` inside a word,
-as in a redirect to `scheduling#log`, is part of that word and the mask after
-it stays visible; an escaped operator ends no word either, so
-`>scheduling\;#log` keeps its mask too. Quoted text is data, so
-`echo '&&' installer` prints the path rather than running it. Commands are
-tokenized with shell separators rather than whitespace alone, so an unspaced
-`||true` reads as the operator it is. Finally, it checks that each named
-regression is still declared under `cpu/trim_tests` with a test attribute,
-since an undiscovered function cannot trip `--no-tests=fail`, and that a
-declaration quoted inside a string literal does not stand in for one.
+skipped as the shell skips them. A backslash-newline pair is deleted with
+nothing inserted in its place, so a path split as `scripts/install-\` and
+`nextest.sh` is the one word the shell runs. A `.PHONY` declaration is read
+with its comments removed as well, so a target named only after a `#` is not
+declared phony, and a comment continued with a trailing backslash keeps the
+next line out of the declaration too. Comments are removed with shell word
+boundaries, so a `#` inside a word, as in a redirect to `scheduling#log`, is
+part of that word and the mask after it stays visible; an escaped operator ends
+no word either, so `>scheduling\;#log` keeps its mask too. Quoted text is data,
+so `echo '&&' installer` prints the path rather than running it; an escaped
+operator is data for the same reason, so `echo \&\& installer` prints both
+ampersands, and a Bash ANSI-C string (`$'...'`) honours its backslash escapes,
+so an escaped `'` does not end it. Commands are tokenized with shell separators
+rather than whitespace alone, so an unspaced `||true` reads as the operator it
+is. Finally, it checks that each named regression is still declared under
+`cpu/trim_tests` with a test attribute, since an undiscovered function cannot
+trip `--no-tests=fail`, and that a declaration quoted inside a string literal
+does not stand in for one. The step's effective shell is resolved through the
+workflow, job, and step scopes, and a custom template that only syntax-checks
+the script, such as `bash -n {0}`, is rejected.
 
 Positive evidence, on commit `8cce8f4` on 2026-11-20: `make check-fmt`,
 `make markdownlint` including spelling, `make interrogate` (at 100% documented

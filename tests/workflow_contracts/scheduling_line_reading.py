@@ -41,21 +41,24 @@ _QUOTED = "\x01{}\x02"
 
 
 class MaskedLine(typ.NamedTuple):
-    """A line with its quoted text set aside, and the text that was quoted."""
+    """A line with its quoted and escaped text set aside for safe reading."""
 
     text: str
     quoted: list[str]
 
 
 def mask_quotes(line: str) -> MaskedLine:
-    """Return `line` with each quoted word replaced by a marker.
+    """Return `line` with each quoted word and escaped character set aside.
 
     Quotes decide what is an operator and what is text. ``echo '&&' installer``
     prints both words; once ``shlex`` has removed the quotes, the ``&&`` is
     indistinguishable from an operator, and a reader that splits on operators
-    sees a command where the shell ran a word. Setting the quoted text aside
-    before the line is read keeps the two apart, and restoring it afterwards
-    keeps the words the command is given.
+    sees a command where the shell ran a word. A backslash does the same to a
+    bare character: ``echo \\&\\& installer`` prints the two ampersands, and
+    ``shlex`` removes the escapes before a separator check can tell the
+    difference. Setting both kinds of text aside before the line is read keeps
+    words and operators apart, and restoring them afterwards keeps the words
+    the command is given.
 
     A backslash escapes the character after it, so an escaped quote opens no
     quoted text. An unterminated quote raises, as in ``strip_shell_comment``.
@@ -66,6 +69,11 @@ def mask_quotes(line: str) -> MaskedLine:
     ['a b']
     >>> mask_quotes("echo 'a b'").text
     'echo \\x010\\x02'
+    >>> escaped = mask_quotes("echo " + chr(92) + "&" + chr(92) + "& x")
+    >>> escaped.quoted
+    ['&', '&']
+    >>> "&" in escaped.text
+    False
     """
     masked: list[str] = []
     quoted: list[str] = []
@@ -73,7 +81,8 @@ def mask_quotes(line: str) -> MaskedLine:
     while index < len(line):
         char = line[index]
         if char == "\\" and index + 1 < len(line):
-            masked.append(line[index : index + 2])
+            quoted.append(line[index + 1])
+            masked.append("\\" + _QUOTED.format(len(quoted) - 1))
             index += 2
             continue
         if char not in "'\"":
@@ -103,32 +112,13 @@ def restore_quotes(token: str, quoted: list[str]) -> str:
     return token
 
 
-def _escaped(text: str, index: int) -> bool:
-    """Return whether the character at `index` is backslash-escaped.
-
-    Examples
-    --------
-    >>> _escaped("a&b", 1)
-    False
-    >>> _escaped("a" + chr(92) + "&b", 2)
-    True
-    >>> _escaped("a" + chr(92) * 2 + "&b", 3)
-    False
-    """
-    backslashes = 0
-    index -= 1
-    while index >= 0 and text[index] == "\\":
-        backslashes += 1
-        index -= 1
-    return backslashes % 2 == 1
-
-
 def _ends_with_operator(line: str) -> bool:
     """Return whether `line` ends with an unescaped list operator.
 
     Quoted text is data, so an operator inside quotes ends nothing, and a
     backslash makes the character after it literal, so an escaped ``&`` is
-    part of a word rather than the start of one.
+    part of a word rather than the start of one. Masking both before the
+    check leaves only operators the shell would act on.
 
     Examples
     --------
@@ -138,15 +128,13 @@ def _ends_with_operator(line: str) -> bool:
     True
     >>> _ends_with_operator("echo '&&'")
     False
+    >>> _ends_with_operator("make test " + chr(92) + "&&")
+    False
     >>> _ends_with_operator("make test &")
     False
     """
     text = mask_quotes(line).text.rstrip()
-    for operator in _LIST_OPERATORS:
-        if not text.endswith(operator):
-            continue
-        return not _escaped(text, len(text) - len(operator))
-    return False
+    return any(text.endswith(operator) for operator in _LIST_OPERATORS)
 
 
 def _joined_lines(script: str) -> list[str]:
@@ -157,6 +145,11 @@ def _joined_lines(script: str) -> list[str]:
     character``, because the escape has nothing left to escape, so the
     continuations are resolved first.
 
+    The shell deletes an unquoted backslash-newline pair and inserts nothing
+    in its place, so the two parts of a split word are joined exactly. A space
+    inserted here would turn the installer path ``scripts/install-\\`` +
+    ``nextest.sh`` into two words the step never runs.
+
     Examples
     --------
     The continuation is built with ``chr(92)`` and ``chr(10)``, because a
@@ -165,14 +158,18 @@ def _joined_lines(script: str) -> list[str]:
     >>> _joined_lines(
     ...     "cargo build " + chr(92) + chr(10) + "  --release"
     ... )
-    ['cargo build    --release']
+    ['cargo build   --release']
+    >>> _joined_lines(
+    ...     "scripts/install-" + chr(92) + chr(10) + "nextest.sh"
+    ... )
+    ['scripts/install-nextest.sh']
     """
     lines: list[str] = []
     pending = ""
     for raw in script.splitlines():
         line = raw.rstrip()
         if line.endswith("\\"):
-            pending = f"{pending}{line[:-1]} "
+            pending = f"{pending}{line[:-1]}"
             continue
         lines.append(f"{pending}{line}")
         pending = ""

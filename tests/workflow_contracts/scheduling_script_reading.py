@@ -45,11 +45,12 @@ _OPERATOR_CHARS = frozenset(";&|")
 #: and report success.
 _CARRYING_OPERATOR = "&&"
 
-#: Operators a command may follow and still be certain to run. ``&&`` skips it
-#: only when the line has already failed, and ``;`` never skips it; every
-#: other operator can skip a command whose predecessors succeeded and carry on
-#: as if nothing had happened, as ``true || installer`` does.
-_UNCONDITIONAL_BEFORE = frozenset({"&&", ";"})
+#: Operators after which a command is certain to run. Only ``;`` starts a
+#: fresh command list unconditionally. A command after ``&&`` runs only when
+#: everything before it succeeded, so ``false && installer`` never installs;
+#: a command after ``||``, ``|``, ``&`` or ``|&`` may be skipped or deferred,
+#: as ``true || installer`` shows.
+_UNCONDITIONAL_BEFORE = frozenset({";"})
 
 
 class _Segment(typ.NamedTuple):
@@ -131,6 +132,11 @@ def _lines(script: str) -> list[list[_Segment]]:
     [['true'], ['installer']]
     >>> [segment.follows for segment in _lines("true ||" + chr(10) + "installer")[0]]
     ['||', '']
+    >>> escaped = "echo " + chr(92) + "&" + chr(92) + "& installer"
+    >>> [segment.words for segment in _lines(escaped)[0]]
+    [['echo', '&&', 'installer']]
+    >>> len(_lines(escaped)[0])
+    1
     """
     lines: list[list[_Segment]] = []
     for source_line in logical_lines(script):
@@ -145,25 +151,31 @@ def _reaches_the_installer(line: list[_Segment], index: int) -> bool:
 
     A command after ``||``, ``|``, ``&`` or ``|&`` may be skipped while the
     line still carries on: ``true || installer`` never installs anything,
-    because ``true`` succeeds. A command after ``&&`` runs unless the line has
-    already failed, and after ``;`` it always runs, so both are reached.
+    because ``true`` succeeds. A command after ``&&`` is just as uncertain:
+    ``false && installer`` never installs either. Only ``;`` starts a fresh
+    command list that runs unconditionally, so ``false && a ; installer``
+    does reach the installer, while ``a ; false && installer`` does not.
 
     Examples
     --------
     >>> _reaches_the_installer(_lines("a")[0], 0)
     True
-    >>> _reaches_the_installer(_lines("a && b")[0], 1)
-    True
     >>> _reaches_the_installer(_lines("a; b")[0], 1)
     True
+    >>> _reaches_the_installer(_lines("false && a ; b")[0], 2)
+    True
+    >>> _reaches_the_installer(_lines("a ; false && b")[0], 2)
+    False
+    >>> _reaches_the_installer(_lines("a && b")[0], 1)
+    False
     >>> _reaches_the_installer(_lines("a || b")[0], 1)
     False
     >>> _reaches_the_installer(_lines("a | b")[0], 1)
     False
     """
-    return all(
-        segment.follows in _UNCONDITIONAL_BEFORE for segment in line[:index]
-    )
+    if index == 0:
+        return True
+    return line[index - 1].follows in _UNCONDITIONAL_BEFORE
 
 
 def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
@@ -260,16 +272,17 @@ def installs_nextest(script: str) -> bool:
     and a commented-out line, so the ordering contract could pass without
     anything being installed. The command must also be certain to run, run in
     the foreground, and be allowed to fail the step: an earlier ``||`` can skip
-    it, a masked failure installs nothing and reports success, the mask can sit
-    anywhere later on the line rather than only immediately after the
-    installer, and a trailing ``&`` lets the next command start first. A
-    failure carried by ``&&`` is exempt from ``errexit`` unless it is the
-    line's last command, so such a chain must also end the script, or a later
-    line that succeeds absorbs the status. Physical lines are joined where
-    the shell joins them: a trailing ``&&`` or ``||`` continues the list onto
-    the next line, so ``true ||`` followed by an installer line never runs
-    the installer, and an installer followed by ``&&`` carries its failure
-    into the next line.
+    it, an earlier ``&&`` runs it only if everything before it succeeded, so
+    ``false && installer`` never installs, a masked failure installs nothing
+    and reports success, the mask can sit anywhere later on the line rather
+    than only immediately after the installer, and a trailing ``&`` lets the
+    next command start first. A failure carried by ``&&`` is exempt from
+    ``errexit`` unless it is the line's last command, so such a chain must
+    also end the script, or a later line that succeeds absorbs the status.
+    Physical lines are joined where the shell joins them: a trailing ``&&``
+    or ``||`` continues the list onto the next line, so ``true ||`` followed
+    by an installer line never runs the installer, and an installer followed
+    by ``&&`` carries its failure into the next line.
 
     Examples
     --------
@@ -285,9 +298,14 @@ def installs_nextest(script: str) -> bool:
     False
     >>> installs_nextest("true || scripts/install-nextest.sh")
     False
+    >>> installs_nextest("false && scripts/install-nextest.sh")
+    False
     >>> installs_nextest("scripts/install-nextest.sh &")
     False
     >>> installs_nextest("echo '&&' scripts/install-nextest.sh")
+    False
+    >>> escaped = "echo " + chr(92) + "&" + chr(92) + "& " + NEXTEST_INSTALLER
+    >>> installs_nextest(escaped)
     False
     >>> installs_nextest("scripts/install-nextest.sh >install#log || true")
     False

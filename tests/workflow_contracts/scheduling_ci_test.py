@@ -7,7 +7,8 @@ target to run there, beside ``make test-workflow-contracts``, after
 
 The recipe's own contents are pinned by ``scheduling_contract_test``. This
 module covers only the wiring that decides whether the recipe ever executes,
-and reads each step's script through ``scheduling_script_reading``.
+reading each step's script through ``scheduling_script_reading`` and the shell
+that runs it through ``scheduling_shell_reading``.
 
 Run via ``make test-workflow-contracts``.
 """
@@ -17,7 +18,8 @@ from __future__ import annotations
 import pytest
 from scheduling_reading import TARGET
 from scheduling_script_reading import NEXTEST_INSTALLER, installs_nextest
-from workflow_support import job, run_script, steps
+from scheduling_shell_reading import effective_shell, runs_the_script
+from workflow_support import job, load_workflow, run_script, steps
 
 
 def _build_test_steps() -> list[dict[str, object]]:
@@ -51,6 +53,21 @@ def _step_running(command: str) -> dict[str, object] | None:
     )
 
 
+def _scope(shell: str | None) -> dict[str, object]:
+    """Return a workflow or job declaring `shell` as its run default, if any.
+
+    Examples
+    --------
+    >>> _scope("bash")
+    {'defaults': {'run': {'shell': 'bash'}}}
+    >>> _scope(None)
+    {}
+    """
+    if shell is None:
+        return {}
+    return {"defaults": {"run": {"shell": shell}}}
+
+
 def _assert_unconditional(step: dict[str, object] | None, command: str) -> None:
     """Fail unless `step` exists and its failure would fail the job.
 
@@ -58,7 +75,9 @@ def _assert_unconditional(step: dict[str, object] | None, command: str) -> None:
     evidence or the job has not done its work. A condition, including
     ``if: false``, would let the step disappear while the contract still
     found its command in the file, and ``continue-on-error`` would let a
-    failing regression leave the job green.
+    failing regression leave the job green. The shell matters as well: a
+    custom template such as ``bash -n {0}`` passes every check above while
+    only parsing the script, so the effective shell must execute it.
     """
     assert step is not None, f"build-test must run {command}"
     condition = step.get("if")
@@ -67,6 +86,12 @@ def _assert_unconditional(step: dict[str, object] | None, command: str) -> None:
     )
     assert "continue-on-error" not in step, (
         f"{command} must fail the job when it fails; it is non-blocking"
+    )
+    shell = effective_shell(
+        step, job("ci.yml", "build-test"), load_workflow("ci.yml")
+    )
+    assert runs_the_script(shell), (
+        f"{command} must execute; its shell {shell!r} would only parse it"
     )
 
 
@@ -138,7 +163,24 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
         pytest.param(NEXTEST_INSTALLER, True, id="the-installer"),
         pytest.param(f"bash {NEXTEST_INSTALLER}", True, id="through-a-shell"),
         pytest.param(
-            f"make test && {NEXTEST_INSTALLER}", True, id="after-another-command"
+            f"make test && {NEXTEST_INSTALLER}",
+            False,
+            id="after-an-unproven-command",
+        ),
+        pytest.param(
+            f"false && {NEXTEST_INSTALLER}",
+            False,
+            id="skipped-by-a-preceding-failure",
+        ),
+        pytest.param(
+            f"echo done ; {NEXTEST_INSTALLER}",
+            True,
+            id="after-a-semicolon",
+        ),
+        pytest.param(
+            f"false && make test ; {NEXTEST_INSTALLER}",
+            True,
+            id="after-a-semicolon-that-resets-the-chain",
         ),
         pytest.param(
             f"{NEXTEST_INSTALLER} && make test-workflow-contracts",
@@ -193,6 +235,16 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
             id="a-quoted-operator",
         ),
         pytest.param(
+            "echo " + chr(92) + "&" + chr(92) + "& " + NEXTEST_INSTALLER,
+            False,
+            id="an-escaped-operator",
+        ),
+        pytest.param(
+            "scripts/install-" + chr(92) + "\nnextest.sh",
+            True,
+            id="a-path-split-by-a-continuation",
+        ),
+        pytest.param(
             f"{NEXTEST_INSTALLER} >install#log || true",
             False,
             id="a-mask-after-a-word-internal-hash",
@@ -242,19 +294,76 @@ def test_the_installer_selector_reads_executable_use(
     along an ``&&`` chain masks the installer's failure just as well as one
     placed right after it. A preceding ``||`` is the mirror image: ``true ||
     installer`` gives the selector a command that runs to completion and never
-    installs, and a trailing ``&`` lets the rest of the step start first
-    whether it follows the installer or a later command in the chain.
+    installs, and so does a preceding ``&&`` whose left side may fail, as
+    ``false && installer`` never runs. Only ``;`` starts a command list that
+    runs whatever came before it. A trailing ``&`` lets the rest of the step
+    start first whether it follows the installer or a later command in the
+    chain.
 
     Text decides the reading as well as syntax: a quoted ``&&`` is an
-    argument, not an operator, and a ``#`` inside a redirection's word does
-    not start a comment, so the mask after it stays visible. ``errexit``
-    completes the picture: the installer's failure in an ``&&`` chain is
-    exempt unless it is the line's last command, so a later success absorbs
-    it. The chain therefore has to end the script, and a comment after it
-    changes nothing — no command follows to replace the status. A chain that
-    ends in a trailing operator continues onto the next line, so the two
-    lines are read as the one command list the shell runs.
+    argument, not an operator, and an escaped operator is data for the same
+    reason, so a step that echoes two escaped ampersands runs nothing. A ``#``
+    inside a redirection's word does not start a comment, so the mask after
+    it stays visible. ``errexit`` completes the picture: the installer's
+    failure in an ``&&`` chain is exempt unless it is the line's last command,
+    so a later success absorbs it. The chain therefore has to end the script,
+    and a comment after it changes nothing — no command follows to replace
+    the status. A chain that ends in a trailing operator continues onto the
+    next line, so the two lines are read as the one command list the shell
+    runs, and a backslash continuation inside the path itself joins the two
+    halves into the word the shell runs.
     """
     assert installs_nextest(script) is expected, (
         f"installs_nextest must return {expected} for {script!r}"
     )
+
+
+@pytest.mark.parametrize(
+    ("workflow_shell", "job_shell", "step_shell", "expected"),
+    [
+        pytest.param(None, None, None, None, id="the-runner-default"),
+        pytest.param("sh", None, None, "sh", id="a-workflow-default"),
+        pytest.param("sh", "bash", None, "bash", id="a-job-override"),
+        pytest.param(None, None, "bash", "bash", id="a-step-default"),
+        pytest.param(
+            "sh",
+            "bash",
+            "bash -n {0}",
+            "bash -n {0}",
+            id="a-step-override",
+        ),
+    ],
+)
+def test_the_effective_shell_follows_override_precedence(
+    workflow_shell: str | None,
+    job_shell: str | None,
+    step_shell: str | None,
+    expected: str | None,
+) -> None:
+    """A shell declared at any scope decides how the step's script is run.
+
+    A step's own ``shell`` wins over the job's default, which wins over the
+    workflow's. Reading only the step would miss a default declared higher up,
+    and reading only the defaults would miss the step that overrides them.
+    """
+    workflow = _scope(workflow_shell)
+    definition = _scope(job_shell)
+    step = {} if step_shell is None else {"shell": step_shell}
+    assert effective_shell(step, definition, workflow) == expected
+
+
+@pytest.mark.parametrize("scope", ["workflow", "job", "step"])
+def test_a_syntax_only_shell_is_rejected_at_every_scope(scope: str) -> None:
+    """``bash -n`` parses the script and runs none of the gate's command.
+
+    GitHub accepts a shell template at all three scopes, so a syntax-only
+    template declared at any of them would leave the step green with no
+    evidence produced.
+    """
+    shell = "bash -n {0}"
+    workflow = _scope(shell) if scope == "workflow" else {}
+    definition = _scope(shell) if scope == "job" else {}
+    step = {"shell": shell} if scope == "step" else {}
+    effective = effective_shell(step, definition, workflow)
+    assert effective == shell
+    assert not runs_the_script(effective)

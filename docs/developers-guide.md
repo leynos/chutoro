@@ -2867,13 +2867,14 @@ as `dir.join(make_path::<Outer<A, B>, C>())` is still one argument and the `>`
 of a function type's arrow, as in `::<fn() -> u8>`, closes nothing. Each
 remaining entry is a boundary-aware pattern rather than a substring, so a slice
 `names.join(", ")`, a slice join on a variable separator, or a path
-`dir.join("file")` in the scored body is not reported as a Rayon join. The
-synthetic sources these readings are checked against live in
-`trim_scoring_samples.py`, beside the reader rather than inside it. The
-contract also checks a checked-in copy of the former `score_trim_jobs` and
-requires it to read as a dispatch, so the fixture cannot drift into agreement
-with the fixed code. A missing function fails the contract rather than reading
-as clean. `make test-workflow-contracts` runs it.
+`dir.join("file")` in the scored body is not reported as a Rayon join. Rust
+permits whitespace and comments between the `.` and the method name, so
+`pool. install(...)` is read as the call it is. The synthetic sources these
+readings are checked against live in `trim_scoring_samples.py`, beside the
+reader rather than inside it. The contract also checks a checked-in copy of the
+former `score_trim_jobs` and requires it to read as a dispatch, so the fixture
+cannot drift into agreement with the fixed code. A missing function fails the
+contract rather than reading as clean. `make test-workflow-contracts` runs it.
 
 The scan's limits are part of the contract. It can see a listed helper that
 dispatches, but not an unlisted helper called by one of the five, not an
@@ -2893,54 +2894,64 @@ compiles the selected tests without executing them, so it satisfies every
 selector and count while producing no runtime evidence. The workflow contract,
 `scheduling_contract_test.py` and `scheduling_ci_test.py` with their companions
 `scheduling_reading.py`, `scheduling_command_reading.py`,
-`scheduling_script_reading.py`, `scheduling_line_reading.py`, and
-`rust_declaration_reading.py`, also requires each invocation's whole filter
-expression to be exactly one selector, so a widened expression such as
-`test(=name) | all()` cannot keep an invocation non-empty after the regression
-is renamed. The recipe's commands must run nextest in executable position and
-must not carry Make's error-ignoring `-` prefix or a failure-masking shell
-suffix such as `|| true` (spaced or not: the commands are tokenized with shell
-separators, so `||true` is read as the operator it is), so a command that
-merely mentions nextest, or one whose failure would be suppressed, cannot stand
-in for the regression. The zero-test flag is matched as a whole token, so a
-redirection target such as `>--no-tests=fail` cannot stand in for it on a
-command that carries `--no-tests=pass`, and the spaced form
-`> --no-tests=fail`, whose target is a separate word, is dropped as the file
-name it is; a file-descriptor prefix such as `2>` is read as a redirection too.
-Shell comments are removed first, but a `#` starts one only at the start of a
-word, and an escaped operator does not end the word before it: the hash in
-`nextest run >scheduling#log || true` and in `>scheduling\;#log || true` is
-part of the redirection, and cutting there would have hidden the mask the
-command carries. Quoted text is data as well, so `echo '&&' installer` only
-prints the path; a quoted operator is an argument, not a command separator. The
+`scheduling_script_reading.py`, `scheduling_line_reading.py`,
+`scheduling_shell_reading.py`, and `rust_declaration_reading.py`, also requires
+each invocation's whole filter expression to be exactly one selector, so a
+widened expression such as `test(=name) | all()` cannot keep an invocation
+non-empty after the regression is renamed. The recipe's commands must run
+nextest in executable position and must not carry Make's error-ignoring `-`
+prefix or a failure-masking shell suffix such as `|| true` (spaced or not: the
+commands are tokenized with shell separators, so `||true` is read as the
+operator it is), so a command that merely mentions nextest, or one whose
+failure would be suppressed, cannot stand in for the regression. The zero-test
+flag is matched as a whole token, so a redirection target such as
+`>--no-tests=fail` cannot stand in for it on a command that carries
+`--no-tests=pass`, and the spaced form `> --no-tests=fail`, whose target is a
+separate word, is dropped as the file name it is; a file-descriptor prefix such
+as `2>` is read as a redirection too. Shell comments are removed first, but a
+`#` starts one only at the start of a word, and an escaped operator does not
+end the word before it: the hash in `nextest run >scheduling#log || true` and in
+`>scheduling\;#log || true` is part of the redirection, and cutting there
+would have hidden the mask the command carries. Quoted text is data as well, so
+`echo '&&' installer` only prints the path; a quoted operator is an argument,
+not a command separator, and a Bash ANSI-C string (`$'...'`) honours its
+backslash escapes, so an escaped `'` does not end it. Escaped operator text is
+data for the same reason, so `echo \&\& installer` prints both ampersands. The
 CI step that runs the target is pinned unconditional, as is the nextest
 installation it depends on, and that installation has to be a command in its
 own right: a step that only prints or comments the installer path installs
 nothing, and neither does one whose failure is masked (`installer || true`,
 `installer; true`, or a `||` anywhere later in the same command line, as in
 `installer && echo installed || true`), one an earlier `||` can skip
-(`true || installer` installs nothing when `true` succeeds), one sent to the
-background (`installer &` lets the next command start first, and so does a `&`
-that ends a later command in the chain, as in `installer && echo done &`), one
-that only parses the script (`bash -n installer`), or one whose `&&` chain is
-followed by another command. `errexit` exempts a failing command inside an
-AND/OR list unless it is the command after the final `&&`, so
+(`true || installer` installs nothing when `true` succeeds), one an earlier
+`&&` may skip (`false && installer` never runs either, and only `;` starts a
+command list that runs whatever came before it), one sent to the background
+(`installer &` lets the next command start first, and so does a `&` that ends a
+later command in the chain, as in `installer && echo done &`), one that only
+parses the script (`bash -n installer`), or one whose `&&` chain is followed by
+another command. The step's effective shell is resolved through the workflow,
+job, and step scopes, and a custom template is rejected when it only
+syntax-checks the script, as `bash -n {0}` does. `errexit` exempts a failing
+command inside an AND/OR list unless it is the command after the final `&&`, so
 `installer && echo installed` on one line and `true` on the next leaves the
 step green, while the same chain as the script's last command fails it. A
 physical line ending in `&&`, `||`, `|` or `|&` continues the command list onto
 the next line, so `true ||` followed by an installer line never installs it and
 an installer followed by `&&` carries its failure into the next line; a comment
-or blank line between the two is skipped as the shell skips it. The declaration
-the recipe names must still carry a test attribute, because a plain function of
-the same name is never discovered and the zero-test flag cannot fire for it,
-and an attributed declaration quoted inside a string literal is an example
-rather than a test. The target must be declared phony, and a `.PHONY`
+or blank line between the two is skipped as the shell skips it. A
+backslash-newline pair is deleted with nothing inserted, so a path split as
+`scripts/install-\` and `nextest.sh` is the one word the shell runs. The
+declaration the recipe names must still carry a test attribute, because a plain
+function of the same name is never discovered and the zero-test flag cannot
+fire for it, and an attributed declaration quoted inside a string literal is an
+example rather than a test. The target must be declared phony, and a `.PHONY`
 declaration is read with its comments removed, so a name mentioned only after a
-`#` declares nothing. The direct test scores a synthetic batch; the
-insertion-path test drives a real insertion in a dedicated four-worker pool and
-records the thread, the Rayon worker, and a non-blocking `insert_mutex`
-`try_lock` for every post-planning distance callback. Both assert that the
-callbacks stay on the mutex holder.
+`#` declares nothing, and a comment continued with a trailing backslash keeps
+the next line out of the declaration as well. The direct test scores a
+synthetic batch; the insertion-path test drives a real insertion in a dedicated
+four-worker pool and records the thread, the Rayon worker, and a non-blocking
+`insert_mutex` `try_lock` for every post-planning distance callback. Both
+assert that the callbacks stay on the mutex holder.
 
 What the two checks establish differs:
 

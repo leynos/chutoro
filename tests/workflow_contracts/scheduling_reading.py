@@ -178,8 +178,8 @@ def feature_flags(recipe: str) -> list[str]:
     return [flag for flag in FEATURE_FLAGS if flag in recipe]
 
 
-def _without_make_comment(line: str) -> str:
-    """Return `line` without its Make comment, keeping an escaped ``#``.
+def _make_comment_start(line: str) -> int | None:
+    """Return the index of the first unescaped ``#`` in `line`, if any.
 
     A Make comment starts at an unescaped ``#`` anywhere on the line, not only
     at a word start as a shell comment does, and ``\\#`` is a literal ``#`` in
@@ -187,10 +187,10 @@ def _without_make_comment(line: str) -> str:
 
     Examples
     --------
-    >>> _without_make_comment("clean # tidy up")
-    'clean '
+    >>> _make_comment_start("clean # tidy up")
+    6
     >>> escaped = "clean " + chr(92) + "#1"
-    >>> _without_make_comment(escaped) == escaped
+    >>> _make_comment_start(escaped) is None
     True
     """
     index = 0
@@ -199,16 +199,33 @@ def _without_make_comment(line: str) -> str:
             index += 2
             continue
         if line[index] == "#":
-            return line[:index]
+            return index
         index += 1
-    return line
+    return None
+
+
+def _comment_continues(line: str) -> bool:
+    """Return whether a Make comment runs past the end of `line`.
+
+    GNU make continues a comment whose line ends in a backslash, so the whole
+    next line is comment text and declares no target.
+
+    Examples
+    --------
+    >>> _comment_continues("clean # note " + chr(92))
+    True
+    >>> _comment_continues("clean # note")
+    False
+    """
+    return line.rstrip().endswith("\\")
 
 
 def _declared_names(line: str) -> list[str]:
     """Return the target names one declaration line adds.
 
-    The continuation backslash ends the line rather than naming a target, and
-    an escaped ``#`` names a target that contains one.
+    The continuation backslash ends the line rather than naming a target, an
+    escaped ``#`` names a target that contains one, and anything from an
+    unescaped ``#`` on is a Make comment rather than a name.
 
     Examples
     --------
@@ -216,9 +233,12 @@ def _declared_names(line: str) -> list[str]:
     ['clean']
     >>> _declared_names(" clean" + chr(92) + "#1")
     ['clean#1']
+    >>> _declared_names(" clean # tidy up")
+    ['clean']
     """
-    uncommented = _without_make_comment(line).rstrip().removesuffix("\\")
-    return uncommented.replace("\\#", "#").split()
+    comment = _make_comment_start(line)
+    uncommented = line if comment is None else line[:comment]
+    return uncommented.rstrip().removesuffix("\\").replace("\\#", "#").split()
 
 
 def phony_targets(text: str) -> set[str]:
@@ -228,7 +248,10 @@ def phony_targets(text: str) -> set[str]:
     line by line and a continuation backslash only joins the next line's
     names. Comments are removed first: ``.PHONY: clean # test-scheduling-
     contract`` declares ``clean`` alone, and reading the comment would make a
-    same-named file seem covered when the target could still be skipped.
+    same-named file seem covered when the target could still be skipped. A
+    comment ending in a backslash continues onto the next line, which declares
+    nothing either, so ``.PHONY: clean # \\`` followed by
+    ``test-scheduling-contract`` still declares only ``clean``.
 
     Examples
     --------
@@ -237,11 +260,22 @@ def phony_targets(text: str) -> set[str]:
     >>> declaration = ".PHONY: clean " + chr(92) + chr(10) + " " + TARGET
     >>> sorted(phony_targets(declaration))
     ['clean', 'test-scheduling-contract']
+    >>> continued = (
+    ...     ".PHONY: clean " + chr(35) + " " + chr(92) + chr(10) + " " + TARGET
+    ... )
+    >>> sorted(phony_targets(continued))
+    ['clean']
     """
     declared = re.findall(r"^\.PHONY:((?:.*\\\n)*.*)$", text, re.MULTILINE)
     names: set[str] = set()
     for declaration in declared:
+        in_comment = False
         for line in declaration.splitlines():
+            if in_comment:
+                in_comment = _comment_continues(line)
+                continue
+            if _make_comment_start(line) is not None:
+                in_comment = _comment_continues(line)
             names.update(_declared_names(line))
     return names
 

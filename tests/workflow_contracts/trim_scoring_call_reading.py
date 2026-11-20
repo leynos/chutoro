@@ -282,10 +282,12 @@ def _argument_starts(body: str, name: str) -> typ.Iterator[int]:
     --------
     >>> list(_argument_starts("pool.join(a, b)", "join"))
     [10]
+    >>> list(_argument_starts("pool. join(a)", "join"))
+    [11]
     >>> list(_argument_starts("pool.join_context(a)", "join"))
     []
     """
-    pattern = re.compile(rf"\.{re.escape(name)}\b")
+    pattern = re.compile(rf"\.\s*{re.escape(name)}\b")
     for match in pattern.finditer(body):
         start = _argument_start(body, match.end())
         if start is not None:
