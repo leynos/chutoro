@@ -321,18 +321,19 @@ delimiter exactly for `<<`, so a closing line indented with a space or a tab is
 body text, while a `<<-` document ignores leading tabs on both body and closing
 line.
 
-Positive evidence, on commit `435a0a0` on 2026-11-20: `make check-fmt`,
+Positive evidence, on commit `f75ea25` on 2026-11-20: `make check-fmt`,
 `make markdownlint` including spelling, `make interrogate` (at 100% documented
-over 821 definitions), and `make test-workflow-contracts` (1021 passed, 1
-skipped, including its CV005 contracts check) all pass on this head. Both
-runtime regressions pass, one nextest invocation each with `--no-tests=fail`, 1
-passed with 674 skipped apiece, observed directly on `435a0a0` and re-run by the
-`build-test` job on every pushed head. `make lint` (rustdoc, Clippy and
-Whitaker), `make typecheck`, `make nixie`, and `make test` passed on earlier
-heads: 1481 nextest tests with 1 skipped and 141 doctests with 24 ignored on
-`447a824`, and the lint gates on `f0b8bbb`. Those heads are the last to change
-a Rust source, and the commits after them touch only these contracts and the
-documentation this record describes.
+over 852 definitions), `make nixie`, `cs delta origin/main`, and
+`make test-workflow-contracts` (1100 passed, 1 skipped, including its CV005
+contracts check) all pass on this head. Both runtime regressions pass, one
+nextest invocation each with `--no-tests=fail`, 1 passed with 674 skipped
+apiece, observed directly on `435a0a0` and re-run by the `build-test` job on
+every pushed head. `make lint` (rustdoc, Clippy and Whitaker), `make typecheck`,
+`make nixie`, and `make test` passed on earlier heads: 1481 nextest tests with
+1 skipped and 141 doctests with 24 ignored on `447a824`, and the lint gates on
+`f0b8bbb`. Those heads are the last to change a Rust source, and the commits
+after them touch only these contracts and the documentation this record
+describes.
 
 Negative control (2026-11-19, scratch worktree detached at the branch head):
 restoring `trim_jobs.into_par_iter()` in `score_trim_jobs` produced both
