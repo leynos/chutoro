@@ -145,11 +145,16 @@ section may block on, or dispatch work to, the Rayon pool.
   `scope_fifo`, `join_context`, `broadcast`, and `spawn_broadcast` calls with
   their `ThreadPool` method forms such as `pool.scope(...)` and
   `scope.spawn(...)`. The generic `pool.install::<_, _>(...)` and
-  `out.par_extend::<_>(...)` are recognized through their turbofish, and
-  `pool.join(...)` because it takes two arguments where a slice or path join
-  takes one. The join is read from its argument list rather than from what the
-  first argument looks like: a top-level comma with a value after it means two
-  arguments, so an inline closure, a bound callable such as
+  `out.par_extend::<_>(...)` are recognized through their turbofish, whose type
+  list may hold a parenthesized unit or tuple type as in
+  `pool.install::<_, ()>(...)`, `out.par_extend::<()>(items)` and
+  `pool.join::<_, _, (), ()>(...)`, and whose angles are counted rather than
+  matched, so a nested list such as `::<Outer<A, B>, C>` and an arrow in a
+  function type such as `::<fn() -> u8>` are still read as one list.
+  `pool.join(...)` is matched because it takes two arguments where a slice or
+  path join takes one. The join is read from its argument list rather than from
+  what the first argument looks like: a top-level comma with a value after it
+  means two arguments, so an inline closure, a bound callable such as
   `pool.join(left, right)`, and a call that builds one such as
   `pool.join(make_job(), || ())` are all caught, while a trailing comma, or a
   comma between turbofish type arguments — including one inside a nested list
@@ -236,31 +241,40 @@ features, and the `build-test` CI job runs that target unconditionally beside
 `tests/workflow_contracts/scheduling_contract_test.py` and
 `scheduling_ci_test.py`, reading through `scheduling_reading.py`,
 `scheduling_command_reading.py`, `scheduling_script_reading.py`,
-`rust_declaration_reading.py`, and `workflow_support.py`, pin the target
-recipe, one invocation per fully qualified test name, each invocation's whole
-filter expression as exactly one selector, the zero-test failure flag on each,
-the absence of every feature-selection flag (`--all-features`,
-`--no-default-features`, `--features` and its `=` form, and `-F`), the absence
-of `--no-run` (which compiles the selected tests without executing them), the
-unconditional and blocking execution of the step and its nextest installer
-within an unconditional job, the order that installs `cargo-nextest` before the
-target runs, and that the installer appears as a command in its own right
-rather than as an argument to `echo` or inside a comment, certain to run — no
-earlier `||` can skip it (`true || installer`) — in the foreground (a trailing
-`&` is rejected, whether it follows the installer or a later command, as in
-`installer && echo done &`), with no operator that would replace its status,
-neither directly after it (`|| true`, `; true`) nor further along the same
-command line (`installer && echo installed || true`), nor after the chain's own
-line: `errexit` exempts a failing command inside an AND/OR list unless it is
-the command after the final `&&`, so `installer && echo installed` followed by
-a later `true` leaves the step green and only the script's last command line
+`scheduling_line_reading.py`, `rust_declaration_reading.py`, and
+`workflow_support.py`, pin the target recipe, one invocation per fully
+qualified test name, each invocation's whole filter expression as exactly one
+selector, the zero-test failure flag on each, the absence of every
+feature-selection flag (`--all-features`, `--no-default-features`, `--features`
+and its `=` form, and `-F`), the absence of `--no-run` (which compiles the
+selected tests without executing them), the unconditional and blocking
+execution of the step and its nextest installer within an unconditional job,
+the order that installs `cargo-nextest` before the target runs, and that the
+installer appears as a command in its own right rather than as an argument to
+`echo` or inside a comment, certain to run — no earlier `||` can skip it
+(`true || installer`) — in the foreground (a trailing `&` is rejected, whether
+it follows the installer or a later command, as in `installer && echo done &`),
+with no operator that would replace its status, neither directly after it
+(`|| true`, `; true`) nor further along the same command line
+(`installer && echo installed || true`), nor after the chain's own line:
+`errexit` exempts a failing command inside an AND/OR list unless it is the
+command after the final `&&`, so `installer && echo installed` followed by a
+later `true` leaves the step green and only the script's last command line
 carries the status out. It also requires the recipe's commands to run nextest
 in executable position without Make's error-ignoring `-` prefix or a
 failure-masking shell suffix such as `|| true`. The zero-test flag is matched
-as a whole token, so a redirection target such as `>--no-tests=fail` cannot
-stand in for it. Comments are removed with shell word boundaries, so a `#`
-inside a word, as in a redirect to `scheduling#log`, is part of that word and
-the mask after it stays visible; an escaped operator ends no word either, so
+as a whole token, so a redirection target cannot stand in for it: neither the
+attached `>--no-tests=fail` nor the spaced `> --no-tests=fail`, whose target
+arrives as a separate word, and a file-descriptor prefix such as `2>` marks a
+redirection too. A physical line ending in `&&`, `||`, `|` or `|&` continues
+the command list onto the next line, so `true ||` followed by an installer line
+never runs the installer while an installer followed by `&&` carries its
+failure into the next line; comments and blank lines between the two are
+skipped as the shell skips them. A `.PHONY` declaration is read with its
+comments removed as well, so a target named only after a `#` is not declared
+phony. Comments are removed with shell word boundaries, so a `#` inside a word,
+as in a redirect to `scheduling#log`, is part of that word and the mask after
+it stays visible; an escaped operator ends no word either, so
 `>scheduling\;#log` keeps its mask too. Quoted text is data, so
 `echo '&&' installer` prints the path rather than running it. Commands are
 tokenized with shell separators rather than whitespace alone, so an unspaced

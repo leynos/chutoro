@@ -21,8 +21,8 @@ import re
 import shlex
 
 from scheduling_command_reading import (
+    command_arguments,
     is_nextest_invocation,
-    shell_tokens,
     strip_shell_comment,
 )
 from workflow_support import ROOT
@@ -178,24 +178,83 @@ def feature_flags(recipe: str) -> list[str]:
     return [flag for flag in FEATURE_FLAGS if flag in recipe]
 
 
+def _without_make_comment(line: str) -> str:
+    """Return `line` without its Make comment, keeping an escaped ``#``.
+
+    A Make comment starts at an unescaped ``#`` anywhere on the line, not only
+    at a word start as a shell comment does, and ``\\#`` is a literal ``#`` in
+    a target name.
+
+    Examples
+    --------
+    >>> _without_make_comment("clean # tidy up")
+    'clean '
+    >>> escaped = "clean " + chr(92) + "#1"
+    >>> _without_make_comment(escaped) == escaped
+    True
+    """
+    index = 0
+    while index < len(line):
+        if line[index] == "\\" and index + 1 < len(line):
+            index += 2
+            continue
+        if line[index] == "#":
+            return line[:index]
+        index += 1
+    return line
+
+
+def _declared_names(line: str) -> list[str]:
+    """Return the target names one declaration line adds.
+
+    The continuation backslash ends the line rather than naming a target, and
+    an escaped ``#`` names a target that contains one.
+
+    Examples
+    --------
+    >>> _declared_names(" clean " + chr(92))
+    ['clean']
+    >>> _declared_names(" clean" + chr(92) + "#1")
+    ['clean#1']
+    """
+    uncommented = _without_make_comment(line).rstrip().removesuffix("\\")
+    return uncommented.replace("\\#", "#").split()
+
+
 def phony_targets(text: str) -> set[str]:
     """Return the names a ``.PHONY`` declaration covers.
 
-    GNU make collapses continued declarations, so the continuation backslashes
-    are removed before splitting. A target absent from this set can be skipped
-    when a file of the same name exists.
+    GNU make collapses continued declarations, so each declaration is read
+    line by line and a continuation backslash only joins the next line's
+    names. Comments are removed first: ``.PHONY: clean # test-scheduling-
+    contract`` declares ``clean`` alone, and reading the comment would make a
+    same-named file seem covered when the target could still be skipped.
+
+    Examples
+    --------
+    >>> sorted(phony_targets(".PHONY: clean " + chr(35) + " " + TARGET))
+    ['clean']
+    >>> declaration = ".PHONY: clean " + chr(92) + chr(10) + " " + TARGET
+    >>> sorted(phony_targets(declaration))
+    ['clean', 'test-scheduling-contract']
     """
     declared = re.findall(r"^\.PHONY:((?:.*\\\n)*.*)$", text, re.MULTILINE)
-    return set(" ".join(declared).replace("\\\n", " ").split())
+    names: set[str] = set()
+    for declaration in declared:
+        for line in declaration.splitlines():
+            names.update(_declared_names(line))
+    return names
 
 
 def invocations_missing_flag(invocations: list[str]) -> list[int]:
     """Return the indices of invocations without ``--no-tests=fail``.
 
-    The flag is matched as a whole word. A substring search accepted
+    The flag is matched as a whole argument. A substring search accepted
     ``nextest run --no-tests=pass >--no-tests=fail``, where the only match is
     the name of a redirection file: the command carries the opposite setting,
-    so an empty selection would pass the gate.
+    so an empty selection would pass the gate. The spaced form redirects just
+    as surely as the attached one, so redirection targets are removed before
+    the check rather than only being matched whole.
 
     Examples
     --------
@@ -205,11 +264,13 @@ def invocations_missing_flag(invocations: list[str]) -> list[int]:
     [1]
     >>> invocations_missing_flag(["nextest run --no-tests=pass >--no-tests=fail"])
     [0]
+    >>> invocations_missing_flag(["nextest run --no-tests=pass > --no-tests=fail"])
+    [0]
     """
     return [
         index
         for index, command in enumerate(invocations)
-        if "--no-tests=fail" not in shell_tokens(command)
+        if "--no-tests=fail" not in command_arguments(command)
     ]
 
 

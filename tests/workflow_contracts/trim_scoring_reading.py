@@ -7,10 +7,11 @@ satisfy, so a parallel build hung outright.
 
 This module is the reading: the pinned function list and the helpers that
 apply it to the named bodies. The marker set itself lives in
-``trim_scoring_markers``. The synthetic sources it must accept
+``trim_scoring_markers``, and the argument-list reading it needs lives in
+``trim_scoring_call_reading``. The synthetic sources it must accept
 or reject live in ``trim_scoring_samples``, and the assertions over both live
-in ``trim_scoring_dispatch_test``, so no one of the three outgrows the
-400-line limit ``AGENTS.md`` sets.
+in ``trim_scoring_dispatch_test``, so no one of them outgrows the 400-line
+limit ``AGENTS.md`` sets.
 
 The reading is lexical. It cannot see dispatch through a helper that is not
 one of the five pinned functions, through an aliased import such as

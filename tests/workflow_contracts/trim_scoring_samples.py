@@ -172,6 +172,35 @@ fn score_trim_jobs(jobs: Vec<Job>) -> Scored {
 }
 """
 
+#: A pool install whose turbofish holds a unit type. `ThreadPool::install` is
+#: generic in its closure and its result, and a result of `()` needs
+#: parentheses inside the turbofish; a pattern that ruled parentheses out did
+#: not see the call at all, so this dispatch read as serial.
+UNIT_INSTALL = """
+fn score_trim_jobs(jobs: Vec<Job>) {
+    pool.install::<_, ()>(|| score(jobs))
+}
+"""
+
+#: A pool join whose turbofish holds tuple types. Both results of
+#: `ThreadPool::join` are spelled as parenthesized types here, so the call
+#: never reached the argument-list check and the body read as a slice join.
+TUPLE_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> (Scored, Scored) {
+    pool.join::<_, _, (), ()>(|| score(left), || score(right))
+}
+"""
+
+#: A local of unit and tuple type, which dispatches nothing. Parenthesised
+#: types are ordinary Rust, so recognising them inside a turbofish must not
+#: turn every tuple in a body into a call.
+UNIT_TYPE_LOCAL = """
+fn score_trim_jobs(jobs: Vec<Job>) -> () {
+    let pair: (u8, u8) = (1, 2);
+    ()
+}
+"""
+
 #: A reverse-chunk iterator, which dispatches as surely as `par_chunks`.
 #: `par_rchunks` does not contain `par_chunks`, so the ordinary chunk marker
 #: missed this body.

@@ -3,13 +3,13 @@
 The insertion critical section scores trim jobs on the calling thread, so any
 body on the scoring path that hands work to the shared pool is the regression
 the contract exists to catch. These are the shapes that do it, as (label,
-test) pairs, and the argument-list reader that tells a `ThreadPool::join`
-from a slice or path join.
+test) pairs.
 
-This module holds the marker set alone. `trim_scoring_reading` holds the
-pinned function list and applies these tests to the named bodies, and
+This module holds the marker set alone. `trim_scoring_call_reading` reads the
+calls that need their argument lists understood, `trim_scoring_reading` holds
+the pinned function list and applies these tests to the named bodies, and
 `trim_scoring_samples` holds the synthetic sources that separate a correct
-test from a weak one, so no one of the three outgrows the 400-line limit
+test from a weak one, so no one of the four outgrows the 400-line limit
 `AGENTS.md` sets.
 
 Re-use policy: import from `trim_scoring_reading` only, which applies the set.
@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import re
 import typing as typ
+
+from trim_scoring_call_reading import calls_the_method, pool_join
 
 #: A test over one function body: true when the body holds the shape.
 _Predicate = typ.Callable[[str], bool]
@@ -42,145 +44,6 @@ def _matches(expression: str) -> _Predicate:
     """
     pattern = re.compile(expression)
     return lambda body: pattern.search(body) is not None
-
-
-#: A `.join(` call, with `ThreadPool::join`'s optional turbofish allowed for.
-_JOIN_CALL: typ.Final[re.Pattern[str]] = re.compile(
-    r"\.join\s*(?:::<[^()]*>)?\s*\("
-)
-
-#: Brackets that nest an argument without ending the list.
-_OPENING: typ.Final[frozenset[str]] = frozenset("([{")
-
-#: Brackets that close an argument or the list.
-_CLOSING: typ.Final[frozenset[str]] = frozenset(")]}")
-
-
-def _pool_join(body: str) -> bool:
-    """Return whether `body` calls `ThreadPool::join`, which takes two ops.
-
-    `[T]::join` and `Path::join` take one argument, so the two are told apart
-    by the argument list rather than by what the first argument looks like: a
-    top-level comma with a value after it means two arguments, whichever form
-    they take. The first may be a closure, `move` or not, a bound callable, or
-    a call that builds one. Reading the list also settles what a pattern
-    could not: a trailing comma declares a single argument, and a comma inside
-    a nested call or a string literal is not a separator. Literals reach here
-    already blanked by :func:`rust_source_reading.function_body`.
-
-    Examples
-    --------
-    >>> _pool_join("pool.join(|| left(), || right())")
-    True
-    >>> _pool_join("pool.join(make_job(), || ())")
-    True
-    >>> _pool_join("names.join(separator,)")
-    False
-    >>> _pool_join("names.join(separator)")
-    False
-    >>> _pool_join("pool.join(f(a, b))")
-    False
-    """
-    return any(
-        _has_second_argument(body, match.end())
-        for match in _JOIN_CALL.finditer(body)
-    )
-
-
-def _has_second_argument(text: str, start: int) -> bool:
-    """Return whether the argument list opening before `start` holds two.
-
-    The scan runs from just inside the opening parenthesis, counting nesting
-    so a comma inside a nested call is not read as a separator, and stops at
-    the matching close. A turbofish's type arguments are skipped for the same
-    reason: ``make_path::<A, B>()`` is one value, not two. Only a comma found
-    at the list's own level counts, and only when a value rather than the
-    close follows it.
-
-    Examples
-    --------
-    >>> _has_second_argument("left, right)", 0)
-    True
-    >>> _has_second_argument("left,)", 0)
-    False
-    >>> _has_second_argument("f(a, b))", 0)
-    False
-    >>> _has_second_argument("make_path::<A, B>())", 0)
-    False
-    """
-    depth = 1
-    index = start
-    while index < len(text):
-        char = text[index]
-        if char == "<" and text[max(index - 2, start):index] == "::":
-            index = _after_turbofish(text, index)
-            continue
-        if char in _OPENING:
-            depth += 1
-        elif char in _CLOSING:
-            depth -= 1
-            if depth == 0:
-                return False
-        elif char == "," and depth == 1 and _follows_a_value(text, index + 1):
-            return True
-        index += 1
-    return False
-
-
-def _after_turbofish(text: str, start: int) -> int:
-    """Return the index just past the generic list opening at `start`.
-
-    Expression-position generics are written ``::<...>``, so the commas in
-    ``make_path::<A, B>()`` separate type arguments rather than the values
-    the call is given. The ``::`` requirement is what keeps a comparison such
-    as ``a < b`` from opening a list that never closes.
-
-    A list may itself be generic: in ``make_path::<Outer<A, B>, C>()`` the
-    commas inside ``Outer<A, B>`` belong to the inner list. Stopping at the
-    first ``>`` ended the skip inside that inner list, leaving its comma to be
-    read as an argument separator, so the angles are counted instead. An
-    arrow in a function type closes nothing, since its ``>`` follows a ``-``.
-
-    Examples
-    --------
-    >>> _after_turbofish("::<A, B>())", 0)
-    8
-    >>> _after_turbofish("::<Outer<A, B>, C>())", 0)
-    18
-    >>> _after_turbofish("::<fn() -> u8>())", 0)
-    14
-    >>> _after_turbofish("::<unclosed", 0)
-    11
-    """
-    depth = 0
-    for index in range(start, len(text)):
-        char = text[index]
-        if char == "<":
-            depth += 1
-        elif char == ">" and text[max(index - 1, 0)] != "-":
-            depth -= 1
-            if depth == 0:
-                return index + 1
-    return len(text)
-
-
-def _follows_a_value(text: str, start: int) -> bool:
-    """Return whether a value rather than a closing bracket follows `start`.
-
-    A trailing comma is legal before the close, so its comma is not evidence
-    of a second argument.
-
-    Examples
-    --------
-    >>> _follows_a_value(" right)", 0)
-    True
-    >>> _follows_a_value(")", 0)
-    False
-    >>> _follows_a_value("  )", 0)
-    False
-    """
-    rest = text[start:].lstrip()
-    return bool(rest) and rest[0] not in _CLOSING
 
 
 #: Rayon entry points that hand a job to the shared pool, as (label, test)
@@ -206,12 +69,16 @@ def _follows_a_value(text: str, start: int) -> bool:
 #: Three method patterns are narrower than the rest. `ThreadPool::install`
 #: and `ParallelExtend::par_extend` are generic, so a turbofish
 #: (`pool.install::<_, _>(...)`, `out.par_extend::<_>(items)`) may sit between
-#: the name and the argument list, and both forms are allowed for. `ThreadPool::join` takes two
-#: arguments, whereas `[T]::join` and `Path::join` take one, so the receiver
-#: form is read by walking its argument list: a comma at the list's own level
-#: with a value after it means two arguments, whichever form the first one
-#: takes, and a slice or path join is left alone however its single argument
-#: is spelled or whether it carries a trailing comma.
+#: the name and the argument list, and both forms are allowed for. A generic
+#: type may itself be parenthesized, as `install::<_, ()>` and
+#: `join::<_, _, (), ()>` are, so the type list is skipped by counting angles
+#: rather than by a pattern that rules parentheses out. `ThreadPool::join`
+#: takes two arguments, whereas `[T]::join` and `Path::join` take one, so the
+#: receiver form is read by walking its argument list: a comma at the list's
+#: own level with a value after it means two arguments, whichever form the
+#: first one takes, and a slice or path join is left alone however its single
+#: argument is spelled or whether it carries a trailing comma. Both readings
+#: live in `trim_scoring_call_reading`.
 #:
 #: `into_par_iter` precedes `par_iter` so the more specific name is reported
 #: for a parallel iterator, and `rayon::` precedes the bare calls so a
@@ -229,14 +96,14 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, _Predicate], ...]] = (
     (".par_sort", _matches(r"\.par_sort")),
     # `ParallelExtend::par_extend` is generic, so a turbofish may sit between
     # the name and the argument list, as it may for `install`.
-    (".par_extend(", _matches(r"\.par_extend\s*(?:::<[^()]*>)?\s*\(")),
+    (".par_extend(", calls_the_method("par_extend")),
     (".par_windows", _matches(r"\.par_windows")),
     (".par_split", _matches(r"\.par_split")),
     (".par_lines", _matches(r"\.par_lines")),
     (".par_chars", _matches(r"\.par_chars")),
     (".par_drain", _matches(r"\.par_drain")),
     ("rayon::", _matches(r"rayon\s*::")),
-    (".install(", _matches(r"\.install\s*(?:::<[^()]*>)?\s*\(")),
+    (".install(", calls_the_method("install")),
     ("scope(", _matches(r"(?<![.\w:])scope\s*\(")),
     (".scope(", _matches(r"\.scope\s*\(")),
     ("scope_fifo(", _matches(r"(?<![.\w:])scope_fifo\s*\(")),
@@ -247,7 +114,7 @@ DISPATCH_MARKERS: typ.Final[tuple[tuple[str, _Predicate], ...]] = (
     (".spawn_fifo(", _matches(r"\.spawn_fifo\s*\(")),
     ("spawn_broadcast(", _matches(r"(?<![.\w:])spawn_broadcast\s*\(")),
     (".spawn_broadcast(", _matches(r"\.spawn_broadcast\s*\(")),
-    (".join(", _pool_join),
+    (".join(", pool_join),
     ("join(", _matches(r"(?<![.\w:])join\s*\(")),
     ("join_context(", _matches(r"(?<![.\w:])join_context\s*\(")),
     ("broadcast(", _matches(r"(?<![.\w:])broadcast\s*\(")),

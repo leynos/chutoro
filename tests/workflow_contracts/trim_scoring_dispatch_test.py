@@ -56,6 +56,9 @@ from trim_scoring_samples import (
     SLICE_JOIN,
     SLICE_JOIN_TRAILING_COMMA,
     SLICE_JOIN_VARIABLE,
+    TUPLE_JOIN,
+    UNIT_INSTALL,
+    UNIT_TYPE_LOCAL,
     UNLISTED_SIBLING,
 )
 
@@ -127,6 +130,9 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
         pytest.param(POOL_JOIN, ".join(", id="a-pool-join"),
         pytest.param(BOUND_JOIN, ".join(", id="a-bound-callable-join"),
         pytest.param(FACTORY_JOIN, ".join(", id="a-factory-call-join"),
+        pytest.param(UNIT_INSTALL, ".install(", id="a-unit-type-install"),
+        pytest.param(TUPLE_JOIN, ".join(", id="a-tuple-type-join"),
+        pytest.param(UNIT_TYPE_LOCAL, None, id="a-unit-and-tuple-type-local"),
         pytest.param(REVERSE_CHUNKS, ".par_rchunks", id="reverse-chunks"),
         pytest.param(SCOPED_HELPER_NAME, None, id="a-helper-named-with-scope"),
         pytest.param(
@@ -209,6 +215,16 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
             "pool.install::<_, _>(|| run())",
             id="generic-install",
         ),
+        pytest.param(
+            ".install(",
+            "pool.install::<_, ()>(|| run())",
+            id="unit-type-install",
+        ),
+        pytest.param(
+            ".par_extend(",
+            "out.par_extend::<()>(items)",
+            id="unit-type-par-extend",
+        ),
         pytest.param("scope(", "scope(|scope| run())", id="scope"),
         pytest.param(".scope(", "pool.scope(|scope| run())", id="method-scope"),
         pytest.param("scope_fifo(", "scope_fifo(|scope| run())", id="scope-fifo"),
@@ -233,6 +249,11 @@ def test_an_unlisted_sibling_is_not_attributed_to_a_pinned_function() -> None:
         ),
         pytest.param(
             ".join(", "pool.join(|| left(), || right())", id="method-join"
+        ),
+        pytest.param(
+            ".join(",
+            "pool.join::<_, _, (), ()>(|| left(), || right())",
+            id="unit-type-join",
         ),
         pytest.param("join(", "join(left, right)", id="join"),
         pytest.param("join_context(", "join_context(left, right)", id="join-context"),

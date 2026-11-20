@@ -13,18 +13,19 @@ This module is the reading. ``scheduling_ci_test`` holds the assertions over
 it, so neither file outgrows the 400-line limit ``AGENTS.md`` sets.
 
 Re-use policy: import from ``scheduling_ci_test`` only; this module reuses the
-shell-comment reading in ``scheduling_command_reading``. A command shape that
-needs a new rule belongs here with the shell behaviour it models stated beside
-it, so a later reader can check the rule against the shell rather than against
-the tests.
+comment and tokenizing readers in ``scheduling_command_reading`` and the line
+joining and quote masking in ``scheduling_line_reading``. A command shape
+that needs a new rule belongs here with the shell behaviour it models stated
+beside it, so a later reader can check the rule against the shell rather than
+against the tests.
 """
 
 from __future__ import annotations
 
-import shlex
 import typing as typ
 
-from scheduling_command_reading import strip_shell_comment
+from scheduling_command_reading import shell_tokens
+from scheduling_line_reading import logical_lines, mask_quotes, restore_quotes
 
 #: The script that installs ``cargo-nextest`` for the job.
 NEXTEST_INSTALLER = "scripts/install-nextest.sh"
@@ -51,38 +52,6 @@ _CARRYING_OPERATOR = "&&"
 _UNCONDITIONAL_BEFORE = frozenset({"&&", ";"})
 
 
-def _joined_lines(script: str) -> list[str]:
-    """Return `script`'s lines with backslash continuations joined.
-
-    A workflow script wraps long commands with a trailing backslash. Passing
-    one of those lines to ``shlex`` on its own raises ``No escaped
-    character``, because the escape has nothing left to escape, so the
-    continuations are resolved first.
-
-    Examples
-    --------
-    The continuation is built with ``chr(92)`` and ``chr(10)``, because a
-    docstring holding those escapes would end the example's line:
-
-    >>> _joined_lines(
-    ...     "cargo build " + chr(92) + chr(10) + "  --release"
-    ... )
-    ['cargo build    --release']
-    """
-    lines: list[str] = []
-    pending = ""
-    for raw in script.splitlines():
-        line = raw.rstrip()
-        if line.endswith("\\"):
-            pending = f"{pending}{line[:-1]} "
-            continue
-        lines.append(f"{pending}{line}")
-        pending = ""
-    if pending.strip():
-        lines.append(pending)
-    return lines
-
-
 class _Segment(typ.NamedTuple):
     """One simple command and the operator that ends it.
 
@@ -96,85 +65,33 @@ class _Segment(typ.NamedTuple):
     follows: str
 
 
-#: The form a quoted word is set aside in while the line's shell syntax is
-#: read. Quoted text is data: ``echo '&&' scripts/install-nextest.sh`` prints
-#: both words, so the quoted operator must not be read as one. The marker
-#: holds no operator or comment character, so masking the text keeps it whole
-#: through both readings.
-_QUOTED = "\x01{}\x02"
+def _segments(tokens: list[str], quoted: list[str]) -> list[_Segment]:
+    """Return one line's simple commands, each with the operator that ends it.
 
-
-class _MaskedLine(typ.NamedTuple):
-    """A line with its quoted text set aside, and the text that was quoted."""
-
-    text: str
-    quoted: list[str]
-
-
-def _closing_quote(line: str, start: int) -> int | None:
-    """Return the index of the quote that closes the one at `start`.
-
-    A double-quoted string may escape its own quote, so a backslash is skipped
-    together with the character after it. A single-quoted string has no
-    escapes.
-    """
-    quote = line[start]
-    index = start + 1
-    while index < len(line):
-        if line[index] == "\\" and quote == '"':
-            index += 2
-            continue
-        if line[index] == quote:
-            return index
-        index += 1
-    return None
-
-
-def _mask_quotes(line: str) -> _MaskedLine:
-    """Return `line` with each quoted word replaced by a marker.
-
-    Quotes decide what is an operator and what is text. ``echo '&&'
-    scripts/install-nextest.sh`` prints the installer path; once ``shlex`` has
-    removed the quotes, the ``&&`` is indistinguishable from an operator, and
-    the step read as installing nextest. Setting the quoted text aside before
-    the line is read keeps the two apart, and restoring it afterwards keeps the
-    words the command is given.
+    ``shlex`` yields any run of operator characters as one token, so ``|&``
+    arrives whole and an unspaced ``||true`` still separates. A word's quoted
+    text was set aside before tokenizing and is restored here, so a command is
+    read with the words the shell would give it.
 
     Examples
     --------
-    >>> _mask_quotes("echo 'a b'").quoted
-    ['a b']
-    >>> _mask_quotes("echo 'a b'").text
-    'echo \\x010\\x02'
+    >>> _segments(["a", "&&", "b"], [])
+    [_Segment(words=['a'], follows='&&'), _Segment(words=['b'], follows='')]
+    >>> _segments(["a", "|&", "b"], [])
+    [_Segment(words=['a'], follows='|&'), _Segment(words=['b'], follows='')]
     """
-    masked: list[str] = []
-    quoted: list[str] = []
-    index = 0
-    while index < len(line):
-        char = line[index]
-        if char == "\\" and index + 1 < len(line):
-            masked.append(line[index : index + 2])
-            index += 2
+    segments: list[_Segment] = []
+    words: list[str] = []
+    for token in tokens:
+        if set(token) <= _OPERATOR_CHARS:
+            if words:
+                segments.append(_Segment(words, token))
+            words = []
             continue
-        if char not in "'\"":
-            masked.append(char)
-            index += 1
-            continue
-        end = _closing_quote(line, index)
-        if end is None:
-            message = f"unterminated quote in {line!r}"
-            raise ValueError(message)
-        quoted.append(line[index + 1 : end])
-        masked.append(_QUOTED.format(len(quoted) - 1))
-        index = end + 1
-    return _MaskedLine("".join(masked), quoted)
-
-
-def _restore_quotes(token: str, quoted: list[str]) -> str:
-    """Return `token` with each quoted marker replaced by its text."""
-    for position, text in enumerate(quoted):
-        token = token.replace(_QUOTED.format(position), text)
-    return token
+        words.append(restore_quotes(token, quoted))
+    if words:
+        segments.append(_Segment(words, ""))
+    return segments
 
 
 def _lines(script: str) -> list[list[_Segment]]:
@@ -188,11 +105,11 @@ def _lines(script: str) -> list[list[_Segment]]:
     the line reports when the command fails. Segments are grouped by line
     because a command's status travels only as far as the end of its own line.
 
-    Comments are removed first with shell word boundaries, so a ``#`` inside a
-    redirection is part of its word and the apostrophe in ``# don't`` is never
-    read as a quote. The remaining text is masked, so a quoted operator stays
-    an argument, and the lexer's own comment handling is turned off so it
-    cannot cut the line a second time.
+    Lines arrive with their continuations resolved and their comments removed
+    by ``scheduling_line_reading``, so a ``#`` inside a redirection stays part
+    of its word and a comment line runs nothing. Each line's quoted text is
+    masked, so a quoted operator stays an argument, and the lexer's own
+    comment handling is turned off so it cannot cut the line a second time.
 
     Examples
     --------
@@ -210,29 +127,16 @@ def _lines(script: str) -> list[list[_Segment]]:
     [['installer', '>log#1'], ['true']]
     >>> [segment.words for segment in _lines("installer # don't")[0]]
     [['installer']]
+    >>> [segment.words for segment in _lines("true ||" + chr(10) + "installer")[0]]
+    [['true'], ['installer']]
+    >>> [segment.follows for segment in _lines("true ||" + chr(10) + "installer")[0]]
+    ['||', '']
     """
     lines: list[list[_Segment]] = []
-    for source_line in _joined_lines(script):
-        masked = _mask_quotes(strip_shell_comment(source_line))
-        lexer = shlex.shlex(
-            masked.text,
-            posix=True,
-            punctuation_chars=";&|",
-        )
-        lexer.commenters = ""
-        lexer.whitespace_split = True
-        segments: list[_Segment] = []
-        words: list[str] = []
-        for token in lexer:
-            if set(token) <= _OPERATOR_CHARS:
-                if words:
-                    segments.append(_Segment(words, token))
-                words = []
-                continue
-            words.append(_restore_quotes(token, masked.quoted))
-        if words:
-            segments.append(_Segment(words, ""))
-        lines.append(segments)
+    for source_line in logical_lines(script):
+        masked = mask_quotes(source_line)
+        tokens = shell_tokens(masked.text)
+        lines.append(_segments(tokens, masked.quoted))
     return lines
 
 
@@ -361,7 +265,11 @@ def installs_nextest(script: str) -> bool:
     installer, and a trailing ``&`` lets the next command start first. A
     failure carried by ``&&`` is exempt from ``errexit`` unless it is the
     line's last command, so such a chain must also end the script, or a later
-    line that succeeds absorbs the status.
+    line that succeeds absorbs the status. Physical lines are joined where
+    the shell joins them: a trailing ``&&`` or ``||`` continues the list onto
+    the next line, so ``true ||`` followed by an installer line never runs
+    the installer, and an installer followed by ``&&`` carries its failure
+    into the next line.
 
     Examples
     --------

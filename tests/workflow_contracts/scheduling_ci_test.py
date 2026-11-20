@@ -212,6 +212,21 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
             True,
             id="a-comment-with-an-apostrophe",
         ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} &&\ntrue",
+            True,
+            id="a-chain-continued-on-the-next-line",
+        ),
+        pytest.param(
+            f"true ||\n{NEXTEST_INSTALLER}",
+            False,
+            id="skipped-across-a-continued-line",
+        ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} &&\n# installed\ntrue",
+            True,
+            id="a-continuation-past-a-comment-line",
+        ),
     ],
 )
 def test_the_installer_selector_reads_executable_use(
@@ -236,7 +251,9 @@ def test_the_installer_selector_reads_executable_use(
     completes the picture: the installer's failure in an ``&&`` chain is
     exempt unless it is the line's last command, so a later success absorbs
     it. The chain therefore has to end the script, and a comment after it
-    changes nothing — no command follows to replace the status.
+    changes nothing — no command follows to replace the status. A chain that
+    ends in a trailing operator continues onto the next line, so the two
+    lines are read as the one command list the shell runs.
     """
     assert installs_nextest(script) is expected, (
         f"installs_nextest must return {expected} for {script!r}"

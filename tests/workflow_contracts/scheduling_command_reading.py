@@ -5,16 +5,19 @@ mentions nextest is not a line that runs it. ``echo $(CARGO) nextest run``
 prints the command, ``nextest run || true`` runs it and reports success
 whatever it did, and ``nextest run --no-run`` compiles it without executing a
 test. Telling those apart is reading shell syntax: comments end where a word
-starts, an operator ends one simple command and begins another, and the words
-are split the way the shell splits them rather than on whitespace.
+starts, quoted text is data even where it spells an operator, an operator ends
+one simple command and begins another, and the words are split the way the
+shell splits them rather than on whitespace.
 
 This module holds that reading for the scheduling gate. The recipe itself, its
 target, and the filter expressions it passes live in ``scheduling_reading``,
-which imports these readers; the declarations the recipe names live in
-``rust_declaration_reading``.
+the CI-step reading lives in ``scheduling_script_reading``, its line joining
+and quote masking live in ``scheduling_line_reading``, and the declarations
+the recipe names live in ``rust_declaration_reading``.
 
-Re-use policy: import from ``scheduling_reading`` and
-``scheduling_contract_test`` only. Both files were pushed past the 400-line
+Re-use policy: import from ``scheduling_reading``,
+``scheduling_script_reading``, ``scheduling_line_reading`` and
+``scheduling_contract_test`` only. Those files were pushed past the 400-line
 limit ``AGENTS.md`` sets when these readers lived beside the recipe, and this
 module keeps each one inside it. A new shell rule belongs here with the shell
 behaviour it models stated beside it, so a later reader can check the rule
@@ -23,6 +26,7 @@ against the shell rather than against the tests.
 
 from __future__ import annotations
 
+import re
 import shlex
 
 #: The spellings of the Cargo executable a scheduling invocation may start
@@ -49,6 +53,58 @@ _OPERATOR_CHARS = frozenset(";&|()<>")
 
 #: The characters that separate words for the shell.
 _WORD_SEPARATORS = frozenset(" \t\n")
+
+
+def closing_quote(line: str, start: int) -> int | None:
+    """Return the index of the quote that closes the one at `start`.
+
+    A double-quoted string may escape its own quote, so a backslash is skipped
+    together with the character after it. A single-quoted string has no
+    escapes. An unclosed quote returns ``None``, because whether that is an
+    error depends on what the caller is reading.
+
+    Examples
+    --------
+    >>> closing_quote("'a b' c", 0)
+    4
+    >>> closing_quote("'unclosed", 0) is None
+    True
+    >>> escaped = '"a ' + chr(92) + '" b"'
+    >>> closing_quote(escaped, 0)
+    7
+    """
+    quote = line[start]
+    index = start + 1
+    while index < len(line):
+        if line[index] == "\\" and quote == '"':
+            index += 2
+            continue
+        if line[index] == quote:
+            return index
+        index += 1
+    return None
+
+
+def _after_quoted(line: str, start: int) -> int:
+    """Return the index just past the quoted text that opens at `start`.
+
+    An unterminated quote is not a command the shell runs, so reading past it
+    would silently invent a command line, and it raises instead.
+
+    Examples
+    --------
+    >>> _after_quoted("'a b' c", 0)
+    5
+    >>> _after_quoted("'unclosed", 0)
+    Traceback (most recent call last):
+        ...
+    ValueError: unterminated quote in "'unclosed"
+    """
+    end = closing_quote(line, start)
+    if end is None:
+        message = f"unterminated quote in {line!r}"
+        raise ValueError(message)
+    return end + 1
 
 
 def _is_word_start(line: str, index: int) -> bool:
@@ -78,6 +134,26 @@ def _is_word_start(line: str, index: int) -> bool:
     return previous in _WORD_SEPARATORS or previous in _OPERATOR_CHARS
 
 
+def _starts_comment(line: str, index: int, *, escaped: bool) -> bool:
+    """Return whether the ``#`` at `index` begins a shell comment.
+
+    A comment starts only at a word start, and a backslash in front of the
+    ``#`` makes it a literal character of the word it sits in.
+
+    Examples
+    --------
+    >>> _starts_comment("run # note", 4, escaped=False)
+    True
+    >>> _starts_comment("run#note", 3, escaped=False)
+    False
+    >>> _starts_comment("run #note", 4, escaped=True)
+    False
+    """
+    if escaped:
+        return False
+    return _is_word_start(line, index)
+
+
 def _comment_start(line: str) -> int | None:
     """Return the index of the first shell comment in `line`, if any.
 
@@ -95,36 +171,22 @@ def _comment_start(line: str) -> int | None:
     18
     >>> _comment_start("cargo nextest run >scheduling\\\\;#log || true")
     """
-    quote = ""
-    previous_was_escaped = False
+    escaped = False
     index = 0
     while index < len(line):
         char = line[index]
-        if quote:
-            if char == "\\" and quote == '"':
-                index += 2
-                continue
-            if char == quote:
-                quote = ""
-            index += 1
-            continue
         if char == "\\":
             index += 2
-            previous_was_escaped = True
+            escaped = True
             continue
         if char in "'\"":
-            quote = char
-        elif (
-            char == "#"
-            and not previous_was_escaped
-            and _is_word_start(line, index)
-        ):
+            index = _after_quoted(line, index)
+            escaped = False
+            continue
+        if char == "#" and _starts_comment(line, index, escaped=escaped):
             return index
-        previous_was_escaped = False
+        escaped = False
         index += 1
-    if quote:
-        message = f"unterminated quote in {line!r}"
-        raise ValueError(message)
     return None
 
 
@@ -181,6 +243,61 @@ def shell_tokens(command: str) -> list[str]:
     lexer.commenters = ""
     lexer.whitespace_split = True
     return list(lexer)
+
+
+#: Redirection operators, with Cargo's word after each being a file name
+#: rather than an argument. A leading file-descriptor number is part of the
+#: operator, as in ``2>``.
+_REDIRECTION = re.compile(r"\d*(?:&>>?|>>|>|<|<>|>\||<<<|<<)")
+
+
+def _is_redirection(token: str) -> bool:
+    """Return whether `token` is a redirection operator.
+
+    Examples
+    --------
+    >>> _is_redirection(">")
+    True
+    >>> _is_redirection("2>")
+    True
+    >>> _is_redirection(">log#1")
+    False
+    """
+    return _REDIRECTION.fullmatch(token) is not None
+
+
+def command_arguments(command: str) -> list[str]:
+    """Return `command`'s words with its redirections and their targets removed.
+
+    A redirection's target is a file name, not an argument. In
+    ``nextest run --no-tests=pass > --no-tests=fail`` the only
+    ``--no-tests=fail`` is the file written to, and the command still runs
+    with ``--no-tests=pass``, so a check that matched the whole word list
+    would accept the opposite setting. An attached form such as ``>log#1`` is
+    one word and can never be read as a flag, but the spaced form arrives as
+    an operator and a separate word, which is why the target is dropped here
+    rather than matched as a word.
+
+    Examples
+    --------
+    >>> command_arguments("nextest run --no-tests=pass > --no-tests=fail")
+    ['nextest', 'run', '--no-tests=pass']
+    >>> command_arguments("nextest run --no-tests=fail >log#1")
+    ['nextest', 'run', '--no-tests=fail', '>log#1']
+    >>> command_arguments("nextest run 2> --no-tests=fail --lib")
+    ['nextest', 'run', '--lib']
+    """
+    arguments: list[str] = []
+    redirects_next = False
+    for token in shell_tokens(command):
+        if redirects_next:
+            redirects_next = False
+            continue
+        if _is_redirection(token):
+            redirects_next = True
+            continue
+        arguments.append(token)
+    return arguments
 
 
 def is_nextest_invocation(command: str) -> bool:

@@ -80,14 +80,16 @@ def test_a_flag_name_in_a_redirection_is_not_the_flag() -> None:
 
     ``nextest run --no-tests=pass >--no-tests=fail`` carries the opposite
     setting, so matching any word would let an empty selection pass the gate
-    that exists to make it fail.
+    that exists to make it fail. The spaced form redirects to the same file,
+    so it must not answer for the flag either.
     """
     invocations = [
         "cargo nextest run --no-tests=pass >--no-tests=fail",
+        "cargo nextest run --no-tests=pass > --no-tests=fail",
         "cargo nextest run --no-tests=fail",
     ]
-    assert invocations_missing_flag(invocations) == [0], (
-        "the redirection target must not answer for the flag"
+    assert invocations_missing_flag(invocations) == [0, 1], (
+        "no redirection target may answer for the flag"
     )
 
 
@@ -299,10 +301,17 @@ def test_every_feature_selection_spelling_is_rejected(flag: str) -> None:
 
 
 def test_the_target_is_phony() -> None:
-    """A file named like the target must not satisfy it."""
+    """A file named like the target must not satisfy it.
+
+    A name that appears only in a Make comment declares nothing, so
+    ``.PHONY: clean # test-scheduling-contract`` must not answer for the
+    target either.
+    """
     assert TARGET in phony_targets(makefile_text()), (
         f"{TARGET} must be declared phony"
     )
+    commented = f".PHONY: clean {chr(35)} {TARGET}"
+    assert TARGET not in phony_targets(commented), "comments declare nothing"
 
 
 def test_the_target_is_declared_once() -> None:
