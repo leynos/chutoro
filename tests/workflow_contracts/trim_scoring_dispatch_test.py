@@ -40,15 +40,18 @@ from trim_scoring_samples import (
     BOUND_JOIN,
     COMMENTED_MENTION,
     DISPATCHING,
+    FACTORY_JOIN,
     HISTORICAL_SCORE_TRIM_JOBS,
     LISTED_HELPER_DISPATCH,
     LITERAL_MENTION,
     PATH_JOIN,
+    PATH_JOIN_TRAILING_COMMA,
     POOL_JOIN,
     REVERSE_CHUNKS,
     SCOPED_HELPER_NAME,
     SEQUENTIAL,
     SLICE_JOIN,
+    SLICE_JOIN_TRAILING_COMMA,
     SLICE_JOIN_VARIABLE,
     UNLISTED_SIBLING,
 )
@@ -105,9 +108,16 @@ def test_the_historical_scorer_is_the_dispatch_the_contract_rejects() -> None:
         pytest.param(LITERAL_MENTION, None, id="a-mention-in-a-literal"),
         pytest.param(SLICE_JOIN, None, id="a-slice-join"),
         pytest.param(SLICE_JOIN_VARIABLE, None, id="a-variable-slice-join"),
+        pytest.param(
+            SLICE_JOIN_TRAILING_COMMA, None, id="a-slice-join-trailing-comma"
+        ),
         pytest.param(PATH_JOIN, None, id="a-path-join"),
+        pytest.param(
+            PATH_JOIN_TRAILING_COMMA, None, id="a-path-join-trailing-comma"
+        ),
         pytest.param(POOL_JOIN, ".join(", id="a-pool-join"),
         pytest.param(BOUND_JOIN, ".join(", id="a-bound-callable-join"),
+        pytest.param(FACTORY_JOIN, ".join(", id="a-factory-call-join"),
         pytest.param(REVERSE_CHUNKS, ".par_rchunks", id="reverse-chunks"),
         pytest.param(SCOPED_HELPER_NAME, None, id="a-helper-named-with-scope"),
         pytest.param(

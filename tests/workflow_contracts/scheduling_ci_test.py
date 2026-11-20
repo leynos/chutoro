@@ -31,11 +31,12 @@ INTERPRETERS = frozenset({"bash", "sh", "dash"})
 #: any run of them as one token, so ``|&`` arrives whole.
 _OPERATOR_CHARS = frozenset(";&|")
 
-#: Operators after which the installer's own status still decides the step.
-#: ``&&`` qualifies: a failed installer skips what follows it and fails the
-#: line. Every other operator replaces that status, so ``|| true`` and
-#: ``; true`` install nothing and report success.
-_SURVIVING_OPERATORS = frozenset({"", "&&"})
+#: The only operator that carries the installer's failure to the end of a
+#: line. ``installer && make test`` fails when the installer fails; every other
+#: operator replaces that status somewhere later on the line, so ``|| true``,
+#: ``; true`` and ``installer && echo installed || true`` all install nothing
+#: and report success.
+_CARRYING_OPERATOR = "&&"
 
 
 def _joined_lines(script: str) -> list[str]:
@@ -83,31 +84,33 @@ class _Segment(typ.NamedTuple):
     follows: str
 
 
-def _segments(script: str) -> list[_Segment]:
-    """Return each simple command `script` runs, with its trailing operator.
+def _lines(script: str) -> list[list[_Segment]]:
+    """Return each line of `script` as the simple commands it runs.
 
     A step's script can hold several commands, separated by newlines or by
     shell operators, and a comment line names a script without running it.
     Splitting first is what makes "is the installer executed?" a question
     about a command's first word rather than about a substring. The operator
-    that follows the command is retained, because ``||`` and ``;`` hide a
-    failure that ``&&`` does not.
+    that follows each command is retained, because an operator decides what
+    the line reports when the command fails. Segments are grouped by line
+    because a command's status travels only as far as the end of its own line.
 
     Examples
     --------
-    >>> _segments("echo scripts/install-nextest.sh")
-    [_Segment(words=['echo', 'scripts/install-nextest.sh'], follows='')]
-    >>> [segment.words for segment in _segments("a || true")]
+    >>> _lines("echo scripts/install-nextest.sh")
+    [[_Segment(words=['echo', 'scripts/install-nextest.sh'], follows='')]]
+    >>> [segment.words for segment in _lines("a || true")[0]]
     [['a'], ['true']]
-    >>> [segment.follows for segment in _segments("a || true")]
+    >>> [segment.follows for segment in _lines("a || true")[0]]
     ['||', '']
-    >>> _segments("# scripts/install-nextest.sh")
-    []
+    >>> _lines("# scripts/install-nextest.sh")
+    [[]]
     """
-    segments: list[_Segment] = []
-    for line in _joined_lines(script):
-        lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|")
+    lines: list[list[_Segment]] = []
+    for source_line in _joined_lines(script):
+        lexer = shlex.shlex(source_line, posix=True, punctuation_chars=";&|")
         lexer.whitespace_split = True
+        segments: list[_Segment] = []
         words: list[str] = []
         for token in lexer:
             if set(token) <= _OPERATOR_CHARS:
@@ -118,7 +121,34 @@ def _segments(script: str) -> list[_Segment]:
             words.append(token)
         if words:
             segments.append(_Segment(words, ""))
-    return segments
+        lines.append(segments)
+    return lines
+
+
+def _status_reaches_the_end(line: list[_Segment], index: int) -> bool:
+    """Return whether a failure of `line[index]` leaves the line failing.
+
+    A line is an AND/OR list, and only ``&&`` passes a failure along it. The
+    installer's own operator decides what happens next, but so does every
+    operator after it: ``installer && echo installed || true`` records the
+    installation attempt and still reports success, so reading the installer's
+    operator alone accepted a masked line. Nothing after the last command has
+    to be read, because the line ends there.
+
+    Examples
+    --------
+    >>> _status_reaches_the_end(_lines("a && b")[0], 0)
+    True
+    >>> _status_reaches_the_end(_lines("a || b")[0], 0)
+    False
+    >>> _status_reaches_the_end(_lines("a && b || c")[0], 0)
+    False
+    >>> _status_reaches_the_end(_lines("a && b")[0], 1)
+    True
+    """
+    return all(
+        segment.follows == _CARRYING_OPERATOR for segment in line[index:-1]
+    )
 
 
 def _runs_installer(words: list[str]) -> bool:
@@ -152,7 +182,9 @@ def installs_nextest(script: str) -> bool:
     interpreter. A substring check accepted ``echo scripts/install-nextest.sh``
     and a commented-out line, so the ordering contract could pass without
     anything being installed. The command must also be allowed to fail the
-    step: a masked failure installs nothing and reports success.
+    step: a masked failure installs nothing and reports success, and the mask
+    can sit anywhere later on the line, not only immediately after the
+    installer.
 
     Examples
     --------
@@ -164,11 +196,13 @@ def installs_nextest(script: str) -> bool:
     False
     >>> installs_nextest("scripts/install-nextest.sh && make test")
     True
+    >>> installs_nextest("scripts/install-nextest.sh && echo done || true")
+    False
     """
     return any(
-        _runs_installer(segment.words)
-        and segment.follows in _SURVIVING_OPERATORS
-        for segment in _segments(script)
+        _runs_installer(segment.words) and _status_reaches_the_end(line, index)
+        for line in _lines(script)
+        for index, segment in enumerate(line)
     )
 
 
@@ -316,6 +350,16 @@ def test_ci_installs_nextest_before_the_scheduling_target() -> None:
             False,
             id="a-shell-that-masks",
         ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} && echo installed || true",
+            False,
+            id="masked-later-on-the-line",
+        ),
+        pytest.param(
+            f"{NEXTEST_INSTALLER} && make test && echo done",
+            True,
+            id="a-chain-that-carries-the-status",
+        ),
     ],
 )
 def test_the_installer_selector_reads_executable_use(
@@ -327,7 +371,9 @@ def test_the_installer_selector_reads_executable_use(
     so a selector that accepted a mention would let a step that installs
     nothing satisfy it. The same is true of a command whose failure is
     swallowed: ``installer || true`` runs the script and reports success
-    whether or not it worked, and ``bash -n`` only parses it.
+    whether or not it worked, ``bash -n`` only parses it, and a ``||`` further
+    along an ``&&`` chain masks the installer's failure just as well as one
+    placed right after it.
     """
     assert installs_nextest(script) is expected, (
         f"installs_nextest must return {expected} for {script!r}"

@@ -105,6 +105,23 @@ fn score_trim_jobs(jobs: Vec<Job>) -> String {
 }
 """
 
+#: A slice join written with a trailing comma. Rust permits the comma after a
+#: single argument, so a marker that read any comma as a second argument
+#: reported this correct body as a pool join.
+SLICE_JOIN_TRAILING_COMMA = """
+fn score_trim_jobs(jobs: Vec<Job>) -> String {
+    names.join(separator,)
+}
+"""
+
+#: A path join written with a trailing comma, the same shape one receiver
+#: over. The argument list, not the receiver, is what the reading trusts.
+PATH_JOIN_TRAILING_COMMA = """
+fn score_trim_jobs(jobs: Vec<Job>) -> PathBuf {
+    cache_dir.join(&cache_file,)
+}
+"""
+
 #: A pool join, which is a dispatch: `ThreadPool::join` runs both closures on
 #: the pool, unlike the slice join above. The receiver form needed its own
 #: marker, and the two-argument shape is what keeps the two apart.
@@ -121,6 +138,16 @@ fn score_trim_jobs(jobs: Vec<Job>) -> Scored {
 BOUND_JOIN = """
 fn score_trim_jobs(jobs: Vec<Job>) -> Scored {
     pool.join(score_left, score_right)
+}
+"""
+
+#: A pool join whose first closure is built by a call. `ThreadPool::join`
+#: takes any two `FnOnce` values, so a factory call returning one dispatches
+#: like any other operand; a pattern that allowed only a closure or a bare
+#: name as the first argument read this body as serial.
+FACTORY_JOIN = """
+fn score_trim_jobs(jobs: Vec<Job>) -> Scored {
+    pool.join(make_job(), || ())
 }
 """
 

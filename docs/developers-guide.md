@@ -2851,9 +2851,13 @@ together with their `ThreadPool` method forms such as `pool.scope(...)` and
 do. Two receiver forms are matched more narrowly: the generic
 `pool.install::<_, _>(...)` allows the turbofish between the name and the
 argument list, and `pool.join(...)` counts because it takes two arguments where
-a slice or path join takes one, so it is recognized whether its first argument
-is an inline closure or a bound callable such as `pool.join(left, right)`. Each
-entry is a boundary-aware pattern rather than a substring, so a slice
+a slice or path join takes one. That distinction is read from the argument
+list, not from the first argument's text: a comma at the list's own level with
+a value after it means two arguments, so an inline closure, a bound callable
+such as `pool.join(left, right)`, and a call that builds one such as
+`pool.join(make_job(), || ())` all count. A trailing comma declares a single
+argument, so `names.join(separator,)` stays a slice join. Each remaining entry
+is a boundary-aware pattern rather than a substring, so a slice
 `names.join(", ")`, a slice join on a variable separator, or a path
 `dir.join("file")` in the scored body is not reported as a Rayon join. The
 synthetic sources these readings are checked against live in
@@ -2892,15 +2896,17 @@ suppressed, cannot stand in for the regression. The CI step that runs the
 target is pinned unconditional, as is the nextest installation it depends on,
 and that installation has to be a command in its own right: a step that only
 prints or comments the installer path installs nothing, and neither does one
-whose failure is masked (`installer || true`, `installer; true`) or one that
-only parses the script (`bash -n installer`). The declaration the recipe names
-must still carry a test attribute, because a plain function of the same name is
-never discovered and the zero-test flag cannot fire for it, and an attributed
-declaration quoted inside a string literal is an example rather than a test.
-The direct test scores a synthetic batch; the insertion-path test drives a real
-insertion in a dedicated four-worker pool and records the thread, the Rayon
-worker, and a non-blocking `insert_mutex` `try_lock` for every post-planning
-distance callback. Both assert that the callbacks stay on the mutex holder.
+whose failure is masked (`installer || true`, `installer; true`, or a `||`
+anywhere later in the same command line, as in
+`installer && echo installed || true`) or one that only parses the script
+(`bash -n installer`). The declaration the recipe names must still carry a test
+attribute, because a plain function of the same name is never discovered and
+the zero-test flag cannot fire for it, and an attributed declaration quoted
+inside a string literal is an example rather than a test. The direct test
+scores a synthetic batch; the insertion-path test drives a real insertion in a
+dedicated four-worker pool and records the thread, the Rayon worker, and a
+non-blocking `insert_mutex` `try_lock` for every post-planning distance
+callback. Both assert that the callbacks stay on the mutex holder.
 
 What the two checks establish differs:
 

@@ -146,14 +146,17 @@ section may block on, or dispatch work to, the Rayon pool.
   such as `pool.scope(...)` and `scope.spawn(...)`. The generic
   `pool.install::<_, _>(...)` is recognized through its turbofish, and
   `pool.join(...)` because it takes two arguments where a slice or path join
-  takes one, so it is caught whether its first argument is an inline closure or
-  a bound callable such as `pool.join(left, right)`, and a slice or path join
-  stays clean. Each entry is a boundary-aware pattern, so a slice
-  `names.join(", ")` is not read as a Rayon join. The synthetic sources these
-  readings are checked against live in `trim_scoring_samples.py`, beside the
-  reader rather than inside it. Dispatch in a listed helper is therefore
-  caught; dispatch it cannot see still evades it: an unlisted helper called by
-  one of the five, an aliased import such as
+  takes one. The join is read from its argument list rather than from what the
+  first argument looks like: a top-level comma with a value after it means two
+  arguments, so an inline closure, a bound callable such as
+  `pool.join(left, right)`, and a call that builds one such as
+  `pool.join(make_job(), || ())` are all caught, while a trailing comma leaves
+  `names.join(separator,)` a slice join. Each remaining entry is a
+  boundary-aware pattern, so a slice `names.join(", ")` is not read as a Rayon
+  join. The synthetic sources these readings are checked against live in
+  `trim_scoring_samples.py`, beside the reader rather than inside it. Dispatch
+  in a listed helper is therefore caught; dispatch it cannot see still evades
+  it: an unlisted helper called by one of the five, an aliased import such as
   `use rayon::spawn as run; run(...)`, or a `DataSource` that dispatches on its
   own account. The scan fails closed when a pinned function is missing, so a
   rename or a move cannot read as clean. The runtime scheduling tests in
@@ -237,16 +240,17 @@ of `--no-run` (which compiles the selected tests without executing them), the
 unconditional and blocking execution of the step and its nextest installer
 within an unconditional job, the order that installs `cargo-nextest` before the
 target runs, and that the installer appears as a command in its own right
-rather than as an argument to `echo` or inside a comment, with no operator
-after it that would replace its status (`|| true`, `; true`) and no interpreter
-mode that only parses it (`bash -n`). It also requires the recipe's commands to
-run nextest in executable position without Make's error-ignoring `-` prefix or
-a failure-masking shell suffix such as `|| true`. Commands are tokenized with
-shell separators rather than whitespace alone, so an unspaced `||true` reads as
-the operator it is. Finally, it checks that each named regression is still
-declared under `cpu/trim_tests` with a test attribute, since an undiscovered
-function cannot trip `--no-tests=fail`, and that a declaration quoted inside a
-string literal does not stand in for one.
+rather than as an argument to `echo` or inside a comment, with no operator that
+would replace its status — neither directly after it (`|| true`, `; true`) nor
+further along the same command line (`installer && echo installed || true`) —
+and no interpreter mode that only parses it (`bash -n`). It also requires the
+recipe's commands to run nextest in executable position without Make's
+error-ignoring `-` prefix or a failure-masking shell suffix such as `|| true`.
+Commands are tokenized with shell separators rather than whitespace alone, so
+an unspaced `||true` reads as the operator it is. Finally, it checks that each
+named regression is still declared under `cpu/trim_tests` with a test
+attribute, since an undiscovered function cannot trip `--no-tests=fail`, and
+that a declaration quoted inside a string literal does not stand in for one.
 
 Positive evidence, on commit `9df7179` on 2026-11-20: both runtime regressions
 pass, one nextest invocation each, 1 passed with 674 skipped apiece, and
