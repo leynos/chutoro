@@ -192,14 +192,54 @@ def _enables_errexit(options: list[str]) -> bool:
     return False
 
 
+def _runs_a_command_string(word: str) -> bool:
+    """Return whether `word` selects command-string or stdin mode.
+
+    ``-c`` runs a command string and ``-s`` reads the script from stdin, so in
+    either mode the operand substituted for ``{0}`` is an argument rather than
+    the script. Both may be spelled inside a cluster, as ``-ec`` is.
+
+    Examples
+    --------
+    >>> _runs_a_command_string("-ec")
+    True
+    >>> _runs_a_command_string("-s")
+    True
+    >>> _runs_a_command_string("--command")
+    True
+    >>> _runs_a_command_string("-e")
+    False
+    """
+    if word == "--command":
+        return True
+    return any(_enables(word, letter) for letter in "cs")
+
+
+def _runs_under_a_modelled_interpreter(command: list[str]) -> bool:
+    """Return whether `command` names a shell whose flags this reader models.
+
+    Examples
+    --------
+    >>> _runs_under_a_modelled_interpreter(["/bin/bash", "-e"])
+    True
+    >>> _runs_under_a_modelled_interpreter(["python"])
+    False
+    >>> _runs_under_a_modelled_interpreter([])
+    False
+    """
+    if not command:
+        return False
+    return command[0].rsplit("/", 1)[-1] in EXECUTING_SHELLS
+
+
 def _reaches_the_script(options: list[str]) -> bool:
     """Return whether ``{0}`` is the script the shell runs, not an argument.
 
     Bash stops reading options at its first operand and runs that operand as
     the script, so an option word left over before ``{0}`` would run something
-    else. ``-c`` and ``-s`` are rejected outright: they run a command string or
-    read the script from stdin, and ``{0}`` would only be a positional
-    argument. Option values such as ``pipefail`` after ``-o`` are skipped.
+    else. ``-c`` and ``-s`` are rejected outright, through
+    ``_runs_a_command_string``. Option values such as ``pipefail`` after ``-o``
+    are skipped.
 
     Examples
     --------
@@ -217,7 +257,7 @@ def _reaches_the_script(options: list[str]) -> bool:
     index = 0
     while index < len(options):
         word = options[index]
-        if word == "--command" or _enables(word, "c") or _enables(word, "s"):
+        if _runs_a_command_string(word):
             return False
         if not word.startswith("-") or word == "-":
             return False
@@ -264,7 +304,7 @@ def runs_the_script(shell: str | None) -> bool:
     if "{0}" not in shell:
         return False
     command = shell.split("{0}", 1)[0].split()
-    if not command or command[0].rsplit("/", 1)[-1] not in EXECUTING_SHELLS:
+    if not _runs_under_a_modelled_interpreter(command):
         return False
     options = command[1:]
     return (
